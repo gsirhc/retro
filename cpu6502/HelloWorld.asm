@@ -7,6 +7,11 @@ E  = %10000000
 RW = %01000000
 RS = %00100000
 
+ACIA_DATA = $5000
+ACIA_STATUS = $5001
+ACIA_CMD = $5002
+ACIA_CRTL = $5003
+
   .org $8000
 
 reset:
@@ -27,18 +32,37 @@ reset:
   lda #$00000001 ; Clear display
   jsr lcd_instruction
 
-  ldx #0
-print:
-  lda message,x
-  beq loop
+  lda #">"
   jsr print_char
-  inx
-  jmp print
 
-loop:
-  jmp loop
+  lda #$00
+  sta ACIA_STATUS ; soft reset (value not important)
 
-message: .asciiz "Hello, world!"
+  lda #$1f        ; N-8-1, 19200 baud
+  sta ACIA_CRTL   
+
+  lda #$0b        ; no parity, no echo, no interrupts
+  sta ACIA_CMD
+
+rx_wait:
+  lda ACIA_STATUS
+  and #$08
+  beq rx_wait
+
+  lda ACIA_DATA
+  jsr print_char
+  jmp rx_wait
+
+  lda #">"
+  jsr print_char
+
+send_char:
+  sta ACIA_DATA
+tx_wait:
+  lda ACIA_STATUS
+  and #$10        ; check tx buffer status flag
+  beq tx_wait
+  rts
 
 lcd_wait:
   pha
