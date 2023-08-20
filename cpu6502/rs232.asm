@@ -32,7 +32,6 @@ reset:
   lda #%00000001 ; Clear display
   jsr lcd_instruction
 
-
   ; ACIA setup
   lda #$00
   sta ACIA_STATUS
@@ -41,32 +40,44 @@ reset:
   lda #$1f
   sta ACIA_CRTL
 
+  lda #">"
+  jsr print_char_lcd
+  jsr print_char_acia
+
 ; hang until we have a character, return it via A register.
 recv_char_acia:
-  lda ACIA_STATUS
-  jsr print_binary
-  jsr delay_6551
-  lda #%00000001 ; Clear display
-  jsr lcd_instruction
+  ;lda ACIA_STATUS
+  ;jsr print_binary
+  ;lda #" "
+  ;jsr print_char_lcd
+  ;lda ACIA_DATA
+  ;jsr print_binary
+  ;jsr delayMax
+  ;lda #%00000001 ; Clear display
+  ;jsr lcd_instruction
+  ;jmp recv_char_acia
   
   lda ACIA_STATUS
   and #$08
   beq recv_char_acia
+
   lda ACIA_DATA
+  jsr print_char_lcd
   jsr print_char_acia
   jmp recv_char_acia
 
 ; print A register to ACIA
 ; Based on http://forum.6502.org/viewtopic.php?f=4&t=2543&start=30#p29795
 print_char_acia:
-  pha
-  lda ACIA_STATUS
-  pla
   sta ACIA_DATA
-  jsr delay_6551
+tx_wait:
+  lda ACIA_STATUS
+  and #$10        ; check tx buffer status flag
+  beq tx_wait
   rts
 
-print_lcd_char:
+print_char_lcd:
+  pha
   jsr lcd_wait
   sta PORTB
   lda #RS         ; Set RS; Clear RW/E bits
@@ -75,6 +86,7 @@ print_lcd_char:
   sta PORTA
   lda #RS         ; Clear E bits
   sta PORTA
+  pla
   rts
 
 delay_6551:
@@ -88,6 +100,18 @@ delay_1:
   dey
   bne minidly
 delay_done:
+  rts
+
+delayMax:
+  ldy #$ff
+delay2:
+  ldx #$ff
+delay1:
+  nop
+  dex
+  bne delay1 
+  dey
+  bne delay2
   rts
 
 ;  A = entry value
@@ -108,9 +132,9 @@ print_binary:
   cld        ;2  @28
   ;  A = MSN ASCII char
   ;  Y = LSN ASCII char
-  jsr print_lcd_char
+  jsr print_char_lcd
   tya
-  jsr print_lcd_char
+  jsr print_char_lcd
   rts
 
 lcd_wait:
