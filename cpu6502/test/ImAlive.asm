@@ -28,9 +28,9 @@ reset:
 
   lda #$00000001 ; Clear display
   jsr lcd_instruction
-  ldx #0
   
 loop: 
+  ldx #0
   jsr printMessage
   jmp loop
 

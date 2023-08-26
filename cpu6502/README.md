@@ -2,9 +2,9 @@
 
 ## Links
 
-Compiler: http://www.compilers.de/vasm.html
+Compiler: <http://www.compilers.de/vasm.html>
 
-Programmer: https://gitlab.com/DavidGriffith/minipro (Install with brew)
+Programmer: <https://gitlab.com/DavidGriffith/minipro> (Install with brew)
 
 ## Setup
 
@@ -14,21 +14,15 @@ Programmer: https://gitlab.com/DavidGriffith/minipro (Install with brew)
 ## Programming EEPROM
 
 1. Create the assembly file (asm)
-
 2. Compile the assembly:
 
-   `./vasm6502_oldstyle/vasm6502_oldstyle HelloWorld.asm -dotdir -Fbin`
-
+   `./vasm6502_oldstyle/vasm6502_oldstyle test/ImAlive.asm -dotdir -Fbin`
 3. Can check binary with:
 
    `hexdump -C a.out`
-
 4. Send to programmer:
 
    `minipro -p AT28C256 -w a.out`
-
-5. You can run: 
+5. You can run:
 
    `sh compile.sh HellowWorld.asm`
-
-   

@@ -29,52 +29,38 @@ reset:
   jsr lcd_instruction
   lda #%00000110 ; Increment and shift cursor; don't shift display
   jsr lcd_instruction
-  lda #%00000001 ; Clear display
-  jsr lcd_instruction
+  jsr clear_lcd
 
   ; ACIA setup
-  lda #$00
+  lda #%00000000
   sta ACIA_STATUS
-  lda #$0b
+
+  lda #%00000101
   sta ACIA_CMD
-  lda #$1f
+  
+  lda #%00001111
   sta ACIA_CRTL
 
-  lda #">"
-  jsr print_char_lcd
-  jsr print_char_acia
+  jsr print_new_line
 
-; hang until we have a character, return it via A register.
-recv_char_acia:
-  ;lda ACIA_STATUS
-  ;jsr print_binary
-  ;lda #" "
-  ;jsr print_char_lcd
-  ;lda ACIA_DATA
-  ;jsr print_binary
-  ;jsr delayMax
-  ;lda #%00000001 ; Clear display
-  ;jsr lcd_instruction
-  ;jmp recv_char_acia
-  
-  lda ACIA_STATUS
-  and #$08
-  beq recv_char_acia
+  cli             ; clear interrupt disable
 
-  lda ACIA_DATA
+loop:
+  lda #"."
   jsr print_char_lcd
-  jsr print_char_acia
-  jmp recv_char_acia
+  jmp loop
 
 ; print A register to ACIA
 ; Based on http://forum.6502.org/viewtopic.php?f=4&t=2543&start=30#p29795
-print_char_acia:
-  sta ACIA_DATA
-tx_wait:
-  lda ACIA_STATUS
-  and #$10        ; check tx buffer status flag
-  beq tx_wait
-  rts
+;print_char_acia:
+;  pha
+;  sta ACIA_DATA
+;tx_wait:
+;  lda ACIA_STATUS
+;  and #$10        ; check tx buffer status flag
+;  beq tx_wait
+;  pla
+;  rts
 
 print_char_lcd:
   pha
@@ -87,6 +73,15 @@ print_char_lcd:
   lda #RS         ; Clear E bits
   sta PORTA
   pla
+  rts
+
+print_new_line:
+  jsr clear_lcd
+  ;lda #$0A
+  ;jsr print_char_acia
+  lda #">"
+  ;jsr print_char_acia
+  jsr print_char_lcd
   rts
 
 delay_6551:
@@ -137,6 +132,11 @@ print_binary:
   jsr print_char_lcd
   rts
 
+clear_lcd:
+  lda #%00000001 ; Clear display
+  jsr lcd_instruction
+  rts
+
 lcd_wait:
   pha
   lda #%00000000  ; Port B is input
@@ -168,6 +168,55 @@ lcd_instruction:
   sta PORTA
   rts
 
-  .org $fffc
+irg:
+  pha
+  lda #">"
+  jsr print_char_lcd
+  ; TEST TO DISPLAY STATUS AND DATA REGISTERS ON ACIA
+  lda ACIA_STATUS
+  cmp #$D0
+  beq clearStatus
+  cmp #$10
+  beq clearStatus
+  cmp #$90
+  bne dontClearStatus
+clearStatus
+  lda #"C"
+  jsr print_char_lcd
+  lda #%00000000      ; clear the status interrupt flag
+  sta ACIA_STATUS
+  jmp irg
+dontClearStatus:
+  jsr print_binary
+  lda #" "
+  jsr print_char_lcd
+  lda ACIA_DATA
+  jsr print_binary
+  jsr delayMax
+  jsr clear_lcd
+  ; END TEST
+
+  ;lda #"I"
+  ;jsr print_char_lcd
+  ;lda ACIA_STATUS
+  ;and #$08            ; interrupt, receive full
+  ;beq ignore_irq
+  ;lda ACIA_DATA
+  ;jsr print_char_lcd
+  ;jsr print_char_acia
+  ;jsr clear_lcd
+  ;lda ACIA_DATA       ; read the data and output
+  ;jsr print_char_acia
+  ;jsr print_char_lcd
+  ;lda #%00000000      ; clear the status interrupt flag
+  ;sta ACIA_STATUS
+  pla
+  rti
+
+nmi:
+  rti
+
+  .org $fffa
+  .word nmi
   .word reset
-  .word $0000
+  .word irg
