@@ -1,15 +1,10 @@
-ACIA_DATA = $5000
-ACIA_STATUS = $5001
-ACIA_CMD = $5002
-ACIA_CRTL = $5003
-
 reset_acia_no_irq:
   lda #$00
   sta ACIA_STATUS
   lda #$0b
   sta ACIA_CMD
   lda #$1f
-  sta ACIA_CRTL
+  sta  ACIA_CTRL
   rts
 
 reset_acia_irq:
@@ -18,7 +13,7 @@ reset_acia_irq:
   lda #%00001001    ; 0x0b
   sta ACIA_CMD
   lda #%00001111     ; 0x1f
-  sta ACIA_CRTL
+  sta  ACIA_CTRL
   rts
 
 ; return true/false (1|0) in X register
@@ -28,7 +23,6 @@ check_acia_no_irq:
   and #$08
   beq no_char_in_irq
   lda ACIA_DATA
-  jsr print_char_acia
   ldx #$01         ; return true
 no_char_in_irq:
   rts
@@ -38,7 +32,6 @@ check_acia_irq:
   lda ACIA_DATA
   and #%10001000
   bne no_char
-  jsr print_char_acia
   lda ACIA_STATUS  ; clear interrupt
   ldx #$01         ; return true
 no_char:

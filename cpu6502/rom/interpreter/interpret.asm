@@ -1,10 +1,25 @@
+process_char:
+  ldx PROGRAM_COUNTER
+  sta START_MEM, x 
+  cmp #$61              ; a
+  bcc not_lower_case    ; < a
+  cmp #$7A              ; z
+  bcs not_lower_case    ; > z
+  sbc #$1F              ; subtract hex 20 to capetalize
+  sta START_MEM, x
+not_lower_case:
+  jsr print_char_acia
+  inc PROGRAM_COUNTER
+  rts
+
 interpret_next_char_into_a:
   clc
-  lda PROGRAM_COUNTER
-  sbc UNPROCESS_CHARS
-  tax                 ; current position to process
+  ldx PROGRAM_COUNTER
+  dex
   lda START_MEM, x
-  jsr is_enter_key    ; enter key must follow all commands
+  cmp #$0D              ; CR
+  beq LIST
+  cmp #$0A              ; LF
   bne cmd_not_list
 LIST:
   dex
@@ -32,28 +47,4 @@ LIST:
 cmd_not_list:
   sta NO_CMD
 cmd_found:
-  ldx UNPROCESS_CHARS
-  dex
-  stx UNPROCESS_CHARS
   rts 
-
-process_char:
-  jsr clear_lcd
-  ldx PROGRAM_COUNTER
-  lda START_MEM, x  
-  jsr print_a_hex
-  cmp #$61              ; a
-  bcc not_lower_case
-  cmp #$7A              ; z
-  beq not_lower_case
-  sbc #$20              ; subtract hex 20 to capetalize
-  sta START_MEM, x
-not_lower_case:
-  rts
-
-is_enter_key:
-  cmp #$0D              ; CR
-  beq is_enter_key_end
-  cmp #$0A              ; LF
-is_enter_key_end:
-  rts

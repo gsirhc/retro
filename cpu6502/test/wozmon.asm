@@ -1,64 +1,3 @@
-; CG OS (Chris Gall Operating System)
-; Command line RS232 6502 programmer
-
-  .org $8000       ; must preceed the includes
-
-  .include "rom/utils/general.asm"
-  .include "rom/hardware/via.asm"
-  .include "rom/hardware/acia.asm"
-  .include "rom/interpreter/text.asm"
-  .include "rom/interpreter/mem.asm"
-  .include "rom/interpreter/cmd.asm"
-
-reset:
-  ldx #$ff
-  txs                    ; init stack
-  jsr reset_via_irq
-  jsr reset_acia_no_irq
-  jsr reset_cmd
-
-  lda #$00               ; init debugger off (change to 01 to init on)
-  sta DEBUG_BREAK
-
-  cli                    ; clear interrupt disable
-  ; no rts, fall into loop
-
-loop:
-  lda DEBUG_BREAK
-  cmp #$01
-  bcc no_debug
-  jsr print_debug_via
-  jsr $ff00              ; load wozmon
-  lda #$00
-  sta DEBUG_BREAK
-no_debug:
-  jsr handle_char_loop
-  jmp loop
-
-debug:
-  jsr cursorLine1
-  jsr print_debug_via
-  jsr print_cpu_state
-  jsr delay_short
-  jsr delay_short
-  rts
-
-irg:
-  inc DEBUG_BREAK     ; inc, the loop will handling the values
-  bit PORTA           ; bit test to clear interrupt
-  rti
-
-nmi:
-  rti
-
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;
-;       WOZMON (hit debug button)
-;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-
   .org $ff00
 
 XAML  = $24              ; Last "opened" location Low
@@ -69,6 +8,13 @@ L     = $28              ; Hex value parsing Low
 H     = $29              ; Hex value parsing High
 YSAV  = $2A              ; Used to see if hex value is given
 MODE  = $2B              ; $00=XAM, $7F=STOR, $AE=BLOCK XAM
+
+IN    = $0200            ; Input buffer
+
+ACIA_DATA   = $5000
+ACIA_STATUS = $5001
+ACIA_CMD    = $5002
+ACIA_CTRL   = $5003
 
 RESET:
   LDA     #$1F           ; 8-N-1, 19200 baud.
@@ -102,7 +48,7 @@ NEXTCHAR:
   AND     #$08           ; Key ready?
   BEQ     NEXTCHAR       ; Loop until ready.
   LDA     ACIA_DATA      ; Load character. B7 will be '0'.
-  STA     WOZMON_BUFFER,Y           ; Add to text buffer.
+  STA     IN,Y           ; Add to text buffer.
   JSR     ECHO           ; Display character.
   CMP     #$0D           ; CR?
   BNE     NOTCR          ; No.
@@ -118,7 +64,7 @@ SETSTOR:
 BLSKIP:
   INY      ; Advance text index.
 NEXTITEM:
-  LDA     WOZMON_BUFFER,Y           ; Get character.
+  LDA     IN,Y           ; Get character.
   CMP     #$0D           ; CR?
   BEQ     GETLINE        ; Yes, done this line.
   CMP     #$2E           ; "."?
@@ -133,7 +79,7 @@ NEXTITEM:
   STY     YSAV           ; Save Y for comparison
 
 NEXTHEX:
-  LDA     WOZMON_BUFFER,Y           ; Get character for hex test.
+  LDA     IN,Y           ; Get character for hex test.
   EOR     #$30           ; Map digits to $0-9.
   CMP     #$0A           ; Digit?
   BCC     DIG            ; Yes.
@@ -142,18 +88,18 @@ NEXTHEX:
   BCC     NOTHEX         ; No, character not hex.
 DIG:
   ASL
-  ASL                    ; Hex digit to MSD of A.
+  ASL      ; Hex digit to MSD of A.
   ASL
   ASL
 
   LDX     #$04           ; Shift count.
 HEXSHIFT:
-  ASL                    ; Hex digit left, MSB to carry.
+  ASL      ; Hex digit left, MSB to carry.
   ROL     L              ; Rotate into LSD.
   ROL     H              ; Rotate into MSD's.
-  DEX                    ; Done 4 shifts?
+  DEX      ; Done 4 shifts?
   BNE     HEXSHIFT       ; No, loop.
-  INY                    ; Advance text index.
+  INY      ; Advance text index.
   BNE     NEXTHEX        ; Always taken. Check next character for hex.
 
 NOTHEX:
@@ -182,7 +128,7 @@ SETADR:
   LDA     L-1,X          ; Copy hex data to
   STA     STL-1,X        ;  'store index'.
   STA     XAML-1,X       ; And to 'XAM index'.
-  DEX                    ; Next of 2 bytes.
+  DEX      ; Next of 2 bytes.
   BNE     SETADR         ; Loop unless X = 0.
 
 NXTPRNT:
@@ -219,13 +165,13 @@ MOD8CHK:
   BPL     NXTPRNT        ; Always taken.
 
 PRBYTE:
-  PHA                    ; Save A for LSD.
+  PHA      ; Save A for LSD.
   LSR
   LSR
-  LSR                    ; MSD to LSD position.
+  LSR      ; MSD to LSD position.
   LSR
   JSR     PRHEX          ; Output hex digit.
-  PLA                    ; Restore A.
+  PLA      ; Restore A.
 
 PRHEX:
   AND     #$0F           ; Mask LSD for hex print.
@@ -235,22 +181,17 @@ PRHEX:
   ADC     #$06           ; Add offset for letter.
 
 ECHO:
-  PHA                    ; Save A.
+  PHA      ; Save A.
   STA     ACIA_DATA      ; Output character.
   LDX     #$FF           ; Initialize delay loop.
 TXDELAY:        
-  DEX                    ; Decrement A.
+  DEX      ; Decrement A.
   BNE     TXDELAY        ; Until A gets to 0.
-  PLA                    ; Restore A.
-  RTS                    ; Return.
+  PLA      ; Restore A.
+  RTS      ; Return.
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;
-;   END WOZMON
-;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+  .org $FFFA
 
-  .org $fffa
-  .word nmi
-  .word reset
-  .word irg
+  .word   $0F00          ; NMI vector
+  .word   RESET          ; RESET vector
+  .word   $0000          ; IRQ vector

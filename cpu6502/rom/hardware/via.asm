@@ -1,17 +1,17 @@
-PORTB = $6000
-PORTA = $6001
-DDRB = $6002
-DDRA = $6003
-
-E  = %10000000
-RW = %01000000
-RS = %00100000
+reset_via_irq:
+  jsr reset_via
+  
+  rts
 
 reset_via:
   lda #%11111111 ; Set all pins on port B to output
   sta DDRB
-  lda #%11100000 ; Set top 3 pins on port A to output
+  lda #%11100000 ; Set top 3 pins on port A to output for LCD, other bits available for input
   sta DDRA
+  lda #$82
+  sta IER        ; enable interrupts
+  lda #$00
+  sta PCR        ; clear PCR (transition to low state for interrupt)
 
   lda #%00111000 ; Set 8-bit mode; 2-line display; 5x8 font
   jsr lcd_instruction
@@ -35,6 +35,11 @@ print_char_lcd:
   pla
   rts
 
+cursorLine1:
+  lda #%00000010
+  jsr lcd_instruction
+  rts
+
 cursorLine2:
   lda #%11000000   ; second line
   jsr lcd_instruction
@@ -42,6 +47,7 @@ cursorLine2:
 
 ;  A = entry value
 print_a_hex:
+  pha
   sed        ;2  @2
   tax        ;2  @4
   and #$0F   ;2  @6
@@ -61,6 +67,66 @@ print_a_hex:
   jsr print_char_lcd
   tya
   jsr print_char_lcd
+  pla
+  rts
+
+print_carry_flag:
+  pha
+  bcc print_carry_clear
+  lda #"1"
+  jsr print_char_lcd
+  jmp print_carry_flag_end
+print_carry_clear:
+  lda #"0"
+  jsr print_char_lcd
+print_carry_flag_end:
+  pla
+  rts
+
+print_cpu_state:
+  pha
+  lda #" "
+  jsr print_char_lcd
+  lda #"P"
+  jsr print_char_lcd
+  lda #":"
+  jsr print_char_lcd
+  lda DEBUG_PROG
+  jsr print_a_hex
+  lda #" "
+  jsr print_char_lcd
+  lda #"A"
+  jsr print_char_lcd
+  lda #":"
+  jsr print_char_lcd
+  lda DEBUG_A_VAL
+  jsr print_a_hex
+  jsr cursorLine2
+  lda #" "
+  jsr print_char_lcd
+  lda #"X"
+  jsr print_char_lcd
+  lda #":"
+  jsr print_char_lcd
+  lda DEBUG_X_VAL
+  jsr print_a_hex
+  lda #" "
+  jsr print_char_lcd
+  lda #"Y"
+  jsr print_char_lcd
+  lda #":"
+  jsr print_char_lcd
+  lda DEBUG_Y_VAL
+  jsr print_a_hex
+  lda #" "
+  jsr print_char_lcd
+  lda #"C"
+  jsr print_char_lcd
+  lda #":"
+  jsr print_char_lcd
+  lda DEBUG_C_VAL
+  jsr print_a_hex
+  pla
   rts
 
 clear_lcd:

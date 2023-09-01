@@ -12,7 +12,8 @@ pull_all_stack:
   tax
   pla
 
-delayMax:
+delay_max:
+  jsr push_all_stack
   ldy #$ff
 delay2:
   ldx #$ff
@@ -22,4 +23,36 @@ delay1:
   bne delay1 
   dey
   bne delay2
+  jsr pull_all_stack
+  rts
+
+delay_short:
+  pha
+  txa
+  pha
+  ldx #$ff
+delay_short_loop:
+  nop
+  dex
+  bne delay_short_loop
+  pla
+  tax
+  pla
+  rts
+
+debounce_button:
+  pha
+  txa 
+  pha
+  ldx #$ff
+debounce:         ; debounce button (not idea in an interrupt handler)
+  dex
+  bne debounce
+  pla
+  tax
+  pla
+  rts
+
+program_val_debug_a:
+  sta DEBUG_PROG
   rts

@@ -2,6 +2,9 @@ PORTB = $6000
 PORTA = $6001
 DDRB = $6002
 DDRA = $6003
+PCR = $600c     ; peripheral control reg
+IFR = $600d     ; interrupt flag reg
+IER = $600e     ; interrupt enable reg
 
 E  = %10000000
 RW = %01000000
@@ -12,7 +15,6 @@ RS = %00100000
 reset:
   ldx #$ff
   txs
-  cli
 
   lda #%11111111 ; Set all pins on port B to output
   sta DDRB
@@ -28,20 +30,31 @@ reset:
 
   lda #$00000001 ; Clear display
   jsr lcd_instruction
+
+  cli            ; clear interrupt disable
+  lda #$82
+  sta IER        ; enable interrupts
+  lda #$00
+  sta PCR        ; clear PCR (transition to low state for interrupt)
+
+  jsr printMessage
   
 loop: 
-  ldx #0
-  jsr printMessage
-  jmp loop
+  nop
+  jmp loop ; loop forever
 
 message: .asciiz "I am alive!!"
 
 printMessage:
+  ldx #0
+printMessageLoop:
   lda message,x
-  beq loop
+  beq endPrintMessage
   jsr print_char
   inx
-  jsr printMessage
+  jsr printMessageLoop
+endPrintMessage:
+  rts
 
 delay:
   ldy #$ff
@@ -109,6 +122,7 @@ irg:
   jsr print_char
   lda #"T"
   jsr print_char
+  bit PORTA      ; bit test to clear interrupt
   rti
 
   .org $fffa
