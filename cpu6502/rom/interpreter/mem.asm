@@ -4,22 +4,19 @@ DEBUG_A_VAL      = $0000 + 1
 DEBUG_X_VAL      = $0000 + 2
 DEBUG_Y_VAL      = $0000 + 3
 DEBUG_C_VAL      = $0000 + 4
-DEBUG_PROG       = $0000 + 5
-; space for more vars, though it doesn't really matter
-COMMAND          = $0000 + 6
-PROGRAM_COUNTER  = $0000 + 7
+CURRENT_COMMAND  = $0000 + 5
+PROMPT_CNT       = $0000 + 6  ; max command prompt length is 256
+PROGRAM_PRT      = $0000 + 7
 
-; Always last as the user's program memory is stored from here to the end of RAM
-START_MEM        = $0000 + 8
+PROMPT_PTR       = $0000 + 8  ; Command prompt, 256 bytes - variable mem
+MAX_PROMPT       = $00FF      ; 1 less then program start
+
+PROGRAM_PTR      = $0100      ; Program start, should be from here to the end of RAM (minus Wozmon)
+MAX_PROGRAM      = $3F35      ; 1 less the Wozmon
 
 ; Wozmon Input buffer
 ; Must be at the end of RAM with appropriate buffer size
-WOZMON_BUFFER    = $3F37 ; 200 bytes should be enough?? (3FFF - C8)
-
-; COMMAND values
-LIST_CMD  = %00000001
-RUN_CMD   = %00000010
-NO_CMD    = %11111111
+WOZMON_BUFFER    = $3F37      ; 200 bytes should be enough?? (3FFF - C8)
 
 ACIA_DATA = $5000
 ACIA_STATUS = $5001
@@ -37,3 +34,12 @@ IER = $600e     ; interrupt enable reg
 E  = %10000000
 RW = %01000000
 RS = %00100000
+
+WOZMON_PRG_START = $ff00
+
+; COMMAND values
+PROMPT_CMD   = %00000000
+RESET_CMD    = %00000001
+LOAD_CMD     = %00000010
+RUN_CMD      = %00000011
+WOZMON_CMD   = %00000100

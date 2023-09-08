@@ -87,14 +87,6 @@ print_cpu_state:
   pha
   lda #" "
   jsr print_char_lcd
-  lda #"P"
-  jsr print_char_lcd
-  lda #":"
-  jsr print_char_lcd
-  lda DEBUG_PROG
-  jsr print_a_hex
-  lda #" "
-  jsr print_char_lcd
   lda #"A"
   jsr print_char_lcd
   lda #":"

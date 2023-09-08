@@ -52,7 +52,3 @@ debounce:         ; debounce button (not idea in an interrupt handler)
   tax
   pla
   rts
-
-program_val_debug_a:
-  sta DEBUG_PROG
-  rts

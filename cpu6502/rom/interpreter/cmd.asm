@@ -1,30 +1,35 @@
   .include "rom/interpreter/interpret.asm"
-  .include "rom/cmd/list.asm"
 
 reset_cmd:
   pha
-  lda #0                ; initial character mem location from start
-  sta PROGRAM_COUNTER
+  lda #$00                ; set prompt char counter to 0
+  sta PROMPT_CNT
+  lda PROMPT_CMD          ; init to command prompt mode
+  sta CURRENT_COMMAND
   jsr text_cmd_os_start
   pla
   rts
 
 ; Call from the main program loop
-handle_char_loop:
+command_prompt_loop:
   jsr check_acia_no_irq
   cpx #$01
-  bne no_new_char
+  bne command_prompt_loop_end
+  cmp #$0D                ; check if CR
+  bne no_carriage_return
+  jsr interpret_command
+  jmp command_prompt_loop_end
+no_carriage_return:
   jsr process_char
-  jsr check_command
-no_new_char:
+command_prompt_loop_end:
   rts
 
-check_command:
-  jsr interpret_next_char_into_a ; processes the command into A reg
-  cmp #NO_CMD
+interpret_command:
+  jsr interpret_cmd_into_a ; processes the command into A reg
+  cmp #PROMPT_CMD          ; PROMPT
   beq handle_char_end
-  cmp #LIST_CMD
+  cmp #WOZMON_CMD          ; WOZMON
   bne handle_char_end
-  jsr handle_list_cmd
+  jmp WOZMON_PRG_START
 handle_char_end:
   rts

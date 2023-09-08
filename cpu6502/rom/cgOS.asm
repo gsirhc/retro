@@ -28,11 +28,10 @@ loop:
   cmp #$01
   bcc no_debug
   jsr print_debug_via
-  jsr $ff00              ; load wozmon
-  lda #$00
-  sta DEBUG_BREAK
+  jmp WOZMON_PRG_START   ; load wozmon
+  ; Loop basically ends here cause Wozmon doesn't return, must reset the computer
 no_debug:
-  jsr handle_char_loop
+  jsr command_prompt_loop
   jmp loop
 
 debug:
@@ -102,7 +101,7 @@ NEXTCHAR:
   AND     #$08           ; Key ready?
   BEQ     NEXTCHAR       ; Loop until ready.
   LDA     ACIA_DATA      ; Load character. B7 will be '0'.
-  STA     WOZMON_BUFFER,Y           ; Add to text buffer.
+  STA     WOZMON_BUFFER,Y; Add to text buffer.
   JSR     ECHO           ; Display character.
   CMP     #$0D           ; CR?
   BNE     NOTCR          ; No.
