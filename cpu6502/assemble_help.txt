@@ -1,0 +1,11 @@
+Binary numbers use the % prefix (e.g. %1101).
+Octal numbers use the 0 prefix (e.g. 015).
+Decimal numbers use no prefix (e.g. 13).
+Hexadecimal numbers use the $ prefix (e.g. $0D).
+
+The # symbol is used to specify immediate addressing
+
+LDA 0   ; Load the byte from address 0 in memory into register A
+LDA #0  ; Load the value 0 into register A
+
+LDA #$FF ; Load the value $FF into register A

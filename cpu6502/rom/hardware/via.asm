@@ -1,9 +1,16 @@
-reset_via_irq:
-  jsr reset_via
-  
-  rts
+PORTB = $6000
+PORTA = $6001
+DDRB = $6002
+DDRA = $6003
+PCR = $600c     ; peripheral control reg
+IFR = $600d     ; interrupt flag reg
+IER = $600e     ; interrupt enable reg
 
-reset_via:
+E  = %10000000
+RW = %01000000
+RS = %00100000
+
+reset_via_irq:
   lda #%11111111 ; Set all pins on port B to output
   sta DDRB
   lda #%11100000 ; Set top 3 pins on port A to output for LCD, other bits available for input
@@ -46,8 +53,10 @@ cursorLine2:
   rts
 
 ;  A = entry value
-print_a_hex:
+print_a_hex_lcd:
   pha
+  lda #" "
+  jsr print_a_hex_acia
   sed        ;2  @2
   tax        ;2  @4
   and #$0F   ;2  @6
@@ -67,57 +76,6 @@ print_a_hex:
   jsr print_char_lcd
   tya
   jsr print_char_lcd
-  pla
-  rts
-
-print_carry_flag:
-  pha
-  bcc print_carry_clear
-  lda #"1"
-  jsr print_char_lcd
-  jmp print_carry_flag_end
-print_carry_clear:
-  lda #"0"
-  jsr print_char_lcd
-print_carry_flag_end:
-  pla
-  rts
-
-print_cpu_state:
-  pha
-  lda #" "
-  jsr print_char_lcd
-  lda #"A"
-  jsr print_char_lcd
-  lda #":"
-  jsr print_char_lcd
-  lda DEBUG_A_VAL
-  jsr print_a_hex
-  jsr cursorLine2
-  lda #" "
-  jsr print_char_lcd
-  lda #"X"
-  jsr print_char_lcd
-  lda #":"
-  jsr print_char_lcd
-  lda DEBUG_X_VAL
-  jsr print_a_hex
-  lda #" "
-  jsr print_char_lcd
-  lda #"Y"
-  jsr print_char_lcd
-  lda #":"
-  jsr print_char_lcd
-  lda DEBUG_Y_VAL
-  jsr print_a_hex
-  lda #" "
-  jsr print_char_lcd
-  lda #"C"
-  jsr print_char_lcd
-  lda #":"
-  jsr print_char_lcd
-  lda DEBUG_C_VAL
-  jsr print_a_hex
   pla
   rts
 
