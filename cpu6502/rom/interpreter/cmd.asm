@@ -2,13 +2,26 @@
 
 ; COMMAND values
 PROMPT_CMD   = $00
-LOAD_CMD     = $01
-RUN_CMD      = $02
+LOAD_CMD     = $00 + 1
+LIST_CMD     = $00 + 2
+RUN_CMD      = $00 + 3
+CLEAR_CMD    = $00 + 4
+SOFT_RST_CMD = $00 + 5
+HARD_RST_CMD = $00 + 6
+HELP_CMD     = $FE
 BREAK_CMD    = $FF
 
 reset_cmd:
   jsr clear_terminal
-  jsr text_cmd_os_start   
+  jsr text_cmd_os_start
+
+  ; load default RUN program (print error)
+  lda #$4C                ; jmp command
+  sta PROGRAM_START_ADDR
+  lda #$e5                  ; lo byte of fee5 (see BIOS)
+  sta PROGRAM_START_ADDR + 1
+  lda #$fe                  ; hi byte of fee5
+  sta PROGRAM_START_ADDR + 2
   rts
 
 soft_reset_cmd:
@@ -66,8 +79,31 @@ cmd2
   jsr print_char_acia
   jsr print_run_status_via
   jmp PROGRAM_START_ADDR    ; start the program (blindly)
-  jmp handle_char_end
+  jmp reset_prompt
 cmd3:
+  cmp #LIST_CMD
+  bne cmd4
+  jsr print_program_256
+  jmp reset_prompt
+cmd4:
+  cmp #CLEAR_CMD
+  bne cmd5
+  jsr clear_terminal
+  jmp reset_prompt
+cmd5:
+  cmp #SOFT_RST_CMD
+  bne cmd6
+  jmp return_os
+cmd6:
+  cmp #HARD_RST_CMD
+  bne cmd7
+  jmp reset
+cmd7:
+  cmp #HELP_CMD
+  bne cmd8
+  jsr print_help_acia
+  jmp PROMPT_CMD
+cmd8:
   jsr print_invalid_cmd_acia
 reset_prompt:
   lda PROMPT_CMD

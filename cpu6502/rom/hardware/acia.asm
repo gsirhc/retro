@@ -96,8 +96,6 @@ print_new_line:
 
 print_a_hex_acia:
   pha
-  lda #" "
-  jsr print_a_hex_acia
   sed        ;2  @2
   tax        ;2  @4
   and #$0F   ;2  @6

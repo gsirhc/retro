@@ -1,16 +1,17 @@
 .data
-  start_acia_line1: .asciiz "CG OS - COMMAND LINE INTERPRETER"
-  start_acia_line2: .asciiz "VT100 TERMINAL - COMMANDS: LOAD, RUN, BREAK"
-  invalid_cmd_acia: .asciiz "COMMAND NOT FOUND"
+  start_acia_line1:  .asciiz "CG OS - COMMAND LINE INTERPRETER"
+  start_acia_line2:  .asciiz "VT100 TERMINAL - TYPE HELP FOR COMMANDS"
+  invalid_cmd_acia:  .asciiz "COMMAND NOT FOUND"
+  no_program_loaded: .asciiz "MUST LOAD A PROGRAM TO RUN"
+  help:              .asciiz "LOAD - UPLOAD BIN", $0D, "RUN - RUN PROG", $0D, "LIST - PRINT 256 PROG BYTES", $0D, "CLS - CLEAR SC", $0D, $5C, " - BREAK", "<ESC> - SOFT RST", $0D , "RST - HARD RST"
 
                           ;  1234567890123456  
   start_via:        .asciiz "CG OS v1.0"
-  input_via:        .asciiz "Input"
-  break_via:        .asciiz "Break"
-  load_via:         .asciiz "Load"
-  run_via:          .asciiz "Run"
+  input_via:        .asciiz "Input           "
+  break_via:        .asciiz "Break           "
+  load_via:         .asciiz "Load            "
+  run_via:          .asciiz "Run             "
   current_cmd_via:  .asciiz "Last cmd:"
-  debug_via:        .asciiz "WOZMON: MUST RST"
 
 text_cmd_os_start:
   jsr print_start_via
@@ -164,24 +165,6 @@ print_current_cmd_via_end:
   pla
   rts
 
-print_debug_via:
-  pha
-  txa
-  pha
-  jsr cursorLine2
-  ldx #0
-print_debug_via_loop:
-  lda debug_via,x
-  beq print_debug_via_end
-  jsr print_char_lcd
-  inx
-  jmp print_debug_via_loop
-print_debug_via_end:
-  pla             
-  tax
-  pla
-  rts
-
 print_invalid_cmd_acia:
   pha
   txa
@@ -195,6 +178,42 @@ print_invalid_cmd_acia_loop:
   inx
   jmp print_invalid_cmd_acia_loop
 print_invalid_cmd_acia_end:
+  pla             
+  tax
+  pla
+  rts
+
+print_no_program_loaded_acia:
+  pha
+  txa
+  pha
+  jsr cursorLine2
+  ldx #0
+print_no_program_loaded_acia_loop:
+  lda no_program_loaded,x
+  beq print_no_program_loaded_acia_end
+  jsr print_char_acia
+  inx
+  jmp print_no_program_loaded_acia_loop
+print_no_program_loaded_acia_end:
+  pla             
+  tax
+  pla
+  rts
+
+print_help_acia:
+  pha
+  txa
+  pha
+  jsr cursorLine2
+  ldx #0
+print_help_acia_loop:
+  lda help,x
+  beq print_help_acia_end
+  jsr print_char_acia
+  inx
+  jmp print_help_acia_loop
+print_help_acia_end:
   pla             
   tax
   pla

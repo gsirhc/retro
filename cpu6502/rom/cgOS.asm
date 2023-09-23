@@ -10,6 +10,7 @@
   .include "rom/interpreter/text.asm"
   .include "rom/interpreter/cmd.asm"
   .include "rom/cmd/load.asm"
+  .include "rom/cmd/printPrg.asm"
 
 reset:
   ldx #$ff
@@ -35,21 +36,25 @@ nmi:
   rti
 
 bios:
-  .org $fede            ; 13 bytes
-  lda #"H"              ; 2 bytes
-  jsr print_char_acia  ; 3 bytes
-  lda #"I"              ; 2 bytes
-  jsr print_char_acia  ; 3 bytes
-  jmp return_os         ; 3 bytes
+  ; DEFAULT PROGRAM
+  .org $fee5      ; 6 bytes
+  jsr print_no_program_loaded_acia
+  jmp return_os
 
+  ; PRINT TO CONSOLE
   .org $feeb      ; 4 bytes
   jsr print_char_acia
   rts
 
+  ; SOFT RESET
   .org $feef      ; 3 bytes
   jmp reset
+
+  ; RETURN FROM INTERRUPT (undecoument)
   .org $fefc      ; 1 byte
   rti
+
+  ; EXIT TO OS
   .org $fefd      ; 3 bytes
   jmp return_os
 
