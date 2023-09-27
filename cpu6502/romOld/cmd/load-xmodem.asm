@@ -59,7 +59,7 @@ shell_rx_done:
   lda #1                     ; wait a moment (printing does not work otherwise..)
   ;jsr shell_rx_sleep_seconds
   ;jsr shell_rx_print_user_program
-  ;jsr print_new_line
+  ;jsr print_new_line_acia
   lda #0
   jmp return_os
 shell_rx_fail:

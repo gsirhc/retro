@@ -37,9 +37,9 @@ check_acia_no_irq:
   jmp check_acia_no_irq_end
 ignore_backspace:
   jsr print_backspace_destruct_acia
-  ldy $02    ; THIS SHOULDN'T BE HERE, dec the prompt counter
+  ldy PROMPT_CHAR_CNT    ; THIS SHOULDN'T BE HERE, dec the prompt counter
   dey
-  sty $02
+  sty PROMPT_CHAR_CNT
 check_acia_no_irq_end:
   rts
 
@@ -74,7 +74,8 @@ print_char_acia:
   rts
 
 print_backspace_destruct_acia:
-  lda $02
+  lda PROMPT_CHAR_CNT
+  jsr print_a_hex_lcd
   cmp #$00
   beq at_beg_line
   lda #$08              ; backspace
@@ -86,7 +87,7 @@ print_backspace_destruct_acia:
 at_beg_line:
   rts
 
-print_new_line_acia:
+print_new_line:
   pha
   lda #$0D
   jsr print_char_acia
@@ -153,24 +154,27 @@ delay_6551_tx_loop:
   pla
   rts
 
-print_a_digits:
+;;;;;;;;;
+;; VT100 commands, see http://www.braun-home.net/michael/info/misc/VT100_commands.htm
+;;;;;;;
+
+clear_terminal:
   pha
-  tax                     ; use X to keep track of the digits
-Loop:
-  txa
-  ; Convert hex digit to ASCII
-  and #$0F                ; Mask out all but the lower nibble
-  tax                     ; Transfer the result to X
-  ; Convert X (hex digit) to ASCII ('0' to '9' or 'A' to 'F')
-  cmp #$0A                ; Compare X to 10 (hex 'A')
-  bcc Digit               ; Branch if X < 10
-  adc #$07                ; Adjust X to convert to 'A' to 'F'
-Digit:
-  adc #$30                ; Convert X to ASCII ('0' to '9' or 'A' to 'F')
-  jsr print_char_acia 
-  ; Decrement loop counter
-  dex
-  ; Check if we've processed all hex digits
-  BNE Loop
+  ; clear screen
+  lda #$1B              ; ESC
+  jsr print_char_acia
+  lda #"["
+  jsr print_char_acia
+  lda #"2"
+  jsr print_char_acia
+  lda #"J"
+  jsr print_char_acia
+  ; reset cursor to "home" (top-left of screen)
+  lda #$1B              ; ESC
+  jsr print_char_acia
+  lda #"["
+  jsr print_char_acia
+  lda #"f"
+  jsr print_char_acia
   pla
   rts

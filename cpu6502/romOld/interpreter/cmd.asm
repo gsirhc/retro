@@ -30,6 +30,7 @@ soft_reset_cmd:
   lda #$00                 ; init prompt char counter
   sta PROMPT_CHAR_CNT
   jsr print_command_prompt_symbol 
+  jsr print_input_status_via
   rts
 
 ; Call from the main program loop

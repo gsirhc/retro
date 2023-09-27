@@ -1,9 +1,9 @@
 ; OS variable memory addresses (zero page memory = faster)
-LOCAL_MEM_BYTE1  = $00 + 0  ; Mem to use for local storage
-LOCAL_MEM_BYTE2  = $00 + 1  ; Mem to use for local storage
-PROMPT_CHAR_CNT  = $00 + 2  ; max command prompt length is 256
-PROGRAM_PRT      = $00 + 3  ; 2 Bytes
-PROGRAM_SIZE     = $00 + 5  ; 2 bytes 
+CURRENT_COMMAND  = $00      ; Default is command 0
+LOCAL_MEM_BYTE1  = $00 + 1  ; Mem to use for local storage
+LOCAL_MEM_BYTE2  = $00 + 2  ; Mem to use for local storage
+PROMPT_CHAR_CNT  = $00 + 3  ; max command prompt length is 256
+PROGRAM_PRT      = $00 + 4  ; 2 Bytes 
 
 ; 0100 - 01FF Reserved for Stack
 
