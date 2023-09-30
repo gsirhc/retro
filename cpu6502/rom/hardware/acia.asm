@@ -171,6 +171,6 @@ Digit:
   ; Decrement loop counter
   dex
   ; Check if we've processed all hex digits
-  BNE Loop
+  bne Loop
   pla
   rts

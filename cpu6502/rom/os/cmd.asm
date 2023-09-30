@@ -33,7 +33,7 @@ command_prompt_loop:
   cmp #$0D                          ; check if CR
   bne process_char
   ldx PROMPT_CHAR_CNT              
-  beq enter_blank_line              ; CR typed with no prompt (count 0)
+  beq load_prompt              ; CR typed with no prompt (count 0)
   jsr execute_command
   jmp load_prompt
 process_char:
@@ -41,9 +41,6 @@ process_char:
   sta PROMPT_START, x               ; store char (must be upper case)
   inx                               ; increment prompt char counter
   stx PROMPT_CHAR_CNT
-  jmp command_prompt_loop_end
-enter_blank_line:
-  jsr print_command_prompt_new_line ; if nothing entered with CR, just print new line
   jmp command_prompt_loop_end
 load_prompt:
   jsr return_os                     
@@ -94,13 +91,6 @@ execute_command:
 command_not_found:
   jsr print_invalid_cmd_acia
 interpret_cmd_end:
-  rts
-
-print_command_prompt_new_line:
-  pha
-  lda #$0D                ; new line
-  jsr print_char_acia
-  pla
   rts
 
 print_command_prompt_symbol:
@@ -191,9 +181,6 @@ CHECK_LOAD:
   cmp #"L"
   bne cmd_not_load
   ;
-  jsr print_load_status_via
-  lda #">"
-  jsr print_char_acia
   jsr shell_rx_main         ; start loader
   ldy #$01            ; return true
 cmd_not_load:

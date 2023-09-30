@@ -5,7 +5,7 @@
        invalid_addr:  .asciiz "INVALID ADDRESS (MUST BE 2 BYTES: NNNN)"
     not_implemented:  .asciiz "NOT IMPLEMENTED"
   no_program_loaded:  .asciiz "MUST LOAD A PROGRAM TO RUN"
-       program_size:  .asciiz "PROGRAM SIZE: " ; size added after here
+       program_size:  .asciiz "PROGRAM SIZE: 0X" ; size added after here
                help:  .asciiz "LOAD - UPLOAD BIN", $0D, " RUN - RUN PROG", $0D, "LIST - PRINT 256 PROG BYTES", $0D, " CLS - CLEAR SC", $0D, "   ", $5C, " - BREAK", $0D, " ESC - SOFT RST", $0D, " RST - HARD RST", $0D, "EXEC - EXECUTE ADDRESS", $0D, "ADDR - OS COMMAND ADDRESSES"
        os_addresses:  .asciiz "FE00 - EXIT TO OS", $0D, "FE03 - SOFT RESET", $0D, "FE06 - HARD / SYS RESET", $0D, "FE09 - ERASE PROGRAM", $0D, "FEFC - OS LOOP (CHECK FOR CTRL-C)"
                           ;  1234567890123456  
@@ -224,7 +224,6 @@ print_not_implemented_acia:
   pha
   txa
   pha
-  jsr cursorLine2
   ldx #0
 print_not_implemented_acia_loop:
   lda invalid_cmd,x
@@ -242,7 +241,6 @@ print_no_program_loaded_acia:
   pha
   txa
   pha
-  jsr cursorLine2
   ldx #0
 print_no_program_loaded_acia_loop:
   lda no_program_loaded,x
@@ -279,7 +277,7 @@ print_addresses_acia:
   pha
   ldx #0
 print_addresses_acia_loop:
-  lda addresses,x
+  lda os_addresses,x
   beq print_addresses_acia_end
   jsr print_char_acia
   inx
