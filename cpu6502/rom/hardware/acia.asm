@@ -15,39 +15,34 @@ reset_acia_no_irq:
 reset_acia_irq:
   lda #%00000000
   sta ACIA_STATUS
-  lda #%00001001    ; 0x0b
+  lda #%00001001     ; 0x0b
   sta ACIA_CMD
   lda #%00001111     ; 0x1f
-  sta  ACIA_CTRL
+  sta ACIA_CTRL
   rts
 
 ; returns true/false (1|0) in X register
 check_acia_no_irq:
-  ldx #$00              ; return false
+  ldx #0                              ; return false
   lda ACIA_STATUS
-  and #$08              ; received char status
+  and #$08                            ; received char status
   beq check_acia_no_irq_end
   lda ACIA_DATA
-  cmp #$08              ; backspace
-  beq ignore_backspace
-  pha
+  cmp #$08                            ; check if backspace, don't echo
+  beq check_acia_no_irq_true
+  cmp #$0D                            ; check if CR, don't echo
+  beq check_acia_no_irq_true
   jsr print_char_acia
-  pla
-  ldx #$01
-  jmp check_acia_no_irq_end
-ignore_backspace:
-  jsr print_backspace_destruct_acia
-  ldy $02    ; THIS SHOULDN'T BE HERE, dec the prompt counter
-  dey
-  sty $02
+check_acia_no_irq_true:
+  ldx #1                              ; return true
 check_acia_no_irq_end:
   rts
 
 ; returns true/false (1|0) in X register
 check_acia_rx:
-  ldx #$00         ; return false
+  ldx #$00                            ; return false
   lda ACIA_STATUS
-  and #$08         ; received char status
+  and #$08                            ; received char status
   beq no_data_rx
   lda ACIA_DATA
   ldx #$01
@@ -55,12 +50,12 @@ no_data_rx:
   rts
 
 check_acia_irq:
-  ldx #$00         ; return false
+  ldx #$00                            ; return false
   lda ACIA_DATA
   and #%10001000
   bne no_char
-  lda ACIA_STATUS  ; clear interrupt
-  ldx #$01         ; return true
+  lda ACIA_STATUS                     ; clear interrupt
+  ldx #$01                            ; return true
 no_char:
   rts
 
@@ -74,16 +69,12 @@ print_char_acia:
   rts
 
 print_backspace_destruct_acia:
-  lda $02
-  cmp #$00
-  beq at_beg_line
   lda #$08              ; backspace
   jsr print_char_acia
   lda #$20              ; space
   jsr print_char_acia
   lda #$08              ; backspace
   jsr print_char_acia
-at_beg_line:
   rts
 
 print_new_line_acia:

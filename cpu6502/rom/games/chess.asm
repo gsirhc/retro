@@ -60,17 +60,19 @@ BESTM   =	$F9
 DIS1    =	$FB 
 DIS2    =	$FA 
 DIS3    =	$F9 
-temp    =       $FC
+temp    = $FC
 ;
 ;
 ;
+
+; BIOS Addresses
+PRINT_CHAR = $fc00
+READ_CHAR  = $fc04
+
 		.org $0300			; Original orig: load into RAM @ $1000-$15FF
 
-		.include "rom/hardware/acia.asm"
-
 		LDA #"*"
-		JSR print_char_acia
-		JSR reset_acia_no_irq ; init the ACIA
+		JSR PRINT_CHAR
 		LDA     #$00		; REVERSE TOGGLE
 		STA     REV
 
@@ -84,7 +86,8 @@ CHESS:		CLD			; INITIALIZE
 ;       DISPLAY AND GET KEY
 ;       FROM KEYBOARD
 ;		
-OUT:		JSR	POUT		; DISPLAY AND
+OUT:
+		JSR	POUT		; DISPLAY AND
 		JSR	KIN		; GET INPUT   *** my routine waits for a keypress
 ;		CMP	OLDKY		; KEY IN ACC  *** no need to debounce
 ;		BEQ	OUT		; (DEBOUNCE)
@@ -677,14 +680,16 @@ NOPOSN:	JMP	CKMATE       		; CONTINUE
 ; The following routines were added to allow text-based board
 ; display over a standard RS-232 port.
 ;
-POUT:        	jsr 	POUT9		; print CRLF
-		jsr     POUT13		; print copyright
+POUT:        	
+		jsr POUT9	  	; print CRLF
+		jsr POUT13		; print copyright
 		JSR	POUT10		; print column labels
-		LDY   	#$00		; init board location
-		JSR	POUT5		; print board horz edge
-POUT1:		lDA   	#"|"		; print vert edge
-		JSR   	syschout	; PRINT ONE ASCII CHR - SPACE
-		LDX   	#$1F
+		LDY #$00		; init board location
+		JSR POUT5		; print board horz edge
+POUT1:		
+		lDA #"|"		; print vert edge
+		JSR syschout	; PRINT ONE ASCII CHR - SPACE
+		LDX #$1F
 POUT2:		TYA			; scan the pieces for a location match
             	CMP	BOARD,X		; match found?
             	BEQ   	POUT4		; yes; print the piece's color and type
@@ -759,11 +764,12 @@ POUT8:		jsr	POUT10		;
         	LDA   	$F9
 		JSR   	syshexout	; PRINT 1 BYTE AS 2 HEX CHRS	
 
-POUT9:      	LDA   	#$0D
-		JSR   	syschout	; PRINT ONE ASCII CHR - CR
-        	LDA   	#$0A
-		JSR   	syschout	; PRINT ONE ASCII CHR - LF
-                RTS 
+POUT9:      	
+		LDA #$0D
+		JSR syschout	; PRINT ONE ASCII CHR - CR
+    ;LDA #$0A
+		;JSR syschout	; PRINT ONE ASCII CHR - LF
+    RTS 
 
 POUT10:		ldx   	#$00		; print the column labels
 POUT11:		lda	#$20		; 00 01 02 03 ... 07 <CRLF>
@@ -779,13 +785,16 @@ POUT12:		TYA
 		JSR 	syshexout
 		rts
 
-POUT13:		ldx   	#$00		; Print the copyright banner
-POUT14:		lda   	banner,x
-		beq   	POUT15
-		jsr   	syschout
+POUT13:		
+		ldx #$00		; Print the copyright banner
+POUT14:		
+		lda banner,x
+		beq POUT15
+		jsr syschout
 		inx
-		bne   	POUT14
-POUT15:		rts         
+		bne POUT14
+POUT15:		
+		rts         
 
 KIN:        	LDA   	#"?"
 		JSR   	syschout	; PRINT ONE ASCII CHR - ?
@@ -800,16 +809,19 @@ KIN:        	LDA   	#"?"
 ;
 ; input chr from ACIA1 (waiting)
 ;
-syskin:        jsr check_acia_rx
+syskin:        jsr READ_CHAR
 							 cpx #$01
 							 bne syskin
                RTS                      ;
 ;
 ; output to OutPut Port
 ;
-syschout:      PHA                      ; save registers
-ACIA_Out1:     jsr print_char_acia
-               RTS                      ; done
+syschout:      
+		pha                      ; save registers
+ACIA_Out1:     
+		jsr PRINT_CHAR
+		pla
+    rts                      ; done
 
 syshexout:      PHA                     ;  prints AA hex digits
                LSR                     ;  MOVE UPPER NIBBLE TO LOWER
@@ -839,7 +851,7 @@ cph:		.byte	"KQCCBBRRPPPPPPPPKQCCBBRRPPPPPPPP"
 ; end of added code
 ;
 ; BLOCK DATA
-		.org $18FF
+		;.org $18FF
 SETW:		.byte 	$03, $04, $00, $07, $02, $05, $01, $06
         	.byte 	$10, $17, $11, $16, $12, $15, $14, $13
         	.byte 	$73, $74, $70, $77, $72, $75, $71, $76

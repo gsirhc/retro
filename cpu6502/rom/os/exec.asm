@@ -1,10 +1,8 @@
-TEMP_STOR = $50                 ; dont have 4 registers, so store in available zero page
-
 exec_address:
   jsr print_exec_status_via
   lda #$00
-  sta LOCAL_MEM_BYTE1
-  sta LOCAL_MEM_BYTE2
+  sta ADDRESS
+  sta ADDRESS + 1
   ldx PROMPT_CHAR_CNT
   ldy #$00                      ; Read counter to know which byte to add the digit
 get_next_addr_digit:
@@ -30,32 +28,32 @@ convert_hex_jetter
 store_hex:
   iny                           ; Inc digit counter (1-based, no better place to put INY)
   cmp #$01
-  bne try_hi_second:
-  sta LOCAL_MEM_BYTE2           ; Place the last (4th digit) in hi byte (most significant)
+  bne try_hi_second
+  sta ADDRESS + 1               ; Place the last (4th digit) in hi byte (most significant)
   jmp get_next_addr_digit
 try_hi_second:
   cmp #$02
   bne try_lo_first
   jsr multiply_a_by_16          ; Mulitple by 16 (HEX 10) to fill hi byte (most significat)
-  adc LOCAL_MEM_BYTE2           ; Add current byte 2 to A
-  sta LOCAL_MEM_BYTE2
+  adc ADDRESS + 1               ; Add current byte 2 to A
+  sta ADDRESS + 1 
   jmp get_next_addr_digit
 try_lo_first:
   cmp #$03
   bne must_be_high_fist
-  sta LOCAL_MEM_BYTE1           ; Place 2nd digit (from left) in lo byte (least significant)
+  sta ADDRESS                   ; Place 2nd digit (from left) in lo byte (least significant)
   jmp get_next_addr_digit
 must_be_high_fist:
   jsr multiply_a_by_16          ; Mulitple by 16 (HEX 10) to fill hi byte (most significat)
-  adc LOCAL_MEM_BYTE1           ; Add current byte 1 to A
-  sta LOCAL_MEM_BYTE1
+  adc ADDRESS                   ; Add current byte 1 to A
+  sta ADDRESS
   ; Print the address to LCD for debugging and feedback to user
-  lda LOCAL_MEM_BYTE1
+  lda ADDRESS
   jsr print_a_hex_lcd
-  lda LOCAL_MEM_BYTE2
+  lda ADDRESS
   jsr print_a_hex_lcd
   ; JMP to address
-  jmp LOCAL_MEM_BYTE1           ; The OS dies here, the program must exit property through BIOS (or press Reset)
+  jmp ADDRESS                   ; The OS dies here, the program must exit property through BIOS (or press Reset)
                                 ; TODO add a Ctrl-C IRG routine for programs that don't exit
 notHex:
   jsr print_invalid_addr_acia

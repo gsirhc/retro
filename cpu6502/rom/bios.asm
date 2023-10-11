@@ -10,20 +10,16 @@
 ;;        fc04 - Read terminal into A Reg (X Reg = 0 no char, 1 char)
 ;;        fc08 - Clear Terminal
 ;;        fc0c - Set Cursor Position (Y - line, X - col)
-;;             - Cursor Home - Top / Left
-;;             - Cursor Home - Line
-;;             - Cursor Up
-;;             - Cursor Down
-;;             - Cursor Left
-;;             - Cursor Right
-;;             - Turn on Activity light
-;;             - Turn off Activity light
+;;        fc10 - Print new line (CR)
+;;        fc14 - Cursor Home - Line
 ;;    fe00 - feff - OS commands (256 reserved bytes)
 ;;        fe00 - Exit Program (Return to OS)
 ;;        fe03 - Soft Reset System
-;;        fe06 - Hard Reset System (clears stack and program)
+;;        fe06 - Hard Reset System (same as hitting reset button, mostly)
 ;;        fe09 - Clear Program
-;;        fefc - Good citizen OS loop callback (for OS to monitor program)
+;;        fe10 - print time
+;;        fe14 - print jiffies
+;;        fe18 - delay 1 second
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -57,6 +53,14 @@
   jsr set_cursor_pos
   rts
 
+  .org $fc10
+  jsr print_new_line_acia
+  rts
+
+  .org $fc14
+  jsr set_cursor_home_line
+  rts
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;   OS Commands
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -77,7 +81,14 @@
   jsr print_no_program_loaded_acia
   jmp return_os
 
-  ; Good citizen program callback - OS can monitor things
-  .org $fefc
-  jsr good_citizen_program_loop
+  .org $fe10      ; 3 bytes
+  jsr print_time
+  rts
+
+  .org $fe14      ; 3 bytes
+  jsr print_jiffies
+  rts
+
+  .org $fe18      ; 3 bytes
+  jsr delay_1_sec
   rts

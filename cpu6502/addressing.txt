@@ -1,0 +1,6 @@
+Indirect Y (MUST BE ZERO PAGE):
+
+  0086: 28 40
+  Y contains $10
+  LDA ($86),Y
+  => $4038

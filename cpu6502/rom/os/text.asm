@@ -1,12 +1,15 @@
 .data
-   start_acia_line1:  .asciiz "CG OS - COMMAND LINE INTERPRETER"
+   start_acia_line1:  .asciiz "OAC OS - COMMAND LINE INTERPRETER"
    start_acia_line2:  .asciiz "VT100 TERMINAL - TYPE HELP FOR COMMANDS"
         invalid_cmd:  .asciiz "COMMAND NOT FOUND"
        invalid_addr:  .asciiz "INVALID ADDRESS (MUST BE 2 BYTES: NNNN)"
     not_implemented:  .asciiz "NOT IMPLEMENTED"
   no_program_loaded:  .asciiz "MUST LOAD A PROGRAM TO RUN"
-       program_size:  .asciiz "PROGRAM SIZE: 0X" ; size added after here
-               help:  .asciiz "LOAD - UPLOAD BIN", $0D, " RUN - RUN PROG", $0D, "LIST - PRINT 256 PROG BYTES", $0D, " CLS - CLEAR SC", $0D, "   ", $5C, " - BREAK", $0D, " ESC - SOFT RST", $0D, " RST - HARD RST", $0D, "EXEC - EXECUTE ADDRESS", $0D, "ADDR - OS COMMAND ADDRESSES"
+       program_size:  .asciiz "PROGRAM SIZE (BYTES): " ; size added after here
+   time_since_start:  .asciiz "TIME SINCE STARTUP: " ; time added after here
+    jiffies_per_min:  .asciiz "JIFFIES (50 HZ, ROLLS OVER EACH MINUTE): " ; jiffes added after here
+               help:  .asciiz "LOAD - UPLOAD BINARY", $0D, " RUN - RUN PROG", $0D, "LIST - PRINT 256 PROG BYTES", $0D, " CLS - CLEAR SCREEN", $0D, "   ", $5C, " - BREAK", $0D, " RST - HARD RST", $0D, "EXEC - EXECUTE ADDRESS", $0D, "ADDR - OS COMMAND ADDRESSES", $0D, " ABT - ABOUT THE OS", $0D, "TIME - PRINT TIME", $0D, "JIFF - PRINT JIFFIES (50 Hz)"
+              about:  .asciiz "OAC OS (OLD ASS COMPUTER OPERATING SYSTEM)", $0D, "VERY SIMPLE OS FOR EXECUTING PROGRAMS ON THE 6502 PROCESSOR", $0D, "WRITTEN BY CHRIS GALL (C) 2023", $0D, "USE/MODIFY AS YOU WISH, JUST DON'T CHARGE $$$"
        os_addresses:  .asciiz "FE00 - EXIT TO OS", $0D, "FE03 - SOFT RESET", $0D, "FE06 - HARD / SYS RESET", $0D, "FE09 - ERASE PROGRAM", $0D, "FEFC - OS LOOP (CHECK FOR CTRL-C)"
                           ;  1234567890123456  
   start_via:        .asciiz "CG OS v1.0"
@@ -260,12 +263,29 @@ print_help_acia:
   pha
   ldx #0
 print_help_acia_loop:
-  lda help,x
+  lda help, x
   beq print_help_acia_end
   jsr print_char_acia
   inx
   jmp print_help_acia_loop
 print_help_acia_end:
+  pla             
+  tax
+  pla
+  rts
+
+print_about_acia:
+  pha
+  txa
+  pha
+  ldx #0
+print_about_acia_loop:
+  lda about, x
+  beq print_about_acia_end
+  jsr print_char_acia
+  inx
+  jmp print_about_acia_loop
+print_about_acia_end:
   pla             
   tax
   pla
@@ -300,6 +320,40 @@ print_program_size_acia_loop:
   inx
   jmp print_program_size_acia_loop
 print_program_size_acia_end:
+  pla             
+  tax
+  pla
+  rts
+
+print_time_since_startup_acia:
+  pha
+  txa
+  pha
+  ldx #0
+print_time_since_startup_loop:
+  lda time_since_start,x
+  beq print_time_since_startup_end
+  jsr print_char_acia
+  inx
+  jmp print_time_since_startup_loop
+print_time_since_startup_end:
+  pla             
+  tax
+  pla
+  rts
+
+print_jiffies_per_min_acia:
+  pha
+  txa
+  pha
+  ldx #0
+print_jiffies_per_min_loop:
+  lda jiffies_per_min,x
+  beq print_jiffies_per_min_end
+  jsr print_char_acia
+  inx
+  jmp print_jiffies_per_min_loop
+print_jiffies_per_min_end:
   pla             
   tax
   pla

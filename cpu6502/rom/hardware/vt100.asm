@@ -1,6 +1,8 @@
-;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
 ;; VT100 commands, see http://www.braun-home.net/michael/info/misc/VT100_commands.htm
-;;;;;;;
+;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 clear_terminal:
   pha
@@ -20,22 +22,22 @@ clear_terminal:
 set_cursor_pos:
   pha
   jsr print_leader
-  lda #"p"
+  tya                     ; line
   jsr print_char_acia
-  txa
-  lda #"l"
+  lda #";"                ; separator
   jsr print_char_acia
-  txa                     ; transfer X to A to print digits
-  jsr print_a_digits      ; this uses the X reg so do it first
-  lda #";"
+  txa                     ; row
   jsr print_char_acia
-  lda #"p"
+  lda #"H"                ; not sure, part of VT100 spec
   jsr print_char_acia
-  txa
-  lda #"c"
+  pla
+  rts
+
+set_cursor_home_line:
+  pha
+  jsr print_leader
+  lda #"f"                ; not sure, part of VT100 spec
   jsr print_char_acia
-  txa                     ; transfer Y to A to print digits
-  jsr print_a_digits 
   pla
   rts
 

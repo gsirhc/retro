@@ -14,13 +14,14 @@ reset_cmd:
   sta PROGRAM_START_ADDR + 1
   lda #$fe                  ; hi byte of (see BIOS)
   sta PROGRAM_START_ADDR + 2
+  lda #0
+  sta PROGRAM_SIZE         ; init program size
+  sta PROGRAM_SIZE + 1     ; init program size
   rts
 
 soft_reset_cmd:
   lda #$00                 
   sta PROMPT_CHAR_CNT      ; init prompt char counter
-  sta PROGRAM_SIZE         ; init program size
-  sta PROGRAM_SIZE + 1     ; init program size
   jsr print_command_prompt_symbol 
   jsr print_input_status_via
   rts
@@ -30,29 +31,41 @@ command_prompt_loop:
   jsr check_acia_no_irq
   cpx #$01
   bne command_prompt_loop_end
-  cmp #$0D                          ; check if CR
-  bne process_char
+  cmp #$0D                            ; check if CR
+  bne handle_char
   ldx PROMPT_CHAR_CNT              
-  beq load_prompt              ; CR typed with no prompt (count 0)
+  beq reset_prompt                    ; CR typed with no prompt (count 0)
+  lda #$0D                            ; print CR to start command
+  jsr print_char_acia
   jsr execute_command
-  jmp load_prompt
+  jmp reset_prompt
+handle_char:
+  cmp #$08                            ; check if backspace
+  bne process_char
+  lda PROMPT_CHAR_CNT              
+  beq command_prompt_loop_end         ; check if prompt is 0 length       
+  dec PROMPT_CHAR_CNT
+  jsr print_backspace_destruct_acia
+  jmp command_prompt_loop_end
 process_char:
   ldx PROMPT_CHAR_CNT
-  sta PROMPT_START, x               ; store char (must be upper case)
-  inx                               ; increment prompt char counter
+  sta PROMPT_START, x                 ; store char (must be upper case)
+  inx                                 ; increment prompt char counter
   stx PROMPT_CHAR_CNT
   jmp command_prompt_loop_end
-load_prompt:
-  jsr return_os                     
+reset_prompt:
+  jmp return_os                     
 command_prompt_loop_end:
   rts
 
-command_prg_check_loop:
-  jsr check_acia_no_irq
+irq_timer_check_loop:
+  jsr check_acia_rx
   cpx #$01
-  bne command_prg_check_loop_end
-  ; TODO Check for CTRL-C
-command_prg_check_loop_end:
+  bne irq_timer_check_loop_end
+  cmp #$03                            ; CTRL-C in ASCII
+  bne irq_timer_check_loop_end
+  jmp return_os
+irq_timer_check_loop_end:
   rts
 
 execute_command:
@@ -85,9 +98,20 @@ execute_command:
   beq interpret_cmd_end
   jsr CHECK_EXEC
   cpy #$01
-  bne command_not_found
-  jsr exec_address
-  jmp interpret_cmd_end
+  beq command_not_found
+  jsr CHECK_ABOUT
+  cpy #$01
+  beq interpret_cmd_end
+  jsr CHECK_TIME
+  cpy #$01
+  beq interpret_cmd_end
+  jsr CHECK_JIFFIES
+  cpy #$01
+  beq interpret_cmd_end
+;;;;; HIDDEN COMMANDS BELOW HERE
+  jsr CHECK_TEST
+  cpy #$01
+  beq interpret_cmd_end
 command_not_found:
   jsr print_invalid_cmd_acia
 interpret_cmd_end:
@@ -255,23 +279,23 @@ CHECK_RUN:
   cmp #"R"
   bne cmd_not_run
   ;
-  jsr print_char_acia
+  lda #1
+  sta ENABLE_CRTL_C
   jsr print_run_status_via
-  jmp PROGRAM_START_ADDR    ; this kills the OS, relies on running program to use bios to reset
-  ; ENDS HERE
+  jmp PROGRAM_START_ADDR
 cmd_not_run:
   rts 
 
 CHECK_BREAK:
-  ldy #$00            ; return false if falls though
+  ldy #$00             ; return false if falls though
   ldx PROMPT_CHAR_CNT
   dex
   lda PROMPT_START, x
-  cmp #$5C            ; \ char
+  cmp #$5C             ; \ char
   bne cmd_not_break
   ;
-  brk
-  ldy #$01            ; return true
+  jmp WOZMON_PRG_START ; start Wozmon, kills the OS, must reset
+  ldy #$01             ; return true
 cmd_not_break:
   rts 
 
@@ -335,4 +359,26 @@ CHECK_EXEC:
   jsr exec_address
   ldy #$01            ; return true
 cmd_not_exec:
+  rts
+
+CHECK_ABOUT:
+  ldy #$00            ; return false if falls though
+  ldx #$00
+  lda PROMPT_START, x
+  cmp #"A"
+  bne cmd_not_about
+  ;
+  inx
+  lda PROMPT_START, x
+  cmp #"B"
+  bne cmd_not_about
+  ;
+  inx
+  lda PROMPT_START, x
+  cmp #"T"
+  bne cmd_not_about
+  ;
+  jsr print_about_acia
+  ldy #$01            ; return true
+cmd_not_about:
   rts

@@ -1,30 +1,46 @@
-PORTB = $6000
-PORTA = $6001
-DDRB = $6002
-DDRA = $6003
-PCR = $600c     ; peripheral control reg
-IFR = $600d     ; interrupt flag reg
-IER = $600e     ; interrupt enable reg
+;; 65c22 VIA Datasheet: https://eater.net/datasheets/w65c22.pdf 
+
+;; Timer 1 interval
+TIMER_INT_LO_BYTE = $1e            ; 19998 (4E1E) = 50 hz (with 1mhz CPU) minus 2 cycles for the interrupt)
+TIMER_INT_HI_BYTE = $4e            ; NOTE, if these are changed, change the time subroutines
+
+PORTB = $6000     ; Port B data
+PORTA = $6001     ; Port A data
+DDRB  = $6002     ; Data Direction B
+DDRA  = $6003     ; Data Direction A
+T1CL  = $6004     ; timer 1 control Lo byte
+T1CH  = $6005     ; timer 1 control Hi byte
+ACR   = $600B     ; aux control register
+PCR   = $600C     ; peripheral control reg
+IFR   = $600D     ; interrupt flag reg
+IER   = $600E     ; interrupt enable reg
 
 E  = %10000000
 RW = %01000000
 RS = %00100000
 
 reset_via_irq:
-  lda #%11111111 ; Set all pins on port B to output
+  lda #%11111111                    ; Set all pins on port B to output
   sta DDRB
-  lda #%11100000 ; Set top 3 pins on port A to output for LCD, other bits available for input
+  lda #%11100000                    ; Set top 3 pins on port A to output for LCD, other bits available for input
   sta DDRA
-  lda #$82
-  sta IER        ; enable interrupts
+  
+  lda #%01000000                    ; Free Run mode Timer 1 (continuous interrupts)
+  sta ACR
+  lda #TIMER_INT_LO_BYTE
+  sta T1CL                          ; T1 ctrl lo byte
+  lda #TIMER_INT_HI_BYTE       
+  sta T1CH                          ; T1 ctrl hi byte
+  lda #%11000010                    ; Set/Clear (first bit) IRQ CA1 and Timer 1 enabled
+  sta IER                           ; enable interrupts
   lda #$00
-  sta PCR        ; clear PCR (transition to low state for interrupt)
+  sta PCR                           ; clear PCR (transition to low state for interrupt)
 
-  lda #%00111000 ; Set 8-bit mode; 2-line display; 5x8 font
+  lda #%00111000                    ; Set 8-bit mode; 2-line display; 5x8 font
   jsr lcd_instruction
-  lda #%00001110 ; Display on; cursor on; blink off
+  lda #%00001110                    ; Display on; cursor on; blink off
   jsr lcd_instruction
-  lda #%00000110 ; Increment and shift cursor; don't shift display
+  lda #%00000110                    ; Increment and shift cursor; don't shift display
   jsr lcd_instruction
   jsr clear_lcd
   rts
@@ -33,11 +49,11 @@ print_char_lcd:
   pha
   jsr lcd_wait
   sta PORTB
-  lda #RS         ; Set RS; Clear RW/E bits
+  lda #RS                           ; Set RS; Clear RW/E bits
   sta PORTA
-  lda #(RS | E)   ; Set E bit to send instruction
+  lda #(RS | E)                     ; Set E bit to send instruction
   sta PORTA
-  lda #RS         ; Clear E bits
+  lda #RS                           ; Clear E bits
   sta PORTA
   pla
   rts
@@ -48,45 +64,20 @@ cursorLine1:
   rts
 
 cursorLine2:
-  lda #%11000000   ; second line
+  lda #%11000000                     ; second line
   jsr lcd_instruction
-  rts
-
-;  A = entry value
-print_a_hex_lcd:
-  pha
-  sed        ;2  @2
-  tax        ;2  @4
-  and #$0F   ;2  @6
-  cmp #9+1   ;2  @8
-  adc #$30   ;2  @10
-  tay        ;2  @12
-  txa        ;2  @14
-  lsr        ;2  @16
-  lsr        ;2  @18
-  lsr        ;2  @20
-  lsr        ;2  @22
-  cmp #9+1   ;2  @24
-  adc #$30   ;2  @26
-  cld        ;2  @28
-  ;  A = MSN ASCII char
-  ;  Y = LSN ASCII char
-  jsr print_char_lcd
-  tya
-  jsr print_char_lcd
-  pla
   rts
 
 clear_lcd:
   pha
-  lda #%00000001 ; Clear display
+  lda #%00000001                     ; Clear display
   jsr lcd_instruction
   pla
   rts
 
 lcd_wait:
   pha
-  lda #%00000000  ; Port B is input
+  lda #%00000000                     ; Port B is input
   sta DDRB
 lcdbusy:
   lda #RW
@@ -99,7 +90,7 @@ lcdbusy:
 
   lda #RW
   sta PORTA
-  lda #%11111111  ; Port B is output
+  lda #%11111111                    ; Port B is output
   sta DDRB
   pla
   rts
@@ -107,10 +98,10 @@ lcdbusy:
 lcd_instruction:
   jsr lcd_wait
   sta PORTB
-  lda #0         ; Clear RS/RW/E bits
+  lda #0                            ; Clear RS/RW/E bits
   sta PORTA
-  lda #E         ; Set E bit to send instruction
+  lda #E                            ; Set E bit to send instruction
   sta PORTA
-  lda #0         ; Clear RS/RW/E bits
+  lda #0                            ; Clear RS/RW/E bits
   sta PORTA
   rts
