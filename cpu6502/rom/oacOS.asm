@@ -38,6 +38,11 @@ loop:
   jmp loop
 
 irg:
+  pha
+  txa
+  pha
+  tya
+  pha
   lda IFR
   and #%00000010                  ; check CA1
   bne break                       ; bne if AND is (true)
@@ -87,15 +92,17 @@ break:
   bit PORTA                       ; read port A (PA) to clear interrupt flag
   jmp WOZMON_PRG_START
 end_irq:  
+  pla
+  tay
+  pla
+  tax
+  pla
   rti
 
 nmi:
   rti
 
 ; Includes must be in Address order
-CHESS_PRG_START  = $f5d7
-
-  ;.include "rom/games/chess.asm"
 
   ; bios must be here to fit in the propert ROM memory space
   .include "rom/bios.asm"

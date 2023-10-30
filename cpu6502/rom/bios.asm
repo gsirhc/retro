@@ -12,6 +12,7 @@
 ;;        fc0c - Set Cursor Position (Y - line, X - col)
 ;;        fc10 - Print new line (CR)
 ;;        fc14 - Cursor Home - Line
+;;        fd00 - Print X (Lo byte), Y (Hi byte) Hex to Decimal ACIA
 ;;    fe00 - feff - OS commands (256 reserved bytes)
 ;;        fe00 - Exit Program (Return to OS)
 ;;        fe03 - Soft Reset System
@@ -59,6 +60,10 @@
 
   .org $fc14
   jsr set_cursor_home_line
+  rts
+
+  .org $fd00
+  jsr print_2byte_x_y_decimal_acia
   rts
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

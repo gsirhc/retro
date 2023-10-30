@@ -9,7 +9,7 @@ reset_acia_no_irq:
   lda #$0b
   sta ACIA_CMD
   lda #$1f
-  sta  ACIA_CTRL
+  sta ACIA_CTRL
   rts
 
 reset_acia_irq:

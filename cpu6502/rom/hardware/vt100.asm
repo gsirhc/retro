@@ -36,7 +36,7 @@ set_cursor_pos:
 set_cursor_home_line:
   pha
   jsr print_leader
-  lda #"f"                ; not sure, part of VT100 spec
+  lda #"H"                ; not sure, part of VT100 spec
   jsr print_char_acia
   pla
   rts

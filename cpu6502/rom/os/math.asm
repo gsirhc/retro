@@ -23,6 +23,13 @@ print_a_hex_lcd:
   pla
   rts
 
+;; X = Lo Byte, Y = Hi Byte
+print_2byte_x_y_decimal_acia:
+  stx DEC_VALUE
+  sty DEC_VALUE + 1
+  jsr print_2byte_decimal_acia
+  rts
+
 ;; Thanks Ben Eater! https://www.youtube.com/watch?v=v3-a-zqKfgA&t=340s&ab_channel=BenEater
 print_2byte_decimal_acia_zero_pad:
   lda DEC_VALUE + 1
