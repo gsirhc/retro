@@ -6,3 +6,13 @@ cpu6502/a.out
 cpu6502/rom.bin
 
 cpu6502/vasm6502_oldstyle
+
+cpu6502/rom/basic/a.out
+
+*.sym
+
+*.o
+
+cpu6502/rom/basic/cc65
+
+*.bin
