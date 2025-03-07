@@ -28,3 +28,7 @@ gall_oac.cfg - memory map
 compiles to ./tmp/gall_oac*
 
 minipro -p AT28C256 -w tmp/gall_oac.bin
+
+Search GALL_OAC for all the customizations and configs
+
+Custom commands in GALL_OAC in tokens.s

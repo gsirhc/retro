@@ -77,6 +77,12 @@
 .ifdef KBD
 		keyword_rts "PRT", PRT
 .endif
+.ifdef GALL_OAC
+		keyword_rts "LCDCLEAR", LCDCLEAR
+		keyword_rts "LCDPRINT", LCDPRINT
+		keyword_rts "WOZMON", DEBUG_WOZ
+.endif
+
 		keyword_rts "NEW", NEW
 
 		count_tokens

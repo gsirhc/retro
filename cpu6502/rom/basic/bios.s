@@ -1,54 +1,28 @@
 .setcpu "65C02"
-.debuginfo                  ; Generates symbol table
+.debuginfo           ; Generates symbol table
 .segment "BIOS"
 
-.include "../hardware/via.asm"
-.include "../hardware/acia.asm"
+.include "commands.s"
 
 RESET:
-  LDA     #$1F           ; 8-N-1, 19200 baud.
-  STA     ACIA_CTRL
-  LDA     #$0B           ; No parity, no echo, no interrupts.
-  STA     ACIA_CMD
-  LDA     #$1B           ; Begin with escape.
-  JMP     COLD_START     ; start BASIC
+    JMP COMMANDS_INIT  ; initialize custom commands
+    JMP COLD_START     ; start BASIC
+    RTS
 
 LOAD:
-    rts
+    RTS
 
 SAVE:
-    rts
+    RTS
 
 MONRDKEY:
 CHRIN:
-    LDA ACIA_STATUS
-    AND #$08
-    BEQ no_key
-    LDA ACIA_DATA
-    CMP #$08           ; Backspace key (ignore)
-    BEQ backspace
-    JSR CHROUT
-    SEC
-    RTS
-no_key:
-    CLC
-    RTS
-backspace:
-    LDA #$08           ; Backspace for the terminal
-    JSR CHROUT
-    LDA #$5F           ; print underscore (basic's "backspace")
-    SEC
+    JSR read_acia
     RTS
 
 MONCOUT:
 CHROUT:
-    PHA
-    STA ACIA_DATA
-    LDA #$FF
-@txdelay:
-    DEC
-    BNE @txdelay
-    PLA
+    JSR write_acia
     RTS
 
 IRQ_HANDLER:
