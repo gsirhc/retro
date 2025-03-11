@@ -5,9 +5,8 @@
 .include "commands.s"
 
 RESET:
-    JMP COMMANDS_INIT  ; initialize custom commands
+    JSR COMMANDS_INIT  ; initialize custom commands
     JMP COLD_START     ; start BASIC
-    RTS
 
 LOAD:
     RTS
