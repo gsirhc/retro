@@ -3,7 +3,6 @@
 .include "vt100.s"
 
 COMMANDS_INIT:
-    JSR reset_acia
     RTS
 
 LCDINIT:
@@ -35,4 +34,27 @@ lcd_print_loop:
 
 DEBUG_WOZ:                 ; defined in token.s
     JMP $FE00              ; wozmon
+    RTS
+
+CLEAR_SCR:
+    JSR clear_terminal
+    RTS
+
+CHECK_KEY_NAV:
+    CMP #$1E
+    BEQ up_arrow
+    CMP #39
+    BEQ right_arrow
+    RTS
+up_arrow:
+    JSR cursor_up
+    LDA #'U'
+    JSR print_char_lcd
+    JMP clear_key
+right_arrow:
+    JSR cursor_right
+    LDA #'R'
+    JSR print_char_lcd
+clear_key:
+    CLC
     RTS

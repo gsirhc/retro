@@ -78,6 +78,7 @@
 		keyword_rts "PRT", PRT
 .endif
 .ifdef GALL_OAC
+		keyword_rts "TERMCLEAR", CLEAR_SCR
 		keyword_rts "LCDCLEAR", LCDCLEAR
 		keyword_rts "LCDPRINT", LCDPRINT
 		keyword_rts "WOZMON", DEBUG_WOZ

@@ -5,7 +5,7 @@
 .include "commands.s"
 
 RESET:
-    JSR COMMANDS_INIT  ; initialize custom commands
+    JSR reset_acia
     JMP COLD_START     ; start BASIC
 
 LOAD:

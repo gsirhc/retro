@@ -125,6 +125,7 @@ COLD_START:
   .endif
   .ifdef GALL_OAC
         jsr     LCDINIT
+        jsr     CLEAR_SCR
   .endif
 .endif
 
