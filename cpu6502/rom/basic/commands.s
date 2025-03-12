@@ -28,7 +28,7 @@ lcd_print_loop:
     RTS
 
 DEBUG_WOZ:                 ; defined in token.s
-    JMP ESCAPE             ; wozmon address
+    JMP START_WOZ          ; wozmon
     RTS
 
 CLEAR_SCR:

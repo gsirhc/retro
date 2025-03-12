@@ -28,6 +28,7 @@ NOTCR:
   INY      ; Advance text index.
   BPL     NEXTCHAR       ; Auto ESC if line longer than 127.
 
+START_WOZ:
 ESCAPE:
   LDA     #$5C           ; "\".
   JSR     ECHO           ; Output it.
@@ -43,12 +44,9 @@ BACKSPACE:      DEY      ; Back up text index.
   BMI     GETLINE        ; Beyond start of line, reinitialize.
 
 NEXTCHAR:
-  LDA     ACIA_STATUS    ; Check status.
-  AND     #$08           ; Key ready?
-  BEQ     NEXTCHAR       ; Loop until ready.
-  LDA     ACIA_DATA      ; Load character. B7 will be '0'.
+  JSR     CHRIN          ; Get character.
+  BCC     NEXTCHAR       ; No character yet.
   STA     WOZMON_BUFFER,Y; Add to text buffer.
-  JSR     ECHO           ; Display character.
   CMP     #$0D           ; CR?
   BNE     NOTCR          ; No.
 

@@ -208,6 +208,7 @@ L4098:
         ldx     #TEMPST
         stx     TEMPPT
 .ifndef CONFIG_CBM_ALL
+.ifndef GALL_OAC
         lda     #<QT_MEMORY_SIZE
         ldy     #>QT_MEMORY_SIZE
         jsr     STROUT
@@ -227,6 +228,7 @@ L4098:
   .endif
         tay
         bne     L40EE
+.endif
 .endif
 .ifndef CBM2
         lda     #<RAMSTART2
@@ -303,6 +305,7 @@ L40FA:
 .endif
 L4106:
 .ifndef CONFIG_CBM_ALL
+.ifndef GALL_OAC
   .ifdef APPLE
         lda     #$FF
         jmp     L2829
@@ -343,6 +346,7 @@ L4129:
         clc
         adc     Z17
         sta     Z18
+.endif
 .endif
 L4136:
 .ifdef CONFIG_RAM
@@ -403,6 +407,10 @@ L4192:
         ldy     TXTTAB+1
         jsr     REASON
 .ifdef CBM2
+        lda     #<QT_BASIC
+        ldy     #>QT_BASIC
+        jsr     STROUT
+.elseif .def(GALL_OAC)
         lda     #<QT_BASIC
         ldy     #>QT_BASIC
         jsr     STROUT
@@ -485,6 +493,8 @@ QT_BYTES_FREE:
         .byte   CR,0
   .elseif .def(APPLE)
         .byte   0
+  .elseif .def(GALL_OAC)
+        .byte   CR,LF,0
   .else
         .byte   CR,LF,CR,LF
   .endif
@@ -517,6 +527,10 @@ QT_BASIC:
         .byte   LF,CR,LF
 		.byte	"APPLE BASIC V1.1"
   .endif
+  .ifdef GALL_OAC
+        .byte    "*** OAC 6502 BASIC - BY CHRIS GALL ***"  
+        .byte   CR,CR 
+  .endif
   .ifndef CONFIG_CBM_ALL
         .byte   CR,LF
     .ifdef MICROTAN
@@ -528,6 +542,9 @@ QT_BASIC:
         .byte   "COPYRIGHT 1978 SYNERTEK SYSTEMS CORP."
     .else
         .byte   "COPYRIGHT 1977 BY MICROSOFT CO."
+        .ifdef GALL_OAC
+            .byte CR,LF
+        .endif
     .endif
         .byte   CR,LF
       .ifndef AIM65

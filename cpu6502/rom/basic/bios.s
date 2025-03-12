@@ -29,6 +29,31 @@ RESET:
     LDA #$1B               ; ACIA: Begin with escape.
     JMP COLD_START         ; start BASIC
 
+BOOT:
+    JSR CLEAR_TERMINAL
+    LDA #<BOOT_MENU
+    LDY #>BOOT_MENU
+    JSR STROUT
+boot_loop:
+    JSR CHRIN
+    BCC boot_loop
+    CMP #'1'
+    BEQ boot_basic
+    CMP #'2'
+    BEQ boot_wozmon
+    JMP BOOT                ; loop until valid input
+boot_basic:
+    JMP COLD_START
+boot_wozmon:
+    JMP START_WOZ
+
+BOOT_MENU:
+    .byte "BOOT TO:"
+    .byte  CR,LF
+    .byte  "1. BASIC",CR,LF
+    .byte  "2. WOZMON",CR,LF
+    .byte  0
+
 LOAD:
     RTS
 
