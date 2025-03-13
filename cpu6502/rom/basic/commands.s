@@ -1,9 +1,5 @@
 .include "via.s"
 
-LCDINIT:
-    JSR reset_via_irq
-    RTS
-
 LCDCLEAR:              ; defined in token.s
     JSR clear_lcd
     RTS
@@ -34,3 +30,6 @@ DEBUG_WOZ:                 ; defined in token.s
 CLEAR_SCR:
     JSR CLEAR_TERMINAL
     RTS
+
+BIOS_BOOT:
+    JMP BOOT
