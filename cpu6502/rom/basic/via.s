@@ -1,8 +1,9 @@
 ;; 65c22 VIA Datasheet: https://eater.net/datasheets/w65c22.pdf 
+;; LCD Datasheet: https://eater.net/datasheets/HD44780.pdf
 
 ;; Timer 1 interval
-TIMER_INT_LO_BYTE = $1e            ; 19998 (4E1E) = 50 hz (with 1mhz CPU) minus 2 cycles for the interrupt)
-TIMER_INT_HI_BYTE = $4e            ; NOTE, if these are changed, change the time subroutines
+TIMER_INT_LO_BYTE = $06            ; 16666 ($4106) = 60.003 hz (with 1mhz CPU), not exact but close enough
+TIMER_INT_HI_BYTE = $41            ; NOTE, if these are changed, change the time subroutines
 
 PORTB = $6000     ; Port B data
 PORTA = $6001     ; Port A data
@@ -45,6 +46,17 @@ reset_via_irq:
   jsr clear_lcd
   rts
 
+disable_via_irq:
+  lda $00
+  sta IER
+  rts
+
+enable_via_irq:
+  lda IER
+  ora #%00000010
+  sta IER
+  rts
+
 print_char_lcd:
   pha
   jsr lcd_wait
@@ -58,12 +70,12 @@ print_char_lcd:
   pla
   rts
 
-cursorLine1:
+cursorLine1_lcd:
   lda #%00000010
   jsr lcd_instruction
   rts
 
-cursorLine2:
+cursorLine2_lcd:
   lda #%11000000                     ; second line
   jsr lcd_instruction
   rts

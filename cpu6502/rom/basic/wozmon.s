@@ -17,7 +17,7 @@ YSAV  = $2A              ; Used to see if hex value is given
 MODE  = $2B              ; $00=XAM, $7F=STOR, $AE=BLOCK XAM
 
 ; Wozmon Input buffer
-; Must be at the end of RAM with appropriate buffer size
+; Must be at the end of RAM with appropriate buffer size, though may run into BASIC RAM
 WOZMON_BUFFER    = $3F37     ; 200 bytes should be enough?? (3FFF - C8)
 
 NOTCR:
