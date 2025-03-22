@@ -23,7 +23,7 @@ RS = %00100000
 reset_via_irq:
   lda #%11111111                    ; Set all pins on port B to output
   sta DDRB
-  lda #%11100000                    ; Set top 3 pins on port A to output for LCD, other bits available for input
+  lda #%11100001                    ; Set input/output for port A
   sta DDRA
   
   lda #%01000000                    ; Free Run mode Timer 1 (continuous interrupts)
@@ -44,6 +44,7 @@ reset_via_irq:
   lda #%00000110                    ; Increment and shift cursor; don't shift display
   jsr lcd_instruction
   jsr clear_lcd
+  
   rts
 
 disable_via_irq:

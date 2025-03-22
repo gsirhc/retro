@@ -121,55 +121,55 @@ NUMBERED_LINE:
         jsr     PARSE_INPUT_LINE
         sty     EOLPNTR
 .ifdef KBD
-        jsr     FNDLIN2
-        lda     JMPADRS+1
-        sta     LOWTR
-        sta     Z96
-        lda     JMPADRS+2
-        sta     LOWTR+1
-        sta     Z96+1
-        lda     LINNUM
-        sta     L06FE
-        lda     LINNUM+1
-        sta     L06FE+1
-        inc     LINNUM
-        bne     LE2D2
-        inc     LINNUM+1
-        bne     LE2D2
-        jmp     SYNERR
-LE2D2:
-        jsr     LF457
-        ldx     #Z96
-        jsr     CMPJMPADRS
-        bcs     LE2FD
-LE2DC:
-        ldx     #$00
-        lda     (JMPADRS+1,x)
-        sta     (Z96,x)
-        inc     JMPADRS+1
-        bne     LE2E8
-        inc     JMPADRS+2
-LE2E8:
-        inc     Z96
-        bne     LE2EE
-        inc     Z96+1
-LE2EE:
-        ldx     #VARTAB
-        jsr     CMPJMPADRS
-        bne     LE2DC
-        lda     Z96
-        sta     VARTAB
-        lda     Z96+1
-        sta     VARTAB+1
-LE2FD:
-        jsr     SETPTRS
-        jsr     LE33D
-        lda     INPUTBUFFER
-LE306:
-        beq     LE28E
-        cmp     #$A5
-        beq     LE306
-        clc
+;         jsr     FNDLIN2
+;         lda     JMPADRS+1
+;         sta     LOWTR
+;         sta     Z96
+;         lda     JMPADRS+2
+;         sta     LOWTR+1
+;         sta     Z96+1
+;         lda     LINNUM
+;         sta     L06FE
+;         lda     LINNUM+1
+;         sta     L06FE+1
+;         inc     LINNUM
+;         bne     LE2D2
+;         inc     LINNUM+1
+;         bne     LE2D2
+;         jmp     SYNERR
+; LE2D2:
+;         jsr     LF457
+;         ldx     #Z96
+;         jsr     CMPJMPADRS
+;         bcs     LE2FD
+; LE2DC:
+;         ldx     #$00
+;         lda     (JMPADRS+1,x)
+;         sta     (Z96,x)
+;         inc     JMPADRS+1
+;         bne     LE2E8
+;         inc     JMPADRS+2
+; LE2E8:
+;         inc     Z96
+;         bne     LE2EE
+;         inc     Z96+1
+; LE2EE:
+;         ldx     #VARTAB
+;         jsr     CMPJMPADRS
+;         bne     LE2DC
+;         lda     Z96
+;         sta     VARTAB
+;         lda     Z96+1
+;         sta     VARTAB+1
+; LE2FD:
+;         jsr     SETPTRS
+;         jsr     LE33D
+;         lda     INPUTBUFFER
+; LE306:
+;         beq     LE28E
+;         cmp     #$A5
+;         beq     LE306
+;         clc
 .else
         jsr     FNDLIN
         bcc     PUT_NEW_LINE
@@ -262,6 +262,9 @@ L23E6:
         sta     (LOWTR),y
         dey
         bpl     L23E6
+; .ifdef GALL_OAC
+;         rts
+; .endif
 
 ; ----------------------------------------------------------------------------
 ; CLEAR ALL VARIABLES

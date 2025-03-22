@@ -16,3 +16,5 @@ cpu6502/rom/basic/a.out
 cpu6502/rom/basic/cc65
 
 *.bin
+
+cpu6502/old/rom/

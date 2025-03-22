@@ -30,7 +30,7 @@ ACIA_CTRL = $5003
 RESET:
     LDA READ_PTR           ; init buffer pointers
     STA WRITE_PTR
-    LDA #0
+    lda #$00
     STA JIFFIES
     STA UP_MINUTES
     STA UP_SECONDS
@@ -41,7 +41,7 @@ RESET:
     LDA #$89               ; ACIA: No parity, no echo, interrupts.
     STA ACIA_CMD
     LDA #$1B               ; ACIA: Begin with escape.
-    ;JMP COLD_START         ; start BASIC
+    ;JMP COLD_START         ; init VIA and start BASIC
     JSR reset_via_irq
 
 BOOT:
@@ -67,6 +67,10 @@ boot_loop:
     BEQ boot_wozmon
     CMP #'3'
     BEQ boot_clock
+    CMP #'4'
+    BEQ boot_sei
+    CMP #'5'
+    BEQ boot_cli
     CMP #'C'
     BEQ ggeretsae
     JMP BOOT                ; loop until valid input
@@ -114,6 +118,12 @@ boot_clock_loop:
     jsr CHLL
     jsr CHLL
     jmp BOOT
+boot_sei:
+    sei
+    jmp BOOT
+boot_cli:
+    cli
+    jmp BOOT
 ggeretsae:
     jsr CLEAR_TERMINAL
     lda #<ST_GGERETSAE_MSG_1
@@ -125,35 +135,69 @@ ggeretsae:
     jmp boot_no_clear
 
 LOAD:
-    rts
+;     ldy #0
+;     sty WRITE_PTR
+;     sty READ_PTR
+; @loop:
+;     lda PRG_10_PRINT_HELLO,y
+;     beq @done                 ; $00 is string terminator
+;     jsr CHROUT
+;     sta SERIAL_BUFFER,y
+;     inc WRITE_PTR
+;     iny
+;     cmp #0
+;     cmp #$0D
+;     bne @loop
+;     jsr L2351
+;     ;jsr GETLN
+;     ;jsr NUMBERED_LINE
+;     ;jmp @loop
+; @done:
+    jmp FIX_LINKS
 
 SAVE:
+    ; lda TXTPTR
+    ; jsr print_a_hex_lcd
+    ; lda TXTPTR+1
+    ; jsr print_a_hex_lcd
+    ; lda #' '
+    ; jsr print_char_lcd
+    ; lda #<TXTPTR
+    ; jsr print_a_hex_lcd
+    ; lda #>TXTPTR+1
+    ; jsr print_a_hex_lcd
     rts
 
 MONRDKEY:
 CHRIN:
-    PHX
-    JSR BUFFER_SIZE
-    BEQ buffer_empty
-    JSR READ_BUFFER
-    CMP #$08           ; Backspace key (ignore)
-    BEQ backspace
-    JSR FORCE_UPPER    ; REQUIRE upper-case for basic (and everything else)
-    JSR CHROUT
-    SEC
-    PLX
-    RTS
-backspace:
-    LDA #$08           ; Backspace for the terminal
-    JSR CHROUT
-    LDA #$5F           ; send underscore to basic for its backspace (don't echo)
-    SEC
-    PLX
-    RTS
-buffer_empty:
-    CLC
-    PLX
-    RTS
+    phx
+    jsr BUFFER_SIZE
+    beq @buffer_empty
+    cmp #$B0 
+    bcs @buffer_mostly_full
+    pha
+    lda #$09
+    sta ACIA_CMD
+    pla
+@buffer_mostly_full:
+    jsr READ_BUFFER
+    cmp #$08           ; Backspace key (ignore)
+    beq @backspace
+    jsr FORCE_UPPER    ; REQUIRE upper-case for basic (and everything else)
+    jsr CHROUT    
+    sec
+    jmp @done
+@backspace:
+    lda #$08           ; Backspace for the terminal
+    jsr CHROUT
+    lda #$5F           ; send underscore to basic for its backspace (don't echo)
+    sec
+    jmp @done
+@buffer_empty:
+    clc
+@done:
+    plx
+    rts
 
 FORCE_UPPER:
     cmp #$61
@@ -258,9 +302,14 @@ ST_BOOT_MENU:
     .byte  "1. BASIC",CR,LF
     .byte  "2. WOZMON",CR,LF
     .byte  "3. CLOCK",CR,LF
+    .byte  CR,LF
+    .byte "UTILITIES:"
+    .byte  CR,LF
+    .byte  "4. STOP IRQ",CR,LF
+    .byte  "5. START IRQ",CR,LF
     .byte  0
 ST_CLOCK_RUNNING:
-    .byte "RUNNING CLOCK.  ANY KEY TO EXIT TO BOOT MENU",0
+    .byte "LCD CLOCK RUNNING.  ANY KEY TO EXIT TO BOOT MENU",0
 
           ;1234567890123456   LCD WIDTH
 ST_LCD_LINE_CLR:
@@ -290,16 +339,27 @@ ST_GGERETSAE_MSG_2:
 
 ;.incbin "../programs/oregon_trail.bas"
 
+NMI_HANDLER:
+    pha
+    phx
+    lda ACIA_STATUS                     
+    and #$08
+    beq @done                  
+    lda ACIA_DATA
+    jsr WRITE_BUFFER
+    jsr BUFFER_SIZE
+    cmp #$F0                        ; head room for full buffer
+    bcc @done
+    lda #$01                        ; set RS223 RTS to stop sending
+    sta ACIA_CMD
+@done:
+    plx
+    pla
+    rti
+
 IRQ_HANDLER:
     PHA     
-    PHX                        
-    LDA ACIA_STATUS                 
-    AND #$08                        
-    BEQ @via
-    LDA ACIA_DATA
-    JSR WRITE_BUFFER
-    JMP @done
-@via:                            
+    PHX                                                    
     bit T1CL                        ; read timer lo byte to clear timer interrupt
     inc JIFFIES                     
     lda JIFFIES
@@ -332,6 +392,6 @@ IRQ_HANDLER:
 .include "wozmon.s"
 
 .segment "RESETVEC"
-    .word   $0F00           ; NMI vector
+    .word   NMI_HANDLER     ; NMI vector
     .word   RESET           ; RESET vector (wozmon.s)
     .word   IRQ_HANDLER     ; IRQ vector
