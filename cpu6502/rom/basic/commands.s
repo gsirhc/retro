@@ -23,13 +23,9 @@ lcd_print_loop:
     rts
     RTS
 
-DEBUG_WOZ:                 ; defined in token.s
-    JMP START_WOZ          ; wozmon
-    RTS
-
 CLEAR_SCR:
     JSR CLEAR_TERMINAL
     RTS
 
-BIOS_BOOT:
+RETURN_BOOT:
     JMP BOOT

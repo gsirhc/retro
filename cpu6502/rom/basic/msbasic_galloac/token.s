@@ -81,7 +81,8 @@
 		keyword_rts "TERMCLEAR", CLEAR_SCR
 		keyword_rts "LCDCLEAR", LCDCLEAR
 		keyword_rts "LCDPRINT", LCDPRINT
-		keyword_rts "WOZMON", DEBUG_WOZ
+		keyword_rts "HOME", RETURN_BOOT
+		;; MF takes a dump if you add more commands, shit fuck and dammit
 .endif
 
 		keyword_rts "NEW", NEW
