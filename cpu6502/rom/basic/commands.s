@@ -23,9 +23,25 @@ lcd_print_loop:
     rts
     RTS
 
+OAC_CMD:
+    rts
+
+OAC_SYS:
+    rts
+
 CLEAR_SCR:
     JSR CLEAR_TERMINAL
     RTS
 
 RETURN_BOOT:
     JMP BOOT
+
+EDIT_PATCH:
+    jsr LIST
+    rts
+
+PRINT_HELP:
+    lda #<ST_BASIC_HELP_MSG
+    ldy #>ST_BASIC_HELP_MSG
+    jsr STROUT
+    rts

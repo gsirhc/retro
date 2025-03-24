@@ -1,0 +1,1 @@
+0 PRINT CHR$(47+(INT(RND(1)+.5)*45));:GOTO

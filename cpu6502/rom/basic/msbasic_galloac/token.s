@@ -78,10 +78,12 @@
 		keyword_rts "PRT", PRT
 .endif
 .ifdef GALL_OAC
-		keyword_rts "TERMCLEAR", CLEAR_SCR
-		keyword_rts "LCDCLEAR", LCDCLEAR
-		keyword_rts "LCDPRINT", LCDPRINT
+		keyword_rts "CLS", CLEAR_SCR
+		keyword_rts "CMD", OAC_CMD
 		keyword_rts "HOME", RETURN_BOOT
+		keyword_rts "HELP", PRINT_HELP
+		keyword_rts "SYS", OAC_SYS
+		keyword_rts "EDIT", EDIT_PATCH
 		;; MF takes a dump if you add more commands, shit fuck and dammit
 .endif
 

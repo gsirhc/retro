@@ -337,6 +337,16 @@ ST_GGERETSAE_MSG_2:
     .byte "4F 41 43 3D 4F 4C 44 20 41 53 53 20 43 4F 4D 50 55 54 45 52", CR, LF, CR, LF
     .byte  0
 
+ST_BASIC_HELP_MSG:
+    .byte "BASIC OAC COMMANDS:", CR, LF
+    .byte "    CLS: CLEAR TERMINAL", CR, LF
+    .byte "   HOME: RETURN BOOT MENU", CR, LF
+    .byte "    SYS: EXECUTE (JMP) <Decimal Addr>", CR, LF
+    .byte "    CMD: EXECUTE OAC CMD:", CR, LF
+    .byte "       LCDPRINT <STRING>", CR, LF
+    .byte "       LCDCLEAR", CR, LF
+    .byte 0
+
 ;.incbin "../programs/oregon_trail.bas"
 
 NMI_HANDLER:
