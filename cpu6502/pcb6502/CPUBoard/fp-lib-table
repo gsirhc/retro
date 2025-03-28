@@ -1,0 +1,4 @@
+(fp_lib_table
+  (version 7)
+  (lib (name "Retro")(type "KiCad")(uri "/Users/CGall/code/retro/cpu6502")(options "")(descr ""))
+)

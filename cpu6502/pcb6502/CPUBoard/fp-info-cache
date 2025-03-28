@@ -1,4 +1,4 @@
-24196456720940298
+24199942511431653
 Audio_Module
 Reverb_BTDR-1H
 Digital Reverberation Unit, http://www.belton.co.kr/inc/downfile.php?seq=17&file=pdf (footprint from http://www.uk-electronic.de/PDF/BTDR-1.pdf)
@@ -89725,6 +89725,20 @@ Resistor Radial_Power series Radial pin pitch 7.37mm 10W length 16.1mm width 9mm
 0
 2
 2
+Retro
+DIP-28_600_ZIF_ARIES_28-526-10
+https://www.jameco.com/Jameco/Products/ProdDS/102745.pdf
+
+0
+28
+28
+Retro
+Symbol_Barrel_Polarity
+Barrel connector polarity indicator
+barrel polarity
+0
+0
+0
 Rotary_Encoder
 RotaryEncoder_Alps_EC11E-Switch_Vertical_H20mm
 Alps rotary encoder, EC12E... with switch, vertical shaft, http://www.alps.com/prod/info/E/HTML/Encoder/Incremental/EC11/EC11E15204A3.html
