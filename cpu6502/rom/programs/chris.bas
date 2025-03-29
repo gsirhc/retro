@@ -1,0 +1,6 @@
+10 PRINT"   CCCCC  H    H  RRRRR  III   SSSS"
+20 PRINT"  C       H    H  R   R   I   S" 
+30 PRINT"  C       HHHHHH  RRRR    I    SSSS"
+40 PRINT"  C       H    H  R   R   I        S"
+50 PRINT"  C       H    H  R    R  I        S"
+60 PRINT"   CCCCC  H    H  R    R III   SSSS"
