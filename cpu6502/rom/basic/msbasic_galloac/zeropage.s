@@ -112,7 +112,7 @@ VARPNT:
 FORPNT:
 	.res 2
 LASTOP:
-	.res 2
+	.res 2   ; 50
 CPRTYP:
 	.res 1
 FNCNAM:
@@ -175,7 +175,7 @@ ARG_LAST = ARG + BYTES_FP-1
 ARGSIGN:
 	.res 1
 STRNG1:
-	.res 2
+	.res 2   ; 81
 SGNCPR = STRNG1
 FACEXTENSION = STRNG1+1
 STRNG2:
@@ -192,7 +192,7 @@ USR1:
 USR2:
 	.res 3
 USR3:
-	.res 3
+	.res 3  ; 96 ??
 .endif
 CHRGET:
 TXTPTR = <(GENERIC_TXTPTR-GENERIC_CHRGET + CHRGET)

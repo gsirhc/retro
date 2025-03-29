@@ -79,7 +79,8 @@
 .endif
 .ifdef GALL_OAC
 		keyword_rts "CLS", CLEAR_SCR
-		keyword_rts "CMD", OAC_CMD
+		keyword_rts "LCDPR", LCDPRINT
+		keyword_rts "LCDCL", LCDCLEAR
 		keyword_rts "HOME", RETURN_BOOT
 		keyword_rts "HELP", PRINT_HELP
 		keyword_rts "SYS", OAC_SYS

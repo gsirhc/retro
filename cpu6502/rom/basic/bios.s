@@ -28,6 +28,8 @@ ACIA_CMD = $5002
 ACIA_CTRL = $5003
 
 RESET:
+    jsr CHLL               ; delay for resets?? (doesn't always start properly)
+    jsr CHLL                
     LDA READ_PTR           ; init buffer pointers
     STA WRITE_PTR
     lda #$00
@@ -297,7 +299,7 @@ PRINT_LEADER:
   RTS
 
 ST_BOOT_MENU:
-    .byte "BOOT TO:"
+    .byte "OAC BOOT MENU:"
     .byte  CR,LF
     .byte  "1. BASIC",CR,LF
     .byte  "2. WOZMON",CR,LF
@@ -339,12 +341,11 @@ ST_GGERETSAE_MSG_2:
 
 ST_BASIC_HELP_MSG:
     .byte "BASIC OAC COMMANDS:", CR, LF
-    .byte "    CLS: CLEAR TERMINAL", CR, LF
-    .byte "   HOME: RETURN BOOT MENU", CR, LF
-    .byte "    SYS: EXECUTE (JMP) <Decimal Addr>", CR, LF
-    .byte "    CMD: EXECUTE OAC CMD:", CR, LF
-    .byte "       LCDPRINT <STRING>", CR, LF
-    .byte "       LCDCLEAR", CR, LF
+    .byte "  CLS: CLEAR TERMINAL", CR, LF
+    .byte " HOME: RETURN BOOT MENU", CR, LF
+    .byte "  SYS: EXECUTE (JMP) <Decimal Addr>", CR, LF
+    .byte "LCDPR: PRINT STRING", CR, LF
+    .byte "LCDCL: CLEAR LCD", CR, LF
     .byte 0
 
 ;.incbin "../programs/oregon_trail.bas"

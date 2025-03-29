@@ -92,6 +92,8 @@ INLINAIM:
 L2443:
       .ifdef MICROTAN
         cpx     #$4F
+      .elseif .def(GALL_OAC)
+        cpx     #$50    ; max INPUTBUFFER Length
       .else
         cpx     #$47
       .endif
