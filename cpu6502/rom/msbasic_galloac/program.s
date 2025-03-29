@@ -690,7 +690,7 @@ L2581:
         rts
   .else
         jsr     LINGET
-        bne     L2520
+        bne     L2520           ;line not found ??
   .endif
 L2598:
   .if !(.def(MICROTAN) || .def(AIM65) || .def(SYM1))

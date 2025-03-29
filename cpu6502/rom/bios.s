@@ -43,8 +43,7 @@ RESET:
     LDA #$89               ; ACIA: No parity, no echo, interrupts.
     STA ACIA_CMD
     LDA #$1B               ; ACIA: Begin with escape.
-    ;JMP COLD_START         ; init VIA and start BASIC
-    JSR reset_via_irq
+    jsr reset_via_irq
 
 BOOT:
     JSR CLEAR_TERMINAL
@@ -80,6 +79,7 @@ boot_basic:
     JSR clear_lcd
     JMP COLD_START
 boot_wozmon:
+    jsr CLEAR_TERMINAL
     jsr cursorLine2_lcd
     LDA #<ST_LCD_WOZMON_2
     LDY #>ST_LCD_WOZMON_2
@@ -171,28 +171,36 @@ SAVE:
     rts
 
 MONRDKEY:
-CHRIN:
+CHRIN:                 ; for BASIC
+    jsr READCHAR
+    bcc @nochar
+    cmp #$08           ; Backspace key (ignore)
+    beq @backspace
+    sec
+    jmp @done
+@backspace:
+    lda #$5F           ; send underscore to basic for its backspace (don't echo)
+    sec
+    jmp @done
+@nochar:
+    clc
+@done:
+    rts
+
+READCHAR:               ; For all non-BASIC programs
     phx
     jsr BUFFER_SIZE
     beq @buffer_empty
     cmp #$B0 
     bcs @buffer_mostly_full
     pha
-    lda #$09
+    lda #$09           ; clear RTC/CTS to allow more chars to be sent
     sta ACIA_CMD
     pla
 @buffer_mostly_full:
     jsr READ_BUFFER
-    cmp #$08           ; Backspace key (ignore)
-    beq @backspace
     jsr FORCE_UPPER    ; REQUIRE upper-case for basic (and everything else)
     jsr CHROUT    
-    sec
-    jmp @done
-@backspace:
-    lda #$08           ; Backspace for the terminal
-    jsr CHROUT
-    lda #$5F           ; send underscore to basic for its backspace (don't echo)
     sec
     jmp @done
 @buffer_empty:
@@ -404,5 +412,5 @@ IRQ_HANDLER:
 
 .segment "RESETVEC"
     .word   NMI_HANDLER     ; NMI vector
-    .word   RESET           ; RESET vector (wozmon.s)
+    .word   RESET           ; RESET vector
     .word   IRQ_HANDLER     ; IRQ vector

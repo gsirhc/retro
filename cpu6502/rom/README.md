@@ -3,29 +3,21 @@ COMPILER (BIOS)
 
 https://github.com/cc65/cc65
 make (takes FOREVER!)
+add to path
 
-Generate .o file
-cc65/bin/ld65 bios.s
+Memory addresses in gall_oac.cfg
 
-Generate a.out file with symbols:
-cc65/bin/ld65 -C bios.cfg bios.o -Ln bios.sym
-
-Add memory addresses to bios.cfg
-
-Write to ROM chip:
-minipro -p AT28C256 -w a.out
+To build ROM, run make.sh
 
 
 MS BASIC
 ========
 
-git clone https://github.com/mist64/msbasic.git
-make.sh
+cloned from https://github.com/mist64/msbasic.git
 
-defines_gall_oac.s - memory addresses
-gall_oac.cfg - memory map
+msbasic_galloac/defines_gall_oac.s - Gall OAC BASIC configuration
 
-compiles to ./tmp/gall_oac*
+compiles to msbasic_galloac//tmp/gall_oac*
 
 minipro -p AT28C256 -w tmp/gall_oac.bin
 

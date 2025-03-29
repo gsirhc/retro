@@ -1,8 +1,10 @@
+cd msbasic_galloac
+
 if [ ! -d tmp ]; then
 	mkdir tmp
 fi
 
-for i in gall_oac; do
+$i = gall_oac
 
 echo $i
 ca65 -D $i msbasic.s -o tmp/$i.o &&

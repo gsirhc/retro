@@ -5,6 +5,10 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 .setcpu "65C02"
+
+.segment "WOZMON_BUFFER"
+WOZMON_BUFFER: .res 128  ; Wozmon Input buffer
+
 .segment "WOZMON"
 
 XAML  = $24              ; Last "opened" location Low
@@ -16,10 +20,7 @@ H     = $29              ; Hex value parsing High
 YSAV  = $2A              ; Used to see if hex value is given
 MODE  = $2B              ; $00=XAM, $7F=STOR, $AE=BLOCK XAM
 
-; Wozmon Input buffer
-; Must be at the end of RAM with appropriate buffer size, though may run into BASIC RAM
-WOZMON_BUFFER    = $3F37     ; 200 bytes should be enough?? (3FFF - C8)
-
+START_WOZ:
 NOTCR:
   CMP     #$08           ; Backspace key?
   BEQ     BACKSPACE      ; Yes.
@@ -28,7 +29,6 @@ NOTCR:
   INY      ; Advance text index.
   BPL     NEXTCHAR       ; Auto ESC if line longer than 127.
 
-START_WOZ:
 ESCAPE:
   LDA     #$5C           ; "\".
   JSR     ECHO           ; Output it.
@@ -44,7 +44,7 @@ BACKSPACE:      DEY      ; Back up text index.
   BMI     GETLINE        ; Beyond start of line, reinitialize.
 
 NEXTCHAR:
-  JSR     CHRIN          ; Get character.
+  JSR     READCHAR       ; Get character.
   BCC     NEXTCHAR       ; No character yet.
   STA     WOZMON_BUFFER,Y; Add to text buffer.
   CMP     #$0D           ; CR?
@@ -181,11 +181,7 @@ PRHEX:
 
 ECHO:
   PHA                    ; Save A.
-  STA     ACIA_DATA      ; Output character.
-  LDX     #$FF           ; Initialize delay loop.
-TXDELAY:        
-  DEX                    ; Decrement A.
-  BNE     TXDELAY        ; Until A gets to 0.
+  JSR     CHROUT         ; Output character.
   PLA                    ; Restore A.
   RTS                    ; Return.
 
