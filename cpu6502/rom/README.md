@@ -23,4 +23,4 @@ minipro -p AT28C256 -w tmp/gall_oac.bin
 
 Search GALL_OAC for all the customizations and configs
 
-Custom commands in GALL_OAC in tokens.s
+Custom commands for GALL_OAC in tokens.s

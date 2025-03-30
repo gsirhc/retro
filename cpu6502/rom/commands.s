@@ -21,10 +21,6 @@ lcd_print_loop:
     dex
     bne lcd_print_loop
     rts
-    RTS
-
-OAC_CMD:
-    rts
 
 OAC_SYS:
     rts
@@ -37,7 +33,15 @@ RETURN_BOOT:
     JMP BOOT
 
 EDIT_PATCH:
-    jsr LIST
+    ;jsr LIST
+    jsr LINGET
+    jsr FNDLIN
+@loop:
+    jsr CHRGET
+    bcs @done
+    jsr CHROUT
+    jmp @loop
+@done:
     rts
 
 PRINT_HELP:

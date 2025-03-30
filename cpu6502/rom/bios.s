@@ -21,6 +21,8 @@ SERIAL_BUFFER:  .res $100
 
 .include "commands.s"
 .include "format.s"
+.include "vterm.s"
+.include "load.s"
 
 ACIA_DATA = $5000
 ACIA_STATUS = $5001
@@ -136,27 +138,6 @@ ggeretsae:
     jsr STROUT
     jmp boot_no_clear
 
-LOAD:
-;     ldy #0
-;     sty WRITE_PTR
-;     sty READ_PTR
-; @loop:
-;     lda PRG_10_PRINT_HELLO,y
-;     beq @done                 ; $00 is string terminator
-;     jsr CHROUT
-;     sta SERIAL_BUFFER,y
-;     inc WRITE_PTR
-;     iny
-;     cmp #0
-;     cmp #$0D
-;     bne @loop
-;     jsr L2351
-;     ;jsr GETLN
-;     ;jsr NUMBERED_LINE
-;     ;jmp @loop
-; @done:
-    jmp FIX_LINKS
-
 SAVE:
     ; lda TXTPTR
     ; jsr print_a_hex_lcd
@@ -199,8 +180,8 @@ READCHAR:               ; For all non-BASIC programs
     pla
 @buffer_mostly_full:
     jsr READ_BUFFER
-    jsr FORCE_UPPER    ; REQUIRE upper-case for basic (and everything else)
-    jsr CHROUT    
+    jsr CHROUT  
+    jsr FORCE_UPPER    ; REQUIRE upper-case for basic (and everything else)  
     sec
     jmp @done
 @buffer_empty:
@@ -279,32 +260,6 @@ CHLL:
     dec
     bne @loop
     rts
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-;; VT100 commands, see http://www.braun-home.net/michael/info/misc/VT100_commands.htm
-;;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-CLEAR_TERMINAL:
-  PHA
-  JSR PRINT_LEADER
-  LDA #'2'
-  JSR CHROUT
-  LDA #'J'              
-  JSR CHROUT
-  JSR PRINT_LEADER
-  LDA #'f'              ; reset cursor to "home" (top-left of screen)
-  JSR CHROUT
-  PLA
-  RTS
-
-PRINT_LEADER:
-  LDA #$1B              ; ESC
-  JSR CHROUT
-  LDA #'['
-  JSR CHROUT
-  RTS
 
 ST_BOOT_MENU:
     .byte "OAC BOOT MENU:"
