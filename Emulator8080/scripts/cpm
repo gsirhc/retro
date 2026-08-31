@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Build the CP/M host and run a diagnostic .COM (default cpm/TST8080.COM).
+#   ./scripts/cpm                 -> runs cpm/TST8080.COM
+#   ./scripts/cpm cpm/8080EXM.COM -> runs that image
+set -euo pipefail
+cd "$(dirname "$0")/.."
+make --no-print-directory cpm/cpm_host
+exec ./cpm/cpm_host "${1:-cpm/TST8080.COM}"

@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ALTAIR 8800 - 8080 Microcomputer</title>
+
+<link rel="stylesheet" href="vendor/xterm.css">
+
+<style>
+  @font-face {
+    font-family: "VT323";
+    src: url("vendor/fonts/vt323.woff2") format("woff2");
+    font-display: swap;
+  }
+  @font-face {
+    font-family: "Courier Prime";
+    src: url("vendor/fonts/courierprime-400.woff2") format("woff2");
+    font-weight: 400; font-display: swap;
+  }
+  @font-face {
+    font-family: "Courier Prime";
+    src: url("vendor/fonts/courierprime-700.woff2") format("woff2");
+    font-weight: 700; font-display: swap;
+  }
+
+  /* ---- page themes: default = Windows; [data-theme=web94] = '94 gray web ---- */
+  :root {
+    --desktop:   #008080;             /* the one true desktop color */
+    --page-bg:   #c0c0c0;
+    --page-max:  880px;
+    --page-border: 3px outset #dfdfdf;
+    --body-pad:  18px 12px;
+    --titlebar-display: flex;
+    --rule:      2px groove #ffffff;
+    --h1-font:   900 36px "Arial Black", Arial, sans-serif;
+    --h1-color:  #000080;
+    --h1-shadow: 2px 2px 0 #808080, 3px 3px 0 #6b6b6b;
+    --h1-align:  center;
+    --center:    center;
+  }
+  :root[data-theme="web94"] {
+    --desktop:   #c0c0c0;             /* ubiquitous Mosaic / Netscape 1.x gray */
+    --page-bg:   #c0c0c0;
+    --page-max:  880px;              /* same as Windows, so the panel fits */
+    --page-border: none;
+    --body-pad:  10px 14px;
+    --titlebar-display: none;
+    --rule:      1px solid #9090c4;
+    --h1-font:   bold 26px "Times New Roman", Times, serif;
+    --h1-color:  #1a1a1a;
+    --h1-shadow: none;
+    --h1-align:  left;
+    --center:    left;
+  }
+
+  body {
+    background: var(--desktop);
+    color: #000000;
+    font-family: "Times New Roman", Times, Georgia, serif;
+    margin: 0;
+    padding: var(--body-pad);
+  }
+  a        { color: #0000ee; }
+  a:visited{ color: #551a8b; }
+
+  .page {
+    max-width: var(--page-max);
+    margin: 0 auto;
+    background: var(--page-bg);
+    border: var(--page-border);
+  }
+
+  /* Win 3.1 / 95 title bar ------------------------------------------ */
+  .titlebar {
+    background: linear-gradient(90deg, #000080, #1084d0);
+    color: #ffffff;
+    font: bold 13px Arial, Helvetica, sans-serif;
+    padding: 3px 5px;
+    display: var(--titlebar-display);
+    justify-content: space-between;
+    align-items: center;
+  }
+  .titlebar .btns span {
+    display: inline-block;
+    width: 16px; height: 14px; line-height: 12px;
+    margin-left: 2px;
+    text-align: center;
+    font-size: 10px;
+    color: #000;
+    background: #c0c0c0;
+    border: 1px outset #dfdfdf;
+  }
+
+  .inner { padding: 14px 22px 22px; }
+
+  h1 {
+    margin: 4px 0 0;
+    text-align: var(--h1-align);
+    font: var(--h1-font);
+    letter-spacing: 1px;
+    color: var(--h1-color);
+    text-shadow: var(--h1-shadow);
+  }
+  .tagline { text-align: var(--center); font-style: italic; margin: 2px 0 0; }
+
+  hr.rule { border: 0; border-top: var(--rule); margin: 12px 0; }
+
+  /* toolbar -------------------------------------------------------- */
+  .toolbar {
+    margin-top: 10px;
+    padding: 7px;
+    background: #c0c0c0;
+    border: 2px outset #dfdfdf;
+    font: 12px Arial, Helvetica, sans-serif;
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  /* terminal control strip sits directly on top of the monitor */
+  .term-bar { margin-bottom: 0; border-bottom-width: 1px; }
+  .term-bar + .monitor { margin-top: 0; border-top-left-radius: 4px; border-top-right-radius: 4px; }
+  button, label.filebtn {
+    font: 12px Arial, Helvetica, sans-serif;
+    color: #000;
+    background: #c0c0c0;
+    border: 2px outset #dfdfdf;
+    padding: 2px 10px;
+    cursor: pointer;
+  }
+  button:active, label.filebtn:active { border-style: inset; }
+  .toolbar select {
+    font: 12px Arial, Helvetica, sans-serif;
+    background: #fff; border: 2px inset #808080; padding: 1px 2px;
+  }
+  .toolbar label:has(input:disabled) { opacity: .45; }
+  input[type=file] { display: none; }
+  input[type=text] {
+    font-family: "Courier New", monospace;
+    width: 72px;
+    padding: 2px 4px;
+    background: #ffffff;
+    border: 2px inset #808080;
+  }
+
+  /* the CRT --------------------------------------------------------- */
+  .monitor {
+    margin: 16px auto 0;
+    padding: 16px 16px 8px;
+    background: #b7b0a0;
+    border: 6px outset #cfc8b8;
+    border-radius: 16px;
+    box-shadow: 5px 5px 0 #005f5f;
+  }
+  .bezel {
+    position: relative;
+    background: #000; border: 3px inset #2a2a2a; padding: 6px;
+    transition: background .2s;
+  }
+  #screen { height: 420px; background: transparent; }
+  #screen .xterm { height: 100%; }
+  #screen .xterm-rows { text-shadow: 0 0 var(--glow, 0px) currentColor; }
+
+  /* CRT / phosphor overlays ------------------------------------- */
+  .crt-overlay {
+    position: absolute; inset: 6px; pointer-events: none; z-index: 6;
+    mix-blend-mode: multiply;
+  }
+  .bezel.crt-none .crt-overlay,
+  .bezel.crt-off .crt-overlay { display: none; }
+  .bezel.crt-scan .crt-overlay, .bezel.crt-scanheavy .crt-overlay {
+    background: repeating-linear-gradient(0deg,
+      rgba(0,0,0,.16) 0 1px, rgba(0,0,0,0) 1px 3px);
+    box-shadow: inset 0 0 90px rgba(0,0,0,.55);
+    animation: crt-flicker 7s infinite steps(70);
+  }
+  .bezel.crt-scanheavy .crt-overlay {
+    background: repeating-linear-gradient(0deg,
+      rgba(0,0,0,.32) 0 1px, rgba(0,0,0,0) 1px 2px);
+  }
+  @keyframes crt-flicker { 0%,96%,100% { opacity: 1 } 97% { opacity: .93 } 98% { opacity: 1 } }
+  .bezel.crt-paper { background: #d8d0bb; }
+  .bezel.crt-paper .crt-overlay {
+    background: repeating-linear-gradient(0deg,
+      rgba(90,80,60,.05) 0 2px, rgba(0,0,0,0) 2px 5px);
+    box-shadow: inset 0 0 46px rgba(120,108,84,.4);
+  }
+  .bell-flash { filter: brightness(2.4) contrast(1.2); }
+  .monitor .brand {
+    margin-top: 8px;
+    text-align: center;
+    font: 11px Arial, Helvetica, sans-serif;
+    letter-spacing: 4px;
+    color: #4a4436;
+    text-shadow: 1px 1px 0 #d8d0c0;
+  }
+
+  .statusbar {
+    margin-top: 12px;
+    padding: 4px 8px;
+    background: #000000;
+    color: #00ff66;
+    font: 12px "Courier New", monospace;
+    border: 2px inset #808080;
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  #regs { white-space: pre; }
+
+  /* footer -------------------------------------------------------- */
+  .footer { margin-top: 14px; text-align: center; font-size: 12px; }
+
+  /* Load Program dialog ---------------------------------------------- */
+  .modal {
+    position: fixed; inset: 0; z-index: 100;
+    background: rgba(0, 0, 64, 0.35);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .modal[hidden] { display: none; }
+  .dialog {
+    width: 470px; max-width: calc(100vw - 24px);
+    background: #c0c0c0;
+    border: 3px outset #dfdfdf;
+    font-family: Arial, Helvetica, sans-serif;
+    box-shadow: 4px 4px 0 rgba(0, 0, 0, 0.4);
+  }
+  .dialog .titlebar .btns span { cursor: pointer; }
+  .dialog-body { padding: 12px 14px 14px; font-size: 12px; }
+  .dialog-body p { margin: 0 0 6px; }
+  .dialog select {
+    width: 100%;
+    font: 12px "Courier New", monospace;
+    background: #ffffff;
+    border: 2px inset #808080;
+  }
+  .dialog select option:disabled { color: #808080; }
+  .desc {
+    min-height: 42px;
+    margin: 6px 0 !important;
+    padding: 6px;
+    background: #ffffe1;
+    border: 1px solid #808080;
+    font-size: 11px;
+  }
+  #romFileName { font-size: 11px; font-style: italic; margin-left: 6px; }
+  .dialog .addrs { margin-top: 8px; }
+  .dialog .addrs input { width: 68px; }
+  .dialog-buttons { margin-top: 12px; text-align: right; }
+  .dialog-buttons button { min-width: 76px; margin-left: 6px; }
+
+  /* Altair 8800 front panel ---------------------------------------- */
+  .altair {
+    --col: 27px;            /* one bit column */
+    --ggap: 13px;           /* gap between octal groups */
+    --lead: 92px;           /* left margin (status / WAIT-HLDA / power) */
+    background: #050505;    /* the dark room behind the machine */
+    padding: 16px;
+    overflow-x: auto;
+  }
+  /* powder-blue painted case with a beveled front frame */
+  .fp-case {
+    min-width: 700px;
+    background: linear-gradient(#8ea9be, #6f8da6);
+    border-radius: 4px;
+    padding: 18px;
+    box-shadow:
+      inset 0 0 0 2px #9fb8cb,
+      inset 0 0 0 6px #5c7690,
+      inset 0 3px 10px rgba(255,255,255,.35),
+      0 10px 24px rgba(0,0,0,.6);
+    position: relative;
+  }
+  /* corner screws */
+  .fp-case::before, .fp-case::after,
+  .fp-face::before, .fp-face::after {
+    content: ""; position: absolute; width: 7px; height: 7px; border-radius: 50%;
+    background: radial-gradient(circle at 35% 35%, #e8eef2, #7c8b98 60%, #4a5560);
+    box-shadow: 0 1px 1px rgba(0,0,0,.5);
+  }
+  .fp-case::before { left: 7px; top: 7px; }
+  .fp-case::after  { right: 7px; top: 7px; }
+  .fp-face::before { left: 7px; bottom: 7px; }
+  .fp-face::after  { right: 7px; bottom: 7px; }
+
+  /* dark charcoal instrument panel */
+  .fp-face {
+    position: relative;
+    background:
+      radial-gradient(120% 120% at 50% 0%, #3a3a3a, #262626 70%);
+    border: 2px solid #1c1c1c;
+    border-radius: 3px;
+    box-shadow: inset 0 2px 8px rgba(0,0,0,.7);
+    padding: 22px 20px 10px;
+  }
+
+  /* one column template drives the LED grid and the switch grid, so every
+     data LED / address LED / switch in a given bit sits in the same column */
+  .fp-cols {
+    display: grid;
+    grid-template-columns:
+      var(--lead)
+      var(--ggap) var(--col)
+      var(--ggap) var(--col) var(--col) var(--col)
+      var(--ggap) var(--col) var(--col) var(--col)
+      var(--ggap) var(--col) var(--col) var(--col)
+      var(--ggap) var(--col) var(--col) var(--col)
+      var(--ggap) var(--col) var(--col) var(--col);
+    justify-content: start;
+    align-items: end;
+  }
+  .fp-cell {
+    display: flex; flex-direction: column; align-items: center;
+    min-width: 0;
+  }
+  .fp-cap {
+    font: 8px/1.2 Arial, Helvetica, sans-serif;
+    letter-spacing: .3px;
+    color: #d7d7d7;
+    text-align: center;
+    height: 11px;
+    margin-bottom: 5px;
+    white-space: nowrap;
+  }
+  .fp-num {                        /* the 15..0 under the switches */
+    font: 9px Arial, sans-serif; color: #333; margin-top: 5px;
+  }
+
+  .led {
+    width: 9px; height: 9px; border-radius: 50%;
+    background: radial-gradient(circle at 40% 35%, #6b1414, #360a0a);
+    box-shadow: 0 0 0 1px #1c1c1c, inset 0 0 2px #000;
+  }
+  .led.on {
+    background: radial-gradient(circle at 40% 35%, #ff8a7a, #e12b1c 55%, #a01c12);
+    box-shadow: 0 0 7px 2px rgba(232, 52, 42, .8), 0 0 0 1px #401010;
+  }
+
+  .fp-leds { row-gap: 13px; padding-bottom: 4px; }
+  .fp-status { grid-row: 1; grid-column: 1 / 12; }
+  .fp-status .fp-statusleds {
+    display: flex; justify-content: space-around; padding: 0 4px;
+  }
+  .fp-status .fp-cell { flex: 1; }
+  .fp-statuslabel {
+    text-align: center; color: #cfcfcf;
+    font: 8px Arial, sans-serif; letter-spacing: 3px;
+    border-top: 1px solid #6a6a6a;
+    margin: 4px 18% 0;
+    padding-top: 2px;
+  }
+  .fp-wh, .fp-power { grid-column: 1 / 4; }
+  .fp-wh { grid-row: 2; display: flex; gap: 14px; padding-left: 2px; }
+  .fp-power { grid-row: 1; display: flex; align-items: flex-end; padding-left: 2px; }
+
+  /* silver switch-mount rail */
+  .fp-switches {
+    position: relative;
+    background: linear-gradient(#cfcfcf, #a2a2a2 48%, #bcbcbc);
+    border-top: 1px solid #e2e2e2;
+    border-bottom: 1px solid #6f6f6f;
+    margin: 12px -20px 0;
+    padding: 18px 20px 10px;
+  }
+  .fp-tag {
+    position: absolute; color: #2b2b2b;
+    font: 8px Arial, Helvetica, sans-serif; letter-spacing: 1px;
+    pointer-events: none;
+  }
+  .fp-tag.sense { left: 8px; top: 3px; }
+  .fp-tag.data  { right: 6px; bottom: 9px; text-align: right; line-height: 1.15; }
+  .fp-switches .fp-cap { color: #333; height: auto; margin-bottom: 5px; }
+
+  /* bat-handle toggle */
+  .bat {
+    position: relative; width: 20px; height: 34px; cursor: pointer;
+  }
+  .bat::before {                     /* the chrome bushing / mounting collar */
+    content: ""; position: absolute; left: 50%; top: 50%;
+    width: 13px; height: 13px; transform: translate(-50%, -50%);
+    border-radius: 50%;
+    background: radial-gradient(circle at 50% 34%, #8f8f8f, #4c4c4c 46%, #1e1e1e 82%);
+    box-shadow: 0 1px 1px rgba(0,0,0,.65), inset 0 -1px 2px rgba(0,0,0,.55),
+                inset 0 1px 1px rgba(255,255,255,.2);
+  }
+  .bat::after {                      /* the lever — points UP by default */
+    content: ""; position: absolute; left: 50%;
+    width: 8px; height: 18px; transform: translateX(-50%);
+    background: linear-gradient(180deg, #fdfdff, #dcdce1 52%, #a6a6ad 100%);
+    box-shadow: 0 1px 2px rgba(0,0,0,.45), inset 0 1px 0 #fff,
+                inset -1px 0 1px rgba(0,0,0,.12);
+    border-radius: 4px 4px 2px 2px;
+    bottom: 16px;
+    transition: bottom .07s ease, top .07s ease;
+  }
+  .bat.down::after {                 /* lever DOWN */
+    bottom: auto; top: 16px;
+    border-radius: 2px 2px 4px 4px;
+  }
+  .bat.momentary::after { bottom: 9px; height: 16px; }   /* paddles rest centred */
+  .bat.momentary.flick::after    { bottom: 17px; }
+  .bat.momentary.flick-dn::after { bottom: auto; top: 17px; }
+
+  .fp-power .fp-cap { color: #333; }
+  .fp-power .fp-num { color: #333; margin-top: 4px; }
+
+  /* control paddle row (not per-bit aligned) */
+  .fp-ctl {
+    display: flex; align-items: flex-start;
+    padding-left: var(--lead); margin-top: 6px; gap: 4px;
+  }
+  .fp-ctl .fp-cell { width: calc(var(--col) * 2.4); }
+  .fp-ctl .fp-cap { height: auto; margin: 0; }
+  .fp-ctl .fp-cap.up b { color: #a81d12; font-weight: 700; }
+  .fp-ctl .fp-cap.dn { color: #333; margin-top: 3px; }
+  .fp-ctl .bat { margin: 3px auto; }
+
+  /* bottom brushed-aluminium badge */
+  .fp-badge {
+    margin: 12px -20px -10px;
+    padding: 8px 16px;
+    background:
+      repeating-linear-gradient(90deg, #cfcfcf 0 2px, #c4c4c4 2px 4px),
+      linear-gradient(#d8d8d8, #b8b8b8);
+    border-top: 1px solid #e6e6e6;
+    display: flex; align-items: center; gap: 14px;
+  }
+  .fp-badge .mits {
+    font: italic 700 15px Georgia, "Times New Roman", serif;
+    color: #2f5c93;
+    border-bottom: 2px solid #2f5c93;
+    padding: 0 4px 1px; line-height: 1;
+  }
+  .fp-badge .name {
+    font: 900 22px "Arial Black", Arial, sans-serif;
+    color: #1a1a1a; letter-spacing: 1px;
+  }
+  .fp-badge .name .lite {
+    color: #6a6a6a;
+    -webkit-text-stroke: 1px #6a6a6a; -webkit-text-fill-color: transparent;
+  }
+
+  .altair .hint {
+    margin-top: 10px; color: #8fa7bb;
+    font: 10px "Courier New", monospace;
+  }
+
+  /* paper-tape bootstrap guide ------------------------------------- */
+  .dialog .method { margin-top: 8px; }
+  .dialog .method label { white-space: nowrap; }
+
+  .tape-guide {
+    margin-top: 10px;
+    background: #05100a;
+    border: 2px inset #0a1f14;
+    color: #4bd07a;
+    font: 12px/1.4 "Courier New", monospace;
+    padding: 10px 12px;
+  }
+  .tape-guide .tg-head {
+    color: #8affb9; letter-spacing: 1px; margin-bottom: 6px;
+  }
+  .tape-guide .tg-head span { color: #3c8f5c; letter-spacing: 0; }
+  .tape-guide .tg-msg { min-height: 16px; color: #cfe9d9; margin-bottom: 6px; }
+  .tape-guide .tg-msg.err { color: #ff8a6a; }
+
+  .tape-guide .tg-list {
+    list-style: none; margin: 0; padding: 0;
+    max-height: 168px; overflow-y: auto;
+    border: 1px solid #123; background: #030a06;
+  }
+  .tape-guide .tg-list li {
+    padding: 2px 8px; white-space: pre; color: #2f7a4c;
+  }
+  .tape-guide .tg-list li.done { color: #1f5136; }
+  .tape-guide .tg-list li.done::before { content: "\2713 "; }
+  .tape-guide .tg-list li:not(.done)::before { content: "  "; }
+  .tape-guide .tg-list li.now {
+    background: #0d3b23; color: #b6ffce; font-weight: 700;
+  }
+  .tape-guide .tg-list li.now::before { content: "\25B8 "; }
+
+  .tape-guide .tg-actions { margin-top: 8px; }
+  .tape-guide .tg-actions button {
+    font: 11px "Courier New", monospace;
+    background: #0d3b23; color: #b6ffce;
+    border: 1px solid #1c6b42; padding: 3px 10px; cursor: pointer;
+    margin-right: 6px;
+  }
+  .tape-guide .tg-actions button:hover { background: #14512f; }
+
+  .tape-guide.loading { border-color: #1c6b42; }
+  .tape-guide .tg-barwrap {
+    height: 16px; background: #030a06; border: 1px solid #1c6b42;
+    margin: 8px 0 6px; overflow: hidden;
+  }
+  .tape-guide .tg-bar {
+    height: 100%; width: 0;
+    background: repeating-linear-gradient(90deg, #2fae63 0 8px, #23964f 8px 16px);
+    transition: width .1s linear;
+  }
+  .tape-guide .tg-stat { color: #cfe9d9; }
+</style>
+</head>
+<body>
+<script>try{document.documentElement.dataset.theme=localStorage.getItem("retro8080.theme")||"win";}catch(e){}</script>
+
+<div class="page">
+  <div class="titlebar">
+    <span>&#9635; ALTAIR8800.EXE &mdash; [8080 Microcomputer Terminal]</span>
+    <span class="btns"><span>_</span><span>&#9633;</span><span>&times;</span></span>
+  </div>
+
+  <div class="inner">
+    <h1>ALTAIR 8800</h1>
+    <p class="tagline">~ * ~ &nbsp;An Intel 8080 Microcomputer, Live In Your Web Browser!&nbsp; ~ * ~</p>
+
+    <hr class="rule">
+
+    <div class="toolbar">
+      <b>CONTROLS:</b>
+      <button id="loadBtn">Load Program...</button>
+      <button id="reset">RESET</button>
+      <label>Theme:
+        <select id="pageTheme">
+          <option value="win">Windows</option>
+          <option value="web94">1994 Web</option>
+        </select>
+      </label>
+    </div>
+
+    <div id="altair" class="altair"><!-- front panel is built by app.js --></div>
+
+    <div id="tape-guide" class="tape-guide" hidden><!-- built by app.js --></div>
+
+    <hr class="rule">
+
+    <div class="toolbar term-bar">
+      <b>TERMINAL:</b>
+      <label>
+        <select id="termProfile">
+          <option value="modern">Modern (xterm)</option>
+          <option value="vt100g">DEC VT100 &middot; green</option>
+          <option value="vt100a">DEC VT100 &middot; amber</option>
+          <option value="vt52">DEC VT52</option>
+          <option value="adm3a">Lear Siegler ADM-3A</option>
+          <option value="glasstty">Glass TTY</option>
+          <option value="tty33">Teletype ASR-33</option>
+        </select>
+      </label>
+      <label><input type="checkbox" id="crt" checked>&nbsp;CRT</label>
+      <label><input type="checkbox" id="caps" checked>&nbsp;CAPS LOCK</label>
+      <label><input type="checkbox" id="crlf" checked>&nbsp;CR &rarr; CR/LF</label>
+    </div>
+
+    <div class="monitor">
+      <div class="bezel crt-scan">
+        <div id="screen"></div>
+        <div class="crt-overlay"></div>
+      </div>
+      <div class="brand">M I C R O S Y S T E M S &nbsp;&nbsp; MODEL 8080</div>
+    </div>
+
+    <div class="statusbar">
+      <span id="regs">booting...</span>
+      <span>[ ON&nbsp;AIR ]</span>
+    </div>
+
+    <hr class="rule">
+
+    <div class="footer">
+      <p><i>Last built <span id="buildDate">&hellip;</span></i></p>
+    </div>
+  </div>
+</div>
+
+<div id="romDialog" class="modal" hidden>
+  <div class="dialog">
+    <div class="titlebar">
+      <span>&#9635; Load Program</span>
+      <span class="btns"><span id="romClose">&times;</span></span>
+    </div>
+    <div class="dialog-body">
+      <p><b>Built-in programs</b> &mdash; served from <tt>roms/</tt> :</p>
+      <select id="romList" size="6"><option disabled>loading catalog...</option></select>
+      <p id="romDesc" class="desc">&nbsp;</p>
+
+      <hr class="rule">
+
+      <p><b>...or load a binary from disk:</b></p>
+      <label class="filebtn">Choose File...<input type="file" id="romFile"></label>
+      <span id="romFileName">no file selected</span>
+
+      <p class="addrs">
+        Load address: <input type="text" id="romAddr" value="0x0000">
+        &nbsp;&nbsp; Start&nbsp;(PC): <input type="text" id="romStart" value="0x0000">
+      </p>
+
+      <p class="method">Load via:
+        <label><input type="radio" name="loadmethod" value="instant" checked>&nbsp;memory (instant)</label>
+        &nbsp;
+        <label><input type="radio" name="loadmethod" value="tape">&nbsp;paper tape</label>
+      </p>
+
+      <div class="dialog-buttons">
+        <button id="romLoad">Load</button>
+        <button id="romCancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="vendor/xterm.js"></script>
+<script src="vendor/xterm-addon-fit.js"></script>
+<script src="retro8080.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

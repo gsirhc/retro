@@ -18,3 +18,10 @@ cpu6502/rom/basic/cc65
 *.bin
 
 cpu6502/old/rom/
+
+Emulator8080/emu8080
+Emulator8080/tests/build/
+Emulator8080/web/retro8080.js
+Emulator8080/web/retro8080.wasm
+Emulator8080/cpm/cpm_host
+Emulator8080/cpm/*.COM

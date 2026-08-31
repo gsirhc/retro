@@ -1,0 +1,27 @@
+{
+  "roms": [
+    {
+      "name": "Serial echo",
+      "file": "echo.bin",
+      "load": "0x0000",
+      "start": "0x0000",
+      "description": "Echoes every byte received on 2SIO channel A. Identical to the core's built-in default ROM."
+    },
+    {
+      "name": "Hello, world",
+      "file": "hello.bin",
+      "load": "0x0000",
+      "start": "0x0000",
+      "description": "Prints a greeting to 2SIO channel A, then halts. Watch the register bar stop at HALT."
+    },
+    {
+      "name": "Altair 8K ROM BASIC",
+      "files": ["8kBas_e0.bin", "8kBas_e8.bin", "8kBas_f0.bin", "8kBas_f8.bin"],
+      "load": "0xE000",
+      "start": "0xE000",
+      "sense": "0x00",
+      "optional": true,
+      "description": "Mike Douglas's ROM build of Microsoft 8K BASIC 4.0 for the 88-2SIO (10h/11h). Entry at E000h relocates BASIC to 0000h and runs it - no sense switches. Not bundled: put the four 8kBas_*.bin files from deramp.com in web/roms/ (see roms/README.md)."
+    }
+  ]
+}

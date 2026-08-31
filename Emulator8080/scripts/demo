@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Build and run the native serial-echo demo. No arguments.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+exec make demo
