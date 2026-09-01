@@ -15,6 +15,23 @@
       "description": "Prints a greeting to 2SIO channel A, then halts. Watch the register bar stop at HALT."
     },
     {
+      "name": "Kill the Bit",
+      "file": "killbits.bin",
+      "load": "0x0000",
+      "start": "0x0000",
+      "description": "Dean McDaniel, MITS, 1975. A lit bit sweeps across the A8-A15 address lamps; flip the matching sense switch (top row, A8-A15) to knock it out. Clear the board and it stops. The classic front-panel game."
+    },
+    {
+      "name": "Altair 4K BASIC",
+      "file": "4kbas.bin",
+      "load": "0x0000",
+      "start": "0x0000",
+      "sense": "0x00",
+      "optional": true,
+      "basic4k": true,
+      "description": "Microsoft 4K BASIC 1.x for the Altair - the software that made the machine. Not bundled: put a flat 4kbas.bin (deramp.com has the images) in web/roms/. On boot: MEMORY SIZE? (Enter), then the OK prompt."
+    },
+    {
       "name": "Altair 8K ROM BASIC",
       "files": ["8kBas_e0.bin", "8kBas_e8.bin", "8kBas_f0.bin", "8kBas_f8.bin"],
       "load": "0xE000",

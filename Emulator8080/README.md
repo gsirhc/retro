@@ -25,6 +25,7 @@ Run from this directory — no arguments, `package.json`-style:
 |---|---|
 | `i8080.{h,cpp}` | the CPU core — registers, flags, `step()` decoder, `Bus` callbacks |
 | `serial2sio.{h,cpp}` / `ringbuffer.h` | 88-2SIO board, ring-buffered RX/TX on ports `0x10`–`0x13` |
+| `cassette.{h,cpp}` | MITS 88-ACR audio-cassette interface, ports `0x06`/`0x07` (BASIC `CSAVE`/`CLOAD`) |
 | `disk88.{h,cpp}` | MITS 88-DCDD 8-inch floppy controller, ports `0x08`–`0x0A` |
 | `disk_bootrom.h` | the 256-byte MITS disk bootstrap PROM (entry `0xFF00`) |
 | `main.cpp` | native harness: 64K RAM + board, runs an echo program |

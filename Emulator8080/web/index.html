@@ -669,6 +669,7 @@
     padding: 14px 16px 16px;
     overflow-x: auto;
   }
+  .dcdd.empty { display: none; }
   .dcdd-case {
     min-width: 700px;
     background: linear-gradient(#39424d, #262c34);
@@ -772,6 +773,102 @@
   .disk-note { color: #555; font-size: 10px; margin-top: 8px; }
   :root[data-theme="modern"] .disk-note { color: #6b7280; }
 
+  /* preset bar --------------------------------------------------- */
+  .preset-bar select { max-width: 100%; }
+  .preset-note { color: #a03; font: 11px Arial, sans-serif; }
+  :root[data-theme="modern"] .preset-note { color: #b4232f; }
+  :root[data-theme="web94"] .preset-note { color: #800; }
+
+  /* S-100 expansion-card strip --------------------------------- */
+  .backplane {
+    background: var(--altair-bg);
+    border-radius: var(--altair-radius);
+    margin-top: 10px;
+    padding: 12px 14px 8px;
+    overflow-x: auto;
+  }
+  .backplane.empty { display: none; }
+  .bp-rail {
+    min-width: 640px;
+    background: linear-gradient(#0b2a17, #08331d);
+    border: 1px solid #062012; border-radius: 3px;
+    padding: 10px 12px 0;
+    display: flex; gap: 6px; align-items: flex-end;
+    box-shadow: inset 0 8px 14px rgba(0,0,0,.5);
+  }
+  .bp-card {
+    flex: 1; min-width: 92px; height: 78px;
+    background: linear-gradient(#1f6b3d, #14562f);
+    border: 1px solid #0c3a1f; border-radius: 2px 2px 0 0;
+    position: relative;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.06), 0 2px 4px rgba(0,0,0,.4);
+    color: #cfeede; font: 9px/1.25 Arial, Helvetica, sans-serif;
+    padding: 6px 6px 12px; text-align: center;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .bp-card::after {                         /* the gold card-edge fingers */
+    content: ""; position: absolute; left: 6px; right: 6px; bottom: 0; height: 8px;
+    background: repeating-linear-gradient(90deg, #d9b64a 0 4px, #14562f 4px 7px);
+    border-radius: 0 0 1px 1px;
+  }
+  .bp-card b { color: #fff; }
+  .bp-hint { color: #8b97a3; font: 10px "Courier New", monospace; margin-top: 8px; }
+
+  /* 88-ACR cassette deck -------------------------------------- */
+  .acr { background: var(--altair-bg); border-radius: var(--altair-radius);
+         margin-top: 10px; padding: 14px 16px 16px; overflow-x: auto; }
+  .acr.empty { display: none; }
+  .acr-case {
+    min-width: 480px;
+    background: linear-gradient(#39424d, #262c34);
+    border-radius: 4px; padding: 12px 16px;
+    box-shadow: inset 0 0 0 2px #4c5763, inset 0 0 0 5px #1c2127,
+                0 8px 20px rgba(0,0,0,.5);
+    color: #c7ced6; font: 10px Arial, Helvetica, sans-serif;
+  }
+  .acr-top { display: flex; align-items: baseline; justify-content: space-between;
+             letter-spacing: 2px; margin-bottom: 10px; }
+  .acr-top .acr-plate { font-weight: 700; color: #e7edf3; }
+  .acr-top .acr-plate span { color: #8b97a3; font-weight: 400; letter-spacing: 1px; }
+  .acr-body { display: grid; grid-template-columns: 1fr auto; gap: 14px; align-items: center; }
+  .acr-window {
+    height: 40px; border-radius: 2px; position: relative; cursor: pointer;
+    background: linear-gradient(#161616, #2a2a2a 50%, #161616);
+    box-shadow: inset 0 0 0 1px #000, inset 0 2px 5px rgba(0,0,0,.8);
+  }
+  .acr.loaded .acr-window { background: linear-gradient(#3a2f1c, #4a3c24 50%, #3a2f1c); }
+  .acr .acr-window::before {                /* two hubs */
+    content: ""; position: absolute; left: 22%; top: 50%; width: 12px; height: 12px;
+    margin-top: -6px; border-radius: 50%; background: #0c0c0c;
+    box-shadow: 84px 0 0 #0c0c0c, inset 0 0 0 2px #333;
+  }
+  .acr.loaded .acr-window::after {
+    content: attr(data-label);
+    position: absolute; left: 3px; right: 3px; bottom: -10px; height: 15px;
+    background: linear-gradient(#2b2b2b, #1c1c1c); border: 1px solid #000;
+    color: #b7b0a0; font: 8px "Courier New", monospace; line-height: 15px;
+    text-align: center; overflow: hidden; white-space: nowrap;
+  }
+  .acr-ctl { display: flex; align-items: center; gap: 8px; }
+  .acr-lamp { width: 8px; height: 8px; border-radius: 50%;
+    background: radial-gradient(circle at 40% 35%, #5a1414, #250606 65%);
+    box-shadow: inset 0 0 2px rgba(0,0,0,.8), 0 0 0 1px rgba(0,0,0,.5); }
+  .acr-lamp.play { background: radial-gradient(circle at 40% 35%, #b6ffce, #2fae63 50%, #14512f);
+    box-shadow: 0 0 5px 1px rgba(60,220,120,.7), 0 0 0 1px #0a2a15; }
+  .acr-lamp.rec { background: radial-gradient(circle at 40% 35%, #ffd8c8, #ff4d2e 45%, #b81c0e);
+    box-shadow: 0 0 5px 1px rgba(255,70,40,.8), 0 0 0 1px #4a0f08; }
+  .acr-btn {
+    font: 9px Arial, sans-serif; padding: 3px 8px; cursor: pointer;
+    background: #d8d2c0; border: 1px solid #7a7358; border-radius: 2px; color: #2b2b28;
+  }
+  .acr-btn:hover { background: #e6e0cf; }
+  .acr-btn.hidden { display: none; }
+  .acr-btn.acr-save { background: #f0d98a; border-color: #a8912f; color: #3a2f0a; }
+  .acr-counter { font: 11px "Courier New", monospace; color: #7fd9a6;
+    background: #04140b; border: 1px solid #0a2a15; border-radius: 2px;
+    padding: 2px 6px; min-width: 46px; text-align: center; }
+  .acr-hint { color: #8b97a3; font: 10px "Courier New", monospace; margin-top: 10px; }
+
   .dialog.dialog-wide { width: 560px; }
   .help-doc { max-height: 62vh; overflow-y: auto; padding-right: 4px; }
   .help-doc h4 {
@@ -862,9 +959,22 @@
     <h1>ALTAIR 8800</h1>
     <p class="tagline retro-only">~ * ~ &nbsp;An Intel 8080 Microcomputer running entirely in your browser!&nbsp; ~ * ~</p>
     <p class="tagline modern-only">The MITS Altair 8800, running entirely in your browser.</p>
-    <p class="spec modern-only">Cycle-accurate Intel&nbsp;8080 &middot; 2&nbsp;MHz &middot; 64&nbsp;KB RAM &middot; MITS&nbsp;88-2SIO serial board &middot; MITS&nbsp;88-DCDD floppy controller &middot; boots CP/M&nbsp;2.2 &middot; compiled to WebAssembly &middot; working front panel &middot; selectable 1970s terminals</p>
+    <p class="spec modern-only">Cycle-accurate Intel&nbsp;8080 &middot; 2&nbsp;MHz &middot; 4&ndash;64&nbsp;KB RAM &middot; 88-2SIO serial &middot; 88-ACR cassette &middot; 88-DCDD floppy + CP/M&nbsp;2.2 &middot; era-preset configurations &middot; compiled to WebAssembly &middot; working front panel &middot; selectable 1970s terminals</p>
 
     <hr class="rule">
+
+    <div class="toolbar preset-bar">
+      <b>PRESET:</b>
+      <select id="preset">
+        <option value="">&mdash; custom &mdash;</option>
+        <option value="baremetal">1 &middot; Bare-Metal Toggle &middot; 1975 &middot; 4K &middot; front panel</option>
+        <option value="stock">2 &middot; Stock Launch &middot; 1975 &middot; 4K &middot; Teletype &middot; 4K BASIC</option>
+        <option value="cassette">3 &middot; Cassette Hobbyist &middot; 1976 &middot; 32K &middot; terminal + tape &middot; 8K BASIC + Star Trek</option>
+        <option value="cpm">6 &middot; CP/M Workstation &middot; 1978 &middot; 64K &middot; VT100 + floppy &middot; CP/M</option>
+      </select>
+      <label title="also load and start the preset's key software"><input type="checkbox" id="autoload" checked>&nbsp;Auto-load software</label>
+      <span id="presetNote" class="preset-note"></span>
+    </div>
 
     <div class="toolbar">
       <b>CONTROLS:</b>
@@ -882,7 +992,11 @@
 
     <div id="altair" class="altair"><!-- front panel is built by app.js --></div>
 
+    <div id="backplane" class="backplane"><!-- S-100 expansion cards, built by app.js --></div>
+
     <div id="dcdd" class="dcdd"><!-- 88-DCDD disk drive cabinet, built by app.js --></div>
+
+    <div id="acr" class="acr"><!-- 88-ACR cassette deck, built by app.js --></div>
 
     <div id="tape-guide" class="tape-guide" hidden><!-- built by app.js --></div>
 
@@ -1000,6 +1114,35 @@
     <div class="dialog-body">
       <div id="diskHelpBody" class="help-doc"></div>
       <div class="dialog-buttons"><button id="diskHelpOk">Close</button></div>
+    </div>
+  </div>
+</div>
+
+<div id="tapeDialog" class="modal" hidden>
+  <div class="dialog">
+    <div class="titlebar">
+      <span>&#9635; Load Cassette</span>
+      <span class="btns"><span id="tapeClose">&times;</span></span>
+    </div>
+    <div class="dialog-body">
+      <p><b>Cassette library</b> &mdash; served from <tt>tapes/</tt> :</p>
+      <select id="tapeList" size="4"><option disabled>loading catalog...</option></select>
+      <p id="tapeDesc" class="desc">&nbsp;</p>
+
+      <hr class="rule">
+
+      <p><b>...or load a <tt>.cas</tt> file you saved earlier:</b></p>
+      <label class="filebtn">Choose File...<input type="file" id="tapeFile" accept=".cas,.CAS,.bin"></label>
+      <span id="tapeFileName">no file selected</span>
+
+      <p class="disk-note">In BASIC: <tt>CSAVE"X"</tt> records the current program,
+        <tt>CLOAD"X"</tt> plays it back. Rewind between the two (or just re-load
+        the file).</p>
+
+      <div class="dialog-buttons">
+        <button id="tapeInsert">Insert</button>
+        <button id="tapeCancel">Cancel</button>
+      </div>
     </div>
   </div>
 </div>

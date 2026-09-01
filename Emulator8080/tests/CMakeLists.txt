@@ -30,6 +30,15 @@ target_include_directories(disk88_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/..)
 target_link_libraries(disk88_test PRIVATE GTest::gtest_main)
 target_compile_options(disk88_test PRIVATE -Wall -Wextra)
 
+add_executable(cassette_test
+  cassette_test.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/../cassette.cpp
+)
+target_include_directories(cassette_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/..)
+target_link_libraries(cassette_test PRIVATE GTest::gtest_main)
+target_compile_options(cassette_test PRIVATE -Wall -Wextra)
+
 include(GoogleTest)
 gtest_discover_tests(arithmetic_test)
 gtest_discover_tests(disk88_test)
+gtest_discover_tests(cassette_test)

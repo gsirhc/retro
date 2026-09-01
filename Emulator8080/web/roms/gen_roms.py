@@ -55,7 +55,23 @@ HELLO = [
     0x76,
 ] + list(MSG)
 
+# ---------------------------------------------------------------------------
+# killbits.bin — "Kill the Bit", Dean McDaniel, MITS, 1975. A bit sweeps across
+# the A8..A15 address lamps; flip the matching sense switch to knock it out.
+# Freely published; the canonical 24-byte listing.
+#   0000 LXI H,0 / MVI D,80h / LXI B,000Eh
+#   0008 LDAX D x4 / DAD B / JNC 0008h        (speed delay + accumulate)
+#   0010 IN 0FFh / XRA D / RRC / MOV D,A      (mix in the switches, rotate)
+#   0016 JMP 0008h
+# ---------------------------------------------------------------------------
+KILLBITS = [
+    0x21, 0x00, 0x00, 0x16, 0x80, 0x01, 0x0E, 0x00,
+    0x1A, 0x1A, 0x1A, 0x1A, 0x09, 0xD2, 0x08, 0x00,
+    0xDB, 0xFF, 0xAA, 0x0F, 0x57, 0xC3, 0x08, 0x00,
+]
+
 if __name__ == "__main__":
     print("generating built-in ROMs:")
     write("echo.bin", ECHO)
     write("hello.bin", HELLO)
+    write("killbits.bin", KILLBITS)

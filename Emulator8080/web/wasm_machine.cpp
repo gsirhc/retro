@@ -22,6 +22,7 @@
 #include "../serial2sio.h"
 #include "../disk88.h"
 #include "../disk_bootrom.h"
+#include "../cassette.h"
 
 using emscripten::val;
 
@@ -51,16 +52,21 @@ public:
     // Wipe RAM and re-seed the built-in echo program.
     void reset() {
         mem_.fill(0);
+        rom_lo_ = 0x10000; rom_hi_ = 0;
         load_default_rom();
         sio_.reset();
         disk_.reset();
+        cassette_.reset();
         cpu_.reset();
     }
 
     // Clear RAM without seeding anything (call before loadBytes for a real ROM).
-    void clearMemory() { mem_.fill(0); }
+    void clearMemory() { mem_.fill(0); rom_lo_ = 0x10000; rom_hi_ = 0; }
 
-    // Copy bytes from a JS Uint8Array (or array) into memory at `addr`.
+    // Copy bytes from a JS Uint8Array (or array) into memory at `addr`. Bytes
+    // that land above the current RAM ceiling become the read-only ROM window
+    // (the 0xE000 BASIC image, a boot PROM) so a small-RAM machine can still
+    // run them.
     void loadBytes(val bytes, int addr) {
         const unsigned len = bytes["length"].as<unsigned>();
         for (unsigned i = 0; i < len; ++i) {
@@ -68,11 +74,25 @@ public:
             if (a >= mem_.size()) break;
             mem_[a] = bytes[i].as<uint8_t>();
         }
+        const unsigned end = static_cast<unsigned>(addr) + (len ? len - 1 : 0);
+        if (static_cast<unsigned>(addr) >= ram_top_ && len) {
+            rom_lo_ = static_cast<unsigned>(addr);
+            rom_hi_ = end < mem_.size() ? end : mem_.size() - 1;
+        }
     }
+
+    // Contiguous RAM from 0 (the Altair way). 4..64 KB.
+    void setRam(int kb) {
+        if (kb < 1) kb = 1;
+        if (kb > 64) kb = 64;
+        ram_top_ = static_cast<unsigned>(kb) * 1024;
+    }
+    int ramKb() const { return static_cast<int>(ram_top_ / 1024); }
 
     void reboot() {
         sio_.reset();
         disk_.reset();
+        cassette_.reset();
         cpu_.reset();
     }
 
@@ -115,9 +135,37 @@ public:
         mem_.fill(0);
         for (int i = 0; i < 256; ++i)
             mem_[altair::kDiskBootAddr + i] = altair::kDiskBootRom[i];
+        rom_lo_ = altair::kDiskBootAddr;
+        rom_hi_ = altair::kDiskBootAddr + 255;
         sio_.reset();
         cpu_.reset();
         cpu_.pc = altair::kDiskBootAddr;
+    }
+
+    // ---- 88-ACR cassette --------------------------------------------
+    void mountTape(val bytes) {
+        std::vector<uint8_t> d = emscripten::convertJSArrayToNumberVector<uint8_t>(bytes);
+        cassette_.mount(d.data(), d.size());
+    }
+    void ejectTape()            { cassette_.eject(); }
+    void rewindTape()           { cassette_.rewind(); }
+    bool tapeLoaded()     const { return cassette_.loaded(); }
+    bool tapeDirty()      const { return cassette_.dirty(); }
+    void clearTapeDirty()       { cassette_.clearDirty(); }
+    val tapeImage() {
+        const std::vector<uint8_t> &d = cassette_.data();
+        val out = val::global("Uint8Array").new_(d.size());
+        if (!d.empty())
+            out.call<void>("set", val(emscripten::typed_memory_view(d.size(), d.data())));
+        return out;
+    }
+    val tapeStatus() const {
+        val o = val::object();
+        o.set("mode", static_cast<int>(cassette_.mode()));   // 0 idle, 1 play, 2 rec
+        o.set("pos",  static_cast<double>(cassette_.pos()));
+        o.set("len",  static_cast<double>(cassette_.len()));
+        o.set("io",   static_cast<double>(cassette_.ioTicks()));
+        return o;
     }
 
     // Point the program counter at a program's entry (call after loadBytes +
@@ -158,6 +206,7 @@ public:
     void writeByte(int addr, int v)  { mem_[addr & 0xFFFF] = static_cast<uint8_t>(v & 0xFF); }
 
     bool   halted()      const { return cpu_.halted; }
+    int    lastAddr()    const { return last_addr_; }   // last address on the bus
     double cycleCount()   const { return static_cast<double>(cpu_.cycles); }
     unsigned rxPending()  const { return static_cast<unsigned>(sio_.rx_pending()); }
     unsigned txPending()  const { return static_cast<unsigned>(sio_.tx_pending()); }
@@ -178,17 +227,24 @@ public:
 private:
     i8080::Bus make_bus() {
         i8080::Bus bus;
-        bus.read  = [this](uint16_t a)            { return mem_[a]; };
-        bus.write = [this](uint16_t a, uint8_t v) { mem_[a] = v; };
+        bus.read  = [this](uint16_t a) -> uint8_t {
+            last_addr_ = a;
+            if (a < ram_top_)                return mem_[a];
+            if (a >= rom_lo_ && a <= rom_hi_) return mem_[a];
+            return 0xFF;                            // unpopulated: floating high
+        };
+        bus.write = [this](uint16_t a, uint8_t v) { last_addr_ = a; if (a < ram_top_) mem_[a] = v; };
         bus.in    = [this](uint8_t port) -> uint8_t {
-            if (sio_.owns(port))  return sio_.in(port);
-            if (disk_.owns(port)) return disk_.in(port);
-            if (port == 0xFF)     return sense_;   // Altair front-panel sense switches
-            return 0xFF;                           // unmapped port: floating bus
+            if (sio_.owns(port))      return sio_.in(port);
+            if (disk_.owns(port))     return disk_.in(port);
+            if (cassette_.owns(port)) return cassette_.in(port);
+            if (port == 0xFF)         return sense_;   // Altair front-panel sense switches
+            return 0xFF;                               // unmapped port: floating bus
         };
         bus.out   = [this](uint8_t port, uint8_t v) {
-            if (sio_.owns(port))  { sio_.out(port, v);  return; }
-            if (disk_.owns(port)) { disk_.out(port, v); return; }
+            if (sio_.owns(port))      { sio_.out(port, v);      return; }
+            if (disk_.owns(port))     { disk_.out(port, v);     return; }
+            if (cassette_.owns(port)) { cassette_.out(port, v); return; }
         };
         return bus;
     }
@@ -200,8 +256,13 @@ private:
     // Declaration order matters: mem_ and sio_ are built before cpu_, whose
     // constructor calls make_bus() and captures them.
     std::array<uint8_t, 0x10000> mem_{};
+    unsigned                      ram_top_ = 0x10000;   // contiguous RAM from 0
+    unsigned                      rom_lo_  = 0x10000;    // read-only window above RAM
+    unsigned                      rom_hi_  = 0;
+    uint16_t                      last_addr_ = 0;
     altair::Serial2SIO            sio_{0x10};
     altair::Disk88               disk_;
+    altair::CassetteACR          cassette_;
     uint8_t                       sense_ = 0x00;  // 0 => console on the 2SIO
     i8080::Cpu                    cpu_;
 };
@@ -219,6 +280,16 @@ EMSCRIPTEN_BINDINGS(retro8080) {
         .function("clearDiskDirty", &Machine::clearDiskDirty)
         .function("diskImage",   &Machine::diskImage)
         .function("diskStatus",  &Machine::diskStatus)
+        .function("setRam",      &Machine::setRam)
+        .function("ramKb",       &Machine::ramKb)
+        .function("mountTape",   &Machine::mountTape)
+        .function("ejectTape",   &Machine::ejectTape)
+        .function("rewindTape",  &Machine::rewindTape)
+        .function("tapeLoaded",  &Machine::tapeLoaded)
+        .function("tapeDirty",   &Machine::tapeDirty)
+        .function("clearTapeDirty", &Machine::clearTapeDirty)
+        .function("tapeImage",   &Machine::tapeImage)
+        .function("tapeStatus",  &Machine::tapeStatus)
         .function("clearMemory", &Machine::clearMemory)
         .function("loadBytes",   &Machine::loadBytes)
         .function("setPC",       &Machine::setPC)
@@ -230,6 +301,7 @@ EMSCRIPTEN_BINDINGS(retro8080) {
         .function("readByte",    &Machine::readByte)
         .function("writeByte",   &Machine::writeByte)
         .function("halted",      &Machine::halted)
+        .function("lastAddr",    &Machine::lastAddr)
         .function("cycleCount",  &Machine::cycleCount)
         .function("rxPending",   &Machine::rxPending)
         .function("txPending",   &Machine::txPending)

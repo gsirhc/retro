@@ -392,8 +392,8 @@ async function boot() {
     const lines = [bar, mid("ALTAIR 8800  --  HOW TO USE"), bar];
     const para = (s, indent) => wrap(s, indent).forEach((l) => lines.push(l));
     para("THE MACHINE IS BARE -- nothing is loaded; the default program just " +
-         "echoes what you type. Load one with [Load Program...], or key it in " +
-         "on the front panel.", " ");
+         "echoes what you type. Pick a PRESET up top for a period-correct " +
+         "build, load one with [Load Program...], or key it in on the panel.", " ");
     lines.push("");
     para("THE TERMINAL -- real 1970s terminals, limits and all: a fixed 24 " +
          "lines, no scrollback (text off the top is gone), uppercase only.", " ");
@@ -446,7 +446,14 @@ async function boot() {
                  || localStorage.getItem("retro8080.term") || "vt100g"; } catch {}
   if (!TERM_PROFILES[savedTerm]) savedTerm = "vt100g";
   termSelect.value = savedTerm;
-  termSelect.addEventListener("change", () => applyProfile(termSelect.value));
+  termSelect.addEventListener("change", () => { markCustom(); applyProfile(termSelect.value); });
+
+  // era-preset controls (declared early so markCustom() is safe from any handler)
+  const presetSelect = document.getElementById("preset");
+  const autoloadChk  = document.getElementById("autoload");
+  const presetNote   = document.getElementById("presetNote");
+  const backplaneEl  = document.getElementById("backplane");
+  let   applyingPreset = false;
 
   // load the bitmap faces, then apply (so xterm measures the right cell size)
   Promise.all([
@@ -510,7 +517,7 @@ async function boot() {
     }
     pumpTerminal(dt);          // keep typing out buffered text even when stopped
     updatePanel();
-    if ((frameCount++ & 3) === 0) disk.poll();   // disk lamps ~15 Hz
+    if ((frameCount++ & 3) === 0) { disk.poll(); cassette.poll(); }   // peripheral lamps ~15 Hz
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
@@ -751,12 +758,16 @@ async function boot() {
     }
     const s = machine.state();
     // while a tape is reading in, the address bus tracks the loader's write
-    // pointer (HL) climbing through memory, not the tight poll loop's PC
+    // pointer (HL) climbing through memory. While the CPU runs, the address
+    // LEDs blur across wherever the bus last was (that's how Kill the Bit shows
+    // its moving bit on A8..A15); STOP freezes them at PC.
     const loading = tape.phase === "loading";
-    const abus = loading ? ((s.h << 8) | s.l) : s.pc;
+    const abus = loading ? ((s.h << 8) | s.l)
+               : (running && !s.halted && machine.lastAddr) ? machine.lastAddr()
+               : s.pc;
     setBits(addrLeds, abus, 16);
     setBits(dataLeds, loading ? tape.lastByte
-                              : machine.readByte ? machine.readByte(s.pc) : 0, 8);
+                              : machine.readByte ? machine.readByte(abus & 0xffff) : 0, 8);
     const set = (name, on) => statusLeds[name] && statusLeds[name].classList.toggle("on", !!on);
     const active = running && !s.halted;
     set("INP", loading);
@@ -887,8 +898,11 @@ async function boot() {
     },
     closePicker() { diskDialog.hidden = true; term.focus(); },
 
+    setVisible(v) { document.getElementById("dcdd").classList.toggle("empty", !v); },
+
     insert(drive, bytes, name, entry) {
       if (!bytes || !bytes.length) return;
+      markCustom();
       machine.mountDisk(drive, bytes);
       this.names[drive] = name;
       this.entries[drive] = entry || null;
@@ -1035,6 +1049,306 @@ async function boot() {
     diskFileName.textContent = "no file selected";
     disk.closePicker();
     disk.insert(drive, bytes, name, entry);
+  });
+
+  // --- MITS 88-ACR cassette deck --------------------------
+  const cassette = {
+    name: null,
+    catalog: [],
+    catalogLoaded: false,
+    lampHold: 0,
+    lastIo: 0,
+
+    build() {
+      const root = document.getElementById("acr");
+      const kase = el("acr-case");
+      kase.appendChild(el("acr-top",
+        `<span class="acr-plate">MITS 88-ACR <span>&nbsp;AUDIO CASSETTE</span></span>`));
+      const body = el("acr-body");
+      const win = el("acr-window");
+      win.dataset.label = "";
+      win.addEventListener("click", () => this.openPicker());
+      const ctl = el("acr-ctl");
+      const lamp = el("acr-lamp");
+      const counter = el("acr-counter", "000");
+      const mk = (cls, txt, fn) => {
+        const b = document.createElement("button");
+        b.className = "acr-btn " + cls;
+        b.textContent = txt;
+        b.addEventListener("click", fn);
+        return b;
+      };
+      const rew = mk("acr-rew hidden", "REWIND", () => { machine.rewindTape(); this.flash("rewound"); });
+      const eject = mk("acr-eject hidden", "EJECT", () => this.eject());
+      const save = mk("acr-save hidden", "SAVE", () => this.save());
+      ctl.append(lamp, counter, rew, eject, save);
+      body.append(win, ctl);
+      kase.appendChild(body);
+      kase.appendChild(el("acr-hint",
+        "Insert a blank tape, then in BASIC: <tt>CSAVE\"X\"</tt> records, " +
+        "<tt>CLOAD\"X\"</tt> plays back. REWIND between them."));
+      root.appendChild(kase);
+      this.win = win; this.lamp = lamp; this.counter = counter;
+      this.rew = rew; this.eject = eject; this.save = save;
+    },
+
+    setVisible(v) { document.getElementById("acr").classList.toggle("empty", !v); },
+
+    async loadCatalog() {
+      if (this.catalogLoaded) return;
+      this.catalogLoaded = true;
+      tapeList.innerHTML = "";
+      try {
+        const r = await fetch("tapes/manifest.json");
+        if (!r.ok) throw 0;
+        const m = await r.json();
+        this.catalog = m.tapes || [];
+        for (let i = 0; i < this.catalog.length; i++) {
+          const t = this.catalog[i];
+          try { const rr = await fetch("tapes/" + t.file); t.bytes = rr.ok ? new Uint8Array(await rr.arrayBuffer()) : null; }
+          catch { t.bytes = null; }
+          const o = document.createElement("option");
+          o.value = String(i);
+          o.textContent = t.bytes ? `${t.name}  —  ${t.bytes.length} bytes` : `${t.name}  —  (not installed)`;
+          o.disabled = !t.bytes;
+          tapeList.appendChild(o);
+        }
+      } catch {
+        const o = document.createElement("option");
+        o.textContent = "(no cassette library — use Choose File)";
+        o.disabled = true;
+        tapeList.appendChild(o);
+      }
+    },
+
+    openPicker() { tapeDialog.hidden = false; this.loadCatalog(); },
+    closePicker() { tapeDialog.hidden = true; term.focus(); },
+
+    insert(bytes, name) {
+      machine.mountTape(bytes || new Uint8Array(0));
+      this.name = name || "TAPE";
+      const acr = document.getElementById("acr");
+      acr.classList.remove("empty");
+      acr.classList.add("loaded");
+      this.win.dataset.label = this.name.toUpperCase().slice(0, 22);
+      this.eject.classList.remove("hidden");
+      this.rew.classList.remove("hidden");
+    },
+    // a blank tape you can record onto right away
+    blank() { this.insert(new Uint8Array(0), "BLANK"); },
+
+    eject() {
+      if (machine.tapeDirty && machine.tapeDirty() &&
+          !confirm("This tape has an unsaved recording. Eject anyway?")) return;
+      machine.ejectTape();
+      this.name = null;
+      const acr = document.getElementById("acr");
+      acr.classList.remove("loaded");
+      this.win.dataset.label = "";
+      this.eject.classList.add("hidden");
+      this.rew.classList.add("hidden");
+      this.save.classList.add("hidden");
+    },
+
+    save() {
+      const bytes = machine.tapeImage();
+      const blob = new Blob([bytes], { type: "application/octet-stream" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = (this.name || "cassette").replace(/\.(cas|bin)$/i, "") + ".cas";
+      a.click();
+      URL.revokeObjectURL(a.href);
+      machine.clearTapeDirty();
+      this.save.classList.add("hidden");
+    },
+
+    flash(msg) {
+      const h = document.querySelector("#acr .acr-hint");
+      if (!h) return;
+      const prev = h.innerHTML;
+      h.textContent = "— " + msg + " —";
+      setTimeout(() => { h.innerHTML = prev; }, 1400);
+    },
+
+    poll() {
+      if (typeof machine.tapeStatus !== "function") return;
+      const st = machine.tapeStatus();
+      if (st.io !== this.lastIo) { this.lastIo = st.io; this.lampHold = 8; }
+      const active = this.lampHold > 0;
+      if (active) this.lampHold--;
+      this.lamp.classList.toggle("rec", active && st.mode === 2);
+      this.lamp.classList.toggle("play", active && st.mode !== 2);
+      const c = Math.min(999, Math.round(st.pos / 8));
+      this.counter.textContent = String(c).padStart(3, "0");
+      if (machine.tapeDirty && machine.tapeLoaded && machine.tapeLoaded())
+        this.save.classList.toggle("hidden", !machine.tapeDirty());
+    },
+  };
+
+  const tapeDialog   = document.getElementById("tapeDialog");
+  const tapeList     = document.getElementById("tapeList");
+  const tapeDesc     = document.getElementById("tapeDesc");
+  const tapeFile     = document.getElementById("tapeFile");
+  const tapeFileName = document.getElementById("tapeFileName");
+
+  cassette.build();
+  cassette.setVisible(false);
+
+  tapeList.addEventListener("change", () => {
+    const t = cassette.catalog[Number(tapeList.value)];
+    tapeDesc.textContent = t ? (t.description || "") : "";
+  });
+  tapeFile.addEventListener("change", () => {
+    tapeFileName.textContent = tapeFile.files[0] ? tapeFile.files[0].name : "no file selected";
+  });
+  document.getElementById("tapeCancel").addEventListener("click", () => cassette.closePicker());
+  document.getElementById("tapeClose").addEventListener("click", () => cassette.closePicker());
+  tapeDialog.addEventListener("click", (e) => { if (e.target === tapeDialog) cassette.closePicker(); });
+  document.getElementById("tapeInsert").addEventListener("click", async () => {
+    const file = tapeFile.files[0];
+    let bytes, name;
+    if (file) { bytes = new Uint8Array(await file.arrayBuffer()); name = file.name; }
+    else {
+      const t = cassette.catalog[Number(tapeList.value)];
+      if (!t || !t.bytes) { bytes = new Uint8Array(0); name = "BLANK"; }
+      else { bytes = t.bytes; name = t.name; }
+    }
+    tapeFile.value = "";
+    tapeFileName.textContent = "no file selected";
+    cassette.closePicker();
+    cassette.insert(bytes, name);
+  });
+
+  // --- era presets ---------------------------------------
+  // Each preset is a period-correct machine build: RAM, primary I/O, the S-100
+  // cards plugged in, and (optionally) the flagship software auto-loaded.
+  const PRESETS = {
+    baremetal: {
+      name: "Bare-Metal Toggle", era: "Early 1975",
+      ramKb: 4, term: "tty33", focus: "panel",
+      cards: ["MITS 88-CPU\n8080 / 2 MHz", "MITS 88-4K\nStatic RAM", "MITS 88-2SIO\nserial"],
+      software: { kind: "rom", file: "killbits.bin", label: "Kill the Bit", start: 0 },
+    },
+    stock: {
+      name: "Stock Launch", era: "Mid 1975",
+      ramKb: 4, term: "tty33",
+      cards: ["MITS 88-CPU\n8080", "MITS 88-4K\nDRAM", "MITS 88-2SIO\nserial", "Teletype\nASR-33"],
+      software: { kind: "catalog", match: /4K BASIC/i, missing: "Altair 4K BASIC not installed — see roms/README.md" },
+    },
+    cassette: {
+      name: "Cassette Hobbyist", era: "1976",
+      ramKb: 32, term: "adm3a", showTape: true,
+      cards: ["MITS 88-CPU\n8080", "MITS 88-16MCD\n16K DRAM", "MITS 88-16MCD\n16K DRAM", "MITS 88-2SIO\nserial", "MITS 88-ACR\ncassette"],
+      software: { kind: "basic", match: /star trek/i, missing: "install Altair 8K BASIC — see roms/README.md" },
+    },
+    cpm: {
+      name: "CP/M Workstation", era: "1978",
+      ramKb: 64, term: "vt100g", showDisk: true,
+      cards: ["MITS 88-CPU\n8080", "64K Static RAM\n(3rd party)", "MITS 88-2SIO\nserial", "MITS 88-DCDD\ndisk ctlr"],
+      software: { kind: "disk", match: /CP\/M/i, missing: "install a CP/M diskette — see disks/README.md" },
+    },
+  };
+
+  function buildBackplane(cards) {
+    backplaneEl.innerHTML = "";
+    if (!cards || !cards.length) { backplaneEl.classList.add("empty"); return; }
+    backplaneEl.classList.remove("empty");
+    const rail = el("bp-rail");
+    for (const c of cards) {
+      const parts = String(c).split("\n");
+      rail.appendChild(el("bp-card", `<span><b>${parts[0]}</b>${parts[1] ? "<br>" + parts[1] : ""}</span>`));
+    }
+    backplaneEl.appendChild(rail);
+    backplaneEl.appendChild(el("bp-hint", "S-100 bus — the cards this build has plugged in"));
+  }
+
+  function markCustom() {
+    if (!applyingPreset && presetSelect.value) {
+      presetSelect.value = "";
+      try { localStorage.removeItem("retro8080.preset"); } catch {}
+    }
+  }
+
+  function presetHint(msg, cls) {
+    presetNote.textContent = msg || "";
+    presetNote.style.color = cls || "";
+    if (msg) setTimeout(() => {
+      if (presetNote.textContent === msg) { presetNote.textContent = ""; presetNote.style.color = ""; }
+    }, 6000);
+  }
+
+  async function applyPreset(id) {
+    const p = PRESETS[id];
+    if (!p) {
+      buildBackplane([]);
+      disk.setVisible(true); cassette.setVisible(false);
+      try { localStorage.removeItem("retro8080.preset"); } catch {}
+      return;
+    }
+    applyingPreset = true;
+    try {
+      machine.setRam(p.ramKb);
+      termSelect.value = p.term;
+      applyProfile(p.term);
+      buildBackplane(p.cards);
+      disk.setVisible(!!p.showDisk);
+      cassette.setVisible(!!p.showTape);
+      try { localStorage.setItem("retro8080.preset", id); } catch {}
+
+      if (autoloadChk.checked) {
+        await runPresetSoftware(p);
+      } else {
+        machine.reset(); term.clear(); outQ.length = 0; crlfPending = false;
+        setRunning(true);
+        presetHint("hardware set for " + p.era + " — load software from the menus");
+      }
+      const anchor = p.focus === "panel" ? "altair" : "screen";
+      document.getElementById(anchor).scrollIntoView({ block: "center", behavior: "smooth" });
+    } finally {
+      applyingPreset = false;
+    }
+  }
+
+  async function runPresetSoftware(p) {
+    const sw = p.software;
+    if (sw.kind === "rom") {
+      const r = await fetch("roms/" + sw.file).catch(() => null);
+      if (!r || !r.ok) { presetHint((sw.label || "software") + " image missing"); return; }
+      const bytes = new Uint8Array(await r.arrayBuffer());
+      applyProgram(bytes, sw.start | 0, sw.start | 0, sw.label || sw.file, 0);
+      return;
+    }
+    await loadCatalog();
+    if (sw.kind === "catalog") {                    // a bundled/optional ROM image
+      const rom = catalog.find((x) => x.bytes && sw.match.test(x.name));
+      if (!rom) { presetHint(sw.missing); machine.reset(); term.clear(); return; }
+      const load = parseHex(rom.load, 0);
+      applyProgram(rom.bytes, load, parseHex(rom.start, load), rom.name, parseHex(rom.sense, 0));
+      return;
+    }
+    if (sw.kind === "basic") {                       // boot 8K BASIC + type a listing in
+      const g = catalog.find((x) => x.basicText && sw.match.test(x.name));
+      const basic = catalog.find((x) => x.basicRom && x.bytes);
+      if (!g || !basic) { presetHint(sw.missing); machine.reset(); term.clear(); return; }
+      loadBasicProgram(g);
+      return;
+    }
+    if (sw.kind === "disk") {
+      await disk.loadCatalog();
+      const d = disk.catalog.find((x) => x.bytes && sw.match.test(x.name));
+      if (!d) { presetHint(sw.missing); machine.reset(); term.clear(); return; }
+      disk.insert(0, d.bytes, d.name, d);
+      machine.bootDisk();
+      bootedFromDisk = true; lastLoad = null; turbo = false;
+      term.clear(); outQ.length = 0; crlfPending = false;
+      setRunning(true); term.focus();
+      return;
+    }
+  }
+
+  presetSelect.addEventListener("change", () => applyPreset(presetSelect.value));
+  autoloadChk.addEventListener("change", () => {
+    if (presetSelect.value) applyPreset(presetSelect.value);   // re-apply with the new choice
   });
 
   // --- paper-tape load ------------------------------------
@@ -1363,6 +1677,7 @@ async function boot() {
   }
 
   function applyProgram(bytes, load, start, label, sense = 0) {
+    markCustom();
     machine.clearMemory();
     machine.loadBytes(bytes, load);
     machine.reboot();
@@ -1541,6 +1856,15 @@ async function boot() {
     if (location.search.includes("load")) tape.express();
   }
   if (location.search.includes("help")) setTimeout(printManual, 300);
+
+  // restore / apply an era preset (URL wins over the stored choice)
+  buildBackplane([]);
+  let startPreset = new URLSearchParams(location.search).get("preset");
+  try { if (startPreset == null) startPreset = localStorage.getItem("retro8080.preset"); } catch {}
+  if (startPreset && PRESETS[startPreset]) {
+    presetSelect.value = startPreset;
+    setTimeout(() => applyPreset(startPreset), 200);   // let the wasm + fonts settle
+  }
 
   // --- reset ----------------------------------------------
   document.getElementById("reset").addEventListener("click", () => {

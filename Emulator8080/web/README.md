@@ -37,7 +37,7 @@ from `file://`.)
 
 | File | Role |
 |---|---|
-| `wasm_machine.cpp` | embind wrapper: `Machine` = 64K RAM + `i8080::Cpu` + `altair::Serial2SIO` + `altair::Disk88` |
+| `wasm_machine.cpp` | embind wrapper: `Machine` = sized RAM + `i8080::Cpu` + `Serial2SIO` + `Disk88` + `CassetteACR` |
 | `index.html` | page shell + the "Load Program" / "Insert Diskette" dialogs; loads xterm + the wasm module |
 | `app.js` | terminal wiring, the per-frame `runCycles` loop, program loader, front panel, 88-DCDD cabinet, register readout |
 | `roms/` | built-in programs + `manifest.json` catalog the loader fetches (see `roms/README.md`) |
@@ -97,6 +97,31 @@ the 8080 exactly as it did in 1975. Choice persists in `localStorage`;
 - **OFF/ON** kills the machine and blanks every LED.
 - `PROTECT`, `AUX` paddles are cosmetic.
 
+## Era presets
+
+The **PRESET** dropdown at the top configures a period-correct machine in one
+click — RAM size, primary terminal, which S-100 cards are plugged in (shown in
+the backplane strip below the panel), the visible peripherals, and, with
+**Auto-load software** ticked, the flagship program running:
+
+| id | Preset | RAM | Terminal | Software |
+|---|---|---|---|---|
+| `baremetal` | Bare-Metal Toggle (1975) | 4 KB | ASR-33 | Kill the Bit (bundled) |
+| `stock` | Stock Launch (1975) | 4 KB | ASR-33 | Altair 4K BASIC *(you supply)* |
+| `cassette` | Cassette Hobbyist (1976) | 32 KB | ADM-3A + 88-ACR | 8K BASIC + Star Trek |
+| `cpm` | CP/M Workstation (1978) | 64 KB | VT100 + 88-DCDD | CP/M 2.2 |
+
+RAM is contiguous from 0 (`machine.setRam(kb)`); above it the bus floats high,
+so BASIC's `MEMORY SIZE?` auto-detect lands on the real number and a 4 KB
+machine can't run an 8 KB program. A ROM image loaded above the ceiling (the
+0xE000 BASIC build, the disk PROM) stays readable.
+
+Uncheck **Auto-load** to get just the hardware and load software yourself.
+Changing RAM/terminal/disk by hand flips the dropdown to *— custom —*. The
+choice persists; `?preset=cpm` in the URL wins over the stored one.
+
+Presets 4 (Cromemco Dazzler) and 5 (Processor Tech VDM-1) are not built yet.
+
 ## Loading programs
 
 **Load Program...** opens a dialog listing the built-ins from `roms/manifest.json`
@@ -137,3 +162,13 @@ the disk boot with the diskettes still in their drives.
 Each loaded drive has a **?** button — a "How to use" dialog with that disk's
 programs (how to start and quit them) plus a CP/M command primer. The text
 comes from the `help` / `os` fields in `disks/manifest.json`.
+
+## Cassette (88-ACR)
+
+The **88-ACR deck** (ports `0x06`/`0x07`) appears when a preset includes it.
+Click it to insert a blank tape (or a `.cas` file you saved before), then in
+BASIC: `CSAVE"X"` records the current program, `CLOAD"X"` plays it back.
+**REWIND** between the two, or just re-insert the file. There's no audio model —
+the "tape" is a byte buffer with a play/record head — but the status polarity
+matches what our 8K BASIC ROM polls (`cassette.cpp` has the details). A tape
+with an unsaved recording grows a **SAVE** button that downloads the `.cas`.
