@@ -6,9 +6,7 @@
 // The CPU is advanced once per animation frame by a fixed slice of cycles;
 // the 2SIO ring buffers absorb the rate mismatch between the two clocks.
 
-const CPU_HZ = 2_000_000;
-const FPS = 60;
-const CYCLES_PER_FRAME = Math.round(CPU_HZ / FPS);
+const CPU_HZ = 2_000_000;   // Altair 8080A clock; emulation is paced to real time
 
 const hex = (n, w = 2) => n.toString(16).toUpperCase().padStart(w, "0");
 
@@ -54,9 +52,46 @@ async function boot() {
   term.loadAddon(fit);
   const screenEl = document.getElementById("screen");
   const bezelEl = screenEl.closest(".bezel");
+  const monitorEl = screenEl.closest(".monitor");
+  // reference box; sizeScreen() measures the font here then locks to 80x24
+  const REF_W = 792, REF_H = 460;
   term.open(screenEl);
   fit.fit();
-  addEventListener("resize", () => fit.fit());
+
+  // On a CRT (no scrollback) xterm turns wheel events into arrow-key presses
+  // sent to the program. Stop it before xterm sees them so the page just
+  // scrolls; the Teletype (has scrollback) keeps normal wheel scrolling.
+  screenEl.addEventListener("wheel", (e) => {
+    if (!monitorEl.classList.contains("scrolls")) e.stopImmediatePropagation();
+  }, { capture: true });
+
+  // Fill the page column with the monitor: screen as wide as fits (minus the
+  // monitor's own frame), locked to 24 rows; column count floats with the font.
+  function sizeScreen() {
+    try {
+      screenEl.style.width = REF_W + "px";
+      screenEl.style.height = REF_H + "px";
+      fit.fit();
+      if (!term.cols || !term.rows) return;
+      const cw = REF_W / term.cols, ch = REF_H / term.rows;   // cell size for this font
+      const inner = screenEl.closest(".inner");
+      let avail = window.innerWidth;
+      if (inner) {
+        const cs = getComputedStyle(inner);
+        avail = inner.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+      }
+      const frame = Math.max(0, monitorEl.offsetWidth - screenEl.offsetWidth);
+      // bare (Modern / Teletype) has almost no frame -> leave a gutter instead
+      const gutter = monitorEl.classList.contains("bare") ? 48 : 4;
+      const room = avail - frame - gutter;
+      const cols = Math.max(40, Math.floor(room / cw));
+      screenEl.style.width = Math.round(cols * cw) + "px";
+      screenEl.style.height = Math.round(24 * ch) + "px";
+      term.resize(cols, 24);
+      term.refresh(0, term.rows - 1);
+    } catch {}
+  }
+  addEventListener("resize", sizeScreen);
   // A real serial terminal shows nothing at power-on but a cursor — it has no
   // idea what (if anything) is on the other end of the wire. So no banner.
 
@@ -72,19 +107,19 @@ async function boot() {
       size: 15, fg: "#33ff88", bg: "#000000", dim: "#1c8f52", br: "#8affc0",
       crt: "none", baud: 0, cursor: "block", blink: true, glow: 0 },
     vt100g: { label: "DEC VT100 · green",
-      font: '"VT323", "Courier New", monospace', size: 20,
+      font: '"VT323", "Courier New", monospace', size: 19,
       fg: "#39ff41", bg: "#0a140a", dim: "#1c8c1c", br: "#a6ffa6",
       crt: "scan", baud: 9600, cursor: "block", blink: true, glow: 3 },
     vt100a: { label: "DEC VT100 · amber",
-      font: '"VT323", "Courier New", monospace', size: 20,
+      font: '"VT323", "Courier New", monospace', size: 19,
       fg: "#ffb32b", bg: "#180d00", dim: "#a8701a", br: "#ffd77e",
       crt: "scan", baud: 9600, cursor: "block", blink: true, glow: 3 },
     vt52: { label: "DEC VT52",
-      font: '"VT323", "Courier New", monospace', size: 22,
+      font: '"VT323", "Courier New", monospace', size: 19,
       fg: "#4dff4d", bg: "#061006", dim: "#1c8c1c", br: "#b6ffb6",
       crt: "scanheavy", baud: 4800, cursor: "block", blink: false, glow: 4 },
     adm3a: { label: "Lear Siegler ADM-3A",
-      font: '"VT323", "Courier New", monospace', size: 20,
+      font: '"VT323", "Courier New", monospace', size: 19,
       fg: "#39ff9c", bg: "#03100b", dim: "#1c8c5c", br: "#a6ffce",
       crt: "scan", baud: 9600, cursor: "underline", blink: true, glow: 2 },
     glasstty: { label: "Glass TTY",
@@ -95,7 +130,7 @@ async function boot() {
       font: '"Courier Prime", "Courier New", monospace', size: 15,
       fg: "#242424", bg: "#efe8d6", dim: "#7a7261", br: "#000000",
       crt: "paper", baud: 110, cursor: "underline", blink: false,
-      glow: 0, bell: "ding" },
+      glow: 0, bell: "ding", scrollback: 5000 },   // paper roll -> scroll back
   };
 
   let bellMode = "flash";
@@ -116,12 +151,16 @@ async function boot() {
 
   function applyProfile(key) {
     const p = TERM_PROFILES[key] || TERM_PROFILES.modern;
-    baudCps = p.baud;
+    // serial bits -> characters/sec: async framing is ~10 bits/char (start + 8
+    // data + 1 stop); the ASR-33 used 2 stop bits, so 110 baud is exactly 10 cps.
+    baudCps = p.baud ? p.baud / (key === "tty33" ? 11 : 10) : 0;
     bellMode = p.bell || "flash";
     term.options.fontFamily = p.font;
     term.options.fontSize = p.size;
     term.options.cursorStyle = p.cursor;
     term.options.cursorBlink = p.blink;
+    // a CRT has no scrollback -- only a Teletype's paper does
+    term.options.scrollback = p.scrollback || 0;
     term.options.theme = {
       background: p.bg, foreground: p.fg,
       cursor: p.fg, cursorAccent: p.bg, selectionBackground: p.fg + "44",
@@ -135,11 +174,15 @@ async function boot() {
     crtToggle.checked = noCrt ? false : crtOn;
     const showCrt = crtOn && !noCrt;
     bezelEl.className = "bezel crt-" + p.crt + (showCrt ? "" : " crt-off");
+    monitorEl.classList.toggle("amber", key === "vt100a");
+    // Modern and Teletype aren't CRTs -> no monitor housing
+    monitorEl.classList.toggle("bare", p.crt === "none" || p.crt === "paper");
+    monitorEl.classList.toggle("scrolls", !!p.scrollback);
     screenEl.style.setProperty("--glow", (showCrt ? p.glow : 0) + "px");
-    // font metrics changed → refit once the face is actually loaded
-    (document.fonts ? document.fonts.ready : Promise.resolve()).then(() => {
-      try { fit.fit(); term.refresh(0, term.rows - 1); } catch {}
-    });
+    // wait for the bitmap face + let xterm re-measure the new cell size,
+    // then size the screen
+    (document.fonts ? document.fonts.ready : Promise.resolve())
+      .then(() => setTimeout(sizeScreen, 30));
     try { localStorage.setItem("retro8080.term", key); } catch {}
   }
 
@@ -163,9 +206,10 @@ async function boot() {
   term.onBell(bell);
 
   // --- wasm machine ---------------------------------------------------
+  const V = window.__V;
   let Module;
   try {
-    Module = await Retro8080();
+    Module = await Retro8080(V ? { locateFile: (p) => p + "?v=" + V } : {});
   } catch (err) {
     return fail("wasm module failed to instantiate:\n" + (err?.stack || err));
   }
@@ -176,6 +220,12 @@ async function boot() {
   // --- terminal -> CPU ----------------------------------------------
   const encoder = new TextEncoder();
   term.onData((data) => {
+    // a keypress skips to the end of a slow how-to printout
+    if (printingManual) {
+      term.write(new Uint8Array(outQ.splice(0)));
+      printingManual = false;
+      baudCps = baudSaved;
+    }
     // Vintage terminals were uppercase-only; BASIC / CP/M expect it.
     if (caps.checked) data = data.toUpperCase();
     const bytes = encoder.encode(data);
@@ -192,6 +242,8 @@ async function boot() {
   const outQ = [];
   let baudCps = 0;          // 0 = unthrottled; else characters/second
   let baudBudget = 0;
+  let printingManual = false;   // the how-to is metered at the terminal's baud
+  let baudSaved = 0;            // real baud, restored when the how-to finishes
 
   function pullSerial() {
     // stay mostly drained so the 2SIO FIFO does the buffering + TDRE backpressure
@@ -204,6 +256,10 @@ async function boot() {
   }
 
   function pumpTerminal(dtMs) {
+    if (printingManual && outQ.length === 0) {
+      printingManual = false;
+      baudCps = baudSaved;
+    }
     pullSerial();
     if (outQ.length === 0) return;
     if (baudCps === 0) { term.write(new Uint8Array(outQ.splice(0))); return; }
@@ -218,6 +274,69 @@ async function boot() {
     if (outQ.length) term.write(new Uint8Array(outQ.splice(0)));
   }
   const drainToTerminal = flushTerminal;   // back-compat name for panel STEP
+
+  // wipe the screen and print a one-page how-to, wrapped to the terminal
+  function printManual() {
+    outQ.length = 0;
+    baudBudget = 0;
+    term.write("\r\x1b[0m\x1b[2J\x1b[3J\x1b[H");   // wipe screen + scrollback + any half-typed line
+    const w = Math.max(46, Math.min((term.cols || 80) - 2, 92));
+    const bar = "=".repeat(w);
+    const mid = (s) => " ".repeat(Math.max(0, (w - s.length) >> 1)) + s;
+    const wrap = (s, indent) => {
+      const out = [];
+      let line = indent;
+      for (const word of s.split(" ")) {
+        if (line.length + word.length + 1 > w && line.trim()) {
+          out.push(line);
+          line = indent + word;
+        } else line += (line === indent ? "" : " ") + word;
+      }
+      if (line.trim()) out.push(line);
+      return out;
+    };
+    const lines = [bar, mid("ALTAIR 8800  --  HOW TO USE"), bar];
+    const para = (s, indent) => wrap(s, indent).forEach((l) => lines.push(l));
+    para("THE MACHINE IS BARE -- nothing is loaded, and the default program " +
+         "just echoes what you type. Load a program with [Load Program...], " +
+         "or key one in on the front panel.", " ");
+    lines.push("");
+    para("THE TERMINAL -- these are real 1970s terminals, limits and all. " +
+         "The screen is a fixed 24 lines with no scrollback: text off the top " +
+         "is gone. Uppercase only, too -- the Altair's monitor and BASIC need " +
+         "caps, and most terminals of the day couldn't show lowercase, so " +
+         "CAPS LOCK stays on.", " ");
+    lines.push("");
+    para("THE TELETYPE (ASR-33) -- a printer, not a screen: 10 characters a " +
+         "second onto a paper roll. Cheap, and many hobbyists already had " +
+         "one, so it was the common console. Because it's paper, it does " +
+         "scroll back.", " ");
+    lines.push("", " HISTORY");
+    para("1974 -- Ed Roberts's MITS of Albuquerque bets the company on " +
+         "Intel's 8080. It hits the Jan 1975 cover of Popular Electronics: " +
+         "the Altair 8800, a $439 kit -- 8080 at 2 MHz, 256 bytes of RAM, no " +
+         "keyboard, no screen. Gates & Allen wrote Altair BASIC and started " +
+         "Micro-Soft to sell it.", "   ");
+    lines.push(bar);
+    // centre the block in the screen: pad rows above, indent columns left
+    const rows = term.rows || 24;
+    const padTop = Math.max(0, (rows - lines.length) >> 1);
+    const indent = " ".repeat(Math.max(0, ((term.cols || 80) - w) >> 1));
+    const body =
+      "\r\n".repeat(padTop) +
+      lines.map((l) => indent + l).join("\r\n") +
+      "\x1b[" + rows + ";1H";   // park the cursor on a clean line below the block
+    // meter it onto the screen at the terminal's baud (instant on Modern) --
+    // but floor it so a 110-baud Teletype prints the page in ~8 s, not ~2 min.
+    // Press a key to skip to the end.
+    const text = body.toUpperCase();
+    for (let i = 0; i < text.length; i++) outQ.push(text.charCodeAt(i));
+    if (baudCps > 0) {
+      baudSaved = baudCps;
+      baudCps = Math.max(baudCps, Math.ceil(text.length / 8));
+      printingManual = true;
+    }
+  }
 
   // --- pick the terminal ---------------------------------------
   const termSelect = document.getElementById("termProfile");
@@ -245,7 +364,7 @@ async function boot() {
   pageTheme.addEventListener("change", () => {
     root.dataset.theme = pageTheme.value;
     try { localStorage.setItem("retro8080.theme", pageTheme.value); } catch {}
-    setTimeout(() => { try { fit.fit(); } catch {} }, 60);  // page width changed
+    setTimeout(sizeScreen, 60);  // page width changed
   });
 
   // "Last built" = the wasm's own mtime on the server
@@ -276,11 +395,12 @@ async function boot() {
   };
   let lastFrame = performance.now();
   function frame(now) {
-    const dt = Math.min(now - lastFrame, 100);   // clamp after a tab-away
+    const dt = Math.max(0, Math.min(now - lastFrame, 100));   // clamp after a tab-away
     lastFrame = now;
     if (running && powered) {
       tape.tick();
-      machine.runCycles(CYCLES_PER_FRAME);
+      // cycles paced by real elapsed time, so speed is 2 MHz on any display
+      machine.runCycles(Math.round(CPU_HZ * dt / 1000));
     }
     pumpTerminal(dt);          // keep typing out buffered text even when stopped
     updatePanel();
@@ -290,13 +410,18 @@ async function boot() {
 
   // --- register readout -------------------------------------
   const regs = document.getElementById("regs");
+  let lastCyc = 0, lastT = performance.now();
   setInterval(() => {
     const s = machine.state();
+    const now = performance.now();
+    const mhz = (s.cycles - lastCyc) / (now - lastT) / 1000;   // cycles/ms -> MHz
+    lastCyc = s.cycles;
+    lastT = now;
     regs.textContent =
       `A ${hex(s.a)}  BC ${hex(s.b)}${hex(s.c)}  DE ${hex(s.d)}${hex(s.e)}  ` +
       `HL ${hex(s.h)}${hex(s.l)}  PC ${hex(s.pc, 4)}  SP ${hex(s.sp, 4)}  ` +
-      `${s.halted ? "HALT" : running ? "RUN " : "STOP"}  ${Math.round(s.cycles).toLocaleString()}T`;
-  }, 150);
+      `${s.halted ? "HALT" : running ? "RUN " : "STOP"}  ${mhz.toFixed(1)} MHz`;
+  }, 250);
 
   // --- Altair 8800 front panel -----------------------------
   const dataLeds = [];   // index = bit (0..15), address + data share the low 16/8
@@ -403,10 +528,10 @@ async function boot() {
     const swgrid = el("fp-swgrid fp-cols");
     sw.appendChild(swgrid);
 
-    const powerCell = el("fp-power", `<div class="fp-cap">OFF</div>`);
+    const powerCell = el("fp-power paddle", `<div class="fp-cap">OFF</div>`);
     const powerBat = el("bat down");   // down = ON
-    powerBat.title = "power OFF / ON";
-    powerBat.addEventListener("click", () => {
+    powerCell.title = "power OFF / ON";
+    powerCell.addEventListener("click", () => {
       powered = !powered;
       powerBat.classList.toggle("down", powered);
       if (!powered) setRunning(false);
@@ -416,12 +541,12 @@ async function boot() {
     swgrid.appendChild(powerCell);
 
     for (let bit = 15; bit >= 0; bit--) {
-      const c = el("fp-cell");
+      const c = el("fp-cell paddle");
       c.style.gridArea = `1 / ${bitCol(bit)}`;
       const b = el("bat down");
       switchEls[bit] = b;
-      b.title = `A${bit}` + (bit >= 8 ? ` — sense bit ${bit - 8}` : "");
-      b.addEventListener("click", () => {
+      c.title = `A${bit}` + (bit >= 8 ? ` — sense bit ${bit - 8}` : "");
+      c.addEventListener("click", () => {           // any click on the column toggles
         switchState[bit] ^= 1;
         b.classList.toggle("down", !switchState[bit]);
         machine.setSenseSwitches?.(senseByte());
@@ -437,11 +562,20 @@ async function boot() {
     // label above (upper fn, red) and below (lower fn, grey) the paddle.
     // The tape-load guide can intercept every control paddle via panelIntercept.
     const paddle = (up, dn, name, upFn, dnFn, latching) => {
-      const c = el("fp-cell", `<div class="fp-cap up"><b>${up}</b></div>`);
+      const c = el("fp-cell paddle", `<div class="fp-cap up"><b>${up}</b></div>`);
       const b = el("bat" + (latching ? "" : " momentary"));
-      b.addEventListener("click", (e) => {
-        const rect = b.getBoundingClientRect();
-        const upper = (e.clientY - rect.top) < rect.height / 2;
+      const twoWay = !!(dn && dnFn);
+      // Whole cell is the hit target. A two-function paddle still needs a
+      // direction, so it splits at the lever's midline (top label -> up,
+      // bottom label -> down); everything else just fires on any click.
+      c.addEventListener("click", (e) => {
+        let upper = true;
+        if (latching) {
+          upper = b.classList.contains("down");     // currently RUN -> flip to STOP
+        } else if (twoWay) {
+          const r = b.getBoundingClientRect();
+          upper = e.clientY < r.top + r.height / 2;
+        }
         if (!latching) {
           b.classList.add(upper ? "flick" : "flick-dn");
           setTimeout(() => b.classList.remove("flick", "flick-dn"), 140);
@@ -492,7 +626,7 @@ async function boot() {
        </div>`);
 
     root.insertAdjacentHTML("beforeend",
-      `<div class="hint">flip A8&ndash;A15 for the sense switches &middot; STOP, then SINGLE STEP / EXAMINE / DEPOSIT</div>`);
+      `<div class="hint">Not a photo-accurate panel &mdash; but the lights and switches behave exactly as they would on a real Altair 8800.</div>`);
   }
 
   function setBits(leds, value, n) {
@@ -669,6 +803,7 @@ async function boot() {
     startLoad() {
       this.phase = "loading";
       this.pos = 0;
+      this.loadStart = performance.now();
       panelIntercept = null;
       setRunning(true);                   // the bootstrap begins polling
       this.root.classList.add("loading");
@@ -677,9 +812,13 @@ async function boot() {
 
     tick() {
       if (this.phase !== "loading") return;
-      let perFrame = Math.max(1, Math.ceil(this.image.length / (TAPE_SECONDS * 60)));
-      if (this.turbo) perFrame *= 24;
-      for (let i = 0; i < perFrame && this.pos < this.image.length; i++) {
+      const speed = this.turbo ? 24 : 1;
+      const elapsed = (performance.now() - this.loadStart) * speed;
+      const target = Math.min(
+        this.image.length,
+        Math.ceil((this.image.length * elapsed) / (TAPE_SECONDS * 1000))
+      );
+      while (this.pos < target) {
         if (machine.rxPending && machine.rxPending() > 200) break;
         this.lastByte = this.image[this.pos++];
         machine.sendByte(this.lastByte);
@@ -859,6 +998,22 @@ async function boot() {
   const closeDialog = () => { dialog.hidden = true; term.focus(); };
 
   document.getElementById("loadBtn").addEventListener("click", openDialog);
+
+  // the how-to button shouts until it's clicked (or ~2 min pass), then it
+  // settles down — and stays settled on later visits
+  const helpBtn = document.getElementById("helpBtn");
+  let helpTimer = null;
+  function calmHelp() {
+    if (helpTimer) { clearTimeout(helpTimer); helpTimer = null; }
+    helpBtn.classList.remove("clickme");
+    helpBtn.textContent = "How-To";
+    try { localStorage.setItem("retro8080.helpseen", "1"); } catch {}
+  }
+  helpBtn.addEventListener("click", () => { printManual(); calmHelp(); term.focus(); });
+  let helpSeen = false;
+  try { helpSeen = localStorage.getItem("retro8080.helpseen") === "1"; } catch {}
+  if (helpSeen) calmHelp();
+  else helpTimer = setTimeout(calmHelp, 120000);
   document.getElementById("romCancel").addEventListener("click", closeDialog);
   document.getElementById("romClose").addEventListener("click", closeDialog);
   dialog.addEventListener("click", (e) => { if (e.target === dialog) closeDialog(); });
@@ -903,6 +1058,7 @@ async function boot() {
     tape.begin(new Uint8Array(8192).fill(0x76), 0xe000, 0xe000);
     if (location.search.includes("load")) tape.express();
   }
+  if (location.search.includes("help")) setTimeout(printManual, 300);
 
   // --- reset ----------------------------------------------
   document.getElementById("reset").addEventListener("click", () => {

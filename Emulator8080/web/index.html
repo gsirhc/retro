@@ -28,7 +28,7 @@
   :root {
     --desktop:   #008080;             /* the one true desktop color */
     --page-bg:   #c0c0c0;
-    --page-max:  880px;
+    --page-max:  920px;
     --page-border: 3px outset #dfdfdf;
     --body-pad:  18px 12px;
     --titlebar-display: flex;
@@ -42,7 +42,7 @@
   :root[data-theme="web94"] {
     --desktop:   #c0c0c0;             /* ubiquitous Mosaic / Netscape 1.x gray */
     --page-bg:   #c0c0c0;
-    --page-max:  880px;              /* same as Windows, so the panel fits */
+    --page-max:  920px;              /* same as Windows, so the panel fits */
     --page-border: none;
     --body-pad:  10px 14px;
     --titlebar-display: none;
@@ -119,8 +119,8 @@
     flex-wrap: wrap;
   }
   /* terminal control strip sits directly on top of the monitor */
-  .term-bar { margin-bottom: 0; border-bottom-width: 1px; }
-  .term-bar + .monitor { margin-top: 0; border-top-left-radius: 4px; border-top-right-radius: 4px; }
+  .term-bar { margin-bottom: 0; }
+  .term-bar + .monitor { margin-top: 10px; }
   button, label.filebtn {
     font: 12px Arial, Helvetica, sans-serif;
     color: #000;
@@ -130,6 +130,23 @@
     cursor: pointer;
   }
   button:active, label.filebtn:active { border-style: inset; }
+
+  /* obnoxious 90s "click me" button */
+  button.clickme {
+    color: #cc0000;
+    font-weight: 700;
+    background: #ffff33;
+    border: 3px outset #ffe000;
+    animation: clickme 0.7s ease-in-out infinite alternate;
+  }
+  button.clickme:hover { background: #ffe600; }
+  button.clickme:active { border-style: inset; animation: none; }
+  @keyframes clickme {
+    from { transform: scale(1); box-shadow: 0 0 0 rgba(255, 80, 0, 0); }
+    to   { transform: scale(1.07); box-shadow: 0 0 9px 2px rgba(255, 80, 0, 0.65); }
+  }
+  @media (prefers-reduced-motion: reduce) { button.clickme { animation: none; } }
+
   .toolbar select {
     font: 12px Arial, Helvetica, sans-serif;
     background: #fff; border: 2px inset #808080; padding: 1px 2px;
@@ -144,71 +161,144 @@
     border: 2px inset #808080;
   }
 
-  /* the CRT --------------------------------------------------------- */
+  /* the CRT monitor ------------------------------------------------- */
   .monitor {
+    --case: #ccc4af;                       /* almond plastic */
+    width: max-content;
+    max-width: 100%;
     margin: 16px auto 0;
-    padding: 16px 16px 8px;
-    background: #b7b0a0;
-    border: 6px outset #cfc8b8;
-    border-radius: 16px;
-    box-shadow: 5px 5px 0 #005f5f;
+    padding: 22px 24px 12px;
+    background: linear-gradient(180deg, #dcd4bf 0%, var(--case) 42%, #b4ab94 100%);
+    border-radius: 24px 24px 16px 16px;
+    box-shadow:
+      inset 0 3px 2px rgba(255,255,255,.65),
+      inset 0 -7px 12px rgba(0,0,0,.28),
+      inset 7px 0 12px rgba(0,0,0,.12),
+      inset -7px 0 12px rgba(0,0,0,.12),
+      0 18px 38px rgba(0,0,0,.45);
+    overflow: hidden;
   }
+  .monitor.amber { --case: #b9ac90; }
+
+  /* the black tube surround (the glass area with no phosphor) */
   .bezel {
     position: relative;
-    background: #000; border: 3px inset #2a2a2a; padding: 6px;
+    padding: 16px 18px;
+    background: #0c0b0a;
+    border-radius: 6px;
+    box-shadow:
+      inset 0 0 0 1px #000,
+      inset 0 4px 12px rgba(0,0,0,.9),
+      inset 0 -3px 8px rgba(0,0,0,.8),
+      0 1px 1px rgba(255,255,255,.28);
+    display: flex; justify-content: center; align-items: center;
     transition: background .2s;
   }
-  #screen { height: 420px; background: transparent; }
+  .bezel::before {                          /* faint top-lit sheen on the surround */
+    content: ""; position: absolute; inset: 0; border-radius: inherit;
+    pointer-events: none;
+    background: linear-gradient(180deg, rgba(255,255,255,.05), transparent 26%);
+  }
+  .bezel.crt-paper { background: #d9d0b8; }
+
+  /* the glass -- flat, seated into the surround */
+  #screen {
+    width: 792px; height: 460px;
+    background: #000;
+    flex: 0 0 auto;
+    overflow: hidden;
+    box-shadow: 0 0 0 2px #000, 0 0 16px 6px rgba(0,0,0,.7);
+  }
   #screen .xterm { height: 100%; }
   #screen .xterm-rows { text-shadow: 0 0 var(--glow, 0px) currentColor; }
+  /* a CRT has no scrollback -> no scrollbar; the Teletype's paper roll does */
+  #screen .xterm-viewport { overflow-y: hidden; }
+  .monitor.scrolls #screen .xterm-viewport { overflow-y: auto; }
+  .monitor.scrolls #screen .xterm-viewport::-webkit-scrollbar { width: 9px; }
+  .monitor.scrolls #screen .xterm-viewport::-webkit-scrollbar-thumb {
+    background: #7a7261; border-radius: 4px;
+  }
+  .power-led {
+    position: absolute; right: 13px; bottom: 7px;
+    width: 6px; height: 6px; border-radius: 50%;
+    background: #33ff66;
+    box-shadow: 0 0 6px 2px rgba(51,255,102,.8), 0 0 0 1px #0a2a15;
+  }
+
+  /* bare mode: Modern + Teletype get a thin frame, no CRT housing */
+  .monitor.bare {
+    padding: 0; background: none; border-radius: 0;
+    box-shadow: none; margin-top: 12px;
+  }
+  .monitor.bare .bezel {
+    padding: 4px;
+    background: linear-gradient(#d9d1bd, #b3aa93);
+    border-radius: 4px;
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,.55),
+      inset 0 -1px 0 rgba(0,0,0,.25),
+      0 2px 5px rgba(0,0,0,.25);
+  }
+  .monitor.bare .bezel::before,
+  .monitor.bare .power-led { display: none; }
+  .monitor.bare #screen { box-shadow: none; }
+  .monitor.bare .chin { display: none; }
+  .monitor.bare .crt-overlay { inset: 4px; }
 
   /* CRT / phosphor overlays ------------------------------------- */
   .crt-overlay {
-    position: absolute; inset: 6px; pointer-events: none; z-index: 6;
+    position: absolute; inset: 16px 18px; pointer-events: none; z-index: 6;
     mix-blend-mode: multiply;
   }
   .bezel.crt-none .crt-overlay,
   .bezel.crt-off .crt-overlay { display: none; }
   .bezel.crt-scan .crt-overlay, .bezel.crt-scanheavy .crt-overlay {
-    background: repeating-linear-gradient(0deg,
-      rgba(0,0,0,.16) 0 1px, rgba(0,0,0,0) 1px 3px);
-    box-shadow: inset 0 0 90px rgba(0,0,0,.55);
+    background:
+      radial-gradient(125% 125% at 50% 42%, rgba(0,0,0,0) 52%, rgba(0,0,0,.55) 100%),
+      repeating-linear-gradient(0deg, rgba(0,0,0,.16) 0 1px, rgba(0,0,0,0) 1px 3px);
+    box-shadow: inset 0 0 70px rgba(0,0,0,.6);
     animation: crt-flicker 7s infinite steps(70);
   }
   .bezel.crt-scanheavy .crt-overlay {
-    background: repeating-linear-gradient(0deg,
-      rgba(0,0,0,.32) 0 1px, rgba(0,0,0,0) 1px 2px);
+    background:
+      radial-gradient(125% 125% at 50% 42%, rgba(0,0,0,0) 48%, rgba(0,0,0,.6) 100%),
+      repeating-linear-gradient(0deg, rgba(0,0,0,.32) 0 1px, rgba(0,0,0,0) 1px 2px);
   }
   @keyframes crt-flicker { 0%,96%,100% { opacity: 1 } 97% { opacity: .93 } 98% { opacity: 1 } }
-  .bezel.crt-paper { background: #d8d0bb; }
   .bezel.crt-paper .crt-overlay {
-    background: repeating-linear-gradient(0deg,
-      rgba(90,80,60,.05) 0 2px, rgba(0,0,0,0) 2px 5px);
-    box-shadow: inset 0 0 46px rgba(120,108,84,.4);
+    background:
+      radial-gradient(130% 130% at 50% 40%, rgba(0,0,0,0) 55%, rgba(120,108,84,.35) 100%),
+      repeating-linear-gradient(0deg, rgba(90,80,60,.05) 0 2px, rgba(0,0,0,0) 2px 5px);
   }
   .bell-flash { filter: brightness(2.4) contrast(1.2); }
+
+  /* monitor chin: just the nameplate now.
+     width:0 + min-width:100% keeps it from widening the monitor */
+  .monitor .chin {
+    margin-top: 12px; padding: 0 2px;
+    width: 0; min-width: 100%; box-sizing: border-box;
+  }
   .monitor .brand {
-    margin-top: 8px;
-    text-align: center;
+    display: block; text-align: center;
     font: 11px Arial, Helvetica, sans-serif;
-    letter-spacing: 4px;
-    color: #4a4436;
-    text-shadow: 1px 1px 0 #d8d0c0;
+    letter-spacing: 3px;
+    color: #6a6250;
+    text-shadow: 0 1px 0 rgba(255,255,255,.55);
   }
 
-  .statusbar {
-    margin-top: 12px;
-    padding: 4px 8px;
-    background: #000000;
-    color: #00ff66;
-    font: 12px "Courier New", monospace;
-    border: 2px inset #808080;
-    display: flex;
-    justify-content: space-between;
-    gap: 12px;
-    flex-wrap: wrap;
+  /* status readout -- its own strip below the monitor */
+  .statusline {
+    width: max-content; max-width: 100%;
+    margin: 10px auto 0;
+    font: 11px/1.4 "Courier New", monospace;
+    color: #6bffa0;
+    background: #0b1a10;
+    border: 1px solid #05100a;
+    border-radius: 3px;
+    padding: 3px 10px;
+    box-shadow: inset 0 1px 2px rgba(0,0,0,.5), 0 1px 2px rgba(0,0,0,.2);
+    white-space: pre; overflow-x: auto;
   }
-  #regs { white-space: pre; }
 
   /* footer -------------------------------------------------------- */
   .footer { margin-top: 14px; text-align: center; font-size: 12px; }
@@ -253,9 +343,9 @@
 
   /* Altair 8800 front panel ---------------------------------------- */
   .altair {
-    --col: 27px;            /* one bit column */
-    --ggap: 13px;           /* gap between octal groups */
-    --lead: 92px;           /* left margin (status / WAIT-HLDA / power) */
+    --col: 33px;            /* one bit column */
+    --ggap: 14px;           /* min gap between octal groups (elastic beyond this) */
+    --lead: 96px;           /* left margin (status / WAIT-HLDA / power) */
     background: #050505;    /* the dark room behind the machine */
     padding: 16px;
     overflow-x: auto;
@@ -300,15 +390,17 @@
      data LED / address LED / switch in a given bit sits in the same column */
   .fp-cols {
     display: grid;
+    /* the inter-group gaps are elastic (minmax .. 1fr) so the row stretches
+       edge to edge; LED grid and switch grid share this template and stay
+       column-aligned because they render at the same width */
     grid-template-columns:
       var(--lead)
-      var(--ggap) var(--col)
-      var(--ggap) var(--col) var(--col) var(--col)
-      var(--ggap) var(--col) var(--col) var(--col)
-      var(--ggap) var(--col) var(--col) var(--col)
-      var(--ggap) var(--col) var(--col) var(--col)
-      var(--ggap) var(--col) var(--col) var(--col);
-    justify-content: start;
+      minmax(var(--ggap), 1fr) var(--col)
+      minmax(var(--ggap), 1fr) var(--col) var(--col) var(--col)
+      minmax(var(--ggap), 1fr) var(--col) var(--col) var(--col)
+      minmax(var(--ggap), 1fr) var(--col) var(--col) var(--col)
+      minmax(var(--ggap), 1fr) var(--col) var(--col) var(--col)
+      minmax(var(--ggap), 1fr) var(--col) var(--col) var(--col);
     align-items: end;
   }
   .fp-cell {
@@ -329,13 +421,15 @@
   }
 
   .led {
-    width: 9px; height: 9px; border-radius: 50%;
-    background: radial-gradient(circle at 40% 35%, #6b1414, #360a0a);
-    box-shadow: 0 0 0 1px #1c1c1c, inset 0 0 2px #000;
+    width: 8px; height: 8px; border-radius: 50%;
+    background: radial-gradient(circle at 42% 34%, #6a1616, #2c0808 60%, #180404);
+    box-shadow: 0 0 0 1px rgba(0,0,0,.55), inset 0 0 2px rgba(0,0,0,.85),
+                0 1px 1px rgba(0,0,0,.4);
   }
   .led.on {
-    background: radial-gradient(circle at 40% 35%, #ff8a7a, #e12b1c 55%, #a01c12);
-    box-shadow: 0 0 7px 2px rgba(232, 52, 42, .8), 0 0 0 1px #401010;
+    background: radial-gradient(circle at 42% 34%, #ffe0d2, #ff5a3c 40%, #d21f10 74%, #7a1205);
+    box-shadow: 0 0 6px 2px rgba(255,64,38,.75), 0 0 15px 5px rgba(255,44,20,.32),
+                0 0 0 1px #4a0f08;
   }
 
   .fp-leds { row-gap: 13px; padding-bottom: 4px; }
@@ -344,16 +438,20 @@
     display: flex; justify-content: space-around; padding: 0 4px;
   }
   .fp-status .fp-cell { flex: 1; }
+  /* the bracket line runs under MEMR .. INT (3rd through last indicator) */
   .fp-statuslabel {
-    text-align: center; color: #cfcfcf;
-    font: 8px Arial, sans-serif; letter-spacing: 3px;
-    border-top: 1px solid #6a6a6a;
-    margin: 4px 18% 0;
+    text-align: center; color: #b8b8b8;
+    font: 7px Arial, sans-serif; letter-spacing: 3px;
+    border-top: 1px solid #4c4c4c;
+    margin: 3px 3% 0 24%;
     padding-top: 2px;
   }
   .fp-wh, .fp-power { grid-column: 1 / 4; }
   .fp-wh { grid-row: 2; display: flex; gap: 14px; padding-left: 2px; }
-  .fp-power { grid-row: 1; display: flex; align-items: flex-end; padding-left: 2px; }
+  .fp-power {
+    grid-row: 1; display: flex; align-items: center; gap: 5px;
+    padding-left: 2px;
+  }
 
   /* silver switch-mount rail */
   .fp-switches {
@@ -373,49 +471,53 @@
   .fp-tag.data  { right: 6px; bottom: 9px; text-align: right; line-height: 1.15; }
   .fp-switches .fp-cap { color: #333; height: auto; margin-bottom: 5px; }
 
-  /* bat-handle toggle */
+  /* ball-in-slot toggle — click anywhere on the column to flip it */
   .bat {
-    position: relative; width: 20px; height: 34px; cursor: pointer;
+    position: relative; width: 22px; height: 40px; cursor: pointer;
   }
-  .bat::before {                     /* the chrome bushing / mounting collar */
-    content: ""; position: absolute; left: 50%; top: 50%;
-    width: 13px; height: 13px; transform: translate(-50%, -50%);
+  .bat::before {                     /* the slot */
+    content: ""; position: absolute; left: 50%; top: 0; bottom: 0;
+    width: 13px; transform: translateX(-50%);
+    border-radius: 7px;
+    background: linear-gradient(#111111, #242424 50%, #111111);
+    box-shadow: inset 0 2px 4px rgba(0,0,0,.92), inset 0 -1px 2px rgba(0,0,0,.7),
+                0 1px 0 rgba(255,255,255,.14);
+  }
+  .bat::after {                      /* the ball — TOP = on/up (no .down class) */
+    content: ""; position: absolute; left: 50%; top: 1px;
+    width: 18px; height: 18px; transform: translateX(-50%);
     border-radius: 50%;
-    background: radial-gradient(circle at 50% 34%, #8f8f8f, #4c4c4c 46%, #1e1e1e 82%);
-    box-shadow: 0 1px 1px rgba(0,0,0,.65), inset 0 -1px 2px rgba(0,0,0,.55),
-                inset 0 1px 1px rgba(255,255,255,.2);
+    background: radial-gradient(circle at 37% 30%,
+      #ffffff, #e2e2e6 34%, #b0b0b7 62%, #7c7c84 88%, #5f5f67 100%);
+    box-shadow: 0 3px 4px rgba(0,0,0,.55), inset 0 -3px 4px rgba(0,0,0,.32),
+                inset 0 2px 2px rgba(255,255,255,.85);
+    transition: top .1s ease;
   }
-  .bat::after {                      /* the lever — points UP by default */
-    content: ""; position: absolute; left: 50%;
-    width: 8px; height: 18px; transform: translateX(-50%);
-    background: linear-gradient(180deg, #fdfdff, #dcdce1 52%, #a6a6ad 100%);
-    box-shadow: 0 1px 2px rgba(0,0,0,.45), inset 0 1px 0 #fff,
-                inset -1px 0 1px rgba(0,0,0,.12);
-    border-radius: 4px 4px 2px 2px;
-    bottom: 16px;
-    transition: bottom .07s ease, top .07s ease;
-  }
-  .bat.down::after {                 /* lever DOWN */
-    bottom: auto; top: 16px;
-    border-radius: 2px 2px 4px 4px;
-  }
-  .bat.momentary::after { bottom: 9px; height: 16px; }   /* paddles rest centred */
-  .bat.momentary.flick::after    { bottom: 17px; }
-  .bat.momentary.flick-dn::after { bottom: auto; top: 17px; }
+  .bat.down::after { top: 21px; }                   /* ball rolled to the bottom */
+  .bat.momentary::after { top: 11px; }              /* control balls rest centred */
+  .bat.momentary.flick::after    { top: 1px; }
+  .bat.momentary.flick-dn::after { top: 21px; }
 
-  .fp-power .fp-cap { color: #333; }
-  .fp-power .fp-num { color: #333; margin-top: 4px; }
+  .fp-power .fp-cap,
+  .fp-power .fp-num {
+    color: #333; margin: 0; height: auto;
+    font: 8px Arial, sans-serif; line-height: 1;
+  }
 
-  /* control paddle row (not per-bit aligned) */
+  /* control slider row — spread evenly across the panel width */
   .fp-ctl {
-    display: flex; align-items: flex-start;
-    padding-left: var(--lead); margin-top: 6px; gap: 4px;
+    display: flex; align-items: flex-start; justify-content: space-between;
+    padding: 6px var(--col) 0 var(--lead); margin-top: 6px;
   }
   .fp-ctl .fp-cell { width: calc(var(--col) * 2.4); }
   .fp-ctl .fp-cap { height: auto; margin: 0; }
   .fp-ctl .fp-cap.up b { color: #a81d12; font-weight: 700; }
   .fp-ctl .fp-cap.dn { color: #333; margin-top: 3px; }
   .fp-ctl .bat { margin: 3px auto; }
+
+  /* the whole switch column is the click target, not just the little lever */
+  .paddle { cursor: pointer; }
+  .paddle .bat { cursor: inherit; }
 
   /* bottom brushed-aluminium badge */
   .fp-badge {
@@ -515,7 +617,7 @@
 
   <div class="inner">
     <h1>ALTAIR 8800</h1>
-    <p class="tagline">~ * ~ &nbsp;An Intel 8080 Microcomputer, Live In Your Web Browser!&nbsp; ~ * ~</p>
+    <p class="tagline">~ * ~ &nbsp;An Intel 8080 Microcomputer running entirely in your browser!&nbsp; ~ * ~</p>
 
     <hr class="rule">
 
@@ -529,6 +631,7 @@
           <option value="web94">1994 Web</option>
         </select>
       </label>
+      <button id="helpBtn" class="clickme">&#9733; HOW-TO &mdash; CLICK ME! &#9733;</button>
     </div>
 
     <div id="altair" class="altair"><!-- front panel is built by app.js --></div>
@@ -559,14 +662,14 @@
       <div class="bezel crt-scan">
         <div id="screen"></div>
         <div class="crt-overlay"></div>
+        <span class="power-led" title="power"></span>
       </div>
-      <div class="brand">M I C R O S Y S T E M S &nbsp;&nbsp; MODEL 8080</div>
+      <div class="chin">
+        <span class="brand">M I C R O S Y S T E M S &nbsp; MODEL 8080</span>
+      </div>
     </div>
 
-    <div class="statusbar">
-      <span id="regs">booting...</span>
-      <span>[ ON&nbsp;AIR ]</span>
-    </div>
+    <div class="statusline"><span id="regs">booting...</span></div>
 
     <hr class="rule">
 
@@ -614,7 +717,15 @@
 
 <script src="vendor/xterm.js"></script>
 <script src="vendor/xterm-addon-fit.js"></script>
-<script src="retro8080.js"></script>
-<script src="app.js"></script>
+<script>
+  // cache-bust the code that changes between builds (vendor libs stay cached)
+  window.__V = String(Date.now());
+  ["retro8080.js", "app.js"].forEach(function (src) {
+    var s = document.createElement("script");
+    s.src = src + "?v=" + window.__V;
+    s.async = false;
+    document.head.appendChild(s);
+  });
+</script>
 </body>
 </html>
