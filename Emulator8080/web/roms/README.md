@@ -20,11 +20,20 @@ make -C web roms      # or: python3 web/roms/gen_roms.py
 
 ## Altair 4K BASIC
 
-The **Stock Launch** preset wants `4kbas.bin` — a flat image of Microsoft/Altair
-4K BASIC that loads and runs at `0x0000`. It's git-ignored (`*.bin`) and not
-bundled. Get an image from <https://deramp.com/downloads/mits/> (the 4K BASIC
-paper-tape or ROM images) and drop `4kbas.bin` here. On boot it asks
-`MEMORY SIZE?` (Enter) then gives the `OK` prompt.
+The **Stock Launch** preset wants `4kbas.bin` — a flat, *already-loaded* image of
+Microsoft/Altair 4K BASIC (2 KB of code that sits and runs at `0x0000`, not the
+paper-tape image with its checksum loader). Microsoft 4K BASIC was never public
+domain, so it's git-ignored (`*.bin`) and not bundled — same as the 8K ROM.
+
+Get 4K BASIC from <https://deramp.com/downloads/mits/> or
+<https://altairclone.com> (look for a pre-loaded `.bin`, or run the `.tap`
+through its checksum loader once and dump `0x0000`–`0x0FFF`). Use the version
+built for the **88-2SIO** console (ports 10h/11h). Drop it in as `4kbas.bin`.
+The preset sizes RAM to 4 KB, so 4K BASIC's memory test terminates correctly;
+on boot it asks `MEMORY SIZE?` (Enter) → `OK`.
+
+Without the file, the Stock Launch preset still sets up the hardware and prints
+a note explaining what's missing.
 
 `manifest.json` is the catalog the dialog reads. Per entry:
 

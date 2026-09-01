@@ -1338,12 +1338,27 @@ disks/README.md.`;
     }
   }
 
-  function presetHint(msg, cls) {
+  function presetHint(msg, opts) {
     presetNote.textContent = msg || "";
-    presetNote.style.color = cls || "";
-    if (msg) setTimeout(() => {
+    presetNote.style.color = (opts && opts.color) || "";
+    if (msg && !(opts && opts.persist)) setTimeout(() => {
       if (presetNote.textContent === msg) { presetNote.textContent = ""; presetNote.style.color = ""; }
     }, 6000);
+  }
+
+  // auto-load wanted a ROM/disk that isn't installed: say so clearly, on the
+  // terminal (where the user is looking) and as a standing note, then leave a
+  // bare working machine
+  function presetSoftwareMissing(sw) {
+    presetHint(sw.missing, { persist: true });
+    machine.reset();
+    term.clear(); outQ.length = 0; crlfPending = false;
+    setRunning(true);
+    term.write(
+      "\r\n\x1b[0m  — " + sw.missing.toUpperCase() + " —\r\n\r\n" +
+      "  This preset auto-loads that software, but the image wasn't\r\n" +
+      "  found. Add it (see the README), then choose the preset again --\r\n" +
+      "  or turn off \"Auto-load software\" and use Load Program.\r\n\r\n");
   }
 
   async function applyPreset(id) {
@@ -1390,7 +1405,7 @@ disks/README.md.`;
     await loadCatalog();
     if (sw.kind === "catalog") {                    // a bundled/optional ROM image
       const rom = catalog.find((x) => x.bytes && sw.match.test(x.name));
-      if (!rom) { presetHint(sw.missing); machine.reset(); term.clear(); return; }
+      if (!rom) { presetSoftwareMissing(sw); return; }
       const load = parseHex(rom.load, 0);
       applyProgram(rom.bytes, load, parseHex(rom.start, load), rom.name, parseHex(rom.sense, 0));
       return;
@@ -1398,14 +1413,14 @@ disks/README.md.`;
     if (sw.kind === "basic") {                       // boot 8K BASIC + type a listing in
       const g = catalog.find((x) => x.basicText && sw.match.test(x.name));
       const basic = catalog.find((x) => x.basicRom && x.bytes);
-      if (!g || !basic) { presetHint(sw.missing); machine.reset(); term.clear(); return; }
+      if (!g || !basic) { presetSoftwareMissing(sw); return; }
       loadBasicProgram(g);
       return;
     }
     if (sw.kind === "disk") {
       await disk.loadCatalog();
       const d = disk.catalog.find((x) => x.bytes && sw.match.test(x.name));
-      if (!d) { presetHint(sw.missing); machine.reset(); term.clear(); return; }
+      if (!d) { presetSoftwareMissing(sw); return; }
       disk.insert(0, d.bytes, d.name, d);
       machine.bootDisk();
       bootedFromDisk = true; lastLoad = null; turbo = false;
