@@ -219,28 +219,7 @@
     border-style: solid; background: #eceef1; transform: translateY(1px);
   }
 
-  /* obnoxious 90s "click me" button */
-  button.clickme {
-    color: #cc0000;
-    font-weight: 700;
-    background: #ffff33;
-    border: 3px outset #ffe000;
-    animation: clickme 0.7s ease-in-out infinite alternate;
-  }
-  button.clickme:hover { background: #ffe600; }
-  button.clickme:active { border-style: inset; animation: none; }
-  @keyframes clickme {
-    from { transform: scale(1); box-shadow: 0 0 0 rgba(255, 80, 0, 0); }
-    to   { transform: scale(1.07); box-shadow: 0 0 9px 2px rgba(255, 80, 0, 0.65); }
-  }
-  @media (prefers-reduced-motion: reduce) { button.clickme { animation: none; } }
-
-  /* modern theme: the "click me" button becomes a tasteful accent button */
-  :root[data-theme="modern"] button.clickme {
-    color: #ffffff; background: #4f46e5; border: 1px solid #4338ca;
-    font-weight: 600; animation: none; box-shadow: none;
-  }
-  :root[data-theme="modern"] button.clickme:hover { background: #4338ca; transform: none; }
+  #presetGuide { font-weight: 700; }
 
   .toolbar select {
     font: 12px Arial, Helvetica, sans-serif;
@@ -967,11 +946,12 @@
       <b>PRESET:</b>
       <select id="preset">
         <option value="">&mdash; custom &mdash;</option>
-        <option value="baremetal">1 &middot; Bare-Metal Toggle &middot; 1975 &middot; 4K &middot; front panel</option>
-        <option value="stock">2 &middot; Stock Launch &middot; 1975 &middot; 4K &middot; Teletype &middot; 4K BASIC</option>
-        <option value="cassette">3 &middot; Cassette Hobbyist &middot; 1976 &middot; 32K &middot; terminal + tape &middot; 8K BASIC + Star Trek</option>
-        <option value="cpm">6 &middot; CP/M Workstation &middot; 1978 &middot; 64K &middot; VT100 + floppy &middot; CP/M</option>
+        <option value="baremetal">Bare-Metal Toggle &middot; 1975 &middot; 4K &middot; front panel</option>
+        <option value="stock">Stock Launch &middot; 1975 &middot; 4K &middot; Teletype &middot; 4K BASIC</option>
+        <option value="cassette">Cassette Hobbyist &middot; 1976 &middot; 32K &middot; terminal + tape &middot; 8K BASIC + Star Trek</option>
+        <option value="cpm">CP/M Workstation &middot; 1978 &middot; 64K &middot; VT100 + floppy &middot; CP/M</option>
       </select>
+      <button id="presetGuide" title="what this setup is and how to use it">&#9432; Guide</button>
       <label title="also load and start the preset's key software"><input type="checkbox" id="autoload" checked>&nbsp;Auto-load software</label>
       <span id="presetNote" class="preset-note"></span>
     </div>
@@ -979,7 +959,6 @@
     <div class="toolbar">
       <b>CONTROLS:</b>
       <button id="loadBtn">Load Program...</button>
-      <button id="reset">RESET</button>
       <label>Theme:
         <select id="pageTheme">
           <option value="win">Windows</option>
@@ -987,7 +966,6 @@
           <option value="modern">Modern</option>
         </select>
       </label>
-      <button id="helpBtn" class="clickme">&#9733; HOW-TO &mdash; CLICK ME! &#9733;</button>
     </div>
 
     <div id="altair" class="altair"><!-- front panel is built by app.js --></div>
@@ -1114,6 +1092,19 @@
     <div class="dialog-body">
       <div id="diskHelpBody" class="help-doc"></div>
       <div class="dialog-buttons"><button id="diskHelpOk">Close</button></div>
+    </div>
+  </div>
+</div>
+
+<div id="presetGuideDialog" class="modal" hidden>
+  <div class="dialog dialog-wide">
+    <div class="titlebar">
+      <span>&#9635; Guide &mdash; <span id="presetGuideName">setup</span></span>
+      <span class="btns"><span id="presetGuideClose">&times;</span></span>
+    </div>
+    <div class="dialog-body">
+      <div id="presetGuideBody" class="help-doc"></div>
+      <div class="dialog-buttons"><button id="presetGuideOk">Close</button></div>
     </div>
   </div>
 </div>

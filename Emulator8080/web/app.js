@@ -1228,26 +1228,95 @@ async function boot() {
       ramKb: 4, term: "tty33", focus: "panel",
       cards: ["MITS 88-CPU\n8080 / 2 MHz", "MITS 88-4K\nStatic RAM", "MITS 88-2SIO\nserial"],
       software: { kind: "rom", file: "killbits.bin", label: "Kill the Bit", start: 0 },
+      blurb: "The Altair as it first shipped: an 8080, 4K of RAM, and the front panel. No keyboard, no screen worth the name.",
+      guide:
+`KILL THE BIT is loaded and running. A lit bit sweeps left to right
+across the top row of address lamps (A8 - A15). At the right moment,
+flip the sense switch under the lit lamp to knock that bit out. Clear
+the whole row and the program stops -- you win.
+
+  STOP / RUN        halt and restart the CPU
+  RESET / CLR       (panel paddle) jump back to the start
+  SINGLE STEP       one instruction at a time, while stopped
+
+There's no software to type at -- this is the machine you programmed
+in binary, one switch at a time.`,
     },
     stock: {
       name: "Stock Launch", era: "Mid 1975",
       ramKb: 4, term: "tty33",
       cards: ["MITS 88-CPU\n8080", "MITS 88-4K\nDRAM", "MITS 88-2SIO\nserial", "Teletype\nASR-33"],
       software: { kind: "catalog", match: /4K BASIC/i, missing: "Altair 4K BASIC not installed — see roms/README.md" },
+      blurb: "4K of RAM, a Teletype for a console, and the program that made the Altair worth buying: Altair 4K BASIC.",
+      guide:
+`At MEMORY SIZE? press Enter; you'll get the OK prompt.
+
+  PRINT 2+2
+  10 FOR I=1 TO 10: PRINT I,I*I: NEXT
+  RUN        LIST        NEW
+
+The Teletype prints at 10 characters a second onto a paper roll, so it
+scrolls back -- and it's uppercase only. If BASIC didn't load, drop a
+4kbas.bin into web/roms/ (see roms/README.md).`,
     },
     cassette: {
       name: "Cassette Hobbyist", era: "1976",
       ramKb: 32, term: "adm3a", showTape: true,
       cards: ["MITS 88-CPU\n8080", "MITS 88-16MCD\n16K DRAM", "MITS 88-16MCD\n16K DRAM", "MITS 88-2SIO\nserial", "MITS 88-ACR\ncassette"],
       software: { kind: "basic", match: /star trek/i, missing: "install Altair 8K BASIC — see roms/README.md" },
+      blurb: "32K of RAM, a fast video terminal, and an 88-ACR cassette deck so your programs survive being switched off.",
+      guide:
+`SUPER STAR TREK is typed in and RUN. Hunt the Klingon fleet across an
+8x8 galaxy; at the COMMAND? prompt type NAV, SRS, LRS, PHA, TOR, SHE,
+DAM, COM, or XXX to resign.
+
+SAVE AND LOAD YOUR OWN PROGRAMS with the cassette deck:
+  1. click the deck to insert a blank tape
+  2. in BASIC:  CSAVE "NAME"   records the current program
+                CLOAD "NAME"   plays it back  (press REWIND first)
+  3. SAVE on the deck downloads the tape as a .cas file
+
+Break out of a running program with Ctrl-C.`,
     },
     cpm: {
       name: "CP/M Workstation", era: "1978",
       ramKb: 64, term: "vt100g", showDisk: true,
       cards: ["MITS 88-CPU\n8080", "64K Static RAM\n(3rd party)", "MITS 88-2SIO\nserial", "MITS 88-DCDD\ndisk ctlr"],
       software: { kind: "disk", match: /CP\/M/i, missing: "install a CP/M diskette — see disks/README.md" },
+      blurb: "64K of RAM, a VT100, and two 8-inch floppy drives -- a real disk operating system, the setup that ran a small business.",
+      guide:
+`CP/M 2.2 has booted to the A> prompt. Type a command:
+
+  DIR             list files          TYPE READ.ME   show a text file
+  STAT            free space          ERA JUNK.TXT   delete a file
+  REN NEW=OLD     rename              B:             switch drives
+  MBASIC / WS / DDT / ...   run a program (leave off the .COM)
+
+Ctrl-C at A> re-reads the disk; Ctrl-C usually aborts a running
+program. The disk cabinet's [?] button explains whatever disk is in
+each drive, including how to quit each program.`,
     },
   };
+
+  const CUSTOM_BLURB =
+    "You've configured the machine by hand. Pick a preset above to jump to a " +
+    "period-correct build, or keep tuning with the Terminal dropdown and " +
+    "Load Program.";
+
+  const EMU_PRIMER =
+`THE FRONT PANEL is live. Address and data lamps, the A0 - A15 toggle
+switches, and the paddles: STOP/RUN, SINGLE STEP, EXAMINE (set the
+address), DEPOSIT (write the switches to memory), RESET/CLR. The top
+eight switches (A8 - A15) are the "sense switches" that programs read.
+
+THE TERMINAL dropdown swaps in a real 1970s terminal -- a fixed 24
+lines, no scrollback, uppercase only, at a real baud rate. The
+Teletype crawls at 10 characters a second and throttles the 8080,
+exactly as it did in 1975.
+
+NOTHING is bundled that wasn't freely shared. The 8K BASIC ROM and the
+CP/M diskettes are yours to supply -- see roms/README.md and
+disks/README.md.`;
 
   function buildBackplane(cards) {
     backplaneEl.innerHTML = "";
@@ -1350,6 +1419,35 @@ async function boot() {
   autoloadChk.addEventListener("change", () => {
     if (presetSelect.value) applyPreset(presetSelect.value);   // re-apply with the new choice
   });
+
+  // the "Guide" button: what this setup is, and how to drive it
+  const guideDialog = document.getElementById("presetGuideDialog");
+  function showPresetGuide() {
+    const p = PRESETS[presetSelect.value];
+    document.getElementById("presetGuideName").textContent = p ? p.name : "Custom setup";
+    const body = document.getElementById("presetGuideBody");
+    const mk = (tag, txt, cls) => {
+      const e = document.createElement(tag);
+      if (cls) e.className = cls;
+      if (txt != null) e.textContent = txt;
+      return e;
+    };
+    body.innerHTML = "";
+    body.appendChild(mk("p", p ? `${p.blurb}  (${p.era}, ${p.ramKb} KB)` : CUSTOM_BLURB));
+    if (p) {
+      body.appendChild(mk("h4", "HOW TO USE IT"));
+      body.appendChild(mk("pre", p.guide));
+    }
+    body.appendChild(mk("div", null, "divider"));
+    body.appendChild(mk("h4", "USING THE EMULATOR"));
+    body.appendChild(mk("pre", EMU_PRIMER));
+    guideDialog.hidden = false;
+  }
+  const closeGuide = () => { guideDialog.hidden = true; term.focus(); };
+  document.getElementById("presetGuide").addEventListener("click", showPresetGuide);
+  document.getElementById("presetGuideClose").addEventListener("click", closeGuide);
+  document.getElementById("presetGuideOk").addEventListener("click", closeGuide);
+  guideDialog.addEventListener("click", (e) => { if (e.target === guideDialog) closeGuide(); });
 
   // --- paper-tape load ------------------------------------
   // The user keys a 25-byte serial bootstrap into memory on the front panel,
@@ -1781,21 +1879,6 @@ async function boot() {
 
   document.getElementById("loadBtn").addEventListener("click", openDialog);
 
-  // the how-to button shouts until it's clicked (or ~2 min pass), then it
-  // settles down — and stays settled on later visits
-  const helpBtn = document.getElementById("helpBtn");
-  let helpTimer = null;
-  function calmHelp() {
-    if (helpTimer) { clearTimeout(helpTimer); helpTimer = null; }
-    helpBtn.classList.remove("clickme");
-    helpBtn.textContent = "How-To";
-    try { localStorage.setItem("retro8080.helpseen", "1"); } catch {}
-  }
-  helpBtn.addEventListener("click", () => { printManual(); calmHelp(); term.focus(); });
-  let helpSeen = false;
-  try { helpSeen = localStorage.getItem("retro8080.helpseen") === "1"; } catch {}
-  if (helpSeen) calmHelp();
-  else helpTimer = setTimeout(calmHelp, 120000);
   document.getElementById("romCancel").addEventListener("click", closeDialog);
   document.getElementById("romClose").addEventListener("click", closeDialog);
   dialog.addEventListener("click", (e) => { if (e.target === dialog) closeDialog(); });
@@ -1866,25 +1949,6 @@ async function boot() {
     setTimeout(() => applyPreset(startPreset), 200);   // let the wasm + fonts settle
   }
 
-  // --- reset ----------------------------------------------
-  document.getElementById("reset").addEventListener("click", () => {
-    crlfPending = false;
-    if (bootedFromDisk) {
-      machine.bootDisk();          // diskettes stay in their drives
-      term.clear();
-      outQ.length = 0;
-      setRunning(true);
-      term.focus();
-    } else if (lastLoad) {
-      applyProgram(lastLoad.bytes, lastLoad.load, lastLoad.start,
-                   lastLoad.label, lastLoad.sense);
-    } else {
-      machine.reset();
-      term.clear();
-      outQ.length = 0;
-      term.focus();
-    }
-  });
 }
 
 boot();

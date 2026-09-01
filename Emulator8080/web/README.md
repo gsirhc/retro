@@ -120,6 +120,11 @@ Uncheck **Auto-load** to get just the hardware and load software yourself.
 Changing RAM/terminal/disk by hand flips the dropdown to *— custom —*. The
 choice persists; `?preset=cpm` in the URL wins over the stored one.
 
+The **ⓘ Guide** button next to the dropdown opens a dialog: what the current
+setup is and how to drive it (its software, the key commands), plus a short
+primer on the panel and terminals. `?help` still prints the old scrolling
+how-to to the terminal.
+
 Presets 4 (Cromemco Dazzler) and 5 (Processor Tech VDM-1) are not built yet.
 
 ## Loading programs
@@ -127,8 +132,9 @@ Presets 4 (Cromemco Dazzler) and 5 (Processor Tech VDM-1) are not built yet.
 **Load Program...** opens a dialog listing the built-ins from `roms/manifest.json`
 (fetched from the server, each entry probed for availability) plus a
 load-from-disk file picker. Each entry carries a load address and a start (PC);
-those pre-fill the fields and are editable for disk loads. **RESET** re-applies
-the last program loaded, or falls back to the built-in echo ROM.
+those pre-fill the fields and are editable for disk loads. The front-panel
+**RESET/CLR** paddle is the machine's reset (PC → 0, peripherals cleared, RAM
+intact).
 
 **Load via: memory (instant) | paper tape.** Paper tape is the period-correct
 path: a guide appears under the panel with a 25-byte serial bootstrap in octal,
