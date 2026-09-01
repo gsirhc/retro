@@ -6,6 +6,10 @@ on:
     paths:
       - "Emulator8080/**"
       - ".github/workflows/deploy-emulator.yml"
+  pull_request:
+    paths:
+      - "Emulator8080/**"
+      - ".github/workflows/deploy-emulator.yml"
   workflow_dispatch:
 
 permissions:
@@ -14,11 +18,39 @@ permissions:
   id-token: write
 
 concurrency:
-  group: pages
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # native echo demo + GoogleTest unit suite
+      - run: make -C Emulator8080 check
+
+      # public-domain 8080 diagnostics (kept out of the repo), pinned + checksummed
+      - name: Fetch 8080 diagnostic images
+        working-directory: Emulator8080/cpm
+        run: |
+          base=https://raw.githubusercontent.com/superzazu/8080/c5d403ce7ac967b6ec4980a45b5447d8880888b0/cpu_tests
+          for f in 8080PRE.COM TST8080.COM CPUTEST.COM 8080EXM.COM; do
+            curl -sSfL -o "$f" "$base/$f"
+          done
+          sha256sum -c <<'EOF'
+          18eb3c79cba42c0718f160be6a1853cb64cdce7aa47d65780189a57bdd98c4e0  8080PRE.COM
+          9561c6fb6c99efe3de00eb77e4044fd102151058b39ac2d7bce10483838a08e7  TST8080.COM
+          e61a9a75348c774486c2207080ea4effbf6c2367fdace31b0731081a4144030b  CPUTEST.COM
+          6e3286e11bb1a8f47b8ee1280b4a067be813193363e3223c99b0d21912f44aeb  8080EXM.COM
+          EOF
+
+      # 8080PRE / TST8080 / CPUTEST / 8080EXM via the CP/M host (exits non-zero on failure)
+      - run: make -C Emulator8080 cpm
+
   build:
+    needs: test
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -39,6 +71,7 @@ jobs:
 
   deploy:
     needs: build
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     environment:
       name: github-pages

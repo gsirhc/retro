@@ -22,16 +22,24 @@
 #include "../i8080.h"
 
 #include <array>
+#include <cctype>
 #include <cstdint>
 #include <cstdio>
 #include <fstream>
 #include <iterator>
+#include <string>
 #include <vector>
 
 namespace {
 
 std::array<uint8_t, 0x10000> g_mem{};
 bool g_finished = false;
+std::string g_console;   // everything the diagnostic printed, for pass/fail scan
+
+void emit(char ch) {
+    std::putchar(ch);
+    g_console.push_back(ch);
+}
 
 // CP/M BDOS, cut down to what console diagnostics use.
 //   C = 0x02  C_WRITE     — write the character in E
@@ -39,12 +47,12 @@ bool g_finished = false;
 void bdos_call(const i8080::Cpu &cpu) {
     switch (cpu.c) {
         case 0x02:
-            std::putchar(static_cast<char>(cpu.e));
+            emit(static_cast<char>(cpu.e));
             break;
         case 0x09: {
             uint16_t addr = cpu.de();
             for (int guard = 0; g_mem[addr] != '$' && guard < 0x10000; ++guard)
-                std::putchar(static_cast<char>(g_mem[addr++]));
+                emit(static_cast<char>(g_mem[addr++]));
             break;
         }
         default:
@@ -52,6 +60,16 @@ void bdos_call(const i8080::Cpu &cpu) {
             break;
     }
     std::fflush(stdout);
+}
+
+// The classic diagnostics all announce a failure in the console text:
+// TST8080 "CPU HAS FAILED" / "ERROR EXIT", CPUTEST prints "ERROR", 8080EXM
+// prints "ERROR" next to the bad CRC. A clean run never contains either word.
+bool diagnostic_failed() {
+    std::string up = g_console;
+    for (char &c : up) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+    return up.find("ERROR") != std::string::npos ||
+           up.find("FAIL")  != std::string::npos;
 }
 
 } // namespace
@@ -99,7 +117,8 @@ int main(int argc, char **argv) {
     cpu.pc = 0x0100;  // enter the Transient Program Area
 
     // --- run ----------------------------------------------------
-    const uint64_t kCycleCap = 1'000'000'000;  // safety net for a wedged core
+    // 8080EXM is the long pole: a full pass is ~24 billion cycles.
+    const uint64_t kCycleCap = 40'000'000'000;  // safety net for a wedged core
     while (!g_finished && cpu.cycles < kCycleCap)
         cpu.step();
 
@@ -110,5 +129,9 @@ int main(int argc, char **argv) {
     }
     std::fprintf(stderr, "[cpm_host: program exited after %llu cycles]\n",
                  static_cast<unsigned long long>(cpu.cycles));
+    if (diagnostic_failed()) {
+        std::fprintf(stderr, "[cpm_host: diagnostic reported a failure]\n");
+        return 3;
+    }
     return 0;
 }

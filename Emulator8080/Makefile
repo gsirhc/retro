@@ -38,10 +38,15 @@ test:
 cpm/cpm_host: cpm/cpm_host.cpp i8080.cpp i8080.h
 	$(CXX) $(CXXFLAGS) -o $@ cpm/cpm_host.cpp i8080.cpp
 
+# run each diagnostic image present in cpm/, 8080PRE first (smoke test) and
+# 8080EXM last (exhaustive, ~15 s); stops at the first failure so CI fails loudly
 cpm: cpm/cpm_host
-	@if [ -f cpm/TST8080.COM ]; then ./cpm/cpm_host cpm/TST8080.COM; \
-	else echo "built cpm/cpm_host. drop a .COM in cpm/ and run:"; \
-	     echo "  ./cpm/cpm_host cpm/TST8080.COM"; fi
+	@ran=0; \
+	for f in 8080PRE.COM TST8080.COM CPUTEST.COM 8080EXM.COM; do \
+	  [ -f cpm/$$f ] || continue; \
+	  echo "=== cpm/$$f ==="; ./cpm/cpm_host cpm/$$f || exit $$?; ran=1; \
+	done; \
+	[ $$ran = 1 ] || echo "cpm/cpm_host built. add a .COM and run ./cpm/cpm_host cpm/<file>"
 
 # --- webassembly + browser front end -------------------------------
 wasm:
