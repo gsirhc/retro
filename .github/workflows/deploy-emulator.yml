@@ -48,6 +48,19 @@ jobs:
       # 8080PRE / TST8080 / CPUTEST / 8080EXM via the CP/M host (exits non-zero on failure)
       - run: make -C Emulator8080 cpm
 
+      # a real Altair CP/M 2.2 disk (kept out of the repo), pinned + checksummed
+      - name: Fetch a CP/M diskette image
+        working-directory: Emulator8080/cpm
+        run: |
+          url=https://raw.githubusercontent.com/dhansel/Altair8800/8b0ac49448144f0afed1d5108559dc8507268a85/disks/DISK01.DSK
+          curl -sSfL -o cpm22.dsk "$url"
+          sha256sum -c <<'EOF'
+          730a806ae374c99d8c1ee1c4ab83b674ea7773050300c7d7aa4bfbd29752e4f2  cpm22.dsk
+          EOF
+
+      # boot CP/M on the emulated 88-DCDD and run DIR/STAT (exits non-zero if it hangs)
+      - run: make -C Emulator8080 cpmdisk DISK=cpm/cpm22.dsk
+
   build:
     needs: test
     if: github.event_name != 'pull_request'

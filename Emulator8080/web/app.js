@@ -10,6 +10,43 @@ const CPU_HZ = 2_000_000;   // Altair 8080A clock; emulation is paced to real ti
 
 const hex = (n, w = 2) => n.toString(16).toUpperCase().padStart(w, "0");
 
+// Shown by the disk cabinet's "?" button under the disk-specific notes.
+const CPM_PRIMER =
+`The A> prompt is the console. Type a command and press Enter;
+case doesn't matter. "A>" means drive A is current.
+
+FILES
+  DIR              list files on the current drive
+  DIR B:           list files on drive B:
+  DIR *.COM        list only the .COM files
+  TYPE READ.ME     show a text file  (Ctrl-S pause, Ctrl-Q resume)
+  ERA JUNK.TXT     erase a file      (ERA *.BAK  erases every .BAK)
+  REN NEW=OLD      rename OLD to NEW
+  B:               switch to drive B:   (A: switches back)
+
+RUN A PROGRAM
+  Type its name without ".COM":
+      STAT               disk / file sizes and free space
+      PIP B:=A:*.*        copy every file from A: to B:
+  When a program finishes it drops you back at A> on its own.
+
+STOP A PROGRAM
+  Ctrl-C  at the A> prompt      warm boot (re-reads the disk)
+  Ctrl-C  during a program      usually aborts it back to A>
+  otherwise use the program's own quit command (see above)
+
+There is no shut-down -- just stop, or eject the disk.`;
+
+const DOS_PRIMER =
+`Altair DOS is not CP/M. The prompt is a period:  .
+
+  .DIR             list files
+  .MNT 0           mount the disk in drive 0
+  .NAME            run the program called NAME
+
+MITS shipped this before CP/M and it shows -- boot a CP/M disk
+instead unless you're here for the history.`;
+
 // Surface any startup failure on the page itself (the console may be closed).
 function fail(msg) {
   console.error(msg);
@@ -109,15 +146,15 @@ async function boot() {
     vt100g: { label: "DEC VT100 · green",
       font: '"VT323", "Courier New", monospace', size: 19,
       fg: "#39ff41", bg: "#0a140a", dim: "#1c8c1c", br: "#a6ffa6",
-      crt: "scan", baud: 9600, cursor: "block", blink: true, glow: 3 },
+      crt: "scan", baud: 9600, cursor: "block", blink: true, glow: 2 },
     vt100a: { label: "DEC VT100 · amber",
       font: '"VT323", "Courier New", monospace', size: 19,
       fg: "#ffb32b", bg: "#180d00", dim: "#a8701a", br: "#ffd77e",
-      crt: "scan", baud: 9600, cursor: "block", blink: true, glow: 3 },
+      crt: "scan", baud: 9600, cursor: "block", blink: true, glow: 2 },
     vt52: { label: "DEC VT52",
       font: '"VT323", "Courier New", monospace', size: 19,
       fg: "#4dff4d", bg: "#061006", dim: "#1c8c1c", br: "#b6ffb6",
-      crt: "scanheavy", baud: 4800, cursor: "block", blink: false, glow: 4 },
+      crt: "scanheavy", baud: 4800, cursor: "block", blink: false, glow: 3 },
     adm3a: { label: "Lear Siegler ADM-3A",
       font: '"VT323", "Courier New", monospace', size: 19,
       fg: "#39ff9c", bg: "#03100b", dim: "#1c8c5c", br: "#a6ffce",
@@ -220,6 +257,8 @@ async function boot() {
   // --- terminal -> CPU ----------------------------------------------
   const encoder = new TextEncoder();
   term.onData((data) => {
+    if (loaderBusy) return;   // ignore the keyboard while a program is loading
+    turbo = false;            // the player is here now — back to authentic 2 MHz
     // a keypress skips to the end of a slow how-to printout
     if (printingManual) {
       term.write(new Uint8Array(outQ.splice(0)));
@@ -240,23 +279,58 @@ async function boot() {
   // terminal — exactly how a 110-baud Teletype throttled the machine.
   const crlf = document.getElementById("crlf");
   const outQ = [];
+
+  // The BASIC-program auto-loader (see loadBasicProgram) feeds a listing in
+  // through the keyboard path. `kbdQ` is metered against the 2SIO's receive
+  // FIFO so it can never overrun; `rxWatch` is a rolling copy of recent CPU
+  // output the loader polls to sync with BASIC's prompts.
+  const kbdQ = [];
+  let rxWatch = "";
+  let loaderBusy = false;
+  let loaderToken = 0;
+  let turbo = false;       // run the CPU faster than 2 MHz: during a load, and
+                           // briefly after, so a program's one-time setup (the
+                           // galaxy in Star Trek is ~20 s of real 8080 time)
+                           // doesn't look like a hang. Ends on the first keypress.
+
   let baudCps = 0;          // 0 = unthrottled; else characters/second
   let baudBudget = 0;
   let printingManual = false;   // the how-to is metered at the terminal's baud
   let baudSaved = 0;            // real baud, restored when the how-to finishes
+  let crlfPending = false;      // a CR ended the last readOutput() batch; the LF
+                                // decision waits for the next batch (see below)
 
   function pullSerial() {
     // stay mostly drained so the 2SIO FIFO does the buffering + TDRE backpressure
     if (outQ.length > 128) return;
     const out = machine.readOutput();
-    for (let i = 0; i < out.length; i++) {
+    const n = out.length;
+    if (n === 0) return;
+
+    // A "CR -> CR/LF" pair can straddle two readOutput() batches. If we decided
+    // per-batch we'd inject an LF for the trailing CR *and* then see the real LF
+    // arrive next batch -> a spurious blank line (BASIC's LIST hits this a lot).
+    // So a batch-final CR sets crlfPending and we resolve it here.
+    if (crlfPending) {
+      if (crlf.checked && (out[0] & 0x7f) !== 0x0a) outQ.push(0x0a);
+      crlfPending = false;
+    }
+
+    for (let i = 0; i < n; i++) {
       // 1970s serial terminals are 7-bit ASCII; the 8th bit is parity/ignored.
       // Altair BASIC's LIST relies on this — it sets bit 7 on the first letter
       // of every tokenised keyword (PRINT -> 0xD0,'RINT'), so without the mask
       // that leading letter renders as a stray C1 control and vanishes.
       const b = out[i] & 0x7f;
       outQ.push(b);
-      if (crlf.checked && b === 0x0d && (out[i + 1] & 0x7f) !== 0x0a) outQ.push(0x0a);
+      if (crlf.checked && b === 0x0d) {
+        if (i + 1 < n) { if ((out[i + 1] & 0x7f) !== 0x0a) outQ.push(0x0a); }
+        else crlfPending = true;         // decide when the next batch lands
+      }
+    }
+    if (loaderBusy) {
+      for (let i = 0; i < n; i++) rxWatch += String.fromCharCode(out[i] & 0x7f);
+      if (rxWatch.length > 4096) rxWatch = rxWatch.slice(-2048);
     }
   }
 
@@ -266,12 +340,26 @@ async function boot() {
       baudCps = baudSaved;
     }
     pullSerial();
+    // while the auto-loader is streaming a listing in, BASIC's echo is noise —
+    // drop it and let the loader show its own status instead
+    if (loaderBusy) { outQ.length = 0; return; }
     if (outQ.length === 0) return;
     if (baudCps === 0) { term.write(new Uint8Array(outQ.splice(0))); return; }
     baudBudget += (baudCps * dtMs) / 1000;
     baudBudget = Math.min(baudBudget, baudCps);   // cap catch-up after a stall
     const n = Math.min(outQ.length, Math.floor(baudBudget));
     if (n > 0) { baudBudget -= n; term.write(new Uint8Array(outQ.splice(0, n))); }
+  }
+
+  // Feed the auto-loader's queued keystrokes into channel A. Self-throttled
+  // against the 2SIO's 512-byte receive FIFO, so a huge listing (Star Trek is
+  // ~20 KB) streams in as fast as BASIC tokenises it and never overruns.
+  function pumpKeyboard() {
+    if (!kbdQ.length) return;
+    const room = typeof machine.rxPending === "function";
+    let guard = 600;
+    while (kbdQ.length && guard-- > 0 && (!room || machine.rxPending() < 400))
+      machine.sendByte(kbdQ.shift());
   }
 
   function flushTerminal() {           // used by SINGLE STEP — show it now
@@ -283,6 +371,7 @@ async function boot() {
   // wipe the screen and print a one-page how-to, wrapped to the terminal
   function printManual() {
     outQ.length = 0;
+    crlfPending = false;
     baudBudget = 0;
     term.write("\r\x1b[0m\x1b[2J\x1b[3J\x1b[H");   // wipe screen + scrollback + any half-typed line
     const w = Math.max(46, Math.min((term.cols || 80) - 2, 92));
@@ -302,29 +391,36 @@ async function boot() {
     };
     const lines = [bar, mid("ALTAIR 8800  --  HOW TO USE"), bar];
     const para = (s, indent) => wrap(s, indent).forEach((l) => lines.push(l));
-    para("THE MACHINE IS BARE -- nothing is loaded, and the default program " +
-         "just echoes what you type. Load a program with [Load Program...], " +
-         "or key one in on the front panel.", " ");
+    para("THE MACHINE IS BARE -- nothing is loaded; the default program just " +
+         "echoes what you type. Load one with [Load Program...], or key it in " +
+         "on the front panel.", " ");
     lines.push("");
-    para("THE TERMINAL -- these are real 1970s terminals, limits and all. " +
-         "The screen is a fixed 24 lines with no scrollback: text off the top " +
-         "is gone. Uppercase only, too -- the Altair's monitor and BASIC need " +
-         "caps, and most terminals of the day couldn't show lowercase, so " +
-         "CAPS LOCK stays on.", " ");
+    para("THE TERMINAL -- real 1970s terminals, limits and all: a fixed 24 " +
+         "lines, no scrollback (text off the top is gone), uppercase only.", " ");
     lines.push("");
-    para("THE TELETYPE (ASR-33) -- a printer, not a screen: 10 characters a " +
-         "second onto a paper roll. Cheap, and many hobbyists already had " +
-         "one, so it was the common console. Because it's paper, it does " +
-         "scroll back.", " ");
+    para("THE TELETYPE (ASR-33) -- a printer, not a screen: 10 chars/sec onto " +
+         "a paper roll. Cheap and common, and being paper it scrolls back.", " ");
+    lines.push("");
+    para("DISKS / CP/M -- the cabinet below is a MITS 88-DCDD: two 8-inch " +
+         "drives. Insert a diskette and press BOOT; [?] on a drive explains " +
+         "that disk. CP/M uses the full 64 KB of RAM. Bring your own .dsk " +
+         "images (see disks/README.md).", " ");
     lines.push("", " HISTORY");
-    para("1974 -- Ed Roberts's MITS of Albuquerque bets the company on " +
-         "Intel's 8080. It hits the Jan 1975 cover of Popular Electronics: " +
-         "the Altair 8800, a $439 kit -- 8080 at 2 MHz, 256 bytes of RAM, no " +
-         "keyboard, no screen. Gates & Allen wrote Altair BASIC and started " +
-         "Micro-Soft to sell it.", "   ");
+    para("1974 -- MITS bets the company on Intel's 8080 and makes the Jan " +
+         "1975 cover of Popular Electronics: the Altair 8800, a $439 kit -- " +
+         "2 MHz, 256 bytes of RAM, no keyboard or screen. Gates & Allen " +
+         "wrote its BASIC.", "   ");
     lines.push(bar);
     // centre the block in the screen: pad rows above, indent columns left
     const rows = term.rows || 24;
+    // on a narrow terminal the paragraphs wrap longer -- drop the blank
+    // separator lines until the page fits (there's no scrollback to recover
+    // what runs off the top)
+    while (lines.length > rows) {
+      const i = lines.indexOf("");
+      if (i < 0) break;
+      lines.splice(i, 1);
+    }
     const padTop = Math.max(0, (rows - lines.length) >> 1);
     const indent = " ".repeat(Math.max(0, ((term.cols || 80) - w) >> 1));
     const body =
@@ -399,16 +495,22 @@ async function boot() {
     if (running) term.focus();
   };
   let lastFrame = performance.now();
+  let frameCount = 0;
   function frame(now) {
     const dt = Math.max(0, Math.min(now - lastFrame, 100));   // clamp after a tab-away
     lastFrame = now;
     if (running && powered) {
       tape.tick();
-      // cycles paced by real elapsed time, so speed is 2 MHz on any display
-      machine.runCycles(Math.round(CPU_HZ * dt / 1000));
+      // cycles paced by real elapsed time, so speed is 2 MHz on any display —
+      // except while the auto-loader is streaming a listing in, when we let the
+      // CPU sprint so a big program (Star Trek) tokenises in a few seconds
+      const boost = turbo ? 12 : 1;
+      machine.runCycles(Math.round(CPU_HZ * dt / 1000) * boost);
+      pumpKeyboard();
     }
     pumpTerminal(dt);          // keep typing out buffered text even when stopped
     updatePanel();
+    if ((frameCount++ & 3) === 0) disk.poll();   // disk lamps ~15 Hz
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
@@ -673,6 +775,267 @@ async function boot() {
   }
 
   buildPanel();
+
+  // --- MITS 88-DCDD disk drive cabinet --------------------
+  let bootedFromDisk = false;   // RESET re-runs the disk boot if this is set
+
+  const disk = {
+    catalog: [],
+    catalogLoaded: false,
+    names: [null, null],       // label shown on each drive's diskette
+    entries: [null, null],     // the manifest entry mounted in each drive (or null)
+    bays: [],                  // per-drive DOM refs
+    lampHold: [0, 0],
+    lastTick: [0, 0],
+    pickerDrive: 0,
+
+    build() {
+      const root = document.getElementById("dcdd");
+      const kase = el("dcdd-case");
+      const top = el("dcdd-top",
+        `<span class="dcdd-plate">MITS 88-DCDD <span>&nbsp;DISK DRIVES</span></span>`);
+      const boot = document.createElement("button");
+      boot.className = "dcdd-boot";
+      boot.textContent = "BOOT";
+      boot.title = "load the 88-DCDD bootstrap PROM at 0FF00h and run (turnkey disk boot)";
+      boot.addEventListener("click", () => this.boot());
+      top.appendChild(boot);
+      kase.appendChild(top);
+
+      const bays = el("dcdd-bays");
+      for (let d = 0; d < 2; d++) {
+        const bay = el("dcdd-bay empty");
+        const letter = el("dcdd-letter", d === 0 ? "A" : "B");
+        const slot = el("dcdd-slot");
+        slot.dataset.label = "";
+        slot.addEventListener("click", () => { if (bay.classList.contains("empty")) this.openPicker(d); });
+        const ctl = el("dcdd-ctl");
+        const lamp = el("dcdd-lamp");
+        const eject = document.createElement("button");
+        eject.className = "dcdd-eject hidden";
+        eject.textContent = "EJECT";
+        eject.addEventListener("click", () => this.eject(d));
+        const helpBtn = document.createElement("button");
+        helpBtn.className = "dcdd-help hidden";
+        helpBtn.textContent = "?";
+        helpBtn.title = "how to use this disk";
+        helpBtn.addEventListener("click", () => this.showHelp(d));
+        const save = document.createElement("button");
+        save.className = "dcdd-save hidden";
+        save.textContent = "SAVE";
+        save.title = "download this diskette image with your changes";
+        save.addEventListener("click", () => this.save(d));
+        ctl.append(lamp, helpBtn, eject, save);
+        bay.append(letter, slot, ctl);
+        bays.appendChild(bay);
+        this.bays[d] = { bay, slot, lamp, help: helpBtn, eject, save };
+      }
+      kase.appendChild(bays);
+      kase.appendChild(el("dcdd-hint",
+        "Insert a diskette, then BOOT. CP/M wants all 64 KB of RAM " +
+        "(4&times; 88-16MCD boards). Images are yours to supply &mdash; see disks/README.md."));
+      root.appendChild(kase);
+      this.bootBtn = boot;
+    },
+
+    async loadCatalog() {
+      if (this.catalogLoaded) return;
+      this.catalogLoaded = true;
+      diskList.innerHTML = "";
+      let manifest;
+      try {
+        const r = await fetch("disks/manifest.json");
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        manifest = await r.json();
+      } catch (err) {
+        const o = document.createElement("option");
+        o.textContent = "(disks/manifest.json not found)";
+        o.disabled = true;
+        diskList.appendChild(o);
+        console.warn("disk catalog:", err);
+        return;
+      }
+      this.catalog = manifest.disks || [];
+      for (let i = 0; i < this.catalog.length; i++) {
+        const dsk = this.catalog[i];
+        try {
+          const r = await fetch("disks/" + dsk.file);
+          dsk.bytes = r.ok ? new Uint8Array(await r.arrayBuffer()) : null;
+        } catch { dsk.bytes = null; }
+        const o = document.createElement("option");
+        o.value = String(i);
+        o.textContent = dsk.bytes
+          ? `${dsk.name}  —  ${(dsk.bytes.length / 1024).toFixed(0)} KB`
+          : `${dsk.name}  —  (not installed)`;
+        o.disabled = !dsk.bytes;
+        diskList.appendChild(o);
+      }
+      const first = this.catalog.findIndex((d) => d.bytes);
+      if (first >= 0) { diskList.value = String(first); this.syncPicker(); }
+    },
+
+    syncPicker() {
+      const dsk = this.catalog[Number(diskList.value)];
+      diskDesc.textContent = dsk ? (dsk.description || "") : "";
+    },
+
+    openPicker(drive) {
+      this.pickerDrive = drive;
+      document.getElementById("diskDrive").textContent = drive === 0 ? "A" : "B";
+      diskDialog.hidden = false;
+      this.loadCatalog();
+    },
+    closePicker() { diskDialog.hidden = true; term.focus(); },
+
+    insert(drive, bytes, name, entry) {
+      if (!bytes || !bytes.length) return;
+      machine.mountDisk(drive, bytes);
+      this.names[drive] = name;
+      this.entries[drive] = entry || null;
+      const b = this.bays[drive];
+      b.bay.classList.remove("empty");
+      b.bay.classList.add("loaded");
+      b.slot.dataset.label = (name || "DISKETTE").toUpperCase().slice(0, 30);
+      b.eject.classList.remove("hidden");
+      b.help.classList.remove("hidden");
+    },
+
+    eject(drive) {
+      if (machine.diskDirty && machine.diskDirty(drive) &&
+          !confirm(`Drive ${drive === 0 ? "A" : "B"} has unsaved changes. Eject anyway?`))
+        return;
+      machine.unmountDisk(drive);
+      this.names[drive] = null;
+      this.entries[drive] = null;
+      const b = this.bays[drive];
+      b.bay.classList.remove("loaded");
+      b.bay.classList.add("empty");
+      b.slot.dataset.label = "";
+      b.eject.classList.add("hidden");
+      b.help.classList.add("hidden");
+      b.save.classList.add("hidden");
+    },
+
+    showHelp(drive) {
+      const entry = this.entries[drive];
+      const name = this.names[drive] || "diskette";
+      document.getElementById("diskHelpName").textContent = name;
+      const body = document.getElementById("diskHelpBody");
+      const mk = (tag, txt, cls) => {
+        const e = document.createElement(tag);
+        if (cls) e.className = cls;
+        if (txt != null) e.textContent = txt;
+        return e;
+      };
+      body.innerHTML = "";
+      if (entry && entry.description) body.appendChild(mk("p", entry.description));
+      body.appendChild(mk("h4", "THIS DISK"));
+      body.appendChild(mk("pre", entry && entry.help
+        ? entry.help
+        : "No notes for this image. The basics below still apply once it boots."));
+      body.appendChild(mk("div", null, "divider"));
+      const dos = entry && entry.os === "dos";
+      body.appendChild(mk("h4", dos ? "USING ALTAIR DOS" : "USING CP/M"));
+      body.appendChild(mk("pre", dos ? DOS_PRIMER : CPM_PRIMER));
+      diskHelpDialog.hidden = false;
+    },
+    closeHelp() { diskHelpDialog.hidden = true; term.focus(); },
+
+    boot() {
+      if (!machine.diskPresent || !machine.diskPresent(0)) {
+        this.flashBoot("insert a diskette in drive A first");
+        return;
+      }
+      machine.bootDisk();
+      bootedFromDisk = true;
+      lastLoad = null;
+      turbo = false;
+      term.clear();
+      outQ.length = 0;
+      crlfPending = false;
+      setRunning(true);
+      term.focus();
+    },
+    flashBoot(msg) {
+      const hint = document.querySelector("#dcdd .dcdd-hint");
+      if (!hint) return;
+      const prev = hint.textContent;
+      hint.textContent = "— " + msg + " —";
+      hint.style.color = "#ff8a6a";
+      setTimeout(() => { hint.textContent = prev; hint.style.color = ""; }, 1600);
+    },
+
+    save(drive) {
+      const bytes = machine.diskImage(drive);
+      const blob = new Blob([bytes], { type: "application/octet-stream" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = (this.names[drive] || `drive-${drive === 0 ? "A" : "B"}`).replace(/\.dsk$/i, "") + ".dsk";
+      a.click();
+      URL.revokeObjectURL(a.href);
+      machine.clearDiskDirty(drive);
+      this.bays[drive].save.classList.add("hidden");
+    },
+
+    poll() {
+      if (typeof machine.diskStatus !== "function") return;
+      const st = machine.diskStatus();
+      for (let d = 0; d < 2; d++) {
+        const b = this.bays[d];
+        if (!b) continue;
+        const tick = (d === 0 ? st.track0 : st.track1) + st.io + st.step;
+        if (tick !== this.lastTick[d]) { this.lastTick[d] = tick; this.lampHold[d] = 6; }
+        const busy = this.lampHold[d] > 0;
+        if (busy) this.lampHold[d]--;
+        b.lamp.classList.toggle("busy", busy);
+        b.lamp.classList.toggle("sel", !busy && st.selected === d && st.headLoaded);
+        if (machine.diskDirty && machine.diskPresent && machine.diskPresent(d))
+          b.save.classList.toggle("hidden", !machine.diskDirty(d));
+      }
+    },
+  };
+
+  const diskDialog     = document.getElementById("diskDialog");
+  const diskList       = document.getElementById("diskList");
+  const diskDesc       = document.getElementById("diskDesc");
+  const diskFile       = document.getElementById("diskFile");
+  const diskFileName   = document.getElementById("diskFileName");
+  const diskHelpDialog = document.getElementById("diskHelpDialog");
+
+  disk.build();
+
+  document.getElementById("diskHelpClose").addEventListener("click", () => disk.closeHelp());
+  document.getElementById("diskHelpOk").addEventListener("click", () => disk.closeHelp());
+  diskHelpDialog.addEventListener("click", (e) => { if (e.target === diskHelpDialog) disk.closeHelp(); });
+
+  diskList.addEventListener("change", () => disk.syncPicker());
+  diskFile.addEventListener("change", () => {
+    diskFileName.textContent = diskFile.files[0] ? diskFile.files[0].name : "no file selected";
+  });
+  document.getElementById("diskCancel").addEventListener("click", () => disk.closePicker());
+  document.getElementById("diskClose").addEventListener("click", () => disk.closePicker());
+  diskDialog.addEventListener("click", (e) => { if (e.target === diskDialog) disk.closePicker(); });
+  document.getElementById("diskInsert").addEventListener("click", async () => {
+    const drive = disk.pickerDrive;
+    const file = diskFile.files[0];
+    let bytes, name, entry = null;
+    if (file) {
+      bytes = new Uint8Array(await file.arrayBuffer());
+      name = file.name;
+    } else {
+      const dsk = disk.catalog[Number(diskList.value)];
+      if (!dsk || !dsk.bytes) { diskDesc.textContent = "That diskette is not installed."; return; }
+      bytes = dsk.bytes;
+      name = dsk.name;
+      entry = dsk;
+    }
+    if (bytes.length !== 337568)
+      console.warn(`disk image is ${bytes.length} bytes; MITS 8" is 337568`);
+    diskFile.value = "";
+    diskFileName.textContent = "no file selected";
+    disk.closePicker();
+    disk.insert(drive, bytes, name, entry);
+  });
 
   // --- paper-tape load ------------------------------------
   // The user keys a 25-byte serial bootstrap into memory on the front panel,
@@ -958,20 +1321,30 @@ async function boot() {
     for (let i = 0; i < catalog.length; i++) {
       const rom = catalog[i];
       try {
-        rom.bytes = await fetchImage(rom);
+        // a `basic` entry is a BASIC listing typed into a running 8K BASIC,
+        // not a memory image (see loadBasicProgram)
+        if (rom.basic) {
+          const r = await fetch("roms/" + rom.basic);
+          rom.basicText = r.ok ? await r.text() : null;
+        } else {
+          rom.bytes = await fetchImage(rom);
+        }
       } catch {
         rom.bytes = null;
+        rom.basicText = null;
       }
+      const ok = rom.basic ? !!rom.basicText : !!rom.bytes;
+      const tag = rom.basic
+        ? (ok ? "BASIC program" : "(missing)")
+        : (ok ? `${rom.bytes.length} bytes` : "(not installed)");
       const opt = document.createElement("option");
       opt.value = String(i);
-      opt.textContent = rom.bytes
-        ? `${rom.name}  —  ${rom.bytes.length} bytes`
-        : `${rom.name}  —  (not installed)`;
-      opt.disabled = !rom.bytes;
+      opt.textContent = `${rom.name}  —  ${tag}`;
+      opt.disabled = !ok;
       romList.appendChild(opt);
     }
 
-    const firstAvailable = catalog.findIndex((r) => r.bytes);
+    const firstAvailable = catalog.findIndex((r) => r.bytes || r.basicText);
     if (firstAvailable >= 0) {
       romList.value = String(firstAvailable);
       syncSelection();
@@ -982,8 +1355,11 @@ async function boot() {
     const rom = catalog[Number(romList.value)];
     if (!rom) return;
     romDesc.textContent = rom.description || "";
-    romAddr.value  = rom.load || "0x0000";
-    romStart.value = rom.start || rom.load || "0x0000";
+    const isBasic = !!rom.basic;
+    romAddr.value  = isBasic ? "" : (rom.load || "0x0000");
+    romStart.value = isBasic ? "" : (rom.start || rom.load || "0x0000");
+    romAddr.disabled = romStart.disabled = isBasic;
+    document.querySelectorAll('input[name="loadmethod"]').forEach((r) => { r.disabled = isBasic; });
   }
 
   function applyProgram(bytes, load, start, label, sense = 0) {
@@ -993,10 +1369,96 @@ async function boot() {
     applySense(sense);
     if (typeof machine.setPC === "function") machine.setPC(start);
     setRunning(true);
+    turbo = false;
+    bootedFromDisk = false;
     lastLoad = { bytes, load, start, label, sense };
     term.clear();           // fresh screen for the new program; its output (if
     outQ.length = 0;        // any) is all that will appear
+    crlfPending = false;
     term.focus();
+  }
+
+  // Boot the 8K BASIC ROM, answer its cold-start questions, then type a saved
+  // listing in through the keyboard and RUN it — the way you'd have loaded a
+  // program from paper tape or a cassette in 1976. Games like Star Trek are
+  // BASIC, not 8080 machine code, so there is no ROM image to drop in.
+  async function loadBasicProgram(rom) {
+    const basic = catalog.find((r) => r.basicRom && r.bytes);
+    if (!basic) {
+      term.write("\r\n\x1b[0m  Altair 8K BASIC is not installed.\r\n" +
+                 "  Add the four 8kBas_*.bin files to roms/ (see roms/README.md).\r\n");
+      return;
+    }
+
+    const me = ++loaderToken;
+    loaderBusy = true;
+    kbdQ.length = 0;
+    rxWatch = "";
+    applyProgram(basic.bytes, 0xe000, 0xe000, "Altair 8K BASIC", 0);
+    turbo = true;
+    term.write("\x1b[0m\x1b[2J\x1b[H  Loading \x1b[1m" + rom.name +
+               "\x1b[0m into Altair BASIC — one moment…\r\n");
+
+    const dead = () => loaderToken !== me || !powered;
+    const feed = (s) => { for (const b of encoder.encode(s)) kbdQ.push(b); };
+    const drained = () => new Promise((res) => {
+      const iv = setInterval(() => {
+        if (dead() || kbdQ.length === 0) { clearInterval(iv); res(); }
+      }, 25);
+    });
+    const waitFor = (re, ms = 20000) => new Promise((res, rej) => {
+      const t0 = performance.now();
+      const iv = setInterval(() => {
+        if (dead())                        { clearInterval(iv); rej(new Error("cancelled")); }
+        else if (re.test(rxWatch))         { clearInterval(iv); res(); }
+        else if (performance.now() - t0 > ms) { clearInterval(iv); rej(new Error("timed out at " + re.source)); }
+      }, 25);
+    });
+    const quiet = (ms = 350) => new Promise((res) => {   // BASIC done echoing
+      let last = rxWatch.length, still = 0;
+      const iv = setInterval(() => {
+        if (dead()) { clearInterval(iv); res(); return; }
+        if (rxWatch.length === last) { still += 60; if (still >= ms) { clearInterval(iv); res(); } }
+        else { still = 0; last = rxWatch.length; }
+      }, 60);
+    });
+
+    try {
+      await waitFor(/MEMORY SIZE\?/i);      feed("\r");
+      await waitFor(/TERMINAL WIDTH\?/i);   feed("\r");
+      await waitFor(/SIN-COS-TAN-ATN\?/i);  feed("Y\r");
+      await waitFor(/\bOK\b/);
+      rxWatch = "";
+      feed("NEW\r");
+      await waitFor(/\bOK\b/);
+
+      const lines = rom.basicText.replace(/\r/g, "").split("\n")
+        .map((l) => l.replace(/\s+$/, ""))
+        .filter((l) => l.length && /^\d/.test(l));
+      for (const line of lines) {
+        if (dead()) throw new Error("cancelled");
+        feed(line + "\r");
+        if (kbdQ.length > 800) await drained();   // keep the JS queue bounded
+      }
+      await drained();
+      await quiet();                 // wait out the echo of the last few lines
+    } catch (e) {
+      if (loaderToken === me) {
+        loaderBusy = false;
+        if (!dead()) term.write("\r\n\x1b[0m[loader: " + e.message + "]\r\n");
+      }
+      return;
+    }
+
+    if (loaderToken !== me) return;
+    // BASIC is idle and its FIFO is drained: wipe the loading noise, hand the
+    // terminal back, and let RUN's output flow through normally.
+    term.write("\x1b[0m\x1b[2J\x1b[3J\x1b[H");
+    loaderBusy = false;
+    for (const b of encoder.encode("RUN\r")) machine.sendByte(b);
+    // keep the CPU sprinting through the program's one-time setup, then settle
+    // back to 2 MHz (a keystroke ends it sooner)
+    setTimeout(() => { if (loaderToken === me) turbo = false; }, 5000);
   }
 
   const openDialog  = () => { dialog.hidden = false; loadCatalog(); };
@@ -1039,6 +1501,12 @@ async function boot() {
       label = file.name;
     } else {
       const rom = catalog[Number(romList.value)];
+      if (rom && rom.basic) {
+        if (!rom.basicText) { romDesc.textContent = "That program failed to download."; return; }
+        closeDialog();
+        loadBasicProgram(rom);
+        return;
+      }
       if (!rom || !rom.bytes) { romDesc.textContent = "That program is not installed."; return; }
       bytes = rom.bytes;
       label = rom.name;
@@ -1057,6 +1525,15 @@ async function boot() {
     }
   });
 
+  if (location.search.includes("debug")) {
+    window.__loader = {
+      get busy() { return loaderBusy; },
+      get queued() { return kbdQ.length; },
+      get rx() { return rxWatch.slice(-400); },
+      get pending() { return machine.rxPending && machine.rxPending(); },
+    };
+  }
+
   // dev: ?tapedemo pre-opens the bootstrap guide for a fake 8 KB image;
   //      ?tapedemo=load also runs the express entry so you see the load bar
   if (location.search.includes("tapedemo")) {
@@ -1067,7 +1544,14 @@ async function boot() {
 
   // --- reset ----------------------------------------------
   document.getElementById("reset").addEventListener("click", () => {
-    if (lastLoad) {
+    crlfPending = false;
+    if (bootedFromDisk) {
+      machine.bootDisk();          // diskettes stay in their drives
+      term.clear();
+      outQ.length = 0;
+      setRunning(true);
+      term.focus();
+    } else if (lastLoad) {
       applyProgram(lastLoad.bytes, lastLoad.load, lastLoad.start,
                    lastLoad.label, lastLoad.sense);
     } else {

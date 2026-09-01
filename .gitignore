@@ -24,4 +24,9 @@ Emulator8080/tests/build/
 Emulator8080/web/retro8080.js
 Emulator8080/web/retro8080.wasm
 Emulator8080/cpm/cpm_host
+Emulator8080/cpm/cpm_disk
 Emulator8080/cpm/*.COM
+Emulator8080/cpm/*.dsk
+Emulator8080/cpm/*.DSK
+Emulator8080/web/disks/*.dsk
+Emulator8080/web/disks/*.DSK

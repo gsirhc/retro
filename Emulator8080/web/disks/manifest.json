@@ -1,0 +1,39 @@
+{
+  "disks": [
+    {
+      "name": "CP/M 2.2 (MITS, 63K)",
+      "file": "cpm63k.dsk",
+      "os": "cpm",
+      "description": "Bootable MITS/Altair CP/M 2.2 for a 63K system with the 88-2SIO console. Mike Douglas's DISK01 from altairclone.com.",
+      "help": "A stock CP/M 2.2 system disk. Handy programs on it:\n\n  ED name.txt   line editor, very terse:\n                  I       start inserting text; end with Ctrl-Z\n                  E       save and exit       Q  quit, no save\n  ASM name      assemble name.ASM  ->  name.HEX\n  LOAD name     name.HEX  ->  name.COM\n  DDT name.COM  8080 debugger.  G runs,  Ctrl-C leaves it\n  DUMP name     hex-dump a file\n  MBASIC        Microsoft BASIC.  Leave it with:  SYSTEM\n  STAT          disk space and file sizes\n  PIP B:=A:*.*  copy every file from A: to B:"
+    },
+    {
+      "name": "CP/M Games",
+      "file": "games.dsk",
+      "os": "cpm",
+      "description": "CP/M game disk (dhansel DISK05). Boots CP/M on its own.",
+      "help": "  CATCHUM       a Pac-Man clone           press Q to quit\n  LADDER        a climbing game            Ctrl-C to quit\n  OTHELLO       reversi against the computer\n  STARTRK.BAS   run with:  MBASIC STARTRK   (leave BASIC: SYSTEM)\n  LUNAR.BAS     run with:  MBASIC LUNAR\n\nSwitch the Terminal dropdown to \"DEC VT100\" first -- these move\nthe cursor around and expect a real CRT."
+    },
+    {
+      "name": "WordStar 3.0",
+      "file": "wordstar.dsk",
+      "os": "cpm",
+      "description": "MicroPro WordStar 3.0 (dhansel DISK07), the word processor that sold CP/M.",
+      "help": "Start it:   WS\nAt the opening menu press  D  to edit a document, then type a\nfilename (created if new).\n\nWordStar is all Ctrl-key commands (^ = Ctrl):\n  ^E ^X ^S ^D    move cursor  up / down / left / right\n  ^KS           save, keep editing\n  ^KD           save and exit to A>\n  ^KQ           quit, abandon changes\n  ^J            on-screen help menu\n\nUse the \"DEC VT100\" terminal profile."
+    },
+    {
+      "name": "Zork I",
+      "file": "zork1.dsk",
+      "os": "cpm",
+      "description": "Infocom Zork I: The Great Underground Empire (dhansel DISK08).",
+      "help": "Start it:   ZORK1\n\nThen type plain English:\n  LOOK              N S E W U D  (compass directions)\n  TAKE LAMP         OPEN MAILBOX      READ LEAFLET\n  I                 your inventory\n  SAVE / RESTORE / QUIT\n\nYou begin west of a white house. Try  OPEN MAILBOX."
+    },
+    {
+      "name": "Altair DOS 1.0",
+      "file": "altairdos.dsk",
+      "os": "dos",
+      "description": "MITS Altair DOS 1.0 (dhansel DISK02) - the pre-CP/M MITS disk operating system.",
+      "help": "MITS Altair DOS 1.0. The prompt is  .  (a period).\n  .DIR          list files\n  .MNT 0        mount the disk in drive 0\n  .name         run a program\nThis is here for historical interest; CP/M superseded it fast."
+    }
+  ]
+}

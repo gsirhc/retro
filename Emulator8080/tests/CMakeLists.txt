@@ -22,5 +22,14 @@ target_include_directories(arithmetic_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/.
 target_link_libraries(arithmetic_test PRIVATE GTest::gtest_main)
 target_compile_options(arithmetic_test PRIVATE -Wall -Wextra)
 
+add_executable(disk88_test
+  disk88_test.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/../disk88.cpp
+)
+target_include_directories(disk88_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/..)
+target_link_libraries(disk88_test PRIVATE GTest::gtest_main)
+target_compile_options(disk88_test PRIVATE -Wall -Wextra)
+
 include(GoogleTest)
 gtest_discover_tests(arithmetic_test)
+gtest_discover_tests(disk88_test)

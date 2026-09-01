@@ -37,10 +37,11 @@ from `file://`.)
 
 | File | Role |
 |---|---|
-| `wasm_machine.cpp` | embind wrapper: `Machine` = 64K RAM + `i8080::Cpu` + `altair::Serial2SIO` |
-| `index.html` | page shell + the "Load Program" dialog; loads xterm + the wasm module |
-| `app.js` | terminal wiring, the per-frame `runCycles` loop, program loader, register readout |
+| `wasm_machine.cpp` | embind wrapper: `Machine` = 64K RAM + `i8080::Cpu` + `altair::Serial2SIO` + `altair::Disk88` |
+| `index.html` | page shell + the "Load Program" / "Insert Diskette" dialogs; loads xterm + the wasm module |
+| `app.js` | terminal wiring, the per-frame `runCycles` loop, program loader, front panel, 88-DCDD cabinet, register readout |
 | `roms/` | built-in programs + `manifest.json` catalog the loader fetches (see `roms/README.md`) |
+| `disks/` | 8-inch floppy images + `manifest.json` for the 88-DCDD cabinet (see `disks/README.md`) |
 
 The footer's "Last built" date comes from a `HEAD` request for
 `retro8080.wasm` — its `Last-Modified` header, i.e. the last `make wasm`.
@@ -59,6 +60,8 @@ and the browser's frame cadence, so no bytes are lost between frames.
 - **Windows** (default) — teal desktop, navy title bar, beveled gray window.
 - **1994 Web** — flat `#c0c0c0` Mosaic/Netscape-1.x gray, no window chrome,
   serif left-aligned headings, thin purple rules.
+- **Modern** — clean white card, system font, no title bar; a plain tagline
+  and spec line instead of the `~ * ~` one.
 
 Themes are CSS custom properties keyed off `:root[data-theme]`; an inline
 `<head>` script applies the stored choice before first paint (no flash).
@@ -111,3 +114,26 @@ Teletype reader took ~14 min for 8 KB). Needs the `make wasm` rebuild for
 `writeByte`/`setPC`/`rxPending`. `?tapedemo` in the URL pre-opens the guide.
 
 Altair 4K BASIC is listed but not bundled — see `roms/README.md`.
+
+## Disks and CP/M
+
+The **MITS 88-DCDD cabinet** below the front panel is two 8-inch floppy drives
+on ports `0x08`–`0x0A`. Click a drive to open **Insert Diskette** — pick from
+`disks/manifest.json` or choose a local `.dsk` — then press **BOOT** on the
+cabinet (or do it from the panel: `EXAMINE` `0xFF00`, `RUN`). `machine.bootDisk()`
+drops the 256-byte MITS bootstrap PROM at `0xFF00` and starts there; it reads
+track 0 of drive A and hands off to the diskette's cold-start loader.
+
+Standard MITS images are 337,568 bytes (77 × 32 × 137). They're **not bundled**
+(`*.dsk` is git-ignored) — see `disks/README.md` for where to get CP/M 2.2,
+WordStar, Zork, etc. CP/M needs the full 64 KB of RAM, which the machine has
+(a period build got there with four 88-16MCD 16 KB dynamic-RAM boards).
+
+A drive's red lamp flickers on head-load, seek, and data transfer. Writes
+(`SAVE`, `ED`, `PIP`) go to the in-memory image; a **SAVE** button appears on a
+drive with unsaved changes and downloads the modified `.dsk`. **RESET** re-runs
+the disk boot with the diskettes still in their drives.
+
+Each loaded drive has a **?** button — a "How to use" dialog with that disk's
+programs (how to start and quit them) plus a CP/M command primer. The text
+comes from the `help` / `os` fields in `disks/manifest.json`.

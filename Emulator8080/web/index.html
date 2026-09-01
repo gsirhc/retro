@@ -351,19 +351,20 @@
   }
   .bezel.crt-none .crt-overlay,
   .bezel.crt-off .crt-overlay { display: none; }
+  /* A well-adjusted tube seen straight on: even brightness, visible scan lines,
+     only a gentle corner falloff -- readable first, "retro" second. */
   .bezel.crt-scan .crt-overlay, .bezel.crt-scanheavy .crt-overlay {
     background:
-      radial-gradient(125% 125% at 50% 42%, rgba(0,0,0,0) 52%, rgba(0,0,0,.55) 100%),
-      repeating-linear-gradient(0deg, rgba(0,0,0,.16) 0 1px, rgba(0,0,0,0) 1px 3px);
-    box-shadow: inset 0 0 70px rgba(0,0,0,.6);
-    animation: crt-flicker 7s infinite steps(70);
+      radial-gradient(145% 145% at 50% 45%, rgba(0,0,0,0) 74%, rgba(0,0,0,.18) 100%),
+      repeating-linear-gradient(0deg, rgba(0,0,0,.12) 0 1px, rgba(0,0,0,0) 1px 3px);
+    box-shadow: inset 0 0 32px rgba(0,0,0,.26);
   }
   .bezel.crt-scanheavy .crt-overlay {
     background:
-      radial-gradient(125% 125% at 50% 42%, rgba(0,0,0,0) 48%, rgba(0,0,0,.6) 100%),
-      repeating-linear-gradient(0deg, rgba(0,0,0,.32) 0 1px, rgba(0,0,0,0) 1px 2px);
+      radial-gradient(145% 145% at 50% 45%, rgba(0,0,0,0) 68%, rgba(0,0,0,.24) 100%),
+      repeating-linear-gradient(0deg, rgba(0,0,0,.20) 0 1px, rgba(0,0,0,0) 1px 2px);
+    box-shadow: inset 0 0 38px rgba(0,0,0,.32);
   }
-  @keyframes crt-flicker { 0%,96%,100% { opacity: 1 } 97% { opacity: .93 } 98% { opacity: 1 } }
   .bezel.crt-paper .crt-overlay {
     background:
       radial-gradient(130% 130% at 50% 40%, rgba(0,0,0,0) 55%, rgba(120,108,84,.35) 100%),
@@ -660,6 +661,137 @@
     font: 10px "Courier New", monospace;
   }
 
+  /* MITS 88-DCDD disk drive cabinet -------------------------------- */
+  .dcdd {
+    background: var(--altair-bg);
+    border-radius: var(--altair-radius);
+    margin-top: 10px;
+    padding: 14px 16px 16px;
+    overflow-x: auto;
+  }
+  .dcdd-case {
+    min-width: 700px;
+    background: linear-gradient(#39424d, #262c34);
+    border-radius: 4px;
+    padding: 14px 16px;
+    box-shadow: inset 0 0 0 2px #4c5763, inset 0 0 0 5px #1c2127,
+                inset 0 3px 8px rgba(255,255,255,.12), 0 10px 24px rgba(0,0,0,.55);
+    color: #c7ced6;
+    font: 10px Arial, Helvetica, sans-serif;
+  }
+  .dcdd-top {
+    display: flex; align-items: baseline; justify-content: space-between;
+    margin-bottom: 12px; letter-spacing: 2px;
+  }
+  .dcdd-top .dcdd-plate { font-weight: 700; color: #e7edf3; }
+  .dcdd-top .dcdd-plate span { color: #8b97a3; font-weight: 400; letter-spacing: 1px; }
+  .dcdd-boot {
+    font: 700 11px Arial, sans-serif; letter-spacing: 2px;
+    color: #fff; background: linear-gradient(#c23a2b, #9a2a1e);
+    border: 1px solid #7a1f16; border-radius: 3px;
+    padding: 4px 14px; cursor: pointer;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.25), 0 1px 2px rgba(0,0,0,.5);
+  }
+  .dcdd-boot:hover { background: linear-gradient(#d24435, #a93023); }
+  .dcdd-boot:active { transform: translateY(1px); }
+  .dcdd-boot:disabled { filter: grayscale(.7) brightness(.7); cursor: not-allowed; }
+
+  .dcdd-bays { display: flex; gap: 14px; }
+  .dcdd-bay {
+    flex: 1; min-width: 300px;
+    background: linear-gradient(#cdc7b6, #b0a992);
+    border-radius: 3px; padding: 12px;
+    box-shadow: inset 0 0 0 1px #ddd7c8, inset 0 0 0 3px #8f886f,
+                0 2px 5px rgba(0,0,0,.4);
+    display: grid; grid-template-columns: 34px 1fr auto; gap: 10px;
+    align-items: center;
+  }
+  .dcdd-letter {
+    font: 700 20px "Arial Black", Arial, sans-serif; color: #2b2b28;
+    text-align: center; text-shadow: 0 1px 0 rgba(255,255,255,.4);
+  }
+  /* the 8-inch slot + door */
+  .dcdd-slot {
+    position: relative; height: 30px; border-radius: 2px;
+    background: linear-gradient(#1a1a1a, #333 45%, #1a1a1a);
+    box-shadow: inset 0 0 0 1px #000, inset 0 2px 4px rgba(0,0,0,.8);
+    cursor: pointer;
+  }
+  .dcdd-slot::after {                     /* the drive-door lip */
+    content: ""; position: absolute; left: 4px; right: 4px; top: 50%;
+    height: 3px; transform: translateY(-50%);
+    background: #0a0a0a; box-shadow: 0 1px 0 #444;
+  }
+  .dcdd-bay.empty .dcdd-slot:hover { box-shadow: inset 0 0 0 1px #000, inset 0 0 6px #3a6ea5; }
+  /* a diskette seated in the drive: its jacket sticks out of the slot */
+  .dcdd-bay.loaded .dcdd-slot {
+    background: linear-gradient(#20211d, #34352f 45%, #20211d);
+  }
+  .dcdd-bay.loaded .dcdd-slot::before {
+    content: attr(data-label);
+    position: absolute; left: 3px; right: 3px; bottom: -9px; height: 15px;
+    background: linear-gradient(#2b2b2b, #1c1c1c);
+    border: 1px solid #000; border-radius: 1px;
+    color: #b7b0a0; font: 8px "Courier New", monospace; letter-spacing: .5px;
+    line-height: 15px; text-align: center; overflow: hidden; white-space: nowrap;
+  }
+  .dcdd-ctl { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  .dcdd-lamp {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: radial-gradient(circle at 40% 35%, #5a1414, #250606 65%);
+    box-shadow: inset 0 0 2px rgba(0,0,0,.8), 0 0 0 1px rgba(0,0,0,.5);
+  }
+  .dcdd-lamp.busy {
+    background: radial-gradient(circle at 40% 35%, #ffd8c8, #ff4d2e 45%, #b81c0e);
+    box-shadow: 0 0 5px 1px rgba(255,70,40,.8), 0 0 0 1px #4a0f08;
+  }
+  .dcdd-lamp.sel { background: radial-gradient(circle at 40% 35%, #ffb199, #d13a22 55%, #7a1508); }
+  .dcdd-eject {
+    font: 9px Arial, sans-serif; padding: 2px 6px; cursor: pointer;
+    background: #d8d2c0; border: 1px solid #7a7358; border-radius: 2px; color: #2b2b28;
+  }
+  .dcdd-eject:hover { background: #e6e0cf; }
+  .dcdd-eject.hidden { visibility: hidden; }
+  .dcdd-help {
+    font: 9px Arial, sans-serif; padding: 2px 7px; cursor: pointer;
+    background: #cfe3f2; border: 1px solid #5f86a3; border-radius: 2px; color: #1c3a4e;
+  }
+  .dcdd-help:hover { background: #ddeefb; }
+  .dcdd-help.hidden { display: none; }
+  .dcdd-save {
+    font: 9px Arial, sans-serif; padding: 2px 6px; cursor: pointer;
+    background: #f0d98a; border: 1px solid #a8912f; border-radius: 2px; color: #3a2f0a;
+  }
+  .dcdd-save.hidden { display: none; }
+  .dcdd-hint {
+    margin-top: 10px; color: #8b97a3;
+    font: 10px "Courier New", monospace;
+  }
+
+  /* the disk picker reuses .dialog; a couple of extras */
+  .disk-note { color: #555; font-size: 10px; margin-top: 8px; }
+  :root[data-theme="modern"] .disk-note { color: #6b7280; }
+
+  .dialog.dialog-wide { width: 560px; }
+  .help-doc { max-height: 62vh; overflow-y: auto; padding-right: 4px; }
+  .help-doc h4 {
+    margin: 12px 0 4px; font: 700 11px Arial, sans-serif;
+    letter-spacing: 1px; color: #333;
+  }
+  .help-doc h4:first-child { margin-top: 0; }
+  .help-doc p { margin: 0 0 8px; font: 12px/1.5 Arial, Helvetica, sans-serif; }
+  .help-doc pre {
+    margin: 0 0 8px; padding: 8px 10px;
+    background: #f3f3f3; border: 1px solid #ccc;
+    font: 11px/1.5 "Courier New", monospace;
+    white-space: pre-wrap; overflow-x: auto;
+  }
+  .help-doc .divider { border-top: 1px solid #b9b9b9; margin: 12px 0; }
+  :root[data-theme="modern"] .help-doc pre {
+    background: #f3f4f6; border-color: #e4e6ea; border-radius: 6px;
+  }
+  :root[data-theme="modern"] .help-doc h4 { color: #1b1e24; }
+
   /* paper-tape bootstrap guide ------------------------------------- */
   .dialog .method { margin-top: 8px; }
   .dialog .method label { white-space: nowrap; }
@@ -730,7 +862,7 @@
     <h1>ALTAIR 8800</h1>
     <p class="tagline retro-only">~ * ~ &nbsp;An Intel 8080 Microcomputer running entirely in your browser!&nbsp; ~ * ~</p>
     <p class="tagline modern-only">The MITS Altair 8800, running entirely in your browser.</p>
-    <p class="spec modern-only">Cycle-accurate Intel&nbsp;8080 &middot; 2&nbsp;MHz &middot; 64&nbsp;KB RAM &middot; MITS&nbsp;88-2SIO serial board &middot; compiled to WebAssembly &middot; working front panel &middot; selectable 1970s terminals</p>
+    <p class="spec modern-only">Cycle-accurate Intel&nbsp;8080 &middot; 2&nbsp;MHz &middot; 64&nbsp;KB RAM &middot; MITS&nbsp;88-2SIO serial board &middot; MITS&nbsp;88-DCDD floppy controller &middot; boots CP/M&nbsp;2.2 &middot; compiled to WebAssembly &middot; working front panel &middot; selectable 1970s terminals</p>
 
     <hr class="rule">
 
@@ -749,6 +881,8 @@
     </div>
 
     <div id="altair" class="altair"><!-- front panel is built by app.js --></div>
+
+    <div id="dcdd" class="dcdd"><!-- 88-DCDD disk drive cabinet, built by app.js --></div>
 
     <div id="tape-guide" class="tape-guide" hidden><!-- built by app.js --></div>
 
@@ -825,6 +959,47 @@
         <button id="romLoad">Load</button>
         <button id="romCancel">Cancel</button>
       </div>
+    </div>
+  </div>
+</div>
+
+<div id="diskDialog" class="modal" hidden>
+  <div class="dialog">
+    <div class="titlebar">
+      <span>&#9635; Insert Diskette &mdash; drive <span id="diskDrive">A</span>:</span>
+      <span class="btns"><span id="diskClose">&times;</span></span>
+    </div>
+    <div class="dialog-body">
+      <p><b>Diskette library</b> &mdash; served from <tt>disks/</tt> :</p>
+      <select id="diskList" size="6"><option disabled>loading catalog...</option></select>
+      <p id="diskDesc" class="desc">&nbsp;</p>
+
+      <hr class="rule">
+
+      <p><b>...or load a <tt>.dsk</tt> image from disk:</b></p>
+      <label class="filebtn">Choose File...<input type="file" id="diskFile" accept=".dsk,.DSK"></label>
+      <span id="diskFileName">no file selected</span>
+
+      <p class="disk-note">Standard MITS 8&Prime; images are 337,568 bytes (77&times;32&times;137).
+        See <tt>disks/README.md</tt> for where to get CP/M and application disks.</p>
+
+      <div class="dialog-buttons">
+        <button id="diskInsert">Insert</button>
+        <button id="diskCancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="diskHelpDialog" class="modal" hidden>
+  <div class="dialog dialog-wide">
+    <div class="titlebar">
+      <span>&#9635; How to use &mdash; <span id="diskHelpName">diskette</span></span>
+      <span class="btns"><span id="diskHelpClose">&times;</span></span>
+    </div>
+    <div class="dialog-body">
+      <div id="diskHelpBody" class="help-doc"></div>
+      <div class="dialog-buttons"><button id="diskHelpOk">Close</button></div>
     </div>
   </div>
 </div>

@@ -20,6 +20,8 @@
 
 #include "../i8080.h"
 #include "../serial2sio.h"
+#include "../disk88.h"
+#include "../disk_bootrom.h"
 
 using emscripten::val;
 
@@ -51,6 +53,7 @@ public:
         mem_.fill(0);
         load_default_rom();
         sio_.reset();
+        disk_.reset();
         cpu_.reset();
     }
 
@@ -69,7 +72,52 @@ public:
 
     void reboot() {
         sio_.reset();
+        disk_.reset();
         cpu_.reset();
+    }
+
+    // ---- 88-DCDD disk drives ------------------------------------------
+    // Insert a diskette image (a flat 337,568-byte sector dump) into a drive.
+    void mountDisk(int drive, val bytes) {
+        std::vector<uint8_t> data =
+            emscripten::convertJSArrayToNumberVector<uint8_t>(bytes);
+        disk_.mount(drive, data.data(), data.size());
+    }
+    void unmountDisk(int drive)       { disk_.unmount(drive); }
+    bool diskPresent(int drive) const { return disk_.mounted(drive); }
+    bool diskDirty(int drive)   const { return disk_.dirty(drive); }
+    void clearDiskDirty(int drive)    { disk_.clearDirty(drive); }
+
+    // The current (possibly written-to) image, for "save disk to file".
+    val diskImage(int drive) {
+        const std::vector<uint8_t> &img = disk_.image(drive);
+        val out = val::global("Uint8Array").new_(img.size());
+        if (!img.empty())
+            out.call<void>("set", val(emscripten::typed_memory_view(img.size(), img.data())));
+        return out;
+    }
+
+    // Small snapshot for the drive-panel UI (polled roughly once per frame).
+    val diskStatus() const {
+        val o = val::object();
+        o.set("selected",   disk_.selectedDrive());
+        o.set("headLoaded", disk_.headLoaded());
+        o.set("track0",     disk_.track(0));
+        o.set("track1",     disk_.track(1));
+        o.set("io",         static_cast<double>(disk_.ioTicks()));
+        o.set("step",       static_cast<double>(disk_.stepTicks()));
+        return o;
+    }
+
+    // Turnkey disk boot: drop the MITS 88-DCDD bootstrap PROM at 0xFF00 and
+    // start there, exactly like flipping EXAMINE 0FF00h / RUN on the panel.
+    void bootDisk() {
+        mem_.fill(0);
+        for (int i = 0; i < 256; ++i)
+            mem_[altair::kDiskBootAddr + i] = altair::kDiskBootRom[i];
+        sio_.reset();
+        cpu_.reset();
+        cpu_.pc = altair::kDiskBootAddr;
     }
 
     // Point the program counter at a program's entry (call after loadBytes +
@@ -133,11 +181,15 @@ private:
         bus.read  = [this](uint16_t a)            { return mem_[a]; };
         bus.write = [this](uint16_t a, uint8_t v) { mem_[a] = v; };
         bus.in    = [this](uint8_t port) -> uint8_t {
-            if (sio_.owns(port)) return sio_.in(port);
-            if (port == 0xFF)    return sense_;   // Altair front-panel sense switches
-            return 0xFF;                          // unmapped port: floating bus
+            if (sio_.owns(port))  return sio_.in(port);
+            if (disk_.owns(port)) return disk_.in(port);
+            if (port == 0xFF)     return sense_;   // Altair front-panel sense switches
+            return 0xFF;                           // unmapped port: floating bus
         };
-        bus.out   = [this](uint8_t port, uint8_t v) { sio_.out(port, v); };
+        bus.out   = [this](uint8_t port, uint8_t v) {
+            if (sio_.owns(port))  { sio_.out(port, v);  return; }
+            if (disk_.owns(port)) { disk_.out(port, v); return; }
+        };
         return bus;
     }
 
@@ -149,6 +201,7 @@ private:
     // constructor calls make_bus() and captures them.
     std::array<uint8_t, 0x10000> mem_{};
     altair::Serial2SIO            sio_{0x10};
+    altair::Disk88               disk_;
     uint8_t                       sense_ = 0x00;  // 0 => console on the 2SIO
     i8080::Cpu                    cpu_;
 };
@@ -158,6 +211,14 @@ EMSCRIPTEN_BINDINGS(retro8080) {
         .constructor<>()
         .function("reset",       &Machine::reset)
         .function("reboot",      &Machine::reboot)
+        .function("bootDisk",    &Machine::bootDisk)
+        .function("mountDisk",   &Machine::mountDisk)
+        .function("unmountDisk", &Machine::unmountDisk)
+        .function("diskPresent", &Machine::diskPresent)
+        .function("diskDirty",   &Machine::diskDirty)
+        .function("clearDiskDirty", &Machine::clearDiskDirty)
+        .function("diskImage",   &Machine::diskImage)
+        .function("diskStatus",  &Machine::diskStatus)
         .function("clearMemory", &Machine::clearMemory)
         .function("loadBytes",   &Machine::loadBytes)
         .function("setPC",       &Machine::setPC)

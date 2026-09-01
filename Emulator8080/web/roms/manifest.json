@@ -21,7 +21,33 @@
       "start": "0xE000",
       "sense": "0x00",
       "optional": true,
+      "basicRom": true,
       "description": "Mike Douglas's ROM build of Microsoft 8K BASIC 4.0 for the 88-2SIO (10h/11h). Entry at E000h relocates BASIC to 0000h and runs it - no sense switches. Not bundled: put the four 8kBas_*.bin files from deramp.com in web/roms/ (see roms/README.md)."
+    },
+    {
+      "name": "Lunar Lander",
+      "basic": "games/lunar.bas",
+      "description": "Land the Apollo LEM by burning fuel one second at a time (Jim Storer, 1969; this is the Creative Computing 'ROCKET' version). Needs Altair 8K BASIC installed - it is typed in and RUN automatically."
+    },
+    {
+      "name": "Hunt the Wumpus",
+      "basic": "games/wumpus.bas",
+      "description": "Stalk the Wumpus through a dodecahedron of caves; mind the bats and bottomless pits (Gregory Yob, 1973). Needs Altair 8K BASIC installed - it is typed in and RUN automatically."
+    },
+    {
+      "name": "Super Star Trek",
+      "basic": "games/startrek.bas",
+      "description": "Command the Enterprise across an 8x8 galaxy and hunt down the Klingon invasion fleet before time or energy runs out (Mayfield/Leedom; John Borders' 1978 Microsoft 8K port). Needs Altair 8K BASIC installed; ~460 lines, takes a few seconds to load."
+    },
+    {
+      "name": "Hammurabi",
+      "basic": "games/hammurabi.bas",
+      "description": "Rule ancient Sumeria for ten years: buy and sell land, feed your people, plant grain, and try not to starve them into revolt (Dyment/Ahl). Needs Altair 8K BASIC installed - it is typed in and RUN automatically."
+    },
+    {
+      "name": "Hurkle",
+      "basic": "games/hurkle.bas",
+      "description": "A Hurkle is hiding on a 10x10 grid; you get compass-direction hints and five guesses to find it (Creative Computing). Needs Altair 8K BASIC installed - it is typed in and RUN automatically."
     }
   ]
 }

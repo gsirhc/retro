@@ -6,8 +6,8 @@
 # that the C driver won't link.
 EMCC ?= em++
 
-SRC = wasm_machine.cpp ../i8080.cpp ../serial2sio.cpp
-HDR = ../i8080.h ../serial2sio.h ../ringbuffer.h
+SRC = wasm_machine.cpp ../i8080.cpp ../serial2sio.cpp ../disk88.cpp
+HDR = ../i8080.h ../serial2sio.h ../ringbuffer.h ../disk88.h ../disk_bootrom.h
 
 EMFLAGS = -O2 -std=c++17 -lembind --no-entry \
   -sMODULARIZE=1 -sEXPORT_NAME=Retro8080 \
