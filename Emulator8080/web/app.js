@@ -250,8 +250,13 @@ async function boot() {
     if (outQ.length > 128) return;
     const out = machine.readOutput();
     for (let i = 0; i < out.length; i++) {
-      outQ.push(out[i]);
-      if (crlf.checked && out[i] === 0x0d && out[i + 1] !== 0x0a) outQ.push(0x0a);
+      // 1970s serial terminals are 7-bit ASCII; the 8th bit is parity/ignored.
+      // Altair BASIC's LIST relies on this — it sets bit 7 on the first letter
+      // of every tokenised keyword (PRINT -> 0xD0,'RINT'), so without the mask
+      // that leading letter renders as a stray C1 control and vanishes.
+      const b = out[i] & 0x7f;
+      outQ.push(b);
+      if (crlf.checked && b === 0x0d && (out[i + 1] & 0x7f) !== 0x0a) outQ.push(0x0a);
     }
   }
 
@@ -358,7 +363,7 @@ async function boot() {
   const root = document.documentElement;
   let savedPageTheme =
     new URLSearchParams(location.search).get("theme") || root.dataset.theme || "win";
-  if (savedPageTheme !== "web94") savedPageTheme = "win";
+  if (!["win", "web94", "modern"].includes(savedPageTheme)) savedPageTheme = "win";
   root.dataset.theme = savedPageTheme;
   pageTheme.value = savedPageTheme;
   pageTheme.addEventListener("change", () => {
