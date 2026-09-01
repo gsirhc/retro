@@ -299,6 +299,8 @@ async function boot() {
   let baudSaved = 0;            // real baud, restored when the how-to finishes
   let crlfPending = false;      // a CR ended the last readOutput() batch; the LF
                                 // decision waits for the next batch (see below)
+  let coldStartWatch = false;   // like loaderBusy for rxWatch, but the output
+                                // still reaches the terminal (4K BASIC's prompts)
 
   function pullSerial() {
     // stay mostly drained so the 2SIO FIFO does the buffering + TDRE backpressure
@@ -307,12 +309,14 @@ async function boot() {
     const n = out.length;
     if (n === 0) return;
 
-    // A "CR -> CR/LF" pair can straddle two readOutput() batches. If we decided
-    // per-batch we'd inject an LF for the trailing CR *and* then see the real LF
-    // arrive next batch -> a spurious blank line (BASIC's LIST hits this a lot).
-    // So a batch-final CR sets crlfPending and we resolve it here.
+    // "CR -> CR/LF" adds a line feed after a bare carriage return -- but only a
+    // *bare* one. Skip it when an LF already follows, and when another CR follows
+    // (4K BASIC ends lines with "CR CR LF" -- Teletype head-return padding -- and
+    // an injected LF between the two CRs would double-space every line). The
+    // decision can straddle two readOutput() batches, hence crlfPending.
+    const notBareCr = (c) => c === 0x0a || c === 0x0d;
     if (crlfPending) {
-      if (crlf.checked && (out[0] & 0x7f) !== 0x0a) outQ.push(0x0a);
+      if (crlf.checked && !notBareCr(out[0] & 0x7f)) outQ.push(0x0a);
       crlfPending = false;
     }
 
@@ -324,11 +328,11 @@ async function boot() {
       const b = out[i] & 0x7f;
       outQ.push(b);
       if (crlf.checked && b === 0x0d) {
-        if (i + 1 < n) { if ((out[i + 1] & 0x7f) !== 0x0a) outQ.push(0x0a); }
+        if (i + 1 < n) { if (!notBareCr(out[i + 1] & 0x7f)) outQ.push(0x0a); }
         else crlfPending = true;         // decide when the next batch lands
       }
     }
-    if (loaderBusy) {
+    if (loaderBusy || coldStartWatch) {
       for (let i = 0; i < n; i++) rxWatch += String.fromCharCode(out[i] & 0x7f);
       if (rxWatch.length > 4096) rxWatch = rxWatch.slice(-2048);
     }
@@ -1246,18 +1250,24 @@ in binary, one switch at a time.`,
       name: "Stock Launch", era: "Mid 1975",
       ramKb: 4, term: "tty33",
       cards: ["MITS 88-CPU\n8080", "MITS 88-4K\nDRAM", "MITS 88-2SIO\nserial", "Teletype\nASR-33"],
-      software: { kind: "catalog", match: /4K BASIC/i, missing: "Altair 4K BASIC not installed — see roms/README.md" },
+      software: {
+        kind: "coldstart", file: "4kbas.bin", label: "Altair 4K BASIC 4.0",
+        prompts: [[/MEMORY SIZE/i, "\r"], [/TERMINAL WIDTH/i, "\r"], [/\bSIN\?/i, "Y\r"]],
+        missing: "Altair 4K BASIC not installed — see roms/README.md",
+      },
       blurb: "4K of RAM, a Teletype for a console, and the program that made the Altair worth buying: Altair 4K BASIC.",
       guide:
-`At MEMORY SIZE? press Enter; you'll get the OK prompt.
+`Altair 4K BASIC 4.0 is up. Its cold-start questions (MEMORY SIZE?,
+TERMINAL WIDTH?, SIN?) were answered for you -- you land at OK with
+about 716 bytes free, which is exactly what a real 4K machine gave you.
 
   PRINT 2+2
-  10 FOR I=1 TO 10: PRINT I,I*I: NEXT
-  RUN        LIST        NEW
+  10 PRINT "HELLO"
+  20 GOTO 10
+  RUN     (Ctrl-C stops it)     LIST     NEW
 
 The Teletype prints at 10 characters a second onto a paper roll, so it
-scrolls back -- and it's uppercase only. If BASIC didn't load, drop a
-4kbas.bin into web/roms/ (see roms/README.md).`,
+scrolls back -- and it's uppercase only.`,
     },
     cassette: {
       name: "Cassette Hobbyist", era: "1976",
@@ -1395,11 +1405,12 @@ disks/README.md.`;
 
   async function runPresetSoftware(p) {
     const sw = p.software;
-    if (sw.kind === "rom") {
+    if (sw.kind === "rom" || sw.kind === "coldstart") {
       const r = await fetch("roms/" + sw.file).catch(() => null);
-      if (!r || !r.ok) { presetHint((sw.label || "software") + " image missing"); return; }
+      if (!r || !r.ok) { presetSoftwareMissing(sw); return; }
       const bytes = new Uint8Array(await r.arrayBuffer());
-      applyProgram(bytes, sw.start | 0, sw.start | 0, sw.label || sw.file, 0);
+      if (sw.kind === "coldstart") coldStartRom(bytes, sw.label, sw.prompts);
+      else applyProgram(bytes, sw.start | 0, sw.start | 0, sw.label || sw.file, 0);
       return;
     }
     await loadCatalog();
@@ -1887,6 +1898,41 @@ disks/README.md.`;
     // keep the CPU sprinting through the program's one-time setup, then settle
     // back to 2 MHz (a keystroke ends it sooner)
     setTimeout(() => { if (loaderToken === me) turbo = false; }, 5000);
+  }
+
+  // Load a ROM at 0x0000 and answer its cold-start questions for the user, with
+  // the prompts still visible on the terminal (4K BASIC: MEMORY SIZE? / TERMINAL
+  // WIDTH? / SIN?). `prompts` is a list of [regexp, reply] pairs.
+  async function coldStartRom(bytes, label, prompts) {
+    const me = ++loaderToken;
+    applyProgram(bytes, 0x0000, 0x0000, label, 0);
+    turbo = true;
+    coldStartWatch = true;
+    rxWatch = "";
+    const dead = () => loaderToken !== me || !powered;
+    const feed = (s) => { for (const b of encoder.encode(s)) machine.sendByte(b); };
+    const waitFor = (re, ms = 15000) => new Promise((res, rej) => {
+      const t0 = performance.now();
+      const iv = setInterval(() => {
+        if (dead())                          { clearInterval(iv); rej(new Error("cancelled")); }
+        else if (re.test(rxWatch))           { clearInterval(iv); res(); }
+        else if (performance.now() - t0 > ms) { clearInterval(iv); rej(new Error("timed out at " + re.source)); }
+      }, 25);
+    });
+    try {
+      for (const [re, reply] of prompts) {
+        await waitFor(re);
+        rxWatch = "";                 // don't re-match the same prompt on the next pass
+        await new Promise((r) => setTimeout(r, 120));
+        feed(reply);
+      }
+    } catch (e) {
+      // leave it — the user can finish the prompts by hand
+    }
+    if (loaderToken === me) {
+      coldStartWatch = false;
+      setTimeout(() => { if (loaderToken === me) turbo = false; }, 2500);
+    }
   }
 
   const openDialog  = () => { dialog.hidden = false; loadCatalog(); };

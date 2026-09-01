@@ -22,14 +22,14 @@
       "description": "Dean McDaniel, MITS, 1975. A lit bit sweeps across the A8-A15 address lamps; flip the matching sense switch (top row, A8-A15) to knock it out. Clear the board and it stops. The classic front-panel game."
     },
     {
-      "name": "Altair 4K BASIC",
+      "name": "Altair 4K BASIC 4.0",
       "file": "4kbas.bin",
       "load": "0x0000",
       "start": "0x0000",
       "sense": "0x00",
       "optional": true,
       "basic4k": true,
-      "description": "Microsoft 4K BASIC 1.x for the Altair - the software that made the machine. Not bundled: put a flat 4kbas.bin (deramp.com has the images) in web/roms/. On boot: MEMORY SIZE? (Enter), then the OK prompt."
+      "description": "Microsoft 4K BASIC 4.0 (MITS 1976) for the 88-2SIO console - the software that made the Altair. Not bundled (Microsoft copyright): put a flat 3833-byte 4kbas.bin in web/roms/, see roms/README.md. Cold start: MEMORY SIZE? (Enter) / TERMINAL WIDTH? (Enter) / SIN? (Y), then OK with ~716 bytes free in a 4K machine. The Stock Launch preset answers these for you."
     },
     {
       "name": "Altair 8K ROM BASIC",
