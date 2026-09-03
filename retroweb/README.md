@@ -19,17 +19,19 @@ _site/index.html      <- retroweb/index.html
 _site/altair8800/     <- retroweb/altair8800/web/  (dev-only files stripped)
 ```
 
-`_site/` is git-ignored. Preview it exactly as deployed:
+`_site/` is git-ignored, built by `make -C retroweb site` (CI runs the same
+target). Preview the whole site exactly as deployed:
 
 ```sh
-make -C retroweb/altair8800/web retro8080.js roms media
-rm -rf retroweb/_site && mkdir -p retroweb/_site/altair8800
-cp retroweb/index.html retroweb/_site/
-cp -r retroweb/altair8800/web/. retroweb/_site/altair8800/
-python3 -m http.server -d retroweb/_site 8000
-# -> http://localhost:8000/            landing page
-# -> http://localhost:8000/altair8800/ the emulator
+make -C retroweb preview
+# -> http://0.0.0.0:8000/             landing page
+# -> http://0.0.0.0:8000/altair8800/  the emulator
 ```
+
+`make preview` builds the emulator's wasm, fetches the Altair BASIC / CP/M
+media, stages `_site/`, and serves it on the LAN. Note that a bare
+`python3 -m http.server` in `retroweb/` will **not** work — the emulator lives
+at `altair8800/web/` in source, only at `altair8800/` in the staged site.
 
 ## Adding a machine
 

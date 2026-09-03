@@ -138,22 +138,15 @@ jobs:
 
       # stage the site: retroweb/index.html at the root, the Altair front end
       # (built wasm + fetched media) at /altair8800/ -- the C++ core / tests /
-      # cpm dirs stay out of the artifact
-      - name: Stage the site
-        run: |
-          mkdir -p _site/altair8800
-          cp retroweb/index.html _site/
-          cp -r retroweb/altair8800/web/. _site/altair8800/
-          ( cd _site/altair8800 && rm -rf tests node_modules coverage test-results \
-              playwright-report .playwright .v8-coverage \
-            && rm -f Makefile README.md devserve.py wasm_machine.cpp \
-              package.json package-lock.json playwright.config.ts )
+      # cpm dirs stay out of the artifact. Same target `make preview` uses.
+      - working-directory: retroweb
+        run: make site
 
       - uses: actions/configure-pages@v5
 
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: _site
+          path: retroweb/_site
 
   deploy:
     needs: build
