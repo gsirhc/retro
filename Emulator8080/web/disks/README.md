@@ -26,15 +26,20 @@ won't boot here.)
 
 ## Where to get them
 
-These images are **git-ignored** (`*.dsk`) — they bundle Digital Research's CP/M
-and MITS software — so drop your own copies in here. The de-facto standard
-collection is Mike Douglas's, mirrored at:
+`*.dsk` is git-ignored. The de-facto standard collection is Mike Douglas's,
+mirrored at <https://github.com/dhansel/Altair8800/tree/master/disks>.
 
-<https://github.com/dhansel/Altair8800/tree/master/disks>
+**`cpm63k.dsk`** (CP/M 2.2, bootable — `dhansel/DISK01.DSK`) is fetched, pinned
+and SHA-256 checked, by `fetch-cpm.sh`; CI runs it before deploying to Pages.
+
+```sh
+./web/disks/fetch-cpm.sh        # --force to re-fetch
+```
+
+The rest are user-supplied — drop your own copies in:
 
 | This project wants | dhansel file | contents |
 |---|---|---|
-| `cpm63k.dsk`   | `DISK01.DSK` | CP/M 2.2 (63K), bootable |
 | `games.dsk`    | `DISK05.DSK` | CP/M game disk (boots CP/M) |
 | `wordstar.dsk` | `DISK07.DSK` | WordStar 3.0 |
 | `zork1.dsk`    | `DISK08.DSK` | Zork I |
@@ -42,7 +47,7 @@ collection is Mike Douglas's, mirrored at:
 
 ```sh
 cd Emulator8080/web/disks
-curl -L -o cpm63k.dsk https://raw.githubusercontent.com/dhansel/Altair8800/master/disks/DISK01.DSK
+curl -L -o games.dsk https://raw.githubusercontent.com/dhansel/Altair8800/master/disks/DISK05.DSK
 ```
 
 More MITS software (and the originals) live at

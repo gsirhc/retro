@@ -18,14 +18,34 @@ EMFLAGS = -O2 -std=c++17 -lembind --no-entry \
 retro8080.js: $(SRC) $(HDR)
 	$(EMCC) $(EMFLAGS) $(SRC) -o $@
 
-.PHONY: roms serve clean
+.PHONY: roms media serve test test-install clean
 roms: roms/echo.bin
 roms/echo.bin roms/hello.bin roms/killbits.bin: roms/gen_roms.py
 	python3 roms/gen_roms.py
 
-serve: retro8080.js roms
+# Altair BASIC + CP/M 2.2, pinned + checksummed (git-ignored)
+media:
+	bash roms/fetch-basic.sh
+	bash disks/fetch-cpm.sh
+
+serve: retro8080.js roms media
 	@echo "serving on http://localhost:8000  (Ctrl-C to stop)"
 	python3 -m http.server 8000
 
+# Playwright integration + fidelity suite (tests/). Needs Node; run
+# `make test-install` once to pull the runner and a headless Chromium.
+test: retro8080.js roms media
+	npx playwright test
+
+# same suite, one worker, with V8 line/branch/function coverage for app.js
+# -> coverage/index.html  (+ coverage/lcov.info)
+coverage: retro8080.js roms media
+	COVERAGE=1 npx playwright test
+
+test-install:
+	npm ci
+	npx playwright install --with-deps chromium
+
 clean:
 	rm -f retro8080.js retro8080.wasm roms/echo.bin roms/hello.bin roms/killbits.bin
+	rm -rf test-results playwright-report coverage .v8-coverage

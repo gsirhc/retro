@@ -1,0 +1,10 @@
+{
+  "tapes": [
+    {
+      "name": "Super Star Trek (8K BASIC)",
+      "file": "startrek.cas",
+      "cload": "S",
+      "description": "The 460-line Super Star Trek, saved from Altair 8K BASIC with CSAVE \"S\". Insert it, then in BASIC: CLOAD \"S\" and press PLAY on the deck; when it says OK, type RUN. Needs 8K BASIC running and ~24K of RAM."
+    }
+  ]
+}

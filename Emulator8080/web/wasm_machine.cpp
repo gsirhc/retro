@@ -129,6 +129,16 @@ public:
         return o;
     }
 
+    // Put the 88-DCDD bootstrap PROM at 0xFF00 (read-only) without touching RAM
+    // or the CPU -- so EXAMINE 0FF00h / RUN on the panel finds real boot code,
+    // exactly as it would on a machine with the DCDD controller fitted.
+    void mapDiskBoot() {
+        for (int i = 0; i < 256; ++i)
+            mem_[altair::kDiskBootAddr + i] = altair::kDiskBootRom[i];
+        if (rom_lo_ > altair::kDiskBootAddr) rom_lo_ = altair::kDiskBootAddr;
+        if (rom_hi_ < altair::kDiskBootAddr + 255) rom_hi_ = altair::kDiskBootAddr + 255;
+    }
+
     // Turnkey disk boot: drop the MITS 88-DCDD bootstrap PROM at 0xFF00 and
     // start there, exactly like flipping EXAMINE 0FF00h / RUN on the panel.
     void bootDisk() {
@@ -149,6 +159,9 @@ public:
     }
     void ejectTape()            { cassette_.eject(); }
     void rewindTape()           { cassette_.rewind(); }
+    void setTapeMotor(bool on)     { cassette_.setMotor(on); }
+    void setTapeRecordArm(bool on) { cassette_.setRecordArm(on); }
+    void setTapeWind(int dir)      { cassette_.setWind(dir); }   // +1 FF, -1 REW, 0 release
     bool tapeLoaded()     const { return cassette_.loaded(); }
     bool tapeDirty()      const { return cassette_.dirty(); }
     void clearTapeDirty()       { cassette_.clearDirty(); }
@@ -162,8 +175,10 @@ public:
     val tapeStatus() const {
         val o = val::object();
         o.set("mode", static_cast<int>(cassette_.mode()));   // 0 idle, 1 play, 2 rec
+        o.set("transport", cassette_.transport());           // 0 stop 1 play 2 rec 3 FF 4 REW
         o.set("pos",  static_cast<double>(cassette_.pos()));
         o.set("len",  static_cast<double>(cassette_.len()));
+        o.set("cap",  static_cast<double>(cassette_.capacity()));
         o.set("io",   static_cast<double>(cassette_.ioTicks()));
         return o;
     }
@@ -196,7 +211,11 @@ public:
     void runCycles(int cycles) {
         int64_t remaining = cycles;
         while (remaining > 0) remaining -= cpu_.step();
+        cassette_.tick(cpu_.cycles);   // advance the cassette-transport throttle
     }
+
+    // Cassette transfer rate: 30 = the real 300 baud, 150 = 5x, 0 = unlimited.
+    void setTapeSpeed(int bytesPerSec) { cassette_.setSpeed(bytesPerSec); }
 
     // Execute exactly one instruction (front-panel SINGLE STEP).
     int stepOne() { return cpu_.step(); }
@@ -207,6 +226,10 @@ public:
 
     bool   halted()      const { return cpu_.halted; }
     int    lastAddr()    const { return last_addr_; }   // last address on the bus
+    // OR of every address the bus touched since the last call -- the "blur" the
+    // real address lamps show while the CPU runs (a tight loop lights the
+    // addresses it hits; Kill the Bit's moving bit rides A8..A15). Resets on read.
+    int    busActivity()       { int v = addr_or_; addr_or_ = 0; return v; }
     double cycleCount()   const { return static_cast<double>(cpu_.cycles); }
     unsigned rxPending()  const { return static_cast<unsigned>(sio_.rx_pending()); }
     unsigned txPending()  const { return static_cast<unsigned>(sio_.tx_pending()); }
@@ -229,11 +252,12 @@ private:
         i8080::Bus bus;
         bus.read  = [this](uint16_t a) -> uint8_t {
             last_addr_ = a;
+            addr_or_ |= a;
             if (a < ram_top_)                return mem_[a];
             if (a >= rom_lo_ && a <= rom_hi_) return mem_[a];
             return 0xFF;                            // unpopulated: floating high
         };
-        bus.write = [this](uint16_t a, uint8_t v) { last_addr_ = a; if (a < ram_top_) mem_[a] = v; };
+        bus.write = [this](uint16_t a, uint8_t v) { last_addr_ = a; addr_or_ |= a; if (a < ram_top_) mem_[a] = v; };
         bus.in    = [this](uint8_t port) -> uint8_t {
             if (sio_.owns(port))      return sio_.in(port);
             if (disk_.owns(port))     return disk_.in(port);
@@ -260,6 +284,7 @@ private:
     unsigned                      rom_lo_  = 0x10000;    // read-only window above RAM
     unsigned                      rom_hi_  = 0;
     uint16_t                      last_addr_ = 0;
+    uint16_t                      addr_or_ = 0;   // address-bus blur since busActivity()
     altair::Serial2SIO            sio_{0x10};
     altair::Disk88               disk_;
     altair::CassetteACR          cassette_;
@@ -273,6 +298,7 @@ EMSCRIPTEN_BINDINGS(retro8080) {
         .function("reset",       &Machine::reset)
         .function("reboot",      &Machine::reboot)
         .function("bootDisk",    &Machine::bootDisk)
+        .function("mapDiskBoot", &Machine::mapDiskBoot)
         .function("mountDisk",   &Machine::mountDisk)
         .function("unmountDisk", &Machine::unmountDisk)
         .function("diskPresent", &Machine::diskPresent)
@@ -285,11 +311,15 @@ EMSCRIPTEN_BINDINGS(retro8080) {
         .function("mountTape",   &Machine::mountTape)
         .function("ejectTape",   &Machine::ejectTape)
         .function("rewindTape",  &Machine::rewindTape)
+        .function("setTapeMotor", &Machine::setTapeMotor)
+        .function("setTapeRecordArm", &Machine::setTapeRecordArm)
+        .function("setTapeWind", &Machine::setTapeWind)
         .function("tapeLoaded",  &Machine::tapeLoaded)
         .function("tapeDirty",   &Machine::tapeDirty)
         .function("clearTapeDirty", &Machine::clearTapeDirty)
         .function("tapeImage",   &Machine::tapeImage)
         .function("tapeStatus",  &Machine::tapeStatus)
+        .function("setTapeSpeed", &Machine::setTapeSpeed)
         .function("clearMemory", &Machine::clearMemory)
         .function("loadBytes",   &Machine::loadBytes)
         .function("setPC",       &Machine::setPC)
@@ -302,6 +332,7 @@ EMSCRIPTEN_BINDINGS(retro8080) {
         .function("writeByte",   &Machine::writeByte)
         .function("halted",      &Machine::halted)
         .function("lastAddr",    &Machine::lastAddr)
+        .function("busActivity", &Machine::busActivity)
         .function("cycleCount",  &Machine::cycleCount)
         .function("rxPending",   &Machine::rxPending)
         .function("txPending",   &Machine::txPending)

@@ -22,6 +22,17 @@
       "description": "Dean McDaniel, MITS, 1975. A lit bit sweeps across the A8-A15 address lamps; flip the matching sense switch (top row, A8-A15) to knock it out. Clear the board and it stops. The classic front-panel game."
     },
     {
+      "name": "Altair 8K BASIC 4.0",
+      "file": "8kbas.bin",
+      "load": "0x0000",
+      "start": "0x0000",
+      "sense": "0x00",
+      "optional": true,
+      "basic8k": true,
+      "stream": true,
+      "description": "Microsoft 8K BASIC 4.0 (MITS 1976), the flat load-and-go image (8192 bytes) that reads in from 0000h through the 88-2SIO -- the real paper-tape load. Cold start: MEMORY SIZE? / TERMINAL WIDTH? / WANT SIN-COS-TAN-ATN? (Y). Needs ~12K of RAM."
+    },
+    {
       "name": "Altair 4K BASIC 4.0",
       "file": "4kbas.bin",
       "load": "0x0000",
@@ -29,42 +40,18 @@
       "sense": "0x00",
       "optional": true,
       "basic4k": true,
-      "description": "Microsoft 4K BASIC 4.0 (MITS 1976) for the 88-2SIO console - the software that made the Altair. Not bundled (Microsoft copyright): put a flat 3833-byte 4kbas.bin in web/roms/, see roms/README.md. Cold start: MEMORY SIZE? (Enter) / TERMINAL WIDTH? (Enter) / SIN? (Y), then OK with ~716 bytes free in a 4K machine. The Stock Launch preset answers these for you."
+      "stream": true,
+      "description": "Microsoft 4K BASIC 4.0 (MITS 1976) for the 88-2SIO console - the software that made the Altair. Flat 3833-byte load-and-go image; reads in from 0000h. Cold start: MEMORY SIZE? / TERMINAL WIDTH? / SIN? (Y), then OK with ~716 bytes free in a 4K machine."
     },
     {
-      "name": "Altair 8K ROM BASIC",
+      "name": "Altair 8K BASIC (ROM build)",
       "files": ["8kBas_e0.bin", "8kBas_e8.bin", "8kBas_f0.bin", "8kBas_f8.bin"],
       "load": "0xE000",
       "start": "0xE000",
       "sense": "0x00",
       "optional": true,
       "basicRom": true,
-      "description": "Mike Douglas's ROM build of Microsoft 8K BASIC 4.0 for the 88-2SIO (10h/11h). Entry at E000h relocates BASIC to 0000h and runs it - no sense switches. Not bundled: put the four 8kBas_*.bin files from deramp.com in web/roms/ (see roms/README.md)."
-    },
-    {
-      "name": "Lunar Lander",
-      "basic": "games/lunar.bas",
-      "description": "Land the Apollo LEM by burning fuel one second at a time (Jim Storer, 1969; this is the Creative Computing 'ROCKET' version). Needs Altair 8K BASIC installed - it is typed in and RUN automatically."
-    },
-    {
-      "name": "Hunt the Wumpus",
-      "basic": "games/wumpus.bas",
-      "description": "Stalk the Wumpus through a dodecahedron of caves; mind the bats and bottomless pits (Gregory Yob, 1973). Needs Altair 8K BASIC installed - it is typed in and RUN automatically."
-    },
-    {
-      "name": "Super Star Trek",
-      "basic": "games/startrek.bas",
-      "description": "Command the Enterprise across an 8x8 galaxy and hunt down the Klingon invasion fleet before time or energy runs out (Mayfield/Leedom; John Borders' 1978 Microsoft 8K port). Needs Altair 8K BASIC installed; ~460 lines, takes a few seconds to load."
-    },
-    {
-      "name": "Hammurabi",
-      "basic": "games/hammurabi.bas",
-      "description": "Rule ancient Sumeria for ten years: buy and sell land, feed your people, plant grain, and try not to starve them into revolt (Dyment/Ahl). Needs Altair 8K BASIC installed - it is typed in and RUN automatically."
-    },
-    {
-      "name": "Hurkle",
-      "basic": "games/hurkle.bas",
-      "description": "A Hurkle is hiding on a 10x10 grid; you get compass-direction hints and five guesses to find it (Creative Computing). Needs Altair 8K BASIC installed - it is typed in and RUN automatically."
+      "description": "Mike Douglas's EPROM build of 8K BASIC 4.0: entry at E000h, relocates itself to 0000h. Sits above RAM so it can't stream -- it drops straight in and cold-starts. An instant alternative to the paper-tape 8K image."
     }
   ]
 }

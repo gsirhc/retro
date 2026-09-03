@@ -7,6 +7,7 @@
 #   make serve   build the wasm module + serve the browser front end
 #   make wasm    build the wasm module only
 #   make check   demo + tests (what CI would run)
+#   make coverage  build + run the unit tests with llvm-cov, print a report
 #   make clean   remove all build output
 #
 # `make` with no target prints this list.
@@ -17,7 +18,11 @@ CXXFLAGS ?= -std=c++17 -O2 -Wall -Wextra
 SRC = main.cpp i8080.cpp serial2sio.cpp
 HDR = i8080.h serial2sio.h ringbuffer.h
 
-.PHONY: help demo test cpm cpmdisk serve wasm check clean
+.PHONY: help demo test coverage cpm cpmdisk serve wasm check clean
+
+# llvm tools: Apple ships them behind xcrun; on Linux they're on PATH
+LLVM_PROFDATA ?= xcrun llvm-profdata
+LLVM_COV      ?= xcrun llvm-cov
 
 help:
 	@sed -n 's/^#   //p' $(MAKEFILE_LIST)
@@ -34,6 +39,29 @@ test:
 	cmake -S tests -B tests/build
 	cmake --build tests/build -j
 	ctest --test-dir tests/build --output-on-failure
+
+# --- C++ coverage (source-based, llvm-cov) --------------------------
+# Instruments our sources only (not googletest) and runs everything that
+# exercises them: the GoogleTest unit suites + the 8080 diagnostic COMs
+# (8080PRE/TST8080/CPUTEST/8080EXM) through the CP/M host, so i8080.cpp gets
+# its real coverage, not just what arithmetic_test touches.
+COVFLAGS = -O0 -g -fprofile-instr-generate -fcoverage-mapping
+coverage:
+	cmake -S tests -B tests/build-cov -DCOVERAGE=ON >/dev/null
+	cmake --build tests/build-cov -j >/dev/null
+	$(CXX) -std=c++17 $(COVFLAGS) -I. -o tests/build-cov/cpm_host_cov cpm/cpm_host.cpp i8080.cpp
+	@set -e; cd tests/build-cov && rm -f *.profraw cov.profdata; \
+	  for t in arithmetic_test disk88_test cassette_test; do \
+	    LLVM_PROFILE_FILE=$$t.profraw ./$$t >/dev/null; done; \
+	  for c in 8080PRE TST8080 CPUTEST 8080EXM; do \
+	    [ -f ../../cpm/$$c.COM ] || continue; \
+	    LLVM_PROFILE_FILE=cpm_$$c.profraw ./cpm_host_cov ../../cpm/$$c.COM >/dev/null; done; \
+	  $(LLVM_PROFDATA) merge -sparse *.profraw -o cov.profdata; \
+	  objs="arithmetic_test -object disk88_test -object cassette_test -object cpm_host_cov"; \
+	  srcs="$(CURDIR)/i8080.cpp $(CURDIR)/i8080.h $(CURDIR)/disk88.cpp $(CURDIR)/disk88.h $(CURDIR)/cassette.cpp $(CURDIR)/cassette.h"; \
+	  $(LLVM_COV) report $$objs -instr-profile=cov.profdata $$srcs; \
+	  $(LLVM_COV) show $$objs -instr-profile=cov.profdata -format=html -output-dir=../coverage-cpp $$srcs >/dev/null; \
+	  echo "  html: Emulator8080/tests/coverage-cpp/index.html"
 
 # --- CP/M diagnostic host --------------------------------------------
 cpm/cpm_host: cpm/cpm_host.cpp i8080.cpp i8080.h
@@ -81,5 +109,5 @@ check: demo test
 
 clean:
 	rm -f emu8080 cpm/cpm_host cpm/cpm_disk
-	rm -rf tests/build
+	rm -rf tests/build tests/build-cov tests/coverage-cpp
 	$(MAKE) -C web clean

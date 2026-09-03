@@ -1,0 +1,15 @@
+{
+  "name": "retro8080-web-tests",
+  "private": true,
+  "description": "Playwright integration + fidelity suite for the Altair 8800 emulator front end",
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "test:ui": "playwright test --ui",
+    "coverage": "COVERAGE=1 playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.62.0",
+    "monocart-coverage-reports": "^2.13.0"
+  }
+}

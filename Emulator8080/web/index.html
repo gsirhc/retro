@@ -383,7 +383,7 @@
   /* footer -------------------------------------------------------- */
   .footer { margin-top: 14px; text-align: center; font-size: 12px; }
 
-  /* Load Program dialog ---------------------------------------------- */
+  /* modal dialogs (paper tape / cassette / diskette) ---------------- */
   .modal {
     position: fixed; inset: 0; z-index: 100;
     background: rgba(0, 0, 64, 0.35);
@@ -420,7 +420,8 @@
     padding: 6px;
     background: #ffffe1;
     border: 1px solid #808080;
-    font-size: 11px;
+    font-size: 12px;
+    line-height: 1.45;
   }
   :root[data-theme="modern"] .desc {
     background: #f3f4f6; border: 1px solid #e4e6ea; border-radius: 7px;
@@ -637,8 +638,102 @@
 
   .altair .hint {
     margin-top: 10px; color: #8fa7bb;
-    font: 10px "Courier New", monospace;
+    font: 13px/1.55 "Courier New", monospace;
   }
+
+  /* front-panel bootstrap how-to ---------------------------------- */
+  .panel-guide { margin-top: 8px; }
+  .pg-toggle {
+    font: 12px "Courier New", monospace; letter-spacing: .5px;
+    background: var(--panel-bg); border: var(--panel-border);
+    border-radius: var(--panel-radius); padding: 5px 12px; cursor: pointer;
+  }
+  /* a movable floating panel -- starts on the right so the front panel and
+     the guide are both visible without scrolling */
+  .pg-body {
+    position: fixed; z-index: 60; top: 76px; right: 16px;
+    width: min(462px, calc(100vw - 32px)); max-height: calc(100vh - 96px);
+    display: flex; flex-direction: column;
+    background: #0b0f0c; border: 2px outset #1c3a2b; border-radius: 5px;
+    color: #b9c9bf; font: 13px/1.55 "Courier New", monospace;
+    box-shadow: 0 12px 36px rgba(0, 0, 0, .55);
+  }
+  .pg-body[hidden] { display: none; }
+  .pg-drag {
+    cursor: move; user-select: none; touch-action: none;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 6px 6px 6px 12px; border-radius: 3px 3px 0 0;
+    background: linear-gradient(#123a26, #0d2a1b); color: #8affb9;
+    font-weight: 700; letter-spacing: .5px; border-bottom: 1px solid #1c3a2b;
+  }
+  .pg-x {
+    background: none; border: none; color: #8affb9; font-size: 17px;
+    line-height: 1; cursor: pointer; padding: 0 5px;
+  }
+  .pg-x:hover { color: #fff; }
+  .pg-doc { overflow-y: auto; padding: 11px 16px 14px; }
+  .pg-body h4 {
+    margin: 15px 0 5px; color: #8affb9; font: 700 13px "Courier New", monospace;
+    letter-spacing: 1px;
+  }
+  .pg-body h4:first-child { margin-top: 0; }
+  .pg-body p { margin: 0 0 7px; }
+  .pg-body b { color: #e7f2ea; }
+  .pg-body .k { color: #ffd479; font-weight: 700; }      /* a switch / paddle name */
+  .pg-body ol { margin: 4px 0 10px; padding-left: 22px; }
+  .pg-body ol li { margin: 6px 0; }
+  .pg-body .note { color: #6f8a7c; }
+
+  /* little front-panel toggles: knob up = 1 */
+  .pg-swrow {
+    display: inline-flex; align-items: center; gap: 2px; vertical-align: middle;
+    padding: 3px 5px; background: #0a1712; border: 1px solid #17281f; border-radius: 3px;
+  }
+  .pg-sw {
+    width: 7px; height: 15px; border-radius: 2px; position: relative;
+    background: linear-gradient(#242424, #101010); box-shadow: inset 0 0 0 1px #000;
+  }
+  .pg-sw::after {
+    content: ""; position: absolute; left: 1px; right: 1px; height: 6px;
+    bottom: 1px; border-radius: 2px; background: linear-gradient(#b7b7b7, #8a8a8a);
+  }
+  .pg-sw.on::after { bottom: auto; top: 1px; background: linear-gradient(#fff, #cfcfcf); }
+  .pg-swgap { width: 5px; }
+
+  .pg-listing {
+    margin: 6px 0 4px; border: 1px solid #1c3a2b; background: #05100a;
+  }
+  .pg-listing table { border-collapse: collapse; width: 100%; font-size: 12px; }
+  .pg-listing th {
+    background: #0d2018; color: #8affb9;
+    text-align: left; padding: 4px 8px; font-weight: 700;
+  }
+  .pg-listing td { padding: 2px 8px; white-space: nowrap; vertical-align: middle; }
+  .pg-listing td.oct { color: #5f7f70; }
+  .pg-listing td.asm { color: #8fb3a1; width: 100%; white-space: normal; }
+  .pg-listing tr.op td { border-top: 1px solid #10241a; }
+  .pg-feed {
+    font: 12px "Courier New", monospace; margin-top: 4px;
+    background: #0d3b23; color: #b6ffce; border: 1px solid #1c6b42;
+    border-radius: 3px; padding: 4px 12px; cursor: pointer;
+  }
+  .pg-feed:hover { background: #14512f; }
+  .pg-feed:disabled { opacity: .45; cursor: default; }
+
+  /* per-graphic actions: set switches / set + deposit-or-examine / mark done */
+  .pg-do { display: inline-flex; gap: 3px; margin-left: 7px; vertical-align: middle; }
+  .pg-do button {
+    font: 12px/1 "Courier New", monospace;
+    background: #0d3b23; color: #b6ffce; border: 1px solid #1c6b42;
+    border-radius: 3px; padding: 1px 5px; min-width: 20px; cursor: pointer;
+  }
+  .pg-do button:hover { background: #14512f; }
+  .pg-do button:disabled { opacity: .4; cursor: default; background: #0d3b23; }
+  .pg-checkbtn { color: #6f8a7c; border-color: #2a4a3a !important; background: #0a1a12 !important; }
+  .pg-checkbtn.on { color: #08150d; background: #57d98a !important; border-color: #57d98a !important; }
+  /* a finished checklist row goes quiet */
+  .pg-listing tr.done td, .pg-body ol li.done { opacity: .42; }
+  .pg-listing tr.done td.asm { color: #6f8a7c; }
 
   /* MITS 88-DCDD disk drive cabinet -------------------------------- */
   .dcdd {
@@ -745,16 +840,16 @@
   .dcdd-save.hidden { display: none; }
   .dcdd-hint {
     margin-top: 10px; color: #8b97a3;
-    font: 10px "Courier New", monospace;
+    font: 13px/1.55 "Courier New", monospace;
   }
 
   /* the disk picker reuses .dialog; a couple of extras */
-  .disk-note { color: #555; font-size: 10px; margin-top: 8px; }
+  .disk-note { color: #555; font-size: 12px; line-height: 1.5; margin-top: 8px; }
   :root[data-theme="modern"] .disk-note { color: #6b7280; }
 
   /* preset bar --------------------------------------------------- */
   .preset-bar select { max-width: 100%; }
-  .preset-note { color: #a03; font: 11px Arial, sans-serif; }
+  .preset-note { color: #a03; font: 12px Arial, sans-serif; }
   :root[data-theme="modern"] .preset-note { color: #b4232f; }
   :root[data-theme="web94"] .preset-note { color: #800; }
 
@@ -791,7 +886,7 @@
     border-radius: 0 0 1px 1px;
   }
   .bp-card b { color: #fff; }
-  .bp-hint { color: #8b97a3; font: 10px "Courier New", monospace; margin-top: 8px; }
+  .bp-hint { color: #8b97a3; font: 13px/1.55 "Courier New", monospace; margin-top: 8px; }
 
   /* 88-ACR cassette deck -------------------------------------- */
   .acr { background: var(--altair-bg); border-radius: var(--altair-radius);
@@ -805,30 +900,80 @@
                 0 8px 20px rgba(0,0,0,.5);
     color: #c7ced6; font: 10px Arial, Helvetica, sans-serif;
   }
-  .acr-top { display: flex; align-items: baseline; justify-content: space-between;
+  .acr-top { display: flex; align-items: center; justify-content: space-between;
              letter-spacing: 2px; margin-bottom: 10px; }
   .acr-top .acr-plate { font-weight: 700; color: #e7edf3; }
   .acr-top .acr-plate span { color: #8b97a3; font-weight: 400; letter-spacing: 1px; }
-  .acr-body { display: grid; grid-template-columns: 1fr auto; gap: 14px; align-items: center; }
+  .acr-speed {
+    font: 10px Arial, sans-serif; letter-spacing: 0;
+    background: #1c2127; color: #c7ced6; border: 1px solid #4c5763;
+    border-radius: 3px; padding: 2px 4px;
+  }
+  .acr-body { display: grid; grid-template-columns: 1fr auto; gap: 16px; align-items: center; }
   .acr-window {
-    height: 40px; border-radius: 2px; position: relative; cursor: pointer;
-    background: linear-gradient(#161616, #2a2a2a 50%, #161616);
-    box-shadow: inset 0 0 0 1px #000, inset 0 2px 5px rgba(0,0,0,.8);
+    height: 84px; border-radius: 3px; position: relative; cursor: pointer;
+    background: radial-gradient(130% 150% at 50% 0%, #23262b, #121317 72%);
+    box-shadow: inset 0 0 0 1px #000, inset 0 3px 9px rgba(0,0,0,.85);
+    overflow: hidden;
   }
-  .acr.loaded .acr-window { background: linear-gradient(#3a2f1c, #4a3c24 50%, #3a2f1c); }
-  .acr .acr-window::before {                /* two hubs */
-    content: ""; position: absolute; left: 22%; top: 50%; width: 12px; height: 12px;
-    margin-top: -6px; border-radius: 50%; background: #0c0c0c;
-    box-shadow: 84px 0 0 #0c0c0c, inset 0 0 0 2px #333;
+  /* the compact cassette, centred behind the smoked window */
+  .acr-shell {
+    position: absolute; left: 50%; top: 50%; width: 270px; height: 70px;
+    transform: translate(-50%, -50%); border-radius: 7px;
+    background: linear-gradient(#3b3e43, #24262a);
+    box-shadow: inset 0 0 0 1px #4b4f55, inset 0 0 0 3px #1b1c1f, 0 2px 7px rgba(0,0,0,.55);
+    opacity: .3; transition: opacity .2s;
   }
-  .acr.loaded .acr-window::after {
-    content: attr(data-label);
-    position: absolute; left: 3px; right: 3px; bottom: -10px; height: 15px;
-    background: linear-gradient(#2b2b2b, #1c1c1c); border: 1px solid #000;
-    color: #b7b0a0; font: 8px "Courier New", monospace; line-height: 15px;
+  .acr.loaded .acr-shell { opacity: 1; background: linear-gradient(#4b4030, #2b241a); }
+  .acr-hub {                                  /* clear hub windows in the shell */
+    position: absolute; top: 42%; width: 36px; height: 36px; margin-top: -18px;
+    border-radius: 50%; background: #0c0c0d;
+    box-shadow: inset 0 0 0 2px #16171b, inset 0 0 7px rgba(0,0,0,.9);
+  }
+  .acr-hub.h1 { left: 40px; }
+  .acr-hub.h2 { right: 40px; }
+  .acr-reel {                                 /* the toothed drive hub */
+    position: absolute; top: 50%; left: 50%; width: 30px; height: 30px;
+    margin: -15px 0 0 -15px; border-radius: 50%;
+    background:
+      repeating-conic-gradient(from 0deg, #5f5f5f 0 9deg, #333 9deg 18deg),
+      radial-gradient(circle, #464646 0 4px, #101013 4px 7px, #2b2b2b 7px 100%);
+    background-blend-mode: multiply;
+  }
+  .acr-reel::after {                          /* dark centre + spindle */
+    content: ""; position: absolute; inset: 6px; border-radius: 50%;
+    background: #17171a; box-shadow: inset 0 0 0 1px #4a4a4a;
+  }
+  .acr.loaded .acr-hub .acr-reel { box-shadow: 0 0 0 3px rgba(74,58,30,.95); }  /* wound tape */
+  .acr.spin .acr-reel,
+  .acr.playing .acr-reel { animation: acr-spin 1.15s linear infinite; }
+  .acr.winding .acr-reel { animation: acr-spin .3s linear infinite; }
+  .acr.rewinding .acr-reel { animation: acr-spin .3s linear infinite reverse; }
+  .acr.recording .acr-reel { animation-direction: reverse; }
+  @keyframes acr-spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) {
+    .acr.spin .acr-reel, .acr.playing .acr-reel,
+    .acr.winding .acr-reel, .acr.rewinding .acr-reel { animation-duration: 3s; }
+  }
+  .acr-shell-label {
+    position: absolute; left: 50%; bottom: 6px; transform: translateX(-50%);
+    width: 184px; height: 15px; border-radius: 1px;
+    background: linear-gradient(#ece6d6, #d0c8b3); box-shadow: 0 0 0 1px #b0a88c;
+    color: #3a352a; font: 8px/15px "Courier New", monospace;
     text-align: center; overflow: hidden; white-space: nowrap;
   }
-  .acr-ctl { display: flex; align-items: center; gap: 8px; }
+  .acr-shell-label::before { content: attr(data-label); }
+  .acr:not(.loaded) .acr-shell-label { display: none; }
+  /* a thin bar across the bottom: how far the head is through the tape */
+  .acr-tapeprog {
+    position: absolute; left: 0; bottom: 0; height: 3px; width: 0;
+    background: #7fd9a6; box-shadow: 0 0 4px rgba(127,217,166,.7);
+    transition: width .15s linear;
+  }
+  .acr:not(.loaded) .acr-tapeprog { display: none; }
+
+  .acr-ctl { display: flex; flex-direction: column; align-items: flex-end; gap: 7px; }
+  .acr-meter { display: flex; align-items: center; gap: 7px; }
   .acr-lamp { width: 8px; height: 8px; border-radius: 50%;
     background: radial-gradient(circle at 40% 35%, #5a1414, #250606 65%);
     box-shadow: inset 0 0 2px rgba(0,0,0,.8), 0 0 0 1px rgba(0,0,0,.5); }
@@ -836,17 +981,50 @@
     box-shadow: 0 0 5px 1px rgba(60,220,120,.7), 0 0 0 1px #0a2a15; }
   .acr-lamp.rec { background: radial-gradient(circle at 40% 35%, #ffd8c8, #ff4d2e 45%, #b81c0e);
     box-shadow: 0 0 5px 1px rgba(255,70,40,.8), 0 0 0 1px #4a0f08; }
-  .acr-btn {
-    font: 9px Arial, sans-serif; padding: 3px 8px; cursor: pointer;
-    background: #d8d2c0; border: 1px solid #7a7358; border-radius: 2px; color: #2b2b28;
+  .acr-counter { font: 12px "Courier New", monospace; letter-spacing: 2px; color: #e7dfc9;
+    background: linear-gradient(#111, #000); border: 1px solid #333; border-radius: 2px;
+    padding: 2px 7px; min-width: 46px; text-align: center; cursor: pointer;
+    box-shadow: inset 0 1px 3px rgba(0,0,0,.9); }
+  .acr-counter:hover { color: #fff; border-color: #555; }
+  .acr-counter:active { box-shadow: inset 0 1px 4px rgba(0,0,0,1); }
+  /* piano-key transport, like the cassette recorder it plugged into */
+  .acr-transport {
+    display: flex; gap: 3px; padding: 5px 5px 0;
+    background: linear-gradient(#2b3038, #1b1f24);
+    border-radius: 4px 4px 2px 2px; box-shadow: inset 0 1px 0 #3d444d, inset 0 -2px 4px rgba(0,0,0,.5);
   }
-  .acr-btn:hover { background: #e6e0cf; }
-  .acr-btn.hidden { display: none; }
-  .acr-btn.acr-save { background: #f0d98a; border-color: #a8912f; color: #3a2f0a; }
-  .acr-counter { font: 11px "Courier New", monospace; color: #7fd9a6;
-    background: #04140b; border: 1px solid #0a2a15; border-radius: 2px;
-    padding: 2px 6px; min-width: 46px; text-align: center; }
-  .acr-hint { color: #8b97a3; font: 10px "Courier New", monospace; margin-top: 10px; }
+  .acr-key {
+    width: 32px; height: 42px; padding: 0; border: 0; cursor: pointer;
+    border-radius: 2px 2px 4px 4px;
+    background: linear-gradient(#ece6d6 0 58%, #cbc4af 58% 100%);
+    box-shadow: 0 3px 0 #8d8670, 0 4px 4px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.65);
+    color: #403d33; font: 7px/1.2 Arial, Helvetica, sans-serif; letter-spacing: .5px;
+    transition: transform .05s ease, box-shadow .05s ease;
+  }
+  .acr-key .ico { display: block; font-size: 11px; margin: 8px 0 3px; line-height: 1; }
+  .acr-key:hover { background: linear-gradient(#f4efe1 0 58%, #d5ceb9 58% 100%); }
+  .acr-key:active, .acr-key.down {
+    transform: translateY(3px);
+    box-shadow: 0 0 0 #8d8670, 0 1px 2px rgba(0,0,0,.4), inset 0 2px 4px rgba(0,0,0,.4);
+  }
+  .acr-key.rec { color: #9a2b1b; }
+  .acr-key.rec.down { background: linear-gradient(#f1cbc2 0 58%, #d99a8e 58% 100%); }
+  .acr-key:disabled { opacity: .4; cursor: default; box-shadow: 0 3px 0 #8d8670, 0 4px 4px rgba(0,0,0,.3); }
+  .acr-save {
+    font: 9px Arial, sans-serif; padding: 3px 9px; cursor: pointer;
+    background: #d9d3c1; border: 1px solid #8f8768; border-radius: 2px; color: #33302a;
+  }
+  .acr-save:hover { background: #e6e0cf; }
+  .acr-save.dirty {           /* unsaved recording -- draw the eye */
+    background: #f0d98a; border-color: #a8912f; color: #3a2f0a;
+    box-shadow: 0 0 5px 1px rgba(240,200,90,.7);
+  }
+  .acr-save.hidden { display: none; }
+  .acr-hint { color: #8b97a3; font: 13px/1.7 "Courier New", monospace; margin-top: 10px; }
+  .acr-hint span { display: block; }
+  .acr-hint b { color: #c7ced6; }
+  .acr-hint tt { color: #b6ffce; }
+  .acr-hint i { opacity: .72; font-style: normal; }
 
   .dialog.dialog-wide { width: 560px; }
   .help-doc { max-height: 62vh; overflow-y: auto; padding-right: 4px; }
@@ -868,61 +1046,104 @@
   }
   :root[data-theme="modern"] .help-doc h4 { color: #1b1e24; }
 
-  /* paper-tape bootstrap guide ------------------------------------- */
-  .dialog .method { margin-top: 8px; }
-  .dialog .method label { white-space: nowrap; }
+  .dialog .addrs { margin-top: 8px; }
+  .dialog .addrs input { width: 78px; font: 11px "Courier New", monospace; }
 
-  .tape-guide {
-    margin-top: 10px;
-    background: #05100a;
-    border: 2px inset #0a1f14;
-    color: #4bd07a;
-    font: 12px/1.4 "Courier New", monospace;
-    padding: 10px 12px;
-  }
-  .tape-guide .tg-head {
-    color: #8affb9; letter-spacing: 1px; margin-bottom: 6px;
-  }
-  .tape-guide .tg-head span { color: #3c8f5c; letter-spacing: 0; }
-  .tape-guide .tg-msg { min-height: 16px; color: #cfe9d9; margin-bottom: 6px; }
-  .tape-guide .tg-msg.err { color: #ff8a6a; }
+  /* per-device "Load Speed" selector, shared by the reader and the deck */
+  .dev-speedwrap { display: inline-flex; align-items: center; gap: 5px; }
+  .dev-speedlabel { font: 9px Arial, sans-serif; letter-spacing: 1px; opacity: .8; }
 
-  .tape-guide .tg-list {
-    list-style: none; margin: 0; padding: 0;
-    max-height: 168px; overflow-y: auto;
-    border: 1px solid #123; background: #030a06;
-  }
-  .tape-guide .tg-list li {
-    padding: 2px 8px; white-space: pre; color: #2f7a4c;
-  }
-  .tape-guide .tg-list li.done { color: #1f5136; }
-  .tape-guide .tg-list li.done::before { content: "\2713 "; }
-  .tape-guide .tg-list li:not(.done)::before { content: "  "; }
-  .tape-guide .tg-list li.now {
-    background: #0d3b23; color: #b6ffce; font-weight: 700;
-  }
-  .tape-guide .tg-list li.now::before { content: "\25B8 "; }
+  /* custom-preset device toggles */
+  .device-chips { display: inline-flex; align-items: center; gap: 10px; font-size: 11px; }
+  .device-chips[hidden] { display: none; }
+  .device-chips .dc-label { font-weight: 700; opacity: .75; }
+  .device-chips label { white-space: nowrap; }
 
-  .tape-guide .tg-actions { margin-top: 8px; }
-  .tape-guide .tg-actions button {
-    font: 11px "Courier New", monospace;
-    background: #0d3b23; color: #b6ffce;
-    border: 1px solid #1c6b42; padding: 3px 10px; cursor: pointer;
-    margin-right: 6px;
+  /* paper-tape reader -------------------------------------------- */
+  .ptr { background: var(--altair-bg); border-radius: var(--altair-radius);
+         margin-top: 10px; padding: 14px 16px 16px; overflow-x: auto; }
+  .ptr.empty { display: none; }
+  .ptr-case {
+    min-width: 480px;
+    background: linear-gradient(#3b3f36, #2a2d26);
+    border-radius: 4px; padding: 12px 16px;
+    box-shadow: inset 0 0 0 2px #565b4c, inset 0 0 0 5px #1e211b, 0 8px 20px rgba(0,0,0,.5);
+    color: #d6d2c2; font: 10px Arial, Helvetica, sans-serif;
   }
-  .tape-guide .tg-actions button:hover { background: #14512f; }
-
-  .tape-guide.loading { border-color: #1c6b42; }
-  .tape-guide .tg-barwrap {
-    height: 16px; background: #030a06; border: 1px solid #1c6b42;
-    margin: 8px 0 6px; overflow: hidden;
+  .ptr-top { display: flex; align-items: center; justify-content: space-between;
+             letter-spacing: 2px; margin-bottom: 10px; }
+  .ptr-top .ptr-plate { font-weight: 700; color: #eef0e6; }
+  .ptr-top .ptr-plate span { color: #9aa08c; font-weight: 400; letter-spacing: 1px; }
+  .ptr-speed {
+    font: 10px Arial, sans-serif; letter-spacing: 0;
+    background: #1e211b; color: #d6d2c2; border: 1px solid #565b4c;
+    border-radius: 3px; padding: 2px 4px;
   }
-  .tape-guide .tg-bar {
-    height: 100%; width: 0;
-    background: repeating-linear-gradient(90deg, #2fae63 0 8px, #23964f 8px 16px);
-    transition: width .1s linear;
+  .ptr-body { display: grid; grid-template-columns: 1fr auto; gap: 16px; align-items: center; }
+  /* the transport: a window with the punched strip running through a read head */
+  .ptr-window {
+    height: 70px; border-radius: 3px; position: relative; cursor: pointer;
+    overflow: hidden;
+    background: linear-gradient(#20221d, #16171300 40%, #202220);
+    box-shadow: inset 0 0 0 1px #000, inset 0 3px 9px rgba(0,0,0,.8);
   }
-  .tape-guide .tg-stat { color: #cfe9d9; }
+  .ptr-strip {
+    position: absolute; left: 0; right: 0; top: 50%; height: 36px; margin-top: -18px;
+    background-color: #d8c79c;
+    background-image:
+      radial-gradient(circle at 50% 50%, #17130b 1.7px, rgba(23,19,11,.15) 2.1px, transparent 2.5px),
+      radial-gradient(circle at 50% 50%, #17130b 1px, transparent 1.5px);
+    background-size: 11px 6px, 11px 36px;
+    background-position: 0 2px, 5.5px 50%;
+    box-shadow: inset 0 9px 7px -7px rgba(0,0,0,.5), inset 0 -9px 7px -7px rgba(0,0,0,.5);
+    opacity: .3; transition: opacity .2s;
+  }
+  .ptr.loaded .ptr-strip { opacity: 1; }
+  .ptr.reading .ptr-strip { animation: ptr-feed .45s linear infinite; }
+  @keyframes ptr-feed { to { background-position: -44px 2px, -38.5px 50%; } }
+  @media (prefers-reduced-motion: reduce) {
+    .ptr.reading .ptr-strip { animation-duration: 2s; }
+  }
+  .ptr-head {                              /* the read head across the strip */
+    position: absolute; left: 0; right: 0; top: 50%; height: 20px; margin-top: -10px;
+    background: linear-gradient(rgba(20,22,18,.05), rgba(20,22,18,.4) 45% 55%, rgba(20,22,18,.05));
+    box-shadow: 0 0 0 1px rgba(0,0,0,.4);
+    pointer-events: none;
+  }
+  .ptr-head::after {
+    content: ""; position: absolute; left: 50%; top: -6px; bottom: -6px; width: 2px;
+    margin-left: -1px; background: #c9412e; box-shadow: 0 0 4px rgba(201,65,46,.8);
+  }
+  .ptr-label {
+    position: absolute; left: 6px; bottom: 4px;
+    font: 8px "Courier New", monospace; color: #2a2118;
+    background: rgba(217,201,161,.85); padding: 1px 4px; border-radius: 1px;
+  }
+  .ptr:not(.loaded) .ptr-label { display: none; }
+  .ptr-prog {
+    position: absolute; left: 0; bottom: 0; height: 3px; width: 0;
+    background: #7fd9a6; box-shadow: 0 0 4px rgba(127,217,166,.7);
+    transition: width .12s linear;
+  }
+  .ptr:not(.reading) .ptr-prog { display: none; }
+  .ptr-ctl { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+  .ptr-lamp { width: 8px; height: 8px; border-radius: 50%;
+    background: radial-gradient(circle at 40% 35%, #5a5a1a, #23230a 65%);
+    box-shadow: inset 0 0 2px rgba(0,0,0,.8), 0 0 0 1px rgba(0,0,0,.4); }
+  .ptr.reading .ptr-lamp {
+    background: radial-gradient(circle at 40% 35%, #fff6bf, #e8c73a 45%, #7a6410);
+    box-shadow: 0 0 6px 1px rgba(240,210,60,.8), 0 0 0 1px #3a2f08;
+  }
+  .ptr-btn {
+    font: 9px Arial, sans-serif; padding: 4px 12px; cursor: pointer;
+    background: #d8d2c0; border: 1px solid #7a7358; border-radius: 2px; color: #2b2b28;
+  }
+  .ptr-btn:hover { background: #e6e0cf; }
+  .ptr-btn:disabled { opacity: .4; cursor: default; }
+  .ptr-btn.ptr-start { background: #cfe1cd; }
+  .ptr.reading .ptr-btn.ptr-start { background: #e8cbc5; }
+  .ptr-btn.ptr-eject { background: #cfcabb; }
+  .ptr-hint { color: #9aa08c; font: 13px/1.55 "Courier New", monospace; margin-top: 10px; }
 </style>
 </head>
 <body>
@@ -952,13 +1173,18 @@
         <option value="cpm">CP/M Workstation &middot; 1978 &middot; 64K &middot; VT100 + floppy &middot; CP/M</option>
       </select>
       <button id="presetGuide" title="what this setup is and how to use it">&#9432; Guide</button>
-      <label title="also load and start the preset's key software"><input type="checkbox" id="autoload" checked>&nbsp;Auto-load software</label>
+      <label title="when checked, a preset also loads and starts its key software"><input type="checkbox" id="autoload">&nbsp;Auto-load software</label>
+      <span id="deviceChips" class="device-chips" hidden>
+        <span class="dc-label">Load devices:</span>
+        <label><input type="checkbox" data-dev="papertape">&nbsp;Paper tape</label>
+        <label><input type="checkbox" data-dev="cassette">&nbsp;Cassette</label>
+        <label><input type="checkbox" data-dev="disk">&nbsp;Floppy</label>
+      </span>
       <span id="presetNote" class="preset-note"></span>
     </div>
 
     <div class="toolbar">
-      <b>CONTROLS:</b>
-      <button id="loadBtn">Load Program...</button>
+      <b>DISPLAY:</b>
       <label>Theme:
         <select id="pageTheme">
           <option value="win">Windows</option>
@@ -970,13 +1196,15 @@
 
     <div id="altair" class="altair"><!-- front panel is built by app.js --></div>
 
+    <div id="panelGuide" class="panel-guide"><!-- bootstrap how-to, built by app.js --></div>
+
     <div id="backplane" class="backplane"><!-- S-100 expansion cards, built by app.js --></div>
+
+    <div id="ptr" class="ptr"><!-- paper-tape reader, built by app.js --></div>
 
     <div id="dcdd" class="dcdd"><!-- 88-DCDD disk drive cabinet, built by app.js --></div>
 
     <div id="acr" class="acr"><!-- 88-ACR cassette deck, built by app.js --></div>
-
-    <div id="tape-guide" class="tape-guide" hidden><!-- built by app.js --></div>
 
     <hr class="rule">
 
@@ -1019,37 +1247,39 @@
   </div>
 </div>
 
-<div id="romDialog" class="modal" hidden>
+<div id="ptrDialog" class="modal" hidden>
   <div class="dialog">
     <div class="titlebar">
-      <span>&#9635; Load Program</span>
-      <span class="btns"><span id="romClose">&times;</span></span>
+      <span>&#9635; Load Paper Tape</span>
+      <span class="btns"><span id="ptrClose">&times;</span></span>
     </div>
     <div class="dialog-body">
-      <p><b>Built-in programs</b> &mdash; served from <tt>roms/</tt> :</p>
-      <select id="romList" size="6"><option disabled>loading catalog...</option></select>
-      <p id="romDesc" class="desc">&nbsp;</p>
+      <p><b>Paper-tape library</b> &mdash; served from <tt>roms/</tt> :</p>
+      <select id="ptrList" size="6"><option disabled>loading catalog...</option></select>
+      <p id="ptrDesc" class="desc">&nbsp;</p>
 
       <hr class="rule">
 
-      <p><b>...or load a binary from disk:</b></p>
-      <label class="filebtn">Choose File...<input type="file" id="romFile"></label>
-      <span id="romFileName">no file selected</span>
+      <p><b>...or thread your own binary:</b></p>
+      <label class="filebtn">Choose File...<input type="file" id="ptrFile"></label>
+      <span id="ptrFileName">no file selected</span>
 
       <p class="addrs">
-        Load address: <input type="text" id="romAddr" value="0x0000">
-        &nbsp;&nbsp; Start&nbsp;(PC): <input type="text" id="romStart" value="0x0000">
+        Load address: <input type="text" id="ptrAddr" value="0x0000">
+        &nbsp;&nbsp; Start&nbsp;(PC): <input type="text" id="ptrStart" value="0x0000">
       </p>
 
-      <p class="method">Load via:
-        <label><input type="radio" name="loadmethod" value="instant" checked>&nbsp;memory (instant)</label>
-        &nbsp;
-        <label><input type="radio" name="loadmethod" value="tape">&nbsp;paper tape</label>
-      </p>
+      <p class="disk-note">Two ways to read it. <b>START</b> just runs the reader
+        &mdash; spooling the tape through the 88-2SIO for a bootstrap loader you
+        are already running (the boot PROM, or ~20 bytes keyed in at the front
+        panel &mdash; see "Load it yourself"). <b>AUTO-LOAD</b> is the shortcut:
+        it resets the machine, keys a serial bootstrap into the top of RAM, runs
+        it, and answers BASIC's cold-start prompts for you. At "Realistic" speed
+        8K BASIC really takes minutes either way.</p>
 
       <div class="dialog-buttons">
-        <button id="romLoad">Load</button>
-        <button id="romCancel">Cancel</button>
+        <button id="ptrThread">Thread</button>
+        <button id="ptrCancel">Cancel</button>
       </div>
     </div>
   </div>
@@ -1126,12 +1356,18 @@
       <label class="filebtn">Choose File...<input type="file" id="tapeFile" accept=".cas,.CAS,.bin"></label>
       <span id="tapeFileName">no file selected</span>
 
-      <p class="disk-note">In BASIC: <tt>CSAVE"X"</tt> records the current program,
-        <tt>CLOAD"X"</tt> plays it back. Rewind between the two (or just re-load
-        the file).</p>
+      <hr class="rule">
+
+      <p><b>...or a fresh blank tape</b> &mdash; record with <tt>CSAVE"name"</tt>
+        (press <b>REC</b>), then <b>SAVE .CAS</b> on the deck to keep it.</p>
+
+      <p class="disk-note">Once inserted, the deck shows which <tt>CLOAD</tt> name
+        the tape holds. In BASIC: <tt>CLOAD"name"</tt>, then press <b>PLAY</b>;
+        <tt>CSAVE"name"</tt> records. REW between the two.</p>
 
       <div class="dialog-buttons">
         <button id="tapeInsert">Insert</button>
+        <button id="tapeBlank">Insert Blank Tape</button>
         <button id="tapeCancel">Cancel</button>
       </div>
     </div>

@@ -30,8 +30,23 @@ jobs:
       # native echo demo + GoogleTest unit suite
       - run: make -C Emulator8080 check
 
+      # the diagnostic COMs + CP/M disk this job downloads (pins live in this
+      # file, so key the cache on it) -- a cache hit skips both fetch steps
+      - name: Cache test images
+        id: test-images
+        uses: actions/cache@v4
+        with:
+          path: |
+            Emulator8080/cpm/8080PRE.COM
+            Emulator8080/cpm/TST8080.COM
+            Emulator8080/cpm/CPUTEST.COM
+            Emulator8080/cpm/8080EXM.COM
+            Emulator8080/cpm/cpm22.dsk
+          key: test-images-${{ hashFiles('.github/workflows/deploy-emulator.yml') }}
+
       # public-domain 8080 diagnostics (kept out of the repo), pinned + checksummed
       - name: Fetch 8080 diagnostic images
+        if: steps.test-images.outputs.cache-hit != 'true'
         working-directory: Emulator8080/cpm
         run: |
           base=https://raw.githubusercontent.com/superzazu/8080/c5d403ce7ac967b6ec4980a45b5447d8880888b0/cpu_tests
@@ -50,6 +65,7 @@ jobs:
 
       # a real Altair CP/M 2.2 disk (kept out of the repo), pinned + checksummed
       - name: Fetch a CP/M diskette image
+        if: steps.test-images.outputs.cache-hit != 'true'
         working-directory: Emulator8080/cpm
         run: |
           url=https://raw.githubusercontent.com/dhansel/Altair8800/8b0ac49448144f0afed1d5108559dc8507268a85/disks/DISK01.DSK
@@ -61,8 +77,48 @@ jobs:
       # boot CP/M on the emulated 88-DCDD and run DIR/STAT (exits non-zero if it hangs)
       - run: make -C Emulator8080 cpmdisk DISK=cpm/cpm22.dsk
 
-  build:
+  # Playwright integration + fidelity suite: drives the real front end in a
+  # headless browser and asserts control behaviour + terminal output. A red run
+  # here blocks the deploy (build needs it).
+  web-test:
     needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: latest
+
+      - working-directory: Emulator8080/web
+        run: make retro8080.js roms
+
+      - uses: ./.github/actions/fetch-altair-media
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - working-directory: Emulator8080/web
+        run: npm ci
+
+      - working-directory: Emulator8080/web
+        run: npx playwright install --with-deps chromium
+
+      - working-directory: Emulator8080/web
+        run: npx playwright test
+
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            Emulator8080/web/playwright-report/
+            Emulator8080/web/test-results/
+          retention-days: 7
+
+  build:
+    needs: [test, web-test]
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
@@ -75,6 +131,10 @@ jobs:
       # wasm module + generated ROM images
       - working-directory: Emulator8080/web
         run: make retro8080.js roms
+
+      # ship a ready-to-run machine: Altair 4K/8K BASIC + CP/M 2.2, pinned +
+      # checksummed, fetched into the Pages artifact so users need supply nothing.
+      - uses: ./.github/actions/fetch-altair-media
 
       - uses: actions/configure-pages@v5
 

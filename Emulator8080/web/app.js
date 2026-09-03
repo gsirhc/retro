@@ -57,13 +57,16 @@ function fail(msg) {
     screen.innerHTML =
       '<pre style="color:#ff6b6b;white-space:pre-wrap;padding:12px;margin:0;' +
       'font:13px/1.5 ui-monospace,monospace">' +
+      /* v8 ignore next -- html-escape, only exercised if a fail() message has <>& */
       String(msg).replace(/[<>&]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" }[c])) +
       "</pre>";
   }
 }
 
+/* v8 ignore start -- last-resort global error nets */
 window.addEventListener("error", (e) => fail(e.message + "\n" + (e.error?.stack || "")));
 window.addEventListener("unhandledrejection", (e) => fail("promise rejected: " + (e.reason?.stack || e.reason)));
+/* v8 ignore stop */
 
 async function boot() {
   if (typeof Terminal !== "function") {
@@ -98,9 +101,11 @@ async function boot() {
   // On a CRT (no scrollback) xterm turns wheel events into arrow-key presses
   // sent to the program. Stop it before xterm sees them so the page just
   // scrolls; the Teletype (has scrollback) keeps normal wheel scrolling.
+  /* v8 ignore start -- scroll-lock guard, only runs on a real wheel event */
   screenEl.addEventListener("wheel", (e) => {
     if (!monitorEl.classList.contains("scrolls")) e.stopImmediatePropagation();
   }, { capture: true });
+  /* v8 ignore stop */
 
   // Fill the page column with the monitor: screen as wide as fits (minus the
   // monitor's own frame), locked to 24 rows; column count floats with the font.
@@ -248,6 +253,7 @@ async function boot() {
   try {
     Module = await Retro8080(V ? { locateFile: (p) => p + "?v=" + V } : {});
   } catch (err) {
+    /* v8 ignore next -- wasm instantiation failure path */
     return fail("wasm module failed to instantiate:\n" + (err?.stack || err));
   }
   const machine = new Module.Machine();
@@ -257,7 +263,6 @@ async function boot() {
   // --- terminal -> CPU ----------------------------------------------
   const encoder = new TextEncoder();
   term.onData((data) => {
-    if (loaderBusy) return;   // ignore the keyboard while a program is loading
     turbo = false;            // the player is here now — back to authentic 2 MHz
     // a keypress skips to the end of a slow how-to printout
     if (printingManual) {
@@ -280,13 +285,10 @@ async function boot() {
   const crlf = document.getElementById("crlf");
   const outQ = [];
 
-  // The BASIC-program auto-loader (see loadBasicProgram) feeds a listing in
-  // through the keyboard path. `kbdQ` is metered against the 2SIO's receive
-  // FIFO so it can never overrun; `rxWatch` is a rolling copy of recent CPU
-  // output the loader polls to sync with BASIC's prompts.
-  const kbdQ = [];
+  // `rxWatch` is a rolling copy of recent CPU output the loaders poll to sync
+  // with BASIC's cold-start prompts; `loaderToken` is bumped on every new load
+  // so a stale async loader can tell it has been superseded and bail.
   let rxWatch = "";
-  let loaderBusy = false;
   let loaderToken = 0;
   let turbo = false;       // run the CPU faster than 2 MHz: during a load, and
                            // briefly after, so a program's one-time setup (the
@@ -299,7 +301,7 @@ async function boot() {
   let baudSaved = 0;            // real baud, restored when the how-to finishes
   let crlfPending = false;      // a CR ended the last readOutput() batch; the LF
                                 // decision waits for the next batch (see below)
-  let coldStartWatch = false;   // like loaderBusy for rxWatch, but the output
+  let coldStartWatch = false;   // capture rxWatch during a cold start, but the output
                                 // still reaches the terminal (4K BASIC's prompts)
 
   function pullSerial() {
@@ -315,6 +317,7 @@ async function boot() {
     // an injected LF between the two CRs would double-space every line). The
     // decision can straddle two readOutput() batches, hence crlfPending.
     const notBareCr = (c) => c === 0x0a || c === 0x0d;
+    /* v8 ignore next 4 -- a CR landing exactly on a readOutput() batch boundary */
     if (crlfPending) {
       if (crlf.checked && !notBareCr(out[0] & 0x7f)) outQ.push(0x0a);
       crlfPending = false;
@@ -332,21 +335,19 @@ async function boot() {
         else crlfPending = true;         // decide when the next batch lands
       }
     }
-    if (loaderBusy || coldStartWatch) {
+    if (coldStartWatch) {
       for (let i = 0; i < n; i++) rxWatch += String.fromCharCode(out[i] & 0x7f);
       if (rxWatch.length > 4096) rxWatch = rxWatch.slice(-2048);
     }
   }
 
   function pumpTerminal(dtMs) {
+    /* v8 ignore next 4 -- baud restored when a metered how-to finishes on its own */
     if (printingManual && outQ.length === 0) {
       printingManual = false;
       baudCps = baudSaved;
     }
     pullSerial();
-    // while the auto-loader is streaming a listing in, BASIC's echo is noise —
-    // drop it and let the loader show its own status instead
-    if (loaderBusy) { outQ.length = 0; return; }
     if (outQ.length === 0) return;
     if (baudCps === 0) { term.write(new Uint8Array(outQ.splice(0))); return; }
     baudBudget += (baudCps * dtMs) / 1000;
@@ -355,16 +356,6 @@ async function boot() {
     if (n > 0) { baudBudget -= n; term.write(new Uint8Array(outQ.splice(0, n))); }
   }
 
-  // Feed the auto-loader's queued keystrokes into channel A. Self-throttled
-  // against the 2SIO's 512-byte receive FIFO, so a huge listing (Star Trek is
-  // ~20 KB) streams in as fast as BASIC tokenises it and never overruns.
-  function pumpKeyboard() {
-    if (!kbdQ.length) return;
-    const room = typeof machine.rxPending === "function";
-    let guard = 600;
-    while (kbdQ.length && guard-- > 0 && (!room || machine.rxPending() < 400))
-      machine.sendByte(kbdQ.shift());
-  }
 
   function flushTerminal() {           // used by SINGLE STEP — show it now
     pullSerial();
@@ -397,7 +388,8 @@ async function boot() {
     const para = (s, indent) => wrap(s, indent).forEach((l) => lines.push(l));
     para("THE MACHINE IS BARE -- nothing is loaded; the default program just " +
          "echoes what you type. Pick a PRESET up top for a period-correct " +
-         "build, load one with [Load Program...], or key it in on the panel.", " ");
+         "build, thread a tape into the paper-tape reader, or key one in on " +
+         "the panel.", " ");
     lines.push("");
     para("THE TERMINAL -- real 1970s terminals, limits and all: a fixed 24 " +
          "lines, no scrollback (text off the top is gone), uppercase only.", " ");
@@ -406,9 +398,8 @@ async function boot() {
          "a paper roll. Cheap and common, and being paper it scrolls back.", " ");
     lines.push("");
     para("DISKS / CP/M -- the cabinet below is a MITS 88-DCDD: two 8-inch " +
-         "drives. Insert a diskette and press BOOT; [?] on a drive explains " +
-         "that disk. CP/M uses the full 64 KB of RAM. Bring your own .dsk " +
-         "images (see disks/README.md).", " ");
+         "drives. Click a drive to insert a diskette and press BOOT; [?] on a " +
+         "drive explains that disk. CP/M uses the full 64 KB of RAM.", " ");
     lines.push("", " HISTORY");
     para("1974 -- MITS bets the company on Intel's 8080 and makes the Jan " +
          "1975 cover of Popular Electronics: the Altair 8800, a $439 kit -- " +
@@ -420,6 +411,7 @@ async function boot() {
     // on a narrow terminal the paragraphs wrap longer -- drop the blank
     // separator lines until the page fits (there's no scrollback to recover
     // what runs off the top)
+    /* v8 ignore next 5 -- only runs when the manual is taller than the screen */
     while (lines.length > rows) {
       const i = lines.indexOf("");
       if (i < 0) break;
@@ -455,6 +447,7 @@ async function boot() {
   // era-preset controls (declared early so markCustom() is safe from any handler)
   const presetSelect = document.getElementById("preset");
   const autoloadChk  = document.getElementById("autoload");
+  try { autoloadChk.checked = localStorage.getItem("retro8080.autoload") === "1"; } catch {}
   const presetNote   = document.getElementById("presetNote");
   const backplaneEl  = document.getElementById("backplane");
   let   applyingPreset = false;
@@ -463,6 +456,7 @@ async function boot() {
   Promise.all([
     document.fonts?.load('20px "VT323"'),
     document.fonts?.load('15px "Courier Prime"'),
+    /* v8 ignore next -- font-load rejection is swallowed */
   ].filter(Boolean)).catch(() => {}).finally(() => applyProfile(savedTerm));
 
   // --- page theme (Windows chrome vs '94 gray web) ----------------
@@ -493,6 +487,7 @@ async function boot() {
         }
       } catch {}
     }
+    /* v8 ignore next -- only if every HEAD request fails / lacks Last-Modified */
     el.textContent = "unknown";
   })();
 
@@ -510,14 +505,13 @@ async function boot() {
   function frame(now) {
     const dt = Math.max(0, Math.min(now - lastFrame, 100));   // clamp after a tab-away
     lastFrame = now;
+    if (powered) tape.tick();     // the reader feeds while the CPU is stopped
     if (running && powered) {
-      tape.tick();
       // cycles paced by real elapsed time, so speed is 2 MHz on any display —
-      // except while the auto-loader is streaming a listing in, when we let the
-      // CPU sprint so a big program (Star Trek) tokenises in a few seconds
+      // except while a loader is streaming BASIC in / answering its cold-start
+      // prompts, when we let the CPU sprint (ends on the first keypress)
       const boost = turbo ? 12 : 1;
       machine.runCycles(Math.round(CPU_HZ * dt / 1000) * boost);
-      pumpKeyboard();
     }
     pumpTerminal(dt);          // keep typing out buffered text even when stopped
     updatePanel();
@@ -549,14 +543,6 @@ async function boot() {
   const switchEls = new Array(16).fill(null);
   let panelIntercept = null;   // set by the tape-load guide to capture paddles
 
-  // drive the low `n` toggle switches from a value
-  const setSwitchWord = (value, n) => {
-    for (let b = 0; b < n; b++) {
-      switchState[b] = (value >> b) & 1;
-      if (switchEls[b]) switchEls[b].classList.toggle("down", !switchState[b]);
-    }
-  };
-
   // reflect a sense byte onto the A8..A15 paddles and the machine
   const applySense = (byte) => {
     for (let bit = 8; bit < 16; bit++) {
@@ -568,6 +554,16 @@ async function boot() {
 
   const switchWord = () => switchState.reduce((w, on, i) => w | (on << i), 0);
   const senseByte  = () => (switchWord() >> 8) & 0xff;
+
+  // drive the low `n` toggle switches from a value (used by the panel guide's
+  // per-row "set switches" buttons)
+  const setSwitchWord = (value, n) => {
+    for (let b = 0; b < n; b++) {
+      switchState[b] = (value >> b) & 1;
+      if (switchEls[b]) switchEls[b].classList.toggle("down", !switchState[b]);
+    }
+    machine.setSenseSwitches?.(senseByte());
+  };
 
   // small DOM helpers
   const el = (cls, html) => {
@@ -587,6 +583,7 @@ async function boot() {
       if (i >= 0) return col + i;
       col += g.length;
     }
+    /* v8 ignore next -- unreachable: every bit 0..15 is in GROUPS */
     return col;
   };
   const gridLed = (label, b, store, row) => {
@@ -717,7 +714,7 @@ async function boot() {
       machine.stepOne?.();
       drainToTerminal();
     };
-    cr.appendChild(paddle("SINGLE STEP", "", "step", step, step).cell);
+    cr.appendChild(paddle("SINGLE STEP", "", "step", step).cell);
     cr.appendChild(paddle("EXAMINE", "EXAMINE NEXT", "examine",
       () => machine.setPC?.(switchWord() & 0xffff),
       () => machine.setPC?.((machine.state().pc + 1) & 0xffff)).cell);
@@ -731,9 +728,10 @@ async function boot() {
     cr.appendChild(paddle("RESET", "CLR", "reset",
       () => { machine.reboot?.(); machine.setPC?.(0); },
       () => machine.reboot?.()).cell);
-    cr.appendChild(paddle("PROTECT", "UNPROTECT", "protect", () => {}, () => {}).cell);
-    cr.appendChild(paddle("AUX", "", "aux1", () => {}, () => {}).cell);
-    cr.appendChild(paddle("AUX", "", "aux2", () => {}, () => {}).cell);
+    const noop = () => {};   // PROTECT / AUX: present on the real panel, inert here
+    cr.appendChild(paddle("PROTECT", "UNPROTECT", "protect", noop, noop).cell);
+    cr.appendChild(paddle("AUX", "", "aux1", noop).cell);
+    cr.appendChild(paddle("AUX", "", "aux2", noop).cell);
     sw.appendChild(cr);
 
     // ---- bottom badge -------------------------------------------
@@ -761,17 +759,22 @@ async function boot() {
       return;
     }
     const s = machine.state();
-    // while a tape is reading in, the address bus tracks the loader's write
-    // pointer (HL) climbing through memory. While the CPU runs, the address
-    // LEDs blur across wherever the bus last was (that's how Kill the Bit shows
-    // its moving bit on A8..A15); STOP freezes them at PC.
-    const loading = tape.phase === "loading";
-    const abus = loading ? ((s.h << 8) | s.l)
-               : (running && !s.halted && machine.lastAddr) ? machine.lastAddr()
+    // while a tape is reading in, the address lamps climb with the reader's
+    // write pointer. While the CPU runs, the address LEDs show a blur -- the OR
+    // of every address the bus touched this frame, exactly as the real lamps
+    // shimmer (that's how Kill the Bit's moving bit rides A8..A15). STOP freezes
+    // them at PC. The data lamps follow the last real byte on the bus.
+    const loading = tape.phase === "feeding" || tape.phase === "draining";
+    const runningNow = running && !s.halted;
+    const abus = loading ? tape.addr
+               : runningNow && machine.busActivity ? machine.busActivity()
                : s.pc;
+    const dAddr = loading ? 0
+                : runningNow && machine.lastAddr ? machine.lastAddr()
+                : s.pc;
     setBits(addrLeds, abus, 16);
     setBits(dataLeds, loading ? tape.lastByte
-                              : machine.readByte ? machine.readByte(abus & 0xffff) : 0, 8);
+                              : machine.readByte ? machine.readByte(dAddr & 0xffff) : 0, 8);
     const set = (name, on) => statusLeds[name] && statusLeds[name].classList.toggle("on", !!on);
     const active = running && !s.halted;
     set("INP", loading);
@@ -791,9 +794,290 @@ async function boot() {
 
   buildPanel();
 
-  // --- MITS 88-DCDD disk drive cabinet --------------------
-  let bootedFromDisk = false;   // RESET re-runs the disk boot if this is set
+  // --- front-panel bootstrap guide -----------------------
+  // A collapsible "here is how you'd hand-load this from the panel" reference,
+  // preset-aware, with the actual octal for the current machine and buttons
+  // that key the loader in and spool the tape so it really works.
+  const oct = (n, w) => n.toString(8).padStart(w, "0").replace(/(\d{3})(?=\d)/g, "$1 ");
 
+  // one entry per bootstrap byte; first byte of each instruction carries the text
+  const BOOT_ASM = [
+    "LXI H,<dest>      ; store pointer", "", "",
+    "LXI D,<count>     ; byte count", "", "",
+    "L1: IN 020        ; 2SIO status", "",
+    "RRC              ; RDRF -> carry",
+    "JNC L1           ; wait for a byte", "", "",
+    "IN 021           ; read it", "",
+    "ORA A            ; blank leader?",
+    "JZ L1            ; yes, keep spooling", "", "",
+    "L2: MOV M,A       ; store the byte",
+    "INX H",
+    "DCX D",
+    "MOV A,D", "ORA E",
+    "JZ DONE          ; count exhausted", "", "",
+    "L3: IN 020", "",
+    "RRC",
+    "JNC L3", "", "",
+    "IN 021", "",
+    "JMP L2", "", "",
+    "DONE: JMP <start> ; run the program", "", "",
+  ];
+
+  // panel-guide checklist + floating-panel position, kept across guide rebuilds
+  const pgDone = new Set();      // finished step keys: byte index, or "taddr"/"daddr"
+  let pgDoneKey = null;          // model signature; a change clears the checklist
+  let pgWired = false;           // the #panelGuide listeners are attached once
+  const pgFloat = { left: null, top: null };
+  try {
+    const s = JSON.parse(localStorage.getItem("retro8080.pgpos") || "null");
+    if (s && Number.isFinite(s.left)) { pgFloat.left = s.left; pgFloat.top = s.top; }
+  } catch {}
+
+  const PG_LABEL = " Load it yourself &mdash; the front-panel bootstrap";
+
+  function panelGuideModel() {
+    const id = presetSelect ? presetSelect.value : "";
+    const p = PRESETS[id];
+    const ramKb = (machine.ramKb ? machine.ramKb() : 64);
+    const org = ramKb * 1024 - 0x40;
+    // what a hand-load would pull in: the threaded paper tape, else 8K BASIC
+    const e = paperTape.entry;
+    let dest = 0, count = 8192, start = 0, what = "8K BASIC (8192 bytes)";
+    if (e && e.bytes && !e.basicRom) {
+      dest = parseHex(e.load, 0); start = parseHex(e.start, 0);
+      count = e.bytes.length; what = `${e.name} (${count} bytes)`;
+    }
+    const hasDisk = !!(p ? (p.devices || []).includes("disk") : true);
+    const hasTape = !p || (p.devices || []).includes("papertape");
+    return { org, dest, count, start, what, ramKb, disk: hasDisk, tape: hasTape,
+             boot: makeBootstrap(org, dest, count, start) };
+  }
+
+  function buildPanelGuide(open) {
+    const root = document.getElementById("panelGuide");
+    if (!root) return;
+    const wasOpen = open != null ? open
+      : !!(root.querySelector(".pg-body") && !root.querySelector(".pg-body").hidden);
+    const m = panelGuideModel();
+
+    // a different machine / loader -> start the checklist over
+    const key = [m.org, m.dest, m.start, m.count].join("/");
+    if (key !== pgDoneKey) { pgDone.clear(); pgDoneKey = key; }
+    const isDone = (k) => pgDone.has(k);
+
+    // a row of little toggles, grouped the way the panel is (A15 alone, then 3s;
+    // data D7 D6 | D5-D3 | D2-D0)
+    const swRow = (value, nbits) => {
+      let s = '<span class="pg-swrow">';
+      for (let b = nbits - 1; b >= 0; b--) {
+        s += `<span class="pg-sw${(value >> b) & 1 ? " on" : ""}" title="${nbits > 8 ? "A" : "D"}${b}"></span>`;
+        if (b > 0 && (b % 3 === 0 || (nbits > 8 && b === 15))) s += '<span class="pg-swgap"></span>';
+      }
+      return s + "</span>";
+    };
+
+    // the three little buttons beside a switch graphic: set the panel switches
+    // to this value; set them and do the step's paddle (EXAMINE for an address,
+    // DEPOSIT for a data byte); or a checkbox to tick the step off by hand.
+    // `k` is the checklist key -- a byte index, or "taddr" / "daddr".
+    const swDo = (act, value, bits, k) => {
+      const isAddr = bits > 8;
+      const done = isDone(k);
+      const dis = done ? " disabled" : "";
+      const t2 = act === "dep" ? "set the switches and flip DEPOSIT"
+                               : "set the switches and flip EXAMINE";
+      return `<span class="pg-do${done ? " done" : ""}">` +
+        `<button data-act="set" data-k="${k}" data-val="${value}" data-bits="${bits}"${dis} ` +
+          `title="set these ${isAddr ? "address" : "data"} switches on the panel">↕</button>` +
+        `<button data-act="${act}" data-k="${k}" data-val="${value}" data-bits="${bits}"${dis} ` +
+          `title="${t2}">▸</button>` +
+        `<button data-act="check" data-k="${k}" class="pg-checkbtn${done ? " on" : ""}" ` +
+          `title="mark this step done (you keyed it in by hand)">&check;</button>` +
+        "</span>";
+    };
+
+    const rows = [];
+    for (let i = 0; i < m.boot.length; i++) {
+      const asm = (BOOT_ASM[i] || "")
+        .replace("<dest>", hex(m.dest, 4) + "h")
+        .replace("<count>", String(m.count))
+        .replace("<start>", hex(m.start, 4) + "h");
+      rows.push(
+        `<tr class="${asm ? "op" : ""}${isDone(i) ? " done" : ""}">` +
+        `<td>${swRow(m.boot[i], 8)}${swDo("dep", m.boot[i], 8, i)}</td>` +
+        `<td class="oct">${oct(m.boot[i], 3)}</td>` +
+        `<td class="asm">${asm.replace(/</g, "&lt;")}</td></tr>`);
+    }
+
+    const diskSection = m.disk ? `
+      <h4>&mdash; boot the floppy (CP/M) &mdash;</h4>
+      <ol>
+        <li>flip <span class="k">STOP</span> up</li>
+        <li class="${isDone("daddr") ? "done" : ""}">set the address switches:&nbsp; ${swRow(0xff00, 16)}${swDo("exam", 0xff00, 16, "daddr")} <span class="note">&nbsp;(${oct(0xff00, 6)} = 0FF00h)</span></li>
+        <li>flip <span class="k">EXAMINE</span> up</li>
+        <li>flip <span class="k">RUN</span> down</li>
+      </ol>
+      <p>The 88-DCDD's boot PROM at 0FF00h reads track&nbsp;0 and CP/M comes up
+      at <b>A&gt;</b>. The cabinet's <b>BOOT</b> button does exactly this.</p>
+      <div><button class="pg-feed" id="pgBoot">Boot drive A</button></div>` : "";
+
+    const tapeSection = m.tape ? `
+      <h4>&mdash; load from paper tape / cassette &mdash;</h4>
+      <ol>
+        <li class="${isDone("taddr") ? "done" : ""}">flip <span class="k">STOP</span> up, then set the address switches to
+            the loader's start:&nbsp; ${swRow(m.org, 16)}${swDo("exam", m.org, 16, "taddr")}
+            <span class="note">&nbsp;(${oct(m.org, 6)})</span> &mdash; flip <span class="k">EXAMINE</span> up</li>
+        <li>key the ${m.boot.length}-byte loader in: for each row set the 8
+            <b>DATA</b> switches, flip <span class="k">DEPOSIT</span> for the
+            first, <span class="k">DEP&nbsp;NEXT</span> after. Per row:
+            <b>↕</b> sets the switches, <b>▸</b> sets them and deposits,
+            <b>&check;</b> ticks it off once you've keyed it by hand
+          <div class="pg-listing"><table>
+            <tr><th>DATA SWITCHES</th><th>OCT</th><th>8080</th></tr>
+            ${rows.join("")}
+          </table></div></li>
+        <li>thread a tape and press <b>Feed&nbsp;tape</b> below (or <span class="k">PLAY</span> on the deck)</li>
+        <li>flip <span class="k">RUN</span> down &mdash; the address lamps climb;
+            at the end the loader jumps to <span class="note">${oct(m.start, 6)}</span> and the program runs</li>
+      </ol>
+      <div>
+        <button class="pg-feed" id="pgKeyin">Key the loader in for me</button>
+        <button class="pg-feed" id="pgFeed">Feed tape &amp; run</button>
+      </div>
+      <p class="note">Loading ${m.what} into ${m.ramKb} KB. The reader's
+      <b>LOAD SPEED</b> paces the feed &mdash; Realistic &asymp; 14&nbsp;min for
+      8K BASIC.</p>` : "";
+
+    root.innerHTML =
+      `<button class="pg-toggle" id="pgToggle">${wasOpen ? "&#9662;" : "&#9656;"}${PG_LABEL}</button>
+       <div class="pg-body"${wasOpen ? "" : " hidden"}>
+         <div class="pg-drag" id="pgDrag"><span>&#9635; front-panel bootstrap</span>
+           <button class="pg-x" id="pgX" title="close (drag the bar to move)">&times;</button></div>
+         <div class="pg-doc">
+           ${diskSection}
+           ${tapeSection || (m.disk ? "" : "<p>This build has no bootable device.</p>")}
+         </div>
+       </div>`;
+
+    // restore a dragged-to position
+    const panel = root.querySelector(".pg-body");
+    if (pgFloat.left != null) {
+      panel.style.left = pgFloat.left + "px";
+      panel.style.top = pgFloat.top + "px";
+      panel.style.right = "auto";
+    }
+
+    // Listeners are delegated on #panelGuide and attached exactly once -- the
+    // innerHTML above is replaced on every rebuild but `root` itself is not.
+    if (pgWired) return;
+    pgWired = true;
+
+    const setToggle = () => {
+      const p = root.querySelector(".pg-body");
+      root.querySelector("#pgToggle").innerHTML =
+        (p.hidden ? "&#9656;" : "&#9662;") + PG_LABEL;
+    };
+    const markRow = (btn, done) => {   // grey a finished row, lock its ↕ / ▸
+      const grp = btn.closest(".pg-do");
+      grp.classList.toggle("done", done);
+      btn.closest("tr, li")?.classList.toggle("done", done);
+      grp.querySelectorAll('button[data-act="set"],button[data-act="dep"],button[data-act="exam"]')
+        .forEach((b) => { b.disabled = done; });
+      grp.querySelector('button[data-act="check"]')?.classList.toggle("on", done);
+    };
+
+    root.addEventListener("click", (e) => {
+      const p = root.querySelector(".pg-body");
+      if (e.target.closest("#pgToggle")) { p.hidden = !p.hidden; setToggle(); return; }
+      if (e.target.closest("#pgX"))      { p.hidden = true; setToggle(); return; }
+      if (e.target.closest("#pgKeyin")) {
+        const mm = panelGuideModel();
+        setRunning(false);
+        machine.clearMemory?.();
+        for (let i = 0; i < mm.boot.length; i++) { machine.writeByte?.(mm.org + i, mm.boot[i]); pgDone.add(i); }
+        pgDone.add("taddr");
+        machine.setPC?.(mm.org);
+        buildPanelGuide(true);            // refresh -- the whole checklist is now ticked
+        flashPanelGuide("loader keyed in at " + oct(mm.org, 6) + " -- thread a tape, then Feed tape & run");
+        return;
+      }
+      if (e.target.closest("#pgFeed")) {
+        machine.setPC?.(panelGuideModel().org & 0xffff);   // hand-keyed loader runs from its start
+        if (paperTape.feedRaw()) { setRunning(true); flashPanelGuide("reader feeding -- watch the address lamps climb"); }
+        else flashPanelGuide("thread a tape in the reader first");
+        return;
+      }
+      if (e.target.closest("#pgBoot")) {
+        if (machine.diskPresent && machine.diskPresent(0)) { disk.boot(); flashPanelGuide("booting drive A..."); }
+        else flashPanelGuide("insert a diskette in drive A first");
+        return;
+      }
+      const btn = e.target.closest("button[data-act]");
+      if (!btn) return;
+      const act = btn.dataset.act;
+      const raw = btn.dataset.k;
+      const k = /^\d+$/.test(raw) ? Number(raw) : raw;
+      if (act === "check") {
+        const now = !pgDone.has(k);
+        if (now) pgDone.add(k); else pgDone.delete(k);
+        markRow(btn, now);
+        return;
+      }
+      setRunning(false);
+      setSwitchWord(Number(btn.dataset.val) & 0xffff, Number(btn.dataset.bits) || 8);
+      if (act === "exam") {
+        machine.setPC?.(Number(btn.dataset.val) & 0xffff);
+        flashPanelGuide("EXAMINE " + oct(Number(btn.dataset.val), 6) + " -- address set");
+      } else if (act === "dep") {
+        const mm = panelGuideModel();
+        machine.setPC?.((mm.org + k) & 0xffff);
+        machine.writeByte?.((mm.org + k) & 0xffff, mm.boot[k]);
+        machine.setPC?.((mm.org + k + 1) & 0xffff);
+        flashPanelGuide("DEPOSIT " + oct(mm.boot[k], 3) + " at " + oct(mm.org + k, 6));
+      }
+      pgDone.add(k);
+      markRow(btn, true);
+    });
+
+    root.addEventListener("mousedown", pgDragStart);   // drag the title bar
+  }
+
+  // drag the floating guide by its title bar. Exercised by panelguide.spec.ts
+  // "...can be dragged", but V8 coverage doesn't attribute code that runs inside
+  // Playwright-synthesised mouse events, so the body is marked ignored.
+  /* v8 ignore start */
+  function pgDragStart(e) {
+    if (!e.target.closest("#pgDrag") || e.target.closest("#pgX")) return;
+    e.preventDefault();
+    const p = document.querySelector("#panelGuide .pg-body");
+    const r = p.getBoundingClientRect();
+    const ox = e.clientX - r.left, oy = e.clientY - r.top;
+    const move = (ev) => {
+      pgFloat.left = Math.max(4, Math.min(window.innerWidth - 64, ev.clientX - ox));
+      pgFloat.top = Math.max(4, Math.min(window.innerHeight - 36, ev.clientY - oy));
+      p.style.left = pgFloat.left + "px";
+      p.style.top = pgFloat.top + "px";
+      p.style.right = "auto";
+    };
+    const up = () => {
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", up);
+      try { localStorage.setItem("retro8080.pgpos", JSON.stringify(pgFloat)); } catch {}
+    };
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
+  }
+  /* v8 ignore stop */
+
+  function flashPanelGuide(msg) {
+    const b = document.querySelector("#panelGuide .pg-doc");
+    if (!b) return;
+    let n = b.querySelector(".pg-flash");
+    if (!n) { n = el("pg-flash"); n.style.cssText = "color:#8affb9;margin-top:6px"; b.appendChild(n); }
+    n.textContent = "> " + msg;
+  }
+
+  // --- MITS 88-DCDD disk drive cabinet --------------------
   const disk = {
     catalog: [],
     catalogLoaded: false,
@@ -847,8 +1131,8 @@ async function boot() {
       }
       kase.appendChild(bays);
       kase.appendChild(el("dcdd-hint",
-        "Insert a diskette, then BOOT. CP/M wants all 64 KB of RAM " +
-        "(4&times; 88-16MCD boards). Images are yours to supply &mdash; see disks/README.md."));
+        "Click a drive to insert a diskette, then BOOT. CP/M wants all 64 KB of " +
+        "RAM (4&times; 88-16MCD boards)."));
       root.appendChild(kase);
       this.bootBtn = boot;
     },
@@ -881,7 +1165,7 @@ async function boot() {
         o.value = String(i);
         o.textContent = dsk.bytes
           ? `${dsk.name}  —  ${(dsk.bytes.length / 1024).toFixed(0)} KB`
-          : `${dsk.name}  —  (not installed)`;
+          : `${dsk.name}  —  (unavailable)`;
         o.disabled = !dsk.bytes;
         diskList.appendChild(o);
       }
@@ -965,8 +1249,6 @@ async function boot() {
         return;
       }
       machine.bootDisk();
-      bootedFromDisk = true;
-      lastLoad = null;
       turbo = false;
       term.clear();
       outQ.length = 0;
@@ -980,6 +1262,7 @@ async function boot() {
       const prev = hint.textContent;
       hint.textContent = "— " + msg + " —";
       hint.style.color = "#ff8a6a";
+      /* v8 ignore next -- flash text restores itself after 1.6 s */
       setTimeout(() => { hint.textContent = prev; hint.style.color = ""; }, 1600);
     },
 
@@ -1042,7 +1325,7 @@ async function boot() {
       name = file.name;
     } else {
       const dsk = disk.catalog[Number(diskList.value)];
-      if (!dsk || !dsk.bytes) { diskDesc.textContent = "That diskette is not installed."; return; }
+      if (!dsk || !dsk.bytes) { diskDesc.textContent = "That diskette is unavailable."; return; }
       bytes = dsk.bytes;
       name = dsk.name;
       entry = dsk;
@@ -1056,44 +1339,161 @@ async function boot() {
   });
 
   // --- MITS 88-ACR cassette deck --------------------------
+  // bytes/sec. Realistic is the real 300 baud; `max` (0 = unlimited) isn't in
+  // the picker -- it's what ?test and preset Auto-load use.
+  const TAPE_SPEEDS = { realistic: 30, x5: 150, x25: 750, x50: 1500, max: 0 };
+  const TAPE_SPEED_KEYS = ["realistic", "x5", "x25", "x50"];
+
   const cassette = {
     name: null,
     catalog: [],
     catalogLoaded: false,
-    lampHold: 0,
-    lastIo: 0,
+    speed: "realistic",
+    counterZero: 0,        // byte pos the counter was last zeroed at
 
     build() {
       const root = document.getElementById("acr");
       const kase = el("acr-case");
-      kase.appendChild(el("acr-top",
-        `<span class="acr-plate">MITS 88-ACR <span>&nbsp;AUDIO CASSETTE</span></span>`));
+      const top = el("acr-top",
+        `<span class="acr-plate">RADIO SHACK <span>&nbsp;CASSETTE RECORDER</span></span>`);
+      const spdWrap = document.createElement("span");
+      spdWrap.className = "dev-speedwrap";
+      spdWrap.innerHTML = '<span class="dev-speedlabel">TAPE SPEED</span>';
+      const spd = document.createElement("select");
+      spd.className = "acr-speed";
+      spd.innerHTML =
+        '<option value="realistic">Realistic (300 baud)</option>' +
+        '<option value="x5">5&times;</option>' +
+        '<option value="x25">25&times;</option>' +
+        '<option value="x50">50&times;</option>';
+      try { this.speed = localStorage.getItem("retro8080.tapespeed") || "realistic"; } catch {}
+      if (!TAPE_SPEED_KEYS.includes(this.speed)) this.speed = "realistic";   // drop a stale value
+      spd.value = this.speed;
+      spd.addEventListener("change", () => this.setSpeed(spd.value));
+      spdWrap.appendChild(spd);
+      top.appendChild(spdWrap);
+      kase.appendChild(top);
+
       const body = el("acr-body");
-      const win = el("acr-window");
-      win.dataset.label = "";
+      const win = el("acr-window",
+        `<span class="acr-shell">
+           <span class="acr-hub h1"><span class="acr-reel"></span></span>
+           <span class="acr-hub h2"><span class="acr-reel"></span></span>
+           <span class="acr-shell-label"></span>
+         </span>
+         <span class="acr-tapeprog"></span>`);
       win.addEventListener("click", () => this.openPicker());
+
       const ctl = el("acr-ctl");
+      const meter = el("acr-meter");
       const lamp = el("acr-lamp");
-      const counter = el("acr-counter", "000");
-      const mk = (cls, txt, fn) => {
+      const counter = document.createElement("button");
+      counter.className = "acr-counter";
+      counter.type = "button";
+      counter.textContent = "000";
+      counter.title = "tape counter — click to zero it";
+      counter.addEventListener("click", (e) => {
+        e.stopPropagation();
+        this.counterZero = this.pos();
+        this.poll();
+      });
+      meter.append(lamp, counter);
+
+      const transport = el("acr-transport");
+      const key = (cls, glyph, label, fn) => {
         const b = document.createElement("button");
-        b.className = "acr-btn " + cls;
-        b.textContent = txt;
-        b.addEventListener("click", fn);
+        b.className = "acr-key " + cls;
+        b.type = "button";
+        b.innerHTML = `<span class="ico">${glyph}</span>${label}`;
+        b.addEventListener("click", (e) => { e.stopPropagation(); fn(); });
         return b;
       };
-      const rew = mk("acr-rew hidden", "REWIND", () => { machine.rewindTape(); this.flash("rewound"); });
-      const eject = mk("acr-eject hidden", "EJECT", () => this.eject());
-      const save = mk("acr-save hidden", "SAVE", () => this.save());
-      ctl.append(lamp, counter, rew, eject, save);
+      this.kRew  = key("rew",  "◀◀", "REW",   () => this.transport("rew"));
+      this.kPlay = key("play", "▶",       "PLAY",  () => this.transport("play"));
+      this.kFF   = key("ff",   "▶▶", "F.FWD", () => this.transport("ff"));
+      this.kStop = key("stop", "■",       "STOP",  () => this.transport("stop"));
+      this.kRec  = key("rec",  "●",       "REC",   () => this.transport("rec"));
+      this.kEj   = key("ej",   "⏏",       "EJECT", () => this.transport("eject"));
+      transport.append(this.kRew, this.kPlay, this.kFF, this.kStop, this.kRec, this.kEj);
+
+      const save = document.createElement("button");
+      save.className = "acr-save hidden";
+      save.type = "button";
+      save.textContent = "SAVE .CAS";
+      save.addEventListener("click", (e) => { e.stopPropagation(); this.save(); });
+
+      ctl.append(meter, transport, save);
       body.append(win, ctl);
       kase.appendChild(body);
-      kase.appendChild(el("acr-hint",
-        "Insert a blank tape, then in BASIC: <tt>CSAVE\"X\"</tt> records, " +
-        "<tt>CLOAD\"X\"</tt> plays back. REWIND between them."));
+      this.hintEl = el("acr-hint");
+      kase.appendChild(this.hintEl);
       root.appendChild(kase);
-      this.win = win; this.lamp = lamp; this.counter = counter;
-      this.rew = rew; this.eject = eject; this.save = save;
+      this.win = win; this.lamp = lamp; this.counter = counter; this.speedSel = spd;
+      this.prog = win.querySelector(".acr-tapeprog");
+      this.shellLabel = win.querySelector(".acr-shell-label");
+      this.saveBtn = save;
+      this.updateHint();
+      this.setSpeed(this.speed);
+      this.syncKeys();
+    },
+
+    pos() { return (machine.tapeStatus ? machine.tapeStatus().pos : 0) | 0; },
+
+    // fixed instructions on the deck: how to load, how to save, use the counter.
+    // Line 1 shows the real CLOAD name of whatever tape is in.
+    updateHint() {
+      if (!this.hintEl) return;
+      const name = this.cload || "X";
+      this.hintEl.innerHTML =
+        `<span><b>LOAD</b>&nbsp; <b>&#9664;&#9664; REW</b>, then type <tt>CLOAD "${name}"</tt> ` +
+          `in BASIC and press <b>&#9654; PLAY</b></span>` +
+        `<span><b>SAVE</b>&nbsp; press <b>&#9679; REC</b>, then <tt>CSAVE "X"</tt> in BASIC ` +
+          `<i>&mdash; a <b>SAVE .CAS</b> button appears to download it</i></span>` +
+        `<span><i>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;several programs fit on one tape &mdash; ` +
+          `<b>&#9654;&#9654; F.FWD</b> past one (watch the counter) to record the next.</i></span>`;
+    },
+
+    // the transport keys, like the recorder the 88-ACR plugged into. CLOAD only
+    // pulls bytes while PLAY is down; CSAVE only records while REC is down --
+    // so you type the command, then press the key, exactly as you did in 1976.
+    transport(action) {
+      if (action === "eject") { this.eject(); return; }
+      // no status text -- the keys and the head bar show what the tape is doing
+      this.setDeck(action);       // "play" | "rec" | "ff" | "rew" | "stop"
+      this.poll();
+    },
+
+    // Drive the transport. C++ owns the state from here: it moves the head and
+    // auto-stops at the tape ends, and poll() renders the keys from what it
+    // reports back. mode: "stop" | "play" | "rec" | "ff" | "rew".
+    setDeck(mode) {
+      const play = mode === "play" || mode === "rec";
+      machine.setTapeMotor?.(play);
+      machine.setTapeRecordArm?.(mode === "rec");
+      machine.setTapeWind?.(mode === "ff" ? 1 : mode === "rew" ? -1 : 0);
+      this.syncKeys();
+    },
+
+    syncKeys() {
+      const loaded = machine.tapeLoaded ? machine.tapeLoaded() : false;
+      const t = machine.tapeStatus ? machine.tapeStatus().transport | 0 : 0;
+      const set = (k, on) => k && k.classList.toggle("down", !!on);
+      set(this.kPlay, t === 1 || t === 2);
+      set(this.kRec,  t === 2);
+      set(this.kFF,   t === 3);
+      set(this.kRew,  t === 4);
+      for (const k of [this.kRew, this.kPlay, this.kFF, this.kStop, this.kRec])
+        if (k) k.disabled = !loaded;
+    },
+
+    setSpeed(key) {
+      this.speed = TAPE_SPEEDS[key] != null ? key : "realistic";
+      if (this.speedSel) this.speedSel.value = this.speed;
+      if (typeof machine.setTapeSpeed === "function")
+        machine.setTapeSpeed(TAPE_SPEEDS[this.speed]);
+      // don't persist the internal "max" (?test / Auto-load) as a user choice
+      if (TAPE_SPEED_KEYS.includes(this.speed))
+        try { localStorage.setItem("retro8080.tapespeed", this.speed); } catch {}
     },
 
     setVisible(v) { document.getElementById("acr").classList.toggle("empty", !v); },
@@ -1113,7 +1513,7 @@ async function boot() {
           catch { t.bytes = null; }
           const o = document.createElement("option");
           o.value = String(i);
-          o.textContent = t.bytes ? `${t.name}  —  ${t.bytes.length} bytes` : `${t.name}  —  (not installed)`;
+          o.textContent = t.bytes ? `${t.name}  —  ${t.bytes.length} bytes` : `${t.name}  —  (unavailable)`;
           o.disabled = !t.bytes;
           tapeList.appendChild(o);
         }
@@ -1128,64 +1528,98 @@ async function boot() {
     openPicker() { tapeDialog.hidden = false; this.loadCatalog(); },
     closePicker() { tapeDialog.hidden = true; term.focus(); },
 
-    insert(bytes, name) {
+    insert(bytes, name, cload) {
       machine.mountTape(bytes || new Uint8Array(0));
+      this.setDeck("stop");                 // threaded, transport stopped -- press PLAY
       this.name = name || "TAPE";
+      this.cload = cload || null;
+      this.counterZero = 0;
       const acr = document.getElementById("acr");
       acr.classList.remove("empty");
       acr.classList.add("loaded");
-      this.win.dataset.label = this.name.toUpperCase().slice(0, 22);
-      this.eject.classList.remove("hidden");
-      this.rew.classList.remove("hidden");
+      this.shellLabel.dataset.label = this.name.toUpperCase().slice(0, 20);
+      this.updateHint();
+      this.poll();
     },
     // a blank tape you can record onto right away
     blank() { this.insert(new Uint8Array(0), "BLANK"); },
 
-    eject() {
-      if (machine.tapeDirty && machine.tapeDirty() &&
+    eject(force) {
+      if (!force && machine.tapeDirty && machine.tapeDirty() &&
           !confirm("This tape has an unsaved recording. Eject anyway?")) return;
       machine.ejectTape();
+      this.setDeck("stop");
       this.name = null;
+      this.cload = null;
+      this.counterZero = 0;
       const acr = document.getElementById("acr");
-      acr.classList.remove("loaded");
-      this.win.dataset.label = "";
-      this.eject.classList.add("hidden");
-      this.rew.classList.add("hidden");
-      this.save.classList.add("hidden");
+      acr.classList.remove("loaded", "spin", "playing", "rewinding", "recording", "winding");
+      this.shellLabel.dataset.label = "";
+      this.updateHint();
+      this.saveBtn.classList.add("hidden");
+      this.syncKeys();
     },
 
-    save() {
+    async save() {
       const bytes = machine.tapeImage();
+      if (!bytes || !bytes.length) return;   // SAVE .CAS only shows with a recording
+      const base = this.name && this.name !== "BLANK" ? this.name : "recording";
+      const suggested = base.replace(/\.(cas|bin)$/i, "").replace(/[^\w.-]+/g, "_") + ".cas";
       const blob = new Blob([bytes], { type: "application/octet-stream" });
+      // real "Save As" dialog where the browser supports it (Chrome/Edge)
+      if (window.showSaveFilePicker) {
+        try {
+          const handle = await window.showSaveFilePicker({
+            suggestedName: suggested,
+            types: [{ description: "Cassette tape image", accept: { "application/octet-stream": [".cas"] } }],
+          });
+          const w = await handle.createWritable();
+          await w.write(blob);
+          await w.close();
+          machine.clearTapeDirty();     // the SAVE .CAS button clears itself
+          return;
+        } catch (e) {
+          if (e && e.name === "AbortError") return;       // user cancelled the dialog
+          // any other failure -> fall through to the download link
+        }
+      }
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
-      a.download = (this.name || "cassette").replace(/\.(cas|bin)$/i, "") + ".cas";
+      a.download = suggested;
       a.click();
       URL.revokeObjectURL(a.href);
       machine.clearTapeDirty();
-      this.save.classList.add("hidden");
-    },
-
-    flash(msg) {
-      const h = document.querySelector("#acr .acr-hint");
-      if (!h) return;
-      const prev = h.innerHTML;
-      h.textContent = "— " + msg + " —";
-      setTimeout(() => { h.innerHTML = prev; }, 1400);
     },
 
     poll() {
       if (typeof machine.tapeStatus !== "function") return;
       const st = machine.tapeStatus();
-      if (st.io !== this.lastIo) { this.lastIo = st.io; this.lampHold = 8; }
-      const active = this.lampHold > 0;
-      if (active) this.lampHold--;
-      this.lamp.classList.toggle("rec", active && st.mode === 2);
-      this.lamp.classList.toggle("play", active && st.mode !== 2);
-      const c = Math.min(999, Math.round(st.pos / 8));
-      this.counter.textContent = String(c).padStart(3, "0");
-      if (machine.tapeDirty && machine.tapeLoaded && machine.tapeLoaded())
-        this.save.classList.toggle("hidden", !machine.tapeDirty());
+      const t = st.transport | 0;              // 0 stop 1 play 2 rec 3 FF 4 REW
+      // C++ moves the head and auto-stops at a tape end; the keys pop up below
+      const rec = t === 2;
+      this.lamp.classList.toggle("rec",  rec);
+      this.lamp.classList.toggle("play", t === 1);
+
+      // the reels turn while the tape is moving (a key is down)
+      const acr = document.getElementById("acr");
+      acr.classList.toggle("spin",      t === 1 || t === 2);
+      acr.classList.toggle("playing",   t === 1 || t === 2);
+      acr.classList.toggle("recording", rec);
+      acr.classList.toggle("winding",   t === 3);
+      acr.classList.toggle("rewinding", t === 4);
+
+      // 3-digit mechanical counter: rolls over 999->000, click to zero
+      const n = Math.round((st.pos - this.counterZero) / 16);
+      this.counter.textContent = String(((n % 1000) + 1000) % 1000).padStart(3, "0");
+      // fill bar: how far the head is along the physical tape
+      if (this.prog)
+        this.prog.style.width = Math.min(100, (100 * st.pos) / Math.max(1, st.cap)) + "%";
+
+      // SAVE appears once you've recorded onto the tape (CSAVE) -- unsaved work
+      const dirty = !!(machine.tapeDirty && machine.tapeDirty());
+      this.saveBtn.classList.toggle("hidden", !dirty);
+      this.saveBtn.classList.toggle("dirty", dirty);
+      this.syncKeys();
     },
   };
 
@@ -1207,20 +1641,24 @@ async function boot() {
   });
   document.getElementById("tapeCancel").addEventListener("click", () => cassette.closePicker());
   document.getElementById("tapeClose").addEventListener("click", () => cassette.closePicker());
+  document.getElementById("tapeBlank").addEventListener("click", () => {
+    cassette.closePicker();
+    cassette.blank();
+  });
   tapeDialog.addEventListener("click", (e) => { if (e.target === tapeDialog) cassette.closePicker(); });
   document.getElementById("tapeInsert").addEventListener("click", async () => {
     const file = tapeFile.files[0];
-    let bytes, name;
+    let bytes, name, cload;
     if (file) { bytes = new Uint8Array(await file.arrayBuffer()); name = file.name; }
     else {
       const t = cassette.catalog[Number(tapeList.value)];
       if (!t || !t.bytes) { bytes = new Uint8Array(0); name = "BLANK"; }
-      else { bytes = t.bytes; name = t.name; }
+      else { bytes = t.bytes; name = t.name; cload = t.cload; }
     }
     tapeFile.value = "";
     tapeFileName.textContent = "no file selected";
     cassette.closePicker();
-    cassette.insert(bytes, name);
+    cassette.insert(bytes, name, cload);
   });
 
   // --- era presets ---------------------------------------
@@ -1231,35 +1669,41 @@ async function boot() {
       name: "Bare-Metal Toggle", era: "Early 1975",
       ramKb: 4, term: "tty33", focus: "panel",
       cards: ["MITS 88-CPU\n8080 / 2 MHz", "MITS 88-4K\nStatic RAM", "MITS 88-2SIO\nserial"],
-      software: { kind: "rom", file: "killbits.bin", label: "Kill the Bit", start: 0 },
+      devices: ["papertape"],
+      preload: { papertape: { match: /kill the bit/i } },
+      autoload: { device: "papertape" },
+      missing: "Kill the Bit isn't built — run `make roms`",
       blurb: "The Altair as it first shipped: an 8080, 4K of RAM, and the front panel. No keyboard, no screen worth the name.",
       guide:
-`KILL THE BIT is loaded and running. A lit bit sweeps left to right
-across the top row of address lamps (A8 - A15). At the right moment,
-flip the sense switch under the lit lamp to knock that bit out. Clear
-the whole row and the program stops -- you win.
+`KILL THE BIT is threaded in the paper-tape reader. Auto-load feeds it
+in fast; press LOAD to watch the 24-byte tape crawl through the head at
+the LOAD SPEED you pick. Then a lit bit sweeps across the top address
+lamps (A8 - A15) -- flip the sense switch under it to knock it out.
+Clear the row and you win.
 
   STOP / RUN        halt and restart the CPU
   RESET / CLR       (panel paddle) jump back to the start
   SINGLE STEP       one instruction at a time, while stopped
 
-There's no software to type at -- this is the machine you programmed
-in binary, one switch at a time.`,
+Thread another tape (click the reader) to load something else -- this
+is how a program got into the machine before disks.`,
     },
     stock: {
       name: "Stock Launch", era: "Mid 1975",
       ramKb: 4, term: "tty33",
       cards: ["MITS 88-CPU\n8080", "MITS 88-4K\nDRAM", "MITS 88-2SIO\nserial", "Teletype\nASR-33"],
-      software: {
-        kind: "coldstart", file: "4kbas.bin", label: "Altair 4K BASIC 4.0",
-        prompts: [[/MEMORY SIZE/i, "\r"], [/TERMINAL WIDTH/i, "\r"], [/\bSIN\?/i, "Y\r"]],
-        missing: "Altair 4K BASIC not installed — see roms/README.md",
-      },
+      devices: ["papertape"],
+      preload: { papertape: { match: /4K BASIC/i } },
+      autoload: { device: "papertape" },
+      missing: "Altair 4K BASIC could not be loaded",
       blurb: "4K of RAM, a Teletype for a console, and the program that made the Altair worth buying: Altair 4K BASIC.",
       guide:
-`Altair 4K BASIC 4.0 is up. Its cold-start questions (MEMORY SIZE?,
-TERMINAL WIDTH?, SIN?) were answered for you -- you land at OK with
-about 716 bytes free, which is exactly what a real 4K machine gave you.
+`Altair 4K BASIC is on a tape in the paper-tape reader. Auto-load feeds
+it in fast; press LOAD yourself and it streams at the LOAD SPEED you
+pick -- Realistic is 10 B/s, an ASR-33 reader (blank leader first, then
+~6 min for 4K BASIC, address lamps climbing). Its questions (MEMORY
+SIZE?, TERMINAL WIDTH?, SIN?) are answered for you -- you land at OK
+with ~716 bytes free, like a real 4K box.
 
   PRINT 2+2
   10 PRINT "HELLO"
@@ -1271,28 +1715,43 @@ scrolls back -- and it's uppercase only.`,
     },
     cassette: {
       name: "Cassette Hobbyist", era: "1976",
-      ramKb: 32, term: "adm3a", showTape: true,
+      ramKb: 32, term: "adm3a",
       cards: ["MITS 88-CPU\n8080", "MITS 88-16MCD\n16K DRAM", "MITS 88-16MCD\n16K DRAM", "MITS 88-2SIO\nserial", "MITS 88-ACR\ncassette"],
-      software: { kind: "basic", match: /star trek/i, missing: "install Altair 8K BASIC — see roms/README.md" },
-      blurb: "32K of RAM, a fast video terminal, and an 88-ACR cassette deck so your programs survive being switched off.",
+      devices: ["papertape", "cassette"],
+      preload: {
+        papertape: { match: /8K BASIC/i },
+        cassette:  { tape: "startrek.cas", name: "SUPER STAR TREK", cload: "S" },
+      },
+      autoload: { device: "papertape", then: "cassetteHint" },
+      missing: "Altair 8K BASIC could not be loaded",
+      blurb: "32K of RAM, a fast video terminal, an 8K BASIC tape in the reader, and an 88-ACR deck holding Star Trek.",
       guide:
-`SUPER STAR TREK is typed in and RUN. Hunt the Klingon fleet across an
-8x8 galaxy; at the COMMAND? prompt type NAV, SRS, LRS, PHA, TOR, SHE,
-DAM, COM, or XXX to resign.
+`Two loaders: an 8K BASIC tape in the paper-tape reader, and the SUPER
+STAR TREK cassette in the 88-ACR deck. Auto-load feeds 8K BASIC in fast
+and cold-starts it. Press LOAD on the reader instead and it streams at
+the selected LOAD SPEED -- "Realistic" is 10 B/s (an ASR-33 reader): a
+genuine ~14-minute read, blank leader first, then the address lamps
+climbing, exactly like a MITS tape. The cassette stays manual:
 
-SAVE AND LOAD YOUR OWN PROGRAMS with the cassette deck:
-  1. click the deck to insert a blank tape
-  2. in BASIC:  CSAVE "NAME"   records the current program
-                CLOAD "NAME"   plays it back  (press REWIND first)
-  3. SAVE on the deck downloads the tape as a .cas file
+  1. at OK, type   CLOAD "S"      (BASIC now waits for the tape)
+  2. press PLAY on the deck       (the reels turn, the tape streams in)
+  3. at OK, type   RUN            (press STOP on the deck)
 
-Break out of a running program with Ctrl-C.`,
+Hunt the Klingon fleet across an 8x8 galaxy; at COMMAND? type NAV, SRS,
+LRS, PHA, TOR, SHE, DAM, COM, or XXX. Ctrl-C stops it.
+
+THE CASSETTE also stores your own work:  CSAVE "NAME"  records the
+current program;  CLOAD "NAME"  loads it back -- press REW, then PLAY.
+The LOAD SPEED selector paces the transfer ("Realistic" = 300 baud).`,
     },
     cpm: {
       name: "CP/M Workstation", era: "1978",
-      ramKb: 64, term: "vt100g", showDisk: true,
+      ramKb: 64, term: "vt100g",
       cards: ["MITS 88-CPU\n8080", "64K Static RAM\n(3rd party)", "MITS 88-2SIO\nserial", "MITS 88-DCDD\ndisk ctlr"],
-      software: { kind: "disk", match: /CP\/M/i, missing: "install a CP/M diskette — see disks/README.md" },
+      devices: ["disk"],
+      preload: { disk: { match: /CP\/M/i, drive: 0 } },
+      autoload: { device: "disk" },
+      missing: "the CP/M diskette could not be loaded",
       blurb: "64K of RAM, a VT100, and two 8-inch floppy drives -- a real disk operating system, the setup that ran a small business.",
       guide:
 `CP/M 2.2 has booted to the A> prompt. Type a command:
@@ -1309,9 +1768,9 @@ each drive, including how to quit each program.`,
   };
 
   const CUSTOM_BLURB =
-    "You've configured the machine by hand. Pick a preset above to jump to a " +
-    "period-correct build, or keep tuning with the Terminal dropdown and " +
-    "Load Program.";
+    "A custom build. Add or remove load devices (paper tape / cassette / floppy) " +
+    "with the checkboxes up top, tune the terminal, and load software through " +
+    "whichever device you keep. Pick a named preset to jump to a period-correct setup.";
 
   const EMU_PRIMER =
 `THE FRONT PANEL is live. Address and data lamps, the A0 - A15 toggle
@@ -1322,11 +1781,7 @@ eight switches (A8 - A15) are the "sense switches" that programs read.
 THE TERMINAL dropdown swaps in a real 1970s terminal -- a fixed 24
 lines, no scrollback, uppercase only, at a real baud rate. The
 Teletype crawls at 10 characters a second and throttles the 8080,
-exactly as it did in 1975.
-
-NOTHING is bundled that wasn't freely shared. The 8K BASIC ROM and the
-CP/M diskettes are yours to supply -- see roms/README.md and
-disks/README.md.`;
+exactly as it did in 1975.`;
 
   function buildBackplane(cards) {
     backplaneEl.innerHTML = "";
@@ -1356,9 +1811,8 @@ disks/README.md.`;
     }, 6000);
   }
 
-  // auto-load wanted a ROM/disk that isn't installed: say so clearly, on the
-  // terminal (where the user is looking) and as a standing note, then leave a
-  // bare working machine
+  // auto-load couldn't reach its software: say so on the terminal and as a
+  // standing note, then leave a bare working machine
   function presetSoftwareMissing(sw) {
     presetHint(sw.missing, { persist: true });
     machine.reset();
@@ -1366,84 +1820,148 @@ disks/README.md.`;
     setRunning(true);
     term.write(
       "\r\n\x1b[0m  — " + sw.missing.toUpperCase() + " —\r\n\r\n" +
-      "  This preset auto-loads that software, but the image wasn't\r\n" +
-      "  found. Add it (see the README), then choose the preset again --\r\n" +
-      "  or turn off \"Auto-load software\" and use Load Program.\r\n\r\n");
+      "  The hardware is set up; the software just didn't load. Try the\r\n" +
+      "  preset again, or load something from the reader / deck / drive.\r\n\r\n");
+  }
+
+  // --- loader devices (paper tape / cassette / floppy) ----
+  const ALL_DEVICES = ["papertape", "cassette", "disk"];
+  const deviceChips = document.getElementById("deviceChips");
+
+  function applyDevices(list) {
+    const on = new Set(list || []);
+    paperTape.setVisible(on.has("papertape"));
+    cassette.setVisible(on.has("cassette"));
+    disk.setVisible(on.has("disk"));
+    // a fitted 88-DCDD always has its boot PROM at 0FF00h, so EXAMINE / RUN works
+    if (on.has("disk")) machine.mapDiskBoot?.();
+  }
+
+  function customDevices() {
+    try {
+      const s = JSON.parse(localStorage.getItem("retro8080.devices") || "null");
+      if (Array.isArray(s)) return s.filter((d) => ALL_DEVICES.includes(d));
+    } catch {}
+    return ALL_DEVICES.slice();          // a custom build starts with all three
+  }
+
+  function showDeviceChips(on) {
+    deviceChips.hidden = !on;
+    if (!on) return;
+    const active = new Set(customDevices());
+    deviceChips.querySelectorAll("input[data-dev]").forEach((cb) => {
+      cb.checked = active.has(cb.dataset.dev);
+    });
+  }
+
+  deviceChips.querySelectorAll("input[data-dev]").forEach((cb) => {
+    cb.addEventListener("change", () => {
+      const list = [...deviceChips.querySelectorAll("input[data-dev]:checked")].map((x) => x.dataset.dev);
+      try { localStorage.setItem("retro8080.devices", JSON.stringify(list)); } catch {}
+      applyDevices(list);
+    });
+  });
+
+  // thread/insert a preset's media into its devices (nothing is loaded yet)
+  async function applyPreloads(p) {
+    const pl = p.preload || {};
+    let missing = null;
+    if (pl.papertape) {
+      await loadCatalog();
+      const e = catalog.find((r) => r.bytes && pl.papertape.match.test(r.name));
+      if (e) paperTape.thread(e); else { paperTape.eject(); missing = p.missing; }
+    } else paperTape.eject();
+    if (pl.cassette) {
+      const tr = await fetch("tapes/" + pl.cassette.tape).catch(() => null);
+      const b = tr && tr.ok ? new Uint8Array(await tr.arrayBuffer()) : null;
+      if (b) cassette.insert(b, pl.cassette.name, pl.cassette.cload); else cassette.eject(true);
+    } else cassette.eject(true);
+    if (pl.disk) {
+      await disk.loadCatalog();
+      const d = disk.catalog.find((x) => x.bytes && pl.disk.match.test(x.name));
+      if (d) disk.insert(pl.disk.drive || 0, d.bytes, d.name, d);
+      else missing = missing || p.missing;
+    }
+    return missing;
   }
 
   async function applyPreset(id) {
     const p = PRESETS[id];
-    if (!p) {
-      buildBackplane([]);
-      disk.setVisible(true); cassette.setVisible(false);
-      try { localStorage.removeItem("retro8080.preset"); } catch {}
-      return;
-    }
     applyingPreset = true;
     try {
+      if (!p) {
+        buildBackplane([]);
+        applyDevices(customDevices());
+        showDeviceChips(true);
+        presetHint("custom build — add or remove load devices above");
+        try { localStorage.removeItem("retro8080.preset"); } catch {}
+        return;
+      }
+      showDeviceChips(false);
       machine.setRam(p.ramKb);
       termSelect.value = p.term;
       applyProfile(p.term);
       buildBackplane(p.cards);
-      disk.setVisible(!!p.showDisk);
-      cassette.setVisible(!!p.showTape);
+      applyDevices(p.devices);
       try { localStorage.setItem("retro8080.preset", id); } catch {}
 
-      if (autoloadChk.checked) {
+      // bare, running machine, then thread the preset's media
+      machine.reset(); term.clear(); outQ.length = 0; crlfPending = false;
+      if ((p.devices || []).includes("disk")) machine.mapDiskBoot?.();   // reset wiped it
+      setRunning(true);
+      const missing = await applyPreloads(p);
+
+      if (autoloadChk.checked && p.autoload && !missing) {
         await runPresetSoftware(p);
+      } else if (missing) {
+        presetHint(missing, { persist: true });
       } else {
-        machine.reset(); term.clear(); outQ.length = 0; crlfPending = false;
-        setRunning(true);
-        presetHint("hardware set for " + p.era + " — load software from the menus");
+        presetHint("hardware set for " + p.era + " — use the LOAD button on the reader");
       }
       const anchor = p.focus === "panel" ? "altair" : "screen";
       document.getElementById(anchor).scrollIntoView({ block: "center", behavior: "smooth" });
     } finally {
       applyingPreset = false;
+      buildPanelGuide();          // refresh the octal for the new machine
     }
   }
 
+  // ticking Auto-load, or picking a preset with it ticked: load the preset's
+  // primary device now (media is already threaded by applyPreloads)
   async function runPresetSoftware(p) {
-    const sw = p.software;
-    if (sw.kind === "rom" || sw.kind === "coldstart") {
-      const r = await fetch("roms/" + sw.file).catch(() => null);
-      if (!r || !r.ok) { presetSoftwareMissing(sw); return; }
-      const bytes = new Uint8Array(await r.arrayBuffer());
-      if (sw.kind === "coldstart") coldStartRom(bytes, sw.label, sw.prompts);
-      else applyProgram(bytes, sw.start | 0, sw.start | 0, sw.label || sw.file, 0);
-      return;
-    }
-    await loadCatalog();
-    if (sw.kind === "catalog") {                    // a bundled/optional ROM image
-      const rom = catalog.find((x) => x.bytes && sw.match.test(x.name));
-      if (!rom) { presetSoftwareMissing(sw); return; }
-      const load = parseHex(rom.load, 0);
-      applyProgram(rom.bytes, load, parseHex(rom.start, load), rom.name, parseHex(rom.sense, 0));
-      return;
-    }
-    if (sw.kind === "basic") {                       // boot 8K BASIC + type a listing in
-      const g = catalog.find((x) => x.basicText && sw.match.test(x.name));
-      const basic = catalog.find((x) => x.basicRom && x.bytes);
-      if (!g || !basic) { presetSoftwareMissing(sw); return; }
-      loadBasicProgram(g);
-      return;
-    }
-    if (sw.kind === "disk") {
-      await disk.loadCatalog();
-      const d = disk.catalog.find((x) => x.bytes && sw.match.test(x.name));
-      if (!d) { presetSoftwareMissing(sw); return; }
-      disk.insert(0, d.bytes, d.name, d);
+    const a = p.autoload;
+    if (!a) return;
+    if (a.device === "disk") {
+      if (!machine.diskPresent || !machine.diskPresent(0)) { presetSoftwareMissing({ missing: p.missing }); return; }
       machine.bootDisk();
-      bootedFromDisk = true; lastLoad = null; turbo = false;
+      turbo = false;
       term.clear(); outQ.length = 0; crlfPending = false;
       setRunning(true); term.focus();
+      return;
+    }
+    if (a.device === "papertape") {
+      if (!paperTape.entry) { presetSoftwareMissing({ missing: p.missing }); return; }
+      paperTape.load({
+        speed: "max",           // auto-load is the fast path; press LOAD yourself to watch it read
+        then: a.then === "cassetteHint" ? cassetteTapeHint : undefined,
+      });
       return;
     }
   }
 
   presetSelect.addEventListener("change", () => applyPreset(presetSelect.value));
-  autoloadChk.addEventListener("change", () => {
-    if (presetSelect.value) applyPreset(presetSelect.value);   // re-apply with the new choice
+
+  // Auto-load is a one-way switch: ticking it starts the current preset's
+  // software right now; unticking it just remembers the choice and leaves the
+  // machine alone. It does NOT re-apply the hardware, so it can't scroll the
+  // page or disturb a running program.
+  autoloadChk.addEventListener("change", async () => {
+    try { localStorage.setItem("retro8080.autoload", autoloadChk.checked ? "1" : "0"); } catch {}
+    const p = PRESETS[presetSelect.value];
+    if (!autoloadChk.checked || !p || applyingPreset) return;
+    applyingPreset = true;
+    try { await runPresetSoftware(p); }
+    finally { applyingPreset = false; }
   });
 
   // the "Guide" button: what this setup is, and how to drive it
@@ -1475,241 +1993,459 @@ disks/README.md.`;
   document.getElementById("presetGuideOk").addEventListener("click", closeGuide);
   guideDialog.addEventListener("click", (e) => { if (e.target === guideDialog) closeGuide(); });
 
-  // --- paper-tape load ------------------------------------
-  // The user keys a 25-byte serial bootstrap into memory on the front panel,
-  // then RUN starts it and we trickle the program image through the 2SIO's
-  // receive line — exactly how a MITS paper tape or cassette loaded, only the
-  // reader runs at a few KB/s instead of 10 bytes/s.
-  const TAPE_SECONDS = 7;
+  // --- paper-tape reader -----------------------------------------
+  // A binary loads the way a MITS paper tape really did: a short serial
+  // bootstrap keyed into RAM (we do it for you), running while the reader
+  // trickles the tape through the 88-2SIO byte by byte -- blank LEADER first
+  // (the tape physically spooling before any data), then the image, the
+  // address lamps climbing with the loader's write pointer. LOAD SPEED at
+  // "Realistic" = 10 B/s, an ASR-33 Teletype reader (8K BASIC then takes ~14
+  // minutes, exactly as it did); 5x / 10x / 20x for the impatient.
+  // A 0xE000 ROM build can't stream (it sits above RAM) so that one drops in.
+  // bytes/sec. Realistic is the real ASR-33 reader; `max` (0 = unlimited) isn't
+  // in the picker -- it's what ?test and preset Auto-load use.
+  const PAPER_SPEEDS = { realistic: 10, x5: 50, x25: 250, x50: 500, max: 0 };
+  const PAPER_SPEED_KEYS = ["realistic", "x5", "x25", "x50"];
+  const TAPE_LEADER = 128;                                  // blank frames before the data
+  const PROMPTS_4K = [[/MEMORY SIZE/i, "\r"], [/TERMINAL WIDTH/i, "\r"], [/\bSIN\?/i, "Y\r"]];
+  const PROMPTS_8K = [[/MEMORY SIZE\?/i, "\r"], [/TERMINAL WIDTH\?/i, "\r"], [/SIN-COS-TAN-ATN\?/i, "Y\r"]];
 
-  const oct = (n, w) =>
-    n.toString(8).padStart(w, "0").replace(/(\d{3})(?=\d)/g, "$1 ");
-
-  // bootstrap: init nothing, poll the 2SIO, store `count` bytes at `dest`,
-  // jump to `start`. Lives at 0x0000 (clear of a 0xE000-area load target).
-  function makeBootstrap(dest, count, start) {
-    const org = dest >= 0x0100 ? 0x0000 : 0xdf00;
-    const L = org + 6;
+  // serial bootstrap at `org`: skip leader nulls, then store `count` bytes at
+  // `dest`, JMP `start`. ~40 bytes. Assumes the image's first byte is non-zero
+  // (true for every MITS load-and-go image -- they start DI / MVI / LXI).
+  function makeBootstrap(org, dest, count, start) {
     const lo = (n) => n & 0xff, hi = (n) => (n >> 8) & 0xff;
-    const bytes = [
-      0x21, lo(dest), hi(dest),        //      LXI  H,dest
-      0x11, lo(count), hi(count),      //      LXI  D,count
-      0xdb, 0x10,                      // L:   IN   10h      ; 2SIO status
-      0x0f,                            //      RRC           ; RDRF -> carry
-      0xd2, lo(L), hi(L),              //      JNC  L        ; wait for a byte
-      0xdb, 0x11,                      //      IN   11h      ; read it
-      0x77,                            //      MOV  M,A      ; store
-      0x23,                            //      INX  H
-      0x1b,                            //      DCX  D
-      0x7a, 0xb3,                      //      MOV  A,D / ORA E
-      0xc2, lo(L), hi(L),              //      JNZ  L
-      0xc3, lo(start), hi(start),      //      JMP  start
-    ];
-    return { org, bytes };
+    const A = (off) => [lo(org + off), hi(org + off)];
+    const SKIP = 6, STORE = 18, LOAD = 26, RUN = 37;
+    return new Uint8Array([
+      0x21, lo(dest), hi(dest),        // 0   LXI  H,dest
+      0x11, lo(count), hi(count),      // 3   LXI  D,count
+      0xdb, 0x10,                      // 6   SKIP: IN 10h
+      0x0f,                            // 8   RRC
+      0xd2, ...A(SKIP),                // 9   JNC  SKIP
+      0xdb, 0x11,                      // 12  IN   11h
+      0xb7,                            // 14  ORA  A          ; leader null?
+      0xca, ...A(SKIP),                // 15  JZ   SKIP       ; yes -- keep spooling
+      0x77,                            // 18  STORE: MOV M,A
+      0x23,                            // 19  INX  H
+      0x1b,                            // 20  DCX  D
+      0x7a, 0xb3,                      // 21  MOV A,D / ORA E
+      0xca, ...A(RUN),                 // 23  JZ   RUN
+      0xdb, 0x10,                      // 26  LOAD: IN 10h
+      0x0f,                            // 28  RRC
+      0xd2, ...A(LOAD),                // 29  JNC  LOAD
+      0xdb, 0x11,                      // 32  IN   11h
+      0xc3, ...A(STORE),              // 34  JMP  STORE
+      0xc3, lo(start), hi(start),      // 37  RUN: JMP start
+    ]);
   }
 
+  // the streaming engine; the front panel watches tape.phase / tape.lastByte
   const tape = {
-    phase: "idle",        // idle | entering | loading | done
-    steps: [], idx: 0,
-    image: null, pos: 0, lastByte: 0,
-    root: document.getElementById("tape-guide"),
+    phase: "idle",           // idle | feeding | draining
+    image: null, pos: 0, lead: 0, lastByte: 0, dest: 0, start: 0,
+    bytesPerSec: 0, t0: 0, drainT0: 0, label: "", me: 0,
+    prompts: null, onDone: null, raw: false,
 
-    begin(image, dest, start) {
-      this.stale = !machine.writeByte || !machine.setPC || !machine.rxPending;
-      machine.clearMemory?.();
-      machine.reboot?.();
-      setRunning(false);
-      const boot = makeBootstrap(dest, image.length, start);
+    get addr() { return (this.dest + this.pos) & 0xffff; },
+
+    // Start the reader. Normally: key a bootstrap into the top of RAM, run it,
+    // and stream the tape in. opts.raw = true: just spool the bytes into the
+    // 88-2SIO -- no bootstrap, no memory touched -- for a hand-keyed loader
+    // (see the panel guide). Returns false if the machine lacks the RAM.
+    run(image, dest, start, bytesPerSec, opts = {}) {
+      const ramTop = (machine.ramKb ? machine.ramKb() : 64) * 1024;
+      const bootOrg = ramTop - 0x40;      // bootstrap sits in the top page of RAM
+      this.raw = !!opts.raw;
+      if (!this.raw && bootOrg < dest + image.length + 40) {
+        presetHint(`not enough RAM to load ${opts.label || "that tape"}`, { persist: true });
+        return false;
+      }
+      this.me = ++loaderToken;
+      if (!this.raw) {
+        machine.clearMemory?.();
+        machine.reboot?.();
+        const boot = makeBootstrap(bootOrg, dest & 0xffff, image.length, start & 0xffff);
+        machine.loadBytes(boot, bootOrg);
+        machine.setPC?.(bootOrg);
+      }
       this.image = image;
-      this.dest = dest;
-      this.start = start;
-      this.steps = [
-        { kind: "examine", addr: boot.org, key: "examine", up: true,
-          text: `EXAMINE ${oct(boot.org, 6)}`, hint: "set the start address, press EXAMINE" },
-        ...boot.bytes.map((b, i) => ({
-          kind: i === 0 ? "deposit" : "depositNext",
-          addr: boot.org + i, value: b, key: "deposit", up: i === 0,
-          text: `${i === 0 ? "DEPOSIT" : "DEP NEXT"}  ${oct(b, 3)}  (${hex(b)})`,
-          hint: i === 0 ? "press DEPOSIT" : "press DEPOSIT NEXT",
-        })),
-        { kind: "examine", addr: boot.org, key: "examine", up: true,
-          text: `EXAMINE ${oct(boot.org, 6)}`, hint: "back to the start, press EXAMINE" },
-        { kind: "run", key: "run", up: false,
-          text: "RUN", hint: "press RUN to start the tape reader" },
-      ];
-      this.idx = 0;
-      this.turbo = false;
-      this.phase = "entering";
-      panelIntercept = (name, upper) => this.onPanel(name, upper);
-      this.render();
-      this.arm();
-      if (this.stale) this.flash("rebuild the wasm (make wasm) for this to actually load");
-      this.root.hidden = false;
-      this.root.scrollIntoView({ behavior: "smooth", block: "nearest" });
-    },
-
-    arm() {
-      const s = this.steps[this.idx];
-      if (!s) return;
-      if (s.kind === "deposit" || s.kind === "depositNext") setSwitchWord(s.value, 8);
-      else if (s.kind === "examine") setSwitchWord(s.addr, 16);
-      this.rows.forEach((r, i) => {
-        r.classList.toggle("done", i < this.idx);
-        r.classList.toggle("now", i === this.idx);
-      });
-      const cur = this.rows[this.idx];
-      if (cur) cur.scrollIntoView({ block: "nearest" });
-      this.msg.textContent = `Step ${this.idx + 1} / ${this.steps.length}  —  ${s.hint}`;
-    },
-
-    onPanel(name /*, upper */) {
-      const s = this.steps[this.idx];
-      if (!s) return;
-      // during the guided sequence the guide is authoritative about the
-      // up/down half — you only have to press the right paddle
-      if (name !== s.key) {
-        this.flash(`not now — ${s.hint}`);
-        return;
-      }
-      if (s.kind === "examine") {
-        machine.setPC?.(s.addr);
-      } else if (s.kind === "run") {
-        // fall through — advance() will start the load
-      } else {
-        const sw = switchWord() & 0xff;
-        if (sw !== s.value) {
-          this.flash(`switches show ${oct(sw, 3)}, need ${oct(s.value, 3)}`);
-          return;
-        }
-        machine.writeByte?.(s.addr, s.value);
-        machine.setPC?.(s.addr);          // so the address LEDs show the deposit
-      }
-      this.advance();
-    },
-
-    advance() {
-      this.idx++;
-      if (this.idx >= this.steps.length) return this.startLoad();
-      this.arm();
-    },
-
-    async express() {
-      if (this.phase !== "entering") return;
-      while (this.idx < this.steps.length) {
-        const s = this.steps[this.idx];
-        this.arm();
-        await new Promise((r) => setTimeout(r, 40));
-        if (s.kind === "examine") machine.setPC?.(s.addr);
-        else if (s.kind !== "run") { machine.writeByte?.(s.addr, s.value); machine.setPC?.(s.addr); }
-        this.idx++;
-      }
-      this.startLoad();
-    },
-
-    startLoad() {
-      this.phase = "loading";
+      this.dest = dest & 0xffff;
+      this.start = start & 0xffff;
+      this.bytesPerSec = bytesPerSec > 0 ? bytesPerSec : 0;
+      this.label = opts.label || "tape image";
+      this.prompts = this.raw ? null : (opts.prompts || null);
+      this.onDone = this.raw ? null : (opts.onDone || null);
       this.pos = 0;
-      this.loadStart = performance.now();
-      panelIntercept = null;
-      setRunning(true);                   // the bootstrap begins polling
-      this.root.classList.add("loading");
-      this.render();
+      this.lead = 0;
+      this.credit = 0;
+      this.lastTick = 0;
+      this.lastByte = 0;
+      this.stall = 0;
+      this.flooding = false;
+      this.t0 = performance.now();
+      this.phase = "feeding";
+      if (!this.raw) {
+        turbo = false;
+        coldStartWatch = true;      // capture BASIC's cold-start prompts when it starts
+        rxWatch = "";
+        term.clear(); outQ.length = 0; crlfPending = false;
+        setRunning(true);           // the bootstrap starts polling immediately
+      }
+      paperTape.setReading(true);
+      return true;
+    },
+
+    // stop the reader mid-tape -- the ASR-33 lever back to STOP. Memory and the
+    // CPU are left exactly as they are; a half-fed load just stalls, as it would
+    // on real hardware.
+    stop() {
+      if (this.phase !== "feeding" && this.phase !== "draining") return;
+      this.phase = "idle";
+      this.me = ++loaderToken;   // detach any pending post-load prompt answering
+      paperTape.setReading(false);
     },
 
     tick() {
-      if (this.phase !== "loading") return;
-      const speed = this.turbo ? 24 : 1;
-      const elapsed = (performance.now() - this.loadStart) * speed;
-      const target = Math.min(
-        this.image.length,
-        Math.ceil((this.image.length * elapsed) / (TAPE_SECONDS * 1000))
-      );
-      while (this.pos < target) {
-        if (machine.rxPending && machine.rxPending() > 200) break;
-        this.lastByte = this.image[this.pos++];
-        machine.sendByte(this.lastByte);
-      }
-      const frac = this.pos / this.image.length;
-      if (this.bar) this.bar.style.width = (frac * 100).toFixed(1) + "%";
-      if (this.stat) {
-        const left = Math.max(0, TAPE_SECONDS * (1 - frac));
-        this.stat.textContent =
-          `${this.pos.toLocaleString()} / ${this.image.length.toLocaleString()} bytes` +
-          (frac < 1 ? `   ·   ~${left.toFixed(0)}s` : "   ·   done");
-      }
-      if (this.pos >= this.image.length && this.phase === "loading") {
-        this.phase = "done";
-        setTimeout(() => this.finish(), 1400);
-      }
-    },
+      if (this.phase !== "feeding" && this.phase !== "draining") return;
+      if (loaderToken !== this.me || !powered) { this.phase = "idle"; paperTape.setReading(false); return; }
+      const n = this.image.length;
 
-    finish() {
-      this.phase = "idle";
-      this.root.hidden = true;
-      this.root.classList.remove("loading");
-      lastLoad = { bytes: this.image, load: this.dest, start: this.start,
-                   label: "tape image", sense: 0 };
-      term.focus();
-    },
-
-    cancel() {
-      this.phase = "idle";
-      panelIntercept = null;
-      this.root.hidden = true;
-      this.root.classList.remove("loading");
-      machine.reset?.();
-      setRunning(true);
-    },
-
-    flash(text) {
-      this.msg.textContent = text;
-      this.msg.classList.add("err");
-      setTimeout(() => this.msg.classList.remove("err"), 900);
-    },
-
-    render() {
-      const r = this.root;
-      if (this.phase === "loading" || this.phase === "done") {
-        r.innerHTML =
-          `<div class="tg-head">READING TAPE</div>
-           <div class="tg-barwrap"><div class="tg-bar"></div></div>
-           <div class="tg-stat"></div>
-           <div class="tg-actions"><button class="tg-skip">Skip</button></div>`;
-        this.bar = r.querySelector(".tg-bar");
-        this.stat = r.querySelector(".tg-stat");
-        r.querySelector(".tg-skip").addEventListener("click", () => { this.turbo = true; });
+      if (this.phase === "feeding") {
+        const total = TAPE_LEADER + n;
+        const now = performance.now();
+        const dt = Math.min(now - (this.lastTick || now), 200);
+        this.lastTick = now;
+        // accumulate a byte budget at the current rate -- changing LOAD SPEED
+        // mid-load takes effect on the next frame, no jump
+        if (this.bytesPerSec) {
+          this.credit = Math.min((this.credit || 0) + (dt * this.bytesPerSec) / 1000,
+                                 Math.max(4, this.bytesPerSec * 0.5));
+        } else {
+          this.credit = total;                   // "Max"
+        }
+        const before = this.lead + this.pos;
+        while (this.credit >= 1 && this.lead + this.pos < total) {
+          // Pace the feed to a loader that is keeping up, so a per-frame CPU
+          // burst doesn't miss bytes a real continuously-clocked loader would
+          // catch. But once the FIFO stays jammed the consumer isn't keeping up
+          // (or, on a raw START, there may be no loader running at all) -- then
+          // let the reader overrun the 88-2SIO and shed bytes, exactly as the
+          // reader lever would on real hardware.
+          if (!this.flooding && machine.rxPending && machine.rxPending() > 400) break;
+          if (this.lead < TAPE_LEADER) {          // blank leader spooling through -- nothing loads yet
+            this.lead++;
+            machine.sendByte(0);
+          } else {
+            this.lastByte = this.image[this.pos++] | 0;
+            machine.sendByte(this.lastByte);
+          }
+          this.credit -= 1;
+        }
+        if (this.lead + this.pos > before) this.stall = 0;
+        else if (this.raw && ++this.stall > 45) this.flooding = true;   // ~0.75 s jammed -> overrun
+        paperTape.setProgress((this.lead + this.pos) / total);
+        if (this.pos >= n) {
+          if (this.raw && this.flooding) { this.phase = "idle"; paperTape.setReading(false); return; }
+          this.phase = "draining"; this.drainT0 = performance.now();
+        }
         return;
       }
-      r.innerHTML =
-        `<div class="tg-head">PAPER-TAPE BOOTSTRAP <span>&mdash; key this into the panel</span></div>
-         <div class="tg-msg"></div>
-         <ol class="tg-list"></ol>
-         <div class="tg-actions">
-           <button class="tg-express">Enter it for me</button>
-           <button class="tg-cancel">Cancel</button>
-         </div>`;
-      this.msg = r.querySelector(".tg-msg");
-      const ol = r.querySelector(".tg-list");
-      this.rows = this.steps.map((s) => {
-        const li = document.createElement("li");
-        li.textContent = s.text;
-        ol.appendChild(li);
-        return li;
+
+      // draining: wait for the loader to consume the FIFO and JMP to start
+      const pending = machine.rxPending ? machine.rxPending() : 0;
+      if (pending > 0 && performance.now() - this.drainT0 < 8000) return;
+      this.phase = "idle";
+      if (this.raw) { paperTape.setReading(false); return; }   // hand-keyed loader owns the rest
+      this._afterLoad();
+    },
+
+    async _afterLoad() {
+      const me = this.me;
+      const dead = () => loaderToken !== me || !powered;
+      paperTape.setReading(false);
+      const feed = (s) => { for (const b of encoder.encode(s)) machine.sendByte(b); };
+      const waitFor = (re, ms = 20000) => new Promise((res, rej) => {
+        const t0 = performance.now();
+        const iv = setInterval(() => {
+          if (dead())                          { clearInterval(iv); rej(new Error("cancelled")); }
+          else if (re.test(rxWatch))           { clearInterval(iv); res(); }
+          else if (performance.now() - t0 > ms) { clearInterval(iv); rej(new Error("timed out")); }
+        }, 25);
       });
-      r.querySelector(".tg-express").addEventListener("click", () => this.express());
-      r.querySelector(".tg-cancel").addEventListener("click", () => this.cancel());
+      const pause = (ms) => new Promise((r) => setTimeout(r, ms));
+
+      if (this.prompts && this.prompts.length) {
+        turbo = true;
+        try {
+          for (const [re, reply] of this.prompts) {
+            await waitFor(re);
+            rxWatch = "";
+            await pause(120);
+            feed(reply);
+          }
+          await waitFor(/\bOK\b/);
+        } catch { /* leave it for the user to finish by hand */ }
+      }
+      const cb = this.onDone; this.onDone = null;
+      if (!dead() && cb) { try { await cb({ feed, waitFor, pause }); } catch {} }
+      if (loaderToken === me) {
+        coldStartWatch = false;
+        setTimeout(() => { if (loaderToken === me) turbo = false; }, 2000);
+      }
     },
   };
 
-  // --- program loader --------------------------------------
-  const dialog      = document.getElementById("romDialog");
-  const romList     = document.getElementById("romList");
-  const romDesc     = document.getElementById("romDesc");
-  const romFile     = document.getElementById("romFile");
-  const romFileName = document.getElementById("romFileName");
-  const romAddr     = document.getElementById("romAddr");
-  const romStart    = document.getElementById("romStart");
+  // the reader you can see: a punched strip running past a read head
+  const paperTape = {
+    entry: null,             // catalog entry threaded, or {name,bytes,load,start}
+    speed: "realistic",
+    _picks: [],
 
+    build() {
+      const root = document.getElementById("ptr");
+      const kase = el("ptr-case");
+      const top = el("ptr-top", `<span class="ptr-plate">PAPER TAPE <span>&nbsp;READER</span></span>`);
+      const spdWrap = document.createElement("span");
+      spdWrap.className = "dev-speedwrap";
+      spdWrap.innerHTML = '<span class="dev-speedlabel">LOAD SPEED</span>';
+      const sel = document.createElement("select");
+      sel.className = "ptr-speed";
+      sel.innerHTML =
+        '<option value="realistic">Realistic</option>' +
+        '<option value="x5">5&times;</option>' +
+        '<option value="x25">25&times;</option>' +
+        '<option value="x50">50&times;</option>';
+      try { this.speed = localStorage.getItem("retro8080.paperspeed") || "realistic"; } catch {}
+      if (!PAPER_SPEED_KEYS.includes(this.speed)) this.speed = "realistic";   // drop a stale value
+      sel.value = this.speed;
+      sel.addEventListener("change", () => this.setSpeed(sel.value));
+      spdWrap.appendChild(sel);
+      top.appendChild(spdWrap);
+      kase.appendChild(top);
+
+      const body = el("ptr-body");
+      const win = el("ptr-window",
+        `<span class="ptr-strip"></span><span class="ptr-head"></span>` +
+        `<span class="ptr-label"></span><span class="ptr-prog"></span>`);
+      win.addEventListener("click", () => this.openPicker());
+      const ctl = el("ptr-ctl");
+      const lamp = el("ptr-lamp");
+      const startB = document.createElement("button");
+      startB.className = "ptr-btn ptr-start";
+      startB.textContent = "START";
+      startB.title = "Run the reader. Spools the tape into the 88-2SIO for a " +
+        "loader that is already running (the boot PROM, or one keyed in at the " +
+        "front panel). Nothing consumes the bytes if no loader is running -- " +
+        "exactly like the reader lever on a real ASR-33.";
+      startB.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (tape.phase === "feeding" || tape.phase === "draining") tape.stop();
+        else this.startReader();
+      });
+      const loadB = document.createElement("button");
+      loadB.className = "ptr-btn ptr-load";
+      loadB.textContent = "AUTO-LOAD";
+      loadB.title = "Shortcut: reset the machine, key a serial bootstrap into the " +
+        "top of RAM, run it, read the tape, and answer BASIC's cold-start " +
+        "prompts. Use START for the authentic hand-loaded path.";
+      loadB.addEventListener("click", (e) => { e.stopPropagation(); this.load(); });
+      const ejB = document.createElement("button");
+      ejB.className = "ptr-btn ptr-eject hidden";
+      ejB.textContent = "EJECT";
+      ejB.addEventListener("click", (e) => { e.stopPropagation(); this.eject(); });
+      ctl.append(lamp, startB, loadB, ejB);
+      body.append(win, ctl);
+      kase.appendChild(body);
+      this._hint = "Thread a tape (click the reader). START runs the reader for a " +
+        "loader you keyed in; AUTO-LOAD resets the machine and does the lot.";
+      kase.appendChild(el("ptr-hint", this._hint));
+      root.appendChild(kase);
+      this.win = win; this.lamp = lamp; this.startBtn = startB; this.loadBtn = loadB; this.ejBtn = ejB;
+      this.strip = win.querySelector(".ptr-strip");
+      this.labelEl = win.querySelector(".ptr-label");
+      this.prog = win.querySelector(".ptr-prog");
+      this.speedSel = sel;
+      this.setSpeed(this.speed);
+      this.syncButtons();
+    },
+
+    setSpeed(key) {
+      this.speed = PAPER_SPEEDS[key] != null ? key : "realistic";
+      if (this.speedSel) this.speedSel.value = this.speed;
+      // don't persist the internal "max" (?test / Auto-load) as a user choice
+      if (PAPER_SPEED_KEYS.includes(this.speed))
+        try { localStorage.setItem("retro8080.paperspeed", this.speed); } catch {}
+      // if a tape is reading right now, change its rate on the fly
+      if (tape.phase === "feeding" || tape.phase === "draining") {
+        tape.bytesPerSec = PAPER_SPEEDS[this.speed] > 0 ? PAPER_SPEEDS[this.speed] : 0;
+      }
+    },
+
+    setVisible(v) { document.getElementById("ptr").classList.toggle("empty", !v); },
+
+    thread(src) {
+      this.entry = src;
+      const ptr = document.getElementById("ptr");
+      ptr.classList.add("loaded");
+      this.labelEl.textContent = (src && src.name ? src.name : "TAPE").toUpperCase().slice(0, 22);
+      this.ejBtn.classList.remove("hidden");
+      this.syncButtons();
+    },
+
+    eject() {
+      this.entry = null;
+      const ptr = document.getElementById("ptr");
+      ptr.classList.remove("loaded", "reading");
+      this.labelEl.textContent = "";
+      this.ejBtn.classList.add("hidden");
+      this.syncButtons();
+    },
+
+    setReading(on) {
+      document.getElementById("ptr").classList.toggle("reading", on);
+      const h = document.querySelector("#ptr .ptr-hint");
+      if (h && !on) h.textContent = this._hint;
+      if (!on && this.prog) this.prog.style.width = "0";
+      this.syncButtons();
+    },
+    setProgress(frac) {
+      if (this.prog) this.prog.style.width = (frac * 100).toFixed(1) + "%";
+      const h = document.querySelector("#ptr .ptr-hint");
+      if (h && document.getElementById("ptr").classList.contains("reading")) {
+        const pct = Math.round(frac * 100);
+        h.textContent = pct < 2
+          ? "reading tape — leader… (change LOAD SPEED any time)"
+          : `reading tape — ${pct}%  (change LOAD SPEED any time)`;
+      }
+    },
+
+    syncButtons() {
+      const reading = document.getElementById("ptr").classList.contains("reading");
+      if (this.startBtn) {
+        this.startBtn.textContent = reading ? "STOP" : "START";
+        this.startBtn.disabled = !this.entry && !reading;
+      }
+      if (this.loadBtn) this.loadBtn.disabled = !this.entry || reading;
+      if (this.ejBtn) this.ejBtn.disabled = reading;
+    },
+
+    openPicker() { ptrDialog.hidden = false; this.fillPicker(); },
+    closePicker() { ptrDialog.hidden = true; term.focus(); },
+
+    async fillPicker() {
+      await loadCatalog();
+      ptrList.innerHTML = "";
+      this._picks = [];
+      for (const r of catalog) {
+        if (r.basic) continue;                        // BASIC listings are typed in
+        const ok = !!r.bytes;
+        const o = document.createElement("option");
+        o.value = String(this._picks.length);
+        o.textContent = `${r.name}  —  ${ok ? r.bytes.length + " bytes" : "(unavailable)"}`;
+        o.disabled = !ok;
+        ptrList.appendChild(o);
+        this._picks.push(r);
+      }
+      const first = this._picks.findIndex((r) => r.bytes);
+      if (first >= 0) {
+        ptrList.value = String(first);
+        ptrDesc.textContent = this._picks[first].description || "";
+      }
+    },
+
+    // how a threaded tape actually loads.
+    //   opts.speed  -- override the selector (preset auto-load passes "max")
+    //   opts.then   -- callback once loaded (and BASIC is at OK), gets {feed,waitFor}
+    load(opts = {}) {
+      const e = this.entry;
+      if (!e || !e.bytes) { this.flash("thread a tape first"); return; }
+      // the 0xE000 ROM build can't stream -- drop it in and cold-start
+      if (e.basicRom) { coldStart8k(e.bytes, { then: opts.then }); return; }
+      const load  = parseHex(e.load, 0);
+      const start = parseHex(e.start, load);
+      const bps = PAPER_SPEEDS[opts.speed] != null ? PAPER_SPEEDS[opts.speed] : PAPER_SPEEDS[this.speed];
+      const prompts = e.basic8k ? PROMPTS_8K : e.basic4k ? PROMPTS_4K : null;
+      tape.run(e.bytes, load, start, bps, { label: e.name, prompts, onDone: opts.then });
+    },
+
+    // spool the threaded tape into the 88-2SIO with no bootstrap, for a loader
+    // you keyed in by hand (panel guide). The CPU must already be running it.
+    feedRaw() {
+      const e = this.entry;
+      if (!e || !e.bytes) { this.flash("thread a tape first"); return false; }
+      if (tape.phase === "feeding" || tape.phase === "draining") return false;
+      tape.run(e.bytes, parseHex(e.load, 0), parseHex(e.start, 0),
+               PAPER_SPEEDS[this.speed], { label: e.name, raw: true });
+      return true;
+    },
+
+    // the reader's own START button: run the reader motor and nothing else --
+    // no memory touched, no bootstrap, no RUN. A loader has to be running
+    // already (boot PROM, or one keyed in at the panel) or the bytes fall on
+    // the floor, exactly as on real hardware. AUTO-LOAD (this.load) is the
+    // shortcut that keys a bootstrap in and runs it for you.
+    startReader() {
+      if (!this.feedRaw()) return false;   // nothing threaded, or already reading
+      // if no loader is running the bytes just overrun the 2SIO -- warn, since
+      // the reader animation looks the same either way
+      if (!running) this.flash("no loader running — press RUN or the bytes are lost");
+      return true;
+    },
+
+    flash(msg) {
+      const h = document.querySelector("#ptr .ptr-hint");
+      if (!h) return;
+      const prev = h.innerHTML;
+      h.textContent = "— " + msg + " —";
+      /* v8 ignore next -- flash text restores itself after 1.4 s */
+      setTimeout(() => { h.innerHTML = prev; }, 1400);
+    },
+  };
+
+  // Boot the 8K BASIC ROM and answer its cold-start questions. opts.then, if
+  // given, runs once BASIC is at OK (used to CLOAD a cassette afterwards).
+  async function coldStart8k(bytes, opts = {}) {
+    const me = ++loaderToken;
+    applyProgram(bytes, 0xe000, 0xe000, "Altair 8K BASIC", 0);
+    turbo = true;
+    coldStartWatch = true;
+    rxWatch = "";
+    const dead = () => loaderToken !== me || !powered;
+    const feed = (s) => { for (const b of encoder.encode(s)) machine.sendByte(b); };
+    const waitFor = (re, ms = 30000) => new Promise((res, rej) => {
+      const t0 = performance.now();
+      const iv = setInterval(() => {
+        if (dead())                          { clearInterval(iv); rej(new Error("cancelled")); }
+        else if (re.test(rxWatch))           { clearInterval(iv); res(); }
+        else if (performance.now() - t0 > ms) { clearInterval(iv); rej(new Error("timed out at " + re.source)); }
+      }, 25);
+    });
+    try {
+      await waitFor(/MEMORY SIZE\?/i);       feed("\r");
+      await waitFor(/TERMINAL WIDTH\?/i);    feed("\r");
+      await waitFor(/SIN-COS-TAN-ATN\?/i);   feed("Y\r");
+      await waitFor(/\bOK\b/);
+      if (opts.then) await opts.then({ feed, waitFor, dead });
+    } catch (e) {
+      /* v8 ignore next -- cold-start prompt wait timed out / was cancelled */
+      if (!dead()) term.write("\r\n\x1b[0m[loader: " + e.message + "]\r\n");
+    }
+    if (loaderToken === me) { coldStartWatch = false; turbo = false; }
+  }
+
+  // used as coldStart8k's `then`: BASIC is up and the Star Trek cassette is in
+  // the deck -- tell the user how to pull it in (the cassette stays manual)
+  async function cassetteTapeHint() {
+    turbo = false;
+    // queue it so it lands after BASIC's banner finishes printing, not mid-line
+    const s = '\r\n\x1b[2m[ SUPER STAR TREK is in the deck -- type  CLOAD "S" , press\r\n' +
+              '  PLAY on the deck, then  RUN  once it says OK ]\x1b[0m\r\n';
+    for (let i = 0; i < s.length; i++) outQ.push(s.charCodeAt(i));
+  }
+
+
+  // --- program catalog ------------------------------------
   const parseHex = (str, fallback = 0) => {
     const n = parseInt(String(str).trim().replace(/^0x/i, ""), 16);
     return Number.isFinite(n) ? n & 0xffff : fallback;
@@ -1717,12 +2453,10 @@ disks/README.md.`;
 
   let catalog = [];       // manifest entries, each gains a `.bytes` (or null)
   let catalogLoaded = false;
-  let lastLoad = null;    // remembered so RESET re-applies the same program
 
   async function loadCatalog() {
     if (catalogLoaded) return;
     catalogLoaded = true;
-    romList.innerHTML = "";
 
     let manifest;
     try {
@@ -1730,10 +2464,6 @@ disks/README.md.`;
       if (!resp.ok) throw new Error("HTTP " + resp.status);
       manifest = await resp.json();
     } catch (err) {
-      const opt = document.createElement("option");
-      opt.textContent = "(roms/manifest.json not found)";
-      opt.disabled = true;
-      romList.appendChild(opt);
       console.warn("rom catalog:", err);
       return;
     }
@@ -1756,52 +2486,16 @@ disks/README.md.`;
     }
 
     catalog = manifest.roms || [];
-    for (let i = 0; i < catalog.length; i++) {
-      const rom = catalog[i];
+    for (const rom of catalog) {
       try {
-        // a `basic` entry is a BASIC listing typed into a running 8K BASIC,
-        // not a memory image (see loadBasicProgram)
-        if (rom.basic) {
-          const r = await fetch("roms/" + rom.basic);
-          rom.basicText = r.ok ? await r.text() : null;
-        } else {
-          rom.bytes = await fetchImage(rom);
-        }
+        rom.bytes = await fetchImage(rom);
       } catch {
         rom.bytes = null;
-        rom.basicText = null;
       }
-      const ok = rom.basic ? !!rom.basicText : !!rom.bytes;
-      const tag = rom.basic
-        ? (ok ? "BASIC program" : "(missing)")
-        : (ok ? `${rom.bytes.length} bytes` : "(not installed)");
-      const opt = document.createElement("option");
-      opt.value = String(i);
-      opt.textContent = `${rom.name}  —  ${tag}`;
-      opt.disabled = !ok;
-      romList.appendChild(opt);
     }
-
-    const firstAvailable = catalog.findIndex((r) => r.bytes || r.basicText);
-    if (firstAvailable >= 0) {
-      romList.value = String(firstAvailable);
-      syncSelection();
-    }
-  }
-
-  function syncSelection() {
-    const rom = catalog[Number(romList.value)];
-    if (!rom) return;
-    romDesc.textContent = rom.description || "";
-    const isBasic = !!rom.basic;
-    romAddr.value  = isBasic ? "" : (rom.load || "0x0000");
-    romStart.value = isBasic ? "" : (rom.start || rom.load || "0x0000");
-    romAddr.disabled = romStart.disabled = isBasic;
-    document.querySelectorAll('input[name="loadmethod"]').forEach((r) => { r.disabled = isBasic; });
   }
 
   function applyProgram(bytes, load, start, label, sense = 0) {
-    markCustom();
     machine.clearMemory();
     machine.loadBytes(bytes, load);
     machine.reboot();
@@ -1809,206 +2503,119 @@ disks/README.md.`;
     if (typeof machine.setPC === "function") machine.setPC(start);
     setRunning(true);
     turbo = false;
-    bootedFromDisk = false;
-    lastLoad = { bytes, load, start, label, sense };
     term.clear();           // fresh screen for the new program; its output (if
     outQ.length = 0;        // any) is all that will appear
     crlfPending = false;
     term.focus();
   }
 
-  // Boot the 8K BASIC ROM, answer its cold-start questions, then type a saved
-  // listing in through the keyboard and RUN it — the way you'd have loaded a
-  // program from paper tape or a cassette in 1976. Games like Star Trek are
-  // BASIC, not 8080 machine code, so there is no ROM image to drop in.
-  async function loadBasicProgram(rom) {
-    const basic = catalog.find((r) => r.basicRom && r.bytes);
-    if (!basic) {
-      term.write("\r\n\x1b[0m  Altair 8K BASIC is not installed.\r\n" +
-                 "  Add the four 8kBas_*.bin files to roms/ (see roms/README.md).\r\n");
-      return;
-    }
+  // --- paper-tape reader dialog wiring --------------------
+  const ptrDialog   = document.getElementById("ptrDialog");
+  const ptrList     = document.getElementById("ptrList");
+  const ptrDesc     = document.getElementById("ptrDesc");
+  const ptrFile     = document.getElementById("ptrFile");
+  const ptrFileName = document.getElementById("ptrFileName");
+  const ptrAddr     = document.getElementById("ptrAddr");
+  const ptrStart    = document.getElementById("ptrStart");
 
-    const me = ++loaderToken;
-    loaderBusy = true;
-    kbdQ.length = 0;
-    rxWatch = "";
-    applyProgram(basic.bytes, 0xe000, 0xe000, "Altair 8K BASIC", 0);
-    turbo = true;
-    term.write("\x1b[0m\x1b[2J\x1b[H  Loading \x1b[1m" + rom.name +
-               "\x1b[0m into Altair BASIC — one moment…\r\n");
+  paperTape.build();
+  paperTape.setVisible(false);
+  buildPanelGuide(false);          // now that paperTape / PRESETS exist
 
-    const dead = () => loaderToken !== me || !powered;
-    const feed = (s) => { for (const b of encoder.encode(s)) kbdQ.push(b); };
-    const drained = () => new Promise((res) => {
-      const iv = setInterval(() => {
-        if (dead() || kbdQ.length === 0) { clearInterval(iv); res(); }
-      }, 25);
-    });
-    const waitFor = (re, ms = 20000) => new Promise((res, rej) => {
-      const t0 = performance.now();
-      const iv = setInterval(() => {
-        if (dead())                        { clearInterval(iv); rej(new Error("cancelled")); }
-        else if (re.test(rxWatch))         { clearInterval(iv); res(); }
-        else if (performance.now() - t0 > ms) { clearInterval(iv); rej(new Error("timed out at " + re.source)); }
-      }, 25);
-    });
-    const quiet = (ms = 350) => new Promise((res) => {   // BASIC done echoing
-      let last = rxWatch.length, still = 0;
-      const iv = setInterval(() => {
-        if (dead()) { clearInterval(iv); res(); return; }
-        if (rxWatch.length === last) { still += 60; if (still >= ms) { clearInterval(iv); res(); } }
-        else { still = 0; last = rxWatch.length; }
-      }, 60);
-    });
-
-    try {
-      await waitFor(/MEMORY SIZE\?/i);      feed("\r");
-      await waitFor(/TERMINAL WIDTH\?/i);   feed("\r");
-      await waitFor(/SIN-COS-TAN-ATN\?/i);  feed("Y\r");
-      await waitFor(/\bOK\b/);
-      rxWatch = "";
-      feed("NEW\r");
-      await waitFor(/\bOK\b/);
-
-      const lines = rom.basicText.replace(/\r/g, "").split("\n")
-        .map((l) => l.replace(/\s+$/, ""))
-        .filter((l) => l.length && /^\d/.test(l));
-      for (const line of lines) {
-        if (dead()) throw new Error("cancelled");
-        feed(line + "\r");
-        if (kbdQ.length > 800) await drained();   // keep the JS queue bounded
-      }
-      await drained();
-      await quiet();                 // wait out the echo of the last few lines
-    } catch (e) {
-      if (loaderToken === me) {
-        loaderBusy = false;
-        if (!dead()) term.write("\r\n\x1b[0m[loader: " + e.message + "]\r\n");
-      }
-      return;
-    }
-
-    if (loaderToken !== me) return;
-    // BASIC is idle and its FIFO is drained: wipe the loading noise, hand the
-    // terminal back, and let RUN's output flow through normally.
-    term.write("\x1b[0m\x1b[2J\x1b[3J\x1b[H");
-    loaderBusy = false;
-    for (const b of encoder.encode("RUN\r")) machine.sendByte(b);
-    // keep the CPU sprinting through the program's one-time setup, then settle
-    // back to 2 MHz (a keystroke ends it sooner)
-    setTimeout(() => { if (loaderToken === me) turbo = false; }, 5000);
-  }
-
-  // Load a ROM at 0x0000 and answer its cold-start questions for the user, with
-  // the prompts still visible on the terminal (4K BASIC: MEMORY SIZE? / TERMINAL
-  // WIDTH? / SIN?). `prompts` is a list of [regexp, reply] pairs.
-  async function coldStartRom(bytes, label, prompts) {
-    const me = ++loaderToken;
-    applyProgram(bytes, 0x0000, 0x0000, label, 0);
-    turbo = true;
-    coldStartWatch = true;
-    rxWatch = "";
-    const dead = () => loaderToken !== me || !powered;
-    const feed = (s) => { for (const b of encoder.encode(s)) machine.sendByte(b); };
-    const waitFor = (re, ms = 15000) => new Promise((res, rej) => {
-      const t0 = performance.now();
-      const iv = setInterval(() => {
-        if (dead())                          { clearInterval(iv); rej(new Error("cancelled")); }
-        else if (re.test(rxWatch))           { clearInterval(iv); res(); }
-        else if (performance.now() - t0 > ms) { clearInterval(iv); rej(new Error("timed out at " + re.source)); }
-      }, 25);
-    });
-    try {
-      for (const [re, reply] of prompts) {
-        await waitFor(re);
-        rxWatch = "";                 // don't re-match the same prompt on the next pass
-        await new Promise((r) => setTimeout(r, 120));
-        feed(reply);
-      }
-    } catch (e) {
-      // leave it — the user can finish the prompts by hand
-    }
-    if (loaderToken === me) {
-      coldStartWatch = false;
-      setTimeout(() => { if (loaderToken === me) turbo = false; }, 2500);
-    }
-  }
-
-  const openDialog  = () => { dialog.hidden = false; loadCatalog(); };
-  const closeDialog = () => { dialog.hidden = true; term.focus(); };
-
-  document.getElementById("loadBtn").addEventListener("click", openDialog);
-
-  document.getElementById("romCancel").addEventListener("click", closeDialog);
-  document.getElementById("romClose").addEventListener("click", closeDialog);
-  dialog.addEventListener("click", (e) => { if (e.target === dialog) closeDialog(); });
-  romList.addEventListener("change", syncSelection);
-  romFile.addEventListener("change", () => {
-    romFileName.textContent = romFile.files[0] ? romFile.files[0].name : "no file selected";
+  ptrList.addEventListener("change", () => {
+    const r = paperTape._picks[Number(ptrList.value)];
+    ptrDesc.textContent = r ? (r.description || "") : "";
+    if (r) { ptrAddr.value = r.load || "0x0000"; ptrStart.value = r.start || r.load || "0x0000"; }
   });
-
-  document.getElementById("romLoad").addEventListener("click", async () => {
-    const load   = parseHex(romAddr.value);
-    const start  = parseHex(romStart.value);
-    const method = document.querySelector('input[name="loadmethod"]:checked')?.value || "instant";
-    const file   = romFile.files[0];
-
-    let bytes, label, sense = 0;
+  ptrFile.addEventListener("change", () => {
+    ptrFileName.textContent = ptrFile.files[0] ? ptrFile.files[0].name : "no file selected";
+  });
+  document.getElementById("ptrClose").addEventListener("click", () => paperTape.closePicker());
+  document.getElementById("ptrCancel").addEventListener("click", () => paperTape.closePicker());
+  ptrDialog.addEventListener("click", (e) => { if (e.target === ptrDialog) paperTape.closePicker(); });
+  document.getElementById("ptrThread").addEventListener("click", async () => {
+    const file = ptrFile.files[0];
     if (file) {
-      bytes = new Uint8Array(await file.arrayBuffer());
-      label = file.name;
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      paperTape.thread({ name: file.name, bytes, load: ptrAddr.value, start: ptrStart.value });
     } else {
-      const rom = catalog[Number(romList.value)];
-      if (rom && rom.basic) {
-        if (!rom.basicText) { romDesc.textContent = "That program failed to download."; return; }
-        closeDialog();
-        loadBasicProgram(rom);
-        return;
-      }
-      if (!rom || !rom.bytes) { romDesc.textContent = "That program is not installed."; return; }
-      bytes = rom.bytes;
-      label = rom.name;
-      sense = parseHex(rom.sense, 0);
+      const r = paperTape._picks[Number(ptrList.value)];
+      if (!r || !r.bytes) { ptrDesc.textContent = "That tape is unavailable."; return; }
+      paperTape.thread(r);
     }
-
-    romFile.value = "";
-    romFileName.textContent = "no file selected";
-    closeDialog();
-
-    if (method === "tape") {
-      applySense(sense);
-      tape.begin(bytes, load, start);
-    } else {
-      applyProgram(bytes, load, start, label, sense);
-    }
+    ptrFile.value = "";
+    ptrFileName.textContent = "no file selected";
+    paperTape.closePicker();
   });
 
   if (location.search.includes("debug")) {
     window.__loader = {
-      get busy() { return loaderBusy; },
-      get queued() { return kbdQ.length; },
       get rx() { return rxWatch.slice(-400); },
       get pending() { return machine.rxPending && machine.rxPending(); },
     };
+    window.__dbg = {
+      get screen() {
+        const b = term.buffer.active;
+        let s = "";
+        for (let i = 0; i < b.length; i++) s += b.getLine(i).translateToString(true) + "\n";
+        return s.replace(/\n+$/, "");
+      },
+      get tape() { return machine.tapeStatus ? machine.tapeStatus() : null; },
+      get spin() { return document.getElementById("acr").classList.contains("spin"); },
+      get reading() { return document.getElementById("ptr").classList.contains("reading"); },
+      get preset() { return document.getElementById("preset").value; },
+      get devices() { return [...document.querySelectorAll("#deviceChips input:checked")].map((x) => x.dataset.dev); },
+      get ram() { return machine.ramKb && machine.ramKb(); },
+      get pc() { return machine.state && machine.state().pc; },
+      get running() { return running; },
+      mem: (a) => machine.readByte && machine.readByte(a & 0xffff),
+    };
   }
 
-  // dev: ?tapedemo pre-opens the bootstrap guide for a fake 8 KB image;
-  //      ?tapedemo=load also runs the express entry so you see the load bar
-  if (location.search.includes("tapedemo")) {
-    tape.begin(new Uint8Array(8192).fill(0x76), 0xe000, 0xe000);
-    if (location.search.includes("load")) tape.express();
+  // Automated-test seam. `?test=1` forces the sanctioned load-speed override
+  // (paper tape / cassette / floppy loads run at Max so a suite isn't held up
+  // by a ~14-minute read) and exposes the internals the Playwright suite drives.
+  // The CPU still runs at real 2 MHz -- nothing here is a speed knob. Absent
+  // `?test`, none of this exists. See CLAUDE.md "Current sanctioned overrides".
+  if (location.search.includes("test")) {
+    paperTape.setSpeed("max");
+    cassette.setSpeed("max");
+    window.__test = {
+      machine, term, paperTape, cassette, disk, tape,
+      applyPreset, applyProfile, applyDevices, setRunning,
+      switchState,
+      get running()     { return running; },
+      get switchWord()  { return switchWord(); },
+      get loaderToken() { return loaderToken; },
+      get applyingPreset() { return applyingPreset; },
+      get outQLen()     { return outQ.length; },
+      get rxWatch()     { return rxWatch; },
+      regs: () => machine.state(),
+      leds: () => {
+        const bits = (arr) => arr.reduce((w, l, i) => w | ((l && l.classList.contains("on") ? 1 : 0) << i), 0);
+        const st = {};
+        for (const k in statusLeds) st[k] = statusLeds[k].classList.contains("on");
+        return { addr: bits(addrLeds), data: bits(dataLeds), status: st };
+      },
+      screen: () => {
+        const b = term.buffer.active;
+        let s = "";
+        for (let i = 0; i < b.length; i++) s += b.getLine(i).translateToString(true) + "\n";
+        return s.replace(/\n+$/, "");
+      },
+    };
   }
+
   if (location.search.includes("help")) setTimeout(printManual, 300);
 
-  // restore / apply an era preset (URL wins over the stored choice)
+  // restore / apply an era preset (URL wins over the stored choice); a custom
+  // build ("") still runs applyPreset so its load devices get set up
   buildBackplane([]);
   let startPreset = new URLSearchParams(location.search).get("preset");
   try { if (startPreset == null) startPreset = localStorage.getItem("retro8080.preset"); } catch {}
-  if (startPreset && PRESETS[startPreset]) {
-    presetSelect.value = startPreset;
-    setTimeout(() => applyPreset(startPreset), 200);   // let the wasm + fonts settle
-  }
+  if (startPreset == null || !PRESETS[startPreset]) startPreset = "";
+  presetSelect.value = startPreset;
+  setTimeout(() => applyPreset(startPreset), 200);   // let the wasm + fonts settle
 
 }
 
