@@ -21,6 +21,7 @@ cpu6502/old/rom/
 
 # deployed-site staging (built by CI, previewed locally)
 retroweb/_site/
+retroweb/_site.new/
 
 retroweb/altair8800/emu8080
 retroweb/altair8800/tests/build/
