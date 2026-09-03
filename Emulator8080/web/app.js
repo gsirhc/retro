@@ -860,9 +860,22 @@ async function boot() {
       : !!(root.querySelector(".pg-body") && !root.querySelector(".pg-body").hidden);
     const m = panelGuideModel();
 
-    // a different machine / loader -> start the checklist over
+    // a different machine / loader (usually: a new tape threaded) -> start the
+    // checklist over. If a loader was already keyed into RAM for the old tape,
+    // re-key it for the new one so "keyin -> thread -> Feed / START" works in
+    // any order -- the baked-in byte count has to match the tape being fed.
     const key = [m.org, m.dest, m.start, m.count].join("/");
-    if (key !== pgDoneKey) { pgDone.clear(); pgDoneKey = key; }
+    if (key !== pgDoneKey) {
+      const wasKeyed = pgDoneKey != null && m.boot.every((_, i) => pgDone.has(i));
+      pgDone.clear();
+      pgDoneKey = key;
+      if (wasKeyed) {
+        machine.clearMemory?.();
+        for (let i = 0; i < m.boot.length; i++) { machine.writeByte?.(m.org + i, m.boot[i]); pgDone.add(i); }
+        pgDone.add("taddr");
+        machine.setPC?.(m.org);
+      }
+    }
     const isDone = (k) => pgDone.has(k);
 
     // a row of little toggles, grouped the way the panel is (A15 alone, then 3s;
@@ -2291,6 +2304,7 @@ exactly as it did in 1975.`;
       this.labelEl.textContent = (src && src.name ? src.name : "TAPE").toUpperCase().slice(0, 22);
       this.ejBtn.classList.remove("hidden");
       this.syncButtons();
+      buildPanelGuide();   // the hand-load loader's byte count follows the tape
     },
 
     eject() {
@@ -2300,6 +2314,7 @@ exactly as it did in 1975.`;
       this.labelEl.textContent = "";
       this.ejBtn.classList.add("hidden");
       this.syncButtons();
+      buildPanelGuide();
     },
 
     setReading(on) {

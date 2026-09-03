@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures";
-import { boot, waitForScreen, regs, memAt, panelRun, send } from "./helpers";
+import { boot, waitForScreen, regs, memAt, panelRun, send, pickCatalogItem } from "./helpers";
 
 test.describe("front-panel bootstrap guide", () => {
   test("toggles open and closed", async ({ page }) => {
@@ -243,5 +243,29 @@ test.describe("front-panel bootstrap guide", () => {
     await waitForScreen(page, /SIN\?/i);
     await send(page, "Y\r");
     await waitForScreen(page, /\bOK\b/, 20_000);
+  });
+
+  test("keying the loader in, then threading a different tape, re-keys it to match", async ({
+    page,
+  }) => {
+    // Bare-Metal threads Kill the Bit (~24 bytes) -- the loader's baked-in byte
+    // count would be wrong for anything else
+    await boot(page, { params: "preset=baremetal" });
+    await page.click("#pgToggle");
+    await page.click("#pgKeyin");
+    const org = 4 * 1024 - 0x40;
+    const countAt = async () => (await memAt(page, org + 4)) + ((await memAt(page, org + 5)) << 8);
+    expect(await countAt()).toBeLessThan(64); // baked for Kill the Bit
+
+    await panelRun(page); // loader starts polling the 2SIO
+
+    // swap in the 4K BASIC tape and Feed it -- the flow the user hit
+    await page.click("#ptr .ptr-window");
+    await pickCatalogItem(page, "#ptrList", /4K BASIC 4\.0/);
+    await page.click("#ptrThread");
+    expect(await countAt()).toBeGreaterThan(3000); // the loader followed the tape
+
+    await page.click("#ptr .ptr-start");
+    await waitForScreen(page, /MEMORY SIZE\?/i, 40_000); // 4K BASIC cold-starts
   });
 });

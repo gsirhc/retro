@@ -172,7 +172,10 @@ load with the address lamps climbing. (The reader's own **START** button is the
 same raw path, minus the "point PC at the loader" convenience.) A hand-keyed loader answers none of
 BASIC's cold-start prompts — you do that yourself, as on real hardware. The
 listing shows all 40 rows inline (the panel scrolls as one). The checklist
-resets when the machine/loader changes; re-renders when the preset changes.
+resets when the machine/loader changes; re-renders when the preset changes. The
+loader bakes in the tape's byte count, so threading a different tape after you've
+keyed it in silently re-keys it to match (`buildPanelGuide`) — the "keyin →
+thread → Feed" order works either way round.
 
 ## Era presets
 
