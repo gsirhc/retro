@@ -19,25 +19,28 @@ cpu6502/rom/basic/cc65
 
 cpu6502/old/rom/
 
-Emulator8080/emu8080
-Emulator8080/tests/build/
-Emulator8080/tests/build-cov/
-Emulator8080/tests/coverage-cpp/
-Emulator8080/web/retro8080.js
-Emulator8080/web/retro8080.wasm
-Emulator8080/cpm/cpm_host
-Emulator8080/cpm/cpm_disk
-Emulator8080/cpm/*.COM
-Emulator8080/cpm/*.dsk
-Emulator8080/cpm/*.DSK
-Emulator8080/web/disks/*.dsk
-Emulator8080/web/disks/*.DSK
+# deployed-site staging (built by CI, previewed locally)
+retroweb/_site/
+
+retroweb/altair8800/emu8080
+retroweb/altair8800/tests/build/
+retroweb/altair8800/tests/build-cov/
+retroweb/altair8800/tests/coverage-cpp/
+retroweb/altair8800/web/retro8080.js
+retroweb/altair8800/web/retro8080.wasm
+retroweb/altair8800/cpm/cpm_host
+retroweb/altair8800/cpm/cpm_disk
+retroweb/altair8800/cpm/*.COM
+retroweb/altair8800/cpm/*.dsk
+retroweb/altair8800/cpm/*.DSK
+retroweb/altair8800/web/disks/*.dsk
+retroweb/altair8800/web/disks/*.DSK
 
 # web integration suite (Playwright)
 node_modules/
 test-results/
 playwright-report/
 blob-report/
-Emulator8080/web/.playwright/
-Emulator8080/web/coverage/
-Emulator8080/web/.v8-coverage/
+retroweb/altair8800/web/.playwright/
+retroweb/altair8800/web/coverage/
+retroweb/altair8800/web/.v8-coverage/

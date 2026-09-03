@@ -15,7 +15,7 @@ FetchContent_MakeAvailable(googletest)
 enable_testing()
 
 # -DCOVERAGE=ON instruments just our test binaries (not googletest) for
-# source-based coverage. `make -C Emulator8080 coverage` drives the flow.
+# source-based coverage. `make -C retroweb/altair8800 coverage` drives the flow.
 option(COVERAGE "instrument the unit-test binaries for llvm-cov" OFF)
 function(add_unit_test name)
   add_executable(${name} ${ARGN})

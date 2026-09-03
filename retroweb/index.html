@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RETRO — vintage machines in your browser</title>
+<style>
+  /* ---- page themes: default = Windows; web94 = '94 gray web; modern = clean ----
+     the values that matter here mirror altair8800/web/index.html so a theme
+     picked on either page (shared retro8080.theme) looks consistent. */
+  :root {
+    --desktop:   #008080;
+    --page-bg:   #c0c0c0;
+    --page-border: 3px outset #dfdfdf;
+    --page-radius: 0;
+    --page-shadow: none;
+    --body-font: "Times New Roman", Times, Georgia, serif;
+    --text:      #000000;
+    --muted:     #404040;
+    --link:      #0000ee;
+    --title-font: 900 30px "Arial Black", Arial, sans-serif;
+    --title-color: #000080;
+    --title-shadow: 2px 2px 0 #808080;
+    --card-bg:     #c0c0c0;
+    --card-border: 2px outset #dfdfdf;
+    --card-radius: 0;
+    --field-bg:     #ffffff;
+    --field-border: 2px inset #808080;
+    --titlebar-display: flex;
+  }
+  :root[data-theme="web94"] {
+    --desktop:   #c0c0c0;
+    --page-bg:   #c0c0c0;
+    --page-border: none;
+    --page-shadow: none;
+    --title-font: bold 26px "Times New Roman", Times, serif;
+    --title-color: #1a1a1a;
+    --title-shadow: none;
+    --card-border: 2px outset #dfdfdf;
+    --titlebar-display: none;
+  }
+  :root[data-theme="modern"] {
+    --desktop:   #eceef2;
+    --page-bg:   #ffffff;
+    --page-border: 1px solid #e4e6ea;
+    --page-radius: 14px;
+    --page-shadow: 0 1px 3px rgba(16,24,40,.06), 0 12px 32px rgba(16,24,40,.10);
+    --body-font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --text:      #1b1e24;
+    --muted:     #6b7280;
+    --link:      #4f46e5;
+    --title-font: 700 28px/1.15 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    --title-color: #12141a;
+    --title-shadow: none;
+    --card-bg:     #ffffff;
+    --card-border: 1px solid #e7e9ee;
+    --card-radius: 12px;
+    --field-bg:     #ffffff;
+    --field-border: 1px solid #d3d7de;
+    --titlebar-display: none;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--desktop);
+    color: var(--text);
+    font: 16px/1.5 var(--body-font);
+    min-height: 100vh;
+    padding: 28px 14px;
+  }
+  .page {
+    max-width: 720px;
+    margin: 0 auto;
+    background: var(--page-bg);
+    border: var(--page-border);
+    border-radius: var(--page-radius);
+    box-shadow: var(--page-shadow);
+  }
+  .titlebar {
+    display: var(--titlebar-display);
+    align-items: center; justify-content: space-between;
+    background: linear-gradient(90deg, #000080, #1084d0);
+    color: #fff; font: bold 13px "MS Sans Serif", Tahoma, sans-serif;
+    padding: 3px 4px 3px 8px;
+  }
+  .titlebar .btns span {
+    display: inline-block; width: 16px; height: 14px; margin-left: 2px;
+    background: #c0c0c0; border: 1px outset #dfdfdf; color: #000;
+    text-align: center; line-height: 12px; font-size: 10px;
+  }
+  .inner { padding: 22px 26px 26px; }
+
+  header {
+    display: flex; align-items: baseline; justify-content: space-between;
+    gap: 16px; flex-wrap: wrap;
+  }
+  h1 {
+    margin: 0; font: var(--title-font); color: var(--title-color);
+    text-shadow: var(--title-shadow); letter-spacing: 2px;
+  }
+  .theme-pick { font-size: 13px; color: var(--muted); white-space: nowrap; }
+  .theme-pick select {
+    font: inherit; background: var(--field-bg); border: var(--field-border);
+    color: var(--text); padding: 2px 4px;
+  }
+  :root[data-theme="modern"] .theme-pick select { border-radius: 6px; padding: 4px 8px; }
+
+  .tagline { margin: 10px 0 22px; color: var(--muted); }
+
+  .machines { display: grid; gap: 16px; }
+
+  .machine-card {
+    display: flex; align-items: center; gap: 20px;
+    padding: 16px 18px; text-decoration: none; color: inherit;
+    background: var(--card-bg); border: var(--card-border);
+    border-radius: var(--card-radius);
+    transition: transform .12s ease, box-shadow .12s ease;
+  }
+  .machine-card:hover { transform: translateY(-2px); }
+  :root[data-theme="modern"] .machine-card:hover {
+    box-shadow: 0 6px 20px rgba(16,24,40,.12);
+  }
+  :root:not([data-theme="modern"]) .machine-card:active { border-style: inset; }
+  .machine-card .meta { flex: 1; min-width: 0; }
+  .machine-card .name { font-weight: 700; font-size: 17px; letter-spacing: .5px; }
+  .machine-card .spec { color: var(--muted); font-size: 13px; margin-top: 2px; }
+  .machine-card .go {
+    color: var(--link); font-size: 13px; font-weight: 700; white-space: nowrap;
+  }
+
+  /* ---- CSS Altair 8800 front panel (decoration) ---- */
+  .altair {
+    flex: 0 0 auto; width: 210px; height: 96px; position: relative;
+    background: linear-gradient(180deg, #34506b, #24384c);
+    border: 1px solid #0c1620; border-radius: 3px;
+    box-shadow: inset 0 0 0 2px #47637f, inset 0 2px 6px rgba(0,0,0,.5),
+                0 2px 6px rgba(0,0,0,.35);
+    padding: 8px 10px; overflow: hidden;
+  }
+  .altair .logo {
+    font: 800 12px/1 Arial, sans-serif; letter-spacing: 3px; color: #eef2f6;
+  }
+  .altair .logo b { color: #7fd3ff; font-weight: 800; }
+  .altair .sub {
+    font: 6px/1 Arial, sans-serif; letter-spacing: 2px; color: #9fb4c6;
+    margin-top: 1px;
+  }
+  .altair .row { display: flex; gap: 3px; margin-top: 9px; }
+  .altair .led {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: radial-gradient(circle at 40% 35%, #5a1414, #250606 70%);
+    box-shadow: inset 0 0 1px #000;
+  }
+  .altair .led.on {
+    background: radial-gradient(circle at 40% 35%, #ffd0c0, #ff4a2a 45%, #b0180a);
+    box-shadow: 0 0 4px 1px rgba(255,80,40,.7);
+  }
+  .altair .sw {
+    width: 5px; height: 12px; border-radius: 1px;
+    background: linear-gradient(#d8d8d8, #8f8f8f);
+    box-shadow: inset 0 -3px 2px rgba(0,0,0,.35), 0 1px 1px rgba(0,0,0,.4);
+  }
+  .altair .row.sws { gap: 4px; margin-top: 7px; }
+
+  footer {
+    margin-top: 26px; padding-top: 12px;
+    border-top: 1px solid rgba(128,128,128,.35);
+    font-size: 12px; color: var(--muted);
+  }
+  footer a { color: var(--link); }
+  a { color: var(--link); }
+
+  @media (max-width: 480px) {
+    .machine-card { flex-direction: column; align-items: flex-start; }
+    .altair { width: 100%; }
+  }
+</style>
+</head>
+<body>
+<script>try{document.documentElement.dataset.theme=localStorage.getItem("retro8080.theme")||"win";}catch(e){}</script>
+
+<div class="page">
+  <div class="titlebar">
+    <span>&#9635; RETRO</span>
+    <span class="btns"><span>_</span><span>&#9633;</span><span>&times;</span></span>
+  </div>
+
+  <div class="inner">
+    <header>
+      <h1>RETRO</h1>
+      <label class="theme-pick">Theme:
+        <select id="pageTheme">
+          <option value="win">Windows</option>
+          <option value="web94">1994 Web</option>
+          <option value="modern">Modern</option>
+        </select>
+      </label>
+    </header>
+
+    <p class="tagline">Vintage machines, running entirely in your browser.</p>
+
+    <div class="machines">
+      <a class="machine-card" href="altair8800/">
+        <span class="altair" aria-hidden="true">
+          <span class="logo">altair <b>8800</b></span>
+          <span class="sub">MITS</span>
+          <span class="row leds">
+            <i class="led on"></i><i class="led"></i><i class="led on"></i><i class="led on"></i>
+            <i class="led"></i><i class="led on"></i><i class="led"></i><i class="led"></i>
+            <i class="led on"></i><i class="led"></i><i class="led"></i><i class="led on"></i>
+            <i class="led"></i><i class="led on"></i><i class="led"></i><i class="led"></i>
+          </span>
+          <span class="row sws">
+            <i class="sw"></i><i class="sw"></i><i class="sw"></i><i class="sw"></i>
+            <i class="sw"></i><i class="sw"></i><i class="sw"></i><i class="sw"></i>
+            <i class="sw"></i><i class="sw"></i><i class="sw"></i><i class="sw"></i>
+            <i class="sw"></i><i class="sw"></i><i class="sw"></i><i class="sw"></i>
+          </span>
+        </span>
+        <span class="meta">
+          <span class="name">MITS Altair 8800</span>
+          <span class="spec">Intel 8080 &middot; 2&nbsp;MHz &middot; CP/M&nbsp;2.2 &middot; Altair BASIC &middot; working front panel</span>
+        </span>
+        <span class="go">Launch &rarr;</span>
+      </a>
+    </div>
+
+    <footer>
+      Each machine is a cycle-accurate emulator compiled to WebAssembly.
+      Source: <a href="https://github.com/gsirhc/retro">github.com/gsirhc/retro</a>.
+    </footer>
+  </div>
+</div>
+
+<script>
+  (function () {
+    var root = document.documentElement;
+    var sel = document.getElementById("pageTheme");
+    var saved;
+    try { saved = localStorage.getItem("retro8080.theme"); } catch (e) {}
+    root.dataset.theme = saved || "win";
+    sel.value = root.dataset.theme;
+    sel.addEventListener("change", function () {
+      root.dataset.theme = sel.value;
+      try { localStorage.setItem("retro8080.theme", sel.value); } catch (e) {}
+    });
+  })();
+</script>
+</body>
+</html>

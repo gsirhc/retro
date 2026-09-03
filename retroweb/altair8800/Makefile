@@ -61,7 +61,7 @@ coverage:
 	  srcs="$(CURDIR)/i8080.cpp $(CURDIR)/i8080.h $(CURDIR)/disk88.cpp $(CURDIR)/disk88.h $(CURDIR)/cassette.cpp $(CURDIR)/cassette.h"; \
 	  $(LLVM_COV) report $$objs -instr-profile=cov.profdata $$srcs; \
 	  $(LLVM_COV) show $$objs -instr-profile=cov.profdata -format=html -output-dir=../coverage-cpp $$srcs >/dev/null; \
-	  echo "  html: Emulator8080/tests/coverage-cpp/index.html"
+	  echo "  html: retroweb/altair8800/tests/coverage-cpp/index.html"
 
 # --- CP/M diagnostic host --------------------------------------------
 cpm/cpm_host: cpm/cpm_host.cpp i8080.cpp i8080.h

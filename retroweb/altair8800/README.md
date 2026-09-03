@@ -1,4 +1,4 @@
-# Emulator8080
+# Altair 8800
 
 Intel 8080 CPU core in C++ with an Altair 88-2SIO serial board and an 88-DCDD
 floppy controller (enough to boot CP/M), a native demo, a GoogleTest suite, and

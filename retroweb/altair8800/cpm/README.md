@@ -5,7 +5,7 @@ faking just enough of CP/M to see console output. It's the standard way to run
 the classic 8080 test suites.
 
 ```sh
-make cpm                       # from Emulator8080/  (builds, runs TST8080.COM if present)
+make cpm                       # from retroweb/altair8800/  (builds, runs TST8080.COM if present)
 ./cpm/cpm_host cpm/TST8080.COM  # or run a specific image
 ./scripts/cpm                   # same, no-arg
 ```

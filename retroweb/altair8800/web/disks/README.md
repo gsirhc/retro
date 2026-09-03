@@ -46,7 +46,7 @@ The rest are user-supplied — drop your own copies in:
 | `altairdos.dsk`| `DISK02.DSK` | Altair DOS 1.0 |
 
 ```sh
-cd Emulator8080/web/disks
+cd retroweb/altair8800/web/disks
 curl -L -o games.dsk https://raw.githubusercontent.com/dhansel/Altair8800/master/disks/DISK05.DSK
 ```
 

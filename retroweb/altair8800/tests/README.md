@@ -8,7 +8,7 @@ GoogleTest is fetched automatically by CMake (`FetchContent`, needs network on
 the first configure).
 
 ```sh
-cd Emulator8080/tests
+cd retroweb/altair8800/tests
 cmake -B build
 cmake --build build -j
 ctest --test-dir build --output-on-failure   # or: ./build/arithmetic_test

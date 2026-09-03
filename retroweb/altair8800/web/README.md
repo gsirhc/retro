@@ -35,7 +35,7 @@ from `file://`.)
 
 ## Tests
 
-`tests/` is a [Playwright](https://playwright.dev) suite (~175 tests) that drives
+`tests/` is a [Playwright](https://playwright.dev) suite (~177 tests) that drives
 the real page in a headless browser and asserts control behaviour, machine
 state, and xterm buffer contents — the front panel, every terminal profile,
 every era preset, the paper-tape reader, the 88-ACR cassette, both 88-DCDD
@@ -46,7 +46,10 @@ knowledgeable user would — load Kill the Bit and watch the bit march; cold-sta
 4K BASIC and run a program; 8K BASIC off paper tape then `CLOAD` Star Trek and
 `RUN` it; boot CP/M, `STAT` / `DIR` the disk, run `MBASIC`. `panel-lights.spec.ts`
 covers every lamp: the 16-bit address decode, the data lamps, `WAIT` / `HLTA` /
-`MEMR` / `M1` / `INTE` / `INP`, and Kill the Bit's sense-switch XOR. `app.js` is at 100% line and 100% function coverage
+`MEMR` / `M1` / `INTE` / `INP`, and Kill the Bit's sense-switch XOR.
+`home.spec.ts` covers the `retroweb/` landing page (served by a 2nd `webServer`
+on `:8110`): its theme selector shares the `retro8080.theme` key, and the Altair
+card links to `/altair8800/`. `app.js` is at 100% line and 100% function coverage
 (lcov), ~82% branch; the handful of never-taken branches are `x || fallback`
 short-circuits and `?.` guards. A few genuinely unreachable spots (missing
 xterm, wasm-instantiate failure, self-restoring flash timers) are marked
@@ -66,7 +69,7 @@ npx playwright show-report                 # last run's HTML report
 few genuinely unreachable defensive paths (missing xterm, wasm-instantiate
 failure, oversized-manual reflow) — not untested features.
 
-For the C++ core: `make -C Emulator8080 coverage` (llvm-cov over
+For the C++ core: `make -C retroweb/altair8800 coverage` (llvm-cov over
 `i8080.cpp` / `disk88.cpp` / `cassette.cpp`, driven by the GoogleTest suites
 plus the 8080 diagnostic COMs).
 

@@ -18,7 +18,7 @@ export async function coverageTeardown() {
     // eslint-disable-next-line no-console
     console.log(
       `\napp.js coverage — lines ${pct(s.lines)}  functions ${pct(s.functions)}  branches ${pct(s.branches)}` +
-        `\n  full report: Emulator8080/web/coverage/index.html\n`,
+        `\n  full report: retroweb/altair8800/web/coverage/index.html\n`,
     );
   }
 }

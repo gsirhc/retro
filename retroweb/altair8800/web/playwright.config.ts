@@ -7,7 +7,8 @@ import { defineConfig, devices } from "@playwright/test";
 // The page is served by devserve.py (no-cache headers) on a dedicated port so
 // it never collides with a hand-run `make serve` on 8000.
 
-const PORT = 8100;
+const PORT = 8100;      // the emulator front end (this dir)
+const HOME_PORT = 8110; // the retroweb/ landing page, for home.spec.ts
 
 export default defineConfig({
   testDir: "tests",
@@ -35,12 +36,23 @@ export default defineConfig({
 
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
 
-  webServer: {
-    command: `python3 devserve.py ${PORT}`,
-    url: `http://localhost:${PORT}/`,
-    reuseExistingServer: !process.env.CI,
-    timeout: 20_000,
-    stdout: "ignore",
-    stderr: "pipe",
-  },
+  webServer: [
+    {
+      command: `python3 devserve.py ${PORT}`,
+      url: `http://localhost:${PORT}/`,
+      reuseExistingServer: !process.env.CI,
+      timeout: 20_000,
+      stdout: "ignore",
+      stderr: "pipe",
+    },
+    {
+      // retroweb/ (two levels up) for the landing-page spec
+      command: `python3 -m http.server ${HOME_PORT} -d ../..`,
+      url: `http://localhost:${HOME_PORT}/`,
+      reuseExistingServer: !process.env.CI,
+      timeout: 20_000,
+      stdout: "ignore",
+      stderr: "pipe",
+    },
+  ],
 });
