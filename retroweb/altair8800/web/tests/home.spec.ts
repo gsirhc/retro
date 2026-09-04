@@ -13,10 +13,15 @@ test.describe("retroweb landing page", () => {
 
     const card = page.locator("a.machine-card");
     await expect(card).toHaveAttribute("href", "altair8800/"); // resolves in the deployed _site
-    await expect(card).toContainText(/Altair 8800/i);
-    await expect(card).toContainText(/Intel 8080/i);
-    // the CSS front-panel decoration is drawn, not an image
-    expect(await page.locator(".altair .led").count()).toBeGreaterThan(8);
+    await expect(card.locator(".name")).toHaveText(/MITS Altair 8800/i);
+
+    // the front-panel thumbnail is served from assets/ and decodes
+    const shot = card.locator("img.shot");
+    await expect(shot).toHaveAttribute("src", /assets\/altair-panel\.jpg$/);
+    await expect(shot).toHaveJSProperty("complete", true);
+    expect(
+      await shot.evaluate((img: HTMLImageElement) => img.naturalWidth),
+    ).toBeGreaterThan(0);
   });
 
   test("the theme selector switches the page and persists to retro8080.theme", async ({ page }) => {

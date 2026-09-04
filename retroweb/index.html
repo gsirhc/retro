@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>RETRO — vintage machines in your browser</title>
 <style>
-  /* ---- page themes: default = Windows; web94 = '94 gray web; modern = clean ----
+  /* ---- page themes: default = Windows 95; web94 = mid-90s Mosaic web; modern = clean ----
      the values that matter here mirror altair8800/web/index.html so a theme
      picked on either page (shared retro8080.theme) looks consistent. */
   :root {
@@ -29,9 +29,11 @@
     --titlebar-display: flex;
   }
   :root[data-theme="web94"] {
-    --desktop:   #c0c0c0;
+    /* the period tiled "blue marble" desktop (baked to a tiny inline JPEG so it
+       renders identically everywhere) */
+    --desktop:   #d1d6df url("data:image/jpeg;base64,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") repeat;
     --page-bg:   #c0c0c0;
-    --page-border: none;
+    --page-border: 3px ridge #dfdfdf;
     --page-shadow: none;
     --title-font: bold 26px "Times New Roman", Times, serif;
     --title-color: #1a1a1a;
@@ -58,6 +60,26 @@
     --field-bg:     #ffffff;
     --field-border: 1px solid #d3d7de;
     --titlebar-display: none;
+  }
+  /* Dark Modern — Modern layout, dark palette (theme scripts set
+     data-theme="modern" + data-mode="dark") */
+  :root[data-theme="modern"][data-mode="dark"] {
+    color-scheme: dark;
+    --desktop:   #121317;
+    --page-bg:   #1b1d22;
+    --page-border: 1px solid #2c2f37;
+    --page-shadow: 0 1px 2px rgba(0,0,0,.4), 0 16px 44px rgba(0,0,0,.55);
+    --text:      #d7dae0;
+    --muted:     #9aa0aa;
+    --link:      #a9a3ff;
+    --title-color: #f1f2f5;
+    --card-bg:     #23262d;
+    --card-border: 1px solid #31353e;
+    --field-bg:     #2a2e37;
+    --field-border: 1px solid #3a3f4a;
+  }
+  :root[data-theme="modern"][data-mode="dark"] .machine-card:hover {
+    box-shadow: 0 6px 22px rgba(0,0,0,.5);
   }
 
   * { box-sizing: border-box; }
@@ -111,8 +133,8 @@
   .machines { display: grid; gap: 16px; }
 
   .machine-card {
-    display: flex; align-items: center; gap: 20px;
-    padding: 16px 18px; text-decoration: none; color: inherit;
+    display: flex; align-items: center; gap: 16px;
+    padding: 12px 14px; text-decoration: none; color: inherit;
     background: var(--card-bg); border: var(--card-border);
     border-radius: var(--card-radius);
     transition: transform .12s ease, box-shadow .12s ease;
@@ -122,63 +144,26 @@
     box-shadow: 0 6px 20px rgba(16,24,40,.12);
   }
   :root:not([data-theme="modern"]) .machine-card:active { border-style: inset; }
-  .machine-card .meta { flex: 1; min-width: 0; }
-  .machine-card .name { font-weight: 700; font-size: 17px; letter-spacing: .5px; }
-  .machine-card .spec { color: var(--muted); font-size: 13px; margin-top: 2px; }
+
+  /* ---- thumbnail of the emulator's own rendered front panel ---- */
+  .machine-card .shot {
+    flex: 0 0 auto; height: 64px; width: auto; display: block;
+    border-radius: 3px; box-shadow: 0 1px 4px rgba(0,0,0,.35);
+  }
+  :root[data-theme="modern"] .machine-card .shot { border-radius: 6px; }
+
+  .machine-card .name {
+    flex: 1; min-width: 0; font-weight: 700; font-size: 17px; letter-spacing: .5px;
+  }
   .machine-card .go {
     color: var(--link); font-size: 13px; font-weight: 700; white-space: nowrap;
   }
 
-  /* ---- CSS Altair 8800 front panel (decoration) ---- */
-  .altair {
-    flex: 0 0 auto; width: 210px; height: 96px; position: relative;
-    background: linear-gradient(180deg, #34506b, #24384c);
-    border: 1px solid #0c1620; border-radius: 3px;
-    box-shadow: inset 0 0 0 2px #47637f, inset 0 2px 6px rgba(0,0,0,.5),
-                0 2px 6px rgba(0,0,0,.35);
-    padding: 8px 10px; overflow: hidden;
-  }
-  .altair .logo {
-    font: 800 12px/1 Arial, sans-serif; letter-spacing: 3px; color: #eef2f6;
-  }
-  .altair .logo b { color: #7fd3ff; font-weight: 800; }
-  .altair .sub {
-    font: 6px/1 Arial, sans-serif; letter-spacing: 2px; color: #9fb4c6;
-    margin-top: 1px;
-  }
-  .altair .row { display: flex; gap: 3px; margin-top: 9px; }
-  .altair .led {
-    width: 6px; height: 6px; border-radius: 50%;
-    background: radial-gradient(circle at 40% 35%, #5a1414, #250606 70%);
-    box-shadow: inset 0 0 1px #000;
-  }
-  .altair .led.on {
-    background: radial-gradient(circle at 40% 35%, #ffd0c0, #ff4a2a 45%, #b0180a);
-    box-shadow: 0 0 4px 1px rgba(255,80,40,.7);
-  }
-  .altair .sw {
-    width: 5px; height: 12px; border-radius: 1px;
-    background: linear-gradient(#d8d8d8, #8f8f8f);
-    box-shadow: inset 0 -3px 2px rgba(0,0,0,.35), 0 1px 1px rgba(0,0,0,.4);
-  }
-  .altair .row.sws { gap: 4px; margin-top: 7px; }
-
-  footer {
-    margin-top: 26px; padding-top: 12px;
-    border-top: 1px solid rgba(128,128,128,.35);
-    font-size: 12px; color: var(--muted);
-  }
-  footer a { color: var(--link); }
   a { color: var(--link); }
-
-  @media (max-width: 480px) {
-    .machine-card { flex-direction: column; align-items: flex-start; }
-    .altair { width: 100%; }
-  }
 </style>
 </head>
 <body>
-<script>try{document.documentElement.dataset.theme=localStorage.getItem("retro8080.theme")||"win";}catch(e){}</script>
+<script>try{var t=localStorage.getItem("retro8080.theme")||"win",r=document.documentElement;if(t=="moderndark"){r.dataset.theme="modern";r.dataset.mode="dark";}else{r.dataset.theme=t;}}catch(e){}</script>
 
 <div class="page">
   <div class="titlebar">
@@ -191,9 +176,10 @@
       <h1>RETRO</h1>
       <label class="theme-pick">Theme:
         <select id="pageTheme">
-          <option value="win">Windows</option>
-          <option value="web94">1994 Web</option>
+          <option value="win">Windows 95</option>
+          <option value="web94">Mid-1990s Web</option>
           <option value="modern">Modern</option>
+          <option value="moderndark">Dark Modern</option>
         </select>
       </label>
     </header>
@@ -202,34 +188,12 @@
 
     <div class="machines">
       <a class="machine-card" href="altair8800/">
-        <span class="altair" aria-hidden="true">
-          <span class="logo">altair <b>8800</b></span>
-          <span class="sub">MITS</span>
-          <span class="row leds">
-            <i class="led on"></i><i class="led"></i><i class="led on"></i><i class="led on"></i>
-            <i class="led"></i><i class="led on"></i><i class="led"></i><i class="led"></i>
-            <i class="led on"></i><i class="led"></i><i class="led"></i><i class="led on"></i>
-            <i class="led"></i><i class="led on"></i><i class="led"></i><i class="led"></i>
-          </span>
-          <span class="row sws">
-            <i class="sw"></i><i class="sw"></i><i class="sw"></i><i class="sw"></i>
-            <i class="sw"></i><i class="sw"></i><i class="sw"></i><i class="sw"></i>
-            <i class="sw"></i><i class="sw"></i><i class="sw"></i><i class="sw"></i>
-            <i class="sw"></i><i class="sw"></i><i class="sw"></i><i class="sw"></i>
-          </span>
-        </span>
-        <span class="meta">
-          <span class="name">MITS Altair 8800</span>
-          <span class="spec">Intel 8080 &middot; 2&nbsp;MHz &middot; CP/M&nbsp;2.2 &middot; Altair BASIC &middot; working front panel</span>
-        </span>
+        <img class="shot" src="assets/altair-panel.jpg" width="286" height="128"
+             decoding="async" alt="Altair 8800 front panel">
+        <span class="name">MITS Altair 8800</span>
         <span class="go">Launch &rarr;</span>
       </a>
     </div>
-
-    <footer>
-      Each machine is a cycle-accurate emulator compiled to WebAssembly.
-      Source: <a href="https://github.com/gsirhc/retro">github.com/gsirhc/retro</a>.
-    </footer>
   </div>
 </div>
 
@@ -237,12 +201,18 @@
   (function () {
     var root = document.documentElement;
     var sel = document.getElementById("pageTheme");
+    var VALUES = ["win", "web94", "modern", "moderndark"];
+    function apply(v) {
+      if (VALUES.indexOf(v) < 0) v = "win";
+      if (v === "moderndark") { root.dataset.theme = "modern"; root.dataset.mode = "dark"; }
+      else { root.dataset.theme = v; delete root.dataset.mode; }
+      return v;
+    }
     var saved;
     try { saved = localStorage.getItem("retro8080.theme"); } catch (e) {}
-    root.dataset.theme = saved || "win";
-    sel.value = root.dataset.theme;
+    sel.value = apply(saved || "win");
     sel.addEventListener("change", function () {
-      root.dataset.theme = sel.value;
+      apply(sel.value);
       try { localStorage.setItem("retro8080.theme", sel.value); } catch (e) {}
     });
   })();

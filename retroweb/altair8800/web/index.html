@@ -24,7 +24,7 @@
     font-weight: 700; font-display: swap;
   }
 
-  /* ---- page themes: default = Windows; web94 = '94 gray web; modern = clean ---- */
+  /* ---- page themes: default = Windows 95; web94 = mid-90s Mosaic web; modern = clean ---- */
   :root {
     --desktop:   #008080;             /* the one true desktop color */
     --page-bg:   #c0c0c0;
@@ -64,17 +64,19 @@
     --altair-radius: 0;
   }
   :root[data-theme="web94"] {
-    --desktop:   #c0c0c0;             /* ubiquitous Mosaic / Netscape 1.x gray */
-    --page-bg:   #c0c0c0;
-    --page-border: none;
-    --body-pad:  10px 14px;
+    --desktop:   #c0c0c0;             /* fallback under the tiled marble (set below) */
+    --page-bg:   #c0c0c0;             /* gray content column on the marble desktop */
+    --page-border: 3px ridge #dfdfdf;
+    --body-pad:  26px 16px;
     --titlebar-display: none;
-    --rule:      1px solid #9090c4;
-    --h1-font:   bold 26px "Times New Roman", Times, serif;
-    --h1-color:  #1a1a1a;
+    --link:      #0000ff;             /* raw Mosaic blue / visited purple */
+    --link-visited: #800080;
+    --rule:      2px inset #c0c0c0;
+    --h1-font:   bold 27px "Times New Roman", Times, serif;
+    --h1-color:  #000000;
     --h1-shadow: none;
-    --h1-align:  left;
-    --center:    left;
+    --h1-align:  center;
+    --center:    center;
   }
   :root[data-theme="modern"] {
     --desktop:   #eceef2;
@@ -111,7 +113,52 @@
     --statusline-border: #e4e6ea;
     --altair-bg:     #16181c;
     --altair-radius: 14px;
+    --muted:         #6b7280;
   }
+
+  /* Dark Modern: the Modern theme's exact layout, dark palette. Selected as
+     "moderndark"; the theme scripts set data-theme="modern" + data-mode="dark"
+     so every [data-theme="modern"] layout rule still applies. */
+  :root[data-theme="modern"][data-mode="dark"] {
+    color-scheme: dark;
+    --desktop:   #121317;
+    --page-bg:   #1b1d22;
+    --page-border: 1px solid #2c2f37;
+    --page-shadow: 0 1px 2px rgba(0,0,0,.4), 0 16px 44px rgba(0,0,0,.55);
+    --text:      #d7dae0;
+    --muted:     #9aa0aa;
+    --link:      #a9a3ff;
+    --link-visited: #a9a3ff;
+    --titlebar-bg: #23262d;
+    --titlebar-fg: #d7dae0;
+    --rule:      1px solid #2c2f37;
+    --h1-color:  #f1f2f5;
+    --panel-bg:     #23262d;
+    --panel-border: 1px solid #31353e;
+    --btn-bg:       #2a2e37;
+    --btn-fg:       #d7dae0;
+    --btn-border:   1px solid #3a3f4a;
+    --field-bg:     #2a2e37;
+    --field-border: 1px solid #3a3f4a;
+    --statusline-bg:     #17181d;
+    --statusline-fg:     #9aa0aa;
+    --statusline-border: #2c2f37;
+    --altair-bg:     #0c0d10;
+  }
+  :root[data-theme="modern"][data-mode="dark"] .pagebar { border-bottom-color: #2c2f37; }
+  :root[data-theme="modern"][data-mode="dark"] button:hover,
+  :root[data-theme="modern"][data-mode="dark"] label.filebtn:hover,
+  :root[data-theme="modern"][data-mode="dark"] .pg-toggle:hover { background: #2f333d; }
+  :root[data-theme="modern"][data-mode="dark"] button:active,
+  :root[data-theme="modern"][data-mode="dark"] label.filebtn:active { background: #24272e; }
+  :root[data-theme="modern"][data-mode="dark"] .titlebar .btns span { color: #9aa0aa; }
+  :root[data-theme="modern"][data-mode="dark"] .titlebar .btns span:hover { background: #2f333d; color: #e8eaee; }
+  :root[data-theme="modern"][data-mode="dark"] .desc,
+  :root[data-theme="modern"][data-mode="dark"] .help-doc pre { background: #17181d; border-color: #2c2f37; }
+  :root[data-theme="modern"][data-mode="dark"] .help-doc h4 { color: #e8eaee; }
+  :root[data-theme="modern"][data-mode="dark"] .disk-note { color: #9aa0aa; }
+  :root[data-theme="modern"][data-mode="dark"] .preset-note { color: #ff7a7a; }
+  :root[data-theme="modern"][data-mode="dark"] .dialog { box-shadow: 0 10px 44px rgba(0,0,0,.6); }
 
   body {
     background: var(--desktop);
@@ -159,6 +206,86 @@
   }
   :root[data-theme="modern"] .titlebar .btns span:hover { background: #e6e8ec; color: #1b1e24; }
 
+  /* top bar / nav: window chrome in Win95, a plain nav bar in the others.
+     Separate from .titlebar so the modal dialogs keep their own window bar. */
+  .pagebar {
+    display: flex; align-items: center; gap: 10px;
+    background: var(--titlebar-bg); color: var(--titlebar-fg);
+    font: bold 13px Arial, Helvetica, sans-serif;
+    padding: 3px 5px;
+  }
+  .pagebar a { color: inherit; }
+  .pb-title {
+    flex: 1; min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  /* Win95 uses the close box instead (the .pb-close link, same href) */
+  .pb-home { flex: 0 0 auto; display: none; text-decoration: none; font-weight: bold; }
+  .pb-name, .pb-tag { display: none; }   /* Modern folds the page title into this bar */
+  .pb-tools { flex: 0 0 auto; margin-left: auto; display: flex; align-items: center; gap: 10px; }
+  .pb-theme { display: inline-flex; align-items: center; gap: 5px; font: inherit; }
+  .pb-theme select {
+    font: 11px Arial, Helvetica, sans-serif;
+    color: var(--text); background: var(--field-bg);
+    border: var(--field-border); border-radius: var(--btn-radius);
+    padding: 1px 3px;
+  }
+  .pb-winbtns span, .pb-winbtns a {
+    display: inline-block; width: 16px; height: 14px; line-height: 12px;
+    margin-left: 2px; text-align: center; font-size: 10px;
+    color: #000; background: #c0c0c0; border: 1px outset #dfdfdf;
+    text-decoration: none;
+  }
+
+  :root[data-theme="web94"] .pagebar {
+    background: #c0c0c0; color: #000;
+    border-bottom: 1px solid #808080;
+    font: 13px "Times New Roman", Times, serif;
+  }
+  :root[data-theme="web94"] .pb-title   { display: none; }
+  :root[data-theme="web94"] .pb-winbtns { display: none; }
+  :root[data-theme="web94"] .pb-home {
+    display: inline; color: #0000ff; text-decoration: underline; font-weight: normal;
+  }
+  :root[data-theme="web94"] .pb-home:visited { color: #800080; }
+
+  :root[data-theme="modern"] .pagebar {
+    background: var(--titlebar-bg); color: var(--titlebar-fg);
+    border-bottom: 1px solid #ecedf1; border-radius: 14px 14px 0 0;
+    font: 500 13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    padding: 8px 14px;
+  }
+  :root[data-theme="modern"] .pb-title   { display: none; }
+  :root[data-theme="modern"] .pb-winbtns { display: none; }
+  :root[data-theme="modern"] .pb-home {
+    display: inline; color: var(--link); text-decoration: none; font-weight: 600;
+    font-size: 12px; opacity: .85;
+  }
+  :root[data-theme="modern"] .pb-name {
+    display: block; flex: 0 0 auto; margin-left: 2px;
+    font-weight: 700; font-size: 16px; letter-spacing: .3px; color: var(--h1-color);
+  }
+  :root[data-theme="modern"] .pb-tag {
+    display: block; flex: 1 1 auto; min-width: 0;
+    color: var(--muted); font-size: 13px; font-weight: 400;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  :root[data-theme="modern"] .pb-tag::before { content: "\2014\00a0"; }  /* em dash */
+  :root[data-theme="modern"] .pb-theme select {
+    font-size: 13px; border-radius: 6px; padding: 4px 8px;
+  }
+  /* Modern: the title now lives in the bar, so drop the big in-page header */
+  :root[data-theme="modern"] .inner > h1 {
+    position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
+    overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+  }
+  :root[data-theme="modern"] .inner > .tagline,
+  :root[data-theme="modern"] .inner > .head-rule { display: none; }
+
+  @media (max-width: 560px) {
+    :root[data-theme="modern"] .pb-tag { display: none; }
+  }
+
   .inner { padding: var(--inner-pad); }
 
   h1 {
@@ -170,11 +297,6 @@
     text-shadow: var(--h1-shadow);
   }
   .tagline { text-align: var(--center); font-style: italic; margin: 4px 0 0; }
-  .spec {
-    text-align: var(--center); margin: 3px 0 0;
-    font: 12.5px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    letter-spacing: .1px; opacity: .55;
-  }
   /* the ~ * ~ line is a deliberate period touch — retro themes only */
   .modern-only { display: none; }
   :root[data-theme="modern"] .retro-only { display: none; }
@@ -182,9 +304,54 @@
   :root[data-theme="modern"] .tagline {
     font-style: normal; font-size: 15px; opacity: .8; margin-top: 6px;
   }
-  :root[data-theme="modern"] .spec { max-width: 640px; margin-inline: auto; }
 
   hr.rule { border: 0; border-top: var(--rule); margin: 12px 0; }
+
+  /* ===== Mid-1990s Web — NCSA Mosaic / early-Netscape page chrome =========
+     Every rule is scoped to [data-theme="web94"], so nothing here touches the
+     Windows 95 or Modern themes. Only the page chrome is period-dressed; the
+     emulated hardware keeps its photoreal look in every theme. */
+  /* the ubiquitous tiled "blue marble" desktop — a tiny 220px JPEG baked from
+     SVG turbulence, inline so there's no image asset to ship and it renders
+     identically in every browser */
+  :root[data-theme="web94"] body {
+    background: #d1d6df url("data:image/jpeg;base64,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") repeat;
+    color: #000;
+    font-family: "Times New Roman", Times, serif;
+  }
+  :root[data-theme="web94"] h1,
+  :root[data-theme="web94"] h2,
+  :root[data-theme="web94"] h3 {
+    font-family: "Times New Roman", Times, serif; font-weight: bold;
+    color: #000; letter-spacing: 0; margin: 10px 0 4px;
+  }
+  :root[data-theme="web94"] h2 { font-size: 21px; }
+  :root[data-theme="web94"] h3 { font-size: 18px; }
+  /* the shaded <hr size="2"> engraved bar */
+  :root[data-theme="web94"] hr.rule {
+    border: 0; height: 2px; margin: 14px 0;
+    border-top: 1px solid #808080;
+    border-bottom: 1px solid #ffffff;
+  }
+  /* raw Mosaic links: always underlined; blue / purple / red-on-click */
+  :root[data-theme="web94"] a { text-decoration: underline; }
+  :root[data-theme="web94"] a:active { color: #ff0000; }
+  /* no soft shadows / rounded corners on the floating guide window */
+  :root[data-theme="web94"] .pg-body {
+    border-radius: 0; box-shadow: 3px 3px 0 rgba(0,0,0,.4);
+  }
+
+  /* footer: a plain-text build date + a pipe-separated link list, in every
+     theme. The retro themes say "Page last modified" instead of "Last built". */
+  .fb-mod { display: none; }
+  .footer-links { margin-top: 4px; }
+  :root[data-theme="web94"] .fb-built { display: none; }
+  :root[data-theme="web94"] .fb-mod   { display: inline; }
+  :root[data-theme="web94"] .footer {
+    font: 13px/1.75 "Times New Roman", Times, serif; text-align: center;
+    color: #000; margin-top: 18px;
+  }
+  :root[data-theme="web94"] .footer a { color: #0000ff; }
 
   /* toolbar -------------------------------------------------------- */
   .toolbar {
@@ -365,11 +532,11 @@
     text-shadow: 0 1px 0 rgba(255,255,255,.55);
   }
 
-  /* status readout -- its own strip below the monitor */
+  /* register readout -- a strip inside the front-panel box, under the panel */
   .statusline {
     width: max-content; max-width: 100%;
-    margin: 10px auto 0;
-    font: 11px/1.4 "Courier New", monospace;
+    margin: 14px auto 2px;
+    font: 12px/1.4 "Courier New", monospace;
     color: var(--statusline-fg);
     background: var(--statusline-bg);
     border: 1px solid var(--statusline-border);
@@ -541,7 +708,8 @@
   .fp-wh, .fp-power { grid-column: 1 / 4; }
   .fp-wh { grid-row: 2; display: flex; gap: 14px; padding-left: 2px; }
   .fp-power {
-    grid-row: 1; display: flex; align-items: center; gap: 5px;
+    grid-row: 1; position: relative;
+    display: flex; flex-direction: column; align-items: center;
     padding-left: 2px;
   }
 
@@ -590,10 +758,15 @@
   .bat.momentary.flick::after    { top: 1px; }
   .bat.momentary.flick-dn::after { top: 21px; }
 
-  .fp-power .fp-cap,
+  /* the paddle throws vertically: ON up, OFF down (as on the real machine) */
+  .fp-power .fp-cap,      /* "OFF" — under the paddle, where a switch number sits */
+  .fp-power .fp-num {     /* "ON"  — floats just above the paddle */
+    color: #333; height: auto; font: 8px Arial, sans-serif; line-height: 1;
+  }
+  .fp-power .fp-cap { order: 2; margin: 3px 0 0; }
   .fp-power .fp-num {
-    color: #333; margin: 0; height: auto;
-    font: 8px Arial, sans-serif; line-height: 1;
+    position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%);
+    margin: 0 0 3px;
   }
 
   /* control slider row — spread evenly across the panel width */
@@ -642,12 +815,16 @@
   }
 
   /* front-panel bootstrap how-to ---------------------------------- */
-  .panel-guide { margin-top: 8px; }
+  /* the toggle now rides in the PRESET toolbar; the guide body still floats */
+  .panel-guide { display: contents; }
   .pg-toggle {
-    font: 12px "Courier New", monospace; letter-spacing: .5px;
-    background: var(--panel-bg); border: var(--panel-border);
-    border-radius: var(--panel-radius); padding: 5px 12px; cursor: pointer;
+    font: 12px Arial, Helvetica, sans-serif;
+    color: var(--btn-fg); background: var(--btn-bg);
+    border: var(--btn-border); border-radius: var(--btn-radius);
+    padding: 2px 10px; cursor: pointer; white-space: nowrap;
   }
+  .pg-toggle:active { border-style: inset; }
+  :root[data-theme="modern"] .pg-toggle:hover { background: #f4f5f7; }
   /* a movable floating panel -- starts on the right so the front panel and
      the guide are both visible without scrolling */
   .pg-body {
@@ -956,10 +1133,10 @@
     .acr.winding .acr-reel, .acr.rewinding .acr-reel { animation-duration: 3s; }
   }
   .acr-shell-label {
-    position: absolute; left: 50%; bottom: 6px; transform: translateX(-50%);
-    width: 184px; height: 15px; border-radius: 1px;
+    position: absolute; left: 50%; bottom: 5px; transform: translateX(-50%);
+    width: 188px; height: 16px; border-radius: 1px;
     background: linear-gradient(#ece6d6, #d0c8b3); box-shadow: 0 0 0 1px #b0a88c;
-    color: #3a352a; font: 8px/15px "Courier New", monospace;
+    color: #3a352a; font: 11px/16px "Courier New", monospace;
     text-align: center; overflow: hidden; white-space: nowrap;
   }
   .acr-shell-label::before { content: attr(data-label); }
@@ -1116,8 +1293,8 @@
   }
   .ptr-label {
     position: absolute; left: 6px; bottom: 4px;
-    font: 8px "Courier New", monospace; color: #2a2118;
-    background: rgba(217,201,161,.85); padding: 1px 4px; border-radius: 1px;
+    font: 11px "Courier New", monospace; color: #2a2118;
+    background: rgba(217,201,161,.9); padding: 2px 5px; border-radius: 1px;
   }
   .ptr:not(.loaded) .ptr-label { display: none; }
   .ptr-prog {
@@ -1144,25 +1321,94 @@
   .ptr.reading .ptr-btn.ptr-start { background: #e8cbc5; }
   .ptr-btn.ptr-eject { background: #cfcabb; }
   .ptr-hint { color: #9aa08c; font: 13px/1.55 "Courier New", monospace; margin-top: 10px; }
+
+  /* ---- workspace: front panel / terminal / devices -------------------
+     Every theme now flows front panel -> terminal -> devices. The wrappers
+     are transparent (display:contents) so the retro themes are a plain single
+     column, just as before. Modern drops the section rules for gaps; and on a
+     wide enough screen .workspace becomes a grid — terminal left, front panel
+     right, the loadable devices in a full-width row below — with the terminal
+     settings folded into the PRESET bar (app.js moves that node). */
+  .toolbars,
+  .workspace,
+  .ws-machine,
+  .ws-devices { display: contents; }
+  .ws-terminal { display: block; }   /* always a real box — sizeScreen measures it */
+
+  :root[data-theme="modern"] .workspace {
+    display: flex; flex-direction: column; gap: 16px;
+  }
+  :root[data-theme="modern"] .ws-machine { display: block; }
+  :root[data-theme="modern"] .ws-devices { display: block; }
+  :root[data-theme="modern"] .ws-rule    { display: none; }
+
+  @media (min-width: 1560px) {
+    :root[data-theme="modern"] { --page-max: min(1640px, 95vw); }
+
+    /* PRESET + TERMINAL settings share one bar */
+    :root[data-theme="modern"] .toolbars {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 4px 22px;
+      background: var(--panel-bg); border: var(--panel-border);
+      border-radius: var(--panel-radius); padding: 8px 12px;
+    }
+    :root[data-theme="modern"] .toolbars > .toolbar {
+      background: none; border: 0; border-radius: 0; padding: 0; margin: 0;
+      flex: 0 1 auto;
+    }
+
+    :root[data-theme="modern"] .workspace {
+      display: grid;
+      /* terminal keeps a comfortable min so it never squishes; the panel column
+         yields (it scrolls internally) when the screen isn't wide enough for both */
+      grid-template-columns: minmax(680px, 1fr) minmax(0, 800px);
+      grid-template-areas: "terminal machine" "devices devices";
+      gap: 22px 30px;
+      align-items: start;
+      margin-top: 14px;
+    }
+    :root[data-theme="modern"] .ws-machine  { grid-area: machine; }
+    :root[data-theme="modern"] .ws-terminal { grid-area: terminal; }
+    /* the loadable devices stack at their designed width (as in the retro themes) */
+    :root[data-theme="modern"] .ws-devices  {
+      grid-area: devices;
+      display: flex; flex-direction: column; align-items: flex-start; gap: 16px;
+    }
+    :root[data-theme="modern"] .ws-devices > * { width: 100%; max-width: 900px; }
+    :root[data-theme="modern"] #backplane { max-width: 900px; }
+    :root[data-theme="modern"] .workspace .monitor { margin: 0; }
+  }
 </style>
 </head>
 <body>
-<script>try{document.documentElement.dataset.theme=localStorage.getItem("retro8080.theme")||"win";}catch(e){}</script>
+<script>try{var t=localStorage.getItem("retro8080.theme")||"win",r=document.documentElement;if(t=="moderndark"){r.dataset.theme="modern";r.dataset.mode="dark";}else{r.dataset.theme=t;}}catch(e){}</script>
 
 <div class="page">
-  <div class="titlebar">
-    <span>&#9635; ALTAIR8800.EXE &mdash; [8080 Microcomputer Terminal]</span>
-    <span class="btns"><span>_</span><span>&#9633;</span><span>&times;</span></span>
-  </div>
+  <header class="pagebar">
+    <a class="pb-home" href="../">&#8592;&nbsp;All&nbsp;machines</a>
+    <span class="pb-title">&#9635; ALTAIR8800.EXE &mdash; [8080 Microcomputer Terminal]</span>
+    <span class="pb-name">ALTAIR 8800</span>
+    <span class="pb-tag">running entirely in your browser</span>
+    <span class="pb-tools">
+      <label class="pb-theme">Theme
+        <select id="pageTheme">
+          <option value="win">Windows 95</option>
+          <option value="web94">Mid-1990s Web</option>
+          <option value="modern">Modern</option>
+          <option value="moderndark">Dark Modern</option>
+        </select>
+      </label>
+      <span class="pb-winbtns"><span aria-hidden="true">_</span><span aria-hidden="true">&#9633;</span><a class="pb-close" href="../" title="back to all machines" aria-label="close &mdash; back to all machines">&times;</a></span>
+    </span>
+  </header>
 
   <div class="inner">
     <h1>ALTAIR 8800</h1>
     <p class="tagline retro-only">~ * ~ &nbsp;An Intel 8080 Microcomputer running entirely in your browser!&nbsp; ~ * ~</p>
     <p class="tagline modern-only">The MITS Altair 8800, running entirely in your browser.</p>
-    <p class="spec modern-only">Cycle-accurate Intel&nbsp;8080 &middot; 2&nbsp;MHz &middot; 4&ndash;64&nbsp;KB RAM &middot; 88-2SIO serial &middot; 88-ACR cassette &middot; 88-DCDD floppy + CP/M&nbsp;2.2 &middot; era-preset configurations &middot; compiled to WebAssembly &middot; working front panel &middot; selectable 1970s terminals</p>
 
-    <hr class="rule">
+    <hr class="rule head-rule">
 
+    <div class="toolbars">
     <div class="toolbar preset-bar">
       <b>PRESET:</b>
       <select id="preset">
@@ -1174,6 +1420,7 @@
       </select>
       <button id="presetGuide" title="what this setup is and how to use it">&#9432; Guide</button>
       <label title="when checked, a preset also loads and starts its key software"><input type="checkbox" id="autoload">&nbsp;Auto-load software</label>
+      <div id="panelGuide" class="panel-guide"><!-- front-panel bootstrap how-to, built by app.js --></div>
       <span id="deviceChips" class="device-chips" hidden>
         <span class="dc-label">Load devices:</span>
         <label><input type="checkbox" data-dev="papertape">&nbsp;Paper tape</label>
@@ -1182,67 +1429,67 @@
       </span>
       <span id="presetNote" class="preset-note"></span>
     </div>
-
-    <div class="toolbar">
-      <b>DISPLAY:</b>
-      <label>Theme:
-        <select id="pageTheme">
-          <option value="win">Windows</option>
-          <option value="web94">1994 Web</option>
-          <option value="modern">Modern</option>
-        </select>
-      </label>
     </div>
 
-    <div id="altair" class="altair"><!-- front panel is built by app.js --></div>
+    <div class="workspace">
+      <div class="ws-machine">
+        <div id="altair" class="altair"><!-- front panel built by app.js, before this readout -->
+          <div class="statusline"><span id="regs">booting...</span></div>
+        </div>
+      </div>
 
-    <div id="panelGuide" class="panel-guide"><!-- bootstrap how-to, built by app.js --></div>
+      <hr class="rule ws-rule">
 
+      <div class="ws-terminal">
+        <div class="toolbar term-bar">
+          <b>TERMINAL:</b>
+          <label>
+            <select id="termProfile">
+              <option value="modern">Modern (xterm)</option>
+              <option value="vt100g">DEC VT100 &middot; green</option>
+              <option value="vt100a">DEC VT100 &middot; amber</option>
+              <option value="vt52">DEC VT52</option>
+              <option value="adm3a">Lear Siegler ADM-3A</option>
+              <option value="glasstty">Glass TTY</option>
+              <option value="tty33">Teletype ASR-33</option>
+            </select>
+          </label>
+          <label><input type="checkbox" id="crt" checked>&nbsp;CRT</label>
+          <label><input type="checkbox" id="caps" checked>&nbsp;CAPS LOCK</label>
+          <label><input type="checkbox" id="crlf" checked>&nbsp;CR &rarr; CR/LF</label>
+        </div>
+
+        <div class="monitor">
+          <div class="bezel crt-scan">
+            <div id="screen"></div>
+            <div class="crt-overlay"></div>
+            <span class="power-led" title="power"></span>
+          </div>
+          <div class="chin">
+            <span class="brand">M I C R O S Y S T E M S &nbsp; MODEL 8080</span>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="ws-devices">
+        <div id="ptr" class="ptr"><!-- paper-tape reader, built by app.js --></div>
+        <div id="dcdd" class="dcdd"><!-- 88-DCDD disk drive cabinet, built by app.js --></div>
+        <div id="acr" class="acr"><!-- 88-ACR cassette deck, built by app.js --></div>
+      </div>
+    </div>
+
+    <hr class="rule">
+
+    <!-- least-useful reference, kept at the very bottom -->
     <div id="backplane" class="backplane"><!-- S-100 expansion cards, built by app.js --></div>
 
-    <div id="ptr" class="ptr"><!-- paper-tape reader, built by app.js --></div>
-
-    <div id="dcdd" class="dcdd"><!-- 88-DCDD disk drive cabinet, built by app.js --></div>
-
-    <div id="acr" class="acr"><!-- 88-ACR cassette deck, built by app.js --></div>
-
-    <hr class="rule">
-
-    <div class="toolbar term-bar">
-      <b>TERMINAL:</b>
-      <label>
-        <select id="termProfile">
-          <option value="modern">Modern (xterm)</option>
-          <option value="vt100g">DEC VT100 &middot; green</option>
-          <option value="vt100a">DEC VT100 &middot; amber</option>
-          <option value="vt52">DEC VT52</option>
-          <option value="adm3a">Lear Siegler ADM-3A</option>
-          <option value="glasstty">Glass TTY</option>
-          <option value="tty33">Teletype ASR-33</option>
-        </select>
-      </label>
-      <label><input type="checkbox" id="crt" checked>&nbsp;CRT</label>
-      <label><input type="checkbox" id="caps" checked>&nbsp;CAPS LOCK</label>
-      <label><input type="checkbox" id="crlf" checked>&nbsp;CR &rarr; CR/LF</label>
-    </div>
-
-    <div class="monitor">
-      <div class="bezel crt-scan">
-        <div id="screen"></div>
-        <div class="crt-overlay"></div>
-        <span class="power-led" title="power"></span>
-      </div>
-      <div class="chin">
-        <span class="brand">M I C R O S Y S T E M S &nbsp; MODEL 8080</span>
-      </div>
-    </div>
-
-    <div class="statusline"><span id="regs">booting...</span></div>
-
-    <hr class="rule">
-
     <div class="footer">
-      <p><i>Last built <span id="buildDate">&hellip;</span></i></p>
+      <p><i><span class="fb-built">Last built </span><span class="fb-mod">Page last modified: </span><span id="buildDate">&hellip;</span></i></p>
+      <p class="footer-links">[&nbsp;<a href="../">Home</a>
+        | <a href="https://github.com/gsirhc/retro/tree/main/retroweb/altair8800" target="_blank" rel="noopener">Source</a>
+        | <a href="https://archive.org/details/bitsavers_mitsAltairceJul77_9357641" target="_blank" rel="noopener">BASIC&nbsp;Manual</a>
+        | <a href="https://altairclone.com/downloads/manuals/Altair%208800%20Operator's%20Manual.pdf" target="_blank" rel="noopener">Altair&nbsp;Manual</a>&nbsp;]</p>
     </div>
   </div>
 </div>
@@ -1305,8 +1552,18 @@
       <p class="disk-note">Standard MITS 8&Prime; images are 337,568 bytes (77&times;32&times;137).
         See <tt>disks/README.md</tt> for where to get CP/M and application disks.</p>
 
+      <hr class="rule">
+
+      <p><b>&hellip;or insert a blank diskette.</b> <b>Unformatted</b> is real 8&Prime;
+        media as it ships: boot CP/M from drive A, run <tt>FORMAT</tt>, give the
+        <tt>DISK</tt> command and pick this drive first. <b>Formatted</b> skips that
+        and is ready to write to right away. Either way, <b>SAVE</b> the drive to
+        download the <tt>.dsk</tt>.</p>
+
       <div class="dialog-buttons">
         <button id="diskInsert">Insert</button>
+        <button id="diskBlank">Blank (Unformatted)</button>
+        <button id="diskBlankFmt">Blank (Formatted)</button>
         <button id="diskCancel">Cancel</button>
       </div>
     </div>

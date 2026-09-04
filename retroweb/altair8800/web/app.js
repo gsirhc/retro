@@ -107,22 +107,32 @@ async function boot() {
   }, { capture: true });
   /* v8 ignore stop */
 
-  // Fill the page column with the monitor: screen as wide as fits (minus the
-  // monitor's own frame), locked to 24 rows; column count floats with the font.
+  // Fill the terminal's column with the monitor: screen as wide as fits (minus
+  // the monitor's own frame), locked to 24 rows; column count floats with the
+  // font. The measured box is .ws-terminal — the full content column in the
+  // single-column layout, or just the left grid track when Modern goes
+  // side-by-side on a wide screen.
+  const termBox = screenEl.closest(".ws-terminal") || screenEl.closest(".inner");
   function sizeScreen() {
     try {
+      // 1. measure the font at a reference size
       screenEl.style.width = REF_W + "px";
       screenEl.style.height = REF_H + "px";
       fit.fit();
       if (!term.cols || !term.rows) return;
       const cw = REF_W / term.cols, ch = REF_H / term.rows;   // cell size for this font
-      const inner = screenEl.closest(".inner");
-      let avail = window.innerWidth;
-      if (inner) {
-        const cs = getComputedStyle(inner);
-        avail = inner.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
-      }
+
+      // 2. the monitor's own frame, measured with the screen collapsed so a
+      //    max-width clamp on the monitor (narrow column) can't corrupt the delta
+      screenEl.style.width = "0px";
       const frame = Math.max(0, monitorEl.offsetWidth - screenEl.offsetWidth);
+
+      // 3. room available in the terminal's column
+      let avail = window.innerWidth;
+      if (termBox) {
+        const cs = getComputedStyle(termBox);
+        avail = termBox.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+      }
       // bare (Modern / Teletype) has almost no frame -> leave a gutter instead
       const gutter = monitorEl.classList.contains("bare") ? 48 : 4;
       const room = avail - frame - gutter;
@@ -134,6 +144,32 @@ async function boot() {
     } catch {}
   }
   addEventListener("resize", sizeScreen);
+  // the terminal's column can also change width without a window resize — the
+  // Modern side-by-side breakpoint, or the panel column reflowing — so watch it
+  /* v8 ignore start -- ResizeObserver callback, layout-driven */
+  if (termBox && window.ResizeObserver) {
+    let pending = false;
+    new ResizeObserver(() => {
+      if (pending) return;
+      pending = true;
+      requestAnimationFrame(() => { pending = false; sizeScreen(); });
+    }).observe(termBox);
+  }
+  /* v8 ignore stop */
+
+  // Modern side-by-side folds the TERMINAL settings into the PRESET bar; every
+  // other layout keeps that bar directly above the monitor.
+  const toolbarsWrap = document.querySelector(".toolbars");
+  const termBar = document.querySelector(".term-bar");
+  const wideLayout = window.matchMedia("(min-width: 1560px)");
+  function placeTermBar() {
+    if (!toolbarsWrap || !termBar || !termBox) return;
+    const merged = document.documentElement.dataset.theme === "modern" && wideLayout.matches;
+    if (merged) toolbarsWrap.appendChild(termBar);
+    else termBox.insertBefore(termBar, termBox.firstChild);
+  }
+  placeTermBar();
+  wideLayout.addEventListener("change", () => { placeTermBar(); sizeScreen(); });
   // A real serial terminal shows nothing at power-on but a cursor — it has no
   // idea what (if anything) is on the other end of the wire. So no banner.
 
@@ -459,18 +495,29 @@ async function boot() {
     /* v8 ignore next -- font-load rejection is swallowed */
   ].filter(Boolean)).catch(() => {}).finally(() => applyProfile(savedTerm));
 
-  // --- page theme (Windows chrome vs '94 gray web) ----------------
+  // --- page theme (Win95 / mid-90s Mosaic web / Modern / Dark Modern) ---
+  // "moderndark" is Modern's layout with data-mode="dark" bolted on, so the
+  // <select> value and the stored key differ from the data-theme attribute.
   const pageTheme = document.getElementById("pageTheme");
   const root = document.documentElement;
-  let savedPageTheme =
-    new URLSearchParams(location.search).get("theme") || root.dataset.theme || "win";
-  if (!["win", "web94", "modern"].includes(savedPageTheme)) savedPageTheme = "win";
-  root.dataset.theme = savedPageTheme;
+  const THEME_VALUES = ["win", "web94", "modern", "moderndark"];
+  const applyTheme = (v) => {
+    if (!THEME_VALUES.includes(v)) v = "win";
+    if (v === "moderndark") { root.dataset.theme = "modern"; root.dataset.mode = "dark"; }
+    else { root.dataset.theme = v; delete root.dataset.mode; }
+    return v;
+  };
+  let stored; try { stored = localStorage.getItem("retro8080.theme"); } catch {}
+  let savedPageTheme = applyTheme(
+    new URLSearchParams(location.search).get("theme")
+    || stored || root.dataset.theme || "win");
   pageTheme.value = savedPageTheme;
+  placeTermBar();   // ?theme= may have resolved to Modern after the first pass
   pageTheme.addEventListener("change", () => {
-    root.dataset.theme = pageTheme.value;
+    applyTheme(pageTheme.value);
     try { localStorage.setItem("retro8080.theme", pageTheme.value); } catch {}
-    setTimeout(sizeScreen, 60);  // page width changed
+    placeTermBar();                // layout may have gained/lost side-by-side
+    setTimeout(sizeScreen, 60);    // page width changed
   });
 
   // "Last built" = the wasm's own mtime on the server
@@ -600,7 +647,7 @@ async function boot() {
     const kase = el("fp-case");
     const face = el("fp-face");
     kase.appendChild(face);
-    root.appendChild(kase);
+    root.prepend(kase);   // the panel, above the static .statusline readout
 
     // ---- LED grid: row 1 status + data, row 2 WAIT/HLDA + address ----
     const leds = el("fp-leds fp-cols");
@@ -644,11 +691,11 @@ async function boot() {
     sw.appendChild(swgrid);
 
     const powerCell = el("fp-power paddle", `<div class="fp-cap">OFF</div>`);
-    const powerBat = el("bat down");   // down = ON
+    const powerBat = el("bat");         // up = ON like every Altair paddle (boots powered)
     powerCell.title = "power OFF / ON";
     powerCell.addEventListener("click", () => {
       powered = !powered;
-      powerBat.classList.toggle("down", powered);
+      powerBat.classList.toggle("down", !powered);   // down = OFF
       if (!powered) setRunning(false);
     });
     powerCell.appendChild(powerBat);
@@ -833,7 +880,7 @@ async function boot() {
     if (s && Number.isFinite(s.left)) { pgFloat.left = s.left; pgFloat.top = s.top; }
   } catch {}
 
-  const PG_LABEL = " Load it yourself &mdash; the front-panel bootstrap";
+  const PG_LABEL = " Load it yourself";
 
   function panelGuideModel() {
     const id = presetSelect ? presetSelect.value : "";
@@ -1201,9 +1248,35 @@ async function boot() {
 
     setVisible(v) { document.getElementById("dcdd").classList.toggle("empty", !v); },
 
+    // A brand-new diskette: 0xE5-filled and unformatted, the way real 8" media
+    // shipped. CP/M can't read it until FORMAT (the DISK command) has laid down
+    // the sector framing and an empty directory from a booted drive.
+    blank(drive) {
+      this.insert(drive, new Uint8Array(337568).fill(0xe5), "BLANK");
+    },
+
+    // A blank diskette that has already been through FORMAT: real MITS sector
+    // framing (borrowed from the bundled CP/M image) with the directory --
+    // track 2, the whole track so the sector skew doesn't matter -- wiped to
+    // 0xE5 and its checksum fixed up, so CP/M sees it as empty right away.
+    async blankFormatted(drive) {
+      await this.loadCatalog();
+      const src = this.catalog.find((d) => d.os === "cpm" && d.bytes);
+      if (!src) { this.blank(drive); return; }
+      const img = src.bytes.slice();
+      const SEC = 137;
+      for (let s = 0; s < 32; s++) {
+        const b = (2 * 32 + s) * SEC;               // track 2 = the CP/M directory
+        for (let i = 3; i <= 130; i++) img[b + i] = 0xe5;
+        img[b + 132] = (128 * 0xe5) & 0xff;          // tracks 0-5: checksum = sum of data
+      }
+      this.insert(drive, img, "BLANK (FORMATTED)");
+    },
+
     insert(drive, bytes, name, entry) {
       if (!bytes || !bytes.length) return;
-      markCustom();
+      // swapping a diskette is not a hardware change -- keep the era preset
+      // (same as the paper-tape reader and the cassette deck)
       machine.mountDisk(drive, bytes);
       this.names[drive] = name;
       this.entries[drive] = entry || null;
@@ -1297,8 +1370,12 @@ async function boot() {
       for (let d = 0; d < 2; d++) {
         const b = this.bays[d];
         if (!b) continue;
+        // io/step are shared counters -- only the selected drive is the one
+        // actually moving, so don't flash the idle drive's lamp along with it
         const tick = (d === 0 ? st.track0 : st.track1) + st.io + st.step;
-        if (tick !== this.lastTick[d]) { this.lastTick[d] = tick; this.lampHold[d] = 6; }
+        const moved = tick !== this.lastTick[d];
+        this.lastTick[d] = tick;
+        if (moved && st.selected === d) this.lampHold[d] = 6;
         const busy = this.lampHold[d] > 0;
         if (busy) this.lampHold[d]--;
         b.lamp.classList.toggle("busy", busy);
@@ -1327,6 +1404,16 @@ async function boot() {
     diskFileName.textContent = diskFile.files[0] ? diskFile.files[0].name : "no file selected";
   });
   document.getElementById("diskCancel").addEventListener("click", () => disk.closePicker());
+  document.getElementById("diskBlank").addEventListener("click", () => {
+    const drive = disk.pickerDrive;
+    disk.closePicker();
+    disk.blank(drive);
+  });
+  document.getElementById("diskBlankFmt").addEventListener("click", () => {
+    const drive = disk.pickerDrive;
+    disk.closePicker();
+    disk.blankFormatted(drive);
+  });
   document.getElementById("diskClose").addEventListener("click", () => disk.closePicker());
   diskDialog.addEventListener("click", (e) => { if (e.target === diskDialog) disk.closePicker(); });
   document.getElementById("diskInsert").addEventListener("click", async () => {
@@ -1816,12 +1903,11 @@ exactly as it did in 1975.`;
     }
   }
 
+  // a standing note under the PRESET row — only for failures (media 404, out of
+  // RAM). Cleared at the top of applyPreset() so it never outlives its cause.
   function presetHint(msg, opts) {
     presetNote.textContent = msg || "";
     presetNote.style.color = (opts && opts.color) || "";
-    if (msg && !(opts && opts.persist)) setTimeout(() => {
-      if (presetNote.textContent === msg) { presetNote.textContent = ""; presetNote.style.color = ""; }
-    }, 6000);
   }
 
   // auto-load couldn't reach its software: say so on the terminal and as a
@@ -1901,12 +1987,12 @@ exactly as it did in 1975.`;
   async function applyPreset(id) {
     const p = PRESETS[id];
     applyingPreset = true;
+    presetHint("");                       // drop any stale failure note
     try {
       if (!p) {
         buildBackplane([]);
         applyDevices(customDevices());
         showDeviceChips(true);
-        presetHint("custom build — add or remove load devices above");
         try { localStorage.removeItem("retro8080.preset"); } catch {}
         return;
       }
@@ -1928,8 +2014,6 @@ exactly as it did in 1975.`;
         await runPresetSoftware(p);
       } else if (missing) {
         presetHint(missing, { persist: true });
-      } else {
-        presetHint("hardware set for " + p.era + " — use the LOAD button on the reader");
       }
       const anchor = p.focus === "panel" ? "altair" : "screen";
       document.getElementById(anchor).scrollIntoView({ block: "center", behavior: "smooth" });

@@ -58,6 +58,15 @@ test.describe("era presets", () => {
     expect(s.acr).toBe(false);
   });
 
+  test("switching presets leaves no standing note", async ({ page }) => {
+    await boot(page, { params: "preset=cassette" });
+    for (const id of ["cpm", "baremetal", "stock"]) {
+      await page.selectOption("#preset", id);
+      await page.waitForFunction(() => (window as any).__test?.applyingPreset === false);
+      await expect(page.locator("#presetNote"), id).toHaveText("");
+    }
+  });
+
   test("autoload OFF (the ?test default) configures hardware only", async ({ page }) => {
     await boot(page, { params: "preset=cassette" });
     expect(await page.locator("#autoload").isChecked()).toBe(false);

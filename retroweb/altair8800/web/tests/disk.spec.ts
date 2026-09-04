@@ -43,6 +43,60 @@ test.describe("88-DCDD disk cabinet", () => {
     expect(await screen(page)).not.toMatch(/NO FILE/i);
   });
 
+  test("'Blank (Unformatted)' mounts a fresh, unformatted 8-inch image", async ({ page }) => {
+    await boot(page, { params: "preset=cpm" });
+    await page.click("#dcdd .dcdd-boot");
+    await waitForScreen(page, /A>/, 30_000);
+
+    await page.click("#dcdd .dcdd-bay:nth-child(2) .dcdd-slot");
+    await expect(page.locator("#diskDialog")).toBeVisible();
+    await expect(page.locator("#diskDialog")).toContainText(/FORMAT/); // tells you to format it
+    await page.click("#diskBlank");
+    await expect(page.locator("#diskDialog")).toBeHidden();
+    await expect(page.locator("#dcdd .dcdd-bay").nth(1)).toHaveClass(/loaded/);
+
+    const img = await page.evaluate(() => {
+      const m = (window as any).__test.machine;
+      const b = m.diskImage(1);
+      return { len: b.length, e5: b[0] === 0xe5 && b[123456] === 0xe5, dirty: m.diskDirty(1) };
+    });
+    expect(img).toEqual({ len: 337568, e5: true, dirty: false });
+
+    // real unformatted media: CP/M can't read it until FORMAT has run
+    await page.evaluate(() => {
+      const m = (window as any).__test.machine;
+      for (const c of "DIR B:\r") m.sendByte(c.charCodeAt(0));
+    });
+    await waitForScreen(page, /Bdos Err|BAD SECTOR/i, 20_000);
+  });
+
+  test("'Blank (Formatted)' mounts a disk CP/M can use immediately", async ({ page }) => {
+    await boot(page, { params: "preset=cpm" });
+    await page.click("#dcdd .dcdd-boot");
+    await waitForScreen(page, /A>/, 30_000);
+
+    await page.click("#dcdd .dcdd-bay:nth-child(2) .dcdd-slot");
+    await expect(page.locator("#diskDialog")).toBeVisible();
+    await page.click("#diskBlankFmt");
+    await expect(page.locator("#diskDialog")).toBeHidden();
+    await expect(page.locator("#dcdd .dcdd-bay").nth(1)).toHaveClass(/loaded/);
+
+    const img = await page.evaluate(() => {
+      const m = (window as any).__test.machine;
+      const b = m.diskImage(1);
+      const dirBase = 2 * 32 * 137;   // track 2, sector 0 -- the CP/M directory
+      return { len: b.length, dirEmpty: b[dirBase + 3] === 0xe5 && b[dirBase + 130] === 0xe5, dirty: m.diskDirty(1) };
+    });
+    expect(img).toEqual({ len: 337568, dirEmpty: true, dirty: false });
+
+    // real MITS framing, empty directory: CP/M reads it right away as blank
+    await page.evaluate(() => {
+      const m = (window as any).__test.machine;
+      for (const c of "DIR B:\r") m.sendByte(c.charCodeAt(0));
+    });
+    await waitForScreen(page, /NO FILE/i, 20_000);
+  });
+
   test("BOOT brings up CP/M at the A> prompt", async ({ page }) => {
     await boot(page, { params: "preset=cpm" });
     await expect(page.locator("#dcdd .dcdd-bay").first()).toHaveClass(/loaded/);
@@ -102,16 +156,21 @@ test.describe("88-DCDD disk cabinet", () => {
     await boot(page, { params: "preset=cpm" });
     const before = await page.evaluate(() => (window as any).__test.machine.diskStatus().track0);
     // watch the drive-A lamp element for the "busy" class while CP/M loads
-    const sawBusy = page.evaluate(async () => {
-      const lamp = document.querySelector("#dcdd .dcdd-bay:first-child .dcdd-lamp")!;
+    const watch = page.evaluate(async () => {
+      const a = document.querySelector("#dcdd .dcdd-bay:first-child .dcdd-lamp")!;
+      const b = document.querySelector("#dcdd .dcdd-bay:nth-child(2) .dcdd-lamp")!;
+      let sawBusyA = false, sawBusyB = false;
       for (let i = 0; i < 400; i++) {
-        if (lamp.classList.contains("busy") || lamp.classList.contains("sel")) return true;
+        if (a.classList.contains("busy") || a.classList.contains("sel")) sawBusyA = true;
+        if (b.classList.contains("busy")) sawBusyB = true;
         await new Promise((r) => setTimeout(r, 15));
       }
-      return false;
+      return { sawBusyA, sawBusyB };
     });
     await page.click("#dcdd .dcdd-boot");
-    expect(await sawBusy).toBe(true);
+    const { sawBusyA, sawBusyB } = await watch;
+    expect(sawBusyA).toBe(true);
+    expect(sawBusyB).toBe(false);   // the idle drive's lamp stays dark
     await waitForScreen(page, /A>/, 30_000);
     const after = await page.evaluate(() => (window as any).__test.machine.diskStatus().track0);
     expect(after).toBeGreaterThan(before);
@@ -152,14 +211,15 @@ test.describe("88-DCDD disk cabinet", () => {
     await waitForScreen(page, /A>/, 30_000);
   });
 
-  test("inserting a disk by hand flips the preset to custom", async ({ page }) => {
+  test("swapping a diskette keeps the era preset (it's not a hardware change)", async ({ page }) => {
     await boot(page, { params: "preset=cpm" });
     expect(await page.locator("#preset").inputValue()).toBe("cpm");
     await page.evaluate(() => (window as any).__test.disk.eject(0));
     await page.click("#dcdd .dcdd-bay:first-child .dcdd-slot");
     await pickCatalogItem(page, "#diskList", /CP\/M 2\.2/);
     await page.click("#diskInsert");
-    expect(await page.locator("#preset").inputValue()).toBe("");
+    expect(await page.locator("#preset").inputValue()).toBe("cpm");
+    expect(await page.evaluate(() => localStorage.getItem("retro8080.preset"))).toBe("cpm");
   });
 
   test("ejecting a disk with unsaved changes is refused when the confirm is dismissed", async ({ page }) => {

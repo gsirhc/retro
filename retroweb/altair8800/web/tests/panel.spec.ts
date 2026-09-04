@@ -110,10 +110,15 @@ test.describe("front panel", () => {
 
   test("power OFF halts the machine and darkens every lamp", async ({ page }) => {
     await boot(page);
+    // the paddle throws like the real Altair: ball up = ON (boots powered)
+    const batDown = () =>
+      page.evaluate(() => document.querySelector("#altair .fp-power .bat")!.classList.contains("down"));
+    expect(await batDown()).toBe(false);
     await page.evaluate(() => {
       const cell = document.querySelector<HTMLElement>("#altair .fp-power.paddle");
       cell?.click();
     });
+    expect(await batDown()).toBe(true); // ...and down = OFF
     expect(await page.evaluate(() => (window as any).__test.running)).toBe(false);
     await expect
       .poll(async () => {

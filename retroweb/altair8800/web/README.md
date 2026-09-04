@@ -105,17 +105,41 @@ and the browser's frame cadence, so no bytes are lost between frames.
 
 ## Page theme
 
-**Theme:** in the toolbar switches the page chrome (not the terminal):
+**Theme:** in the top bar switches the page chrome (not the terminal):
 
-- **Windows** (default) — teal desktop, navy title bar, beveled gray window.
-- **1994 Web** — flat `#c0c0c0` Mosaic/Netscape-1.x gray, no window chrome,
-  serif left-aligned headings, thin purple rules.
-- **Modern** — clean white card, system font, no title bar; a plain tagline
-  and spec line instead of the `~ * ~` one.
+- **Windows 95** (default) — teal desktop, gradient navy title bar, beveled gray
+  window; the title bar carries the theme picker and its close box goes home.
+- **Mid-1990s Web** — NCSA Mosaic / early-Netscape page chrome: a tiled "blue
+  marble" desktop (a ~4&nbsp;KB inline JPEG, baked from SVG turbulence so it
+  renders the same everywhere) with a gray `border: ridge` content column on top,
+  centred Times headings, an engraved `<hr size="2">` shaded rule, raw underlined
+  links (`#00f` / `#800080` visited / `#f00` active), and a period footer
+  (plain-text "Page last modified", a `mailto:`, pipe-separated links). Chrome
+  only — the emulated hardware stays photoreal, like every theme.
+- **Modern** — clean white card, system font, no window chrome. The page title
+  moves into the top bar and the big in-page header / spec line are dropped, to
+  save vertical space (the retro themes keep the centred `ALTAIR 8800` + `~ * ~`
+  banner). On a screen &ge; 1560&nbsp;px wide it goes two-column (terminal left,
+  front panel right) with the paper-tape / disk / cassette devices in a row
+  underneath, and the **TERMINAL** settings fold into the **PRESET** bar. The
+  terminal column keeps a &ge; 680&nbsp;px min so it never squishes; the panel
+  column yields (it scrolls internally) when both don't fit. Narrower, it's a
+  single column like the retro themes.
+- **Dark Modern** — the Modern theme's exact layout with a dark palette. Stored
+  as `moderndark`; the theme scripts set `data-theme="modern"` +
+  `data-mode="dark"`, so every Modern layout rule still applies and only a
+  `[data-mode="dark"]` colour-var block is added.
 
-Themes are CSS custom properties keyed off `:root[data-theme]`; an inline
-`<head>` script applies the stored choice before first paint (no flash).
-`?theme=web94` overrides.
+Every theme flows **front panel &rarr; terminal &rarr; devices** now (the reader,
+disk and cassette used to sit above the terminal).
+
+Mid-1990s Web and Modern have no window buttons, so their top bar shows an
+"&larr; All machines" link back to the landing page instead.
+
+Themes are CSS custom properties keyed off `:root[data-theme]` (plus
+`[data-mode="dark"]` for Dark Modern); an inline `<head>` script applies the
+stored choice before first paint (no flash). `?theme=web94` / `?theme=moderndark`
+override.
 
 ## Terminal profiles
 
@@ -151,10 +175,10 @@ the 8080 exactly as it did in 1975. Choice persists in `localStorage`;
 - **OFF/ON** kills the machine and blanks every LED.
 - `PROTECT`, `AUX` paddles are cosmetic.
 
-**"Load it yourself"** — a **movable floating panel** (`buildPanelGuide`) that
-opens on the right so the front panel and the guide are both visible without
-scrolling; drag its title bar to reposition (the spot is remembered), × to
-close. It shows how a hand-load worked, for the *current* machine: the disk boot
+**"Load it yourself"** — a toggle button in the **PRESET** bar that opens a
+**movable floating panel** (`buildPanelGuide`) on the right, so the front panel
+and the guide are both visible without scrolling; drag its title bar to
+reposition (the spot is remembered), × to close. It shows how a hand-load worked, for the *current* machine: the disk boot
 (`EXAMINE 0FF00, RUN`) and the serial bootstrap keyed in byte by byte. Every
 value is drawn as a **row of little front-panel toggles** (grouped in 3s like
 the real panel, knob up = 1) with the octal beside it, so you copy the picture,
@@ -184,7 +208,8 @@ thread → Feed" order works either way round.
 
 The **PRESET** dropdown at the top configures a period-correct machine in one
 click — RAM size, primary terminal, which S-100 cards are plugged in (shown in
-the backplane strip below the panel), and **which loader devices are fitted**
+the backplane strip at the very bottom of the page), and **which loader devices
+are fitted**
 (paper-tape reader / 88-ACR cassette / 88-DCDD floppy), each with its media
 already threaded. Tick **Auto-load software** (off by default, remembered
 between sessions) and the preset also loads that media:
@@ -280,7 +305,11 @@ cleared, RAM intact). Altair 4K/8K BASIC come from `roms/fetch-basic.sh`
 
 The **MITS 88-DCDD cabinet** below the front panel is two 8-inch floppy drives
 on ports `0x08`–`0x0A`. Click a drive to open **Insert Diskette** — pick from
-`disks/manifest.json` or choose a local `.dsk` — then press **BOOT** on the
+`disks/manifest.json`, choose a local `.dsk`, or insert a blank one. **Blank
+(Unformatted)** is a 0xE5-filled raw image, exactly like real 8-inch media out
+of the box: boot CP/M elsewhere and run `FORMAT` on it first. **Blank
+(Formatted)** carries real MITS sector framing with its directory pre-wiped,
+so CP/M can read and write it right away — then press **BOOT** on the
 cabinet (or do it from the panel: `EXAMINE` `0xFF00`, `RUN`). `machine.bootDisk()`
 drops the 256-byte MITS bootstrap PROM at `0xFF00` and starts there; it reads
 track 0 of drive A and hands off to the diskette's cold-start loader.
