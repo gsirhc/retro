@@ -74,6 +74,12 @@ public:
 private:
     Bus bus_;
 
+    // A real 8080 doesn't recognize an interrupt until after the instruction
+    // *following* EI has retired -- load-bearing for the classic EI/RET
+    // interrupt-handler idiom. >0 while that one instruction is still
+    // outstanding; interrupt() checks it, step() counts it down.
+    int ei_delay_ = 0;
+
     // memory / immediate fetch helpers
     uint8_t  rb(uint16_t addr)             { return bus_.read(addr); }
     void     wb(uint16_t addr, uint8_t v)  { bus_.write(addr, v); }

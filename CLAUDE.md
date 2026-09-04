@@ -13,8 +13,17 @@ hardware**. When you work here, that comes first.
   emulator does X — even when X is slow, awkward, or surprising.
 - When porting behavior from another implementation (SIMH, deramp.com, an
   original ROM disassembly, a period manual), **cite the source** in a comment
-  and keep the quirk, including documented bugs that software depends on (e.g.
-  the SIMH 88-DCDD track-0 latch).
+  and keep the quirk, including genuine hardware behavior that software
+  depends on (e.g. the 8080's `ANA` instruction ORing bit 3 of both operands
+  into auxiliary carry, instead of the more intuitive AND). But keep the
+  distinction straight: a real chip/board quirk is worth preserving even when
+  it looks like a bug; an artifact of a *previous emulator* is not itself
+  period-accurate just because another emulator does it that way. SIMH's
+  88-DCDD track-0 status only ever latches on and never re-tracks the head on
+  a step-in — that's a SIMH implementation shortcut, not MITS hardware
+  behavior (a real 88-DCDD reads track 0 from a physical opto sensor, so the
+  line follows the head both ways) — which is why `disk88.cpp` deliberately
+  does *not* port it. See `retroweb/altair8800/ALTAIR_REVIEW.md` §7.1.
 - When you're unsure whether something is period-accurate, **look it up**
   (SIMH source, original manuals, ROM disassembly) rather than guessing or
   picking whatever's convenient.
@@ -62,10 +71,16 @@ Current sanctioned overrides:
   always available. The reader's **AUTO-LOAD** button is a labelled shortcut, not
   the default path.
 - **Automated tests** (`?test=1`) may force paper-tape / cassette / floppy
-  **load speed** to `Max` so a suite doesn't wait out a ~14-minute read. The
-  CPU stays at real 2 MHz under test — no cycle multiplier beyond the existing
-  load-time `turbo`. A few tests select `Realistic` on purpose, to prove the
-  throttle still works.
+  **load speed** to `Max` so a suite doesn't wait out a ~14-minute read or a
+  needless ~166 ms/rev pause on every disk poll. The CPU stays at real 2 MHz
+  under test — no cycle multiplier beyond the existing load-time `turbo`. A
+  few tests select `Realistic` on purpose, to prove the throttle still works.
+- **`?help`'s in-terminal manual** prints at a boosted rate (not the selected
+  terminal's real baud) so the how-to page lands in ~8 s instead of minutes on
+  an ASR-33; a keypress skips straight to the end regardless. This affects only
+  emulator UI text, never machine output from a loaded program, so it's exempt
+  from the terminal-metering rule above — but it's still a labelled shortcut,
+  not the default reading speed.
 
 If you're about to add a speed/convenience knob, stop and check it against the
 three rules above. If it can't meet them, don't add it.

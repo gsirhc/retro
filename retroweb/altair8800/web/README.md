@@ -35,7 +35,7 @@ from `file://`.)
 
 ## Tests
 
-`tests/` is a [Playwright](https://playwright.dev) suite (~177 tests) that drives
+`tests/` is a [Playwright](https://playwright.dev) suite (~213 tests) that drives
 the real page in a headless browser and asserts control behaviour, machine
 state, and xterm buffer contents — the front panel, every terminal profile,
 every era preset, the paper-tape reader, the 88-ACR cassette, both 88-DCDD
@@ -45,8 +45,9 @@ screenshot comparison. `workflow.spec.ts` runs each preset end to end the way a
 knowledgeable user would — load Kill the Bit and watch the bit march; cold-start
 4K BASIC and run a program; 8K BASIC off paper tape then `CLOAD` Star Trek and
 `RUN` it; boot CP/M, `STAT` / `DIR` the disk, run `MBASIC`. `panel-lights.spec.ts`
-covers every lamp: the 16-bit address decode, the data lamps, `WAIT` / `HLTA` /
-`MEMR` / `M1` / `INTE` / `INP`, and Kill the Bit's sense-switch XOR.
+covers every lamp: the 16-bit address decode (incl. per-bit brightness), the
+data lamps, `WAIT` / `HLTA` / `INTE` / `MEMR` / `M1` / `INP` / `WO` / `OUT`,
+and Kill the Bit's sense-switch XOR.
 `home.spec.ts` covers the `retroweb/` landing page (served by a 2nd `webServer`
 on `:8110`): its theme selector shares the `retro8080.theme` key, and the Altair
 card links to `/altair8800/`. `app.js` is at 100% line and 100% function coverage
@@ -155,17 +156,53 @@ because the 2SIO's 512-byte FIFO fills and drops TDRE, an output-bound program
 the 8080 exactly as it did in 1975. Choice persists in `localStorage`;
 `?term=vt52` overrides.
 
+Escape handling is real too, not just cosmetics: xterm.js is always a full
+VT100+ parser, but a real period terminal wasn't, so each profile's bytes run
+through a small stateful filter (`TERM_PROFILES[key].filter()`) before xterm
+ever sees them:
+- **ASR-33 / Glass TTY** have no video memory to address — no cursor moves, no
+  clear screen, no reverse video. Only CR/LF/BS/BEL/HT are real; every escape
+  sequence is swallowed. (Backspace needs no special handling: xterm's default
+  BS already just moves the cursor left without erasing, the same as a print
+  head backing up to overstrike.) The ASR-33 is also mechanically uppercase
+  only, so CAPS LOCK is forced on and the checkbox disabled on that profile.
+- **VT52** translates the real DEC VT52 escape set (`ESC A/B/C/D` cursor,
+  `ESC H` home, `ESC J`/`K` erase, `ESC Y row col` direct addressing, `ESC I`
+  reverse index) into xterm-compatible sequences; keypad-mode and identify
+  codes have no xterm equivalent and are dropped.
+- **ADM-3A** translates its bare control-code cursor moves (`^K` up, `^L`
+  right, `^Z` clear+home; `^H`/`^J` already match BS/LF) and `ESC = row col`
+  direct addressing — the exact codes WordStar's ADM-3A driver emits.
+- **VT100 green/amber** and **Modern** have no filter: they're genuinely
+  ANSI/xterm-compatible, so bytes pass straight through.
+
+See `ALTAIR_REVIEW.md` §4.
+
 ## Front panel
 
 `app.js` builds an Altair-8800 panel above the terminal, driven by the wasm
 `Machine`:
 
-- **Address LEDs** — PC when stopped; while the CPU runs they show the *blur*
-  the real incandescent lamps do: `Machine::busActivity()` OR's every address the
-  bus touched since the last frame, so a tight loop lights the addresses it hits
-  and **Kill the Bit**'s moving bit rides `A8`–`A15` solidly instead of
-  flickering. **Data LEDs** = the byte at the last real bus address. Status LEDs
-  (`WAIT`/`HLTA`/`INTE`/`MEMR`/`M1`/`INP`) from `state()`, refreshed every frame.
+- **Address LEDs** — PC when stopped; while the CPU runs they show per-bit
+  *brightness*: `Machine::busActivityCounts()` counts how many times each
+  address bit was touched since the last frame, the way a real incandescent
+  lamp integrates brightness over many bus cycles. A bit driven almost every
+  cycle reads brighter than one touched once in passing — which is the whole
+  visual effect in **Kill the Bit**, where the target bit (four `LDAX D` per
+  loop) needs to read brighter than whatever the delay counter's fetch
+  addresses happen to touch. **Data LEDs** = the byte at the last real bus
+  address. Status LEDs from `state()`, refreshed every frame: `WAIT`/`HLTA`/
+  `INTE` are exact CPU state; `MEMR`/`WO`/`INP`/`OUT`/`INT` reflect the real
+  last bus access (which Bus callback fired last, tracked in
+  `wasm_machine.cpp` — a write really drops `WO`, an `IN` really lights
+  `INP`, not "the CPU happens to be running"). `M1` and `STACK` stay
+  approximated: telling an opcode fetch apart from a plain operand read, or a
+  stack push/pop apart from any other memory access, needs the CPU core
+  itself to say what an access is *for*, not just which callback fired — and
+  even if it did, both are sub-frame pulses a once-a-frame poll can't
+  usefully observe anyway. `HLDA`/`PROT` are correctly always off (no
+  DMA-capable peripheral ever asserts HOLD; PROTECT is a documented no-op).
+  See `ALTAIR_REVIEW.md` §3.6a.
 - **A0–A15 toggles** — the top 8 (`A8`–`A15`) feed `setSenseSwitches()` live.
 - Bat-handle paddles: click the **top half** for a switch's upper function,
   the **bottom half** for the lower one. **STOP/RUN** pauses the frame loop;
@@ -216,10 +253,17 @@ between sessions) and the preset also loads that media:
 
 | id | Preset | RAM | Terminal | Loader → software |
 |---|---|---|---|---|
-| `baremetal` | Bare-Metal Toggle (1975) | 4 KB | ASR-33 | paper tape → Kill the Bit |
-| `stock` | Stock Launch (1975) | 4 KB | ASR-33 | paper tape → Altair 4K BASIC |
+| `baremetal` | Bare-Metal Toggle (1976) | 4 KB | ASR-33 | paper tape → Kill the Bit |
+| `stock` | Stock Launch (1976) | 4 KB | ASR-33 | paper tape → Altair 4K BASIC |
 | `cassette` | Cassette Hobbyist (1976) | 32 KB | ADM-3A | paper tape → 8K BASIC, cassette → Star Trek |
-| `cpm` | CP/M Workstation (1978) | 64 KB | VT100 | floppy → CP/M 2.2 |
+| `cpm` | CP/M Workstation (1979) | 64 KB | VT100 | floppy → CP/M 2.2 |
+
+`baremetal`/`stock` are dated 1976, not the earlier date their software's real
+MITS release would suggest: every preset's console is the 88-2SIO (the only
+serial board this emulator implements), and a genuinely period 1975 machine
+would have shipped the earlier 88-SIO at ports 0x00/0x01 instead. See
+`ALTAIR_REVIEW.md` §5.2 for the fuller options; this is the deliberate,
+documented "relabel" choice, not an oversight.
 
 RAM is contiguous from 0 (`machine.setRam(kb)`); above it the bus floats high,
 so BASIC's `MEMORY SIZE?` auto-detect lands on the real number and a 4 KB
@@ -297,9 +341,19 @@ above RAM and can't stream, so it drops straight in. Preset **Auto-load** uses a
 internal unlimited speed (not in the picker); press **AUTO-LOAD** (or START, with
 a loader running) yourself to watch a tape read at the selected speed.
 
-The front-panel **RESET/CLR** paddle is the machine's reset (PC → 0, peripherals
-cleared, RAM intact). Altair 4K/8K BASIC come from `roms/fetch-basic.sh`
-(pinned + checksummed; CI runs it before deploying).
+The front-panel **RESET/CLR** paddle is the machine's reset (PC → 0, RAM
+intact) — a bus signal to the CPU and the S-100 cards' electrical state, not a
+mechanical rewind. The 88-DCDD controller *is* on the bus, so it deselects and
+its latches clear, but its heads don't move (RESET carries no STEP pulses —
+see `disk88.cpp`'s `reset()`). The 88-ACR cassette deck isn't on the bus at
+all — it's a separate box on its own cable — so RESET doesn't touch it: PLAY
+keeps rolling, the head stays where it was. That's also why the transport
+keeps winding while the front panel is on STOP: `Machine::tickCassette()`
+paces it by CPU cycles while running and by real elapsed time while not,
+splicing the two with no jump so 25×/50× (turbo included) still track exactly
+right when the CPU *is* running. See `ALTAIR_REVIEW.md` §3.2b/§3.4. Altair
+4K/8K BASIC come from `roms/fetch-basic.sh` (pinned + checksummed; CI runs it
+before deploying).
 
 ## Disks and CP/M
 
@@ -313,6 +367,14 @@ so CP/M can read and write it right away — then press **BOOT** on the
 cabinet (or do it from the panel: `EXAMINE` `0xFF00`, `RUN`). `machine.bootDisk()`
 drops the 256-byte MITS bootstrap PROM at `0xFF00` and starts there; it reads
 track 0 of drive A and hands off to the diskette's cold-start loader.
+
+**LOAD SPEED** in the cabinet's top bar paces rotation: a real 88-DCDD spins
+at ~166 ms/revolution over 32 sectors (~193 sectors/sec), which `IN 0x09`
+(the sector-position register) now gates on -- **Realistic** is the default,
+matching the paper-tape/cassette pattern (5×/25×/50× for the impatient, an
+internal **Max** for `?test=1`). A cold CP/M boot at Realistic runs a couple
+of seconds longer than at Max; the CPU itself still always runs at real
+2 MHz regardless. See `ALTAIR_REVIEW.md` §3.2d.
 
 Standard MITS images are 337,568 bytes (77 × 32 × 137). `*.dsk` is git-ignored:
 CP/M 2.2 (`cpm63k.dsk`) comes from `disks/fetch-cpm.sh` (pinned + checksummed;

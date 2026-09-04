@@ -77,7 +77,11 @@ test.describe("front-panel lamps", () => {
     page,
   }) => {
     await boot(page);
-    expect((await status(page)).MEMR).toBe(true); // the echo ROM is fetching
+    // MEMR now reflects the real last bus access (§3.6a), which can
+    // momentarily be an IN/OUT rather than a fetch/read -- poll rather than
+    // sample a single instant, unlike M1 (still an approximation that holds
+    // steady for as long as the CPU is running).
+    await expect.poll(() => status(page).then((s) => s.MEMR)).toBe(true); // the echo ROM is fetching
     expect((await status(page)).M1).toBe(true);
 
     // key in a HLT at 0 and run into it
@@ -95,6 +99,36 @@ test.describe("front-panel lamps", () => {
     expect(st.MEMR).toBe(false); // bus idle -- nothing fetching
     expect(st.M1).toBe(false);
     expect(st.WAIT).toBe(true); // halted counts as waiting
+  });
+
+  // ALTAIR_REVIEW.md §3.6a: WO/MEMR now reflect the real last bus access
+  // (Machine::state()) instead of a decorative "CPU is running" guess -- so a
+  // write should visibly flip WO, not just leave it hardwired true.
+  test("WO drops (and MEMR goes dark) on an actual memory write", async ({ page }) => {
+    await boot(page);
+    await panelStop(page);
+    await setSwitches(page, 0x0000);
+    await clickPaddle(page, /EXAMINE/, "up");
+    // MVI A,42h ; STA 2000h ; HLT
+    for (const b of [0x3e, 0x42, 0x32, 0x00, 0x20, 0x76]) {
+      await setSwitches(page, b);
+      await clickPaddle(page, /DEPOSIT/, "up");
+      await clickPaddle(page, /DEPOSIT/, "down");
+    }
+    await setSwitches(page, 0x0000);
+    await clickPaddle(page, /EXAMINE/, "up");
+
+    // status() reads DOM classes updatePanel() sets once a rendered frame --
+    // poll rather than read immediately, same as the other lamp assertions
+    // in this file (INTE, HLTA, ...) have to.
+    await clickPaddle(page, /SINGLE STEP/); // MVI A,42h -- reads only
+    await expect.poll(() => status(page).then((s) => s.WO)).toBe(true);
+    await expect.poll(() => status(page).then((s) => s.MEMR)).toBe(true);
+
+    await clickPaddle(page, /SINGLE STEP/); // STA 2000h -- ends on a write
+    await expect.poll(() => status(page).then((s) => s.WO)).toBe(false);
+    await expect.poll(() => status(page).then((s) => s.MEMR)).toBe(false);
+    expect(await memAt(page, 0x2000)).toBe(0x42);   // the write actually landed
   });
 
   test("INTE follows EI / DI", async ({ page }) => {
@@ -142,6 +176,28 @@ test.describe("front-panel lamps", () => {
       await page.waitForTimeout(150);
     }
     expect(seen.size).toBeGreaterThan(2); // marching, not frozen
+
+    // brightness, not just on/off: D's target bit is hammered by four LDAX D
+    // every ~48 T-states (thousands of touches a frame); the moment D rotates
+    // to a new bit (every ~112 ms of real time -- 4681 delay-loop passes) one
+    // frame briefly shows the outgoing and incoming bit together, and the
+    // outgoing one -- touched for only a sliver of that frame -- must read
+    // dimmer. An OR of "touched at all" can't tell these apart, only a
+    // per-bit hit count can (ALTAIR_REVIEW.md §3.6b). Sample every rendered
+    // frame in-page (not through Playwright's poll, whose round-trip is too
+    // slow to reliably catch a ~16 ms window) until a transition frame lands.
+    const sawDifferingBrightness = await page.evaluate(() => new Promise((resolve) => {
+      const t0 = performance.now();
+      (function tick() {
+        const { addr, addrBrightness } = (window as any).__test.leds();
+        const hi = [];
+        for (let b = 8; b < 16; b++) if ((addr >> b) & 1) hi.push(addrBrightness[b]);
+        if (hi.length >= 2 && new Set(hi).size >= 2) return resolve(true);
+        if (performance.now() - t0 > 4000) return resolve(false);
+        requestAnimationFrame(tick);
+      })();
+    }));
+    expect(sawDifferingBrightness).toBe(true);
 
     // stop, read the bit, aim the matching sense switch under it, step it out
     // (IN 0FFh / XRA D / RRC / MOV D,A -- the XOR clears D)

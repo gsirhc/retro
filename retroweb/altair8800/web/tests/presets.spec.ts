@@ -58,6 +58,24 @@ test.describe("era presets", () => {
     expect(s.acr).toBe(false);
   });
 
+  // pins the era/hardware claims ALTAIR_REVIEW.md §5.1 flagged, so a future
+  // edit that reintroduces an anachronism (or a fake MITS part number) fails
+  // here instead of just in prose.
+  test("preset eras and card lists match the corrected metadata", async ({ page }) => {
+    await boot(page, { params: "preset=baremetal" });
+    const presets = await page.evaluate(() => (window as any).__test.PRESETS);
+    expect(presets.baremetal.era).toBe("1976");
+    expect(presets.baremetal.cards).not.toContain("MITS 88-4K\nStatic RAM");
+    expect(presets.baremetal.cards.join("|")).toMatch(/88-4MCS/);
+
+    expect(presets.stock.era).toBe("1976");
+    expect(presets.stock.cards.join("|")).toMatch(/88-4MCD/);
+
+    expect(presets.cpm.era).toBe("1979");           // CP/M 2.2 shipped 1979
+    expect(presets.cpm.cards.join("|")).not.toMatch(/3rd party/);
+    expect(presets.cpm.cards.filter((c: string) => c.includes("88-16MCD")).length).toBe(4);
+  });
+
   test("switching presets leaves no standing note", async ({ page }) => {
     await boot(page, { params: "preset=cassette" });
     for (const id of ["cpm", "baremetal", "stock"]) {

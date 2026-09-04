@@ -118,6 +118,38 @@ test.describe("88-DCDD disk cabinet", () => {
     await waitForScreen(page, /A>/, 30_000);
   });
 
+  test("the boot PROM window is read-only even at 64 KB RAM", async ({ page }) => {
+    await boot(page, { params: "preset=cpm" }); // 64 KB: ram_top_ alone would swallow 0xFF00
+    expect(await page.evaluate(() => (window as any).__test.machine.readByte(0xff00))).toBe(0x21);
+
+    await page.evaluate(() => {
+      const m = (window as any).__test.machine;
+      // MVI A,0AAh ; STA 0FF00h ; HLT -- runs through the CPU, so the write goes
+      // through the bus (unlike writeByte(), which pokes mem_[] directly)
+      m.loadBytes(new Uint8Array([0x3e, 0xaa, 0x32, 0x00, 0xff, 0x76]), 0x0000);
+      m.setPC(0);
+      for (let i = 0; i < 10 && !m.halted(); i++) m.stepOne();
+    });
+    expect(await page.evaluate(() => (window as any).__test.machine.halted())).toBe(true);
+    expect(await page.evaluate(() => (window as any).__test.machine.readByte(0xff00))).toBe(0x21);
+  });
+
+  // ALTAIR_REVIEW.md §3.2b: RESET carries no STEP pulses, so a real drive's
+  // head just stays put; it's only the controller that's a bus signal away.
+  test("the front-panel RESET paddle does not move the disk head", async ({ page }) => {
+    await boot(page, { params: "preset=cpm" });
+    await page.click("#dcdd .dcdd-boot");
+    await waitForScreen(page, /A>/, 30_000);
+    const before = await page.evaluate(() => (window as any).__test.machine.diskStatus());
+    expect(before.track0).toBeGreaterThan(0);   // the BIOS seeks away from track 0 while booting
+
+    await panelStop(page);
+    await clickPaddle(page, /RESET/, "up");
+    const after = await page.evaluate(() => (window as any).__test.machine.diskStatus());
+    expect(after.track0).toBe(before.track0);   // head untouched
+    expect(after.selected).toBe(-1);            // but the controller is deselected
+  });
+
   test("CP/M runs a command after booting", async ({ page }) => {
     await boot(page, { params: "preset=cpm" });
     await page.click("#dcdd .dcdd-boot");

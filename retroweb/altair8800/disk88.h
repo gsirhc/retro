@@ -14,10 +14,19 @@
 // flat sector dump (the on-disk sector framing — sync byte, track/sector header,
 // stop byte, checksum — is part of the image; the BIOS deals with it).
 //
-// The logic here is a faithful port of Charles E. Owen's altair_dsk.c from SIMH
-// (permissively licensed): there is no rotation timing model — reading the
-// sector-position port simply advances to the next sector — which is exactly
-// what the real MITS boot PROM and CP/M BIOS are written against.
+// The logic here is a faithful port of Charles E. Owen's altair_dsk.c from
+// SIMH (permissively licensed): reading the sector-position port advances to
+// the next sector, which is exactly what the real MITS boot PROM and CP/M
+// BIOS are written against.
+//
+// Rotation IS timed, opt-in: setSpeed()/tick() gate that advance on a
+// sectors-per-second credit, the same shape as CassetteACR's byte credit.
+// The default -- setSpeed() never called, tick() never called -- is
+// unlimited (every read instantly advances), which is what every caller that
+// predates this got and still gets: the native CP/M diagnostic/boot harnesses
+// and the GoogleTest suite never call tick(), so they're unaffected. Only the
+// browser build opts in, via a LOAD SPEED selector matching the paper-tape
+// and cassette pattern. See ALTAIR_REVIEW.md §3.2d.
 
 #ifndef EMULATOR8080_DISK88_H
 #define EMULATOR8080_DISK88_H
@@ -44,6 +53,18 @@ public:
     void    out(uint8_t port, uint8_t value);
 
     void reset();
+
+    // Rotation timing: sectors/sec credited toward the next IN 0x09 advance;
+    // 0 = unlimited ("Max" / every caller before this existed). Real 88-DCDD:
+    // ~166 ms/revolution over 32 sectors ~= 193/sec ("Realistic").
+    void setSpeed(int sectorsPerSec) {
+        cycles_per_sector_ = sectorsPerSec > 0 ? (2000000ull / static_cast<uint64_t>(sectorsPerSec)) : 0;
+        credit_ = 0;
+    }
+    // Advance the rotational clock this is measured against. Call once per
+    // frame from the host; harnesses that never call it keep the pre-timing,
+    // always-instant behavior (credit_ defaults to "full").
+    void tick(uint64_t cpuCycles);
 
     // ---- host / front-end side ----------------------------------------
     // Insert a diskette. `len` should be kImageSize; short images are padded,
@@ -88,6 +109,10 @@ private:
 
     uint64_t io_ticks_   = 0;
     uint64_t step_ticks_ = 0;
+
+    double   credit_            = 1e9;   // sector-advance credit; huge => unlimited by default
+    uint64_t prev_tick_cy_      = 0;
+    uint64_t cycles_per_sector_ = 0;      // 0 = unlimited
 };
 
 } // namespace altair

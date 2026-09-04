@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures";
-import { boot, waitForScreen, send, stubSavePicker, pickCatalogItem } from "./helpers";
+import { boot, waitForScreen, send, stubSavePicker, pickCatalogItem, panelStop, clickPaddle } from "./helpers";
 
 const tapeStatus = (page) => page.evaluate(() => (window as any).__test.machine.tapeStatus());
 const counter = (page) =>
@@ -103,6 +103,34 @@ test.describe("88-ACR cassette deck", () => {
     expect(await counter(page)).not.toBe("000");
     // and nothing was loaded into BASIC
     expect(await page.evaluate(() => (window as any).__test.screen())).not.toMatch(/SYNTAX ERROR/i);
+  });
+
+  // ALTAIR_REVIEW.md §3.4: the deck is a separate box on its own cable, not on
+  // the S-100 bus -- neither the front-panel RUN/STOP paddle nor RESET reach it.
+  test("PLAY keeps the tape rolling while the CPU is on STOP", async ({ page }) => {
+    await boot(page, { params: "preset=cassette" });
+    await autoloadBasic(page);
+    await slow(page); // realistic, so the transport is time-paced (not instant)
+    await panelStop(page);
+
+    await page.click("#acr .acr-key.play");
+    await expect.poll(() => tapeStatus(page).then((s) => s.pos), { timeout: 8000 }).toBeGreaterThan(20);
+  });
+
+  test("the front-panel RESET paddle does not touch the tape", async ({ page }) => {
+    await boot(page, { params: "preset=cassette" });
+    await autoloadBasic(page);
+    await slow(page);
+    await page.click("#acr .acr-key.play");
+    await expect.poll(() => tapeStatus(page).then((s) => s.pos), { timeout: 8000 }).toBeGreaterThan(20);
+
+    const before = await tapeStatus(page);
+    await clickPaddle(page, /RESET/, "up");
+    const after = await tapeStatus(page);
+    expect(after.pos).toBe(before.pos);          // head didn't rewind
+    await expect(page.locator("#acr .acr-key.play")).toHaveClass(/down/); // still playing
+    await expect.poll(() => tapeStatus(page).then((s) => s.pos), { timeout: 8000 })
+      .toBeGreaterThan(after.pos);                // ...and still rolling
   });
 
   test("recording appends — a second CSAVE does not wipe the first program", async ({ page }) => {

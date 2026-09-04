@@ -47,6 +47,12 @@ public:
     Machine() : cpu_(make_bus()) {
         load_default_rom();
         cpu_.reset();
+        // The 88-2SIO's RX/TX-ready conditions jam RST 7 (vector 0x38) onto the
+        // bus when interrupts are enabled -- the conventional Altair 2SIO
+        // vector. Cpu::interrupt() is itself a no-op when disabled or mid-EI-
+        // delay, so firing this on every status change needs no debouncing.
+        // See ALTAIR_REVIEW.md §2.2/§2.3.
+        sio_.on_irq = [this] { if (cpu_.interrupt(0xFF)) int_seen_ = true; };
     }
 
     // Wipe RAM and re-seed the built-in echo program.
@@ -89,10 +95,15 @@ public:
     }
     int ramKb() const { return static_cast<int>(ram_top_ / 1024); }
 
+    // The front panel's RESET/CLR paddle: a bus signal to the CPU and the
+    // S-100 cards' electrical state, nothing more. The cassette deck isn't on
+    // the bus -- a real Altair's RESET line doesn't reach a box plugged into
+    // a completely separate cable, so it stays wherever it was and keeps
+    // playing if PLAY is down (disk_.reset() deselecting the 88-DCDD *is*
+    // correct: that card genuinely is on the bus). See ALTAIR_REVIEW.md §3.4.
     void reboot() {
         sio_.reset();
         disk_.reset();
-        cassette_.reset();
         cpu_.reset();
     }
 
@@ -211,11 +222,28 @@ public:
     void runCycles(int cycles) {
         int64_t remaining = cycles;
         while (remaining > 0) remaining -= cpu_.step();
-        cassette_.tick(cpu_.cycles);   // advance the cassette-transport throttle
+        disk_.tick(cpu_.cycles);   // advance the disk's rotational credit (§3.2d)
+    }
+
+    // Advance the cassette transport for one rendered frame. Call every frame
+    // regardless of whether the CPU is running -- the deck is a separate box
+    // with its own motor, not on the S-100 bus, so PLAY/FF/REW keep the reels
+    // turning even with the front panel on STOP (or powered off). While the
+    // CPU runs, the transport is paced by its own cycle clock (so 25x/50x
+    // still track CPU-cycle time exactly, turbo included); while it isn't,
+    // `idle_cycles_` advances the same clock by real elapsed time instead, at
+    // the machine's native 2 MHz, so the two paces splice together with no
+    // jump when RUN resumes. See ALTAIR_REVIEW.md §3.4a.
+    void tickCassette(double dtMs, bool running) {
+        if (!running) idle_cycles_ += static_cast<uint64_t>(dtMs * 2000.0);
+        cassette_.tick(cpu_.cycles + idle_cycles_);
     }
 
     // Cassette transfer rate: 30 = the real 300 baud, 150 = 5x, 0 = unlimited.
     void setTapeSpeed(int bytesPerSec) { cassette_.setSpeed(bytesPerSec); }
+
+    // Disk rotation rate: 193 = "Realistic" (~166 ms/rev over 32 sectors), 0 = unlimited.
+    void setDiskSpeed(int sectorsPerSec) { disk_.setSpeed(sectorsPerSec); }
 
     // Execute exactly one instruction (front-panel SINGLE STEP).
     int stepOne() { return cpu_.step(); }
@@ -226,15 +254,25 @@ public:
 
     bool   halted()      const { return cpu_.halted; }
     int    lastAddr()    const { return last_addr_; }   // last address on the bus
-    // OR of every address the bus touched since the last call -- the "blur" the
-    // real address lamps show while the CPU runs (a tight loop lights the
-    // addresses it hits; Kill the Bit's moving bit rides A8..A15). Resets on read.
-    int    busActivity()       { int v = addr_or_; addr_or_ = 0; return v; }
+
+    // Per-address-bit touch counts since the last call (resets on read). The
+    // real address lamps are incandescent bulbs that integrate brightness over
+    // every bus cycle in a frame: a bit driven on nearly every cycle (Kill the
+    // Bit's `D`, via four LDAX D per loop) glows visibly brighter than one a
+    // slow counter only sweeps through once (`H`). An OR of "did this bit ever
+    // go high" can't reproduce that -- see ALTAIR_REVIEW.md §3.6b.
+    val busActivityCounts() {
+        val out = val::global("Uint16Array").new_(addr_hits_.size());
+        out.call<void>("set",
+            val(emscripten::typed_memory_view(addr_hits_.size(), addr_hits_.data())));
+        addr_hits_.fill(0);
+        return out;
+    }
     double cycleCount()   const { return static_cast<double>(cpu_.cycles); }
     unsigned rxPending()  const { return static_cast<unsigned>(sio_.rx_pending()); }
     unsigned txPending()  const { return static_cast<unsigned>(sio_.tx_pending()); }
 
-    val state() const {
+    val state() {
         val o = val::object();
         o.set("a", cpu_.a);   o.set("b", cpu_.b);   o.set("c", cpu_.c);
         o.set("d", cpu_.d);   o.set("e", cpu_.e);
@@ -244,6 +282,18 @@ public:
         o.set("halted", cpu_.halted);
         o.set("intEnabled", cpu_.int_enabled);
         o.set("cycles", static_cast<double>(cpu_.cycles));
+        // front-panel status lamps derived from the last bus access (§3.6a
+        // above); "wo" is already unwrapped to the real active-low sense --
+        // true means the WO line reads asserted (i.e. not a write). We don't
+        // model HALT's own repeated internal fetch-discard cycles, so a
+        // halted CPU reports no bus activity rather than leaving whatever
+        // access preceded HALT stuck "on" forever.
+        o.set("memr", !cpu_.halted && last_bus_op_ == BusOp::kMemRead);
+        o.set("wo",   cpu_.halted || last_bus_op_ != BusOp::kMemWrite);
+        o.set("inp",  !cpu_.halted && last_bus_op_ == BusOp::kIoIn);
+        o.set("out",  !cpu_.halted && last_bus_op_ == BusOp::kIoOut);
+        o.set("intAck", int_seen_);
+        int_seen_ = false;   // pulse-stretched to "since last read", like busActivityCounts()
         return o;
     }
 
@@ -251,14 +301,23 @@ private:
     i8080::Bus make_bus() {
         i8080::Bus bus;
         bus.read  = [this](uint16_t a) -> uint8_t {
-            last_addr_ = a;
-            addr_or_ |= a;
-            if (a < ram_top_)                return mem_[a];
+            touch(a);
+            last_bus_op_ = BusOp::kMemRead;
+            // the ROM window shadows RAM underneath it (real hardware: the PROM
+            // decoder wins the bus regardless of how much RAM is installed) --
+            // check it first so a 64 KB build doesn't let ram_top_ swallow it
             if (a >= rom_lo_ && a <= rom_hi_) return mem_[a];
+            if (a < ram_top_)                 return mem_[a];
             return 0xFF;                            // unpopulated: floating high
         };
-        bus.write = [this](uint16_t a, uint8_t v) { last_addr_ = a; addr_or_ |= a; if (a < ram_top_) mem_[a] = v; };
+        bus.write = [this](uint16_t a, uint8_t v) {
+            touch(a);
+            last_bus_op_ = BusOp::kMemWrite;
+            if (a >= rom_lo_ && a <= rom_hi_) return;   // ROM: writes don't stick
+            if (a < ram_top_) mem_[a] = v;
+        };
         bus.in    = [this](uint8_t port) -> uint8_t {
+            last_bus_op_ = BusOp::kIoIn;
             if (sio_.owns(port))      return sio_.in(port);
             if (disk_.owns(port))     return disk_.in(port);
             if (cassette_.owns(port)) return cassette_.in(port);
@@ -266,6 +325,7 @@ private:
             return 0xFF;                               // unmapped port: floating bus
         };
         bus.out   = [this](uint8_t port, uint8_t v) {
+            last_bus_op_ = BusOp::kIoOut;
             if (sio_.owns(port))      { sio_.out(port, v);      return; }
             if (disk_.owns(port))     { disk_.out(port, v);     return; }
             if (cassette_.owns(port)) { cassette_.out(port, v); return; }
@@ -284,7 +344,29 @@ private:
     unsigned                      rom_lo_  = 0x10000;    // read-only window above RAM
     unsigned                      rom_hi_  = 0;
     uint16_t                      last_addr_ = 0;
-    uint16_t                      addr_or_ = 0;   // address-bus blur since busActivity()
+    std::array<uint16_t, 16>      addr_hits_{};   // per-bit touch counts since busActivityCounts()
+    uint64_t                      idle_cycles_ = 0;   // see tickCassette()
+
+    // MEMR/WO/INP/OUT for the front panel: which kind of bus access happened
+    // most recently, held until the next one (the same "level held between
+    // polls" trick busActivityCounts() uses for the address lamps). Real
+    // hardware asserts these only for the few T-states of the matching
+    // machine cycle; a once-a-frame poll can only ever see the last one.
+    // M1 (opcode fetch, vs. a plain read for an operand byte) and STACK need
+    // the CPU core itself to say what an access is *for*, not just which Bus
+    // callback fired -- deliberately not modelled. HLDA/PROT are already
+    // correct as permanently off: there's no DMA-capable peripheral to ever
+    // assert HOLD, and the front panel's PROTECT paddle is a documented
+    // no-op (see panel.spec.ts). See ALTAIR_REVIEW.md §3.6a.
+    enum class BusOp { kNone, kMemRead, kMemWrite, kIoIn, kIoOut };
+    BusOp last_bus_op_ = BusOp::kNone;
+    bool  int_seen_    = false;   // an interrupt was accepted since the last state() read
+
+    void touch(uint16_t a) {
+        last_addr_ = a;
+        for (int b = 0; b < 16; ++b)
+            if ((a >> b) & 1) addr_hits_[b] += (addr_hits_[b] < 0xFFFF);
+    }
     altair::Serial2SIO            sio_{0x10};
     altair::Disk88               disk_;
     altair::CassetteACR          cassette_;
@@ -320,6 +402,7 @@ EMSCRIPTEN_BINDINGS(retro8080) {
         .function("tapeImage",   &Machine::tapeImage)
         .function("tapeStatus",  &Machine::tapeStatus)
         .function("setTapeSpeed", &Machine::setTapeSpeed)
+        .function("setDiskSpeed", &Machine::setDiskSpeed)
         .function("clearMemory", &Machine::clearMemory)
         .function("loadBytes",   &Machine::loadBytes)
         .function("setPC",       &Machine::setPC)
@@ -327,12 +410,13 @@ EMSCRIPTEN_BINDINGS(retro8080) {
         .function("sendByte",    &Machine::sendByte)
         .function("readOutput",  &Machine::readOutput)
         .function("runCycles",   &Machine::runCycles)
+        .function("tickCassette", &Machine::tickCassette)
         .function("stepOne",     &Machine::stepOne)
         .function("readByte",    &Machine::readByte)
         .function("writeByte",   &Machine::writeByte)
         .function("halted",      &Machine::halted)
         .function("lastAddr",    &Machine::lastAddr)
-        .function("busActivity", &Machine::busActivity)
+        .function("busActivityCounts", &Machine::busActivityCounts)
         .function("cycleCount",  &Machine::cycleCount)
         .function("rxPending",   &Machine::rxPending)
         .function("txPending",   &Machine::txPending)

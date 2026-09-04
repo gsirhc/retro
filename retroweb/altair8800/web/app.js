@@ -179,6 +179,94 @@ async function boot() {
   // uppercase-only anyway. Profiles don't touch it.
   const caps = document.getElementById("caps");
 
+  // --- per-profile output realism ---------------------------------------
+  // xterm.js is always a full VT100+/xterm parser. A real period terminal
+  // wasn't: an ASR-33 has no video memory to address, a VT52 speaks a
+  // different escape set than ANSI, an ADM-3A addresses the cursor with its
+  // own encoding and no ANSI at all. Each profile's `filter` factory returns
+  // a stateful byte-stream transform (state must survive across metered
+  // chunks -- a slow baud rate can split an escape sequence over many calls)
+  // that runs just before bytes reach xterm; profiles without one (the VT100s,
+  // Modern) are genuinely ANSI/xterm-compatible and pass through unchanged.
+  // See ALTAIR_REVIEW.md §4.
+
+  // ASR-33 / Glass TTY: no cursor addressing, no clear screen, no reverse
+  // video -- these were printing (ASR-33) or minimal glass (early VDT)
+  // terminals with no escape-sequence handling at all. Only CR, LF, BS, BEL
+  // and HT are real controls; anything that looks like ESC or ESC[...final
+  // is swallowed rather than reaching xterm's parser. BS itself needs no
+  // translation: xterm's default backspace already just moves the cursor
+  // left without erasing, exactly like a print head backing up to overstrike.
+  function dumbFilter() {
+    let state = "ground";                 // ground | esc | csi
+    const KEEP_C0 = new Set([0x07, 0x08, 0x09, 0x0a, 0x0d]); // BEL BS HT LF CR
+    return (bytes) => {
+      const out = [];
+      for (const b of bytes) {
+        if (state === "esc") { state = (b === 0x5b) ? "csi" : "ground"; continue; }
+        if (state === "csi") { if (b >= 0x40 && b <= 0x7e) state = "ground"; continue; }
+        if (b === 0x1b) { state = "esc"; continue; }
+        if (b < 0x20 && !KEEP_C0.has(b)) continue;
+        out.push(b);
+      }
+      return out;
+    };
+  }
+
+  // DEC VT52: cursor moves / home / erase share ANSI's final letter but need
+  // the CSI "[" xterm requires; direct addressing (ESC Y row col, each +32)
+  // becomes an ANSI CUP; keypad-mode and identify sequences have no xterm
+  // equivalent and are dropped rather than mistranslated.
+  function vt52Filter() {
+    let state = "ground";                 // ground | esc | Y1 (row byte pending)
+    let row = 0;
+    const CSI_LETTER = new Set(["A", "B", "C", "D", "H", "J", "K"]); // same letter in both sets
+    return (bytes) => {
+      const out = [];
+      const push = (s) => { for (let i = 0; i < s.length; i++) out.push(s.charCodeAt(i)); };
+      for (const b of bytes) {
+        const c = String.fromCharCode(b);
+        if (state === "Y1") { row = b - 0x20; state = "Y2"; continue; }
+        if (state === "Y2") { push(`\x1b[${row + 1};${b - 0x20 + 1}H`); state = "ground"; continue; }
+        if (state === "esc") {
+          state = "ground";
+          if (CSI_LETTER.has(c)) { push("\x1b[" + c); continue; }
+          if (c === "I") { push("\x1bM"); continue; }        // reverse line feed
+          if (c === "Y") { state = "Y1"; continue; }          // direct cursor address
+          continue;                                            // Z / = / > / F / G: drop
+        }
+        if (b === 0x1b) { state = "esc"; continue; }
+        out.push(b);
+      }
+      return out;
+    };
+  }
+
+  // Lear Siegler ADM-3A: cursor moves are bare control codes (no ESC), not
+  // ANSI's CSI letters -- ^H left (needs no translation, same as BS), ^J down
+  // (needs no translation, same as LF), ^K up, ^L right, ^Z clear+home. Direct
+  // addressing is ESC = row col (each +32, matching VT52's Y). This is
+  // exactly the terminal driver WordStar's ADM-3A mode emits.
+  function adm3aFilter() {
+    let state = "ground";                 // ground | esc | eq1
+    let row = 0;
+    return (bytes) => {
+      const out = [];
+      const push = (s) => { for (let i = 0; i < s.length; i++) out.push(s.charCodeAt(i)); };
+      for (const b of bytes) {
+        if (state === "eq1") { row = b - 0x20; state = "eq2"; continue; }
+        if (state === "eq2") { push(`\x1b[${row + 1};${b - 0x20 + 1}H`); state = "ground"; continue; }
+        if (state === "esc") { state = (b === 0x3d) ? "eq1" : "ground"; continue; }  // only ESC =
+        if (b === 0x1b) { state = "esc"; continue; }
+        if (b === 0x0b) { push("\x1b[A"); continue; }   // ^K: cursor up
+        if (b === 0x0c) { push("\x1b[C"); continue; }   // ^L: cursor right (not form-feed here)
+        if (b === 0x1a) { push("\x1b[H\x1b[2J"); continue; } // ^Z: clear screen, home
+        out.push(b);
+      }
+      return out;
+    };
+  }
+
   const TERM_PROFILES = {
     modern: { label: "Modern (xterm)",
       font: 'ui-monospace, Menlo, Consolas, "DejaVu Sans Mono", monospace',
@@ -195,20 +283,24 @@ async function boot() {
     vt52: { label: "DEC VT52",
       font: '"VT323", "Courier New", monospace', size: 19,
       fg: "#4dff4d", bg: "#061006", dim: "#1c8c1c", br: "#b6ffb6",
-      crt: "scanheavy", baud: 4800, cursor: "block", blink: false, glow: 3 },
+      crt: "scanheavy", baud: 4800, cursor: "block", blink: false, glow: 3,
+      filter: vt52Filter },
     adm3a: { label: "Lear Siegler ADM-3A",
       font: '"VT323", "Courier New", monospace', size: 19,
       fg: "#39ff9c", bg: "#03100b", dim: "#1c8c5c", br: "#a6ffce",
-      crt: "scan", baud: 9600, cursor: "underline", blink: true, glow: 2 },
+      crt: "scan", baud: 9600, cursor: "underline", blink: true, glow: 2,
+      filter: adm3aFilter },
     glasstty: { label: "Glass TTY",
       font: '"VT323", "Courier New", monospace', size: 19,
       fg: "#c8ffc8", bg: "#020802", dim: "#5c9c5c", br: "#ecffec",
-      crt: "scan", baud: 300, cursor: "block", blink: true, glow: 2 },
+      crt: "scan", baud: 300, cursor: "block", blink: true, glow: 2,
+      filter: dumbFilter },
     tty33: { label: "Teletype ASR-33",
       font: '"Courier Prime", "Courier New", monospace', size: 15,
       fg: "#242424", bg: "#efe8d6", dim: "#7a7261", br: "#000000",
       crt: "paper", baud: 110, cursor: "underline", blink: false,
-      glow: 0, bell: "ding", scrollback: 5000 },   // paper roll -> scroll back
+      glow: 0, bell: "ding", scrollback: 5000,   // paper roll -> scroll back
+      filter: dumbFilter, forceCaps: true },
   };
 
   let bellMode = "flash";
@@ -233,6 +325,10 @@ async function boot() {
     // data + 1 stop); the ASR-33 used 2 stop bits, so 110 baud is exactly 10 cps.
     baudCps = p.baud ? p.baud / (key === "tty33" ? 11 : 10) : 0;
     bellMode = p.bell || "flash";
+    termFilter = p.filter ? p.filter() : null;   // fresh state -- a mid-escape switch shouldn't leak
+    // the ASR-33 is mechanically incapable of lowercase; not the user's choice
+    caps.disabled = !!p.forceCaps;
+    if (p.forceCaps) caps.checked = true;
     term.options.fontFamily = p.font;
     term.options.fontSize = p.size;
     term.options.cursorStyle = p.cursor;
@@ -302,7 +398,7 @@ async function boot() {
     turbo = false;            // the player is here now — back to authentic 2 MHz
     // a keypress skips to the end of a slow how-to printout
     if (printingManual) {
-      term.write(new Uint8Array(outQ.splice(0)));
+      writeFiltered(outQ.splice(0));
       printingManual = false;
       baudCps = baudSaved;
     }
@@ -333,6 +429,7 @@ async function boot() {
 
   let baudCps = 0;          // 0 = unthrottled; else characters/second
   let baudBudget = 0;
+  let termFilter = null;    // current profile's output filter, or null (pass-through)
   let printingManual = false;   // the how-to is metered at the terminal's baud
   let baudSaved = 0;            // real baud, restored when the how-to finishes
   let crlfPending = false;      // a CR ended the last readOutput() batch; the LF
@@ -385,17 +482,25 @@ async function boot() {
     }
     pullSerial();
     if (outQ.length === 0) return;
-    if (baudCps === 0) { term.write(new Uint8Array(outQ.splice(0))); return; }
+    if (baudCps === 0) { writeFiltered(outQ.splice(0)); return; }
     baudBudget += (baudCps * dtMs) / 1000;
     baudBudget = Math.min(baudBudget, baudCps);   // cap catch-up after a stall
     const n = Math.min(outQ.length, Math.floor(baudBudget));
-    if (n > 0) { baudBudget -= n; term.write(new Uint8Array(outQ.splice(0, n))); }
+    if (n > 0) { baudBudget -= n; writeFiltered(outQ.splice(0, n)); }
   }
 
+  // the selected profile's escape-handling filter, if it has one (§ above) --
+  // ASR-33/Glass TTY strip escapes entirely, VT52/ADM-3A translate their own
+  // codes to what xterm understands. CRT profiles that really speak ANSI pass
+  // straight through.
+  function writeFiltered(bytes) {
+    const out = termFilter ? termFilter(bytes) : bytes;
+    if (out.length) term.write(new Uint8Array(out));
+  }
 
   function flushTerminal() {           // used by SINGLE STEP — show it now
     pullSerial();
-    if (outQ.length) term.write(new Uint8Array(outQ.splice(0)));
+    if (outQ.length) writeFiltered(outQ.splice(0));
   }
   const drainToTerminal = flushTerminal;   // back-compat name for panel STEP
 
@@ -560,6 +665,9 @@ async function boot() {
       const boost = turbo ? 12 : 1;
       machine.runCycles(Math.round(CPU_HZ * dt / 1000) * boost);
     }
+    // the cassette deck isn't on the S-100 bus -- PLAY/FF/REW keep winding in
+    // real time even with the panel on STOP or the machine powered off
+    machine.tickCassette?.(dt, running);
     pumpTerminal(dt);          // keep typing out buffered text even when stopped
     updatePanel();
     if ((frameCount++ & 3) === 0) { disk.poll(); cassette.poll(); }   // peripheral lamps ~15 Hz
@@ -794,48 +902,77 @@ async function boot() {
 
   function setBits(leds, value, n) {
     for (let b = 0; b < n; b++) {
-      if (leds[b]) leds[b].classList.toggle("on", !!((value >> b) & 1));
+      if (!leds[b]) continue;
+      leds[b].classList.toggle("on", !!((value >> b) & 1));
+      leds[b].style.opacity = "";   // exact readout, not a brightness blur
+    }
+  }
+
+  // The address lamps while the CPU runs: not one address but a per-bit touch
+  // count over the frame, like the real incandescent lamps integrating many
+  // bus cycles. A bit driven almost every cycle (Kill the Bit's D, via four
+  // LDAX D per loop) should read brighter than one a slow counter only sweeps
+  // through once (H) -- see ALTAIR_REVIEW.md §3.6b. counts[] is 16 uint16s.
+  function setAddrBrightness(leds, counts) {
+    let peak = 0;
+    for (let b = 0; b < 16; b++) if (counts[b] > peak) peak = counts[b];
+    for (let b = 0; b < 16; b++) {
+      const l = leds[b];
+      if (!l) continue;
+      const c = counts[b];
+      l.classList.toggle("on", c > 0);
+      // floor a touched lamp at 40% so a single hit still reads as lit, then
+      // scale up toward the frame's busiest bit
+      l.style.opacity = c > 0 ? String(0.4 + 0.6 * (c / peak)) : "";
     }
   }
 
   function updatePanel() {
     if (!powered) {
-      for (const l of addrLeds) l && l.classList.remove("on");
+      for (const l of addrLeds) if (l) { l.classList.remove("on"); l.style.opacity = ""; }
       for (const l of dataLeds) l && l.classList.remove("on");
       for (const k in statusLeds) statusLeds[k].classList.remove("on");
       return;
     }
     const s = machine.state();
     // while a tape is reading in, the address lamps climb with the reader's
-    // write pointer. While the CPU runs, the address LEDs show a blur -- the OR
-    // of every address the bus touched this frame, exactly as the real lamps
-    // shimmer (that's how Kill the Bit's moving bit rides A8..A15). STOP freezes
-    // them at PC. The data lamps follow the last real byte on the bus.
+    // write pointer. While the CPU runs, the address lamps show per-bit
+    // brightness -- how often the bus touched each bit this frame, exactly as
+    // the real incandescent lamps integrate (that's how Kill the Bit's moving
+    // bit rides A8..A15, brighter than H's slow sweep). STOP freezes them at
+    // PC. The data lamps follow the last real byte on the bus.
     const loading = tape.phase === "feeding" || tape.phase === "draining";
     const runningNow = running && !s.halted;
-    const abus = loading ? tape.addr
-               : runningNow && machine.busActivity ? machine.busActivity()
-               : s.pc;
     const dAddr = loading ? 0
                 : runningNow && machine.lastAddr ? machine.lastAddr()
                 : s.pc;
-    setBits(addrLeds, abus, 16);
+    if (loading) setBits(addrLeds, tape.addr, 16);
+    else if (runningNow && machine.busActivityCounts) setAddrBrightness(addrLeds, machine.busActivityCounts());
+    else setBits(addrLeds, s.pc, 16);
     setBits(dataLeds, loading ? tape.lastByte
                               : machine.readByte ? machine.readByte(dAddr & 0xffff) : 0, 8);
     const set = (name, on) => statusLeds[name] && statusLeds[name].classList.toggle("on", !!on);
     const active = running && !s.halted;
-    set("INP", loading);
+    // MEMR/WO/INP/OUT reflect the actual last bus access (Machine::state(),
+    // wasm_machine.cpp) rather than "the CPU is running" for all four alike --
+    // a real IN, not just "the reader happens to be feeding". M1 and STACK
+    // still can't be told apart from a plain read/write without the CPU core
+    // itself saying what an access is *for*, so they stay approximated;
+    // HLDA/PROT are correctly always off (no DMA peripheral ever asserts
+    // HOLD; PROTECT is a documented no-op -- panel.spec.ts). See
+    // ALTAIR_REVIEW.md §3.6a.
+    set("INP", s.inp);
     set("WAIT", !running || s.halted);
     set("HLTA", s.halted);
     set("INTE", s.intEnabled);
-    set("MEMR", active);
+    set("MEMR", s.memr);
     set("M1", active);
     set("MI", active);          // (legacy key, harmless)
-    set("WO", true);            // WO is lit except during a memory write
+    set("WO", s.wo);
     set("PROT", false);
-    set("OUT", false);
+    set("OUT", s.out);
     set("STACK", false);
-    set("INT", false);
+    set("INT", s.intAck);
     set("HLDA", false);
   }
 
@@ -1138,6 +1275,12 @@ async function boot() {
   }
 
   // --- MITS 88-DCDD disk drive cabinet --------------------
+  // Rotation IS timed (ALTAIR_REVIEW.md §3.2d): a real 88-DCDD spins at
+  // ~166 ms/revolution over 32 sectors ~= 193 sectors/sec -- "Realistic".
+  // Same LOAD SPEED pattern as the paper-tape reader / cassette deck.
+  const DISK_SPEEDS = { realistic: 193, x5: 965, x25: 4825, x50: 9650, max: 0 };
+  const DISK_SPEED_KEYS = ["realistic", "x5", "x25", "x50"];
+
   const disk = {
     catalog: [],
     catalogLoaded: false,
@@ -1153,6 +1296,22 @@ async function boot() {
       const kase = el("dcdd-case");
       const top = el("dcdd-top",
         `<span class="dcdd-plate">MITS 88-DCDD <span>&nbsp;DISK DRIVES</span></span>`);
+      const spdWrap = document.createElement("span");
+      spdWrap.className = "dev-speedwrap";
+      spdWrap.innerHTML = '<span class="dev-speedlabel">LOAD SPEED</span>';
+      const spd = document.createElement("select");
+      spd.className = "dcdd-speed";
+      spd.innerHTML =
+        '<option value="realistic">Realistic (~166 ms/rev)</option>' +
+        '<option value="x5">5&times;</option>' +
+        '<option value="x25">25&times;</option>' +
+        '<option value="x50">50&times;</option>';
+      try { this.speed = localStorage.getItem("retro8080.diskspeed") || "realistic"; } catch {}
+      if (!DISK_SPEED_KEYS.includes(this.speed)) this.speed = "realistic";   // drop a stale value
+      spd.value = this.speed;
+      spd.addEventListener("change", () => this.setSpeed(spd.value));
+      spdWrap.appendChild(spd);
+      top.appendChild(spdWrap);
       const boot = document.createElement("button");
       boot.className = "dcdd-boot";
       boot.textContent = "BOOT";
@@ -1195,6 +1354,17 @@ async function boot() {
         "RAM (4&times; 88-16MCD boards)."));
       root.appendChild(kase);
       this.bootBtn = boot;
+      this.speedSel = spd;
+      this.setSpeed(this.speed);
+    },
+
+    setSpeed(key) {
+      this.speed = DISK_SPEEDS[key] != null ? key : "realistic";
+      if (this.speedSel) this.speedSel.value = this.speed;
+      if (typeof machine.setDiskSpeed === "function") machine.setDiskSpeed(DISK_SPEEDS[this.speed]);
+      // don't persist the internal "max" (?test / Auto-load) as a user choice
+      if (DISK_SPEED_KEYS.includes(this.speed))
+        try { localStorage.setItem("retro8080.diskspeed", this.speed); } catch {}
     },
 
     async loadCatalog() {
@@ -1764,16 +1934,25 @@ async function boot() {
   // --- era presets ---------------------------------------
   // Each preset is a period-correct machine build: RAM, primary I/O, the S-100
   // cards plugged in, and (optionally) the flagship software auto-loaded.
+  //
+  // Every preset's console is the 88-2SIO (the only serial board this emulator
+  // implements). A genuinely period "1975" machine would have shipped the
+  // earlier 88-SIO at ports 0x00/0x01 instead -- not modelled here, and the
+  // BASIC images this project bundles target the 2SIO anyway. So `baremetal`
+  // and `stock` are dated 1976 (when the 2SIO existed), not the earlier dates
+  // their software's real MITS release would suggest. See ALTAIR_REVIEW.md
+  // §5.2 for the fuller options (implement 88-SIO vs. relabel); this is the
+  // deliberate, documented "relabel" choice.
   const PRESETS = {
     baremetal: {
-      name: "Bare-Metal Toggle", era: "Early 1975",
+      name: "Bare-Metal Toggle", era: "1976",
       ramKb: 4, term: "tty33", focus: "panel",
-      cards: ["MITS 88-CPU\n8080 / 2 MHz", "MITS 88-4K\nStatic RAM", "MITS 88-2SIO\nserial"],
+      cards: ["MITS 88-CPU\n8080 / 2 MHz", "MITS 88-4MCS\nStatic RAM", "MITS 88-2SIO\nserial"],
       devices: ["papertape"],
       preload: { papertape: { match: /kill the bit/i } },
       autoload: { device: "papertape" },
       missing: "Kill the Bit isn't built — run `make roms`",
-      blurb: "The Altair as it first shipped: an 8080, 4K of RAM, and the front panel. No keyboard, no screen worth the name.",
+      blurb: "A minimal toggle-in machine: an 8080, 4K of static RAM, a serial card for the paper-tape reader, and the front panel where the real action is.",
       guide:
 `KILL THE BIT is threaded in the paper-tape reader. Auto-load feeds it
 in fast; press LOAD to watch the 24-byte tape crawl through the head at
@@ -1789,9 +1968,9 @@ Thread another tape (click the reader) to load something else -- this
 is how a program got into the machine before disks.`,
     },
     stock: {
-      name: "Stock Launch", era: "Mid 1975",
+      name: "Stock Launch", era: "1976",
       ramKb: 4, term: "tty33",
-      cards: ["MITS 88-CPU\n8080", "MITS 88-4K\nDRAM", "MITS 88-2SIO\nserial", "Teletype\nASR-33"],
+      cards: ["MITS 88-CPU\n8080", "MITS 88-4MCD\nDRAM", "MITS 88-2SIO\nserial", "Teletype\nASR-33"],
       devices: ["papertape"],
       preload: { papertape: { match: /4K BASIC/i } },
       autoload: { device: "papertape" },
@@ -1845,9 +2024,10 @@ current program;  CLOAD "NAME"  loads it back -- press REW, then PLAY.
 The LOAD SPEED selector paces the transfer ("Realistic" = 300 baud).`,
     },
     cpm: {
-      name: "CP/M Workstation", era: "1978",
+      name: "CP/M Workstation", era: "1979",
       ramKb: 64, term: "vt100g",
-      cards: ["MITS 88-CPU\n8080", "64K Static RAM\n(3rd party)", "MITS 88-2SIO\nserial", "MITS 88-DCDD\ndisk ctlr"],
+      cards: ["MITS 88-CPU\n8080", "MITS 88-16MCD\n16K DRAM", "MITS 88-16MCD\n16K DRAM",
+              "MITS 88-16MCD\n16K DRAM", "MITS 88-16MCD\n16K DRAM", "MITS 88-2SIO\nserial", "MITS 88-DCDD\ndisk ctlr"],
       devices: ["disk"],
       preload: { disk: { match: /CP\/M/i, drive: 0 } },
       autoload: { device: "disk" },
@@ -2673,16 +2853,18 @@ exactly as it did in 1975.`;
 
   // Automated-test seam. `?test=1` forces the sanctioned load-speed override
   // (paper tape / cassette / floppy loads run at Max so a suite isn't held up
-  // by a ~14-minute read) and exposes the internals the Playwright suite drives.
-  // The CPU still runs at real 2 MHz -- nothing here is a speed knob. Absent
-  // `?test`, none of this exists. See CLAUDE.md "Current sanctioned overrides".
-  if (location.search.includes("test")) {
+  // by a ~14-minute read or a needless ~166 ms/rev pause on every disk poll)
+  // and exposes the internals the Playwright suite drives. The CPU still
+  // runs at real 2 MHz -- nothing here is a speed knob. Absent `?test`, none
+  // of this exists. See CLAUDE.md "Current sanctioned overrides".
+  if (new URLSearchParams(location.search).get("test") === "1") {
     paperTape.setSpeed("max");
     cassette.setSpeed("max");
+    disk.setSpeed("max");
     window.__test = {
       machine, term, paperTape, cassette, disk, tape,
       applyPreset, applyProfile, applyDevices, setRunning,
-      switchState,
+      switchState, PRESETS, TERM_PROFILES,
       get running()     { return running; },
       get switchWord()  { return switchWord(); },
       get loaderToken() { return loaderToken; },
@@ -2694,7 +2876,10 @@ exactly as it did in 1975.`;
         const bits = (arr) => arr.reduce((w, l, i) => w | ((l && l.classList.contains("on") ? 1 : 0) << i), 0);
         const st = {};
         for (const k in statusLeds) st[k] = statusLeds[k].classList.contains("on");
-        return { addr: bits(addrLeds), data: bits(dataLeds), status: st };
+        // per-bit brightness (0 when off) -- lets a test tell a lightly-touched
+        // address bit apart from a heavily-touched one, not just lit/unlit
+        const addrBrightness = addrLeds.map((l) => (l && l.style.opacity ? Number(l.style.opacity) : (l && l.classList.contains("on") ? 1 : 0)));
+        return { addr: bits(addrLeds), data: bits(dataLeds), status: st, addrBrightness };
       },
       screen: () => {
         const b = term.buffer.active;

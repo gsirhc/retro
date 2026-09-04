@@ -22,13 +22,26 @@ constexpr uint8_t FN_HEAD_UNLD = 0x08;
 constexpr uint8_t FN_WRITE     = 0x80;
 }  // namespace
 
+// A bus RESET deselects the controller and clears its latches -- it does not
+// move the heads. RESET carries no STEP pulses, so nothing tells a real drive
+// to seek; the head simply stays wherever it was. (Track position after a
+// fresh `mount()` is a separate concern -- see Disk88::mount(), which does
+// reset to 0 there, standing in for a human loading a diskette with the head
+// already homed.) See ALTAIR_REVIEW.md §3.2b.
 void Disk88::reset() {
-    for (Drive &d : drives_) d.track = 0;
     selected_ = -1;
     flags_ = 0;
     sector_ = -1;
     bufpos_ = 255;
     write_dirty_ = false;
+}
+
+void Disk88::tick(uint64_t cpuCycles) {
+    uint64_t d = cpuCycles - prev_tick_cy_;
+    prev_tick_cy_ = cpuCycles;
+    if (cycles_per_sector_ == 0) { credit_ = 1e9; return; }   // "Max": reads never gated
+    credit_ += static_cast<double>(d) / static_cast<double>(cycles_per_sector_);
+    if (credit_ > kSectors) credit_ = kSectors;   // cap catch-up at one full revolution
 }
 
 bool Disk88::mount(int drive, const uint8_t *data, std::size_t len) {
@@ -78,7 +91,13 @@ uint8_t Disk88::in(uint8_t port) {
         case 0x09: {                                   // sector position register
             flushWrite();
             if (selected_ < 0 || !(flags_ & F_HEAD)) return 0;   // head not loaded
-            if (++sector_ > 31) sector_ = 0;
+            if (sector_ < 0) {
+                sector_ = 0;         // first sync after select/head-load: wherever the platter
+                                      // happens to be is unknowable, so this one is instant
+            } else if (credit_ >= 1) {
+                credit_ -= 1;
+                if (++sector_ > 31) sector_ = 0;
+            }                         // else: not a full sector-time yet -- report the same one
             bufpos_ = 255;
             uint8_t stat = static_cast<uint8_t>((sector_ << 1) & 0x3E);
             stat |= 0xC0;                               // unused hi bits read 1; bit0 (T)=0 => "true"
@@ -88,7 +107,11 @@ uint8_t Disk88::in(uint8_t port) {
         case 0x0A: {                                   // read data byte
             if (selected_ < 0) return 0;
             Drive &d = drives_[selected_];
-            if (bufpos_ < kSectorLen + 1) {
+            // exactly kSectorLen (137) bytes per fill, matching a real BIOS's
+            // read count; the 138th read re-delivers the sector from byte 0,
+            // same as SIMH -- was off by one, letting a 138th (always-zero)
+            // byte through. ALTAIR_REVIEW.md §3.2a.
+            if (bufpos_ < kSectorLen) {
                 ++io_ticks_;
                 return sector_buf_[bufpos_++];
             }
@@ -121,6 +144,13 @@ void Disk88::out(uint8_t port, uint8_t value) {
                 flags_ = 0;
                 return;
             }
+            // An empty drive produces no index pulses on real hardware, so
+            // nothing about it should read as ready -- report not-enabled
+            // rather than the SIMH-0x1A "healthy" bits. A boot/read attempt
+            // then hits an unmet head-load / no-data condition instead of
+            // silently reading zeros as if they were a real, if corrupt,
+            // diskette. ALTAIR_REVIEW.md §3.2c.
+            if (!mounted(drive)) { flags_ = 0; return; }
             flags_ = F_MOVE | 0x08 | 0x10;             // enable; head-move allowed (SIMH 0x1A)
             if (drives_[drive].track == 0) flags_ |= F_TRK0;
             return;
@@ -144,7 +174,11 @@ void Disk88::out(uint8_t port, uint8_t value) {
             // latch it like SIMH does (a stale flag breaks BIOSes whose head-home
             // routine trusts it, e.g. Burcon CP/M's seek0).
             if (d.track == 0) flags_ |= F_TRK0; else flags_ &= ~F_TRK0;
-            if (value & FN_HEAD_LOAD) flags_ |= F_HEAD | F_NRDA;
+            // An empty drive can't load its head either -- no diskette, no
+            // index pulses, nothing for the head to find. Without this, a
+            // read on an empty drive would still "succeed" and stream zeros
+            // as if reading a real (if blank) sector. ALTAIR_REVIEW.md §3.2c.
+            if ((value & FN_HEAD_LOAD) && mounted(selected_)) flags_ |= F_HEAD | F_NRDA;
             if (value & FN_HEAD_UNLD) {
                 flags_ &= ~(F_HEAD | F_NRDA);
                 sector_ = -1; bufpos_ = 255;

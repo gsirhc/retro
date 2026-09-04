@@ -51,13 +51,13 @@ coverage:
 	cmake --build tests/build-cov -j >/dev/null
 	$(CXX) -std=c++17 $(COVFLAGS) -I. -o tests/build-cov/cpm_host_cov cpm/cpm_host.cpp i8080.cpp
 	@set -e; cd tests/build-cov && rm -f *.profraw cov.profdata; \
-	  for t in arithmetic_test disk88_test cassette_test; do \
+	  for t in arithmetic_test disk88_test cassette_test interrupt_test; do \
 	    LLVM_PROFILE_FILE=$$t.profraw ./$$t >/dev/null; done; \
 	  for c in 8080PRE TST8080 CPUTEST 8080EXM; do \
 	    [ -f ../../cpm/$$c.COM ] || continue; \
 	    LLVM_PROFILE_FILE=cpm_$$c.profraw ./cpm_host_cov ../../cpm/$$c.COM >/dev/null; done; \
 	  $(LLVM_PROFDATA) merge -sparse *.profraw -o cov.profdata; \
-	  objs="arithmetic_test -object disk88_test -object cassette_test -object cpm_host_cov"; \
+	  objs="arithmetic_test -object disk88_test -object cassette_test -object interrupt_test -object cpm_host_cov"; \
 	  srcs="$(CURDIR)/i8080.cpp $(CURDIR)/i8080.h $(CURDIR)/disk88.cpp $(CURDIR)/disk88.h $(CURDIR)/cassette.cpp $(CURDIR)/cassette.h"; \
 	  $(LLVM_COV) report $$objs -instr-profile=cov.profdata $$srcs; \
 	  $(LLVM_COV) show $$objs -instr-profile=cov.profdata -format=html -output-dir=../coverage-cpp $$srcs >/dev/null; \
@@ -105,7 +105,9 @@ serve:
 	$(MAKE) -C web serve
 
 # --- aggregate --------------------------------------------------
-check: demo test
+# cpm is included so a broken ALU/flag/cycle model fails a local `make check`,
+# not just CI; harmless if cpm/*.COM aren't fetched locally (it just no-ops)
+check: demo test cpm
 
 clean:
 	rm -f emu8080 cpm/cpm_host cpm/cpm_disk

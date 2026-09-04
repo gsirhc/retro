@@ -28,6 +28,12 @@ constexpr uint8_t FN_STEP_OUT  = 0x02;
 constexpr uint8_t FN_HEAD_LOAD = 0x04;
 constexpr uint8_t FN_WRITE     = 0x80;
 
+// status bits read back from IN 0x08 (SEL), inverted -- 0 = true. Mirrors the
+// private constants in disk88.cpp so tests can name what they're checking.
+constexpr uint8_t F_MOVE = 0x02;
+constexpr uint8_t F_HEAD = 0x04;
+constexpr uint8_t F_NRDA = 0x80;
+
 // A synthetic image whose every byte encodes its own (track, sector, offset)
 // so a misread is obvious.
 std::vector<uint8_t> makeImage() {
@@ -74,11 +80,28 @@ TEST_F(DiskTest, MountAndPresence) {
 }
 
 TEST_F(DiskTest, DeselectedStatusReadsAllFalse) {
-    EXPECT_EQ(d.in(SEL), 0xFF);            // inverted: 0xFF == nothing true
+    d.mount(0, img.data(), img.size());    // needs media -- an empty drive never reports
+    EXPECT_EQ(d.in(SEL), 0xFF);            // ready either (EmptyDriveNeverReportsReady, §3.2c)
     d.out(SEL, 0x00);
-    EXPECT_NE(d.in(SEL), 0xFF);            // a selected drive reports something
+    EXPECT_NE(d.in(SEL), 0xFF);            // a selected, mounted drive reports something
     d.out(SEL, 0x80);                      // bit 7 = deselect
     EXPECT_EQ(d.in(SEL), 0xFF);
+}
+
+// A drive with nothing in it must not read as a healthy, ready diskette --
+// real hardware gets no index pulses without media. ALTAIR_REVIEW.md §3.2c.
+TEST_F(DiskTest, EmptyDriveNeverReportsReady) {
+    d.out(SEL, 0x00);                       // select drive 0 -- nothing mounted
+    EXPECT_EQ(d.in(SEL), 0xFF);             // unlike a mounted drive, reads all-false
+    d.out(CTL, FN_HEAD_LOAD);               // try to load the head anyway
+    // track-0 is a mechanical carriage sensor, independent of media, so a
+    // fresh empty drive can legitimately still read it true -- but nothing
+    // that implies a readable diskette does
+    EXPECT_TRUE(d.in(SEL) & F_HEAD)   << "head must not read as loaded";
+    EXPECT_TRUE(d.in(SEL) & F_NRDA)   << "no data can be ready with no media";
+    EXPECT_TRUE(d.in(SEL) & F_MOVE)   << "the SIMH-0x1A 'healthy' bits must not appear";
+    EXPECT_EQ(d.in(CTL), 0);                // sector position: no data ready
+    EXPECT_EQ(d.in(DATA), 0);               // and no fabricated sector stream
 }
 
 TEST_F(DiskTest, HeadStepsClampAtBothEnds) {
@@ -88,6 +111,19 @@ TEST_F(DiskTest, HeadStepsClampAtBothEnds) {
     EXPECT_EQ(d.track(0), 76);
     for (int i = 0; i < 200; ++i) d.out(CTL, FN_STEP_OUT);
     EXPECT_EQ(d.track(0), 0);
+}
+
+// A bus RESET deselects the controller but does not carry STEP pulses -- a
+// real drive's head just stays wherever it was. ALTAIR_REVIEW.md §3.2b.
+TEST_F(DiskTest, ResetDoesNotHomeTheHead) {
+    d.mount(0, img.data(), img.size());
+    d.out(SEL, 0x00);
+    for (int i = 0; i < 5; ++i) d.out(CTL, FN_STEP_IN);
+    ASSERT_EQ(d.track(0), 5);
+
+    d.reset();
+    EXPECT_EQ(d.track(0), 5);              // head untouched
+    EXPECT_EQ(d.in(SEL), 0xFF);            // but the controller is deselected
 }
 
 // The regression that broke Burcon CP/M: the track-0 line must follow the head,
@@ -136,6 +172,18 @@ TEST_F(DiskTest, SectorReadMatchesImage) {
                     << "track " << track << " sector " << sector << " byte " << b;
         }
     }
+}
+
+// A real BIOS reads exactly kSectorLen (137) bytes then re-syncs via IN 0x09;
+// a 138th read without doing that should re-deliver the sector from byte 0
+// (matching SIMH), not return a phantom always-zero byte. ALTAIR_REVIEW.md §3.2a.
+TEST_F(DiskTest, A138thReadReDeliversTheSectorInsteadOfAPhantomByte) {
+    d.mount(0, img.data(), img.size());
+    d.out(SEL, 0x00);
+    d.out(CTL, FN_HEAD_LOAD);
+    auto first137 = readSector(d, 3);
+    uint8_t byte138 = d.in(DATA);
+    EXPECT_EQ(byte138, first137[0]);   // re-delivered, not a stray zero
 }
 
 TEST_F(DiskTest, WriteSequenceRoundTrips) {

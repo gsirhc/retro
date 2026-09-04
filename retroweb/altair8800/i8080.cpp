@@ -24,12 +24,17 @@ static const uint8_t kCycles[256] = {
      5, 10, 10,  4, 11, 11,  7, 11,  5,  5, 10,  4, 11, 17,  7, 11, // F0
 };
 
+// A real 8080 RESET forces only PC = 0; A/F/BC/DE/HL/SP are left indeterminate
+// (why period software always sets SP explicitly before touching the stack).
+// Zeroing everything here is a deliberate simplification, not a claim that a
+// real machine powers up this clean.
 void Cpu::reset() {
     a = b = c = d = e = h = l = 0;
     f = FLAG_N1;
     pc = sp = 0;
     halted = false;
     int_enabled = false;
+    ei_delay_ = 0;
     cycles = 0;
 }
 
@@ -211,7 +216,7 @@ void Cpu::ret_if(bool cond, int &extra_cycles) {
 // --- the decoder ----------------------------------------------------------
 
 int Cpu::interrupt(uint8_t opcode) {
-    if (!int_enabled) return 0;
+    if (!int_enabled || ei_delay_ > 0) return 0;
     int_enabled = false;
     halted = false;
     // Feed the jammed opcode straight through the executor. RST n pushes PC
@@ -229,6 +234,8 @@ int Cpu::step() {
         cycles += 4;
         return 4;
     }
+
+    if (ei_delay_ > 0) --ei_delay_;   // this retiring instruction counts toward EI's one-instruction delay
 
     uint16_t op_pc = pc;
     (void)op_pc;
@@ -408,7 +415,7 @@ int Cpu::step() {
                      a = bus_.in ? bus_.in(port) : 0xFF; } break;             // IN
         case 0xD3: { uint8_t port = fetch8();
                      if (bus_.out) bus_.out(port, a); } break;                // OUT
-        case 0xFB: int_enabled = true; break;          // EI
+        case 0xFB: int_enabled = true; ei_delay_ = 1; break;   // EI -- see ei_delay_
         case 0xF3: int_enabled = false; break;         // DI
 
         default:
