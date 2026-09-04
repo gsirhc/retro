@@ -376,10 +376,11 @@ internal **Max** for `?test=1`). A cold CP/M boot at Realistic runs a couple
 of seconds longer than at Max; the CPU itself still always runs at real
 2 MHz regardless. See `ALTAIR_REVIEW.md` §3.2d.
 
-Standard MITS images are 337,568 bytes (77 × 32 × 137). `*.dsk` is git-ignored:
-CP/M 2.2 (`cpm63k.dsk`) comes from `disks/fetch-cpm.sh` (pinned + checksummed;
-freely redistributable since 2022); the rest — WordStar, Zork, the games disk,
-Altair DOS — are user-supplied, see `disks/README.md`. CP/M needs the full 64 KB
+Standard MITS images are 337,568 bytes (77 × 32 × 137). `*.dsk` is git-ignored;
+all five (CP/M, WordStar, Zork, the games disk, Altair DOS) are fetched pinned
+and SHA-256 checked by `disks/fetch-disks.sh` — see that script's header and
+`disks/README.md` for the redistribution-rights picture, which is genuinely
+mixed across the five. CP/M needs the full 64 KB
 of RAM, which the machine has (a period build got there with four 88-16MCD 16 KB
 dynamic-RAM boards).
 

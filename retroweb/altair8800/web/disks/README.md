@@ -26,29 +26,31 @@ won't boot here.)
 
 ## Where to get them
 
-`*.dsk` is git-ignored. The de-facto standard collection is Mike Douglas's,
-mirrored at <https://github.com/dhansel/Altair8800/tree/master/disks>.
-
-**`cpm63k.dsk`** (CP/M 2.2, bootable — `dhansel/DISK01.DSK`) is fetched, pinned
-and SHA-256 checked, by `fetch-cpm.sh`; CI runs it before deploying to Pages.
+`*.dsk` is git-ignored. All five come from Mike Douglas's collection, mirrored
+at <https://github.com/dhansel/Altair8800/tree/master/disks>, fetched pinned
+(one commit, so this can't drift) and SHA-256 checked by `fetch-disks.sh`; CI
+runs it before deploying to Pages.
 
 ```sh
-./web/disks/fetch-cpm.sh        # --force to re-fetch
+./web/disks/fetch-disks.sh        # --force to re-fetch
 ```
-
-The rest are user-supplied — drop your own copies in:
 
 | This project wants | dhansel file | contents |
 |---|---|---|
+| `cpm63k.dsk`    | `DISK01.DSK` | CP/M 2.2 (bootable) |
 | `games.dsk`    | `DISK05.DSK` | CP/M game disk (boots CP/M) |
 | `wordstar.dsk` | `DISK07.DSK` | WordStar 3.0 |
 | `zork1.dsk`    | `DISK08.DSK` | Zork I |
 | `altairdos.dsk`| `DISK02.DSK` | Altair DOS 1.0 |
 
-```sh
-cd retroweb/altair8800/web/disks
-curl -L -o games.dsk https://raw.githubusercontent.com/dhansel/Altair8800/master/disks/DISK05.DSK
-```
+Redistribution rights for these vary and are, for most of them, not spelled
+out anywhere: `cpm63k.dsk` is the one exception with an explicit public
+release (DRDOS Inc. / Bryan Sparks, 2001, reconfirmed 2022); the game disk and
+Altair DOS are decades-old, unchallenged, effectively-orphaned hobbyist/MITS
+material; WordStar (MicroPro) and Zork I (Infocom/Activision, now Microsoft)
+are commercial titles with no comparable release, carrying real
+redistribution risk that's knowingly being accepted here rather than
+overlooked — see `fetch-disks.sh`'s header comment.
 
 More MITS software (and the originals) live at
 <https://deramp.com/downloads/mits/> and <https://altairclone.com>.

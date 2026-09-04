@@ -23,10 +23,10 @@ roms: roms/echo.bin
 roms/echo.bin roms/hello.bin roms/killbits.bin: roms/gen_roms.py
 	python3 roms/gen_roms.py
 
-# Altair BASIC + CP/M 2.2, pinned + checksummed (git-ignored)
+# Altair BASIC + every diskette image, pinned + checksummed (git-ignored)
 media:
 	bash roms/fetch-basic.sh
-	bash disks/fetch-cpm.sh
+	bash disks/fetch-disks.sh
 
 serve: retro8080.js roms media
 	@echo "serving on http://localhost:8000  (Ctrl-C to stop)"

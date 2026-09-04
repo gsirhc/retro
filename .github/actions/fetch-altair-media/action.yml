@@ -1,13 +1,13 @@
 name: Fetch Altair media
 description: >
-  Fetch (cached) the pinned + checksummed Altair 4K/8K BASIC images and the
-  CP/M 2.2 diskette into retroweb/altair8800/web. Shared by the build and web-test jobs.
+  Fetch (cached) the pinned + checksummed Altair 4K/8K BASIC images and every
+  diskette image into retroweb/altair8800/web. Shared by the build and web-test jobs.
 
 runs:
   using: composite
   steps:
     # Cached on the fetch scripts' content — a cache hit skips every download.
-    - name: Cache Altair BASIC + CP/M
+    - name: Cache Altair BASIC + diskette images
       uses: actions/cache@v4
       with:
         path: |
@@ -18,10 +18,14 @@ runs:
           retroweb/altair8800/web/roms/8kBas_f0.bin
           retroweb/altair8800/web/roms/8kBas_f8.bin
           retroweb/altair8800/web/disks/cpm63k.dsk
-        key: altair-media-${{ hashFiles('retroweb/altair8800/web/roms/fetch-basic.sh', 'retroweb/altair8800/web/disks/fetch-cpm.sh') }}
+          retroweb/altair8800/web/disks/games.dsk
+          retroweb/altair8800/web/disks/wordstar.dsk
+          retroweb/altair8800/web/disks/zork1.dsk
+          retroweb/altair8800/web/disks/altairdos.dsk
+        key: altair-media-${{ hashFiles('retroweb/altair8800/web/roms/fetch-basic.sh', 'retroweb/altair8800/web/disks/fetch-disks.sh') }}
 
     - shell: bash
       working-directory: retroweb/altair8800/web
       run: |
         bash roms/fetch-basic.sh
-        bash disks/fetch-cpm.sh
+        bash disks/fetch-disks.sh

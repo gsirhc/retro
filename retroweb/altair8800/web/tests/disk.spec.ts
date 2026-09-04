@@ -294,14 +294,15 @@ test.describe("88-DCDD disk cabinet", () => {
     ["Zork I", /Zork/],
     ["Altair DOS 1.0", /Altair DOS/],
   ] as [string, RegExp][]) {
-    test(`extra disk: ${label} (boots locally / marked unavailable in CI)`, async ({ page }) => {
+    test(`extra disk: ${label}`, async ({ page }) => {
       await boot(page, { params: "preset=cpm" });
       await page.evaluate(() => (window as any).__test.disk.eject(0));
       await page.click("#dcdd .dcdd-bay:first-child .dcdd-slot");
       await expect(page.locator("#diskDialog")).toBeVisible();
       const present = await hasCatalogItem(page, "#diskList", re);
       if (!present) {
-        // CI: the image isn't fetched -> the option is there but disabled
+        // fetch-disks.sh wasn't run (e.g. a from-scratch checkout that
+        // skipped `make media`) -- the option is there but disabled
         const disabled = await page.evaluate(
           ({ src, flags }) => {
             const r = new RegExp(src, flags);
