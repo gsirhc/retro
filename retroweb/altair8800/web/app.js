@@ -633,8 +633,8 @@ async function boot() {
         const r = await fetch(url, { method: "HEAD", cache: "no-store" });
         const lm = r.headers.get("Last-Modified");
         if (lm) {
-          el.textContent = new Date(lm).toLocaleDateString(undefined,
-            { year: "numeric", month: "long", day: "numeric" });
+          el.textContent = new Date(lm).toLocaleString(undefined,
+            { year: "numeric", month: "long", day: "numeric", hour: "numeric", minute: "2-digit" });
           return;
         }
       } catch {}
