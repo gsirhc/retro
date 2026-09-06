@@ -986,3 +986,60 @@ FreeDOS banner -- confirm the default palette register table and 6-bit
 color decode), independent visual proof beyond the ASCII-based regression
 check above. Not gated by `check`/`test`, matching `bios_host.cpp`'s own
 precedent -- see the Makefile's comment on `render_screen`.
+
+## 13. Phase 6: PC speaker
+
+`pcspeaker.h`/`.cpp` model the real speaker circuit as what it actually is
+in hardware: a 2-input AND gate between Port 0x61 bit 1 ("Speaker Data
+Enable") and PIT channel 2's output (already gated by Port 0x61 bit 0 --
+see `pit8253.h`/§5). That one AND gate is why two unrelated real
+programming techniques both work through the same two bits: standard tone
+generation (gate the PIT on, leave data enable high, the speaker follows
+channel 2's square wave) and "digitized"/direct-toggle playback (park the
+PIT -- gate off, forcing its output permanently high -- and toggle data
+enable directly under CPU control, e.g. Access Software's RealSound and
+many disk-based PC speaker sample players). `PcSpeaker` doesn't synthesize
+audio itself (no browser exists yet -- Web Audio output is Phase 7's job,
+per the approved plan); it records a real, continuous *edge trace*
+((cpu_cycle, level) whenever the AND gate's output actually changes), the
+representation a future renderer needs to resample into PCM, and the only
+one faithful to a real speaker's continuously-variable cone position
+rather than some sample rate the native core has no business choosing.
+Bounded to 65536 pending edges (real hardware has no such limit; this only
+protects memory if a consumer never drains, dropping the oldest
+transitions the way an unread hardware FIFO would).
+
+**Two real `Pit8253` gaps found and fixed along the way**, both load-
+bearing for the digitized-playback technique specifically (nothing before
+Phase 6 needed to gate channel 2 off mid-tone, so nothing exposed them):
+gate low was freezing channel 2's counter correctly but leaving `output`
+at whatever level it happened to be, when real Mode 3 hardware forces it
+high immediately regardless of phase -- without this, a program parking
+the PIT to drive the speaker directly would inherit an unpredictable
+baseline instead of the clean high level real hardware guarantees. And
+gate's rising edge wasn't reloading the counter, when real Mode 3 hardware
+does -- without this, ungating would resume mid-phase instead of
+restarting the square wave cleanly. Both are cited, hand-verified 8253
+Mode 3 behavior (see `pit8253.h`'s updated header), covered by two new
+tests (`Gate2LowForcesOutputHighEvenMidCycle`,
+`Gate2RisingEdgeReloadsCounterInsteadOfResumingMidPhase`) that fail
+without the fix and pass with it -- confirmed by deriving both by hand
+before implementing, then checking the actual test run matched.
+
+**Verified two ways**: `pcspeaker_test.cpp`'s 6 cases exercise the AND
+gate, edge deduplication, the digitized-playback relay case, reset, and
+the overflow-drops-oldest behavior directly. And the full BIOS + vgabios +
+`freedos-hdd.img` boot (the same regression check used for Phase 5) was
+re-run after wiring `PcSpeaker` into `Chipset` and fixing the two PIT
+gaps: identical screen output, confirming no regression. That same run
+also traced Port 0x61 across the entire boot: it never changes from
+0x00, so the speaker produces zero edges for this specific boot path --
+not a bug (confirmed by tracing the actual register, not just the
+higher-level symptom): this substitute BIOS's boot sequence and a plain,
+silent `C:\>` boot apparently never call for a beep. The device logic
+itself is exercised directly by its own unit tests instead.
+
+**Deferred to Phase 7**: actually turning the edge trace into sound (Web
+Audio, matching the approved plan's "Web Audio output" phrase for this
+phase, and this project's native-core-first pattern from every prior
+phase). This phase's scope is the real circuit semantics only.

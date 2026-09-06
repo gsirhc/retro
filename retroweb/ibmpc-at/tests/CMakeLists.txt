@@ -35,14 +35,15 @@ add_unit_test(cmos_rtc_test cmos_rtc_test.cpp ${CORE}/cmos_rtc.cpp)
 add_unit_test(dma8237_test  dma8237_test.cpp  ${CORE}/dma8237.cpp)
 add_unit_test(chipset_test  chipset_test.cpp
   ${CORE}/chipset.cpp ${CORE}/pic8259.cpp ${CORE}/pit8253.cpp
-  ${CORE}/i8042.cpp ${CORE}/cmos_rtc.cpp ${CORE}/dma8237.cpp ${CORE}/fdc765.cpp ${CORE}/ega.cpp ${CORE}/wd1003.cpp)
+  ${CORE}/i8042.cpp ${CORE}/cmos_rtc.cpp ${CORE}/dma8237.cpp ${CORE}/fdc765.cpp ${CORE}/ega.cpp ${CORE}/wd1003.cpp ${CORE}/pcspeaker.cpp)
 add_unit_test(machine_test  machine_test.cpp
   ${CORE}/machine.cpp ${CORE}/chipset.cpp ${CORE}/cpu80286.cpp
   ${CORE}/pic8259.cpp ${CORE}/pit8253.cpp ${CORE}/i8042.cpp
-  ${CORE}/cmos_rtc.cpp ${CORE}/dma8237.cpp ${CORE}/fdc765.cpp ${CORE}/ega.cpp ${CORE}/wd1003.cpp)
+  ${CORE}/cmos_rtc.cpp ${CORE}/dma8237.cpp ${CORE}/fdc765.cpp ${CORE}/ega.cpp ${CORE}/wd1003.cpp ${CORE}/pcspeaker.cpp)
 add_unit_test(fdc765_test   fdc765_test.cpp  ${CORE}/fdc765.cpp)
 add_unit_test(ega_test      ega_test.cpp     ${CORE}/ega.cpp)
 add_unit_test(wd1003_test   wd1003_test.cpp  ${CORE}/wd1003.cpp)
+add_unit_test(pcspeaker_test pcspeaker_test.cpp ${CORE}/pcspeaker.cpp)
 
 include(GoogleTest)
 gtest_discover_tests(cpu80286_test)
@@ -56,3 +57,4 @@ gtest_discover_tests(machine_test)
 gtest_discover_tests(fdc765_test)
 gtest_discover_tests(ega_test)
 gtest_discover_tests(wd1003_test)
+gtest_discover_tests(pcspeaker_test)

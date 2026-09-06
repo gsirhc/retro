@@ -60,6 +60,40 @@ TEST(Pit8253Test, Gate2FreezesChannelTwoCounter) {
     EXPECT_TRUE(pit.channel2_output());
 }
 
+TEST(Pit8253Test, Gate2LowForcesOutputHighEvenMidCycle) {
+    // Real Mode 3 hardware forces the output high the instant GATE drops,
+    // regardless of what phase it was in -- not merely whatever it
+    // happened to be. This is what lets pcspeaker.h's direct-toggle
+    // "digitized" playback technique rely on a clean, predictable high
+    // baseline from the PIT side while it drives the speaker itself via
+    // the Speaker Data Enable bit.
+    Pit8253 pit;
+    pit.out(0x43, 0xB6);  // channel 2, access LSB-then-MSB, mode 3
+    pit.out(0x42, 4);
+    pit.out(0x42, 0);
+    pit.tick(2, kPitHz);  // one full toggle_period -- output is now low
+    ASSERT_FALSE(pit.channel2_output());
+    pit.set_gate2(false);
+    EXPECT_TRUE(pit.channel2_output());
+}
+
+TEST(Pit8253Test, Gate2RisingEdgeReloadsCounterInsteadOfResumingMidPhase) {
+    // Real Mode 3 hardware: GATE's rising edge reloads the counter, so the
+    // square wave restarts cleanly from the beginning of its period
+    // instead of resuming from wherever it was frozen.
+    Pit8253 pit;
+    pit.out(0x43, 0xB6);
+    pit.out(0x42, 4);
+    pit.out(0x42, 0);
+    pit.tick(1, kPitHz);  // one clock into the period (counter now 1 of 2)
+    pit.set_gate2(false);
+    pit.set_gate2(true);  // reloads the counter back to 2
+    pit.tick(2, kPitHz);  // one more clock -- would have toggled already
+    EXPECT_TRUE(pit.channel2_output());  // ...if it had merely resumed at 1
+    pit.tick(3, kPitHz);  // second clock since the reload -- now it toggles
+    EXPECT_FALSE(pit.channel2_output());
+}
+
 TEST(Pit8253Test, CounterLatchFreezesAConsistentSnapshot) {
     Pit8253 pit;
     pit.out(0x43, 0x76);  // channel 1 (01), access LSB-then-MSB, mode 3

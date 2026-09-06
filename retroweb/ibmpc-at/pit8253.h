@@ -45,9 +45,17 @@ public:
     // the chipset can pulse PIC IRQ0 that many times.
     int tick(uint64_t cpu_cycles, double cpu_hz);
 
-    // Port 0x61 bit 0 gates channel 2 (the speaker channel) -- gate low
-    // freezes its counter, matching real hardware.
-    void set_gate2(bool level) { ch_[2].gate = level; }
+    // Port 0x61 bit 0 gates channel 2 (the speaker channel). Real Mode 3
+    // hardware does two things this models explicitly, both load-bearing
+    // for pcspeaker.h's direct-toggle "digitized" playback technique:
+    // gate low freezes the counter *and* forces the output high
+    // immediately (not just whatever phase it happened to be in), so a
+    // program that parks the PIT (gate low) and toggles the Speaker Data
+    // Enable bit directly gets a clean, predictable high baseline to relay
+    // through the speaker's AND gate; gate's rising edge reloads the
+    // counter, restarting the square wave from the beginning of its
+    // period rather than resuming mid-phase.
+    void set_gate2(bool level);
     bool channel2_output() const { return ch_[2].output; }
 
 private:
