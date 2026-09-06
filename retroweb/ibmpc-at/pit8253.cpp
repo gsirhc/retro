@@ -66,6 +66,20 @@ void Pit8253::out(uint16_t port, uint8_t v) {
     }
 }
 
+void Pit8253::set_gate2(bool level) {
+    Channel &ch = ch_[2];
+    bool was = ch.gate;
+    ch.gate = level;
+    if (!level) {
+        // Gate low: force the output high immediately -- see pit8253.h.
+        ch.output = true;
+    } else if (!was) {
+        // Gate's rising edge: reload the counter, restarting the square
+        // wave cleanly -- see pit8253.h.
+        ch.counter = ch.toggle_period;
+    }
+}
+
 void Pit8253::step_channel(int idx) {
     Channel &ch = ch_[idx];
     ch.just_rose = false;

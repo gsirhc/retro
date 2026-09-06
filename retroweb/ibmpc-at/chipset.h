@@ -23,6 +23,7 @@
 #include "ega.h"
 #include "fdc765.h"
 #include "i8042.h"
+#include "pcspeaker.h"
 #include "pic8259.h"
 #include "pit8253.h"
 #include "wd1003.h"
@@ -59,6 +60,7 @@ public:
     Fdc765 fdc;
     Ega ega;
     Wd1003 hdd;
+    PcSpeaker speaker;
 
     // Port 0x61 ("PPI port B" equivalent): bit0 gates PIT channel 2
     // (speaker), bit1 enables the speaker data path, bit4 is a refresh-
@@ -69,8 +71,14 @@ public:
 
     // Advances the PIT against the CPU's running cycle count and pulses
     // PIC IRQ0 for every channel-0 rising edge it reports; flips the
-    // refresh-activity toggle once per call. Call once per frame, like
-    // disk88/cassette's own tick() convention elsewhere in this codebase.
+    // refresh-activity toggle once per call; recomputes the speaker's
+    // AND-gate signal from the current Port 0x61 Speaker Data Enable bit
+    // and PIT channel 2's output. Machine::run_cycles() calls this once
+    // per CPU instruction (not literally once per video frame, despite the
+    // "call once per frame" phrasing disk88/cassette's tick() convention
+    // elsewhere in this codebase uses) -- fine enough granularity for the
+    // speaker's direct-toggle digitized-playback technique to be captured
+    // accurately.
     void tick(uint64_t cpu_cycles, double cpu_hz);
 
     // Services one INTA cycle: cascades through the slave when the

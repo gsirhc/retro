@@ -28,8 +28,8 @@
 CXX      ?= c++
 CXXFLAGS ?= -std=c++17 -O2 -Wall -Wextra
 
-CHIPSET_SRCS = machine.cpp chipset.cpp cpu80286.cpp pic8259.cpp pit8253.cpp i8042.cpp cmos_rtc.cpp dma8237.cpp fdc765.cpp ega.cpp wd1003.cpp
-UNIT_TESTS = cpu80286_test pic8259_test pit8253_test i8042_test cmos_rtc_test dma8237_test chipset_test machine_test fdc765_test ega_test wd1003_test
+CHIPSET_SRCS = machine.cpp chipset.cpp cpu80286.cpp pic8259.cpp pit8253.cpp i8042.cpp cmos_rtc.cpp dma8237.cpp fdc765.cpp ega.cpp wd1003.cpp pcspeaker.cpp
+UNIT_TESTS = cpu80286_test pic8259_test pit8253_test i8042_test cmos_rtc_test dma8237_test chipset_test machine_test fdc765_test ega_test wd1003_test pcspeaker_test
 
 .PHONY: help test bios bios-check hdd-image coverage check clean
 
@@ -91,6 +91,7 @@ coverage:
 	    $(CURDIR)/cmos_rtc.cpp $(CURDIR)/cmos_rtc.h $(CURDIR)/dma8237.cpp $(CURDIR)/dma8237.h \
 	    $(CURDIR)/fdc765.cpp $(CURDIR)/fdc765.h $(CURDIR)/ega.cpp $(CURDIR)/ega.h \
 	    $(CURDIR)/wd1003.cpp $(CURDIR)/wd1003.h \
+	    $(CURDIR)/pcspeaker.cpp $(CURDIR)/pcspeaker.h \
 	    $(CURDIR)/chipset.cpp $(CURDIR)/chipset.h $(CURDIR)/machine.cpp $(CURDIR)/machine.h"; \
 	  $(LLVM_COV) report $$objs -instr-profile=cov.profdata $$srcs; \
 	  $(LLVM_COV) show $$objs -instr-profile=cov.profdata -format=html -output-dir=../coverage-cpp $$srcs >/dev/null; \
