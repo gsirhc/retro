@@ -283,6 +283,21 @@ TEST_F(Wd1003Test, AbsentSlaveDriveOnlyRefusesToExecuteCommands) {
     EXPECT_TRUE(hdd.in(0x1F7) & 0x08);
 }
 
+TEST_F(Wd1003Test, BusyReflectsAnInFlightTransfer) {
+    // Host/front-end convenience for an activity LED -- see wd1003.h.
+    auto img = MakeImage(733, 5, 17);
+    hdd.mount(0, img.data(), img.size());
+    hdd.out(0x1F6, 0xA0);
+    hdd.out(0x1F2, 1);
+    hdd.out(0x1F3, 3);
+    hdd.out(0x1F4, 0); hdd.out(0x1F5, 0);
+    EXPECT_FALSE(hdd.busy());  // idle before the command is even issued
+    hdd.out(0x1F7, 0x20);      // READ SECTORS
+    EXPECT_TRUE(hdd.busy());
+    for (uint64_t c = 0; c < 10'000'000 && hdd.busy(); c += 100) hdd.tick(c);
+    EXPECT_FALSE(hdd.busy());  // transfer completed
+}
+
 TEST_F(Wd1003Test, MountedMediaSurvivesControllerReset) {
     auto img = MakeImage(733, 5, 17);
     hdd.mount(0, img.data(), img.size());

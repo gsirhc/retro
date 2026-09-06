@@ -65,4 +65,9 @@ retroweb/altair8800/web/.v8-coverage/
 
 retroweb/ibmpc-at/disks/x86BOOT.img
 retroweb/ibmpc-at/disks/x86DSK0*.img
+
+retroweb/ibmpc-at/web/ibmpcat.js
+retroweb/ibmpc-at/web/ibmpcat.wasm
+retroweb/ibmpc-at/web/roms/
+retroweb/ibmpc-at/web/disks/
 retroweb/ibmpc-at/disks/freedos-hdd.img

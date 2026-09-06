@@ -1,0 +1,362 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IBM PC/AT</title>
+<!-- apply the shared site theme before first paint, so there's no flash of
+     the wrong theme (matches retroweb/index.html's own inline snippet) -->
+<script>try{var t=localStorage.getItem("retro8080.theme")||"win",r=document.documentElement;if(t=="moderndark"){r.dataset.theme="modern";r.dataset.mode="dark";}else{r.dataset.theme=t;}}catch(e){}</script>
+<style>
+  /* ---- page themes: default = Windows 95; web94 = mid-90s Mosaic web;
+     modern = clean; moderndark = modern's layout, dark palette. Token names
+     mirror retroweb/altair8800 and retroweb/cg-oac-6502's own copies so a
+     theme picked on any page (shared retro8080.theme) looks like one site.
+     Only page chrome (panels/buttons/fields/text) is themed here -- the
+     CRT bezel and drive bays keep their own photoreal look in every theme,
+     same principle as the other two machines' front panels. -->
+  :root {
+    --desktop:   #008080;
+    --page-bg:   #c0c0c0;
+    --page-border: 3px outset #dfdfdf;
+    --page-radius: 0;
+    --page-shadow: none;
+    --body-pad:  18px 12px;
+    --body-font: "Times New Roman", Times, Georgia, serif;
+    --text:      #000000;
+    --dim:       #404040;
+    --link:      #0000ee;
+    --titlebar-display: flex;
+    --titlebar-bg: linear-gradient(90deg, #000080, #1084d0);
+    --titlebar-fg: #ffffff;
+    --rule:      2px groove #ffffff;
+    --h1-font:   900 26px "Arial Black", Arial, sans-serif;
+    --h1-color:  #000080;
+    --h1-shadow: 2px 2px 0 #808080;
+    --panel-bg:     #c0c0c0;
+    --panel-border: 2px outset #dfdfdf;
+    --panel-radius: 0;
+    --btn-bg:       #c0c0c0;
+    --btn-fg:       #000000;
+    --btn-border:   2px outset #dfdfdf;
+    --btn-radius:   0;
+    --field-bg:     #ffffff;
+    --field-border: 2px inset #808080;
+    --accent2:      #008000;
+    --warn:         #c00000;
+  }
+  :root[data-theme="web94"] {
+    --desktop:   #d1d6df;
+    --page-bg:   #c0c0c0;
+    --page-border: 3px ridge #dfdfdf;
+    --body-pad:  26px 16px;
+    --titlebar-display: none;
+    --link:      #0000ff;
+    --rule:      2px inset #c0c0c0;
+    --h1-font:   bold 24px "Times New Roman", Times, serif;
+    --h1-color:  #000000;
+    --h1-shadow: none;
+  }
+  :root[data-theme="modern"] {
+    --desktop:   #eceef2;
+    --page-bg:   #ffffff;
+    --page-border: 1px solid #e4e6ea;
+    --page-radius: 14px;
+    --page-shadow: 0 1px 3px rgba(16,24,40,.06), 0 12px 32px rgba(16,24,40,.10);
+    --body-pad:  0;
+    --body-font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --text:      #1b1e24;
+    --dim:       #6b7280;
+    --link:      #4f46e5;
+    --titlebar-display: none;
+    --titlebar-bg: #f6f7f9;
+    --titlebar-fg: #1b1e24;
+    --rule:      1px solid #ecedf1;
+    --h1-font:   700 22px/1.15 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    --h1-color:  #12141a;
+    --h1-shadow: none;
+    --panel-bg:     #f7f8fa;
+    --panel-border: 1px solid #e7e9ee;
+    --panel-radius: 10px;
+    --btn-bg:       #ffffff;
+    --btn-fg:       #1b1e24;
+    --btn-border:   1px solid #d3d7de;
+    --btn-radius:   7px;
+    --field-bg:     #ffffff;
+    --field-border: 1px solid #d3d7de;
+    --accent2:      #0a8f4c;
+    --warn:         #d1435b;
+  }
+  /* Dark Modern: Modern's layout, dark palette. */
+  :root[data-theme="modern"][data-mode="dark"] {
+    color-scheme: dark;
+    --desktop:   #0e0f12;
+    --page-bg:   #14161b;
+    --page-border: 1px solid #2c3038;
+    --page-shadow: 0 1px 2px rgba(0,0,0,.4), 0 16px 44px rgba(0,0,0,.55);
+    --text:      #d8dbe2;
+    --dim:       #8a90a0;
+    --link:      #5fd0ff;
+    --titlebar-bg: #1b1e25;
+    --titlebar-fg: #d8dbe2;
+    --rule:      1px solid #2c3038;
+    --h1-color:  #f1f2f5;
+    --panel-bg:     #1b1e25;
+    --panel-border: 1px solid #2c3038;
+    --btn-bg:       #262b34;
+    --btn-fg:       #d8dbe2;
+    --btn-border:   1px solid #2c3038;
+    --field-bg:     #101216;
+    --field-border: 1px solid #2c3038;
+    --accent2:      #33ff88;
+    --warn:         #ff7a7a;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--desktop);
+    color: var(--text);
+    font: 14px/1.5 var(--body-font);
+    padding: var(--body-pad);
+  }
+  :root:not([data-theme]) body {
+    background: #0e0f12; color: #d8dbe2;
+  }
+  a { color: var(--link); }
+  h1, h2, h3 { font-weight: 600; }
+
+  .page {
+    max-width: 900px; margin: 0 auto;
+    background: var(--page-bg);
+    border: var(--page-border);
+    border-radius: var(--page-radius);
+    box-shadow: var(--page-shadow);
+    overflow: hidden;
+  }
+
+  .pagebar {
+    display: flex; align-items: center; gap: 10px;
+    background: var(--titlebar-bg); color: var(--titlebar-fg);
+    font: bold 13px Arial, Helvetica, sans-serif;
+    padding: 4px 8px;
+  }
+  .pagebar a { color: inherit; }
+  .pb-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pb-home { flex: 0 0 auto; display: none; text-decoration: none; font-weight: bold; }
+  .pb-name, .pb-tag { display: none; }
+  .pb-tools { flex: 0 0 auto; margin-left: auto; display: flex; align-items: center; gap: 10px; }
+  .pb-theme { display: inline-flex; align-items: center; gap: 5px; font: inherit; }
+  .pb-theme select {
+    font: 11px Arial, Helvetica, sans-serif;
+    color: var(--text); background: var(--field-bg);
+    border: var(--field-border); border-radius: var(--btn-radius);
+    padding: 1px 3px;
+  }
+  .pb-winbtns span, .pb-winbtns a {
+    display: inline-block; width: 16px; height: 14px; line-height: 12px;
+    margin-left: 2px; text-align: center; font-size: 10px;
+    color: #000; background: #c0c0c0; border: 1px outset #dfdfdf;
+    text-decoration: none;
+  }
+  :root[data-theme="web94"] .pagebar {
+    background: #c0c0c0; color: #000;
+    border-bottom: 1px solid #808080;
+    font: 13px "Times New Roman", Times, serif;
+  }
+  :root[data-theme="web94"] .pb-winbtns { display: none; }
+  :root[data-theme="web94"] .pb-home { display: inline; color: #0000ff; text-decoration: underline; font-weight: normal; }
+  :root[data-theme="web94"] .pb-home:visited { color: #800080; }
+
+  :root[data-theme="modern"] .pagebar {
+    background: var(--titlebar-bg); color: var(--titlebar-fg);
+    border-bottom: 1px solid #ecedf1; border-radius: 14px 14px 0 0;
+    font: 500 13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    padding: 10px 16px;
+  }
+  :root[data-theme="modern"][data-mode="dark"] .pagebar { border-bottom-color: #2c3038; }
+  :root[data-theme="modern"] .pb-winbtns { display: none; }
+  :root[data-theme="modern"] .pb-home { display: inline; color: var(--link); text-decoration: none; font-weight: 600; font-size: 12px; opacity: .85; }
+  :root[data-theme="modern"] .pb-name { display: block; flex: 0 0 auto; margin-left: 2px; font-weight: 700; font-size: 15px; letter-spacing: .3px; color: var(--h1-color); }
+  :root[data-theme="modern"] .pb-tag { display: block; flex: 1 1 auto; min-width: 0; color: var(--dim); font-size: 12px; font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  @media (max-width: 700px) { :root[data-theme="modern"] .pb-tag { display: none; } }
+
+  .inner { padding: 16px 20px 20px; }
+  :root[data-theme="win"] .inner, :root[data-theme="web94"] .inner { padding: 14px 22px 22px; }
+
+  h1 { margin: 4px 0 0; text-align: center; font: var(--h1-font); letter-spacing: .5px; color: var(--h1-color); text-shadow: var(--h1-shadow); }
+  :root[data-theme="modern"] h1 {
+    position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
+    overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+  }
+  .tagline { text-align: center; color: var(--dim); font-size: 12px; margin: 4px 0 0; }
+  :root[data-theme="modern"] .tagline { display: none; }
+  hr.rule { border: 0; border-top: var(--rule); margin: 12px 0; }
+  :root[data-theme="modern"] hr.rule { display: none; }
+
+  .panel h2 {
+    font: bold 12px Arial, Helvetica, sans-serif;
+    text-transform: uppercase; letter-spacing: .06em; color: var(--dim);
+    margin: 0 0 10px; display: flex; align-items: center; justify-content: space-between;
+  }
+  .panel {
+    background: var(--panel-bg); border: var(--panel-border); border-radius: var(--panel-radius);
+    padding: 14px 16px 16px;
+  }
+  .panel + .panel { margin-top: 18px; }
+
+  button, select, input[type=text] {
+    font: 12px Arial, Helvetica, sans-serif; color: var(--btn-fg); background: var(--btn-bg);
+    border: var(--btn-border); border-radius: var(--btn-radius); padding: 4px 9px;
+  }
+  button { cursor: pointer; }
+  button:active:not(:disabled) { border-style: inset; }
+  :root[data-theme="modern"] button:hover { background: #f4f5f7; }
+  :root[data-theme="modern"][data-mode="dark"] button:hover { background: #2f333d; }
+  :root[data-theme="modern"] button:active:not(:disabled) { border-style: solid; transform: translateY(1px); }
+  button:disabled { opacity: .5; cursor: default; }
+  label { user-select: none; }
+  .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .row + .row { margin-top: 8px; }
+  .muted { color: var(--dim); font-size: 12px; }
+  code { color: var(--link); }
+  .filebtn { position: relative; overflow: hidden; display: inline-block; }
+  .filebtn input[type=file] { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; }
+
+  /* ---- CRT monitor -- photoreal hardware, not page chrome, in every theme */
+  .monitor { width: max-content; max-width: 100%; margin: 0 auto; }
+  .monitor .bezel {
+    position: relative; padding: 16px 18px;
+    background: #0c0b0a; border-radius: 6px;
+    box-shadow: inset 0 0 0 1px #000, inset 0 4px 12px rgba(0,0,0,.9),
+                inset 0 -3px 8px rgba(0,0,0,.8), 0 1px 1px rgba(255,255,255,.28);
+    display: flex; justify-content: center; align-items: center;
+  }
+  #screen { width: 640px; max-width: 100%; height: auto; aspect-ratio: 640/350; background: #000; display: block; image-rendering: pixelated; }
+  .crt-overlay {
+    position: absolute; inset: 16px 18px; pointer-events: none; z-index: 6; mix-blend-mode: multiply;
+    background: radial-gradient(145% 145% at 50% 45%, rgba(0,0,0,0) 74%, rgba(0,0,0,.18) 100%),
+      repeating-linear-gradient(0deg, rgba(0,0,0,.12) 0 1px, rgba(0,0,0,0) 1px 3px);
+    box-shadow: inset 0 0 32px rgba(0,0,0,.26);
+  }
+  .power-led {
+    position: absolute; right: 13px; bottom: 7px; width: 6px; height: 6px; border-radius: 50%;
+    background: #33ff66; box-shadow: 0 0 6px 2px rgba(51,255,102,.8), 0 0 0 1px #0a2a15;
+  }
+  #screen:focus { outline: 2px solid var(--link); outline-offset: 2px; }
+  .boot-status { text-align: center; font-size: 12px; color: var(--dim); margin-top: 8px; }
+
+  /* ---- drive bays -- functional, theme-consistent, no ornamental cabinet
+     art (this pass; a hand-crafted photoreal bay is a nice-to-have, not
+     load-bearing for a working, correctly-emulated machine). ---------- */
+  .drive-bay {
+    display: grid; grid-template-columns: 28px 1fr auto; gap: 10px; align-items: center;
+    padding: 8px 0;
+  }
+  .drive-bay + .drive-bay { border-top: var(--rule); }
+  .drive-letter { font: 700 16px "Courier New", monospace; text-align: center; color: var(--dim); }
+  .drive-label { font: 12px "Courier New", monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .drive-label.empty { color: var(--dim); font-style: italic; }
+  .drive-led {
+    width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto;
+    background: radial-gradient(circle at 40% 35%, #5a1414, #250606 65%);
+    box-shadow: inset 0 0 2px rgba(0,0,0,.8), 0 0 0 1px rgba(0,0,0,.5);
+  }
+  .drive-led.on { background: radial-gradient(circle at 40% 35%, #ff6a4a, #b32200 65%); box-shadow: 0 0 4px 1px rgba(255,90,40,.7), inset 0 0 1px rgba(0,0,0,.5); }
+  .hdd-row { display: flex; align-items: center; gap: 8px; }
+
+  .footer { margin-top: 26px; color: var(--dim); font-size: 12px; text-align: center; padding-bottom: 24px; }
+</style>
+</head>
+<body>
+<div class="page">
+  <header class="pagebar">
+    <a class="pb-home" href="../">&#8592;&nbsp;All&nbsp;machines</a>
+    <span class="pb-title">&#9635; IBMPCAT.EXE &mdash; [5170-339]</span>
+    <span class="pb-name">IBM PC/AT</span>
+    <span class="pb-tag">80286 &middot; 8&nbsp;MHz &middot; running entirely in your browser</span>
+    <span class="pb-tools">
+      <label class="pb-theme">Theme
+        <select id="pageTheme">
+          <option value="win">Windows 95</option>
+          <option value="web94">Mid-1990s Web</option>
+          <option value="modern">Modern</option>
+          <option value="moderndark">Dark Modern</option>
+        </select>
+      </label>
+      <span class="pb-winbtns"><span aria-hidden="true">_</span><span aria-hidden="true">&#9633;</span><a class="pb-close" href="../" title="back to all machines" aria-label="close &mdash; back to all machines">&times;</a></span>
+    </span>
+  </header>
+
+  <div class="inner">
+    <h1>IBM PC/AT</h1>
+    <p class="tagline">A real-mode 80286, booted to FreeDOS, running entirely in your browser.</p>
+    <hr class="rule">
+
+    <div class="panel" id="displayCard">
+      <h2>Display &middot; EGA 80&times;25</h2>
+      <div class="monitor" id="monitor">
+        <div class="bezel" id="bezel">
+          <canvas id="screen" width="640" height="350" tabindex="0" aria-label="EGA display -- click to type"></canvas>
+          <div class="crt-overlay"></div>
+          <span class="power-led"></span>
+        </div>
+      </div>
+      <p class="boot-status" id="bootStatus">Loading BIOS&hellip;</p>
+      <p class="muted" style="text-align:center;margin-top:6px">Click the screen, then type -- keystrokes go straight to the keyboard controller.</p>
+    </div>
+
+    <div class="panel" id="floppyCard">
+      <h2>Floppy drives</h2>
+      <div class="drive-bay" data-drive="0">
+        <span class="drive-letter">A:</span>
+        <span class="drive-label empty" data-role="label">empty (1.2MB)</span>
+        <span class="row" style="gap:6px">
+          <span class="drive-led" data-role="led"></span>
+          <label class="filebtn"><button type="button" tabindex="-1">Insert&hellip;</button><input type="file" accept=".img,.IMG" data-role="file"></label>
+          <button type="button" data-role="eject" disabled>Eject</button>
+        </span>
+      </div>
+      <div class="drive-bay" data-drive="1">
+        <span class="drive-letter">B:</span>
+        <span class="drive-label empty" data-role="label">empty (360KB)</span>
+        <span class="row" style="gap:6px">
+          <span class="drive-led" data-role="led"></span>
+          <label class="filebtn"><button type="button" tabindex="-1">Insert&hellip;</button><input type="file" accept=".img,.IMG" data-role="file"></label>
+          <button type="button" data-role="eject" disabled>Eject</button>
+        </span>
+      </div>
+    </div>
+
+    <div class="panel" id="hddCard">
+      <h2>Hard disk</h2>
+      <div class="hdd-row">
+        <span class="drive-led" id="hddLed"></span>
+        <span class="drive-label">C: &middot; 30MB, ships pre-loaded with FreeDOS 1.3</span>
+      </div>
+    </div>
+
+    <div class="panel" id="speakerCard">
+      <h2>PC speaker</h2>
+      <div class="row">
+        <label><input type="checkbox" id="speakerEnabled"> Enable sound</label>
+        <span class="muted">Off by default -- browsers block audio until you opt in, and so does this control.</span>
+      </div>
+    </div>
+
+    <hr class="rule">
+    <div class="footer">
+      <p>Recreates a real IBM PC/AT (5170-339): 80286 real-mode CPU, chipset,
+        WD1003 hard disk, NEC 765 floppy controller, EGA graphics, PC speaker --
+        the source and hardware findings live in
+        <a href="https://github.com/gsirhc/retro/tree/main/retroweb/ibmpc-at" target="_blank" rel="noopener">retroweb/ibmpc-at/</a>
+        (<a href="https://github.com/gsirhc/retro/blob/main/retroweb/ibmpc-at/IBM_PCAT_REVIEW.md" target="_blank" rel="noopener">hardware notes</a>).
+        BIOS/VGA BIOS and FreeDOS are freely-licensed stand-ins for IBM's still-copyrighted originals.</p>
+    </div>
+  </div>
+</div>
+
+<script src="ibmpcat.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
