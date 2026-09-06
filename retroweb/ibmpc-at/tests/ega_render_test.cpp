@@ -9,10 +9,23 @@
 
 namespace {
 
+using ibmpcat::DetectScreenMode;
 using ibmpcat::Ega;
 using ibmpcat::kTextRenderHeight;
 using ibmpcat::kTextRenderWidth;
+using ibmpcat::RenderCgaGraphics4Screen;
+using ibmpcat::RenderedFrame;
+using ibmpcat::RenderScreen;
 using ibmpcat::RenderTextScreen;
+using ibmpcat::ScreenMode;
+
+// Programs the two real Graphics Controller registers that select mode:
+// GR06 bit 0 (graphics vs. alphanumeric) and GR05 bits 5-6 (Shift
+// Register field).
+void SetGraphicsMode(Ega &ega, bool graphics, uint8_t shift_register_mode) {
+    ega.out(0x3CE, 0x06); ega.out(0x3CF, graphics ? 0x01 : 0x00);
+    ega.out(0x3CE, 0x05); ega.out(0x3CF, uint8_t((shift_register_mode & 0x03) << 5));
+}
 
 // Programs Attribute Controller palette register `index` to raw EGA color
 // `value` (the same address/data flip-flop port real software uses).
@@ -95,6 +108,91 @@ TEST(EgaRenderTest, CursorIsHiddenWhenBlinkPhaseIsOffOrTheDisableBitIsSet) {
     std::vector<uint8_t> rgba_disabled;
     RenderTextScreen(ega, rgba_disabled, /*blink_on=*/true);
     EXPECT_EQ(rgba_disabled[p + 0], 0);
+}
+
+TEST(EgaRenderTest, DetectScreenModeReadsTheRealModeRegisters) {
+    Ega ega;
+    ega.reset();
+    EXPECT_EQ(DetectScreenMode(ega), ScreenMode::kText);  // reset default: alphanumeric
+
+    SetGraphicsMode(ega, /*graphics=*/true, /*shift_register_mode=*/1);
+    EXPECT_EQ(DetectScreenMode(ega), ScreenMode::kCgaGraphics4);
+
+    SetGraphicsMode(ega, /*graphics=*/true, /*shift_register_mode=*/0);
+    EXPECT_EQ(DetectScreenMode(ega), ScreenMode::kUnsupportedGraphics);  // native 16-color, not yet rendered
+
+    SetGraphicsMode(ega, /*graphics=*/false, /*shift_register_mode=*/1);
+    EXPECT_EQ(DetectScreenMode(ega), ScreenMode::kText);  // alphanumeric bit wins regardless of shift mode
+}
+
+TEST(EgaRenderTest, CgaGraphics4DecodesPlane0ThenPlane1AsFourPixelsEach) {
+    // Real hardware: a CGA-unaware program's two consecutive flat bytes for
+    // scanline 0 (pixels 0-3, then 4-7) land at the same plane offset (0),
+    // split across planes 0 and 1 by odd/even chaining -- see ega_render.h.
+    Ega ega;
+    ega.reset();
+    SetPalette(ega, 0, 0x00);  // black
+    SetPalette(ega, 1, 0x01);  // blue
+    SetPalette(ega, 2, 0x02);  // green
+    SetPalette(ega, 3, 0x3F);  // white
+    ega.vram[(0 << 2) + 0] = 0x6C;  // 01 10 11 00 -> pixels 0-3: blue,green,white,black
+    ega.vram[(0 << 2) + 1] = 0xC6;  // 11 00 01 10 -> pixels 4-7: white,black,blue,green
+
+    std::vector<uint8_t> rgba;
+    RenderCgaGraphics4Screen(ega, rgba);
+    ASSERT_EQ(rgba.size(), std::size_t(320 * 200 * 4));
+
+    auto px = [&](int x) { return (std::size_t(x)) * 4; };
+    EXPECT_EQ(rgba[px(0) + 2], 0xAA);  // blue -> b channel set
+    EXPECT_EQ(rgba[px(1) + 1], 0xAA);  // green -> g channel set
+    EXPECT_EQ(rgba[px(2) + 0], 0xFF);  // white -> all channels set
+    EXPECT_EQ(rgba[px(2) + 1], 0xFF);
+    EXPECT_EQ(rgba[px(2) + 2], 0xFF);
+    EXPECT_EQ(rgba[px(3) + 0], 0x00);  // black -> all channels clear
+    EXPECT_EQ(rgba[px(4) + 0], 0xFF);  // white again -- plane 1's byte, first pixel
+    EXPECT_EQ(rgba[px(5) + 0], 0x00);  // black
+    EXPECT_EQ(rgba[px(6) + 2], 0xAA);  // blue
+    EXPECT_EQ(rgba[px(7) + 1], 0xAA);  // green
+}
+
+TEST(EgaRenderTest, CgaGraphics4OddScanlinesUseTheSecondEightKilobyteBank) {
+    // Scanline 1 (odd) starts at flat offset 0x2000, not 1 -- real CGA's
+    // even/odd-scanline bank split, distinct from the plane odd/even split.
+    Ega ega;
+    ega.reset();
+    SetPalette(ega, 3, 0x3F);  // white
+    uint32_t linear_offset = 0x2000;  // scanline 1, byte column 0
+    uint32_t plane = linear_offset & 1, plane_offset = linear_offset >> 1;
+    ega.vram[(plane_offset << 2) + plane] = 0xFF;  // all four pixels = value 3 (white)
+
+    std::vector<uint8_t> rgba;
+    RenderCgaGraphics4Screen(ega, rgba);
+    std::size_t i = (std::size_t(1) * 320 + 0) * 4;  // (x=0, y=1)
+    EXPECT_EQ(rgba[i + 0], 0xFF);
+    EXPECT_EQ(rgba[i + 1], 0xFF);
+    EXPECT_EQ(rgba[i + 2], 0xFF);
+}
+
+TEST(EgaRenderTest, RenderScreenDispatchesToTheRightModeAtTheRightResolution) {
+    Ega ega;
+    ega.reset();
+    RenderedFrame text_frame;
+    RenderScreen(ega, text_frame, /*blink_on=*/false);
+    EXPECT_EQ(text_frame.width, kTextRenderWidth);
+    EXPECT_EQ(text_frame.height, kTextRenderHeight);
+
+    SetGraphicsMode(ega, true, 1);
+    RenderedFrame cga_frame;
+    RenderScreen(ega, cga_frame, false);
+    EXPECT_EQ(cga_frame.width, 320);
+    EXPECT_EQ(cga_frame.height, 200);
+
+    SetGraphicsMode(ega, true, 0);  // native 16-color -- unsupported, placeholder frame
+    RenderedFrame placeholder;
+    RenderScreen(ega, placeholder, false);
+    EXPECT_EQ(placeholder.width, kTextRenderWidth);
+    EXPECT_EQ(placeholder.height, kTextRenderHeight);
+    EXPECT_EQ(placeholder.rgba[0], 0);  // black, not a garbled misread of graphics VRAM as text
 }
 
 }  // namespace

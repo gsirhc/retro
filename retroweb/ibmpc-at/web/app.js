@@ -195,7 +195,19 @@
 
     const blinkOn = Math.floor(t / 266) % 2 === 0;  // ~1.9Hz block-cursor blink
     const rgba = machine.renderFrame(blinkOn);
-    const img = ctx.createImageData(machine.renderWidth(), machine.renderHeight());
+    // Resolution varies by mode (640x350 text, 320x200 CGA-compatible
+    // graphics -- see ega_render.h) -- resize the canvas's own pixel
+    // buffer to match whenever it changes, and let it fill its native
+    // aspect ratio rather than stretching a lower-res mode into the text
+    // mode's box (no real hardware basis to prefer one distortion over
+    // another, so: don't introduce one).
+    const frameW = machine.renderWidth(), frameH = machine.renderHeight();
+    if (screenEl.width !== frameW || screenEl.height !== frameH) {
+      screenEl.width = frameW;
+      screenEl.height = frameH;
+      screenEl.style.aspectRatio = frameW + " / " + frameH;
+    }
+    const img = ctx.createImageData(frameW, frameH);
     img.data.set(rgba);
     ctx.putImageData(img, 0, 0);
 

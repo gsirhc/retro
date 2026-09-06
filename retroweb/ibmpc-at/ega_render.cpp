@@ -64,4 +64,67 @@ void RenderTextScreen(const Ega &ega, std::vector<uint8_t> &rgba, bool blink_on)
     }
 }
 
+void RenderCgaGraphics4Screen(const Ega &ega, std::vector<uint8_t> &rgba) {
+    constexpr int W = 320, H = 200;
+    rgba.assign(std::size_t(W) * std::size_t(H) * 4, 0);
+
+    for (int y = 0; y < H; ++y) {
+        uint32_t half = uint32_t(y & 1);       // real CGA: even/odd scanlines in separate 8K banks
+        uint32_t row = uint32_t(y >> 1);
+        for (int byte_col = 0; byte_col < 80; ++byte_col) {
+            // The flat CGA-style byte offset a CGA-unaware program would
+            // have written to -- see the header comment for how odd/even
+            // plane chaining (Phase 5) splits this across planes 0/1.
+            uint32_t linear_offset = (half ? 0x2000u : 0u) + row * 80u + uint32_t(byte_col);
+            uint32_t plane = linear_offset & 1;
+            uint32_t plane_offset = linear_offset >> 1;
+            uint8_t byte = ega.vram[(plane_offset << 2) + plane];
+            for (int sub = 0; sub < 4; ++sub) {
+                uint8_t pixel2 = uint8_t((byte >> (6 - 2 * sub)) & 0x3);
+                uint8_t r, g, b;
+                DecodeEgaColor(ega.attr_palette(pixel2), r, g, b);
+                int x = byte_col * 4 + sub;
+                std::size_t i = (std::size_t(y) * W + std::size_t(x)) * 4;
+                rgba[i + 0] = r;
+                rgba[i + 1] = g;
+                rgba[i + 2] = b;
+                rgba[i + 3] = 255;
+            }
+        }
+    }
+}
+
+ScreenMode DetectScreenMode(const Ega &ega) {
+    if (!ega.graphics_mode_active()) return ScreenMode::kText;
+    if (ega.gc_shift_register_mode() == 1) return ScreenMode::kCgaGraphics4;
+    return ScreenMode::kUnsupportedGraphics;
+}
+
+void RenderScreen(const Ega &ega, RenderedFrame &out, bool blink_on) {
+    switch (DetectScreenMode(ega)) {
+        case ScreenMode::kCgaGraphics4:
+            out.width = 320;
+            out.height = 200;
+            RenderCgaGraphics4Screen(ega, out.rgba);
+            return;
+        case ScreenMode::kUnsupportedGraphics:
+            // Honest placeholder -- a plain black frame, not a garbled
+            // misinterpretation of graphics VRAM as text glyphs (see the
+            // file header). Same footprint as text mode so a caller's
+            // canvas/window doesn't need special-casing for "nothing to
+            // show yet".
+            out.width = kTextRenderWidth;
+            out.height = kTextRenderHeight;
+            out.rgba.assign(std::size_t(out.width) * std::size_t(out.height) * 4, 0);
+            for (std::size_t i = 3; i < out.rgba.size(); i += 4) out.rgba[i] = 255;  // opaque
+            return;
+        case ScreenMode::kText:
+        default:
+            out.width = kTextRenderWidth;
+            out.height = kTextRenderHeight;
+            RenderTextScreen(ega, out.rgba, blink_on);
+            return;
+    }
+}
+
 }  // namespace ibmpcat

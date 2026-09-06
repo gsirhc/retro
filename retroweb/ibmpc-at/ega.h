@@ -86,6 +86,21 @@ public:
     // 2 (also public, via `vram`) to paint an actual screen.
     uint8_t attr_palette(int index) const { return uint8_t(attr_[index & 0x0F] & 0x3F); }
 
+    // Host/front-end convenience: whether the Graphics Controller's own
+    // Miscellaneous register currently selects graphics addressing over
+    // alphanumeric (GR06 bit 0) -- a renderer's first branch, deciding
+    // between a text-mode and a graphics-mode screen, exactly like a real
+    // CRT controller's own mode logic.
+    bool graphics_mode_active() const { return (gfx_[6] & 0x01) != 0; }
+
+    // Host/front-end convenience: the Graphics Controller Mode register's
+    // Shift Register field (GR05 bits 5-6) -- 0 selects normal 16-color
+    // planar shift-out, 1 selects "Shift 2 4-color" (the real EGA/VGA CGA-
+    // compatibility mode: each memory cycle's plane-0 byte then plane-1
+    // byte, each read as four 2-bit CGA-style pixels in turn). Genuine EGA
+    // hardware never sets this to 2 (a VGA-only variant).
+    uint8_t gc_shift_register_mode() const { return uint8_t((gfx_[5] >> 5) & 0x03); }
+
     // 256KB planar VRAM: 4 bitplanes x 64KB, byte-interleaved as
     // vram[(plane_offset << 2) + plane] -- see the file header.
     std::array<uint8_t, 256 * 1024> vram{};

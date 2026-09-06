@@ -9,7 +9,8 @@
 //   m.mountHdd(hddBytes);                // ships pre-loaded -- no swap UI
 //   m.mountFloppy(0, imgBytes);          // drive A:
 //   m.runCycles(66667);                  // advance one frame at real 8 MHz
-//   const frame = m.renderFrame(blinkOn); // Uint8ClampedArray, 640x350 RGBA
+//   const frame = m.renderFrame(blinkOn); // Uint8ClampedArray RGBA -- call
+//                                          // renderWidth()/renderHeight() after (resolution varies by mode)
 //   m.injectScancode(0x1E);               // real Set 1 scan code (see i8042.h)
 //   const edges = m.speakerEdges();       // {cycles: Float64Array, levels: Uint8Array}
 
@@ -45,28 +46,49 @@ public:
     }
 
     // Run instructions until at least `cycles` more CPU cycles have
-    // elapsed (real 8 MHz -- never sped up, per CLAUDE.md).
-    void runCycles(double cycles) { m_.run_cycles(int64_t(cycles)); }
+    // elapsed (real 8 MHz -- never sped up, per CLAUDE.md). Sub-chunked
+    // (not one bulk m_.run_cycles() call) so activity-LED state can be
+    // latched along the way -- a whole frame's worth of cycles easily
+    // spans an HDD transfer's real BSY window start to finish, so
+    // sampling busy()/motor_on only once at the very end, after the fact,
+    // would just as easily miss it as catch it. See hddBusy()/
+    // floppyMotorOn()'s own comments for how the latch is consumed.
+    void runCycles(double cycles) {
+        int64_t remaining = int64_t(cycles);
+        constexpr int64_t kSubChunk = 2000;
+        while (remaining > 0) {
+            int64_t step = remaining < kSubChunk ? remaining : kSubChunk;
+            m_.run_cycles(step);
+            remaining -= step;
+            if (m_.chipset.hdd.busy()) hdd_activity_latch_ = true;
+            if (m_.chipset.fdc.drives[0].motor_on) floppy_activity_latch_[0] = true;
+            if (m_.chipset.fdc.drives[1].motor_on) floppy_activity_latch_[1] = true;
+        }
+    }
 
     double totalCycles() const { return double(m_.total_cycles()); }
     bool halted() const { return m_.cpu.halted; }
 
-    // ---- EGA text-mode screen -----------------------------------------
-    // Renders the current screen to a packed RGBA8888 buffer -- see
+    // ---- EGA screen -----------------------------------------------------
+    // Renders whatever screen is currently active (text, or the CGA-
+    // compatible 4-color graphics mode) to a packed RGBA8888 buffer -- see
     // ega_render.h for what it reads (real character-generator RAM, real
-    // palette registers) and its scope (text mode only; see
-    // IBM_PCAT_REVIEW.md §14). `blinkOn` selects the cursor's current
-    // blink phase; the caller paces the real ~500ms rate.
+    // palette registers, real mode-detect registers) and its scope
+    // (IBM_PCAT_REVIEW.md §14/§15). `blinkOn` selects the text cursor's
+    // current blink phase (ignored in graphics modes); the caller paces
+    // the real ~500ms rate. renderWidth()/renderHeight() reflect whatever
+    // the most recent renderFrame() call actually rendered -- call it
+    // first each frame, since resolution can change between calls.
     val renderFrame(bool blinkOn) {
-        std::vector<uint8_t> rgba;
-        ibmpcat::RenderTextScreen(m_.chipset.ega, rgba, blinkOn);
+        ibmpcat::RenderScreen(m_.chipset.ega, last_frame_, blinkOn);
+        const auto &rgba = last_frame_.rgba;
         val out = val::global("Uint8ClampedArray").new_(rgba.size());
         if (!rgba.empty())
             out.call<void>("set", val(emscripten::typed_memory_view(rgba.size(), rgba.data())));
         return out;
     }
-    int renderWidth() const { return ibmpcat::kTextRenderWidth; }
-    int renderHeight() const { return ibmpcat::kTextRenderHeight; }
+    int renderWidth() const { return last_frame_.width; }
+    int renderHeight() const { return last_frame_.height; }
 
     // ---- keyboard -------------------------------------------------------
     // Deliver one real Set 1 scan code (make or break) -- see i8042.h.
@@ -83,7 +105,15 @@ public:
     bool floppyPresent(int drive) const { return m_.chipset.fdc.drives[drive & 1].present; }
     bool floppyDirty(int drive) const { return m_.chipset.fdc.drives[drive & 1].dirty; }
     void clearFloppyDirty(int drive) { m_.chipset.fdc.drives[drive & 1].dirty = false; }
-    bool floppyMotorOn(int drive) const { return m_.chipset.fdc.drives[drive & 1].motor_on; }
+    // True if the motor was on at any point since the last call (see
+    // runCycles()'s comment) -- pulse-stretched to "since last read", the
+    // same convention altair8800/web/wasm_machine.cpp's busActivityCounts()/
+    // int_seen_ use for their own once-a-frame-polled indicators.
+    bool floppyMotorOn(int drive) {
+        bool v = floppy_activity_latch_[drive & 1];
+        floppy_activity_latch_[drive & 1] = false;
+        return v;
+    }
     // The current (possibly written-to) image, for "save disk to file".
     val floppyImage(int drive) {
         const std::vector<uint8_t> &img = m_.chipset.fdc.drives[drive & 1].image;
@@ -98,7 +128,13 @@ public:
         std::vector<uint8_t> data = emscripten::convertJSArrayToNumberVector<uint8_t>(bytes);
         m_.chipset.hdd.mount(0, data.data(), data.size());
     }
-    bool hddBusy() const { return m_.chipset.hdd.busy(); }
+    // True if the drive was busy at any point since the last call -- see
+    // runCycles()'s comment.
+    bool hddBusy() {
+        bool v = hdd_activity_latch_;
+        hdd_activity_latch_ = false;
+        return v;
+    }
 
     // ---- PC speaker -------------------------------------------------------
     // Drains the real-time (cpu_cycle, level) edge trace since the last
@@ -134,6 +170,9 @@ public:
 
 private:
     Machine m_;
+    ibmpcat::RenderedFrame last_frame_;
+    bool hdd_activity_latch_ = false;
+    bool floppy_activity_latch_[2] = {false, false};
 };
 
 EMSCRIPTEN_BINDINGS(ibmpcat_machine) {
