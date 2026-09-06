@@ -875,3 +875,92 @@ this whole time), were fixed as part of this same pass.
 makes this image genuinely reproducible also makes it too slow to run on
 every push; some form of caching keyed on the pinned floppy/tool inputs
 will be needed there, not attempted here.
+
+## 12. Phase 5: real planar EGA memory (write modes, read modes, latch)
+
+Phase 3's `ega.h`/`ega.cpp` treated VRAM as a flat, character/attribute-
+interleaved byte array -- observably correct for text mode specifically
+(a real EGA's odd/even chaining happens to reduce to exactly that for
+text), but not the real hardware underneath, and not enough for any
+graphics mode. This phase replaces it with the genuine 4-bitplane engine:
+256KB VRAM stored byte-interleaved as `vram[(plane_offset << 2) + plane]`,
+a 4-byte read latch, the full Write Mode 0-3 / Read Mode 0-1 state machine,
+Set/Reset, Enable Set/Reset, Data Rotate's rotate-count + ALU function,
+Map Mask, Read Map Select, Bit Mask, Color Compare/Color Don't Care, and
+the Graphics Controller's Memory Mapping field (which legacy window --
+128K@A0000, 64K@A0000, 32K@B0000 mono, or 32K@B8000 color -- is currently
+decoded; real hardware only ever answers one at a time, not all three
+simultaneously the way Phase 3's flat model implicitly did).
+
+**Source**: the memory-access algorithm (latch-on-every-read, the four
+write modes, both read modes, the odd/even-vs-map-mask gating) matches
+Bochs's own reference implementation, `bx_vgacore_c::mem_read`/`mem_write`
+in `vgacore.cc`, at the same pinned commit
+(`ff17a0c2bbabccf96d33af4e08ba8061889b079d`) this machine's own BIOS and
+VGABIOS images are built from -- fetched and read directly (`curl` + a
+plain read, not `WebFetch`, which repeatedly either failed outright on
+other EGA/VGA reference pages -- an expired cert on osdever.net, HTTP 403
+on osdev.org's wiki, `web.archive.org` refusing entirely -- or, for
+`vgacore.cc` itself, returned a lossy model-summarized paraphrase instead
+of exact register semantics; this is the same "fetch the real source
+directly" discipline already established for `rombios.c`). Register
+*values* (the standard mode-3 and 16-color-graphics-mode table used in
+`tests/ega_test.cpp`'s setup helpers) are the IBM EGA/VGA-standard values
+every compatible BIOS reproduces for exact hardware compatibility, and were
+additionally confirmed empirically: the regression check below booted the
+real, unmodified `vgabios` and it produced byte-for-byte the same screen
+output as Phase 3's simplified model, meaning vgabios's own mode-3 register
+programming matches what this implementation expects.
+
+**Explicitly out of scope: Chain Four (VGA mode 13h's chained-pixel
+addressing).** `VGABIOS-lgpl-latest.bin` is a full VGA-compatible BIOS (see
+§6) and will happily offer mode 13h, but Chain Four is VGA silicon, not
+EGA -- a genuine 5170-339 with an EGA card has no such mode. This device
+does not implement it, on purpose, matching CLAUDE.md's "Adding a new
+machine" rule that the emulated hardware -- not whatever the substitute
+BIOS thinks it can offer -- is what enforces the real EGA ceiling
+(640x350x16, no chained/linear-framebuffer modes).
+
+**Regression risk and how it was checked**: this is a rewrite of the one
+piece of hardware the entire, already-verified boot pipeline (Phases 2-4)
+depends on for any visible output at all, so it was checked two ways
+before being considered done, not just unit-tested in isolation:
+
+- The 6 Phase-3 `ega_test.cpp` cases were kept and still pass, but 2 of
+  them needed real changes, not just adaptation: `TextModeMemoryReadWriteRoundTrip`
+  now calls a `SetupTextMode80x25()` helper first, because a freshly reset
+  card genuinely has no planes enabled and an all-zero Bit Mask -- on real
+  hardware a bare `mem_write` right after reset, with no mode-set, *is* a
+  no-op, so the old test's implicit assumption otherwise was itself a
+  Phase-3 simplification artifact, not something to preserve.
+  `GraphicsAndMonoWindowsAreDistinctFromColorTextWindow` similarly assumed
+  all three legacy windows (A0000/B0000/B8000) are simultaneously live,
+  which no real register state produces; it's replaced by
+  `MemoryMappingSelectsWhichLegacyWindowIsDecoded`, which demonstrates the
+  real behavior (switching the Memory Mapping field changes which one
+  window answers, and the previous window's bytes are preserved but no
+  longer reachable, not aliased). 6 new tests cover the write-mode/read-
+  mode/Set-Reset/Data-Rotate/Map-Mask/Bit-Mask machinery and the odd/even-
+  routed character-generator-plane-2 quirk individually.
+- A scratch native harness (not committed -- same shape as
+  `disks/build_freedos_hdd.cpp`'s screen-reconstruction technique) booted
+  the real `BIOS-bochs-legacy` + `VGABIOS-lgpl-latest.bin` against the
+  shipped `disks/freedos-hdd.img` end to end and reached the identical live
+  `C:\>` prompt Phase 4 established, with the identical on-screen text
+  (memory-usage table, `FDCONFIG.SYS`/`FDAUTO.BAT` processing, the FreeDOS
+  banner) -- proving the new planar engine is observably indistinguishable
+  from the old flat model for everything real firmware/DOS currently
+  exercises. (The harness's own screen-reconstruction code needed a
+  matching fix along the way: it originally read `vram[]` directly with
+  Phase 3's flat offsets, which no longer describes the storage layout --
+  fixed to fold the CRT controller's own display-refresh read path,
+  character = plane 0 at `vram[(plane_offset<<2)+0]`, mirroring real
+  hardware's independent CRTC scanout path rather than the CPU's I/O read
+  path (`mem_read`), which depends on Read Map Select and would give a
+  wrong answer if a BIOS font-load routine left it pointed elsewhere.)
+
+**Deferred to Phase 7** (per the approved plan, matching this project's
+"native/testable core first, WASM front end later" pattern from every
+prior phase): the `<canvas>`-based renderer that actually paints EGA's
+character/graphics modes to the screen. This phase's scope is the real
+device semantics only.
