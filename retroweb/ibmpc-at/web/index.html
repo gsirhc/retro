@@ -14,7 +14,7 @@
      theme picked on any page (shared retro8080.theme) looks like one site.
      Only page chrome (panels/buttons/fields/text) is themed here -- the
      CRT bezel and drive bays keep their own photoreal look in every theme,
-     same principle as the other two machines' front panels. -->
+     same principle as the other two machines' front panels. */
   :root {
     --desktop:   #008080;
     --page-bg:   #c0c0c0;
@@ -156,7 +156,7 @@
   h1, h2, h3 { font-weight: 600; }
 
   .page {
-    max-width: 920px; margin: 0 auto;
+    max-width: var(--page-max); margin: 0 auto;
     background: var(--page-bg);
     border: var(--page-border);
     border-radius: var(--page-radius);
@@ -164,10 +164,8 @@
     overflow: hidden;
   }
   /* Modern theme goes almost full page width, matching altair8800/
-     cg-oac-6502's own widened-modern-theme treatment (a literal value
-     here, not var(--page-max) piped through .page -- that indirection
-     was found not to resolve reliably for this property in testing). */
-  :root[data-theme="modern"] .page { max-width: min(1600px, 95vw); }
+     cg-oac-6502's own widened-modern-theme treatment. */
+  :root[data-theme="modern"] { --page-max: min(1600px, 95vw); }
 
   .pagebar {
     display: flex; align-items: center; gap: 10px;
