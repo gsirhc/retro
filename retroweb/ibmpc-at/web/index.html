@@ -152,6 +152,13 @@
   :root:not([data-theme]) body {
     background: #0e0f12; color: #d8dbe2;
   }
+  /* the ubiquitous tiled "blue marble" desktop -- same asset altair8800/
+     cg-oac-6502 use, so all three machines share one period texture. */
+  :root[data-theme="web94"] body {
+    background: #d1d6df url("data:image/jpeg;base64,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") repeat;
+    color: #000;
+    font-family: "Times New Roman", Times, serif;
+  }
   a { color: var(--link); }
   h1, h2, h3 { font-weight: 600; }
 
@@ -269,6 +276,14 @@
      resolution the current mode really is (640x350 text, 320x200 CGA
      graphics, etc. -- see app.js), just displayed larger. */
   #screen { width: 860px; max-width: 100%; height: auto; aspect-ratio: 640/350; background: #000; display: block; image-rendering: pixelated; }
+  /* modern theme already goes almost full page width (--page-max above) --
+     let the CRT grow to fill it too, instead of stranding it at the fixed
+     860px size while everything around it is wide. Still just a bigger
+     upscale of whatever the real resolution is (aspect-ratio is kept in
+     sync with the current mode by app.js), not a change to any real
+     hardware resolution. */
+  :root[data-theme="modern"] .monitor { width: 100%; }
+  :root[data-theme="modern"] #screen { width: 100%; max-width: 1400px; margin: 0 auto; }
   .crt-overlay {
     position: absolute; inset: 16px 18px; pointer-events: none; z-index: 6; mix-blend-mode: multiply;
     background: radial-gradient(145% 145% at 50% 45%, rgba(0,0,0,0) 74%, rgba(0,0,0,.18) 100%),
@@ -306,9 +321,12 @@
     color: #3a3527;
     font: 10px Arial, Helvetica, sans-serif;
     overflow-x: auto;
+    /* a real case fascia has a fixed physical size -- don't let it stretch
+       to match .page's width in the wide modern theme the way the CRT does */
+    max-width: 640px; margin: 0 auto;
   }
   .at-left {
-    flex: 0 0 auto; min-width: 140px;
+    flex: 0 0 auto; width: 96px;
     display: flex; flex-direction: column; gap: 12px;
   }
   .at-plate {
@@ -352,14 +370,18 @@
   .at-drives { flex: 1; min-width: 280px; display: flex; flex-direction: column; gap: 10px; justify-content: center; }
   .at-bay {
     background: linear-gradient(180deg, #ded6bf, #b8ae94);
-    border-radius: 2px; padding: 7px 10px;
+    border-radius: 2px; padding: 10px 12px;
     box-shadow: inset 0 0 0 1px #f2ecd8, inset 0 0 0 2px #8f886f, 0 2px 5px rgba(0,0,0,.3);
   }
   .at-drive-face { display: flex; align-items: center; gap: 8px; }
   .drive-letter { font: 700 13px "Courier New", monospace; color: #55503f; flex: 0 0 auto; }
-  /* the drive slot -- a real 5.25" half-height drive's horizontal opening */
+  /* the drive slot -- a real 5.25" half-height drive's horizontal opening.
+     Sized closer to a genuine half-height bay's actual proportions (a
+     drive this size reads as a real physical unit, not a thin control
+     strip) -- also what set the grille-vs-drive ratio right: the two
+     bays now occupy roughly the case-front area they really would. */
   .at-slot {
-    flex: 1; position: relative; height: 16px; border-radius: 1px;
+    flex: 1; position: relative; height: 30px; border-radius: 1px;
     background: linear-gradient(#0d0d0d, #2a2a2a 45%, #0d0d0d);
     box-shadow: inset 0 0 0 1px #000, inset 0 1px 3px rgba(0,0,0,.9);
   }
@@ -371,7 +393,7 @@
   /* the drive's latch lever -- rotate down to seat a diskette, the real
      mechanism on a drive of this vintage (a squeeze-latch is later/newer) */
   .at-latch {
-    width: 16px; height: 7px; border-radius: 1px; flex: 0 0 auto;
+    width: 18px; height: 10px; border-radius: 1px; flex: 0 0 auto;
     background: linear-gradient(#9a9488, #6b6558);
     box-shadow: 0 1px 1px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.35);
   }
@@ -433,14 +455,13 @@
         </div>
       </div>
       <p class="boot-status" id="bootStatus">Loading BIOS&hellip;</p>
-      <p class="muted" style="text-align:center;margin-top:6px">Click the screen, then type -- keystrokes go straight to the keyboard controller.</p>
     </div>
 
     <div class="panel" id="frontPanelCard">
       <h2>Front panel</h2>
       <div class="at-case">
         <div class="at-left">
-          <span class="at-plate">IBM <span>Personal Computer AT &middot; 5170-339</span></span>
+          <span class="at-plate">IBM <span>5170-339</span></span>
           <div class="at-vents" aria-hidden="true"></div>
           <div class="at-indicators">
             <span class="drive-led power-on" id="powerLed" title="Power"></span>

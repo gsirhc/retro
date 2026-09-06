@@ -1536,3 +1536,62 @@ to a live `C:\>` prompt screenshotted with the redesigned panel visible
 switch, two stacked bays each showing their `empty (1.2MB, 5.25″)` /
 `empty (360KB, 5.25″)` labels, slot, latch, and Insert/Eject controls,
 matching the reference photo's layout.
+
+## 19. A real missing-background bug, plus display/panel sizing follow-ups
+
+Another real, concrete bug surfaced by a side-by-side look at the
+Mid-1990s Web theme: `:root[data-theme="web94"] body { background: ...
+url(...) repeat; }` -- the tiled "blue marble" desktop texture every
+other machine's `web94` theme uses -- was never actually copied into
+this file. The §17 Haiku-subagent sync was scoped strictly to the
+`:root`/`:root[data-theme=...]` *token* blocks, and this rule lives
+outside them (it's a `body` rule keyed off the same selector, not a
+custom-property declaration), so it was correctly out of scope for that
+sync and nobody added it by hand afterward -- the page still "looked
+themed" because the pagebar/panel chrome all come from tokens that did
+sync, so only the desktop background itself was silently plain grey.
+Fixed by copying the exact same rule (and its identical base64 JPEG
+asset) from `altair8800/web/index.html` verbatim.
+
+Three more follow-up requests, all straightforward:
+
+- **Removed** the `<p class="muted">Click the screen, then type --
+  keystrokes go straight to the keyboard controller.</p>` line entirely
+  -- the `#bootStatus` line above it already carries the operational
+  state, and the instruction was judged redundant clutter rather than
+  something to reword.
+- **Display now expands to fill the modern theme's width.** Previously
+  `#screen` was a flat 860px in every theme, stranding it small inside
+  modern's much wider `--page-max: min(1600px, 95vw)` page. Added a
+  modern-only override (`.monitor` and `#screen` both `width: 100%`,
+  `#screen` capped at `max-width: 1400px`) -- `height: auto` plus the
+  `aspect-ratio` app.js already keeps in sync with the current video
+  mode does the rest, so this is purely a bigger upscale of whatever
+  the real resolution is, never a change to any actual resolution.
+  Other themes keep the original fixed 860px CRT size.
+- **Front panel now has a fixed width** (`max-width: 640px; margin: 0
+  auto` on `.at-case`) instead of stretching to match `.page`'s width --
+  a real case fascia doesn't get physically wider just because the
+  browser window did, and the previous stretch was making the drive-bay
+  slot bars absurdly long and thin in the wide modern layout.
+- **Drive-to-grille ratio corrected**: the vents column (`.at-left`)
+  narrowed from a 140px minimum to a fixed 96px, and the floppy slot
+  itself grew from a 16px sliver to a 30px opening (with matching
+  padding/latch bumps) -- together this makes the two drive bays read
+  as substantial physical units and the ventilation grille a
+  proportionally narrow strip beside them, closer to the real case's
+  actual proportions instead of two visually-equal-weight blocks. The
+  brand-plate text was shortened to just "IBM" / "5170-339" (dropping
+  "Personal Computer AT · ") since the full string no longer fit the
+  narrower column without wrapping into several lines.
+
+**Verified**: 167/167 native tests (HTML/CSS only, no C++ touched).
+Headless Chromium: `web94` theme's `body` computed
+`background-image` is non-empty (tiled texture confirmed present); the
+removed paragraph's text no longer appears anywhere in the page;
+at a 1800px-wide modern-theme viewport, `#screen` measured 1400×765.6
+(ratio 1.829, matching 640/350 exactly) while `.at-case` held at a
+fixed 640px regardless of the 1600px-wide `.page` around it;
+screenshotted both the Mid-1990s Web theme (tiled background visible
+around the window) and the wide modern theme (full-width display,
+fixed-width front panel) to confirm visually.
