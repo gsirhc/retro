@@ -213,6 +213,16 @@ TEST(EgaTest, CrtcCursorAndStartAddressRegisters) {
     EXPECT_EQ(ega.start_offset(), 0x0000);
 }
 
+TEST(EgaTest, AttrPaletteReportsTheLiveRegisterMaskedToSixBits) {
+    Ega ega;
+    ega.reset();
+    ega.out(0x3C0, 0x05);  // index = palette register 5
+    ega.out(0x3C0, 0xFF);  // data -- only the low 6 bits are a real EGA color
+    EXPECT_EQ(ega.attr_palette(5), 0x3F);
+    // Untouched registers still read back their reset value (0).
+    EXPECT_EQ(ega.attr_palette(6), 0x00);
+}
+
 TEST(EgaTest, AttributeControllerFlipFlopAlternatesIndexAndData) {
     Ega ega;
     ega.reset();

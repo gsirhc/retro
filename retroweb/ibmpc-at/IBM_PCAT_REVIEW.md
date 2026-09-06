@@ -964,3 +964,25 @@ before being considered done, not just unit-tested in isolation:
 prior phase): the `<canvas>`-based renderer that actually paints EGA's
 character/graphics modes to the screen. This phase's scope is the real
 device semantics only.
+
+**`render_screen.cpp`** (promoted from a scratch check into a permanent
+diagnostic, same category as `bios_host.cpp`): boots the real BIOS/vgabios
+plus optional HDD/floppy images, then renders the live EGA text-mode
+screen to an actual BMP -- not the ASCII `ScreenText()` reconstruction
+`disks/build_freedos_hdd.cpp` uses for its own keystroke-matching, which
+is fine for pattern-matching prompts but tells a person nothing about
+whether the *real* character generator and palette are actually correct.
+It uses only already-public `Ega` state (`vram` for both plane 0/1 text
+data and plane 2's character-generator bitmap; a new `attr_palette()`
+accessor, mirroring the existing `cursor_offset()`/`start_offset()`
+front-end-convenience pattern, added alongside it for the live Attribute
+Controller palette registers) plus the same 6-bit EGA color decode cited
+in this section -- no separate font or color data of its own. Verified by
+actually running it against the shipped `disks/freedos-hdd.img`: produced
+a real, legible, correctly-colored screenshot of the live `C:\>` boot
+(readable glyphs confirm the plane-2 character-generator addressing
+assumption; correct colors -- cyan filenames, red CD-ROM warning, green
+FreeDOS banner -- confirm the default palette register table and 6-bit
+color decode), independent visual proof beyond the ASCII-based regression
+check above. Not gated by `check`/`test`, matching `bios_host.cpp`'s own
+precedent -- see the Makefile's comment on `render_screen`.

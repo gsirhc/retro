@@ -51,6 +51,7 @@ retroweb/ibmpc-at/tests/coverage-cpp/
 retroweb/ibmpc-at/roms/BIOS-bochs-legacy
 retroweb/ibmpc-at/roms/VGABIOS-lgpl-latest.bin
 retroweb/ibmpc-at/bios_host
+retroweb/ibmpc-at/render_screen
 retroweb/ibmpc-at/disks/build_freedos_hdd
 
 # web integration suite (Playwright)
