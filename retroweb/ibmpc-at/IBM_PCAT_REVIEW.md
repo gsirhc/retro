@@ -1176,3 +1176,87 @@ never sped up, per CLAUDE.md) is exactly as slow in the browser as in the
 native regression harness, and a test suite will want that override the
 way `fdc765`/`wd1003`'s existing credit-based transfer pacing already
 supports internally.
+
+## 15. CGA-compatible 4-color graphics mode rendering
+
+Found via real-world use, not a synthetic test: loading an actual
+commercial DOS game (The Oregon Trail, MECC, 1990 -- a legitimately-owned
+copy, built into a real FAT12 floppy image via `mtools` for testing, not
+committed to this repo) and running `OREGON CGA` produced a garbled field
+of colored blocks instead of the game's menu. Diagnosed with this
+project's standard evidence-based method -- not a guess: a native scratch
+harness booted the same way, launched the game, and dumped the actual
+Graphics Controller/Sequencer registers afterward. Confirmed precisely:
+`GR06` bit 0 (graphics, not alphanumeric) set, `GR05` bits 5-6 (Shift
+Register field) = 1 -- the real EGA/VGA "CGA-compatibility" 320x200
+4-color mode (what INT 10h mode 4/5 programs), not a bug in Phase 5's
+memory engine. §14's `RenderTextScreen` -- correctly scoped as text-only
+at the time -- was simply being asked to decode graphics VRAM as if it
+were characters and attributes; that's the garbled blocks, not a real or
+new emulation defect.
+
+**The real hardware mechanism, worked out from the actual register
+values and Phase 5's already-correct odd/even plane chaining** (see
+`ega_render.h`'s file header for the full account): a CGA-unaware
+program writes what it thinks is one flat 8000-byte bank (even scanlines
+in the first 8K, odd in the second, 80 bytes/scanline, 4 pixels/byte).
+Odd/even plane chaining -- already implemented, unmodified -- splits
+consecutive bytes across planes 0 and 1 by address parity, so each
+CGA-style byte pair lands at the same plane offset, one byte per plane.
+Real hardware's shift registers then read plane 0's byte as pixels 0-3
+and plane 1's byte as pixels 4-7 of that pair, each 2-bit value indexing
+the *live Attribute Controller palette* (registers 0-3) -- not a
+hardcoded CGA color table, matching how text mode's colors already work.
+
+**Implementation**: `ega.h` gained two small accessors matching the
+existing "host/front-end convenience" pattern (`attr_palette`,
+`cursor_disabled`, etc.) -- `graphics_mode_active()`, `gc_shift_register_mode()`
+-- reading straight from the same register arrays `in()`/`out()` already
+use, no new state. `ega_render.h`/`.cpp` gained `DetectScreenMode()`
+(reads those two registers, exactly what a real CRT controller consults,
+not a BIOS-video-mode-number guess), `RenderCgaGraphics4Screen()`, a
+`RenderedFrame{width,height,rgba}` struct, and `RenderScreen()` -- the one
+entry point `render_screen.cpp` and `wasm_machine.cpp` both now call, so
+there's a single tested implementation deciding what's on screen rather
+than each caller guessing or duplicating logic. An unrecognized graphics
+mode (Shift Register value 0 -- native 16-color EGA, needing full
+CRTC-timing-derived resolution, still not implemented; or 2, a VGA-only
+variant no genuine EGA ever sets) renders as a plain black frame -- an
+honest "not yet supported" placeholder, not a repeat of the
+garbled-block bug for a different unimplemented mode.
+
+**Front end**: `wasm_machine.cpp`'s `renderFrame`/`renderWidth`/
+`renderHeight` switched to `RenderScreen`/`RenderedFrame` (resolution
+varies by mode now, so width/height are read after each `renderFrame()`
+call, not assumed fixed). `app.js` resizes the canvas element's own
+pixel buffer to match whenever it changes, letting it display at its own
+native aspect ratio rather than stretching a lower-resolution mode into
+the text mode's box -- there's no real hardware basis to prefer one
+distortion over another, so this doesn't introduce one.
+
+**Also added while diagnosing this** (the user asked directly): real
+activity-LED behavior for the floppy motor and HDD indicators, not just
+existence. Sampling `busy()`/`motor_on` once per animation frame, *after*
+running that frame's whole cycle budget, could miss activity entirely --
+a transfer can start and finish well within one frame's ~133,000 cycles.
+`WasmMachine::runCycles()` now sub-chunks (2000 cycles at a time -- cheap;
+this emulator already interprets one instruction at a time in C++, a far
+finer granularity) and latches activity along the way; `hddBusy()`/
+`floppyMotorOn()` consume-and-clear that latch, the same "pulse-stretched
+to since last read" convention `altair8800/web/wasm_machine.cpp`'s
+`int_seen_`/`busActivityCounts()` already use for their own once-a-frame-
+polled indicators. The LEDs themselves were also made larger and
+labelled ("motor" / "activity") rather than bare, easy-to-miss dots.
+
+**Verified**: 165/165 native tests pass (10 new: `EgaRenderTest`'s mode-
+detect/CGA-decode/dispatch cases). Then, against the real, live site (not
+just the native harness): mounted the Oregon Trail floppy through the
+actual browser file picker, typed `A:` and `OREGON CGA` (a headless-
+Chromium check needed the real Shift+Semicolon key sequence for `:` --
+Playwright's high-level `keyboard.type()` doesn't reliably send one, a
+testing-tool quirk, not an app bug: a real keyboard reports Shift and the
+letter as two independent, properly-sequenced events, which is exactly
+what this page's per-key-code architecture already expects and handles
+correctly), and got the genuine MECC splash screen and Oregon Trail main
+menu rendering correctly at 320x200, canvas auto-resized, floppy motor
+LED confirmed lit during the actual load.
