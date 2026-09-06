@@ -70,6 +70,14 @@ public:
     uint16_t cursor_offset() const { return uint16_t((crtc_[0x0E] << 8) | crtc_[0x0F]); }
     uint16_t start_offset() const { return uint16_t((crtc_[0x0C] << 8) | crtc_[0x0D]); }
 
+    // Host/front-end convenience: one Attribute Controller internal
+    // palette register (0-15), the real 6-bit EGA color value (2 bits per
+    // channel -- primary + secondary/intensity, each channel decoding as
+    // primary*0xAA + secondary*0x55) that byte-attribute nibble maps to.
+    // A renderer combines this with the character-generator bits in plane
+    // 2 (also public, via `vram`) to paint an actual screen.
+    uint8_t attr_palette(int index) const { return uint8_t(attr_[index & 0x0F] & 0x3F); }
+
     // 256KB planar VRAM: 4 bitplanes x 64KB, byte-interleaved as
     // vram[(plane_offset << 2) + plane] -- see the file header.
     std::array<uint8_t, 256 * 1024> vram{};

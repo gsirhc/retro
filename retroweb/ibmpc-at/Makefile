@@ -5,6 +5,7 @@
 #   make bios        fetch + verify the freely-licensed BIOS/video-BIOS images
 #   make bios-check   boot the real BIOS against this chipset natively, report progress
 #   make hdd-image   build the shipped FreeDOS HDD image (see below -- SLOW)
+#   make render_screen   build the screen-to-BMP diagnostic tool (see below)
 #   make coverage    build + run the unit tests with llvm-cov, print a report
 #   make check       what CI would run
 #   make clean       remove all build output
@@ -55,6 +56,16 @@ bios_host: bios_host.cpp $(CHIPSET_SRCS)
 bios-check: bios bios_host
 	./bios_host roms/BIOS-bochs-legacy
 
+# --- screen-to-BMP diagnostic (see render_screen.cpp) -- boots the real
+# BIOS/vgabios/optional disks for a cycle budget, then renders the current
+# EGA text-mode screen using the real character-generator RAM and palette
+# registers. Not gated by `check`/`test` (it's a dev tool, not a behavior
+# to regress-test -- same reasoning as bios_host.cpp having no test file of
+# its own); usage varies per invocation so there's no fixed "-check" target
+# for it either. -------------------------------------------------------
+render_screen: render_screen.cpp $(CHIPSET_SRCS)
+	$(CXX) $(CXXFLAGS) -o $@ render_screen.cpp $(CHIPSET_SRCS)
+
 # --- shipped HDD image: install the real FreeDOS 1.3 installer end to end
 # (see disks/build_freedos_hdd.cpp and IBM_PCAT_REVIEW.md §11) -- slow, not
 # part of `check`/`test`. ------------------------------------------------
@@ -89,4 +100,4 @@ coverage:
 check: test
 
 clean:
-	rm -rf tests/build tests/build-cov tests/coverage-cpp bios_host disks/build_freedos_hdd
+	rm -rf tests/build tests/build-cov tests/coverage-cpp bios_host disks/build_freedos_hdd render_screen
