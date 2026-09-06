@@ -95,11 +95,34 @@ public:
 
     // Host/front-end convenience: the Graphics Controller Mode register's
     // Shift Register field (GR05 bits 5-6) -- 0 selects normal 16-color
-    // planar shift-out, 1 selects "Shift 2 4-color" (the real EGA/VGA CGA-
-    // compatibility mode: each memory cycle's plane-0 byte then plane-1
-    // byte, each read as four 2-bit CGA-style pixels in turn). Genuine EGA
-    // hardware never sets this to 2 (a VGA-only variant).
+    // planar shift-out (real, native EGA graphics: verified by directly
+    // invoking this machine's own BIOS INT 10h AL=0x10 mode-set and
+    // reading back exactly what it programs -- see IBM_PCAT_REVIEW.md
+    // §16), 1 selects "Shift 2 4-color" (the CGA-compatibility mode: each
+    // memory cycle's plane-0 byte then plane-1 byte, each read as four
+    // 2-bit CGA-style pixels in turn). Genuine 1984 EGA silicon has no
+    // hardware for value 2 (VGA's 256-color Chain-4 mode) -- but this
+    // machine's freely-licensed BIOS substitute is a full VGA BIOS (see
+    // IBM_PCAT_REVIEW.md §6), so software that auto-detects and finds
+    // VGA-class capability can and does legitimately program it anyway
+    // (confirmed happening with a real commercial game); that's a real
+    // firmware/hardware mismatch this machine's real EGA device correctly
+    // can't display, not a rendering gap to fill.
     uint8_t gc_shift_register_mode() const { return uint8_t((gfx_[5] >> 5) & 0x03); }
+
+    // Host/front-end convenience: the CRTC registers that determine a
+    // graphics mode's actual resolution -- Horizontal Display End
+    // (register 0x01, in character clocks; genuine EGA graphics modes
+    // always use an 8-dot character clock) and Vertical Display End
+    // (register 0x12, plus its two overflow bits in register 0x07 bits
+    // 1/6) -- what a real CRT controller's own scanout timing is built
+    // from, not a BIOS video-mode-number guess. Verified against this
+    // machine's own BIOS's real mode-0x10 (640x350x16) register
+    // programming -- see IBM_PCAT_REVIEW.md §16.
+    uint16_t crtc_horizontal_display_end() const { return crtc_[0x01]; }
+    uint16_t crtc_vertical_display_end() const {
+        return uint16_t(crtc_[0x12] | ((crtc_[0x07] >> 1 & 1) << 8) | ((crtc_[0x07] >> 6 & 1) << 9));
+    }
 
     // 256KB planar VRAM: 4 bitplanes x 64KB, byte-interleaved as
     // vram[(plane_offset << 2) + plane] -- see the file header.
