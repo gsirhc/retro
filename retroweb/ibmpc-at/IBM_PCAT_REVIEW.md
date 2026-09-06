@@ -1643,3 +1643,31 @@ labels (`empty (1.2MB, 5.25″)` / `empty (360KB, 5.25″)`) render in
 full, unterminated, with Insert/Eject wrapped to their own line below;
 screenshotted in both themes to confirm the grille-dominant proportions
 read correctly.
+
+## 21. Front panel round four: lights/switch above the grille, wider drives
+
+Explicit follow-up: "close enough realism but function over form" --
+i.e. stop chasing the reference photo's exact proportions once the
+controls start feeling cramped, and prioritize usability. Two changes:
+
+- **Indicator lights and the power switch moved above the grille**,
+  matching the real 5170's own layout (the keylock/LED cluster sits
+  above the ventilation slats, not below them). Wrapped
+  `.at-indicators` and the `.at-switch-group` in a new `.at-toprow`
+  flex row, reordered in the markup to come right after the brand
+  plate and before `.at-vents`.
+- **Drives widened**: §20's `.at-left`/`.at-drives` flex ratio (3:1,
+  ~75/25) was true to the photo but left the drive-bay controls
+  uncomfortably tight. Eased to 2:1 (measured 63/37 at a 1400px
+  viewport), and bumped `.at-drives`'s `min-width` from 190px to
+  230px -- still grille-dominant like the real machine, just not
+  starved for it. `.at-vents`'s `min-height` trimmed from 50px to 40px
+  since the toprow now takes some of the vertical space it used to
+  have alone.
+
+**Verified**: 167/167 native tests (HTML/CSS only). Headless Chromium
+at a 1400px viewport in the Mid-1990s Web theme: `.at-left`/`.at-drives`
+measured 524px/262px (0.63 ratio, up from 0.71); modern theme still
+held `.at-case` at exactly 640px at a 1800px viewport. Screenshotted
+both to confirm the LEDs/switch now sit above the grille and the drive
+bays read less cramped.
