@@ -329,26 +329,30 @@
     width: 100%;
   }
   :root[data-theme="modern"] .at-case { max-width: 640px; margin: 0 auto; }
-  /* left cluster (badge, grille, LEDs, switch) is the dominant width on a
-     real 5170's bezel -- the two floppy bays are a comparatively narrow
-     stacked column at the right, not half the case each. */
+  /* left cluster (badge, LEDs+switch, grille) is still the wider side of
+     a real 5170's bezel, but not overwhelmingly so -- function over
+     exact-photo form, so the drive bays get a little more breathing
+     room than a strict 3/4 split would leave them. */
   .at-left {
-    flex: 3 1 0%; min-width: 0;
-    display: flex; flex-direction: column; gap: 12px;
+    flex: 2 1 0%; min-width: 0;
+    display: flex; flex-direction: column; gap: 10px;
   }
   .at-plate {
     font: 700 12px Arial, Helvetica, sans-serif; letter-spacing: 1px; color: #2b2b28;
     text-shadow: 0 1px 0 rgba(255,255,255,.5);
   }
   .at-plate span { display: block; margin-top: 2px; font: 400 10px Arial, Helvetica, sans-serif; color: #6b6450; letter-spacing: .3px; }
+  /* indicator lights + power switch sit above the grille, like the real
+     machine's own keylock/LED cluster -- not buried below it. */
+  .at-toprow { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .at-indicators { display: flex; align-items: center; gap: 10px; }
   /* the case's own ventilation slats -- decorative, matching the real
      machine's left-side grille */
   .at-vents {
-    flex: 1; min-height: 50px; border-radius: 2px;
+    flex: 1; min-height: 40px; border-radius: 2px;
     background: repeating-linear-gradient(90deg, #8f886f 0 3px, #c9c0a6 3px 7px);
     box-shadow: inset 0 0 0 1px #8f886f, inset 0 2px 5px rgba(0,0,0,.3);
   }
-  .at-indicators { display: flex; align-items: center; gap: 10px; }
 
   /* rocker power switch -- a real physical toggle, not a checkbox look */
   .at-switch-group { display: inline-flex; align-items: center; gap: 7px; cursor: pointer; }
@@ -376,7 +380,7 @@
   /* two stacked half-height 5.25" drive bays, matching the real machine --
      a narrow column (roughly 1/4 of the case width) next to the wider
      grille/badge cluster, not an equal-width split. */
-  .at-drives { flex: 1 1 0%; min-width: 190px; display: flex; flex-direction: column; gap: 10px; justify-content: center; }
+  .at-drives { flex: 1 1 0%; min-width: 230px; display: flex; flex-direction: column; gap: 10px; justify-content: center; }
   .at-bay {
     background: linear-gradient(180deg, #ded6bf, #b8ae94);
     border-radius: 2px; padding: 10px 12px;
@@ -474,16 +478,18 @@
       <div class="at-case">
         <div class="at-left">
           <span class="at-plate">IBM <span>Personal Computer AT &middot; 5170-339</span></span>
-          <div class="at-vents" aria-hidden="true"></div>
-          <div class="at-indicators">
-            <span class="drive-led power-on" id="powerLed" title="Power"></span>
-            <span class="drive-led" id="hddLed" title="Hard disk activity"></span>
+          <div class="at-toprow">
+            <div class="at-indicators">
+              <span class="drive-led power-on" id="powerLed" title="Power"></span>
+              <span class="drive-led" id="hddLed" title="Hard disk activity"></span>
+            </div>
+            <label class="at-switch-group">
+              <input type="checkbox" id="powerSwitch">
+              <span class="at-switch"></span>
+              <span class="at-switch-label">Power</span>
+            </label>
           </div>
-          <label class="at-switch-group">
-            <input type="checkbox" id="powerSwitch">
-            <span class="at-switch"></span>
-            <span class="at-switch-label">Power</span>
-          </label>
+          <div class="at-vents" aria-hidden="true"></div>
         </div>
         <div class="at-drives">
           <div class="at-bay" data-drive="0">
