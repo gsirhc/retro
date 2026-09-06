@@ -321,12 +321,19 @@
     color: #3a3527;
     font: 10px Arial, Helvetica, sans-serif;
     overflow-x: auto;
-    /* a real case fascia has a fixed physical size -- don't let it stretch
-       to match .page's width in the wide modern theme the way the CRT does */
-    max-width: 640px; margin: 0 auto;
+    /* stretches to fill .page like every other panel in the Windows 95/
+       Mid-1990s Web/dark-default themes (those all sit at a fixed ~920px
+       page width anyway, so this doesn't run away); a real case fascia
+       has a fixed physical size, so the wide modern theme caps it instead
+       of letting it stretch with .page the way the CRT does. */
+    width: 100%;
   }
+  :root[data-theme="modern"] .at-case { max-width: 640px; margin: 0 auto; }
+  /* left cluster (badge, grille, LEDs, switch) is the dominant width on a
+     real 5170's bezel -- the two floppy bays are a comparatively narrow
+     stacked column at the right, not half the case each. */
   .at-left {
-    flex: 0 0 auto; width: 96px;
+    flex: 3 1 0%; min-width: 0;
     display: flex; flex-direction: column; gap: 12px;
   }
   .at-plate {
@@ -366,8 +373,10 @@
   .at-switch-group input:focus-visible + .at-switch { outline: 2px solid var(--link); outline-offset: 2px; }
   .at-switch-label { font: 700 10px Arial, Helvetica, sans-serif; letter-spacing: .5px; text-transform: uppercase; }
 
-  /* two stacked half-height 5.25" drive bays, matching the real machine */
-  .at-drives { flex: 1; min-width: 280px; display: flex; flex-direction: column; gap: 10px; justify-content: center; }
+  /* two stacked half-height 5.25" drive bays, matching the real machine --
+     a narrow column (roughly 1/4 of the case width) next to the wider
+     grille/badge cluster, not an equal-width split. */
+  .at-drives { flex: 1 1 0%; min-width: 190px; display: flex; flex-direction: column; gap: 10px; justify-content: center; }
   .at-bay {
     background: linear-gradient(180deg, #ded6bf, #b8ae94);
     border-radius: 2px; padding: 10px 12px;
@@ -397,8 +406,11 @@
     background: linear-gradient(#9a9488, #6b6558);
     box-shadow: 0 1px 1px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.35);
   }
-  .at-bay-ctl { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
-  .drive-label { font: 11px "Courier New", monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #2b2b28; flex: 1 1 auto; min-width: 0; }
+  /* the drive-bay column is comparatively narrow (see .at-drives above) --
+     let the label take its own full line and the buttons wrap below it
+     rather than cramming both into one row and truncating the label. */
+  .at-bay-ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin-top: 6px; }
+  .drive-label { font: 11px "Courier New", monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #2b2b28; flex: 1 1 100%; min-width: 0; }
   .drive-label.empty { color: #7a7358; font-style: italic; }
 
   .drive-led {
@@ -461,7 +473,7 @@
       <h2>Front panel</h2>
       <div class="at-case">
         <div class="at-left">
-          <span class="at-plate">IBM <span>5170-339</span></span>
+          <span class="at-plate">IBM <span>Personal Computer AT &middot; 5170-339</span></span>
           <div class="at-vents" aria-hidden="true"></div>
           <div class="at-indicators">
             <span class="drive-led power-on" id="powerLed" title="Power"></span>

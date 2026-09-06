@@ -1595,3 +1595,51 @@ fixed 640px regardless of the 1600px-wide `.page` around it;
 screenshotted both the Mid-1990s Web theme (tiled background visible
 around the window) and the wide modern theme (full-width display,
 fixed-width front panel) to confirm visually.
+
+## 20. Front panel round three: real case proportions, and per-theme width
+
+A real reference photo made two more things obvious: the grille+badge
+cluster on a genuine 5170 is the *dominant* width of the bezel (roughly
+3/4 of it), with the two stacked floppy bays occupying a comparatively
+narrow column at the right -- not a roughly-even split, which is what
+§18/§19's flex layout (`.at-left` a fixed 96px, `.at-drives` taking
+essentially everything else) actually produced. And the front panel's
+own width policy needed to match the CRT's: stretch with `.page` in the
+Windows 95 / Mid-1990s Web / dark-default themes (all fixed around
+920px anyway, so nothing runs away), but stay capped in modern's much
+wider layout.
+
+**Ratio fix**: `.at-left` and `.at-drives` are now flex ratios (`flex:
+3 1 0%` / `flex: 1 1 0%`) instead of one fixed-width column and one
+that eats the remainder -- measured at a 1400px viewport in the
+Mid-1990s Web theme, that lands at a 71/29 split, close to the
+photo's roughly-3/4 grille width. Restored the full brand-plate text
+("IBM Personal Computer AT · 5170-339") now that `.at-left` has real
+room again -- §18's shortened "IBM 5170-339" was only ever a fix for
+the old fixed-96px column, not a considered final wording.
+
+**Width fix**: `.at-case` dropped its own `max-width` and now takes
+`width: 100%` (stretching with `.panel`/`.page` like every other
+control on the page, in every non-modern theme); a
+`:root[data-theme="modern"] .at-case { max-width: 640px; margin: 0
+auto }` override keeps it from following modern's much wider
+`--page-max` the way the CRT deliberately does.
+
+**Narrow-column fallout**: the drive-bay column is now genuinely
+narrow (~190-280px depending on theme/viewport), too tight to fit the
+capacity label and both Insert/Eject buttons on one line without
+truncating the label (`empty (1...` was the actual regression caught
+mid-fix). Changed `.at-bay-ctl` to `flex-wrap: wrap` with
+`.drive-label { flex: 1 1 100% }` so the label always gets its own full
+line and the buttons wrap to the line below, rather than fitting a
+narrower ellipsis-truncated label net to them.
+
+**Verified**: 167/167 native tests (HTML/CSS only). Headless Chromium
+at a 1400px viewport in the Mid-1990s Web theme: `.at-case` measured
+834px (matching `.page`'s fixed width), split 589.5/196.5 between
+`.at-left`/`.at-drives` (a 0.71 ratio); at a 1800px viewport in the
+modern theme, `.at-case` held at exactly 640px regardless. Both drive
+labels (`empty (1.2MB, 5.25″)` / `empty (360KB, 5.25″)`) render in
+full, unterminated, with Insert/Eject wrapped to their own line below;
+screenshotted in both themes to confirm the grille-dominant proportions
+read correctly.
