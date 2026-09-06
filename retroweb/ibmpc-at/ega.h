@@ -70,6 +70,14 @@ public:
     uint16_t cursor_offset() const { return uint16_t((crtc_[0x0E] << 8) | crtc_[0x0F]); }
     uint16_t start_offset() const { return uint16_t((crtc_[0x0C] << 8) | crtc_[0x0D]); }
 
+    // Cursor shape, CRTC registers 0x0A (Cursor Start: bit 5 = disable,
+    // bits 0-4 = start scanline) / 0x0B (Cursor End: bits 0-4 = end
+    // scanline) -- what a renderer needs to draw the real block cursor at
+    // the right scanlines within a character cell, or not draw it at all.
+    bool cursor_disabled() const { return (crtc_[0x0A] >> 5) & 1; }
+    uint8_t cursor_start_scanline() const { return uint8_t(crtc_[0x0A] & 0x1F); }
+    uint8_t cursor_end_scanline() const { return uint8_t(crtc_[0x0B] & 0x1F); }
+
     // Host/front-end convenience: one Attribute Controller internal
     // palette register (0-15), the real 6-bit EGA color value (2 bits per
     // channel -- primary + secondary/intensity, each channel decoding as

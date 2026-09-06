@@ -51,9 +51,20 @@ public:
     bool reset_requested() const { return reset_requested_; }
     void clear_reset_request() { reset_requested_ = false; }
 
-    // Host/front-end side: deliver one Set-2 scan code from the physical or
-    // virtual keyboard, as if a key event just happened. No-op while the
-    // controller has the keyboard disabled (0xAD).
+    // Host/front-end side: deliver one Set 1 scan code, as if a key event
+    // just happened -- pushed straight to port 0x60 with no translation.
+    // No-op while the controller has the keyboard disabled (0xAD).
+    //
+    // Real hardware: an AT keyboard is physically Set-2-native, and the
+    // 8042's own firmware translates Set 2 -> Set 1 before software ever
+    // sees a code at port 0x60 (translation is the default/overwhelmingly
+    // common mode; genuine Set-2 passthrough exists but essentially no
+    // real software selects it). This device models the visible result of
+    // that translation directly rather than a Set-2 stage nothing above
+    // the 8042 can ever observe in that default mode -- callers (a browser
+    // front end's own physical-key -> Set-1 table, disks/build_freedos_hdd.cpp's
+    // Set1MakeCode()) supply Set 1 codes already, matching what a real
+    // BIOS/DOS keyboard driver actually reads.
     void inject_scancode(uint8_t code);
 
 private:

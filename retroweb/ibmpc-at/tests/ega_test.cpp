@@ -213,6 +213,19 @@ TEST(EgaTest, CrtcCursorAndStartAddressRegisters) {
     EXPECT_EQ(ega.start_offset(), 0x0000);
 }
 
+TEST(EgaTest, CursorShapeRegistersReportStartEndAndDisableBit) {
+    Ega ega;
+    ega.reset();
+    ega.out(0x3D4, 0x0A); ega.out(0x3D5, 0x0D);  // Cursor Start: scanline 13, not disabled
+    ega.out(0x3D4, 0x0B); ega.out(0x3D5, 0x0E);  // Cursor End: scanline 14
+    EXPECT_FALSE(ega.cursor_disabled());
+    EXPECT_EQ(ega.cursor_start_scanline(), 13);
+    EXPECT_EQ(ega.cursor_end_scanline(), 14);
+
+    ega.out(0x3D4, 0x0A); ega.out(0x3D5, 0x20);  // bit 5 set -- cursor off
+    EXPECT_TRUE(ega.cursor_disabled());
+}
+
 TEST(EgaTest, AttrPaletteReportsTheLiveRegisterMaskedToSixBits) {
     Ega ega;
     ega.reset();

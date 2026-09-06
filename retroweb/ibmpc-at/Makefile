@@ -6,6 +6,8 @@
 #   make bios-check   boot the real BIOS against this chipset natively, report progress
 #   make hdd-image   build the shipped FreeDOS HDD image (see below -- SLOW)
 #   make render_screen   build the screen-to-BMP diagnostic tool (see below)
+#   make wasm        build the WebAssembly module (needs emsdk -- see web/Makefile)
+#   make serve       build the wasm module + serve the browser front end
 #   make coverage    build + run the unit tests with llvm-cov, print a report
 #   make check       what CI would run
 #   make clean       remove all build output
@@ -21,17 +23,18 @@
 # whenever disks/freedos-hdd.img needs (re)building.
 #
 # NOTE: this machine is being built in phases (see IBM_PCAT_REVIEW.md and the
-# approved plan). There is no WASM/browser build yet, so `wasm`/`serve`
-# targets (present on the other two retroweb machines) aren't added until
-# Phase 7/8 land. Don't add stub targets ahead of the code they'd invoke.
+# approved plan). Phase 7's front end lives in web/ (own Makefile, same
+# `wasm`/`serve`/`clean`-delegates-to-web/ shape as the other two retroweb
+# machines); Phase 8 still owns the Playwright test suite + top-level site
+# integration (retroweb/Makefile, retroweb/index.html, CI).
 
 CXX      ?= c++
 CXXFLAGS ?= -std=c++17 -O2 -Wall -Wextra
 
 CHIPSET_SRCS = machine.cpp chipset.cpp cpu80286.cpp pic8259.cpp pit8253.cpp i8042.cpp cmos_rtc.cpp dma8237.cpp fdc765.cpp ega.cpp wd1003.cpp pcspeaker.cpp
-UNIT_TESTS = cpu80286_test pic8259_test pit8253_test i8042_test cmos_rtc_test dma8237_test chipset_test machine_test fdc765_test ega_test wd1003_test pcspeaker_test
+UNIT_TESTS = cpu80286_test pic8259_test pit8253_test i8042_test cmos_rtc_test dma8237_test chipset_test machine_test fdc765_test ega_test ega_render_test wd1003_test pcspeaker_test
 
-.PHONY: help test bios bios-check hdd-image coverage check clean
+.PHONY: help test bios bios-check hdd-image wasm serve coverage check clean
 
 LLVM_PROFDATA ?= xcrun llvm-profdata
 LLVM_COV      ?= xcrun llvm-cov
@@ -63,8 +66,8 @@ bios-check: bios bios_host
 # to regress-test -- same reasoning as bios_host.cpp having no test file of
 # its own); usage varies per invocation so there's no fixed "-check" target
 # for it either. -------------------------------------------------------
-render_screen: render_screen.cpp $(CHIPSET_SRCS)
-	$(CXX) $(CXXFLAGS) -o $@ render_screen.cpp $(CHIPSET_SRCS)
+render_screen: render_screen.cpp ega_render.cpp $(CHIPSET_SRCS)
+	$(CXX) $(CXXFLAGS) -o $@ render_screen.cpp ega_render.cpp $(CHIPSET_SRCS)
 
 # --- shipped HDD image: install the real FreeDOS 1.3 installer end to end
 # (see disks/build_freedos_hdd.cpp and IBM_PCAT_REVIEW.md §11) -- slow, not
@@ -76,6 +79,13 @@ hdd-image: bios disks/build_freedos_hdd
 	bash disks/fetch-freedos.sh
 	bash disks/fetch-freedos-install-set.sh
 	./disks/build_freedos_hdd roms/BIOS-bochs-legacy roms/VGABIOS-lgpl-latest.bin disks disks/freedos-hdd.img
+
+# --- webassembly + browser front end (Phase 7 -- see web/) --------------
+wasm:
+	$(MAKE) -C web
+
+serve:
+	$(MAKE) -C web serve
 
 # --- C++ coverage (source-based, llvm-cov) ------------------------------
 coverage:
@@ -90,6 +100,7 @@ coverage:
 	    $(CURDIR)/pit8253.cpp $(CURDIR)/pit8253.h $(CURDIR)/i8042.cpp $(CURDIR)/i8042.h \
 	    $(CURDIR)/cmos_rtc.cpp $(CURDIR)/cmos_rtc.h $(CURDIR)/dma8237.cpp $(CURDIR)/dma8237.h \
 	    $(CURDIR)/fdc765.cpp $(CURDIR)/fdc765.h $(CURDIR)/ega.cpp $(CURDIR)/ega.h \
+	    $(CURDIR)/ega_render.cpp $(CURDIR)/ega_render.h \
 	    $(CURDIR)/wd1003.cpp $(CURDIR)/wd1003.h \
 	    $(CURDIR)/pcspeaker.cpp $(CURDIR)/pcspeaker.h \
 	    $(CURDIR)/chipset.cpp $(CURDIR)/chipset.h $(CURDIR)/machine.cpp $(CURDIR)/machine.h"; \
@@ -102,3 +113,4 @@ check: test
 
 clean:
 	rm -rf tests/build tests/build-cov tests/coverage-cpp bios_host disks/build_freedos_hdd render_screen
+	$(MAKE) -C web clean
