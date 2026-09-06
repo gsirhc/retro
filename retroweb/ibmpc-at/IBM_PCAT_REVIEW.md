@@ -1353,20 +1353,47 @@ are exactly the kind of work this project's own CLAUDE.md guidance says
 to keep rather than delegate -- getting it wrong is expensive to catch
 later, and a fresh agent would have to re-derive context already in hand.
 
-**A real, reproducible CSS bug found along the way**: piping a theme
-token through a CSS custom property into `.page`'s `max-width` (`.page {
-max-width: var(--page-max); }`, the same indirection altair8800's own
-CSS uses successfully) measured as `none` -- computed-style `max-width`
-never actually constrained the page, confirmed three independent ways
-(`getComputedStyle().maxWidth`, `getBoundingClientRect().width` at
-multiple viewport widths, and a full-page screenshot) before concluding
-it wasn't a measurement artifact. Swapping the exact same value in as a
-literal (`max-width: 920px;`, no `var()`) fixed it immediately and
-reproducibly. Root cause not chased further (diminishing returns), but
-worth a flag for future style work in this file: prefer literal values
-or direct per-theme selectors over piping a page-layout property through
-this particular custom property, since this specific indirection is
-demonstrated not to resolve reliably here.
+**A real bug, initially misdiagnosed**: `.page`'s `max-width: var(--page-max)`
+computed as `none`, confirmed three ways (`getComputedStyle().maxWidth`,
+`getBoundingClientRect().width`, a screenshot) -- but the actual page
+looked *fully themed* in every other respect in that same screenshot
+(correct panel/button/titlebar colors), so the fix applied at the time
+was scoped to just this one property: swap `var(--page-max)` for a
+literal `920px`. That was a real fix for that one symptom, but it wasn't
+the disease, and the "every other respect looked themed" read turned out
+to be wrong too -- a user comparing this page side by side with
+altair8800's caught that the *entire* Windows 95 and Mid-1990s Web themes
+were rendering essentially unstyled (plain white page, no titlebar
+gradient, no panel borders), which a quick visual scan had missed by
+focusing on layout/function rather than actually comparing colors against
+the reference page. The real cause: this file's own theme-block comment
+header closed with an HTML comment terminator (`-->`) instead of a CSS
+one (`*/`) --
+
+```
+/* ---- page themes: ...
+   ... front panels. -->        <- should be */
+```
+
+-- so the CSS comment was **never closed**. Everything from that point
+was silently consumed as "still inside the comment" until the parser
+hit the next literal `*/` anywhere later in the file (which happened to
+be one line inside the *fourth* theme block, `moderndark`'s own trailing
+comment) -- meaning the `:root`, `web94`, and light-`modern` blocks (three
+of four theme blocks, the whole non-dark-mode token set) were being
+dropped by the parser on every load. Confirmed precisely by inspecting
+`document.styleSheets[0].cssRules` directly: 93 rules instead of the
+expected ~96, with rule 0 being the `moderndark` block instead of the
+base `:root`. Fixed by closing the comment correctly; `--page-max` was
+reverted back to the token-driven form (`.page { max-width:
+var(--page-max); }`, `:root[data-theme="modern"] { --page-max:
+min(1600px, 95vw); }`) now that the actual disease, not just that one
+symptom, is fixed. Take-away for next time: when a computed style comes
+back wrong, check whether the *whole* stylesheet parsed as expected
+(`document.styleSheets[...].cssRules.length` and `cssRules[0]`) before
+assuming the one property under investigation is the whole story --
+and a "looks themed" visual skim is not the same as actually comparing
+colors/chrome against the reference page pixel-for-pixel.
 
 **Screen size**: base CSS width raised from 640px to 860px (matching the
 spirit of altair8800's own 792px-wide CRT) -- still `max-width:100%` and
