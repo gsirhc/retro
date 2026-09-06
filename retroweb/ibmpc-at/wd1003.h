@@ -95,6 +95,12 @@ public:
     // factory, not a swappable-media device.
     void mount(int drive, const uint8_t *data, std::size_t len);
 
+    // Host/front-end convenience: true while an actual command is being
+    // serviced (BSY asserted) or a READ/WRITE SECTORS transfer is paced
+    // and in flight -- what a real activity LED wired to the controller's
+    // BSY/DRQ lines would light for.
+    bool busy() const { return (status_ & ST_BSY) != 0 || xfer_active_; }
+
 private:
     enum Status : uint8_t {
         ST_ERR = 0x01, ST_DRQ = 0x08, ST_DSC = 0x10, ST_DF = 0x20, ST_DRDY = 0x40, ST_BSY = 0x80,

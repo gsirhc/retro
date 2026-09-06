@@ -1043,3 +1043,136 @@ itself is exercised directly by its own unit tests instead.
 Audio, matching the approved plan's "Web Audio output" phrase for this
 phase, and this project's native-core-first pattern from every prior
 phase). This phase's scope is the real circuit semantics only.
+
+## 14. Phase 7: the front end -- `web/`
+
+`retroweb/ibmpc-at/web/` follows the established per-machine shape
+(`wasm_machine.cpp` Embind wrapper, `app.js`/`index.html`, own `Makefile`/
+`devserve.py`, independent theme-system copy -- see the approved plan's
+"front-end code... keep independent per-machine copies" decision). The
+top-level `Makefile` gained `wasm`/`serve` targets delegating to `web/`,
+matching `altair8800`'s and `cg-oac-6502`'s own top-level Makefiles
+exactly.
+
+**Scope decision, stated up front**: this pass ships real, complete
+**text-mode** rendering (what the machine actually boots to and what a
+plain DOS session is), keyboard input, the two floppy bays, a status-only
+HDD LED, and a muted-by-default Web Audio speaker. CRTC-timing-driven
+**graphics-mode** scanout -- deriving the active resolution from the
+Horizontal/Vertical Display End registers for 320x200x16/640x350x16/etc.,
+which Phase 5's memory engine already fully supports at the device level
+-- is deliberately not attempted here; nothing about the plan's Phase 7
+line ("full EGA... a new canvas-based front-end renderer") specifies
+graphics modes must land in the same pass as text mode, and shipping a
+half-working graphics renderer would be worse than being explicit that
+it's still missing. A future pass extends `ega_render.h`'s single
+`RenderTextScreen` entry point with a second, CRTC-driven one.
+
+**wasm_machine.cpp**: a thin `WasmMachine` wrapping `ibmpcat::Machine`,
+exposing `loadRom`/`runCycles`/`renderFrame`/`injectScancode`/floppy
+mount-eject-status/`mountHdd`/`hddBusy`/`speakerLevel`+`speakerEdges`.
+`renderFrame` calls the same `ega_render.h::RenderTextScreen` the native
+`render_screen.cpp` diagnostic uses -- one tested C++ implementation, not
+a second copy of the pixel-decode logic re-derived in JavaScript.
+Building it surfaced one real, small gap needing new accessors: nothing
+exposed the WD1003's busy/DRQ state for an activity LED, so `Wd1003::busy()`
+was added (`ST_BSY` or an in-flight paced transfer -- see `wd1003.h`),
+covered by a new `BusyReflectsAnInFlightTransfer` test.
+
+**Firmware/HDD image placement**: the deployed site only ever stages a
+machine's `web/` directory (see CLAUDE.md/the other machines' own
+`_site/` staging), so `web/Makefile`'s `roms`/`hdd-image` targets copy
+the native-core Makefile's already-fetched/-built output into `web/roms/`,
+`web/disks/` rather than the page fetching `../roms/...` at runtime (which
+only works from a working tree, never from the deployed static site).
+`hdd-image`'s copy is gated on the parent's own output file actually being
+missing (a real file-based Make dependency, not a phony target re-invoked
+on every `make serve`) -- unlike `bios`'s recipe, which is cheap/idempotent
+(`fetch-bios.sh` checksums and skips what's already correct) and safe to
+re-run unconditionally, `hdd-image`'s recipe is a genuine multi-minute
+installer run and must not fire by accident.
+
+**Keyboard**: `app.js`'s `SET1` table maps `KeyboardEvent.code` directly
+to real IBM AT Set 1 scan codes (a plain number = one byte; a two-entry
+array = an 0xE0-prefixed extended key -- the arrow cluster, Insert/
+Delete/Home/End/PageUp/PageDown, right Ctrl/Alt, numpad Enter/Divide).
+`i8042.h`'s `inject_scancode()` is a verbatim Set-1 pass-through (see §12's
+commit and the file's own header), so this table supplies exactly what a
+real AT keyboard's own Set-2-to-Set-1 translation would hand the host --
+no separate translation stage needed or modeled.
+
+**A real, hardware-accurate constraint this surfaced, not a bug**: the
+8042's output register is a single, unqueued byte (`I8042::push_output()`
+just overwrites it) -- genuine hardware behavior, not a simplification.
+Sending a key's make code immediately followed by its break code with *no*
+CPU execution in between overwrites the make code before the CPU ever
+reads it, exactly like a real keyboard controller would drop a byte no
+one serviced in time. This was caught the hard way: an early Playwright
+smoke check using `keyboard.type()`/`keyboard.press()` with their default
+near-zero inter-event delay produced no visible effect at all, while the
+exact same check with a realistic ~80ms delay between keydown and keyup
+(matching how fast a real key can physically be pressed and released, and
+how a real browser's own native keyboard events behave) worked perfectly
+end to end -- typed `dir`, pressed Enter, got the real FreeDOS directory
+listing, screenshotted. **Phase 8's Playwright suite must use a delay
+(or `disks/build_freedos_hdd.cpp`'s own proven `SendKey()` shape: make,
+run real cycles, break, run real cycles) for synthetic keystrokes** -- this
+isn't a workaround for a bug, it's what real hardware requires too, and a
+zero-delay synthetic key event is not something any physical keyboard
+could ever generate.
+
+**Floppy bays**: functional, theme-consistent panels (file input to
+mount, per-drive motor LED polled each frame via `floppyPresent`/
+`floppyMotorOn`, an Eject that offers the modified image back as a
+download via `floppyImage`/`floppyDirty` when the session actually wrote
+to it) -- not a hand-crafted photoreal drive cabinet like `altair8800`'s
+88-DCDD graphic. A visually elaborate bay is a nice-to-have follow-up, not
+load-bearing for a correctly-emulated machine, and wasn't where this
+pass's effort went.
+
+**PC speaker, muted by default (explicit user instruction)**: the
+`#speakerEnabled` checkbox starts unchecked on every page load and is
+never restored from a saved preference -- deliberately, not merely
+because browsers block audio autoplay until a user gesture (though they
+do): the point of "off by default" is that it stays off until the visitor
+explicitly opts back in, on every visit, not just the first. When enabled,
+`pumpAudio()` drains `speakerEdges()` once per animation frame and builds
+one `AudioBuffer` covering exactly that frame's CPU cycles from the real
+edge trace (holding the last known level between edges, via the new
+`speakerLevel()` accessor for frames with none), scheduled gapless via
+`AudioBufferSourceNode.start(nextPlayTime)` -- no waveform assumption of
+its own, no deprecated `ScriptProcessorNode`, no separate `AudioWorklet`
+module. Not audible-output-verified in this pass (this specific boot
+path produces zero speaker edges at all, per §13 -- there's nothing to
+hear yet without a program that touches Port 0x61); the underlying
+`PcSpeaker` device logic has its own 6 direct unit tests, and the
+scheduling code is simple, low-risk glue. A real "does it actually make a
+sound" check is Phase 8 work, once a test program that beeps exists.
+
+**Verified**: `161/161` native tests pass (new:
+`Wd1003Test.BusyReflectsAnInFlightTransfer`). The front end was verified
+with ad hoc headless-Chromium (Playwright) checks -- not yet the formal
+Phase 8 suite, but real, running-browser proof, not just "it compiles":
+default-muted speaker checkbox confirmed unchecked; a full boot from cold
+start to a live `C:\>` prompt, screenshotted, byte-for-byte the same
+banner/memory-table/FreeDOS-welcome text as every native regression check
+in §12/§13; realistic-speed keyboard input typing `dir` + Enter and
+getting the real FreeDOS directory listing back, screenshotted; theme
+switching (Dark Modern correctly sets `data-theme="modern"
+data-mode="dark"`); floppy mount (label updates to the real filename) and
+eject (label reverts, motor LED reflects `floppyMotorOn`); the speaker
+checkbox toggling on. A `window.__test` hook (`{ machine, sendKey,
+screenEl }`, active under `?test=1`) was added for this, matching
+`altair8800`/`cg-oac-6502`'s own established `window.__test` convention --
+ready for Phase 8's real suite to build on rather than reinvent.
+
+**Deferred to Phase 8**, per the approved plan: the formal Playwright
+suite (one spec per control/feature, shared `helpers.ts`/`fixtures.ts`),
+top-level `retroweb/Makefile`/`README.md`/`index.html` integration, and
+the CI job pair. `?test=1` forcing floppy/HDD load speed to an internal
+max (CLAUDE.md's sanctioned automated-test override) is not yet wired up
+-- today's ~45-50 second real-time boot (genuine, unaccelerated 8 MHz --
+never sped up, per CLAUDE.md) is exactly as slow in the browser as in the
+native regression harness, and a test suite will want that override the
+way `fdc765`/`wd1003`'s existing credit-based transfer pacing already
+supports internally.
