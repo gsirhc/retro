@@ -1260,3 +1260,73 @@ what this page's per-key-code architecture already expects and handles
 correctly), and got the genuine MECC splash screen and Oregon Trail main
 menu rendering correctly at 320x200, canvas auto-resized, floppy motor
 LED confirmed lit during the actual load.
+
+## 16. Native 16-color EGA graphics rendering, and a real BIOS/hardware mismatch
+
+Follow-up to §15, from continued real-world use: plain `OREGON` (no `CGA`
+argument) still rendered a plain black screen even after §15's fix.
+Traced with the same evidence-based method -- boot the real game, dump the
+actual registers, don't guess -- and found something more interesting than
+a second missing mode: `GR05` Shift Register = 2, and `SEQ[4]` bit 3
+(Chain-Four) set. That's VGA's 256-color mode 13h, a mode that **doesn't
+exist on real 1984 EGA silicon at all**. It happens because this
+machine's freely-licensed BIOS substitute (`VGABIOS-lgpl-latest.bin`) is a
+full VGA BIOS -- already flagged as a real tension in §6 ("this machine's
+own EGA device is what actually enforces the real EGA ceiling regardless
+of what modes this BIOS thinks it can offer") -- and Oregon Trail's own
+auto-detect logic, seeing genuinely VGA-class capability reported, picks
+VGA's best mode instead of EGA's. A real EGA card, wired to this same
+substitute BIOS, would have exactly the same problem: the BIOS would
+offer a mode the card physically cannot display. This is a firmware/
+hardware mismatch this project already anticipated and accepted, not a
+new bug -- `OREGON CGA` (explicitly forcing the CGA-compatible path) is
+the period-correct thing to do here, precisely per the game's own
+README, and continues to work exactly as §15 verified.
+
+**Separately, and worth building regardless**: native 16-color EGA
+graphics (`GR05` Shift Register = 0 -- real modes 0x0D/0x0E/0x10,
+320x200/640x200/640x350) was still unimplemented, a real gap distinct
+from the mode-13h mismatch above. Fixed properly, grounded in verified
+real data rather than a remembered spec: this machine's own BIOS was
+invoked directly (`cpu.ax = 0x0010; cpu.interrupt(0x10);` -- a real INT
+10h injection, pushing flags/cs/ip and jumping through the real-mode IVT
+exactly like the instruction would) to set genuine mode 0x10, then the
+actual CRTC registers it programmed were read back: Horizontal Display
+End = 79 -> (79+1)*8 = 640, Vertical Display End = 349 (0x5D plus the
+Overflow register's bit 1) -> 349+1 = 350 -- exactly real mode 0x10's
+resolution, confirming the general formula (not a hardcoded mode table)
+before writing a line of the renderer. `ega.h` gained
+`crtc_horizontal_display_end()`/`crtc_vertical_display_end()` accessors
+(same "host/front-end convenience, reads straight from the existing
+register arrays" pattern as every prior addition); `ega_render.h`/`.cpp`
+gained `RenderEgaNative16Screen()` (odd/even chaining disabled in this
+mode -- linear addressing across all 4 planes; the CRT controller reads
+the same plane offset from all 4 planes every cycle, since planar VRAM
+always answers on all 4 planes at once, and combines each pixel's 4 bits
+-- plane 0 = LSB through plane 3 = MSB of the color index, the standard
+EGA/VGA convention -- into the live Attribute Controller palette, same as
+every other mode) and a new `ScreenMode::kEgaGraphics16`, distinct from
+`kUnsupportedGraphics` (which now specifically means Shift Register = 2,
+correctly documented as VGA-only rather than "not implemented yet").
+
+**Verified**: a second native probe drew an actual rectangle through the
+real Write Mode 2 path (the standard technique real EGA graphics software
+uses to plot a solid color -- CPU byte's bits select per-plane, not a raw
+`vram` poke) after invoking real mode 0x10, and the resulting frame showed
+a correctly-positioned, correctly-colored rectangle at exactly the
+expected pixel coordinates and palette color, at the correct verified
+640x350 resolution. 10 new/updated `EgaRenderTest` cases (167/167 total).
+The WASM front end needed no changes at all beyond rebuilding -- 
+`wasm_machine.cpp`'s `renderFrame`/`renderWidth`/`renderHeight` already
+dispatch through the same shared `RenderScreen()`, and `app.js`'s canvas-
+resize logic was already generic (proven by §15's CGA-mode resize)
+rather than hardcoded to particular dimensions.
+
+**Also fixed while investigating**: the local LAN preview server
+(`python3 -m http.server`, used by `make -C retroweb preview`/
+`preview-bg`) sent no cache headers at all, unlike every machine's own
+`web/devserve.py` -- a real, separate bug that made a stale wasm module/
+app.js indistinguishable from an actual regression after re-staging.
+Replaced with `retroweb/serve_nocache.py` (same `Cache-Control: no-store`
+handler devserve.py already used), wired into all three `preview`/
+`preview-bg`/`preview-install` code paths.

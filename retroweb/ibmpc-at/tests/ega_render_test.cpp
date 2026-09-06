@@ -14,6 +14,7 @@ using ibmpcat::Ega;
 using ibmpcat::kTextRenderHeight;
 using ibmpcat::kTextRenderWidth;
 using ibmpcat::RenderCgaGraphics4Screen;
+using ibmpcat::RenderEgaNative16Screen;
 using ibmpcat::RenderedFrame;
 using ibmpcat::RenderScreen;
 using ibmpcat::RenderTextScreen;
@@ -119,7 +120,10 @@ TEST(EgaRenderTest, DetectScreenModeReadsTheRealModeRegisters) {
     EXPECT_EQ(DetectScreenMode(ega), ScreenMode::kCgaGraphics4);
 
     SetGraphicsMode(ega, /*graphics=*/true, /*shift_register_mode=*/0);
-    EXPECT_EQ(DetectScreenMode(ega), ScreenMode::kUnsupportedGraphics);  // native 16-color, not yet rendered
+    EXPECT_EQ(DetectScreenMode(ega), ScreenMode::kEgaGraphics16);  // real, native EGA planar graphics
+
+    SetGraphicsMode(ega, /*graphics=*/true, /*shift_register_mode=*/2);
+    EXPECT_EQ(DetectScreenMode(ega), ScreenMode::kUnsupportedGraphics);  // VGA-only 256-color Chain-4
 
     SetGraphicsMode(ega, /*graphics=*/false, /*shift_register_mode=*/1);
     EXPECT_EQ(DetectScreenMode(ega), ScreenMode::kText);  // alphanumeric bit wins regardless of shift mode
@@ -173,6 +177,49 @@ TEST(EgaRenderTest, CgaGraphics4OddScanlinesUseTheSecondEightKilobyteBank) {
     EXPECT_EQ(rgba[i + 2], 0xFF);
 }
 
+TEST(EgaRenderTest, EgaNative16ResolutionComesFromCrtcTimingNotATable) {
+    // Verified against this machine's own real BIOS: directly invoking its
+    // INT 10h AL=0x10 handler and reading back what it programs gives
+    // exactly these register values for genuine mode 0x10 (640x350x16) --
+    // see IBM_PCAT_REVIEW.md §16.
+    Ega ega;
+    ega.reset();
+    ega.out(0x3D4, 0x01); ega.out(0x3D5, 79);    // H Display End
+    ega.out(0x3D4, 0x12); ega.out(0x3D5, 0x5D);  // V Display End low 8 bits
+    ega.out(0x3D4, 0x07); ega.out(0x3D5, 0x02);  // Overflow: bit 1 set
+
+    std::vector<uint8_t> rgba;
+    int width = 0, height = 0;
+    RenderEgaNative16Screen(ega, rgba, width, height);
+    EXPECT_EQ(width, 640);
+    EXPECT_EQ(height, 350);
+    EXPECT_EQ(rgba.size(), std::size_t(640 * 350 * 4));
+}
+
+TEST(EgaRenderTest, EgaNative16DecodesOneBitPerPlanePerPixelMsbFirst) {
+    // Real EGA/VGA convention: plane 0 = bit 0 (LSB) of the 4-bit color
+    // index, through plane 3 = bit 3 (MSB); within a byte, bit 7 is the
+    // leftmost pixel (MSB-first, the same convention text mode's glyph
+    // bytes and CGA-mode's pixel bytes already use).
+    Ega ega;
+    ega.reset();
+    ega.out(0x3D4, 0x01); ega.out(0x3D5, 9);     // H Display End -> (9+1)*8 = 80 wide (small, for the test)
+    ega.out(0x3D4, 0x12); ega.out(0x3D5, 0);     // V Display End -> 0+1 = 1 tall
+    SetPalette(ega, 0x0, 0x00);  // black
+    SetPalette(ega, 0x5, 0x02);  // index 5 = green (planes 0 and 2 set: bits 0+2 = 0b0101 = 5)
+    // Plane 0 byte and plane 2 byte both have their MSB set (leftmost
+    // pixel); planes 1 and 3 are 0 -- leftmost pixel's index = 0b0101 = 5.
+    ega.vram[(0 << 2) + 0] = 0x80;
+    ega.vram[(0 << 2) + 2] = 0x80;
+
+    std::vector<uint8_t> rgba;
+    int width = 0, height = 0;
+    RenderEgaNative16Screen(ega, rgba, width, height);
+    ASSERT_EQ(width, 80);
+    EXPECT_EQ(rgba[0], 0x00); EXPECT_EQ(rgba[1], 0xAA); EXPECT_EQ(rgba[2], 0x00);  // green
+    EXPECT_EQ(rgba[4], 0x00); EXPECT_EQ(rgba[5], 0x00); EXPECT_EQ(rgba[6], 0x00);  // next pixel: black
+}
+
 TEST(EgaRenderTest, RenderScreenDispatchesToTheRightModeAtTheRightResolution) {
     Ega ega;
     ega.reset();
@@ -187,7 +234,18 @@ TEST(EgaRenderTest, RenderScreenDispatchesToTheRightModeAtTheRightResolution) {
     EXPECT_EQ(cga_frame.width, 320);
     EXPECT_EQ(cga_frame.height, 200);
 
-    SetGraphicsMode(ega, true, 0);  // native 16-color -- unsupported, placeholder frame
+    // Native 16-color EGA: resolution comes from the CRTC, not a table --
+    // program real mode-0x10 Horizontal/Vertical Display End values.
+    SetGraphicsMode(ega, true, 0);
+    ega.out(0x3D4, 0x01); ega.out(0x3D5, 79);    // H Display End -> (79+1)*8 = 640
+    ega.out(0x3D4, 0x12); ega.out(0x3D5, 0x5D);  // V Display End low 8 bits = 93
+    ega.out(0x3D4, 0x07); ega.out(0x3D5, 0x02);  // overflow bit1 set -> +256 = 349 -> +1 = 350
+    RenderedFrame native16_frame;
+    RenderScreen(ega, native16_frame, false);
+    EXPECT_EQ(native16_frame.width, 640);
+    EXPECT_EQ(native16_frame.height, 350);
+
+    SetGraphicsMode(ega, true, 2);  // VGA-only Chain-4 -- unsupported, placeholder frame
     RenderedFrame placeholder;
     RenderScreen(ega, placeholder, false);
     EXPECT_EQ(placeholder.width, kTextRenderWidth);

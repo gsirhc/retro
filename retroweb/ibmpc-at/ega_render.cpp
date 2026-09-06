@@ -94,9 +94,41 @@ void RenderCgaGraphics4Screen(const Ega &ega, std::vector<uint8_t> &rgba) {
     }
 }
 
+void RenderEgaNative16Screen(const Ega &ega, std::vector<uint8_t> &rgba, int &width, int &height) {
+    width = (ega.crtc_horizontal_display_end() + 1) * 8;
+    height = ega.crtc_vertical_display_end() + 1;
+    if (width <= 0 || height <= 0) { width = height = 0; rgba.clear(); return; }
+    rgba.assign(std::size_t(width) * std::size_t(height) * 4, 0);
+
+    int row_stride = width / 8;  // bytes per scanline per plane -- 1 bit/pixel/plane
+    for (int y = 0; y < height; ++y) {
+        for (int byte_col = 0; byte_col < row_stride; ++byte_col) {
+            uint32_t plane_offset = uint32_t(y) * uint32_t(row_stride) + uint32_t(byte_col);
+            uint8_t p0 = ega.vram[(plane_offset << 2) + 0];
+            uint8_t p1 = ega.vram[(plane_offset << 2) + 1];
+            uint8_t p2 = ega.vram[(plane_offset << 2) + 2];
+            uint8_t p3 = ega.vram[(plane_offset << 2) + 3];
+            for (int bit = 0; bit < 8; ++bit) {
+                int shift = 7 - bit;
+                uint8_t nibble = uint8_t(((p0 >> shift) & 1) | (((p1 >> shift) & 1) << 1) |
+                                          (((p2 >> shift) & 1) << 2) | (((p3 >> shift) & 1) << 3));
+                uint8_t r, g, b;
+                DecodeEgaColor(ega.attr_palette(nibble), r, g, b);
+                int x = byte_col * 8 + bit;
+                std::size_t i = (std::size_t(y) * std::size_t(width) + std::size_t(x)) * 4;
+                rgba[i + 0] = r;
+                rgba[i + 1] = g;
+                rgba[i + 2] = b;
+                rgba[i + 3] = 255;
+            }
+        }
+    }
+}
+
 ScreenMode DetectScreenMode(const Ega &ega) {
     if (!ega.graphics_mode_active()) return ScreenMode::kText;
     if (ega.gc_shift_register_mode() == 1) return ScreenMode::kCgaGraphics4;
+    if (ega.gc_shift_register_mode() == 0) return ScreenMode::kEgaGraphics16;
     return ScreenMode::kUnsupportedGraphics;
 }
 
@@ -107,6 +139,13 @@ void RenderScreen(const Ega &ega, RenderedFrame &out, bool blink_on) {
             out.height = 200;
             RenderCgaGraphics4Screen(ega, out.rgba);
             return;
+        case ScreenMode::kEgaGraphics16:
+            RenderEgaNative16Screen(ega, out.rgba, out.width, out.height);
+            if (out.width > 0 && out.height > 0) return;
+            // CRTC not programmed to a sane resolution yet (mid mode-set)
+            // -- fall through to the same honest black placeholder below
+            // rather than a zero-size frame.
+            [[fallthrough]];
         case ScreenMode::kUnsupportedGraphics:
             // Honest placeholder -- a plain black frame, not a garbled
             // misinterpretation of graphics VRAM as text glyphs (see the
