@@ -1330,3 +1330,92 @@ app.js indistinguishable from an actual regression after re-staging.
 Replaced with `retroweb/serve_nocache.py` (same `Cache-Control: no-store`
 handler devserve.py already used), wired into all three `preview`/
 `preview-bg`/`preview-install` code paths.
+
+## 17. Site-wide theme sync, a bigger screen, the realistic front panel, and power/reset
+
+Follow-up requests: match the page theme to altair8800/cg-oac-6502's own,
+maximize the screen, and build a real-looking front panel (drive bays,
+HDD/power LEDs) with power and reset switches, inspired by altair8800's
+front panel -- plus, explicitly, delegate well-scoped mechanical work to
+a cheaper model where it fits.
+
+**Delegation**: a Haiku subagent synced every shared theme token (colors,
+fonts, shadows for all four themes) to altair8800/web/index.html's exact
+values, scoped strictly to the four `:root`/`:root[data-theme=...]`
+custom-property blocks with an explicit "touch nothing else" instruction
+-- a genuinely mechanical, fully-specified, low-integration-risk task
+(CSS variable *values* can't rename an element ID or break a JS
+selector). The front panel's HTML/CSS and the power/reset behavior were
+done directly instead: real hardware semantics (what powering off/on and
+resetting actually do to running state) and deep integration with
+existing JS hooks (`.at-bay[data-drive]`, `[data-role=...]`, `#hddLed`)
+are exactly the kind of work this project's own CLAUDE.md guidance says
+to keep rather than delegate -- getting it wrong is expensive to catch
+later, and a fresh agent would have to re-derive context already in hand.
+
+**A real, reproducible CSS bug found along the way**: piping a theme
+token through a CSS custom property into `.page`'s `max-width` (`.page {
+max-width: var(--page-max); }`, the same indirection altair8800's own
+CSS uses successfully) measured as `none` -- computed-style `max-width`
+never actually constrained the page, confirmed three independent ways
+(`getComputedStyle().maxWidth`, `getBoundingClientRect().width` at
+multiple viewport widths, and a full-page screenshot) before concluding
+it wasn't a measurement artifact. Swapping the exact same value in as a
+literal (`max-width: 920px;`, no `var()`) fixed it immediately and
+reproducibly. Root cause not chased further (diminishing returns), but
+worth a flag for future style work in this file: prefer literal values
+or direct per-theme selectors over piping a page-layout property through
+this particular custom property, since this specific indirection is
+demonstrated not to resolve reliably here.
+
+**Screen size**: base CSS width raised from 640px to 860px (matching the
+spirit of altair8800's own 792px-wide CRT) -- still `max-width:100%` and
+still whatever the actual current-mode resolution is (640x350 text,
+320x200 CGA graphics, etc.) upscaled with `image-rendering:pixelated`,
+not a change to any real resolution.
+
+**Front panel**: one `.at-case` fascia (beige AT-plastic gradient, real
+inset/outset shadows for a moulded-plastic look) replacing the separate
+"Floppy drives"/"Hard disk" panels, holding both floppy bays (each with
+a slot + door-lip graphic and a diskette that visibly "sticks out" of
+the slot when loaded -- the same idea as altair8800's own `.dcdd-slot`,
+adapted from an 8-inch to a 5.25-inch drive's proportions) and the HDD
+activity LED together, matching how these all live on one real physical
+bezel. Every existing `data-role`/`data-drive` hook app.js already used
+was preserved exactly; only the CSS classes and the addition of a
+`.loaded` state (driven by a small `setBayLoaded()`/`setBayEmpty()` pair
+in app.js, replacing several call sites that used to poke the DOM
+directly) changed.
+
+**Power switch (default off) and reset**: a real physical-looking rocker
+switch (a visually-hidden real `<input type=checkbox">` under a styled
+`<span>`, the standard accessible-custom-control pattern -- real user
+clicks the label and it works via native label-to-input association;
+Playwright's `.check()` can't target the visually-hidden input directly
+and needs to click the label instead, a test-tooling detail worth noting
+for Phase 8, not a page bug) and a round reset button. Modeled on real
+AT hardware semantics, not just a UI nicety: powering off discards the
+whole `Machine` instance (RAM is genuinely gone the instant power is
+cut, exactly like unplugging it) and blanks the canvas; powering back on
+builds a fresh `Machine`, reloads the already-fetched firmware bytes
+(fetched once, up front, regardless of power state, since that's the web
+delivery mechanism, not anything physical), and remounts whatever
+floppy images were still "in the drive" (tracked separately in JS,
+surviving the discarded `Machine`) -- a real diskette stays seated
+whether or not the computer itself has power. A real reset button is
+different hardware: it pulses the CPU's RESET line without touching
+power, so RAM and any seated diskette are untouched -- exactly
+`Machine::reset()`'s already-existing real semantics, needing no new
+C++ at all. Floppy insert/eject now works whether the machine is
+powered on or off, matching a real mechanical drive; inserting while
+off and then powering on was verified to correctly remount it.
+
+**Verified**: 167/167 native tests (no C++ touched this pass). Headless-
+Chromium, against the live site: power switch unchecked by default;
+reset clickable while powered on; modern theme's page width measured
+920px at 2000px viewport before the fix and correctly ~1600-1330px
+(the `min(1600px, 95vw)` formula) after it, while Windows 95/web94 stay
+at the fixed 920px cap at the same viewport width; full boot to a live
+`C:\>` with the new front panel, power LED lit, screenshotted; powered-
+off state screenshotted (blank screen, dark LEDs, disabled reset);
+insert-while-off-then-power-on remount confirmed directly.
