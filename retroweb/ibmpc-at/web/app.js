@@ -77,30 +77,47 @@
   screenEl.addEventListener("click", () => screenEl.focus());
 
   // ---- floppy drives ------------------------------------------------
-  const bays = Array.from(document.querySelectorAll(".drive-bay"));
+  // A real floppy is a mechanical slot: you can insert or eject one
+  // whether the machine is powered on or off (pendingFloppy, populated
+  // here, is what a power-on remounts -- see the power section below).
+  const bays = Array.from(document.querySelectorAll(".at-bay"));
   const driveDefaultLabel = (d) => (d === 0 ? "empty (1.2MB)" : "empty (360KB)");
+  function setBayLoaded(bay, name) {
+    bay.classList.add("loaded");
+    bay.querySelector('[data-role="slot"]').dataset.label = name;
+    const label = bay.querySelector('[data-role="label"]');
+    label.textContent = name;
+    label.classList.remove("empty");
+    bay.querySelector('[data-role="eject"]').disabled = false;
+  }
+  function setBayEmpty(bay, drive) {
+    bay.classList.remove("loaded");
+    delete bay.querySelector('[data-role="slot"]').dataset.label;
+    const label = bay.querySelector('[data-role="label"]');
+    label.textContent = driveDefaultLabel(drive);
+    label.classList.add("empty");
+    bay.querySelector('[data-role="eject"]').disabled = true;
+  }
   for (const bay of bays) {
     const drive = parseInt(bay.dataset.drive, 10);
     const fileInput = bay.querySelector('[data-role="file"]');
-    const label = bay.querySelector('[data-role="label"]');
     const ejectBtn = bay.querySelector('[data-role="eject"]');
+    const label = bay.querySelector('[data-role="label"]');
     fileInput.addEventListener("change", async () => {
       const f = fileInput.files[0];
       fileInput.value = "";
-      if (!f || !machine) return;
+      if (!f) return;
       const bytes = new Uint8Array(await f.arrayBuffer());
-      machine.mountFloppy(drive, bytes);
-      label.textContent = f.name;
-      label.classList.remove("empty");
-      ejectBtn.disabled = false;
+      pendingFloppy[drive] = { name: f.name, bytes };
+      if (machine) machine.mountFloppy(drive, bytes);
+      setBayLoaded(bay, f.name);
     });
     ejectBtn.addEventListener("click", () => {
-      if (!machine) return;
       // A real 88-DCDD-style swappable drive: if the session actually
       // wrote to this diskette, hand the modified image back before
       // ejecting it -- otherwise those writes only ever existed in this
       // browser tab's memory.
-      if (machine.floppyDirty(drive)) {
+      if (machine && machine.floppyDirty(drive)) {
         const img = machine.floppyImage(drive);
         const blob = new Blob([img], { type: "application/octet-stream" });
         const a = document.createElement("a");
@@ -111,10 +128,9 @@
         a.remove();
         setTimeout(() => URL.revokeObjectURL(a.href), 4000);
       }
-      machine.unmountFloppy(drive);
-      label.textContent = driveDefaultLabel(drive);
-      label.classList.add("empty");
-      ejectBtn.disabled = true;
+      if (machine) machine.unmountFloppy(drive);
+      pendingFloppy[drive] = null;
+      setBayEmpty(bay, drive);
     });
   }
 
@@ -179,7 +195,17 @@
   const hddLed = document.getElementById("hddLed");
   let cycleCredit = 0, lastT = null;
 
+  function clearScreenToBlack() {
+    screenEl.width = kTextRenderWidth;
+    screenEl.height = kTextRenderHeight;
+    screenEl.style.aspectRatio = kTextRenderWidth + " / " + kTextRenderHeight;
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, screenEl.width, screenEl.height);
+  }
+  const kTextRenderWidth = 640, kTextRenderHeight = 350;  // matches ega_render.h's text-mode default
+
   function frame(t) {
+    if (!poweredOn || !machine) return;  // power switched off mid-loop -- stop, don't reschedule
     if (lastT === null) lastT = t;
     let dtSeconds = (t - lastT) / 1000;
     lastT = t;
@@ -221,35 +247,94 @@
     requestAnimationFrame(frame);
   }
 
-  // ---- boot: fetch firmware + the shipped HDD image, then go -----------
+  // ---- power switch (off by default) + reset button ---------------------
+  // A real AT: flipping power off cuts power to everything -- RAM (and so
+  // every bit of running state) is gone, exactly like unplugging it, while
+  // a diskette physically stays seated in its drive regardless. Modeled
+  // the same way here: powering off discards the whole Machine instance;
+  // powering back on builds a fresh one and re-mounts whatever floppy
+  // images were still "in the drive" (remembered in JS, not the discarded
+  // Machine) when power was cut. RESET is different hardware entirely --
+  // a real reset button pulses the CPU's RESET line without touching
+  // power, so RAM and any seated diskette are both untouched; that's
+  // exactly Machine::reset()'s real semantics (chipset+cpu reset, memory
+  // and CMOS survive), already exposed as machine.reset().
+  const powerSwitch = document.getElementById("powerSwitch");
+  const resetButton = document.getElementById("resetButton");
+  const powerLed = document.getElementById("powerLed");
+  let poweredOn = false;
+  let firmware = null;  // {Module, bios, vga, hdd} once fetched -- fetched once, reused every power-on
+  const pendingFloppy = [null, null];  // {name, bytes} per drive -- "what's physically in the drive"
+
+  function remountPendingFloppies() {
+    for (let d = 0; d < 2; d++) {
+      const p = pendingFloppy[d];
+      if (!p) continue;
+      machine.mountFloppy(d, p.bytes);
+      setBayLoaded(bays[d], p.name);
+    }
+  }
+
+  function powerOn() {
+    if (poweredOn || !firmware) return;
+    if (!machine) {
+      machine = new firmware.Module.Machine();
+      machine.loadRom(0x100000 - firmware.bios.byteLength, new Uint8Array(firmware.bios));
+      machine.loadRom(0xC0000, new Uint8Array(firmware.vga));
+      machine.mountHdd(new Uint8Array(firmware.hdd));
+      remountPendingFloppies();
+    }
+    poweredOn = true;
+    powerLed.classList.add("power-on");
+    resetButton.disabled = false;
+    bootStatus.style.visibility = "visible";
+    bootStatus.textContent = "Booting…";
+    setTimeout(() => { if (poweredOn) bootStatus.style.visibility = "hidden"; }, 3000);
+    lastT = null;
+    requestAnimationFrame(frame);
+    if (new URLSearchParams(location.search).get("test") === "1") {
+      window.__test = { machine, sendKey, screenEl };
+    }
+  }
+
+  function powerOff() {
+    if (!poweredOn) return;
+    poweredOn = false;  // frame() sees this on its next tick and stops rescheduling itself
+    machine = null;      // real hardware: RAM is gone the instant power is cut
+    powerLed.classList.remove("power-on");
+    resetButton.disabled = true;
+    for (const bay of bays) bay.querySelector('[data-role="led"]').classList.remove("on");
+    hddLed.classList.remove("on");
+    clearScreenToBlack();
+    bootStatus.style.visibility = "visible";
+    bootStatus.textContent = "Powered off.";
+    if (audioCtx) { audioCtx.suspend().catch(() => {}); }
+  }
+
+  powerSwitch.checked = false;  // off by default, every load -- a real machine doesn't power itself on
+  powerSwitch.disabled = true;  // enabled once firmware has actually finished fetching
+  resetButton.disabled = true;
+  clearScreenToBlack();
+  bootStatus.textContent = "Loading firmware…";
+  powerSwitch.addEventListener("change", () => { if (powerSwitch.checked) powerOn(); else powerOff(); });
+  resetButton.addEventListener("click", () => { if (poweredOn && machine) machine.reset(); });
+
+  // ---- fetch firmware + the shipped HDD image once, up front ------------
+  // Not modeling anything physical -- purely the web delivery mechanism --
+  // so there's no reason to gate it behind the power switch: fetch starts
+  // immediately, and flipping power on is instant once it's done.
   (async () => {
     const Module = await IbmPcAt({});
-    bootStatus.textContent = "Fetching BIOS/VGA BIOS/HDD image…";
     const [bios, vga, hdd] = await Promise.all([
       fetch("roms/BIOS-bochs-legacy").then((r) => r.arrayBuffer()),
       fetch("roms/VGABIOS-lgpl-latest.bin").then((r) => r.arrayBuffer()),
       fetch("disks/freedos-hdd.img").then((r) => r.arrayBuffer()),
     ]);
-    machine = new Module.Machine();
-    // BIOS-bochs-legacy is a 64KB image landing at the top of the address
-    // space, exactly where the real 80286 reset vector (F000:FFF0 ->
-    // physical 0xFFFF0) expects it.
-    machine.loadRom(0x100000 - bios.byteLength, new Uint8Array(bios));
-    machine.loadRom(0xC0000, new Uint8Array(vga));
-    machine.mountHdd(new Uint8Array(hdd));
-    bootStatus.textContent = "Booting…";
-    setTimeout(() => { bootStatus.style.visibility = "hidden"; }, 3000);
-    requestAnimationFrame(frame);
-
-    // Test/debug hook, matching the ?test=1 / window.__test convention
-    // already established in altair8800/web/app.js and cg-oac-6502/web/app.js
-    // -- lets a Playwright suite (Phase 8) drive the machine and read its
-    // state directly instead of only through pixel comparisons.
-    if (new URLSearchParams(location.search).get("test") === "1") {
-      window.__test = { machine, sendKey, screenEl };
-    }
+    firmware = { Module, bios, vga, hdd };
+    powerSwitch.disabled = false;
+    bootStatus.textContent = "Ready -- flip the power switch.";
   })().catch((err) => {
-    bootStatus.textContent = "Failed to start: " + err;
+    bootStatus.textContent = "Failed to load: " + err;
     console.error(err);
   });
 })();

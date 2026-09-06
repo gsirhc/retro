@@ -18,6 +18,7 @@
   :root {
     --desktop:   #008080;
     --page-bg:   #c0c0c0;
+    --page-max:  920px;
     --page-border: 3px outset #dfdfdf;
     --page-radius: 0;
     --page-shadow: none;
@@ -26,13 +27,17 @@
     --text:      #000000;
     --dim:       #404040;
     --link:      #0000ee;
+    --link-visited: #551a8b;
+    --inner-pad: 14px 22px 22px;
     --titlebar-display: flex;
     --titlebar-bg: linear-gradient(90deg, #000080, #1084d0);
     --titlebar-fg: #ffffff;
     --rule:      2px groove #ffffff;
-    --h1-font:   900 26px "Arial Black", Arial, sans-serif;
+    --h1-font:   900 36px "Arial Black", Arial, sans-serif;
     --h1-color:  #000080;
-    --h1-shadow: 2px 2px 0 #808080;
+    --h1-shadow: 2px 2px 0 #808080, 3px 3px 0 #6b6b6b;
+    --h1-align:  center;
+    --center:    center;
     --panel-bg:     #c0c0c0;
     --panel-border: 2px outset #dfdfdf;
     --panel-radius: 0;
@@ -42,20 +47,28 @@
     --btn-radius:   0;
     --field-bg:     #ffffff;
     --field-border: 2px inset #808080;
+    --statusline-bg:     #0b1a10;
+    --statusline-fg:     #6bffa0;
+    --statusline-border: #05100a;
+    --altair-bg:     #050505;
+    --altair-radius: 0;
     --accent2:      #008000;
     --warn:         #c00000;
   }
   :root[data-theme="web94"] {
-    --desktop:   #d1d6df;
+    --desktop:   #c0c0c0;
     --page-bg:   #c0c0c0;
     --page-border: 3px ridge #dfdfdf;
     --body-pad:  26px 16px;
     --titlebar-display: none;
     --link:      #0000ff;
+    --link-visited: #800080;
     --rule:      2px inset #c0c0c0;
-    --h1-font:   bold 24px "Times New Roman", Times, serif;
+    --h1-font:   bold 27px "Times New Roman", Times, serif;
     --h1-color:  #000000;
     --h1-shadow: none;
+    --h1-align:  center;
+    --center:    center;
   }
   :root[data-theme="modern"] {
     --desktop:   #eceef2;
@@ -63,18 +76,22 @@
     --page-border: 1px solid #e4e6ea;
     --page-radius: 14px;
     --page-shadow: 0 1px 3px rgba(16,24,40,.06), 0 12px 32px rgba(16,24,40,.10);
-    --body-pad:  0;
+    --body-pad:  36px 20px;
     --body-font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     --text:      #1b1e24;
     --dim:       #6b7280;
     --link:      #4f46e5;
+    --link-visited: #4f46e5;
+    --inner-pad: 22px 30px 30px;
     --titlebar-display: none;
     --titlebar-bg: #f6f7f9;
     --titlebar-fg: #1b1e24;
     --rule:      1px solid #ecedf1;
-    --h1-font:   700 22px/1.15 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    --h1-font:   700 30px/1.15 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     --h1-color:  #12141a;
     --h1-shadow: none;
+    --h1-align:  center;
+    --center:    center;
     --panel-bg:     #f7f8fa;
     --panel-border: 1px solid #e7e9ee;
     --panel-radius: 10px;
@@ -84,30 +101,42 @@
     --btn-radius:   7px;
     --field-bg:     #ffffff;
     --field-border: 1px solid #d3d7de;
+    --statusline-bg:     #f3f4f6;
+    --statusline-fg:     #363b43;
+    --statusline-border: #e4e6ea;
+    --altair-bg:     #16181c;
+    --altair-radius: 14px;
+    --muted:         #6b7280;
     --accent2:      #0a8f4c;
     --warn:         #d1435b;
   }
   /* Dark Modern: Modern's layout, dark palette. */
   :root[data-theme="modern"][data-mode="dark"] {
     color-scheme: dark;
-    --desktop:   #0e0f12;
-    --page-bg:   #14161b;
-    --page-border: 1px solid #2c3038;
+    --desktop:   #121317;
+    --page-bg:   #1b1d22;
+    --page-border: 1px solid #2c2f37;
     --page-shadow: 0 1px 2px rgba(0,0,0,.4), 0 16px 44px rgba(0,0,0,.55);
-    --text:      #d8dbe2;
+    --text:      #d7dae0;
     --dim:       #8a90a0;
-    --link:      #5fd0ff;
-    --titlebar-bg: #1b1e25;
-    --titlebar-fg: #d8dbe2;
-    --rule:      1px solid #2c3038;
+    --muted:     #9aa0aa;
+    --link:      #a9a3ff;
+    --link-visited: #a9a3ff;
+    --titlebar-bg: #23262d;
+    --titlebar-fg: #d7dae0;
+    --rule:      1px solid #2c2f37;
     --h1-color:  #f1f2f5;
-    --panel-bg:     #1b1e25;
-    --panel-border: 1px solid #2c3038;
-    --btn-bg:       #262b34;
-    --btn-fg:       #d8dbe2;
-    --btn-border:   1px solid #2c3038;
-    --field-bg:     #101216;
-    --field-border: 1px solid #2c3038;
+    --panel-bg:     #23262d;
+    --panel-border: 1px solid #31353e;
+    --btn-bg:       #2a2e37;
+    --btn-fg:       #d7dae0;
+    --btn-border:   1px solid #3a3f4a;
+    --field-bg:     #2a2e37;
+    --field-border: 1px solid #3a3f4a;
+    --statusline-bg:     #17181d;
+    --statusline-fg:     #9aa0aa;
+    --statusline-border: #2c2f37;
+    --altair-bg:     #0c0d10;
     --accent2:      #33ff88;
     --warn:         #ff7a7a;
   }
@@ -127,13 +156,18 @@
   h1, h2, h3 { font-weight: 600; }
 
   .page {
-    max-width: 900px; margin: 0 auto;
+    max-width: 920px; margin: 0 auto;
     background: var(--page-bg);
     border: var(--page-border);
     border-radius: var(--page-radius);
     box-shadow: var(--page-shadow);
     overflow: hidden;
   }
+  /* Modern theme goes almost full page width, matching altair8800/
+     cg-oac-6502's own widened-modern-theme treatment (a literal value
+     here, not var(--page-max) piped through .page -- that indirection
+     was found not to resolve reliably for this property in testing). */
+  :root[data-theme="modern"] .page { max-width: min(1600px, 95vw); }
 
   .pagebar {
     display: flex; align-items: center; gap: 10px;
@@ -232,7 +266,11 @@
                 inset 0 -3px 8px rgba(0,0,0,.8), 0 1px 1px rgba(255,255,255,.28);
     display: flex; justify-content: center; align-items: center;
   }
-  #screen { width: 640px; max-width: 100%; height: auto; aspect-ratio: 640/350; background: #000; display: block; image-rendering: pixelated; }
+  /* base size matches altair8800's own #screen width -- "maximize the
+     screen" per request; actual pixel content is still whatever
+     resolution the current mode really is (640x350 text, 320x200 CGA
+     graphics, etc. -- see app.js), just displayed larger. */
+  #screen { width: 860px; max-width: 100%; height: auto; aspect-ratio: 640/350; background: #000; display: block; image-rendering: pixelated; }
   .crt-overlay {
     position: absolute; inset: 16px 18px; pointer-events: none; z-index: 6; mix-blend-mode: multiply;
     background: radial-gradient(145% 145% at 50% 45%, rgba(0,0,0,0) 74%, rgba(0,0,0,.18) 100%),
@@ -246,21 +284,105 @@
   #screen:focus { outline: 2px solid var(--link); outline-offset: 2px; }
   .boot-status { text-align: center; font-size: 12px; color: var(--dim); margin-top: 8px; }
 
-  /* ---- drive bays -- functional, theme-consistent, no ornamental cabinet
-     art (this pass; a hand-crafted photoreal bay is a nice-to-have, not
-     load-bearing for a working, correctly-emulated machine). ---------- */
-  .drive-bay {
-    display: grid; grid-template-columns: 28px 1fr auto; gap: 10px; align-items: center;
-    padding: 8px 0;
+  /* ---- front panel: one real 5170 case fascia, photoreal in every theme
+     (like the CRT above and altair8800's own 88-DCDD cabinet) -- power
+     switch + LED, reset, two floppy bays, HDD activity LED. ------------ */
+  .at-case {
+    background: linear-gradient(180deg, #e6dfc9 0%, #d3cab0 45%, #b6ac92 100%);
+    border-radius: 6px;
+    box-shadow: inset 0 0 0 2px #f2ecd8, inset 0 0 0 3px #8f886f,
+                inset 0 3px 6px rgba(255,255,255,.5), inset 0 -8px 14px rgba(0,0,0,.18),
+                0 10px 24px rgba(0,0,0,.35);
+    padding: 14px 16px 16px;
+    color: #3a3527;
+    font: 10px Arial, Helvetica, sans-serif;
+    overflow-x: auto;
   }
-  .drive-bay + .drive-bay { border-top: var(--rule); }
-  .drive-letter { font: 700 16px "Courier New", monospace; text-align: center; color: var(--dim); }
-  .drive-label { font: 12px "Courier New", monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .drive-label.empty { color: var(--dim); font-style: italic; }
+  .at-case-top {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 14px; min-width: 560px;
+  }
+  .at-plate {
+    font: 700 13px Arial, Helvetica, sans-serif; letter-spacing: 1px; color: #2b2b28;
+    text-shadow: 0 1px 0 rgba(255,255,255,.5);
+  }
+  .at-plate span { font-weight: 400; color: #6b6450; letter-spacing: .5px; }
+  .at-controls { display: flex; align-items: center; gap: 18px; }
+
+  /* rocker power switch -- a real physical toggle, not a checkbox look */
+  .at-switch-group { display: inline-flex; align-items: center; gap: 7px; cursor: pointer; }
+  .at-switch-group input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+  .at-switch {
+    position: relative; width: 34px; height: 18px; border-radius: 3px; flex: 0 0 auto;
+    background: linear-gradient(#2a2c30, #17181b);
+    box-shadow: inset 0 0 0 1px #000, inset 0 2px 3px rgba(0,0,0,.8);
+  }
+  .at-switch::before {
+    content: "O I"; position: absolute; inset: 0; text-align: center;
+    font: 700 8px Arial; line-height: 18px; letter-spacing: 8px; padding-left: 4px;
+    color: #6a6f78;
+  }
+  .at-switch::after {
+    content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px;
+    border-radius: 2px; background: linear-gradient(#8a9099, #565b62);
+    box-shadow: 0 1px 2px rgba(0,0,0,.6), inset 0 1px 0 rgba(255,255,255,.3);
+    transition: left .12s ease;
+  }
+  .at-switch-group input:checked + .at-switch::after { left: 18px; background: linear-gradient(#9fd9ff, #4aa3e0); }
+  .at-switch-group input:focus-visible + .at-switch { outline: 2px solid var(--link); outline-offset: 2px; }
+  .at-switch-label { font: 700 10px Arial, Helvetica, sans-serif; letter-spacing: .5px; text-transform: uppercase; }
+
+  .at-reset-btn {
+    font: 700 10px Arial, Helvetica, sans-serif; letter-spacing: 1px; text-transform: uppercase;
+    color: #3a3527; background: linear-gradient(#f0ead8, #cfc6ac);
+    border: 1px solid #8f886f; border-radius: 50%;
+    width: 30px; height: 30px; cursor: pointer;
+    box-shadow: 0 2px 3px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.6);
+  }
+  .at-reset-btn:active:not(:disabled) { box-shadow: inset 0 1px 3px rgba(0,0,0,.5); transform: translateY(1px); }
+  .at-reset-btn:disabled { filter: grayscale(.6) brightness(.85); cursor: not-allowed; }
+
+  .at-bays { display: flex; gap: 14px; flex-wrap: wrap; }
+  .at-bay {
+    flex: 1; min-width: 240px;
+    background: linear-gradient(#f2ecd9, #d8d0b8);
+    border-radius: 3px; padding: 10px 12px;
+    box-shadow: inset 0 0 0 1px #fff, inset 0 0 0 2px #8f886f, 0 2px 5px rgba(0,0,0,.25);
+    display: grid; grid-template-columns: 26px 1fr auto; gap: 6px 8px; align-items: center;
+  }
+  .at-hdd {
+    flex: 0 0 auto; min-width: 150px;
+    background: linear-gradient(#f2ecd9, #d8d0b8);
+    border-radius: 3px; padding: 10px 12px;
+    box-shadow: inset 0 0 0 1px #fff, inset 0 0 0 2px #8f886f, 0 2px 5px rgba(0,0,0,.25);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .drive-letter { font: 700 16px "Courier New", monospace; text-align: center; color: #55503f; }
+  .drive-label { font: 12px "Courier New", monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #2b2b28; }
+  .drive-label.empty { color: #7a7358; font-style: italic; }
+  /* the drive slot + door, same idea as altair8800's 8-inch .dcdd-slot */
+  .at-slot {
+    grid-column: 1 / -1;
+    position: relative; height: 22px; border-radius: 2px; margin-top: 4px;
+    background: linear-gradient(#1a1a1a, #333 45%, #1a1a1a);
+    box-shadow: inset 0 0 0 1px #000, inset 0 2px 4px rgba(0,0,0,.8);
+  }
+  .at-slot::after {
+    content: ""; position: absolute; left: 4px; right: 4px; top: 50%; height: 2px;
+    transform: translateY(-50%); background: #0a0a0a; box-shadow: 0 1px 0 #444;
+  }
+  .at-bay.loaded .at-slot::before {
+    content: attr(data-label); position: absolute; left: 3px; right: 3px; bottom: -8px; height: 13px;
+    background: linear-gradient(#2b2b2b, #1c1c1c); border: 1px solid #000; border-radius: 1px;
+    color: #b7b0a0; font: 7px "Courier New", monospace; letter-spacing: .5px;
+    line-height: 13px; text-align: center; overflow: hidden; white-space: nowrap;
+  }
+  .at-bay-ctl { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; }
+
   .led-group { display: inline-flex; align-items: center; gap: 5px; }
-  .led-caption { font-size: 10px; color: var(--dim); text-transform: uppercase; letter-spacing: .04em; }
+  .led-caption { font-size: 9px; color: #6b6450; text-transform: uppercase; letter-spacing: .04em; }
   .drive-led {
-    width: 11px; height: 11px; border-radius: 50%; flex: 0 0 auto;
+    width: 10px; height: 10px; border-radius: 50%; flex: 0 0 auto;
     background: radial-gradient(circle at 40% 35%, #5a1414, #250606 65%);
     box-shadow: inset 0 0 2px rgba(0,0,0,.8), 0 0 0 1px rgba(0,0,0,.6);
   }
@@ -268,7 +390,12 @@
     background: radial-gradient(circle at 40% 35%, #ffb199, #ff2200 60%, #b32200 100%);
     box-shadow: 0 0 8px 3px rgba(255,60,20,.85), inset 0 0 1px rgba(0,0,0,.5);
   }
-  .hdd-row { display: flex; align-items: center; gap: 8px; }
+  /* the power LED glows green, not red, when lit -- distinct at a glance
+     from every activity LED */
+  .drive-led.power-on {
+    background: radial-gradient(circle at 40% 35%, #baffc8, #33cc55 55%, #147a2c);
+    box-shadow: 0 0 8px 3px rgba(50,220,90,.85), inset 0 0 1px rgba(0,0,0,.5);
+  }
 
   .footer { margin-top: 26px; color: var(--dim); font-size: 12px; text-align: center; padding-bottom: 24px; }
 </style>
@@ -311,33 +438,49 @@
       <p class="muted" style="text-align:center;margin-top:6px">Click the screen, then type -- keystrokes go straight to the keyboard controller.</p>
     </div>
 
-    <div class="panel" id="floppyCard">
-      <h2>Floppy drives</h2>
-      <div class="drive-bay" data-drive="0">
-        <span class="drive-letter">A:</span>
-        <span class="drive-label empty" data-role="label">empty (1.2MB)</span>
-        <span class="row" style="gap:10px">
-          <span class="led-group"><span class="drive-led" data-role="led"></span><span class="led-caption">motor</span></span>
-          <label class="filebtn"><button type="button" tabindex="-1">Insert&hellip;</button><input type="file" accept=".img,.IMG" data-role="file"></label>
-          <button type="button" data-role="eject" disabled>Eject</button>
-        </span>
-      </div>
-      <div class="drive-bay" data-drive="1">
-        <span class="drive-letter">B:</span>
-        <span class="drive-label empty" data-role="label">empty (360KB)</span>
-        <span class="row" style="gap:10px">
-          <span class="led-group"><span class="drive-led" data-role="led"></span><span class="led-caption">motor</span></span>
-          <label class="filebtn"><button type="button" tabindex="-1">Insert&hellip;</button><input type="file" accept=".img,.IMG" data-role="file"></label>
-          <button type="button" data-role="eject" disabled>Eject</button>
-        </span>
-      </div>
-    </div>
-
-    <div class="panel" id="hddCard">
-      <h2>Hard disk</h2>
-      <div class="hdd-row">
-        <span class="led-group"><span class="drive-led" id="hddLed"></span><span class="led-caption">activity</span></span>
-        <span class="drive-label">C: &middot; 30MB, ships pre-loaded with FreeDOS 1.3</span>
+    <div class="panel" id="frontPanelCard">
+      <h2>Front panel</h2>
+      <div class="at-case">
+        <div class="at-case-top">
+          <span class="at-plate">IBM <span>Personal Computer AT &middot; 5170-339</span></span>
+          <span class="at-controls">
+            <label class="at-switch-group">
+              <input type="checkbox" id="powerSwitch">
+              <span class="at-switch"></span>
+              <span class="at-switch-label">Power</span>
+            </label>
+            <button type="button" id="resetButton" class="at-reset-btn" title="Reset" aria-label="Reset">&#8635;</button>
+          </span>
+        </div>
+        <div class="at-bays">
+          <div class="at-bay" data-drive="0">
+            <span class="drive-letter">A:</span>
+            <span class="drive-label empty" data-role="label">empty (1.2MB)</span>
+            <label class="filebtn"><button type="button" tabindex="-1">Insert&hellip;</button><input type="file" accept=".img,.IMG" data-role="file"></label>
+            <div class="at-slot" data-role="slot"></div>
+            <div class="at-bay-ctl">
+              <span class="led-group"><span class="drive-led" data-role="led"></span><span class="led-caption">motor</span></span>
+              <button type="button" data-role="eject" disabled>Eject</button>
+            </div>
+          </div>
+          <div class="at-bay" data-drive="1">
+            <span class="drive-letter">B:</span>
+            <span class="drive-label empty" data-role="label">empty (360KB)</span>
+            <label class="filebtn"><button type="button" tabindex="-1">Insert&hellip;</button><input type="file" accept=".img,.IMG" data-role="file"></label>
+            <div class="at-slot" data-role="slot"></div>
+            <div class="at-bay-ctl">
+              <span class="led-group"><span class="drive-led" data-role="led"></span><span class="led-caption">motor</span></span>
+              <button type="button" data-role="eject" disabled>Eject</button>
+            </div>
+          </div>
+          <div class="at-hdd">
+            <span class="led-group"><span class="drive-led" id="hddLed"></span><span class="led-caption">HDD activity</span></span>
+            <span class="drive-label">C: 30MB<br>FreeDOS 1.3</span>
+          </div>
+        </div>
+        <div class="row" style="margin-top:10px">
+          <span class="led-group"><span class="drive-led" id="powerLed"></span><span class="led-caption">power</span></span>
+        </div>
       </div>
     </div>
 
