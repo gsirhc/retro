@@ -46,14 +46,19 @@ disks/freedos-hdd.img: $(CORE)/disks/freedos-hdd.img
 
 hdd-image: disks/freedos-hdd.img
 
+# Port 8000, matching altair8800/cg-oac-6502's own `make serve` default --
+# each machine's Playwright suite (Phase 8 here) reserves its own dedicated
+# port instead (8100/8200 there) precisely so it never collides with a
+# hand-run `make serve`; this machine's suite should follow that same
+# pattern rather than reusing 8000.
 serve: ibmpcat.js roms
 	@if [ ! -f disks/freedos-hdd.img ]; then \
 	  echo "disks/freedos-hdd.img not found -- run 'make hdd-image' first"; \
 	  echo "(builds the shipped FreeDOS image by running the real installer; takes real minutes, run once)."; \
 	  exit 1; \
 	fi
-	@echo "serving on http://localhost:8100  (Ctrl-C to stop)"
-	python3 devserve.py 8100
+	@echo "serving on http://localhost:8000  (Ctrl-C to stop)"
+	python3 devserve.py 8000
 
 clean:
 	rm -f ibmpcat.js ibmpcat.wasm
