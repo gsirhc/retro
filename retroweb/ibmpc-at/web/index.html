@@ -279,13 +279,24 @@
     position: absolute; right: 13px; bottom: 7px; width: 6px; height: 6px; border-radius: 50%;
     background: #33ff66; box-shadow: 0 0 6px 2px rgba(51,255,102,.8), 0 0 0 1px #0a2a15;
   }
-  #screen:focus { outline: 2px solid var(--link); outline-offset: 2px; }
+  #screen:focus { outline: none; }
   .boot-status { text-align: center; font-size: 12px; color: var(--dim); margin-top: 8px; }
 
   /* ---- front panel: one real 5170 case fascia, photoreal in every theme
-     (like the CRT above and altair8800's own 88-DCDD cabinet) -- power
-     switch + LED, reset, two floppy bays, HDD activity LED. ------------ */
+     (like the CRT above and altair8800's own 88-DCDD cabinet). Modeled on
+     a real 5170: left side is vents + a keylock-style plate + the two
+     indicator lights + the power switch (the genuine machine's own switch
+     lives on the right/rear side of the case, not the front bezel -- kept
+     here anyway, as a labelled web-UI concession, not a claim about where
+     it really was); the right side is two stacked half-height 5.25"
+     floppy bays, exactly as the genuine machine shipped (both this
+     emulator's floppy drives are real 5.25" formats -- 1.2MB and 360KB --
+     not a 5.25"/3.5" pair). No dedicated front-panel HDD indicator box or
+     reset button -- the genuine 5170 had neither; the HDD activity light
+     is a bare LED like the real machine's own, and reset (a later
+     clone-era convention) isn't reproduced here. ---------------------- */
   .at-case {
+    display: flex; gap: 16px; align-items: stretch; flex-wrap: wrap;
     background: linear-gradient(180deg, #e6dfc9 0%, #d3cab0 45%, #b6ac92 100%);
     border-radius: 6px;
     box-shadow: inset 0 0 0 2px #f2ecd8, inset 0 0 0 3px #8f886f,
@@ -296,16 +307,23 @@
     font: 10px Arial, Helvetica, sans-serif;
     overflow-x: auto;
   }
-  .at-case-top {
-    display: flex; align-items: center; justify-content: space-between;
-    margin-bottom: 14px; min-width: 560px;
+  .at-left {
+    flex: 0 0 auto; min-width: 140px;
+    display: flex; flex-direction: column; gap: 12px;
   }
   .at-plate {
-    font: 700 13px Arial, Helvetica, sans-serif; letter-spacing: 1px; color: #2b2b28;
+    font: 700 12px Arial, Helvetica, sans-serif; letter-spacing: 1px; color: #2b2b28;
     text-shadow: 0 1px 0 rgba(255,255,255,.5);
   }
-  .at-plate span { font-weight: 400; color: #6b6450; letter-spacing: .5px; }
-  .at-controls { display: flex; align-items: center; gap: 18px; }
+  .at-plate span { display: block; margin-top: 2px; font: 400 10px Arial, Helvetica, sans-serif; color: #6b6450; letter-spacing: .3px; }
+  /* the case's own ventilation slats -- decorative, matching the real
+     machine's left-side grille */
+  .at-vents {
+    flex: 1; min-height: 50px; border-radius: 2px;
+    background: repeating-linear-gradient(90deg, #8f886f 0 3px, #c9c0a6 3px 7px);
+    box-shadow: inset 0 0 0 1px #8f886f, inset 0 2px 5px rgba(0,0,0,.3);
+  }
+  .at-indicators { display: flex; align-items: center; gap: 10px; }
 
   /* rocker power switch -- a real physical toggle, not a checkbox look */
   .at-switch-group { display: inline-flex; align-items: center; gap: 7px; cursor: pointer; }
@@ -330,57 +348,39 @@
   .at-switch-group input:focus-visible + .at-switch { outline: 2px solid var(--link); outline-offset: 2px; }
   .at-switch-label { font: 700 10px Arial, Helvetica, sans-serif; letter-spacing: .5px; text-transform: uppercase; }
 
-  .at-reset-btn {
-    font: 700 10px Arial, Helvetica, sans-serif; letter-spacing: 1px; text-transform: uppercase;
-    color: #3a3527; background: linear-gradient(#f0ead8, #cfc6ac);
-    border: 1px solid #8f886f; border-radius: 50%;
-    width: 30px; height: 30px; cursor: pointer;
-    box-shadow: 0 2px 3px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.6);
-  }
-  .at-reset-btn:active:not(:disabled) { box-shadow: inset 0 1px 3px rgba(0,0,0,.5); transform: translateY(1px); }
-  .at-reset-btn:disabled { filter: grayscale(.6) brightness(.85); cursor: not-allowed; }
-
-  .at-bays { display: flex; gap: 14px; flex-wrap: wrap; }
+  /* two stacked half-height 5.25" drive bays, matching the real machine */
+  .at-drives { flex: 1; min-width: 280px; display: flex; flex-direction: column; gap: 10px; justify-content: center; }
   .at-bay {
-    flex: 1; min-width: 240px;
-    background: linear-gradient(#f2ecd9, #d8d0b8);
-    border-radius: 3px; padding: 10px 12px;
-    box-shadow: inset 0 0 0 1px #fff, inset 0 0 0 2px #8f886f, 0 2px 5px rgba(0,0,0,.25);
-    display: grid; grid-template-columns: 26px 1fr auto; gap: 6px 8px; align-items: center;
+    background: linear-gradient(180deg, #ded6bf, #b8ae94);
+    border-radius: 2px; padding: 7px 10px;
+    box-shadow: inset 0 0 0 1px #f2ecd8, inset 0 0 0 2px #8f886f, 0 2px 5px rgba(0,0,0,.3);
   }
-  .at-hdd {
-    flex: 0 0 auto; min-width: 150px;
-    background: linear-gradient(#f2ecd9, #d8d0b8);
-    border-radius: 3px; padding: 10px 12px;
-    box-shadow: inset 0 0 0 1px #fff, inset 0 0 0 2px #8f886f, 0 2px 5px rgba(0,0,0,.25);
-    display: flex; align-items: center; gap: 8px;
-  }
-  .drive-letter { font: 700 16px "Courier New", monospace; text-align: center; color: #55503f; }
-  .drive-label { font: 12px "Courier New", monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #2b2b28; }
-  .drive-label.empty { color: #7a7358; font-style: italic; }
-  /* the drive slot + door, same idea as altair8800's 8-inch .dcdd-slot */
+  .at-drive-face { display: flex; align-items: center; gap: 8px; }
+  .drive-letter { font: 700 13px "Courier New", monospace; color: #55503f; flex: 0 0 auto; }
+  /* the drive slot -- a real 5.25" half-height drive's horizontal opening */
   .at-slot {
-    grid-column: 1 / -1;
-    position: relative; height: 22px; border-radius: 2px; margin-top: 4px;
-    background: linear-gradient(#1a1a1a, #333 45%, #1a1a1a);
-    box-shadow: inset 0 0 0 1px #000, inset 0 2px 4px rgba(0,0,0,.8);
+    flex: 1; position: relative; height: 16px; border-radius: 1px;
+    background: linear-gradient(#0d0d0d, #2a2a2a 45%, #0d0d0d);
+    box-shadow: inset 0 0 0 1px #000, inset 0 1px 3px rgba(0,0,0,.9);
   }
   .at-slot::after {
-    content: ""; position: absolute; left: 4px; right: 4px; top: 50%; height: 2px;
-    transform: translateY(-50%); background: #0a0a0a; box-shadow: 0 1px 0 #444;
+    content: ""; position: absolute; left: 6px; right: 6px; top: 50%; height: 1px;
+    transform: translateY(-50%); background: #000; box-shadow: 0 1px 0 #3a3a3a;
   }
-  .at-bay.loaded .at-slot::before {
-    content: attr(data-label); position: absolute; left: 3px; right: 3px; bottom: -8px; height: 13px;
-    background: linear-gradient(#2b2b2b, #1c1c1c); border: 1px solid #000; border-radius: 1px;
-    color: #b7b0a0; font: 7px "Courier New", monospace; letter-spacing: .5px;
-    line-height: 13px; text-align: center; overflow: hidden; white-space: nowrap;
+  .at-bay.loaded .at-slot { background: linear-gradient(#1c1a12, #3a3320 45%, #1c1a12); }
+  /* the drive's latch lever -- rotate down to seat a diskette, the real
+     mechanism on a drive of this vintage (a squeeze-latch is later/newer) */
+  .at-latch {
+    width: 16px; height: 7px; border-radius: 1px; flex: 0 0 auto;
+    background: linear-gradient(#9a9488, #6b6558);
+    box-shadow: 0 1px 1px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.35);
   }
-  .at-bay-ctl { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; }
+  .at-bay-ctl { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+  .drive-label { font: 11px "Courier New", monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #2b2b28; flex: 1 1 auto; min-width: 0; }
+  .drive-label.empty { color: #7a7358; font-style: italic; }
 
-  .led-group { display: inline-flex; align-items: center; gap: 5px; }
-  .led-caption { font-size: 9px; color: #6b6450; text-transform: uppercase; letter-spacing: .04em; }
   .drive-led {
-    width: 10px; height: 10px; border-radius: 50%; flex: 0 0 auto;
+    width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto;
     background: radial-gradient(circle at 40% 35%, #5a1414, #250606 65%);
     box-shadow: inset 0 0 2px rgba(0,0,0,.8), 0 0 0 1px rgba(0,0,0,.6);
   }
@@ -439,45 +439,46 @@
     <div class="panel" id="frontPanelCard">
       <h2>Front panel</h2>
       <div class="at-case">
-        <div class="at-case-top">
+        <div class="at-left">
           <span class="at-plate">IBM <span>Personal Computer AT &middot; 5170-339</span></span>
-          <span class="at-controls">
-            <label class="at-switch-group">
-              <input type="checkbox" id="powerSwitch">
-              <span class="at-switch"></span>
-              <span class="at-switch-label">Power</span>
-            </label>
-            <button type="button" id="resetButton" class="at-reset-btn" title="Reset" aria-label="Reset">&#8635;</button>
-          </span>
+          <div class="at-vents" aria-hidden="true"></div>
+          <div class="at-indicators">
+            <span class="drive-led power-on" id="powerLed" title="Power"></span>
+            <span class="drive-led" id="hddLed" title="Hard disk activity"></span>
+          </div>
+          <label class="at-switch-group">
+            <input type="checkbox" id="powerSwitch">
+            <span class="at-switch"></span>
+            <span class="at-switch-label">Power</span>
+          </label>
         </div>
-        <div class="at-bays">
+        <div class="at-drives">
           <div class="at-bay" data-drive="0">
-            <span class="drive-letter">A:</span>
-            <span class="drive-label empty" data-role="label">empty (1.2MB)</span>
-            <label class="filebtn"><button type="button" tabindex="-1">Insert&hellip;</button><input type="file" accept=".img,.IMG" data-role="file"></label>
-            <div class="at-slot" data-role="slot"></div>
+            <div class="at-drive-face">
+              <span class="drive-letter">A:</span>
+              <div class="at-slot" data-role="slot"></div>
+              <span class="at-latch" aria-hidden="true"></span>
+              <span class="drive-led" data-role="led" title="Activity"></span>
+            </div>
             <div class="at-bay-ctl">
-              <span class="led-group"><span class="drive-led" data-role="led"></span><span class="led-caption">motor</span></span>
+              <span class="drive-label empty" data-role="label">empty (1.2MB, 5.25&Prime;)</span>
+              <label class="filebtn"><button type="button" tabindex="-1">Insert&hellip;</button><input type="file" accept=".img,.IMG" data-role="file"></label>
               <button type="button" data-role="eject" disabled>Eject</button>
             </div>
           </div>
           <div class="at-bay" data-drive="1">
-            <span class="drive-letter">B:</span>
-            <span class="drive-label empty" data-role="label">empty (360KB)</span>
-            <label class="filebtn"><button type="button" tabindex="-1">Insert&hellip;</button><input type="file" accept=".img,.IMG" data-role="file"></label>
-            <div class="at-slot" data-role="slot"></div>
+            <div class="at-drive-face">
+              <span class="drive-letter">B:</span>
+              <div class="at-slot" data-role="slot"></div>
+              <span class="at-latch" aria-hidden="true"></span>
+              <span class="drive-led" data-role="led" title="Activity"></span>
+            </div>
             <div class="at-bay-ctl">
-              <span class="led-group"><span class="drive-led" data-role="led"></span><span class="led-caption">motor</span></span>
+              <span class="drive-label empty" data-role="label">empty (360KB, 5.25&Prime;)</span>
+              <label class="filebtn"><button type="button" tabindex="-1">Insert&hellip;</button><input type="file" accept=".img,.IMG" data-role="file"></label>
               <button type="button" data-role="eject" disabled>Eject</button>
             </div>
           </div>
-          <div class="at-hdd">
-            <span class="led-group"><span class="drive-led" id="hddLed"></span><span class="led-caption">HDD activity</span></span>
-            <span class="drive-label">C: 30MB<br>FreeDOS 1.3</span>
-          </div>
-        </div>
-        <div class="row" style="margin-top:10px">
-          <span class="led-group"><span class="drive-led" id="powerLed"></span><span class="led-caption">power</span></span>
         </div>
       </div>
     </div>
