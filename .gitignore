@@ -37,6 +37,22 @@ retroweb/altair8800/cpm/*.DSK
 retroweb/altair8800/web/disks/*.dsk
 retroweb/altair8800/web/disks/*.DSK
 
+retroweb/cg-oac-6502/dormann/dormann_host
+retroweb/cg-oac-6502/tests/build/
+retroweb/cg-oac-6502/tests/build-cov/
+retroweb/cg-oac-6502/tests/coverage-cpp/
+retroweb/cg-oac-6502/web/cgoac6502.js
+retroweb/cg-oac-6502/web/cgoac6502.wasm
+retroweb/cg-oac-6502/web/roms/*.bin
+
+retroweb/ibmpc-at/tests/build/
+retroweb/ibmpc-at/tests/build-cov/
+retroweb/ibmpc-at/tests/coverage-cpp/
+retroweb/ibmpc-at/roms/BIOS-bochs-legacy
+retroweb/ibmpc-at/roms/VGABIOS-lgpl-latest.bin
+retroweb/ibmpc-at/bios_host
+retroweb/ibmpc-at/disks/build_freedos_hdd
+
 # web integration suite (Playwright)
 node_modules/
 test-results/
@@ -45,3 +61,7 @@ blob-report/
 retroweb/altair8800/web/.playwright/
 retroweb/altair8800/web/coverage/
 retroweb/altair8800/web/.v8-coverage/
+
+retroweb/ibmpc-at/disks/x86BOOT.img
+retroweb/ibmpc-at/disks/x86DSK0*.img
+retroweb/ibmpc-at/disks/freedos-hdd.img
