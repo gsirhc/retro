@@ -1446,3 +1446,93 @@ at the fixed 920px cap at the same viewport width; full boot to a live
 `C:\>` with the new front panel, power LED lit, screenshotted; powered-
 off state screenshotted (blank screen, dark LEDs, disabled reset);
 insert-while-off-then-power-on remount confirmed directly.
+
+## 18. Front panel, round two: closer to the genuine 5170 bezel
+
+Follow-up pass after seeing a real 5170 reference photo next to the §17
+front panel: the case fascia was right in spirit but wrong in several
+concrete details against the genuine machine, corrected here one for
+one.
+
+**No front-panel reset button.** The genuine IBM 5170 has no
+dedicated reset control at all -- the round reset button in §17's
+panel was a later clone/compatible-era convention, not period-accurate
+to this machine, so it's removed outright rather than relabelled.
+`app.js`'s `resetButton` variable, its enable/disable toggles in
+`powerOn()`/`powerOff()`, and its click handler are all deleted;
+`Machine::reset()` itself is untouched C++ (nothing else in this
+codebase calls it now, but the method stays -- it's a real, correct
+piece of machine semantics, just currently unreachable from the front
+end).
+
+**No boxed "hard disk" panel.** The real machine's HDD activity light
+is a bare LED on the bezel, not a labelled sub-panel with its own
+caption text. §17's separate `.at-hdd` box (border, "HDD activity"
+caption, drive-capacity/OS text) is gone; `#hddLed` is now just another
+dot in the same `.at-indicators` row as the power LED, unlabelled like
+its real counterpart. Same treatment for the floppy activity LEDs and
+the power LED: no more `.led-caption` spans anywhere on the panel ("bus
+drive motor", "power", etc.) -- the switch keeps its own "POWER" text
+because that's a control a user operates, not a light being explained.
+
+**Stacked bays, not side-by-side.** The reference photo shows the two
+5.25" half-height floppy bays stacked vertically, one above the other;
+§17 had them side-by-side (closer to the Altair 88-DCDD cabinet's own
+layout, which was the wrong reference to imitate here). `.at-drives`
+is now `flex-direction: column`, and each `.at-bay` is its own full-
+width horizontal strip (drive letter, slot, latch, activity LED on one
+line; filename label + Insert/Eject on the line below) rather than a
+grid cell in a shared row.
+
+**Both drives modeled as 5.25", deliberately.** The request asked for
+the drives to "look like their real counterparts (5.25 vs 3 inch
+disks)" -- worth being explicit that this build does *not* give drive
+B a 3.5" face. Per this repo's own §7/§11 scope decisions (and
+`fdc765.h`'s existing geometry, unchanged this pass), both emulated
+floppy drives are real 5.25" formats: Drive A is 1.2MB (80 cyl/2
+head/15 sec, 360 RPM), Drive B is 360KB (40 cyl/2 head/9 sec, 300 RPM).
+A real 5170 of this vintage shipped this way -- 3.5" drives didn't
+reach the PC platform until the AT-compatible clones and the PS/2 era.
+Giving drive B a 3.5" bezel here would misrepresent the hardware this
+emulator actually models, so both bays get the same slot/latch
+treatment, distinguished only by their capacity label (now suffixed
+`, 5.25″` on both, via `driveDefaultLabel()` in app.js) -- a case of
+this repo's realism rule cutting against the surface reading of the
+request rather than for it.
+
+**Vents and latches, dropped diskette-peek effect.** Added a decorative
+`.at-vents` slat block (the left-hand brand-plate/vents column mirrors
+the reference photo's proportions) and a small `.at-latch` bar per bay
+representing the real lever-style latch mechanism of this drive era.
+The previous "diskette visibly peeking out of the slot" effect
+(`.at-bay.loaded .at-slot::before { content: attr(data-label) }`) was
+dropped in this layout -- the new compact horizontal bay strip has no
+good place to hang a protruding label -- in favor of just a background
+shift on `.at-slot` when `.loaded`; the actual filename is still shown
+in the `.drive-label` text beneath each bay, so no information was
+lost, only the cosmetic peeking-paper visual.
+
+**Screen focus outline removed.** `#screen:focus` was `outline: 2px
+solid var(--link)`; changed to `outline: none` per explicit request.
+The screen has its own visible black bezel/background already, so
+losing the browser's default focus ring doesn't leave keyboard users
+without any indication of the interactive region -- the "Click the
+screen, then type" status line above already carries that instruction.
+
+**Power switch position kept on the front panel anyway.** The user
+confirmed the genuine 5170's power switch lived on the side/rear of
+the case, not the front bezel, and confirmed this is fine as-is: the
+switch stays on the on-screen front panel as a labelled web-UI
+concession (there's no "side of the browser window" to put it on),
+consistent with this repo's own opt-in-override rules -- it was never
+presented as a claim about where the real switch sat.
+
+**Verified**: 167/167 native tests (no CPU/chipset/device C++ touched
+this pass -- HTML/CSS/app.js only). Headless Chromium against the live
+site: `#screen:focus` computed `outlineStyle === 'none'`;
+`document.getElementById('resetButton')` is `null`; full power-on boot
+to a live `C:\>` prompt screenshotted with the redesigned panel visible
+-- brand plate, vents, bare green power LED + dark HDD LED, rocker
+switch, two stacked bays each showing their `empty (1.2MB, 5.25″)` /
+`empty (360KB, 5.25″)` labels, slot, latch, and Insert/Eject controls,
+matching the reference photo's layout.

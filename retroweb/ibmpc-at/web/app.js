@@ -81,10 +81,9 @@
   // whether the machine is powered on or off (pendingFloppy, populated
   // here, is what a power-on remounts -- see the power section below).
   const bays = Array.from(document.querySelectorAll(".at-bay"));
-  const driveDefaultLabel = (d) => (d === 0 ? "empty (1.2MB)" : "empty (360KB)");
+  const driveDefaultLabel = (d) => (d === 0 ? "empty (1.2MB, 5.25″)" : "empty (360KB, 5.25″)");
   function setBayLoaded(bay, name) {
     bay.classList.add("loaded");
-    bay.querySelector('[data-role="slot"]').dataset.label = name;
     const label = bay.querySelector('[data-role="label"]');
     label.textContent = name;
     label.classList.remove("empty");
@@ -92,7 +91,6 @@
   }
   function setBayEmpty(bay, drive) {
     bay.classList.remove("loaded");
-    delete bay.querySelector('[data-role="slot"]').dataset.label;
     const label = bay.querySelector('[data-role="label"]');
     label.textContent = driveDefaultLabel(drive);
     label.classList.add("empty");
@@ -247,20 +245,19 @@
     requestAnimationFrame(frame);
   }
 
-  // ---- power switch (off by default) + reset button ---------------------
+  // ---- power switch (off by default) -------------------------------------
   // A real AT: flipping power off cuts power to everything -- RAM (and so
   // every bit of running state) is gone, exactly like unplugging it, while
   // a diskette physically stays seated in its drive regardless. Modeled
   // the same way here: powering off discards the whole Machine instance;
   // powering back on builds a fresh one and re-mounts whatever floppy
   // images were still "in the drive" (remembered in JS, not the discarded
-  // Machine) when power was cut. RESET is different hardware entirely --
-  // a real reset button pulses the CPU's RESET line without touching
-  // power, so RAM and any seated diskette are both untouched; that's
-  // exactly Machine::reset()'s real semantics (chipset+cpu reset, memory
-  // and CMOS survive), already exposed as machine.reset().
+  // Machine) when power was cut. No reset button -- the genuine 5170 never
+  // had a front-panel one (a later clone-era convention); the real
+  // machine's only user-facing control here is this power switch (in
+  // reality mounted on the case's side/rear, not the front bezel, but kept
+  // here as a labelled web-UI concession).
   const powerSwitch = document.getElementById("powerSwitch");
-  const resetButton = document.getElementById("resetButton");
   const powerLed = document.getElementById("powerLed");
   let poweredOn = false;
   let firmware = null;  // {Module, bios, vga, hdd} once fetched -- fetched once, reused every power-on
@@ -286,7 +283,6 @@
     }
     poweredOn = true;
     powerLed.classList.add("power-on");
-    resetButton.disabled = false;
     bootStatus.style.visibility = "visible";
     bootStatus.textContent = "Booting…";
     setTimeout(() => { if (poweredOn) bootStatus.style.visibility = "hidden"; }, 3000);
@@ -302,7 +298,6 @@
     poweredOn = false;  // frame() sees this on its next tick and stops rescheduling itself
     machine = null;      // real hardware: RAM is gone the instant power is cut
     powerLed.classList.remove("power-on");
-    resetButton.disabled = true;
     for (const bay of bays) bay.querySelector('[data-role="led"]').classList.remove("on");
     hddLed.classList.remove("on");
     clearScreenToBlack();
@@ -313,11 +308,9 @@
 
   powerSwitch.checked = false;  // off by default, every load -- a real machine doesn't power itself on
   powerSwitch.disabled = true;  // enabled once firmware has actually finished fetching
-  resetButton.disabled = true;
   clearScreenToBlack();
   bootStatus.textContent = "Loading firmware…";
   powerSwitch.addEventListener("change", () => { if (powerSwitch.checked) powerOn(); else powerOff(); });
-  resetButton.addEventListener("click", () => { if (poweredOn && machine) machine.reset(); });
 
   // ---- fetch firmware + the shipped HDD image once, up front ------------
   // Not modeling anything physical -- purely the web delivery mechanism --
