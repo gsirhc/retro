@@ -101,6 +101,17 @@ public:
     // BSY/DRQ lines would light for.
     bool busy() const { return (status_ & ST_BSY) != 0 || xfer_active_; }
 
+    // Host/front-end side: read back C:'s current (possibly written-to)
+    // image and whether it's changed since mount() -- the same "worth
+    // persisting" signal fdc765's floppy drives already expose for their
+    // own "save modified media" path. A real fixed disk keeps its data
+    // when the machine is off; without this, the front end would have no
+    // way to carry writes forward past a power cycle (mount() would just
+    // be re-supplied the same pristine bytes every time).
+    const std::vector<uint8_t> &image(int drive) const { return drives[drive & 1].image; }
+    bool dirty(int drive) const { return drives[drive & 1].dirty; }
+    void clear_dirty(int drive) { drives[drive & 1].dirty = false; }
+
 private:
     enum Status : uint8_t {
         ST_ERR = 0x01, ST_DRQ = 0x08, ST_DSC = 0x10, ST_DF = 0x20, ST_DRDY = 0x40, ST_BSY = 0x80,
