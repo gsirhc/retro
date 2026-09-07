@@ -1671,3 +1671,32 @@ measured 524px/262px (0.63 ratio, up from 0.71); modern theme still
 held `.at-case` at exactly 640px at a 1800px viewport. Screenshotted
 both to confirm the LEDs/switch now sit above the grille and the drive
 bays read less cramped.
+
+## 22. Front panel round five: square boxed lights, inset grille border
+
+Another reference-photo detail pass, this time on the LED cluster and
+the grille's own framing:
+
+- **Each indicator light now sits in its own small recessed black box**
+  (`.led-box`, 15x15px, dark background + inset shadow) instead of
+  floating bare on the case plastic -- the real panel's power/HDD
+  lights sit in individually-boxed instrument-style cutouts, not plain
+  dots. `#powerLed`/`#hddLed` are unchanged elements (still toggled by
+  id in app.js, oblivious to the new wrapper), just now wrapped in a
+  `<span class="led-box">` each.
+- **The lights themselves are square, not round** -- `.at-indicators
+  .drive-led { border-radius: 1px }` overrides the shared circular
+  `.drive-led` shape (which stays round everywhere else it's used, i.e.
+  the floppy-bay activity LEDs -- those aren't the lights the reference
+  photo shows, so left as-is).
+- **The grille now has a visibly wider left and bottom border** than
+  its top/right (`margin: 0 4px 14px 16px` on `.at-vents`), matching
+  the real bezel's own plain-plastic framing around the vent field --
+  previously the vents ran flush to the edges of `.at-left` on every
+  side.
+
+**Verified**: 167/167 native tests (HTML/CSS only). Rebuilt and
+screenshotted the Mid-1990s Web theme at a 1400px viewport; a cropped
+close-up of the panel confirms two square green/dark boxed lights next
+to the power switch, and a clearly inset grille with extra left/bottom
+margin, matching the reference photo's proportions.
