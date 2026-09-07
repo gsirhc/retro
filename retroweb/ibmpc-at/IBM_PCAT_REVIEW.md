@@ -1775,3 +1775,107 @@ through a full real boot to the VGABIOS splash with no console/page
 errors from the removed references. Screenshotted to confirm "Enable
 sound" now renders directly under the display, centered, with its
 existing explanatory text intact.
+
+## 25. Persisting C: across power cycles (IndexedDB), and a blank-drive option
+
+Two related requests: let the browser actually remember what's on the
+hard disk instead of reverting to pristine factory FreeDOS on every
+power cycle, and add a way to mount a genuinely blank C: so a visitor
+can install a real DOS themselves from floppy, the authentic way.
+
+**The gap this closes**: `powerOff()` always discarded the whole
+`Machine` instance -- correct for RAM (real hardware fact: cut the power
+and it's gone) but wd1003's `image` vector went with it too, and every
+`powerOn()` re-mounted the same pristine bytes fetched once at page
+load. A real fixed disk doesn't do that -- it keeps whatever was last
+written to it, power or no power. That gap was real, not a deliberate
+simplification, and is what this section fixes.
+
+**C++/WASM additions**, mirroring fdc765's own existing
+dirty/image-readback convention for its floppy drives exactly (`wd1003.h`
+gained `image(int)`, `dirty(int)`, `clear_dirty(int)`; `wasm_machine.cpp`
+gained `hddDirty()`, `clearHddDirty()`, `hddImage()` -- the last built
+the same `Uint8Array.new_()` + `typed_memory_view` copy-out idiom
+`floppyImage()` already uses, not a new pattern). `mount()` itself is
+unchanged -- it never cared what the source of its bytes was, only that
+the front end decides that now (factory image, a blank buffer, or a
+saved one), documented in the file's own top-of-file JS-surface comment.
+
+**Persistence (`app.js`)**: a single-record IndexedDB object store
+(`ibmpcat-hdd`/`hdd`/key `"c-drive"`) with plain-promise
+open/get/put/delete helpers -- no library, IndexedDB natively stores a
+`Uint8Array` via structured clone. Loaded once, in parallel with the
+firmware/HDD fetch, at page load (`Promise.all` alongside the existing
+three `fetch()` calls). `powerOn()`'s `mountHdd()` call now prefers this
+saved image over the pristine fetched one when present. `powerOff()`
+checks `machine.hddDirty()` *before* discarding the Machine (the last
+possible moment the data still exists anywhere) and, if anything
+changed, pulls `hddImage()` and both keeps it in memory (so the very
+next power-on in the same tab sees it immediately, no async round trip
+needed) and writes it to IndexedDB (so it survives a reload/new visit
+too). A failed IndexedDB open/read/write only ever `console.error`s --
+matches this page's existing no-on-page-error-surface convention (see
+§24) rather than blocking the machine on a storage-quota/private-mode
+edge case.
+
+**New "Hard disk" panel**: a status line ("Using: factory FreeDOS
+(default)" / "Using: saved state ..." / "Using: blank drive,
+unformatted ...") plus two buttons -- **Reset to factory FreeDOS**
+(clears the saved state) and **Mount blank drive...** (saves an
+all-zero buffer sized to match the real image exactly, i.e. a drive
+that's never been partitioned or formatted, precisely what a genuine
+30MB fixed disk looked like before FDISK/FORMAT ever touched it). Both
+are disabled whenever the machine is powered on -- a real fixed disk
+isn't swappable at all, let alone while running, so both actions are
+scoped to "takes effect next power-on" rather than attempting any kind
+of live remount.
+
+**Verified**: 167/167 native tests (wd1003.h's new accessors are thin
+wrappers over already-tested state, no new test file needed -- the
+existing `Wd1003Test.MountedMediaSurvivesControllerReset` etc. already
+exercise the underlying `image`/`dirty` fields these just expose).
+Against the live site: wrote a marker file to C: from a genuine booted
+FreeDOS session, confirmed `hddDirty()` flips `true`, powered off,
+confirmed the status line updates and IndexedDB actually holds a
+31,900,160-byte record (the exact image size); loaded the page fresh in
+a brand-new tab in the same profile, confirmed the status line reads
+"Using: saved state (from a previous visit)" *before* ever powering on,
+then powered on and read the marker file back successfully -- a genuine
+round trip across a full page reload, not just an in-memory carry-over
+within one tab. Separately confirmed both buttons: enabled while
+off/firmware-ready, disabled the instant power comes on, re-enabled on
+power-off, and each produces the correct status text and IndexedDB
+state (a blank-drive mount writes a fresh all-zero record; a reset
+deletes the record entirely).
+
+(One iteration of the verification script itself sent a keyboard
+make/break pair in a single synchronous `page.evaluate()` call with no
+real wall-clock time between them -- since this machine's CPU only
+advances in `requestAnimationFrame`'s own real-time-paced loop, and JS
+is single-threaded, that loop literally cannot run between two
+back-to-back synchronous calls, so the guest never got a chance to see
+the make code before the break code overwrote it. Splitting into
+separate awaited calls with a short real delay between them fixed it --
+a test-tooling lesson worth recording alongside the existing
+Shift+Semicolon/separate-down-up-for-Enter quirks already in §15/§17.)
+
+## 26. MS-DOS 3.30 install floppies -- no conversion needed
+
+Follow-up request: turn a downloaded MS-DOS 3.30 (5.25") archive into a
+floppy image usable with the blank-drive option above. Turned out to
+need no conversion at all -- the archive
+(`Microsoft MS-DOS 3.30 (5.25).7z`) already contains two raw sector
+dumps, `DISK01.IMG`/`DISK02.IMG`, both exactly 368,640 bytes.
+`minfo`/`mdir` confirm real MS-DOS 3.30 media: 40 cylinders/2 heads/9
+sectors-per-track, boot sector banner `"MSDOS3.3"` -- byte-for-byte the
+same geometry this emulator's Drive B (360KB) already implements, and
+volume labels `MS330PP01`/`MS330PP02` ("Program disk 1/2"). Disk 1 is
+the bootable one (`COMMAND.COM`, `FDISK.COM`, `FORMAT.COM`, `SYS.COM`
+-- everything needed to partition and format a blank C: from scratch,
+the authentic 1987 installation path); Disk 2 carries `GWBASIC.EXE`,
+`DEBUG.COM`, `LINK.EXE`, driver/codepage files, and the rest of the
+retail set. Both extracted to the user's own `~/Downloads/` -- floppy
+media, nothing added to the HDD image, matching this session's own
+"default to floppy, only touch the HDD image when asked" convention --
+never committed to the repo, ready to insert into Drive B via the front
+panel's own Insert control exactly as downloaded.

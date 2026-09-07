@@ -6,7 +6,10 @@
 //   const m = new Module.Machine();
 //   m.loadRom(0xF0000, biosBytes);       // BIOS-bochs-legacy at the reset vector
 //   m.loadRom(0xC0000, vgaBiosBytes);    // VGABIOS-lgpl-latest.bin extension ROM
-//   m.mountHdd(hddBytes);                // ships pre-loaded -- no swap UI
+//   m.mountHdd(hddBytes);                // whatever the front end decides C: should start as this
+//                                         // power-on -- factory FreeDOS, a blank drive, or a
+//                                         // previously-saved image; no swap UI while running
+//   m.hddDirty() / m.clearHddDirty() / m.hddImage()  // for persisting C:'s writes across power cycles
 //   m.mountFloppy(0, imgBytes);          // drive A:
 //   m.runCycles(66667);                  // advance one frame at real 8 MHz
 //   const frame = m.renderFrame(blinkOn); // Uint8ClampedArray RGBA -- call
@@ -123,7 +126,11 @@ public:
         return out;
     }
 
-    // ---- hard disk (wd1003) -- ships pre-loaded, no swap UI --------------
+    // ---- hard disk (wd1003) -- fixed media, no swap-while-running UI -----
+    // What bytes this loads is the front end's call (factory FreeDOS, a
+    // blank drive, or a saved image from IndexedDB) -- a real fixed disk
+    // isn't swappable at all, but which disk shipped in the box, or was
+    // fitted since, is exactly this kind of pre-power-on decision.
     void mountHdd(val bytes) {
         std::vector<uint8_t> data = emscripten::convertJSArrayToNumberVector<uint8_t>(bytes);
         m_.chipset.hdd.mount(0, data.data(), data.size());
@@ -134,6 +141,20 @@ public:
         bool v = hdd_activity_latch_;
         hdd_activity_latch_ = false;
         return v;
+    }
+    // True if C: has been written to since it was last mount()ed -- lets
+    // the front end persist changes (e.g. to IndexedDB) only when there's
+    // actually something new to save, same convention as floppyDirty().
+    bool hddDirty() { return m_.chipset.hdd.dirty(0); }
+    void clearHddDirty() { m_.chipset.hdd.clear_dirty(0); }
+    // The current (possibly written-to) image, so the front end can carry
+    // C:'s contents forward across power cycles.
+    val hddImage() {
+        const std::vector<uint8_t> &img = m_.chipset.hdd.image(0);
+        val out = val::global("Uint8Array").new_(img.size());
+        if (!img.empty())
+            out.call<void>("set", val(emscripten::typed_memory_view(img.size(), img.data())));
+        return out;
     }
 
     // ---- PC speaker -------------------------------------------------------
@@ -196,6 +217,9 @@ EMSCRIPTEN_BINDINGS(ibmpcat_machine) {
         .function("floppyImage", &WasmMachine::floppyImage)
         .function("mountHdd", &WasmMachine::mountHdd)
         .function("hddBusy", &WasmMachine::hddBusy)
+        .function("hddDirty", &WasmMachine::hddDirty)
+        .function("clearHddDirty", &WasmMachine::clearHddDirty)
+        .function("hddImage", &WasmMachine::hddImage)
         .function("speakerLevel", &WasmMachine::speakerLevel)
         .function("speakerEdges", &WasmMachine::speakerEdges);
 }

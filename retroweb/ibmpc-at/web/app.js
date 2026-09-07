@@ -244,6 +244,62 @@
     requestAnimationFrame(frame);
   }
 
+  // ---- hard disk persistence (IndexedDB) ---------------------------------
+  // A real fixed disk keeps its contents when the machine is off; this
+  // emulator's own Machine is fully discarded on power-off (see the power
+  // switch section below), so without this C: would silently revert to
+  // whatever it was mount()ed with every single power-on. One record in
+  // one object store -- there's only ever one C: drive to remember.
+  const HDD_DB_NAME = "ibmpcat-hdd", HDD_STORE = "hdd", HDD_KEY = "c-drive";
+  function openHddDb() {
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open(HDD_DB_NAME, 1);
+      req.onupgradeneeded = () => req.result.createObjectStore(HDD_STORE);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+  async function loadSavedHdd() {
+    try {
+      const db = await openHddDb();
+      return await new Promise((resolve, reject) => {
+        const tx = db.transaction(HDD_STORE, "readonly");
+        const req = tx.objectStore(HDD_STORE).get(HDD_KEY);
+        req.onsuccess = () => resolve(req.result || null);
+        req.onerror = () => reject(req.error);
+      });
+    } catch (err) {
+      console.error("could not read saved hard disk, using factory default:", err);
+      return null;
+    }
+  }
+  async function saveHdd(bytes) {
+    try {
+      const db = await openHddDb();
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction(HDD_STORE, "readwrite");
+        tx.objectStore(HDD_STORE).put(bytes, HDD_KEY);
+        tx.oncomplete = resolve;
+        tx.onerror = () => reject(tx.error);
+      });
+    } catch (err) {
+      console.error("could not save hard disk changes:", err);
+    }
+  }
+  async function clearSavedHdd() {
+    try {
+      const db = await openHddDb();
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction(HDD_STORE, "readwrite");
+        tx.objectStore(HDD_STORE).delete(HDD_KEY);
+        tx.oncomplete = resolve;
+        tx.onerror = () => reject(tx.error);
+      });
+    } catch (err) {
+      console.error("could not clear saved hard disk:", err);
+    }
+  }
+
   // ---- power switch (off by default) -------------------------------------
   // A real AT: flipping power off cuts power to everything -- RAM (and so
   // every bit of running state) is gone, exactly like unplugging it, while
@@ -262,6 +318,37 @@
   let firmware = null;  // {Module, bios, vga, hdd} once fetched -- fetched once, reused every power-on
   const pendingFloppy = [null, null];  // {name, bytes} per drive -- "what's physically in the drive"
 
+  // What C: actually mounts next power-on: a saved image from IndexedDB
+  // (whatever it last held -- factory FreeDOS with changes, a blank drive
+  // mid-install, or a real OS the visitor installed themselves) if one
+  // exists, otherwise the pristine fetched factory image. `hddLabel`
+  // exists purely to describe that choice in the status line below.
+  let savedHdd = null;   // Uint8Array | null
+  let hddLabel = "factory FreeDOS (default)";
+  const hddStatus = document.getElementById("hddStatus");
+  const hddResetBtn = document.getElementById("hddResetBtn");
+  const hddBlankBtn = document.getElementById("hddBlankBtn");
+  function refreshHddControls() {
+    hddStatus.textContent = "Using: " + hddLabel;
+    // A real fixed disk can't be swapped while the machine is running --
+    // both actions only ever affect the *next* power-on.
+    hddResetBtn.disabled = !firmware || poweredOn;
+    hddBlankBtn.disabled = !firmware || poweredOn;
+  }
+  hddResetBtn.addEventListener("click", () => {
+    savedHdd = null;
+    hddLabel = "factory FreeDOS (default) -- takes effect next power-on";
+    refreshHddControls();
+    clearSavedHdd();
+  });
+  hddBlankBtn.addEventListener("click", () => {
+    if (!firmware) return;
+    savedHdd = new Uint8Array(firmware.hdd.byteLength);  // all zero -- unformatted, like a drive fresh from the factory floor
+    hddLabel = "blank drive, unformatted (FDISK/FORMAT and install your own OS) -- takes effect next power-on";
+    refreshHddControls();
+    saveHdd(savedHdd);
+  });
+
   function remountPendingFloppies() {
     for (let d = 0; d < 2; d++) {
       const p = pendingFloppy[d];
@@ -277,13 +364,14 @@
       machine = new firmware.Module.Machine();
       machine.loadRom(0x100000 - firmware.bios.byteLength, new Uint8Array(firmware.bios));
       machine.loadRom(0xC0000, new Uint8Array(firmware.vga));
-      machine.mountHdd(new Uint8Array(firmware.hdd));
+      machine.mountHdd(savedHdd || new Uint8Array(firmware.hdd));
       remountPendingFloppies();
     }
     poweredOn = true;
     powerLed.classList.add("power-on");
     lastT = null;
     requestAnimationFrame(frame);
+    refreshHddControls();
     if (new URLSearchParams(location.search).get("test") === "1") {
       window.__test = { machine, sendKey, screenEl };
     }
@@ -291,6 +379,14 @@
 
   function powerOff() {
     if (!poweredOn) return;
+    // A real fixed disk keeps its data when the machine is off -- unlike
+    // RAM, capture whatever C: holds right now before the Machine (and
+    // its only copy of that state) is discarded below.
+    if (machine.hddDirty()) {
+      savedHdd = machine.hddImage();
+      hddLabel = "saved state (changes from this session)";
+      saveHdd(savedHdd);
+    }
     poweredOn = false;  // frame() sees this on its next tick and stops rescheduling itself
     machine = null;      // real hardware: RAM is gone the instant power is cut
     powerLed.classList.remove("power-on");
@@ -298,6 +394,7 @@
     hddLed.classList.remove("on");
     clearScreenToBlack();
     if (audioCtx) { audioCtx.suspend().catch(() => {}); }
+    refreshHddControls();
   }
 
   powerSwitch.checked = false;  // off by default, every load -- a real machine doesn't power itself on
@@ -311,14 +408,20 @@
   // so there's no reason to gate it behind the power switch: fetch starts
   // immediately, and flipping power on is instant once it's done.
   (async () => {
-    const Module = await IbmPcAt({});
-    const [bios, vga, hdd] = await Promise.all([
+    const [Module, savedHddResult, bios, vga, hdd] = await Promise.all([
+      IbmPcAt({}),
+      loadSavedHdd(),
       fetch("roms/BIOS-bochs-legacy").then((r) => r.arrayBuffer()),
       fetch("roms/VGABIOS-lgpl-latest.bin").then((r) => r.arrayBuffer()),
       fetch("disks/freedos-hdd.img").then((r) => r.arrayBuffer()),
     ]);
     firmware = { Module, bios, vga, hdd };
+    if (savedHddResult) {
+      savedHdd = savedHddResult;
+      hddLabel = "saved state (from a previous visit)";
+    }
     powerSwitch.disabled = false;
+    refreshHddControls();
   })().catch((err) => {
     // no on-page error surface -- the power switch simply never enables;
     // the real failure detail goes to the console for diagnosis.
