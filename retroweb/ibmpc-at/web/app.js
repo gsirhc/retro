@@ -189,7 +189,6 @@
 
   // ---- main loop ---------------------------------------------------
   const ctx = screenEl.getContext("2d");
-  const bootStatus = document.getElementById("bootStatus");
   const hddLed = document.getElementById("hddLed");
   let cycleCredit = 0, lastT = null;
 
@@ -283,9 +282,6 @@
     }
     poweredOn = true;
     powerLed.classList.add("power-on");
-    bootStatus.style.visibility = "visible";
-    bootStatus.textContent = "Booting…";
-    setTimeout(() => { if (poweredOn) bootStatus.style.visibility = "hidden"; }, 3000);
     lastT = null;
     requestAnimationFrame(frame);
     if (new URLSearchParams(location.search).get("test") === "1") {
@@ -301,15 +297,13 @@
     for (const bay of bays) bay.querySelector('[data-role="led"]').classList.remove("on");
     hddLed.classList.remove("on");
     clearScreenToBlack();
-    bootStatus.style.visibility = "visible";
-    bootStatus.textContent = "Powered off.";
     if (audioCtx) { audioCtx.suspend().catch(() => {}); }
   }
 
   powerSwitch.checked = false;  // off by default, every load -- a real machine doesn't power itself on
-  powerSwitch.disabled = true;  // enabled once firmware has actually finished fetching
+  powerSwitch.disabled = true;  // enabled once firmware has actually finished fetching -- its own
+                                 // disabled state is the "still loading" signal, no status text needed
   clearScreenToBlack();
-  bootStatus.textContent = "Loading firmware…";
   powerSwitch.addEventListener("change", () => { if (powerSwitch.checked) powerOn(); else powerOff(); });
 
   // ---- fetch firmware + the shipped HDD image once, up front ------------
@@ -325,9 +319,9 @@
     ]);
     firmware = { Module, bios, vga, hdd };
     powerSwitch.disabled = false;
-    bootStatus.textContent = "Ready -- flip the power switch.";
   })().catch((err) => {
-    bootStatus.textContent = "Failed to load: " + err;
+    // no on-page error surface -- the power switch simply never enables;
+    // the real failure detail goes to the console for diagnosis.
     console.error(err);
   });
 })();

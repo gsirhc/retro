@@ -295,7 +295,7 @@
     background: #33ff66; box-shadow: 0 0 6px 2px rgba(51,255,102,.8), 0 0 0 1px #0a2a15;
   }
   #screen:focus { outline: none; }
-  .boot-status { text-align: center; font-size: 12px; color: var(--dim); margin-top: 8px; }
+  .audio-row { margin-top: 14px; justify-content: center; }
 
   /* ---- front panel: one real 5170 case fascia, photoreal in every theme
      (like the CRT above and altair8800's own 88-DCDD cabinet). Modeled on
@@ -473,7 +473,6 @@
     <hr class="rule">
 
     <div class="panel" id="displayCard">
-      <h2>Display &middot; EGA 80&times;25</h2>
       <div class="monitor" id="monitor">
         <div class="bezel" id="bezel">
           <canvas id="screen" width="640" height="350" tabindex="0" aria-label="EGA display -- click to type"></canvas>
@@ -481,7 +480,10 @@
           <span class="power-led"></span>
         </div>
       </div>
-      <p class="boot-status" id="bootStatus">Loading BIOS&hellip;</p>
+      <div class="row audio-row">
+        <label><input type="checkbox" id="speakerEnabled"> Enable sound</label>
+        <span class="muted">Off by default -- browsers block audio until you opt in, and so does this control.</span>
+      </div>
     </div>
 
     <div class="panel" id="frontPanelCard">
@@ -530,14 +532,6 @@
             </div>
           </div>
         </div>
-      </div>
-    </div>
-
-    <div class="panel" id="speakerCard">
-      <h2>PC speaker</h2>
-      <div class="row">
-        <label><input type="checkbox" id="speakerEnabled"> Enable sound</label>
-        <span class="muted">Off by default -- browsers block audio until you opt in, and so does this control.</span>
       </div>
     </div>
 
