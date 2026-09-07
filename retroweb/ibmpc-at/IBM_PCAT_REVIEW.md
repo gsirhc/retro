@@ -1700,3 +1700,33 @@ screenshotted the Mid-1990s Web theme at a 1400px viewport; a cropped
 close-up of the panel confirms two square green/dark boxed lights next
 to the power switch, and a clearly inset grille with extra left/bottom
 margin, matching the reference photo's proportions.
+
+## 23. A real default-state bug: the power LED was lit before power-on
+
+A close-up screenshot surfaced a genuine bug, not a style tweak: the
+power LED markup had `class="drive-led power-on"` baked into the HTML
+from the very first front-panel draft (§17) -- lit green on page load,
+before the user ever flips the switch, even though `#powerSwitch`
+itself correctly defaults unchecked. `app.js`'s `powerOn()`/
+`powerOff()` toggle the class correctly once the switch is touched, but
+nothing calls `powerOff()` on load to establish the starting state, so
+the markup's own initial class was the only thing setting it -- and
+that initial class was wrong. Fixed by dropping `power-on` from the
+markup; the LED now starts dark like `#hddLed` always did, and app.js's
+existing toggle logic (unchanged) takes over correctly from the first
+`change` event.
+
+Two more requested tweaks in the same pass: removed the `"O I"`
+rocker-switch legend (`.at-switch::before`) entirely -- it was reading
+as clutter next to the "POWER ON" text label rather than adding
+clarity -- and reworded the switch's own label from "Power" to
+"Power On" (clearer about what the switch does in its unchecked/
+default state, matching the imperative-label convention buttons on
+this panel already use, e.g. "Insert…"/"Eject").
+
+**Verified**: 167/167 native tests (HTML/CSS only). Headless Chromium
+at page load, before touching the switch: `#powerLed.classList` no
+longer contains `power-on`; `.at-switch::before`'s computed `content`
+is `none`; the switch label reads "Power On". Screenshotted and
+cropped to confirm both indicator lights render dark at load and the
+switch face is now unlabelled chrome.
