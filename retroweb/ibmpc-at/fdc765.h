@@ -1,8 +1,13 @@
 // NEC uPD765/8272 floppy disk controller, AT wiring: ports 0x3F0-0x3F7,
 // IRQ6, DMA channel 2. Two drives -- A: 1.2MB (80 cyl/2 head/15 sec/track,
 // 360 RPM) and B: 360KB (40 cyl/2 head/9 sec/track, 300 RPM), matching this
-// system's spec. Command protocol (command byte -> parameter bytes ->
-// execution -> result bytes) per the Intel 8272A / NEC uPD765A data sheet.
+// system's spec. mount() derives the live cylinder/head/sector geometry
+// from the mounted image's own size rather than hardcoding it per drive,
+// since a real 1.2MB drive can also read/write genuine 360KB media (a real,
+// period-legal combination, just at a different data rate/step timing) --
+// see mount()'s own comment. Command protocol (command byte -> parameter
+// bytes -> execution -> result bytes) per the Intel 8272A / NEC uPD765A
+// data sheet.
 //
 // Scope/simplifications (see IBM_PCAT_REVIEW.md):
 //  - A data-transfer command (READ/WRITE DATA) is paced to the real drive

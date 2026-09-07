@@ -1879,3 +1879,72 @@ media, nothing added to the HDD image, matching this session's own
 "default to floppy, only touch the HDD image when asked" convention --
 never committed to the repo, ready to insert into Drive B via the front
 panel's own Insert control exactly as downloaded.
+
+## 27. A real bug: a 360KB diskette in Drive A hung instead of booting
+
+Found using the two MS-DOS 3.30 floppies from §26: `DISK01.IMG` in
+Drive B produced `FATAL: No bootable device.`; the same image in Drive
+A got as far as `Booting from Floppy...` and then hung. Both symptoms
+were real and worth separating -- only one was a bug.
+
+**Drive B never booting is correct, not a bug.** Confirmed directly:
+with A: empty and `DISK01.IMG` in B:, the BIOS logs `Booting from
+Floppy... Boot failed: could not read the boot disk`, then `Booting
+from Hard Disk... Boot failed: not a bootable disk`, then `FATAL: No
+bootable device.` -- it tries A: (empty) and C: (blank), and never
+touches B: at all. That's genuine period PC/XT/AT BIOS behavior: INT
+19h's boot device search was always "floppy drive 0, then the fixed
+disk" -- a second floppy drive was never a boot candidate on real
+hardware of this era, full stop. No fix needed or appropriate here.
+
+**Drive A hanging on a 360KB diskette was a real bug**, and a real
+5170 could do exactly what the user expected: a genuine 5.25"
+high-density (1.2MB) drive is mechanically and magnetically able to
+read a double-density 360KB diskette too (a different data rate and
+step timing programmed via the FDC's own commands, not a different
+drive) -- this was a completely ordinary AT-era capability, not a
+stretch. `fdc765.cpp`'s `mount()` didn't model that: it picked
+cylinders/heads/sectors-per-track purely from which bay the image went
+into (`drive == 0` -> hardcoded 80/2/15, full stop), so a 368,640-byte
+(360KB, 40/2/9) image mounted in A: kept A:'s 1.2MB geometry regardless
+of what was actually on the disk. The boot sector itself loaded fine
+(cylinder 0/head 0/sector 1 is offset 0 under any geometry, so that one
+read is always right by coincidence), but the very next read -- loading
+the rest of the DOS boot chain -- used CHS values valid for a 15-
+sector track on a disk that only actually has 9, so `offset_for()`
+computed a wildly wrong byte offset. `transfer_image_ptr()` correctly
+bounds-checks that offset against the image's real size and returns
+`nullptr` when it's out of range, but `chipset.cpp`'s DMA loop treats a
+null pointer as "nothing to copy" and still calls `finish_transfer()`
+-- from the FDC's own status registers, that read looks like a normal
+success with zero indication anything was wrong. A real controller
+facing this same mismatch would instead report a genuine ID-not-found/
+no-data error the boot loader could see and act on; this emulator's
+version just handed the boot loader a buffer of stale/zeroed memory and
+called it done, which is exactly why it hung instead of erroring out or
+crashing loudly.
+
+**Fix**: `mount()` now derives cylinders/heads/sectors-per-track (and
+the matching data-rate/step-timing constants) from the mounted image's
+actual size -- `<= 368640` bytes is 360KB geometry, otherwise 1.2MB --
+instead of from the drive slot. Drive A can now correctly read either
+media, matching real hardware. Drive B mounting a 1.2MB image still
+isn't rejected (a genuine 360KB-only drive physically can't read
+high-density media at all, a real incompatibility this emulator still
+doesn't enforce -- consistent with the file's existing scope note that
+mounted images always arrive pre-formatted with no physical
+media-compatibility checking); that's a pre-existing, narrower gap, not
+something this fix needed to also solve.
+
+**Verified** (per explicit request: no new unit or E2E tests, just run
+it and look): 167/167 existing native tests still pass unmodified --
+every existing `Fdc765Test` case already mounts a correctly-sized image
+for whichever drive it exercises (`MakeImage(80,2,15)` for A:-shaped
+tests, `MakeImage(40,2,9)` for the one B:-shaped test), so none of them
+were exercising the buggy drive-index branch to begin with, and
+deriving geometry from size instead doesn't change any of their
+expected results. Against the live, rebuilt site: `DISK01.IMG` inserted
+into Drive A now boots all the way through the real MS-DOS 3.30 boot
+chain -- date/time prompts, the genuine `Microsoft(R) MS-DOS(R) Version
+3.30 (C)Copyright Microsoft Corp 1981-1987` banner, and a live `A>`
+prompt -- confirming the exact user-reported hang is gone.
