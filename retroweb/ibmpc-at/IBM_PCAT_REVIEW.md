@@ -1948,3 +1948,56 @@ into Drive A now boots all the way through the real MS-DOS 3.30 boot
 chain -- date/time prompts, the genuine `Microsoft(R) MS-DOS(R) Version
 3.30 (C)Copyright Microsoft Corp 1981-1987` banner, and a live `A>`
 prompt -- confirming the exact user-reported hang is gone.
+
+## 28. Downloadable/uploadable HDD image, and a real navigation-loss bug
+
+Prompted by the user actually losing their hard disk state to an
+accidental trackpad swipe-navigation. Two related additions.
+
+**Download/upload C:** two new controls in the Hard Disk panel,
+alongside Reset/Mount blank. **Download image...** grabs whatever is
+*actually* current -- the live image via `machine.hddImage()` if the
+machine is running, otherwise whatever's staged (`savedHdd`) or the
+pristine factory image -- and offers it as a real file via the same
+Blob + `<a download>` pattern the floppy eject flow already uses (works
+even while powered on, since it's read-only). **Upload image...**
+accepts a previously-downloaded (or otherwise obtained) image file and
+stages it as C: for the next power-on, disabled while running like
+Reset/Mount blank. Unlike the floppy controller (§27), WD1003's
+geometry is fixed in CMOS regardless of media -- a real fixed disk
+doesn't change shape depending on what's written to it -- so an
+uploaded image of the wrong size is refused up front with a clear
+message (`wd1003.cpp`'s own bounds check would otherwise report a
+genuine, real, but far more confusing IDNF disk error deep into a
+boot, rather than a clear "wrong size" message at the moment of
+upload).
+
+**The real bug this surfaced**: C:'s only save point was `powerOff()`
+-- closing the tab, following a link, or a browser gesture-based
+navigation (a trackpad swipe back/forward, what actually happened to
+the user) while still powered on skips it entirely, silently
+discarding every write made since the machine was last powered off
+correctly. Added a `beforeunload` handler that prompts before letting
+that happen, gated on `poweredOn && machine.hddDirty()` specifically --
+not just "powered on" alone, so it doesn't nag on a session with no
+disk writes yet, and not unconditionally, so it fires precisely when
+something real would actually be lost. Documented, not silently
+assumed to be a complete fix: some browsers' gesture-based navigation
+(reportedly including the exact trackpad-swipe case that prompted this)
+can bypass `beforeunload` entirely -- a known, unfixable-from-JS browser
+behavior, not a gap in this implementation -- which is exactly why
+**Download image** exists as a durable, browser-independent backup
+alongside the automatic IndexedDB persistence rather than instead of a
+prompt.
+
+**Verified** (existing suite only, no C++ touched this pass): 167/167
+native tests pass unmodified. Against the live site: downloaded the
+factory image and confirmed its size matches exactly (31,900,160
+bytes); uploaded a wrong-sized file and confirmed it's rejected with
+the expected message and the status line stays unchanged; uploaded a
+correctly-sized file and confirmed it's accepted, staged, and persisted
+to IndexedDB. For `beforeunload`: confirmed no prompt when powered off,
+no prompt when powered on with no writes yet, and a genuine
+`beforeunload` dialog *only* after a real write was made while
+powered on -- reload was blocked until the dialog was dismissed, and
+the page's own state (still powered on) survived exactly as expected.
