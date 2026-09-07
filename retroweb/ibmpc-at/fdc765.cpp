@@ -35,16 +35,34 @@ void Fdc765::mount(int drive, const uint8_t *data, std::size_t len) {
     d.write_protected = false;
     d.current_cylinder = 0;
     d.disk_changed = true;  // real DSKCHG: asserted whenever media is swapped
-    if ((drive & 1) == 0) {
-        // Drive A: 1.2MB, 500 kbit/s, ~3ms/track step (real AT-era figures).
-        d.cylinders = 80; d.heads = 2; d.sectors_per_track = 15;
-        d.bytes_per_sec = 62500.0;
-        d.cycles_per_track_step = 0.003 * kCpuHz;
-    } else {
-        // Drive B: 360KB, 250 kbit/s, ~6ms/track step.
+    // Geometry follows the actual media, not just which bay it's in -- a
+    // real 5.25" high-density drive (this system's A:) mechanically and
+    // magnetically CAN read/write a genuine double-density 360KB diskette
+    // (a different data rate/step timing, not a different drive), so a
+    // 360KB image dropped into A: is a real, period-legal combination, not
+    // an error. A 360KB-only drive (B:) can't go the other way -- it
+    // physically cannot read high-density media at all (different magnetic
+    // coercivity) -- but this emulator doesn't enforce that rejection (see
+    // the file header's scope note: images arrive pre-formatted, no
+    // physical media-compatibility checks). Previously this branched on
+    // `drive` alone, so a 360KB image mounted in A: kept the drive's own
+    // 80/2/15 geometry regardless -- CHS math beyond the very first sector
+    // (offset 0 under any geometry) landed on the wrong bytes or ran past
+    // the image entirely, which chipset.cpp's DMA path silently treats as
+    // "transfer completed, zero bytes moved" rather than a real disk
+    // error -- IO.SYS's own loader would appear to succeed and then jump
+    // into garbage, hanging exactly where a real boot would instead get a
+    // real controller error it could act on.
+    if (len <= 368640) {
+        // 360KB: 40 cyl / 2 head / 9 sec/track, 250 kbit/s, ~6ms/track step.
         d.cylinders = 40; d.heads = 2; d.sectors_per_track = 9;
         d.bytes_per_sec = 31250.0;
         d.cycles_per_track_step = 0.006 * kCpuHz;
+    } else {
+        // 1.2MB: 80 cyl / 2 head / 15 sec/track, 500 kbit/s, ~3ms/track step.
+        d.cylinders = 80; d.heads = 2; d.sectors_per_track = 15;
+        d.bytes_per_sec = 62500.0;
+        d.cycles_per_track_step = 0.003 * kCpuHz;
     }
 }
 void Fdc765::unmount(int drive) {
