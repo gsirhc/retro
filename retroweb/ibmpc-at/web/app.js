@@ -328,12 +328,17 @@
   const hddStatus = document.getElementById("hddStatus");
   const hddResetBtn = document.getElementById("hddResetBtn");
   const hddBlankBtn = document.getElementById("hddBlankBtn");
+  const hddDownloadBtn = document.getElementById("hddDownloadBtn");
+  const hddUploadInput = document.getElementById("hddUploadInput");
   function refreshHddControls() {
     hddStatus.textContent = "Using: " + hddLabel;
     // A real fixed disk can't be swapped while the machine is running --
-    // both actions only ever affect the *next* power-on.
+    // every one of these actions only ever affects the *next* power-on.
     hddResetBtn.disabled = !firmware || poweredOn;
     hddBlankBtn.disabled = !firmware || poweredOn;
+    hddDownloadBtn.disabled = !firmware;  // download works even while running -- it's read-only
+    hddUploadInput.disabled = !firmware || poweredOn;
+    document.getElementById("hddUploadBtn").disabled = !firmware || poweredOn;
   }
   hddResetBtn.addEventListener("click", () => {
     savedHdd = null;
@@ -345,6 +350,50 @@
     if (!firmware) return;
     savedHdd = new Uint8Array(firmware.hdd.byteLength);  // all zero -- unformatted, like a drive fresh from the factory floor
     hddLabel = "blank drive, unformatted (FDISK/FORMAT and install your own OS) -- takes effect next power-on";
+    refreshHddControls();
+    saveHdd(savedHdd);
+  });
+  // A real file on the visitor's own disk, independent of this browser's
+  // storage -- the same "save modified media" idea the floppy eject flow
+  // already offers, just for C: (which isn't ejectable, so it needs its
+  // own explicit control instead of piggybacking on a drive-swap gesture).
+  hddDownloadBtn.addEventListener("click", () => {
+    if (!firmware) return;
+    // Whatever is *actually* current: the live, possibly-just-written
+    // image if the machine is running, else whatever's staged for the
+    // next power-on, else the pristine factory image.
+    const bytes = (poweredOn && machine) ? machine.hddImage() : (savedHdd || new Uint8Array(firmware.hdd));
+    const blob = new Blob([bytes], { type: "application/octet-stream" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "ibmpcat-hdd.img";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  });
+  hddUploadInput.addEventListener("change", async () => {
+    const f = hddUploadInput.files[0];
+    hddUploadInput.value = "";
+    if (!f || !firmware) return;
+    const bytes = new Uint8Array(await f.arrayBuffer());
+    // This system's WD1003 geometry (733 cyl/5 head/17 sec, see wd1003.cpp)
+    // is fixed in CMOS, not derived from the image the way the floppy
+    // controller now derives its own geometry from media size (see
+    // IBM_PCAT_REVIEW.md §27) -- a real fixed disk doesn't change shape
+    // depending on what's written to it. An image of the wrong size would
+    // still fail safely (wd1003.cpp's own bounds check reports a genuine
+    // IDNF error rather than silently doing nothing), but refusing it
+    // up front gives a clearer reason than a mysterious disk error deep
+    // into a boot.
+    if (bytes.byteLength !== firmware.hdd.byteLength) {
+      alert("That file is " + bytes.byteLength + " bytes; this machine's hard disk " +
+            "must be exactly " + firmware.hdd.byteLength + " bytes (733 cyl / 5 head / " +
+            "17 sec/track). Not mounted.");
+      return;
+    }
+    savedHdd = bytes;
+    hddLabel = "uploaded image (" + f.name + ") -- takes effect next power-on";
     refreshHddControls();
     saveHdd(savedHdd);
   });
@@ -402,6 +451,22 @@
                                  // disabled state is the "still loading" signal, no status text needed
   clearScreenToBlack();
   powerSwitch.addEventListener("change", () => { if (powerSwitch.checked) powerOn(); else powerOff(); });
+
+  // C:'s only save point is powerOff() above -- navigating away (closing
+  // the tab, following a link, a browser-gesture back/forward navigation)
+  // while still powered on and dirty would skip it entirely, silently
+  // losing whatever was written since the machine was last powered off.
+  // Ask first, the same way a real "unsaved changes" prompt would.
+  // (Known limitation, not fixable from here: some browsers' gesture-based
+  // navigation -- e.g. a trackpad swipe -- can bypass beforeunload
+  // entirely, which is exactly the scenario "Download image" above exists
+  // for as a durable, browser-independent backup.)
+  window.addEventListener("beforeunload", (e) => {
+    if (poweredOn && machine && machine.hddDirty()) {
+      e.preventDefault();
+      e.returnValue = "";
+    }
+  });
 
   // ---- fetch firmware + the shipped HDD image once, up front ------------
   // Not modeling anything physical -- purely the web delivery mechanism --
