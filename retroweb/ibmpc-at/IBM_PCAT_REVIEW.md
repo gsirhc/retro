@@ -1730,3 +1730,48 @@ longer contains `power-on`; `.at-switch::before`'s computed `content`
 is `none`; the switch label reads "Power On". Screenshotted and
 cropped to confirm both indicator lights render dark at load and the
 switch face is now unlabelled chrome.
+
+## 24. Dropped the display header and boot-status text; sound moved under the screen
+
+Requested simplification of the display panel: removed the "Display ·
+EGA 80×25" `<h2>` and the `#bootStatus` paragraph below the screen
+("Loading firmware…" / "Ready -- flip the power switch." / "Booting…" /
+"Powered off." / "Failed to load: …") entirely, and moved the "Enable
+sound" checkbox (previously its own separate "PC speaker" panel further
+down the page) to sit directly below the display instead.
+
+`bootStatus` wasn't purely decorative -- `app.js` used it for a real
+error path (`"Failed to load: " + err` when the firmware/HDD-image
+fetch fails) as well as routine status. Rather than leave a dead
+element or a null-reference crash, the underlying signals it carried
+were folded into controls that already existed:
+
+- **Loading vs. ready** was already visible independently: the power
+  switch is `disabled` while firmware is fetching and enables the
+  instant it's ready (`app.js` line ~309) -- no separate text was
+  adding information here.
+- **Powered off** is already shown by the power LED being dark and the
+  screen being blanked (`clearScreenToBlack()`) -- again redundant with
+  the text.
+- **A load failure** now has no on-page surface (the power switch
+  simply never enables) -- `console.error(err)` still fires for
+  diagnosis, but a real end-user has no visible explanation beyond "the
+  switch never turns on." Accepted as a reasonable trade for this
+  hobby project rather than re-adding a status line whose normal-case
+  text was exactly what got asked to be removed; worth revisiting if a
+  real firmware-fetch failure in the wild turns out to be silent enough
+  to confuse someone.
+
+Removed the now-dead `.boot-status` CSS rule and the `bootStatus`
+variable/all six call sites in `app.js` along with it, rather than
+leaving unreachable code -- matches this repo's own coverage-tooling
+convention of not carrying dead paths.
+
+**Verified**: 167/167 native tests (HTML/CSS/JS only). Headless
+Chromium: "EGA 80" no longer appears anywhere in the page text,
+`#bootStatus` and `#speakerCard` are both absent from the DOM,
+`#speakerEnabled` still present (now inside `#displayCard`); powered on
+through a full real boot to the VGABIOS splash with no console/page
+errors from the removed references. Screenshotted to confirm "Enable
+sound" now renders directly under the display, centered, with its
+existing explanatory text intact.
