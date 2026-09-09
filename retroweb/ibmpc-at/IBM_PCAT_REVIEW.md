@@ -2068,3 +2068,21 @@ all -- `renderWidth()`/`renderHeight()` already read whatever
 `RenderScreen` reports each frame, and `app.js`'s existing "resize the
 canvas to match" logic, built for the graphics modes, handles text
 mode's now-variable height for free).
+
+## 30. On-screen keyboard supplement: F-keys, extended keys, and Ctrl+Alt+Del
+
+Mac keyboards have no discrete keys for Insert, Print Screen, Scroll Lock, Pause/Break, or forward-Delete, and F-keys are often intercepted by macOS system shortcuts. A new panel in `index.html` provides a button row for F1–F12, Ctrl+Alt+Del, and the missing keys (Insert, Delete, Home, End, Page Up/Down, Print Screen, Scroll Lock, Pause/Break, Num Lock), all properly wired to inject real AT keyboard scan codes via the existing `sendKey()` mechanism in `app.js`.
+
+**Print Screen and Pause/Break scan codes**: Both break the standard "array of bytes + set bit 7 on the last for break code" convention. Real AT hardware encodes them as fixed byte sequences:
+
+- **Print Screen**: 4-byte make (`0xE0, 0x2A, 0xE0, 0x37`) and distinct 4-byte break (`0xE0, 0xB7, 0xE0, 0xAA`). No modifiers, no variable bits, just these exact byte pairs.
+- **Pause/Break**: Single fixed 6-byte sequence (`0xE1, 0x1D, 0x45, 0xE1, 0x9D, 0xC5`) sent on make. Genuinely has **no break code at all** — a real, documented AT keyboard controller quirk, not an emulator approximation.
+
+To support both patterns, `SET1` now accepts a third entry shape: `{ make: [...], break: [...] }` objects. `sendKey()` detects this shape and injects the `make` or `break` sequence directly, bypassing the bit-7 modification applied to normal keys.
+
+**Ctrl+Alt+Del implementation**: The button injects the classic warm-boot key sequence directly: Ctrl make (0x1D), Alt make (0x38), then Del make (0x53). Critically, this uses the **non-extended** Delete scancode (0x53, the original numpad Del/period key), not `SET1.Delete` (which is the 101-key extended [0xE0, 0x53] forward-Delete). This matches the BIOS's own Ctrl-Alt-Del check, which (like all x86 BIOSes) looks for this specific, pre-extended code — anything else won't trigger a warm reboot. The real BIOS's own keyboard ISR already implements the check and reboot sequence; no new C++ needed, just the right scan codes.
+
+**UI integration**: Buttons are disabled while the machine is off (no keyboard input to a powered-down device); enabled once `poweredOn && machine` is true. The Ctrl+Alt+Del button is styled with `var(--warn)` border and text for visual distinctness. With a 50ms delay between make and break, a single click mimics a real, if fast, key press — quick enough for interactive use, slow enough that the break code lands as a separate event in the guest's single-threaded frame loop.
+
+**Verified**: 168/168 native tests (no C++ changes); live Playwright test confirmed: buttons disable before boot, enable post-boot, F-key clicks succeed without errors, Ctrl+Alt+Del triggers a real warm reboot (BIOS POST re-runs within seconds), buttons disable again on power-off. Panel buttons wrap naturally via the existing `.row { flex-wrap: wrap }` CSS rule, readable in all four themes (Windows 95, Mid-1990s Web, Modern, Dark Modern).
+
