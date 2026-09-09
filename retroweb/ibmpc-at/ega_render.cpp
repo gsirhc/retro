@@ -18,7 +18,7 @@ void DecodeEgaColor(uint8_t v, uint8_t &r, uint8_t &g, uint8_t &b) {
 }  // namespace
 
 void RenderTextScreen(const Ega &ega, std::vector<uint8_t> &rgba, bool blink_on, int &width, int &height) {
-    constexpr int cw = 8, cols = 80, rows = 25;
+    constexpr int cw = 8, rows = 25;
     // Register value 0 means "1 scan line/row" -- not a real text mode
     // (and what a freshly-reset, never-BIOS-programmed Ega reads as) --
     // so treat it as "not configured yet" and fall back to the classic
@@ -28,12 +28,23 @@ void RenderTextScreen(const Ega &ega, std::vector<uint8_t> &rgba, bool blink_on,
     // mode, etc.) is trusted as-is -- see this function's header comment.
     int scan_lines = int(ega.crtc_max_scan_line()) + 1;
     const int ch_h = scan_lines <= 1 ? 14 : scan_lines;
+    // Columns/row likewise comes from the CRTC's own Horizontal Displayed
+    // register (crtc_horizontal_display_end(), R01) rather than a hardcoded
+    // 80 -- real text modes 0/1 (and this game's own "look at map" screen)
+    // program 40-column text, and VRAM is laid out row*cols+col same as
+    // 80-column mode, just with cols=40. Hardcoding 80 here read every
+    // 40-column row starting at the wrong VRAM offset, scrambling into
+    // exactly the "glyph noise" this function's header warns about -- the
+    // register is trusted as-is once real BIOS/mode-set code has run, with
+    // the same "reads as 0 before that" fallback as scan_lines above.
+    int cols_reg = int(ega.crtc_horizontal_display_end()) + 1;
+    const int cols = cols_reg <= 1 ? 80 : cols_reg;
     const int W = cw * cols, H = ch_h * rows;
     width = W; height = H;
     rgba.assign(std::size_t(W) * std::size_t(H) * 4, 0);
 
     auto cell_offset = [&](int row, int col) -> uint32_t {
-        return (uint32_t(ega.start_offset()) + uint32_t(row * 80 + col)) & 0xFFFF;
+        return (uint32_t(ega.start_offset()) + uint32_t(row * cols + col)) & 0xFFFF;
     };
     auto text_at = [&](int row, int col, uint8_t &ch, uint8_t &attr) {
         uint32_t plane_off = cell_offset(row, col);
@@ -110,9 +121,20 @@ void RenderEgaNative16Screen(const Ega &ega, std::vector<uint8_t> &rgba, int &wi
     if (width <= 0 || height <= 0) { width = height = 0; rgba.clear(); return; }
     rgba.assign(std::size_t(width) * std::size_t(height) * 4, 0);
 
-    int row_stride = width / 8;  // bytes per scanline per plane -- 1 bit/pixel/plane
+    int displayed_bytes = width / 8;  // bytes/scanline actually drawn -- 1 bit/pixel/plane
+    // The real per-scanline VRAM stride comes from the CRTC's own Offset
+    // Register, NOT from the displayed width -- see crtc_scanline_stride()
+    // in ega.h. They're usually equal, but real software that programs a
+    // logical scan-line wider than what it shows (confirmed happening with
+    // a real commercial game's "look at map" screen) relies on the
+    // distinction; walking VRAM by displayed width instead reads every
+    // scanline after the first starting at the wrong offset, scrambling
+    // into unrelated pixel data. A freshly-reset/never-programmed Offset
+    // register reads 0 -- fall back to the displayed width in that case.
+    int real_stride = ega.crtc_scanline_stride();
+    int row_stride = real_stride > 0 ? real_stride : displayed_bytes;
     for (int y = 0; y < height; ++y) {
-        for (int byte_col = 0; byte_col < row_stride; ++byte_col) {
+        for (int byte_col = 0; byte_col < displayed_bytes; ++byte_col) {
             uint32_t plane_offset = uint32_t(y) * uint32_t(row_stride) + uint32_t(byte_col);
             uint8_t p0 = ega.vram[(plane_offset << 2) + 0];
             uint8_t p1 = ega.vram[(plane_offset << 2) + 1];

@@ -5,8 +5,10 @@
 // like" rather than the same decode logic duplicated in C++ and JS.
 //
 // Three real hardware layouts are supported:
-//   - Text mode (80x25, 8x14 cells -> 640x350): the mode a real BIOS's own
-//     POST/boot messages and a plain DOS prompt use. See RenderTextScreen.
+//   - Text mode (80x25 or 40x25, 8-pixel-wide cells, row height from the
+//     CRTC): the mode a real BIOS's own POST/boot messages and a plain DOS
+//     prompt use (80x25); 40-column text (mode 0/1) is real too -- some DOS
+//     software uses it for a large-character screen. See RenderTextScreen.
 //   - The EGA/VGA "CGA-compatibility" 4-color 320x200 graphics mode (GR05
 //     Shift Register field = 1): what INT 10h mode 4/5 programs, and
 //     genuinely common -- any DOS program written for plain CGA graphics
@@ -66,6 +68,19 @@ constexpr int kTextRenderHeight = 350;  // the classic 14-line/row default -- se
 // mode uses -- so that specific case falls back to the classic 14-line
 // default rather than a nonsensical 1-line-per-row render.
 //
+// Columns/row is likewise read from the CRTC's Horizontal Displayed
+// register (crtc_horizontal_display_end(), R01) rather than hardcoded as
+// 80 -- real 40-column text (mode 0/1) is genuine hardware, not a guess,
+// and VRAM is laid out row*cols+col with cols=40 in that mode. A period
+// DOS program (MECC's The Oregon Trail's "Look at map" screen, confirmed
+// live) switching to 40-column text for a screen got every row after the
+// first read starting at the wrong VRAM offset when this hardcoded 80,
+// scrambling into unrelated glyph/attribute bytes -- the exact "garbled
+// glyph noise" the file header above warns RenderScreen's dispatch was
+// written to avoid, just reached through this function instead of a
+// missed graphics-mode detection. Same 0-reads-as-"not configured yet"
+// fallback as scan_lines. See IBM_PCAT_REVIEW.md.
+//
 // `blink_on` selects whether a non-disabled text cursor is currently drawn
 // as a solid block at its real CRTC-programmed scanlines; the caller paces
 // the actual blink rate (this function just draws the requested phase,
@@ -103,6 +118,19 @@ void RenderCgaGraphics4Screen(const Ega &ega, std::vector<uint8_t> &rgba);
 // of the color index, the standard EGA/VGA plane-to-bit convention -- into
 // a 4-bit index into the live Attribute Controller palette (registers
 // 0-15), same as text mode's colors.
+//
+// The per-scanline VRAM stride comes from the CRTC's own Offset Register
+// (ega.crtc_scanline_stride(), R13) rather than being derived from the
+// displayed width -- a real CRT controller advances exactly that many
+// bytes between scanlines regardless of how much of the row is actually
+// shown, and real software that programs a wider logical scan line than
+// it displays (confirmed live: a real commercial game's "look at map"
+// screen does exactly this) relies on the two being independent. Deriving
+// stride from width instead reads every scanline after the first starting
+// at the wrong VRAM offset -- exactly the scrambled-pixel-noise failure
+// mode the file header above describes, just reached through a missed
+// CRTC register on the graphics side rather than a missed mode bit. See
+// IBM_PCAT_REVIEW.md.
 void RenderEgaNative16Screen(const Ega &ega, std::vector<uint8_t> &rgba, int &width, int &height);
 
 enum class ScreenMode { kText, kCgaGraphics4, kEgaGraphics16, kUnsupportedGraphics };

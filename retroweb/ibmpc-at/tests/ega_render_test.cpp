@@ -78,6 +78,42 @@ TEST(EgaRenderTest, RowHeightAndFrameSizeFollowTheRealMaxScanLineRegister) {
     EXPECT_EQ(rgba[p + 0], 255); EXPECT_EQ(rgba[p + 1], 255); EXPECT_EQ(rgba[p + 2], 255);
 }
 
+// Real hardware fact this covers: 40-column text (BIOS mode 0/1) is a
+// genuine CRTC configuration -- Horizontal Displayed (R01) = 39, not 79 --
+// that period DOS software legitimately uses for a large-character screen
+// (confirmed live against MECC's The Oregon Trail's "Look at map" screen,
+// which renders exactly this way). VRAM stays laid out row*cols+col with
+// cols=40 in this mode, so a renderer that hardcodes 80 columns starts
+// every row after the first at the wrong offset -- reading half of row 1
+// from the tail of row 0 and the other half from row 1's own first bytes
+// -- which is exactly the scrambled-glyph-noise failure mode the file
+// header warns about, just reached through a missed CRTC register instead
+// of a missed graphics-mode bit. See IBM_PCAT_REVIEW.md.
+TEST(EgaRenderTest, ColumnCountAndFrameWidthFollowTheRealHorizontalDisplayedRegister) {
+    Ega ega;
+    ega.reset();
+    ega.out(0x3D4, 0x01); ega.out(0x3D5, 39);  // Horizontal Displayed = 39 -> 40 cols
+    SetPalette(ega, 15, 0x3F);  // white
+    // Cell (row=1, col=0) sits at the 40-column offset 40 -- at the
+    // hardcoded-80 offset that same VRAM slot would instead land mid-row 0.
+    uint32_t cell = 40;
+    ega.vram[(cell << 2) + 0] = 0x41;
+    ega.vram[(cell << 2) + 1] = 0x0F;  // fg=white, bg=black
+    uint32_t glyph_off = uint32_t(0x41) * 32 + 0;
+    ega.vram[(glyph_off << 2) + 2] = 0x80;  // font row 0: leftmost pixel set
+
+    std::vector<uint8_t> rgba;
+    int w = 0, h = 0;
+    RenderTextScreen(ega, rgba, /*blink_on=*/false, w, h);
+    EXPECT_EQ(w, 40 * 8);  // 320, not the old fixed 640
+    EXPECT_EQ(h, kTextRenderHeight);
+    ASSERT_EQ(rgba.size(), std::size_t(w * h * 4));
+
+    // Row 1's top-left pixel: y = 1 row * 14 (default scan lines/row) = 14, x = 0.
+    std::size_t p = (std::size_t(14) * std::size_t(w) + 0) * 4;
+    EXPECT_EQ(rgba[p + 0], 255); EXPECT_EQ(rgba[p + 1], 255); EXPECT_EQ(rgba[p + 2], 255);
+}
+
 TEST(EgaRenderTest, RendersAGlyphInTheLivePaletteColors) {
     Ega ega;
     ega.reset();
