@@ -41,22 +41,38 @@
 namespace ibmpcat {
 
 constexpr int kTextRenderWidth = 640;
-constexpr int kTextRenderHeight = 350;
+constexpr int kTextRenderHeight = 350;  // the classic 14-line/row default -- see RenderTextScreen
 
-// Fills `rgba` (resized as needed) with kTextRenderWidth*kTextRenderHeight
-// RGBA8888 pixels (row-major, top to bottom) reflecting the Ega's current
-// text-mode screen: glyph bitmaps read straight from VRAM plane 2 (the
-// character generator RAM, exactly where a real vgabios's mode-set writes
-// it, at the standard EGA/VGA convention of 32 bytes reserved per
+// Fills `rgba`/`width`/`height` (resized as needed) reflecting the Ega's
+// current text-mode screen: glyph bitmaps read straight from VRAM plane 2
+// (the character generator RAM, exactly where a real vgabios's mode-set
+// writes it, at the standard EGA/VGA convention of 32 bytes reserved per
 // character) and colors from the live Attribute Controller palette
 // registers, decoded via the genuine EGA 6-bit color format -- no
-// hardcoded font or color table. `blink_on` selects whether a
-// non-disabled text cursor is currently drawn as a solid block at its
-// real CRTC-programmed scanlines; the caller paces the actual blink rate
-// (this function just draws the requested phase, matching how a real CRT
-// controller has no opinion of its own about blink timing -- that's a
-// separate counter in the CRTC feeding this same enable bit).
-void RenderTextScreen(const Ega &ega, std::vector<uint8_t> &rgba, bool blink_on);
+// hardcoded font or color table.
+//
+// Scan lines per character row (and so the overall frame height) comes
+// from the CRTC's own Maximum Scan Line register (ega.crtc_max_scan_line()),
+// not a hardcoded constant -- the same "trust the real register, don't
+// guess a mode number" discipline RenderEgaNative16Screen already applies.
+// This matters in practice: this machine's freely-licensed BIOS substitute
+// is a full VGA BIOS (see IBM_PCAT_REVIEW.md §6), and programs VGA's native
+// 16-line-per-row text mode (640x400) rather than genuine EGA's own
+// 14-line/640x350 convention. Hardcoding 14 rendered every glyph correctly
+// shaped but with its last 2 scanlines silently discarded -- invisible for
+// most letters, but exactly where the VGA 8x16 font draws descenders on
+// g/y/p/q/j, which is why they looked clipped. A freshly-reset Ega (no
+// BIOS has run yet) reads Max Scan Line as 0 -- not a real value any text
+// mode uses -- so that specific case falls back to the classic 14-line
+// default rather than a nonsensical 1-line-per-row render.
+//
+// `blink_on` selects whether a non-disabled text cursor is currently drawn
+// as a solid block at its real CRTC-programmed scanlines; the caller paces
+// the actual blink rate (this function just draws the requested phase,
+// matching how a real CRT controller has no opinion of its own about
+// blink timing -- that's a separate counter in the CRTC feeding this same
+// enable bit).
+void RenderTextScreen(const Ega &ega, std::vector<uint8_t> &rgba, bool blink_on, int &width, int &height);
 
 // Fills `rgba` with 320*200 RGBA8888 pixels reflecting the EGA/VGA CGA-
 // compatibility 4-color graphics mode's current screen. Real hardware

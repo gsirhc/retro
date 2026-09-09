@@ -123,6 +123,11 @@ public:
     uint16_t crtc_vertical_display_end() const {
         return uint16_t(crtc_[0x12] | ((crtc_[0x07] >> 1 & 1) << 8) | ((crtc_[0x07] >> 6 & 1) << 9));
     }
+    // Maximum Scan Line (CRTC R09, bits 0-4): scan lines per character row
+    // minus 1 -- what a real CRT controller's own text-mode row pitch is
+    // built from, not a hardcoded per-mode constant. See
+    // IBM_PCAT_REVIEW.md's font-descender investigation.
+    uint8_t crtc_max_scan_line() const { return uint8_t(crtc_[0x09] & 0x1F); }
 
     // 256KB planar VRAM: 4 bitplanes x 64KB, byte-interleaved as
     // vram[(plane_offset << 2) + plane] -- see the file header.

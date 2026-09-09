@@ -41,8 +41,41 @@ TEST(EgaRenderTest, ProducesTheDocumentedBufferSize) {
     Ega ega;
     ega.reset();
     std::vector<uint8_t> rgba;
-    RenderTextScreen(ega, rgba, false);
+    int w = 0, h = 0;
+    RenderTextScreen(ega, rgba, false, w, h);
+    EXPECT_EQ(w, kTextRenderWidth);
+    EXPECT_EQ(h, kTextRenderHeight);
     EXPECT_EQ(rgba.size(), std::size_t(kTextRenderWidth * kTextRenderHeight * 4));
+}
+
+// Real hardware fact this covers: this machine's freely-licensed BIOS
+// substitute is a full VGA BIOS and programs VGA's native 16-line-per-row
+// text mode (Max Scan Line = 15) rather than genuine EGA's own 14-line
+// convention (see ega_render.h's RenderTextScreen comment). The renderer
+// must follow that real register, not a hardcoded row height -- otherwise
+// every glyph's last two scanlines (exactly where the VGA 8x16 font draws
+// descenders on g/y/p/q/j) get silently discarded.
+TEST(EgaRenderTest, RowHeightAndFrameSizeFollowTheRealMaxScanLineRegister) {
+    Ega ega;
+    ega.reset();
+    ega.out(0x3D4, 0x09); ega.out(0x3D5, 0x0F);  // Max Scan Line = 15 -> 16 lines/row
+    // Character 'g' (0x67), scanline 14 -- part of a real descender, and
+    // exactly the row the old hardcoded 14-line renderer never reached.
+    uint32_t glyph_off = uint32_t('g') * 32 + 14;
+    ega.vram[(glyph_off << 2) + 2] = 0xFF;  // every pixel in this row set
+    ega.vram[(0 << 2) + 0] = 'g';
+    ega.vram[(0 << 2) + 1] = 0x0F;  // fg=white, bg=black
+    SetPalette(ega, 15, 0x3F);
+
+    std::vector<uint8_t> rgba;
+    int w = 0, h = 0;
+    RenderTextScreen(ega, rgba, /*blink_on=*/false, w, h);
+    EXPECT_EQ(w, kTextRenderWidth);
+    EXPECT_EQ(h, 16 * 25);  // 400, not the old fixed 350
+    ASSERT_EQ(rgba.size(), std::size_t(kTextRenderWidth * 16 * 25 * 4));
+
+    std::size_t p = PixelIndex(0, 14);
+    EXPECT_EQ(rgba[p + 0], 255); EXPECT_EQ(rgba[p + 1], 255); EXPECT_EQ(rgba[p + 2], 255);
 }
 
 TEST(EgaRenderTest, RendersAGlyphInTheLivePaletteColors) {
@@ -58,7 +91,8 @@ TEST(EgaRenderTest, RendersAGlyphInTheLivePaletteColors) {
     ega.vram[(glyph_off << 2) + 2] = 0x80;
 
     std::vector<uint8_t> rgba;
-    RenderTextScreen(ega, rgba, /*blink_on=*/false);
+    int w = 0, h = 0;
+    RenderTextScreen(ega, rgba, /*blink_on=*/false, w, h);
 
     std::size_t i0 = PixelIndex(0, 0);  // set bit -> foreground (white)
     EXPECT_EQ(rgba[i0 + 0], 255); EXPECT_EQ(rgba[i0 + 1], 255); EXPECT_EQ(rgba[i0 + 2], 255);
@@ -82,7 +116,8 @@ TEST(EgaRenderTest, CursorDrawsAsASolidBlockAtItsProgrammedScanlines) {
     ega.out(0x3D4, 0x0B); ega.out(0x3D5, 0x06);  // cursor end scanline 6
 
     std::vector<uint8_t> rgba;
-    RenderTextScreen(ega, rgba, /*blink_on=*/true);
+    int w = 0, h = 0;
+    RenderTextScreen(ega, rgba, /*blink_on=*/true, w, h);
     // Scanline 5 (within the cursor's range): forced to foreground (white).
     std::size_t in_range = PixelIndex(0, 5);
     EXPECT_EQ(rgba[in_range + 0], 255); EXPECT_EQ(rgba[in_range + 1], 255); EXPECT_EQ(rgba[in_range + 2], 255);
@@ -101,13 +136,14 @@ TEST(EgaRenderTest, CursorIsHiddenWhenBlinkPhaseIsOffOrTheDisableBitIsSet) {
     ega.out(0x3D4, 0x0B); ega.out(0x3D5, 0x0D);  // covers the whole cell (0-13)
 
     std::vector<uint8_t> rgba_blink_off;
-    RenderTextScreen(ega, rgba_blink_off, /*blink_on=*/false);
+    int w = 0, h = 0;
+    RenderTextScreen(ega, rgba_blink_off, /*blink_on=*/false, w, h);
     std::size_t p = PixelIndex(0, 0);
     EXPECT_EQ(rgba_blink_off[p + 0], 0);  // background -- no cursor this phase
 
     ega.out(0x3D4, 0x0A); ega.out(0x3D5, 0x20);  // bit 5 -- cursor disabled outright
     std::vector<uint8_t> rgba_disabled;
-    RenderTextScreen(ega, rgba_disabled, /*blink_on=*/true);
+    RenderTextScreen(ega, rgba_disabled, /*blink_on=*/true, w, h);
     EXPECT_EQ(rgba_disabled[p + 0], 0);
 }
 
