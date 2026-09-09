@@ -60,12 +60,33 @@
     Home: [0xE0, 0x47], End: [0xE0, 0x4F], PageUp: [0xE0, 0x49], PageDown: [0xE0, 0x51],
     ArrowUp: [0xE0, 0x48], ArrowLeft: [0xE0, 0x4B], ArrowRight: [0xE0, 0x4D], ArrowDown: [0xE0, 0x50],
     NumpadEnter: [0xE0, 0x1C], NumpadDivide: [0xE0, 0x35],
+    // Print Screen and Pause/Break don't fit the simple prefix+break-bit
+    // convention above -- real AT hardware sends each as its own fixed byte
+    // sequence. Print Screen: a real 4-byte E0-prefixed make and a distinct
+    // 4-byte break. Pause/Break: one fixed 6-byte sequence sent entirely on
+    // press, with NO break code at all -- genuine, well-documented AT
+    // keyboard controller behavior (Scan Code Set 1), not an emulator
+    // simplification.
+    PrintScreen: { make: [0xE0, 0x2A, 0xE0, 0x37], break: [0xE0, 0xB7, 0xE0, 0xAA] },
+    Pause: { make: [0xE1, 0x1D, 0x45, 0xE1, 0x9D, 0xC5], break: [] },
   };
 
   let machine = null;
   function sendKey(code, isBreak) {
     const entry = SET1[code];
     if (entry === undefined || !machine) return;
+    if (entry && typeof entry === "object" && !Array.isArray(entry)) {
+      // Fixed, non-standard scancode sequences that don't fit the simple
+      // "prefix bytes + break-bit-on-the-last-byte" convention every other
+      // key uses -- Print Screen's real make/break are each their own
+      // 4-byte E0-prefixed sequences, and Pause/Break sends one fixed
+      // 6-byte sequence on press and has no real break code at all (a
+      // genuine, well-documented AT keyboard quirk -- see the comment you
+      // add at the SET1 entry).
+      const seq = isBreak ? entry.break : entry.make;
+      for (const b of seq) machine.injectScancode(b);
+      return;
+    }
     const bytes = Array.isArray(entry) ? entry.slice() : [entry];
     const last = bytes.length - 1;
     bytes[last] = isBreak ? (bytes[last] | 0x80) : bytes[last];
@@ -421,6 +442,7 @@
     lastT = null;
     requestAnimationFrame(frame);
     refreshHddControls();
+    refreshFkeyControls();
     if (new URLSearchParams(location.search).get("test") === "1") {
       window.__test = { machine, sendKey, screenEl };
     }
@@ -444,12 +466,60 @@
     clearScreenToBlack();
     if (audioCtx) { audioCtx.suspend().catch(() => {}); }
     refreshHddControls();
+    refreshFkeyControls();
   }
+
+  // ---- function/extended-key panel -- a real AT keyboard's F-keys and
+  // extended block, for anyone without a physical key to press (a Mac
+  // keyboard has no Insert/PrintScreen/ScrollLock/Pause key at all, and no
+  // discrete forward-Delete on laptops). A real keyboard sends nothing to a
+  // powered-off machine, so these only work while running.
+  const fkeyButtons = Array.from(document.querySelectorAll('#fkeyRow [data-key], #extraKeyRow [data-key]'));
+  const ctrlAltDelBtn = document.getElementById('ctrlAltDelBtn');
+  function refreshFkeyControls() {
+    const enabled = poweredOn && !!machine;
+    for (const b of fkeyButtons) b.disabled = !enabled;
+    ctrlAltDelBtn.disabled = !enabled;
+  }
+  for (const btn of fkeyButtons) {
+    btn.addEventListener('click', () => {
+      const key = btn.dataset.key;
+      sendKey(key, false);
+      // A real key tap has a real make-then-release gap; a synchronous
+      // back-to-back make+break can land inside the same JS turn as the
+      // machine's own real-time-paced instruction loop (requestAnimationFrame),
+      // which never gets a chance to run between them since JS is single-
+      // threaded -- the guest can end up never seeing the make code before
+      // the break overwrites it. 50ms mirrors a real, if fast, keystroke.
+      setTimeout(() => sendKey(key, true), 50);
+    });
+  }
+  ctrlAltDelBtn.addEventListener('click', () => {
+    if (!machine) return;
+    // The classic warm-boot combo: Ctrl make, Alt make, then Del make --
+    // using the ORIGINAL non-extended Delete scancode (0x53, the numpad
+    // Del/period key from the 84-key keyboard that predates the 101-key
+    // extended block), which is what the historical Ctrl-Alt-Del check
+    // (present in this machine's real Bochs-legacy BIOS, matching genuine
+    // x86 BIOS convention) looks for -- NOT SET1.Delete, which is the
+    // newer extended [0xE0, 0x53] forward-Delete key. No new C++ needed:
+    // the real BIOS's own keyboard ISR already implements the warm-boot
+    // check, exactly like genuine hardware.
+    machine.injectScancode(0x1D);        // Ctrl make
+    machine.injectScancode(0x38);        // Alt make
+    machine.injectScancode(0x53);        // Del make (classic non-extended)
+    setTimeout(() => {
+      machine.injectScancode(0x53 | 0x80);  // Del break
+      machine.injectScancode(0x38 | 0x80);  // Alt break
+      machine.injectScancode(0x1D | 0x80);  // Ctrl break
+    }, 50);
+  });
 
   powerSwitch.checked = false;  // off by default, every load -- a real machine doesn't power itself on
   powerSwitch.disabled = true;  // enabled once firmware has actually finished fetching -- its own
                                  // disabled state is the "still loading" signal, no status text needed
   clearScreenToBlack();
+  refreshFkeyControls();  // start disabled while machine is off
   powerSwitch.addEventListener("change", () => { if (powerSwitch.checked) powerOn(); else powerOff(); });
 
   // C:'s only save point is powerOff() above -- navigating away (closing

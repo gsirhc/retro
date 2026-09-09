@@ -445,6 +445,12 @@
   }
 
   .footer { margin-top: 26px; color: var(--dim); font-size: 12px; text-align: center; padding-bottom: 24px; }
+
+  /* Ctrl+Alt+Del button: distinctly styled as a special action */
+  button.danger-key {
+    border-color: var(--warn);
+    color: var(--warn);
+  }
 </style>
 </head>
 <body>
@@ -483,6 +489,38 @@
       <div class="row audio-row">
         <label><input type="checkbox" id="speakerEnabled"> Enable sound</label>
         <span class="muted">Off by default -- browsers block audio until you opt in, and so does this control.</span>
+      </div>
+    </div>
+
+    <div class="panel" id="fkeysCard">
+      <h2>Function &amp; extended keys</h2>
+      <div class="row" id="fkeyRow">
+        <button type="button" data-key="F1" disabled>F1</button>
+        <button type="button" data-key="F2" disabled>F2</button>
+        <button type="button" data-key="F3" disabled>F3</button>
+        <button type="button" data-key="F4" disabled>F4</button>
+        <button type="button" data-key="F5" disabled>F5</button>
+        <button type="button" data-key="F6" disabled>F6</button>
+        <button type="button" data-key="F7" disabled>F7</button>
+        <button type="button" data-key="F8" disabled>F8</button>
+        <button type="button" data-key="F9" disabled>F9</button>
+        <button type="button" data-key="F10" disabled>F10</button>
+        <button type="button" data-key="F11" disabled>F11</button>
+        <button type="button" data-key="F12" disabled>F12</button>
+        <button type="button" id="ctrlAltDelBtn" class="danger-key" disabled>Ctrl+Alt+Del</button>
+      </div>
+      <span class="muted">Keys a Mac keyboard has no dedicated key for:</span>
+      <div class="row" id="extraKeyRow">
+        <button type="button" data-key="Insert" disabled>Insert</button>
+        <button type="button" data-key="Delete" disabled>Delete</button>
+        <button type="button" data-key="Home" disabled>Home</button>
+        <button type="button" data-key="End" disabled>End</button>
+        <button type="button" data-key="PageUp" disabled>Page Up</button>
+        <button type="button" data-key="PageDown" disabled>Page Down</button>
+        <button type="button" data-key="PrintScreen" disabled>Print Screen</button>
+        <button type="button" data-key="ScrollLock" disabled>Scroll Lock</button>
+        <button type="button" data-key="Pause" disabled>Pause/Break</button>
+        <button type="button" data-key="NumLock" disabled>Num Lock</button>
       </div>
     </div>
 
