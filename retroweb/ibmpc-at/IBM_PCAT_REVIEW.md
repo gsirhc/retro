@@ -2109,3 +2109,12 @@ Both are real, defensible hardware-accuracy fixes (169/169 tests pass with the n
 
 This points to the game driving the Graphics Controller/Sequencer directly for this one screen (a common era technique — full BIOS mode-sets are slow) while relying on whatever Memory Mapping was already left over from its earlier CGA-mode-4 screens, rather than a complete, self-consistent mode-set. Whether that specific combination is well-defined on genuine 1980s EGA silicon, or is itself a period compatibility bug in a game whose only two shipped graphics drivers are `CGA.BGI` and `VGA256.BGI` (no true `EGA.BGI` — the game's own README tells EGA owners to run in CGA mode entirely, for every screen) is still unresolved. Not yet fixed; left as an open investigation rather than a guessed-at "fix" that isn't backed by a confirmed root cause.
 
+## 33. Boot automatically on page load; keep the screen focused through every control click
+
+Two UX changes, both `app.js`-only:
+
+- **Auto-boot**: the power switch used to start disabled-then-enabled, requiring the visitor to click it themselves once firmware finished loading. It now flips itself on (`powerSwitch.checked = true; powerOn();`) the instant the async firmware-fetch block resolves, landing the visitor straight at a running machine instead of an inert front panel. The switch and `powerOn()`/`powerOff()` themselves are unchanged and still fully functional -- a visitor can still power off and back on by hand exactly as before; only the very first boot is now automatic.
+- **Persistent screen focus**: every button on the page (F-keys, Ctrl+Alt+Del, floppy Insert/Eject, HDD controls, the power switch) steals keyboard focus onto itself when clicked, exactly like any button on any page -- which would otherwise silently swallow the visitor's next keystroke instead of routing it to the guest, since a real AT keyboard has no notion of "the front panel has focus." A document-wide `click` listener now refocuses the `#screen` canvas after every click, once the machine is powered on.
+
+**Verified live** (no committed Playwright suite exists yet for this machine, per CLAUDE.md's roadmap -- same as §31's verification): loaded the page fresh with the power switch never touched at all -- `powerSwitch.checked` flips to `true` within ~2s of load (as soon as firmware fetch resolves) and the machine boots all the way to a `C:\>` FreeDOS prompt unattended; clicking an F-key button and checking `document.activeElement` immediately afterward confirms it's back on `#screen`, not the button.
+
