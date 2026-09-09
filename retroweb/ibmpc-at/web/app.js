@@ -118,6 +118,15 @@
   screenEl.addEventListener("keydown", (e) => { sendKey(e.code, false); e.preventDefault(); });
   screenEl.addEventListener("keyup", (e) => { sendKey(e.code, true); e.preventDefault(); });
   screenEl.addEventListener("click", () => screenEl.focus());
+  // Every control on the page (floppy Insert/Eject, F-keys, Ctrl+Alt+Del,
+  // HDD buttons, the power switch itself) steals keyboard focus onto
+  // itself when clicked -- exactly like clicking any button on any page --
+  // which would otherwise silently swallow the visitor's very next
+  // keystroke instead of routing it to the guest. A real keyboard has no
+  // such thing as "the front panel has focus"; it's always live. Refocus
+  // the screen after every click on the page, once there's a machine for
+  // it to route keys to.
+  document.addEventListener("click", () => { if (poweredOn) screenEl.focus(); });
 
   // ---- floppy drives ------------------------------------------------
   // A real floppy is a mechanical slot: you can insert or eject one
@@ -541,7 +550,8 @@
     ]);
   });
 
-  powerSwitch.checked = false;  // off by default, every load -- a real machine doesn't power itself on
+  powerSwitch.checked = false;  // starts unchecked -- switched on programmatically the instant
+                                 // firmware finishes loading (see below), not by the user's own click
   powerSwitch.disabled = true;  // enabled once firmware has actually finished fetching -- its own
                                  // disabled state is the "still loading" signal, no status text needed
   clearScreenToBlack();
@@ -583,6 +593,10 @@
     }
     powerSwitch.disabled = false;
     refreshHddControls();
+    // Boot straight to a running machine once firmware is ready, rather
+    // than making the visitor find and click the power switch themselves.
+    powerSwitch.checked = true;
+    powerOn();
   })().catch((err) => {
     // no on-page error surface -- the power switch simply never enables;
     // the real failure detail goes to the console for diagnosis.
