@@ -2001,3 +2001,70 @@ no prompt when powered on with no writes yet, and a genuine
 `beforeunload` dialog *only* after a real write was made while
 powered on -- reload was blocked until the dialog was dismissed, and
 the page's own state (still powered on) survived exactly as expected.
+
+## 29. A real bug: text-mode descenders (g, y, p, q, j) silently clipped
+
+User-reported, screenshotted directly off the BIOS's own POST banner:
+"sourceforge", "nongnu", "vgabios" all showed lowercase g's with the
+descender loop missing. Diagnosed with this project's standard
+evidence-based method: extended the existing `render_screen` native
+diagnostic (a temporary debug print, removed once done) to dump the
+live CRTC's actual Maximum Scan Line register and character 'g''s raw
+plane-2 font bytes after a real boot -- not a guess.
+
+**Confirmed precisely**: `crtc_max_scan_line() = 15` (16 scan
+lines/row) and `crtc_vertical_display_end() = 399` (400 total lines) --
+this machine's freely-licensed BIOS substitute is a full VGA BIOS (see
+§6) and programs VGA's own native 640x400 16-line-per-row text mode,
+not genuine EGA's 640x350 14-line convention. `RenderTextScreen`
+(`ega_render.cpp`) hardcoded `ch_h = 14` regardless -- every glyph's
+last two scanlines were computed and then simply never drawn. For most
+letters that's invisible (blank padding rows), but the VGA 8x16 font
+draws g/y/p/q/j's descenders specifically in rows 12-15, so those
+letters lost their tails. Character 'g's actual font bytes confirmed
+it directly: row 14 was `0x78` (real descender pixels), never reached
+by a loop bounded at 14.
+
+**This is a genuine renderer bug, not another instance of the
+documented BIOS/hardware ceiling mismatch** (contrast §16's mode 13h,
+which real 1984 EGA silicon truly cannot display at all). Nothing here
+asks the hardware to do something impossible -- the CRTC registers are
+just real values the renderer wasn't reading, exactly the class of bug
+`RenderEgaNative16Screen` (§16) already avoids by deriving its own
+resolution from real Horizontal/Vertical Display End registers instead
+of a hardcoded mode table. Text mode simply predated that discipline
+(Phase 3/4, before it was established) and never got the same
+treatment.
+
+**Fix**: `RenderTextScreen` now takes `int &width, int &height` out-
+params (matching `RenderEgaNative16Screen`'s existing shape) and
+derives scan-lines-per-row from `ega.crtc_max_scan_line() + 1` instead
+of a hardcoded 14 -- trusting the real register, the same "read real
+CRTC state, don't guess a mode number" rule every other mode already
+follows. A freshly-reset `Ega` (`crtc_[0x09] == 0`, no BIOS has run
+yet) would compute a nonsensical 1-line-per-row frame, so that specific
+value falls back to the classic 14-line default rather than being
+taken literally -- no real text mode ever actually uses 1 line/row.
+`RenderScreen`'s text-mode dispatch case now takes its `out.width`/
+`out.height` from what `RenderTextScreen` actually reports rather than
+the `kTextRenderWidth`/`kTextRenderHeight` constants (which still exist
+as the classic-EGA default/fallback size, e.g. for the graphics-mode
+placeholder frame, just no longer hardcoded into the text path).
+
+**Verified**: 168/168 native tests (1 new:
+`RowHeightAndFrameSizeFollowTheRealMaxScanLineRegister`, programming
+Max Scan Line=15 directly and confirming both the reported 640x400
+frame size and that a font row 14 pixel -- the exact row the old code
+never reached -- actually renders); every pre-existing `EgaRenderTest`
+case updated for the new out-param signature but otherwise unchanged,
+confirming the reset-default 14-line/640x350 behavior is preserved
+byte-for-byte. Native `render_screen` diagnostic re-run against the
+real boot: frame reports 640x400 (previously always 640x350), and a
+pixel-level crop of "sourceforge"/"nongnu"/"vgabios" shows full,
+correctly-shaped g's with intact descenders. Rebuilt the WASM module
+and confirmed live: the canvas's own internal resolution now reads
+640x400 during a real boot (`wasm_machine.cpp` needed no changes at
+all -- `renderWidth()`/`renderHeight()` already read whatever
+`RenderScreen` reports each frame, and `app.js`'s existing "resize the
+canvas to match" logic, built for the graphics modes, handles text
+mode's now-variable height for free).

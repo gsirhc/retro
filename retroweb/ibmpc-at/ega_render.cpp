@@ -17,9 +17,19 @@ void DecodeEgaColor(uint8_t v, uint8_t &r, uint8_t &g, uint8_t &b) {
 
 }  // namespace
 
-void RenderTextScreen(const Ega &ega, std::vector<uint8_t> &rgba, bool blink_on) {
-    constexpr int cw = 8, ch_h = 14, cols = 80, rows = 25;
-    constexpr int W = kTextRenderWidth, H = kTextRenderHeight;
+void RenderTextScreen(const Ega &ega, std::vector<uint8_t> &rgba, bool blink_on, int &width, int &height) {
+    constexpr int cw = 8, cols = 80, rows = 25;
+    // Register value 0 means "1 scan line/row" -- not a real text mode
+    // (and what a freshly-reset, never-BIOS-programmed Ega reads as) --
+    // so treat it as "not configured yet" and fall back to the classic
+    // 14-line default rather than rendering a nonsensical 25-pixel-tall
+    // frame. Any other value (13 for genuine EGA's own 14-line convention,
+    // 15 for this machine's VGA BIOS substitute's native 16-line text
+    // mode, etc.) is trusted as-is -- see this function's header comment.
+    int scan_lines = int(ega.crtc_max_scan_line()) + 1;
+    const int ch_h = scan_lines <= 1 ? 14 : scan_lines;
+    const int W = cw * cols, H = ch_h * rows;
+    width = W; height = H;
     rgba.assign(std::size_t(W) * std::size_t(H) * 4, 0);
 
     auto cell_offset = [&](int row, int col) -> uint32_t {
@@ -159,9 +169,7 @@ void RenderScreen(const Ega &ega, RenderedFrame &out, bool blink_on) {
             return;
         case ScreenMode::kText:
         default:
-            out.width = kTextRenderWidth;
-            out.height = kTextRenderHeight;
-            RenderTextScreen(ega, out.rgba, blink_on);
+            RenderTextScreen(ega, out.rgba, blink_on, out.width, out.height);
             return;
     }
 }
