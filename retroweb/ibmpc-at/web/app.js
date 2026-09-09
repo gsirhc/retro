@@ -72,6 +72,29 @@
   };
 
   let machine = null;
+
+  // The 8042 model has one single-byte output register, exactly like real
+  // hardware -- a second byte written before the guest's IRQ1 handler has
+  // read the first just overwrites it, the byte never delivered. A real
+  // keyboard can't outrun that (it clocks one bit at a time over a slow
+  // serial line), but a JS loop calling injectScancode() twice in the same
+  // synchronous turn can: nothing runs the emulator's real-time run loop
+  // (rAF-paced) in between, so the CPU never gets a chance to read byte one
+  // before byte two clobbers it. Any multi-byte Set 1 sequence -- every
+  // E0-prefixed extended key (arrows, Home/End/PgUp/PgDn, Insert/Delete,
+  // NumpadEnter/Divide, CtrlRight/AltRight), Print Screen's 4-byte
+  // sequences, Pause's 6-byte sequence, and the Ctrl-Alt-Del combo below --
+  // needs real spacing between EVERY byte, not just between make and
+  // break. See IBM_PCAT_REVIEW.md.
+  function injectScancodeSequence(codes) {
+    let i = 0;
+    (function step() {
+      if (!machine || i >= codes.length) return;
+      machine.injectScancode(codes[i++]);
+      if (i < codes.length) setTimeout(step, 20);
+    })();
+  }
+
   function sendKey(code, isBreak) {
     const entry = SET1[code];
     if (entry === undefined || !machine) return;
@@ -83,14 +106,13 @@
       // 6-byte sequence on press and has no real break code at all (a
       // genuine, well-documented AT keyboard quirk -- see the comment you
       // add at the SET1 entry).
-      const seq = isBreak ? entry.break : entry.make;
-      for (const b of seq) machine.injectScancode(b);
+      injectScancodeSequence(isBreak ? entry.break : entry.make);
       return;
     }
     const bytes = Array.isArray(entry) ? entry.slice() : [entry];
     const last = bytes.length - 1;
     bytes[last] = isBreak ? (bytes[last] | 0x80) : bytes[last];
-    for (const b of bytes) machine.injectScancode(b);
+    injectScancodeSequence(bytes);
   }
   const screenEl = document.getElementById("screen");
   screenEl.addEventListener("keydown", (e) => { sendKey(e.code, false); e.preventDefault(); });
@@ -504,15 +526,19 @@
     // x86 BIOS convention) looks for -- NOT SET1.Delete, which is the
     // newer extended [0xE0, 0x53] forward-Delete key. No new C++ needed:
     // the real BIOS's own keyboard ISR already implements the warm-boot
-    // check, exactly like genuine hardware.
-    machine.injectScancode(0x1D);        // Ctrl make
-    machine.injectScancode(0x38);        // Alt make
-    machine.injectScancode(0x53);        // Del make (classic non-extended)
-    setTimeout(() => {
-      machine.injectScancode(0x53 | 0x80);  // Del break
-      machine.injectScancode(0x38 | 0x80);  // Alt break
-      machine.injectScancode(0x1D | 0x80);  // Ctrl break
-    }, 50);
+    // check, exactly like genuine hardware. All 6 bytes go through
+    // injectScancodeSequence() so each one gets its own real gap -- sending
+    // even the 3 makes back to back clobbered everything but the last
+    // (Del), so the BIOS only ever saw a lone Del with no Ctrl/Alt held
+    // and never recognized the combo. See IBM_PCAT_REVIEW.md.
+    injectScancodeSequence([
+      0x1D,          // Ctrl make
+      0x38,          // Alt make
+      0x53,          // Del make (classic non-extended)
+      0x53 | 0x80,   // Del break
+      0x38 | 0x80,   // Alt break
+      0x1D | 0x80,   // Ctrl break
+    ]);
   });
 
   powerSwitch.checked = false;  // off by default, every load -- a real machine doesn't power itself on

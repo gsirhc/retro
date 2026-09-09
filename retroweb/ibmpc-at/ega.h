@@ -129,6 +129,21 @@ public:
     // IBM_PCAT_REVIEW.md's font-descender investigation.
     uint8_t crtc_max_scan_line() const { return uint8_t(crtc_[0x09] & 0x1F); }
 
+    // Offset Register (CRTC R13): the real per-scanline memory stride, in
+    // WORDS (2 bytes) per plane -- genuinely independent of Horizontal
+    // Display End. A real CRT controller advances exactly this many bytes
+    // between scanlines regardless of how much of that row is actually
+    // displayed; software that programs a logical scan-line width wider
+    // than what it shows (panning, or a sub-window blit into a larger
+    // off-screen buffer) relies on this distinction. See
+    // crtc_scanline_stride() below and IBM_PCAT_REVIEW.md.
+    uint8_t crtc_offset() const { return crtc_[0x13]; }
+    // Convenience: the real per-plane byte stride between scanlines
+    // (crtc_offset() * 2), with the same "0 means not programmed yet"
+    // fallback the other CRTC accessors use -- a renderer should walk
+    // VRAM by this, not by (displayed width / 8), whenever it differs.
+    int crtc_scanline_stride() const { return int(crtc_[0x13]) * 2; }
+
     // 256KB planar VRAM: 4 bitplanes x 64KB, byte-interleaved as
     // vram[(plane_offset << 2) + plane] -- see the file header.
     std::array<uint8_t, 256 * 1024> vram{};
