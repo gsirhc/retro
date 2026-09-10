@@ -18,14 +18,14 @@ async function typeLine(page: import("@playwright/test").Page, text: string) {
 
 test("type, LIST, ASM, and RUN a program entirely through the terminal", async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator("#screen")).toContainText("\\", { timeout: 25000 });
+  await expect(page.locator("#screen .xterm-rows")).toContainText("\\", { timeout: 45000 });
   await page.click("#screen");
 
   const E = await page.evaluate(() => (window as any).CGOAC_ENTRYPOINTS);
 
   // Enter the shell
   await typeLine(page, `${E.SHELL_ENTRY.toString(16).toUpperCase()}R`);
-  await expect(page.locator("#screen")).toContainText("6502 ASSEMBLY CODER", { timeout: 5000 });
+  await expect(page.locator("#screen .xterm-rows")).toContainText("6502 ASSEMBLY CODER", { timeout: 20000 });
 
   // Type a small program -- one explicitly numbered (out of typing order,
   // to prove the shell sorts by number, not entry order), the rest
@@ -42,15 +42,15 @@ test("type, LIST, ASM, and RUN a program entirely through the terminal", async (
   await typeLine(page, "LIST");
   // PRINT_ENTRY reformats into fixed columns (editor.s) -- "START:" plus
   // its guaranteed separator and padding, see CGOAC6502_REVIEW.md.
-  await expect(page.locator("#screen")).toContainText("10 START:  LDA #$2A", { timeout: 5000 });
-  const screenText = await page.locator("#screen").innerText();
+  await expect(page.locator("#screen .xterm-rows")).toContainText("10 START:  LDA #$2A", { timeout: 20000 });
+  const screenText = await page.locator("#screen .xterm-rows").innerText();
   const listReply = screenText.slice(screenText.lastIndexOf(">LIST"));
   expect(listReply.indexOf("10 START")).toBeLessThan(listReply.indexOf("20         STA"));
   expect(listReply.indexOf("20         STA")).toBeLessThan(listReply.indexOf("30         JMP"));
 
   // ASM
   await typeLine(page, "ASM");
-  await expect(page.locator("#screen")).toContainText("Ok", { timeout: 5000 });
+  await expect(page.locator("#screen .xterm-rows")).toContainText("Ok", { timeout: 20000 });
 
   // RUN -- JMP START loops forever, which is fine here: this just proves
   // the assembled object code is real, executable 65C02.
@@ -64,19 +64,19 @@ test("type, LIST, ASM, and RUN a program entirely through the terminal", async (
 
 test("Ctrl-C breaks a genuinely hung (infinite-loop) program back to the shell", async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator("#screen")).toContainText("\\", { timeout: 25000 });
+  await expect(page.locator("#screen .xterm-rows")).toContainText("\\", { timeout: 45000 });
   await page.click("#screen");
 
   const E = await page.evaluate(() => (window as any).CGOAC_ENTRYPOINTS);
   await typeLine(page, `${E.SHELL_ENTRY.toString(16).toUpperCase()}R`);
-  await expect(page.locator("#screen")).toContainText("6502 ASSEMBLY CODER", { timeout: 5000 });
+  await expect(page.locator("#screen .xterm-rows")).toContainText("6502 ASSEMBLY CODER", { timeout: 20000 });
 
   // A tight, genuinely infinite loop -- see bios.s's NMI_HANDLER and
   // editor_test.cpp's own Ctrl-C coverage for the ROM-level proof; this is
   // the same scenario driven through the real browser terminal instead.
   await typeLine(page, "10 START: JMP START");
   await typeLine(page, "ASM");
-  await expect(page.locator("#screen")).toContainText("Ok", { timeout: 5000 });
+  await expect(page.locator("#screen .xterm-rows")).toContainText("Ok", { timeout: 20000 });
 
   await typeLine(page, "RUN");
   await page.waitForTimeout(500);
@@ -85,7 +85,7 @@ test("Ctrl-C breaks a genuinely hung (infinite-loop) program back to the shell",
   const s2 = await page.evaluate(() => window.__machine.cycleCount());
   expect(s2).toBeGreaterThan(s1);   // genuinely spinning, not stalled elsewhere
 
-  const screenBefore = await page.locator("#screen").innerText();
+  const screenBefore = await page.locator("#screen .xterm-rows").innerText();
   const promptsBefore = (screenBefore.match(/>/g) || []).length;
 
   // xterm.js's default keybinding sends the real ASCII ETX ($03) byte for
@@ -93,13 +93,13 @@ test("Ctrl-C breaks a genuinely hung (infinite-loop) program back to the shell",
   await page.keyboard.press("Control+C");
   await page.waitForTimeout(1000);
 
-  const screenAfter = await page.locator("#screen").innerText();
+  const screenAfter = await page.locator("#screen .xterm-rows").innerText();
   const promptsAfter = (screenAfter.match(/>/g) || []).length;
   expect(promptsAfter).toBeGreaterThan(promptsBefore);   // a fresh ">" landed
 
   // Shell is fully usable afterward -- LIST still works.
   await typeLine(page, "LIST");
-  await expect(page.locator("#screen")).toContainText("10 START: JMP START", { timeout: 5000 });
+  await expect(page.locator("#screen .xterm-rows")).toContainText("10 START: JMP START", { timeout: 20000 });
 });
 
 test("backspace erases the character, not just the cursor", async ({ page }) => {
@@ -110,7 +110,7 @@ test("backspace erases the character, not just the cursor", async ({ page }) => 
   // at the ROM level. This is the same scenario driven through the real
   // browser terminal and input-pacing pipeline instead.
   await page.goto("/");
-  await expect(page.locator("#screen")).toContainText("\\", { timeout: 25000 });
+  await expect(page.locator("#screen .xterm-rows")).toContainText("\\", { timeout: 45000 });
   await page.click("#screen");
 
   await page.evaluate(() => {
@@ -126,7 +126,7 @@ test("backspace erases the character, not just the cursor", async ({ page }) => 
 
   const E = await page.evaluate(() => (window as any).CGOAC_ENTRYPOINTS);
   await typeLine(page, `${E.SHELL_ENTRY.toString(16).toUpperCase()}R`);
-  await expect(page.locator("#screen")).toContainText("6502 ASSEMBLY CODER", { timeout: 5000 });
+  await expect(page.locator("#screen .xterm-rows")).toContainText("6502 ASSEMBLY CODER", { timeout: 20000 });
 
   await page.keyboard.type("10 LDA", { delay: 100 });
   await page.keyboard.press("Backspace");   // erase the trailing 'A'
@@ -136,6 +136,6 @@ test("backspace erases the character, not just the cursor", async ({ page }) => 
   // space (overwrites the 'A'), then a second BS (backs over the space
   // too).
   await expect
-    .poll(() => page.evaluate(() => (window as any).__rawOut), { timeout: 5000 })
+    .poll(() => page.evaluate(() => (window as any).__rawOut), { timeout: 20000 })
     .toContain("\x08 \x08");
 });

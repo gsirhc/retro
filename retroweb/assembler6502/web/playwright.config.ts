@@ -22,8 +22,13 @@ export default defineConfig({
 
   // Assembling + page-write-timed burns can take real wall-clock seconds
   // (or the "instant burn" toggle skips that -- most specs use it); boot
-  // itself gets generous headroom for the same contention reason above.
-  timeout: 60_000,
+  // itself gets generous headroom for the same contention reason above --
+  // bumped from 60s/20s after real 2-worker contention (locally and in CI)
+  // pushed a from-cold boot past the previous 25s per-assertion margin, an
+  // honest (if slow) `expect` timeout that a real xterm.js implementation
+  // detail was separately disguising as bogus terminal content (see
+  // CGOAC6502_REVIEW.md and the .xterm-rows selector fix in tests/).
+  timeout: 90_000,
   expect: { timeout: 20_000 },
 
   use: {

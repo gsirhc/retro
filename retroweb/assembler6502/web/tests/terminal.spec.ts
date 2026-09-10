@@ -3,7 +3,7 @@ import { test, expect } from "@playwright/test";
 test.describe("terminal", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto("/");
-    await expect(page.locator("#screen")).toContainText("\\", { timeout: 25000 });
+    await expect(page.locator("#screen .xterm-rows")).toContainText("\\", { timeout: 45000 });
   });
 
   test("defaults to the Modern (xterm) profile, no CRT housing", async ({ page }) => {
@@ -45,7 +45,7 @@ test.describe("terminal", () => {
       });
       await page.click("#screen");
       await page.keyboard.type(text);
-      await expect.poll(() => page.evaluate(() => (window as any).__typed.length), { timeout: 5000 })
+      await expect.poll(() => page.evaluate(() => (window as any).__typed.length), { timeout: 20000 })
         .toBeGreaterThanOrEqual(text.length);
       return page.evaluate(() => (window as any).__typed as number[]);
     }

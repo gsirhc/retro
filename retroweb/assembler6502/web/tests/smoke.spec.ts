@@ -8,7 +8,7 @@ test("boots the real ROM straight to the Wozmon prompt", async ({ page }) => {
   page.on("pageerror", (e) => errors.push(e.message));
 
   await page.goto("/");
-  await expect(page.locator("#screen")).toContainText("\\", { timeout: 25000 });
+  await expect(page.locator("#screen .xterm-rows")).toContainText("\\", { timeout: 45000 });
   // FullBoard's LCD carries no boot banner any more -- RESET just clears it.
   expect(await page.evaluate(() => window.__machine.lcdText())).toBe(" ".repeat(32));
 
@@ -17,7 +17,7 @@ test("boots the real ROM straight to the Wozmon prompt", async ({ page }) => {
 
 test("a real examine command round-trips through the terminal", async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator("#screen")).toContainText("\\", { timeout: 25000 });
+  await expect(page.locator("#screen .xterm-rows")).toContainText("\\", { timeout: 45000 });
   await page.click("#screen");
   // Typed with a real per-character delay: the ACIA has only a one-byte RX
   // register, so characters arriving faster than the emulator's frame loop
@@ -26,5 +26,5 @@ test("a real examine command round-trips through the terminal", async ({ page })
   // the pacing gap this currently relies on typing speed to avoid.
   await page.keyboard.type("0.F", { delay: 100 });
   await page.keyboard.press("Enter");
-  await expect(page.locator("#screen")).toContainText("0000:", { timeout: 5000 });
+  await expect(page.locator("#screen .xterm-rows")).toContainText("0000:", { timeout: 20000 });
 });

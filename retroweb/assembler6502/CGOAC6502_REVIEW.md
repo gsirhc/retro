@@ -1072,3 +1072,45 @@ did — so hovering the part that visually reads as "the button" gave no
 click affordance even though the click handler (bound to the parent `<g>`,
 covering the whole group via event bubbling) already fired correctly
 either way. A cursor-affordance bug, not a functional one.
+
+## 14. `assembler6502-web-test`'s first real CI run: a genuine 42-test failure, and two distinct real bugs behind it
+
+This machine's suites had passed reliably every time they were run locally, but had never actually been exercised by GitHub Actions until the CI job-naming/alignment pass that added `assembler6502-test`/`assembler6502-web-test`. Both failed on that first real run, for two entirely unrelated reasons: the native GoogleTest suite (`tests/`) segfaulted on 42/83 cases (14.a, below), and the Playwright suite (`web/tests/`) separately failed with terminal assertions receiving `"WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW "` where real ROM output (a Wozmon `\` banner, typed program text, etc.) was expected (14.b-14.d).
+
+### 14.a `Machine`'s `this`-capturing lambdas didn't survive a move -- GCC's CI build didn't apply NRVO where clang locally did
+
+Every GoogleTest helper across `assembler_test.cpp`/`editor_test.cpp`/`load_test.cpp` boots the real firmware via a pattern like:
+
+```cpp
+Machine bootIntoShell(std::string& out) {
+    ...
+    Machine m;
+    m.on_serial_out = [&](uint8_t c) { out += char(c); };
+    ...
+    return m;
+}
+```
+
+`Machine` (machine.h) wires several `this`-capturing lambdas into itself at construction -- `cpu`'s bus read/write callbacks, the VIA `on_pa_change`/`read_pb` LCD-strobe hooks. A named local returned by value only reliably elides the copy/move when the compiler can apply NRVO, which is never guaranteed by the standard and isn't applied uniformly across compilers -- `bootIntoShell`'s own early-return branch (`if (!f) { ADD_FAILURE(); return Machine(); }`) gives the function two distinct return expressions, which is exactly the shape that tends to defeat NRVO. Clang (this repo's own dev machine) happened to elide the copy anyway; GCC 13 in CI didn't, so the return actually moved -- and the moved-into `Machine`'s lambdas still captured the *old*, about-to-be-destroyed object's address. Every subsequent `m.run_cycles()`/`m.type_char()` call after that dereferenced a dangling `this`: segfault. 83 tests use this pattern; 42 of them (everything after the first ones lucky enough to run before the corruption's effects propagated) crashed.
+
+**Fixed** by making `Machine` properly, safely movable instead of relying on elision: added `Cpu::rebind_bus()` (re-points just the callback, leaving every register/cycle-count field alone -- the existing `cpu = Cpu(newBus)` pattern the constructor used would have reset those), extracted the wiring into a private `wire()` method, and gave `Machine` an explicit move constructor/assignment that moves every member then calls `wire()` again so the callbacks re-point at the new object. Copy is deleted outright (nothing legitimately needs two `Machine`s sharing one `on_serial_out`). **Verified** with `-fno-elide-constructors` (forces every by-value return to actually move, the worst case regardless of compiler/optimization level) -- all 83 tests still pass.
+
+### 14.b The Playwright suite's own `#screen` locator was reading an xterm.js implementation detail, not real terminal content
+
+xterm.js appends a hidden `<span class="xterm-char-measure-element" aria-hidden="true">` (textContent `"W".repeat(32)`, used purely to measure monospace character-cell width) as a sibling of the real rendered rows. Every spec in this suite asserted directly against `page.locator("#screen")` -- the whole terminal container, not just its rendered rows -- and Playwright's `toContainText`/`textContent`-based matching does not respect `aria-hidden` the way `.innerText()` does, so it picks up that hidden span's text too. Normally harmless (the real content is *also* present, so `toContainText` still finds its expected substring somewhere in the concatenation) -- until the real content genuinely isn't there yet, at which point the assertion's failure message shows only the hidden span's `"WWWW..."` filler, which reads exactly like corrupted terminal output. (One test's own comments had already independently diagnosed this exact symptom as "a separate, already-documented cosmetic flake" and worked around it locally by spying on `Machine.readOutput` instead of the DOM -- correct diagnosis, but not applied to the other ~40 call sites across the suite.)
+
+**Fixed** by scoping every `#screen` locator used for text assertions to `#screen .xterm-rows` (the real rendered-rows container; excludes the hidden measurement span) across all six spec files -- confirmed via a standalone reproduction that `.xterm-rows`'s `textContent`/`innerText` match exactly (no leak) while the bare container's `textContent` also picks up an entire embedded `<style>` block's text on top of the hidden span, for good measure.
+
+### 14.c Real (if occasional) 2-worker CPU contention needed more generous timeouts
+
+Once 14.b's leak stopped masking it, a real -- if intermittent -- effect remained: this suite's `workers: 2` setting runs two real `requestAnimationFrame`-paced 1MHz CPU cores in two separate Chromium processes sharing one host's CPU (the config's own pre-existing comment already named this exact tradeoff). Under genuine contention (confirmed both in CI and locally, including on a mundane, otherwise-idle dev machine busy with unrelated background processes), a from-cold boot occasionally took longer than the previous 25s/5s/10s assertion timeouts. This is expected, correct behavior for a wall-clock-paced emulator under real resource contention (`retro/CLAUDE.md`'s "never speed up the CPU" rule means the fix is a more generous wait, not a faster boot) -- bumped the boot-banner waits to 45s and the shorter follow-up assertions to 20s (matching the global `expect.timeout` default), and the overall per-test timeout from 60s to 90s to leave room for the rest of a test after a slow boot.
+
+### 14.d A real, deterministic bug: `beforeEach`'s own last click stole terminal focus
+
+Independent of both of the above, five specific `saveload.spec.ts` tests failed *consistently*, regardless of worker count or timeout margin (proven by a clean run at `workers: 1` with the timeouts already generously bumped) -- a real, non-flaky bug, not more contention. `test.describe("Save / Load")`'s `beforeEach` opens the floating Save/Load popup with `page.click("#saveBtn")` as its last step, preparing every test's fixtures for `#pgmName`/`#pgmSave`/`#pgmFile`/`.chip-lib` interactions -- but clicking a button moves `document.activeElement` onto that button (ordinary browser behavior), and xterm.js's helper `<textarea>` needs actual DOM focus to receive `page.keyboard` input at all. Every test's very first `enterProgram()`/`typeLine()` call -- typing the shell-entry address and a program, immediately after `beforeEach` -- typed into the Save button and reached the emulator not at all.
+
+This stayed invisible in the tests that only check Save's own UI feedback (a "Saved" status label, a download link, a chip-lib entry) -- none of those require the typed *content* to have actually landed, so they kept passing throughout. It's real for every test that verifies the saved/loaded program's actual text (typed SAVE's line-by-line row check, Load-from-shelf's round-trip, the anti-re-entry-pollution test, Load's own-echo overlap check, and the plain-text-import test) -- confirmed directly: a standalone reproduction of `beforeEach`'s exact click sequence showed `document.activeElement` landing on `<button id="saveBtn">`, and typing the shell-entry sequence afterward left the terminal showing only its original boot banner, unchanged.
+
+**Fixed** with one more `page.click("#screen")` at the end of `beforeEach`, refocusing the terminal before any test body runs (some individual tests already had their own later refocus clicks, after their *own* subsequent popup interactions -- those stay, and are still needed for typing that happens after a *second* popup round-trip mid-test).
+
+**Verified**: `saveload.spec.ts` alone, 10/10 at `workers: 1`; the full suite at `workers: 2, retries: 0` across three separate runs showed only the expected residual 14.c-style contention flake (0-1 tests, always a boot-timeout, never a repeat of 14.b's garbage-text symptom or 14.d's focus bug) -- and at `workers: 2, retries: 2` (this repo's actual CI configuration), the full 30-test suite finished 0 failed / 2 flaky (both recovered on retry) / 28 passed.

@@ -8,7 +8,7 @@ import { test, expect } from "@playwright/test";
 test.describe("Help panel", () => {
   test("shows this build's real shell entry point, not placeholder text", async ({ page }) => {
     await page.goto("/");
-    await expect(page.locator("#screen")).toContainText("\\", { timeout: 25000 });
+    await expect(page.locator("#screen .xterm-rows")).toContainText("\\", { timeout: 45000 });
     await page.click("#helpBtn");
     for (const id of ["hShell", "hShell2"]) {
       await expect(page.locator("#" + id)).toHaveText(/^[0-9A-F]+R$/);
@@ -18,7 +18,7 @@ test.describe("Help panel", () => {
 
   test("shows this build's real OS-call addresses, not placeholder text", async ({ page }) => {
     await page.goto("/");
-    await expect(page.locator("#screen")).toContainText("\\", { timeout: 25000 });
+    await expect(page.locator("#screen .xterm-rows")).toContainText("\\", { timeout: 45000 });
     await page.click("#helpBtn");
     for (const id of ["hPrintChar", "hPrintStr", "hLcdPutc", "hLcdPuts", "hLcdClear", "hLcdLine1", "hLcdLine2"]) {
       await expect(page.locator("#" + id)).toHaveText(/^\$[0-9A-F]+$/);
@@ -29,12 +29,22 @@ test.describe("Help panel", () => {
 test.describe("Save / Load", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto("/");
-    await expect(page.locator("#screen")).toContainText("\\", { timeout: 25000 });
+    await expect(page.locator("#screen .xterm-rows")).toContainText("\\", { timeout: 45000 });
     await page.click("#screen");
     // Save/Load moved into a floating popup (terminal header) -- open it
     // once here since almost every test in this block fills/clicks its
     // controls (#pgmName, #pgmSave, #pgmFile, #instantXfer, .chip-lib).
     await page.click("#saveBtn");
+    // #saveBtn's own click leaves it as document.activeElement (ordinary
+    // browser button-click focus behaviour) -- xterm's helper textarea
+    // needs real focus to receive page.keyboard input at all, so without
+    // this every test's first enterProgram()/typeLine() call here typed
+    // into the button and reached the emulator not at all. Silent for
+    // tests that only check Save's own status/UI feedback (nothing
+    // requires the typed program to have landed for those to still pass),
+    // real for every test that verifies the actual saved/loaded content --
+    // see CGOAC6502_REVIEW.md.
+    await page.click("#screen");
   });
 
   // Same real per-character/per-line pacing pattern as editor.spec.ts:
@@ -70,7 +80,7 @@ test.describe("Save / Load", () => {
 
     await page.fill("#pgmName", "hello.asm");
     await page.click("#pgmSave");
-    await expect(page.locator("#pgmStatus")).toContainText("Saved", { timeout: 10000 });
+    await expect(page.locator("#pgmStatus")).toContainText("Saved", { timeout: 20000 });
     await expect(page.locator("#pgmDownload")).toBeVisible();
     await expect(page.locator("#pgmDownload")).toHaveAttribute("download", "hello.asm");
     await expect(page.locator(".chip-lib button", { hasText: "hello.asm" })).toBeVisible();
@@ -84,7 +94,7 @@ test.describe("Save / Load", () => {
     // left of the last line instead of its own row. Reproduces the exact
     // repro that surfaced this (type SAVE directly, not via the popup).
     await enterProgram(page, ["LDA #$58", "JSR $8003"]);
-    await expect(page.locator("#screen")).toContainText("LDA #$58", { timeout: 5000 });
+    await expect(page.locator("#screen .xterm-rows")).toContainText("LDA #$58", { timeout: 20000 });
     await typeLine(page, "SAVE");
     await page.waitForTimeout(500);
 
@@ -109,7 +119,7 @@ test.describe("Save / Load", () => {
     await enterProgram(page, ["LDA #$2A", "STA $50"]);
     await page.fill("#pgmName", "shelved.asm");
     await page.click("#pgmSave");
-    await expect(page.locator("#pgmStatus")).toContainText("Saved", { timeout: 10000 });
+    await expect(page.locator("#pgmStatus")).toContainText("Saved", { timeout: 20000 });
 
     // Overwrite the program with something else, then load the shelved
     // one back in and confirm LIST shows the original, not the decoy.
@@ -118,8 +128,8 @@ test.describe("Save / Load", () => {
     await page.waitForTimeout(1500);
 
     await typeLine(page, "LIST");
-    await expect(page.locator("#screen")).toContainText("LDA #$2A", { timeout: 5000 });
-    await expect(page.locator("#screen")).toContainText("STA $50", { timeout: 5000 });
+    await expect(page.locator("#screen .xterm-rows")).toContainText("LDA #$2A", { timeout: 20000 });
+    await expect(page.locator("#screen .xterm-rows")).toContainText("STA $50", { timeout: 20000 });
   });
 
   test("manually entering the shell (as the Help panel instructs), then Save, doesn't pollute the program with a bogus re-entry line", async ({ page }) => {
@@ -136,7 +146,7 @@ test.describe("Save / Load", () => {
     await enterProgram(page, ["LDA #$2A", "STA $50"]);
     await page.fill("#pgmName", "clean.asm");
     await page.click("#pgmSave");
-    await expect(page.locator("#pgmStatus")).toContainText("Saved", { timeout: 10000 });
+    await expect(page.locator("#pgmStatus")).toContainText("Saved", { timeout: 20000 });
 
     // Restore terminal focus -- filling/clicking the Save panel moved it
     // away, and typeLine()'s keystrokes need it back on #screen.
@@ -145,8 +155,8 @@ test.describe("Save / Load", () => {
     // Wait for PRINT_ENTRY's own column-padded rendering specifically --
     // "STA $50" alone would already be satisfied by the earlier typed
     // entry's own echo, well before LIST's reply actually arrives.
-    await expect(page.locator("#screen")).toContainText("20         STA $50", { timeout: 5000 });
-    const screenText = await page.locator("#screen").innerText();
+    await expect(page.locator("#screen .xterm-rows")).toContainText("20         STA $50", { timeout: 20000 });
+    const screenText = await page.locator("#screen .xterm-rows").innerText();
     const listReply = screenText.slice(screenText.lastIndexOf(">LIST"));
     // Exactly the two typed lines -- no third stray numbered line.
     expect((listReply.match(/^\d+\s/gm) || []).length).toBe(2);
@@ -159,7 +169,7 @@ test.describe("Save / Load", () => {
     // returns the cursor to column 0, so each loaded line would overwrite
     // the previous one in place instead of landing on its own row. Checked
     // against the raw output byte stream (not rendered DOM text) --
-    // page.locator("#screen").innerText() has shown it can miss freshly-
+    // page.locator("#screen .xterm-rows").innerText() has shown it can miss freshly-
     // rendered xterm.js content that a screenshot correctly captures, so
     // spying on Machine.readOutput (same pattern as terminal.spec.ts's
     // typeChar spy) is the reliable way to check this. See
@@ -168,7 +178,7 @@ test.describe("Save / Load", () => {
     await enterProgram(page, ["LDA #$2A", "STA $50"]);
     await page.fill("#pgmName", "rows.asm");
     await page.click("#pgmSave");
-    await expect(page.locator("#pgmStatus")).toContainText("Saved", { timeout: 10000 });
+    await expect(page.locator("#pgmStatus")).toContainText("Saved", { timeout: 20000 });
 
     // Restore terminal focus -- filling/clicking the Save panel moved it
     // away, and typeLine()'s keystrokes (inside enterProgram) need it back.
@@ -188,13 +198,15 @@ test.describe("Save / Load", () => {
     // always clears first) or a literal NEW command -- to appear *after*
     // the checkpoint above, meaning this LOAD's own reply has actually
     // arrived. Polled against the raw output spy, not rendered DOM text --
-    // the same innerText()/toContainText unreliability this test's header
-    // comment describes applies here too: a fresh page.locator("#screen")
-    // check can still miss just-rendered xterm.js content (or catch it
-    // mid-flicker, e.g. "WWWWW..." glyph-measurement placeholder frames --
-    // a separate, already-documented cosmetic flake), where the underlying
-    // byte stream is unambiguous.
-    await expect.poll(async () => (await getRawOut(page)).slice(beforeLoad), { timeout: 5000 }).toContain("Ok");
+    // this test's header comment's innerText()/toContainText concern
+    // still applies (a fresh DOM read can miss just-rendered xterm.js
+    // content a screenshot would catch), where the underlying byte stream
+    // is unambiguous. (The "WWWWW..." glyph-measurement placeholder leak
+    // that used to alias onto this same symptom is now fixed at the
+    // selector level -- every #screen locator in this suite scopes to
+    // .xterm-rows, which excludes xterm's aria-hidden measurement span;
+    // see CGOAC6502_REVIEW.md.)
+    await expect.poll(async () => (await getRawOut(page)).slice(beforeLoad), { timeout: 20000 }).toContain("Ok");
     await page.waitForTimeout(300);
 
     const raw = await getRawOut(page);
@@ -218,19 +230,19 @@ test.describe("Save / Load", () => {
       mimeType: "text/plain",
       buffer: Buffer.from("LDX #$05\nSTX $60\n"),
     });
-    await expect(page.locator("#pgmStatus")).toContainText("imported.asm", { timeout: 5000 });
+    await expect(page.locator("#pgmStatus")).toContainText("imported.asm", { timeout: 20000 });
     await page.waitForTimeout(1500);
 
     await typeLine(page, "LIST");
     // PRINT_ENTRY column-aligns unlabeled lines -- number, one space, then
     // an 8-wide blank label field before the mnemonic (editor.s).
-    await expect(page.locator("#screen")).toContainText("10         LDX #$05", { timeout: 5000 });
-    await expect(page.locator("#screen")).toContainText("20         STX $60", { timeout: 5000 });
+    await expect(page.locator("#screen .xterm-rows")).toContainText("10         LDX #$05", { timeout: 20000 });
+    await expect(page.locator("#screen .xterm-rows")).toContainText("20         STX $60", { timeout: 20000 });
 
     // And it genuinely assembles -- proves the LF bytes really did become
     // real line entries, not just visually similar terminal output.
     await typeLine(page, "ASM");
-    await expect(page.locator("#screen")).toContainText("Ok", { timeout: 5000 });
+    await expect(page.locator("#screen .xterm-rows")).toContainText("Ok", { timeout: 20000 });
   });
 
   test("instant transfer bypasses the realistic ACIA-baud pacing", async ({ page }) => {
@@ -238,7 +250,7 @@ test.describe("Save / Load", () => {
     await enterProgram(page, ["LDA #$2A", "STA $50"]);
     await page.fill("#pgmName", "fast.asm");
     await page.click("#pgmSave");
-    await expect(page.locator("#pgmStatus")).toContainText("Saved", { timeout: 10000 });
+    await expect(page.locator("#pgmStatus")).toContainText("Saved", { timeout: 20000 });
   });
 
   test("Save/Load work correctly even when the terminal is already inside the shell", async ({ page }) => {
@@ -252,6 +264,6 @@ test.describe("Save / Load", () => {
 
     await page.fill("#pgmName", "already-in-shell.asm");
     await page.click("#pgmSave");
-    await expect(page.locator("#pgmStatus")).toContainText("Saved", { timeout: 10000 });
+    await expect(page.locator("#pgmStatus")).toContainText("Saved", { timeout: 20000 });
   });
 });
