@@ -36,7 +36,10 @@ hardware**. When you work here, that comes first.
 
 - **CPU / bus / clock timing.** 2 MHz is 2 MHz. The 8080 runs at real T-state
   rates paced to wall-clock time. No "turbo", no cycle multipliers in normal
-  operation.
+  operation — "normal operation" means the live page a visitor loads. An
+  automated test may run the guest CPU faster (see "Current sanctioned
+  overrides" below); the shipped emulator never does, under any URL or
+  control a real visitor can reach.
 - **Terminal / serial output rates.** A 110-baud Teletype prints at 10
   characters per second and *throttles the CPU* while it does. A VT100 at its
   real baud. Do not meter output faster than the selected terminal's rate.
@@ -72,9 +75,31 @@ Current sanctioned overrides:
   the default path.
 - **Automated tests** (`?test=1`) may force paper-tape / cassette / floppy
   **load speed** to `Max` so a suite doesn't wait out a ~14-minute read or a
-  needless ~166 ms/rev pause on every disk poll. The CPU stays at real 2 MHz
-  under test — no cycle multiplier beyond the existing load-time `turbo`. A
-  few tests select `Realistic` on purpose, to prove the throttle still works.
+  needless ~166 ms/rev pause on every disk poll. A few tests select
+  `Realistic` on purpose, to prove the throttle still works.
+- **Automated-test CPU clock multiplier.** A machine whose Playwright suite
+  is genuinely CPU-bound (its own real-time-paced boot/POST cost, not just
+  a device-transfer wait — e.g. ibmpc-at's ~45 s 8 MHz POST + FreeDOS boot)
+  may run the guest CPU faster than real speed, gated behind an explicit
+  test-only flag (ibmpc-at: `?test=1&fast=1`) that most tests pass by
+  default via their shared `boot()` helper. This is a genuine change from
+  the load-speed-only precedent above — the CPU itself, not just a
+  peripheral's transfer rate, runs faster than real hardware — so it is
+  held to the same three override rules, applied to the *test harness*
+  rather than the live UI: the flag defaults off (a bare page load, and
+  `?test=1` alone, both stay real-speed), it's clearly named and commented
+  at its one call site in `app.js`, and it never reaches a real visitor —
+  there is no control on the page that sets it. Every machine keeps at
+  least one **smoke test** that deliberately omits the flag (real speed)
+  specifically to verify the "genuine, wall-clock-paced clock" contract
+  itself still holds (e.g. ibmpc-at's `tests/smoke.spec.ts` measures actual
+  cycles/real-second and asserts it lands near the real clock rate) —
+  mirrors the existing "a few tests select `Realistic` on purpose"
+  practice above, now extended to the CPU. Altair8800 and assembler6502's
+  suites aren't meaningfully CPU-bound today (their cost is device-transfer
+  and per-test browser/wasm startup, already addressed above), so neither
+  currently defines this flag — add it there only if a real CPU-bound
+  bottleneck shows up, following this same pattern.
 - **`?help`'s in-terminal manual** prints at a boosted rate (not the selected
   terminal's real baud) so the how-to page lands in ~8 s instead of minutes on
   an ASR-33; a keypress skips straight to the end regardless. This affects only

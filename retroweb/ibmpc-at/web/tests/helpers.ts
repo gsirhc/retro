@@ -25,9 +25,15 @@ export const TEST_QS = "test=1";
  */
 export async function boot(
   page: Page,
-  opts: { params?: string; expectScreen?: RegExp | null; timeout?: number } = {},
+  opts: { params?: string; expectScreen?: RegExp | null; timeout?: number; realtime?: boolean } = {},
 ): Promise<void> {
-  const qs = opts.params ? `${TEST_QS}&${opts.params}` : TEST_QS;
+  // Every test in this suite runs the guest CPU sped up by default
+  // (`fast=1` -- see app.js's TEST_CPU_MULTIPLIER) so it doesn't pay a real
+  // ~45s 8 MHz POST + FreeDOS boot on every test. Pass `realtime: true` to
+  // opt a specific (smoke) test back into genuine real-speed pacing -- see
+  // tests/smoke.spec.ts and CLAUDE.md "Current sanctioned overrides".
+  const speed = opts.realtime ? "" : "&fast=1";
+  const qs = TEST_QS + speed + (opts.params ? `&${opts.params}` : "");
   await page.goto(`/?${qs}`);
   await page.waitForFunction(() => !!(window as any).__test?.machine, null, {
     timeout: 15_000,

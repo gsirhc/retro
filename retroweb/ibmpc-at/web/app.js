@@ -16,6 +16,19 @@
   let storedTheme; try { storedTheme = localStorage.getItem("retro8080.theme"); } catch {}
   pageTheme.value = applyTheme(
     new URLSearchParams(location.search).get("theme") || storedTheme || root.dataset.theme || "win");
+
+  // Automated-test-only CPU speed multiplier: `?test=1&fast=1`. A real visitor
+  // has no control that reaches this -- it exists solely so the Playwright
+  // suite (whose real cost is a genuine ~45s 8 MHz POST + FreeDOS boot, not
+  // just a device-transfer wait) doesn't pay that in full on every test.
+  // `?test=1` alone still runs the real, wall-clock-paced 8 MHz clock -- the
+  // suite's shared boot() helper opts most tests into `fast=1` explicitly,
+  // and a couple of smoke tests deliberately don't, to verify the real-speed
+  // contract itself still holds. See CLAUDE.md "Current sanctioned
+  // overrides" (automated-test CPU clock multiplier).
+  const testParams = new URLSearchParams(location.search);
+  const TEST_CPU_MULTIPLIER =
+    testParams.get("test") === "1" && testParams.get("fast") === "1" ? 20 : 1;
   pageTheme.addEventListener("change", () => {
     applyTheme(pageTheme.value);
     try { localStorage.setItem("retro8080.theme", pageTheme.value); } catch {}
@@ -207,19 +220,30 @@
   // real elapsed wall-clock time (see frame() below), so consecutive
   // frames' audio durations naturally stay in sync with no separate
   // cross-referencing needed.
-  function pumpAudio(frameStartCycle, cyclesThisFrame) {
+  function pumpAudio(frameStartCycle, cyclesThisFrame, dtSeconds) {
     const edges = machine.speakerEdges();  // always drain -- even if muted, so the log can't grow unbounded
     if (!audioCtx || !speakerCheckbox.checked || cyclesThisFrame <= 0) return;
     const sampleRate = audioCtx.sampleRate;
-    const durationSeconds = cyclesThisFrame / 8000000;
+    // Real elapsed wall-clock time for this frame, not cyclesThisFrame/8MHz --
+    // those two only match when TEST_CPU_MULTIPLIER is 1. Deriving duration
+    // from the cycle count instead would schedule audio far ahead of
+    // audioCtx.currentTime under a fast-test multiplier (cyclesThisFrame is
+    // `multiplier`x too big for one real frame), building an ever-growing
+    // backlog of queued buffers. Using real dtSeconds keeps this correct
+    // (and harmless -- just pitch-shifted, which nothing here asserts on)
+    // at any multiplier.
+    const durationSeconds = dtSeconds;
     const sampleCount = Math.max(1, Math.round(durationSeconds * sampleRate));
     const buffer = audioCtx.createBuffer(1, sampleCount, sampleRate);
     const data = buffer.getChannelData(0);
 
     let level = lastLevel, sampleIdx = 0;
     const cycles = edges.cycles, levels = edges.levels;
+    // Effective this-frame rate: real 8 MHz normally, `multiplier`x that
+    // under the fast-test multiplier -- see durationSeconds above.
+    const cyclesPerRealSecond = cyclesThisFrame / dtSeconds;
     for (let i = 0; i < cycles.length; i++) {
-      let edgeSample = Math.round(((cycles[i] - frameStartCycle) / 8000000) * sampleRate);
+      let edgeSample = Math.round(((cycles[i] - frameStartCycle) / cyclesPerRealSecond) * sampleRate);
       if (edgeSample < 0) edgeSample = 0;
       if (edgeSample > sampleCount) edgeSample = sampleCount;
       const v = level ? 0.25 : -0.25;
@@ -260,13 +284,15 @@
     lastT = t;
     dtSeconds = Math.min(dtSeconds, 0.25);  // clamp a backgrounded-tab gap -- no runaway catch-up burst
 
-    cycleCredit += dtSeconds * 8000000;  // real, fixed 8 MHz -- never sped up, per CLAUDE.md
+    // Real, fixed 8 MHz -- never sped up for a real visitor, per CLAUDE.md.
+    // TEST_CPU_MULTIPLIER is 1 outside `?test=1&fast=1`; see its own comment.
+    cycleCredit += dtSeconds * 8000000 * TEST_CPU_MULTIPLIER;
     const cyclesThisFrame = Math.floor(cycleCredit);
     cycleCredit -= cyclesThisFrame;
     const frameStartCycle = machine.totalCycles();
     if (cyclesThisFrame > 0) machine.runCycles(cyclesThisFrame);
 
-    pumpAudio(frameStartCycle, cyclesThisFrame);
+    pumpAudio(frameStartCycle, cyclesThisFrame, dtSeconds);
 
     const blinkOn = Math.floor(t / 266) % 2 === 0;  // ~1.9Hz block-cursor blink
     const rgba = machine.renderFrame(blinkOn);
