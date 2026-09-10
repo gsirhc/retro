@@ -7,10 +7,42 @@
 namespace machine {
 
 Machine::Machine() : cpu(cpu65c02::Bus{}) {
+    wire();
+    power_on_reset();
+    if (on_power_led) on_power_led(true);   // D1: hardwired to +5V, no software involvement -- see header
+}
+
+Machine::Machine(Machine&& other) noexcept
+    : cpu(std::move(other.cpu)), bus(std::move(other.bus)), lcd(std::move(other.lcd)),
+      on_power_led(std::move(other.on_power_led)), on_rx_led(std::move(other.on_rx_led)),
+      on_tx_led(std::move(other.on_tx_led)), on_serial_out(std::move(other.on_serial_out)),
+      total_cycles_(other.total_cycles_), reset_cycles_left_(other.reset_cycles_left_),
+      lcd_attached_(other.lcd_attached_), prev_e_(other.prev_e_), prev_rs_(other.prev_rs_), prev_rw_(other.prev_rw_) {
+    wire();   // cpu/bus register + memory state moved above; this only re-points the `this`-capturing callbacks
+}
+
+Machine& Machine::operator=(Machine&& other) noexcept {
+    if (this == &other) return *this;
+    cpu = std::move(other.cpu);
+    bus = std::move(other.bus);
+    lcd = std::move(other.lcd);
+    on_power_led = std::move(other.on_power_led);
+    on_rx_led = std::move(other.on_rx_led);
+    on_tx_led = std::move(other.on_tx_led);
+    on_serial_out = std::move(other.on_serial_out);
+    total_cycles_ = other.total_cycles_;
+    reset_cycles_left_ = other.reset_cycles_left_;
+    lcd_attached_ = other.lcd_attached_;
+    prev_e_ = other.prev_e_; prev_rs_ = other.prev_rs_; prev_rw_ = other.prev_rw_;
+    wire();
+    return *this;
+}
+
+void Machine::wire() {
     cpu65c02::Bus cb;
     cb.read = [this](uint16_t addr) { return bus.read(addr); };
     cb.write = [this](uint16_t addr, uint8_t v) { bus.write(addr, v); };
-    cpu = cpu65c02::Cpu(cb);
+    cpu.rebind_bus(cb);   // leaves a/x/y/sp/pc/p/cycles alone -- only the callbacks move
 
     bus.acia.on_tx = [this](uint8_t byte) {
         if (on_serial_out) on_serial_out(byte);
@@ -34,9 +66,6 @@ Machine::Machine() : cpu(cpu65c02::Bus{}) {
         // reset_via_irq exactly like a genuinely bare board.
         return lcd_attached_ ? uint8_t(0x00) : uint8_t(0xFF);
     };
-
-    power_on_reset();
-    if (on_power_led) on_power_led(true);   // D1: hardwired to +5V, no software involvement -- see header
 }
 
 void Machine::set_lcd_attached(bool attached) {

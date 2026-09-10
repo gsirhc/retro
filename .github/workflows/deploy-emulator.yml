@@ -24,7 +24,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test:
+  altair8800-test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -82,8 +82,8 @@ jobs:
   # Playwright integration + fidelity suite: drives the real front end in a
   # headless browser and asserts control behaviour + terminal output. A red run
   # here blocks the deploy (build needs it).
-  web-test:
-    needs: test
+  altair8800-web-test:
+    needs: altair8800-test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -122,7 +122,7 @@ jobs:
   # 6502 Assembler: GoogleTest suite + Klaus Dormann's 6502/65C02 functional
   # test suites, plus building the real ROM from cpu6502/rom/ source (cc65,
   # not fetched -- see CGOAC6502_REVIEW.md §8).
-  cgoac-test:
+  assembler6502-test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -131,8 +131,8 @@ jobs:
 
   # Playwright suite for the 6502 Assembler front end: boots the real ROM,
   # drives the board controls, terminal, and ROM programmer in a real browser.
-  cgoac-web-test:
-    needs: cgoac-test
+  assembler6502-web-test:
+    needs: assembler6502-test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -168,18 +168,75 @@ jobs:
           retention-days: 7
 
   # IBM PC/AT: GoogleTest suite over the 80286 core + AT chipset (see
-  # IBM_PCAT_REVIEW.md). No committed Playwright suite yet for this
-  # machine's front end -- that's a later phase per the approved plan --
-  # so native tests only for now, same as this repo's other machines had
-  # before their own front-end suites existed.
+  # IBM_PCAT_REVIEW.md).
   ibmpcat-test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - run: make -C retroweb/ibmpc-at check
 
+  # Playwright suite for the IBM PC/AT front end: boots the real 80286 core
+  # + shipped FreeDOS HDD image, drives keyboard/floppy/HDD/speaker/theme
+  # controls and asserts EGA text-mode screen contents (see
+  # IBM_PCAT_REVIEW.md's Playwright section). Shares the same cached HDD
+  # image build as the `build` job below -- see its own comment on the
+  # cache step.
+  ibmpcat-web-test:
+    needs: ibmpcat-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: latest
+
+      - working-directory: retroweb/ibmpc-at/web
+        run: make roms
+
+      - name: Cache IBM PC/AT FreeDOS HDD image
+        id: ibmpcat-hdd
+        uses: actions/cache@v4
+        with:
+          path: retroweb/ibmpc-at/disks/freedos-hdd.img
+          key: ibmpcat-hdd-${{ hashFiles('retroweb/ibmpc-at/*.h', 'retroweb/ibmpc-at/*.cpp', 'retroweb/ibmpc-at/disks/*.cpp', 'retroweb/ibmpc-at/disks/*.sh', 'retroweb/ibmpc-at/roms/*.sh') }}
+
+      - name: Build IBM PC/AT FreeDOS HDD image
+        if: steps.ibmpcat-hdd.outputs.cache-hit != 'true'
+        run: make -C retroweb/ibmpc-at hdd-image
+
+      - working-directory: retroweb/ibmpc-at/web
+        run: make ibmpcat.js hdd-image
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - working-directory: retroweb/ibmpc-at/web
+        run: make test-install
+
+      - working-directory: retroweb/ibmpc-at/web
+        run: make test
+
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ibmpcat-playwright-report
+          path: |
+            retroweb/ibmpc-at/web/playwright-report/
+            retroweb/ibmpc-at/web/test-results/
+          retention-days: 7
+
   build:
-    needs: [test, web-test, cgoac-test, cgoac-web-test, ibmpcat-test]
+    needs:
+      [
+        altair8800-test,
+        altair8800-web-test,
+        assembler6502-test,
+        assembler6502-web-test,
+        ibmpcat-test,
+        ibmpcat-web-test,
+      ]
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:

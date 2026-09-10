@@ -11,7 +11,9 @@ test.describe("retroweb landing page", () => {
     await page.goto(HOME);
     await expect(page).toHaveTitle(/RETRO/i);
 
-    const card = page.locator("a.machine-card");
+    // scoped by href -- assembler6502/ and ibmpc-at/ each have their own
+    // .machine-card on the same page now too
+    const card = page.locator('a.machine-card[href="altair8800/"]');
     await expect(card).toHaveAttribute("href", "altair8800/"); // resolves in the deployed _site
     await expect(card.locator(".name")).toHaveText(/MITS Altair 8800/i);
 

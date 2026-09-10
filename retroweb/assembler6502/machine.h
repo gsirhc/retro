@@ -74,6 +74,21 @@ public:
 
     Machine();
 
+    // Machine wires several `this`-capturing lambdas into its own members
+    // at construction (cpu's bus read/write, the VIA/LCD strobe hooks) --
+    // a plain compiler-generated copy or move would leave those pointing
+    // at the old object, which segfaults the instant anything runs against
+    // the new one (bitten by exactly this in CI: GCC 13 didn't apply NRVO
+    // to a test helper's `Machine boot(...) { ...; return m; }` the way
+    // clang happened to locally, so the by-value return actually moved and
+    // promptly crashed). Move is made safe by re-wiring in wire() after
+    // the move; copy is deleted outright since two Machines legitimately
+    // sharing one on_serial_out/on_*_led callback set makes no sense.
+    Machine(const Machine&) = delete;
+    Machine& operator=(const Machine&) = delete;
+    Machine(Machine&& other) noexcept;
+    Machine& operator=(Machine&& other) noexcept;
+
     void power_on_reset();     // starts the DS1813 hold; press_reset() re-arms it mid-run too
     void press_reset() { power_on_reset(); }
 
@@ -96,6 +111,13 @@ private:
     bool prev_e_ = false, prev_rs_ = false, prev_rw_ = false;
 
     void step_one(int budget);
+
+    // (Re-)establishes every `this`-capturing callback: cpu's bus
+    // read/write, and the VIA/ACIA hooks. Safe to call repeatedly --
+    // called once from the constructor, again from the move constructor
+    // and move-assignment after the moved-from wiring comes along for the
+    // ride still pointing at the old object.
+    void wire();
 };
 
 } // namespace machine

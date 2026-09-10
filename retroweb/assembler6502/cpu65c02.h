@@ -61,6 +61,13 @@ public:
 
     explicit Cpu(Bus bus) : bus_(std::move(bus)) {}
 
+    // Re-points the bus callbacks only, leaving every register and the
+    // cycle count untouched -- for an owner (Machine) that has just moved
+    // and needs its `this`-capturing read/write lambdas rebound to the new
+    // address, without losing in-flight execution state the way replacing
+    // the whole Cpu object (a-la `cpu = Cpu(newBus)`) would.
+    void rebind_bus(Bus bus) { bus_ = std::move(bus); }
+
     // Load PC from the reset vector ($FFFC/$FFFD). SP settles at 0xFD: a
     // real 65C02 decrements SP three times during reset with R/W forced
     // high (no actual bus writes), so from a power-on SP of 0 it lands on
