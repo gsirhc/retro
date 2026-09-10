@@ -69,6 +69,8 @@ blob-report/
 retroweb/altair8800/web/.playwright/
 retroweb/altair8800/web/coverage/
 retroweb/altair8800/web/.v8-coverage/
+retroweb/ibmpc-at/web/coverage/
+retroweb/ibmpc-at/web/.v8-coverage/
 
 retroweb/ibmpc-at/disks/x86BOOT.img
 retroweb/ibmpc-at/disks/x86DSK0*.img

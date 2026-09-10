@@ -16,11 +16,13 @@
 //                                          // renderWidth()/renderHeight() after (resolution varies by mode)
 //   m.injectScancode(0x1E);               // real Set 1 scan code (see i8042.h)
 //   const edges = m.speakerEdges();       // {cycles: Float64Array, levels: Uint8Array}
+//   m.textScreen();                       // test-only: current text-mode screen as a string, "" in graphics modes
 
 #include <emscripten/bind.h>
 #include <emscripten/val.h>
 
 #include <cstdint>
+#include <string>
 #include <vector>
 
 #include "../chipset.h"
@@ -169,6 +171,35 @@ public:
     // instead of a steady tone/held sample level.
     bool speakerLevel() const { return m_.chipset.speaker.level(); }
 
+    // ---- test-only convenience: text-mode screen as a string --------------
+    // Real hardware has no such capability -- this stands in for a person's
+    // own eyes on the CRT, so a test can assert on boot banners/prompts the
+    // way altair8800/assembler6502's Playwright suites assert on their
+    // serial-terminal buffer text. Mirrors ega_render.cpp's RenderTextScreen
+    // character addressing exactly (see that function's own comments for why
+    // the column count and start offset come from the live CRTC registers
+    // rather than a hardcoded 80): the character byte at plane 0 of each
+    // cell, one row per line, attribute byte ignored. Returns "" outside
+    // text mode -- renderFrame()/renderWidth()/renderHeight() are the real,
+    // mode-agnostic way to see the screen; this is a test convenience only.
+    std::string textScreen() const {
+        const auto &ega = m_.chipset.ega;
+        if (ibmpcat::DetectScreenMode(ega) != ibmpcat::ScreenMode::kText) return "";
+        constexpr int kColsFallback = 80, kRows = 25;  // rows fixed, matching RenderTextScreen
+        int cols_reg = int(ega.crtc_horizontal_display_end()) + 1;
+        int cols = cols_reg <= 1 ? kColsFallback : cols_reg;
+        std::string out;
+        out.reserve(std::size_t(cols + 1) * kRows);
+        for (int row = 0; row < kRows; ++row) {
+            for (int col = 0; col < cols; ++col) {
+                uint32_t plane_off = (uint32_t(ega.start_offset()) + uint32_t(row * cols + col)) & 0xFFFF;
+                out += char(ega.vram[(plane_off << 2) + 0]);
+            }
+            out += '\n';
+        }
+        return out;
+    }
+
     val speakerEdges() {
         std::vector<ibmpcat::PcSpeaker::Edge> edges = m_.chipset.speaker.drain_edges();
         std::vector<double> cycles(edges.size());
@@ -221,5 +252,6 @@ EMSCRIPTEN_BINDINGS(ibmpcat_machine) {
         .function("clearHddDirty", &WasmMachine::clearHddDirty)
         .function("hddImage", &WasmMachine::hddImage)
         .function("speakerLevel", &WasmMachine::speakerLevel)
-        .function("speakerEdges", &WasmMachine::speakerEdges);
+        .function("speakerEdges", &WasmMachine::speakerEdges)
+        .function("textScreen", &WasmMachine::textScreen);
 }

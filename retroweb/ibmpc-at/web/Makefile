@@ -21,7 +21,7 @@ EMFLAGS = -O2 -std=c++17 -lembind --no-entry \
 ibmpcat.js: $(SRC)
 	$(EMCC) $(EMFLAGS) $(SRC) -o $@
 
-.PHONY: roms hdd-image serve clean
+.PHONY: roms hdd-image serve test test-install coverage clean
 # Firmware + shipped HDD image are fetched/built via the native-core
 # Makefile's own targets (single source of truth for pinning/verification,
 # see ../roms/fetch-bios.sh and ../disks/build_freedos_hdd.cpp), then
@@ -60,5 +60,34 @@ serve: ibmpcat.js roms
 	@echo "serving on http://localhost:8000  (Ctrl-C to stop)"
 	python3 devserve.py 8000
 
+# Playwright integration suite (tests/) -- needs firmware/roms/the shipped
+# HDD image the same way `serve` does (see its own comment above), plus
+# `npm ci` once (test-install also fetches the Chromium binary Playwright
+# drives). Ports 8300/8310 (this suite's own webServer block in
+# playwright.config.ts) are dedicated to this machine's Playwright run,
+# distinct from `serve`'s 8000, so a hand-run dev server and an automated
+# test run never collide.
+test: ibmpcat.js roms
+	@if [ ! -f disks/freedos-hdd.img ]; then \
+	  echo "disks/freedos-hdd.img not found -- run 'make hdd-image' first"; \
+	  echo "(builds the shipped FreeDOS image by running the real installer; takes real minutes, run once)."; \
+	  exit 1; \
+	fi
+	npx playwright test
+
+# same suite, one worker, with V8 line/branch/function coverage for app.js
+# -> coverage/index.html  (+ coverage/lcov.info)
+coverage: ibmpcat.js roms
+	@if [ ! -f disks/freedos-hdd.img ]; then \
+	  echo "disks/freedos-hdd.img not found -- run 'make hdd-image' first"; \
+	  exit 1; \
+	fi
+	COVERAGE=1 npx playwright test
+
+test-install:
+	npm ci
+	npx playwright install --with-deps chromium
+
 clean:
 	rm -f ibmpcat.js ibmpcat.wasm
+	rm -rf test-results playwright-report coverage .v8-coverage
