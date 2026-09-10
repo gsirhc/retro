@@ -15,9 +15,15 @@ export default defineConfig({
   // Each page runs a real requestAnimationFrame-paced 1MHz CPU core -- too
   // much parallelism starves individual tabs of real CPU time, which (per
   // machine.h's wall-clock pacing contract) makes the *emulated* boot
-  // itself take longer, not just the test. Capped well below the core
-  // count rather than left to Playwright's default heuristic.
-  workers: process.env.CI ? 2 : 3,
+  // itself take longer, not just the test. GitHub Actions' shared 2-vCPU
+  // runners can't reliably give two such real-time-CPU-bound Chromium
+  // processes a fair scheduling slice -- generous timeouts (see below)
+  // brought failures down but didn't eliminate them (CGOAC6502_REVIEW.md
+  // #14.c/#14.d), so CI runs this suite serially instead: no contention
+  // between workers to begin with, at the cost of longer CI wall-clock
+  // time for a suite that's small either way. Local runs keep real
+  // parallelism (this repo's own dev hardware tolerates it fine).
+  workers: process.env.CI ? 1 : 3,
   reporter: process.env.CI ? [["list"], ["html", { open: "never" }]] : [["list"]],
 
   // Assembling + page-write-timed burns can take real wall-clock seconds
