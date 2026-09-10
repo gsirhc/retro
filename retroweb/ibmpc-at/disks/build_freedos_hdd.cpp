@@ -49,14 +49,25 @@ std::vector<uint8_t> ReadFile(const std::string &path) {
 // Reconstructs the 80x25 text-mode screen as plain ASCII, following the
 // CRTC's current start-address register (so this stays correct even if
 // the BIOS/DOS scrolls by moving the start offset instead of the bytes).
+//
+// Must follow the real planar VRAM layout ega.h documents and
+// ega_render.cpp actually uses -- vram[(plane_offset << 2) + plane], plane
+// 0 = character, plane 1 = attribute -- not a flat byte-pair buffer. An
+// earlier version of this function used a flat `0x18000`-based, x2-stride
+// model that doesn't correspond to anything this emulator's EGA actually
+// implements, so it only ever read zeroed VRAM: every "screen" it saw was
+// blank regardless of what the BIOS/FreeDOS installer had actually drawn.
+// That silently broke the installer-progress detection below (every Step's
+// wait_for never matched), which is what surfaced this: the harness ran
+// for the full cycle budget and reported failure with a blank last screen.
 std::string ScreenText(Machine &m) {
-    uint32_t base = 0x18000 + uint32_t(m.chipset.ega.start_offset()) * 2;
+    const auto &ega = m.chipset.ega;
     std::string out;
     for (int row = 0; row < 25; ++row) {
         std::string line;
         for (int col = 0; col < 80; ++col) {
-            uint32_t off = base + uint32_t(row * 80 + col) * 2;
-            uint8_t ch = m.chipset.ega.vram[off & 0x3FFFF];
+            uint32_t plane_off = (uint32_t(ega.start_offset()) + uint32_t(row * 80 + col)) & 0xFFFF;
+            uint8_t ch = ega.vram[(plane_off << 2) + 0];
             line.push_back((ch >= 32 && ch < 127) ? char(ch) : ' ');
         }
         while (!line.empty() && line.back() == ' ') line.pop_back();
