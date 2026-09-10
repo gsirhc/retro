@@ -5,10 +5,12 @@ on:
     branches: [main]
     paths:
       - "retroweb/**"
+      - "cpu6502/rom/**"
       - ".github/workflows/deploy-emulator.yml"
   pull_request:
     paths:
       - "retroweb/**"
+      - "cpu6502/rom/**"
       - ".github/workflows/deploy-emulator.yml"
   workflow_dispatch:
 
@@ -117,12 +119,72 @@ jobs:
             retroweb/altair8800/web/test-results/
           retention-days: 7
 
+  # 6502 Assembler: GoogleTest suite + Klaus Dormann's 6502/65C02 functional
+  # test suites, plus building the real ROM from cpu6502/rom/ source (cc65,
+  # not fetched -- see CGOAC6502_REVIEW.md §8).
+  cgoac-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y cc65
+      - run: make -C retroweb/assembler6502 check
+
+  # Playwright suite for the 6502 Assembler front end: boots the real ROM,
+  # drives the board controls, terminal, and ROM programmer in a real browser.
+  cgoac-web-test:
+    needs: cgoac-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y cc65
+
+      - uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: latest
+
+      - working-directory: retroweb/assembler6502/web
+        run: make wasm roms
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - working-directory: retroweb/assembler6502/web
+        run: npm ci
+
+      - working-directory: retroweb/assembler6502/web
+        run: npx playwright install --with-deps chromium
+
+      - working-directory: retroweb/assembler6502/web
+        run: npx playwright test
+
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cgoac6502-playwright-report
+          path: |
+            retroweb/assembler6502/web/playwright-report/
+            retroweb/assembler6502/web/test-results/
+          retention-days: 7
+
+  # IBM PC/AT: GoogleTest suite over the 80286 core + AT chipset (see
+  # IBM_PCAT_REVIEW.md). No committed Playwright suite yet for this
+  # machine's front end -- that's a later phase per the approved plan --
+  # so native tests only for now, same as this repo's other machines had
+  # before their own front-end suites existed.
+  ibmpcat-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: make -C retroweb/ibmpc-at check
+
   build:
-    needs: [test, web-test]
+    needs: [test, web-test, cgoac-test, cgoac-web-test, ibmpcat-test]
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y cc65
 
       - uses: mymindstorm/setup-emsdk@v14
         with:
@@ -136,9 +198,39 @@ jobs:
       # checksummed, fetched into the Pages artifact so users need supply nothing.
       - uses: ./.github/actions/fetch-altair-media
 
+      # 6502 Assembler's wasm module + its real ROM, built from cpu6502/rom/ source
+      - working-directory: retroweb/assembler6502/web
+        run: make wasm roms
+
+      # IBM PC/AT: BIOS/VGA-BIOS ROMs (fetched, checksummed) are cheap; the
+      # shipped FreeDOS HDD image is built by actually running the real
+      # FreeDOS 1.3 installer end to end against the emulator (see
+      # IBM_PCAT_REVIEW.md §11) -- genuinely slow (real minutes: tens of
+      # billions of emulated 8MHz cycles, every floppy read paced to its
+      # genuine transfer rate), so it's cached across runs, keyed on
+      # everything that could change its bytes (the native core + the
+      # disk-build harness + the fetch scripts' pinned checksums).
+      - name: Cache IBM PC/AT FreeDOS HDD image
+        id: ibmpcat-hdd
+        uses: actions/cache@v4
+        with:
+          path: retroweb/ibmpc-at/disks/freedos-hdd.img
+          key: ibmpcat-hdd-${{ hashFiles('retroweb/ibmpc-at/*.h', 'retroweb/ibmpc-at/*.cpp', 'retroweb/ibmpc-at/disks/*.cpp', 'retroweb/ibmpc-at/disks/*.sh', 'retroweb/ibmpc-at/roms/*.sh') }}
+
+      - name: Build IBM PC/AT FreeDOS HDD image
+        if: steps.ibmpcat-hdd.outputs.cache-hit != 'true'
+        run: make -C retroweb/ibmpc-at hdd-image
+
+      # IBM PC/AT's wasm module -- hdd-image here just copies the (cached
+      # or just-built) native disks/freedos-hdd.img into web/disks/, it
+      # doesn't rebuild it (see web/Makefile).
+      - working-directory: retroweb/ibmpc-at/web
+        run: make ibmpcat.js roms hdd-image
+
       # stage the site: retroweb/index.html at the root, the Altair front end
-      # (built wasm + fetched media) at /altair8800/ -- the C++ core / tests /
-      # cpm dirs stay out of the artifact. Same target `make preview` uses.
+      # at /altair8800/, 6502 Assembler at /assembler6502/, IBM PC/AT at /ibmpc-at/
+      # -- the C++ core / tests / dev-only files stay out of the artifact.
+      # Same target `make preview` uses.
       - working-directory: retroweb
         run: make site
 

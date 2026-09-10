@@ -85,6 +85,92 @@ Current sanctioned overrides:
 If you're about to add a speed/convenience knob, stop and check it against the
 three rules above. If it can't meet them, don't add it.
 
+## Adding a new machine
+
+A request to add a system to this repo means a fully emulated machine, not a
+spec sheet or reference document. Every addition must:
+
+- **Run entirely in the browser**, compiled to WASM (the `cpu6502`/Altair 8800
+  pattern), using the existing `retroweb` theme system (Windows 95 / Mid-1990s
+  Web / Modern / Dark Modern) and CRT/terminal conventions already in place.
+- **Emulate the real CPU, memory map, and clock** at the machine's actual
+  speed — no shortcuts on instruction timing, wait states, or bus contention
+  (see "Never speed these up" above; the same opt-in-override rules apply).
+- **Emulate the real graphics adapter**, reproducing its actual screen modes,
+  timing, and artifacts — not a framebuffer approximation of what it looked
+  like.
+- **Emulate storage as real hardware**: floppy drives that accept swappable
+  disk images (like the Altair's 88-DCDD), and a hard disk that ships
+  pre-loaded with the system's original OS, exactly as the real machine left
+  the factory.
+- When the original ROM/OS is still under active copyright (e.g. IBM's AT
+  BIOS, PC-DOS) — unlike the Altair's 1975 BASIC, which the community treats
+  as freely redistributable — don't bundle or auto-fetch the genuine
+  firmware. Substitute a freely-licensed, hardware-compatible replacement (an
+  open BIOS implementation, FreeDOS in place of PC-DOS) so the public build
+  stays turnkey like every other machine here, and label the substitution
+  clearly (README, boot banner) as a compatible stand-in, not the literal
+  factory firmware — the same labelled-departure rule as any override above.
+
+## Wiring a machine into the site
+
+`retroweb/index.html` (the landing page) and `retroweb/Makefile` (site
+staging + local preview) are shared across every machine — getting a new
+one to actually show up and run is a separate step from building the
+machine itself (see "Adding a new machine" above).
+
+- **Landing-page card**: add a `.machine-card` `<a>` in `retroweb/index.html`
+  (screenshot in `retroweb/assets/`, name, "Launch →") — copy an existing
+  one's markup exactly, just swap the `href`, image, and name.
+- **Staging**: `retroweb/Makefile`'s `site` target copies each machine's
+  `<machine>/web/` into `_site/<machine>/`, stripping dev-only files
+  (`Makefile`, `devserve.py`, `wasm_machine.cpp`, test tooling) — add a
+  `mkdir`/`cp -R`/strip block there for the new machine, and a build step
+  (wasm + roms + any pinned media) in the `_stage` target above it.
+- **Only `web/` ever gets staged** — the deployed site (and `make preview`,
+  which serves the exact same `_site/`) has no access to anything one level
+  up via `../`. Any asset a machine's page fetches at runtime (ROMs, disk
+  images) must be copied into that machine's own `web/roms/`, `web/disks/`
+  etc. by *that machine's* `web/Makefile` (from wherever its native-core
+  fetch/build scripts already produced it, so there's one pinned/verified
+  source, not a second copy) — see `retroweb/ibmpc-at/web/Makefile`'s
+  `roms`/`hdd-image` targets for the pattern.
+- **Local preview**: `make -C retroweb preview` (foreground) / `preview-bg`
+  (detached, survives the terminal) serve `_site/` on `:8000`, bound to
+  `0.0.0.0` — reachable on the LAN, not just `localhost`. Both go through
+  `retroweb/serve_nocache.py`, not a bare `python3 -m http.server`: without
+  explicit `Cache-Control: no-store`, a browser can keep serving a stale
+  wasm module/app.js after `make site` re-stages fresh ones underneath it,
+  which looks exactly like a regression that isn't actually there (a real
+  bug this repo hit once already — see `retroweb/ibmpc-at/IBM_PCAT_REVIEW.md`
+  §15). `preview-install` loads it as a launchd agent so it survives sleep/
+  logout/reboot; `preview-stop`/`preview-status`/`preview-uninstall` manage it.
+- **Each machine's own `web/Makefile`** should default its *own* `make serve`
+  to port `8000` too (matching every machine — you only ever run one
+  machine's dev server standalone at a time) and reserve a separate,
+  *fixed* port for its own Playwright suite instead (`8100` altair8800,
+  `8200` assembler6502, `8300`/`8310` ibmpc-at) specifically so a hand-run
+  `make serve` and an automated test run never collide.
+- Full details: `retroweb/README.md`.
+
+## Delegate to a cheaper model when the task allows it
+
+If you're running as Sonnet, hand well-scoped, mechanical subtasks to a
+Haiku subagent instead of doing them yourself; if you're running as Opus,
+delegate down to Sonnet or Haiku the same way, whichever fits. Good
+candidates: running a fixed build/test command and reporting results,
+fetching and checksum-verifying a pinned asset, writing a test that
+mechanically follows an established pattern in the same file, a rename or
+mechanical refactor with an exact, fully-specified shape. Keep for yourself
+anything that leans on context you're already holding that a fresh agent
+would have to re-derive (a debugging session mid-diagnosis, a decision
+that needs the citation/period-accuracy discipline this repo runs on,
+anything where getting it wrong is expensive to catch later) — re-deriving
+that context usually costs more than the delegation saves. When genuinely
+unsure whether a task is a good candidate, don't guess — do it yourself
+rather than risk a wrong answer from a smaller model on something that
+matters.
+
 ## Conventions
 
 - `*.bin` and `*.dsk` are git-ignored — binary media (BASIC images, disk images)

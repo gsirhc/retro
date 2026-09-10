@@ -18,6 +18,12 @@ cpu6502/rom/basic/cc65
 *.bin
 
 cpu6502/old/rom/
+cpu6502/rom/tmp/
+
+# KiCad's own local-history plugin backups (has its own nested .git) and
+# netlist exports -- .kicad_sch/.kicad_pcb are the real source of truth
+**/.history/
+*.net
 
 # deployed-site staging (built by CI, previewed locally)
 retroweb/_site/
@@ -37,13 +43,14 @@ retroweb/altair8800/cpm/*.DSK
 retroweb/altair8800/web/disks/*.dsk
 retroweb/altair8800/web/disks/*.DSK
 
-retroweb/cg-oac-6502/dormann/dormann_host
-retroweb/cg-oac-6502/tests/build/
-retroweb/cg-oac-6502/tests/build-cov/
-retroweb/cg-oac-6502/tests/coverage-cpp/
-retroweb/cg-oac-6502/web/cgoac6502.js
-retroweb/cg-oac-6502/web/cgoac6502.wasm
-retroweb/cg-oac-6502/web/roms/*.bin
+retroweb/assembler6502/dormann/dormann_host
+retroweb/assembler6502/tests/build/
+retroweb/assembler6502/tests/build-cov/
+retroweb/assembler6502/tests/coverage-cpp/
+retroweb/assembler6502/web/cgoac6502.js
+retroweb/assembler6502/web/cgoac6502.wasm
+retroweb/assembler6502/web/roms/*.bin
+retroweb/assembler6502/web/roms/entrypoints.js
 
 retroweb/ibmpc-at/tests/build/
 retroweb/ibmpc-at/tests/build-cov/

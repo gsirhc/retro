@@ -1,7 +1,8 @@
 # retroweb — assemble and preview the deployed site.
 #
-#   make site        build _site/ : index.html at the root, the emulator at
-#                    /altair8800/ (dev-only files stripped) — what CI publishes
+#   make site        build _site/ : index.html at the root, the emulators at
+#                    /altair8800/, /assembler6502/, /ibmpc-at/ (dev-only files
+#                    stripped) — what CI publishes
 #   make preview     stage _site/ (wasm + media first) and serve it on :8000 in
 #                    the FOREGROUND — dies when the terminal closes or on Ctrl-C
 #   make preview-bg  same, but detached: survives the terminal, logs to
@@ -31,7 +32,7 @@ help:
 # server never finds its document root deleted out from under it
 site:
 	rm -rf _site.new
-	mkdir -p _site.new/altair8800
+	mkdir -p _site.new/altair8800 _site.new/assembler6502 _site.new/ibmpc-at
 	cp index.html _site.new/
 	cp -R assets _site.new/ && rm -f _site.new/assets/README.md
 	cp -R altair8800/web/. _site.new/altair8800/
@@ -40,11 +41,25 @@ site:
 	         .playwright .v8-coverage && \
 	  rm -f Makefile README.md devserve.py wasm_machine.cpp \
 	        package.json package-lock.json playwright.config.ts )
+	cp -R assembler6502/web/. _site.new/assembler6502/
+	( cd _site.new/assembler6502 && \
+	  rm -rf tests node_modules coverage test-results playwright-report \
+	         .playwright .v8-coverage && \
+	  rm -f Makefile devserve.py wasm_machine.cpp gen_entrypoints.py \
+	        package.json package-lock.json playwright.config.ts )
+	cp -R ibmpc-at/web/. _site.new/ibmpc-at/
+	( cd _site.new/ibmpc-at && \
+	  rm -rf tests node_modules coverage test-results playwright-report \
+	         .playwright .v8-coverage && \
+	  rm -f Makefile devserve.py wasm_machine.cpp \
+	        package.json package-lock.json playwright.config.ts )
 	rm -rf _site && mv _site.new _site
 
 # build the emulator + fetch media, then stage — what both preview modes need
 _stage:
 	$(MAKE) -C altair8800/web retro8080.js roms media
+	$(MAKE) -C assembler6502/web wasm roms
+	$(MAKE) -C ibmpc-at/web ibmpcat.js roms hdd-image
 	$(MAKE) site
 
 preview: _stage
@@ -58,15 +73,17 @@ preview: _stage
 	@echo
 	@echo "  http://0.0.0.0:$(PREVIEW_PORT)/             landing page"
 	@echo "  http://0.0.0.0:$(PREVIEW_PORT)/altair8800/  the Altair emulator"
+	@echo "  http://0.0.0.0:$(PREVIEW_PORT)/assembler6502/  the 6502 Assembler emulator"
+	@echo "  http://0.0.0.0:$(PREVIEW_PORT)/ibmpc-at/    the IBM PC/AT emulator"
 	@echo "  (foreground — leave this terminal open; Ctrl-C to stop)"
 	@echo
-	$(PY) -m http.server $(PREVIEW_PORT) -d _site -b 0.0.0.0
+	$(PY) serve_nocache.py $(PREVIEW_PORT) _site 0.0.0.0
 
 preview-bg: _stage
 	@if lsof -nP -iTCP:$(PREVIEW_PORT) -sTCP:LISTEN >/dev/null 2>&1; then \
 	  echo "  port $(PREVIEW_PORT) already in use — 'make preview-stop' first"; exit 1; \
 	fi
-	@nohup $(PY) -m http.server $(PREVIEW_PORT) -d _site -b 0.0.0.0 \
+	@nohup $(PY) serve_nocache.py $(PREVIEW_PORT) _site 0.0.0.0 \
 	  >$(PREVIEW_LOG) 2>&1 & echo $$! >$(PREVIEW_PID)
 	@sleep 1; \
 	if kill -0 $$(cat $(PREVIEW_PID)) 2>/dev/null; then \
@@ -95,9 +112,8 @@ preview-install: site
 	  '<plist version="1.0"><dict>' \
 	  '  <key>Label</key><string>$(PREVIEW_LABEL)</string>' \
 	  '  <key>ProgramArguments</key><array>' \
-	  '    <string>$(PY)</string><string>-m</string><string>http.server</string>' \
-	  '    <string>$(PREVIEW_PORT)</string><string>-b</string><string>0.0.0.0</string>' \
-	  '    <string>-d</string><string>$(CURDIR)/_site</string>' \
+	  '    <string>$(PY)</string><string>$(CURDIR)/serve_nocache.py</string>' \
+	  '    <string>$(PREVIEW_PORT)</string><string>$(CURDIR)/_site</string><string>0.0.0.0</string>' \
 	  '  </array>' \
 	  '  <key>RunAtLoad</key><true/>' \
 	  '  <key>KeepAlive</key><true/>' \

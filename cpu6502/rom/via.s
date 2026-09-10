@@ -1,9 +1,5 @@
-;; 65c22 VIA Datasheet: https://eater.net/datasheets/w65c22.pdf 
+;; 65c22 VIA Datasheet: https://eater.net/datasheets/w65c22.pdf
 ;; LCD Datasheet: https://eater.net/datasheets/HD44780.pdf
-
-;; Timer 1 interval
-TIMER_INT_LO_BYTE = $06            ; 16666 ($4106) = 60.003 hz (with 1mhz CPU), not exact but close enough
-TIMER_INT_HI_BYTE = $41            ; NOTE, if these are changed, change the time subroutines
 
 PORTB = $6000     ; Port B data
 PORTA = $6001     ; Port A data
@@ -20,20 +16,17 @@ E  = %10000000
 RW = %01000000
 RS = %00100000
 
-reset_via_irq:
+; GPIO + LCD init only -- no default IRQ source is armed (IER cleared below,
+; bit 7 = 0 disables every enable bit set alongside it, per the datasheet).
+; A user's own assembled program can arm CA1/Timer1/etc itself via IER if it
+; wants VIA interrupts (routed through J7 -- see IRQ_HANDLER in bios.s).
+reset_via:
   lda #%11111111                    ; Set all pins on port B to output
   sta DDRB
   lda #%11100001                    ; Set input/output for port A
   sta DDRA
-  
-  lda #%01000000                    ; Free Run mode Timer 1 (continuous interrupts)
-  sta ACR
-  lda #TIMER_INT_LO_BYTE
-  sta T1CL                          ; T1 ctrl lo byte
-  lda #TIMER_INT_HI_BYTE       
-  sta T1CH                          ; T1 ctrl hi byte
-  lda #%11000010                    ; Set/Clear (first bit) IRQ CA1 and Timer 1 enabled
-  sta IER                           ; enable interrupts
+  lda #$7F
+  sta IER                           ; disable all VIA interrupt sources
   lda #$00
   sta PCR                           ; clear PCR (transition to low state for interrupt)
 
@@ -44,7 +37,7 @@ reset_via_irq:
   lda #%00000110                    ; Increment and shift cursor; don't shift display
   jsr lcd_instruction
   jsr clear_lcd
-  
+
   rts
 
 disable_via_irq:
@@ -70,6 +63,26 @@ print_char_lcd:
   sta PORTA
   pla
   rts
+
+; Prints a NUL-terminated string to the LCD, one print_char_lcd call per
+; byte -- the LCD has no analogue of STROUT's own single fast loop (no
+; equivalent of CHROUT's ACIA shift register to just keep feeding), so
+; this is genuinely a loop over the single-character primitive, not a new
+; hardware path. Same calling convention as bios.s's STROUT: A/Y = lo/hi
+; of the string pointer. Shares ADDR_PTR (bios.s zeropage) with STROUT --
+; safe since the two never run concurrently.
+PRINT_STR_LCD:
+    sta ADDR_PTR
+    sty ADDR_PTR+1
+    ldy #0
+@loop:
+    lda (ADDR_PTR),y
+    beq @done
+    jsr print_char_lcd
+    iny
+    bne @loop
+@done:
+    rts
 
 cursorLine1_lcd:
   lda #%00000010
