@@ -1,0 +1,1005 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>6502 Assembler</title>
+<link rel="stylesheet" href="vendor/xterm.css">
+<!-- apply the shared site theme before first paint, so there's no flash of
+     the wrong theme (matches retroweb/index.html's own inline snippet) -->
+<script>try{var t=localStorage.getItem("retro8080.theme")||"win",r=document.documentElement;if(t=="moderndark"){r.dataset.theme="modern";r.dataset.mode="dark";}else{r.dataset.theme=t;}}catch(e){}</script>
+<style>
+  @font-face {
+    font-family: "VT323";
+    src: url("vendor/fonts/vt323.woff2") format("woff2");
+    font-display: swap;
+  }
+  @font-face {
+    font-family: "Courier Prime";
+    src: url("vendor/fonts/courierprime-400.woff2") format("woff2");
+    font-weight: 400; font-display: swap;
+  }
+  @font-face {
+    font-family: "Courier Prime";
+    src: url("vendor/fonts/courierprime-700.woff2") format("woff2");
+    font-weight: 700; font-display: swap;
+  }
+
+  /* ---- page themes: default = Windows 95; web94 = mid-90s Mosaic web;
+     modern = clean; moderndark = modern's layout, dark palette. Token names
+     mirror retroweb/altair8800/web/index.html so a theme picked on either
+     page (shared retro8080.theme) looks like one site. Only page chrome
+     (panels/buttons/fields/text) is themed here -- the board's LEDs/LCD/ZIF
+     socket and the terminal's CRT/bezel keep their own photoreal look in
+     every theme, same principle as the Altair's front panel. */
+  :root {
+    --desktop:   #008080;
+    --page-bg:   #c0c0c0;
+    --page-border: 3px outset #dfdfdf;
+    --page-radius: 0;
+    --page-shadow: none;
+    --body-pad:  18px 12px;
+    --body-font: "Times New Roman", Times, Georgia, serif;
+    --text:      #000000;
+    --dim:       #404040;
+    --link:      #0000ee;
+    --titlebar-display: flex;
+    --titlebar-bg: linear-gradient(90deg, #000080, #1084d0);
+    --titlebar-fg: #ffffff;
+    --rule:      2px groove #ffffff;
+    --h1-font:   900 26px "Arial Black", Arial, sans-serif;
+    --h1-color:  #000080;
+    --h1-shadow: 2px 2px 0 #808080;
+    --panel-bg:     #c0c0c0;
+    --panel-border: 2px outset #dfdfdf;
+    --panel-radius: 0;
+    --btn-bg:       #c0c0c0;
+    --btn-fg:       #000000;
+    --btn-border:   2px outset #dfdfdf;
+    --btn-radius:   0;
+    --field-bg:     #ffffff;
+    --field-border: 2px inset #808080;
+    --accent2:      #008000;
+    --warn:         #c00000;
+  }
+  :root[data-theme="web94"] {
+    --desktop:   #d1d6df url("data:image/jpeg;base64,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") repeat;
+    --page-bg:   #c0c0c0;
+    --page-border: 3px ridge #dfdfdf;
+    --body-pad:  26px 16px;
+    --titlebar-display: none;
+    --link:      #0000ff;
+    --rule:      2px inset #c0c0c0;
+    --h1-font:   bold 24px "Times New Roman", Times, serif;
+    --h1-color:  #000000;
+    --h1-shadow: none;
+  }
+  :root[data-theme="modern"] {
+    --desktop:   #eceef2;
+    --page-bg:   #ffffff;
+    --page-border: 1px solid #e4e6ea;
+    --page-radius: 14px;
+    --page-shadow: 0 1px 3px rgba(16,24,40,.06), 0 12px 32px rgba(16,24,40,.10);
+    --body-pad:  0;
+    --body-font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --text:      #1b1e24;
+    --dim:       #6b7280;
+    --link:      #4f46e5;
+    --titlebar-display: none;
+    --titlebar-bg: #f6f7f9;
+    --titlebar-fg: #1b1e24;
+    --rule:      1px solid #ecedf1;
+    --h1-font:   700 22px/1.15 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    --h1-color:  #12141a;
+    --h1-shadow: none;
+    --panel-bg:     #f7f8fa;
+    --panel-border: 1px solid #e7e9ee;
+    --panel-radius: 10px;
+    --btn-bg:       #ffffff;
+    --btn-fg:       #1b1e24;
+    --btn-border:   1px solid #d3d7de;
+    --btn-radius:   7px;
+    --field-bg:     #ffffff;
+    --field-border: 1px solid #d3d7de;
+    --accent2:      #0a8f4c;
+    --warn:         #d1435b;
+  }
+  /* Dark Modern: Modern's layout, dark palette -- this is what the page
+     originally shipped with as its only look; selecting it now goes
+     through the same shared retro8080.theme mechanism as every other page. */
+  :root[data-theme="modern"][data-mode="dark"] {
+    color-scheme: dark;
+    --desktop:   #0e0f12;
+    --page-bg:   #14161b;
+    --page-border: 1px solid #2c3038;
+    --page-shadow: 0 1px 2px rgba(0,0,0,.4), 0 16px 44px rgba(0,0,0,.55);
+    --text:      #d8dbe2;
+    --dim:       #8a90a0;
+    --link:      #5fd0ff;
+    --titlebar-bg: #1b1e25;
+    --titlebar-fg: #d8dbe2;
+    --rule:      1px solid #2c3038;
+    --h1-color:  #f1f2f5;
+    --panel-bg:     #1b1e25;
+    --panel-border: 1px solid #2c3038;
+    --btn-bg:       #262b34;
+    --btn-fg:       #d8dbe2;
+    --btn-border:   1px solid #2c3038;
+    --field-bg:     #101216;
+    --field-border: 1px solid #2c3038;
+    --accent2:      #33ff88;
+    --warn:         #ff7a7a;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--desktop);
+    color: var(--text);
+    font: 14px/1.5 var(--body-font);
+    padding: var(--body-pad);
+  }
+  :root:not([data-theme]) body {
+    /* the inline head script always sets data-theme before first paint;
+       this only covers JS being disabled entirely -- fall back to the dark
+       modern look this page originally shipped with rather than an
+       unstyled white flash. */
+    background: #0e0f12; color: #d8dbe2;
+  }
+  a { color: var(--link); }
+  h1, h2, h3 { font-weight: 600; }
+
+  .page {
+    max-width: 1180px; margin: 0 auto;
+    background: var(--page-bg);
+    border: var(--page-border);
+    border-radius: var(--page-radius);
+    box-shadow: var(--page-shadow);
+    overflow: hidden;   /* keeps the pagebar's own top corners inside the radius */
+  }
+
+  /* ---- pagebar: Win95 title bar / web94 plain strip / modern nav --------
+     same component + token pattern as retroweb/altair8800/web/index.html */
+  .pagebar {
+    display: flex; align-items: center; gap: 10px;
+    background: var(--titlebar-bg); color: var(--titlebar-fg);
+    font: bold 13px Arial, Helvetica, sans-serif;
+    padding: 4px 8px;
+  }
+  .pagebar a { color: inherit; }
+  .pb-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pb-home { flex: 0 0 auto; display: none; text-decoration: none; font-weight: bold; }
+  .pb-name, .pb-tag { display: none; }
+  .pb-tools { flex: 0 0 auto; margin-left: auto; display: flex; align-items: center; gap: 10px; }
+  .pb-theme { display: inline-flex; align-items: center; gap: 5px; font: inherit; }
+  .pb-theme select {
+    font: 11px Arial, Helvetica, sans-serif;
+    color: var(--text); background: var(--field-bg);
+    border: var(--field-border); border-radius: var(--btn-radius);
+    padding: 1px 3px;
+  }
+  .pb-winbtns span, .pb-winbtns a {
+    display: inline-block; width: 16px; height: 14px; line-height: 12px;
+    margin-left: 2px; text-align: center; font-size: 10px;
+    color: #000; background: #c0c0c0; border: 1px outset #dfdfdf;
+    text-decoration: none;
+  }
+  :root[data-theme="web94"] .pagebar {
+    background: #c0c0c0; color: #000;
+    border-bottom: 1px solid #808080;
+    font: 13px "Times New Roman", Times, serif;
+  }
+  :root[data-theme="web94"] .pb-winbtns { display: none; }
+  :root[data-theme="web94"] .pb-home { display: inline; color: #0000ff; text-decoration: underline; font-weight: normal; }
+  :root[data-theme="web94"] .pb-home:visited { color: #800080; }
+
+  :root[data-theme="modern"] .pagebar {
+    background: var(--titlebar-bg); color: var(--titlebar-fg);
+    border-bottom: 1px solid #ecedf1; border-radius: 14px 14px 0 0;
+    font: 500 13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    padding: 10px 16px;
+  }
+  :root[data-theme="modern"][data-mode="dark"] .pagebar { border-bottom-color: #2c3038; }
+  :root[data-theme="modern"] .pb-winbtns { display: none; }
+  :root[data-theme="modern"] .pb-home { display: inline; color: var(--link); text-decoration: none; font-weight: 600; font-size: 12px; opacity: .85; }
+  :root[data-theme="modern"] .pb-name { display: block; flex: 0 0 auto; margin-left: 2px; font-weight: 700; font-size: 15px; letter-spacing: .3px; color: var(--h1-color); }
+  :root[data-theme="modern"] .pb-tag { display: block; flex: 1 1 auto; min-width: 0; color: var(--dim); font-size: 12px; font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  @media (max-width: 700px) { :root[data-theme="modern"] .pb-tag { display: none; } }
+
+  .inner { padding: 16px 20px 20px; }
+  :root[data-theme="win"] .inner, :root[data-theme="web94"] .inner { padding: 14px 22px 22px; }
+
+  h1 { margin: 4px 0 0; text-align: center; font: var(--h1-font); letter-spacing: .5px; color: var(--h1-color); text-shadow: var(--h1-shadow); }
+  :root[data-theme="modern"] h1 {
+    /* the title now lives in the pagebar -- keep it for a11y, hide visually */
+    position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
+    overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+  }
+  .tagline { text-align: center; color: var(--dim); font-size: 12px; margin: 4px 0 0; }
+  :root[data-theme="modern"] .tagline { display: none; }
+  hr.rule { border: 0; border-top: var(--rule); margin: 12px 0; }
+  :root[data-theme="modern"] hr.rule { display: none; }
+
+  /* Reading order top to bottom: Terminal, then the board (LCD accessory
+     grouped above the PCB graphic it plugs into) -- every panel full width,
+     same in every theme (the existing `.panel + .panel` rule below handles
+     the stacking gap). No side-by-side grid any more: nothing here needs a
+     second column. Save/Load and Help are no longer page panels -- they're
+     floating popups (.floatpop below) triggered from the terminal header. */
+  .panel h3.subhead {
+    font: bold 11px Arial, Helvetica, sans-serif;
+    text-transform: uppercase; letter-spacing: .06em; color: var(--dim);
+    margin: 0 0 10px; display: flex; align-items: center; justify-content: space-between;
+    padding-bottom: 8px; border-bottom: var(--rule);
+  }
+
+  .panel {
+    background: var(--panel-bg); border: var(--panel-border); border-radius: var(--panel-radius);
+    padding: 14px 16px 16px;
+  }
+  .panel + .panel { margin-top: 18px; }
+  .panel h2 {
+    font: bold 12px Arial, Helvetica, sans-serif;
+    text-transform: uppercase; letter-spacing: .06em; color: var(--dim);
+    margin: 0 0 10px; display: flex; align-items: center; justify-content: space-between;
+  }
+
+  button, select, input[type=text], input[type=number], textarea {
+    font: 12px Arial, Helvetica, sans-serif; color: var(--btn-fg); background: var(--btn-bg);
+    border: var(--btn-border); border-radius: var(--btn-radius); padding: 4px 9px;
+  }
+  input[type=text], input[type=number], textarea { background: var(--field-bg); border: var(--field-border); color: var(--text); }
+  button { cursor: pointer; }
+  button:active:not(:disabled) { border-style: inset; }
+  :root[data-theme="modern"] button:hover { background: #f4f5f7; }
+  :root[data-theme="modern"][data-mode="dark"] button:hover { background: #2f333d; }
+  :root[data-theme="modern"] button:active:not(:disabled) { border-style: solid; transform: translateY(1px); }
+  button:disabled { opacity: .5; cursor: default; }
+  label { user-select: none; }
+  .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .row + .row { margin-top: 8px; }
+  .muted { color: var(--dim); }
+  code { color: var(--link); }
+
+  /* the J3 LCD: an actual HD44780-style 16x2 dot-matrix module (see
+     lcdfont.js/app.js's drawLcd()) in the classic yellow-green STN color,
+     housed in a dark bezel like the real plastic module frame. */
+  .lcd-wrap {
+    display: flex; justify-content: center; padding: 14px;
+    background: #1a1c1f; border-radius: 6px;
+    box-shadow: inset 0 2px 6px rgba(0,0,0,.6), 0 1px 0 rgba(255,255,255,.04);
+  }
+  #lcdCanvas {
+    border-radius: 2px; box-shadow: inset 0 0 0 1px #0a0b0c, inset 0 2px 10px rgba(0,0,0,.35);
+    transition: opacity .2s;
+  }
+  #lcdCanvas.detached { opacity: .2; }
+
+
+  /* ---- terminal -- the CRT/bezel is photoreal hardware, not page chrome */
+  .term-bar { margin-bottom: 10px; }
+  .term-bar-spacer { flex: 1 1 auto; }
+  .fp-toggle { font-size: 11px; padding: 3px 10px; }
+
+  /* ---- floating popups (Save/Load, Help) -- draggable by their own title
+     bar, closeable, position remembered across reloads. Same mechanism as
+     retroweb/altair8800/web/app.js's front-panel bootstrap guide (pgDrag/
+     pgFloat), themed with this page's own tokens instead of that guide's
+     fixed green-CRT look, since this page already re-themes across all
+     four page themes and the popups should follow suit. */
+  .floatpop {
+    position: fixed; z-index: 60; top: 76px; right: 16px;
+    width: min(420px, calc(100vw - 32px)); max-height: calc(100vh - 96px);
+    display: flex; flex-direction: column;
+    background: var(--panel-bg); border: var(--panel-border); border-radius: var(--panel-radius);
+    box-shadow: 0 12px 36px rgba(0, 0, 0, .35);
+  }
+  .floatpop[hidden] { display: none; }
+  .fp-drag {
+    cursor: move; user-select: none; touch-action: none;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 8px 8px 14px; border-radius: calc(var(--panel-radius) - 1px) calc(var(--panel-radius) - 1px) 0 0;
+    font: bold 12px Arial, Helvetica, sans-serif; text-transform: uppercase;
+    letter-spacing: .06em; color: var(--dim); border-bottom: var(--rule);
+  }
+  .fp-x {
+    background: none; border: none; color: var(--dim); font-size: 17px;
+    line-height: 1; cursor: pointer; padding: 0 5px;
+  }
+  .fp-x:hover { color: var(--text); }
+  .fp-body { overflow-y: auto; padding: 14px 16px 16px; }
+  .monitor {
+    --case: #ccc4af;
+    width: max-content; max-width: 100%; margin: 0 auto;
+    padding: 0; background: none; border-radius: 0; box-shadow: none;
+  }
+  .monitor .bezel {
+    position: relative; padding: 4px;
+    background: linear-gradient(#d9d1bd, #b3aa93); border-radius: 4px;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.55), inset 0 -1px 0 rgba(0,0,0,.25), 0 2px 5px rgba(0,0,0,.25);
+    display: flex; justify-content: center; align-items: center;
+  }
+  .monitor.crt .bezel {
+    padding: 16px 18px; background: #0c0b0a; border-radius: 6px;
+    box-shadow: inset 0 0 0 1px #000, inset 0 4px 12px rgba(0,0,0,.9), inset 0 -3px 8px rgba(0,0,0,.8), 0 1px 1px rgba(255,255,255,.28);
+  }
+  #screen { width: 760px; height: 420px; background: #000; overflow: hidden; }
+  /* Power (J1, terminal-header-adjacent PCB control) toggled off -- the
+     board's still there, it just isn't running; see app.js's own comment
+     by the click handler for why this pauses in place rather than resetting. */
+  .monitor.powered-off .bezel { filter: brightness(.12) saturate(.3); transition: filter .15s; }
+  #screen .xterm { height: 100%; }
+  #screen .xterm-rows { text-shadow: 0 0 var(--glow, 0px) currentColor; }
+  #screen .xterm-viewport { overflow-y: hidden; }
+  .monitor.scrolls #screen .xterm-viewport { overflow-y: auto; }
+  .monitor:not(.crt) #screen .xterm { box-sizing: border-box; padding: 11px 13px; }
+  .crt-overlay { position: absolute; inset: 16px 18px; pointer-events: none; z-index: 6; mix-blend-mode: multiply; }
+  .bezel.crt-off .crt-overlay, .monitor:not(.crt) .crt-overlay { display: none; }
+  .bezel.crt-scan .crt-overlay, .bezel.crt-scanheavy .crt-overlay {
+    background: radial-gradient(145% 145% at 50% 45%, rgba(0,0,0,0) 74%, rgba(0,0,0,.18) 100%),
+      repeating-linear-gradient(0deg, rgba(0,0,0,.12) 0 1px, rgba(0,0,0,0) 1px 3px);
+    box-shadow: inset 0 0 32px rgba(0,0,0,.26);
+  }
+  .bezel.crt-scanheavy .crt-overlay {
+    background: radial-gradient(145% 145% at 50% 45%, rgba(0,0,0,0) 68%, rgba(0,0,0,.24) 100%),
+      repeating-linear-gradient(0deg, rgba(0,0,0,.20) 0 1px, rgba(0,0,0,0) 1px 2px);
+  }
+  .bezel.crt-paper .crt-overlay {
+    background: radial-gradient(130% 130% at 50% 40%, rgba(0,0,0,0) 55%, rgba(120,108,84,.35) 100%),
+      repeating-linear-gradient(0deg, rgba(90,80,60,.05) 0 2px, rgba(0,0,0,0) 2px 5px);
+  }
+  .bell-flash { filter: brightness(2.4) contrast(1.2); }
+  .power-led {
+    position: absolute; right: 13px; bottom: 7px; width: 6px; height: 6px; border-radius: 50%;
+    background: #33ff66; box-shadow: 0 0 6px 2px rgba(51,255,102,.8), 0 0 0 1px #0a2a15; display: none;
+  }
+  .monitor.crt .power-led { display: block; }
+  .toolbar label:has(input:disabled) { opacity: .5; }
+
+  /* ---- Save/Load's named-program shelf -- same localStorage-backed
+     button-list pattern the ROM programmer's retired chip library used. */
+  .chip-lib { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .chip-lib button.chip { font-size: 11px; padding: 3px 8px; }
+  .chip-lib button.chip.seated { border-color: var(--accent2); color: var(--accent2); }
+  #pgmStatus.err { color: var(--warn); }
+  #pgmStatus.ok { color: var(--accent2); }
+
+  /* ---- Help panel -------------------------------------------------------- */
+  .help-body { display: block; font-size: 11px; line-height: 1.6; }
+  .help-body ul { margin: 6px 0 0; padding-left: 18px; }
+  .help-body li { margin: 2px 0; }
+  .help-body code { font-size: 11px; }
+  .os-table { border-collapse: collapse; margin: 8px 0 0; width: 100%; }
+  .os-table th, .os-table td { text-align: left; padding: 3px 8px 3px 0; border-bottom: var(--rule); white-space: nowrap; }
+  .os-table td:last-child { white-space: normal; }
+  .os-table th { color: var(--dim); font-weight: 400; text-transform: uppercase; font-size: 10px; letter-spacing: .04em; }
+
+  /* ---- PCB graphic -- traced from the real KiCad layout (see the Python
+     generator that produced this SVG's shapes/labels: gen_pcb_svg3.py,
+     reading cpu6502/pcb/pcb6502/FullBoard/pcb6502.kicad_pcb's actual
+     footprint positions/rotations). Always the real board's green, in
+     every page theme -- this is hardware, not chrome. */
+  .pcb-wrap { display: flex; justify-content: center; }
+  .pcb-frame { position: relative; display: inline-block; width: 100%; max-width: 720px; }
+  #pcbSvg { display: block; width: 100%; height: auto; }
+  .pcb-board { fill: #0a5c2e; stroke: #063d1e; stroke-width: .6; }
+  .pcb-trace { fill: none; stroke: #0d7a3d; stroke-width: .6; opacity: .55; }
+  .lbl-title { fill: #e8e8e0; font: 3px ui-monospace, monospace; letter-spacing: .3px; }
+  .mtg-hole { fill: #1a1a1a; stroke: #999; stroke-width: .3; }
+  .chip-body { fill: #17181a; stroke: #000; stroke-width: .3; }
+  .chip-notch { fill: #0a5c2e; }
+  .chip-pin { stroke: #c9ccd1; stroke-width: .7; }
+  .lbl-chip-sub { fill: #9fe6b8; font: 2.4px ui-monospace, monospace; }
+  .lbl-chip-name { fill: #f2f4f0; font: bold 3.1px ui-monospace, monospace; }
+  .lbl-part { fill: #d8ffe0; font: 2.15px ui-monospace, monospace; }
+  .res-body, .res-body-v { fill: #d8c48a; stroke: #7a6a3a; stroke-width: .3; }
+  .cap-disc { fill: #d9a441; stroke: #8a6a1a; stroke-width: .3; }
+  .cap-radial { fill: #2255aa; stroke: #123064; stroke-width: .3; }
+  .diode-body, .reg-body, .to92-body { fill: #1a1a1a; stroke: #555; stroke-width: .3; }
+  .diode-band { fill: #ddd; }
+  .osc-body, .xtal-body { fill: #b7bcc4; stroke: #666; stroke-width: .3; }
+  .hdr-body { fill: #111; stroke: #000; stroke-width: .2; }
+  .hdr-pin { fill: #d9c67a; }
+  .jack-body { fill: #333; stroke: #000; stroke-width: .3; cursor: pointer; }
+  .jack-hole { fill: #111; cursor: pointer; }
+  .pcb-hit { fill: #fff; opacity: 0; cursor: pointer; }
+  .dsub-body { fill: #ccc; stroke: #555; stroke-width: .3; }
+  .dsub-ear { fill: #999; stroke: #555; stroke-width: .3; }
+  .sw-body { fill: #444; stroke: #222; stroke-width: .3; cursor: pointer; }
+  .sw-button { fill: #c33; cursor: pointer; }
+  .led-body { stroke: #000; stroke-width: .2; transition: fill .08s; }
+  .led-rx, .led-tx { fill: #4a1616; }
+  .led-power { fill: #33ff66; }
+  .led-rx.on { fill: #ffd23a; }
+  .led-tx.on { fill: #ff5f5f; }
+
+  .footer { margin-top: 26px; color: var(--dim); font-size: 12px; text-align: center; padding-bottom: 24px; }
+</style>
+</head>
+<body>
+<div class="page">
+  <header class="pagebar">
+    <a class="pb-home" href="../">&#8592;&nbsp;All&nbsp;machines</a>
+    <span class="pb-title">&#9635; ASSEMBLER6502.EXE &mdash; [W65C02S Single-Board Computer]</span>
+    <span class="pb-name">6502 Assembler</span>
+    <span class="pb-tag">WDC W65C02S &middot; 1&nbsp;MHz &middot; running entirely in your browser</span>
+    <span class="pb-tools">
+      <label class="pb-theme">Theme
+        <select id="pageTheme">
+          <option value="win">Windows 95</option>
+          <option value="web94">Mid-1990s Web</option>
+          <option value="modern">Modern</option>
+          <option value="moderndark">Dark Modern</option>
+        </select>
+      </label>
+      <span class="pb-winbtns"><span aria-hidden="true">_</span><span aria-hidden="true">&#9633;</span><a class="pb-close" href="../" title="back to all machines" aria-label="close &mdash; back to all machines">&times;</a></span>
+    </span>
+  </header>
+
+  <div class="inner">
+    <h1>6502 Assembler</h1>
+    <p class="tagline">A hand-built W65C02S single-board computer, running entirely in your browser.</p>
+    <hr class="rule">
+
+    <div class="panel" id="terminalCard">
+      <h2>Terminal</h2>
+      <div class="row term-bar">
+        <label>ACIA &middot;
+          <select id="termProfile">
+            <option value="modern">Modern (xterm)</option>
+            <option value="vt100g">DEC VT100 &middot; green</option>
+            <option value="vt100a">DEC VT100 &middot; amber</option>
+            <option value="vt52">DEC VT52</option>
+            <option value="adm3a">Lear Siegler ADM-3A</option>
+            <option value="glasstty">Glass TTY</option>
+            <option value="tty33">Teletype ASR-33</option>
+          </select>
+        </label>
+        <label title="vintage software expects uppercase; most period terminals were uppercase-only anyway"><input type="checkbox" id="caps" checked> CAPS LOCK</label>
+        <span class="muted" id="baudLabel">19200 baud</span>
+        <span class="term-bar-spacer"></span>
+        <button class="fp-toggle" id="saveBtn">Save</button>
+        <button class="fp-toggle" id="loadBtn">Load</button>
+        <button class="fp-toggle" id="helpBtn">Help</button>
+      </div>
+      <div class="monitor" id="monitor">
+        <div class="bezel crt-scan" id="bezel">
+          <div id="screen"></div>
+          <div class="crt-overlay"></div>
+          <span class="power-led"></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel pcb-panel" id="pcbCard">
+      <h2>Board layout</h2>
+
+      <h3 class="subhead">J3 &middot; LCD accessory
+        <label style="font-weight:400;text-transform:none;letter-spacing:0;font-size:12px">
+          <input type="checkbox" id="lcdAttached" checked> attached
+        </label>
+      </h3>
+      <div class="lcd-wrap"><canvas id="lcdCanvas"></canvas></div>
+      <div class="row muted" style="font-size:11px;margin:8px 0 16px">
+        FullBoard ships with no LCD; <code>RESET</code> busy-polls one before anything
+        else, so a bare board hangs at boot. Attached by default; detach to see the hang.
+      </div>
+
+      <div class="pcb-wrap">
+       <div class="pcb-frame">
+        <!-- viewBox right edge is wider than the board rect's own +4mm
+             margin would give: J2 (DB9) is a real edge-mounted connector
+             whose shield genuinely overhangs the PCB edge out to abs
+             x=212.32 (computed from its real courtyard + rotation, see
+             gen_pcb_v5.py's abs_bbox) -- the board-rect margin alone would
+             clip it, so the box is widened to fit every real component's
+             true bounds, not just the board outline. -->
+        <svg id="pcbSvg" viewBox="65.85 20.13 148.47 103.25" xmlns="http://www.w3.org/2000/svg">
+<rect class="pcb-board" x="69.85" y="24.13" width="135.89" height="95.25" rx="3"/>
+<circle class="mtg-hole" cx="200.80" cy="29.21" r="1.6"/>
+<circle class="mtg-hole" cx="74.93" cy="29.21" r="1.6"/>
+<circle class="mtg-hole" cx="74.93" cy="114.30" r="1.6"/>
+<circle class="mtg-hole" cx="200.66" cy="114.30" r="1.6"/>
+<g transform="translate(179.92,52.07) rotate(-0)" data-ref="D3">
+<rect class="diode-body" x="-1.35" y="-1.60" width="12.86" height="3.20" rx="0.6"/>
+</g>
+<g transform="translate(185.42,27.60) rotate(-180)" data-ref="U6">
+<rect class="reg-body" x="-2.71" y="-19.71" width="10.50" height="20.96" rx="0.6"/>
+</g>
+<g transform="translate(96.23,33.36) rotate(-0)" data-ref="U9">
+<rect class="to92-body" x="-1.46" y="-2.73" width="5.46" height="4.74" rx="0.6"/>
+</g>
+<g transform="translate(123.19,40.64) rotate(-180)" data-ref="X1">
+<rect class="osc-body" x="-2.98" y="-10.41" width="21.20" height="13.20" rx="0.6"/>
+</g>
+<g transform="translate(185.42,109.22) rotate(-0)" data-ref="Y1">
+<rect class="xtal-body" x="-3.60" y="-2.80" width="12.10" height="5.60" rx="0.6"/>
+</g>
+<g transform="translate(115.56,109.22) rotate(90)" data-ref="J3">
+<rect class="hdr-body" x="-1.80" y="-1.80" width="6.15" height="29.00" rx="0.6"/>
+<rect class="hdr-pin" x="-0.50" y="-0.50" width="1" height="1"/>
+<rect class="hdr-pin" x="2.04" y="-0.50" width="1" height="1"/>
+<rect class="hdr-pin" x="-0.50" y="2.04" width="1" height="1"/>
+<rect class="hdr-pin" x="2.04" y="2.04" width="1" height="1"/>
+<rect class="hdr-pin" x="-0.50" y="4.58" width="1" height="1"/>
+<rect class="hdr-pin" x="2.04" y="4.58" width="1" height="1"/>
+<rect class="hdr-pin" x="-0.50" y="7.12" width="1" height="1"/>
+<rect class="hdr-pin" x="2.04" y="7.12" width="1" height="1"/>
+<rect class="hdr-pin" x="-0.50" y="9.66" width="1" height="1"/>
+<rect class="hdr-pin" x="2.04" y="9.66" width="1" height="1"/>
+<rect class="hdr-pin" x="-0.50" y="12.20" width="1" height="1"/>
+<rect class="hdr-pin" x="2.04" y="12.20" width="1" height="1"/>
+<rect class="hdr-pin" x="-0.50" y="14.74" width="1" height="1"/>
+<rect class="hdr-pin" x="2.04" y="14.74" width="1" height="1"/>
+<rect class="hdr-pin" x="-0.50" y="17.28" width="1" height="1"/>
+<rect class="hdr-pin" x="2.04" y="17.28" width="1" height="1"/>
+<rect class="hdr-pin" x="-0.50" y="19.82" width="1" height="1"/>
+<rect class="hdr-pin" x="2.04" y="19.82" width="1" height="1"/>
+<rect class="hdr-pin" x="-0.50" y="22.36" width="1" height="1"/>
+<rect class="hdr-pin" x="2.04" y="22.36" width="1" height="1"/>
+<rect class="hdr-pin" x="-0.50" y="24.90" width="1" height="1"/>
+<rect class="hdr-pin" x="2.04" y="24.90" width="1" height="1"/>
+</g>
+<g transform="translate(109.50,28.50) rotate(-90)" data-ref="J4">
+<rect class="hdr-body" x="-1.80" y="-1.80" width="3.60" height="6.15" rx="0.6"/>
+<rect class="hdr-pin" x="-0.50" y="-0.50" width="1" height="1"/>
+<rect class="hdr-pin" x="-0.50" y="2.04" width="1" height="1"/>
+</g>
+<g transform="translate(129.62,109.22) rotate(90)" data-ref="J5">
+<rect class="hdr-body" x="-1.80" y="-1.80" width="6.15" height="11.20" rx="0.6"/>
+<rect class="hdr-pin" x="-0.50" y="-0.51" width="1" height="1"/>
+<rect class="hdr-pin" x="2.04" y="-0.51" width="1" height="1"/>
+<rect class="hdr-pin" x="-0.50" y="2.03" width="1" height="1"/>
+<rect class="hdr-pin" x="2.04" y="2.03" width="1" height="1"/>
+<rect class="hdr-pin" x="-0.50" y="4.57" width="1" height="1"/>
+<rect class="hdr-pin" x="2.04" y="4.57" width="1" height="1"/>
+<rect class="hdr-pin" x="-0.50" y="7.11" width="1" height="1"/>
+<rect class="hdr-pin" x="2.04" y="7.11" width="1" height="1"/>
+</g>
+<g transform="translate(200.50,51.00) rotate(-180)" data-ref="J6">
+<rect class="hdr-body" x="-1.80" y="-1.80" width="6.15" height="3.60" rx="0.6"/>
+<rect class="hdr-pin" x="-0.50" y="-0.50" width="1" height="1"/>
+<rect class="hdr-pin" x="2.04" y="-0.50" width="1" height="1"/>
+</g>
+<g transform="translate(75.46,37.88) rotate(-0)" data-ref="J7">
+<rect class="hdr-body" x="-1.80" y="-1.80" width="6.15" height="11.20" rx="0.6"/>
+<rect class="hdr-pin" x="-0.50" y="-0.51" width="1" height="1"/>
+<rect class="hdr-pin" x="2.04" y="-0.51" width="1" height="1"/>
+<rect class="hdr-pin" x="-0.50" y="2.03" width="1" height="1"/>
+<rect class="hdr-pin" x="2.04" y="2.03" width="1" height="1"/>
+<rect class="hdr-pin" x="-0.50" y="4.57" width="1" height="1"/>
+<rect class="hdr-pin" x="2.04" y="4.57" width="1" height="1"/>
+<rect class="hdr-pin" x="-0.50" y="7.11" width="1" height="1"/>
+<rect class="hdr-pin" x="2.04" y="7.11" width="1" height="1"/>
+</g>
+<g transform="translate(157.72,109.46) rotate(-0)" data-ref="J8">
+<rect class="hdr-body" x="-1.80" y="-1.80" width="6.15" height="6.15" rx="0.6"/>
+<rect class="hdr-pin" x="-0.50" y="-0.50" width="1" height="1"/>
+<rect class="hdr-pin" x="2.04" y="-0.50" width="1" height="1"/>
+<rect class="hdr-pin" x="-0.50" y="2.04" width="1" height="1"/>
+<rect class="hdr-pin" x="2.04" y="2.04" width="1" height="1"/>
+</g>
+<g transform="translate(191.77,43.18) rotate(-180)" data-ref="J1">
+<rect class="jack-body" x="-14.00" y="-4.75" width="16.00" height="11.50" rx="0.6"/>
+<circle class="jack-hole" cx="-6" cy="1" r="3.4"/>
+</g>
+<g transform="translate(197.62,75.89) rotate(-90)" data-ref="J2">
+<rect class="dsub-body" x="-9.89" y="-2.70" width="30.85" height="10.48" rx="0.4"/>
+<rect class="dsub-ear" x="-9.46" y="8.18" width="5.00" height="5.00" rx="0.3"/>
+<rect class="dsub-ear" x="15.54" y="8.18" width="5.00" height="5.00" rx="0.3"/>
+</g>
+<g transform="translate(118.25,28.75) rotate(-0)" data-ref="SW1">
+<!-- generous invisible hit-rect, padded well beyond the visible button
+     housing -- the drawn sw-body/sw-button alone is a tight, easy-to-miss
+     click target at this scale. -->
+<rect class="pcb-hit" x="-4.10" y="-4.10" width="14.70" height="12.70"/>
+<rect class="sw-body" x="-1.10" y="-1.10" width="8.70" height="6.70" rx="0.6"/>
+<circle class="sw-button" cx="3.25" cy="2.25" r="1.9"/>
+</g>
+<g transform="translate(148.59,114.30) rotate(-0)" data-ref="D1">
+<circle class="led-body led-power" id="pcbLedD1" cx="1.27" cy="0.00" r="1.7"/>
+</g>
+<g transform="translate(134.62,114.30) rotate(-0)" data-ref="D4">
+<circle class="led-body led-rx" id="pcbLedD4" cx="1.27" cy="0.00" r="1.7"/>
+</g>
+<g transform="translate(139.70,114.30) rotate(-0)" data-ref="D7">
+<circle class="led-body led-tx" id="pcbLedD7" cx="1.27" cy="0.00" r="1.7"/>
+</g>
+<g transform="translate(127.79,58.87) rotate(90)" data-ref="U1">
+<rect class="chip-body " x="-1.55" y="-1.60" width="18.35" height="51.45" rx="0.6"/>
+<circle class="chip-notch" cx="0.05" cy="24.12" r="0.9"/>
+<line class="chip-pin" x1="-1.55" y1="-0.00" x2="-2.45" y2="-0.00"/>
+<line class="chip-pin" x1="16.80" y1="-0.00" x2="17.70" y2="-0.00"/>
+<line class="chip-pin" x1="-1.55" y1="2.54" x2="-2.45" y2="2.54"/>
+<line class="chip-pin" x1="16.80" y1="2.54" x2="17.70" y2="2.54"/>
+<line class="chip-pin" x1="-1.55" y1="5.08" x2="-2.45" y2="5.08"/>
+<line class="chip-pin" x1="16.80" y1="5.08" x2="17.70" y2="5.08"/>
+<line class="chip-pin" x1="-1.55" y1="7.62" x2="-2.45" y2="7.62"/>
+<line class="chip-pin" x1="16.80" y1="7.62" x2="17.70" y2="7.62"/>
+<line class="chip-pin" x1="-1.55" y1="10.16" x2="-2.45" y2="10.16"/>
+<line class="chip-pin" x1="16.80" y1="10.16" x2="17.70" y2="10.16"/>
+<line class="chip-pin" x1="-1.55" y1="12.70" x2="-2.45" y2="12.70"/>
+<line class="chip-pin" x1="16.80" y1="12.70" x2="17.70" y2="12.70"/>
+<line class="chip-pin" x1="-1.55" y1="15.24" x2="-2.45" y2="15.24"/>
+<line class="chip-pin" x1="16.80" y1="15.24" x2="17.70" y2="15.24"/>
+<line class="chip-pin" x1="-1.55" y1="17.78" x2="-2.45" y2="17.78"/>
+<line class="chip-pin" x1="16.80" y1="17.78" x2="17.70" y2="17.78"/>
+<line class="chip-pin" x1="-1.55" y1="20.32" x2="-2.45" y2="20.32"/>
+<line class="chip-pin" x1="16.80" y1="20.32" x2="17.70" y2="20.32"/>
+<line class="chip-pin" x1="-1.55" y1="22.86" x2="-2.45" y2="22.86"/>
+<line class="chip-pin" x1="16.80" y1="22.86" x2="17.70" y2="22.86"/>
+<line class="chip-pin" x1="-1.55" y1="25.39" x2="-2.45" y2="25.39"/>
+<line class="chip-pin" x1="16.80" y1="25.39" x2="17.70" y2="25.39"/>
+<line class="chip-pin" x1="-1.55" y1="27.94" x2="-2.45" y2="27.94"/>
+<line class="chip-pin" x1="16.80" y1="27.94" x2="17.70" y2="27.94"/>
+<line class="chip-pin" x1="-1.55" y1="30.48" x2="-2.45" y2="30.48"/>
+<line class="chip-pin" x1="16.80" y1="30.48" x2="17.70" y2="30.48"/>
+<line class="chip-pin" x1="-1.55" y1="33.02" x2="-2.45" y2="33.02"/>
+<line class="chip-pin" x1="16.80" y1="33.02" x2="17.70" y2="33.02"/>
+<line class="chip-pin" x1="-1.55" y1="35.56" x2="-2.45" y2="35.56"/>
+<line class="chip-pin" x1="16.80" y1="35.56" x2="17.70" y2="35.56"/>
+<line class="chip-pin" x1="-1.55" y1="38.10" x2="-2.45" y2="38.10"/>
+<line class="chip-pin" x1="16.80" y1="38.10" x2="17.70" y2="38.10"/>
+<line class="chip-pin" x1="-1.55" y1="40.64" x2="-2.45" y2="40.64"/>
+<line class="chip-pin" x1="16.80" y1="40.64" x2="17.70" y2="40.64"/>
+<line class="chip-pin" x1="-1.55" y1="43.18" x2="-2.45" y2="43.18"/>
+<line class="chip-pin" x1="16.80" y1="43.18" x2="17.70" y2="43.18"/>
+<line class="chip-pin" x1="-1.55" y1="45.72" x2="-2.45" y2="45.72"/>
+<line class="chip-pin" x1="16.80" y1="45.72" x2="17.70" y2="45.72"/>
+<line class="chip-pin" x1="-1.55" y1="48.26" x2="-2.45" y2="48.26"/>
+<line class="chip-pin" x1="16.80" y1="48.26" x2="17.70" y2="48.26"/>
+</g>
+<g transform="translate(127.79,84.27) rotate(90)" data-ref="U4">
+<rect class="chip-body " x="-1.55" y="-1.60" width="18.35" height="51.45" rx="0.6"/>
+<circle class="chip-notch" cx="0.05" cy="24.12" r="0.9"/>
+<line class="chip-pin" x1="-1.55" y1="-0.00" x2="-2.45" y2="-0.00"/>
+<line class="chip-pin" x1="16.80" y1="-0.00" x2="17.70" y2="-0.00"/>
+<line class="chip-pin" x1="-1.55" y1="2.54" x2="-2.45" y2="2.54"/>
+<line class="chip-pin" x1="16.80" y1="2.54" x2="17.70" y2="2.54"/>
+<line class="chip-pin" x1="-1.55" y1="5.08" x2="-2.45" y2="5.08"/>
+<line class="chip-pin" x1="16.80" y1="5.08" x2="17.70" y2="5.08"/>
+<line class="chip-pin" x1="-1.55" y1="7.62" x2="-2.45" y2="7.62"/>
+<line class="chip-pin" x1="16.80" y1="7.62" x2="17.70" y2="7.62"/>
+<line class="chip-pin" x1="-1.55" y1="10.16" x2="-2.45" y2="10.16"/>
+<line class="chip-pin" x1="16.80" y1="10.16" x2="17.70" y2="10.16"/>
+<line class="chip-pin" x1="-1.55" y1="12.70" x2="-2.45" y2="12.70"/>
+<line class="chip-pin" x1="16.80" y1="12.70" x2="17.70" y2="12.70"/>
+<line class="chip-pin" x1="-1.55" y1="15.24" x2="-2.45" y2="15.24"/>
+<line class="chip-pin" x1="16.80" y1="15.24" x2="17.70" y2="15.24"/>
+<line class="chip-pin" x1="-1.55" y1="17.78" x2="-2.45" y2="17.78"/>
+<line class="chip-pin" x1="16.80" y1="17.78" x2="17.70" y2="17.78"/>
+<line class="chip-pin" x1="-1.55" y1="20.32" x2="-2.45" y2="20.32"/>
+<line class="chip-pin" x1="16.80" y1="20.32" x2="17.70" y2="20.32"/>
+<line class="chip-pin" x1="-1.55" y1="22.86" x2="-2.45" y2="22.86"/>
+<line class="chip-pin" x1="16.80" y1="22.86" x2="17.70" y2="22.86"/>
+<line class="chip-pin" x1="-1.55" y1="25.39" x2="-2.45" y2="25.39"/>
+<line class="chip-pin" x1="16.80" y1="25.39" x2="17.70" y2="25.39"/>
+<line class="chip-pin" x1="-1.55" y1="27.94" x2="-2.45" y2="27.94"/>
+<line class="chip-pin" x1="16.80" y1="27.94" x2="17.70" y2="27.94"/>
+<line class="chip-pin" x1="-1.55" y1="30.48" x2="-2.45" y2="30.48"/>
+<line class="chip-pin" x1="16.80" y1="30.48" x2="17.70" y2="30.48"/>
+<line class="chip-pin" x1="-1.55" y1="33.02" x2="-2.45" y2="33.02"/>
+<line class="chip-pin" x1="16.80" y1="33.02" x2="17.70" y2="33.02"/>
+<line class="chip-pin" x1="-1.55" y1="35.56" x2="-2.45" y2="35.56"/>
+<line class="chip-pin" x1="16.80" y1="35.56" x2="17.70" y2="35.56"/>
+<line class="chip-pin" x1="-1.55" y1="38.10" x2="-2.45" y2="38.10"/>
+<line class="chip-pin" x1="16.80" y1="38.10" x2="17.70" y2="38.10"/>
+<line class="chip-pin" x1="-1.55" y1="40.64" x2="-2.45" y2="40.64"/>
+<line class="chip-pin" x1="16.80" y1="40.64" x2="17.70" y2="40.64"/>
+<line class="chip-pin" x1="-1.55" y1="43.18" x2="-2.45" y2="43.18"/>
+<line class="chip-pin" x1="16.80" y1="43.18" x2="17.70" y2="43.18"/>
+<line class="chip-pin" x1="-1.55" y1="45.72" x2="-2.45" y2="45.72"/>
+<line class="chip-pin" x1="16.80" y1="45.72" x2="17.70" y2="45.72"/>
+<line class="chip-pin" x1="-1.55" y1="48.26" x2="-2.45" y2="48.26"/>
+<line class="chip-pin" x1="16.80" y1="48.26" x2="17.70" y2="48.26"/>
+</g>
+<g transform="translate(153.20,46.17) rotate(-180)" data-ref="U2">
+<!-- The generated 14-pins-a-side rows (real 28C256 spacing, +-16.51) badly
+     overshot this body (only +-8.87 -- the "weird gray squares poking up
+     above ROM" the user spotted): enlarging the body to match would in
+     turn collide with RAM (U3), which sits directly below at an equally
+     real, KiCad-traced position -- there's genuinely no room for a
+     literal 28-pin-DIP-sized ROM in this diagram's layout. Pin *count*
+     (14/side, real) is kept; only their spacing is compressed (~0.44x) so
+     every tick lands inside the body, same margin convention (~1.6 units)
+     every other chip here already uses. -->
+<rect class="chip-body" x="-17.36" y="-8.87" width="34.72" height="17.74" rx="0.6"/>
+<circle class="chip-notch" cx="-15.76" cy="0.00" r="0.9"/>
+<line class="chip-pin" x1="-17.36" y1="-7.30" x2="-18.26" y2="-7.30"/>
+<line class="chip-pin" x1="17.36" y1="-7.30" x2="18.26" y2="-7.30"/>
+<line class="chip-pin" x1="-17.36" y1="-6.18" x2="-18.26" y2="-6.18"/>
+<line class="chip-pin" x1="17.36" y1="-6.18" x2="18.26" y2="-6.18"/>
+<line class="chip-pin" x1="-17.36" y1="-5.05" x2="-18.26" y2="-5.05"/>
+<line class="chip-pin" x1="17.36" y1="-5.05" x2="18.26" y2="-5.05"/>
+<line class="chip-pin" x1="-17.36" y1="-3.93" x2="-18.26" y2="-3.93"/>
+<line class="chip-pin" x1="17.36" y1="-3.93" x2="18.26" y2="-3.93"/>
+<line class="chip-pin" x1="-17.36" y1="-2.81" x2="-18.26" y2="-2.81"/>
+<line class="chip-pin" x1="17.36" y1="-2.81" x2="18.26" y2="-2.81"/>
+<line class="chip-pin" x1="-17.36" y1="-1.69" x2="-18.26" y2="-1.69"/>
+<line class="chip-pin" x1="17.36" y1="-1.69" x2="18.26" y2="-1.69"/>
+<line class="chip-pin" x1="-17.36" y1="-0.56" x2="-18.26" y2="-0.56"/>
+<line class="chip-pin" x1="17.36" y1="-0.56" x2="18.26" y2="-0.56"/>
+<line class="chip-pin" x1="-17.36" y1="0.56" x2="-18.26" y2="0.56"/>
+<line class="chip-pin" x1="17.36" y1="0.56" x2="18.26" y2="0.56"/>
+<line class="chip-pin" x1="-17.36" y1="1.69" x2="-18.26" y2="1.69"/>
+<line class="chip-pin" x1="17.36" y1="1.69" x2="18.26" y2="1.69"/>
+<line class="chip-pin" x1="-17.36" y1="2.81" x2="-18.26" y2="2.81"/>
+<line class="chip-pin" x1="17.36" y1="2.81" x2="18.26" y2="2.81"/>
+<line class="chip-pin" x1="-17.36" y1="3.93" x2="-18.26" y2="3.93"/>
+<line class="chip-pin" x1="17.36" y1="3.93" x2="18.26" y2="3.93"/>
+<line class="chip-pin" x1="-17.36" y1="5.05" x2="-18.26" y2="5.05"/>
+<line class="chip-pin" x1="17.36" y1="5.05" x2="18.26" y2="5.05"/>
+<line class="chip-pin" x1="-17.36" y1="6.18" x2="-18.26" y2="6.18"/>
+<line class="chip-pin" x1="17.36" y1="6.18" x2="18.26" y2="6.18"/>
+<line class="chip-pin" x1="-17.36" y1="7.30" x2="-18.26" y2="7.30"/>
+<line class="chip-pin" x1="17.36" y1="7.30" x2="18.26" y2="7.30"/>
+</g>
+<g transform="translate(169.71,58.87) rotate(90)" data-ref="U3">
+<rect class="chip-body " x="-1.55" y="-1.60" width="18.35" height="36.25" rx="0.6"/>
+<circle class="chip-notch" cx="0.05" cy="16.52" r="0.9"/>
+<line class="chip-pin" x1="-1.55" y1="0.01" x2="-2.45" y2="0.01"/>
+<line class="chip-pin" x1="16.80" y1="0.01" x2="17.70" y2="0.01"/>
+<line class="chip-pin" x1="-1.55" y1="2.55" x2="-2.45" y2="2.55"/>
+<line class="chip-pin" x1="16.80" y1="2.55" x2="17.70" y2="2.55"/>
+<line class="chip-pin" x1="-1.55" y1="5.09" x2="-2.45" y2="5.09"/>
+<line class="chip-pin" x1="16.80" y1="5.09" x2="17.70" y2="5.09"/>
+<line class="chip-pin" x1="-1.55" y1="7.63" x2="-2.45" y2="7.63"/>
+<line class="chip-pin" x1="16.80" y1="7.63" x2="17.70" y2="7.63"/>
+<line class="chip-pin" x1="-1.55" y1="10.17" x2="-2.45" y2="10.17"/>
+<line class="chip-pin" x1="16.80" y1="10.17" x2="17.70" y2="10.17"/>
+<line class="chip-pin" x1="-1.55" y1="12.71" x2="-2.45" y2="12.71"/>
+<line class="chip-pin" x1="16.80" y1="12.71" x2="17.70" y2="12.71"/>
+<line class="chip-pin" x1="-1.55" y1="15.25" x2="-2.45" y2="15.25"/>
+<line class="chip-pin" x1="16.80" y1="15.25" x2="17.70" y2="15.25"/>
+<line class="chip-pin" x1="-1.55" y1="17.79" x2="-2.45" y2="17.79"/>
+<line class="chip-pin" x1="16.80" y1="17.79" x2="17.70" y2="17.79"/>
+<line class="chip-pin" x1="-1.55" y1="20.33" x2="-2.45" y2="20.33"/>
+<line class="chip-pin" x1="16.80" y1="20.33" x2="17.70" y2="20.33"/>
+<line class="chip-pin" x1="-1.55" y1="22.87" x2="-2.45" y2="22.87"/>
+<line class="chip-pin" x1="16.80" y1="22.87" x2="17.70" y2="22.87"/>
+<line class="chip-pin" x1="-1.55" y1="25.41" x2="-2.45" y2="25.41"/>
+<line class="chip-pin" x1="16.80" y1="25.41" x2="17.70" y2="25.41"/>
+<line class="chip-pin" x1="-1.55" y1="27.95" x2="-2.45" y2="27.95"/>
+<line class="chip-pin" x1="16.80" y1="27.95" x2="17.70" y2="27.95"/>
+<line class="chip-pin" x1="-1.55" y1="30.49" x2="-2.45" y2="30.49"/>
+<line class="chip-pin" x1="16.80" y1="30.49" x2="17.70" y2="30.49"/>
+<line class="chip-pin" x1="-1.55" y1="33.04" x2="-2.45" y2="33.04"/>
+<line class="chip-pin" x1="16.80" y1="33.04" x2="17.70" y2="33.04"/>
+</g>
+<g transform="translate(169.71,84.27) rotate(90)" data-ref="U7">
+<rect class="chip-body " x="-1.55" y="-1.60" width="18.35" height="36.25" rx="0.6"/>
+<circle class="chip-notch" cx="0.05" cy="16.52" r="0.9"/>
+<line class="chip-pin" x1="-1.55" y1="0.01" x2="-2.45" y2="0.01"/>
+<line class="chip-pin" x1="16.80" y1="0.01" x2="17.70" y2="0.01"/>
+<line class="chip-pin" x1="-1.55" y1="2.55" x2="-2.45" y2="2.55"/>
+<line class="chip-pin" x1="16.80" y1="2.55" x2="17.70" y2="2.55"/>
+<line class="chip-pin" x1="-1.55" y1="5.09" x2="-2.45" y2="5.09"/>
+<line class="chip-pin" x1="16.80" y1="5.09" x2="17.70" y2="5.09"/>
+<line class="chip-pin" x1="-1.55" y1="7.63" x2="-2.45" y2="7.63"/>
+<line class="chip-pin" x1="16.80" y1="7.63" x2="17.70" y2="7.63"/>
+<line class="chip-pin" x1="-1.55" y1="10.17" x2="-2.45" y2="10.17"/>
+<line class="chip-pin" x1="16.80" y1="10.17" x2="17.70" y2="10.17"/>
+<line class="chip-pin" x1="-1.55" y1="12.71" x2="-2.45" y2="12.71"/>
+<line class="chip-pin" x1="16.80" y1="12.71" x2="17.70" y2="12.71"/>
+<line class="chip-pin" x1="-1.55" y1="15.25" x2="-2.45" y2="15.25"/>
+<line class="chip-pin" x1="16.80" y1="15.25" x2="17.70" y2="15.25"/>
+<line class="chip-pin" x1="-1.55" y1="17.79" x2="-2.45" y2="17.79"/>
+<line class="chip-pin" x1="16.80" y1="17.79" x2="17.70" y2="17.79"/>
+<line class="chip-pin" x1="-1.55" y1="20.33" x2="-2.45" y2="20.33"/>
+<line class="chip-pin" x1="16.80" y1="20.33" x2="17.70" y2="20.33"/>
+<line class="chip-pin" x1="-1.55" y1="22.87" x2="-2.45" y2="22.87"/>
+<line class="chip-pin" x1="16.80" y1="22.87" x2="17.70" y2="22.87"/>
+<line class="chip-pin" x1="-1.55" y1="25.41" x2="-2.45" y2="25.41"/>
+<line class="chip-pin" x1="16.80" y1="25.41" x2="17.70" y2="25.41"/>
+<line class="chip-pin" x1="-1.55" y1="27.95" x2="-2.45" y2="27.95"/>
+<line class="chip-pin" x1="16.80" y1="27.95" x2="17.70" y2="27.95"/>
+<line class="chip-pin" x1="-1.55" y1="30.49" x2="-2.45" y2="30.49"/>
+<line class="chip-pin" x1="16.80" y1="30.49" x2="17.70" y2="30.49"/>
+<line class="chip-pin" x1="-1.55" y1="33.04" x2="-2.45" y2="33.04"/>
+<line class="chip-pin" x1="16.80" y1="33.04" x2="17.70" y2="33.04"/>
+</g>
+<g transform="translate(186.21,74.11) rotate(-180)" data-ref="U5">
+<rect class="chip-body " x="-1.55" y="-1.60" width="10.70" height="18.45" rx="0.6"/>
+<circle class="chip-notch" cx="0.05" cy="7.63" r="0.9"/>
+<line class="chip-pin" x1="-1.55" y1="0.01" x2="-2.45" y2="0.01"/>
+<line class="chip-pin" x1="9.15" y1="0.01" x2="10.05" y2="0.01"/>
+<line class="chip-pin" x1="-1.55" y1="2.55" x2="-2.45" y2="2.55"/>
+<line class="chip-pin" x1="9.15" y1="2.55" x2="10.05" y2="2.55"/>
+<line class="chip-pin" x1="-1.55" y1="5.09" x2="-2.45" y2="5.09"/>
+<line class="chip-pin" x1="9.15" y1="5.09" x2="10.05" y2="5.09"/>
+<line class="chip-pin" x1="-1.55" y1="7.63" x2="-2.45" y2="7.63"/>
+<line class="chip-pin" x1="9.15" y1="7.63" x2="10.05" y2="7.63"/>
+<line class="chip-pin" x1="-1.55" y1="10.17" x2="-2.45" y2="10.17"/>
+<line class="chip-pin" x1="9.15" y1="10.17" x2="10.05" y2="10.17"/>
+<line class="chip-pin" x1="-1.55" y1="12.71" x2="-2.45" y2="12.71"/>
+<line class="chip-pin" x1="9.15" y1="12.71" x2="10.05" y2="12.71"/>
+<line class="chip-pin" x1="-1.55" y1="15.25" x2="-2.45" y2="15.25"/>
+<line class="chip-pin" x1="9.15" y1="15.25" x2="10.05" y2="15.25"/>
+</g>
+<g transform="translate(185.93,101.60) rotate(-180)" data-ref="U8">
+<rect class="chip-body " x="-1.55" y="-1.60" width="10.70" height="21.00" rx="0.6"/>
+<circle class="chip-notch" cx="0.05" cy="8.90" r="0.9"/>
+<line class="chip-pin" x1="-1.55" y1="0.01" x2="-2.45" y2="0.01"/>
+<line class="chip-pin" x1="9.15" y1="0.01" x2="10.05" y2="0.01"/>
+<line class="chip-pin" x1="-1.55" y1="2.55" x2="-2.45" y2="2.55"/>
+<line class="chip-pin" x1="9.15" y1="2.55" x2="10.05" y2="2.55"/>
+<line class="chip-pin" x1="-1.55" y1="5.09" x2="-2.45" y2="5.09"/>
+<line class="chip-pin" x1="9.15" y1="5.09" x2="10.05" y2="5.09"/>
+<line class="chip-pin" x1="-1.55" y1="7.63" x2="-2.45" y2="7.63"/>
+<line class="chip-pin" x1="9.15" y1="7.63" x2="10.05" y2="7.63"/>
+<line class="chip-pin" x1="-1.55" y1="10.17" x2="-2.45" y2="10.17"/>
+<line class="chip-pin" x1="9.15" y1="10.17" x2="10.05" y2="10.17"/>
+<line class="chip-pin" x1="-1.55" y1="12.71" x2="-2.45" y2="12.71"/>
+<line class="chip-pin" x1="9.15" y1="12.71" x2="10.05" y2="12.71"/>
+<line class="chip-pin" x1="-1.55" y1="15.25" x2="-2.45" y2="15.25"/>
+<line class="chip-pin" x1="9.15" y1="15.25" x2="10.05" y2="15.25"/>
+<line class="chip-pin" x1="-1.55" y1="17.79" x2="-2.45" y2="17.79"/>
+<line class="chip-pin" x1="9.15" y1="17.79" x2="10.05" y2="17.79"/>
+</g>
+<text class="lbl-title" x="158" y="31.63" text-anchor="middle">CGOAC6502</text>
+<text class="lbl-chip-name" x="103.67" y="68.69" text-anchor="middle">6502 CPU</text>
+<text class="lbl-chip-name" x="103.67" y="94.09" text-anchor="middle">VIA</text>
+<text class="lbl-chip-sub" x="153.20" y="45.17" text-anchor="middle">32K</text>
+<text class="lbl-chip-name" x="153.20" y="48.37" text-anchor="middle">ROM</text>
+<text class="lbl-chip-sub" x="153.18" y="65.50" text-anchor="middle">32K</text>
+<text class="lbl-chip-name" x="153.18" y="68.70" text-anchor="middle">RAM</text>
+<text class="lbl-chip-name" x="153.18" y="94.09" text-anchor="middle">ACIA</text>
+<text class="lbl-chip-name" x="182.41" y="68.69" text-anchor="middle">74HC00</text>
+<text class="lbl-chip-name" x="182.13" y="94.90" text-anchor="middle">MAX232</text>
+<text class="lbl-part" x="149.87" y="109.70" text-anchor="middle">Pwr</text>
+<text class="lbl-part" x="135.89" y="109.70" text-anchor="middle">Rx</text>
+<text class="lbl-part" x="140.97" y="109.70" text-anchor="middle">Tx</text>
+<text class="lbl-part" x="115.57" y="54.50" text-anchor="middle">1 MHz</text>
+<text class="lbl-part" x="187.87" y="117.56" text-anchor="middle">RS232 1.8432 MHz</text>
+<text class="lbl-part" x="126.75" y="31.91" text-anchor="start">RST</text>
+<text class="lbl-part" x="197.77" y="33.80" text-anchor="middle">Power</text>
+<text class="lbl-part" x="203.34" y="89.04" text-anchor="middle">RS232</text>
+</svg>
+
+        <!-- J7 (VIA/ACIA interrupt routing), J5 (BOOT select) and J8
+             (RTS->CTS) are all real jumpers, but none are exposed as
+             controls on this page -- all three default to the shipped
+             ROM's own wiring (bus.h's JumperState defaults: VIA->IRQ,
+             ACIA->NMI, BOOT select 0, RTS->CTS open), which is all the
+             ROM actually reads or needs. -->
+       </div>
+      </div>
+      <div class="row muted" style="font-size:11px;margin-top:10px">
+        Traced from the real KiCad layout (<code>cpu6502/pcb/pcb6502/FullBoard/</code>) --
+        every chip is where it actually sits on the board. Click <b>RST</b> to reset,
+        <b>Power</b> to pause/resume the board.
+      </div>
+    </div>
+
+    <div class="floatpop" id="savePopup" hidden>
+      <div class="fp-drag"><span>&#9635; Save / Load</span>
+        <button class="fp-x" title="close (drag the bar to move)">&times;</button></div>
+      <div class="fp-body">
+        <div class="row">
+          <label>Filename <input type="text" id="pgmName" placeholder="myprogram.asm" size="20"></label>
+          <button id="pgmSave">Save</button>
+          <a id="pgmDownload" hidden download>Download</a>
+        </div>
+        <div class="row" style="margin-top:8px">
+          <label><input type="file" id="pgmFile" accept=".asm,.txt" hidden><button id="pgmFileBtn">Open file&hellip; and load</button></label>
+          <label title="skip the realistic per-character ACIA-baud pacing for this transfer"><input type="checkbox" id="instantXfer"> instant transfer</label>
+        </div>
+        <div class="row" style="margin-top:10px">
+          <b style="font-size:12px">Saved programs</b>
+        </div>
+        <div class="chip-lib" id="pgmLib"></div>
+        <div id="pgmStatus" class="muted" style="margin-top:8px">Ready.</div>
+      </div>
+    </div>
+
+    <div class="floatpop" id="helpPopup" hidden>
+      <div class="fp-drag"><span>&#9635; Help</span>
+        <button class="fp-x" title="close (drag the bar to move)">&times;</button></div>
+      <div class="fp-body">
+      <h3 class="subhead">Wozmon monitor</h3>
+      <div class="row muted help-body">
+        Genuine 1976 Apple-1 Wozmon &mdash; uppercase, hex only:
+        <ul>
+          <li><code>AAAA</code> examine byte AAAA &middot; <code>AAAA.BBBB</code> examine a block</li>
+          <li><code>AAAA: BB CC</code> store bytes at AAAA &middot; <code>AAAA R</code> run at AAAA
+            (never returns &mdash; see "Running" below)</li>
+        </ul>
+      </div>
+      <h3 class="subhead">Editor / assembler shell</h3>
+      <div class="row muted help-body">
+        <code id="hShell2">SHELL_ENTRY</code> from Wozmon enters it; its own <code>&gt;</code>
+        prompt takes command lines until <code>QUIT</code> returns to Wozmon's <code>\</code>:
+        <ul>
+          <li><code>10 LDA #$2A</code> store/replace line 10 (decimal, BASIC-style); bare
+            <code>10</code> deletes it. Bad syntax is rejected on the spot with
+            <code>?SYNTAX</code>, not stored &mdash; labels aren't checked here, so forward
+            references are fine</li>
+          <li>no leading number &rArr; auto-numbers onto the end (+10, like BASIC's
+            <code>AUTO</code>)</li>
+          <li><code>LIST</code> / <code>LIST 100</code> &mdash; print the program, all or from
+            line &ge;100, 20 lines at a time</li>
+          <li><code>EDIT 30</code> &mdash; show then retype line 30; blank retype deletes it</li>
+          <li><code>ASM</code> &mdash; two-pass assemble; errors report the real line number</li>
+          <li><code>RUN</code> &middot; <code>LOAD</code> / <code>SAVE</code> (see below) &middot;
+            <code>NEW</code> clears the program</li>
+        </ul>
+      </div>
+      <h3 class="subhead">Source line format</h3>
+      <div class="row muted help-body">
+        <code>LABEL: MNEMONIC OPERAND &nbsp;; comment</code> &mdash; one space between fields is
+        enough; <code>LIST</code>/<code>EDIT</code> realign everything into columns regardless of
+        how it was typed. <code>;</code> starts a comment, ignored by <code>ASM</code>.
+      </div>
+      <h3 class="subhead">Memory map</h3>
+      <div class="row muted help-body">
+        <code>$0000-00FF</code> zero page &middot; <code>$0100-01FF</code> stack &middot;
+        <code>$0200-02FF</code> ACIA RX ring &middot; <code>$0300-03FF</code> Wozmon buffer &middot;
+        <code>$0400-2BFF</code> object code (~10.25K) &middot; <code>$2C00-2FFF</code> symbol table
+        &middot; <code>$3000-3FFF</code> source (4K) &middot; <code>$8000-FFFF</code> ROM
+      </div>
+      <h3 class="subhead">Running your program</h3>
+      <div class="row muted help-body">
+        Object code starts at <code>$0400</code> &mdash; <code>RUN</code> goes there directly.
+        No BRK trap: end with an explicit <code id="hResume">JMP $xxxx</code> to return to the
+        shell (its "home" now, not raw Wozmon). <b>Ctrl-C</b> breaks a program that never
+        returns, via the ACIA's own receive interrupt &mdash; instant, whatever the program is
+        doing. <b>SW1 reset</b> works too, but clears the program; Ctrl-C doesn't.
+      </div>
+      <h3 class="subhead">OS calls</h3>
+      <div class="row muted help-body">
+        Fixed addresses (bios.s's jump table) so a program can <code>JSR</code> them across ROM
+        rebuilds. No <code>.BYTE</code> directive for string literals (see assembler scope) &mdash;
+        build one byte-by-byte with <code>LDA #$xx</code> / <code>STA</code> first.
+        <table class="os-table">
+          <thead><tr><th>Call</th><th>Addr</th><th>In</th><th>Effect</th></tr></thead>
+          <tbody>
+            <tr><td><code>PRINT_CHAR</code></td><td><code id="hPrintChar">$xxxx</code></td><td>A=char</td><td>print to terminal</td></tr>
+            <tr><td><code>PRINT_STR</code></td><td><code id="hPrintStr">$xxxx</code></td><td>A/Y=str</td><td>print NUL-term string to terminal</td></tr>
+            <tr><td><code>LCD_PUTC</code></td><td><code id="hLcdPutc">$xxxx</code></td><td>A=char</td><td>print to LCD at cursor</td></tr>
+            <tr><td><code>LCD_PUTS</code></td><td><code id="hLcdPuts">$xxxx</code></td><td>A/Y=str</td><td>print NUL-term string to LCD</td></tr>
+            <tr><td><code>LCD_CLEAR</code></td><td><code id="hLcdClear">$xxxx</code></td><td>&mdash;</td><td>clear LCD, home cursor</td></tr>
+            <tr><td><code>LCD_LINE1</code></td><td><code id="hLcdLine1">$xxxx</code></td><td>&mdash;</td><td>LCD cursor to row 1</td></tr>
+            <tr><td><code>LCD_LINE2</code></td><td><code id="hLcdLine2">$xxxx</code></td><td>&mdash;</td><td>LCD cursor to row 2</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <h3 class="subhead">v1 assembler scope</h3>
+      <div class="row muted help-body">
+        Hex operands only (<code>$xx</code>/<code>$xxxx</code> &mdash; line numbers are a separate
+        decimal concept); labels truncate to 6 characters; no indirect addressing
+        (<code>(zp,X)</code>, <code>(zp),Y</code>, <code>(abs)</code>); no 65C02 bit-ops
+        (<code>RMBx</code>/<code>SMBx</code>/<code>BBRx</code>/<code>BBSx</code>); no
+        <code>ORG</code>/<code>.BYTE</code>/<code>.WORD</code> (code assembles sequentially from
+        <code>$0400</code>); no <code>&lt;</code>/<code>&gt;</code> or label arithmetic. Documented
+        cuts, not bugs.
+      </div>
+      <h3 class="subhead">Save / Load</h3>
+      <div class="row muted help-body">
+        Moves the program over the real RS232/ACIA link, same as typing <code>SAVE</code>/
+        <code>LOAD</code> at the shell (<code id="hShell">SHELL_ENTRY</code>) by hand.
+        <b>Save</b> dumps decimal-numbered text lines framed in STX/ETX; <b>Load</b> clears the
+        program and streams one back in (auto-numbering unnumbered lines). Paced to the ACIA's
+        real baud by default. Also driven from the Save/Load popup (terminal header).
+      </div>
+      </div>
+    </div>
+
+    <hr class="rule">
+    <div class="footer">
+      <p>Recreates a real, hand-built W65C02S single-board computer &mdash; the netlist,
+        ROM source, and hardware findings live in
+        <a href="https://github.com/gsirhc/retro/tree/main/cpu6502" target="_blank" rel="noopener">cpu6502/</a>
+        (<a href="https://github.com/gsirhc/retro/tree/main/retroweb/assembler6502" target="_blank" rel="noopener">emulator source</a>,
+        <a href="https://github.com/gsirhc/retro/blob/main/retroweb/assembler6502/CGOAC6502_REVIEW.md" target="_blank" rel="noopener">hardware notes</a>).</p>
+    </div>
+  </div>
+</div>
+
+<script src="vendor/xterm.js"></script>
+<script src="vendor/xterm-addon-fit.js"></script>
+<script src="lcdfont.js"></script>
+<script src="cgoac6502.js"></script>
+<script src="roms/entrypoints.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

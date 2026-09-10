@@ -20,7 +20,6 @@ H     = $29              ; Hex value parsing High
 YSAV  = $2A              ; Used to see if hex value is given
 MODE  = $2B              ; $00=XAM, $7F=STOR, $AE=BLOCK XAM
 
-START_WOZ:
 NOTCR:
   CMP     #$08           ; Backspace key?
   BEQ     BACKSPACE      ; Yes.
@@ -29,6 +28,14 @@ NOTCR:
   INY      ; Advance text index.
   BPL     NEXTCHAR       ; Auto ESC if line longer than 127.
 
+; The real cold/re-sync entry point -- self-initializing (prints the classic
+; "\" banner, then GETLINE explicitly sets LDY #$01 before the read loop),
+; unlike NOTCR just above, which is a mid-loop branch that does an
+; unconditional INY on whatever Y already holds. RESET must land here, not
+; on NOTCR/START_WOZ as this port previously aliased it -- entering at NOTCR
+; only ever worked by accident, riding on leftover Y state from the old
+; boot-menu code path that used to call it.
+START_WOZ:
 ESCAPE:
   LDA     #$5C           ; "\".
   JSR     ECHO           ; Output it.

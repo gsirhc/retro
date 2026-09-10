@@ -46,7 +46,7 @@ disks/freedos-hdd.img: $(CORE)/disks/freedos-hdd.img
 
 hdd-image: disks/freedos-hdd.img
 
-# Port 8000, matching altair8800/cg-oac-6502's own `make serve` default --
+# Port 8000, matching altair8800/assembler6502's own `make serve` default --
 # each machine's Playwright suite (Phase 8 here) reserves its own dedicated
 # port instead (8100/8200 there) precisely so it never collides with a
 # hand-run `make serve`; this machine's suite should follow that same

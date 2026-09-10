@@ -1,28 +1,59 @@
 .setcpu "65C02"
 .debuginfo           ; Generates symbol table
 
+CR = 13
+LF = 10
+
+; No .org here -- link.cfg's ZP memory area already pins this segment to
+; $0000; an explicit .org $00 turns out to force ca65 into "absolute"
+; placement that ld65 then just keeps incrementing through every segment
+; declared afterward (SERIAL_BUFFER, BIOS, ...), ignoring their own MEMORY
+; start addresses entirely -- verified empirically (a minimal repro placed
+; BIOS's RESET at $0102 instead of $8000 with .org present, $8000 without).
                 .zeropage
-                .org ZP_START0 ; **** ADD SPACE IN DEFINES_GALL_OAC.S IF ADDING PTRs
-JIFFIES:        .res 1
-UP_SECONDS:     .res 1
-UP_MINUTES:     .res 1
-UP_HOURS:       .res 1
 READ_PTR:       .res 1
 WRITE_PTR:      .res 1
 ADDR_PTR:       .res 2
-DEC_VALUE:      .res 2
-MOD10_VALUE:    .res 2
-DECIMAL_STR:    .res 6
 
 .segment "SERIAL_BUFFER"
 SERIAL_BUFFER:  .res $100
 
 .segment "BIOS"
 
-.include "commands.s"
-.include "format.s"
+; Fixed, memorable jump table -- deliberately the very first bytes of the
+; BIOS segment (ld65's gall_oac.cfg starts BASROM at $8000, and the old
+; BASIC/menu segments it once shared this region with are gone -- see the
+; pivot's "Dropped" list -- so BIOS is now the first thing in ROM), so a
+; human can type these from memory (from Wozmon, or JSR'd from their own
+; assembled program) without needing to know or look up a build-specific
+; address every time editor.s's/via.s's own code shifts around. One-
+; instruction jump-table entries, same shape as a fixed low-memory cold-
+; start vector on period hardware (e.g. the C64's $A000 BASIC cold-start
+; entry) -- every real implementation keeps moving freely as its own
+; source changes; only these jumps need to stay put. See
+; CGOAC6502_REVIEW.md for the full writeup and the Help panel's "OS calls"
+; section for user-facing documentation of these as callable routines.
+SHELL_ENTRY:
+    jmp SHELL_START       ; $8000 -- <addr>R from Wozmon starts the shell
+PRINT_CHAR:
+    jmp CHROUT            ; $8003 -- A = char -> terminal (ACIA)
+PRINT_STR:
+    jmp STROUT            ; $8006 -- A/Y = lo/hi of a NUL-terminated string -> terminal
+LCD_PUTC:
+    jmp print_char_lcd    ; $8009 -- A = char -> LCD at the current cursor position
+LCD_PUTS:
+    jmp PRINT_STR_LCD      ; $800C -- A/Y = lo/hi of a NUL-terminated string -> LCD
+LCD_CLEAR:
+    jmp clear_lcd          ; $800F -- clear the LCD and home its cursor
+LCD_LINE1:
+    jmp cursorLine1_lcd   ; $8012 -- move the LCD cursor to row 1
+LCD_LINE2:
+    jmp cursorLine2_lcd   ; $8015 -- move the LCD cursor to row 2
+
 .include "vterm.s"
-.include "load.s"
+.include "via.s"
+.include "editor.s"
+.include "load.s"      ; after editor.s -- uses its SRC_START/SRC_END/SRCPTR
 
 ACIA_DATA = $5000
 ACIA_STATUS = $5001
@@ -31,128 +62,20 @@ ACIA_CTRL = $5003
 
 RESET:
     jsr CHLL               ; delay for resets?? (doesn't always start properly)
-    jsr CHLL                
+    jsr CHLL
     LDA READ_PTR           ; init buffer pointers
     STA WRITE_PTR
-    lda #$00
-    STA JIFFIES
-    STA UP_MINUTES
-    STA UP_SECONDS
-    STA UP_HOURS
     CLI
     LDA #$1F               ; ACIA: 8-N-1, 19200 baud.
     STA ACIA_CTRL
     LDA #$89               ; ACIA: No parity, no echo, interrupts.
     STA ACIA_CMD
-    LDA #$1B               ; ACIA: Begin with escape.
-    jsr reset_via_irq
-
-BOOT:
+    jsr reset_via           ; also clears the LCD
     JSR CLEAR_TERMINAL
-    JSR clear_lcd
-boot_no_clear:
-    LDA #<ST_BOOT_MENU
-    LDY #>ST_BOOT_MENU
-    JSR STROUT
-    LDA #<ST_LCD_IDENT_1
-    LDY #>ST_LCD_IDENT_1
-    JSR PRINT_STR_LCD
-    jsr cursorLine2_lcd
-    LDA #<ST_LCD_BOOT_2
-    LDY #>ST_LCD_BOOT_2
-    JSR PRINT_STR_LCD
-boot_loop:
-    JSR CHRIN
-    BCC boot_loop
-    CMP #'1'
-    BEQ boot_basic
-    CMP #'2'
-    BEQ boot_wozmon
-    CMP #'3'
-    BEQ boot_clock
-    CMP #'4'
-    BEQ boot_sei
-    CMP #'5'
-    BEQ boot_cli
-    CMP #'C'
-    BEQ ggeretsae
-    JMP BOOT                ; loop until valid input
-boot_basic:
-    JSR clear_lcd
-    JMP COLD_START
-boot_wozmon:
-    jsr CLEAR_TERMINAL
-    jsr cursorLine2_lcd
-    LDA #<ST_LCD_WOZMON_2
-    LDY #>ST_LCD_WOZMON_2
-    JSR PRINT_STR_LCD
     JMP START_WOZ
-boot_clock:
-    jsr CLEAR_TERMINAL
-    lda #<ST_CLOCK_RUNNING
-    ldy #>ST_CLOCK_RUNNING
-    jsr STROUT
-    jsr cursorLine2_lcd
-    lda #<ST_LCD_LINE_CLR
-    ldy #>ST_LCD_LINE_CLR
-    JSR PRINT_STR_LCD
-boot_clock_loop:
-    jsr cursorLine2_lcd
-    lda #0
-    sta DEC_VALUE + 1               ; default hi byte to 0 for all times
-    lda UP_HOURS
-    sta DEC_VALUE
-    jsr FM2BYTEDECZP
-    jsr PRINT_NBR_LCD
-    lda #':'
-    jsr print_char_lcd
-    lda UP_MINUTES
-    sta DEC_VALUE
-    jsr FM2BYTEDECZP
-    jsr PRINT_NBR_LCD
-    lda #':'
-    jsr print_char_lcd
-    lda UP_SECONDS
-    sta DEC_VALUE
-    jsr FM2BYTEDECZP
-    jsr PRINT_NBR_LCD
-    jsr CHRIN
-    bcc boot_clock_loop
-    jsr CHLL
-    jsr CHLL
-    jsr CHLL
-    jmp BOOT
-boot_sei:
-    sei
-    jmp BOOT
-boot_cli:
-    cli
-    jmp BOOT
-ggeretsae:
-    jsr CLEAR_TERMINAL
-    lda #<ST_GGERETSAE_MSG_1
-    ldy #>ST_GGERETSAE_MSG_1
-    jsr STROUT
-    lda #<ST_GGERETSAE_MSG_2
-    ldy #>ST_GGERETSAE_MSG_2
-    jsr STROUT
-    jmp boot_no_clear
-
-SAVE:
-    ; lda TXTPTR
-    ; jsr print_a_hex_lcd
-    ; lda TXTPTR+1
-    ; jsr print_a_hex_lcd
-    ; lda #' '
-    ; jsr print_char_lcd
-    ; lda #<TXTPTR
-    ; jsr print_a_hex_lcd
-    ; lda #>TXTPTR+1
-    ; jsr print_a_hex_lcd
-    rts
 
 MONRDKEY:
-CHRIN:                 ; for BASIC
+CHRIN:                 ; for BASIC-era callers; kept as a plain alias of READCHAR
     jsr READCHAR
     bcc @nochar
     cmp #$08           ; Backspace key (ignore)
@@ -160,7 +83,7 @@ CHRIN:                 ; for BASIC
     sec
     jmp @done
 @backspace:
-    lda #$5F           ; send underscore to basic for its backspace (don't echo)
+    lda #$5F           ; send underscore for its backspace (don't echo)
     sec
     jmp @done
 @nochar:
@@ -168,11 +91,11 @@ CHRIN:                 ; for BASIC
 @done:
     rts
 
-READCHAR:               ; For all non-BASIC programs
+READCHAR:               ; For all non-monitor callers
     phx
     jsr BUFFER_SIZE
     beq @buffer_empty
-    cmp #$B0 
+    cmp #$B0
     bcs @buffer_mostly_full
     pha
     lda #$09           ; clear RTC/CTS to allow more chars to be sent
@@ -180,8 +103,8 @@ READCHAR:               ; For all non-BASIC programs
     pla
 @buffer_mostly_full:
     jsr READ_BUFFER
-    jsr CHROUT  
-    jsr FORCE_UPPER    ; REQUIRE upper-case for basic (and everything else)  
+    jsr CHROUT
+    jsr FORCE_UPPER    ; REQUIRE upper-case (matches Wozmon's own convention)
     sec
     jmp @done
 @buffer_empty:
@@ -208,6 +131,21 @@ CHROUT:
     pla
     rts
 
+; Print a NUL-terminated string to the terminal. A/Y = lo/hi of the string
+; pointer, same calling convention as PRINT_STR_LCD (via.s) but out CHROUT.
+STROUT:
+    sta ADDR_PTR
+    sty ADDR_PTR+1
+    ldy #0
+@loop:
+    lda (ADDR_PTR),y
+    beq @done
+    jsr CHROUT
+    iny
+    bne @loop
+@done:
+    rts
+
 WRITE_BUFFER:
     LDX WRITE_PTR
     STA SERIAL_BUFFER,x
@@ -226,142 +164,64 @@ BUFFER_SIZE:
     SBC READ_PTR
     RTS
 
-PRINT_STR_LCD:
-    PHY
-    STA ADDR_PTR
-    STY ADDR_PTR+1
-    ldy #0
-@loop:
-    LDA (ADDR_PTR),y
-    BEQ @done                 ; $00 is string terminator
-    JSR print_char_lcd
-    INY
-    JMP @loop
-@done:
-    PLY
-    rts
-
-PRINT_NBR_LCD:
-    phy
-    ldy #0
-@loop:
-    LDA DECIMAL_STR,y
-    BEQ @done                 ; $00 is string terminator
-    JSR print_char_lcd
-    INY
-    JMP @loop
-@done:
-    PLY
-    rts
-
 CHLL:
     lda #$FF
-@loop:               
+@loop:
     dec
     bne @loop
     rts
 
-ST_BOOT_MENU:
-    .byte "OAC BOOT MENU:"
-    .byte  CR,LF
-    .byte  "1. BASIC",CR,LF
-    .byte  "2. WOZMON",CR,LF
-    .byte  "3. CLOCK",CR,LF
-    .byte  CR,LF
-    .byte "UTILITIES:"
-    .byte  CR,LF
-    .byte  "4. STOP IRQ",CR,LF
-    .byte  "5. START IRQ",CR,LF
-    .byte  0
-ST_CLOCK_RUNNING:
-    .byte "LCD CLOCK RUNNING.  ANY KEY TO EXIT TO BOOT MENU",0
-
-          ;1234567890123456   LCD WIDTH
-ST_LCD_LINE_CLR:
-    .byte "                ",0
-ST_LCD_IDENT_1:
-    .byte "OAC 6502 CPU CG ",0
-ST_LCD_BOOT_2:
-    .byte "SELECT BOOT     ",0
-ST_LCD_BASIC_2:
-    .byte "     BASIC      ",0
-ST_LCD_WOZMON_2:
-    .byte "    WOZMON      ",0
-ST_GGERETSAE_MSG_1:
-          ;123456789012345678901234567890123456789012345678901234  64 bytes
-          ;123456789012345678901234567890123456789012345678901234  128 bytes
-          ;123456789012345678901234567890123456789012345678901234  192 bytes
-          ;123456789012345678901234567890123456789012345678901234  256 bytes (absolute max)
-    .byte "HELLO THERE, THIS IS AN OAC 6502 HOME COMPUTER BUILT BY:", CR, LF, CR, LF
-    .byte "                    CHRIS GALL",CR, LF
-    .byte "                2023-NEVER FINISHED", CR, LF
-    .byte "  1-MHZ W65C02 CPU, 16K RAM, 32K ROM, RS232 TERMINAL", CR, LF, CR, LF
-    .byte 0
-ST_GGERETSAE_MSG_2: 
-    .byte "...PEACE, LOVE, A GOOD BEER AND AN OLD COMPUTER = HAPPY", CR, LF
-    .byte "4F 41 43 3D 4F 4C 44 20 41 53 53 20 43 4F 4D 50 55 54 45 52", CR, LF, CR, LF
-    .byte  0
-
-ST_BASIC_HELP_MSG:
-    .byte "BASIC OAC COMMANDS:", CR, LF
-    .byte "  CLS: CLEAR TERMINAL", CR, LF
-    .byte " HOME: RETURN BOOT MENU", CR, LF
-    .byte "  SYS: EXECUTE (JMP) <Decimal Addr>", CR, LF
-    .byte "LCDPR: PRINT STRING", CR, LF
-    .byte "LCDCL: CLEAR LCD", CR, LF
-    .byte 0
-
-;.incbin "../programs/oregon_trail.bas"
-
 NMI_HANDLER:
     pha
     phx
-    lda ACIA_STATUS                     
+    lda ACIA_STATUS
     and #$08
-    beq @done                  
+    beq @done
     lda ACIA_DATA
+    cmp #$03                        ; Ctrl-C (ASCII ETX) -- real serial
+    beq @breakToShell                ; break, not buffered as input (below)
     jsr WRITE_BUFFER
     jsr BUFFER_SIZE
     cmp #$F0                        ; head room for full buffer
     bcc @done
-    lda #$01                        ; set RS223 RTS to stop sending
+    lda #$01                        ; set RS232 RTS to stop sending
     sta ACIA_CMD
 @done:
     plx
     pla
     rti
+@breakToShell:
+    ; NMI is genuinely non-maskable -- it fires the instant this byte
+    ; arrives no matter what the CPU is doing, including a user program
+    ; spinning forever with no READCHAR poll of its own to ever notice a
+    ; buffered byte. That's what makes Ctrl-C usable as a real break key
+    ; here (unlike, say, a BASIC STOP key, which only works because the
+    ; interpreter itself polls between statements) -- the standard 6502
+    ; SBC monitor pattern for a serial break: the receive-interrupt
+    ; handler recognizes the break character and, instead of RTI-ing back
+    ; to whatever it interrupted, discards that context and jumps straight
+    ; to the monitor. We're never returning to the interrupted code, so
+    ; there's nothing to restore -- just reset the stack (abandoning this
+    ; handler's own PHA/PHX along with everything the interrupted code had
+    ; pushed) to a known-good empty state and go straight to the shell's
+    ; prompt. Deliberately doesn't CHROUT anything here first: the
+    ; interrupted code could itself be mid-CHROUT (mid-CHLL, waiting out
+    ; the real per-character ACIA delay), and writing a fresh byte to
+    ; ACIA_DATA before that finishes would corrupt whatever transmission
+    ; was already in flight -- the shell's own "*" reprompt is feedback
+    ; enough that the break landed. Only meaningful while the ACIA is
+    ; jumpered to NMI (J7's default, matching the shipped ROM) -- routing
+    ; it to IRQ instead already disables all serial reception today
+    ; (IRQ_HANDLER is a bare stub), a pre-existing limit, not new here.
+    ldx #$FF
+    txs
+    jmp SHELL_PROMPT
 
-IRQ_HANDLER:
-    PHA     
-    PHX                                                    
-    bit T1CL                        ; read timer lo byte to clear timer interrupt
-    inc JIFFIES                     
-    lda JIFFIES
-    cmp #$3C                        ; 59 (zero-based) = 60hz
-    bne @done
-    ldx #0                          ; reset value for all time counters
-    stx JIFFIES
-    inc UP_SECONDS
-    lda UP_SECONDS
-    cmp #$3C
-    bne @done
-    stx UP_SECONDS
-    inc UP_MINUTES
-    lda UP_MINUTES
-    cmp #$3C
-    bne @done
-    stx UP_MINUTES
-    inc UP_HOURS
-    lda UP_HOURS
-    cmp #$18
-    bne @done
-    stx UP_HOURS                    ; rollover the entire clock (who runs for 24 hours??) 
-    stx UP_MINUTES
-    stx UP_SECONDS
-@done:
-    PLX
-    PLA
-    RTI
+IRQ_HANDLER:                        ; no default source enables an IRQ (see
+    pha                              ; reset_via's IER write) -- this stub
+    pla                              ; exists so a user program that enables
+    rti                              ; one (VIA CA1/Timer1/etc via J7) has a
+                                     ; safe vector to land on.
 
 .include "wozmon.s"
 

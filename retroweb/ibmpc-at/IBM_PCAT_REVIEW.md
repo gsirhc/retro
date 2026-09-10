@@ -1,7 +1,7 @@
 # IBM PC/AT (5170-339) — design notes and open questions
 
 This document plays the same role as `retroweb/altair8800/ALTAIR_REVIEW.md`
-and `retroweb/cg-oac-6502/CGOAC6502_REVIEW.md`: a citation trail for the
+and `retroweb/assembler6502/CGOAC6502_REVIEW.md`: a citation trail for the
 decisions behind the emulator's behavior, and an honest list of what isn't
 built yet, so a future contributor sees the reasoning instead of an
 unexplained gap.
@@ -16,7 +16,7 @@ only — no live transfer yet), `chipset` (the glue/memory-decode layer), and
 `machine` (wires the CPU + chipset and drives both from `run_cycles()`).
 87/87 GoogleTest cases pass, including an end-to-end PIT→PIC→CPU interrupt
 round trip that wakes a HLTed CPU and a regression test for the
-CPU-reset-must-not-corrupt-pacing bug class `cg-oac-6502`'s review doc §10
+CPU-reset-must-not-corrupt-pacing bug class `assembler6502`'s review doc §10
 documents.
 
 The real, freely-licensed system BIOS (`BIOS-bochs-legacy`, see §6) is
@@ -1051,7 +1051,7 @@ phase). This phase's scope is the real circuit semantics only.
 `devserve.py`, independent theme-system copy -- see the approved plan's
 "front-end code... keep independent per-machine copies" decision). The
 top-level `Makefile` gained `wasm`/`serve` targets delegating to `web/`,
-matching `altair8800`'s and `cg-oac-6502`'s own top-level Makefiles
+matching `altair8800`'s and `assembler6502`'s own top-level Makefiles
 exactly.
 
 **Scope decision, stated up front**: this pass ships real, complete
@@ -1163,7 +1163,7 @@ data-mode="dark"`); floppy mount (label updates to the real filename) and
 eject (label reverts, motor LED reflects `floppyMotorOn`); the speaker
 checkbox toggling on. A `window.__test` hook (`{ machine, sendKey,
 screenEl }`, active under `?test=1`) was added for this, matching
-`altair8800`/`cg-oac-6502`'s own established `window.__test` convention --
+`altair8800`/`assembler6502`'s own established `window.__test` convention --
 ready for Phase 8's real suite to build on rather than reinvent.
 
 **Deferred to Phase 8**, per the approved plan: the formal Playwright
@@ -1333,7 +1333,7 @@ handler devserve.py already used), wired into all three `preview`/
 
 ## 17. Site-wide theme sync, a bigger screen, the realistic front panel, and power/reset
 
-Follow-up requests: match the page theme to altair8800/cg-oac-6502's own,
+Follow-up requests: match the page theme to altair8800/assembler6502's own,
 maximize the screen, and build a real-looking front panel (drive bays,
 HDD/power LEDs) with power and reset switches, inspired by altair8800's
 front panel -- plus, explicitly, delegate well-scoped mechanical work to
