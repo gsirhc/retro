@@ -118,6 +118,15 @@ void RenderCgaGraphics4Screen(const Ega &ega, std::vector<uint8_t> &rgba) {
 void RenderEgaNative16Screen(const Ega &ega, std::vector<uint8_t> &rgba, int &width, int &height) {
     width = (ega.crtc_horizontal_display_end() + 1) * 8;
     height = ega.crtc_vertical_display_end() + 1;
+    // Scan Doubling (see crtc_scan_doubling() in ega.h): the CRTC's own
+    // vertical counters describe the full doubled raster (e.g. 400 lines for
+    // a 200-line picture), but VRAM only ever holds one copy of each row --
+    // the second physical scanline of every pair is a hardware-side repeat,
+    // not distinct data. Render at the logical (halved) height directly and
+    // address VRAM by that same row count below; that reproduces the
+    // doubled picture exactly (every row would just draw itself twice) with
+    // half the work and no separate duplication pass.
+    if (ega.crtc_scan_doubling()) height /= 2;
     if (width <= 0 || height <= 0) { width = height = 0; rgba.clear(); return; }
     rgba.assign(std::size_t(width) * std::size_t(height) * 4, 0);
 

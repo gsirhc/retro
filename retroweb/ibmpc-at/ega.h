@@ -114,20 +114,59 @@ public:
     // graphics mode's actual resolution -- Horizontal Display End
     // (register 0x01, in character clocks; genuine EGA graphics modes
     // always use an 8-dot character clock) and Vertical Display End
-    // (register 0x12, plus its two overflow bits in register 0x07 bits
-    // 1/6) -- what a real CRT controller's own scanout timing is built
-    // from, not a BIOS video-mode-number guess. Verified against this
-    // machine's own BIOS's real mode-0x10 (640x350x16) register
-    // programming -- see IBM_PCAT_REVIEW.md §16.
+    // (register 0x12, plus its one overflow bit in register 0x07 bit 1) --
+    // what a real CRT controller's own scanout timing is built from, not a
+    // BIOS video-mode-number guess. Verified against this machine's own
+    // BIOS's real mode-0x10 (640x350x16) register programming -- see
+    // IBM_PCAT_REVIEW.md §16.
+    //
+    // Deliberately only ONE overflow bit: on genuine 1984 EGA silicon, CRTC
+    // Overflow (R07) defines exactly one bit per counter that can exceed 8
+    // bits (bit 0 = Vertical Total, bit 1 = Vertical Display End, bit 2 =
+    // Vertical Retrace Start, bit 3 = Start Vertical Blanking, bit 4 = Line
+    // Compare) -- 9 bits tops, plenty for EGA's max 350 lines. Bits 5-7 are
+    // unimplemented on real EGA hardware; VGA later reused them as a second
+    // overflow bit per counter (a 10-bit extension, for its taller modes).
+    // A prior version of this accessor folded register 0x07 bit 6 in as a
+    // "Vertical Display End bit 9", which is exactly that VGA-only meaning
+    // -- and since this machine's freely-licensed BIOS substitute is a full
+    // VGA BIOS (see the gc_shift_register_mode() comment above for the same
+    // phenomenon with Chain-4), software that detects VGA-class capability
+    // can and does legitimately set that bit. A real EGA card's CRTC simply
+    // has no thirteenth wire for it to land on, so real hardware would
+    // never see the vertical range jump by 512 lines the way reading it
+    // back here used to -- confirmed live as Prince of Persia's playfield
+    // rendering correctly followed by several hundred lines of pure black
+    // canvas. See IBM_PCAT_REVIEW.md.
     uint16_t crtc_horizontal_display_end() const { return crtc_[0x01]; }
     uint16_t crtc_vertical_display_end() const {
-        return uint16_t(crtc_[0x12] | ((crtc_[0x07] >> 1 & 1) << 8) | ((crtc_[0x07] >> 6 & 1) << 9));
+        return uint16_t(crtc_[0x12] | ((crtc_[0x07] >> 1 & 1) << 8));
     }
     // Maximum Scan Line (CRTC R09, bits 0-4): scan lines per character row
     // minus 1 -- what a real CRT controller's own text-mode row pitch is
     // built from, not a hardcoded per-mode constant. See
     // IBM_PCAT_REVIEW.md's font-descender investigation.
     uint8_t crtc_max_scan_line() const { return uint8_t(crtc_[0x09] & 0x1F); }
+
+    // Scan Doubling (CRTC R09 bit 7): another VGA-only addition riding on a
+    // bit genuine EGA silicon never wired up (same story as the R07
+    // overflow bits above, and gc_shift_register_mode()'s Chain-4 note) --
+    // when set, a VGA CRTC draws every logical scanline twice in a row so a
+    // "200-line" mode fills the same ~400-scanline raster its 350-line
+    // modes use. This substitute firmware is VGA-heritage, so its mode-0Dh
+    // (320x200x16) setup programs Vertical Total/Display End for the full
+    // ~400-line doubled raster AND sets this bit, exactly like a real VGA
+    // card -- but genuine EGA hardware has no doubling circuit, so a real
+    // EGA BIOS's own 320x200 mode-set programs the CRTC for 200 real
+    // scanlines directly, no doubling, nothing to detect here. Confirmed
+    // live: Prince of Persia's EGA mode left Vertical Display End at 399
+    // (carried over verbatim from the prior 640x400 text mode) with this
+    // bit set, expecting the doubling hardware to fold it back down to a
+    // 200-line picture -- without this accessor the renderer took 399+1
+    // literally, drawing the real 200-line playfield in the top half of a
+    // 400-line canvas and leaving the bottom half black. See
+    // RenderEgaNative16Screen() in ega_render.cpp and IBM_PCAT_REVIEW.md.
+    bool crtc_scan_doubling() const { return (crtc_[0x09] >> 7) & 1; }
 
     // Offset Register (CRTC R13): the real per-scanline memory stride, in
     // WORDS (2 bytes) per plane -- genuinely independent of Horizontal

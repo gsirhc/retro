@@ -202,45 +202,118 @@
   // fresh user gesture anyway, and the point of "off by default" is that
   // it stays that way until the visitor explicitly opts back in, not just
   // on first visit.
+  //
+  // Output is a single, persistent AudioWorkletNode fed by a ring buffer,
+  // not a chain of one-shot AudioBufferSourceNodes scheduled back-to-back
+  // per animation frame (an earlier version of this code did that). That
+  // approach turned out to be fundamentally fragile: even with perfectly
+  // gapless scheduling math, it depends on every rAF frame handing the
+  // audio thread its own freshly start()ed node exactly on time, and any
+  // main-thread hiccup (a GC pause, a big array copy) leaves the
+  // previously-scheduled node's audio simply running out with nothing
+  // queued behind it -- dead silence until the next node starts, which
+  // then jumps straight to a nonzero level. That gap-then-jump is an
+  // audible click, and enough of them in a row is exactly the "scratchy"
+  // artifact reported live (see IBM_PCAT_REVIEW.md). A worklet's process()
+  // callback runs continuously on the real-time audio thread regardless of
+  // what the main thread is doing; feeding it through a ring buffer means
+  // a brief stall just holds the last sample level (silent, no discontinuity)
+  // until the main thread catches up and posts more data, rather than
+  // clicking. It also drops the whole nextPlayTime/resync bookkeeping the
+  // old approach needed, since there's no scheduling clock to keep in sync.
   const speakerCheckbox = document.getElementById("speakerEnabled");
   speakerCheckbox.checked = false;
-  let audioCtx = null, nextPlayTime = 0, lastLevel = false;
-  speakerCheckbox.addEventListener("change", () => {
-    if (speakerCheckbox.checked && !audioCtx) {
-      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      nextPlayTime = audioCtx.currentTime + 0.05;
+  let audioCtx = null, speakerNode = null, lastLevel = false;
+
+  // The worklet module's source, registered from a Blob URL rather than a
+  // separate fetched file -- keeps the whole speaker path in this one
+  // script with nothing extra for the Makefile to stage.
+  const kSpeakerWorkletSrc = `
+    class PcSpeakerProcessor extends AudioWorkletProcessor {
+      constructor() {
+        super();
+        // ~350ms at 48kHz -- generous headroom against main-thread jank
+        // (GC pauses, the periodic HDD autosave's array copy) without
+        // making genuine underrun-driven latency noticeable.
+        this.ring = new Float32Array(16384);
+        this.writeIdx = 0;
+        this.readIdx = 0;
+        this.available = 0;
+        this.lastSample = 0;
+        this.port.onmessage = (e) => {
+          const chunk = e.data;
+          for (let i = 0; i < chunk.length; i++) {
+            this.ring[this.writeIdx] = chunk[i];
+            this.writeIdx = (this.writeIdx + 1) % this.ring.length;
+            if (this.available < this.ring.length) {
+              this.available++;
+            } else {
+              // Ring overflowed (main thread fed it faster than real time,
+              // e.g. right after a stall's worth of catch-up cycles) --
+              // drop the oldest sample rather than the newest, same as an
+              // unread hardware FIFO would.
+              this.readIdx = (this.readIdx + 1) % this.ring.length;
+            }
+          }
+        };
+      }
+      process(_inputs, outputs) {
+        const out = outputs[0][0];
+        for (let i = 0; i < out.length; i++) {
+          if (this.available > 0) {
+            this.lastSample = this.ring[this.readIdx];
+            this.readIdx = (this.readIdx + 1) % this.ring.length;
+            this.available--;
+          }
+          // Underrun: hold the last real sample instead of snapping to 0 --
+          // a real speaker cone doesn't teleport to rest either, and
+          // holding avoids adding its own click on top of the stall.
+          out[i] = this.lastSample;
+        }
+        return true;
+      }
     }
+    registerProcessor("pc-speaker-processor", PcSpeakerProcessor);
+  `;
+
+  async function ensureAudioStarted() {
+    if (audioCtx) return;
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const blobUrl = URL.createObjectURL(new Blob([kSpeakerWorkletSrc], { type: "application/javascript" }));
+    try {
+      await audioCtx.audioWorklet.addModule(blobUrl);
+    } finally {
+      URL.revokeObjectURL(blobUrl);
+    }
+    speakerNode = new AudioWorkletNode(audioCtx, "pc-speaker-processor", { numberOfOutputs: 1, outputChannelCount: [1] });
+    speakerNode.connect(audioCtx.destination);
+  }
+  speakerCheckbox.addEventListener("change", () => {
+    if (speakerCheckbox.checked) ensureAudioStarted();
   });
 
-  // Builds one audio buffer covering exactly the cycles this animation
-  // frame just ran, from the real (cpu_cycle, level) edge trace --
-  // PcSpeaker::drain_edges() via speakerEdges() -- rather than committing
-  // to any waveform assumption of its own. Schedules gapless playback
-  // starting at `nextPlayTime`; the CPU's own cycles are already paced to
-  // real elapsed wall-clock time (see frame() below), so consecutive
-  // frames' audio durations naturally stay in sync with no separate
-  // cross-referencing needed.
+  // Converts this frame's real (cpu_cycle, level) edge trace --
+  // PcSpeaker::drain_edges() via speakerEdges() -- into a sample array and
+  // posts it to the worklet's ring buffer. No scheduling clock to maintain
+  // here: the worklet plays whatever it's been sent, in order, at its own
+  // pace, entirely decoupled from this function's own timing.
   function pumpAudio(frameStartCycle, cyclesThisFrame, dtSeconds) {
     const edges = machine.speakerEdges();  // always drain -- even if muted, so the log can't grow unbounded
-    if (!audioCtx || !speakerCheckbox.checked || cyclesThisFrame <= 0) return;
+    if (!audioCtx || !speakerNode || !speakerCheckbox.checked || cyclesThisFrame <= 0) return;
     const sampleRate = audioCtx.sampleRate;
     // Real elapsed wall-clock time for this frame, not cyclesThisFrame/8MHz --
     // those two only match when TEST_CPU_MULTIPLIER is 1. Deriving duration
-    // from the cycle count instead would schedule audio far ahead of
-    // audioCtx.currentTime under a fast-test multiplier (cyclesThisFrame is
-    // `multiplier`x too big for one real frame), building an ever-growing
-    // backlog of queued buffers. Using real dtSeconds keeps this correct
-    // (and harmless -- just pitch-shifted, which nothing here asserts on)
-    // at any multiplier.
-    const durationSeconds = dtSeconds;
-    const sampleCount = Math.max(1, Math.round(durationSeconds * sampleRate));
-    const buffer = audioCtx.createBuffer(1, sampleCount, sampleRate);
-    const data = buffer.getChannelData(0);
+    // from the cycle count instead would generate `multiplier`x too many
+    // samples for one real frame under a fast-test multiplier. Using real
+    // dtSeconds keeps this correct (and harmless -- just pitch-shifted,
+    // which nothing here asserts on) at any multiplier.
+    const sampleCount = Math.max(1, Math.round(dtSeconds * sampleRate));
+    const data = new Float32Array(sampleCount);
 
     let level = lastLevel, sampleIdx = 0;
     const cycles = edges.cycles, levels = edges.levels;
     // Effective this-frame rate: real 8 MHz normally, `multiplier`x that
-    // under the fast-test multiplier -- see durationSeconds above.
+    // under the fast-test multiplier -- see sampleCount above.
     const cyclesPerRealSecond = cyclesThisFrame / dtSeconds;
     for (let i = 0; i < cycles.length; i++) {
       let edgeSample = Math.round(((cycles[i] - frameStartCycle) / cyclesPerRealSecond) * sampleRate);
@@ -254,13 +327,7 @@
     for (; sampleIdx < sampleCount; sampleIdx++) data[sampleIdx] = vTail;
     lastLevel = level;
 
-    const src = audioCtx.createBufferSource();
-    src.buffer = buffer;
-    src.connect(audioCtx.destination);
-    const now = audioCtx.currentTime;
-    if (nextPlayTime < now) nextPlayTime = now + 0.02;  // fell behind (backgrounded tab) -- resync with slack
-    src.start(nextPlayTime);
-    nextPlayTime += durationSeconds;
+    speakerNode.port.postMessage(data, [data.buffer]);
   }
 
   // ---- main loop ---------------------------------------------------
@@ -505,16 +572,29 @@
     }
   }
 
+  // Mirrors C: to IndexedDB if (and only if) it's actually been written to
+  // since the last mirror -- called both periodically while running (see
+  // the setInterval below) and once more, unconditionally safe to call
+  // again, at powerOff(). A real fixed disk never needs this at all: a
+  // sector write is durable the instant it hits the platter, no separate
+  // "save" step exists on real hardware. This only exists because this
+  // emulator's own C: lives in a JS Uint8Array that's gone the moment the
+  // tab is (mountHdd()'d fresh from IndexedDB/the factory image on every
+  // powerOn() -- see there) -- so it has to be copied out to the one
+  // place that actually survives that, on some real cadence, not just
+  // once at a clean power-off nobody reliably triggers by hand.
+  function persistHddIfDirty() {
+    if (!machine || !machine.hddDirty()) return;
+    savedHdd = machine.hddImage();
+    machine.clearHddDirty();
+    hddLabel = "saved state (changes from this session)";
+    refreshHddControls();
+    saveHdd(savedHdd);
+  }
+
   function powerOff() {
     if (!poweredOn) return;
-    // A real fixed disk keeps its data when the machine is off -- unlike
-    // RAM, capture whatever C: holds right now before the Machine (and
-    // its only copy of that state) is discarded below.
-    if (machine.hddDirty()) {
-      savedHdd = machine.hddImage();
-      hddLabel = "saved state (changes from this session)";
-      saveHdd(savedHdd);
-    }
+    persistHddIfDirty();
     poweredOn = false;  // frame() sees this on its next tick and stops rescheduling itself
     machine = null;      // real hardware: RAM is gone the instant power is cut
     powerLed.classList.remove("power-on");
@@ -584,11 +664,21 @@
   refreshFkeyControls();  // start disabled while machine is off
   powerSwitch.addEventListener("change", () => { if (powerSwitch.checked) powerOn(); else powerOff(); });
 
-  // C:'s only save point is powerOff() above -- navigating away (closing
-  // the tab, following a link, a browser-gesture back/forward navigation)
-  // while still powered on and dirty would skip it entirely, silently
-  // losing whatever was written since the machine was last powered off.
-  // Ask first, the same way a real "unsaved changes" prompt would.
+  // Autosave C: every few seconds while running, not only at an explicit
+  // power-off -- the machine now boots itself on page load (see the
+  // firmware-fetch block below) and most visitors never think to flip the
+  // switch off before just closing the tab or hitting reload, which used
+  // to silently discard every write since the last clean power-off (this
+  // was a real bug: a whole game install lost because nothing ever called
+  // powerOff()). 5s is arbitrary -- frequent enough that a mid-session
+  // close loses at most a few seconds of writes, infrequent enough that
+  // idle sessions (hddDirty() false) do nothing.
+  setInterval(persistHddIfDirty, 5000);
+
+  // Even with the autosave above, navigating away (closing the tab,
+  // following a link, a browser-gesture back/forward navigation) can still
+  // land in the few-seconds gap since the last tick. Ask first, the same
+  // way a real "unsaved changes" prompt would, as a last defense.
   // (Known limitation, not fixable from here: some browsers' gesture-based
   // navigation -- e.g. a trackpad swipe -- can bypass beforeunload
   // entirely, which is exactly the scenario "Download image" above exists
