@@ -143,7 +143,7 @@ jobs:
           version: latest
 
       - working-directory: retroweb/assembler6502/web
-        run: make wasm roms
+        run: make wasm roms examples-bin
 
       - uses: actions/setup-node@v4
         with:
@@ -255,9 +255,13 @@ jobs:
       # checksummed, fetched into the Pages artifact so users need supply nothing.
       - uses: ./.github/actions/fetch-altair-media
 
-      # 6502 Assembler's wasm module + its real ROM, built from cpu6502/rom/ source
+      # 6502 Assembler's wasm module + its real ROM, built from cpu6502/rom/
+      # source, plus the Example programs' captured-source .bins
+      # (gen_example_bin.cpp) `make site` below expects to already be sitting
+      # in web/examples/ -- `site` itself only copies web/, it doesn't build
+      # anything (see retroweb/Makefile's own `_stage` vs `site` split).
       - working-directory: retroweb/assembler6502/web
-        run: make wasm roms
+        run: make wasm roms examples-bin
 
       # IBM PC/AT: BIOS/VGA-BIOS ROMs (fetched, checksummed) are cheap; the
       # shipped FreeDOS HDD image is built by actually running the real
