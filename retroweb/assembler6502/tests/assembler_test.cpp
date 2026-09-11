@@ -325,4 +325,130 @@ TEST(Assembler, JsrLcdPutcAndPutsReachTheLcd) {
     EXPECT_EQ(m.lcd.text[0][2], 'K');
 }
 
+TEST(Assembler, ByteDirectiveEmitsAQuotedStringVerbatim) {
+    SKIP_UNLESS_ROM_BUILT();
+    std::string out;
+    Machine m = bootIntoShell(out);
+
+    out.clear();
+    assemble(m, { "MSG: .BYTE \"HI\"" });
+    EXPECT_NE(out.find("Ok"), std::string::npos) << "got: " << out;
+    EXPECT_EQ(m.bus.ram[kObjStart + 0], 'H');
+    EXPECT_EQ(m.bus.ram[kObjStart + 1], 'I');
+}
+
+TEST(Assembler, ByteDirectiveEmitsHexLiteralsAndMixesWithAString) {
+    SKIP_UNLESS_ROM_BUILT();
+    std::string out;
+    Machine m = bootIntoShell(out);
+
+    out.clear();
+    assemble(m, { "MSG: .BYTE \"HI\",$0D,$0A,$00" });
+    EXPECT_NE(out.find("Ok"), std::string::npos) << "got: " << out;
+    const uint8_t expected[] = { 'H', 'I', 0x0D, 0x0A, 0x00 };
+    for (size_t i = 0; i < sizeof(expected); i++) {
+        EXPECT_EQ(m.bus.ram[kObjStart + i], expected[i]) << "byte " << i;
+    }
+}
+
+TEST(Assembler, ByteDirectiveAdvancesThePcSoALaterLabelResolvesPastIt) {
+    // A real correctness bar for a data directive: it has to participate
+    // in ADVANCE_PC exactly like an instruction's own ASIZE does, or every
+    // label after it (and every branch across it) resolves to the wrong
+    // address.
+    SKIP_UNLESS_ROM_BUILT();
+    std::string out;
+    Machine m = bootIntoShell(out);
+
+    // MSG: .BYTE "HI",$00   3 bytes at $0400-$0402
+    // NEXT: NOP             1 byte at $0403
+    // JMP NEXT              3 bytes at $0404-$0406 -> 4C 03 04
+    out.clear();
+    assemble(m, { "MSG: .BYTE \"HI\",$00", "NEXT: NOP", "JMP NEXT" });
+    EXPECT_NE(out.find("Ok"), std::string::npos) << "got: " << out;
+    EXPECT_EQ(m.bus.ram[kObjStart + 3], 0xEA);  // NOP
+    EXPECT_EQ(m.bus.ram[kObjStart + 4], 0x4C);  // JMP
+    EXPECT_EQ(m.bus.ram[kObjStart + 5], 0x03);
+    EXPECT_EQ(m.bus.ram[kObjStart + 6], 0x04);
+}
+
+TEST(Assembler, ByteDirectiveStringIsPrintableViaAnIndexedLoop) {
+    // The actual point of .BYTE per its header comment: no <// >> operators
+    // means a stored string can't feed PRINT_STR's A/Y calling convention
+    // directly, but LDA MSG,X (absolute,X -- already-supported addressing)
+    // walks it fine. End-to-end: assemble, RUN, check the real terminal
+    // output, not just the object bytes.
+    SKIP_UNLESS_ROM_BUILT();
+    std::string out;
+    Machine m = bootIntoShell(out);
+
+    out.clear();
+    assemble(m, {
+        "MSG: .BYTE \"HI\",$00",
+        "LDX #$00",
+        "LOOP: LDA MSG,X",
+        "BEQ DONE",
+        "JSR $8003",
+        "INX",
+        "BRA LOOP",
+        "DONE: NOP",
+    });
+    ASSERT_NE(out.find("Ok"), std::string::npos) << "got: " << out;
+
+    out.clear();
+    type(m, "RUN\r");
+    m.run_cycles(50000);
+    EXPECT_NE(out.find("HI"), std::string::npos) << "got: " << out;
+}
+
+TEST(Assembler, ByteDirectiveRejectsAnEmptyOperand) {
+    SKIP_UNLESS_ROM_BUILT();
+    std::string out;
+    Machine m = bootIntoShell(out);
+
+    out.clear();
+    typeLine(m, "10 .BYTE");
+    EXPECT_NE(out.find("?SYNTAX"), std::string::npos) << "got: " << out;
+}
+
+TEST(Assembler, ByteDirectiveRejectsAnUnterminatedString) {
+    SKIP_UNLESS_ROM_BUILT();
+    std::string out;
+    Machine m = bootIntoShell(out);
+
+    out.clear();
+    typeLine(m, "10 .BYTE \"HI");
+    EXPECT_NE(out.find("?SYNTAX"), std::string::npos) << "got: " << out;
+}
+
+TEST(Assembler, ByteDirectiveListsAsOneUnbrokenKeywordNotSplitAtTheThirdChar) {
+    // PRINT_ENTRY (LIST's formatter) hardcodes a 3-char mnemonic field,
+    // the same fixed-width assumption PARSE_LINE's own MATCH_BYTE_KEYWORD
+    // exists to work around -- without the matching fix there, LIST chops
+    // ".BYTE" into ".BY" + a padding space + "TE ..." (a real bug this
+    // shipped with once already).
+    SKIP_UNLESS_ROM_BUILT();
+    std::string out;
+    Machine m = bootIntoShell(out);
+
+    out.clear();
+    typeLine(m, "MSG: .BYTE \"HI\",$00");
+    out.clear();
+    typeLine(m, "LIST");
+    EXPECT_NE(out.find(".BYTE \"HI\",$00"), std::string::npos) << "got: " << out;
+    EXPECT_EQ(out.find(".BY TE"), std::string::npos) << "got: " << out;
+}
+
+TEST(Assembler, ByteDirectiveRejectsAnOversizedHexLiteral) {
+    // $xx is a *byte* literal here -- 3+ hex digits can't fit, unlike a
+    // real operand position where $-prefixed 4-digit forms mean absolute.
+    SKIP_UNLESS_ROM_BUILT();
+    std::string out;
+    Machine m = bootIntoShell(out);
+
+    out.clear();
+    typeLine(m, "10 .BYTE $123");
+    EXPECT_NE(out.find("?SYNTAX"), std::string::npos) << "got: " << out;
+}
+
 } // namespace

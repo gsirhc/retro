@@ -85,6 +85,20 @@ public:
 
     int aciaBaud() const { return m_.bus.acia.baud(); }
 
+    // Appends `bytes` directly to the queue readOutput() drains -- lets
+    // app.js print terminal text that didn't actually come out the
+    // emulated ACIA (used only for pokeExample()'s "LOAD"/"Ok"
+    // confirmation, standing in for what a real LOAD's own echo would
+    // show, since the transfer it's confirming bypassed the ACIA
+    // entirely -- see that function's own comment). Flows through the
+    // exact same readOutput()/terminal-write pipeline as genuine ACIA
+    // output, so nothing downstream (including the raw-output-spy test
+    // helper) needs to special-case it.
+    void injectOutput(val bytes) {
+        std::vector<uint8_t> data = emscripten::convertJSArrayToNumberVector<uint8_t>(bytes);
+        out_q_.insert(out_q_.end(), data.begin(), data.end());
+    }
+
     // --- run -------------------------------------------------------------
     void runCycles(int cycles) { m_.run_cycles(cycles); }
     double cycleCount() const { return double(m_.cycles()); }
@@ -103,6 +117,42 @@ public:
     bool rxLedPulse() { bool p = rx_pulse_; rx_pulse_ = false; return p; }
     bool txLedPulse() { bool p = tx_pulse_; tx_pulse_ = false; return p; }
     bool contended() const { return m_.bus.last_access_was_contended; }
+
+    // Bytes still waiting in bios.s's SERIAL_BUFFER RX ring ($0200-$02FF,
+    // a real hardware structure -- but READ_PTR/WRITE_PTR, its own zero
+    // page $00/$01, are ROM convention, not something this C++ model
+    // tracks itself, so this just reads those two live bytes the same way
+    // a real logic analyzer would). Used by app.js's driveFrame() as
+    // backpressure: a bulk multi-line LOAD can otherwise inject characters
+    // faster than STORE_LINE's own O(n) buffer scan (see
+    // CGOAC6502_REVIEW.md) can drain them, silently overrunning this
+    // 256-byte ring and corrupting the transfer -- not a real ACIA
+    // limitation (it has no such counter of its own), purely a JS-side
+    // input-pacing seam.
+    int serialPending() const {
+        uint8_t read_ptr = m_.bus.ram[0];
+        uint8_t write_ptr = m_.bus.ram[1];
+        return int(uint8_t(write_ptr - read_ptr));
+    }
+
+    // Writes `bytes` directly into RAM starting at `addr` -- bypasses the
+    // ACIA/NMI serial-reception simulation entirely. Used only to seat a
+    // pre-assembled Example's source buffer + object code + ASMPC (see
+    // app.js's loadExampleBinary(), and web/Makefile's `examples-bin`
+    // target, which produces each .bin by actually running the board's
+    // own real two-pass assembler once, headlessly, at build time) --
+    // never for anything a real visitor types or Loads by hand, which
+    // always goes through typeChar()'s real ACIA/NMI path. Silently
+    // clamps to the real $0000-$3FFF RAM window (a write past $3FFF is
+    // simply dropped, matching how bus.cpp's own decode already ignores
+    // addresses outside a region's real span elsewhere).
+    void pokeRam(int addr, val bytes) {
+        std::vector<uint8_t> data = emscripten::convertJSArrayToNumberVector<uint8_t>(bytes);
+        for (size_t i = 0; i < data.size(); i++) {
+            int a = addr + int(i);
+            if (a >= 0 && a < int(sizeof(m_.bus.ram))) m_.bus.ram[a] = data[i];
+        }
+    }
 
     val state() const {
         val o = val::object();
@@ -146,5 +196,8 @@ EMSCRIPTEN_BINDINGS(cgoac6502) {
         .function("rxLedPulse", &Machine::rxLedPulse)
         .function("txLedPulse", &Machine::txLedPulse)
         .function("contended", &Machine::contended)
+        .function("serialPending", &Machine::serialPending)
+        .function("pokeRam", &Machine::pokeRam)
+        .function("injectOutput", &Machine::injectOutput)
         .function("state", &Machine::state);
 }

@@ -15,6 +15,7 @@ WANTED = [
     # callable by a user's own assembled program (JSR $xxxx), documented
     # on the Help panel's "OS calls" section below.
     "PRINT_CHAR", "PRINT_STR", "LCD_PUTC", "LCD_PUTS", "LCD_CLEAR", "LCD_LINE1", "LCD_LINE2",
+    "READ_KEY",
 ]
 # Note: NEW/LIST/EDIT/ASM/RUN/LOAD/SAVE are no longer independent <addr>R
 # targets -- the command shell (editor.s's SHELL_ENTRY) absorbed all of

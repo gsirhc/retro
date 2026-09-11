@@ -875,6 +875,10 @@
       <div class="fp-drag"><span>&#9635; Save / Load</span>
         <button class="fp-x" title="close (drag the bar to move)">&times;</button></div>
       <div class="fp-body">
+        <div class="row muted" style="font-size:11px">
+          Requires the command shell already entered (<code id="hShell3">SHELL_ENTRY</code>R) --
+          Save/Load type real SAVE/LOAD commands at its prompt, same as typing them by hand.
+        </div>
         <div class="row">
           <label>Filename <input type="text" id="pgmName" placeholder="myprogram.asm" size="20"></label>
           <button id="pgmSave">Save</button>
@@ -882,12 +886,17 @@
         </div>
         <div class="row" style="margin-top:8px">
           <label><input type="file" id="pgmFile" accept=".asm,.txt" hidden><button id="pgmFileBtn">Open file&hellip; and load</button></label>
-          <label title="skip the realistic per-character ACIA-baud pacing for this transfer"><input type="checkbox" id="instantXfer"> instant transfer</label>
         </div>
         <div class="row" style="margin-top:10px">
           <b style="font-size:12px">Saved programs</b>
+          <span id="pgmLibHint" class="muted" style="font-size:11px"></span>
         </div>
         <div class="chip-lib" id="pgmLib"></div>
+        <div class="row" style="margin-top:10px">
+          <b style="font-size:12px">Examples</b>
+          <span class="muted" style="font-size:11px">(fetched from the server; edit and Save to keep your changes in the browser)</span>
+        </div>
+        <div class="chip-lib" id="pgmExamples"></div>
         <div id="pgmStatus" class="muted" style="margin-top:8px">Ready.</div>
       </div>
     </div>
@@ -922,6 +931,8 @@
           <li><code>ASM</code> &mdash; two-pass assemble; errors report the real line number</li>
           <li><code>RUN</code> &middot; <code>LOAD</code> / <code>SAVE</code> (see below) &middot;
             <code>NEW</code> clears the program</li>
+          <li><code>FREE</code> &mdash; bytes free/used in source ("PROGRAM") and object code
+            ("EXEC", i.e. how much room the last <code>ASM</code> took up)</li>
         </ul>
       </div>
       <h3 class="subhead">Source line format</h3>
@@ -944,12 +955,17 @@
         shell (its "home" now, not raw Wozmon). <b>Ctrl-C</b> breaks a program that never
         returns, via the ACIA's own receive interrupt &mdash; instant, whatever the program is
         doing. <b>SW1 reset</b> works too, but clears the program; Ctrl-C doesn't.
+        <code>RUN</code> with nothing successfully <code>ASM</code>'d since entry/<code>NEW</code>
+        (or after a failed <code>ASM</code>) fails cleanly with <code>?NO PROGRAM</code> instead
+        of executing whatever's left in the object region.
       </div>
       <h3 class="subhead">OS calls</h3>
       <div class="row muted help-body">
         Fixed addresses (bios.s's jump table) so a program can <code>JSR</code> them across ROM
-        rebuilds. No <code>.BYTE</code> directive for string literals (see assembler scope) &mdash;
-        build one byte-by-byte with <code>LDA #$xx</code> / <code>STA</code> first.
+        rebuilds. <code>.BYTE "text"</code> stores a string, but with no
+        <code>&lt;</code>/<code>&gt;</code> operators (see assembler scope) it can't feed
+        <code>PRINT_STR</code>'s A/Y address directly &mdash; walk it with
+        <code>LDA MSG,X</code> / <code>JSR PRINT_CHAR</code> / <code>INX</code> instead.
         <table class="os-table">
           <thead><tr><th>Call</th><th>Addr</th><th>In</th><th>Effect</th></tr></thead>
           <tbody>
@@ -960,6 +976,7 @@
             <tr><td><code>LCD_CLEAR</code></td><td><code id="hLcdClear">$xxxx</code></td><td>&mdash;</td><td>clear LCD, home cursor</td></tr>
             <tr><td><code>LCD_LINE1</code></td><td><code id="hLcdLine1">$xxxx</code></td><td>&mdash;</td><td>LCD cursor to row 1</td></tr>
             <tr><td><code>LCD_LINE2</code></td><td><code id="hLcdLine2">$xxxx</code></td><td>&mdash;</td><td>LCD cursor to row 2</td></tr>
+            <tr><td><code>READ_KEY</code></td><td><code id="hReadKey">$xxxx</code></td><td>&mdash;</td><td>block for a keypress, echo it, A=key</td></tr>
           </tbody>
         </table>
       </div>
@@ -969,9 +986,11 @@
         decimal concept); labels truncate to 6 characters; no indirect addressing
         (<code>(zp,X)</code>, <code>(zp),Y</code>, <code>(abs)</code>); no 65C02 bit-ops
         (<code>RMBx</code>/<code>SMBx</code>/<code>BBRx</code>/<code>BBSx</code>); no
-        <code>ORG</code>/<code>.BYTE</code>/<code>.WORD</code> (code assembles sequentially from
-        <code>$0400</code>); no <code>&lt;</code>/<code>&gt;</code> or label arithmetic. Documented
-        cuts, not bugs.
+        <code>ORG</code>/<code>.WORD</code> (code assembles sequentially from
+        <code>$0400</code>); no <code>&lt;</code>/<code>&gt;</code> or label arithmetic.
+        <code>.BYTE "str",$xx,...</code> stores raw data (one byte per quoted character
+        and/or <code>$xx</code> literal, comma-separated) &mdash; no escaping, so a string
+        can't contain <code>"</code> or <code>;</code>. Documented cuts, not bugs.
       </div>
       <h3 class="subhead">Save / Load</h3>
       <div class="row muted help-body">

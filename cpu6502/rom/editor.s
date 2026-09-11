@@ -21,13 +21,26 @@
 ;       Source is plain ASCII text, one instruction per line:
 ;         LABEL: MNEMONIC OPERAND    ; comment
 ;       Numbers are hex only, "$"-prefixed (Wozmon's own convention) --
-;       no decimal, no <// >> byte-select operators, no ORG/.BYTE/.WORD
-;       directives, no indirect addressing, no 65C02 bit-ops (RMBx etc) --
+;       no decimal, no <// >> byte-select operators, no ORG/.WORD
+;       directive, no indirect addressing, no 65C02 bit-ops (RMBx etc) --
 ;       all real v1 scope cuts, documented in the project plan, not bugs.
 ;       Labels are truncated to 6 significant characters. Source must
 ;       already be uppercase (matches READCHAR's own FORCE_UPPER). Line
 ;       *numbers* (the shell's own addressing scheme for editing) are
 ;       decimal -- a separate concept from the hex operand syntax above.
+;
+;       .BYTE stores raw data instead of an instruction -- one byte per
+;       character of a "quoted string" and/or one byte per $xx hex literal,
+;       comma-separated, e.g. MSG: .BYTE "HI",$0D,$0A,$00 -- see
+;       SCAN_BYTE_LIST below for the exact grammar. No <// >> operators
+;       (above) means a .BYTE string can't feed PRINT_STR/LCD_PUTS
+;       directly (those need the string's address split across A/Y); walk
+;       it with an indexed loop (LDA MSG,X / BEQ done / JSR $8003 / INX)
+;       instead -- still far fewer bytes than one LDA+JSR pair per
+;       character. Because comment-stripping (ASM_READLINE/CHECK_SYNTAX)
+;       runs before PARSE_LINE ever sees the line, a .BYTE string can't
+;       contain a literal ';' -- it would truncate the line first, same as
+;       it would in a real operand or comment.
 ;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -76,6 +89,9 @@ AM_ABS  = 5
 AM_ABSX = 6
 AM_ABSY = 7
 AM_REL  = 8
+AM_BYTES = 9    ; .BYTE directive -- not a real 6502 addressing mode, never
+                ; an OPTAB column; EMIT_INSTRUCTION special-cases it before
+                ; ever touching OPTAB/OPCODE (see SCAN_BYTE_LIST below)
 AM_UNSUPPORTED = $02   ; sentinel in OPTAB -- see the table's own header
 
 ; ---- zero page (avoiding Wozmon's $24-$2B and load.s's $4B/$4D/$4E-$4F --
@@ -139,6 +155,16 @@ CMPPTR     := $85   ; 2: TOKEN_EQ -- pointer to the literal being compared
 PAGECNT    := $87   ; 1: DO_LIST -- lines printed so far this page
 PRDEC_ANY  := $88   ; 1: PRDEC -- whether a nonzero digit has printed yet
 PRDEC_DIG  := $89   ; 1: PRDEC -- current digit's subtraction count
+BYTEMIT    := $8B   ; 1: SCAN_BYTE_LIST -- 0 count-only (pass 1 and pass 2's
+                     ;    own PARSE_LINE call), nonzero also write bytes
+                     ;    (EMIT_INSTRUCTION's .BYTE case, pass 2 only)
+BYTIDX     := $8C   ; 1: SCAN_BYTE_LIST -- running byte count/write offset
+                     ;    for the .BYTE line currently being scanned
+HASOBJ     := $8D   ; 1: nonzero once ASM_PASS2 completes a full clean assembly
+                     ;    this power cycle; reset to 0 (and the "?NO PROGRAM"
+                     ;    RUN-trap replanted) at the start of every DO_ASM
+                     ;    attempt, by DO_NEW, and by SHELL_START when nothing
+                     ;    survived from an earlier ASM -- see PLANT_NOPROG_TRAP
 
 .segment "EDITOR"
 
@@ -165,6 +191,17 @@ SHELL_START:
     ; char -- see wozmon.s's NOTCR/ECHO), with no trailing CR/LF of its own
     ; before the JMP. Without one here, the banner runs right into that
     ; echo on the same row (e.g. "8000: 4C6502 ASSEMBLY CODER").
+    ; Only (re-)plant the "?NO PROGRAM" RUN trap (and reseed ASMPC to
+    ; OBJ_START, "0 bytes assembled yet", for DO_FREE's benefit) when
+    ; HASOBJ says nothing survived an earlier ASM this power cycle --
+    ; real RAM persists across a QUIT then a fresh "8000R" re-entry, same
+    ; as real hardware, so a program already ASMed before QUIT is still
+    ; genuinely RUNnable and must not be clobbered here. DO_NEW plants
+    ; this trap unconditionally, since starting fresh always means it.
+    lda HASOBJ
+    bne ss_haveobj
+    jsr PLANT_NOPROG_TRAP
+ss_haveobj:
     lda #CR
     jsr CHROUT
     lda #LF
@@ -359,8 +396,19 @@ dc_save:
     sta CMPPTR+1
     lda #4
     jsr TOKEN_EQ
-    bcc dc_quit
+    bcc dc_free
     jsr DO_SAVE
+    sec
+    rts
+dc_free:
+    lda #<CMD_FREE
+    sta CMPPTR
+    lda #>CMD_FREE
+    sta CMPPTR+1
+    lda #4
+    jsr TOKEN_EQ
+    bcc dc_quit
+    jsr DO_FREE
     sec
     rts
 dc_quit:
@@ -383,6 +431,7 @@ CMD_ASM:  .byte "ASM"
 CMD_RUN:  .byte "RUN"
 CMD_LOAD: .byte "LOAD"
 CMD_SAVE: .byte "SAVE"
+CMD_FREE: .byte "FREE"
 CMD_QUIT: .byte "QUIT"
 
 ; A = length of the literal at (CMPPTR). Compares against LINE_BUF at
@@ -433,9 +482,56 @@ pa_rts:
     rts
 
 ; ==========================================================================
-; DO_NEW -- clears the source buffer (2-byte 0,0 sentinel at SRC_START).
+; PLANT_NOPROG_TRAP -- writes "JMP ERR_NOPROG" (3 bytes: $4C + address) at
+; OBJ_START and reseeds ASMPC to OBJ_START (0 bytes really assembled).
+; RUN is just "JMP OBJ_START" with no guard of its own (see dc_run) -- this
+; makes the *contents* of an empty object region self-describing: RUN
+; lands here, prints a clean error, and returns to the prompt, instead of
+; silently executing whatever raw bytes happen to be sitting in RAM
+; (previously all zero = a silent BRK/IRQ_HANDLER loop that looked like a
+; hang -- see CGOAC6502_REVIEW.md). Cheaper than the byte-by-byte clear
+; this replaced, too: an "empty" object region is now 3 real bytes, not a
+; zeroed span the size of the last assembly.
+;
+; Called unconditionally by DO_NEW (starting fresh always means this) and
+; by DO_ASM before every attempt (so a failed assembly, or one not yet
+; run again, can't leave RUN pointed at stale or half-written object
+; code); ASM_PASS2's own emission naturally overwrites these 3 bytes with
+; the real program's first bytes on success. SHELL_START calls this only
+; when HASOBJ says nothing survived from an earlier ASM this power cycle
+; -- see that routine's own comment for why it's conditional there.
+; ==========================================================================
+PLANT_NOPROG_TRAP:
+    lda #$4C            ; JMP opcode
+    sta OBJ_START
+    lda #<ERR_NOPROG
+    sta OBJ_START+1
+    lda #>ERR_NOPROG
+    sta OBJ_START+2
+    lda #<OBJ_START
+    sta ASMPC
+    lda #>OBJ_START
+    sta ASMPC+1
+    stz HASOBJ
+    rts
+
+ERR_NOPROG:
+    lda #<MSG_NOPROG
+    ldy #>MSG_NOPROG
+    jsr STROUT
+    jmp SHELL_PROMPT
+
+MSG_NOPROG: .byte "?NO PROGRAM", CR, LF, 0
+
+; ==========================================================================
+; DO_NEW -- clears the source buffer (2-byte 0,0 sentinel at SRC_START) and
+; replants the "nothing assembled" RUN trap (PLANT_NOPROG_TRAP) so a RUN
+; typed right after NEW -- before a fresh ASM -- fails cleanly instead of
+; silently executing the *previous* program, which was still sitting there
+; untouched otherwise.
 ; ==========================================================================
 DO_NEW:
+    jsr PLANT_NOPROG_TRAP
     stz SRC_START
     stz SRC_START+1
     lda #<MSG_OK
@@ -595,7 +691,7 @@ PRINT_ENTRY:
     ldy CURSOR
     lda LINE_BUF,y
     cmp #';'
-    bne @realmnem
+    bne @notcomment
     ldx #0
 @mnemplaceholder:
     cpx #4
@@ -607,6 +703,40 @@ PRINT_ENTRY:
 @nomnemdone:
     stz CPYCNT
     jmp pe_gotcomment
+    ; .BYTE is 5 characters, not the 3 every real mnemonic is -- same
+    ; special case PARSE_LINE's own MATCH_BYTE_KEYWORD exists for. Print
+    ; it verbatim plus the guaranteed separator space (no extra padding to
+    ; a fixed width, same "longer than the field just doesn't align"
+    ; precedent LABEL_FIELD already documents above) rather than let the
+    ; generic 3-char path below chop it into ".BY"/"TE ..." -- a real bug
+    ; this shipped with once already.
+@notcomment:
+    jsr MATCH_BYTE_KEYWORD
+    bcc @realmnem
+    ldy CURSOR
+    lda LINE_BUF,y
+    jsr CHROUT
+    iny
+    lda LINE_BUF,y
+    jsr CHROUT
+    iny
+    lda LINE_BUF,y
+    jsr CHROUT
+    iny
+    lda LINE_BUF,y
+    jsr CHROUT
+    iny
+    lda LINE_BUF,y
+    jsr CHROUT
+    lda CURSOR
+    clc
+    adc #5
+    sta CURSOR
+    lda #' '
+    jsr CHROUT
+    jsr SKIP_SPACES
+    stz CPYCNT
+    jmp @operandloop
 @realmnem:
     lda LINELEN
     sec
@@ -782,8 +912,17 @@ de_found:
 ; DO_ASM -- assembles the program currently in the source buffer. Prints
 ; "OK" or "ERR LINE <n>" (n = the real program line number, not a
 ; sequential count), then returns to the shell prompt.
+;
+; Plants the "?NO PROGRAM" RUN trap (PLANT_NOPROG_TRAP) before pass 1 even
+; starts, and again on any error -- so RUN can never land on a half-written
+; object region from a pass 2 that failed partway through, nor on an
+; earlier attempt's now-stale object code just because *this* attempt also
+; failed. A clean pass 2 overwrites the trap with the real program as a
+; natural side effect of emitting from OBJ_START and marks HASOBJ so the
+; result survives a later QUIT/re-entry (see SHELL_START).
 ; ==========================================================================
 DO_ASM:
+    jsr PLANT_NOPROG_TRAP
     stz ERRFLAG
     jsr ASM_PASS1
     lda ERRFLAG
@@ -791,11 +930,14 @@ DO_ASM:
     jsr ASM_PASS2
     lda ERRFLAG
     bne da_err
+    lda #1
+    sta HASOBJ
     lda #<MSG_OK
     ldy #>MSG_OK
     jsr STROUT
     rts
 da_err:
+    jsr PLANT_NOPROG_TRAP
     lda #<MSG_ERR
     ldy #>MSG_ERR
     jsr STROUT
@@ -812,6 +954,81 @@ da_err:
 
 MSG_OK:  .byte "Ok", CR, LF, 0    ; shared completion message -- ASM (clean assemble), NEW, SAVE (load.s)
 MSG_ERR: .byte "ERR LINE ", 0
+
+; ==========================================================================
+; DO_FREE -- reports free source ("PROGRAM") and free object ("EXEC")
+; memory. PROGRAM free is computed live by walking the real source buffer
+; (SCAN_BUFFER with LINENUM=$FFFF -- the same "don't care about a match,
+; just want ENDPTR" trick AUTO_NUMBER uses) against STORE_LINE's own FULL
+; threshold (SRC_END-2, leaving room for the 2-byte end sentinel -- see
+; STORE_LINE). EXEC free/used comes from ASMPC, which after a successful
+; ASM_PASS2 holds the address right after the last emitted byte (both
+; passes walk identical instruction sizes, so pass 2's final ASMPC is the
+; real object-code high-water mark) -- SHELL_START seeds it to OBJ_START
+; before any ASM has run this session (see that routine's own comment).
+; ==========================================================================
+DO_FREE:
+    lda #<MSG_PROGRAM
+    ldy #>MSG_PROGRAM
+    jsr STROUT
+    lda #$FF
+    sta LINENUM
+    sta LINENUM+1
+    jsr SCAN_BUFFER            ; clobbers LINENUM/MATCHPTR/GTPTR/LASTNUM -- fine, scratch
+    sec
+    lda ENDPTR
+    sbc #<SRC_START
+    sta DECVAL
+    lda ENDPTR+1
+    sbc #>SRC_START
+    sta DECVAL+1
+    jsr PRDEC
+    lda #<MSG_USEDCOMMA
+    ldy #>MSG_USEDCOMMA
+    jsr STROUT
+    sec
+    lda #<(SRC_END-2)
+    sbc ENDPTR
+    sta DECVAL
+    lda #>(SRC_END-2)
+    sbc ENDPTR+1
+    sta DECVAL+1
+    jsr PRDEC
+    lda #<MSG_FREE
+    ldy #>MSG_FREE
+    jsr STROUT
+
+    lda #<MSG_EXEC
+    ldy #>MSG_EXEC
+    jsr STROUT
+    sec
+    lda ASMPC
+    sbc #<OBJ_START
+    sta DECVAL
+    lda ASMPC+1
+    sbc #>OBJ_START
+    sta DECVAL+1
+    jsr PRDEC
+    lda #<MSG_USEDCOMMA
+    ldy #>MSG_USEDCOMMA
+    jsr STROUT
+    sec
+    lda #<OBJ_END
+    sbc ASMPC
+    sta DECVAL
+    lda #>OBJ_END
+    sbc ASMPC+1
+    sta DECVAL+1
+    jsr PRDEC
+    lda #<MSG_FREE
+    ldy #>MSG_FREE
+    jsr STROUT
+    rts
+
+MSG_PROGRAM:   .byte "PROGRAM: ", 0
+MSG_EXEC:      .byte "EXEC:    ", 0
+MSG_USEDCOMMA: .byte " USED, ", 0
+MSG_FREE:      .byte " FREE", CR, LF, 0
 
 ; ==========================================================================
 ; PASS 1 -- walks every line, records label definitions against the
@@ -1617,6 +1834,21 @@ PARSE_LINE:
 @skiplabel:
     lda CURSOR
     sta MNEMOFF
+    jsr MATCH_BYTE_KEYWORD
+    bcc @notbyte
+    lda CURSOR
+    clc
+    adc #5
+    sta CURSOR
+    jsr SKIP_SPACES
+    lda #AM_BYTES
+    sta AMODE
+    stz BYTEMIT
+    jsr SCAN_BYTE_LIST
+    lda BYTIDX
+    sta ASIZE
+    rts
+@notbyte:
     lda LINELEN
     sec
     sbc CURSOR
@@ -1645,6 +1877,152 @@ PARSE_LINE:
     bne @ret
     jsr RESOLVE_SIZE
 @ret:
+    rts
+
+; A = char at CURSOR is not checked by the caller -- this just tests
+; whether the text *at MNEMOFF* (already stashed by PARSE_LINE) reads
+; ".BYTE" followed by a space or end-of-line (so ".BYTEX" or a real label
+; that happened to start the same way doesn't false-match). Does not move
+; CURSOR itself -- the caller advances it past the keyword only once it
+; knows this really is one. Carry SET on a match, CLEAR otherwise (CURSOR
+; untouched either way).
+MATCH_BYTE_KEYWORD:
+    lda LINELEN
+    sec
+    sbc CURSOR
+    cmp #5
+    bcc @no
+    ldy CURSOR
+    lda LINE_BUF,y
+    cmp #'.'
+    bne @no
+    iny
+    lda LINE_BUF,y
+    cmp #'B'
+    bne @no
+    iny
+    lda LINE_BUF,y
+    cmp #'Y'
+    bne @no
+    iny
+    lda LINE_BUF,y
+    cmp #'T'
+    bne @no
+    iny
+    lda LINE_BUF,y
+    cmp #'E'
+    bne @no
+    iny
+    cpy LINELEN
+    beq @yes
+    lda LINE_BUF,y
+    cmp #' '
+    bne @no
+@yes:
+    sec
+    rts
+@no:
+    clc
+    rts
+
+; ==========================================================================
+; SCAN_BYTE_LIST -- walks a comma-separated .BYTE operand list starting at
+; CURSOR (already positioned past ".BYTE" and its following spaces by the
+; caller). Each item is either a "..."-quoted string (one byte per
+; character, no escaping -- a literal '"' or ';' can't appear inside one;
+; see this file's header) or a $xx hex byte (1-2 digits, same HEX_PARSE
+; used everywhere else). Always counts into BYTIDX; when BYTEMIT is
+; nonzero also writes each byte to (ASMPC),y as it's decoded (y=BYTIDX
+; before incrementing) -- shared by PARSE_LINE (both passes, BYTEMIT=0,
+; just to (re)compute ASIZE) and EMIT_INSTRUCTION's own .BYTE case (pass 2
+; only, BYTEMIT=1) rather than caching a whole line's worth of decoded
+; bytes across the pass boundary, the same "recompute, don't cache
+; between passes" shape PARSE_LINE/EMIT_INSTRUCTION already use for every
+; ordinary instruction. Sets ERRFLAG on an empty item list, an
+; unterminated string, a malformed/oversized $xx byte, or anything left
+; over after the last item that isn't a comma.
+; ==========================================================================
+SCAN_BYTE_LIST:
+    stz BYTIDX
+sbl_item:
+    lda CURSOR
+    cmp LINELEN
+    bcc sbl_haveitem
+    lda BYTIDX
+    bne sbl_ok
+    lda #1
+    sta ERRFLAG            ; ".BYTE" with no operand at all
+sbl_ok:
+    rts
+sbl_haveitem:
+    ldy CURSOR
+    lda LINE_BUF,y
+    cmp #'"'
+    beq sbl_string
+    cmp #'$'
+    beq sbl_hexbyte
+    lda #1
+    sta ERRFLAG
+    rts
+sbl_string:
+    inc CURSOR
+sbl_strloop:
+    lda CURSOR
+    cmp LINELEN
+    bcc sbl_strchar
+    lda #1                  ; ran off the end of the line -- unterminated
+    sta ERRFLAG
+    rts
+sbl_strchar:
+    ldy CURSOR
+    lda LINE_BUF,y
+    cmp #'"'
+    beq sbl_strdone
+    jsr EMIT_ONE_BYTE
+    inc CURSOR
+    jmp sbl_strloop
+sbl_strdone:
+    inc CURSOR              ; skip the closing quote
+    jmp sbl_afteritem
+sbl_hexbyte:
+    inc CURSOR
+    jsr HEX_PARSE
+    cpx #1
+    beq sbl_havebyte
+    cpx #2
+    beq sbl_havebyte
+    lda #1
+    sta ERRFLAG
+    rts
+sbl_havebyte:
+    lda OPVAL
+    jsr EMIT_ONE_BYTE
+sbl_afteritem:
+    jsr SKIP_SPACES
+    lda CURSOR
+    cmp LINELEN
+    bcs sbl_item             ; end of line right after an item -- loop head finishes it
+    ldy CURSOR
+    lda LINE_BUF,y
+    cmp #','
+    bne sbl_trailinggarbage
+    inc CURSOR
+    jsr SKIP_SPACES
+    jmp sbl_item
+sbl_trailinggarbage:
+    lda #1
+    sta ERRFLAG
+    rts
+
+; A = byte value to emit. Writes it to (ASMPC),y (y=BYTIDX) when BYTEMIT
+; is set, then always increments BYTIDX. A is clobbered.
+EMIT_ONE_BYTE:
+    ldx BYTEMIT
+    beq eob_countonly
+    ldy BYTIDX
+    sta (ASMPC),y
+eob_countonly:
+    inc BYTIDX
     rts
 
 SKIP_SPACES:
@@ -2153,6 +2531,22 @@ SYM_LOOKUP:
 ; AM_REL, computes and range-checks the signed branch offset.
 ; ==========================================================================
 EMIT_INSTRUCTION:
+    lda AMODE
+    cmp #AM_BYTES
+    bne @notbytes
+    ; .BYTE has no opcode byte -- re-derive CURSOR from MNEMOFF (PARSE_LINE
+    ; already validated this same line moments ago; LINE_BUF still holds
+    ; it) and re-walk the operand list, this time actually writing.
+    lda MNEMOFF
+    clc
+    adc #5
+    sta CURSOR
+    jsr SKIP_SPACES
+    lda #1
+    sta BYTEMIT
+    jsr SCAN_BYTE_LIST
+    rts
+@notbytes:
     ldy #0
     lda OPCODE
     sta (ASMPC),y

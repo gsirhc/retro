@@ -1114,3 +1114,419 @@ This stayed invisible in the tests that only check Save's own UI feedback (a "Sa
 **Fixed** with one more `page.click("#screen")` at the end of `beforeEach`, refocusing the terminal before any test body runs (some individual tests already had their own later refocus clicks, after their *own* subsequent popup interactions -- those stay, and are still needed for typing that happens after a *second* popup round-trip mid-test).
 
 **Verified**: `saveload.spec.ts` alone, 10/10 at `workers: 1`; the full suite at `workers: 2, retries: 0` across three separate runs showed only the expected residual 14.c-style contention flake (0-1 tests, always a boot-timeout, never a repeat of 14.b's garbage-text symptom or 14.d's focus bug) -- and at `workers: 2, retries: 2` (this repo's actual CI configuration), the full 30-test suite finished 0 failed / 2 flaky (both recovered on retry) / 28 passed.
+
+## 15. `FREE` -- reporting source/object memory usage
+
+Added on request: a `FREE` shell command reporting bytes used/free in the
+source buffer ("PROGRAM") and the assembled object-code region ("EXEC" --
+"how much the last `ASM` took up"), e.g.:
+
+```
+>FREE
+PROGRAM: 357 USED, 3737 FREE
+EXEC:    78 USED, 10162 FREE
+```
+
+**PROGRAM** is computed live by calling `SCAN_BUFFER` with `LINENUM=$FFFF`
+(the same "don't care about a match, just want `ENDPTR`" trick
+`AUTO_NUMBER` already uses) and comparing the returned sentinel address
+against `STORE_LINE`'s own real capacity ceiling, `SRC_END-2` -- the "-2"
+matters: it's the same two bytes `STORE_LINE`'s existing `FULL` check
+reserves for the buffer's own `0,0` end sentinel, so `FREE` reports
+exactly the room a real `STORE_LINE` call would agree is available, not
+an off-by-two optimistic number.
+
+**EXEC** reads `ASMPC`, which was already, incidentally, left holding the
+address right after the last byte `ASM_PASS2` emitted -- pure pass1/pass2
+scratch until now, repurposed here rather than adding a second variable
+that could drift out of sync with it. Before any `ASM` has run,
+`ASMPC` held whatever `RESET`-time RAM contents happened to be there, not
+a defined "0 used" state, so `SHELL_START` now seeds it to `OBJ_START`
+(the "no program assembled yet" address) on every entry into the shell.
+`NEW` deliberately does **not** reset it: `NEW` only clears source text
+(unchanged, existing behavior -- the object region and its previous
+`ASM` are untouched and still `RUN`nable), so `FREE`'s `EXEC` figure
+correctly keeps reporting the size of whatever's actually still sitting
+in object memory, confirmed by `Editor.FreeReportsSourceAndObjectUsageSeparately`
+(`tests/editor_test.cpp`) asserting `EXEC` survives a `NEW` unchanged
+while `PROGRAM` resets to empty.
+
+**Verified**: native GoogleTest (`Editor.FreeReportsSourceAndObjectUsageSeparately`,
+covering fresh/after-store/after-`ASM`/after-`NEW`) plus a standalone
+scratch-harness run against the real `hello.asm` and `primes.asm` example
+programs, both producing sane, correctly-summing byte counts.
+
+## 16. Examples-load wedging the CPU -- a real bug, only partly understood
+
+Loading an Example program (the fetch-from-server chips added alongside
+`FREE`, above) reliably wedged the emulated CPU: the terminal would stop
+producing any output at all, and the CPU ended up spinning forever inside
+`bios.s`'s `IRQ_HANDLER` stub (a bare `pha`/`pla`/`rti` that exists only so
+a *user's own* program enabling a VIA interrupt via J7 has somewhere safe
+to land -- nothing in this ROM's own boot path should ever reach it, and
+`reset_via` explicitly disables every VIA interrupt source).
+
+**What it's not**, ruled out one at a time against the real browser, each
+independently reproduced/un-reproduced:
+- Not `fetch()` itself -- moving the example fetches out of the click
+  handler entirely (prefetched up front, awaited before the machine's own
+  `frame()` loop even starts) made no difference.
+- Not bulk queue size on its own -- a same-sized synthetic program with no
+  comment lines, queued the exact same way, never reproduced it.
+- Not reproducible in a native (non-WASM) build at all -- a C++ port of
+  `driveFrame()`'s exact per-frame/backpressure algorithm, fed the exact
+  same file bytes, completes cleanly every time. Whatever this is, it's
+  specific to the real browser/WASM runtime, not the ROM logic or the
+  pacing algorithm in the abstract.
+- Not a simple "ring overflow" in the sense the original 200-byte
+  backpressure threshold (see the comment above this section, in `app.js`)
+  was designed to prevent -- the ring never actually reported itself full.
+
+**What's confirmed**: lowering that backpressure threshold from 200 down
+to single digits -- keeping the SERIAL_BUFFER ring close to empty at all
+times instead of letting it ride near capacity -- reliably fixes it for
+`hello.asm`, `primes.asm`, and `lcd_demo.asm` (all verified passing
+repeatedly). It does **not** fix `rps.asm` (~3.2K, roughly 2.5x
+`primes.asm`), which still wedges partway through even at the most
+conservative threshold tried (breaking on any unconsumed byte at all).
+Oddly, making injection *more* conservative moved `rps.asm`'s failure
+point *earlier* in the byte stream in one comparison, not later --
+suggesting whatever this is may correlate with elapsed real time or frame
+count rather than bytes transferred or ring pressure, but that's not
+confirmed either.
+
+**Status**: shipped the threshold change (real, verified improvement, three
+of four examples now load reliably) rather than continue an open-ended
+hunt for full root cause. `rps.asm` loading via the Examples panel remains
+a known, reproducible issue -- flagged here rather than silently left
+looking fixed. A retry loop or a smaller/chunked transfer for the largest
+files is the likely next thing to try if this gets picked back up.
+
+## 17. `.BYTE` -- a real data directive, closing the v1 gap §12 flagged
+
+§12's "no way to embed a string literal" cut (`PRINT_STR`/`LCD_PUTS`
+required poking a string into RAM one `LDA #$xx`/`STA` pair per character)
+is gone: `.BYTE "text"[,$xx,...]` now stores raw data instead of an
+instruction, one byte per quoted character and/or one byte per `$xx` hex
+literal, comma-separated (e.g. `MSG: .BYTE "HI",$0D,$0A,$00`).
+
+**Where it plugs into the two-pass design.** `PARSE_LINE` already
+separates "resolve this line's shape" (both passes) from "actually write
+bytes" (`EMIT_INSTRUCTION`, pass 2 only), driven by `AMODE`/`ASIZE` --
+`.BYTE` reuses that same seam rather than inventing a parallel path:
+`MATCH_BYTE_KEYWORD` checks for the literal token right where the mnemonic
+field would otherwise be (before the 3-char `MNEM_LOOKUP` a real 6502
+mnemonic always uses -- `.BYTE` is 5 characters, so it has to be
+intercepted *before* that fixed-width assumption, not taught to it), and
+on a match sets `AMODE = AM_BYTES` (9 -- one past `AM_REL`, never a real
+`OPTAB` column) instead of running `MNEM_LOOKUP`/`RESOLVE_MODE` at all.
+`ASIZE` becomes the item list's total byte count, computed by
+`SCAN_BYTE_LIST` in "count only" mode (`BYTEMIT=0`). Because `ADVANCE_PC`
+already just does `ASMPC += ASIZE` regardless of what produced that
+number, a `.BYTE` line participates in label placement for free -- no
+special case needed for a label defined on a `.BYTE` line, or for a later
+label/branch that needs to land after one (see
+`ByteDirectiveAdvancesThePcSoALaterLabelResolvesPastIt`,
+`assembler_test.cpp`).
+
+**Pass 2 re-scans rather than caches.** A normal instruction's resolved
+`OPVAL` is one 16-bit value, trivial to carry from `PARSE_LINE` into
+`EMIT_INSTRUCTION` in a couple of zero-page bytes. A `.BYTE` line's data
+can be dozens of bytes (the assembler already checked LINE_BUF's cap during
+scanning, so it comfortably fits, but not in a fixed 2-byte scratch var).
+Rather than add a real cache, `EMIT_INSTRUCTION`'s `AM_BYTES` case just
+re-derives `CURSOR` from `MNEMOFF` (already stashed by `PARSE_LINE`,
+pointing at the start of `.BYTE` in `LINE_BUF`, which pass 2 hasn't
+touched since re-reading this same line via `ASM_READLINE`) and calls
+`SCAN_BYTE_LIST` a second time, this time with `BYTEMIT=1` so it also
+writes each byte to `(ASMPC),y`. Recomputing instead of caching matches
+how this file already treats every other pass-1-then-pass-2 line -- no new
+architectural shape, just a second real routine (`SCAN_BYTE_LIST`) both
+call sites share instead of two near-duplicate scanners.
+
+**No `<`/`>` operators, so `.BYTE` can't feed `PRINT_STR`/`LCD_PUTS`
+directly** -- those OS calls need the string's 16-bit address split across
+A/Y, and this assembler still has no way to compute "the low/high byte of
+a label" as an operand (unchanged v1 cut, `PARSE_OPERAND`'s header). A
+`.BYTE` string is walked with an indexed loop instead (`LDA MSG,X` --
+already-supported absolute,X addressing -- `/ BEQ done / JSR PRINT_CHAR /
+INX`), which is still the real win the user asked for: one small loop
+instead of one `LDA`+`JSR` pair per character. Adding `<`/`>` to make
+`PRINT_STR` reachable in one `JSR` is a natural follow-on, not done here.
+
+**Comment-stripping runs before `.BYTE` ever sees the line, so a string
+can't contain `;`.** `ASM_READLINE`/`CHECK_SYNTAX` both strip everything
+from the first `;` onward before `PARSE_LINE` is called at all (same
+mechanism that already makes a bare `;` in a normal operand fail, per
+`PARSE_LINE`'s own header) -- making that stripper quote-aware would touch
+two call sites for a corner case (a semicolon inside displayed text) real
+period assemblers generally don't special-case either; documented as a
+real limitation (this file's header, and the Help panel) rather than
+silently broken. A `"` can't appear in a string either, for the same
+"no escaping" reason `HEX_PARSE`-based literals elsewhere in this
+assembler don't support escapes.
+
+Covered by `assembler_test.cpp`'s `ByteDirective*` tests: a plain quoted
+string, a string mixed with `$xx` literals, PC advancement past a `.BYTE`
+line, an end-to-end assemble-and-`RUN` that actually prints a `.BYTE`
+string out the real ACIA via an indexed loop, and the three rejected-input
+cases (empty operand, unterminated string, oversized hex literal) --
+GoogleTest only, no Playwright coverage added (this is assembler/codegen
+behavior with no new UI surface; the existing Help-panel and syntax-error
+Playwright specs already exercise the surrounding chrome unchanged).
+
+## 18. Examples load pre-assembled, bypassing the still-open §16 bug entirely
+
+§16 left `rps.asm` (~3.2K) as a known, reproducible Examples-load failure
+after the backpressure-threshold fix; by the time §17's `.BYTE` rewrite
+landed, `primes.asm` had grown large enough (~2.2K, the 16-bit trial-
+division rewrite) to start showing the same symptom -- a real, live
+regression a user hit directly (a stray `ERR LINE 110` on a line that
+assembled cleanly every time it was typed by a script, meaning something
+about the *live* transfer -- not the program -- was at fault; see git
+history around that report). Rather than keep chasing root cause in
+`app.js`'s per-character serial simulation (already investigated at
+length in §16 without a full answer), Examples now sidestep that
+simulation entirely.
+
+**What changed.** A new build-time-only native tool, `web/
+gen_example_bin.cpp` (built with the host's own C++ compiler, `make
+examples-bin`, never shipped), boots the real ROM headlessly, types each
+`examples/*.asm` file in exactly the way a human would -- `NEW`, each
+line, then the same `JMP $<SHELL_PROMPT>` resume line `app.js` always
+used to append live -- runs `ASM`, and dumps three things to a small
+`.bin`: the resulting source-buffer bytes (`SRC_START` to its `0,0`
+sentinel), the resulting object code (`OBJ_START` to `ASMPC`), and
+`ASMPC` itself. A new WASM binding, `Machine::pokeRam(addr, bytes)`
+(`wasm_machine.cpp`), writes bytes directly into the emulated RAM array.
+`app.js`'s Example click handler fetches the `.bin` (instead of the
+`.asm` text) and pokes all three pieces straight in -- no `typeChar()`,
+no ACIA, no NMI, no `driveFrame()` backpressure loop involved at all for
+an Example load. `RUN` works immediately; no `ASM` step needed.
+
+**The board still does the real compiling -- once, not per-visitor.**
+This is a genuine, deliberate trade against this repo's "realism first"
+rule, made with the user directly (see the conversation this shipped in):
+every Example still gets compiled by the ROM's own real two-pass
+assembler, exactly as before -- `gen_example_bin` runs the *actual*
+firmware, not a reimplementation. What moved is *when*: build time,
+once, instead of live in every visitor's browser. `LIST`/`EDIT` still
+show the genuine source (the poked source buffer is real, not
+synthesized), and `FREE` still reports real usage (`ASMPC` is poked too).
+The one real, visible loss: an Example no longer visibly streams in or
+gets visibly compiled on click -- it's just there, fully assembled,
+the instant you click it. Hand-typing a program, and Loading a file or a
+saved-programs-shelf entry, are both completely unchanged -- they still
+go through the real ACIA/NMI simulation exactly as before; this only
+touches the four bundled Example programs.
+
+**A real bug caught while building this**: the first version of
+`gen_example_bin` didn't append the resume `JMP` before running `ASM`.
+The poked object code still *ran* -- RPS, hello, and the rest all printed
+correctly -- but on completion it fell off its own end into zero-filled
+RAM (a BRK/IRQ cascade) and, via what looks like stack-corruption luck
+rather than intent, usually landed back near the shell's own boot banner
+(`SHELL_START`) instead of a clean reprompt. Looked fine in a quick
+manual check; wrong on inspection (`SHELL_PROMPT`, not `SHELL_START`, is
+the documented resume target -- see §13). Fixed by having
+`gen_example_bin` read the real, current `SHELL_PROMPT` out of
+`firmware.lbl` (the same technique `gen_entrypoints.py` already uses) and
+append `JMP $<addr>` as the program's genuine last line, exactly matching
+what a live Load has always appended.
+
+Verified via a throwaway native harness (poke each `.bin`'s three parts
+into a fresh `Machine`, run it, check the real output) for all four
+examples including `rps.asm` -- which, notably, now works end-to-end for
+the first time this whole investigation, since it never touches the
+buggy transfer path at all. `web/tests/saveload.spec.ts`'s "Load (an
+Example)" test rewritten to match: no more waiting on `DO_LOAD`'s echo,
+straight to `RUN` with no `ASM`, `LIST` checked to confirm the real
+source landed too. Full suite green (92/92 GoogleTest + both Dormann,
+Playwright) after the change.
+
+## 19. §18 walked back: Examples poke source only, never pre-assemble
+
+§18's design was the user's own explicit choice, offered as one of two
+options ("skip only the serial simulation" vs. "skip the assembler too")
+precisely because it was a real tension with this repo's realism-first
+rule (`retro/CLAUDE.md`) -- and having shipped it, the user course-
+corrected: *"don't auto assemble it, just load the ASM program into
+editor memory."* This section is that correction, not a reversal of
+§18's actual bug fix -- the part of §18 worth keeping (poking bytes
+straight into RAM instead of racing the fragile per-character serial
+sim, sidestepping the §16 wedging bug) stays; only the "pre-assemble at
+build time, ship object code" part goes.
+
+**What changed.** `gen_example_bin.cpp` no longer runs `ASM` as part of
+its shipped output -- it still *does* run `ASM` at build time, but only
+as a fail-loud correctness check (a broken Example should never reach a
+visitor; the assembled output itself is discarded). The `.bin` format
+shrank from three parts (source, object code, `ASMPC`) to one: `[2]
+srcLen [srcLen source bytes]`. `app.js`'s `pokeExample()` now pokes only
+`SRC_START` -- no more `OBJ_START`/`ASMPC_ADDR` pokes -- so a visitor
+still has to type `ASM` themselves and watch the board's own assembler
+really compile it, exactly like hand-typing a program. Only the *typing
+of the source* is skipped, not the compiling.
+
+**"Loaded" now means loaded, on the terminal, not just in status text.**
+The user also asked for terminal feedback: *"enter 'LOAD' as a command,
+then print 'Ok' when its in memory."* A real `LOAD` command's own
+`DO_LOAD` dispatch was considered and rejected -- `bios.s`'s
+`SERIAL_BUFFER` RX ring is 256 bytes, far smaller than any real
+Example's source (577 bytes for the smallest, `hello.asm`), and
+`DO_LOAD` blocks on serial bytes that would never arrive via a raw RAM
+poke. Instead, a new WASM binding, `Machine::injectOutput(bytes)`
+(`wasm_machine.cpp`), appends bytes directly to the same output queue
+`readOutput()` already drains every frame -- the exact pipeline genuine
+ACIA output flows through, so nothing downstream (including the
+Playwright raw-output-spy test helper) needs to special-case it.
+`pokeExample()` now brackets its `pokeRam()` call with
+`injectOutput("LOAD\r\nOk\r\n")`, faking the terminal echo a real typed
+`LOAD` would produce without literally re-running the (infeasible)
+transfer.
+
+**"Instant transfer" removed.** The `#instantXfer` checkbox in the
+Save/Load popup (`index.html`) -- a labelled opt-out of the realistic
+ACIA-baud pacing on Save/Load-from-file/saved-shelf transfers -- no
+longer has a reason to exist once Examples stopped needing any transfer
+speed at all (they were its main motivation). Removed from
+`index.html`, `app.js` (`driveFrame()`'s pacing now checks only
+`TEST_MODE`, the existing `?test=1` carve-out), and its own Playwright
+test in `saveload.spec.ts`. Hand-typed programs, Save, Load-from-file,
+and the saved-programs shelf are unaffected -- they still go through the
+real paced ACIA/NMI path exactly as before; only the Examples buttons
+and the now-removed checkbox changed.
+
+Verified: `make check` (92/92 GoogleTest + both Dormann suites, ROM
+itself untouched by this correction) and the Playwright suite both
+green; the rewritten "Load (an Example)" test now confirms the LOAD/Ok
+terminal text actually appears (via the raw-output spy), that `LIST`
+shows the real poked source, and that `ASM` then `RUN` -- not `RUN`
+alone -- produces the program's real output. (A `RUN`-before-`ASM`
+assertion was deliberately *not* added: `RUN` is an unconditional `JMP
+OBJ_START` with no guard, so with no prior `ASM` it lands on whatever
+happens to be sitting in RAM -- the same undefined, environment-
+dependent "luck" this doc already flags in §18's own resume-jump bug,
+not a specific behavior worth pinning a test to.)
+
+## 20. `NEW` clears the object region too, not just source
+
+Requested directly by the user: *"When entering NEW can you clear the
+assembled memory too?"* Until this fix, `DO_NEW` only zeroed the source
+buffer's 2-byte end sentinel -- the header comment on `SHELL_START`'s own
+`ASMPC` seed said so explicitly ("NEW deliberately does NOT re-seed
+this... whatever's already sitting in the object region from an earlier
+ASM is untouched and still RUNnable"), a real prior design decision, not
+an oversight. In practice that meant `NEW` then `RUN` -- with no `ASM` in
+between, a plausible real workflow (start over, forget you haven't
+compiled yet) -- silently re-executed the *previous* program instead of
+doing nothing, since the old object bytes were still sitting at
+`OBJ_START` untouched. This is the same class of footgun §19 flagged for
+"`RUN` before any `ASM`" (undefined, whatever happens to be in RAM), but
+strictly more likely to bite a real user, since it follows an explicit
+"start fresh" command.
+
+`DO_NEW` now zeroes `OBJ_START` up through the current `ASMPC` (the real
+high-water mark of whatever the last `ASM` actually emitted -- `ASM`
+itself always reseeds `ASMPC` to `OBJ_START` before re-emitting, so this
+is exactly the span a previous assembly wrote, not the whole
+`OBJ_START..SYM_START` region) via a new 16-bit walking pointer, `CLRPTR`
+(zero page `$8D`, the next free byte after `.BYTE`'s `BYTIDX`), then
+reseeds `ASMPC` back to `OBJ_START` itself -- mirroring `SHELL_START`'s
+own cold-boot seed, so `FREE` correctly reports `EXEC: 0 USED` again
+until the next real `ASM`. The stale comment on `SHELL_START` describing
+the old behavior was updated to match.
+
+Note this doesn't make `RUN`-before-any-`ASM` *defined* in general --
+fresh-boot object RAM is zero-filled by the emulator regardless, so it
+already behaved this way (a `BRK`/IRQ-handler-stub loop, silently doing
+nothing) even before this fix; what changes is that `NEW` now guarantees
+that same "empty" state instead of leaving genuinely stale, previously-
+real object code resident and runnable.
+
+Covered by a new GoogleTest case,
+`NewClearsAssembledObjectCodeTooSoAStaleRunCantExecute`
+(`tests/editor_test.cpp`): assembles and `RUN`s a small program (with the
+documented `JMP SHELL_PROMPT` resume line, so the shell is genuinely
+alive again afterward), confirms it really executed, `NEW`s, asserts the
+object bytes are now zero, then `RUN`s again with no intervening `ASM`
+and confirms the old program's effect (a value written to a fixed zero
+page address) does *not* recur. `FreeReportsSourceAndObjectUsageSeparately`
+(pre-existing) updated to match the new post-`NEW` `EXEC` figure. Full
+suite green (93/93 GoogleTest + both Dormann, Playwright) after the
+change; no Playwright coverage added -- pure ROM/codegen behavior with no
+new UI surface, same reasoning §17 already used for `.BYTE`.
+
+## 21. `RUN` fails cleanly with `?NO PROGRAM`; the Examples' fake LOAD/Ok reprompts
+
+Two small, related fixes, both requested directly by the user in the same
+message.
+
+**`RUN` with nothing real assembled.** §20 made `NEW` zero the object
+region so a stale program couldn't linger -- but zero bytes at
+`OBJ_START` is still just a `BRK` opcode: `RUN` (`jmp OBJ_START`, no
+guard) would land there and silently spin forever in `bios.s`'s bare
+`IRQ_HANDLER` stub (`pha`/`pla`/`rti`, `BRK` pushes/re-enters at the same
+place, over and over), which looks exactly like a hang. The user's own
+suggestion was the fix: *"That 'empty' state of the execution area could
+be a JMP to the error, which a JMP back to the prompt."* A new
+`PLANT_NOPROG_TRAP` writes a real 3-byte `JMP ERR_NOPROG` at `OBJ_START`
+instead of zeroing it -- `RUN` still needs no guard of its own; it just
+lands on real code that prints `?NO PROGRAM` (matching the existing
+`?LINE`/`?SYNTAX` short-error convention) and `JMP`s back to
+`SHELL_PROMPT`. This is cheaper than the byte-range clear it replaces,
+too (3 bytes regardless of how big the last assembly was), so §20's
+`CLRPTR` walking pointer and its clear loop are gone, replaced entirely
+by this trap-planting approach.
+
+Planted from three places, each documented at its own call site:
+- **`DO_NEW`** -- unconditionally; starting fresh always means this.
+- **`DO_ASM`** -- at the very start of every attempt (so a `RUN` typed
+  mid-edit, before the *next* `ASM`, can't hit a stale success from
+  before), and again in `da_err` (so a *failed* re-`ASM` can't leave
+  `RUN` pointed at a half-written object region from a `ASM_PASS2` that
+  errored partway through, nor at an *older*, now-out-of-sync-with-the-
+  visible-source successful assembly). A clean pass 2 naturally
+  overwrites the trap with the real program's own first bytes, since it
+  emits from `OBJ_START` too.
+- **`SHELL_START`** -- conditionally, gated on a new `HASOBJ` zero-page
+  flag (set by a clean `DO_ASM`, cleared by `PLANT_NOPROG_TRAP` itself).
+  Unlike the other two call sites, entering the shell must NOT always
+  replant the trap: real RAM persists across a `QUIT` then a fresh
+  `8000R` re-entry, exactly like real hardware, so a program already
+  cleanly `ASM`'d before `QUIT` is still genuinely `RUN`nable and must
+  survive. `HASOBJ` is what makes that distinction possible -- before
+  this, `SHELL_START` unconditionally reseeded `ASMPC` to `OBJ_START` on
+  every entry regardless (its own old comment said so explicitly), a
+  minor pre-existing `FREE`-reporting inconsistency after `QUIT`+re-entry
+  that this fix incidentally also corrects, since `SHELL_START` now
+  leaves `ASMPC` alone too whenever `HASOBJ` says a real program is
+  still there.
+
+Covered by four new GoogleTest cases: nothing ever assembled (fresh shell
+entry, straight to `RUN`), `NEW` then `RUN` (rewriting §20's own test to
+check for the trap's `$4C` opcode and the `?NO PROGRAM`/reprompt text
+instead of zeroed bytes), a failed re-`ASM` after a previously good one
+(proving the *old* program doesn't leak through), and `QUIT` then
+re-entering the shell (proving a real, untouched assembly *does* survive
+and still runs, `?NO PROGRAM` absent). `make check`: 96/96 GoogleTest +
+both Dormann suites green.
+
+**The Examples' fake LOAD/Ok left the shell looking inert.** The user
+also noticed: *"after LOAD/'Ok' the prompt is not active until I hit
+enter."* Root cause: §19's `pokeExample()` calls `injectOutput()` to
+print `"LOAD\r\nOk\r\n"` straight into the terminal's output stream, but
+the *real* CPU never actually moved -- a raw RAM poke doesn't touch
+program counter or call `shell_loop` -- so it was still sitting wherever
+it was *before* the fake text, mid-`READLINE_ECHO`, having already
+printed whatever prompt was there before. The real `shell_loop` prints
+a bare `>` (no CR/LF) before every `READLINE_ECHO`; `pokeExample()` now
+appends that same bare `>` after its faked `"Ok\r\n"`, so the terminal's
+appearance matches the real, idle-and-ready CPU state that's actually
+sitting there -- cosmetic only (the shell was already accepting input
+immediately; nothing was actually stuck), but the visible prompt now
+appears without needing an extra blank-Enter to force a reprompt.
+`saveload.spec.ts`'s "Load (an Example)" test extended to assert the raw
+output ends `Ok\r\n>` after the fake confirmation. Full Playwright suite
+green after both changes (only the same pre-existing boot-banner-timing
+flakes seen elsewhere in this doc, unrelated to either fix).

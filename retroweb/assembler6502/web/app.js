@@ -281,6 +281,21 @@ async function boot() {
   wireFloatPopup("savePopup", "cgoac6502.savepos", ["saveBtn", "loadBtn"]);
   wireFloatPopup("helpPopup", "cgoac6502.helppos", ["helpBtn"]);
 
+  // Save and Load share one popup (wireFloatPopup above) -- pgmMode tracks
+  // which of the two toolbar buttons most recently opened it, so the
+  // "Saved programs" shelf's chips (rendered below) know whether clicking
+  // a name should load it into the machine or overwrite it with whatever's
+  // in the machine right now. See renderPgmLib().
+  let pgmMode = "save";
+  function setPgmMode(mode) {
+    pgmMode = mode;
+    document.getElementById("pgmLibHint").textContent =
+      mode === "load" ? "(click a name to load it)" : "(click a name to overwrite it with the current program)";
+  }
+  document.getElementById("saveBtn").addEventListener("click", () => setPgmMode("save"));
+  document.getElementById("loadBtn").addEventListener("click", () => setPgmMode("load"));
+  setPgmMode("save");
+
   // ---- page theme (Win95 / mid-90s Mosaic web / Modern / Dark Modern) ---
   // Shared with every other page on the site via the retro8080.theme
   // localStorage key -- a theme picked here or on the landing page carries
@@ -320,37 +335,85 @@ async function boot() {
     const res = await fetch("roms/firmware.bin");
     if (res.ok) m.burnRom(new Uint8Array(await res.arrayBuffer()));
   } catch {}
-  m.pressReset();
 
-  // Tracks whether the terminal is currently sitting inside the command
-  // shell (editor.s's SHELL_ENTRY) or at raw Wozmon's own "\" prompt, so
-  // ensureShell() (below) knows whether it needs to send the entry
-  // sequence before SAVE/LOAD. This can NOT be tracked just from app.js's
-  // own sends: the Help panel explicitly tells a human to type "<addr>R"
-  // and "QUIT" themselves, so real keystrokes -- not just this file's
-  // synthetic ones -- move the machine between the two. Getting this
-  // wrong is a real, silent-corruption bug, not just a UI nicety: if a
-  // human enters the shell by hand, types a program, then clicks Save,
-  // ensureShell() (believing it's still at Wozmon) would resend "<addr>R"
-  // into the *already-open* shell prompt -- misparsed as a decimal line
-  // number followed by a bad trailing letter (e.g. "8000R" -> line 8000,
-  // text "R"), silently polluting the program with a bogus line right
-  // before SAVE captures it. So both transitions are inferred from
-  // real signals instead of only from this file's own sends: entering is
-  // detected from the shell's own banner appearing in ROM *output*
-  // (unambiguous -- it only ever prints on a real SHELL_ENTRY, human- or
-  // script-triggered), and leaving is detected from the human's own typed
-  // input completing a "QUIT" line (unambiguous the other way: it's
-  // exactly what was typed, not an inference from echoed bytes). SW1
-  // reset also forces it back to false, unconditionally.
-  let inShell = false;
-  const SHELL_BANNER = "ASSEMBLY CODER";
-  let bannerTail = "";           // rolling window of recent output, for the banner check above
-  function ensureShell() {
-    if (inShell) return;
-    queueInput(encoder.encode(hex(E.SHELL_ENTRY) + "R\r"));
-    inShell = true;
+  // Example programs (Save/Load popup, further down) -- fetched here, up
+  // front and *awaited* before the machine ever starts running below, not
+  // lazily on click. A fetch() resolving concurrently with the per-frame
+  // CPU loop (driveFrame/pullSerial, running continuously via
+  // requestAnimationFrame once the machine's ticking) was found to wedge
+  // the emulated CPU -- it ends up spinning in bios.s's IRQ_HANDLER stub
+  // and never recovers, reproducible whether the fetch was kicked off from
+  // a click handler or fired early and simply happened to resolve while
+  // the machine was running. Root cause not fully chased down (some real
+  // browser task-scheduling interaction between an in-flight fetch and
+  // rAF), but these are four small, static, read-only files -- finishing
+  // all four fetches before m.pressReset() below (so before the frame()
+  // loop, further down, ever starts) sidesteps the trigger entirely rather
+  // than timing around it.
+  //
+  // Each fetch is a .bin, not the .asm source -- web/gen_example_bin.cpp
+  // (a build-time-only native tool, see web/Makefile's `examples-bin`)
+  // already typed that same source into the board's own real resident
+  // editor once, headlessly, and validated it really assembles (output
+  // discarded -- see that file's own header). Poking its captured source
+  // buffer straight into RAM (pokeExample, below) means an Example never
+  // goes through the character-by-character simulated-serial LOAD path
+  // at all -- sidestepping the still-not-fully-understood Examples-load
+  // wedging bug (CGOAC6502_REVIEW.md) rather than racing it. Nothing is
+  // pre-assembled into this page, though: a visitor still types ASM
+  // themselves and watches the board's own assembler really compile it,
+  // exactly like hand-typing a program -- only the *typing itself* is
+  // skipped.
+  const EXAMPLE_PROGRAMS = [
+    { name: "hello.asm", label: "Hello, World!", file: "hello.bin" },
+    { name: "primes.asm", label: "Prime numbers (perf demo)", file: "primes.bin" },
+    { name: "rps.asm", label: "Rock-Paper-Scissors", file: "rps.bin" },
+    { name: "lcd_demo.asm", label: "LCD demo", file: "lcd_demo.bin" },
+  ];
+  const EXAMPLE_BIN = {};
+  await Promise.all(EXAMPLE_PROGRAMS.map(async (ex) => {
+    try {
+      const res = await fetch(`examples/${ex.file}`);
+      if (res.ok) EXAMPLE_BIN[ex.file] = new Uint8Array(await res.arrayBuffer());
+    } catch {}
+  }));
+  // gen_example_bin.cpp's output: [2] srcLen (little-endian) [srcLen]
+  // source buffer bytes.
+  function parseExampleBin(bytes) {
+    const srcLen = bytes[0] | (bytes[1] << 8);
+    return bytes.subarray(2, 2 + srcLen);
   }
+  // SRC_START is an editor.s compile-time constant (`=`, not a linker-
+  // placed label, so it never appears in firmware.lbl / entrypoints.js)
+  // -- hardcoded here the same way gen_example_bin.cpp and
+  // tests/assembler_test.cpp's own kObjStart already do, citing editor.s's
+  // ZEROPAGE/memory-split header as the source of truth.
+  const SRC_START = 0x3000;
+  // Pokes an Example's real source straight into the editor's source
+  // buffer, then prints a "LOAD"/"Ok" confirmation on the terminal --
+  // standing in for what a real typed LOAD's own echo would show, since
+  // this bypasses the ACIA entirely (injectOutput, wasm_machine.cpp) and
+  // never actually runs DO_LOAD. Assumes the shell is already entered,
+  // same as Save/Load generally (see runSave's own comment) -- a raw
+  // memory poke doesn't care what the shell's own prompt/dispatcher is
+  // doing, but the source only *means* anything once LIST/ASM/etc. can
+  // see it from a real shell session.
+  //
+  // The trailing ">" mirrors shell_loop's own bare "lda #'>' / jsr CHROUT"
+  // (editor.s) -- without it, the *real* CPU is still sitting wherever it
+  // was before this fake text was injected (nothing about a raw RAM poke
+  // advances it), so the terminal shows "LOAD"/"Ok" but never a fresh
+  // prompt of its own, and the shell looks inert until the visitor
+  // presses Enter on a blank line to force a reprompt. Injecting the same
+  // bare ">" a real completed command would have printed next makes the
+  // terminal's appearance match the real CPU state that's actually
+  // sitting there (idle, mid-READLINE_ECHO, ready for the next line).
+  function pokeExample(bin) {
+    m.pokeRam(SRC_START, parseExampleBin(bin));
+    m.injectOutput(encoder.encode("LOAD\r\nOk\r\n>"));
+  }
+
+  m.pressReset();
 
   // ---- terminal -> ACIA, paced like a real transfer ----------------------
   // Every typed/pasted/loaded byte is queued here and drained by
@@ -360,20 +423,9 @@ async function boot() {
   const encoder = new TextEncoder();
   const inQ = [];
   function queueInput(bytes) { for (const b of bytes) inQ.push(b); }
-  let typedLine = "";           // the human's own current unsent line, for the QUIT check above
   term.onData((data) => {
     if (!poweredOn) return;   // Power toggle (below) -- an unplugged board doesn't hear you type
     if (caps.checked) data = data.toUpperCase();
-    for (const ch of data) {
-      if (ch === "\r" || ch === "\n") {
-        if (typedLine.trim().toUpperCase() === "QUIT") inShell = false;
-        typedLine = "";
-      } else if (ch === "\x7f" || ch === "\b") {
-        typedLine = typedLine.slice(0, -1);
-      } else {
-        typedLine += ch;
-      }
-    }
     queueInput(encoder.encode(data));
   });
 
@@ -418,10 +470,6 @@ async function boot() {
       }
       outQ.push(b);
       if (b === 0x0d) pendingLf = true;
-      if (!inShell && b >= 0x20 && b < 0x7f) {
-        bannerTail = (bannerTail + String.fromCharCode(b)).slice(-SHELL_BANNER.length);
-        if (bannerTail === SHELL_BANNER) inShell = true;
-      }
       if (!saveCapture) continue;
       if (!saveCapture.started) { if (b === 0x02) saveCapture.started = true; }
       else if (b === 0x03) { saveCapture.resolve(saveCapture.buf); saveCapture = null; }
@@ -449,8 +497,11 @@ async function boot() {
   // typing speed) but not for a paste or a Save/Load transfer. Mirrors the
   // Altair's LOAD SPEED convention (see retro/CLAUDE.md): realistic-by-
   // default (paced to m.aciaBaud(), same cps math as pumpTerminal above),
-  // a labelled "instant transfer" opt-out (Save/Load panel), and the
-  // standard ?test=1 carve-out.
+  // plus the standard ?test=1 carve-out. (A labelled "instant transfer"
+  // opt-out used to sit here too, for the Save/Load panel -- retired once
+  // Example loading stopped needing any transfer speed at all, see
+  // pokeExample() above; Save/Load-from-file and the saved-programs shelf
+  // still go through this real paced path, unchanged.)
   //
   // Critically, this can't just be "call m.typeChar() N times, then let
   // the frame's usual m.runCycles() catch up" -- the ACIA has only a
@@ -459,16 +510,15 @@ async function boot() {
   // before the NMI handler ever drains it, silently dropping data. Nor can
   // driveFrame() just inject extra m.runCycles() of its own -- that would
   // speed up the emulated CPU beyond real 1MHz, which retro/CLAUDE.md
-  // never allows, "instant transfer" included (real-hardware overrides may
-  // change *throughput*, never the clock itself -- see the Altair's own
-  // LOAD SPEED, which stays at real 2MHz under every multiplier). So
-  // driveFrame() below slices THIS frame's own real, dtMs-derived cycle
-  // budget across however many characters are due out this frame, running
-  // a fair share of real cycles between each -- the same total CPU time
-  // as an ordinary frame, just distributed so the NMI handler gets a
-  // genuine chance to drain each byte before the next one arrives.
+  // never allows (real-hardware overrides may change *throughput*, never
+  // the clock itself -- see the Altair's own LOAD SPEED, which stays at
+  // real 2MHz under every multiplier). So driveFrame() below slices THIS
+  // frame's own real, dtMs-derived cycle budget across however many
+  // characters are due out this frame, running a fair share of real
+  // cycles between each -- the same total CPU time as an ordinary frame,
+  // just distributed so the NMI handler gets a genuine chance to drain
+  // each byte before the next one arrives.
   const TEST_MODE = new URLSearchParams(location.search).get("test") === "1";
-  const instantXfer = document.getElementById("instantXfer");
   const MIN_CYCLES_PER_CHAR = 200;   // generous margin over the NMI handler's real drain cost
   let inBudget = 0;
 
@@ -479,7 +529,7 @@ async function boot() {
   function driveFrame(totalCycles, dtMs) {
     if (!inQ.length) { m.runCycles(totalCycles); return; }
 
-    const instant = TEST_MODE || instantXfer.checked;
+    const instant = TEST_MODE;
     let n;
     if (instant) {
       // Not throttled to the ACIA's baud -- but still capped to what this
@@ -498,10 +548,34 @@ async function boot() {
 
     if (n === 0) { m.runCycles(totalCycles); return; }
     const slice = Math.floor(totalCycles / n);
+    let consumed = 0;
     for (let i = 0; i < n; i++) {
+      // Backpressure: bios.s's SERIAL_BUFFER RX ring is 256 bytes: a bulk
+      // multi-line LOAD (or a burst of instant-mode test input) can inject
+      // characters faster than STORE_LINE's own O(n) buffer scan drains
+      // them -- pacing purely off a fixed per-character cycle cost (as
+      // this loop did before) can't account for that, since STORE_LINE's
+      // real cost grows with the program already stored. Stop injecting
+      // new characters for the rest of this frame once the ring holds more
+      // than a handful of unconsumed bytes (the extra cycles below still
+      // run, giving the ROM more real time to drain it) rather than risk
+      // overrunning it and corrupting the transfer. This threshold used to
+      // be 200 (~80% of the ring) on the theory that only genuine overflow
+      // mattered; real-browser testing of the Examples feature (loading a
+      // multi-hundred-byte file) showed the ROM can wedge well before the
+      // ring is anywhere near full if the gap between "close to full" and
+      // "actually drained" is allowed to stay wide for long -- lowering
+      // this to a small constant keeps the ring close to empty at all
+      // times instead, which reliably fixed it for every example file
+      // except the largest (Rock-Paper-Scissors, ~3.2K) -- see
+      // CGOAC6502_REVIEW.md for what's still open there.
+      if (m.serialPending() > 8) break;
       m.typeChar(inQ.shift());
-      m.runCycles(i === n - 1 ? totalCycles - slice * (n - 1) : slice);
+      const c = i === n - 1 ? totalCycles - slice * (n - 1) : slice;
+      m.runCycles(c);
+      consumed += c;
     }
+    if (consumed < totalCycles) m.runCycles(totalCycles - consumed);
   }
 
   // ---- LEDs / LCD ---------------------------------------------------
@@ -565,7 +639,7 @@ async function boot() {
   // index.html's own note by the board graphic -- so there's no listener
   // to wire up for any of them; bus.h's JumperState defaults already
   // match the shipped ROM's wiring.
-  document.querySelector('#pcbSvg [data-ref="SW1"]').addEventListener("click", () => { m.pressReset(); inShell = false; bannerTail = ""; typedLine = ""; });
+  document.querySelector('#pcbSvg [data-ref="SW1"]').addEventListener("click", () => { m.pressReset(); });
 
   // ---- power (J1) ---------------------------------------------------
   // The real board has no power switch -- J1 is just a barrel jack, live
@@ -593,13 +667,14 @@ async function boot() {
   // prose (index.html) rather than filled in here.
   const E = CGOAC_ENTRYPOINTS;
   function hex(n) { return n.toString(16).toUpperCase(); }
-  for (const id of ["hShell", "hShell2"]) document.getElementById(id).textContent = hex(E.SHELL_ENTRY) + "R";
+  for (const id of ["hShell", "hShell2", "hShell3"]) document.getElementById(id).textContent = hex(E.SHELL_ENTRY) + "R";
   document.getElementById("hResume").textContent = "JMP $" + hex(E.SHELL_PROMPT);
   // OS-call jump table (bios.s) -- same "never hand-copied" reasoning.
   const OS_CALL_IDS = {
     hPrintChar: "PRINT_CHAR", hPrintStr: "PRINT_STR",
     hLcdPutc: "LCD_PUTC", hLcdPuts: "LCD_PUTS", hLcdClear: "LCD_CLEAR",
     hLcdLine1: "LCD_LINE1", hLcdLine2: "LCD_LINE2",
+    hReadKey: "READ_KEY",
   };
   for (const [id, name] of Object.entries(OS_CALL_IDS)) document.getElementById(id).textContent = "$" + hex(E[name]);
 
@@ -616,6 +691,7 @@ async function boot() {
   const pgmFileBtn = document.getElementById("pgmFileBtn");
   const pgmFile = document.getElementById("pgmFile");
   const pgmLib = document.getElementById("pgmLib");
+  const pgmExamples = document.getElementById("pgmExamples");
   const pgmStatus = document.getElementById("pgmStatus");
 
   function setPgmStatus(text, ok) {
@@ -624,10 +700,19 @@ async function boot() {
   }
   function defaultPgmName() { return pgmName.value.trim() || "program.asm"; }
 
-  // Enters the shell (if not already in it) and runs its SAVE command,
-  // resolving with the captured source text -- the bytes between STX/ETX
-  // (pullSerial()'s saveCapture hook above). A generous timeout guards
-  // against the ROM never responding.
+  // Runs the shell's SAVE command, resolving with the captured source text
+  // -- the bytes between STX/ETX (pullSerial()'s saveCapture hook above). A
+  // generous timeout guards against the ROM never responding. Assumes the
+  // terminal is already sitting inside the command shell (editor.s's
+  // SHELL_ENTRY), same precondition as the Help panel documents for typing
+  // SAVE by hand -- this used to try to detect and auto-enter the shell
+  // first (a heuristic watching for the shell's own banner in ROM output),
+  // but getting that detection wrong at all -- and it did go wrong -- means
+  // silently resending "<addr>R" into an *already-open* shell prompt,
+  // misparsed as a decimal line number followed by a bad trailing letter
+  // (e.g. "8000R" -> line 8000, text "R"), corrupting whatever's about to
+  // be saved or clobbering an in-flight LOAD. Simpler and more reliable to
+  // just require the real precondition instead of guessing at it.
   function runSave() {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -635,45 +720,29 @@ async function boot() {
         reject(new Error("SAVE timed out -- no response from the ROM."));
       }, 8000);
       saveCapture = { started: false, buf: [], resolve: (bytes) => { clearTimeout(timer); resolve(bytes); } };
-      ensureShell();
       queueInput(encoder.encode("SAVE\r"));
     });
   }
-  // Enters the shell (if not already in it) and runs its LOAD command,
-  // which clears the program itself (DO_LOAD's own DO_NEW) before
-  // streaming `text` in -- queued as one sequence; the shell processes
-  // each typed/received line in turn as driveFrame drains it, so no
-  // explicit wait between commands is needed. DO_LOAD splits the incoming
-  // stream on a bare CR ($0D, the same byte the shell's own line entry
-  // and Wozmon's store syntax use) -- normalize LF/CRLF from a hand-
+  // Runs the shell's LOAD command, which clears the program itself (DO_LOAD's
+  // own DO_NEW) before streaming `text` in -- queued as one sequence; the
+  // shell processes each typed/received line in turn as driveFrame drains
+  // it, so no explicit wait between commands is needed. DO_LOAD splits the
+  // incoming stream on a bare CR ($0D, the same byte the shell's own line
+  // entry and Wozmon's store syntax use) -- normalize LF/CRLF from a hand-
   // edited or OS-saved .asm/.txt file so an imported file loads correctly
   // regardless of which line endings its editor wrote. A numberless line
   // (a plain unnumbered file, or one hand-typed without line numbers)
   // auto-numbers on the way in -- see PROCESS_LINE/AUTO_NUMBER, editor.s.
+  // Assumes the shell is already entered -- see runSave's own comment above.
   function runLoad(text) {
     text = text.replace(/\r\n|\n/g, "\r");
-    ensureShell();
     queueInput(encoder.encode("LOAD\r" + text));
   }
+  window.__testQueueLoad = runLoad; // TEMP DEBUG
 
   const PGM_LIB_KEY = "cgoac6502.programs";
   function loadPgmLib() { try { return JSON.parse(localStorage.getItem(PGM_LIB_KEY) || "{}"); } catch { return {}; } }
   function savePgmLib(lib) { try { localStorage.setItem(PGM_LIB_KEY, JSON.stringify(lib)); } catch {} }
-  function renderPgmLib() {
-    const lib = loadPgmLib();
-    pgmLib.innerHTML = "";
-    for (const name of Object.keys(lib)) {
-      const b = document.createElement("button");
-      b.className = "chip"; b.textContent = name;
-      b.addEventListener("click", () => {
-        runLoad(lib[name]);
-        pgmName.value = name;
-        setPgmStatus(`Loading "${name}" -- watch the terminal for the fresh prompt.`);
-      });
-      pgmLib.appendChild(b);
-    }
-  }
-  renderPgmLib();
 
   function offerDownload(name, text) {
     const url = URL.createObjectURL(new Blob([text], { type: "text/plain" }));
@@ -684,26 +753,96 @@ async function boot() {
     pgmDownload.hidden = false;
   }
 
+  // Shared by the toolbar's own Save button (defaultPgmName()) and a
+  // "Saved programs" chip clicked in save mode (that chip's own name) --
+  // reads the machine's current source over the ACIA (runSave()) and
+  // writes it into the named browser-storage slot, creating it if it
+  // didn't already exist.
+  async function doSaveAs(name) {
+    const bytes = await runSave();
+    let text = "";
+    for (let i = 0; i < bytes.length; i++) text += String.fromCharCode(bytes[i]);
+    const lib = loadPgmLib();
+    const isNew = !(name in lib);
+    lib[name] = text;
+    savePgmLib(lib);
+    if (isNew) renderPgmLib();
+    pgmName.value = name;
+    offerDownload(name, text);
+    setPgmStatus(`Saved ${bytes.length} byte(s)${isNew ? " as" : ", overwriting"} "${name}".`, true);
+  }
+
+  function renderPgmLib() {
+    const lib = loadPgmLib();
+    pgmLib.innerHTML = "";
+    for (const name of Object.keys(lib)) {
+      const b = document.createElement("button");
+      b.className = "chip"; b.textContent = name;
+      // Save and Load share one popup (see setPgmMode above) -- in load
+      // mode a click loads this saved program into the machine; in save
+      // mode (the default -- this shelf exists to be *written*, not just
+      // read) it overwrites this slot with whatever the machine holds now.
+      b.addEventListener("click", async () => {
+        if (pgmMode === "load") {
+          runLoad(lib[name]);
+          pgmName.value = name;
+          setPgmStatus(`Loading "${name}" -- watch the terminal for the fresh prompt.`);
+          return;
+        }
+        b.disabled = true;
+        setPgmStatus("Saving (reading the source buffer over the ACIA)...");
+        try {
+          await doSaveAs(name);
+        } catch (e) {
+          setPgmStatus(e.message || String(e), false);
+        } finally {
+          b.disabled = false;
+        }
+      });
+      pgmLib.appendChild(b);
+    }
+  }
+  renderPgmLib();
+
   pgmSaveBtn.addEventListener("click", async () => {
     pgmSaveBtn.disabled = true;
     setPgmStatus("Saving (reading the source buffer over the ACIA)...");
     try {
-      const bytes = await runSave();
-      let text = "";
-      for (let i = 0; i < bytes.length; i++) text += String.fromCharCode(bytes[i]);
-      const name = defaultPgmName();
-      const lib = loadPgmLib();
-      lib[name] = text;
-      savePgmLib(lib);
-      renderPgmLib();
-      offerDownload(name, text);
-      setPgmStatus(`Saved ${bytes.length} byte(s) as "${name}".`, true);
+      await doSaveAs(defaultPgmName());
     } catch (e) {
       setPgmStatus(e.message || String(e), false);
     } finally {
       pgmSaveBtn.disabled = false;
     }
   });
+
+  // ---- Example programs (fetched from the server, read-only) -----------
+  // EXAMPLE_PROGRAMS/EXAMPLE_BIN are populated way up above, alongside the
+  // ROM fetch (see that comment for why fetching is not done lazily here
+  // on click, and for why these are pre-assembled .bin -- not .asm text
+  // streamed through the real serial LOAD path). Not user data, so an
+  // Example never touches the localStorage shelf above on its own; a
+  // visitor edits one after loading it and explicitly Saves to keep a
+  // copy in their browser, same as typing a program in by hand.
+  function renderExamples() {
+    pgmExamples.innerHTML = "";
+    for (const ex of EXAMPLE_PROGRAMS) {
+      const b = document.createElement("button");
+      b.className = "chip"; b.textContent = ex.label;
+      b.addEventListener("click", () => {
+        try {
+          if (!(ex.file in EXAMPLE_BIN)) throw new Error(`"${ex.file}" hasn't finished loading yet -- try again in a moment.`);
+          pokeExample(EXAMPLE_BIN[ex.file]);
+          pgmName.value = ex.name;
+          setPgmStatus(`Loaded "${ex.label}" into memory -- type ASM, then RUN.`);
+        } catch (e) {
+          setPgmStatus(e.message || String(e), false);
+        }
+      });
+      pgmExamples.appendChild(b);
+    }
+  }
+  renderExamples();
 
   pgmFileBtn.addEventListener("click", () => pgmFile.click());
   pgmFile.addEventListener("change", async () => {

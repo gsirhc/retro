@@ -466,6 +466,131 @@ TEST(Editor, NewClearsTheProgram) {
     EXPECT_EQ(out.find("LDA"), std::string::npos) << "program was not cleared: " << out;
 }
 
+TEST(Editor, NewClearsAssembledObjectCodeTooSoAStaleRunFailsCleanly) {
+    // Before this fix, NEW only cleared the source buffer -- a program
+    // ASMed once, then cleared with NEW and RUN again with no fresh ASM in
+    // between, would silently re-execute the *previous* assembly. NEW now
+    // plants the "?NO PROGRAM" RUN trap (PLANT_NOPROG_TRAP, DO_NEW's own
+    // header comment) so that RUN fails loudly and returns to the prompt
+    // instead.
+    SKIP_UNLESS_ROM_BUILT();
+    std::string out;
+    Machine m = bootIntoShell(out);
+
+    // Ends with the documented "JMP SHELL_PROMPT" resume convention (same
+    // pattern as RunResumeLandsBackInTheShellNotRawWozmon above) so the
+    // shell is genuinely alive again afterward to accept NEW/RUN.
+    typeLine(m, "10 LDA #$2A");
+    typeLine(m, "20 STA $50");
+    char buf[16];
+    std::snprintf(buf, sizeof(buf), "JMP $%X", labelAddr("SHELL_PROMPT"));
+    typeLine(m, std::string("30 ") + buf);
+
+    out.clear();
+    typeLine(m, "ASM");
+    ASSERT_NE(out.find("Ok"), std::string::npos) << "got: " << out;
+
+    // Prove the assembly is real first: seed $50 with a sentinel, RUN, and
+    // confirm it actually got overwritten with $2A.
+    m.bus.ram[0x50] = 0xFF;
+    out.clear();
+    typeLine(m, "RUN");
+    m.run_cycles(50000);
+    ASSERT_EQ(m.bus.ram[0x50], 0x2A) << "sanity check: the program didn't even run the first time";
+    ASSERT_NE(out.find(">"), std::string::npos) << "expected the shell back at its own prompt: got: " << out;
+
+    typeLine(m, "NEW");
+
+    // The object region now holds the "JMP ERR_NOPROG" trap (opcode $4C),
+    // not the old program's bytes and not raw zero.
+    EXPECT_EQ(m.bus.ram[kObjStart], 0x4C) << "expected the JMP-to-error trap, not the old program";
+
+    // Re-seed the sentinel and RUN again with no ASM in between -- the old
+    // program must NOT run (its bytes are gone), and the shell should
+    // report a clean error and return to its own prompt rather than hang
+    // or execute garbage.
+    m.bus.ram[0x50] = 0xFF;
+    out.clear();
+    typeLine(m, "RUN");
+    m.run_cycles(20000);
+    EXPECT_EQ(m.bus.ram[0x50], 0xFF) << "stale program from before NEW executed anyway";
+    EXPECT_NE(out.find("?NO PROGRAM"), std::string::npos) << "got: " << out;
+    EXPECT_NE(out.find(">"), std::string::npos) << "expected the shell back at its own prompt: got: " << out;
+}
+
+TEST(Editor, RunWithNothingEverAssembledReportsNoProgram) {
+    // Covers the "editor starts" half of the user's request -- a totally
+    // fresh shell entry, nothing typed at all, straight to RUN. Before
+    // this fix the object region was raw zero-filled RAM (a BRK opcode) --
+    // RUN would silently spin in bios.s's bare IRQ_HANDLER stub forever,
+    // looking exactly like a hang. See PLANT_NOPROG_TRAP's own comment.
+    SKIP_UNLESS_ROM_BUILT();
+    std::string out;
+    Machine m = bootIntoShell(out);
+
+    out.clear();
+    typeLine(m, "RUN");
+    m.run_cycles(20000);
+    EXPECT_NE(out.find("?NO PROGRAM"), std::string::npos) << "got: " << out;
+    EXPECT_NE(out.find(">"), std::string::npos) << "expected the shell back at its own prompt: got: " << out;
+}
+
+TEST(Editor, FailedAsmAlsoTrapsRunEvenAfterAPreviousGoodAssembly) {
+    // A *failed* re-ASM must invalidate whatever was assembled before it,
+    // too -- not just a never-attempted ASM. Otherwise editing a working
+    // program, introducing a typo, and hitting ASM again would leave the
+    // old (now out-of-sync with the visible source) object code silently
+    // RUNnable. See DO_ASM's own header comment (da_err replants the trap).
+    SKIP_UNLESS_ROM_BUILT();
+    std::string out;
+    Machine m = bootIntoShell(out);
+
+    typeLine(m, "10 LDA #$2A");
+    typeLine(m, "20 STA $50");
+    out.clear();
+    typeLine(m, "ASM");
+    ASSERT_NE(out.find("Ok"), std::string::npos) << "got: " << out;
+
+    // Break it: an undefined-label line.
+    typeLine(m, "30 JMP UNDEFINED");
+    out.clear();
+    typeLine(m, "ASM");
+    ASSERT_NE(out.find("ERR LINE"), std::string::npos) << "got: " << out;
+
+    m.bus.ram[0x50] = 0xFF;
+    out.clear();
+    typeLine(m, "RUN");
+    m.run_cycles(20000);
+    EXPECT_EQ(m.bus.ram[0x50], 0xFF) << "the previous good assembly ran anyway after a failed re-ASM";
+    EXPECT_NE(out.find("?NO PROGRAM"), std::string::npos) << "got: " << out;
+}
+
+TEST(Editor, QuitAndReenteringTheShellStillPreservesARealAssembledProgram) {
+    // The trap must NOT clobber a genuinely good, unmodified assembly just
+    // because the shell was re-entered -- real RAM persists across a QUIT
+    // then a fresh "8000R", same as real hardware. See SHELL_START's own
+    // comment (HASOBJ gates whether it (re-)plants the trap).
+    SKIP_UNLESS_ROM_BUILT();
+    std::string out;
+    Machine m = bootIntoShell(out);
+
+    typeLine(m, "10 LDA #$2A");
+    typeLine(m, "20 STA $50");
+    out.clear();
+    typeLine(m, "ASM");
+    ASSERT_NE(out.find("Ok"), std::string::npos) << "got: " << out;
+
+    typeLine(m, "QUIT");
+    runAt(m, kShellEntry);
+
+    m.bus.ram[0x50] = 0xFF;
+    out.clear();
+    typeLine(m, "RUN");
+    m.run_cycles(20000);
+    EXPECT_EQ(m.bus.ram[0x50], 0x2A) << "a real, unmodified assembly should still run after QUIT + re-entry";
+    EXPECT_EQ(out.find("?NO PROGRAM"), std::string::npos) << "got: " << out;
+}
+
 TEST(Editor, EndToEndTypeListAssembleAndRun) {
     // The plan's demo scenario, updated for the shell: type a program,
     // LIST, ASM (catching an undefined-label error with the *real* line
@@ -647,6 +772,43 @@ TEST(Editor, StoringManyLinesEventuallyReportsFull) {
         if (out.find("FULL") != std::string::npos) sawFull = true;
     }
     EXPECT_TRUE(sawFull) << "never reported FULL";
+}
+
+TEST(Editor, FreeReportsSourceAndObjectUsageSeparately) {
+    SKIP_UNLESS_ROM_BUILT();
+    std::string out;
+    Machine m = bootIntoShell(out);
+
+    // Fresh shell entry: nothing typed, nothing assembled yet -- SHELL_START
+    // seeds ASMPC to OBJ_START for exactly this case (see editor.s).
+    out.clear();
+    typeLine(m, "FREE");
+    EXPECT_NE(out.find("PROGRAM: 0 USED, 4094 FREE"), std::string::npos) << "got: " << out;
+    EXPECT_NE(out.find("EXEC:    0 USED, 10240 FREE"), std::string::npos) << "got: " << out;
+
+    // A stored-but-not-yet-assembled line moves PROGRAM only. Stored form is
+    // [2-byte binary line number]["LDA #$2A"]CR = 2 + 8 + 1 = 11 bytes (the
+    // "10 " typed prefix isn't part of the stored text -- see STORE_LINE).
+    typeLine(m, "10 LDA #$2A");
+    out.clear();
+    typeLine(m, "FREE");
+    EXPECT_NE(out.find("PROGRAM: 11 USED, 4083 FREE"), std::string::npos) << "got: " << out;
+    EXPECT_NE(out.find("EXEC:    0 USED, 10240 FREE"), std::string::npos) << "got: " << out;
+
+    // ASM moves EXEC to the real object size (LDA #$2A -> 2 bytes).
+    typeLine(m, "ASM");
+    out.clear();
+    typeLine(m, "FREE");
+    EXPECT_NE(out.find("EXEC:    2 USED, 10238 FREE"), std::string::npos) << "got: " << out;
+
+    // NEW clears the object code too now, not just source -- so a stale
+    // RUN typed before the next ASM can't execute the previous program.
+    // See DO_NEW's own header comment.
+    typeLine(m, "NEW");
+    out.clear();
+    typeLine(m, "FREE");
+    EXPECT_NE(out.find("PROGRAM: 0 USED, 4094 FREE"), std::string::npos) << "got: " << out;
+    EXPECT_NE(out.find("EXEC:    0 USED, 10240 FREE"), std::string::npos) << "got: " << out;
 }
 
 } // namespace

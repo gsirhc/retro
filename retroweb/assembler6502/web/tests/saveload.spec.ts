@@ -20,7 +20,7 @@ test.describe("Help panel", () => {
     await page.goto("/");
     await expect(page.locator("#screen .xterm-rows")).toContainText("\\", { timeout: 45000 });
     await page.click("#helpBtn");
-    for (const id of ["hPrintChar", "hPrintStr", "hLcdPutc", "hLcdPuts", "hLcdClear", "hLcdLine1", "hLcdLine2"]) {
+    for (const id of ["hPrintChar", "hPrintStr", "hLcdPutc", "hLcdPuts", "hLcdClear", "hLcdLine1", "hLcdLine2", "hReadKey"]) {
       await expect(page.locator("#" + id)).toHaveText(/^\$[0-9A-F]+$/);
     }
   });
@@ -33,7 +33,7 @@ test.describe("Save / Load", () => {
     await page.click("#screen");
     // Save/Load moved into a floating popup (terminal header) -- open it
     // once here since almost every test in this block fills/clicks its
-    // controls (#pgmName, #pgmSave, #pgmFile, #instantXfer, .chip-lib).
+    // controls (#pgmName, #pgmSave, #pgmFile, .chip-lib).
     await page.click("#saveBtn");
     // #saveBtn's own click leaves it as document.activeElement (ordinary
     // browser button-click focus behaviour) -- xterm's helper textarea
@@ -124,6 +124,11 @@ test.describe("Save / Load", () => {
     // Overwrite the program with something else, then load the shelved
     // one back in and confirm LIST shows the original, not the decoy.
     await enterProgram(page, ["NOP"]);
+    // Save and Load share this popup (see app.js's setPgmMode) -- a chip
+    // click overwrites its slot in the default Save mode, so switch to
+    // Load mode first or this would clobber "shelved.asm" with "NOP"
+    // instead of loading it back.
+    await page.click("#loadBtn");
     await page.click('.chip-lib button:has-text("shelved.asm")');
     await page.waitForTimeout(1500);
 
@@ -132,17 +137,65 @@ test.describe("Save / Load", () => {
     await expect(page.locator("#screen .xterm-rows")).toContainText("STA $50", { timeout: 20000 });
   });
 
+  test("Load (an Example) pokes real source straight into memory, prints LOAD/Ok, and still needs ASM before RUN", async ({ page }) => {
+    // Examples' source is captured at build time (web/gen_example_bin.cpp,
+    // run once by `make examples-bin` -- see CGOAC6502_REVIEW.md) into a
+    // small .bin app.js fetches and pokes directly into the source buffer
+    // (Machine.pokeRam), bypassing the character-by-character simulated
+    // serial LOAD path entirely -- no real DO_LOAD dispatch runs. app.js's
+    // pokeExample() fakes that dispatch's own terminal echo instead
+    // (Machine.injectOutput: "LOAD"/"Ok", same as a real typed LOAD would
+    // print), then the visitor still types ASM themselves and watches the
+    // board's own assembler really compile it -- only the typing of the
+    // source is skipped, not the compiling. Still requires the shell
+    // already entered like any other Load (pokeExample's own comment), so
+    // enter it by hand first, same as every other test in this file.
+    await installOutputSpy(page);
+    await enterProgram(page, []);
+    await page.click("#loadBtn");
+    await page.click('.chip-lib button:has-text("Hello, World!")');
+    await expect(page.locator("#pgmStatus")).toContainText("type ASM", { timeout: 20000 });
+
+    // The fake LOAD/Ok confirmation actually reached the terminal, exactly
+    // like a real typed LOAD's own echo would -- including the trailing
+    // ">" reprompt (pokeExample's own comment): without it, the shell
+    // looked inert right after Ok until the visitor pressed Enter once on
+    // a blank line to force a fresh prompt.
+    await expect.poll(async () => await getRawOut(page), { timeout: 20000 }).toContain("LOAD");
+    await expect.poll(async () => await getRawOut(page)).toContain("Ok");
+    await expect.poll(async () => await getRawOut(page)).toMatch(/Ok\r\n>$/);
+
+    // Restore terminal focus -- clicking #loadBtn and the chip both moved
+    // it away, and typeLine()'s keystrokes need it back on #screen (same
+    // fix every other test in this file that clicks the popup applies).
+    await page.click("#screen");
+
+    // LIST proves the real source buffer was poked correctly: hello.asm is
+    // well under LIST's 20-line page size (editor.s), so no --MORE-- pause
+    // to navigate around.
+    await typeLine(page, "LIST");
+    await expect(page.locator("#screen .xterm-rows")).toContainText('.BYTE "HELLO, WORLD!"', { timeout: 20000 });
+
+    // Nothing was pre-assembled -- ASM (a real compile, watched by the
+    // visitor same as any hand-typed program), then RUN, produces the
+    // output.
+    await typeLine(page, "ASM");
+    await expect(page.locator("#screen .xterm-rows")).toContainText("Ok", { timeout: 20000 });
+    await typeLine(page, "RUN");
+    await expect.poll(async () => await getRawOut(page), { timeout: 20000 }).toContain("HELLO, WORLD!");
+  });
+
   test("manually entering the shell (as the Help panel instructs), then Save, doesn't pollute the program with a bogus re-entry line", async ({ page }) => {
-    // app.js's own `inShell` tracking used to only ever get set by its own
-    // ensureShell() calls -- but a human enters the shell by hand exactly
-    // like enterProgram() does here (the Help panel's own documented way),
-    // so app.js had no idea it was already inside. Clicking Save then
-    // re-sent "<addr>R" into the *already-open* shell prompt -- misparsed
-    // as a decimal line number ("8000") followed by a bad trailing letter
-    // ("R") with no space between them, silently stored as a bogus extra
-    // program line right before Save captured the (now polluted) buffer.
-    // Fixed by inferring `inShell` from the shell's own banner in real ROM
-    // output instead of only from app.js's own sends -- see app.js.
+    // runSave()/runLoad() used to try to auto-detect and auto-enter the
+    // shell (an `inShell` flag inferred from the shell's own banner in ROM
+    // output) -- but that detection could itself go wrong and silently
+    // resend "<addr>R" into an *already-open* shell prompt, misparsed as a
+    // decimal line number ("8000") followed by a bad trailing letter ("R")
+    // with no space between them, storing a bogus extra program line right
+    // before Save captured the (now polluted) buffer. Simplified: app.js
+    // no longer guesses at all, it just assumes the shell is already
+    // entered (see runSave's own comment) -- this test proves that's safe
+    // for the normal, documented flow (enter the shell by hand, then Save).
     await enterProgram(page, ["LDA #$2A", "STA $50"]);
     await page.fill("#pgmName", "clean.asm");
     await page.click("#pgmSave");
@@ -193,6 +246,11 @@ test.describe("Save / Load", () => {
     // "STA $50" (already on screen from the earlier typed entry), reusing
     // the same-named signal from two different commands needs this care.
     const beforeLoad = (await getRawOut(page)).length;
+    // Save and Load share this popup (see app.js's setPgmMode) -- a chip
+    // click overwrites its slot in the default Save mode, so switch to
+    // Load mode first or this would clobber "rows.asm" with "NOP" instead
+    // of loading it back.
+    await page.click("#loadBtn");
     await page.click('.chip-lib button:has-text("rows.asm")');
     // Wait for DO_NEW's own "Ok" message -- printed only by DO_LOAD (it
     // always clears first) or a literal NEW command -- to appear *after*
@@ -224,7 +282,10 @@ test.describe("Save / Load", () => {
     // A plain LF-separated file, as any normal text editor would save --
     // not the bare-CR internal format the shell's own line entry uses --
     // and with no leading line numbers at all, exercising DO_LOAD's
-    // auto-numbering (see runLoad()'s normalization in app.js).
+    // auto-numbering (see runLoad()'s normalization in app.js). runLoad()
+    // assumes the shell is already entered (see its own comment) -- enter
+    // it by hand first, same as every other test in this file.
+    await enterProgram(page, []);
     await page.setInputFiles("#pgmFile", {
       name: "imported.asm",
       mimeType: "text/plain",
@@ -245,19 +306,10 @@ test.describe("Save / Load", () => {
     await expect(page.locator("#screen .xterm-rows")).toContainText("Ok", { timeout: 20000 });
   });
 
-  test("instant transfer bypasses the realistic ACIA-baud pacing", async ({ page }) => {
-    await page.check("#instantXfer");
-    await enterProgram(page, ["LDA #$2A", "STA $50"]);
-    await page.fill("#pgmName", "fast.asm");
-    await page.click("#pgmSave");
-    await expect(page.locator("#pgmStatus")).toContainText("Saved", { timeout: 20000 });
-  });
-
   test("Save/Load work correctly even when the terminal is already inside the shell", async ({ page }) => {
-    // A real risk this design has to avoid: if app.js blindly sent
-    // "<hex>R" into an already-open shell prompt, it would misparse as a
-    // huge decimal line number, not reach Wozmon's dispatcher at all.
-    // Enter the shell by hand first, then drive Save through the button.
+    // The only supported precondition now (see runSave's own comment):
+    // app.js no longer sends "<hex>R" on Save/Load's behalf at all, so this
+    // just confirms the documented manual-entry-first flow works.
     const E = await page.evaluate(() => (window as any).CGOAC_ENTRYPOINTS);
     await typeLine(page, E.SHELL_ENTRY.toString(16).toUpperCase() + "R");
     await typeLine(page, "LDA #$2A");

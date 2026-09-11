@@ -51,6 +51,8 @@ retroweb/assembler6502/web/cgoac6502.js
 retroweb/assembler6502/web/cgoac6502.wasm
 retroweb/assembler6502/web/roms/*.bin
 retroweb/assembler6502/web/roms/entrypoints.js
+retroweb/assembler6502/web/examples/*.bin
+retroweb/assembler6502/web/gen_example_bin
 
 retroweb/ibmpc-at/tests/build/
 retroweb/ibmpc-at/tests/build-cov/

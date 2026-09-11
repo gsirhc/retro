@@ -46,6 +46,7 @@ site:
 	  rm -rf tests node_modules coverage test-results playwright-report \
 	         .playwright .v8-coverage && \
 	  rm -f Makefile devserve.py wasm_machine.cpp gen_entrypoints.py \
+	        gen_example_bin.cpp gen_example_bin \
 	        package.json package-lock.json playwright.config.ts )
 	cp -R ibmpc-at/web/. _site.new/ibmpc-at/
 	( cd _site.new/ibmpc-at && \
@@ -58,7 +59,7 @@ site:
 # build the emulator + fetch media, then stage — what both preview modes need
 _stage:
 	$(MAKE) -C altair8800/web retro8080.js roms media
-	$(MAKE) -C assembler6502/web wasm roms
+	$(MAKE) -C assembler6502/web wasm roms examples-bin
 	$(MAKE) -C ibmpc-at/web ibmpcat.js roms hdd-image
 	$(MAKE) site
 

@@ -1,0 +1,208 @@
+; ROCK-PAPER-SCISSORS -- a real 5-round match against the
+; computer. READ_KEY ($8018, a new OS call -- see the Help
+; panel) blocks for a keypress, echoes it, and returns it
+; (force-uppercased) in A -- type R, P, or S at each prompt.
+; The computer's own throw comes from an 8-bit Galois LFSR
+; (seeded #$A5, tap mask $B8) reduced mod 3. Every fixed string
+; is a .BYTE literal walked by its own small indexed loop
+; instead of one LDA #imm / JSR pair per character -- JMP START
+; skips past all the raw data up front (falling into it would
+; run the string bytes as instructions). A short 1-2 char print
+; (just CR/LF, or a single computed digit) stays a plain
+; LDA/JSR pair -- a .BYTE + loop only pays for itself on a real
+; string. ASM, then RUN.
+JMP START
+MSGRPS: .BYTE "R/P/S? ",$00
+MSGYOU: .BYTE "YOU: ",$00
+MSGCPU: .BYTE " CPU: ",$00
+ARRWIN: .BYTE " -> YOU WIN",$00
+ARRCPU: .BYTE " -> CPU WIN",$00
+ARRTIE: .BYTE " -> TIE",$00
+FINYOU: .BYTE "YOU WIN: ",$00
+FINCPU: .BYTE "  CPU WIN: ",$00
+FINTIE: .BYTE "  TIES: ",$00
+RSTR: .BYTE "ROCK",$00
+PSTR: .BYTE "PAPER",$00
+SSTR: .BYTE "SCISSORS",$00
+START: LDA #$A5
+STA $10
+STZ $13
+STZ $14
+STZ $15
+STZ $16
+RNDLP: LDX #$00
+RPSL: LDA MSGRPS,X
+BEQ RPSD
+JSR $8003
+INX
+BRA RPSL
+RPSD: JSR $8018
+CMP #$52
+BEQ GOTR
+CMP #$50
+BEQ GOTP
+CMP #$53
+BEQ GOTS
+LDA #$0D
+JSR $8003
+LDA #$0A
+JSR $8003
+BRA RNDLP
+GOTR: LDA #$00
+STA $11
+BRA THDONE
+GOTP: LDA #$01
+STA $11
+BRA THDONE
+GOTS: LDA #$02
+STA $11
+THDONE: LDA #$0D
+JSR $8003
+LDA #$0A
+JSR $8003
+JSR RND
+LDA $10
+JSR MOD3
+STA $12
+LDX #$00
+YOUL: LDA MSGYOU,X
+BEQ YOUD
+JSR $8003
+INX
+BRA YOUL
+YOUD: LDA $11
+JSR PRNAME
+LDX #$00
+CPUL: LDA MSGCPU,X
+BEQ CPUD
+JSR $8003
+INX
+BRA CPUL
+CPUD: LDA $12
+JSR PRNAME
+LDA $11
+CMP $12
+BNE NOTIE
+JMP TIE
+NOTIE: LDA $11
+CLC
+ADC #$01
+JSR MOD3
+CMP $12
+BNE NOCPUW
+JMP CPUWIN
+NOCPUW: LDX #$00
+AWL: LDA ARRWIN,X
+BEQ AWD
+JSR $8003
+INX
+BRA AWL
+AWD: INC $14
+BRA RNDNXT
+CPUWIN: LDX #$00
+ACL: LDA ARRCPU,X
+BEQ ACD
+JSR $8003
+INX
+BRA ACL
+ACD: INC $15
+BRA RNDNXT
+TIE: LDX #$00
+ATL: LDA ARRTIE,X
+BEQ ATD
+JSR $8003
+INX
+BRA ATL
+ATD: INC $16
+RNDNXT: LDA #$0D
+JSR $8003
+LDA #$0A
+JSR $8003
+INC $13
+LDA $13
+CMP #$05
+BCS RNDFIN
+JMP RNDLP
+RNDFIN: LDX #$00
+FYL: LDA FINYOU,X
+BEQ FYD
+JSR $8003
+INX
+BRA FYL
+FYD: LDA $14
+CLC
+ADC #$30
+JSR $8003
+LDX #$00
+FCL: LDA FINCPU,X
+BEQ FCD
+JSR $8003
+INX
+BRA FCL
+FCD: LDA $15
+CLC
+ADC #$30
+JSR $8003
+LDX #$00
+FTL: LDA FINTIE,X
+BEQ FTD
+JSR $8003
+INX
+BRA FTL
+FTD: LDA $16
+CLC
+ADC #$30
+JSR $8003
+LDA #$0D
+JSR $8003
+LDA #$0A
+JSR $8003
+JMP END
+PRNAME: CMP #$00
+BEQ PNR
+CMP #$01
+BEQ PNP
+JSR PRSCIS
+RTS
+PNR: JSR PRROCK
+RTS
+PNP: JSR PRPAPR
+RTS
+PRROCK: LDX #$00
+RRL: LDA RSTR,X
+BEQ RRD
+JSR $8003
+INX
+BRA RRL
+RRD: RTS
+PRPAPR: LDX #$00
+PPL: LDA PSTR,X
+BEQ PPD
+JSR $8003
+INX
+BRA PPL
+PPD: RTS
+PRSCIS: LDX #$00
+SCL: LDA SSTR,X
+BEQ SCD
+JSR $8003
+INX
+BRA SCL
+SCD: RTS
+MOD3: STA $17
+MOD3L: LDA $17
+CMP #$03
+BCC MOD3D
+SEC
+SBC #$03
+STA $17
+BRA MOD3L
+MOD3D: LDA $17
+RTS
+RND: LSR $10
+BCC RNDND
+LDA $10
+EOR #$B8
+STA $10
+RNDND: RTS
+END:

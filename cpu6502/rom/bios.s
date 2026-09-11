@@ -49,6 +49,8 @@ LCD_LINE1:
     jmp cursorLine1_lcd   ; $8012 -- move the LCD cursor to row 1
 LCD_LINE2:
     jmp cursorLine2_lcd   ; $8015 -- move the LCD cursor to row 2
+READ_KEY:
+    jmp WAIT_KEY          ; $8018 -- blocks for a keypress, echoes it, returns it in A
 
 .include "vterm.s"
 .include "via.s"
@@ -111,6 +113,17 @@ READCHAR:               ; For all non-monitor callers
     clc
 @done:
     plx
+    rts
+
+; WAIT_KEY -- blocks until a real key is available, same polling loop
+; READLINE_ECHO's own rl_charloop uses (editor.s). READCHAR already echoes
+; the byte and force-uppercases it (above) before returning, so there's
+; nothing left for this to do but wait and pass the result through.
+; READ_KEY's public, pinned jump-table entry (see this file's header) is
+; how a user's own assembled program gets at this.
+WAIT_KEY:
+    jsr READCHAR
+    bcc WAIT_KEY
     rts
 
 FORCE_UPPER:
