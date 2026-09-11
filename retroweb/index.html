@@ -145,9 +145,21 @@
   }
   :root:not([data-theme="modern"]) .machine-card:active { border-style: inset; }
 
-  /* ---- thumbnail of the emulator's own rendered front panel ---- */
+  /* ---- thumbnail of the emulator's own rendered front panel ----
+     Fixed box, not just a fixed height: Altair's and the 6502 board's own
+     shots are already 286x128 (2.234:1), so 143x64 is just their natural
+     size -- unchanged from before. The AT case fascia is a wider, shorter
+     shape (450x128, 3.52:1), so fitting the same 143x64 box means
+     object-fit: cover zooms in and crops it rather than letterboxing -- a
+     deliberate trade so every card's name/Launch column still starts at
+     the same x. object-position: left keeps the crop anchored on the
+     panel's own left edge (badge, LEDs, power switch) instead of centering
+     it, which would cut an equal sliver off both ends and show neither
+     landmark fully; doesn't affect Altair/the 6502 board since their shots
+     already match the box's aspect ratio exactly (nothing to crop). */
   .machine-card .shot {
-    flex: 0 0 auto; height: 64px; width: auto; display: block;
+    flex: 0 0 auto; width: 143px; height: 64px; display: block;
+    object-fit: cover; object-position: left center;
     border-radius: 3px; box-shadow: 0 1px 4px rgba(0,0,0,.35);
   }
   :root[data-theme="modern"] .machine-card .shot { border-radius: 6px; }
@@ -200,8 +212,8 @@
         <span class="go">Launch &rarr;</span>
       </a>
       <a class="machine-card" href="ibmpc-at/">
-        <img class="shot" src="assets/ibmpcat-screen.jpg" width="286" height="128"
-             decoding="async" alt="IBM PC/AT booted to a FreeDOS prompt">
+        <img class="shot" src="assets/ibmpcat-panel.jpg" width="450" height="128"
+             decoding="async" alt="IBM PC/AT front panel, powered on">
         <span class="name">IBM PC/AT</span>
         <span class="go">Launch &rarr;</span>
       </a>
