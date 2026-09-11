@@ -65,6 +65,21 @@ void CassetteACR::setWind(int dir) {
 }
 
 void CassetteACR::tick(uint64_t cpuCycles) {
+    // The front-panel RESET paddle zeroes the CPU's own cycle counter
+    // (i8080::reset()) even though the deck isn't on the S-100 bus and must
+    // keep rolling right through a reset (ALTAIR_REVIEW.md §3.4) -- wasm_
+    // machine.cpp's tickCassette() still feeds this call cpu_.cycles as its
+    // clock source, so a reset makes cpuCycles go backward from this call's
+    // point of view. Guard against that: an unsigned d = cpuCycles -
+    // prev_tick_cy_ would otherwise underflow into a huge spurious "elapsed
+    // time" and yank the tape forward (in practice, straight to capacity()
+    // in one tick). Treat a backward jump as "no time passed this tick" and
+    // resync to the new baseline; the next real tick picks up cleanly.
+    if (cpuCycles < prev_tick_cy_) {
+        prev_tick_cy_ = cpuCycles;
+        cpu_cycles_ = cpuCycles;
+        return;
+    }
     uint64_t d = cpuCycles - prev_tick_cy_;
     prev_tick_cy_ = cpuCycles;
     cpu_cycles_ = cpuCycles;

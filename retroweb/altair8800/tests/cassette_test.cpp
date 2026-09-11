@@ -317,6 +317,33 @@ TEST(Cassette, PlayRunsOffTheEndAndStops) {
     EXPECT_EQ(c.in(0x07), 0);                       // nothing feeds -- transport is stopped
 }
 
+// The front-panel RESET paddle zeroes the CPU's own cycle counter
+// (i8080::reset()), and wasm_machine.cpp's tickCassette() feeds that same
+// counter to tick() as its clock source -- so from tick()'s point of view, a
+// RESET makes its cpuCycles argument go backward. ALTAIR_REVIEW.md §3.4: the
+// deck isn't on the S-100 bus and must keep rolling right through a reset,
+// not lurch. Before this fix, unsigned wraparound in tick()'s cycle-delta
+// math turned that backward jump into an enormous spurious elapsed time,
+// yanking the head to the end of the tape in a single tick().
+TEST(Cassette, TickToleratesCpuCycleCounterGoingBackwardOnReset) {
+    CassetteACR c;
+    std::vector<uint8_t> tape(4000);
+    c.mount(tape.data(), tape.size());
+    c.setSpeed(30);                               // realistic 300 baud
+    c.setMotor(true);
+    c.tick(0);
+    for (uint64_t t = 1000000; t <= 6000000ull; t += 1000000) c.tick(t);
+    const std::size_t before = c.pos();
+    ASSERT_GT(before, 0u);                        // sanity: it was really rolling
+
+    c.tick(0);                                    // CPU RESET: its own cycle count dropped to 0
+    EXPECT_EQ(c.pos(), before);                    // head did not move on the reset tick itself
+
+    // and playback resumes normally afterward, from the new baseline.
+    c.tick(1000000);
+    EXPECT_GT(c.pos(), before);
+}
+
 // A throttled CSAVE: the head only moves on each OUT 0x07, and the credit that
 // builds between writes is capped, never spilled forward.
 TEST(Cassette, RecordingCreditIsCappedNotSpilled) {
