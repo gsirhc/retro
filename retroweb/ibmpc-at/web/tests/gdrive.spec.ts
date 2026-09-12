@@ -8,11 +8,14 @@ import { boot } from "./helpers";
 // account -- neither exists in this suite, nor should it: no test here
 // contacts accounts.google.com or googleapis.com. What IS deterministic
 // and worth covering without either: the button's enabled/label state
-// machine, and that the placeholder Client ID this ships with (see
-// GDRIVE_CLIENT_ID in app.js) fails *gracefully* with a clear status
-// message rather than a cryptic Google error or a stuck "Syncing..." --
-// exactly the state a fresh checkout is actually in before anyone sets up
-// real Google Cloud credentials.
+// machine, and that an unconfigured Client ID fails *gracefully* with a
+// clear status message rather than a cryptic Google error or a stuck
+// "Syncing...". This deployment's shipped GDRIVE_CLIENT_ID is now a real,
+// working credential (see app.js), so the "unconfigured" scenarios below
+// force that path with the test-only `gdrive_unconfigured=1` param instead
+// of relying on the shipped constant -- that path stays real and worth
+// covering because any fork/clone without its own Client ID is in exactly
+// that state.
 
 test.describe("Google Drive sync", () => {
   test("button starts as Connect Google Drive, enabled once firmware is ready", async ({ page }) => {
@@ -22,13 +25,34 @@ test.describe("Google Drive sync", () => {
     await expect(page.locator("#gdriveStatus")).toHaveText("Not connected.");
   });
 
-  test("clicking it with the placeholder Client ID fails gracefully, not silently or stuck", async ({ page }) => {
-    await boot(page);
+  test("clicking it while unconfigured fails gracefully, not silently or stuck", async ({ page }) => {
+    await boot(page, { params: "gdrive_unconfigured=1" });
     await page.locator("#gdriveSyncBtn").click();
     await expect(page.locator("#gdriveStatus")).toHaveText(/not set up yet/i);
     // and the button itself must not be left disabled/stuck on "Syncing..."
     await expect(page.locator("#gdriveSyncBtn")).toBeEnabled();
     await expect(page.locator("#gdriveSyncBtn")).toHaveText("Connect Google Drive…");
+  });
+
+  test("the concise setup help is shown inline (no external file reference) while unconfigured", async ({ page }) => {
+    // A prior version of the "not set up" status pointed at
+    // IBM_PCAT_REVIEW.md, which the user explicitly didn't want to have to
+    // go open -- the actual how-to-configure-it steps now live in the page
+    // itself, right below the button, and disappear once a real Client ID
+    // is in place (see refreshGdriveControls() in app.js). This deployment
+    // ships a real Client ID, so force the unconfigured path via the
+    // test-only param to still exercise this (a fork without its own
+    // credentials sees this help unconditionally).
+    await boot(page, { params: "gdrive_unconfigured=1" });
+    const help = page.locator("#gdriveSetupHelp");
+    await expect(help).toBeVisible();
+    await expect(help).not.toContainText("IBM_PCAT_REVIEW");
+    await expect(help).toContainText("GDRIVE_CLIENT_ID");
+  });
+
+  test("the setup help is hidden once a real Client ID is configured", async ({ page }) => {
+    await boot(page);
+    await expect(page.locator("#gdriveSetupHelp")).toBeHidden();
   });
 
   test("disabled while powered off is not required -- Download-style controls work whether running or not", async ({ page }) => {

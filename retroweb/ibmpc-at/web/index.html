@@ -265,6 +265,11 @@
   label { user-select: none; }
   .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .row + .row { margin-top: 8px; }
+  /* Author rules of equal specificity beat the UA stylesheet's own
+     [hidden] { display: none }, so a plain hidden attribute on a .row
+     (e.g. #gdriveSetupHelp) does nothing without this -- caught by
+     tests/gdrive.spec.ts's "hidden once configured" test. */
+  .row[hidden] { display: none; }
   .muted { color: var(--dim); font-size: 14px; }
   code { color: var(--link); }
   .filebtn { position: relative; overflow: hidden; display: inline-block; }
@@ -705,6 +710,19 @@
           automatically every 10 minutes and on power off, or click Sync any time; if you
           run more than one browser at once, whichever syncs last wins -- nothing here
           merges or warns about that, so keep track of it yourself.</span>
+      </div>
+      <div class="row" id="gdriveSetupHelp" hidden>
+        <span class="muted"><strong>Not set up yet.</strong> This needs a Google Cloud
+          OAuth Client ID before it can sign anyone in:
+          (1) <a href="https://console.cloud.google.com/apis/library/drive.googleapis.com" target="_blank" rel="noopener">enable the Drive API</a>
+          for a project,
+          (2) <a href="https://console.cloud.google.com/apis/credentials/consent" target="_blank" rel="noopener">configure its OAuth consent screen</a>
+          (External type, Testing status is fine for personal use -- up to 100 test users, no review needed),
+          (3) <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener">create an OAuth Client ID</a>,
+          type <strong>Web application</strong>, with this page's own URL added under
+          "Authorized JavaScript origins",
+          (4) paste that Client ID into <code>GDRIVE_CLIENT_ID</code> near the top of
+          the Google Drive section in <code>app.js</code>, replacing the placeholder.</span>
       </div>
     </div>
 

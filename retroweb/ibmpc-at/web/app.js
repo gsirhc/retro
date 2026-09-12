@@ -535,19 +535,34 @@
   //     reason (offline, revoked access, nothing synced yet): a visitor
   //     should never be stuck looking at a blank page over a cloud hiccup.
   //
-  // SETUP REQUIRED before this does anything: GDRIVE_CLIENT_ID below is a
-  // placeholder. See IBM_PCAT_REVIEW.md's "Google Drive sync" section for
-  // the exact Google Cloud Console steps (enable the Drive API, configure
-  // the OAuth consent screen, create a Web-application OAuth Client ID, add
-  // this site's own origin(s) to its Authorized JavaScript origins) --
-  // until a real Client ID replaces this one, the Sync button reports a
-  // clear "not set up yet" status instead of a cryptic Google error.
-  const GDRIVE_CLIENT_ID = "REPLACE_ME.apps.googleusercontent.com";
+  // GDRIVE_CLIENT_ID below is a real, working OAuth Client ID for this
+  // site's own deployment (see IBM_PCAT_REVIEW.md §39 for how it was set
+  // up) -- but it's scoped to specific Authorized JavaScript origins in
+  // Google Cloud Console, so it simply won't authenticate from anywhere
+  // else. A fork/clone serving this from a different origin needs its own
+  // (Client IDs are public identifiers, safe to commit -- unlike a client
+  // secret, which this flow never uses or needs at all): enable the Drive
+  // API, configure the OAuth consent screen, create a Web-application
+  // OAuth Client ID with the new origin(s) authorized, and replace the
+  // value below. Until a real, origin-matching Client ID is in place, the
+  // Sync button reports a clear "not set up yet" status (with the steps
+  // above spelled out inline, right in the page -- #gdriveSetupHelp below)
+  // instead of a cryptic Google error.
+  const GDRIVE_CLIENT_ID = "610038606273-nmjm5il8en76ge8i6heh908073b1klh0.apps.googleusercontent.com";
   const GDRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
   const GDRIVE_FILE_NAME = "IBM PC-AT (5170) hard disk.img";
 
+  // `?test=1&gdrive_unconfigured=1` forces the not-configured code path
+  // regardless of GDRIVE_CLIENT_ID's real value -- the only way
+  // tests/gdrive.spec.ts can deterministically exercise that path without
+  // either faking a fork's missing credentials or (never done here) an
+  // automated test actually attempting Google's real interactive sign-in.
+  // Gated behind test=1 like every other test-only override in this file,
+  // so no real visitor's URL can reach it.
+  const GDRIVE_TEST_FORCE_UNCONFIGURED =
+    testParams.get("test") === "1" && testParams.get("gdrive_unconfigured") === "1";
   function gdriveIsConfigured() {
-    return !GDRIVE_CLIENT_ID.startsWith("REPLACE_ME");
+    return !GDRIVE_TEST_FORCE_UNCONFIGURED && !GDRIVE_CLIENT_ID.startsWith("REPLACE_ME");
   }
   // Whether *this browser* has connected before -- persisted so a returning
   // visit knows to attempt the silent boot-time pull below without asking
@@ -680,6 +695,11 @@
     gdriveSyncBtn.disabled = gdriveBusy || !firmware;
     gdriveSyncBtn.textContent = gdriveBusy ? "Syncing…"
       : gdriveConnectedFlag() ? "Sync to Google" : "Connect Google Drive…";
+    // The setup instructions are only useful -- and only shown -- until a
+    // real Client ID replaces the placeholder; once configured they're
+    // just clutter under a button that already works.
+    const helpRow = document.getElementById("gdriveSetupHelp");
+    if (helpRow) helpRow.hidden = gdriveIsConfigured();
   }
 
   // Uploads the given bytes, signing in first if needed. `interactive`
@@ -689,7 +709,10 @@
   // blocker would even allow).
   async function gdriveSyncBytes(bytes, interactive) {
     if (!gdriveIsConfigured()) {
-      gdriveSetStatus("Not set up yet -- needs a Google OAuth Client ID (see IBM_PCAT_REVIEW.md).");
+      // Full instructions live in the page itself right below the button
+      // (#gdriveSetupHelp) -- keep this one short, it's just pointing at
+      // something already on screen, not a substitute for it.
+      gdriveSetStatus("Not set up yet -- see the note below.");
       return;
     }
     if (gdriveBusy) return;
