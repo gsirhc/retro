@@ -593,6 +593,21 @@
   // for the boot-time silent pull below, which fires right alongside much
   // larger fetches (the ~30MB HDD image, BIOS, wasm module). A short poll
   // rather than failing immediately the first time it isn't there yet.
+  // Bounds an otherwise-unbounded promise -- specifically for the silent
+  // boot-time Drive pull below, where a hung Google callback (blocked
+  // third-party cookies, a stalled fetch, anything short of an actual
+  // rejection) would otherwise leave the machine waiting forever on
+  // powerSwitch.disabled = false / the auto power-on that follows it. Not
+  // used for the Sync button's own interactive path -- there, waiting on a
+  // real user completing a real consent popup is expected and shouldn't be
+  // artificially cut short.
+  function withTimeout(promise, ms, label) {
+    return Promise.race([
+      promise,
+      new Promise((_, reject) => setTimeout(() => reject(new Error(label + " timed out")), ms)),
+    ]);
+  }
+
   function gdriveWaitForGis(timeoutMs = 5000) {
     return new Promise((resolve, reject) => {
       const start = Date.now();
@@ -1047,24 +1062,30 @@
     // power-on -- that's the actual fix for "every browser needs its own
     // copy" (see the "Google Drive sync" section above), not just trusting
     // whichever image this one browser's own IndexedDB cache happens to
-    // hold. Silent only (no popup on a bare page load, and none of this
-    // blocks power-on for long -- gdriveGetToken()/gdriveWaitForGis() both
-    // have their own short timeouts); any failure (offline, consent needs
-    // to be interactive again, nothing synced yet) just falls back to the
-    // local/factory image exactly as if Drive were never connected.
+    // hold. This *does* block that first power-on until it settles (or
+    // times out) -- deliberately: booting from the wrong image and then
+    // swapping it out from underneath a running guest would be far more
+    // confusing than a brief wait. Silent only (no popup on a bare page
+    // load), and bounded overall by withTimeout() below so a hung callback
+    // or stalled download can't leave the machine waiting forever; any
+    // failure (offline, timeout, consent needs to be interactive again,
+    // nothing synced yet) just falls back to the local/factory image
+    // exactly as if Drive were never connected.
     if (gdriveConnectedFlag() && gdriveIsConfigured()) {
       try {
         gdriveSetStatus("Loading from Google Drive…");
-        const token = await gdriveGetToken(false);
-        const existing = await gdriveFindFile(token);
-        if (existing) {
-          gdriveFileId = existing.id;
-          savedHdd = await gdriveDownload(existing.id, token);
-          hddLabel = "synced from Google Drive";
-          gdriveSetStatus("Loaded from Google Drive");
-        } else {
-          gdriveSetStatus("Connected -- nothing synced yet");
-        }
+        await withTimeout((async () => {
+          const token = await gdriveGetToken(false);
+          const existing = await gdriveFindFile(token);
+          if (existing) {
+            gdriveFileId = existing.id;
+            savedHdd = await gdriveDownload(existing.id, token);
+            hddLabel = "synced from Google Drive";
+            gdriveSetStatus("Loaded from Google Drive");
+          } else {
+            gdriveSetStatus("Connected -- nothing synced yet");
+          }
+        })(), 20_000, "Google Drive load");
       } catch (err) {
         console.error("Google Drive auto-load failed, using local copy instead:", err);
         gdriveSetStatus("Couldn't reach Google Drive (using local copy) -- click Sync to retry");
