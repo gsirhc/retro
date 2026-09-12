@@ -720,9 +720,19 @@
 
   function refreshGdriveControls() {
     if (!gdriveSyncBtn) return;
-    gdriveSyncBtn.disabled = gdriveBusy || !firmware;
+    // A first-time Connect is only offered while powered off -- see
+    // gdriveConnectAndPull()'s comment for why (it pulls before anything's
+    // running, rather than the click just uploading whatever's merely
+    // staged locally and possibly clobbering a newer Drive copy). Once
+    // actually connected, a later Sync is a deliberate upload of *current*
+    // state and works whether running or not, same as Download image.
+    const connectGatedOnPower = !gdriveConnectedFlag() && poweredOn;
+    gdriveSyncBtn.disabled = gdriveBusy || !firmware || connectGatedOnPower;
     gdriveSyncBtn.textContent = gdriveBusy ? "Syncing…"
       : gdriveConnectedFlag() ? "Sync to Google" : "Connect Google Drive…";
+    gdriveSyncBtn.title = connectGatedOnPower
+      ? "Power off first -- connecting checks Google Drive for an existing copy before anything's uploaded"
+      : "";
     // Only shown while an attempt is actually in flight -- the one time a
     // visitor might need to bail out of a stuck sign-in/upload rather than
     // wait out withTimeout()'s own (deliberately generous) limits.
@@ -734,19 +744,13 @@
     if (helpRow) helpRow.hidden = gdriveIsConfigured();
   }
 
-  // Uploads the given bytes, signing in first if needed. `interactive`
-  // controls whether that sign-in may show a popup (only true for the
-  // button's own click handler below -- the periodic timer and power-off
-  // hook always pass false, since neither is a user gesture a popup
-  // blocker would even allow).
-  async function gdriveSyncBytes(bytes, interactive) {
-    if (!gdriveIsConfigured()) {
-      // Full instructions live in the page itself right below the button
-      // (#gdriveSetupHelp) -- keep this one short, it's just pointing at
-      // something already on screen, not a substitute for it.
-      gdriveSetStatus("Not set up yet -- see the note below.");
-      return;
-    }
+  // Shared scaffolding for both directions a sign-in can lead to -- upload
+  // (gdriveSyncBytes, the Sync button) and download (gdriveConnectAndPull,
+  // the first-time Connect button): the busy/Cancel UI state, the
+  // interactive-vs-silent sign-in timeout, and cancellation, so neither
+  // call site duplicates any of it. `run(token, signal)` does the actual
+  // find/upload or find/download work once signed in.
+  async function gdriveRunAttempt(interactive, run) {
     if (gdriveBusy) return;
     gdriveBusy = true;
     gdriveAbortController = new AbortController();
@@ -769,13 +773,7 @@
         ? await withTimeout(gdriveGetToken(true), 180_000, "Google sign-in")
         : await gdriveGetToken(false);
       setGdriveConnectedFlag(true);
-      gdriveSetStatus("Syncing…");
-      if (!gdriveFileId) {
-        const existing = await gdriveFindFile(token, gdriveAbortController.signal);
-        if (existing) gdriveFileId = existing.id;
-      }
-      gdriveFileId = await gdriveUpload(bytes, gdriveFileId, token, gdriveAbortController.signal);
-      gdriveSetStatus("Synced at " + new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
+      await run(token, gdriveAbortController.signal);
     })();
     attempt.catch(() => {});  // avoid an unhandled-rejection console spam if cancelled first
     try {
@@ -795,6 +793,60 @@
     }
   }
 
+  // Uploads the given bytes, signing in first if needed. `interactive`
+  // controls whether that sign-in may show a popup (only true for the
+  // button's own click handler below -- the periodic timer and power-off
+  // hook always pass false, since neither is a user gesture a popup
+  // blocker would even allow).
+  async function gdriveSyncBytes(bytes, interactive) {
+    if (!gdriveIsConfigured()) {
+      // Full instructions live in the page itself right below the button
+      // (#gdriveSetupHelp) -- keep this one short, it's just pointing at
+      // something already on screen, not a substitute for it.
+      gdriveSetStatus("Not set up yet -- see the note below.");
+      return;
+    }
+    await gdriveRunAttempt(interactive, async (token, signal) => {
+      gdriveSetStatus("Syncing…");
+      if (!gdriveFileId) {
+        const existing = await gdriveFindFile(token, signal);
+        if (existing) gdriveFileId = existing.id;
+      }
+      gdriveFileId = await gdriveUpload(bytes, gdriveFileId, token, signal);
+      gdriveSetStatus("Synced at " + new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
+    });
+  }
+
+  // The first-ever Connect, only reachable while powered off (see
+  // refreshGdriveControls()): pulls whatever's already in Drive down
+  // instead of uploading. The whole reason to require power-off first is
+  // so this can land *before* anything boots -- requested directly after
+  // noting that connecting while already running would otherwise upload
+  // (and, with no merge/conflict logic anywhere in this feature, silently
+  // overwrite) whatever's merely staged locally, even if Drive already
+  // held a newer copy from another browser. If nothing's been synced yet,
+  // this just connects and leaves the powered-off machine's local/factory
+  // image in place for the next sync to upload.
+  async function gdriveConnectAndPull() {
+    if (!gdriveIsConfigured()) {
+      gdriveSetStatus("Not set up yet -- see the note below.");
+      return;
+    }
+    await gdriveRunAttempt(true, async (token, signal) => {
+      gdriveSetStatus("Checking Google Drive…");
+      const existing = await gdriveFindFile(token, signal);
+      if (existing) {
+        gdriveFileId = existing.id;
+        savedHdd = await gdriveDownload(existing.id, token, signal);
+        hddLabel = "synced from Google Drive";
+        gdriveSetStatus("Loaded from Google Drive -- power on to use it.");
+        refreshHddControls();
+      } else {
+        gdriveSetStatus("Connected -- nothing synced yet.");
+      }
+    });
+  }
+
   // Lets a visitor bail out of a stuck or merely-unwanted sync immediately
   // instead of waiting out withTimeout()'s own limits: aborts any in-flight
   // Drive fetch (find/download/upload) via AbortController, and separately
@@ -806,12 +858,18 @@
   }
   gdriveCancelBtn?.addEventListener("click", gdriveCancelSync);
 
-  // The button: always uploads whatever C: currently is, regardless of the
-  // local dirty flag -- a direct click is its own clear intent, unlike the
+  // First connection: pull (see gdriveConnectAndPull(), and why it's
+  // gated on powered-off in refreshGdriveControls()). Every click after
+  // that: upload whatever C: currently is, regardless of the local dirty
+  // flag -- a direct click is its own clear intent, unlike the
   // timer/power-off paths below which only bother when there's actually
   // something new. Always interactive (this IS the user gesture), so
-  // signing in for the first time can show its popup right here.
+  // signing in can show its popup right here either way.
   gdriveSyncBtn?.addEventListener("click", () => {
+    if (!gdriveConnectedFlag()) {
+      gdriveConnectAndPull();
+      return;
+    }
     const bytes = (poweredOn && machine) ? machine.hddImage() : (savedHdd || (firmware && new Uint8Array(firmware.hdd)));
     if (bytes) gdriveSyncBytes(bytes, true);
   });
