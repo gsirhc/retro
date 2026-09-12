@@ -32,6 +32,20 @@ test.describe("Google Drive sync", () => {
     // and the button itself must not be left disabled/stuck on "Syncing..."
     await expect(page.locator("#gdriveSyncBtn")).toBeEnabled();
     await expect(page.locator("#gdriveSyncBtn")).toHaveText("Connect Google Drive…");
+    // the not-configured path returns before gdriveBusy is ever set, so
+    // Cancel (only meaningful once an attempt is actually in flight) has
+    // nothing to do here and must stay hidden
+    await expect(page.locator("#gdriveCancelBtn")).toBeHidden();
+  });
+
+  test("Cancel button stays hidden until a sync attempt is actually in flight", async ({ page }) => {
+    // Exercising the busy/Cancel-visible state itself needs a real,
+    // in-flight sign-in or upload -- i.e. real Google network calls this
+    // suite deliberately never makes (see the file header). What's left
+    // that's deterministic: the button is hidden at rest, matching the
+    // markup's own default `hidden` attribute.
+    await boot(page);
+    await expect(page.locator("#gdriveCancelBtn")).toBeHidden();
   });
 
   test("the concise setup help is shown inline (no external file reference) while unconfigured", async ({ page }) => {

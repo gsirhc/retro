@@ -583,7 +583,10 @@
   let gdriveTokenExpiry = 0;      // ms epoch
   let gdriveFileId = null;        // Drive file ID, once known, to skip a find-by-name lookup
   let gdriveBusy = false;
+  let gdriveCancelReject = null;      // rejects the in-flight sign-in wait, if any
+  let gdriveAbortController = null;   // aborts the in-flight Drive fetch(es), if any
   const gdriveSyncBtn = document.getElementById("gdriveSyncBtn");
+  const gdriveCancelBtn = document.getElementById("gdriveCancelBtn");
   const gdriveStatusEl = document.getElementById("gdriveStatus");
 
   function gdriveSetStatus(text) { if (gdriveStatusEl) gdriveStatusEl.textContent = text; }
@@ -654,8 +657,11 @@
     });
   }
 
-  async function gdriveApiFetch(url, opts, token) {
-    const res = await fetch(url, { ...opts, headers: { ...(opts && opts.headers), Authorization: "Bearer " + token } });
+  // `signal` (an AbortController's, optional) lets a Cancel click actually
+  // stop an in-flight request rather than just walking away from it --
+  // see gdriveCancelSync() below, the one caller that passes one.
+  async function gdriveApiFetch(url, opts, token, signal) {
+    const res = await fetch(url, { ...opts, signal, headers: { ...(opts && opts.headers), Authorization: "Bearer " + token } });
     if (!res.ok) {
       const body = await res.text().catch(() => "");
       throw new Error(`Google Drive API error ${res.status}: ${body.slice(0, 200)}`);
@@ -668,18 +674,18 @@
   // search among those is exactly "find the file we made last time" --
   // there's no broader Drive access to accidentally match someone else's
   // file with the same name.
-  async function gdriveFindFile(token) {
+  async function gdriveFindFile(token, signal) {
     const q = encodeURIComponent(`name='${GDRIVE_FILE_NAME}' and trashed=false`);
     const res = await gdriveApiFetch(
       `https://www.googleapis.com/drive/v3/files?fields=files(id,modifiedTime)&q=${q}`,
-      { method: "GET" }, token);
+      { method: "GET" }, token, signal);
     const data = await res.json();
     return (data.files && data.files[0]) || null;
   }
 
-  async function gdriveDownload(fileId, token) {
+  async function gdriveDownload(fileId, token, signal) {
     const res = await gdriveApiFetch(
-      `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, { method: "GET" }, token);
+      `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, { method: "GET" }, token, signal);
     return new Uint8Array(await res.arrayBuffer());
   }
 
@@ -689,7 +695,7 @@
   // get a real resumable session instead. Two real HTTP requests: initiate
   // (tiny JSON metadata body, gets back a session URL in the Location
   // header), then PUT the actual bytes to that session URL.
-  async function gdriveUpload(bytes, fileId, token) {
+  async function gdriveUpload(bytes, fileId, token, signal) {
     const isNew = !fileId;
     const initUrl = isNew
       ? "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable"
@@ -699,11 +705,12 @@
       method: isNew ? "POST" : "PATCH",
       headers: { "Content-Type": "application/json; charset=UTF-8" },
       body: JSON.stringify(metadata),
-    }, token);
+    }, token, signal);
     const sessionUrl = initRes.headers.get("Location");
     if (!sessionUrl) throw new Error("Google Drive didn't return a resumable upload session");
     const putRes = await fetch(sessionUrl, {
       method: "PUT",
+      signal,
       headers: { "Content-Type": "application/octet-stream" },
       body: bytes,
     });
@@ -716,6 +723,10 @@
     gdriveSyncBtn.disabled = gdriveBusy || !firmware;
     gdriveSyncBtn.textContent = gdriveBusy ? "Syncing…"
       : gdriveConnectedFlag() ? "Sync to Google" : "Connect Google Drive…";
+    // Only shown while an attempt is actually in flight -- the one time a
+    // visitor might need to bail out of a stuck sign-in/upload rather than
+    // wait out withTimeout()'s own (deliberately generous) limits.
+    if (gdriveCancelBtn) gdriveCancelBtn.hidden = !gdriveBusy;
     // The setup instructions are only useful -- and only shown -- until a
     // real Client ID replaces the placeholder; once configured they're
     // just clutter under a button that already works.
@@ -738,8 +749,15 @@
     }
     if (gdriveBusy) return;
     gdriveBusy = true;
+    gdriveAbortController = new AbortController();
     refreshGdriveControls();
-    try {
+    // Races the real attempt against a manual Cancel click (see
+    // gdriveCancelSync() below) -- withTimeout() already bounds the
+    // sign-in wait on its own, but a visitor shouldn't have to wait out
+    // even a generous timeout if they know right away they closed the
+    // popup or just changed their mind.
+    const cancelled = new Promise((_, reject) => { gdriveCancelReject = reject; });
+    const attempt = (async () => {
       gdriveSetStatus("Signing in…");
       // Bounded even though this is the real, user-initiated popup: GIS
       // doesn't reliably call back when the popup is simply closed rather
@@ -753,19 +771,40 @@
       setGdriveConnectedFlag(true);
       gdriveSetStatus("Syncing…");
       if (!gdriveFileId) {
-        const existing = await gdriveFindFile(token);
+        const existing = await gdriveFindFile(token, gdriveAbortController.signal);
         if (existing) gdriveFileId = existing.id;
       }
-      gdriveFileId = await gdriveUpload(bytes, gdriveFileId, token);
+      gdriveFileId = await gdriveUpload(bytes, gdriveFileId, token, gdriveAbortController.signal);
       gdriveSetStatus("Synced at " + new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
+    })();
+    attempt.catch(() => {});  // avoid an unhandled-rejection console spam if cancelled first
+    try {
+      await Promise.race([attempt, cancelled]);
     } catch (err) {
-      console.error("Google Drive sync failed:", err);
-      gdriveSetStatus("Sync failed: " + err.message);
+      if (err && err.message === "Cancelled") {
+        gdriveSetStatus("Cancelled.");
+      } else {
+        console.error("Google Drive sync failed:", err);
+        gdriveSetStatus("Sync failed: " + err.message);
+      }
     } finally {
+      gdriveCancelReject = null;
+      gdriveAbortController = null;
       gdriveBusy = false;
       refreshGdriveControls();
     }
   }
+
+  // Lets a visitor bail out of a stuck or merely-unwanted sync immediately
+  // instead of waiting out withTimeout()'s own limits: aborts any in-flight
+  // Drive fetch (find/download/upload) via AbortController, and separately
+  // rejects the sign-in wait (aborting can't touch that phase -- it's a
+  // Google popup, not a fetch this code controls).
+  function gdriveCancelSync() {
+    if (gdriveAbortController) gdriveAbortController.abort();
+    if (gdriveCancelReject) gdriveCancelReject(new Error("Cancelled"));
+  }
+  gdriveCancelBtn?.addEventListener("click", gdriveCancelSync);
 
   // The button: always uploads whatever C: currently is, regardless of the
   // local dirty flag -- a direct click is its own clear intent, unlike the
