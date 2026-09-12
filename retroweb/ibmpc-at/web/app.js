@@ -506,6 +506,237 @@
     }
   }
 
+  // ---- Google Drive sync -- bring-your-own-storage for C: ---------------
+  // The IndexedDB persistence above solves "don't lose my work when I close
+  // the tab," but it's still local to one browser profile on one machine --
+  // exactly the complaint this section exists to fix (a second browser, or
+  // the same browser after clearing site data, has no way to see what the
+  // first one wrote). This stores C: as one plain file, "IBM PC-AT (5170)
+  // hard disk.img", in the visitor's own Google Drive via the `drive.file`
+  // OAuth scope -- the least-privileged scope that still lets the app find
+  // and update a file it created itself on a later visit (drive.file only
+  // ever grants access to files this app created or that the user opened
+  // with it through a picker, never the rest of the visitor's Drive). No
+  // server of ours is involved anywhere in this -- the browser talks
+  // directly to Google's own APIs with a token Google issues, the same way
+  // the rest of this page never touches a backend.
+  //
+  // Deliberately simple, per explicit instruction: no merge, no conflict
+  // detection, no "which copy is newer" comparison. Sync is a plain
+  // overwrite in whichever direction it runs, and if two browsers are used
+  // at once, whichever syncs last simply wins -- the visitor's own problem
+  // to manage, not this code's. What this section actually does:
+  //   - "Sync to Google" (button, or the periodic/power-off timers below)
+  //     uploads whatever C: currently is, overwriting the Drive copy.
+  //   - Powering on, in a browser that's connected, pulls the Drive copy
+  //     down first and boots from *that* instead of the local IndexedDB
+  //     copy -- the actual fix for "every browser needs its own copy."
+  //     Falls back to the local/factory image if the pull fails for any
+  //     reason (offline, revoked access, nothing synced yet): a visitor
+  //     should never be stuck looking at a blank page over a cloud hiccup.
+  //
+  // SETUP REQUIRED before this does anything: GDRIVE_CLIENT_ID below is a
+  // placeholder. See IBM_PCAT_REVIEW.md's "Google Drive sync" section for
+  // the exact Google Cloud Console steps (enable the Drive API, configure
+  // the OAuth consent screen, create a Web-application OAuth Client ID, add
+  // this site's own origin(s) to its Authorized JavaScript origins) --
+  // until a real Client ID replaces this one, the Sync button reports a
+  // clear "not set up yet" status instead of a cryptic Google error.
+  const GDRIVE_CLIENT_ID = "REPLACE_ME.apps.googleusercontent.com";
+  const GDRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
+  const GDRIVE_FILE_NAME = "IBM PC-AT (5170) hard disk.img";
+
+  function gdriveIsConfigured() {
+    return !GDRIVE_CLIENT_ID.startsWith("REPLACE_ME");
+  }
+  // Whether *this browser* has connected before -- persisted so a returning
+  // visit knows to attempt the silent boot-time pull below without asking
+  // the visitor to click Sync again every single session. Never stores any
+  // token or credential itself, just this one boolean.
+  function gdriveConnectedFlag() {
+    try { return localStorage.getItem("retro8080.gdriveConnected") === "1"; } catch { return false; }
+  }
+  function setGdriveConnectedFlag(v) {
+    try {
+      if (v) localStorage.setItem("retro8080.gdriveConnected", "1");
+      else localStorage.removeItem("retro8080.gdriveConnected");
+    } catch {}
+  }
+
+  let gdriveTokenClient = null;
+  let gdriveAccessToken = null;   // in-memory only -- never persisted anywhere
+  let gdriveTokenExpiry = 0;      // ms epoch
+  let gdriveFileId = null;        // Drive file ID, once known, to skip a find-by-name lookup
+  let gdriveBusy = false;
+  const gdriveSyncBtn = document.getElementById("gdriveSyncBtn");
+  const gdriveStatusEl = document.getElementById("gdriveStatus");
+
+  function gdriveSetStatus(text) { if (gdriveStatusEl) gdriveStatusEl.textContent = text; }
+
+  // The GIS script tag is `async defer` (see index.html) -- it's small, but
+  // there's no guarantee it's finished by the time this runs, especially
+  // for the boot-time silent pull below, which fires right alongside much
+  // larger fetches (the ~30MB HDD image, BIOS, wasm module). A short poll
+  // rather than failing immediately the first time it isn't there yet.
+  function gdriveWaitForGis(timeoutMs = 5000) {
+    return new Promise((resolve, reject) => {
+      const start = Date.now();
+      (function poll() {
+        if (window.google && google.accounts && google.accounts.oauth2) { resolve(); return; }
+        if (Date.now() - start > timeoutMs) { reject(new Error("Google sign-in script failed to load")); return; }
+        setTimeout(poll, 100);
+      })();
+    });
+  }
+
+  // Resolves with a valid access token, requesting a fresh one only if the
+  // one already held is missing or about to expire. `interactive` allows
+  // Google to show a popup/consent screen if a silent refresh isn't
+  // possible -- only ever pass true from a real, direct click (see
+  // gdriveSyncNow()'s callers); the boot-time pull always passes false, so
+  // a bare page load never pops up a login window on its own.
+  async function gdriveGetToken(interactive) {
+    if (gdriveAccessToken && Date.now() < gdriveTokenExpiry) return gdriveAccessToken;
+    await gdriveWaitForGis();
+    if (!gdriveTokenClient) {
+      gdriveTokenClient = google.accounts.oauth2.initTokenClient({
+        client_id: GDRIVE_CLIENT_ID,
+        scope: GDRIVE_SCOPE,
+        callback: () => {},  // replaced per-request below; initTokenClient requires one up front
+      });
+    }
+    return new Promise((resolve, reject) => {
+      gdriveTokenClient.callback = (resp) => {
+        if (resp && resp.error) { reject(new Error(resp.error)); return; }
+        gdriveAccessToken = resp.access_token;
+        // 30s safety margin so a sync that starts right at the boundary
+        // doesn't get a token that expires mid-upload.
+        gdriveTokenExpiry = Date.now() + resp.expires_in * 1000 - 30_000;
+        resolve(gdriveAccessToken);
+      };
+      gdriveTokenClient.requestAccessToken({ prompt: interactive ? "consent" : "" });
+    });
+  }
+
+  async function gdriveApiFetch(url, opts, token) {
+    const res = await fetch(url, { ...opts, headers: { ...(opts && opts.headers), Authorization: "Bearer " + token } });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new Error(`Google Drive API error ${res.status}: ${body.slice(0, 200)}`);
+    }
+    return res;
+  }
+
+  // drive.file scope only ever sees files this app itself created (or the
+  // visitor opened with it via a picker, unused here), so a plain name
+  // search among those is exactly "find the file we made last time" --
+  // there's no broader Drive access to accidentally match someone else's
+  // file with the same name.
+  async function gdriveFindFile(token) {
+    const q = encodeURIComponent(`name='${GDRIVE_FILE_NAME}' and trashed=false`);
+    const res = await gdriveApiFetch(
+      `https://www.googleapis.com/drive/v3/files?fields=files(id,modifiedTime)&q=${q}`,
+      { method: "GET" }, token);
+    const data = await res.json();
+    return (data.files && data.files[0]) || null;
+  }
+
+  async function gdriveDownload(fileId, token) {
+    const res = await gdriveApiFetch(
+      `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, { method: "GET" }, token);
+    return new Uint8Array(await res.arrayBuffer());
+  }
+
+  // Resumable upload: Drive's simple "uploadType=media" is Google's own
+  // guidance for small files only (fine to just redo from scratch on any
+  // network hiccup) -- this image is ~30MB, worth the extra round trip to
+  // get a real resumable session instead. Two real HTTP requests: initiate
+  // (tiny JSON metadata body, gets back a session URL in the Location
+  // header), then PUT the actual bytes to that session URL.
+  async function gdriveUpload(bytes, fileId, token) {
+    const isNew = !fileId;
+    const initUrl = isNew
+      ? "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable"
+      : `https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=resumable`;
+    const metadata = isNew ? { name: GDRIVE_FILE_NAME } : {};
+    const initRes = await gdriveApiFetch(initUrl, {
+      method: isNew ? "POST" : "PATCH",
+      headers: { "Content-Type": "application/json; charset=UTF-8" },
+      body: JSON.stringify(metadata),
+    }, token);
+    const sessionUrl = initRes.headers.get("Location");
+    if (!sessionUrl) throw new Error("Google Drive didn't return a resumable upload session");
+    const putRes = await fetch(sessionUrl, {
+      method: "PUT",
+      headers: { "Content-Type": "application/octet-stream" },
+      body: bytes,
+    });
+    if (!putRes.ok) throw new Error(`Google Drive upload failed: ${putRes.status}`);
+    return (await putRes.json()).id;
+  }
+
+  function refreshGdriveControls() {
+    if (!gdriveSyncBtn) return;
+    gdriveSyncBtn.disabled = gdriveBusy || !firmware;
+    gdriveSyncBtn.textContent = gdriveBusy ? "Syncing…"
+      : gdriveConnectedFlag() ? "Sync to Google" : "Connect Google Drive…";
+  }
+
+  // Uploads the given bytes, signing in first if needed. `interactive`
+  // controls whether that sign-in may show a popup (only true for the
+  // button's own click handler below -- the periodic timer and power-off
+  // hook always pass false, since neither is a user gesture a popup
+  // blocker would even allow).
+  async function gdriveSyncBytes(bytes, interactive) {
+    if (!gdriveIsConfigured()) {
+      gdriveSetStatus("Not set up yet -- needs a Google OAuth Client ID (see IBM_PCAT_REVIEW.md).");
+      return;
+    }
+    if (gdriveBusy) return;
+    gdriveBusy = true;
+    refreshGdriveControls();
+    try {
+      gdriveSetStatus("Signing in…");
+      const token = await gdriveGetToken(interactive);
+      setGdriveConnectedFlag(true);
+      gdriveSetStatus("Syncing…");
+      if (!gdriveFileId) {
+        const existing = await gdriveFindFile(token);
+        if (existing) gdriveFileId = existing.id;
+      }
+      gdriveFileId = await gdriveUpload(bytes, gdriveFileId, token);
+      gdriveSetStatus("Synced at " + new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
+    } catch (err) {
+      console.error("Google Drive sync failed:", err);
+      gdriveSetStatus("Sync failed: " + err.message);
+    } finally {
+      gdriveBusy = false;
+      refreshGdriveControls();
+    }
+  }
+
+  // The button: always uploads whatever C: currently is, regardless of the
+  // local dirty flag -- a direct click is its own clear intent, unlike the
+  // timer/power-off paths below which only bother when there's actually
+  // something new. Always interactive (this IS the user gesture), so
+  // signing in for the first time can show its popup right here.
+  gdriveSyncBtn?.addEventListener("click", () => {
+    const bytes = (poweredOn && machine) ? machine.hddImage() : (savedHdd || (firmware && new Uint8Array(firmware.hdd)));
+    if (bytes) gdriveSyncBytes(bytes, true);
+  });
+
+  // Auto-sync every 10 minutes, only when there's actually something new to
+  // send -- same "don't do needless work" gating as the local IndexedDB
+  // autosave, just on a much longer real-world cadence since this one
+  // leaves the browser and costs real upload time/bandwidth. Silent: a
+  // background timer firing a Google login popup unprompted would be a bad
+  // surprise, and browsers would likely block it anyway (no user gesture).
+  setInterval(() => {
+    if (gdriveConnectedFlag() && machine && machine.hddDirty()) {
+      gdriveSyncBytes(machine.hddImage(), false);
+    }
+  }, 10 * 60 * 1000);
+
   // ---- power switch (off by default) -------------------------------------
   // A real AT: flipping power off cuts power to everything -- RAM (and so
   // every bit of running state) is gone, exactly like unplugging it, while
@@ -545,6 +776,7 @@
     hddDownloadBtn.disabled = !firmware;  // download works even while running -- it's read-only
     hddUploadInput.disabled = !firmware || poweredOn;
     document.getElementById("hddUploadBtn").disabled = !firmware || poweredOn;
+    refreshGdriveControls();  // same "needs firmware" gating, so refreshed alongside
   }
   hddResetBtn.addEventListener("click", () => {
     savedHdd = null;
@@ -655,7 +887,17 @@
 
   function powerOff() {
     if (!poweredOn) return;
+    // Captured before persistHddIfDirty() below clears the dirty flag (and
+    // before machine is nulled out just after) -- both this and the local
+    // IndexedDB save need "was there anything new" and "what were the
+    // actual bytes" answered from the still-live machine, not asked again
+    // afterward when there's nothing left to ask.
+    const hadUnsyncedChanges = !!(machine && machine.hddDirty());
+    const bytesForGdrive = machine ? machine.hddImage() : null;
     persistHddIfDirty();
+    if (gdriveConnectedFlag() && hadUnsyncedChanges && bytesForGdrive) {
+      gdriveSyncBytes(bytesForGdrive, false);
+    }
     poweredOn = false;  // frame() sees this on its next tick and stops rescheduling itself
     machine = null;      // real hardware: RAM is gone the instant power is cut
     powerLed.classList.remove("power-on");
@@ -776,6 +1018,36 @@
       savedHdd = savedHddResult;
       hddLabel = "saved state (from a previous visit)";
     }
+
+    // Bring-your-own-storage: if this browser has connected Google Drive
+    // before, pull the latest synced copy now, before the very first
+    // power-on -- that's the actual fix for "every browser needs its own
+    // copy" (see the "Google Drive sync" section above), not just trusting
+    // whichever image this one browser's own IndexedDB cache happens to
+    // hold. Silent only (no popup on a bare page load, and none of this
+    // blocks power-on for long -- gdriveGetToken()/gdriveWaitForGis() both
+    // have their own short timeouts); any failure (offline, consent needs
+    // to be interactive again, nothing synced yet) just falls back to the
+    // local/factory image exactly as if Drive were never connected.
+    if (gdriveConnectedFlag() && gdriveIsConfigured()) {
+      try {
+        gdriveSetStatus("Loading from Google Drive…");
+        const token = await gdriveGetToken(false);
+        const existing = await gdriveFindFile(token);
+        if (existing) {
+          gdriveFileId = existing.id;
+          savedHdd = await gdriveDownload(existing.id, token);
+          hddLabel = "synced from Google Drive";
+          gdriveSetStatus("Loaded from Google Drive");
+        } else {
+          gdriveSetStatus("Connected -- nothing synced yet");
+        }
+      } catch (err) {
+        console.error("Google Drive auto-load failed, using local copy instead:", err);
+        gdriveSetStatus("Couldn't reach Google Drive (using local copy) -- click Sync to retry");
+      }
+    }
+
     powerSwitch.disabled = false;
     refreshHddControls();
     // Boot straight to a running machine once firmware is ready, rather

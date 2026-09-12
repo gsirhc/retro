@@ -7,6 +7,14 @@
 <!-- apply the shared site theme before first paint, so there's no flash of
      the wrong theme (matches retroweb/index.html's own inline snippet) -->
 <script>try{var t=localStorage.getItem("retro8080.theme")||"win",r=document.documentElement;if(t=="moderndark"){r.dataset.theme="modern";r.dataset.mode="dark";}else{r.dataset.theme=t;}}catch(e){}</script>
+<!-- Google Identity Services -- the OAuth token client the "Sync to
+     Google" hard-disk feature uses (see app.js's "Google Drive sync"
+     section). Loaded async/defer since nothing on the page needs it before
+     a visitor actually clicks Sync (or, for an already-connected browser,
+     before the firmware-fetch block's own silent reconnect attempt, which
+     itself tolerates the library not being ready yet -- see
+     gdriveWaitForGis()). -->
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>
   /* ---- page themes: default = Windows 95; web94 = mid-90s Mosaic web;
      modern = clean; moderndark = modern's layout, dark palette. Token names
@@ -684,6 +692,19 @@
           storage -- download it as a backup, or upload a previously-downloaded (or
           otherwise obtained) image to use as C:. Also takes effect at the next
           power-on.</span>
+      </div>
+      <div class="row">
+        <button type="button" id="gdriveSyncBtn" disabled>Connect Google Drive&hellip;</button>
+        <span class="muted" id="gdriveStatus">Not connected.</span>
+      </div>
+      <div class="row">
+        <span class="muted">Bring your own storage: keeps C: in your own Google Drive
+          (a plain file you can see there, named "IBM PC-AT (5170) hard disk.img") instead
+          of just this one browser's local storage -- connect the same Google account from
+          any other browser or device and it picks up right where this one left off. Syncs
+          automatically every 10 minutes and on power off, or click Sync any time; if you
+          run more than one browser at once, whichever syncs last wins -- nothing here
+          merges or warns about that, so keep track of it yourself.</span>
       </div>
     </div>
 
