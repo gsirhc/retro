@@ -588,19 +588,20 @@
 
   function gdriveSetStatus(text) { if (gdriveStatusEl) gdriveStatusEl.textContent = text; }
 
-  // The GIS script tag is `async defer` (see index.html) -- it's small, but
-  // there's no guarantee it's finished by the time this runs, especially
-  // for the boot-time silent pull below, which fires right alongside much
-  // larger fetches (the ~30MB HDD image, BIOS, wasm module). A short poll
-  // rather than failing immediately the first time it isn't there yet.
-  // Bounds an otherwise-unbounded promise -- specifically for the silent
-  // boot-time Drive pull below, where a hung Google callback (blocked
-  // third-party cookies, a stalled fetch, anything short of an actual
-  // rejection) would otherwise leave the machine waiting forever on
-  // powerSwitch.disabled = false / the auto power-on that follows it. Not
-  // used for the Sync button's own interactive path -- there, waiting on a
-  // real user completing a real consent popup is expected and shouldn't be
-  // artificially cut short.
+  // Bounds an otherwise-unbounded promise. Needed in two places: the silent
+  // boot-time Drive pull (a hung Google callback -- blocked third-party
+  // cookies, a stalled fetch, anything short of an actual rejection --
+  // would otherwise leave the machine waiting forever on
+  // powerSwitch.disabled = false / the auto power-on that follows it), and
+  // the Sync button's own interactive sign-in: GIS's token-client callback
+  // is only reliably invoked when the user clicks Cancel *inside* the
+  // popup -- simply closing the popup window often fires no callback at
+  // all, since this code never gets a handle to that window to poll
+  // `.closed` (GIS owns and opens it internally). Genuinely observed live:
+  // the button stuck reading "Syncing…/Signing in…" with the popup already
+  // closed. The interactive timeout is generous (real sign-in, including
+  // 2FA, normally resolves in seconds) precisely so it only ever fires for
+  // an abandoned/closed popup, never a real in-progress one.
   function withTimeout(promise, ms, label) {
     return Promise.race([
       promise,
@@ -608,6 +609,11 @@
     ]);
   }
 
+  // The GIS script tag is `async defer` (see index.html) -- it's small, but
+  // there's no guarantee it's finished by the time this runs, especially
+  // for the boot-time silent pull below, which fires right alongside much
+  // larger fetches (the ~30MB HDD image, BIOS, wasm module). A short poll
+  // rather than failing immediately the first time it isn't there yet.
   function gdriveWaitForGis(timeoutMs = 5000) {
     return new Promise((resolve, reject) => {
       const start = Date.now();
@@ -735,7 +741,15 @@
     refreshGdriveControls();
     try {
       gdriveSetStatus("Signing in…");
-      const token = await gdriveGetToken(interactive);
+      // Bounded even though this is the real, user-initiated popup: GIS
+      // doesn't reliably call back when the popup is simply closed rather
+      // than cancelled from inside it, and this code has no window handle
+      // of its own to detect that closure directly (see withTimeout()'s
+      // comment). Long enough that a real sign-in, 2FA included, never
+      // hits it.
+      const token = interactive
+        ? await withTimeout(gdriveGetToken(true), 180_000, "Google sign-in")
+        : await gdriveGetToken(false);
       setGdriveConnectedFlag(true);
       gdriveSetStatus("Syncing…");
       if (!gdriveFileId) {
