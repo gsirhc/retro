@@ -2208,3 +2208,189 @@ Requested directly: "I hate that each of my browsers needs a copy of the HDD I'm
 
 **Bug caught by the "hidden once configured" test**: `#gdriveSetupHelp` is a `.row`, and `.row { display: flex }` is an author-stylesheet rule of equal specificity to the browser's own default `[hidden] { display: none }` -- author rules beat UA-stylesheet rules regardless of specificity, so the bare `hidden` attribute silently did nothing and the help stayed visible even once configured. Fixed with an explicit `.row[hidden] { display: none; }` rule in `index.html`.
 
+**A visible popup on every page load, and the FedCM mitigation**: the boot-time auto-load (`gdriveGetToken(false)`, `prompt: ""`) was written to be silent -- and it does skip the account-picker/consent screens when there's an active Google session and a prior grant -- but Google Identity Services' `initTokenClient` still opens an actual popup window to do so; that's simply how the (non-deprecated) token-client model works, unlike the old `gapi.auth2` hidden-iframe silent renew it replaced. Since the access token is deliberately kept in-memory only (never persisted, see above), every page refresh starts from zero and re-triggers this, so a returning visitor saw a real popup window on every load -- and since it fires from the boot sequence rather than a direct click, some browsers' popup blockers can swallow it outright rather than just show it.
+
+The real fix for a guaranteed zero-popup return visit is a server-held refresh token via the authorization-code flow -- Google's policy is that refresh tokens are never issued to browser-only (public) clients, only to a confidential client holding a client secret server-side. That would mean standing up this project's first-ever backend (this site is otherwise 100% static, no server anywhere), a genuinely large, out-of-proportion lift for one convenience feature. Tried the cheap option first instead: `use_fedcm_for_auth: true` on `initTokenClient`, Google's own newer replacement for exactly this silent-reauth gap -- it lets a returning visitor's silent request complete via the browser's native FedCM account-chooser mediation instead of any Google popup at all, in browsers that support it (Chrome/Edge; not yet Safari/Firefox). Where FedCM isn't supported, GIS silently falls back to the previous popup-based flow, so this is a strict improvement with no downside on unsupported browsers. Added an `error_callback` alongside it -- FedCM-specific failures (not supported, user dismissed the native chooser, disabled by policy) surface there rather than through the normal token `callback`, and without it such a failure would leave `gdriveGetToken()`'s promise hanging until `withTimeout()`'s own ceiling instead of failing fast. No test coverage added specifically for this (it's a runtime flag affecting real Google-account behavior this suite already can't exercise, per the existing `tests/gdrive.spec.ts` note above) -- the full 41-test Playwright suite passes unchanged.
+
+
+## 40. A real bug: the 80286 core's cycle-cost model was 4 generic buckets, not real per-opcode timings
+
+Loaded a real period CPU benchmark, Landmark System Speed Test v2.00 (1990,
+Landmark Research International Corp — `SPEEDCOM.EXE`), off a hand-built 360KB
+floppy image (`mformat -f 360` / `mcopy`, not committed — proprietary 1990
+shareware, matching the CLAUDE.md rule on not bundling copyrighted material;
+inserted at runtime via the browser's own floppy-insert picker like any other
+user-supplied disk image). It reported an apparent ~11.5–14 MHz CPU, against
+this machine's real, wall-clock-paced 8 MHz (`app.js`'s `frame()` — see
+CLAUDE.md's "Never speed these up"). Confirmed this wasn't a stale-cache
+artifact (SHA-256 of the local build vs staged `_site/` vs a live `curl` of
+the running preview server all matched; `Cache-Control: no-store` present).
+
+Root cause: `cpu80286.cpp` charged only 4 generic bucket costs — 2
+register-operand / 7 memory-operand / 7 taken-branch / 3 not-taken —
+regardless of which specific opcode ran, rather than real per-instruction
+Intel 80286 timings. `total_cycles_` (the wall-clock-paced budget
+`Machine::run_cycles()` spends by repeatedly calling `cpu.step()`) is itself
+correctly anchored to real time; the bug meant the *wrong instructions* were
+completing within that correctly-paced budget — badly undercosting some
+opcodes (MUL/DIV/IDIV, REP-prefixed string ops, shift/rotate groups) and
+overcosting others (register-operand ALU-immediate, PUSH reg16), so more or
+less real 80286 work landed in each real second than genuine hardware would do.
+
+Fixed by replacing the 4-bucket model with per-opcode, per-operand-width,
+per-addressing-mode costs, cited against the Intel iAPX 286 Programmer's
+Reference Manual / 80286 data sheet timing appendix (via the "Art of
+Assembly", Randall Hyde, Appendix D reference table) at each constant in
+`cpu80286.cpp`: `grp3_unary` (TEST/NOT/NEG/MUL/IMUL/DIV/IDIV), `grp2_shift`
+(shift/rotate, including the CL- and imm8-count cases), `string_op` and
+`io_string_op` (REP-prefixed MOVS/CMPS/STOS/LODS/SCAS/INS/OUTS, scaling with
+actual iteration count including REPE/REPNE early termination),
+`loop_group` (LOOP/LOOPE/LOOPNE/JCXZ taken vs not-taken), PUSHA/POPA/
+PUSHF/POPF/ENTER/LEAVE, INT/INTO, IN/OUT, several MOV variants, `grp1_immed`
+(ADD/OR/ADC/SBB/AND/SUB/XOR/CMP r/m,imm), and PUSH reg16. New dedicated
+regression suite `tests/cpu80286_timing_test.cpp` (41 `TEST_F` cases) pins
+these down; `cpu80286.h`'s stale `step()` doc comment (referencing a
+`kBaseCycles8/16` table that was never actually implemented) was rewritten to
+describe the real model and explicitly flag the AT's own memory wait-state
+penalty as a known, deferred gap rather than silently claiming it solved.
+
+**Finding the actual hot opcodes**: static disassembly of `SPEEDCOM.EXE` (via
+`ndisasm`) cost real effort navigating to two wrong regions of the binary
+before landing on the right one — Landmark's CPU-speed methodology
+reprograms PIT channel 0 into free-running mode 2 and takes PIT-timestamped
+snapshots around a workload, not a naive tight MUL/DIV loop as first assumed.
+Rather than continue guessing from static disassembly, added a *temporary*
+per-opcode execution histogram (`opcode_histogram` in `cpu80286.h`/`.cpp`,
+exposed via throwaway `resetOpcodeHistogram()`/`opcodeHistogram()` WASM
+bindings) and a throwaway Playwright spec that booted the real machine,
+mounted the real floppy image, ran `SPEEDCOM`, and read back which opcodes
+actually executed — empirical ground truth instead of further static
+navigation. This found `0x83` (ALU-with-sign-extended-immediate, e.g. a
+loop-bound `CMP reg,imm8`) as the single hottest opcode (~18% of all executed
+instructions), still flat-costed at the register-operand cost of 7 when the
+real 80286 cost for a register operand is 3 — an overcost, not an undercost,
+missed by the first pass. Fixed `grp1_immed` and PUSH reg16 the same way.
+All diagnostic plumbing (the histogram field, its WASM bindings, the
+throwaway spec) was removed once the investigation concluded — it did its
+job and had no place in the permanent core or public API.
+
+**Outcome and an open question deliberately left open**: after both fixes,
+215 native + 41 Playwright tests pass with no regressions, and every new
+per-opcode timing is independently cited against real Intel figures and
+covered by its own test — which is the actual, defensible goal here (real
+per-instruction accuracy), not "Landmark's own number reads exactly 8 MHz."
+Re-running the histogram diagnostic after the `grp1_immed`/PUSH fixes showed
+*more* total instructions completing per fixed cycle budget (correcting an
+overcost speeds up wall-clock throughput, same as correcting an undercost
+would slow it down) — so Landmark's self-reported MHz reading was not
+re-verified against a specific target number, deliberately: a 1990-era
+benchmark's own PIT-based self-timing has known era-specific quirks, and
+there's no citable reason to expect it to land on exactly "8.00" even on
+genuine period hardware. The per-opcode costs are now real and tested; if
+Landmark's own displayed number is later worth chasing to a specific value,
+that's a separate, narrower investigation into Landmark's measurement
+method itself, not evidence of a remaining core bug.
+
+## 41. A labelled prefetch-queue-refill tax for taken control transfers, and a real bug it caught along the way
+
+Follow-up to §40. The next candidate lever for closing the remaining gap
+between this core's per-opcode costs and Landmark/Norton SI's own readings
+was effective-address (EA) calculation cost — on the 8086/8088, memory
+operands pay a separate, addressing-mode-dependent EA time on top of the
+opcode's own base cost, and Intel's own Appendix D table marks this
+explicitly with a `+EA` suffix. Checked this directly against the table
+before implementing anything: **the `+EA` suffix appears only in the 8088
+and 8086 columns, never in the 80286 column, across every memory-operand
+instruction checked** (ADC, ADD, AND, CMP, MOV, DIV, IMUL, JMP, LEA, and
+more). This matches the real hardware difference — the 8086/8088 shared
+their address adder with instruction execution and had to serialize EA
+calculation on top of the base cost; the 80286 moved address calculation to
+dedicated hardware that overlaps with execution, so Intel's published 80286
+timings are already the total cost. Implementing an EA add-on for the 80286
+would have been porting an 8086-specific quirk onto a chip whose own
+published numbers don't work that way — a real near-miss caught by checking
+the source before coding, not by testing after. No code change; recorded
+here as a checked negative result so it isn't re-investigated (or wrongly
+"fixed" into an actual regression) later.
+
+The next real lever was prefetch-queue-empty stalls: the 80286 has a 6-byte
+prefetch queue that's invalidated by every taken/unconditional control
+transfer and must refill before the next opcode can be decoded. Unlike
+every other timing fixed in §40, this one has no single citable number —
+Intel's own Appendix D table gives *ranges*, not fixed values, for every
+taken branch/call/return on the 80286 (Jcc-short-taken 7-10, LOOP/JCXZ-taken
+8-11, CALL/JMP near 7-10, CALL/JMP far 11-14/13-16, RET 11-14, RETF 15-18,
+IRET 17-20, INT/INT3 23-26, INTO-taken 24-27) — Intel is telling us the exact
+cost depends on how full the queue happens to be when the flush occurs, and
+doesn't publish the underlying formula.
+
+Genuinely simulating this (tracking real queue-fill state, modeling the BIU
+as a bus-fetch unit running concurrently with execution) would be a
+significant architectural change — this core is an aggregate-cost-per-
+`step()` interpreter with no notion of overlapped fetch/execute at all, not
+a cycle-stepped pipeline. Given that scope, went with a scoped, clearly
+labelled approximation instead of a simulation: a single named constant,
+`kQueueRefillTax` (`cpu80286.h`, = 2), added on top of each instruction's
+already-cited floor-of-range cost for every queue-flushing control transfer
+— Jcc taken, unconditional JMP (short/near/far), CALL (near/far), RET/RETF
+(with and without an imm16 stack-adjust), IRET, INT3/INT/INTO-taken, and
+LOOP/LOOPE/LOOPNE/JCXZ taken. Verified case by case that floor+tax lands
+inside Intel's documented range for every one of these before committing to
+the single constant — not assumed. Not-taken branches are untouched (no
+flush occurs on the fall-through path, so no tax). This is explicitly
+documented in `cpu80286.h`'s comment as an approximation, not a claim of
+simulating the real queue mechanism, per this repo's override-labelling
+rules.
+
+**A real bug caught along the way**: auditing every queue-flushing opcode
+against its cited Intel range (to confirm the tax wouldn't push any of them
+outside their documented range) turned up that CALL near (`0xE8`) was
+charging a flat 11 cycles — *above* the top of Intel's own 7-10 range for
+that opcode, an overcost bug unrelated to the queue-tax question, sitting
+right next to JMP near (`0xE9`, already correctly floored at 7). Fixed to
+the same floor(7)+tax as its sibling opcodes.
+
+14 new `tests/cpu80286_timing_test.cpp` cases cover every changed opcode
+(Jcc taken/not-taken, JMP short/near/far, CALL near/far, RET/RETF with and
+without imm16, IRET, INT3/INT nn/INTO-taken, LOOP/JCXZ-taken) — 229/229
+native tests and 41/41 Playwright tests pass, no regressions.
+
+## 42. A "Click to focus" hint for when the screen doesn't have keyboard focus
+
+Reported directly: typing would silently go nowhere after a page refresh
+until clicking the screen first. Traced to a real gap: `powerSwitch`'s
+auto power-on at boot (`powerSwitch.checked = true; powerOn();`, once
+firmware finishes fetching) never calls `screenEl.focus()` -- nothing does,
+on a fresh load, until the visitor clicks the CRT themselves. A real AT
+keyboard has no such state at all (it's always "connected"); this is purely
+a consequence of the page having several other focusable controls (bays,
+switches, buttons) that are easy to click before typing.
+
+Presented four options (dim+overlay like a VM console's capture indicator,
+a passive bezel glow ring, a dedicated LED next to the power LED, or a
+focused/unfocused cursor-style change) -- picked a variant of the first,
+then iterated on it live: a semi-transparent orange banner reading "Click
+to focus", spanning the full width of the bezel flush to its bottom edge
+(`.focus-hint` in `index.html` -- no dimming of the screen itself, and no
+fullscreen-specific inset override needed the way `.crt-overlay` needs one,
+since it's flush to the container's edges in both cases already), shown
+only while `poweredOn` is true and `document.activeElement !== screenEl`
+(`updateFocusHint()` in `app.js`,
+wired to the screen's own focus/blur events and called again from both
+`powerOn()`/`powerOff()` so the auto power-on case is covered immediately,
+not just later focus changes). `pointer-events: none` so the banner never
+steals the very click meant to focus the screen underneath it. Pure web-UI
+convenience, not governed by CLAUDE.md's realism rules -- same footing as
+the fullscreen button.
+
+New test in `tests/keyboard.spec.ts`: confirms the hint is already visible
+right after `boot()` (which, like the real auto power-on path, never
+focuses the screen -- this is exactly the gap it exists to cover), hides on
+`focusScreen()`, returns when focus moves elsewhere, and disappears again
+once powered off regardless of focus state. Full 42-test Playwright suite
+passes.
+
+Not done (a separate, judgment-call fix rather than an indicator, so left
+for a future request rather than assumed): having the auto power-on grab
+focus itself, which would avoid the problem outright on a fresh load rather
+than just flagging it.

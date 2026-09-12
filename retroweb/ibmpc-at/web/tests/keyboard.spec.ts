@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures";
-import { boot, screenText, waitForScreen, focusScreen, clickCtrlAltDel, typeStr } from "./helpers";
+import { boot, screenText, waitForScreen, focusScreen, clickCtrlAltDel, typeStr, setPowerSwitch } from "./helpers";
 
 // The real keyboard path (physical DOM key events -> SET1 scan codes -> the
 // emulated 8042), the F-key/extended-key panel (a labelled substitute for
@@ -88,5 +88,23 @@ test.describe("keyboard", () => {
     await focusScreen(page);
     await typeStr(page, "VER");
     await waitForScreen(page, /C:\\>\s*$/);
+  });
+
+  test("\"Click to focus\" hint shows only while running and unfocused", async ({ page }) => {
+    await boot(page);
+    const hintVisible = () =>
+      page.locator("#focusHint").evaluate((el) => el.classList.contains("visible"));
+    // boot() never focuses the screen itself -- neither does app.js's own
+    // auto power-on at a fresh page load -- which is exactly the gap this
+    // hint exists to cover, so it should already be showing.
+    expect(await hintVisible()).toBe(true);
+    await focusScreen(page);
+    expect(await hintVisible()).toBe(false);
+    // clicking any other control blurs the screen -- the hint returns
+    await page.locator("#fullscreenBtn").focus();
+    expect(await hintVisible()).toBe(true);
+    // nothing to type into once powered off -- hidden regardless of focus
+    await setPowerSwitch(page, false);
+    expect(await hintVisible()).toBe(false);
   });
 });

@@ -613,7 +613,7 @@ void Cpu::imul_imm32(int dst_reg, const RM &rm, uint32_t imm) {
     set_flag(FLAG_OF, of);
     set_reg32(dst_reg, res);
 }
-void Cpu::enter() {
+int Cpu::enter() {
     uint16_t size = fetch16();
     uint8_t level = uint8_t(fetch8() & 0x1F);
     push16(bp);
@@ -627,6 +627,7 @@ void Cpu::enter() {
     }
     bp = frame_ptr;
     sp = uint16_t(sp - size);
+    return level;
 }
 void Cpu::leave() {
     sp = bp;
@@ -659,23 +660,41 @@ void Cpu::jcc(bool taken) {
     int8_t rel = int8_t(fetch8());
     if (taken) ip = uint16_t(ip + rel);
 }
-void Cpu::loop_group(uint8_t op) {
+int Cpu::loop_group(uint8_t op) {
     int8_t rel = int8_t(fetch8());
-    if (op == 0xE3) {  // JCXZ
-        if (cx == 0) ip = uint16_t(ip + rel);
-        return;
-    }
-    cx = uint16_t(cx - 1);
     bool take;
-    if (op == 0xE0) take = (cx != 0) && !flag(FLAG_ZF);       // LOOPNE/LOOPNZ
-    else if (op == 0xE1) take = (cx != 0) && flag(FLAG_ZF);   // LOOPE/LOOPZ
-    else take = (cx != 0);                                    // LOOP
-    if (take) ip = uint16_t(ip + rel);
+    if (op == 0xE3) {  // JCXZ
+        take = (cx == 0);
+        if (take) ip = uint16_t(ip + rel);
+    } else {
+        cx = uint16_t(cx - 1);
+        if (op == 0xE0) take = (cx != 0) && !flag(FLAG_ZF);       // LOOPNE/LOOPNZ
+        else if (op == 0xE1) take = (cx != 0) && flag(FLAG_ZF);   // LOOPE/LOOPZ
+        else take = (cx != 0);                                    // LOOP
+        if (take) ip = uint16_t(ip + rel);
+    }
+    // Real 80286 timings (Intel iAPX 286 PRM / 80286 data sheet timing
+    // appendix): LOOP/LOOPE/LOOPNE/JCXZ taken all cost 8-11 -- floor 8 +
+    // kQueueRefillTax (see cpu80286.h) since a taken loop-branch flushes
+    // the prefetch queue like any other control transfer; not-taken
+    // differs per op (LOOP=4, LOOPE=6, LOOPNE=5, JCXZ=4) and is unaffected,
+    // since no flush occurs. Previously a flat 3 (CYC_JMP_NOT) regardless
+    // of op or outcome -- undercosting the taken case by roughly 3x,
+    // missed in the first pass over this file even though a
+    // decrement-and-branch counting loop (exactly what LOOP is for) is
+    // one of the most likely constructs a real CPU-speed-test benchmark's
+    // inner loop would use.
+    if (take) return 8 + kQueueRefillTax;
+    switch (op) {
+        case 0xE0: return 5;  // LOOPNE not taken
+        case 0xE1: return 6;  // LOOPE not taken
+        default:   return 4;  // LOOP, JCXZ not taken
+    }
 }
 
 // --- string instructions ---------------------------------------------------
 
-void Cpu::string_op(uint8_t op) {
+int Cpu::string_op(uint8_t op) {
     bool wide = (op & 1) != 0;
     bool is_rep = (rep_ != REP_NONE);
     uint16_t src_seg = (seg_override_ >= 0) ? seg_reg(seg_override_) : ds;
@@ -683,6 +702,7 @@ void Cpu::string_op(uint8_t op) {
     // A 0x66 prefix on a wide (word) string op widens it to dword (e.g.
     // REP MOVSD) -- byte forms (op&1==0) are never affected.
     bool dword = wide && opsize32_;
+    int iterations = 0;  // actually executed -- REPE/REPNE can stop short of the original CX
     do {
         if (is_rep && cx == 0) break;
         int step = dword ? 4 : (wide ? 2 : 1);
@@ -720,6 +740,7 @@ void Cpu::string_op(uint8_t op) {
                 break;
             default: break;
         }
+        ++iterations;
         if (!is_rep) break;
         cx = uint16_t(cx - 1);
         if (is_cmp_scan) {
@@ -728,11 +749,29 @@ void Cpu::string_op(uint8_t op) {
             if (rep_ == REP_NZ && z) break;   // REPNE/REPNZ: stop once equal
         }
     } while (is_rep && cx != 0);
+    // Real 80286 timings (Intel iAPX 286 PRM / 80286 data sheet timing
+    // appendix): a single non-REP execution has its own small fixed cost;
+    // a REP-prefixed run costs a small fixed overhead plus a per-iteration
+    // cost, scaling with however many iterations actually ran above (not
+    // the original CX -- REPE/REPNE can stop short of it). Previously
+    // charged one flat CYC_MEM=7 regardless of REP or count at all --
+    // harmless for a single MOVSB, but a REP MOVSW copying, say, a 512-
+    // byte disk sector was charged the same 7 cycles as copying one byte,
+    // wildly undercosting the kind of bulk memory copy real BIOS/DOS code
+    // does constantly (buffer moves, screen scrolls, memory tests).
+    switch (op) {
+        case 0xA4: case 0xA5: return is_rep ? (5 + 4 * iterations) : 5;  // MOVS
+        case 0xA6: case 0xA7: return is_rep ? (5 + 9 * iterations) : 8;  // CMPS
+        case 0xAA: case 0xAB: return is_rep ? (4 + 3 * iterations) : 3;  // STOS
+        case 0xAC: case 0xAD: return 5;  // LODS -- real software never REPs this (each iteration just clobbers AL/AX with the next value, discarding all but the last), so no cited REP formula exists; flat single-iteration cost regardless of the (degenerate) REP prefix.
+        default:              return is_rep ? (5 + 8 * iterations) : 7;  // SCAS
+    }
 }
-void Cpu::io_string_op(uint8_t op) {
+int Cpu::io_string_op(uint8_t op) {
     bool wide = (op & 1) != 0;
     bool is_rep = (rep_ != REP_NONE);  // real hardware: only a plain REP prefix is meaningful here
     uint16_t src_seg = (seg_override_ >= 0) ? seg_reg(seg_override_) : ds;
+    int iterations = 0;
     do {
         if (is_rep && cx == 0) break;
         int step = wide ? 2 : 1;
@@ -749,14 +788,20 @@ void Cpu::io_string_op(uint8_t op) {
             }
             si = uint16_t(si + dir);
         }
+        ++iterations;
         if (!is_rep) break;
         cx = uint16_t(cx - 1);
     } while (is_rep && cx != 0);
+    // Real 80286 timing: INS and OUTS share the same 5 (non-rep) / 5+4*n
+    // (rep) shape as each other (Intel iAPX 286 PRM / 80286 data sheet
+    // timing appendix) -- previously a flat CYC_MEM=7 regardless of REP
+    // or count, same undercounting issue as string_op() above.
+    return is_rep ? (5 + 4 * iterations) : 5;
 }
 
 // --- opcode groups (reg field of ModR/M selects the operation) -----------
 
-void Cpu::grp1_immed(uint8_t op) {  // 0x80/0x82: r/m8,imm8  0x81: r/m16/32,imm16/32  0x83: r/m16/32,imm8(sx)
+int Cpu::grp1_immed(uint8_t op) {  // 0x80/0x82: r/m8,imm8  0x81: r/m16/32,imm16/32  0x83: r/m16/32,imm8(sx)
     RM rm = decode_modrm();
     int alu = last_reg_;
     bool wide = (op == 0x81 || op == 0x83);
@@ -777,8 +822,12 @@ void Cpu::grp1_immed(uint8_t op) {  // 0x80/0x82: r/m8,imm8  0x81: r/m16/32,imm1
         uint16_t res = alu_apply16(alu, rm_read16(rm), imm);
         if (alu != 7) rm_write16(rm, res);
     }
+    // Intel 80286 real cost: reg r/m 3, mem r/m 7 (iAPX 286 PRM timing appendix,
+    // ADD/OR/ADC/SBB/AND/SUB/XOR/CMP r/m,imm). Found via the opcode histogram to
+    // be Landmark's single hottest opcode (0x83 ~18%) -- was flat-costed at 7.
+    return rm.is_mem ? 7 : 3;
 }
-void Cpu::grp2_shift(uint8_t op) {  // 0xC0/0xD0/0xD2: 8-bit  0xC1/0xD1/0xD3: 16-bit
+int Cpu::grp2_shift(uint8_t op) {  // 0xC0/0xD0/0xD2: 8-bit  0xC1/0xD1/0xD3: 16-bit
     RM rm = decode_modrm();
     int alu = last_reg_;
     bool wide = (op == 0xC1 || op == 0xD1 || op == 0xD3);
@@ -796,8 +845,21 @@ void Cpu::grp2_shift(uint8_t op) {  // 0xC0/0xD0/0xD2: 8-bit  0xC1/0xD1/0xD3: 16
         uint16_t res = shiftrot16(alu, rm_read16(rm), count);
         if (count != 0) rm_write16(rm, res);
     }
+    // Real 80286 timings (Intel iAPX 286 PRM / 80286 data sheet timing
+    // appendix): every rotate/shift op in this group (RCL/RCR/ROL/ROR/
+    // SHL(SAL)/SHR/SAR) shares this identical cost shape. The fixed
+    // shift-by-1 encoding (D0/D1) is its own cheaper case, NOT simply
+    // "5+count" with count=1 -- real hardware doesn't derive it from the
+    // variable-count formula even though the resolved count happens to be
+    // 1. The count-dependent forms (CL, C0/C1-encoded imm8) previously
+    // all fell through to the same flat CYC_MEM=7 as the by-1 form
+    // regardless of operand location or count -- undercosting any shift
+    // by more than a few bits, and even overcosting a register-destination
+    // by-1 shift (real 2, was charged 7).
+    if (op == 0xD0 || op == 0xD1) return rm.is_mem ? 7 : 2;
+    return rm.is_mem ? (8 + count) : (5 + count);
 }
-void Cpu::grp3_unary(uint8_t op) {  // 0xF6: r/m8  0xF7: r/m16 -- TEST/NOT/NEG/MUL/IMUL/DIV/IDIV
+int Cpu::grp3_unary(uint8_t op) {  // 0xF6: r/m8  0xF7: r/m16 -- TEST/NOT/NEG/MUL/IMUL/DIV/IDIV
     RM rm = decode_modrm();
     int alu = last_reg_;
     bool wide = (op == 0xF7);
@@ -914,6 +976,25 @@ void Cpu::grp3_unary(uint8_t op) {  // 0xF6: r/m8  0xF7: r/m16 -- TEST/NOT/NEG/M
                 break;
             }
         }
+    }
+    // Real 80286 timings (Intel iAPX 286 PRM / 80286 data sheet timing
+    // appendix -- see IBM_PCAT_REVIEW.md's CPU-timing section). TEST/NOT/
+    // NEG are close to the generic ALU reg/mem split (CYC_REG/CYC_MEM in
+    // step()); MUL/IMUL/DIV/IDIV are dramatically more expensive and were
+    // previously all charged the same flat CYC_MEM=7 as everything else in
+    // this group -- undercosting DIV r/m16 by more than 3x. This was the
+    // dominant cause of CPU-speed-test software (e.g. Landmark Speed Test,
+    // whose loop is DIV/MUL-heavy by design) reading a faster-than-real
+    // clock. The 32-bit (0x66-prefixed) forms reuse the 16-bit-width
+    // numbers below -- no genuine 80286 timing exists for them since the
+    // real chip has no such instruction at all (see this core's own
+    // 386-compatibility-layer note at the top of cpu80286.h).
+    switch (alu) {
+        case 0: case 1: return rm.is_mem ? 6 : 3;                                   // TEST
+        case 2: case 3: return rm.is_mem ? 7 : 2;                                   // NOT, NEG
+        case 4: case 5: return wide ? (rm.is_mem ? 24 : 21) : (rm.is_mem ? 16 : 13); // MUL, IMUL
+        case 6:         return wide ? (rm.is_mem ? 25 : 22) : (rm.is_mem ? 17 : 14); // DIV
+        default:        return wide ? (rm.is_mem ? 28 : 25) : (rm.is_mem ? 20 : 17); // IDIV
     }
 }
 void Cpu::grp5(uint8_t op) {  // 0xFE: INC/DEC r/m8   0xFF: INC/DEC/CALL/JMP/PUSH r/m16
@@ -1109,14 +1190,14 @@ int Cpu::step() {
                 else set_reg16(r, sub16(get_reg16(r), 1, false));
                 set_flag(FLAG_CF, cf); c += CYC_REG;
             }
-            else if (op >= 0x50 && op <= 0x57) { push_reg(op - 0x50); c += CYC_MEM; }
+            else if (op >= 0x50 && op <= 0x57) { push_reg(op - 0x50); c += 3; }  // PUSH reg16: real cost 3, not CYC_MEM=7 (iAPX 286 PRM timing appendix)
             else if (op >= 0x58 && op <= 0x5F) {
                 int r = op - 0x58;
                 if (opsize32_) set_reg32(r, pop32()); else set_reg16(r, pop16());
                 c += CYC_MEM;
             }
-            else if (op == 0x60) { pusha(); c += CYC_MEM; }
-            else if (op == 0x61) { popa(); c += CYC_MEM; }
+            else if (op == 0x60) { pusha(); c += 17; }  // real 80286 PUSHA -- was flat CYC_MEM=7, a real ~2.4x undercount (Intel iAPX 286 PRM timing appendix)
+            else if (op == 0x61) { popa(); c += 19; }   // real 80286 POPA -- same undercount, was CYC_MEM=7
             else if (op == 0x62) { bound(); c += CYC_MEM; }
             else if (op == 0x68) { if (opsize32_) push32(fetch32()); else push16(fetch16()); c += CYC_REG; }
             else if (op == 0x69) {
@@ -1130,20 +1211,28 @@ int Cpu::step() {
                 if (opsize32_) imul_imm32(r, rm, uint32_t(int32_t(imm))); else imul_imm16(r, rm, uint16_t(int16_t(imm)));
                 c += CYC_MEM;
             }
-            else if (op >= 0x6C && op <= 0x6F) { io_string_op(op); c += CYC_MEM; }
-            else if (op >= 0x70 && op <= 0x7F) { bool taken = cond(op & 0xF); jcc(taken); c += taken ? CYC_JMP_TAKEN : CYC_JMP_NOT; }
-            else if (op == 0x80 || op == 0x81 || op == 0x82 || op == 0x83) { grp1_immed(op); c += CYC_MEM; }
+            else if (op >= 0x6C && op <= 0x6F) { c += io_string_op(op); }
+            else if (op >= 0x70 && op <= 0x7F) { bool taken = cond(op & 0xF); jcc(taken); c += taken ? (CYC_JMP_TAKEN + kQueueRefillTax) : CYC_JMP_NOT; }  // taken: floor 7 (7-10) + queue-refill tax; not-taken: no flush, unaffected
+            else if (op == 0x80 || op == 0x81 || op == 0x82 || op == 0x83) { c += grp1_immed(op); }
             else if (op == 0x84) { RM rm = decode_modrm(); and8(rm_read8(rm), get_reg8(last_reg_)); c += rm.is_mem ? CYC_MEM : CYC_REG; }
             else if (op == 0x85) { RM rm = decode_modrm(); and16(rm_read16(rm), get_reg16(last_reg_)); c += rm.is_mem ? CYC_MEM : CYC_REG; }
             else if (op == 0x86) { RM rm = decode_modrm(); uint8_t a = get_reg8(last_reg_), b = rm_read8(rm); set_reg8(last_reg_, b); rm_write8(rm, a); c += CYC_MEM; }
             else if (op == 0x87) { RM rm = decode_modrm(); uint16_t a = get_reg16(last_reg_), b = rm_read16(rm); set_reg16(last_reg_, b); rm_write16(rm, a); c += CYC_MEM; }
-            else if (op == 0x88) { RM rm = decode_modrm(); rm_write8(rm, get_reg8(last_reg_)); c += rm.is_mem ? CYC_MEM : CYC_REG; }
-            else if (op == 0x89) { RM rm = decode_modrm(); if (opsize32_) rm_write32(rm, get_reg32(last_reg_)); else rm_write16(rm, get_reg16(last_reg_)); c += rm.is_mem ? CYC_MEM : CYC_REG; }
-            else if (op == 0x8A) { RM rm = decode_modrm(); set_reg8(last_reg_, rm_read8(rm)); c += rm.is_mem ? CYC_MEM : CYC_REG; }
-            else if (op == 0x8B) { RM rm = decode_modrm(); if (opsize32_) set_reg32(last_reg_, rm_read32(rm)); else set_reg16(last_reg_, rm_read16(rm)); c += rm.is_mem ? CYC_MEM : CYC_REG; }
-            else if (op == 0x8C) { RM rm = decode_modrm(); rm_write16(rm, seg_reg(last_reg_ & 3)); c += CYC_MEM; }
+            // MOV's memory-operand cost is directional on real 80286 hardware
+            // (write-to-memory=3, read-from-memory=5 -- Intel iAPX 286 PRM /
+            // 80286 data sheet timing appendix), unlike the generic ALU
+            // group's flat 7; previously charged the same flat CYC_MEM=7 as
+            // everything else, overcosting every MOV with a memory operand.
+            else if (op == 0x88) { RM rm = decode_modrm(); rm_write8(rm, get_reg8(last_reg_)); c += rm.is_mem ? 3 : CYC_REG; }
+            else if (op == 0x89) { RM rm = decode_modrm(); if (opsize32_) rm_write32(rm, get_reg32(last_reg_)); else rm_write16(rm, get_reg16(last_reg_)); c += rm.is_mem ? 3 : CYC_REG; }
+            else if (op == 0x8A) { RM rm = decode_modrm(); set_reg8(last_reg_, rm_read8(rm)); c += rm.is_mem ? 5 : CYC_REG; }
+            else if (op == 0x8B) { RM rm = decode_modrm(); if (opsize32_) set_reg32(last_reg_, rm_read32(rm)); else set_reg16(last_reg_, rm_read16(rm)); c += rm.is_mem ? 5 : CYC_REG; }
+            // 0x8C/0x8E previously charged a flat CYC_MEM=7 unconditionally,
+            // not even checking rm.is_mem -- real MOV reg16,segreg / MOV
+            // segreg,reg16 (register-register) is only 2 cycles.
+            else if (op == 0x8C) { RM rm = decode_modrm(); rm_write16(rm, seg_reg(last_reg_ & 3)); c += rm.is_mem ? 3 : CYC_REG; }
             else if (op == 0x8D) { RM rm = decode_modrm(); if (opsize32_) set_reg32(last_reg_, rm.off); else set_reg16(last_reg_, rm.off); c += CYC_REG; }  // LEA (rm should be memory; register-mode encoding is undefined on real hardware too)
-            else if (op == 0x8E) { RM rm = decode_modrm(); seg_reg(last_reg_ & 3) = rm_read16(rm); c += CYC_MEM; }
+            else if (op == 0x8E) { RM rm = decode_modrm(); seg_reg(last_reg_ & 3) = rm_read16(rm); c += rm.is_mem ? 5 : CYC_REG; }
             else if (op == 0x8F) { RM rm = decode_modrm(); if (opsize32_) rm_write32(rm, pop32()); else rm_write16(rm, pop16()); c += CYC_MEM; }
             else if (op == 0x90) { c += CYC_REG; }  // NOP (XCHG AX,AX)
             else if (op >= 0x91 && op <= 0x97) {
@@ -1154,64 +1243,90 @@ int Cpu::step() {
             }
             else if (op == 0x98) { if (opsize32_) ax = uint32_t(int32_t(int16_t(ax))); else ax = (ax & 0xFFFF0000u) | uint16_t(int16_t(int8_t(ax & 0xFF))); c += CYC_REG; }  // CBW / CWDE
             else if (op == 0x99) { if (opsize32_) dx = (ax & 0x80000000u) ? 0xFFFFFFFFu : 0u; else dx = (dx & 0xFFFF0000u) | ((ax & 0x8000) ? 0xFFFFu : 0u); c += CYC_REG; }  // CWD / CDQ
-            else if (op == 0x9A) { uint16_t off = fetch16(); uint16_t seg = fetch16(); push16(cs); push16(ip); cs = seg; ip = off; c += 13; }  // CALL far
+            else if (op == 0x9A) { uint16_t off = fetch16(); uint16_t seg = fetch16(); push16(cs); push16(ip); cs = seg; ip = off; c += 13 + kQueueRefillTax; }  // CALL far: floor 13 (13-16) + queue-refill tax, see cpu80286.h
             else if (op == 0x9B) { c += 3; }  // WAIT: no coprocessor present, no-op
-            else if (op == 0x9C) { push16(flags); c += CYC_MEM; }
-            else if (op == 0x9D) { flags = uint16_t((pop16() & 0x0FD5) | FLAG_R1); c += CYC_MEM; }
+            else if (op == 0x9C) { push16(flags); c += 3; }  // real 80286 PUSHF -- was flat CYC_MEM=7
+            else if (op == 0x9D) { flags = uint16_t((pop16() & 0x0FD5) | FLAG_R1); c += 5; }  // real 80286 POPF -- was flat CYC_MEM=7
             else if (op == 0x9E) { uint8_t ah = get_reg8(4); flags = uint16_t((flags & 0xFF00) | (ah & 0xD5) | FLAG_R1); c += CYC_REG; }  // SAHF
             else if (op == 0x9F) { set_reg8(4, uint8_t(flags & 0xFF)); c += CYC_REG; }  // LAHF
             else if (op >= 0xA0 && op <= 0xA3) {
                 uint16_t seg = (seg_override_ >= 0) ? seg_reg(seg_override_) : ds;
                 uint16_t off = fetch16();
+                bool is_load = (op == 0xA0 || op == 0xA1);
                 if (op == 0xA0) set_reg8(0, rb(seg, off));
                 else if (op == 0xA1) { if (opsize32_) ax = rd(seg, off); else ax = (ax & 0xFFFF0000u) | rw(seg, off); }
                 else if (op == 0xA2) wb(seg, off, get_reg8(0));
                 else { if (opsize32_) wd(seg, off, ax); else ww(seg, off, uint16_t(ax)); }
-                c += CYC_MEM;
+                c += is_load ? 5 : 3;  // real 80286 MOV AL/AX,[disp] vs MOV [disp],AL/AX -- was flat CYC_MEM=7
             }
-            else if (op >= 0xA4 && op <= 0xA7) { string_op(op); c += CYC_MEM; }
+            else if (op >= 0xA4 && op <= 0xA7) { c += string_op(op); }
             else if (op == 0xA8) { uint8_t imm = fetch8(); and8(get_reg8(0), imm); c += CYC_REG; }
             else if (op == 0xA9) { if (opsize32_) and32(ax, fetch32()); else and16(uint16_t(ax), fetch16()); c += CYC_REG; }
-            else if (op >= 0xAA && op <= 0xAF) { string_op(op); c += CYC_MEM; }
+            else if (op >= 0xAA && op <= 0xAF) { c += string_op(op); }
             else if (op >= 0xB0 && op <= 0xB7) { set_reg8(op - 0xB0, fetch8()); c += CYC_REG; }
             else if (op >= 0xB8 && op <= 0xBF) { if (opsize32_) set_reg32(op - 0xB8, fetch32()); else set_reg16(op - 0xB8, fetch16()); c += CYC_REG; }
-            else if (op == 0xC0 || op == 0xC1) { grp2_shift(op); c += CYC_MEM; }
-            else if (op == 0xC2) { uint16_t n = fetch16(); ip = pop16(); sp = uint16_t(sp + n); c += 11; }
-            else if (op == 0xC3) { ip = pop16(); c += 11; }
+            else if (op == 0xC0 || op == 0xC1) { c += grp2_shift(op); }
+            else if (op == 0xC2) { uint16_t n = fetch16(); ip = pop16(); sp = uint16_t(sp + n); c += 11 + kQueueRefillTax; }  // RET imm16: floor 11 (11-14) + queue-refill tax
+            else if (op == 0xC3) { ip = pop16(); c += 11 + kQueueRefillTax; }  // RET: floor 11 (11-14) + queue-refill tax
             else if (op == 0xC4) { RM rm = decode_modrm(); int r = last_reg_; uint16_t off = rm_read16(rm); uint16_t seg = rw(rm.seg, uint16_t(rm.off + 2)); set_reg16(r, off); es = seg; c += CYC_MEM; }
             else if (op == 0xC5) { RM rm = decode_modrm(); int r = last_reg_; uint16_t off = rm_read16(rm); uint16_t seg = rw(rm.seg, uint16_t(rm.off + 2)); set_reg16(r, off); ds = seg; c += CYC_MEM; }
-            else if (op == 0xC6) { RM rm = decode_modrm(); uint8_t imm = fetch8(); rm_write8(rm, imm); c += rm.is_mem ? CYC_MEM : CYC_REG; }
-            else if (op == 0xC7) { RM rm = decode_modrm(); if (opsize32_) rm_write32(rm, fetch32()); else rm_write16(rm, fetch16()); c += rm.is_mem ? CYC_MEM : CYC_REG; }
-            else if (op == 0xC8) { enter(); c += 15; }
-            else if (op == 0xC9) { leave(); c += CYC_REG; }
-            else if (op == 0xCA) { uint16_t n = fetch16(); ip = pop16(); cs = pop16(); sp = uint16_t(sp + n); c += 15; }
-            else if (op == 0xCB) { ip = pop16(); cs = pop16(); c += 15; }
-            else if (op == 0xCC) { interrupt(3); c += 45; }
-            else if (op == 0xCD) { uint8_t n = fetch8(); interrupt(n); c += 45; }
-            else if (op == 0xCE) { if (flag(FLAG_OF)) { interrupt(4); c += 45; } else c += 3; }
-            else if (op == 0xCF) { ip = pop16(); cs = pop16(); flags = uint16_t((pop16() & 0x0FD5) | FLAG_R1); c += 17; }
-            else if (op >= 0xD0 && op <= 0xD3) { grp2_shift(op); c += CYC_MEM; }
+            else if (op == 0xC6) { RM rm = decode_modrm(); uint8_t imm = fetch8(); rm_write8(rm, imm); c += rm.is_mem ? 3 : CYC_REG; }  // real 80286 MOV mem8,imm8 -- was flat CYC_MEM=7
+            else if (op == 0xC7) { RM rm = decode_modrm(); if (opsize32_) rm_write32(rm, fetch32()); else rm_write16(rm, fetch16()); c += rm.is_mem ? 3 : CYC_REG; }
+            // Real 80286 ENTER cost depends on the nesting level: 11 (level
+            // 0), 15 (level 1), 12+4*(lex-1) (level>1) -- Intel iAPX 286 PRM
+            // / 80286 data sheet timing appendix. Previously a flat 15
+            // regardless of level (right only for level==1).
+            else if (op == 0xC8) { int lex = enter(); c += (lex == 0) ? 11 : (lex == 1) ? 15 : (12 + 4 * (lex - 1)); }
+            else if (op == 0xC9) { leave(); c += 5; }  // real 80286 LEAVE -- was CYC_REG=2
+            else if (op == 0xCA) { uint16_t n = fetch16(); ip = pop16(); cs = pop16(); sp = uint16_t(sp + n); c += 15 + kQueueRefillTax; }  // RETF imm16: floor 15 (15-18) + queue-refill tax
+            else if (op == 0xCB) { ip = pop16(); cs = pop16(); c += 15 + kQueueRefillTax; }  // RETF: floor 15 (15-18) + queue-refill tax
+            // Real 80286 INT n/INT3 floor = 23 (range 23-26), INTO (taken)
+            // floor = 24 (range 24-27), IRET floor = 17 (range 17-20) --
+            // Intel iAPX 286 PRM / 80286 data sheet timing appendix --
+            // + kQueueRefillTax, since all four flush the prefetch queue
+            // (interrupt entry/return is itself a control transfer). Was a
+            // flat 45 before an earlier pass in this investigation, a real
+            // ~1.7-2x overcount hit on every software interrupt and every
+            // serviced hardware IRQ (timer, keyboard, floppy/HDD, ...), so
+            // this one actually ran interrupt-heavy code *slower* than real
+            // hardware, the opposite direction from the MUL/DIV/REP-string
+            // undercounts.
+            else if (op == 0xCC) { interrupt(3); c += 23 + kQueueRefillTax; }
+            else if (op == 0xCD) { uint8_t n = fetch8(); interrupt(n); c += 23 + kQueueRefillTax; }
+            else if (op == 0xCE) { if (flag(FLAG_OF)) { interrupt(4); c += 24 + kQueueRefillTax; } else c += 3; }
+            else if (op == 0xCF) { ip = pop16(); cs = pop16(); flags = uint16_t((pop16() & 0x0FD5) | FLAG_R1); c += 17 + kQueueRefillTax; }
+            else if (op >= 0xD0 && op <= 0xD3) { c += grp2_shift(op); }
             else if (op == 0xD4) { aam(); c += 16; }
             else if (op == 0xD5) { aad(); c += 14; }
             else if (op == 0xD7) { uint16_t seg = (seg_override_ >= 0) ? seg_reg(seg_override_) : ds; set_reg8(0, rb(seg, uint16_t(bx + get_reg8(0)))); c += CYC_MEM; }  // XLAT
             else if (op >= 0xD8 && op <= 0xDF) { decode_modrm(); c += 3; }  // x87 escape: no coprocessor, consume the operand and do nothing
-            else if (op == 0xE0 || op == 0xE1 || op == 0xE2 || op == 0xE3) { loop_group(op); c += CYC_JMP_NOT; }
-            else if (op == 0xE4) { uint8_t p = fetch8(); set_reg8(0, bus_.in(p)); c += CYC_MEM; }
-            else if (op == 0xE5) { uint8_t p = fetch8(); ax = (ax & 0xFFFF0000u) | bus_.in16(p); c += CYC_MEM; }
-            else if (op == 0xE6) { uint8_t p = fetch8(); bus_.out(p, get_reg8(0)); c += CYC_MEM; }
-            else if (op == 0xE7) { uint8_t p = fetch8(); bus_.out16(p, uint16_t(ax)); c += CYC_MEM; }
-            else if (op == 0xE8) { int16_t rel = int16_t(fetch16()); push16(ip); ip = uint16_t(ip + rel); c += 11; }
-            else if (op == 0xE9) { int16_t rel = int16_t(fetch16()); ip = uint16_t(ip + rel); c += 7; }
-            else if (op == 0xEA) { uint16_t off = fetch16(); uint16_t seg = fetch16(); cs = seg; ip = off; c += 11; }
-            else if (op == 0xEB) { int8_t rel = int8_t(fetch8()); ip = uint16_t(ip + rel); c += 7; }
-            else if (op == 0xEC) { set_reg8(0, bus_.in(dx)); c += CYC_MEM; }
-            else if (op == 0xED) { ax = (ax & 0xFFFF0000u) | bus_.in16(uint16_t(dx)); c += CYC_MEM; }
-            else if (op == 0xEE) { bus_.out(dx, get_reg8(0)); c += CYC_MEM; }
-            else if (op == 0xEF) { bus_.out16(uint16_t(dx), uint16_t(ax)); c += CYC_MEM; }
+            else if (op == 0xE0 || op == 0xE1 || op == 0xE2 || op == 0xE3) { c += loop_group(op); }
+            // Real 80286 IN=5, OUT=3 (asymmetric, like MOV -- Intel iAPX
+            // 286 PRM / 80286 data sheet timing appendix); previously a
+            // flat CYC_MEM=7 for both directions.
+            else if (op == 0xE4) { uint8_t p = fetch8(); set_reg8(0, bus_.in(p)); c += 5; }
+            else if (op == 0xE5) { uint8_t p = fetch8(); ax = (ax & 0xFFFF0000u) | bus_.in16(p); c += 5; }
+            else if (op == 0xE6) { uint8_t p = fetch8(); bus_.out(p, get_reg8(0)); c += 3; }
+            else if (op == 0xE7) { uint8_t p = fetch8(); bus_.out16(p, uint16_t(ax)); c += 3; }
+            // CALL/JMP near floor 7 (7-10), JMP far floor 11 (11-14) -- Intel
+            // iAPX 286 PRM / 80286 data sheet timing appendix -- + queue-
+            // refill tax. CALL near's floor was previously a flat 11, above
+            // even the top of Intel's own 7-10 range for this opcode -- an
+            // overcost bug distinct from the queue-tax question, caught
+            // while auditing every queue-flushing opcode against its cited
+            // range for this fix (see IBM_PCAT_REVIEW.md).
+            else if (op == 0xE8) { int16_t rel = int16_t(fetch16()); push16(ip); ip = uint16_t(ip + rel); c += 7 + kQueueRefillTax; }
+            else if (op == 0xE9) { int16_t rel = int16_t(fetch16()); ip = uint16_t(ip + rel); c += 7 + kQueueRefillTax; }
+            else if (op == 0xEA) { uint16_t off = fetch16(); uint16_t seg = fetch16(); cs = seg; ip = off; c += 11 + kQueueRefillTax; }
+            else if (op == 0xEB) { int8_t rel = int8_t(fetch8()); ip = uint16_t(ip + rel); c += 7 + kQueueRefillTax; }
+            else if (op == 0xEC) { set_reg8(0, bus_.in(dx)); c += 5; }
+            else if (op == 0xED) { ax = (ax & 0xFFFF0000u) | bus_.in16(uint16_t(dx)); c += 5; }
+            else if (op == 0xEE) { bus_.out(dx, get_reg8(0)); c += 3; }
+            else if (op == 0xEF) { bus_.out16(uint16_t(dx), uint16_t(ax)); c += 3; }
             else if (op == 0xF1) { c += 2; }  // undefined/ICEBP -- treated as a no-op
             else if (op == 0xF4) { halted = true; c += 2; }  // HLT
             else if (op == 0xF5) { set_flag(FLAG_CF, !flag(FLAG_CF)); c += CYC_REG; }  // CMC
-            else if (op == 0xF6 || op == 0xF7) { grp3_unary(op); c += CYC_MEM; }
+            else if (op == 0xF6 || op == 0xF7) { c += grp3_unary(op); }
             else if (op == 0xF8) { set_flag(FLAG_CF, false); c += CYC_REG; }
             else if (op == 0xF9) { set_flag(FLAG_CF, true); c += CYC_REG; }
             else if (op == 0xFA) { set_flag(FLAG_IF, false); c += CYC_REG; }

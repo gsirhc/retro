@@ -132,6 +132,22 @@
   screenEl.addEventListener("keyup", (e) => { sendKey(e.code, true); e.preventDefault(); });
   screenEl.addEventListener("click", () => screenEl.focus());
 
+  // "Click to type" banner: shown only while running and the screen
+  // *doesn't* have keyboard focus -- easy to click a floppy bay or the
+  // theme picker and then start typing at the screen expecting it to go
+  // through, which silently goes nowhere until you click it back. Purely
+  // a web-UI convenience (a real AT keyboard has no such state), not
+  // something CLAUDE.md's realism rules govern -- same footing as the
+  // fullscreen button above. poweredOn is declared further down (used
+  // here only from event handlers that run after the whole script has
+  // executed, same forward-reference as updateFullscreenBtn() above).
+  const focusHintEl = document.getElementById("focusHint");
+  function updateFocusHint() {
+    focusHintEl.classList.toggle("visible", poweredOn && document.activeElement !== screenEl);
+  }
+  screenEl.addEventListener("focus", updateFocusHint);
+  screenEl.addEventListener("blur", updateFocusHint);
+
   // ---- fullscreen -----------------------------------------------------
   // Expands the bezel (CRT frame + vignette + power LED), not the bare
   // canvas -- see the CSS comment by .bezel:fullscreen for why. A pure
@@ -641,6 +657,20 @@
       gdriveTokenClient = google.accounts.oauth2.initTokenClient({
         client_id: GDRIVE_CLIENT_ID,
         scope: GDRIVE_SCOPE,
+        // FedCM lets a returning visitor's silent (prompt: "") token
+        // request complete via the browser's own native account-chooser
+        // mediation instead of a Google popup window. GIS's classic
+        // silent flow still opens an actual popup under the hood even
+        // with prompt: "" -- it just skips the account-picker/consent
+        // screens *inside* that window when there's an active Google
+        // session and prior grant -- and some browsers' popup blockers
+        // can swallow that popup outright since it isn't fired from a
+        // direct click, which is what was showing up as a login popup on
+        // every page refresh. FedCM support varies by browser (Chrome/
+        // Edge yes; Safari/Firefox not yet); where it isn't supported,
+        // GIS just falls back to the normal popup-based flow, so this is
+        // a strict improvement with no downside on unsupported browsers.
+        use_fedcm_for_auth: true,
         callback: () => {},  // replaced per-request below; initTokenClient requires one up front
       });
     }
@@ -652,6 +682,15 @@
         // doesn't get a token that expires mid-upload.
         gdriveTokenExpiry = Date.now() + resp.expires_in * 1000 - 30_000;
         resolve(gdriveAccessToken);
+      };
+      // FedCM-specific failures (browser doesn't support it, the user
+      // dismissed the native chooser, disabled by browser policy, ...)
+      // surface here rather than through `callback` above -- without this,
+      // such a failure would leave the returned promise hanging until
+      // withTimeout()'s own ceiling (every gdriveGetToken() caller already
+      // wraps the call in one) instead of failing fast.
+      gdriveTokenClient.error_callback = (err) => {
+        reject(new Error((err && err.type) || "FedCM/token request failed"));
       };
       gdriveTokenClient.requestAccessToken({ prompt: interactive ? "consent" : "" });
     });
@@ -1009,6 +1048,7 @@
     requestAnimationFrame(frame);
     refreshHddControls();
     refreshFkeyControls();
+    updateFocusHint();  // e.g. the auto power-on at boot never focuses the screen itself
     if (new URLSearchParams(location.search).get("test") === "1") {
       window.__test = { machine, sendKey, screenEl };
     }
@@ -1056,6 +1096,7 @@
     if (audioCtx) { audioCtx.suspend().catch(() => {}); }
     refreshHddControls();
     refreshFkeyControls();
+    updateFocusHint();  // nothing to type into once powered off -- hide it
   }
 
   // ---- function/extended-key panel -- a real AT keyboard's F-keys and

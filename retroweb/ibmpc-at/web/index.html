@@ -4,6 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>IBM PC/AT</title>
+<!-- Site icon: see ../../assets/README.md for provenance/regeneration --
+     this is a committed copy (only web/ ever gets staged). -->
+<link rel="icon" href="assets/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="assets/favicon-16.png">
+<link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
 <!-- apply the shared site theme before first paint, so there's no flash of
      the wrong theme (matches retroweb/index.html's own inline snippet) -->
 <script>try{var t=localStorage.getItem("retro8080.theme")||"win",r=document.documentElement;if(t=="moderndark"){r.dataset.theme="modern";r.dataset.mode="dark";}else{r.dataset.theme=t;}}catch(e){}</script>
@@ -190,6 +196,15 @@
   }
   .pagebar a { color: inherit; }
   .pb-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* The classic Windows-title-bar app icon -- real Windows 95/period
+     browsers always showed one to the left of the window title, so this
+     replaces the old plain glyph placeholder with the site's actual icon.
+     Hidden for the modern theme, which uses .pb-name/.pb-tag instead (see
+     their own display:none default / modern-only display:block below) and
+     has no equivalent "titlebar icon" slot -- same per-theme visibility
+     pattern already used for .pb-winbtns just below. */
+  .pb-icon { width: 14px; height: 14px; vertical-align: -2px; margin-right: 3px; }
+  :root[data-theme="modern"] .pb-icon { display: none; }
   .pb-home { flex: 0 0 auto; display: none; text-decoration: none; font-weight: bold; }
   .pb-name, .pb-tag { display: none; }
   .pb-tools { flex: 0 0 auto; margin-left: auto; display: flex; align-items: center; gap: 10px; }
@@ -316,17 +331,41 @@
      hardware resolution. */
   :root[data-theme="modern"] .monitor { width: 100%; }
   :root[data-theme="modern"] #screen { width: 100%; max-width: 1400px; margin: 0 auto; }
+  /* Toned down from an earlier pass that read as gimmicky rather than
+     photoreal, especially over the fine detail of an EGA graphics-mode
+     game: softer vignette, lighter/wider-spaced scanlines, a much gentler
+     inset shadow. Still a real CRT does have some visible scan structure
+     and corner falloff -- this keeps a hint of both without the heavy
+     banding-plus-vignette combination that was drawing attention to
+     itself as an "effect" instead of just looking like a monitor. */
   .crt-overlay {
     position: absolute; inset: 16px 18px; pointer-events: none; z-index: 6; mix-blend-mode: multiply;
-    background: radial-gradient(145% 145% at 50% 45%, rgba(0,0,0,0) 74%, rgba(0,0,0,.18) 100%),
-      repeating-linear-gradient(0deg, rgba(0,0,0,.12) 0 1px, rgba(0,0,0,0) 1px 3px);
-    box-shadow: inset 0 0 32px rgba(0,0,0,.26);
+    background: radial-gradient(150% 150% at 50% 45%, rgba(0,0,0,0) 82%, rgba(0,0,0,.10) 100%),
+      repeating-linear-gradient(0deg, rgba(0,0,0,.05) 0 1px, rgba(0,0,0,0) 1px 4px);
+    box-shadow: inset 0 0 18px rgba(0,0,0,.14);
   }
   .power-led {
     position: absolute; right: 13px; bottom: 7px; width: 6px; height: 6px; border-radius: 50%;
     background: #33ff66; box-shadow: 0 0 6px 2px rgba(51,255,102,.8), 0 0 0 1px #0a2a15;
   }
   #screen:focus { outline: none; }
+  /* Shown only while the machine is running and the canvas *doesn't* have
+     keyboard focus (app.js's updateFocusHint()) -- a real AT keyboard is
+     always "connected", so there's no hardware equivalent of this at all;
+     it exists purely because a page can have several focusable controls
+     and it's easy to click a bay/switch and then start typing at the
+     screen, which silently goes nowhere until you click it. Full-width so
+     it reads as a banner rather than a floating label -- flush to the
+     bezel's own edges, so no fullscreen-specific inset override is needed
+     the way .crt-overlay needs one. pointer-events none so it never steals
+     the click meant to focus the screen underneath it. */
+  .focus-hint {
+    position: absolute; left: 0; right: 0; bottom: 0; z-index: 6;
+    padding: 6px 0; text-align: center; pointer-events: none;
+    background: rgba(230,126,34,.55); color: #fff; font-size: 13px; font-weight: 600; letter-spacing: .03em;
+    opacity: 0; transition: opacity .2s ease;
+  }
+  .focus-hint.visible { opacity: 1; }
   .audio-row { margin-top: 14px; justify-content: center; }
 
   /* ---- fullscreen: expand the whole bezel (frame + vignette + power LED),
@@ -543,7 +582,7 @@
 <div class="page">
   <header class="pagebar">
     <a class="pb-home" href="../">&#8592;&nbsp;All&nbsp;machines</a>
-    <span class="pb-title">&#9635; IBMPCAT.EXE &mdash; [5170-339]</span>
+    <span class="pb-title"><img class="pb-icon" src="assets/favicon-32.png" alt="" aria-hidden="true"> IBMPCAT.EXE &mdash; [5170-339]</span>
     <span class="pb-name">IBM PC/AT</span>
     <span class="pb-tag">80286 &middot; 8&nbsp;MHz &middot; running entirely in your browser</span>
     <span class="pb-tools">
@@ -569,6 +608,7 @@
         <div class="bezel" id="bezel">
           <canvas id="screen" width="640" height="350" tabindex="0" aria-label="EGA display -- click to type"></canvas>
           <div class="crt-overlay"></div>
+          <div class="focus-hint" id="focusHint" aria-hidden="true">Click to focus</div>
           <span class="power-led"></span>
           <div class="bezel-controls">
             <button type="button" id="escBtn" class="bezel-btn" data-key="Escape"

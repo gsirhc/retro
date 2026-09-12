@@ -124,10 +124,17 @@ public:
     // any segment load) -- Intel iAPX 286 PRM, "Initialization".
     void reset();
 
-    // Decode and execute exactly one instruction at CS:IP.
-    // Returns the number of clock cycles consumed (including the 1
-    // wait-state-per-access penalty this machine's memory bus imposes,
-    // folded into the per-opcode base counts -- see kBaseCycles8/16).
+    // Decode and execute exactly one instruction at CS:IP. Returns the
+    // number of clock cycles consumed: base 80286 timings (Intel iAPX 286
+    // PRM / 80286 data sheet timing appendix) computed per-opcode directly
+    // in step()'s dispatch (small groups -- shift/rotate, string ops,
+    // MUL/DIV/etc -- compute their own cost in grp2_shift()/grp3_unary()/
+    // string_op()/io_string_op(), since it depends on the operand and, for
+    // REP-prefixed forms, the iteration count). NOT yet included: the
+    // genuine 5170-339's own added memory-access wait state (a real
+    // 8MHz-board DRAM-timing cost, separate from the CPU's own published
+    // timings) -- deferred rather than silently assumed solved; see
+    // IBM_PCAT_REVIEW.md's CPU-timing section.
     int step();
 
     // Deliver a hardware/software interrupt: real-mode INT n semantics --
@@ -270,22 +277,56 @@ private:
     void bound();                   // 286-native BOUND r16, m16&16
     void imul_imm16(int dst_reg, const RM &rm, uint16_t imm);  // 286-native IMUL r16,r/m16,imm
     void imul_imm32(int dst_reg, const RM &rm, uint32_t imm);  // 0x66-prefixed 32-bit form
-    void enter(); void leave();     // 286-native stack-frame instructions
+    // 286-native stack-frame instructions. enter() returns the fetched
+    // nesting-level operand -- step()'s real 80286 ENTER cost depends on
+    // it (11 / 15 / 12+4*(lex-1) cycles for level 0 / 1 / >1), and that
+    // level is otherwise only known inside enter() itself.
+    int  enter(); void leave();
 
     int  extra_cycles_ = 0;  // set by helpers (taken branch, rep iteration count, ...) and added to the opcode's base cost by step()
 
     int      last_reg_ = 0;        // ModR/M reg field from the most recent decode_modrm() -- read by the opcode-group helpers below, which use that field to select the operation rather than a register operand
     uint16_t instr_start_ip_ = 0;  // CS:IP at the start of the instruction (post-prefixes), so DIV/IDIV faults can restore IP to the faulting instruction the way real hardware does
 
-    // control-flow / string-op / misc helpers used by step()'s big switch
+    // control-flow / string-op / misc helpers used by step()'s big switch.
+    // string_op/io_string_op/grp2_shift/grp3_unary return the real,
+    // cited-per-opcode cycle cost themselves (int, not void) rather than
+    // letting step() charge one flat generic constant regardless of which
+    // sub-operation actually ran -- real 80286 timings for this group
+    // diverge sharply by sub-opcode (e.g. DIV r/m16 = 25 cycles vs TEST
+    // r/m16,imm16 = 3-6) and, for the REP-prefixed string/shift-by-count
+    // forms, by the actual iteration/bit count, which only the helper
+    // itself knows. See cpu80286.cpp's kMul/kDiv/... tables and each
+    // helper's own comment for the Intel iAPX 286 PRM / 80286 data sheet
+    // timing-appendix citations.
+    // Labelled approximation, not a simulation: the 80286's 6-byte prefetch
+    // queue is flushed by every taken/unconditional control transfer and
+    // must refill before the next opcode can be decoded, which is exactly
+    // why Intel's own timing appendix publishes a RANGE (not a fixed number)
+    // for every such instruction -- e.g. Jcc-short-taken 7-10, LOOP-taken
+    // 8-11, CALL/JMP near 7-10, CALL/JMP far 11-14/13-16, RET 11-14/15-18,
+    // IRET 17-20 (Intel iAPX 286 PRM / 80286 data sheet timing appendix, via
+    // the "Art of Assembly" Appendix D reference table -- see
+    // IBM_PCAT_REVIEW.md's CPU-timing section). A real, cycle-accurate
+    // model would track actual prefetch-queue fill state and the bus
+    // fetch/execute overlap -- this core is an aggregate-cost-per-step()
+    // interpreter with no such state, so instead every queue-flushing
+    // control transfer below adds this single flat, named tax on top of
+    // its own already-cited floor-of-range cost. Picked so floor+tax lands
+    // inside every one of the ranges above without exceeding any of them
+    // (verified case by case, not just assumed) -- a documented, uniform
+    // approximation of the effect, not a claim of simulating the queue
+    // itself. Not-taken branches are unaffected: no flush occurs, so no tax.
+    static constexpr int kQueueRefillTax = 2;
+
     bool cond(int cc) const;          // Jcc/LOOPcc condition-code evaluation (cc = opcode low nibble)
     void jcc(bool taken);
-    void loop_group(uint8_t op);
-    void string_op(uint8_t op);       // 0xA4-0xA7, 0xAA-0xAF: MOVS/CMPS/STOS/LODS/SCAS, honors REP/REPE/REPNE
-    void io_string_op(uint8_t op);    // 0x6C-0x6F: INS/OUTS
-    void grp1_immed(uint8_t op);      // 0x80/0x81/0x83: ADD/OR/ADC/SBB/AND/SUB/XOR/CMP r/m,imm
-    void grp2_shift(uint8_t op);      // 0xC0/C1/D0-D3: shift/rotate group
-    void grp3_unary(uint8_t op);      // 0xF6/0xF7: TEST/NOT/NEG/MUL/IMUL/DIV/IDIV
+    int  loop_group(uint8_t op);       // 0xE0-0xE3: LOOP/LOOPE/LOOPNE/JCXZ -- returns its own real cost (taken vs not-taken differ sharply)
+    int  string_op(uint8_t op);       // 0xA4-0xA7, 0xAA-0xAF: MOVS/CMPS/STOS/LODS/SCAS, honors REP/REPE/REPNE
+    int  io_string_op(uint8_t op);    // 0x6C-0x6F: INS/OUTS
+    int  grp1_immed(uint8_t op);      // 0x80/0x81/0x83: ADD/OR/ADC/SBB/AND/SUB/XOR/CMP r/m,imm -- returns its own real cost (reg 3 / mem 7)
+    int  grp2_shift(uint8_t op);      // 0xC0/C1/D0-D3: shift/rotate group
+    int  grp3_unary(uint8_t op);      // 0xF6/0xF7: TEST/NOT/NEG/MUL/IMUL/DIV/IDIV
     void grp5(uint8_t op);            // 0xFE/0xFF: INC/DEC/CALL/JMP/PUSH r/m
 };
 

@@ -4,6 +4,15 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>RETRO — vintage machines in your browser</title>
+<!-- Site icon: a CRT-with-circuit-traces glyph, cropped/resized from a
+     user-supplied source image -- see assets/README.md for provenance and
+     how to regenerate. Shared across the landing page and every machine
+     (each machine's own web/assets/ holds a copy -- only web/ ever gets
+     staged, see CLAUDE.md "Wiring a machine into the site"). -->
+<link rel="icon" href="assets/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="assets/favicon-16.png">
+<link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
 <style>
   /* ---- page themes: default = Windows 95; web94 = mid-90s Mosaic web; modern = clean ----
      the values that matter here mirror altair8800/web/index.html so a theme
@@ -111,12 +120,20 @@
     background: #c0c0c0; border: 1px outset #dfdfdf; color: #000;
     text-align: center; line-height: 12px; font-size: 10px;
   }
+  .titlebar .win-icon { width: 14px; height: 14px; vertical-align: -2px; margin-right: 3px; }
   .inner { padding: 22px 26px 26px; }
 
   header {
-    display: flex; align-items: baseline; justify-content: space-between;
-    gap: 16px; flex-wrap: wrap;
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 16px; flex-wrap: wrap; margin-bottom: 22px;
   }
+  .brand { display: flex; align-items: center; gap: 14px; min-width: 0; }
+  /* Same source icon as the favicon/window icon (see assets/README.md) --
+     referencing the 512px master rather than a small favicon variant so it
+     stays crisp at this larger, on-page size (including on retina, where
+     the browser's own high-quality downsample beats upscaling a tiny one). */
+  .site-icon { width: 56px; height: 56px; flex: 0 0 auto; border-radius: 4px; }
+  .brand-text { min-width: 0; }
   h1 {
     margin: 0; font: var(--title-font); color: var(--title-color);
     text-shadow: var(--title-shadow); letter-spacing: 2px;
@@ -128,7 +145,15 @@
   }
   :root[data-theme="modern"] .theme-pick select { border-radius: 6px; padding: 4px 8px; }
 
-  .tagline { margin: 10px 0 22px; color: var(--muted); }
+  .tagline { margin: 8px 0 0; color: var(--muted); }
+
+  .section-heading {
+    margin: 30px 0 14px; padding-top: 18px; border-top: var(--card-border);
+    font: bold 15px Arial, Helvetica, sans-serif; color: var(--text);
+    letter-spacing: .5px; text-transform: uppercase;
+  }
+  :root[data-theme="web94"] .section-heading { font: bold 17px "Times New Roman", Times, serif; letter-spacing: normal; text-transform: none; }
+  :root[data-theme="modern"] .section-heading { font: 700 12px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: var(--muted); }
 
   .machines { display: grid; gap: 16px; }
 
@@ -179,13 +204,19 @@
 
 <div class="page">
   <div class="titlebar">
-    <span>&#9635; RETRO</span>
+    <span><img class="win-icon" src="assets/favicon-32.png" alt="" aria-hidden="true"> RETRO</span>
     <span class="btns"><span>_</span><span>&#9633;</span><span>&times;</span></span>
   </div>
 
   <div class="inner">
     <header>
-      <h1>RETRO</h1>
+      <div class="brand">
+        <img class="site-icon" src="assets/icon-512.png" width="56" height="56" decoding="async" alt="">
+        <div class="brand-text">
+          <h1>RETRO</h1>
+          <p class="tagline">Vintage machines, running entirely in your browser.</p>
+        </div>
+      </div>
       <label class="theme-pick">Theme:
         <select id="pageTheme">
           <option value="win">Windows 95</option>
@@ -196,8 +227,6 @@
       </label>
     </header>
 
-    <p class="tagline">Vintage machines, running entirely in your browser.</p>
-
     <div class="machines">
       <a class="machine-card" href="altair8800/">
         <img class="shot" src="assets/altair-panel.jpg" width="286" height="128"
@@ -205,16 +234,20 @@
         <span class="name">MITS Altair 8800</span>
         <span class="go">Launch &rarr;</span>
       </a>
+      <a class="machine-card" href="ibmpc-at/">
+        <img class="shot" src="assets/ibmpcat-panel.jpg" width="712" height="128"
+             decoding="async" alt="IBM PC/AT front panel, powered on">
+        <span class="name">IBM PC/AT</span>
+        <span class="go">Launch &rarr;</span>
+      </a>
+    </div>
+
+    <h2 class="section-heading">Homebrew</h2>
+    <div class="machines">
       <a class="machine-card" href="assembler6502/">
         <img class="shot" src="assets/cg-oac-6502-board.svg" width="286" height="128"
              decoding="async" alt="6502 Assembler board and terminal">
         <span class="name">6502 Assembler</span>
-        <span class="go">Launch &rarr;</span>
-      </a>
-      <a class="machine-card" href="ibmpc-at/">
-        <img class="shot" src="assets/ibmpcat-panel.jpg" width="450" height="128"
-             decoding="async" alt="IBM PC/AT front panel, powered on">
-        <span class="name">IBM PC/AT</span>
         <span class="go">Launch &rarr;</span>
       </a>
     </div>
