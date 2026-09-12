@@ -257,10 +257,29 @@
   label { user-select: none; }
   .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .row + .row { margin-top: 8px; }
-  .muted { color: var(--dim); font-size: 12px; }
+  .muted { color: var(--dim); font-size: 14px; }
   code { color: var(--link); }
   .filebtn { position: relative; overflow: hidden; display: inline-block; }
   .filebtn input[type=file] { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; }
+
+  /* One-time hint shown the first time anyone hits Fullscreen -- a plain
+     <dialog> promotes to the browser's top layer, the same layer
+     fullscreen elements use, so it renders above the fullscreened bezel
+     rather than being covered by it (see app.js). Styled from the same
+     panel/button theme tokens as everything else so it matches whichever
+     of the four themes is active instead of looking like a foreign popup. */
+  #fsEscHint {
+    max-width: 340px; padding: 16px 18px 18px;
+    background: var(--panel-bg); color: var(--text);
+    border: var(--panel-border); border-radius: var(--panel-radius);
+  }
+  #fsEscHint::backdrop { background: rgba(0,0,0,.55); }
+  #fsEscHint h2 {
+    margin: 0 0 10px; font: bold 13px Arial, Helvetica, sans-serif;
+    text-transform: none; letter-spacing: normal; color: var(--text);
+  }
+  #fsEscHint p { margin: 0 0 14px; font-size: 12px; color: var(--dim); line-height: 1.5; }
+  #fsEscHint .row { justify-content: flex-end; }
 
   /* ---- CRT monitor -- photoreal hardware, not page chrome, in every theme */
   .monitor { width: max-content; max-width: 100%; margin: 0 auto; }
@@ -297,6 +316,56 @@
   #screen:focus { outline: none; }
   .audio-row { margin-top: 14px; justify-content: center; }
 
+  /* ---- fullscreen: expand the whole bezel (frame + vignette + power LED),
+     not just the bare canvas, so it still reads as "real hardware" rather
+     than suddenly looking like a plain <video>. No real AT monitor has a
+     fullscreen mode -- there's no hardware precedent for this at all, so
+     unlike the CRT styling above this is a pure web-UI convenience (the
+     same kind of labelled opt-in shortcut as the theme picker or the
+     Mac-keyboard F-key row), not something CLAUDE.md's realism rules
+     govern. Letting #screen's width stay auto (aspect-ratio already kept
+     in sync with the live mode by app.js) and only constraining height
+     scales it as large as the viewport allows without distorting it. */
+  .bezel:fullscreen, .bezel:-webkit-full-screen {
+    width: 100vw; height: 100vh; max-width: none; border-radius: 0;
+    padding: 3vh 3vw; box-sizing: border-box; background: #0c0b0a;
+  }
+  .bezel:fullscreen #screen, .bezel:-webkit-full-screen #screen {
+    width: auto; height: 100%; max-width: 100%; max-height: 100%;
+  }
+  .bezel:fullscreen .crt-overlay, .bezel:-webkit-full-screen .crt-overlay { inset: 3vh 3vw; }
+  /* Lives inside the bezel itself (not a sibling row) so it's still
+     reachable while fullscreen -- the Fullscreen API only expands #bezel's
+     own subtree, so a control placed outside it would be visually covered
+     and unclickable the moment fullscreen engaged. Grouped in one corner
+     cluster of the bezel's own plastic-frame padding, not over the
+     picture, so both buttons move together with a single position rule. */
+  .bezel-controls {
+    position: absolute; top: 6px; right: 8px; z-index: 7;
+    display: flex; gap: 6px; align-items: center;
+  }
+  .bezel:fullscreen .bezel-controls, .bezel:-webkit-full-screen .bezel-controls {
+    top: calc(3vh + 6px); right: calc(3vw + 8px);
+  }
+  .bezel-btn {
+    height: 22px; padding: 0 7px; border: none; border-radius: 3px;
+    background: rgba(0,0,0,.5); color: #ddd; font-size: 14px; line-height: 22px;
+    cursor: pointer; opacity: .6; transition: opacity .15s;
+  }
+  .bezel-btn:hover, .bezel-btn:focus-visible { opacity: 1; }
+  .bezel-btn:disabled { opacity: .25; cursor: default; }
+  #fullscreenBtn { width: 26px; padding: 0; }
+  /* Sends a real Escape scancode straight to the guest (see the click
+     handler in app.js), bypassing the native keyboard event entirely.
+     Needed because the browser's own Esc key never reaches the page at
+     all while fullscreen (confirmed live -- it's not merely "also" exiting
+     fullscreen, DOS gets nothing): the Fullscreen API treats Esc as its
+     own reserved exit gesture, not a key a page can observe or reclaim.
+     Hidden outside fullscreen -- that's the only place this problem
+     exists at all, since a real physical Esc key works fine otherwise. */
+  #escBtn { font-size: 11px; font-weight: 600; display: none; }
+  .bezel:fullscreen #escBtn, .bezel:-webkit-full-screen #escBtn { display: inline-block; }
+
   /* ---- front panel: one real 5170 case fascia, photoreal in every theme
      (like the CRT above and altair8800's own 88-DCDD cabinet). Modeled on
      a real 5170: left side is vents + a keylock-style plate + the two
@@ -328,7 +397,11 @@
        of letting it stretch with .page the way the CRT does. */
     width: 100%;
   }
-  :root[data-theme="modern"] .at-case { max-width: 640px; margin: 0 auto; }
+  /* Matches the other three themes' own fixed page width (--page-max:
+     920px), rather than an arbitrary narrower cap -- modern's own page
+     runs much wider than that, so without a cap the case would stretch
+     far wider here than it ever appears anywhere else. */
+  :root[data-theme="modern"] .at-case { max-width: 920px; margin: 0 auto; }
   /* left cluster (badge, LEDs+switch, grille) is still the wider side of
      a real 5170's bezel, but not overwhelmingly so -- function over
      exact-photo form, so the drive bays get a little more breathing
@@ -484,6 +557,12 @@
           <canvas id="screen" width="640" height="350" tabindex="0" aria-label="EGA display -- click to type"></canvas>
           <div class="crt-overlay"></div>
           <span class="power-led"></span>
+          <div class="bezel-controls">
+            <button type="button" id="escBtn" class="bezel-btn" data-key="Escape"
+                    title="Send Esc -- your Esc key exits fullscreen instead, without reaching DOS"
+                    aria-label="Send Esc" disabled>Esc</button>
+            <button type="button" id="fullscreenBtn" class="bezel-btn" title="Fullscreen" aria-label="Fullscreen">&#x26F6;</button>
+          </div>
         </div>
       </div>
       <div class="row audio-row">
@@ -491,6 +570,17 @@
         <span class="muted">Off by default -- browsers block audio until you opt in, and so does this control.</span>
       </div>
     </div>
+
+    <dialog id="fsEscHint">
+      <h2>Before you go fullscreen</h2>
+      <p>Your Esc key exits fullscreen instead of reaching DOS -- browsers reserve
+        it for that. Use the <strong>Esc</strong> button next to the fullscreen
+        button, in the screen's own corner, to send Esc to the operating system
+        instead.</p>
+      <div class="row">
+        <button type="button" id="fsEscHintOk" autofocus>Got it, go fullscreen</button>
+      </div>
+    </dialog>
 
     <div class="panel" id="fkeysCard">
       <h2>Function &amp; extended keys</h2>
@@ -582,9 +672,10 @@
         <button type="button" id="hddResetBtn" disabled>Reset to factory FreeDOS</button>
         <button type="button" id="hddBlankBtn" disabled>Mount blank drive&hellip;</button>
         <span class="muted">Changes you make while running (FORMAT, COPY, installing
-          software) are saved automatically in this browser and restored on your next
-          visit. Both take effect at the next power-on -- a real fixed disk can't be
-          swapped while the machine is running.</span>
+          software) are saved automatically in this browser every few seconds or on
+          power off, and restored on your next visit. Both take effect at the next
+          power-on -- a real fixed disk can't be swapped while the machine is
+          running.</span>
       </div>
       <div class="row">
         <button type="button" id="hddDownloadBtn" disabled>Download image&hellip;</button>
@@ -593,6 +684,33 @@
           storage -- download it as a backup, or upload a previously-downloaded (or
           otherwise obtained) image to use as C:. Also takes effect at the next
           power-on.</span>
+      </div>
+    </div>
+
+    <div class="panel" id="floppyInfoCard">
+      <h2>Floppy drives</h2>
+      <div class="row">
+        <span class="muted">Two real 5.25&Prime; drives, matching the genuine 5170:
+          drive A is 1.2MB, drive B is 360KB. Mount a raw .IMG of exactly one of
+          those two sizes -- 3.5&Prime; formats (720KB, 1.44MB) and other 5.25&Prime;
+          densities aren't supported and will misread even if the file loads.</span>
+      </div>
+    </div>
+
+    <div class="panel" id="softwareCompatCard">
+      <h2>Software compatibility</h2>
+      <div class="row">
+        <span class="muted">Ships with FreeDOS 1.3 on C:, and runs real PC-DOS/
+          MS-DOS 3.x-era software the same way -- this is a genuine real-mode
+          80286, so nothing requiring protected mode (DOS 5+ memory managers,
+          Windows) will run. Keyboard and the internal PC speaker only: no
+          mouse, no sound card.</span>
+      </div>
+      <div class="row">
+        <span class="muted">Disk images aren't included or hosted here --
+          commercial software remains copyrighted. You'll need to find your
+          own compatible disk image (see Floppy drives above for the formats
+          this machine's drives can read) and mount it yourself.</span>
       </div>
     </div>
 

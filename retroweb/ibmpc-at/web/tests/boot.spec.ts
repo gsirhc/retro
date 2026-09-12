@@ -50,21 +50,24 @@ test.describe("boot and power", () => {
     await expect(page.locator('[data-key="F1"]')).toBeDisabled();
   });
 
-  test("clicking any control refocuses the screen, not the control", async ({ page }) => {
-    // Every click on the page steals focus onto whatever was clicked (the
-    // ordinary browser default) unless something puts it back -- app.js's
-    // page-wide click listener refocuses #screen after every click once a
-    // machine is running, so the visitor's very next keystroke still goes
-    // to the guest instead of being silently swallowed by a button. See
-    // IBM_PCAT_REVIEW.md §33.
+  test("clicking a control focuses the control, not the screen", async ({ page }) => {
+    // A prior version of app.js refocused #screen after every click
+    // anywhere on the page (see IBM_PCAT_REVIEW.md §33), meant to route the
+    // visitor's very next keystroke to the guest even right after clicking
+    // a button. In practice that made every other control effectively
+    // unusable via the keyboard the instant you clicked it -- e.g. a
+    // checkbox couldn't be toggled with Space right after clicking it,
+    // since focus had already bounced back to the canvas. Only clicking the
+    // screen itself should focus the screen; other controls keep normal
+    // browser focus behavior. See IBM_PCAT_REVIEW.md's follow-up note.
     await boot(page);
     await focusScreen(page);
     await expect(page.locator("#screen")).toBeFocused();
 
     await page.locator('[data-key="F5"]').click();
-    await expect(page.locator("#screen")).toBeFocused();
+    await expect(page.locator('[data-key="F5"]')).toBeFocused();
 
     await page.locator("#speakerEnabled").click();
-    await expect(page.locator("#screen")).toBeFocused();
+    await expect(page.locator("#speakerEnabled")).toBeFocused();
   });
 });

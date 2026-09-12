@@ -131,15 +131,76 @@
   screenEl.addEventListener("keydown", (e) => { sendKey(e.code, false); e.preventDefault(); });
   screenEl.addEventListener("keyup", (e) => { sendKey(e.code, true); e.preventDefault(); });
   screenEl.addEventListener("click", () => screenEl.focus());
-  // Every control on the page (floppy Insert/Eject, F-keys, Ctrl+Alt+Del,
-  // HDD buttons, the power switch itself) steals keyboard focus onto
-  // itself when clicked -- exactly like clicking any button on any page --
-  // which would otherwise silently swallow the visitor's very next
-  // keystroke instead of routing it to the guest. A real keyboard has no
-  // such thing as "the front panel has focus"; it's always live. Refocus
-  // the screen after every click on the page, once there's a machine for
-  // it to route keys to.
-  document.addEventListener("click", () => { if (poweredOn) screenEl.focus(); });
+
+  // ---- fullscreen -----------------------------------------------------
+  // Expands the bezel (CRT frame + vignette + power LED), not the bare
+  // canvas -- see the CSS comment by .bezel:fullscreen for why. A pure
+  // web-UI convenience with no real hardware to be faithful to.
+  const bezelEl = document.getElementById("bezel");
+  const fullscreenBtn = document.getElementById("fullscreenBtn");
+  function isFullscreen() {
+    return (document.fullscreenElement || document.webkitFullscreenElement) === bezelEl;
+  }
+  function enterFullscreen() {
+    (bezelEl.requestFullscreen || bezelEl.webkitRequestFullscreen).call(bezelEl);
+  }
+  // One-time "your Esc key won't reach DOS" hint, shown *before* fullscreen
+  // actually engages -- not shown again once seen, tracked the same way
+  // the theme picker remembers its own choice (localStorage, wrapped in
+  // try/catch: private browsing can throw on either call). The version
+  // string is the cache-bust: bump it whenever the hint's content changes
+  // meaningfully, and everyone who saw an older version sees it again,
+  // since their stored value no longer matches.
+  const FS_ESC_HINT_VERSION = "2";
+  const fsEscHint = document.getElementById("fsEscHint");
+  function fsEscHintSeen() {
+    try { return localStorage.getItem("retro8080.fsEscHintSeen") === FS_ESC_HINT_VERSION; } catch { return false; }
+  }
+  // Closing the dialog always means "go fullscreen now, and don't ask
+  // again" -- whether that's the "Got it" button or the browser's own
+  // native Escape-cancels-a-dialog behavior (a plain page dialog, not the
+  // fullscreen problem this hint is about; Escape closing it here is
+  // completely normal). Wiring both to the dialog's own "close" event
+  // instead of just the button's click covers either path identically.
+  document.getElementById("fsEscHintOk").addEventListener("click", () => fsEscHint.close());
+  fsEscHint.addEventListener("close", () => {
+    try { localStorage.setItem("retro8080.fsEscHintSeen", FS_ESC_HINT_VERSION); } catch {}
+    enterFullscreen();
+    if (poweredOn) screenEl.focus();
+  });
+  function updateFullscreenBtn() {
+    const label = isFullscreen() ? "Exit fullscreen" : "Fullscreen";
+    fullscreenBtn.title = label;
+    fullscreenBtn.setAttribute("aria-label", label);
+    // Re-grab keyboard focus on the way both in and out -- fullscreen
+    // transitions move focus to the bezel itself, and a real keyboard has
+    // no such thing as "the front panel has focus" (see screenEl's own
+    // click handler above). Skipped while the hint dialog is open so it
+    // doesn't fight the dialog's own focused "Got it" button.
+    if (poweredOn && !fsEscHint.open) screenEl.focus();
+  }
+  fullscreenBtn.addEventListener("click", () => {
+    if (isFullscreen()) {
+      (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+    } else if (fsEscHintSeen()) {
+      enterFullscreen();
+    } else {
+      // Show the hint first and wait for it to be dismissed -- see the
+      // dialog's own "close" listener above for what happens next. Not
+      // requestFullscreen()'d here: a first-time visitor should read this
+      // before the screen jumps, not have it appear after the fact.
+      fsEscHint.showModal();
+    }
+  });
+  document.addEventListener("fullscreenchange", updateFullscreenBtn);
+  document.addEventListener("webkitfullscreenchange", updateFullscreenBtn);
+  // Known limitation, not fixable from here: browsers reserve the real Esc
+  // key to exit fullscreen and never dispatch it to the page at all while
+  // doing so (confirmed live -- DOS gets nothing, it's not merely "also"
+  // exiting fullscreen). There's no way for page script to claim it back
+  // from the Fullscreen API. The Esc button in the bezel's corner (see
+  // #bezel [data-key] below) is the workaround: it injects the scancode
+  // directly, bypassing the native key event this problem lives in.
 
   // ---- floppy drives ------------------------------------------------
   // A real floppy is a mechanical slot: you can insert or eject one
@@ -611,7 +672,15 @@
   // keyboard has no Insert/PrintScreen/ScrollLock/Pause key at all, and no
   // discrete forward-Delete on laptops). A real keyboard sends nothing to a
   // powered-off machine, so these only work while running.
-  const fkeyButtons = Array.from(document.querySelectorAll('#fkeyRow [data-key], #extraKeyRow [data-key]'));
+  //
+  // #bezel's own [data-key] (escBtn) rides the same click-tap logic below
+  // for a different reason: it's not a key a Mac keyboard lacks, it's a key
+  // the *browser* lacks a way to deliver at all while fullscreen -- the
+  // Fullscreen API treats Esc as its own reserved exit gesture and never
+  // dispatches it to the page (confirmed live), so a physical Esc press
+  // can't reach the guest no matter what keyboard you have. Injecting the
+  // scancode straight from a click sidesteps the native key event entirely.
+  const fkeyButtons = Array.from(document.querySelectorAll('#fkeyRow [data-key], #extraKeyRow [data-key], #bezel [data-key]'));
   const ctrlAltDelBtn = document.getElementById('ctrlAltDelBtn');
   function refreshFkeyControls() {
     const enabled = poweredOn && !!machine;
