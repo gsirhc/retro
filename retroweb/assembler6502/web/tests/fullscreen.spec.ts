@@ -74,24 +74,17 @@ test.describe("fullscreen", () => {
     await page.locator("#fullscreenBtn").click();
     await expect.poll(() => page.evaluate(() => !!document.fullscreenElement)).toBe(true);
     // #screen is a <div> sized by inline pixel width/height (see
-    // sizeScreen()), not CSS -- fitScreenFullscreen() in app.js scales it
-    // up with a CSS transform instead. Checking the transform matrix
-    // itself (rather than diffing two boundingBox() snapshots) is what
-    // actually proves "no distortion": a uniform scale(s) has equal x/y
-    // factors by construction, whereas comparing rendered boxes taken
-    // before and after can pick up an unrelated few-pixel reflow (e.g. the
+    // sizeScreen()) -- entering fullscreen grows the terminal's own font
+    // size and resizes #screen to fill the bezel directly, not a CSS
+    // transform (a different machine's mechanism). Poll rather than diff a
+    // single before/after pair so an unrelated few-pixel reflow (e.g. the
     // page's own scrollbar disappearing once fullscreen hides the
-    // document) as if it were a real aspect-ratio change.
+    // document) can't be mistaken for the real change.
     await expect
       .poll(() => page.locator("#screen").boundingBox().then((b) => b!.width))
       .toBeGreaterThan(before!.width * 1.2);
-    const m = await page
-      .locator("#screen")
-      .evaluate((el) => new DOMMatrix(getComputedStyle(el).transform));
-    expect(m.a).toBeGreaterThan(1.2);   // real growth, not a no-op transform
-    expect(m.b).toBeCloseTo(0, 5);
-    expect(m.c).toBeCloseTo(0, 5);
-    expect(m.d).toBeCloseTo(m.a, 5);    // same factor on both axes -- uniform scale
+    const after = await page.locator("#screen").boundingBox();
+    expect(after!.height).toBeGreaterThan(before!.height * 1.2);   // both axes grew
   });
 
   test("the Esc button feeds a real Escape into the board's serial input", async ({ page }) => {
