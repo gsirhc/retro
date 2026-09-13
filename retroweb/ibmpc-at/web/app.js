@@ -3,19 +3,8 @@
   // ---- page theme (Win95 / mid-90s Mosaic web / Modern / Dark Modern) ---
   // Shared with every other page on the site via the retro8080.theme
   // localStorage key -- a theme picked here or on the landing page carries
-  // across. "moderndark" is Modern's layout with data-mode="dark" bolted on.
-  const pageTheme = document.getElementById("pageTheme");
-  const root = document.documentElement;
-  const THEME_VALUES = ["win", "web94", "modern", "moderndark"];
-  const applyTheme = (v) => {
-    if (!THEME_VALUES.includes(v)) v = "win";
-    if (v === "moderndark") { root.dataset.theme = "modern"; root.dataset.mode = "dark"; }
-    else { root.dataset.theme = v; delete root.dataset.mode; }
-    return v;
-  };
-  let storedTheme; try { storedTheme = localStorage.getItem("retro8080.theme"); } catch {}
-  pageTheme.value = applyTheme(
-    new URLSearchParams(location.search).get("theme") || storedTheme || root.dataset.theme || "win");
+  // across. See shared/theme-picker.js for the actual mechanism.
+  initThemePicker();
 
   // Automated-test-only CPU speed multiplier: `?test=1&fast=1`. A real visitor
   // has no control that reaches this -- it exists solely so the Playwright
@@ -29,10 +18,6 @@
   const testParams = new URLSearchParams(location.search);
   const TEST_CPU_MULTIPLIER =
     testParams.get("test") === "1" && testParams.get("fast") === "1" ? 20 : 1;
-  pageTheme.addEventListener("change", () => {
-    applyTheme(pageTheme.value);
-    try { localStorage.setItem("retro8080.theme", pageTheme.value); } catch {}
-  });
 
   // ---- keyboard: physical key -> real IBM AT Set 1 scan code -----------
   // i8042.h's inject_scancode() is a verbatim Set-1 pass-through (see its
@@ -132,91 +117,26 @@
   screenEl.addEventListener("keyup", (e) => { sendKey(e.code, true); e.preventDefault(); });
   screenEl.addEventListener("click", () => screenEl.focus());
 
-  // "Click to type" banner: shown only while running and the screen
-  // *doesn't* have keyboard focus -- easy to click a floppy bay or the
-  // theme picker and then start typing at the screen expecting it to go
-  // through, which silently goes nowhere until you click it back. Purely
-  // a web-UI convenience (a real AT keyboard has no such state), not
-  // something CLAUDE.md's realism rules govern -- same footing as the
-  // fullscreen button above. poweredOn is declared further down (used
-  // here only from event handlers that run after the whole script has
-  // executed, same forward-reference as updateFullscreenBtn() above).
-  const focusHintEl = document.getElementById("focusHint");
-  function updateFocusHint() {
-    focusHintEl.classList.toggle("visible", poweredOn && document.activeElement !== screenEl);
-  }
-  screenEl.addEventListener("focus", updateFocusHint);
-  screenEl.addEventListener("blur", updateFocusHint);
-
-  // ---- fullscreen -----------------------------------------------------
-  // Expands the bezel (CRT frame + vignette + power LED), not the bare
-  // canvas -- see the CSS comment by .bezel:fullscreen for why. A pure
-  // web-UI convenience with no real hardware to be faithful to.
-  const bezelEl = document.getElementById("bezel");
-  const fullscreenBtn = document.getElementById("fullscreenBtn");
-  function isFullscreen() {
-    return (document.fullscreenElement || document.webkitFullscreenElement) === bezelEl;
-  }
-  function enterFullscreen() {
-    (bezelEl.requestFullscreen || bezelEl.webkitRequestFullscreen).call(bezelEl);
-  }
-  // One-time "your Esc key won't reach DOS" hint, shown *before* fullscreen
-  // actually engages -- not shown again once seen, tracked the same way
-  // the theme picker remembers its own choice (localStorage, wrapped in
-  // try/catch: private browsing can throw on either call). The version
-  // string is the cache-bust: bump it whenever the hint's content changes
-  // meaningfully, and everyone who saw an older version sees it again,
-  // since their stored value no longer matches.
-  const FS_ESC_HINT_VERSION = "2";
-  const fsEscHint = document.getElementById("fsEscHint");
-  function fsEscHintSeen() {
-    try { return localStorage.getItem("retro8080.fsEscHintSeen") === FS_ESC_HINT_VERSION; } catch { return false; }
-  }
-  // Closing the dialog always means "go fullscreen now, and don't ask
-  // again" -- whether that's the "Got it" button or the browser's own
-  // native Escape-cancels-a-dialog behavior (a plain page dialog, not the
-  // fullscreen problem this hint is about; Escape closing it here is
-  // completely normal). Wiring both to the dialog's own "close" event
-  // instead of just the button's click covers either path identically.
-  document.getElementById("fsEscHintOk").addEventListener("click", () => fsEscHint.close());
-  fsEscHint.addEventListener("close", () => {
-    try { localStorage.setItem("retro8080.fsEscHintSeen", FS_ESC_HINT_VERSION); } catch {}
-    enterFullscreen();
-    if (poweredOn) screenEl.focus();
+  // "Click to type" banner and fullscreen mechanism: both purely web-UI
+  // conveniences (a real AT keyboard/monitor has no such state), not
+  // something CLAUDE.md's realism rules govern -- see shared/focus-hint.js
+  // and shared/fullscreen.js. poweredOn is declared further down; passing
+  // it as a predicate (not a captured value) lets these read its live
+  // value from event handlers that all run after the whole script has
+  // executed and poweredOn actually exists.
+  const isRunning = () => poweredOn;
+  const updateFocusHint = initFocusHint(screenEl, isRunning);
+  // escBtn/sendEscape omitted: #escBtn already rides the same [data-key]
+  // scancode-injection handling as the F-key row below (see its own
+  // comment), so fullscreen.js only needs to show/hide it via CSS.
+  initFullscreen({
+    bezelEl: document.getElementById("bezel"),
+    screenEl,
+    fullscreenBtn: document.getElementById("fullscreenBtn"),
+    fsEscHint: document.getElementById("fsEscHint"),
+    fsEscHintOkBtn: document.getElementById("fsEscHintOk"),
+    isRunning,
   });
-  function updateFullscreenBtn() {
-    const label = isFullscreen() ? "Exit fullscreen" : "Fullscreen";
-    fullscreenBtn.title = label;
-    fullscreenBtn.setAttribute("aria-label", label);
-    // Re-grab keyboard focus on the way both in and out -- fullscreen
-    // transitions move focus to the bezel itself, and a real keyboard has
-    // no such thing as "the front panel has focus" (see screenEl's own
-    // click handler above). Skipped while the hint dialog is open so it
-    // doesn't fight the dialog's own focused "Got it" button.
-    if (poweredOn && !fsEscHint.open) screenEl.focus();
-  }
-  fullscreenBtn.addEventListener("click", () => {
-    if (isFullscreen()) {
-      (document.exitFullscreen || document.webkitExitFullscreen).call(document);
-    } else if (fsEscHintSeen()) {
-      enterFullscreen();
-    } else {
-      // Show the hint first and wait for it to be dismissed -- see the
-      // dialog's own "close" listener above for what happens next. Not
-      // requestFullscreen()'d here: a first-time visitor should read this
-      // before the screen jumps, not have it appear after the fact.
-      fsEscHint.showModal();
-    }
-  });
-  document.addEventListener("fullscreenchange", updateFullscreenBtn);
-  document.addEventListener("webkitfullscreenchange", updateFullscreenBtn);
-  // Known limitation, not fixable from here: browsers reserve the real Esc
-  // key to exit fullscreen and never dispatch it to the page at all while
-  // doing so (confirmed live -- DOS gets nothing, it's not merely "also"
-  // exiting fullscreen). There's no way for page script to claim it back
-  // from the Fullscreen API. The Esc button in the bezel's corner (see
-  // #bezel [data-key] below) is the workaround: it injects the scancode
-  // directly, bypassing the native key event this problem lives in.
 
   // ---- floppy drives ------------------------------------------------
   // A real floppy is a mechanical slot: you can insert or eject one
@@ -282,22 +202,21 @@
   //
   // Output is a single, persistent AudioWorkletNode fed by a ring buffer,
   // not a chain of one-shot AudioBufferSourceNodes scheduled back-to-back
-  // per animation frame (an earlier version of this code did that). That
-  // approach turned out to be fundamentally fragile: even with perfectly
-  // gapless scheduling math, it depends on every rAF frame handing the
-  // audio thread its own freshly start()ed node exactly on time, and any
-  // main-thread hiccup (a GC pause, a big array copy) leaves the
-  // previously-scheduled node's audio simply running out with nothing
-  // queued behind it -- dead silence until the next node starts, which
-  // then jumps straight to a nonzero level. That gap-then-jump is an
-  // audible click, and enough of them in a row is exactly the "scratchy"
-  // artifact reported live (see IBM_PCAT_REVIEW.md). A worklet's process()
-  // callback runs continuously on the real-time audio thread regardless of
-  // what the main thread is doing; feeding it through a ring buffer means
-  // a brief stall just holds the last sample level (silent, no discontinuity)
+  // per animation frame -- that shape is fundamentally fragile: even with
+  // perfectly gapless scheduling math, it depends on every rAF frame
+  // handing the audio thread its own freshly start()ed node exactly on
+  // time, and any main-thread hiccup (a GC pause, a big array copy) leaves
+  // the currently-scheduled node's audio running out with nothing queued
+  // behind it -- dead silence until the next node starts, which then jumps
+  // straight to a nonzero level. That gap-then-jump is an audible click,
+  // and enough of them in a row is exactly the "scratchy" artifact
+  // reported live (see IBM_PCAT_REVIEW.md). A worklet's process() callback
+  // runs continuously on the real-time audio thread regardless of what the
+  // main thread is doing; feeding it through a ring buffer means a brief
+  // stall just holds the last sample level (silent, no discontinuity)
   // until the main thread catches up and posts more data, rather than
-  // clicking. It also drops the whole nextPlayTime/resync bookkeeping the
-  // old approach needed, since there's no scheduling clock to keep in sync.
+  // clicking. It also needs no nextPlayTime/resync bookkeeping, since
+  // there's no scheduling clock to keep in sync.
   const speakerCheckbox = document.getElementById("speakerEnabled");
   speakerCheckbox.checked = false;
   let audioCtx = null, speakerNode = null, lastLevel = false;
@@ -599,6 +518,18 @@
   let gdriveTokenExpiry = 0;      // ms epoch
   let gdriveFileId = null;        // Drive file ID, once known, to skip a find-by-name lookup
   let gdriveBusy = false;
+  // Tracks "has C: changed since the last successful Google sync", separate
+  // from machine.hddDirty() -- that C++ bit is a single shared flag also
+  // consumed by the 5s-interval local IndexedDB autosave (persistHddIfDirty()
+  // below), which clears it on every tick. Since 5s << the 10-minute Google
+  // interval, the local autosave was winning that race essentially every
+  // time, so hddDirty() almost always read false by the time the Google
+  // timer checked it and auto-sync silently never fired. persistHddIfDirty()
+  // mirrors a true reading into this flag *before* clearing the shared one;
+  // gdriveSyncBytes() clears it again only once an upload actually succeeds,
+  // so a failed attempt naturally retries on the next tick instead of being
+  // forgotten.
+  let gdrivePendingSync = false;
   let gdriveCancelReject = null;      // rejects the in-flight sign-in wait, if any
   let gdriveAbortController = null;   // aborts the in-flight Drive fetch(es), if any
   const gdriveSyncBtn = document.getElementById("gdriveSyncBtn");
@@ -852,6 +783,7 @@
         if (existing) gdriveFileId = existing.id;
       }
       gdriveFileId = await gdriveUpload(bytes, gdriveFileId, token, signal);
+      gdrivePendingSync = false;   // only cleared once the upload actually lands
       gdriveSetStatus("Synced at " + new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
     });
   }
@@ -920,7 +852,10 @@
   // background timer firing a Google login popup unprompted would be a bad
   // surprise, and browsers would likely block it anyway (no user gesture).
   setInterval(() => {
-    if (gdriveConnectedFlag() && machine && machine.hddDirty()) {
+    // gdrivePendingSync, not machine.hddDirty() -- see its declaration above
+    // for why the raw flag can't be trusted here (the 5s local autosave
+    // consumes it long before this 10-minute tick ever runs).
+    if (gdriveConnectedFlag() && machine && gdrivePendingSync) {
       gdriveSyncBytes(machine.hddImage(), false);
     }
   }, 10 * 60 * 1000);
@@ -1067,6 +1002,7 @@
   // once at a clean power-off nobody reliably triggers by hand.
   function persistHddIfDirty() {
     if (!machine || !machine.hddDirty()) return;
+    gdrivePendingSync = true;   // mirror the signal before clearing the shared bit below
     savedHdd = machine.hddImage();
     machine.clearHddDirty();
     hddLabel = "saved state (changes from this session)";
@@ -1080,8 +1016,14 @@
     // before machine is nulled out just after) -- both this and the local
     // IndexedDB save need "was there anything new" and "what were the
     // actual bytes" answered from the still-live machine, not asked again
-    // afterward when there's nothing left to ask.
-    const hadUnsyncedChanges = !!(machine && machine.hddDirty());
+    // afterward when there's nothing left to ask. Checks gdrivePendingSync
+    // too, not just the live machine.hddDirty() -- a write from more than
+    // 5s ago already had the raw flag cleared by the local autosave tick
+    // (see gdrivePendingSync's declaration above), so relying on
+    // machine.hddDirty() alone here would miss exactly the common case
+    // where the visitor made changes and then powered off well after the
+    // next autosave tick.
+    const hadUnsyncedChanges = gdrivePendingSync || !!(machine && machine.hddDirty());
     const bytesForGdrive = machine ? machine.hddImage() : null;
     persistHddIfDirty();
     if (gdriveConnectedFlag() && hadUnsyncedChanges && bytesForGdrive) {

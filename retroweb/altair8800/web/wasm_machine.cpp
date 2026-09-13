@@ -55,7 +55,13 @@ public:
         sio_.on_irq = [this] { if (cpu_.interrupt(0xFF)) int_seen_ = true; };
     }
 
-    // Wipe RAM and re-seed the built-in echo program.
+    // Wipe RAM and re-seed the built-in echo program. Zeroed, not garbage: this
+    // is the generic "power on, about to load something" reset every preset
+    // and ROM/tape image is built and tested against -- only bootDisk()'s
+    // turnkey CP/M-style boot (below) gets the realistic garbage fill, since
+    // that's the one path where "what's sitting in memory nobody has claimed
+    // yet" is actually the point (ALTAIR_REVIEW.md follow-up: RAM power-on
+    // content).
     void reset() {
         mem_.fill(0);
         rom_lo_ = 0x10000; rom_hi_ = 0;
@@ -142,7 +148,11 @@ public:
 
     // Put the 88-DCDD bootstrap PROM at 0xFF00 (read-only) without touching RAM
     // or the CPU -- so EXAMINE 0FF00h / RUN on the panel finds real boot code,
-    // exactly as it would on a machine with the DCDD controller fitted.
+    // exactly as it would on a machine with the DCDD controller fitted. RAM
+    // itself is garbage-filled separately, by randomizeMemory() below, at the
+    // point a disk-equipped preset is powered on -- not here, since fitting
+    // (or re-mapping) the boot ROM on an already-running machine must not
+    // retroactively scramble whatever's already in RAM.
     void mapDiskBoot() {
         for (int i = 0; i < 256; ++i)
             mem_[altair::kDiskBootAddr + i] = altair::kDiskBootRom[i];
@@ -150,10 +160,40 @@ public:
         if (rom_hi_ < altair::kDiskBootAddr + 255) rom_hi_ = altair::kDiskBootAddr + 255;
     }
 
+    // Real S-100 memory boards (88-4MCS static RAM, 88-4MCD/88-16MCD dynamic
+    // RAM) never powered up blank -- an unpowered SRAM flip-flop settles into
+    // whatever its fabrication bias favors, and a DRAM cell starts with
+    // whatever stray charge (or none) happened to be on its capacitor. Either
+    // way it's indeterminate, not a clean 0x00 fill (the same point already
+    // made for register contents in Cpu::reset()). A fixed seed keeps that
+    // garbage byte-for-byte reproducible across runs -- plausible in its own
+    // right (a given board's bias tends to repeat power-on to power-on) and
+    // necessary so tests aren't chasing a moving target.
+    //
+    // Called for disk-equipped presets right after reset() (JS side, once
+    // devices are known), and by bootDisk() below -- reset()/clearMemory()
+    // themselves stay zeroed since every ROM/tape image (echo, hello,
+    // killbits, 4K/8K BASIC) is built and tested against a clean slate.
+    //
+    // Re-seeds the echo ROM at the end: reset() already dropped it at address
+    // 0 so the machine is never just inert before the operator does anything
+    // (every preset relies on that), and this blanket fill would otherwise
+    // paint straight over it -- the CPU is already running from PC=0 by the
+    // time JS calls this, and real garbage there means an immediate, near-
+    // certain HALT on whatever 0x76 byte the fill happens to land on.
+    void randomizeMemory() {
+        uint32_t x = 0x1975A17A;   // MITS Altair, 1975 -- arbitrary fixed seed
+        for (auto &b : mem_) {
+            x ^= x << 13; x ^= x >> 17; x ^= x << 5;   // xorshift32
+            b = static_cast<uint8_t>(x);
+        }
+        load_default_rom();
+    }
+
     // Turnkey disk boot: drop the MITS 88-DCDD bootstrap PROM at 0xFF00 and
     // start there, exactly like flipping EXAMINE 0FF00h / RUN on the panel.
     void bootDisk() {
-        mem_.fill(0);
+        randomizeMemory();
         for (int i = 0; i < 256; ++i)
             mem_[altair::kDiskBootAddr + i] = altair::kDiskBootRom[i];
         rom_lo_ = altair::kDiskBootAddr;
@@ -381,6 +421,7 @@ EMSCRIPTEN_BINDINGS(retro8080) {
         .function("reboot",      &Machine::reboot)
         .function("bootDisk",    &Machine::bootDisk)
         .function("mapDiskBoot", &Machine::mapDiskBoot)
+        .function("randomizeMemory", &Machine::randomizeMemory)
         .function("mountDisk",   &Machine::mountDisk)
         .function("unmountDisk", &Machine::unmountDisk)
         .function("diskPresent", &Machine::diskPresent)

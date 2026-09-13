@@ -13,7 +13,10 @@
 <link rel="stylesheet" href="vendor/xterm.css">
 <!-- apply the shared site theme before first paint, so there's no flash of
      the wrong theme (matches retroweb/index.html's own inline snippet) -->
-<script>try{var t=localStorage.getItem("retro8080.theme")||"win",r=document.documentElement;if(t=="moderndark"){r.dataset.theme="modern";r.dataset.mode="dark";}else{r.dataset.theme=t;}}catch(e){}</script>
+<script src="shared/theme-init.js"></script>
+<link rel="stylesheet" href="shared/pagebar.css">
+<link rel="stylesheet" href="shared/fullscreen.css">
+<link rel="stylesheet" href="shared/focus-hint.css">
 <style>
   @font-face {
     font-family: "VT323";
@@ -41,6 +44,7 @@
   :root {
     --desktop:   #008080;
     --page-bg:   #c0c0c0;
+    --page-max:  1180px;
     --page-border: 3px outset #dfdfdf;
     --page-radius: 0;
     --page-shadow: none;
@@ -90,6 +94,7 @@
     --body-font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     --text:      #1b1e24;
     --dim:       #6b7280;
+    --muted:     #6b7280;
     --link:      #4f46e5;
     --titlebar-display: none;
     --titlebar-bg: #f6f7f9;
@@ -121,6 +126,7 @@
     --page-shadow: 0 1px 2px rgba(0,0,0,.4), 0 16px 44px rgba(0,0,0,.55);
     --text:      #d8dbe2;
     --dim:       #8a90a0;
+    --muted:     #8a90a0;
     --link:      #5fd0ff;
     --titlebar-bg: #1b1e25;
     --titlebar-fg: #d8dbe2;
@@ -137,14 +143,11 @@
     --warn:         #ff7a7a;
   }
 
-  * { box-sizing: border-box; }
-  html, body { margin: 0; }
-  body {
-    background: var(--desktop);
-    color: var(--text);
-    font: 14px/1.5 var(--body-font);
-    padding: var(--body-pad);
-  }
+  /* box-sizing reset, body/page-shell rules, .page, and the pagebar/pb-*
+     chrome all now live in shared/pagebar.css (linked in <head> above) --
+     shared verbatim across every machine page (this page's own values all
+     matched already, so no local override deltas are needed here, unlike
+     altair8800's -- see its own copy of this comment). */
   :root:not([data-theme]) body {
     /* the inline head script always sets data-theme before first paint;
        this only covers JS being disabled entirely -- fall back to the dark
@@ -152,68 +155,6 @@
        unstyled white flash. */
     background: #0e0f12; color: #d8dbe2;
   }
-  a { color: var(--link); }
-  h1, h2, h3 { font-weight: 600; }
-
-  .page {
-    max-width: 1180px; margin: 0 auto;
-    background: var(--page-bg);
-    border: var(--page-border);
-    border-radius: var(--page-radius);
-    box-shadow: var(--page-shadow);
-    overflow: hidden;   /* keeps the pagebar's own top corners inside the radius */
-  }
-
-  /* ---- pagebar: Win95 title bar / web94 plain strip / modern nav --------
-     same component + token pattern as retroweb/altair8800/web/index.html */
-  .pagebar {
-    display: flex; align-items: center; gap: 10px;
-    background: var(--titlebar-bg); color: var(--titlebar-fg);
-    font: bold 13px Arial, Helvetica, sans-serif;
-    padding: 4px 8px;
-  }
-  .pagebar a { color: inherit; }
-  .pb-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .pb-home { flex: 0 0 auto; display: none; text-decoration: none; font-weight: bold; }
-  .pb-name, .pb-tag { display: none; }
-  .pb-tools { flex: 0 0 auto; margin-left: auto; display: flex; align-items: center; gap: 10px; }
-  .pb-theme { display: inline-flex; align-items: center; gap: 5px; font: inherit; }
-  .pb-theme select {
-    font: 11px Arial, Helvetica, sans-serif;
-    color: var(--text); background: var(--field-bg);
-    border: var(--field-border); border-radius: var(--btn-radius);
-    padding: 1px 3px;
-  }
-  .pb-winbtns span, .pb-winbtns a {
-    display: inline-block; width: 16px; height: 14px; line-height: 12px;
-    margin-left: 2px; text-align: center; font-size: 10px;
-    color: #000; background: #c0c0c0; border: 1px outset #dfdfdf;
-    text-decoration: none;
-  }
-  :root[data-theme="web94"] .pagebar {
-    background: #c0c0c0; color: #000;
-    border-bottom: 1px solid #808080;
-    font: 13px "Times New Roman", Times, serif;
-  }
-  :root[data-theme="web94"] .pb-winbtns { display: none; }
-  :root[data-theme="web94"] .pb-home { display: inline; color: #0000ff; text-decoration: underline; font-weight: normal; }
-  :root[data-theme="web94"] .pb-home:visited { color: #800080; }
-
-  :root[data-theme="modern"] .pagebar {
-    background: var(--titlebar-bg); color: var(--titlebar-fg);
-    border-bottom: 1px solid #ecedf1; border-radius: 14px 14px 0 0;
-    font: 500 13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    padding: 10px 16px;
-  }
-  :root[data-theme="modern"][data-mode="dark"] .pagebar { border-bottom-color: #2c3038; }
-  :root[data-theme="modern"] .pb-winbtns { display: none; }
-  :root[data-theme="modern"] .pb-home { display: inline; color: var(--link); text-decoration: none; font-weight: 600; font-size: 12px; opacity: .85; }
-  :root[data-theme="modern"] .pb-name { display: block; flex: 0 0 auto; margin-left: 2px; font-weight: 700; font-size: 15px; letter-spacing: .3px; color: var(--h1-color); }
-  :root[data-theme="modern"] .pb-tag { display: block; flex: 1 1 auto; min-width: 0; color: var(--dim); font-size: 12px; font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  @media (max-width: 700px) { :root[data-theme="modern"] .pb-tag { display: none; } }
-
-  .inner { padding: 16px 20px 20px; }
-  :root[data-theme="win"] .inner, :root[data-theme="web94"] .inner { padding: 14px 22px 22px; }
 
   h1 { margin: 4px 0 0; text-align: center; font: var(--h1-font); letter-spacing: .5px; color: var(--h1-color); text-shadow: var(--h1-shadow); }
   :root[data-theme="modern"] h1 {
@@ -426,7 +367,7 @@
 <div class="page">
   <header class="pagebar">
     <a class="pb-home" href="../">&#8592;&nbsp;All&nbsp;machines</a>
-    <span class="pb-title">&#9635; ASSEMBLER6502.EXE &mdash; [W65C02S Single-Board Computer]</span>
+    <span class="pb-title"><img class="pb-icon" src="assets/favicon-32.png" alt="" aria-hidden="true"> ASSEMBLER6502.EXE &mdash; [W65C02S Single-Board Computer]</span>
     <span class="pb-name">6502 Assembler</span>
     <span class="pb-tag">WDC W65C02S &middot; 1&nbsp;MHz &middot; running entirely in your browser</span>
     <span class="pb-tools">
@@ -473,9 +414,26 @@
           <div id="screen"></div>
           <div class="crt-overlay"></div>
           <span class="power-led"></span>
+          <div class="focus-hint" id="focusHint" aria-hidden="true">Click to focus</div>
+          <div class="bezel-controls">
+            <button type="button" id="escBtn" class="bezel-btn"
+                    title="Send Esc -- your Esc key exits fullscreen instead, without reaching the terminal">Esc</button>
+            <button type="button" id="fullscreenBtn" class="bezel-btn" title="Fullscreen" aria-label="Fullscreen">&#x26F6;</button>
+          </div>
         </div>
       </div>
     </div>
+
+    <dialog id="fsEscHint">
+      <h2>Before you go fullscreen</h2>
+      <p>Your Esc key exits fullscreen instead of reaching the terminal --
+        browsers reserve it for that. Use the <strong>Esc</strong> button next
+        to the fullscreen button, in the screen's own corner, to send Esc to
+        the board instead.</p>
+      <div class="row">
+        <button type="button" id="fsEscHintOk" autofocus>Got it, go fullscreen</button>
+      </div>
+    </dialog>
 
     <div class="panel pcb-panel" id="pcbCard">
       <h2>Board layout</h2>
@@ -1025,6 +983,9 @@
 <script src="lcdfont.js"></script>
 <script src="cgoac6502.js"></script>
 <script src="roms/entrypoints.js"></script>
+<script src="shared/theme-picker.js"></script>
+<script src="shared/fullscreen.js"></script>
+<script src="shared/focus-hint.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

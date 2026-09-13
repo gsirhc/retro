@@ -108,12 +108,15 @@ test.describe("front panel", () => {
     expect(await page.evaluate(() => (window as any).__test.regs().pc)).toBeDefined();
   });
 
+  // The page's own boot() test helper flips power ON for the rest of the
+  // suite's convenience (see helpers.ts); the raw front end starts powered
+  // off, like a real Altair you've just walked up to -- covered separately
+  // below without going through that helper.
   test("power OFF halts the machine and darkens every lamp", async ({ page }) => {
     await boot(page);
-    // the paddle throws like the real Altair: ball up = ON (boots powered)
     const batDown = () =>
       page.evaluate(() => document.querySelector("#altair .fp-power .bat")!.classList.contains("down"));
-    expect(await batDown()).toBe(false);
+    expect(await batDown()).toBe(false);   // boot() already flipped it ON (ball up)
     await page.evaluate(() => {
       const cell = document.querySelector<HTMLElement>("#altair .fp-power.paddle");
       cell?.click();
@@ -126,6 +129,31 @@ test.describe("front panel", () => {
         return l.addr + l.data + Object.values(l.status).filter(Boolean).length;
       })
       .toBe(0);
+  });
+
+  test("the machine starts powered off, like a real Altair you've just walked up to", async ({
+    page,
+  }) => {
+    await page.goto("/?test=1");   // no boot() helper -- its power-on convenience is the thing under test
+    await page.waitForFunction(() => !!(window as any).__test?.machine, null, { timeout: 15_000 });
+    expect(await page.evaluate(() => (window as any).__test.running)).toBe(false);
+    const batDown = () =>
+      page.evaluate(() => document.querySelector("#altair .fp-power .bat")!.classList.contains("down"));
+    expect(await batDown()).toBe(true);   // ball down = OFF, out of the box
+    await expect
+      .poll(async () => {
+        const l = await leds(page);
+        return l.addr + l.data + Object.values(l.status).filter(Boolean).length;
+      })
+      .toBe(0);   // every lamp dark -- nothing is running to light them
+
+    // flip it on: the built-in echo ROM starts running, same as any other preset
+    await page.evaluate(() => {
+      const cell = document.querySelector<HTMLElement>("#altair .fp-power.paddle");
+      cell?.click();
+    });
+    await panelRun(page);
+    await expect.poll(() => page.evaluate(() => (window as any).__test.running)).toBe(true);
   });
 
   test("HLTA status LED lights when the CPU halts", async ({ page }) => {

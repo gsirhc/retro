@@ -44,15 +44,16 @@ void Fdc765::mount(int drive, const uint8_t *data, std::size_t len) {
     // physically cannot read high-density media at all (different magnetic
     // coercivity) -- but this emulator doesn't enforce that rejection (see
     // the file header's scope note: images arrive pre-formatted, no
-    // physical media-compatibility checks). Previously this branched on
-    // `drive` alone, so a 360KB image mounted in A: kept the drive's own
-    // 80/2/15 geometry regardless -- CHS math beyond the very first sector
-    // (offset 0 under any geometry) landed on the wrong bytes or ran past
-    // the image entirely, which chipset.cpp's DMA path silently treats as
-    // "transfer completed, zero bytes moved" rather than a real disk
-    // error -- IO.SYS's own loader would appear to succeed and then jump
-    // into garbage, hanging exactly where a real boot would instead get a
-    // real controller error it could act on.
+    // physical media-compatibility checks). Branching on `drive` alone,
+    // rather than the actual mounted image, would keep a 360KB image
+    // mounted in A: on the drive's own 80/2/15 geometry regardless -- CHS
+    // math beyond the very first sector (offset 0 under any geometry)
+    // would land on the wrong bytes or run past the image entirely, which
+    // chipset.cpp's DMA path silently treats as "transfer completed, zero
+    // bytes moved" rather than a real disk error -- IO.SYS's own loader
+    // would appear to succeed and then jump into garbage, hanging exactly
+    // where a real boot would instead get a real controller error it
+    // could act on.
     if (len <= 368640) {
         // 360KB: 40 cyl / 2 head / 9 sec/track, 250 kbit/s, ~6ms/track step.
         d.cylinders = 40; d.heads = 2; d.sectors_per_track = 9;

@@ -136,6 +136,7 @@ test.describe("the reader's START button (authentic hand-load path)", () => {
     // key the ~40-byte serial loader in by hand (the guide writes the bytes + sets PC)
     await page.click("#pgToggle");
     await page.click("#pgKeyin");
+    await expect(page.locator("#pgKeyin")).toBeEnabled({ timeout: 10_000 });
     // run the loader we just keyed in, then start the reader motor
     await page.evaluate(() => (window as any).__test.setRunning(true));
     await page.click("#ptr .ptr-start");

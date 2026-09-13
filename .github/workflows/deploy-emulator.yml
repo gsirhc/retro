@@ -93,7 +93,7 @@ jobs:
           version: latest
 
       - working-directory: retroweb/altair8800/web
-        run: make retro8080.js roms
+        run: make retro8080.js roms shared
 
       - uses: ./.github/actions/fetch-altair-media
 
@@ -143,7 +143,7 @@ jobs:
           version: latest
 
       - working-directory: retroweb/assembler6502/web
-        run: make wasm roms examples-bin
+        run: make wasm roms examples-bin shared
 
       - uses: actions/setup-node@v4
         with:
@@ -249,7 +249,7 @@ jobs:
 
       # wasm module + generated ROM images
       - working-directory: retroweb/altair8800/web
-        run: make retro8080.js roms
+        run: make retro8080.js roms shared
 
       # ship a ready-to-run machine: Altair 4K/8K BASIC + CP/M 2.2, pinned +
       # checksummed, fetched into the Pages artifact so users need supply nothing.
@@ -261,7 +261,7 @@ jobs:
       # in web/examples/ -- `site` itself only copies web/, it doesn't build
       # anything (see retroweb/Makefile's own `_stage` vs `site` split).
       - working-directory: retroweb/assembler6502/web
-        run: make wasm roms examples-bin
+        run: make wasm roms examples-bin shared
 
       # IBM PC/AT: BIOS/VGA-BIOS ROMs (fetched, checksummed) are cheap; the
       # shipped FreeDOS HDD image is built by actually running the real
@@ -286,7 +286,7 @@ jobs:
       # or just-built) native disks/freedos-hdd.img into web/disks/, it
       # doesn't rebuild it (see web/Makefile).
       - working-directory: retroweb/ibmpc-at/web
-        run: make ibmpcat.js roms hdd-image
+        run: make ibmpcat.js roms hdd-image shared
 
       # stage the site: retroweb/index.html at the root, the Altair front end
       # at /altair8800/, 6502 Assembler at /assembler6502/, IBM PC/AT at /ibmpc-at/

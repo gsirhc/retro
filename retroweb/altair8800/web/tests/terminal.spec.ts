@@ -12,7 +12,6 @@ const profile = (page) =>
       fontFamily: t.options.fontFamily,
       bezel: bezel.className,
       monitor: monitor.className,
-      crtDisabled: (document.getElementById("crt") as HTMLInputElement).disabled,
       stored: localStorage.getItem("retro8080.term"),
     };
   });
@@ -44,14 +43,6 @@ test.describe("terminal profiles", () => {
     });
   }
 
-  test("modern profile disables the CRT toggle; a CRT profile enables it", async ({ page }) => {
-    await boot(page);
-    await selectTerm(page, "modern");
-    expect((await profile(page)).crtDisabled).toBe(true);
-    await selectTerm(page, "vt100g");
-    expect((await profile(page)).crtDisabled).toBe(false);
-  });
-
   test("vt100a adds the amber monitor class", async ({ page }) => {
     await boot(page);
     await selectTerm(page, "vt100a");
@@ -70,18 +61,6 @@ test.describe("terminal profiles", () => {
     p = await profile(page);
     expect(p.monitor).toMatch(/bare/);
     expect(p.monitor).not.toMatch(/scrolls/);
-  });
-
-  test("CRT toggle flips the crt-off class", async ({ page }) => {
-    await boot(page);
-    await selectTerm(page, "vt100g");
-    expect((await profile(page)).bezel).not.toMatch(/crt-off/);
-    await page.uncheck("#crt");
-    await page.waitForTimeout(100);
-    expect((await profile(page)).bezel).toMatch(/crt-off/);
-    await page.check("#crt");
-    await page.waitForTimeout(100);
-    expect((await profile(page)).bezel).not.toMatch(/crt-off/);
   });
 
   test("CAPS LOCK forces uppercase into the machine", async ({ page }) => {

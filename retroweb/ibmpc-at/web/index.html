@@ -12,7 +12,10 @@
 <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
 <!-- apply the shared site theme before first paint, so there's no flash of
      the wrong theme (matches retroweb/index.html's own inline snippet) -->
-<script>try{var t=localStorage.getItem("retro8080.theme")||"win",r=document.documentElement;if(t=="moderndark"){r.dataset.theme="modern";r.dataset.mode="dark";}else{r.dataset.theme=t;}}catch(e){}</script>
+<script src="shared/theme-init.js"></script>
+<link rel="stylesheet" href="shared/pagebar.css">
+<link rel="stylesheet" href="shared/fullscreen.css">
+<link rel="stylesheet" href="shared/focus-hint.css">
 <!-- Google Identity Services -- the OAuth token client the "Sync to
      Google" hard-disk feature uses (see app.js's "Google Drive sync"
      section). Loaded async/defer since nothing on the page needs it before
@@ -64,8 +67,6 @@
     --statusline-bg:     #0b1a10;
     --statusline-fg:     #6bffa0;
     --statusline-border: #05100a;
-    --altair-bg:     #050505;
-    --altair-radius: 0;
     --accent2:      #008000;
     --warn:         #c00000;
   }
@@ -118,8 +119,6 @@
     --statusline-bg:     #f3f4f6;
     --statusline-fg:     #363b43;
     --statusline-border: #e4e6ea;
-    --altair-bg:     #16181c;
-    --altair-radius: 14px;
     --muted:         #6b7280;
     --accent2:      #0a8f4c;
     --warn:         #d1435b;
@@ -150,19 +149,15 @@
     --statusline-bg:     #17181d;
     --statusline-fg:     #9aa0aa;
     --statusline-border: #2c2f37;
-    --altair-bg:     #0c0d10;
     --accent2:      #33ff88;
     --warn:         #ff7a7a;
   }
 
-  * { box-sizing: border-box; }
-  html, body { margin: 0; }
-  body {
-    background: var(--desktop);
-    color: var(--text);
-    font: 14px/1.5 var(--body-font);
-    padding: var(--body-pad);
-  }
+  /* box-sizing reset, body/page-shell rules, .page, and the pagebar/pb-*
+     chrome all now live in shared/pagebar.css (linked in <head> above) --
+     shared verbatim across every machine page. Only this page's own token
+     *values* above, and rules referencing something shared/pagebar.css
+     doesn't know about, stay here. */
   :root:not([data-theme]) body {
     background: #0e0f12; color: #d8dbe2;
   }
@@ -173,78 +168,6 @@
     color: #000;
     font-family: "Times New Roman", Times, serif;
   }
-  a { color: var(--link); }
-  h1, h2, h3 { font-weight: 600; }
-
-  .page {
-    max-width: var(--page-max); margin: 0 auto;
-    background: var(--page-bg);
-    border: var(--page-border);
-    border-radius: var(--page-radius);
-    box-shadow: var(--page-shadow);
-    overflow: hidden;
-  }
-  /* Modern theme goes almost full page width, matching altair8800/
-     assembler6502's own widened-modern-theme treatment. */
-  :root[data-theme="modern"] { --page-max: min(1600px, 95vw); }
-
-  .pagebar {
-    display: flex; align-items: center; gap: 10px;
-    background: var(--titlebar-bg); color: var(--titlebar-fg);
-    font: bold 13px Arial, Helvetica, sans-serif;
-    padding: 4px 8px;
-  }
-  .pagebar a { color: inherit; }
-  .pb-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  /* The classic Windows-title-bar app icon -- real Windows 95/period
-     browsers always showed one to the left of the window title, so this
-     replaces the old plain glyph placeholder with the site's actual icon.
-     Hidden for the modern theme, which uses .pb-name/.pb-tag instead (see
-     their own display:none default / modern-only display:block below) and
-     has no equivalent "titlebar icon" slot -- same per-theme visibility
-     pattern already used for .pb-winbtns just below. */
-  .pb-icon { width: 14px; height: 14px; vertical-align: -2px; margin-right: 3px; }
-  :root[data-theme="modern"] .pb-icon { display: none; }
-  .pb-home { flex: 0 0 auto; display: none; text-decoration: none; font-weight: bold; }
-  .pb-name, .pb-tag { display: none; }
-  .pb-tools { flex: 0 0 auto; margin-left: auto; display: flex; align-items: center; gap: 10px; }
-  .pb-theme { display: inline-flex; align-items: center; gap: 5px; font: inherit; }
-  .pb-theme select {
-    font: 11px Arial, Helvetica, sans-serif;
-    color: var(--text); background: var(--field-bg);
-    border: var(--field-border); border-radius: var(--btn-radius);
-    padding: 1px 3px;
-  }
-  .pb-winbtns span, .pb-winbtns a {
-    display: inline-block; width: 16px; height: 14px; line-height: 12px;
-    margin-left: 2px; text-align: center; font-size: 10px;
-    color: #000; background: #c0c0c0; border: 1px outset #dfdfdf;
-    text-decoration: none;
-  }
-  :root[data-theme="web94"] .pagebar {
-    background: #c0c0c0; color: #000;
-    border-bottom: 1px solid #808080;
-    font: 13px "Times New Roman", Times, serif;
-  }
-  :root[data-theme="web94"] .pb-winbtns { display: none; }
-  :root[data-theme="web94"] .pb-home { display: inline; color: #0000ff; text-decoration: underline; font-weight: normal; }
-  :root[data-theme="web94"] .pb-home:visited { color: #800080; }
-
-  :root[data-theme="modern"] .pagebar {
-    background: var(--titlebar-bg); color: var(--titlebar-fg);
-    border-bottom: 1px solid #ecedf1; border-radius: 14px 14px 0 0;
-    font: 500 13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    padding: 10px 16px;
-  }
-  :root[data-theme="modern"][data-mode="dark"] .pagebar { border-bottom-color: #2c3038; }
-  :root[data-theme="modern"] .pb-winbtns { display: none; }
-  :root[data-theme="modern"] .pb-home { display: inline; color: var(--link); text-decoration: none; font-weight: 600; font-size: 12px; opacity: .85; }
-  :root[data-theme="modern"] .pb-name { display: block; flex: 0 0 auto; margin-left: 2px; font-weight: 700; font-size: 15px; letter-spacing: .3px; color: var(--h1-color); }
-  :root[data-theme="modern"] .pb-tag { display: block; flex: 1 1 auto; min-width: 0; color: var(--dim); font-size: 12px; font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  @media (max-width: 700px) { :root[data-theme="modern"] .pb-tag { display: none; } }
-
-  .inner { padding: 16px 20px 20px; }
-  :root[data-theme="win"] .inner, :root[data-theme="web94"] .inner { padding: 14px 22px 22px; }
 
   h1 { margin: 4px 0 0; text-align: center; font: var(--h1-font); letter-spacing: .5px; color: var(--h1-color); text-shadow: var(--h1-shadow); }
   :root[data-theme="modern"] h1 {
@@ -290,24 +213,10 @@
   .filebtn { position: relative; overflow: hidden; display: inline-block; }
   .filebtn input[type=file] { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; }
 
-  /* One-time hint shown the first time anyone hits Fullscreen -- a plain
-     <dialog> promotes to the browser's top layer, the same layer
-     fullscreen elements use, so it renders above the fullscreened bezel
-     rather than being covered by it (see app.js). Styled from the same
-     panel/button theme tokens as everything else so it matches whichever
-     of the four themes is active instead of looking like a foreign popup. */
-  #fsEscHint {
-    max-width: 340px; padding: 16px 18px 18px;
-    background: var(--panel-bg); color: var(--text);
-    border: var(--panel-border); border-radius: var(--panel-radius);
-  }
-  #fsEscHint::backdrop { background: rgba(0,0,0,.55); }
-  #fsEscHint h2 {
-    margin: 0 0 10px; font: bold 13px Arial, Helvetica, sans-serif;
-    text-transform: none; letter-spacing: normal; color: var(--text);
-  }
-  #fsEscHint p { margin: 0 0 14px; font-size: 12px; color: var(--dim); line-height: 1.5; }
-  #fsEscHint .row { justify-content: flex-end; }
+  /* #fsEscHint, .focus-hint, and the #bezel:fullscreen/.bezel-controls/
+     .bezel-btn/#escBtn fullscreen mechanism all now live in
+     shared/fullscreen.css and shared/focus-hint.css (linked in <head>
+     above) -- shared verbatim across every machine page. */
 
   /* ---- CRT monitor -- photoreal hardware, not page chrome, in every theme */
   .monitor { width: max-content; max-width: 100%; margin: 0 auto; }
@@ -349,74 +258,7 @@
     background: #33ff66; box-shadow: 0 0 6px 2px rgba(51,255,102,.8), 0 0 0 1px #0a2a15;
   }
   #screen:focus { outline: none; }
-  /* Shown only while the machine is running and the canvas *doesn't* have
-     keyboard focus (app.js's updateFocusHint()) -- a real AT keyboard is
-     always "connected", so there's no hardware equivalent of this at all;
-     it exists purely because a page can have several focusable controls
-     and it's easy to click a bay/switch and then start typing at the
-     screen, which silently goes nowhere until you click it. Full-width so
-     it reads as a banner rather than a floating label -- flush to the
-     bezel's own edges, so no fullscreen-specific inset override is needed
-     the way .crt-overlay needs one. pointer-events none so it never steals
-     the click meant to focus the screen underneath it. */
-  .focus-hint {
-    position: absolute; left: 0; right: 0; bottom: 0; z-index: 6;
-    padding: 6px 0; text-align: center; pointer-events: none;
-    background: rgba(230,126,34,.55); color: #fff; font-size: 13px; font-weight: 600; letter-spacing: .03em;
-    opacity: 0; transition: opacity .2s ease;
-  }
-  .focus-hint.visible { opacity: 1; }
   .audio-row { margin-top: 14px; justify-content: center; }
-
-  /* ---- fullscreen: expand the whole bezel (frame + vignette + power LED),
-     not just the bare canvas, so it still reads as "real hardware" rather
-     than suddenly looking like a plain <video>. No real AT monitor has a
-     fullscreen mode -- there's no hardware precedent for this at all, so
-     unlike the CRT styling above this is a pure web-UI convenience (the
-     same kind of labelled opt-in shortcut as the theme picker or the
-     Mac-keyboard F-key row), not something CLAUDE.md's realism rules
-     govern. Letting #screen's width stay auto (aspect-ratio already kept
-     in sync with the live mode by app.js) and only constraining height
-     scales it as large as the viewport allows without distorting it. */
-  .bezel:fullscreen, .bezel:-webkit-full-screen {
-    width: 100vw; height: 100vh; max-width: none; border-radius: 0;
-    padding: 3vh 3vw; box-sizing: border-box; background: #0c0b0a;
-  }
-  .bezel:fullscreen #screen, .bezel:-webkit-full-screen #screen {
-    width: auto; height: 100%; max-width: 100%; max-height: 100%;
-  }
-  .bezel:fullscreen .crt-overlay, .bezel:-webkit-full-screen .crt-overlay { inset: 3vh 3vw; }
-  /* Lives inside the bezel itself (not a sibling row) so it's still
-     reachable while fullscreen -- the Fullscreen API only expands #bezel's
-     own subtree, so a control placed outside it would be visually covered
-     and unclickable the moment fullscreen engaged. Grouped in one corner
-     cluster of the bezel's own plastic-frame padding, not over the
-     picture, so both buttons move together with a single position rule. */
-  .bezel-controls {
-    position: absolute; top: 6px; right: 8px; z-index: 7;
-    display: flex; gap: 6px; align-items: center;
-  }
-  .bezel:fullscreen .bezel-controls, .bezel:-webkit-full-screen .bezel-controls {
-    top: calc(3vh + 6px); right: calc(3vw + 8px);
-  }
-  .bezel-btn {
-    height: 22px; padding: 0 7px; border: none; border-radius: 3px;
-    background: rgba(0,0,0,.5); color: #ddd; font-size: 14px; line-height: 22px;
-    cursor: pointer; opacity: .6; transition: opacity .15s;
-  }
-  .bezel-btn:hover, .bezel-btn:focus-visible { opacity: 1; }
-  .bezel-btn:disabled { opacity: .25; cursor: default; }
-  #fullscreenBtn { width: 26px; padding: 0; }
-  /* Sends a real Escape scancode straight to the guest (see the click
-     handler in app.js), bypassing the native keyboard event entirely.
-     Needed because the browser's own Esc key never reaches the page at
-     all while fullscreen (confirmed live -- it's not merely "also" exiting
-     fullscreen, DOS gets nothing): the Fullscreen API treats Esc as its
-     own reserved exit gesture, not a key a page can observe or reclaim.
-     Hidden outside fullscreen -- that's the only place this problem
-     exists at all, since a real physical Esc key works fine otherwise. */
-  #escBtn { font-size: 11px; font-weight: 600; display: none; }
-  .bezel:fullscreen #escBtn, .bezel:-webkit-full-screen #escBtn { display: inline-block; }
 
   /* ---- front panel: one real 5170 case fascia, photoreal in every theme
      (like the CRT above and altair8800's own 88-DCDD cabinet). Modeled on
@@ -810,6 +652,9 @@
 </div>
 
 <script src="ibmpcat.js"></script>
+<script src="shared/theme-picker.js"></script>
+<script src="shared/fullscreen.js"></script>
+<script src="shared/focus-hint.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

@@ -48,9 +48,9 @@ void Chipset::reset() {
     // zero-init touch them. `cmos` likewise deliberately survives reset()
     // here -- it's genuine battery-backed non-volatile RAM on real
     // hardware, unaffected by anything short of the battery itself dying
-    // (not modeled). This is exactly the bug that bit a diagnostic harness
-    // during Phase 3: calling reset() after seeding the factory CMOS
-    // configuration used to silently wipe it back to zero. See
+    // (not modeled). Calling reset() after seeding the factory CMOS
+    // configuration must not silently wipe it back to zero -- exactly the
+    // bug that bit a diagnostic harness during Phase 3. See
     // IBM_PCAT_REVIEW.md §8.
 }
 

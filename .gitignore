@@ -82,3 +82,10 @@ retroweb/ibmpc-at/web/ibmpcat.wasm
 retroweb/ibmpc-at/web/roms/
 retroweb/ibmpc-at/web/disks/
 retroweb/ibmpc-at/disks/freedos-hdd.img
+
+# shared/ front-end code (retroweb/shared/) is copied into each machine's
+# own web/shared/ at build time by its own `make shared` target -- a build
+# artifact like wasm/roms above, not committed per-machine.
+retroweb/altair8800/web/shared/
+retroweb/assembler6502/web/shared/
+retroweb/ibmpc-at/web/shared/

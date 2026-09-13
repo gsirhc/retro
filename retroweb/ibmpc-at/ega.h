@@ -127,17 +127,14 @@ public:
     // Compare) -- 9 bits tops, plenty for EGA's max 350 lines. Bits 5-7 are
     // unimplemented on real EGA hardware; VGA later reused them as a second
     // overflow bit per counter (a 10-bit extension, for its taller modes).
-    // A prior version of this accessor folded register 0x07 bit 6 in as a
-    // "Vertical Display End bit 9", which is exactly that VGA-only meaning
-    // -- and since this machine's freely-licensed BIOS substitute is a full
-    // VGA BIOS (see the gc_shift_register_mode() comment above for the same
-    // phenomenon with Chain-4), software that detects VGA-class capability
-    // can and does legitimately set that bit. A real EGA card's CRTC simply
-    // has no thirteenth wire for it to land on, so real hardware would
-    // never see the vertical range jump by 512 lines the way reading it
-    // back here used to -- confirmed live as Prince of Persia's playfield
-    // rendering correctly followed by several hundred lines of pure black
-    // canvas. See IBM_PCAT_REVIEW.md.
+    // Deliberately excludes register 0x07 bit 6, which VGA (not real EGA)
+    // reuses as a "Vertical Display End bit 9" -- this machine's BIOS
+    // substitute is a full VGA BIOS (see gc_shift_register_mode() above), so
+    // VGA-aware software can legitimately set that bit, but a real EGA CRTC
+    // has no wire to read it back on. Folding it in made the vertical range
+    // jump 512 lines on real-hardware-targeted software (confirmed live:
+    // Prince of Persia's playfield rendering correctly, then black canvas).
+    // See IBM_PCAT_REVIEW.md.
     uint16_t crtc_horizontal_display_end() const { return crtc_[0x01]; }
     uint16_t crtc_vertical_display_end() const {
         return uint16_t(crtc_[0x12] | ((crtc_[0x07] >> 1 & 1) << 8));

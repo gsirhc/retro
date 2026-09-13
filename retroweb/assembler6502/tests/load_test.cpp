@@ -190,10 +190,10 @@ TEST(Load, LoadDoesNotLetAnUnnumberedLineThatReadsLikeACommandHijackTheTransfer)
     // never be misread as the shell's RUN command mid-transfer -- exactly
     // the failure PROCESS_LINE's LOADMODE gate exists to prevent (see its
     // header comment in editor.s). "RUN" also isn't a valid 6502 mnemonic,
-    // so CHECK_SYNTAX (STORE_LINE) now rejects it as a program line too,
-    // rather than silently storing it as garbage the way unchecked entry
-    // used to. Either way, the transfer itself must not derail: the two
-    // real, valid lines around it still land, in order.
+    // so CHECK_SYNTAX (STORE_LINE) rejects it as a program line too, rather
+    // than letting unchecked entry store it as garbage. Either way, the
+    // transfer itself must not derail: the two real, valid lines around it
+    // still land, in order.
     SKIP_UNLESS_ROM_BUILT();
     std::string out;
     Machine m = bootIntoShell(out);

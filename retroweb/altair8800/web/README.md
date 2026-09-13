@@ -35,7 +35,7 @@ from `file://`.)
 
 ## Tests
 
-`tests/` is a [Playwright](https://playwright.dev) suite (~213 tests) that drives
+`tests/` is a [Playwright](https://playwright.dev) suite (~221 tests) that drives
 the real page in a headless browser and asserts control behaviour, machine
 state, and xterm buffer contents — the front panel, every terminal profile,
 every era preset, the paper-tape reader, the 88-ACR cassette, both 88-DCDD
@@ -227,14 +227,23 @@ step's paddle (EXAMINE for an address, DEPOSIT for a data byte, advancing the
 address), **✓** ticks the step off. Clicking any of them greys the row and locks
 its ↕/▸ (✓ stays, to undo). So you can click through all 40 bytes and watch the
 switches and data lamps move, tick off the ones you keyed on the real panel by
-hand, or hit **Key the loader in for me** to drop all 40 and tick the whole
-list. **Feed tape & run** points PC at the loader's start and spools the
-threaded tape into the 88-2SIO with *no* bootstrap of its own
-(`paperTape.feedRaw` → `tape.run({raw:true})`) so the hand-keyed loader catches
-it — at the reader's LOAD SPEED, so "Realistic" really is a ~14-minute 8K BASIC
-load with the address lamps climbing. (The reader's own **START** button is the
-same raw path, minus the "point PC at the loader" convenience.) A hand-keyed loader answers none of
-BASIC's cold-start prompts — you do that yourself, as on real hardware. The
+hand, or hit **Key the loader in for me** to watch it done for you: it powers
+the machine on if it isn't already, then steps through the address, then each
+byte, flipping the real panel's switches and EXAMINE/DEPOSIT/DEPOSIT NEXT
+paddle one row at a time (~0.5 s apart — `?test=1` collapses the pacing so the
+suite isn't stuck watching 40 rows tick by) rather than teleporting the whole
+loader in at once, ticking each row as it lands. The guide's own scroll
+position is preserved across every one of those steps, so you can scroll down
+to watch the later rows without it snapping back to the top. **Reset
+checklist** appears once anything is ticked and unchecks the whole thing, in
+case you want to run it again. From there it's the same authentic path as any
+hand-keyed loader: flip **RUN**, then click **START** on the reader (or
+**PLAY** on the deck) to spool the threaded tape into the 88-2SIO with *no*
+bootstrap of its own (`paperTape.feedRaw` → `tape.run({raw:true})`) so the
+hand-keyed loader catches it — at the reader's LOAD SPEED, so "Realistic"
+really is a ~14-minute 8K BASIC load with the address lamps climbing. A
+hand-keyed loader answers none of BASIC's cold-start prompts — you do that
+yourself, as on real hardware. The
 listing shows all 40 rows inline (the panel scrolls as one). The checklist
 resets when the machine/loader changes; re-renders when the preset changes. The
 loader bakes in the tape's byte count, so threading a different tape after you've
@@ -248,8 +257,10 @@ click — RAM size, primary terminal, which S-100 cards are plugged in (shown in
 the backplane strip at the very bottom of the page), and **which loader devices
 are fitted**
 (paper-tape reader / 88-ACR cassette / 88-DCDD floppy), each with its media
-already threaded. Tick **Auto-load software** (off by default, remembered
-between sessions) and the preset also loads that media:
+already threaded — nothing runs on its own, just like walking up to a real
+Altair: flip the front panel's power switch on, then load that media yourself
+(the reader's own **AUTO-LOAD** button, the disk cabinet's **BOOT** button, or
+by hand from the panel guide):
 
 | id | Preset | RAM | Terminal | Loader → software |
 |---|---|---|---|---|
@@ -270,9 +281,9 @@ so BASIC's `MEMORY SIZE?` auto-detect lands on the real number and a 4 KB
 machine can't run an 8 KB program. A ROM image loaded above the ceiling (the
 0xE000 BASIC build, the disk PROM) stays readable.
 
-With **Auto-load** off you get the hardware with the media threaded but not
-read; ticking it (or AUTO-LOAD / BOOT / `CLOAD` on the device) loads it. The
-**— custom —** build shows a **Load devices** row of checkboxes — add or remove
+A preset gives you the hardware with the media threaded but not read; AUTO-LOAD
+/ BOOT / `CLOAD` on the device actually loads it. The **— custom —** build
+shows a **Load devices** row of checkboxes — add or remove
 the reader, deck, and drive to taste; the choice persists in `localStorage`.
 Changing the terminal by hand flips a named preset to custom. The preset choice
 persists; `?preset=cpm` in the URL wins over the stored one.
@@ -299,13 +310,17 @@ the CPU are independent:
   and nothing else: no memory touched, no bootstrap, no RUN
   (`paperTape.startReader` → `tape.run({raw:true})`). A loader has to already be
   running — the boot PROM, or ~20 bytes keyed in at the front panel (see the
-  **"Load it yourself"** guide, whose *Feed tape & run* is the same path). It
-  honours LOAD SPEED like any read. If nothing is draining the 88-2SIO the
+  **"Load it yourself"** guide -- flip RUN, then START is the hand-load path
+  it walks you through). It honours LOAD SPEED like any read. Also clears the
+  sense switches (A8-A15 double as the same physical toggles used to EXAMINE
+  a loader's address in; a real operator zeroes them before running 2SIO
+  console software, or Altair BASIC picks a phantom device and never reaches
+  the terminal — see `clearSenseSwitches`). If nothing is draining the 88-2SIO the
   reader overruns it — the tape still spools to the end at the selected rate and
   the bytes are simply lost, exactly like the reader lever on an ASR-33. START
   toggles to **STOP** while the tape moves, so you can halt it mid-tape.
-- **AUTO-LOAD** — the labelled shortcut (like the preset **Auto-load**
-  checkbox). It resets the machine, keys `makeBootstrap()` — a ~40-byte serial
+- **AUTO-LOAD** — the labelled shortcut. It resets the machine, keys
+  `makeBootstrap()` — a ~40-byte serial
   loader — into the top page of RAM (`ramTop − 0x40`), runs it, reads the tape,
   and answers BASIC's cold-start prompts for you.
 
@@ -337,8 +352,8 @@ as the hardware would. The bootstrap (`AUTO-LOAD`) path always keeps up, so it
 never trips.
 
 The one exception is the **`basicRom`** entry (the 0xE000 EPROM build) — it sits
-above RAM and can't stream, so it drops straight in. Preset **Auto-load** uses an
-internal unlimited speed (not in the picker); press **AUTO-LOAD** (or START, with
+above RAM and can't stream, so it drops straight in. `?test=1` uses an internal
+unlimited speed (not in the picker); press **AUTO-LOAD** (or START, with
 a loader running) yourself to watch a tape read at the selected speed.
 
 The front-panel **RESET/CLR** paddle is the machine's reset (PC → 0, RAM
@@ -439,6 +454,6 @@ writes the whole tape, every program on it.
 The **TAPE SPEED** selector paces the whole transport: *Realistic* is the real
 300 baud (Star Trek really does take ~10 minutes), then *5× / 25× / 50×* — even
 50× is ~12 s for Star Trek, so none of it is instant. Remembered in
-`localStorage`. `?test=1` and preset **Auto-load** use an internal unlimited
-speed that isn't in the picker. The Cassette Hobbyist preset threads Star Trek
+`localStorage`. `?test=1` uses an internal unlimited speed that isn't in the
+picker. The Cassette Hobbyist preset threads Star Trek
 here; once 8K BASIC is up you `CLOAD "S"`, press PLAY, then `RUN`.

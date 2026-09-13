@@ -58,9 +58,9 @@ site:
 
 # build the emulator + fetch media, then stage — what both preview modes need
 _stage:
-	$(MAKE) -C altair8800/web retro8080.js roms media
-	$(MAKE) -C assembler6502/web wasm roms examples-bin
-	$(MAKE) -C ibmpc-at/web ibmpcat.js roms hdd-image
+	$(MAKE) -C altair8800/web retro8080.js roms media shared
+	$(MAKE) -C assembler6502/web wasm roms examples-bin shared
+	$(MAKE) -C ibmpc-at/web ibmpcat.js roms hdd-image shared
 	$(MAKE) site
 
 preview: _stage

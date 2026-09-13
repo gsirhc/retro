@@ -186,16 +186,15 @@ test.describe("Save / Load", () => {
   });
 
   test("manually entering the shell (as the Help panel instructs), then Save, doesn't pollute the program with a bogus re-entry line", async ({ page }) => {
-    // runSave()/runLoad() used to try to auto-detect and auto-enter the
-    // shell (an `inShell` flag inferred from the shell's own banner in ROM
-    // output) -- but that detection could itself go wrong and silently
-    // resend "<addr>R" into an *already-open* shell prompt, misparsed as a
-    // decimal line number ("8000") followed by a bad trailing letter ("R")
-    // with no space between them, storing a bogus extra program line right
-    // before Save captured the (now polluted) buffer. Simplified: app.js
-    // no longer guesses at all, it just assumes the shell is already
-    // entered (see runSave's own comment) -- this test proves that's safe
-    // for the normal, documented flow (enter the shell by hand, then Save).
+    // app.js assumes the shell is already entered (see runSave's own
+    // comment) rather than auto-detecting it: an `inShell` flag inferred
+    // from the shell's own banner in ROM output could go wrong and
+    // silently resend "<addr>R" into an *already-open* shell prompt,
+    // misparsed as a decimal line number ("8000") followed by a bad
+    // trailing letter ("R") with no space between them, storing a bogus
+    // extra program line right before Save captured the (now polluted)
+    // buffer. This test proves the real precondition is safe for the
+    // normal, documented flow (enter the shell by hand, then Save).
     await enterProgram(page, ["LDA #$2A", "STA $50"]);
     await page.fill("#pgmName", "clean.asm");
     await page.click("#pgmSave");
@@ -259,11 +258,10 @@ test.describe("Save / Load", () => {
     // this test's header comment's innerText()/toContainText concern
     // still applies (a fresh DOM read can miss just-rendered xterm.js
     // content a screenshot would catch), where the underlying byte stream
-    // is unambiguous. (The "WWWWW..." glyph-measurement placeholder leak
-    // that used to alias onto this same symptom is now fixed at the
-    // selector level -- every #screen locator in this suite scopes to
-    // .xterm-rows, which excludes xterm's aria-hidden measurement span;
-    // see CGOAC6502_REVIEW.md.)
+    // is unambiguous. (Every #screen locator in this suite scopes to
+    // .xterm-rows, which excludes xterm's aria-hidden measurement span --
+    // otherwise its "WWWWW..." glyph-measurement placeholder can alias
+    // onto this same symptom; see CGOAC6502_REVIEW.md.)
     await expect.poll(async () => (await getRawOut(page)).slice(beforeLoad), { timeout: 20000 }).toContain("Ok");
     await page.waitForTimeout(300);
 

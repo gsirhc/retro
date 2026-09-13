@@ -34,16 +34,65 @@ async function boot() {
   const screenEl = document.getElementById("screen");
   const bezelEl = document.getElementById("bezel");
   const monitorEl = document.getElementById("monitor");
+  // Declared here (not down by the power toggle below, where it
+  // conceptually belongs) so it's initialized before the isRunning
+  // predicate just below can possibly be called -- term.focus() a little
+  // further down synchronously fires a focusin event, which would
+  // otherwise read `poweredOn` while it's still in its let-declaration's
+  // temporal dead zone and throw.
+  let poweredOn = true;
   const REF_W = 760, REF_H = 420;
   term.open(screenEl);
   fit.fit();
+
+  // "Click to type" banner and fullscreen mechanism: both purely web-UI
+  // conveniences (real board hardware has no such state), not something
+  // CLAUDE.md's realism rules govern -- see shared/focus-hint.js and
+  // shared/fullscreen.js. poweredOn is declared further down; passing it
+  // as a predicate (not a captured value) lets these read its live value
+  // from event handlers that run after the whole script has executed and
+  // poweredOn actually exists.
+  const isRunning = () => poweredOn;
+  const updateFocusHint = initFocusHint(screenEl, isRunning);
+  // #screen is a <div> sized by inline pixel width/height (see sizeScreen()
+  // below), not CSS -- an inline style always beats fullscreen.css's own
+  // `#bezel:fullscreen #screen` rule, so left alone the terminal would just
+  // sit at its normal, page-layout-constrained pixel size in the middle of
+  // an otherwise-empty fullscreen bezel. sizeScreen() itself grows the font
+  // size to fill the bezel instead (see its step 4, below), run via this
+  // callback on every fullscreen transition.
+  initFullscreen({
+    bezelEl,
+    screenEl,
+    fullscreenBtn: document.getElementById("fullscreenBtn"),
+    fsEscHint: document.getElementById("fsEscHint"),
+    fsEscHintOkBtn: document.getElementById("fsEscHintOk"),
+    escBtn: document.getElementById("escBtn"),
+    // No scancode keyboard here -- typed input is just bytes on the serial
+    // line (see term.onData below), so "send Escape to the guest" is the
+    // same handleTermData() path a real Escape keypress already takes.
+    sendEscape: () => handleTermData("\x1b"),
+    isRunning,
+    onFullscreenChange: () => requestAnimationFrame(sizeScreen),
+  });
 
   screenEl.addEventListener("wheel", (e) => {
     if (!monitorEl.classList.contains("scrolls")) e.stopImmediatePropagation();
   }, { capture: true });
 
+  // Set only while fullscreen is active -- the profile's real font size,
+  // saved once so fullscreen's own enlargement (step 4 below) always scales
+  // up from the true base size instead of compounding on top of a previous
+  // enlargement if sizeScreen() runs again mid-fullscreen (a window resize
+  // while fullscreen, etc).
+  let fsBaseFontSize = null;
   function sizeScreen() {
     try {
+      // Undo any fullscreen font-size enlargement before measuring -- the
+      // "natural" (non-fullscreen) box below has to reflect the profile's
+      // real font size, not whatever fullscreen last scaled it to.
+      if (fsBaseFontSize != null) term.options.fontSize = fsBaseFontSize;
+
       screenEl.style.width = REF_W + "px";
       screenEl.style.height = REF_H + "px";
       fit.fit();
@@ -56,6 +105,33 @@ async function boot() {
       screenEl.style.height = Math.round(24 * ch) + "px";
       term.resize(cols, 24);
       term.refresh(0, term.rows - 1);
+
+      // 4. fullscreen: grow the *font itself* (not a CSS transform of the
+      // same small raster -- that just blurs the already-rendered pixels)
+      // to fill the fullscreened bezel, then let FitAddon re-fit cols/rows
+      // to that larger, still-crisp size. .panel above lives outside the
+      // fullscreened subtree (the Fullscreen API repaints #bezel in its own
+      // top layer without resizing the window), so it never reflects the
+      // fullscreen viewport -- #bezel's own box, sized 100vw/100vh by
+      // fullscreen.css, is what's actually available here instead.
+      const fs = (document.fullscreenElement || document.webkitFullscreenElement) === bezelEl;
+      if (fs) {
+        if (fsBaseFontSize == null) fsBaseFontSize = term.options.fontSize;
+        const naturalW = screenEl.offsetWidth, naturalH = screenEl.offsetHeight;
+        const bs = getComputedStyle(bezelEl);
+        const availW = bezelEl.clientWidth - parseFloat(bs.paddingLeft) - parseFloat(bs.paddingRight);
+        const availH = bezelEl.clientHeight - parseFloat(bs.paddingTop) - parseFloat(bs.paddingBottom);
+        const scale = naturalW && naturalH ? Math.min(availW / naturalW, availH / naturalH) : 1;
+        if (scale > 1) {
+          screenEl.style.width = availW + "px";
+          screenEl.style.height = availH + "px";
+          term.options.fontSize = Math.round(fsBaseFontSize * scale);
+          fit.fit();
+          term.refresh(0, term.rows - 1);
+        }
+      } else {
+        fsBaseFontSize = null;
+      }
     } catch {}
   }
   addEventListener("resize", sizeScreen);
@@ -297,27 +373,8 @@ async function boot() {
   setPgmMode("save");
 
   // ---- page theme (Win95 / mid-90s Mosaic web / Modern / Dark Modern) ---
-  // Shared with every other page on the site via the retro8080.theme
-  // localStorage key -- a theme picked here or on the landing page carries
-  // across. "moderndark" is Modern's layout with data-mode="dark" bolted on.
-  const pageTheme = document.getElementById("pageTheme");
-  const root = document.documentElement;
-  const THEME_VALUES = ["win", "web94", "modern", "moderndark"];
-  const applyTheme = (v) => {
-    if (!THEME_VALUES.includes(v)) v = "win";
-    if (v === "moderndark") { root.dataset.theme = "modern"; root.dataset.mode = "dark"; }
-    else { root.dataset.theme = v; delete root.dataset.mode; }
-    return v;
-  };
-  let storedTheme; try { storedTheme = localStorage.getItem("retro8080.theme"); } catch {}
-  let savedPageTheme = applyTheme(
-    new URLSearchParams(location.search).get("theme") || storedTheme || root.dataset.theme || "win");
-  pageTheme.value = savedPageTheme;
-  pageTheme.addEventListener("change", () => {
-    applyTheme(pageTheme.value);
-    try { localStorage.setItem("retro8080.theme", pageTheme.value); } catch {}
-    setTimeout(sizeScreen, 60);   // page width may have changed
-  });
+  // See shared/theme-picker.js for the actual mechanism.
+  initThemePicker(() => setTimeout(sizeScreen, 60));   // page width may have changed
 
   // ---- wasm machine -----------------------------------------------------
   const Module = await CgOac6502({});
@@ -423,11 +480,16 @@ async function boot() {
   const encoder = new TextEncoder();
   const inQ = [];
   function queueInput(bytes) { for (const b of bytes) inQ.push(b); }
-  term.onData((data) => {
+  // Named (not inline in term.onData below) so the fullscreen escBtn's
+  // sendEscape() can feed a synthetic "\x1b" through this exact same path
+  // -- the browser eats a real Escape keydown while fullscreen before even
+  // xterm's own hidden textarea sees it (see shared/fullscreen.js).
+  function handleTermData(data) {
     if (!poweredOn) return;   // Power toggle (below) -- an unplugged board doesn't hear you type
     if (caps.checked) data = data.toUpperCase();
     queueInput(encoder.encode(data));
-  });
+  }
+  term.onData(handleTermData);
 
   // ---- ACIA -> terminal, metered at the ACIA's live configured baud ----
   // (a fidelity improvement over a fixed per-profile rate -- the real chip's
@@ -492,16 +554,13 @@ async function boot() {
   }
 
   // ---- ACIA <- terminal/paste/load, paced at the same live baud ---------
-  // Previously term.onData pushed every byte to m.typeChar() with zero
-  // pacing at all -- fine for a human's own keystrokes (naturally paced by
-  // typing speed) but not for a paste or a Save/Load transfer. Mirrors the
-  // Altair's LOAD SPEED convention (see retro/CLAUDE.md): realistic-by-
-  // default (paced to m.aciaBaud(), same cps math as pumpTerminal above),
-  // plus the standard ?test=1 carve-out. (A labelled "instant transfer"
-  // opt-out used to sit here too, for the Save/Load panel -- retired once
-  // Example loading stopped needing any transfer speed at all, see
-  // pokeExample() above; Save/Load-from-file and the saved-programs shelf
-  // still go through this real paced path, unchanged.)
+  // A human's own keystrokes are naturally paced by typing speed, but a
+  // paste or a Save/Load transfer needs its bytes metered onto term.onData
+  // deliberately. Mirrors the Altair's LOAD SPEED convention (see
+  // retro/CLAUDE.md): realistic-by-default (paced to m.aciaBaud(), same
+  // cps math as pumpTerminal above), plus the standard ?test=1 carve-out.
+  // Save/Load-from-file and the saved-programs shelf go through this real
+  // paced path; pokeExample() above is the one loader that doesn't need it.
   //
   // Critically, this can't just be "call m.typeChar() N times, then let
   // the frame's usual m.runCycles() catch up" -- the ACIA has only a
@@ -553,22 +612,21 @@ async function boot() {
       // Backpressure: bios.s's SERIAL_BUFFER RX ring is 256 bytes: a bulk
       // multi-line LOAD (or a burst of instant-mode test input) can inject
       // characters faster than STORE_LINE's own O(n) buffer scan drains
-      // them -- pacing purely off a fixed per-character cycle cost (as
-      // this loop did before) can't account for that, since STORE_LINE's
-      // real cost grows with the program already stored. Stop injecting
-      // new characters for the rest of this frame once the ring holds more
-      // than a handful of unconsumed bytes (the extra cycles below still
-      // run, giving the ROM more real time to drain it) rather than risk
-      // overrunning it and corrupting the transfer. This threshold used to
-      // be 200 (~80% of the ring) on the theory that only genuine overflow
-      // mattered; real-browser testing of the Examples feature (loading a
-      // multi-hundred-byte file) showed the ROM can wedge well before the
-      // ring is anywhere near full if the gap between "close to full" and
-      // "actually drained" is allowed to stay wide for long -- lowering
-      // this to a small constant keeps the ring close to empty at all
-      // times instead, which reliably fixed it for every example file
-      // except the largest (Rock-Paper-Scissors, ~3.2K) -- see
-      // CGOAC6502_REVIEW.md for what's still open there.
+      // them -- pacing purely off a fixed per-character cycle cost can't
+      // account for that, since STORE_LINE's real cost grows with the
+      // program already stored. Stop injecting new characters for the
+      // rest of this frame once the ring holds more than a handful of
+      // unconsumed bytes (the extra cycles below still run, giving the ROM
+      // more real time to drain it) rather than risk overrunning it and
+      // corrupting the transfer. A looser threshold like 200 (~80% of the
+      // ring) isn't safe either: real-browser testing of the Examples
+      // feature (loading a multi-hundred-byte file) showed the ROM can
+      // wedge well before the ring is anywhere near full if the gap
+      // between "close to full" and "actually drained" stays wide for
+      // long -- a small constant keeps the ring close to empty at all
+      // times instead, which reliably fixes every example file except the
+      // largest (Rock-Paper-Scissors, ~3.2K) -- see CGOAC6502_REVIEW.md
+      // for what's still open there.
       if (m.serialPending() > 8) break;
       m.typeChar(inQ.shift());
       const c = i === n - 1 ? totalCycles - slice * (n - 1) : slice;
@@ -650,12 +708,14 @@ async function boot() {
   // power cycle -- closer to "the monitor's unplugged" than "the machine
   // lost its memory". D1 (real: hardwired straight to +5V, always lit
   // whenever the page is open -- see machine.h) gets its own dim/off look
-  // here purely for this toggle's visual feedback.
-  let poweredOn = true;
+  // here purely for this toggle's visual feedback. (poweredOn itself is
+  // declared up by screenEl/bezelEl instead of here, where it conceptually
+  // belongs -- see that comment for why.)
   document.querySelector('#pcbSvg [data-ref="J1"]').addEventListener("click", () => {
     poweredOn = !poweredOn;
     pcbLedD1.classList.toggle("led-power", poweredOn);
     monitorEl.classList.toggle("powered-off", !poweredOn);
+    updateFocusHint();   // nothing to type into once powered off -- hide it
   });
 
   // ---- Help panel: fill in this build's real, generated shell address --
@@ -705,14 +765,13 @@ async function boot() {
   // generous timeout guards against the ROM never responding. Assumes the
   // terminal is already sitting inside the command shell (editor.s's
   // SHELL_ENTRY), same precondition as the Help panel documents for typing
-  // SAVE by hand -- this used to try to detect and auto-enter the shell
-  // first (a heuristic watching for the shell's own banner in ROM output),
-  // but getting that detection wrong at all -- and it did go wrong -- means
-  // silently resending "<addr>R" into an *already-open* shell prompt,
-  // misparsed as a decimal line number followed by a bad trailing letter
-  // (e.g. "8000R" -> line 8000, text "R"), corrupting whatever's about to
-  // be saved or clobbering an in-flight LOAD. Simpler and more reliable to
-  // just require the real precondition instead of guessing at it.
+  // SAVE by hand: auto-detecting the shell instead (a heuristic watching
+  // for its own banner in ROM output) risks getting it wrong and silently
+  // resending "<addr>R" into an *already-open* shell prompt, misparsed as
+  // a decimal line number followed by a bad trailing letter (e.g. "8000R"
+  // -> line 8000, text "R"), corrupting whatever's about to be saved or
+  // clobbering an in-flight LOAD. Simpler and more reliable to just
+  // require the real precondition instead of guessing at it.
   function runSave() {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {

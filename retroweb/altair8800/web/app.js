@@ -81,6 +81,12 @@ async function boot() {
                 "Did `make` succeed? Is retro8080.js next to index.html?");
   }
 
+  // `?test=1` gates the sanctioned automated-test overrides (load speeds
+  // forced to Max, the Playwright __test seam, below) plus UI-only pacing
+  // that exists purely so a human can watch it happen (the panel guide's
+  // "key it in for me" animation) -- never anything the CPU/bus itself does.
+  const TEST_MODE = new URLSearchParams(location.search).get("test") === "1";
+
   // --- terminal --------------------------------------------------------
   const term = new Terminal({
     fontFamily: 'ui-monospace, Menlo, Consolas, "DejaVu Sans Mono", monospace',
@@ -93,10 +99,50 @@ async function boot() {
   const screenEl = document.getElementById("screen");
   const bezelEl = screenEl.closest(".bezel");
   const monitorEl = screenEl.closest(".monitor");
+  // Declared here (not down by the main loop below, where these
+  // conceptually belong) so they're initialized before the isRunning
+  // predicate just below can possibly be called -- term.focus() a little
+  // further down synchronously fires a focusin event, which would
+  // otherwise read `powered` while it's still in its let-declaration's
+  // temporal dead zone and throw.
+  let running = false;   // front-panel STOP/RUN
+  let powered = false;   // front-panel OFF/ON -- a real Altair doesn't arrive
+                          // already running; you walk up and flip it on yourself
   // reference box; sizeScreen() measures the font here then locks to 80x24
   const REF_W = 792, REF_H = 460;
   term.open(screenEl);
   fit.fit();
+
+  // "Click to type" banner and fullscreen mechanism: both purely web-UI
+  // conveniences (a real Altair front panel has no such state), not
+  // something CLAUDE.md's realism rules govern -- see shared/focus-hint.js
+  // and shared/fullscreen.js. powered is declared further down; passing it
+  // as a predicate (not a captured value) lets these read its live value
+  // from event handlers that run after the whole script has executed and
+  // powered actually exists.
+  const isRunning = () => powered;
+  const updateFocusHint = initFocusHint(screenEl, isRunning);
+  // #screen is a <div> sized by inline pixel width/height (see sizeScreen()
+  // below), not CSS -- an inline style always beats fullscreen.css's own
+  // `#bezel:fullscreen #screen` rule, so left alone the terminal would just
+  // sit at its normal, page-layout-constrained pixel size in the middle of
+  // an otherwise-empty fullscreen bezel. sizeScreen() itself grows the font
+  // size to fill the bezel instead (see its step 4, below), run via this
+  // callback on every fullscreen transition.
+  initFullscreen({
+    bezelEl,
+    screenEl,
+    fullscreenBtn: document.getElementById("fullscreenBtn"),
+    fsEscHint: document.getElementById("fsEscHint"),
+    fsEscHintOkBtn: document.getElementById("fsEscHintOk"),
+    escBtn: document.getElementById("escBtn"),
+    // No scancode keyboard here -- typed input is just bytes on the serial
+    // line (see term.onData below), so "send Escape to the guest" is the
+    // same handleTermData() path a real Escape keypress already takes.
+    sendEscape: () => handleTermData("\x1b"),
+    isRunning,
+    onFullscreenChange: () => requestAnimationFrame(sizeScreen),
+  });
 
   // On a CRT (no scrollback) xterm turns wheel events into arrow-key presses
   // sent to the program. Stop it before xterm sees them so the page just
@@ -113,8 +159,19 @@ async function boot() {
   // single-column layout, or just the left grid track when Modern goes
   // side-by-side on a wide screen.
   const termBox = screenEl.closest(".ws-terminal") || screenEl.closest(".inner");
+  // Set only while fullscreen is active -- the profile's real font size,
+  // saved once so fullscreen's own enlargement (below) always scales up
+  // from the true base size instead of compounding on top of a previous
+  // enlargement if sizeScreen() runs again mid-fullscreen (a theme change,
+  // a window resize while fullscreen, etc).
+  let fsBaseFontSize = null;
   function sizeScreen() {
     try {
+      // Undo any fullscreen font-size enlargement before measuring -- the
+      // "natural" (non-fullscreen) box below has to reflect the profile's
+      // real font size, not whatever fullscreen last scaled it to.
+      if (fsBaseFontSize != null) term.options.fontSize = fsBaseFontSize;
+
       // 1. measure the font at a reference size
       screenEl.style.width = REF_W + "px";
       screenEl.style.height = REF_H + "px";
@@ -141,6 +198,33 @@ async function boot() {
       screenEl.style.height = Math.round(24 * ch) + "px";
       term.resize(cols, 24);
       term.refresh(0, term.rows - 1);
+
+      // 4. fullscreen: grow the *font itself* (not a CSS transform of the
+      // same small raster -- that just blurs the already-rendered pixels)
+      // to fill the fullscreened bezel, then let FitAddon re-fit cols/rows
+      // to that larger, still-crisp size. termBox above lives outside the
+      // fullscreened subtree (the Fullscreen API repaints #bezel in its own
+      // top layer without resizing the window), so it never reflects the
+      // fullscreen viewport -- #bezel's own box, sized 100vw/100vh by
+      // fullscreen.css, is what's actually available here instead.
+      const fs = (document.fullscreenElement || document.webkitFullscreenElement) === bezelEl;
+      if (fs) {
+        if (fsBaseFontSize == null) fsBaseFontSize = term.options.fontSize;
+        const naturalW = screenEl.offsetWidth, naturalH = screenEl.offsetHeight;
+        const bs = getComputedStyle(bezelEl);
+        const availW = bezelEl.clientWidth - parseFloat(bs.paddingLeft) - parseFloat(bs.paddingRight);
+        const availH = bezelEl.clientHeight - parseFloat(bs.paddingTop) - parseFloat(bs.paddingBottom);
+        const scale = naturalW && naturalH ? Math.min(availW / naturalW, availH / naturalH) : 1;
+        if (scale > 1) {
+          screenEl.style.width = availW + "px";
+          screenEl.style.height = availH + "px";
+          term.options.fontSize = Math.round(fsBaseFontSize * scale);
+          fit.fit();
+          term.refresh(0, term.rows - 1);
+        }
+      } else {
+        fsBaseFontSize = null;
+      }
     } catch {}
   }
   addEventListener("resize", sizeScreen);
@@ -305,20 +389,6 @@ async function boot() {
 
   let bellMode = "flash";
 
-  // scanlines / glow / vignette / paper grain — toggleable, on by default
-  const crtToggle = document.getElementById("crt");
-  let crtOn = true;
-  try {
-    const q = new URLSearchParams(location.search).get("crt");
-    crtOn = q != null ? q !== "0" : localStorage.getItem("retro8080.crt") !== "0";
-  } catch {}
-  crtToggle.checked = crtOn;
-  crtToggle.addEventListener("change", () => {
-    crtOn = crtToggle.checked;
-    try { localStorage.setItem("retro8080.crt", crtOn ? "1" : "0"); } catch {}
-    applyProfile(termSelect.value);
-  });
-
   function applyProfile(key) {
     const p = TERM_PROFILES[key] || TERM_PROFILES.modern;
     // serial bits -> characters/sec: async framing is ~10 bits/char (start + 8
@@ -343,11 +413,11 @@ async function boot() {
       brightBlack: p.dim, brightRed: p.br, brightGreen: p.br, brightYellow: p.br,
       brightBlue: p.br, brightMagenta: p.br, brightCyan: p.br, brightWhite: p.br,
     };
-    const noCrt = p.crt === "none";           // Modern profile has no CRT layer
-    crtToggle.disabled = noCrt;
-    crtToggle.checked = noCrt ? false : crtOn;
-    const showCrt = crtOn && !noCrt;
-    bezelEl.className = "bezel crt-" + p.crt + (showCrt ? "" : " crt-off");
+    // Each terminal profile carries its own fixed, period-appropriate CRT
+    // level (none/scan/scanheavy/paper) -- no user-facing on/off override;
+    // a real CRT doesn't come with a scanline switch either.
+    const showCrt = p.crt !== "none";
+    bezelEl.className = "bezel crt-" + p.crt;
     monitorEl.classList.toggle("amber", key === "vt100a");
     // Modern and Teletype aren't CRTs -> no monitor housing
     monitorEl.classList.toggle("bare", p.crt === "none" || p.crt === "paper");
@@ -394,7 +464,11 @@ async function boot() {
 
   // --- terminal -> CPU ----------------------------------------------
   const encoder = new TextEncoder();
-  term.onData((data) => {
+  // Named (not inline in term.onData below) so the fullscreen escBtn's
+  // sendEscape() can feed a synthetic "\x1b" through this exact same path
+  // -- the browser eats a real Escape keydown while fullscreen before even
+  // xterm's own hidden textarea sees it (see shared/fullscreen.js).
+  function handleTermData(data) {
     turbo = false;            // the player is here now — back to authentic 2 MHz
     // a keypress skips to the end of a slow how-to printout
     if (printingManual) {
@@ -406,7 +480,8 @@ async function boot() {
     if (caps.checked) data = data.toUpperCase();
     const bytes = encoder.encode(data);
     for (const b of bytes) machine.sendByte(b);
-  });
+  }
+  term.onData(handleTermData);
 
   // --- CPU -> terminal ------------------------------------------
   // Bytes the CPU transmits are pulled off the 2SIO into `outQ`, then metered
@@ -587,8 +662,6 @@ async function boot() {
 
   // era-preset controls (declared early so markCustom() is safe from any handler)
   const presetSelect = document.getElementById("preset");
-  const autoloadChk  = document.getElementById("autoload");
-  try { autoloadChk.checked = localStorage.getItem("retro8080.autoload") === "1"; } catch {}
   const presetNote   = document.getElementById("presetNote");
   const backplaneEl  = document.getElementById("backplane");
   let   applyingPreset = false;
@@ -601,29 +674,12 @@ async function boot() {
   ].filter(Boolean)).catch(() => {}).finally(() => applyProfile(savedTerm));
 
   // --- page theme (Win95 / mid-90s Mosaic web / Modern / Dark Modern) ---
-  // "moderndark" is Modern's layout with data-mode="dark" bolted on, so the
-  // <select> value and the stored key differ from the data-theme attribute.
-  const pageTheme = document.getElementById("pageTheme");
-  const root = document.documentElement;
-  const THEME_VALUES = ["win", "web94", "modern", "moderndark"];
-  const applyTheme = (v) => {
-    if (!THEME_VALUES.includes(v)) v = "win";
-    if (v === "moderndark") { root.dataset.theme = "modern"; root.dataset.mode = "dark"; }
-    else { root.dataset.theme = v; delete root.dataset.mode; }
-    return v;
-  };
-  let stored; try { stored = localStorage.getItem("retro8080.theme"); } catch {}
-  let savedPageTheme = applyTheme(
-    new URLSearchParams(location.search).get("theme")
-    || stored || root.dataset.theme || "win");
-  pageTheme.value = savedPageTheme;
-  placeTermBar();   // ?theme= may have resolved to Modern after the first pass
-  pageTheme.addEventListener("change", () => {
-    applyTheme(pageTheme.value);
-    try { localStorage.setItem("retro8080.theme", pageTheme.value); } catch {}
+  // See shared/theme-picker.js for the actual mechanism.
+  initThemePicker(() => {
     placeTermBar();                // layout may have gained/lost side-by-side
     setTimeout(sizeScreen, 60);    // page width changed
   });
+  placeTermBar();   // ?theme= may have resolved to Modern after the first pass
 
   // "Last built" = the wasm's own mtime on the server
   (async () => {
@@ -644,8 +700,6 @@ async function boot() {
   })();
 
   // --- main loop ----------------------------------------------
-  let running = true;    // front-panel STOP/RUN
-  let powered = true;    // front-panel OFF/ON
   let runSwitchEl = null;
   const setRunning = (v) => {
     running = v && powered;
@@ -718,6 +772,18 @@ async function boot() {
       if (switchEls[b]) switchEls[b].classList.toggle("down", !switchState[b]);
     }
     machine.setSenseSwitches?.(senseByte());
+  };
+
+  // A8-A15 are the same physical toggles as the sense switches (IN 0FFh) --
+  // setSwitchWord(addr, 16) for an EXAMINE necessarily leaves them showing
+  // whatever the address's upper byte was. Zero them back down, the way an
+  // operator would before running 2SIO-console software (0 = 2SIO).
+  const clearSenseSwitches = () => {
+    for (let b = 8; b < 16; b++) {
+      switchState[b] = 0;
+      if (switchEls[b]) switchEls[b].classList.toggle("down", true);
+    }
+    machine.setSenseSwitches?.(0);
   };
 
   // small DOM helpers
@@ -799,12 +865,15 @@ async function boot() {
     sw.appendChild(swgrid);
 
     const powerCell = el("fp-power paddle", `<div class="fp-cap">OFF</div>`);
-    const powerBat = el("bat");         // up = ON like every Altair paddle (boots powered)
+    const powerBat = el("bat");         // up = ON like every Altair paddle
     powerCell.title = "power OFF / ON";
+    powerBat.classList.toggle("down", !powered);   // down = OFF -- starts off
     powerCell.addEventListener("click", () => {
       powered = !powered;
       powerBat.classList.toggle("down", !powered);   // down = OFF
       if (!powered) setRunning(false);
+      updateFocusHint();   // nothing to type into once powered off -- hide it
+      updateLoadButtonsPowered();
     });
     powerCell.appendChild(powerBat);
     powerCell.insertAdjacentHTML("beforeend", `<div class="fp-num">ON</div>`);
@@ -1011,6 +1080,13 @@ async function boot() {
   const pgDone = new Set();      // finished step keys: byte index, or "taddr"/"daddr"
   let pgDoneKey = null;          // model signature; a change clears the checklist
   let pgWired = false;           // the #panelGuide listeners are attached once
+  let pgKeyinRunning = false;    // "Key the loader in for me" animation in flight
+  // Real time to flip a switch bank and a paddle by hand -- this is UI pacing
+  // for the assisted keyin, not emulated hardware, so ?test=1 fast-forwards it
+  // the same way it fast-forwards tape/disk loads (CLAUDE.md sanctioned overrides).
+  // A `let` (not const) so the __test seam can slow a single test back down to
+  // prove the steps really are sequential, without paying real time everywhere else.
+  let pgKeyinStepMs = TEST_MODE ? 5 : 500;
   const pgFloat = { left: null, top: null };
   try {
     const s = JSON.parse(localStorage.getItem("retro8080.pgpos") || "null");
@@ -1042,6 +1118,10 @@ async function boot() {
     if (!root) return;
     const wasOpen = open != null ? open
       : !!(root.querySelector(".pg-body") && !root.querySelector(".pg-body").hidden);
+    // replacing .pg-doc's innerHTML resets its scroll to the top -- rebuilding
+    // repeatedly (every step of the keyin animation) would otherwise yank the
+    // view back up out from under anyone scrolled down to watch it. Restore it.
+    const scrollTop = root.querySelector(".pg-doc")?.scrollTop || 0;
     const m = panelGuideModel();
 
     // a different machine / loader (usually: a new tape threaded) -> start the
@@ -1133,17 +1213,22 @@ async function boot() {
             <tr><th>DATA SWITCHES</th><th>OCT</th><th>8080</th></tr>
             ${rows.join("")}
           </table></div></li>
-        <li>thread a tape and press <b>Feed&nbsp;tape</b> below (or <span class="k">PLAY</span> on the deck)</li>
-        <li>flip <span class="k">RUN</span> down &mdash; the address lamps climb;
+        <li>thread a tape (click the reader)</li>
+        <li>flip <span class="k">RUN</span> down, then click <span class="k">START</span> on the
+            reader (or <span class="k">PLAY</span> on the deck) &mdash; the address lamps climb;
             at the end the loader jumps to <span class="note">${oct(m.start, 6)}</span> and the program runs</li>
       </ol>
       <div>
         <button class="pg-feed" id="pgKeyin">Key the loader in for me</button>
-        <button class="pg-feed" id="pgFeed">Feed tape &amp; run</button>
       </div>
       <p class="note">Loading ${m.what} into ${m.ramKb} KB. The reader's
       <b>LOAD SPEED</b> paces the feed &mdash; Realistic &asymp; 14&nbsp;min for
       8K BASIC.</p>` : "";
+
+    // one shared "start over" control for the whole checklist -- only worth
+    // showing once something on it is actually ticked
+    const resetSection = pgDone.size > 0
+      ? `<div class="pg-reset"><button class="pg-feed" id="pgReset">Reset checklist</button></div>` : "";
 
     root.innerHTML =
       `<button class="pg-toggle" id="pgToggle">${wasOpen ? "&#9662;" : "&#9656;"}${PG_LABEL}</button>
@@ -1153,8 +1238,11 @@ async function boot() {
          <div class="pg-doc">
            ${diskSection}
            ${tapeSection || (m.disk ? "" : "<p>This build has no bootable device.</p>")}
+           ${resetSection}
          </div>
        </div>`;
+    if (scrollTop) root.querySelector(".pg-doc").scrollTop = scrollTop;
+    updateLoadButtonsPowered();   // a fresh rebuild defaults buttons back to enabled -- resync it
 
     // restore a dragged-to position
     const panel = root.querySelector(".pg-body");
@@ -1183,25 +1271,81 @@ async function boot() {
       grp.querySelector('button[data-act="check"]')?.classList.toggle("on", done);
     };
 
+    // rebuild the checklist mid-animation and pin it "busy" -- a rebuild
+    // always hands back fresh, enabled buttons, so re-disable/relabel every
+    // time the DOM is replaced underneath the running animation.
+    const renderKeyinProgress = (label) => {
+      buildPanelGuide(true);
+      const kb = root.querySelector("#pgKeyin");
+      const rb = root.querySelector("#pgReset");
+      if (kb) { kb.disabled = true; kb.textContent = label; }
+      if (rb) rb.disabled = true;
+    };
+
+    // Keys the loader in one switch/paddle at a time, the same actions (and
+    // same effects) as clicking each row's ▸ button by hand, paced so a
+    // visitor can actually watch it happen -- see CLAUDE.md "start the
+    // machine off" thread. ?test=1 collapses pgKeyinStepMs to keep the
+    // suite fast without changing what each step does.
+    async function animateKeyin() {
+      if (pgKeyinRunning) return;
+      pgKeyinRunning = true;
+      ensurePowered();   // a dark panel has no lit switches/lamps to watch
+      const mm = panelGuideModel();
+      const key = [mm.org, mm.dest, mm.start, mm.count].join("/");
+      setRunning(false);
+      machine.clearMemory?.();
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+      // if the tape/preset changes underneath a running animation, the guide
+      // rebuilds against a new model (pgDoneKey moves on) -- stop touching
+      // memory for a loader that's no longer the one on screen.
+      const stillCurrent = () => pgDoneKey === key;
+
+      // address step: set the address switches, flip EXAMINE
+      setSwitchWord(mm.org, 16);
+      flickPaddle(/EXAMINE/, "up");
+      machine.setPC?.(mm.org);
+      pgDone.add("taddr");
+      flashPanelGuide("EXAMINE " + oct(mm.org, 6) + " -- address set");
+      renderKeyinProgress(`Keying in… (address)`);
+      await sleep(pgKeyinStepMs);
+
+      // one row per byte: DATA switches, then DEPOSIT (first) / DEPOSIT NEXT
+      for (let i = 0; i < mm.boot.length && stillCurrent(); i++) {
+        setSwitchWord(mm.boot[i], 8);
+        flickPaddle(/DEPOSIT/, i === 0 ? "up" : "down");
+        machine.writeByte?.((mm.org + i) & 0xffff, mm.boot[i]);
+        machine.setPC?.((mm.org + i + 1) & 0xffff);
+        pgDone.add(i);
+        flashPanelGuide("DEPOSIT " + oct(mm.boot[i], 3) + " at " + oct(mm.org + i, 6));
+        renderKeyinProgress(`Keying in… (${i + 1}/${mm.boot.length})`);
+        if (i < mm.boot.length - 1) await sleep(pgKeyinStepMs);
+      }
+
+      pgKeyinRunning = false;
+      if (stillCurrent()) {
+        machine.setPC?.(mm.org & 0xffff);   // leave it set to RUN from the top
+        // the address step above necessarily left the sense switches (A8-A15,
+        // the same physical toggles) showing org's high byte -- a competent
+        // operator clears them before running 2SIO-console software (see
+        // clearSenseSwitches, and startReader()'s own call for the same
+        // reason -- belt and suspenders, since RUN alone doesn't feed anything).
+        clearSenseSwitches();
+        buildPanelGuide(true);              // whole checklist ticked, buttons back to normal
+        flashPanelGuide("loader keyed in at " + oct(mm.org, 6) + " -- thread a tape, flip RUN, then START");
+      }
+    }
+
     root.addEventListener("click", (e) => {
       const p = root.querySelector(".pg-body");
       if (e.target.closest("#pgToggle")) { p.hidden = !p.hidden; setToggle(); return; }
       if (e.target.closest("#pgX"))      { p.hidden = true; setToggle(); return; }
-      if (e.target.closest("#pgKeyin")) {
-        const mm = panelGuideModel();
-        setRunning(false);
-        machine.clearMemory?.();
-        for (let i = 0; i < mm.boot.length; i++) { machine.writeByte?.(mm.org + i, mm.boot[i]); pgDone.add(i); }
-        pgDone.add("taddr");
-        machine.setPC?.(mm.org);
-        buildPanelGuide(true);            // refresh -- the whole checklist is now ticked
-        flashPanelGuide("loader keyed in at " + oct(mm.org, 6) + " -- thread a tape, then Feed tape & run");
-        return;
-      }
-      if (e.target.closest("#pgFeed")) {
-        machine.setPC?.(panelGuideModel().org & 0xffff);   // hand-keyed loader runs from its start
-        if (paperTape.feedRaw()) { setRunning(true); flashPanelGuide("reader feeding -- watch the address lamps climb"); }
-        else flashPanelGuide("thread a tape in the reader first");
+      if (e.target.closest("#pgKeyin")) { animateKeyin(); return; }
+      if (e.target.closest("#pgReset")) {
+        if (pgKeyinRunning) return;   // disabled mid-animation, but belt and suspenders
+        pgDone.clear();
+        buildPanelGuide(true);
+        flashPanelGuide("checklist reset -- key it in again by hand, or click Key the loader in for me");
         return;
       }
       if (e.target.closest("#pgBoot")) {
@@ -1265,6 +1409,54 @@ async function boot() {
     window.addEventListener("mouseup", up);
   }
   /* v8 ignore stop */
+
+  // Flick the real front-panel EXAMINE/DEPOSIT paddle, purely for visual
+  // feedback -- the animated keyin already moves PC/memory itself; this just
+  // makes it look like a hand is on the switches, same "flick" CSS the
+  // paddle's own click handler uses. `half` picks the upper/red or
+  // lower/grey labelled function (EXAMINE vs EXAMINE NEXT, DEPOSIT vs
+  // DEPOSIT NEXT), matching the paddle() convention above.
+  function flickPaddle(label, half) {
+    const cell = [...document.querySelectorAll("#altair .fp-ctl .fp-cell.paddle")]
+      .find((c) => label.test(c.textContent || ""));
+    const bat = cell?.querySelector(".bat");
+    if (!bat) return;
+    bat.classList.add(half === "up" ? "flick" : "flick-dn");
+    setTimeout(() => bat.classList.remove("flick", "flick-dn"), 140);
+  }
+
+  // Power the machine on first if it's currently off -- an automated action
+  // (the panel guide's "key it in for me") should run on a lit, live panel,
+  // same as a real operator would flip ON before touching any switches.
+  function ensurePowered() {
+    if (powered) return;
+    powered = true;
+    document.querySelector("#altair .fp-power .bat")?.classList.remove("down");
+    updateFocusHint();
+    updateLoadButtonsPowered();
+  }
+
+  // The one-click "load and go" shortcuts all write straight into memory/PC
+  // whether or not the CPU has power -- with the panel dark that's a click
+  // that looks like it did nothing (the actual bug report this fixes).
+  // Grey them out while powered off instead of leaving that mystery; the
+  // panel guide's own "Key the loader in for me" is exempt since it flips
+  // power on for you (ensurePowered, above) rather than needing to be blocked.
+  function updateLoadButtonsPowered() {
+    // the reader's own START/AUTO-LOAD already grey out for lack of a
+    // threaded tape (syncButtons, keyed off paperTape.entry) -- recompute
+    // that first, then only ever ADD the power condition on top of it, never
+    // clear a disable that's there for an unrelated reason.
+    paperTape.syncButtons?.();
+    for (const sel of ["#ptr .ptr-load", "#ptr .ptr-start"]) {
+      const b = document.querySelector(sel);
+      if (b && !powered) b.disabled = true;
+    }
+    for (const sel of ["#dcdd .dcdd-boot", "#acr .acr-key.play"]) {
+      const b = document.querySelector(sel);
+      if (b) b.disabled = !powered;
+    }
+  }
 
   function flashPanelGuide(msg) {
     const b = document.querySelector("#panelGuide .pg-doc");
@@ -1362,7 +1554,7 @@ async function boot() {
       this.speed = DISK_SPEEDS[key] != null ? key : "realistic";
       if (this.speedSel) this.speedSel.value = this.speed;
       if (typeof machine.setDiskSpeed === "function") machine.setDiskSpeed(DISK_SPEEDS[this.speed]);
-      // don't persist the internal "max" (?test / Auto-load) as a user choice
+      // don't persist the internal "max" (?test=1) as a user choice
       if (DISK_SPEED_KEYS.includes(this.speed))
         try { localStorage.setItem("retro8080.diskspeed", this.speed); } catch {}
     },
@@ -1610,7 +1802,7 @@ async function boot() {
 
   // --- MITS 88-ACR cassette deck --------------------------
   // bytes/sec. Realistic is the real 300 baud; `max` (0 = unlimited) isn't in
-  // the picker -- it's what ?test and preset Auto-load use.
+  // the picker -- it's what ?test=1 uses.
   const TAPE_SPEEDS = { realistic: 30, x5: 150, x25: 750, x50: 1500, max: 0 };
   const TAPE_SPEED_KEYS = ["realistic", "x5", "x25", "x50"];
 
@@ -1761,7 +1953,7 @@ async function boot() {
       if (this.speedSel) this.speedSel.value = this.speed;
       if (typeof machine.setTapeSpeed === "function")
         machine.setTapeSpeed(TAPE_SPEEDS[this.speed]);
-      // don't persist the internal "max" (?test / Auto-load) as a user choice
+      // don't persist the internal "max" (?test=1) as a user choice
       if (TAPE_SPEED_KEYS.includes(this.speed))
         try { localStorage.setItem("retro8080.tapespeed", this.speed); } catch {}
     },
@@ -1933,7 +2125,11 @@ async function boot() {
 
   // --- era presets ---------------------------------------
   // Each preset is a period-correct machine build: RAM, primary I/O, the S-100
-  // cards plugged in, and (optionally) the flagship software auto-loaded.
+  // cards plugged in, and (already threaded, not yet loaded) the flagship
+  // software. Nothing runs on its own -- like a real Altair, the machine
+  // starts powered off; flip the front panel's ON switch, then load the
+  // software through whichever device holds it (the reader's own AUTO-LOAD
+  // button, the disk cabinet's BOOT button, or by hand from the panel guide).
   //
   // Every preset's console is the 88-2SIO (the only serial board this emulator
   // implements). A genuinely period "1975" machine would have shipped the
@@ -1950,15 +2146,14 @@ async function boot() {
       cards: ["MITS 88-CPU\n8080 / 2 MHz", "MITS 88-4MCS\nStatic RAM", "MITS 88-2SIO\nserial"],
       devices: ["papertape"],
       preload: { papertape: { match: /kill the bit/i } },
-      autoload: { device: "papertape" },
       missing: "Kill the Bit isn't built — run `make roms`",
       blurb: "A minimal toggle-in machine: an 8080, 4K of static RAM, a serial card for the paper-tape reader, and the front panel where the real action is.",
       guide:
-`KILL THE BIT is threaded in the paper-tape reader. Auto-load feeds it
-in fast; press LOAD to watch the 24-byte tape crawl through the head at
-the LOAD SPEED you pick. Then a lit bit sweeps across the top address
-lamps (A8 - A15) -- flip the sense switch under it to knock it out.
-Clear the row and you win.
+`KILL THE BIT is threaded in the paper-tape reader. Flip the front
+panel's power switch ON, then click AUTO-LOAD on the reader to key a
+bootstrap in and stream the 24-byte tape at the LOAD SPEED you pick.
+Then a lit bit sweeps across the top address lamps (A8 - A15) -- flip
+the sense switch under it to knock it out. Clear the row and you win.
 
   STOP / RUN        halt and restart the CPU
   RESET / CLR       (panel paddle) jump back to the start
@@ -1973,16 +2168,15 @@ is how a program got into the machine before disks.`,
       cards: ["MITS 88-CPU\n8080", "MITS 88-4MCD\nDRAM", "MITS 88-2SIO\nserial", "Teletype\nASR-33"],
       devices: ["papertape"],
       preload: { papertape: { match: /4K BASIC/i } },
-      autoload: { device: "papertape" },
       missing: "Altair 4K BASIC could not be loaded",
       blurb: "4K of RAM, a Teletype for a console, and the program that made the Altair worth buying: Altair 4K BASIC.",
       guide:
-`Altair 4K BASIC is on a tape in the paper-tape reader. Auto-load feeds
-it in fast; press LOAD yourself and it streams at the LOAD SPEED you
-pick -- Realistic is 10 B/s, an ASR-33 reader (blank leader first, then
-~6 min for 4K BASIC, address lamps climbing). Its questions (MEMORY
-SIZE?, TERMINAL WIDTH?, SIN?) are answered for you -- you land at OK
-with ~716 bytes free, like a real 4K box.
+`Altair 4K BASIC is on a tape in the paper-tape reader. Flip the power
+switch ON, then click AUTO-LOAD on the reader -- it keys a bootstrap
+in and streams the tape at the LOAD SPEED you pick (Realistic is 10
+B/s, an ASR-33 reader: blank leader first, then ~6 min, address lamps
+climbing) and answers its questions (MEMORY SIZE?, TERMINAL WIDTH?,
+SIN?) for you -- you land at OK with ~716 bytes free, like a real 4K box.
 
   PRINT 2+2
   10 PRINT "HELLO"
@@ -2001,16 +2195,15 @@ scrolls back -- and it's uppercase only.`,
         papertape: { match: /8K BASIC/i },
         cassette:  { tape: "startrek.cas", name: "SUPER STAR TREK", cload: "S" },
       },
-      autoload: { device: "papertape", then: "cassetteHint" },
       missing: "Altair 8K BASIC could not be loaded",
       blurb: "32K of RAM, a fast video terminal, an 8K BASIC tape in the reader, and an 88-ACR deck holding Star Trek.",
       guide:
 `Two loaders: an 8K BASIC tape in the paper-tape reader, and the SUPER
-STAR TREK cassette in the 88-ACR deck. Auto-load feeds 8K BASIC in fast
-and cold-starts it. Press LOAD on the reader instead and it streams at
-the selected LOAD SPEED -- "Realistic" is 10 B/s (an ASR-33 reader): a
-genuine ~14-minute read, blank leader first, then the address lamps
-climbing, exactly like a MITS tape. The cassette stays manual:
+STAR TREK cassette in the 88-ACR deck. Flip the power switch ON, then
+click AUTO-LOAD on the reader -- it keys a bootstrap in, streams the
+tape at the LOAD SPEED you pick ("Realistic" is 10 B/s, an ASR-33
+reader: a genuine ~14-minute read, blank leader first, address lamps
+climbing), and cold-starts BASIC for you. The cassette stays manual:
 
   1. at OK, type   CLOAD "S"      (BASIC now waits for the tape)
   2. press PLAY on the deck       (the reels turn, the tape streams in)
@@ -2030,11 +2223,13 @@ The LOAD SPEED selector paces the transfer ("Realistic" = 300 baud).`,
               "MITS 88-16MCD\n16K DRAM", "MITS 88-16MCD\n16K DRAM", "MITS 88-2SIO\nserial", "MITS 88-DCDD\ndisk ctlr"],
       devices: ["disk"],
       preload: { disk: { match: /CP\/M/i, drive: 0 } },
-      autoload: { device: "disk" },
       missing: "the CP/M diskette could not be loaded",
       blurb: "64K of RAM, a VT100, and two 8-inch floppy drives -- a real disk operating system, the setup that ran a small business.",
       guide:
-`CP/M 2.2 has booted to the A> prompt. Type a command:
+`CP/M is on the diskette in drive A. Flip the front panel's power
+switch ON, then click BOOT on the disk cabinet (or set the address
+switches to 0FF00h, EXAMINE, and RUN by hand) to read it in. Once it's
+up at the A> prompt, type a command:
 
   DIR             list files          TYPE READ.ME   show a text file
   STAT            free space          ERA JUNK.TXT   delete a file
@@ -2053,7 +2248,10 @@ each drive, including how to quit each program.`,
     "whichever device you keep. Pick a named preset to jump to a period-correct setup.";
 
   const EMU_PRIMER =
-`THE FRONT PANEL is live. Address and data lamps, the A0 - A15 toggle
+`THE MACHINE starts powered off, like a real Altair -- flip the OFF/ON
+switch (top-left of the switch row) before anything else will run.
+
+THE FRONT PANEL is live. Address and data lamps, the A0 - A15 toggle
 switches, and the paddles: STOP/RUN, SINGLE STEP, EXAMINE (set the
 address), DEPOSIT (write the switches to memory), RESET/CLR. The top
 eight switches (A8 - A15) are the "sense switches" that programs read.
@@ -2088,19 +2286,6 @@ exactly as it did in 1975.`;
   function presetHint(msg, opts) {
     presetNote.textContent = msg || "";
     presetNote.style.color = (opts && opts.color) || "";
-  }
-
-  // auto-load couldn't reach its software: say so on the terminal and as a
-  // standing note, then leave a bare working machine
-  function presetSoftwareMissing(sw) {
-    presetHint(sw.missing, { persist: true });
-    machine.reset();
-    term.clear(); outQ.length = 0; crlfPending = false;
-    setRunning(true);
-    term.write(
-      "\r\n\x1b[0m  — " + sw.missing.toUpperCase() + " —\r\n\r\n" +
-      "  The hardware is set up; the software just didn't load. Try the\r\n" +
-      "  preset again, or load something from the reader / deck / drive.\r\n\r\n");
   }
 
   // --- loader devices (paper tape / cassette / floppy) ----
@@ -2186,15 +2371,19 @@ exactly as it did in 1975.`;
 
       // bare, running machine, then thread the preset's media
       machine.reset(); term.clear(); outQ.length = 0; crlfPending = false;
-      if ((p.devices || []).includes("disk")) machine.mapDiskBoot?.();   // reset wiped it
+      if ((p.devices || []).includes("disk")) {
+        // A disk-equipped machine's RAM was never blank on a real power-on
+        // (see wasm_machine.cpp's randomizeMemory) -- this holds regardless of
+        // *how* CP/M ends up getting booted -- the disk cabinet's BOOT button
+        // or by hand from the panel guide's EXAMINE 0FF00h / RUN -- so it belongs here rather than
+        // only in bootDisk()'s own convenience path.
+        machine.randomizeMemory?.();
+        machine.mapDiskBoot?.();   // reset wiped it
+      }
       setRunning(true);
       const missing = await applyPreloads(p);
+      if (missing) presetHint(missing, { persist: true });
 
-      if (autoloadChk.checked && p.autoload && !missing) {
-        await runPresetSoftware(p);
-      } else if (missing) {
-        presetHint(missing, { persist: true });
-      }
       const anchor = p.focus === "panel" ? "altair" : "screen";
       document.getElementById(anchor).scrollIntoView({ block: "center", behavior: "smooth" });
     } finally {
@@ -2203,43 +2392,7 @@ exactly as it did in 1975.`;
     }
   }
 
-  // ticking Auto-load, or picking a preset with it ticked: load the preset's
-  // primary device now (media is already threaded by applyPreloads)
-  async function runPresetSoftware(p) {
-    const a = p.autoload;
-    if (!a) return;
-    if (a.device === "disk") {
-      if (!machine.diskPresent || !machine.diskPresent(0)) { presetSoftwareMissing({ missing: p.missing }); return; }
-      machine.bootDisk();
-      turbo = false;
-      term.clear(); outQ.length = 0; crlfPending = false;
-      setRunning(true); term.focus();
-      return;
-    }
-    if (a.device === "papertape") {
-      if (!paperTape.entry) { presetSoftwareMissing({ missing: p.missing }); return; }
-      paperTape.load({
-        speed: "max",           // auto-load is the fast path; press LOAD yourself to watch it read
-        then: a.then === "cassetteHint" ? cassetteTapeHint : undefined,
-      });
-      return;
-    }
-  }
-
   presetSelect.addEventListener("change", () => applyPreset(presetSelect.value));
-
-  // Auto-load is a one-way switch: ticking it starts the current preset's
-  // software right now; unticking it just remembers the choice and leaves the
-  // machine alone. It does NOT re-apply the hardware, so it can't scroll the
-  // page or disturb a running program.
-  autoloadChk.addEventListener("change", async () => {
-    try { localStorage.setItem("retro8080.autoload", autoloadChk.checked ? "1" : "0"); } catch {}
-    const p = PRESETS[presetSelect.value];
-    if (!autoloadChk.checked || !p || applyingPreset) return;
-    applyingPreset = true;
-    try { await runPresetSoftware(p); }
-    finally { applyingPreset = false; }
-  });
 
   // the "Guide" button: what this setup is, and how to drive it
   const guideDialog = document.getElementById("presetGuideDialog");
@@ -2280,7 +2433,7 @@ exactly as it did in 1975.`;
   // minutes, exactly as it did); 5x / 10x / 20x for the impatient.
   // A 0xE000 ROM build can't stream (it sits above RAM) so that one drops in.
   // bytes/sec. Realistic is the real ASR-33 reader; `max` (0 = unlimited) isn't
-  // in the picker -- it's what ?test and preset Auto-load use.
+  // in the picker -- it's what ?test=1 uses.
   const PAPER_SPEEDS = { realistic: 10, x5: 50, x25: 250, x50: 500, max: 0 };
   const PAPER_SPEED_KEYS = ["realistic", "x5", "x25", "x50"];
   const TAPE_LEADER = 128;                                  // blank frames before the data
@@ -2550,7 +2703,7 @@ exactly as it did in 1975.`;
     setSpeed(key) {
       this.speed = PAPER_SPEEDS[key] != null ? key : "realistic";
       if (this.speedSel) this.speedSel.value = this.speed;
-      // don't persist the internal "max" (?test / Auto-load) as a user choice
+      // don't persist the internal "max" (?test=1) as a user choice
       if (PAPER_SPEED_KEYS.includes(this.speed))
         try { localStorage.setItem("retro8080.paperspeed", this.speed); } catch {}
       // if a tape is reading right now, change its rate on the fly
@@ -2634,7 +2787,7 @@ exactly as it did in 1975.`;
     },
 
     // how a threaded tape actually loads.
-    //   opts.speed  -- override the selector (preset auto-load passes "max")
+    //   opts.speed  -- override the LOAD SPEED selector for this one load
     //   opts.then   -- callback once loaded (and BASIC is at OK), gets {feed,waitFor}
     load(opts = {}) {
       const e = this.entry;
@@ -2666,6 +2819,12 @@ exactly as it did in 1975.`;
     // shortcut that keys a bootstrap in and runs it for you.
     startReader() {
       if (!this.feedRaw()) return false;   // nothing threaded, or already reading
+      // A8-A15 double as the sense switches (IN 0FFh); EXAMINE-ing the loader's
+      // address in necessarily left them showing its high byte. Altair BASIC
+      // reads sense switches at cold start to pick a console device (0 = 2SIO),
+      // so this is the hand-load path's last chance to clear them before the
+      // tape's bytes actually reach a running loader -- see clearSenseSwitches.
+      clearSenseSwitches();
       // if no loader is running the bytes just overrun the 2SIO -- warn, since
       // the reader animation looks the same either way
       if (!running) this.flash("no loader running — press RUN or the bytes are lost");
@@ -2711,16 +2870,6 @@ exactly as it did in 1975.`;
       if (!dead()) term.write("\r\n\x1b[0m[loader: " + e.message + "]\r\n");
     }
     if (loaderToken === me) { coldStartWatch = false; turbo = false; }
-  }
-
-  // used as coldStart8k's `then`: BASIC is up and the Star Trek cassette is in
-  // the deck -- tell the user how to pull it in (the cassette stays manual)
-  async function cassetteTapeHint() {
-    turbo = false;
-    // queue it so it lands after BASIC's banner finishes printing, not mid-line
-    const s = '\r\n\x1b[2m[ SUPER STAR TREK is in the deck -- type  CLOAD "S" , press\r\n' +
-              '  PLAY on the deck, then  RUN  once it says OK ]\x1b[0m\r\n';
-    for (let i = 0; i < s.length; i++) outQ.push(s.charCodeAt(i));
   }
 
 
@@ -2800,6 +2949,7 @@ exactly as it did in 1975.`;
   paperTape.build();
   paperTape.setVisible(false);
   buildPanelGuide(false);          // now that paperTape / PRESETS exist
+  updateLoadButtonsPowered();      // starts powered off -- grey the load shortcuts out
 
   ptrList.addEventListener("change", () => {
     const r = paperTape._picks[Number(ptrList.value)];
@@ -2857,7 +3007,7 @@ exactly as it did in 1975.`;
   // and exposes the internals the Playwright suite drives. The CPU still
   // runs at real 2 MHz -- nothing here is a speed knob. Absent `?test`, none
   // of this exists. See CLAUDE.md "Current sanctioned overrides".
-  if (new URLSearchParams(location.search).get("test") === "1") {
+  if (TEST_MODE) {
     paperTape.setSpeed("max");
     cassette.setSpeed("max");
     disk.setSpeed("max");
@@ -2871,6 +3021,9 @@ exactly as it did in 1975.`;
       get applyingPreset() { return applyingPreset; },
       get outQLen()     { return outQ.length; },
       get rxWatch()     { return rxWatch; },
+      // slow the panel guide's "Key the loader in for me" animation back down
+      // for a test that needs to observe it stepping, not just its outcome
+      setKeyinStepMs: (ms) => { pgKeyinStepMs = ms; },
       regs: () => machine.state(),
       leds: () => {
         const bits = (arr) => arr.reduce((w, l, i) => w | ((l && l.classList.contains("on") ? 1 : 0) << i), 0);

@@ -118,6 +118,41 @@ test.describe("88-DCDD disk cabinet", () => {
     await waitForScreen(page, /A>/, 30_000);
   });
 
+  // A real S-100 memory board never powered up blank (wasm_machine.cpp's
+  // randomizeMemory) -- an address nobody has claimed holds real garbage, not
+  // a clean 0x00. That matters here specifically: with clean zeros, EXAMINE-ing
+  // anywhere in unclaimed RAM and hitting RUN free-runs pure NOPs, wraps PC
+  // through 0xFFFF back to 0x0000, and lands on CP/M's own page-zero
+  // JMP-WBOOT vector every single time -- a deterministic "poke the panel,
+  // get a free reboot" that isn't real 8080/CP/M behavior, just an artifact
+  // of the emulator's own zero-fill.
+  test("front-panel hand boot: examining into blank RAM and RUN doesn't reboot CP/M", async ({
+    page,
+  }) => {
+    await boot(page, { params: "preset=cpm" });
+    await panelStop(page);
+    await setSwitches(page, 0xff00);
+    await clickPaddle(page, /EXAMINE/, "up");
+    await panelRun(page);
+    await waitForScreen(page, /A>/, 30_000);
+
+    const bannerCount = async () =>
+      ((await screen(page)).match(/Copyright 1980 by Burcon Inc\./g) || []).length;
+    expect(await bannerCount()).toBe(1);   // the one, real cold boot
+
+    // only A15 -- genuinely never-written RAM, never touched by the loaded OS
+    await panelStop(page);
+    await setSwitches(page, 0x8000);
+    await clickPaddle(page, /EXAMINE/, "up");
+    expect((await regs(page)).pc).toBe(0x8000);
+    const byte = await page.evaluate(() => (window as any).__test.machine.readByte(0x8000));
+    expect(byte).not.toBe(0);   // real garbage, not a clean NOP field
+
+    await panelRun(page);
+    await page.waitForTimeout(2000);   // real wall-clock time to run, wander, halt -- whatever it does
+    expect(await bannerCount()).toBe(1);   // still just the one boot -- no reprint
+  });
+
   test("the boot PROM window is read-only even at 64 KB RAM", async ({ page }) => {
     await boot(page, { params: "preset=cpm" }); // 64 KB: ram_top_ alone would swallow 0xFF00
     expect(await page.evaluate(() => (window as any).__test.machine.readByte(0xff00))).toBe(0x21);

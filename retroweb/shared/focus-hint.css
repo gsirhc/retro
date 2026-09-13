@@ -1,0 +1,17 @@
+/* Shown only while the machine is running and the screen element *doesn't*
+   have keyboard focus (see focus-hint.js) -- a real keyboard is always
+   "connected", so there's no hardware equivalent of this at all; it exists
+   purely because a page can have several focusable controls (a disk bay, a
+   theme picker, a power switch) and it's easy to click one of those and
+   then start typing at the screen, which silently goes nowhere until you
+   click it back. Full-width so it reads as a banner rather than a floating
+   label -- flush to the bezel's own edges, so no fullscreen-specific inset
+   override is needed the way .crt-overlay needs one. pointer-events none so
+   it never steals the click meant to focus the screen underneath it. */
+.focus-hint {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 6;
+  padding: 6px 0; text-align: center; pointer-events: none;
+  background: rgba(230,126,34,.55); color: #fff; font-size: 13px; font-weight: 600; letter-spacing: .03em;
+  opacity: 0; transition: opacity .2s ease;
+}
+.focus-hint.visible { opacity: 1; }

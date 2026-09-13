@@ -47,10 +47,7 @@ test.describe("error & fallback paths", () => {
   test("a preset whose disk image 404s configures the drive and says so", async ({ page }) => {
     await page.route(/\/disks\/.*\.dsk$/i, (r) => r.abort());
     await page.goto("/?test=1&preset=cpm");
-    await page.waitForFunction(() => (window as any).__test?.applyingPreset === false);
     await expect(page.locator("#presetNote")).toContainText(/could not be loaded/i, { timeout: 10_000 });
-    await page.check("#autoload");
-    await waitForScreen(page, /didn't load|could not be loaded/i, 10_000);
     await expect(page.locator("#dcdd")).not.toHaveClass(/empty/); // hardware still fitted
   });
 
@@ -67,15 +64,6 @@ test.describe("error & fallback paths", () => {
     await page.click("#pgToggle");
     await page.click("#pgBoot");
     await expect(page.locator("#panelGuide")).toContainText(/insert a diskette in drive A/i);
-  });
-
-  test("the panel guide's Feed button, with no tape, flashes a hint", async ({ page }) => {
-    await boot(page);
-    await page.selectOption("#preset", "");
-    await page.check('#deviceChips input[data-dev="papertape"]');
-    await page.click("#pgToggle");
-    await page.click("#pgFeed");
-    await expect(page.locator("#panelGuide")).toContainText(/thread a tape/i);
   });
 
   test("the reader's own flash line shows a hint when LOAD has nothing threaded", async ({ page }) => {
@@ -117,7 +105,7 @@ test.describe("error & fallback paths", () => {
   test("ejecting a dirty tape is refused when the confirm is dismissed", async ({ page }) => {
     await boot(page, { params: "preset=cassette" });
     // make the tape dirty: blank + REC + CSAVE from BASIC
-    await page.check("#autoload");
+    await page.click("#ptr .ptr-load");   // the reader's own AUTO-LOAD button
     await waitForScreen(page, /\bOK\b/, 40_000);
     await page.evaluate(() => (window as any).__test.cassette.eject(true));
     await page.evaluate(() => (window as any).__test.cassette.blank());
@@ -134,7 +122,7 @@ test.describe("error & fallback paths", () => {
       delete (window as any).showSaveFilePicker;
     });
     await boot(page, { params: "preset=cassette" });
-    await page.check("#autoload");
+    await page.click("#ptr .ptr-load");   // the reader's own AUTO-LOAD button
     await waitForScreen(page, /\bOK\b/, 40_000);
     await page.evaluate(() => (window as any).__test.cassette.eject(true));
     await page.evaluate(() => (window as any).__test.cassette.blank());
@@ -155,7 +143,7 @@ test.describe("error & fallback paths", () => {
       };
     });
     await boot(page, { params: "preset=cassette" });
-    await page.check("#autoload");
+    await page.click("#ptr .ptr-load");   // the reader's own AUTO-LOAD button
     await waitForScreen(page, /\bOK\b/, 40_000);
     await page.evaluate(() => (window as any).__test.cassette.eject(true));
     await page.evaluate(() => (window as any).__test.cassette.blank());

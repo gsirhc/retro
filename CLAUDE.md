@@ -64,10 +64,7 @@ Current sanctioned overrides:
   cassette deck the selector paces the whole transport — PLAY, FAST-FORWARD, REW;
   `CassetteACR::credit_` lets BASIC's CLOAD loop pull several bytes per frame so
   25×/50× really are that fast (not frame-capped at ~60 B/s). An internal `Max`
-  (0 = unlimited) is **not** in the picker: it's what `?test=1` forces (below)
-  and what preset **Auto-load** uses as its "just get me there" shortcut.
-- **Auto-load software** checkbox (off by default) and the preset cold-start
-  prompt auto-answering — labelled shortcuts, not the default.
+  (0 = unlimited) is **not** in the picker: it's what `?test=1` forces (below).
 - The transport keys (PLAY / REC gate the tape), the paper-tape reader's **START**
   button (runs the reader only — no bootstrap, no reset — for a loader you keyed
   in), and the front panel stay fully functional so the manual, authentic path is
@@ -159,7 +156,14 @@ machine itself (see "Adding a new machine" above).
   etc. by *that machine's* `web/Makefile` (from wherever its native-core
   fetch/build scripts already produced it, so there's one pinned/verified
   source, not a second copy) — see `retroweb/ibmpc-at/web/Makefile`'s
-  `roms`/`hdd-image` targets for the pattern.
+  `roms`/`hdd-image` targets for the pattern. Front-end code shared across
+  machines (theme system, pagebar/titlebar chrome, fullscreen + focus-hint —
+  see `retroweb/shared/`) follows the same rule: it's copied into each
+  machine's own `web/shared/` (git-ignored, regenerated) by a `shared`
+  target in that machine's own `web/Makefile`, never referenced via `../`.
+  A machine's own color-token *values* and anything that genuinely differs
+  stay local to its `index.html`, layered on top via the cascade — only the
+  parts that are actually identical move to `retroweb/shared/`.
 - **Local preview**: `make -C retroweb preview` (foreground) / `preview-bg`
   (detached, survives the terminal) serve `_site/` on `:8000`, bound to
   `0.0.0.0` — reachable on the LAN, not just `localhost`. Both go through
@@ -209,6 +213,18 @@ matters.
 - `*.bin` and `*.dsk` are git-ignored — binary media (BASIC images, disk images)
   are fetched at build time by the `fetch-*.sh` scripts, not committed.
 - Commit messages: no AI attribution, no `Co-Authored-By` trailer.
+
+## Code comments
+
+- **Present tense.** Describe what the code does now, not what it used to do
+  or will do later — no "previously...", no "TODO: will...".
+- **Short.** 1-2 sentences. If it needs more, the code is probably the wrong
+  place for that explanation (put it in a README or commit message instead).
+- **Only when non-obvious.** Comment the *why*, not the *what* — skip anything
+  a reader gets from the code itself. The one standing exception is the
+  "Realism is the default" section above: source citations for ported
+  hardware quirks (SIMH, a manual, a ROM disassembly) stay, trimmed to the
+  rules above, never deleted outright.
 
 ## Build / test
 

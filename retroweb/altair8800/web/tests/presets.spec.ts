@@ -85,35 +85,30 @@ test.describe("era presets", () => {
     }
   });
 
-  test("autoload OFF (the ?test default) configures hardware only", async ({ page }) => {
+  // A real Altair doesn't run anything on its own -- a preset threads the
+  // software into its device (tape in the reader, diskette in the drive) but
+  // never keys it in or presses RUN for you. boot() flips the front panel's
+  // power switch on, which is as far as any preset goes by itself.
+  test("presets configure hardware and thread media, but never load or boot on their own", async ({
+    page,
+  }) => {
     await boot(page, { params: "preset=cassette" });
-    expect(await page.locator("#autoload").isChecked()).toBe(false);
-    // hardware is configured but nothing was streamed into the machine
     await page.waitForTimeout(500);
     expect(await page.evaluate(() => (window as any).__test.screen())).not.toMatch(/MEMORY SIZE/i);
     expect(await page.evaluate(() => (window as any).__test.tape.phase)).toBe("idle");
+    expect(await page.evaluate(() => (window as any).__test.paperTape.entry)).not.toBe(null);
   });
 
-  test("ticking Auto-load streams the preset's software", async ({ page }) => {
+  test("the reader's AUTO-LOAD button streams the preset's software", async ({ page }) => {
     await boot(page, { params: "preset=stock" });
-    await page.check("#autoload");
+    await page.click("#ptr .ptr-load");
     // 4K BASIC cold-starts and its prompts are answered -> OK
     await waitForScreen(page, /\bOK\b/, 40_000);
   });
 
-  test("Auto-load on the CP/M preset boots the disk to A>", async ({ page }) => {
+  test("the disk cabinet's BOOT button brings the CP/M preset up to A>", async ({ page }) => {
     await boot(page, { params: "preset=cpm" });
-    await page.check("#autoload");
-    await waitForScreen(page, /A>/, 30_000);
-  });
-
-  test("a preset applied with Auto-load already remembered boots its software", async ({ page }) => {
-    // first visit: tick Auto-load so it's stored
-    await boot(page);
-    await page.evaluate(() => localStorage.setItem("retro8080.autoload", "1"));
-    // second visit: the preset applies with autoload on -> software loads itself
-    await page.goto("/?test=1&preset=cpm");
-    await page.waitForFunction(() => !!(window as any).__test?.machine);
+    await page.click("#dcdd .dcdd-boot");
     await waitForScreen(page, /A>/, 30_000);
   });
 
@@ -143,16 +138,14 @@ test.describe("era presets", () => {
   });
 
   test("a preset whose software can't be found sets the hardware and says so", async ({ page }) => {
-    await page.route("**/roms/8kbas.bin", (r) => r.abort());
+    // block the flat load-and-go image AND its ROM-build alternative -- the
+    // catalog falls back to whichever "8K BASIC" entry it can actually fetch,
+    // so simulating "nothing available" means blocking both
+    await page.route(/\/roms\/(8kbas\.bin|8kBas_.*\.bin)$/i, (r) => r.abort());
     await page.goto("/?test=1&preset=cassette");
-    await page.waitForFunction(() => (window as any).__test?.applyingPreset === false);
-    await page.check("#autoload");
     await expect(page.locator("#presetNote")).toContainText(/could not be loaded|not.*load/i, {
       timeout: 10_000,
     });
-    await expect
-      .poll(() => page.evaluate(() => (window as any).__test.screen()))
-      .toMatch(/didn't load|could not be loaded/i);
     // the cassette deck (the other device) is still fitted
     await expect(page.locator("#acr")).not.toHaveClass(/empty/);
   });

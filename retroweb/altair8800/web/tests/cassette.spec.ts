@@ -9,7 +9,7 @@ const slow = (page, s = "realistic") =>
 const clearScreen = (page) => page.evaluate(() => (window as any).__test.term.clear());
 
 async function autoloadBasic(page) {
-  await page.check("#autoload");
+  await page.click("#ptr .ptr-load");   // the reader's own AUTO-LOAD button
   await waitForScreen(page, /\bOK\b/, 40_000);
 }
 // send a command that echoes OK (NEW / LIST / RUN) and wait for a fresh one

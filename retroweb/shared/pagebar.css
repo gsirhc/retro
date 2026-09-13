@@ -1,0 +1,99 @@
+/* Shared page-shell + pagebar/titlebar chrome -- the DOS-prompt-styled
+   Win95 title bar / plain nav bar / Modern app-bar header every machine page
+   (and nothing else -- the CRT/case/front-panel hardware keeps its own
+   photoreal look in every theme, styled locally per machine) uses to host
+   the "back to all machines" link, the page name, and the theme picker.
+   Colors/fonts all come from custom properties each machine's own <style>
+   block still defines in its own :root/[data-theme] rules -- only the
+   *mechanism* (flex layout, which parts show under which theme) lives here,
+   so each machine keeps its own palette while the chrome itself stays one
+   shared, no-longer-hand-copied thing. See CLAUDE.md's shared-front-end
+   convention and each machine's web/Makefile `shared` target. */
+
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--desktop);
+  color: var(--text);
+  font: 14px/1.5 var(--body-font);
+  padding: var(--body-pad);
+}
+:root:not([data-theme]) body {
+  /* theme-init.js always stamps data-theme before first paint; this only
+     covers a page loaded with scripting disabled entirely. */
+  background: #0e0f12; color: #d8dbe2;
+}
+a { color: var(--link); }
+h1, h2, h3 { font-weight: 600; }
+
+.page {
+  max-width: var(--page-max); margin: 0 auto;
+  background: var(--page-bg);
+  border: var(--page-border);
+  border-radius: var(--page-radius);
+  box-shadow: var(--page-shadow);
+  overflow: hidden;
+}
+/* Modern theme goes almost full page width on every machine page. */
+:root[data-theme="modern"] { --page-max: min(1600px, 95vw); }
+
+.pagebar {
+  display: flex; align-items: center; gap: 10px;
+  background: var(--titlebar-bg); color: var(--titlebar-fg);
+  font: bold 13px Arial, Helvetica, sans-serif;
+  padding: 4px 8px;
+}
+.pagebar a { color: inherit; }
+.pb-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The classic Windows-title-bar app icon -- real Windows 95/period browsers
+   always showed one to the left of the window title. Hidden under Modern,
+   which uses .pb-name/.pb-tag instead. */
+.pb-icon { width: 14px; height: 14px; vertical-align: -2px; margin-right: 3px; }
+:root[data-theme="modern"] .pb-icon { display: none; }
+.pb-home { flex: 0 0 auto; display: none; text-decoration: none; font-weight: bold; }
+.pb-name, .pb-tag { display: none; }   /* Modern folds the page title into this bar instead */
+.pb-tools { flex: 0 0 auto; margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.pb-theme { display: inline-flex; align-items: center; gap: 5px; font: inherit; }
+.pb-theme select {
+  font: 11px Arial, Helvetica, sans-serif;
+  color: var(--text); background: var(--field-bg);
+  border: var(--field-border); border-radius: var(--btn-radius);
+  padding: 1px 3px;
+}
+.pb-winbtns span, .pb-winbtns a {
+  display: inline-block; width: 16px; height: 14px; line-height: 12px;
+  margin-left: 2px; text-align: center; font-size: 10px;
+  color: #000; background: #c0c0c0; border: 1px outset #dfdfdf;
+  text-decoration: none;
+}
+
+:root[data-theme="web94"] .pagebar {
+  background: #c0c0c0; color: #000;
+  border-bottom: 1px solid #808080;
+  font: 13px "Times New Roman", Times, serif;
+}
+:root[data-theme="web94"] .pb-title   { display: none; }
+:root[data-theme="web94"] .pb-winbtns { display: none; }
+:root[data-theme="web94"] .pb-home { display: inline; color: #0000ff; text-decoration: underline; font-weight: normal; }
+:root[data-theme="web94"] .pb-home:visited { color: #800080; }
+
+:root[data-theme="modern"] .pagebar {
+  background: var(--titlebar-bg); color: var(--titlebar-fg);
+  border-bottom: 1px solid #ecedf1; border-radius: 14px 14px 0 0;
+  font: 500 13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  padding: 10px 16px;
+}
+/* --rule is already a full "1px solid <color>" border shorthand in every
+   machine's own dark-modern token block (just a different color per
+   machine) -- reusing it here keeps this override in whatever color each
+   machine's own dark palette actually uses, instead of hardcoding one. */
+:root[data-theme="modern"][data-mode="dark"] .pagebar { border-bottom: var(--rule); }
+:root[data-theme="modern"] .pb-title   { display: none; }
+:root[data-theme="modern"] .pb-winbtns { display: none; }
+:root[data-theme="modern"] .pb-home { display: inline; color: var(--link); text-decoration: none; font-weight: 600; font-size: 12px; opacity: .85; }
+:root[data-theme="modern"] .pb-name { display: block; flex: 0 0 auto; margin-left: 2px; font-weight: 700; font-size: 15px; letter-spacing: .3px; color: var(--h1-color); }
+:root[data-theme="modern"] .pb-tag { display: block; flex: 1 1 auto; min-width: 0; color: var(--muted); font-size: 12px; font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 700px) { :root[data-theme="modern"] .pb-tag { display: none; } }
+
+.inner { padding: 16px 20px 20px; }
+:root[data-theme="win"] .inner, :root[data-theme="web94"] .inner { padding: 14px 22px 22px; }

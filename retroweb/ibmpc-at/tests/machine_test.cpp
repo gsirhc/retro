@@ -34,11 +34,10 @@ TEST(MachineTest, ConstructorSeedsFactoryCmosConfiguration) {
 }
 
 TEST(MachineTest, FactoryCmosSurvivesAnExplicitResetCall) {
-    // Regression test: chipset.reset() used to unconditionally reset the
-    // CMOS/RTC too, silently wiping the factory configuration the moment
-    // any caller did the natural thing and called m.reset() after
-    // constructing a Machine -- real CMOS is battery-backed and survives
-    // any reset. See IBM_PCAT_REVIEW.md §8.
+    // Regression test: constructing a Machine and calling reset() must not
+    // wipe the factory CMOS configuration -- real CMOS is battery-backed
+    // and survives any reset, unlike a chipset.reset() that unconditionally
+    // resets CMOS/RTC too. See IBM_PCAT_REVIEW.md §8.
     Machine m;
     m.reset();
     EXPECT_EQ(m.chipset.cmos.peek(0x3D) & 0x0F, 0x01);

@@ -67,8 +67,9 @@ protected:
     }
 };
 
-// --- MUL/IMUL/DIV/IDIV: the dominant real-world cause of the Landmark ---
-// --- overshoot -- previously all flat 7 regardless of which op ran.    ---
+// --- MUL/IMUL/DIV/IDIV: each op costs its own real total below, not a  ---
+// --- flat 7 for every op -- the dominant real-world cause of the       ---
+// --- Landmark Speed Test overshoot.                                    ---
 
 TEST_F(Cpu80286TimingTest, MulRegister8BitCosts13Cycles) {
     // F6 /4: MUL AL (mod=11, reg=100, rm=000 -> F6 E0)
@@ -109,8 +110,8 @@ TEST_F(Cpu80286TimingTest, IdivRegister16BitCosts25Cycles) {
 TEST_F(Cpu80286TimingTest, TestAndNotAndNegKeepTheGenericRegMemSplit) {
     // TEST reg,imm8 and NOT/NEG were never the bug, but grp3_unary now
     // computes its own cost table rather than a blanket CYC_MEM -- pin
-    // down that the reg-operand case (previously *overcosted* to flat 7,
-    // like every other case in this group) reads back correctly too.
+    // down that the reg-operand case (which a flat 7 for every case in
+    // this group would overcost) reads back correctly too.
     EXPECT_EQ(runCycles({0xF6, 0xD0}), 2);         // F6 /2: NOT AL
     EXPECT_EQ(runCycles({0xF6, 0xD8}), 2);         // F6 /3: NEG AL
     EXPECT_EQ(runCycles({0xF6, 0xC0, 0x00}), 3);   // F6 /0, imm8: TEST AL,0
@@ -140,7 +141,7 @@ TEST_F(Cpu80286TimingTest, PushReg16Costs3Cycles) {
     EXPECT_EQ(runCycles({0x50}), 3);  // PUSH AX
 }
 
-// --- REP-prefixed string ops: previously flat 7 regardless of count ----
+// --- REP-prefixed string ops: cost scales with count, not a flat 7 -----
 
 TEST_F(Cpu80286TimingTest, MovsbNonRepCosts5Cycles) {
     EXPECT_EQ(runCycles({0xA4}), 5);  // MOVSB
@@ -263,7 +264,7 @@ TEST_F(Cpu80286TimingTest, LeaveCosts5Cycles) {
     EXPECT_EQ(runCycles({0xC9}), 5);
 }
 
-// --- INT/INT3/INTO/IRET: previously flat 45, a ~2x *over*count (the
+// --- INT/INT3/INTO/IRET: a flat 45 would *over*count these by ~2x (the
 // --- opposite direction from MUL/DIV) -- real 80286 floor is 23 (INT3/INT
 // --- nn), 24 (INTO taken), 17 (IRET), each + kQueueRefillTax since entering
 // --- or returning from an interrupt is itself a control transfer that
@@ -325,10 +326,10 @@ TEST_F(Cpu80286TimingTest, MovDisplacementFromAlCosts3Cycles) {
 // --- Jcc/JMP/CALL/RET: every queue-flushing control transfer gets its
 // --- cited floor-of-range cost + kQueueRefillTax (cpu80286.h), landing
 // --- inside Intel's own documented range for each (verified per opcode
-// --- against the same Appendix D table cited throughout this file). CALL
-// --- near (0xE8) was previously a flat 11, actually *above* Intel's own
-// --- 7-10 range for that opcode -- a real, separate overcost bug caught
-// --- while auditing every control-transfer opcode for this fix.
+// --- against the same Appendix D table cited throughout this file). A
+// --- flat 11 for CALL near (0xE8) would sit *above* Intel's own 7-10
+// --- range for that opcode, a real, separate overcost bug caught while
+// --- auditing every control-transfer opcode for this fix.
 
 TEST_F(Cpu80286TimingTest, JccShortTakenCosts9Cycles) {
     cpu->flags |= FLAG_ZF;

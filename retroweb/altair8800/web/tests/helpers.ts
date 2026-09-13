@@ -44,6 +44,15 @@ export async function boot(
       timeout: 10_000,
     });
   }
+  // A real Altair doesn't arrive already running -- the front panel starts
+  // powered off (CLAUDE.md realism), so flip it ON and RUN here rather than
+  // in every single test that wants a live machine.
+  await page.evaluate(() => {
+    const cell = document.querySelector<HTMLElement>("#altair .fp-power.paddle");
+    const bat = cell?.querySelector(".bat");
+    if (bat?.classList.contains("down")) cell!.click();   // down = OFF -> flip ON
+  });
+  await panelRun(page);
   if (opts.expectText) await waitForScreen(page, opts.expectText);
 }
 

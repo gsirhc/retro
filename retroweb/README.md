@@ -26,6 +26,22 @@ The browser emulators and the landing page that lists them.
   hard disk — boots straight to a `C:\>` prompt. Hardware findings live in
   [`IBM_PCAT_REVIEW.md`](ibmpc-at/IBM_PCAT_REVIEW.md).
 
+## Shared front-end code
+
+[`shared/`](shared/) holds the front-end code common to all three machine
+pages — the theme system (`theme-init.js`'s anti-FOUC bootstrap,
+`theme-picker.js`'s interactive `<select>` logic), the pagebar/titlebar
+chrome (`pagebar.css`), and the fullscreen + "click to focus" mechanisms
+(`fullscreen.css`/`.js`, `focus-hint.css`/`.js`). It's a build-time source,
+not something a page fetches directly: each machine's own `web/Makefile` has
+a `shared` target that copies these files into that machine's own
+`web/shared/` (git-ignored, regenerated like the wasm build itself), because
+**only `web/` ever gets staged** — see "Adding a machine" below. Each
+machine's own `:root`/`[data-theme]` color-token *values* (and anything that
+genuinely differs — a machine's own tuned spacing, an extra dead-hardware
+control) stay local to that machine's `index.html`, layered on top of the
+shared CSS via the cascade.
+
 ## The deployed site
 
 CI builds all three front ends, fetches the pinned Altair BASIC / CP/M media,

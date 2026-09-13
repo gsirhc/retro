@@ -129,7 +129,7 @@ test.describe("timing fidelity", () => {
 
   test("the load-time turbo does not survive a keypress", async ({ page }) => {
     await boot(page, { params: "preset=stock" });
-    await page.check("#autoload"); // cold-starts 4K BASIC with turbo on
+    await page.click("#ptr .ptr-load"); // cold-starts 4K BASIC with turbo on
     await page.waitForTimeout(500);
     await send(page, " "); // a byte from the "keyboard"
     // once BASIC is at OK the loader has released turbo; the clock is back to 2 MHz

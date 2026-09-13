@@ -678,12 +678,11 @@ int Cpu::loop_group(uint8_t op) {
     // kQueueRefillTax (see cpu80286.h) since a taken loop-branch flushes
     // the prefetch queue like any other control transfer; not-taken
     // differs per op (LOOP=4, LOOPE=6, LOOPNE=5, JCXZ=4) and is unaffected,
-    // since no flush occurs. Previously a flat 3 (CYC_JMP_NOT) regardless
-    // of op or outcome -- undercosting the taken case by roughly 3x,
-    // missed in the first pass over this file even though a
-    // decrement-and-branch counting loop (exactly what LOOP is for) is
-    // one of the most likely constructs a real CPU-speed-test benchmark's
-    // inner loop would use.
+    // since no flush occurs. A flat 3 (CYC_JMP_NOT) regardless of op or
+    // outcome would undercost the taken case by roughly 3x -- easy to miss
+    // on a first pass over this file, even though a decrement-and-branch
+    // counting loop (exactly what LOOP is for) is one of the most likely
+    // constructs a real CPU-speed-test benchmark's inner loop would use.
     if (take) return 8 + kQueueRefillTax;
     switch (op) {
         case 0xE0: return 5;  // LOOPNE not taken
@@ -753,12 +752,12 @@ int Cpu::string_op(uint8_t op) {
     // appendix): a single non-REP execution has its own small fixed cost;
     // a REP-prefixed run costs a small fixed overhead plus a per-iteration
     // cost, scaling with however many iterations actually ran above (not
-    // the original CX -- REPE/REPNE can stop short of it). Previously
-    // charged one flat CYC_MEM=7 regardless of REP or count at all --
-    // harmless for a single MOVSB, but a REP MOVSW copying, say, a 512-
-    // byte disk sector was charged the same 7 cycles as copying one byte,
-    // wildly undercosting the kind of bulk memory copy real BIOS/DOS code
-    // does constantly (buffer moves, screen scrolls, memory tests).
+    // the original CX -- REPE/REPNE can stop short of it), not one flat
+    // CYC_MEM=7 regardless of REP or count -- harmless for a single MOVSB,
+    // but that would charge a REP MOVSW copying, say, a 512-byte disk
+    // sector the same 7 cycles as copying one byte, wildly undercosting
+    // the kind of bulk memory copy real BIOS/DOS code does constantly
+    // (buffer moves, screen scrolls, memory tests).
     switch (op) {
         case 0xA4: case 0xA5: return is_rep ? (5 + 4 * iterations) : 5;  // MOVS
         case 0xA6: case 0xA7: return is_rep ? (5 + 9 * iterations) : 8;  // CMPS
@@ -794,8 +793,8 @@ int Cpu::io_string_op(uint8_t op) {
     } while (is_rep && cx != 0);
     // Real 80286 timing: INS and OUTS share the same 5 (non-rep) / 5+4*n
     // (rep) shape as each other (Intel iAPX 286 PRM / 80286 data sheet
-    // timing appendix) -- previously a flat CYC_MEM=7 regardless of REP
-    // or count, same undercounting issue as string_op() above.
+    // timing appendix) -- not a flat CYC_MEM=7 regardless of REP or count,
+    // which would undercount exactly like string_op() above.
     return is_rep ? (5 + 4 * iterations) : 5;
 }
 
@@ -851,11 +850,11 @@ int Cpu::grp2_shift(uint8_t op) {  // 0xC0/0xD0/0xD2: 8-bit  0xC1/0xD1/0xD3: 16-
     // shift-by-1 encoding (D0/D1) is its own cheaper case, NOT simply
     // "5+count" with count=1 -- real hardware doesn't derive it from the
     // variable-count formula even though the resolved count happens to be
-    // 1. The count-dependent forms (CL, C0/C1-encoded imm8) previously
-    // all fell through to the same flat CYC_MEM=7 as the by-1 form
-    // regardless of operand location or count -- undercosting any shift
-    // by more than a few bits, and even overcosting a register-destination
-    // by-1 shift (real 2, was charged 7).
+    // 1. The count-dependent forms (CL, C0/C1-encoded imm8) get their own
+    // cost rather than falling through to the by-1 form's flat CYC_MEM=7
+    // regardless of operand location or count -- that would undercost any
+    // shift by more than a few bits, and overcost a register-destination
+    // by-1 shift (real 2, not 7).
     if (op == 0xD0 || op == 0xD1) return rm.is_mem ? 7 : 2;
     return rm.is_mem ? (8 + count) : (5 + count);
 }
@@ -980,9 +979,8 @@ int Cpu::grp3_unary(uint8_t op) {  // 0xF6: r/m8  0xF7: r/m16 -- TEST/NOT/NEG/MU
     // Real 80286 timings (Intel iAPX 286 PRM / 80286 data sheet timing
     // appendix -- see IBM_PCAT_REVIEW.md's CPU-timing section). TEST/NOT/
     // NEG are close to the generic ALU reg/mem split (CYC_REG/CYC_MEM in
-    // step()); MUL/IMUL/DIV/IDIV are dramatically more expensive and were
-    // previously all charged the same flat CYC_MEM=7 as everything else in
-    // this group -- undercosting DIV r/m16 by more than 3x. This was the
+    // step()); MUL/IMUL/DIV/IDIV are dramatically more expensive than a flat
+    // CYC_MEM=7 would charge -- undercosting DIV r/m16 by more than 3x, the
     // dominant cause of CPU-speed-test software (e.g. Landmark Speed Test,
     // whose loop is DIV/MUL-heavy by design) reading a faster-than-real
     // clock. The 32-bit (0x66-prefixed) forms reuse the 16-bit-width
@@ -1221,14 +1219,14 @@ int Cpu::step() {
             // MOV's memory-operand cost is directional on real 80286 hardware
             // (write-to-memory=3, read-from-memory=5 -- Intel iAPX 286 PRM /
             // 80286 data sheet timing appendix), unlike the generic ALU
-            // group's flat 7; previously charged the same flat CYC_MEM=7 as
-            // everything else, overcosting every MOV with a memory operand.
+            // group's flat 7, which would overcost every MOV with a memory
+            // operand.
             else if (op == 0x88) { RM rm = decode_modrm(); rm_write8(rm, get_reg8(last_reg_)); c += rm.is_mem ? 3 : CYC_REG; }
             else if (op == 0x89) { RM rm = decode_modrm(); if (opsize32_) rm_write32(rm, get_reg32(last_reg_)); else rm_write16(rm, get_reg16(last_reg_)); c += rm.is_mem ? 3 : CYC_REG; }
             else if (op == 0x8A) { RM rm = decode_modrm(); set_reg8(last_reg_, rm_read8(rm)); c += rm.is_mem ? 5 : CYC_REG; }
             else if (op == 0x8B) { RM rm = decode_modrm(); if (opsize32_) set_reg32(last_reg_, rm_read32(rm)); else set_reg16(last_reg_, rm_read16(rm)); c += rm.is_mem ? 5 : CYC_REG; }
-            // 0x8C/0x8E previously charged a flat CYC_MEM=7 unconditionally,
-            // not even checking rm.is_mem -- real MOV reg16,segreg / MOV
+            // 0x8C/0x8E check rm.is_mem rather than charging a flat
+            // CYC_MEM=7 unconditionally -- real MOV reg16,segreg / MOV
             // segreg,reg16 (register-register) is only 2 cycles.
             else if (op == 0x8C) { RM rm = decode_modrm(); rm_write16(rm, seg_reg(last_reg_ & 3)); c += rm.is_mem ? 3 : CYC_REG; }
             else if (op == 0x8D) { RM rm = decode_modrm(); if (opsize32_) set_reg32(last_reg_, rm.off); else set_reg16(last_reg_, rm.off); c += CYC_REG; }  // LEA (rm should be memory; register-mode encoding is undefined on real hardware too)
@@ -1274,8 +1272,8 @@ int Cpu::step() {
             else if (op == 0xC7) { RM rm = decode_modrm(); if (opsize32_) rm_write32(rm, fetch32()); else rm_write16(rm, fetch16()); c += rm.is_mem ? 3 : CYC_REG; }
             // Real 80286 ENTER cost depends on the nesting level: 11 (level
             // 0), 15 (level 1), 12+4*(lex-1) (level>1) -- Intel iAPX 286 PRM
-            // / 80286 data sheet timing appendix. Previously a flat 15
-            // regardless of level (right only for level==1).
+            // / 80286 data sheet timing appendix -- not a flat 15 regardless
+            // of level, which is only right for level==1.
             else if (op == 0xC8) { int lex = enter(); c += (lex == 0) ? 11 : (lex == 1) ? 15 : (12 + 4 * (lex - 1)); }
             else if (op == 0xC9) { leave(); c += 5; }  // real 80286 LEAVE -- was CYC_REG=2
             else if (op == 0xCA) { uint16_t n = fetch16(); ip = pop16(); cs = pop16(); sp = uint16_t(sp + n); c += 15 + kQueueRefillTax; }  // RETF imm16: floor 15 (15-18) + queue-refill tax
@@ -1302,19 +1300,18 @@ int Cpu::step() {
             else if (op >= 0xD8 && op <= 0xDF) { decode_modrm(); c += 3; }  // x87 escape: no coprocessor, consume the operand and do nothing
             else if (op == 0xE0 || op == 0xE1 || op == 0xE2 || op == 0xE3) { c += loop_group(op); }
             // Real 80286 IN=5, OUT=3 (asymmetric, like MOV -- Intel iAPX
-            // 286 PRM / 80286 data sheet timing appendix); previously a
-            // flat CYC_MEM=7 for both directions.
+            // 286 PRM / 80286 data sheet timing appendix), not a flat
+            // CYC_MEM=7 for both directions.
             else if (op == 0xE4) { uint8_t p = fetch8(); set_reg8(0, bus_.in(p)); c += 5; }
             else if (op == 0xE5) { uint8_t p = fetch8(); ax = (ax & 0xFFFF0000u) | bus_.in16(p); c += 5; }
             else if (op == 0xE6) { uint8_t p = fetch8(); bus_.out(p, get_reg8(0)); c += 3; }
             else if (op == 0xE7) { uint8_t p = fetch8(); bus_.out16(p, uint16_t(ax)); c += 3; }
             // CALL/JMP near floor 7 (7-10), JMP far floor 11 (11-14) -- Intel
-            // iAPX 286 PRM / 80286 data sheet timing appendix -- + queue-
-            // refill tax. CALL near's floor was previously a flat 11, above
-            // even the top of Intel's own 7-10 range for this opcode -- an
-            // overcost bug distinct from the queue-tax question, caught
+            // iAPX 286 PRM / 80286 data sheet timing appendix -- plus queue-
+            // refill tax. A flat 11 for CALL near's floor would sit above
+            // even the top of Intel's own 7-10 range for this opcode, caught
             // while auditing every queue-flushing opcode against its cited
-            // range for this fix (see IBM_PCAT_REVIEW.md).
+            // range (see IBM_PCAT_REVIEW.md).
             else if (op == 0xE8) { int16_t rel = int16_t(fetch16()); push16(ip); ip = uint16_t(ip + rel); c += 7 + kQueueRefillTax; }
             else if (op == 0xE9) { int16_t rel = int16_t(fetch16()); ip = uint16_t(ip + rel); c += 7 + kQueueRefillTax; }
             else if (op == 0xEA) { uint16_t off = fetch16(); uint16_t seg = fetch16(); cs = seg; ip = off; c += 11 + kQueueRefillTax; }

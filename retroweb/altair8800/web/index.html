@@ -10,6 +10,12 @@
 <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="assets/favicon-16.png">
 <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+<!-- apply the shared site theme before first paint, so there's no flash of
+     the wrong theme (matches retroweb/index.html's own inline snippet) -->
+<script src="shared/theme-init.js"></script>
+<link rel="stylesheet" href="shared/pagebar.css">
+<link rel="stylesheet" href="shared/fullscreen.css">
+<link rel="stylesheet" href="shared/focus-hint.css">
 
 <link rel="stylesheet" href="vendor/xterm.css">
 
@@ -151,7 +157,9 @@
     --statusline-border: #2c2f37;
     --altair-bg:     #0c0d10;
   }
-  :root[data-theme="modern"][data-mode="dark"] .pagebar { border-bottom-color: #2c2f37; }
+  /* .pagebar's dark-modern border-bottom now comes from shared/pagebar.css's
+     var(--rule) reuse (see --rule above), which already resolves to this
+     same #2c2f37. */
   :root[data-theme="modern"][data-mode="dark"] button:hover,
   :root[data-theme="modern"][data-mode="dark"] label.filebtn:hover,
   :root[data-theme="modern"][data-mode="dark"] .pg-toggle:hover { background: #2f333d; }
@@ -166,6 +174,16 @@
   :root[data-theme="modern"][data-mode="dark"] .preset-note { color: #ff7a7a; }
   :root[data-theme="modern"][data-mode="dark"] .dialog { box-shadow: 0 10px 44px rgba(0,0,0,.6); }
 
+  /* box-sizing reset and .page/.pagebar/.pb-* structure now live in
+     shared/pagebar.css (linked in <head> above) -- shared verbatim across
+     every machine page; --page-max's own modern-theme override further
+     down in this file still applies on top of it via the cascade. body
+     keeps its own rule here (font-family only, deliberately no font-size/
+     line-height override -- genuinely different from the other two
+     machines' copies). A small local padding/font-size tuning block
+     follows the shared include below, further down, for the handful of
+     .pagebar/.pb-* values that differ from ibmpc-at's/assembler6502's own
+     numbers. */
   body {
     background: var(--desktop);
     color: var(--text);
@@ -173,17 +191,7 @@
     margin: 0;
     padding: var(--body-pad);
   }
-  a        { color: var(--link); }
   a:visited{ color: var(--link-visited); }
-
-  .page {
-    max-width: var(--page-max);
-    margin: 0 auto;
-    background: var(--page-bg);
-    border: var(--page-border);
-    border-radius: var(--page-radius);
-    box-shadow: var(--page-shadow);
-  }
 
   /* Win 3.1 / 95 title bar ------------------------------------------ */
   .titlebar {
@@ -212,70 +220,14 @@
   }
   :root[data-theme="modern"] .titlebar .btns span:hover { background: #e6e8ec; color: #1b1e24; }
 
-  /* top bar / nav: window chrome in Win95, a plain nav bar in the others.
-     Separate from .titlebar so the modal dialogs keep their own window bar. */
-  .pagebar {
-    display: flex; align-items: center; gap: 10px;
-    background: var(--titlebar-bg); color: var(--titlebar-fg);
-    font: bold 13px Arial, Helvetica, sans-serif;
-    padding: 3px 5px;
-  }
-  .pagebar a { color: inherit; }
-  .pb-title {
-    flex: 1; min-width: 0;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  }
-  /* Win95 uses the close box instead (the .pb-close link, same href) */
-  .pb-home { flex: 0 0 auto; display: none; text-decoration: none; font-weight: bold; }
-  .pb-name, .pb-tag { display: none; }   /* Modern folds the page title into this bar */
-  .pb-tools { flex: 0 0 auto; margin-left: auto; display: flex; align-items: center; gap: 10px; }
-  .pb-theme { display: inline-flex; align-items: center; gap: 5px; font: inherit; }
-  .pb-theme select {
-    font: 11px Arial, Helvetica, sans-serif;
-    color: var(--text); background: var(--field-bg);
-    border: var(--field-border); border-radius: var(--btn-radius);
-    padding: 1px 3px;
-  }
-  .pb-winbtns span, .pb-winbtns a {
-    display: inline-block; width: 16px; height: 14px; line-height: 12px;
-    margin-left: 2px; text-align: center; font-size: 10px;
-    color: #000; background: #c0c0c0; border: 1px outset #dfdfdf;
-    text-decoration: none;
-  }
-
-  :root[data-theme="web94"] .pagebar {
-    background: #c0c0c0; color: #000;
-    border-bottom: 1px solid #808080;
-    font: 13px "Times New Roman", Times, serif;
-  }
-  :root[data-theme="web94"] .pb-title   { display: none; }
-  :root[data-theme="web94"] .pb-winbtns { display: none; }
-  :root[data-theme="web94"] .pb-home {
-    display: inline; color: #0000ff; text-decoration: underline; font-weight: normal;
-  }
-  :root[data-theme="web94"] .pb-home:visited { color: #800080; }
-
-  :root[data-theme="modern"] .pagebar {
-    background: var(--titlebar-bg); color: var(--titlebar-fg);
-    border-bottom: 1px solid #ecedf1; border-radius: 14px 14px 0 0;
-    font: 500 13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    padding: 8px 14px;
-  }
-  :root[data-theme="modern"] .pb-title   { display: none; }
-  :root[data-theme="modern"] .pb-winbtns { display: none; }
-  :root[data-theme="modern"] .pb-home {
-    display: inline; color: var(--link); text-decoration: none; font-weight: 600;
-    font-size: 12px; opacity: .85;
-  }
-  :root[data-theme="modern"] .pb-name {
-    display: block; flex: 0 0 auto; margin-left: 2px;
-    font-weight: 700; font-size: 16px; letter-spacing: .3px; color: var(--h1-color);
-  }
-  :root[data-theme="modern"] .pb-tag {
-    display: block; flex: 1 1 auto; min-width: 0;
-    color: var(--muted); font-size: 13px; font-weight: 400;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  }
+  /* .pagebar/.pb-* structure (flex layout, which part shows under which
+     theme) is in shared/pagebar.css above. This page's own padding/
+     font-size numbers differ slightly from ibmpc-at's/assembler6502's own,
+     so those specific values stay local, layered on top via the cascade. */
+  .pagebar { padding: 3px 5px; }
+  :root[data-theme="modern"] .pagebar { padding: 8px 14px; }
+  :root[data-theme="modern"] .pb-name { font-size: 16px; }
+  :root[data-theme="modern"] .pb-tag { font-size: 13px; }
   :root[data-theme="modern"] .pb-tag::before { content: "\2014\00a0"; }  /* em dash */
   :root[data-theme="modern"] .pb-theme select {
     font-size: 13px; border-radius: 6px; padding: 4px 8px;
@@ -287,10 +239,6 @@
   }
   :root[data-theme="modern"] .inner > .tagline,
   :root[data-theme="modern"] .inner > .head-rule { display: none; }
-
-  @media (max-width: 560px) {
-    :root[data-theme="modern"] .pb-tag { display: none; }
-  }
 
   .inner { padding: var(--inner-pad); }
 
@@ -501,28 +449,38 @@
     position: absolute; inset: 16px 18px; pointer-events: none; z-index: 6;
     mix-blend-mode: multiply;
   }
-  .bezel.crt-none .crt-overlay,
-  .bezel.crt-off .crt-overlay { display: none; }
+  .bezel.crt-none .crt-overlay { display: none; }
   /* A well-adjusted tube seen straight on: even brightness, visible scan lines,
-     only a gentle corner falloff -- readable first, "retro" second. */
+     only a gentle corner falloff -- readable first, "retro" second.
+     Softened (lighter/wider-spaced scanlines, gentler vignette and inset
+     shadow) to match ibmpc-at's own CRT-overlay pass -- the previous values
+     here read as "cheesy" over fine text/graphics detail rather than like a
+     real monitor. See IBM_PCAT_REVIEW.md's CRT-softening entry for the
+     reasoning; scanheavy/paper scaled by the same proportions. */
   .bezel.crt-scan .crt-overlay, .bezel.crt-scanheavy .crt-overlay {
     background:
-      radial-gradient(145% 145% at 50% 45%, rgba(0,0,0,0) 74%, rgba(0,0,0,.18) 100%),
-      repeating-linear-gradient(0deg, rgba(0,0,0,.12) 0 1px, rgba(0,0,0,0) 1px 3px);
-    box-shadow: inset 0 0 32px rgba(0,0,0,.26);
+      radial-gradient(150% 150% at 50% 45%, rgba(0,0,0,0) 82%, rgba(0,0,0,.10) 100%),
+      repeating-linear-gradient(0deg, rgba(0,0,0,.05) 0 1px, rgba(0,0,0,0) 1px 4px);
+    box-shadow: inset 0 0 18px rgba(0,0,0,.14);
   }
   .bezel.crt-scanheavy .crt-overlay {
     background:
-      radial-gradient(145% 145% at 50% 45%, rgba(0,0,0,0) 68%, rgba(0,0,0,.24) 100%),
-      repeating-linear-gradient(0deg, rgba(0,0,0,.20) 0 1px, rgba(0,0,0,0) 1px 2px);
-    box-shadow: inset 0 0 38px rgba(0,0,0,.32);
+      radial-gradient(150% 150% at 50% 45%, rgba(0,0,0,0) 76%, rgba(0,0,0,.13) 100%),
+      repeating-linear-gradient(0deg, rgba(0,0,0,.09) 0 1px, rgba(0,0,0,0) 1px 3px);
+    box-shadow: inset 0 0 21px rgba(0,0,0,.17);
   }
   .bezel.crt-paper .crt-overlay {
     background:
-      radial-gradient(130% 130% at 50% 40%, rgba(0,0,0,0) 55%, rgba(120,108,84,.35) 100%),
-      repeating-linear-gradient(0deg, rgba(90,80,60,.05) 0 2px, rgba(0,0,0,0) 2px 5px);
+      radial-gradient(140% 140% at 50% 40%, rgba(0,0,0,0) 65%, rgba(120,108,84,.20) 100%),
+      repeating-linear-gradient(0deg, rgba(90,80,60,.03) 0 2px, rgba(0,0,0,0) 2px 6px);
   }
   .bell-flash { filter: brightness(2.4) contrast(1.2); }
+
+  /* Minimal .row utility -- only used by #fsEscHint's own button row (see
+     shared/fullscreen.css's #fsEscHint .row rule); ibmpc-at defines a
+     fuller version of this same class for its many form rows, which this
+     page doesn't otherwise need. */
+  .row { display: flex; align-items: center; gap: 8px; }
 
   /* monitor chin: just the nameplate now.
      width:0 + min-width:100% keeps it from widening the monitor */
@@ -1391,12 +1349,11 @@
 </style>
 </head>
 <body>
-<script>try{var t=localStorage.getItem("retro8080.theme")||"win",r=document.documentElement;if(t=="moderndark"){r.dataset.theme="modern";r.dataset.mode="dark";}else{r.dataset.theme=t;}}catch(e){}</script>
 
 <div class="page">
   <header class="pagebar">
     <a class="pb-home" href="../">&#8592;&nbsp;All&nbsp;machines</a>
-    <span class="pb-title">&#9635; ALTAIR8800.EXE &mdash; [8080 Microcomputer Terminal]</span>
+    <span class="pb-title"><img class="pb-icon" src="assets/favicon-32.png" alt="" aria-hidden="true"> ALTAIR8800.EXE &mdash; [8080 Microcomputer Terminal]</span>
     <span class="pb-name">ALTAIR 8800</span>
     <span class="pb-tag">running entirely in your browser</span>
     <span class="pb-tools">
@@ -1430,7 +1387,6 @@
         <option value="cpm">CP/M Workstation &middot; 1978 &middot; 64K &middot; VT100 + floppy &middot; CP/M</option>
       </select>
       <button id="presetGuide" title="what this setup is and how to use it">&#9432; Guide</button>
-      <label title="when checked, a preset also loads and starts its key software"><input type="checkbox" id="autoload">&nbsp;Auto-load software</label>
       <div id="panelGuide" class="panel-guide"><!-- front-panel bootstrap how-to, built by app.js --></div>
       <span id="deviceChips" class="device-chips" hidden>
         <span class="dc-label">Load devices:</span>
@@ -1465,16 +1421,21 @@
               <option value="tty33">Teletype ASR-33</option>
             </select>
           </label>
-          <label><input type="checkbox" id="crt" checked>&nbsp;CRT</label>
           <label><input type="checkbox" id="caps" checked>&nbsp;CAPS LOCK</label>
           <label><input type="checkbox" id="crlf" checked>&nbsp;CR &rarr; CR/LF</label>
         </div>
 
         <div class="monitor">
-          <div class="bezel crt-scan">
+          <div class="bezel crt-scan" id="bezel">
             <div id="screen"></div>
             <div class="crt-overlay"></div>
             <span class="power-led" title="power"></span>
+            <div class="focus-hint" id="focusHint" aria-hidden="true">Click to focus</div>
+            <div class="bezel-controls">
+              <button type="button" id="escBtn" class="bezel-btn"
+                      title="Send Esc -- your Esc key exits fullscreen instead, without reaching the terminal">Esc</button>
+              <button type="button" id="fullscreenBtn" class="bezel-btn" title="Fullscreen" aria-label="Fullscreen">&#x26F6;</button>
+            </div>
           </div>
           <div class="chin">
             <span class="brand">M I C R O S Y S T E M S &nbsp; MODEL 8080</span>
@@ -1489,6 +1450,17 @@
         <div id="acr" class="acr"><!-- 88-ACR cassette deck, built by app.js --></div>
       </div>
     </div>
+
+    <dialog id="fsEscHint">
+      <h2>Before you go fullscreen</h2>
+      <p>Your Esc key exits fullscreen instead of reaching the terminal --
+        browsers reserve it for that. Use the <strong>Esc</strong> button next
+        to the fullscreen button, in the screen's own corner, to send Esc to
+        the machine instead.</p>
+      <div class="row">
+        <button type="button" id="fsEscHintOk" autofocus>Got it, go fullscreen</button>
+      </div>
+    </dialog>
 
     <hr class="rule">
 
@@ -1644,6 +1616,9 @@
 
 <script src="vendor/xterm.js"></script>
 <script src="vendor/xterm-addon-fit.js"></script>
+<script src="shared/theme-picker.js"></script>
+<script src="shared/fullscreen.js"></script>
+<script src="shared/focus-hint.js"></script>
 <script>
   // cache-bust the code that changes between builds (vendor libs stay cached)
   window.__V = String(Date.now());

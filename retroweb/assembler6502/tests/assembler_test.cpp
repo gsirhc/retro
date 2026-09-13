@@ -1,10 +1,8 @@
 // GoogleTest suite for the resident two-pass assembler (cpu6502/rom/editor.s),
 // driven through the real shell (SHELL_ENTRY -> ">" prompt) exactly as a
-// human typing a program in would -- the old Phase 2 "headless, poke the
-// source buffer via Wozmon's own store command" technique predates the
-// shell and no longer applies now that the source buffer's real format is
-// line-numbered (a 2-byte binary prefix per line, editor.s's STORE_LINE),
-// not the old flat unnumbered text a raw poke could produce directly.
+// human typing a program in would. A direct poke into the source buffer
+// can't substitute: its real format is line-numbered (a 2-byte binary
+// prefix per line, editor.s's STORE_LINE), not flat unnumbered text.
 
 #include <gtest/gtest.h>
 
