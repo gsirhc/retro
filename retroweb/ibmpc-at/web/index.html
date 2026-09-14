@@ -550,7 +550,7 @@
         <button type="button" data-key="F12" disabled>F12</button>
         <button type="button" id="ctrlAltDelBtn" class="danger-key" disabled>Ctrl+Alt+Del</button>
       </div>
-      <span class="muted">Keys a Mac keyboard has no dedicated key for:</span>
+      <span class="muted">Extra keys, for keyboards without a dedicated key of their own:</span>
       <div class="row" id="extraKeyRow">
         <button type="button" data-key="Insert" disabled>Insert</button>
         <button type="button" data-key="Delete" disabled>Delete</button>
@@ -644,16 +644,11 @@
         <span class="muted" id="gdriveStatus">Not connected.</span>
       </div>
       <div class="row">
-        <span class="muted">Bring your own storage: keeps C: in your own Google Drive
-          (plain file, "IBM PC-AT (5170) hard disk.img") instead of just this browser's
-          local storage, so any browser or device signed into the same account picks up
-          where the last one left off. The first connection needs the machine powered
-          off, so it can pull down whatever's already saved before anything runs; every
-          sync after that (every 10 minutes, on power off, or on demand) works either
-          way -- last sync wins, so avoid running two browsers at once. This app isn't
-          Google-verified and sign-in is invite-only for now, so Google's consent screen
-          will warn it's unverified until you're added as a tester -- ask if you'd like
-          access.</span>
+        <span class="muted">Syncs your HDD to Google Drive so any browser or device
+          signed into the same account stays up to date. Connect while powered off so
+          it can pull down anything already saved; after that it syncs automatically
+          every 10 minutes, on power off, or on demand -- last sync wins, so don't run
+          two browsers at once. Google Sync is by invite only.</span>
       </div>
       <div class="row" id="gdriveSetupHelp" hidden>
         <span class="muted"><strong>Not set up yet.</strong> This needs a Google Cloud
