@@ -1244,7 +1244,21 @@ int Cpu::step() {
             else if (op == 0x9A) { uint16_t off = fetch16(); uint16_t seg = fetch16(); push16(cs); push16(ip); cs = seg; ip = off; c += 13 + kQueueRefillTax; }  // CALL far: floor 13 (13-16) + queue-refill tax, see cpu80286.h
             else if (op == 0x9B) { c += 3; }  // WAIT: no coprocessor present, no-op
             else if (op == 0x9C) { push16(flags); c += 3; }  // real 80286 PUSHF -- was flat CYC_MEM=7
-            else if (op == 0x9D) { flags = uint16_t((pop16() & 0x0FD5) | FLAG_R1); c += 5; }  // real 80286 POPF -- was flat CYC_MEM=7
+            // IOPL/NT (bits 12-14) must actually round-trip through POPF, not
+            // be masked to 0 -- real mode has no CPL to gate them the way
+            // protected mode's "POPF only loads IOPL/IF if CPL<=IOPL" rule
+            // does, so the 80286 loads them unconditionally from the popped
+            // value here (Intel iAPX 286 PRM). Only bit 15 stays hardwired
+            // to 0 (the 80286's own reserved-bit definition, vs. the 8086
+            // family where bits 12-15 are all unimplemented and always read
+            // back as 1). This is also the classic period technique DOS
+            // diagnostic tools (CheckIt, MSD, Norton) used to tell an
+            // 8086-family chip from a real 80286 with no CPUID available:
+            // push a value with those bits cleared, POPF, PUSHF, see if it
+            // stuck. Masking them to always-0 (as this used to) matches
+            // neither real family and was throwing that detection off,
+            // e.g. CheckIt misreporting this machine as an "80188".
+            else if (op == 0x9D) { flags = uint16_t((pop16() & (0x0FD5 | FLAG_IOPL | FLAG_NT)) | FLAG_R1); c += 5; }  // real 80286 POPF -- was flat CYC_MEM=7
             else if (op == 0x9E) { uint8_t ah = get_reg8(4); flags = uint16_t((flags & 0xFF00) | (ah & 0xD5) | FLAG_R1); c += CYC_REG; }  // SAHF
             else if (op == 0x9F) { set_reg8(4, uint8_t(flags & 0xFF)); c += CYC_REG; }  // LAHF
             else if (op >= 0xA0 && op <= 0xA3) {
@@ -1292,7 +1306,7 @@ int Cpu::step() {
             else if (op == 0xCC) { interrupt(3); c += 23 + kQueueRefillTax; }
             else if (op == 0xCD) { uint8_t n = fetch8(); interrupt(n); c += 23 + kQueueRefillTax; }
             else if (op == 0xCE) { if (flag(FLAG_OF)) { interrupt(4); c += 24 + kQueueRefillTax; } else c += 3; }
-            else if (op == 0xCF) { ip = pop16(); cs = pop16(); flags = uint16_t((pop16() & 0x0FD5) | FLAG_R1); c += 17 + kQueueRefillTax; }
+            else if (op == 0xCF) { ip = pop16(); cs = pop16(); flags = uint16_t((pop16() & (0x0FD5 | FLAG_IOPL | FLAG_NT)) | FLAG_R1); c += 17 + kQueueRefillTax; }  // IRET -- same POPF fix above applies (see its comment)
             else if (op >= 0xD0 && op <= 0xD3) { c += grp2_shift(op); }
             else if (op == 0xD4) { aam(); c += 16; }
             else if (op == 0xD5) { aad(); c += 14; }

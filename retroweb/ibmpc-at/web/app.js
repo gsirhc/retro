@@ -6,6 +6,25 @@
   // across. See shared/theme-picker.js for the actual mechanism.
   initThemePicker();
 
+  // "Last built" = the wasm's own mtime on the server -- same mechanism as
+  // altair8800's and assembler6502's own footers.
+  (async () => {
+    const el = document.getElementById("buildDate");
+    for (const url of ["ibmpcat.wasm", "ibmpcat.js", "app.js"]) {
+      try {
+        const r = await fetch(url, { method: "HEAD", cache: "no-store" });
+        const lm = r.headers.get("Last-Modified");
+        if (lm) {
+          el.textContent = new Date(lm).toLocaleString(undefined,
+            { year: "numeric", month: "long", day: "numeric", hour: "numeric", minute: "2-digit" });
+          return;
+        }
+      } catch {}
+    }
+    /* v8 ignore next -- only if every HEAD request fails / lacks Last-Modified */
+    el.textContent = "unknown";
+  })();
+
   // Automated-test-only CPU speed multiplier: `?test=1&fast=1`. A real visitor
   // has no control that reaches this -- it exists solely so the Playwright
   // suite (whose real cost is a genuine ~45s 8 MHz POST + FreeDOS boot, not
@@ -813,6 +832,7 @@
       gdriveAbortController = null;
       gdriveBusy = false;
       refreshGdriveControls();
+      refreshHddControls();  // a successful sync just cleared gdrivePendingSync -- update the DIRTY pill promptly
     }
   }
 
@@ -943,8 +963,15 @@
   const hddBlankBtn = document.getElementById("hddBlankBtn");
   const hddDownloadBtn = document.getElementById("hddDownloadBtn");
   const hddUploadInput = document.getElementById("hddUploadInput");
+  const hddDirtyPill = document.getElementById("hddDirtyPill");
   function refreshHddControls() {
     hddStatus.textContent = "Using: " + hddLabel;
+    // Same "anything unsynced" reckoning powerOff() uses for its own
+    // Google Drive catch-up sync -- gdrivePendingSync catches a write the
+    // 5s local-autosave tick already consumed the raw dirty flag for (see
+    // its own declaration comment above), machine.hddDirty() catches one
+    // from the last few seconds that tick hasn't run for yet.
+    if (hddDirtyPill) hddDirtyPill.hidden = !(gdrivePendingSync || (machine && machine.hddDirty()));
     // A real fixed disk can't be swapped while the machine is running --
     // every one of these actions only ever affects the *next* power-on.
     hddResetBtn.disabled = !firmware || poweredOn;
