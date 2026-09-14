@@ -966,12 +966,18 @@
   const hddDirtyPill = document.getElementById("hddDirtyPill");
   function refreshHddControls() {
     hddStatus.textContent = "Using: " + hddLabel;
-    // Same "anything unsynced" reckoning powerOff() uses for its own
-    // Google Drive catch-up sync -- gdrivePendingSync catches a write the
-    // 5s local-autosave tick already consumed the raw dirty flag for (see
-    // its own declaration comment above), machine.hddDirty() catches one
-    // from the last few seconds that tick hasn't run for yet.
-    if (hddDirtyPill) hddDirtyPill.hidden = !(gdrivePendingSync || (machine && machine.hddDirty()));
+    // Only meaningful once there's actually somewhere to sync *to* -- with
+    // no Google Drive connection there's nothing this pill would be telling
+    // you to go do. Same "anything unsynced" reckoning powerOff() uses for
+    // its own Google Drive catch-up sync otherwise: gdrivePendingSync
+    // catches a write the 5s local-autosave tick already consumed the raw
+    // dirty flag for (see its own declaration comment above),
+    // machine.hddDirty() catches one from the last few seconds that tick
+    // hasn't run for yet.
+    if (hddDirtyPill) {
+      hddDirtyPill.hidden = !(gdriveConnectedFlag() &&
+        (gdrivePendingSync || (machine && machine.hddDirty())));
+    }
     // A real fixed disk can't be swapped while the machine is running --
     // every one of these actions only ever affects the *next* power-on.
     hddResetBtn.disabled = !firmware || poweredOn;

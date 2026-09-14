@@ -188,11 +188,11 @@
     background: var(--panel-bg); border: var(--panel-border); border-radius: var(--panel-radius);
     padding: 14px 16px 16px;
   }
-  /* "DIRTY" -- genuine period OS jargon (a dirty page/dirty bit is real
-     write-back-cache terminology from this era), not a cutesy euphemism --
-     for "C: has writes since the last Google Drive sync or manual
-     download," toggled in refreshHddControls() (app.js). Amber/warning,
-     not red -- this is normal, expected state while running, not an error. */
+  /* "Modified" -- shown next to the Sync button, only while connected to
+     Google Drive (no connection = nothing this would be telling you to go
+     do), for "C: has writes since the last sync." Toggled in
+     refreshHddControls() (app.js). Amber/warning, not red -- this is
+     normal, expected state while running, not an error. */
   .dirty-pill {
     font: bold 10px Arial, Helvetica, sans-serif; letter-spacing: .04em;
     color: #5a3d00; background: #ffcc33; border: 1px solid #cc9900;
@@ -615,8 +615,7 @@
     </div>
 
     <div class="panel" id="hddCard">
-      <h2>Hard disk<span id="hddDirtyPill" class="dirty-pill" hidden
-        title="C: has changes since the last Google Drive sync or manual download">DIRTY</span></h2>
+      <h2>Hard disk</h2>
       <div class="row">
         <span class="muted" id="hddStatus">Checking for a saved hard disk&hellip;</span>
       </div>
@@ -638,6 +637,8 @@
           power-on.</span>
       </div>
       <div class="row">
+        <span id="hddDirtyPill" class="dirty-pill" hidden
+          title="C: has changes since the last Google Drive sync">Modified</span>
         <button type="button" id="gdriveSyncBtn" disabled>Connect Google Drive&hellip;</button>
         <button type="button" id="gdriveCancelBtn" hidden>Cancel</button>
         <span class="muted" id="gdriveStatus">Not connected.</span>
