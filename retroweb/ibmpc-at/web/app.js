@@ -535,8 +535,60 @@
   const gdriveSyncBtn = document.getElementById("gdriveSyncBtn");
   const gdriveCancelBtn = document.getElementById("gdriveCancelBtn");
   const gdriveStatusEl = document.getElementById("gdriveStatus");
+  const gdriveErrorDialog = document.getElementById("gdriveErrorHint");
+  const gdriveErrorMsgEl = document.getElementById("gdriveErrorMsg");
+  document.getElementById("gdriveErrorOk")?.addEventListener("click", () => gdriveErrorDialog?.close());
 
   function gdriveSetStatus(text) { if (gdriveStatusEl) gdriveStatusEl.textContent = text; }
+
+  // Google's own error "type" strings (from the token client's
+  // error_callback, or a plain Error's message elsewhere in this file) are
+  // accurate but not something a visitor should have to decode -- turn the
+  // ones actually seen in practice into plain instructions. Anything
+  // unrecognized just passes through as-is (still better than nothing).
+  function gdriveFriendlyError(err) {
+    const msg = (err && err.message) || String(err);
+    switch (msg) {
+      case "popup_failed_to_open":
+        return "Google sign-in was blocked by your browser's popup blocker. " +
+          "Allow popups for this site (look for a blocked-popup icon in the " +
+          "address bar) and click Sync again.";
+      case "popup_closed":
+        return "The Google sign-in window was closed before finishing. Click Sync again to retry.";
+      case "Google sign-in script failed to load":
+        return "Google's sign-in script didn't load -- check your connection " +
+          "(or an ad/script blocker) and reload the page.";
+      default:
+        if (/timed out/.test(msg)) {
+          return "Google Drive took too long to respond (" + msg + "). Check your connection and try again.";
+        }
+        return msg;
+    }
+  }
+
+  // Every real sync failure surfaces here -- the periodic 10-minute timer
+  // and the silent boot-time pull included, not just a direct Sync click.
+  // Deliberately NOT silent even for those background paths: this is a
+  // background feature a visitor isn't otherwise watching, so a status line
+  // they'd have to go looking for isn't enough for something they actually
+  // need to act on (allow a blocked popup, sign in again, ...). Doesn't pile
+  // up dialogs if one's already open -- the status line still updates, but
+  // a fresh failure a few seconds later won't yank focus out from under a
+  // dialog the visitor hasn't dismissed yet.
+  //
+  // `opts.statusPrefix` and `opts.note` let a specific call site add context
+  // the generic message doesn't have (e.g. the boot-time pull can add "using
+  // your local copy for now", which a mid-session Sync-button failure has no
+  // equivalent of).
+  function gdriveShowError(err, opts = {}) {
+    console.error("Google Drive sync failed:", err);
+    const msg = gdriveFriendlyError(err) + (opts.note ? " " + opts.note : "");
+    gdriveSetStatus((opts.statusPrefix || "Sync failed") + ": " + msg);
+    if (gdriveErrorDialog && gdriveErrorMsgEl) {
+      gdriveErrorMsgEl.textContent = msg;
+      if (!gdriveErrorDialog.open) gdriveErrorDialog.showModal();
+    }
+  }
 
   // Bounds an otherwise-unbounded promise. Needed in two places: the silent
   // boot-time Drive pull (a hung Google callback -- blocked third-party
@@ -750,10 +802,11 @@
       await Promise.race([attempt, cancelled]);
     } catch (err) {
       if (err && err.message === "Cancelled") {
+        // The visitor's own doing (clicked Cancel) -- not a failure to alert
+        // them to, they already know.
         gdriveSetStatus("Cancelled.");
       } else {
-        console.error("Google Drive sync failed:", err);
-        gdriveSetStatus("Sync failed: " + err.message);
+        gdriveShowError(err);
       }
     } finally {
       gdriveCancelReject = null;
@@ -1181,8 +1234,17 @@
           }
         })(), 20_000, "Google Drive load");
       } catch (err) {
-        console.error("Google Drive auto-load failed, using local copy instead:", err);
-        gdriveSetStatus("Couldn't reach Google Drive (using local copy) -- click Sync to retry");
+        // This is exactly the "silent prompt still opens a poppable window"
+        // case gdriveGetToken()'s use_fedcm_for_auth comment describes: on a
+        // browser without FedCM (or where it fails), a plain page refresh
+        // can trip the popup blocker even though nothing here ever asked
+        // for an interactive popup on purpose -- surfacing it is what lets
+        // a visitor actually notice and fix it, rather than quietly running
+        // on a stale local copy indefinitely.
+        gdriveShowError(err, {
+          statusPrefix: "Couldn't reach Google Drive",
+          note: "Using your local copy for now -- click Sync any time to retry.",
+        });
       }
     }
 

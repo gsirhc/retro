@@ -218,6 +218,26 @@
      shared/fullscreen.css and shared/focus-hint.css (linked in <head>
      above) -- shared verbatim across every machine page. */
 
+  /* #gdriveErrorHint mirrors #fsEscHint's own treatment (see
+     shared/fullscreen.css's comment on it) exactly -- same panel/button
+     theme tokens as everything else, so under the default theme it reads
+     as a real Win95 popup (flat gray, raised outset border) rather than the
+     browser's plain, oversized default <dialog> box. Kept local instead of
+     moved into shared/ since the Google Drive sync feature only exists on
+     this machine. */
+  #gdriveErrorHint {
+    max-width: 340px; padding: 16px 18px 18px;
+    background: var(--panel-bg); color: var(--text);
+    border: var(--panel-border); border-radius: var(--panel-radius);
+  }
+  #gdriveErrorHint::backdrop { background: rgba(0,0,0,.55); }
+  #gdriveErrorHint h2 {
+    margin: 0 0 10px; font: bold 13px Arial, Helvetica, sans-serif;
+    color: var(--text);
+  }
+  #gdriveErrorHint p { margin: 0 0 14px; font-size: 12px; color: var(--dim); line-height: 1.5; }
+  #gdriveErrorHint .row { justify-content: flex-end; }
+
   /* ---- CRT monitor -- photoreal hardware, not page chrome, in every theme */
   .monitor { width: max-content; max-width: 100%; margin: 0 auto; }
   .monitor .bezel {
@@ -474,6 +494,21 @@
         instead.</p>
       <div class="row">
         <button type="button" id="fsEscHintOk" autofocus>Got it, go fullscreen</button>
+      </div>
+    </dialog>
+
+    <!-- Shown for any Google Drive sync failure -- a direct Sync/Connect
+         click, the 10-minute background timer, power-off, or the silent
+         boot-time pull -- see gdriveShowError() in app.js. Deliberately not
+         silent even for the background paths: this is a feature a visitor
+         isn't otherwise watching, so something they need to act on (a
+         blocked popup, a dropped sign-in) belongs on screen, not just in a
+         status line easy to miss. -->
+    <dialog id="gdriveErrorHint">
+      <h2>Google Drive sync problem</h2>
+      <p id="gdriveErrorMsg"></p>
+      <div class="row">
+        <button type="button" id="gdriveErrorOk" autofocus>OK</button>
       </div>
     </dialog>
 
