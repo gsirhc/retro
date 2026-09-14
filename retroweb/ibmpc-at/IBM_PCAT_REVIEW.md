@@ -2394,3 +2394,52 @@ Not done (a separate, judgment-call fix rather than an indicator, so left
 for a future request rather than assumed): having the auto power-on grab
 focus itself, which would avoid the problem outright on a fresh load rather
 than just flagging it.
+
+## 43. POPF/IRET: IOPL/NT round-trip is more PRM-accurate but breaks FreeDOS
+
+A CheckIt (TouchStone Software) DOS diagnostic run misidentified this
+machine as an "80188, 0.74 MHz" instead of an 80286 @ 8 MHz. Root-caused to
+`cpu80286.cpp`'s POPF/IRET masking FLAGS bits 12-15 to always-0 regardless
+of the popped value -- neither the real 8086-family signature (always-1,
+unimplemented) nor the real 80286 signature (IOPL/NT genuinely settable in
+real mode, no CPL to gate them the way protected mode's "POPF only loads
+IOPL/IF if CPL<=IOPL" rule does -- Intel iAPX 286 PRM). This always-0
+behavior is also exactly the classic period technique DOS diagnostics
+(CheckIt, MSD, Norton) used to distinguish an 8086-family chip from a real
+286 with no CPUID instruction available.
+
+Implemented the PRM-accurate fix (let IOPL/NT round-trip, only bit 15 stays
+reserved-0) and added GoogleTest coverage. Pushed. CI's `ibmpcat-web-test`
+then started failing `make ibmpcat.js hdd-image` with a **deterministic**
+`Runtime error 200 at 10C2:3D6D` partway through FreeDOS 1.3's installer
+(extracting `FREEDOS.SAF`, right after "Insert diskette #2... Press a key
+to continue") -- same address every single run, ruling out CI-runner-speed
+flakiness outright.
+
+Bisected empirically via `disks/build_freedos_hdd.cpp` (rebuilt + re-run
+locally against the real install floppies, ~10min/attempt to reach the
+crash point):
+- Full revert (both POPF and IRET back to always-0): install completed.
+- POPF fixed, IRET reverted: still crashed at the identical address.
+- POPF reverted, IRET fixed: still crashed at the identical address.
+
+This isolates the break to POPF's mask specifically -- first suspected
+IRET (real hardware performs a hardware task-switch return via the TSS
+back-link when NT=1 at IRET, machinery this real-mode-only core never
+implements; a genuinely-set NT reaching IRET would silently do a plain
+return while the guest believes a task switch happened), but that theory
+was directly falsified by the second bisection result above. The actual
+mechanism is still unconfirmed -- something downstream reads FLAGS back
+(PUSHF/SAHF or similar) and reacts differently to a genuinely-nonzero
+IOPL/NT it was never able to observe before this change existed. Not
+investigated further given the cost per attempt.
+
+Reverted POPF and IRET to the always-0 behavior (verified: matches the
+original, install-completing code byte-for-byte). CheckIt will still
+misreport the CPU family as a result -- a real, known, accepted gap. This
+core also powers the live shipped machine (same file backs both the
+offline HDD-image build and the browser's own wasm build), so a passing
+edge case in one third-party diagnostic isn't worth a broken installer.
+`Cpu80286Test.PopfAndIretAlwaysClearIoplAndNt` documents this as
+deliberate, not an oversight, so a future pass doesn't re-attempt the same
+fix without knowing it regresses FreeDOS.

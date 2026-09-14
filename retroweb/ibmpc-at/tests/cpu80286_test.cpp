@@ -241,50 +241,42 @@ TEST_F(Cpu80286Test, PushaPopaRoundTrip) {
 }
 
 // ---------------------------------------------------------------------------
-// PUSHF/POPF/IRET: IOPL and NT (bits 12-14) must round-trip on a real 286
+// PUSHF/POPF/IRET: IOPL and NT (bits 12-14) are deliberately always cleared
 // ---------------------------------------------------------------------------
 
-TEST_F(Cpu80286Test, PopfRoundTripsIoplAndNtBits) {
-    // Intel iAPX 286 PRM: IOPL (bits 12-13) and NT (bit 14) are real,
-    // read/write bits on the 286, unlike the 8086 family, where bits 12-15
-    // are unimplemented and always read back as 1. In real mode there's no
-    // CPL to gate them the way protected mode's "POPF only loads IOPL/IF if
-    // CPL<=IOPL" rule does, so POPF just loads them straight from the
-    // popped value. This is also the classic period technique DOS software
-    // (CheckIt, MSD, Norton, ...) used to tell an 8086-family chip from a
-    // real 80286 with no CPUID instruction available: push a value with
-    // those bits cleared, POPF, PUSHF, see if it stuck. Before this was
-    // fixed, POPF masked bits 12-15 to always-0 regardless of the popped
-    // value -- matching neither real family -- which was throwing that
-    // exact detection off (CheckIt misreported this machine as an "80188").
+TEST_F(Cpu80286Test, PopfAndIretAlwaysClearIoplAndNt) {
+    // A real 80286 loads IOPL (bits 12-13) and NT (bit 14) from the popped
+    // value unconditionally in real mode (Intel iAPX 286 PRM) -- unlike the
+    // 8086 family, where bits 12-15 are unimplemented and always read back
+    // as 1. Tried implementing exactly that (also handy: it's the classic
+    // period technique DOS diagnostics like CheckIt/MSD/Norton used to tell
+    // an 8086-family chip from a real 286 with no CPUID available -- this
+    // core was briefly misreported as an "80188" without it). BUT:
+    // empirically, letting IOPL/NT round-trip through POPF breaks FreeDOS
+    // 1.3's installer -- a real, deterministic "Runtime error 200" partway
+    // through extracting FREEDOS.SAF, bisected via
+    // disks/build_freedos_hdd.cpp to specifically POPF's mask (reverting
+    // only IRET's did not clear it; reverting only POPF's did). Root
+    // mechanism unconfirmed -- something downstream reads FLAGS back and
+    // reacts to a genuinely-nonzero IOPL/NT it was never able to observe
+    // before. Since this core also powers the live shipped machine (same
+    // file, not just this offline build tool), a passing benchmark-
+    // detection edge case in one third-party diagnostic isn't worth a
+    // broken installer -- both instructions keep the always-0 behavior.
+    // See IBM_PCAT_REVIEW.md.
     cpu->ss = 0;
-    cpu->sp = 0x3000;
     uint16_t want = uint16_t(cpu80286::FLAG_IOPL | cpu80286::FLAG_NT | cpu80286::FLAG_R1);
+
+    cpu->sp = 0x2FFE;
     mem[0x2FFE] = uint8_t(want & 0xFF);
     mem[0x2FFF] = uint8_t(want >> 8);
-    cpu->sp = 0x2FFE;
-    run({0x9D});  // POPF
-    EXPECT_TRUE(cpu->flags & cpu80286::FLAG_IOPL);
-    EXPECT_TRUE(cpu->flags & cpu80286::FLAG_NT);
-    EXPECT_EQ(cpu->flags & 0x8000, 0) << "bit 15 stays reserved-0 on the 286, unlike the 8086 family";
-
-    // Clearing them via POPF must stick too, not just setting them --
-    // that's the actual round-trip a period CPU-ID routine checks.
-    mem[0x2FFE] = uint8_t(cpu80286::FLAG_R1 & 0xFF);
-    mem[0x2FFF] = 0;
-    cpu->sp = 0x2FFE;
     run({0x9D});  // POPF
     EXPECT_FALSE(cpu->flags & cpu80286::FLAG_IOPL);
     EXPECT_FALSE(cpu->flags & cpu80286::FLAG_NT);
-}
+    EXPECT_EQ(cpu->flags & 0x8000, 0) << "bit 15 stays reserved-0 on the 286, unlike the 8086 family";
 
-TEST_F(Cpu80286Test, IretRoundTripsIoplAndNtBitsTheSameAsPopf) {
-    // IRET's flags-pop shares the same fix (cpu80286.cpp) -- same real-mode
-    // behavior for the same reason as PopfRoundTripsIoplAndNtBits above.
-    cpu->ss = 0;
-    cpu->sp = 0x3000 - 6;
     uint16_t ret_ip = 0x1234, ret_cs = 0x0050;
-    uint16_t want = uint16_t(cpu80286::FLAG_IOPL | cpu80286::FLAG_NT | cpu80286::FLAG_R1);
+    cpu->sp = 0x3000 - 6;
     uint16_t base = cpu->sp;
     mem[base + 0] = uint8_t(ret_ip & 0xFF);      mem[base + 1] = uint8_t(ret_ip >> 8);
     mem[base + 2] = uint8_t(ret_cs & 0xFF);      mem[base + 3] = uint8_t(ret_cs >> 8);
@@ -292,8 +284,8 @@ TEST_F(Cpu80286Test, IretRoundTripsIoplAndNtBitsTheSameAsPopf) {
     run({0xCF});  // IRET
     EXPECT_EQ(cpu->ip, ret_ip);
     EXPECT_EQ(cpu->cs, ret_cs);
-    EXPECT_TRUE(cpu->flags & cpu80286::FLAG_IOPL);
-    EXPECT_TRUE(cpu->flags & cpu80286::FLAG_NT);
+    EXPECT_FALSE(cpu->flags & cpu80286::FLAG_IOPL);
+    EXPECT_FALSE(cpu->flags & cpu80286::FLAG_NT);
 }
 
 // ---------------------------------------------------------------------------
