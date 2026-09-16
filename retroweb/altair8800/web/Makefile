@@ -36,7 +36,7 @@ media:
 SHARED = ../../shared
 shared:
 	mkdir -p shared
-	cp $(SHARED)/theme-init.js $(SHARED)/theme-picker.js $(SHARED)/pagebar.css \
+	cp $(SHARED)/theme.css $(SHARED)/theme-init.js $(SHARED)/theme-picker.js $(SHARED)/pagebar.css \
 	   $(SHARED)/fullscreen.css $(SHARED)/fullscreen.js \
 	   $(SHARED)/focus-hint.css $(SHARED)/focus-hint.js \
 	   shared/

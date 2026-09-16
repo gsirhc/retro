@@ -17,7 +17,7 @@
 function initThemePicker(onChange) {
   const pageTheme = document.getElementById("pageTheme");
   const root = document.documentElement;
-  const THEME_VALUES = ["win", "web94", "modern", "moderndark"];
+  const THEME_VALUES = ["win", "web94", "modern", "moderndark", "ai"];
   const applyTheme = (v) => {
     if (!THEME_VALUES.includes(v)) v = "win";
     if (v === "moderndark") { root.dataset.theme = "modern"; root.dataset.mode = "dark"; }

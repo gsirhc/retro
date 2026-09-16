@@ -35,6 +35,8 @@ site:
 	mkdir -p _site.new/altair8800 _site.new/assembler6502 _site.new/ibmpc-at
 	cp index.html _site.new/
 	cp -R assets _site.new/ && rm -f _site.new/assets/README.md
+	mkdir -p _site.new/shared
+	cp shared/theme.css _site.new/shared/
 	cp -R altair8800/web/. _site.new/altair8800/
 	( cd _site.new/altair8800 && \
 	  rm -rf tests node_modules coverage test-results playwright-report \
