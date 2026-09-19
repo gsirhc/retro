@@ -32,7 +32,7 @@ help:
 # server never finds its document root deleted out from under it
 site:
 	rm -rf _site.new
-	mkdir -p _site.new/altair8800 _site.new/assembler6502 _site.new/ibmpc-at
+	mkdir -p _site.new/altair8800 _site.new/assembler6502 _site.new/ibmpc-at _site.new/pacman
 	cp index.html _site.new/
 	cp -R assets _site.new/ && rm -f _site.new/assets/README.md
 	mkdir -p _site.new/shared
@@ -56,6 +56,12 @@ site:
 	         .playwright .v8-coverage && \
 	  rm -f Makefile devserve.py wasm_machine.cpp \
 	        package.json package-lock.json playwright.config.ts )
+	cp -R pacman/web/. _site.new/pacman/
+	( cd _site.new/pacman && \
+	  rm -rf tests node_modules coverage test-results playwright-report \
+	         .playwright .v8-coverage && \
+	  rm -f Makefile devserve.py wasm_machine.cpp \
+	        package.json package-lock.json playwright.config.ts )
 	rm -rf _site && mv _site.new _site
 
 # build the emulator + fetch media, then stage — what both preview modes need
@@ -63,6 +69,7 @@ _stage:
 	$(MAKE) -C altair8800/web retro8080.js roms media shared
 	$(MAKE) -C assembler6502/web wasm roms examples-bin shared
 	$(MAKE) -C ibmpc-at/web ibmpcat.js roms hdd-image shared
+	$(MAKE) -C pacman/web wasm roms shared
 	$(MAKE) site
 
 preview: _stage

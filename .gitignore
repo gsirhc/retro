@@ -83,9 +83,20 @@ retroweb/ibmpc-at/web/roms/
 retroweb/ibmpc-at/web/disks/
 retroweb/ibmpc-at/disks/freedos-hdd.img
 
+retroweb/pacman/tests/build/
+retroweb/pacman/tests/build-cov/
+retroweb/pacman/tests/coverage-cpp/
+retroweb/pacman/web/pacman.js
+retroweb/pacman/web/pacman.wasm
+retroweb/pacman/web/hwtest_roms.h
+retroweb/pacman/web/roms/
+retroweb/pacman/web/coverage/
+retroweb/pacman/web/.v8-coverage/
+
 # shared/ front-end code (retroweb/shared/) is copied into each machine's
 # own web/shared/ at build time by its own `make shared` target -- a build
 # artifact like wasm/roms above, not committed per-machine.
 retroweb/altair8800/web/shared/
 retroweb/assembler6502/web/shared/
 retroweb/ibmpc-at/web/shared/
+retroweb/pacman/web/shared/

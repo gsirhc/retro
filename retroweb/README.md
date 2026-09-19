@@ -25,11 +25,20 @@ The browser emulators and the landing page that lists them.
   Deploys to `/ibmpc-at/`. Ships pre-loaded with FreeDOS 1.3 on its virtual
   hard disk — boots straight to a `C:\>` prompt. Hardware findings live in
   [`IBM_PCAT_REVIEW.md`](ibmpc-at/IBM_PCAT_REVIEW.md).
+- [`pacman/`](pacman/) — Namco Pac-Man (1980) arcade board: Z80 at
+  3.072 MHz, real tilemap/sprite video and Namco 3-voice WSG, C++ core +
+  GoogleTest + WebAssembly front end in `pacman/web/`. Deploys to
+  `/pacman/`. Screen only — no disks or front panel, since an arcade board's
+  "storage" is its ROM sockets. Ships a from-scratch hardware self-test ROM
+  by default (no Namco code or graphics); a real Midway `pacman` ROM set can
+  be loaded client-side and stays in the browser's IndexedDB, never
+  fetched or committed. Hardware findings live in
+  [`PACMAN_REVIEW.md`](pacman/PACMAN_REVIEW.md).
 
 ## Shared front-end code
 
-[`shared/`](shared/) holds the front-end code common to all three machine
-pages — the theme system (`theme-init.js`'s anti-FOUC bootstrap,
+[`shared/`](shared/) holds the front-end code common to every machine
+page — the theme system (`theme-init.js`'s anti-FOUC bootstrap,
 `theme-picker.js`'s interactive `<select>` logic), the pagebar/titlebar
 chrome (`pagebar.css`), and the fullscreen + "click to focus" mechanisms
 (`fullscreen.css`/`.js`, `focus-hint.css`/`.js`). It's a build-time source,
@@ -44,10 +53,10 @@ shared CSS via the cascade.
 
 ## The deployed site
 
-CI builds all three front ends, fetches the pinned Altair BASIC / CP/M media,
-builds the 6502 Assembler ROM from its own source, and fetches/builds the IBM
-PC/AT's BIOS + shipped FreeDOS hard disk image, then **stages** the site so
-URLs are clean:
+CI builds every front end, fetches the pinned Altair BASIC / CP/M media,
+builds the 6502 Assembler ROM from its own source, fetches/builds the IBM
+PC/AT's BIOS + shipped FreeDOS hard disk image, and generates Pac-Man's
+hardware self-test ROM, then **stages** the site so URLs are clean:
 
 ```
 _site/index.html      <- retroweb/index.html
@@ -55,6 +64,7 @@ _site/assets/         <- retroweb/assets/
 _site/altair8800/     <- retroweb/altair8800/web/    (dev-only files stripped)
 _site/assembler6502/  <- retroweb/assembler6502/web/ (dev-only files stripped)
 _site/ibmpc-at/       <- retroweb/ibmpc-at/web/      (dev-only files stripped)
+_site/pacman/         <- retroweb/pacman/web/        (dev-only files stripped)
 ```
 
 `_site/` is git-ignored, built by `make -C retroweb site` (CI runs the same
@@ -66,12 +76,13 @@ make -C retroweb preview-bg    # detached: survives the terminal, gone on reboot
 make -C retroweb preview-stop  # stop the detached server
 ```
 
-Both build all three emulators' wasm (+ the 6502 Assembler ROM from source,
-needs `cc65` — see `cpu6502/README.md`), fetch the Altair BASIC / CP/M media
-and the IBM PC/AT's BIOS + shipped FreeDOS hard disk image (the latter a real
-multi-minute build only the first time — see `ibmpc-at/IBM_PCAT_REVIEW.md`
-§11 — instant afterward), stage `_site/`, and serve `http://0.0.0.0:8000/`
-(landing page) + `/altair8800/` + `/assembler6502/` + `/ibmpc-at/` on the LAN.
+Both build every emulator's wasm (+ the 6502 Assembler ROM from source,
+needs `cc65` — see `cpu6502/README.md`; + Pac-Man's generated hardware
+self-test ROM), fetch the Altair BASIC / CP/M media and the IBM PC/AT's
+BIOS + shipped FreeDOS hard disk image (the latter a real multi-minute
+build only the first time — see `ibmpc-at/IBM_PCAT_REVIEW.md` §11 — instant
+afterward), stage `_site/`, and serve `http://0.0.0.0:8000/` (landing page)
++ `/altair8800/` + `/assembler6502/` + `/ibmpc-at/` + `/pacman/` on the LAN.
 A bare `python3 -m http.server` in `retroweb/` will **not** work — each
 emulator lives at `<machine>/web/` in source, only at `/<machine>/` in the
 staged site.
