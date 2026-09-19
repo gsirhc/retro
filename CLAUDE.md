@@ -157,8 +157,8 @@ machine itself (see "Adding a new machine" above).
   fetch/build scripts already produced it, so there's one pinned/verified
   source, not a second copy) — see `retroweb/ibmpc-at/web/Makefile`'s
   `roms`/`hdd-image` targets for the pattern. Front-end code shared across
-  machines (theme system, pagebar/titlebar chrome, fullscreen + focus-hint —
-  see `retroweb/shared/`) follows the same rule: it's copied into each
+  machines (theme system, pagebar/titlebar chrome, fullscreen + focus-hint,
+  site footer — see `retroweb/shared/`) follows the same rule: it's copied into each
   machine's own `web/shared/` (git-ignored, regenerated) by a `shared`
   target in that machine's own `web/Makefile`, never referenced via `../`.
   A machine's own color-token *values* and anything that genuinely differs

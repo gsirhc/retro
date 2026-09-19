@@ -40,12 +40,14 @@ The browser emulators and the landing page that lists them.
 [`shared/`](shared/) holds the front-end code common to every machine
 page — the theme system (`theme-init.js`'s anti-FOUC bootstrap,
 `theme-picker.js`'s interactive `<select>` logic), the pagebar/titlebar
-chrome (`pagebar.css`), and the fullscreen + "click to focus" mechanisms
-(`fullscreen.css`/`.js`, `focus-hint.css`/`.js`). It's a build-time source,
-not something a page fetches directly: each machine's own `web/Makefile` has
-a `shared` target that copies these files into that machine's own
-`web/shared/` (git-ignored, regenerated like the wasm build itself), because
-**only `web/` ever gets staged** — see "Adding a machine" below. Each
+chrome (`pagebar.css`), the fullscreen + "click to focus" mechanisms
+(`fullscreen.css`/`.js`, `focus-hint.css`/`.js`), and the site footer
+(`footer.css`/`.js`, including the EXIT sign that links to `about.html`).
+The landing page and `about.html` link `shared/` directly; each machine's
+own `web/Makefile` has a `shared` target that copies these files into that
+machine's own `web/shared/` (git-ignored, regenerated like the wasm build
+itself), because **only `web/` ever gets staged** — see "Adding a machine"
+below. Each
 machine's own `:root`/`[data-theme]` color-token *values* (and anything that
 genuinely differs — a machine's own tuned spacing, an extra dead-hardware
 control) stay local to that machine's `index.html`, layered on top of the
@@ -60,7 +62,9 @@ hardware self-test ROM, then **stages** the site so URLs are clean:
 
 ```
 _site/index.html      <- retroweb/index.html
+_site/about.html      <- retroweb/about.html
 _site/assets/         <- retroweb/assets/
+_site/shared/         <- retroweb/shared/theme.css, footer.css, footer.js
 _site/altair8800/     <- retroweb/altair8800/web/    (dev-only files stripped)
 _site/assembler6502/  <- retroweb/assembler6502/web/ (dev-only files stripped)
 _site/ibmpc-at/       <- retroweb/ibmpc-at/web/      (dev-only files stripped)

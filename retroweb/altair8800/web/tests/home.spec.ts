@@ -47,4 +47,16 @@ test.describe("retroweb landing page", () => {
     await expect(page.locator("html")).toHaveAttribute("data-theme", "modern");
     await expect(page.locator("#pageTheme")).toHaveValue("modern");
   });
+
+  test("the shared site footer credits Cursor/Claude and the EXIT sign goes to about.html", async ({ page }) => {
+    await page.goto(HOME);
+    const footer = page.locator("#siteFooter");
+    await expect(footer).toContainText(/Copyright 2026/);
+    await expect(footer).toContainText(/machine intelligence/i);
+    const exit = footer.locator("a.exit-sign");
+    await expect(exit).toHaveAttribute("href", "about.html");
+    await exit.click();
+    await expect(page).toHaveURL(/\/about\.html$/);
+    await expect(page).toHaveTitle(/About/i);
+  });
 });
