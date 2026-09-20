@@ -20,22 +20,47 @@ CI jobs (`pacman-test` / `pacman-web-test`) are wired in
 `retroweb/index.html` / `.github/workflows/deploy-emulator.yml`.
 
 Playwright (`web/tests/`, `web/package.json`, `playwright.config.ts`)
-covers boot of the self-test ROM, the help screen, keyboard/coin-door
-input, theme/fullscreen/focus-hint/footer/home chrome, and the ROM loader
-(including the rejection dialog). It never ships or fetches Namco's
-program. A skippable native playthrough (`Machine.UserRomInsertsCoinStartsAndEatsAPellet`
-in `tests/play_test.cpp`) coins in, starts, and eats a pellet against a
-local `pacman`/`puckman` dump when one is present; CI skips it. See §8.
+covers boot of the self-test ROM (`smoke.spec.ts`, `help.spec.ts`),
+keyboard/coin-door input including numpad 5/1/2 (`keyboard.spec.ts`,
+`coindoor.spec.ts`), mute (`mute.spec.ts`), theme/fullscreen/focus-hint/
+footer/home chrome, the ROM loader (loose chips, a `.zip` upload, and
+the rejection dialog — `rom.spec.ts`), HIGH SCORE persistence
+(`hiscore.spec.ts`), every DIP-switch control (`dip.spec.ts`; see
+§7), and the Ms. Pac-Man query-string cabinet (`mspacman.spec.ts`, including
+a skippable upload of a local `mspacman.zip`).
+It never ships or fetches Namco's program. Two skippable native
+playthroughs in `tests/play_test.cpp` coin in, start, and eat a pellet
+when a local dump is present; CI skips both. Pac-Man is
+`Machine.UserRomInsertsCoinStartsAndEatsAPellet` (`pacman`/`puckman`).
+Ms. Pac-Man is `Machine.UserMsPacmanRomInsertsCoinStartsAndEatsAPellet`
+(needs U5/U6/U7). See §8.
 
-Ms. Pac-Man's aux board, a DIP UI, and coin-counter solenoids stay out of
-scope (see §1 and §9). Mute, numpad coin/start, and a `.zip` upload path
-in Playwright are the remaining coverage gaps, not missing hardware.
+Coin-counter solenoids and the cocktail P2 stick stay out of scope
+(see §9).
 
-## 1. Scope: Midway Pac-Man (1980) single-board upright, no Ms. Pac-Man
+## 1. Scope: Midway Pac-Man (1980) PCB, plus the GCC Ms. Pac-Man aux board
 
-Ms. Pac-Man's aux Z80 + ROM-swap decoder, cocktail-cabinet second joystick,
-and cabinet bezel art are explicitly out of scope for v1 (see the approved
-plan). Only the original Midway/Namco Pac-Man board is modeled.
+The original Midway/Namco Pac-Man board is the default (`/pacman/`).
+Ms. Pac-Man is the same page with `?game=mspacman`: the GCC conversion
+kit's aux board in the Z80 socket, not a second machine. The landing
+page has two cards to that one URL. Cocktail-cabinet player-2 joystick
+and a distinct painted Ms. Pac-Man bezel stay out of scope (the home-page
+card uses an original generated marquee, not Midway art).
+
+The aux board relocates the same Z80 (not a second CPU), adds U5 (2716)
+and U6/U7 (2532), and a PAL/HAL overlay. Address and data lines on those
+three ROMs are scrambled (US patent 4,525,599). When the dump-protection
+latch is set (any access to `$3FF8–$3FFF`), `$3000–$3FFF` and
+`$8000–$97FF` come from the aux ROMs and forty 8-byte windows in
+`$0000–$2FFF` overlay decrypted `$8000–$81EF`. Latch-clear traps
+(`$0038`, `$03B0`, `$1600`, `$2120`, `$3FF0`, `$8000`, `$97F0`) restore
+the original Pac-Man map. The latch powers on clear; Pac-Man's IM 2
+vector table sits in `$3FF8–$3FFF`, so the first vblank IRQ both enables
+Ms. Pac-Man and reads U7's vector. Z80 RESET (watchdog) does not clear
+the PAL. Bit-flip orders and the forty patch addresses are a cross-check
+of MAME `init_mspacman` / `mspacman_install_patches`, not a behavior
+source. Covered by `Machine.Aux*` / `Machine.Im2VectorFetchEnablesAuxDecode`
+and `web/tests/mspacman.spec.ts`.
 
 ## 2. Clocks (never sped up on the live page)
 
@@ -72,9 +97,12 @@ ISAs, since Z80 flag polarity and several opcodes genuinely differ). Source
 for instruction semantics and official T-states: the Zilog Z80 CPU User's
 Manual (UM0080). Implemented: documented main/CB/ED/DD/FD opcode maps,
 IX/IY (including `(IX+d)`/`(IY+d)` displacement addressing), I/R registers,
-`IM 0`/`IM 1`/`IM 2`, NMI (vectors to `$0066`), and the `EI`-delays-interrupt-
-by-one-instruction rule (`ei_delay_` in `cpu_z80.h`, tested in
-`Z80.EiDelaysInterruptOneInstruction`).
+`IM 0`/`IM 1`/`IM 2`, NMI (vectors to `$0066`; `iff2` latches the pre-NMI
+`iff1` per UM0080, tested in `Z80.NmiVectorsTo66AndCopiesIff1ToIff2`), and
+the `EI`-delays-interrupt-by-one-instruction rule (`ei_delay_` in
+`cpu_z80.h`, tested in `Z80.EiDelaysInterruptOneInstruction`). `Z80.Im2InterruptReadsVectorTableAtIConcatData`
+pins the CPU-side IM 2 table walk (`I` concatenated with the bus data
+byte) separately from the board latch.
 
 The self-test ROM only ever programs `IM 1` (RST 7, vector `$0038`); the
 real Midway `pacman`/`puckman` program ROM uses `IM 2` instead, reprogramming
@@ -85,8 +113,11 @@ wires that `OUT`'s data byte straight to a discrete latch feeding the Z80's
 interrupt-acknowledge cycle, not a fixed vector; `machine.cpp`'s `irq_vector`
 field models that latch, and `Bus::irq_data` returns its current value
 instead of a hardcoded byte (`Machine.OutPort0LatchesInterruptVector` is the
-regression test — ignoring the latch derails the CPU into unmapped memory
-within a few frames of loading a real ROM set).
+board-level regression; `Z80.Im2InterruptReadsVectorTableAtIConcatData` is
+the CPU-side one). The 8-vblank watchdog at `$50C0` trips and pulses
+`reset()` if it is not kicked (`Machine.WatchdogExpiresAfterEightVblanksWithoutKick`);
+`$5003` bit 0 is cocktail flip-screen (`Machine.Write5003SetsFlipScreen`,
+`Video.FlipScreenUsesTheCocktailSpriteRegisterRoles`).
 
 Undocumented `X`/`Y` flag bits (copies of bits 3/5 of the result, or of `A`
 memory-refresh timing, on odd ops) are modeled as plain result-bit copies
@@ -118,8 +149,9 @@ MAME's implementation choices aren't themselves a behavior source.
 | `$50C0` (write) | Watchdog reset kick |
 
 `machine.cpp`'s `mem_read`/`mem_write` implement exactly this decode. The
-board has no bank switching and no protected/paged memory — a flat 16-bit
-address space throughout, unlike the 486/AT machines in this repo.
+stock PCB leaves Z80 A15 unconnected, so `$8000–$FFFF` mirror
+`$0000–$7FFF` (`Machine.PacManA15MirrorsProgramRom`). The aux board is
+what makes A15 real extra ROM (see §1). There is no other bank switching.
 
 ## 5. Video
 
@@ -273,14 +305,45 @@ resistor-mixed output, not individually clamped per voice.
 edge connector presents them (`Inputs` struct's doc comment: "1 = released"
 — matches real TTL-input polarity, not an inverted "1 = pressed"
 convenience encoding). `web/app.js` maps arrows/WASD to the joystick bits,
-`5` to coin, `1`/`2` to 1P/2P start. Two on-page 25¢ lamps + coin slots
-pulse the same IN0 coin bit as the `5` key — a labelled web-UI stand-in
-for dropping a quarter, not a claim that the coin-counter/lockout
-solenoids are modeled. Factory-typical DIP defaults (3 lives,
-10000-point bonus) are hardcoded in `Inputs`'s member
-initializers; there is no in-page DIP-switch UI in v1 (real cabinets set
-these with physical switches inside the cabinet, not from the attract
-screen).
+`5` / numpad `5` to coin, `1`/`2` and the matching numpad keys to 1P/2P
+start. Two on-page 25¢ lamps + coin slots pulse the same IN0 coin bit as
+the `5` key — a labelled web-UI stand-in for dropping a quarter, not a
+claim that the coin-counter/lockout solenoids are modeled.
+
+Factory-typical DIP defaults (1 coin / 1 credit, 3 lives, 10000-point
+bonus, normal difficulty, normal ghost names — `Inputs::dsw1 = 0xC9`)
+match the Midway service manual, cross-checked against MAME
+`INPUT_PORTS_START(pacman)` only for transcription. DSW1 is `$5080`:
+
+| Bits | Function | `0xC9` factory |
+|---|---|---|
+| 1:0 | Coinage — `01` 1C/1C, `11` 2C/1C, `10` 1C/2C, `00` free | 1C/1C |
+| 3:2 | Lives — `00` 1, `01` 2, `10` 3, `11` 5 | 3 |
+| 5:4 | Bonus — `00` 10k, `01` 15k, `10` 20k, `11` none | 10k |
+| 6 | Difficulty — `1` normal, `0` hard (solder pad on some boards) | normal |
+| 7 | Ghost names — `1` normal, `0` alternate (solder pad) | normal |
+
+Rack test is IN0 bit 4 (service-manual SW:7); cabinet upright/cocktail
+is an edge-connector jumper on IN1 bit 7. DSW2 (`$50C0`) is unused on
+the Midway `pacman` set and stays `0xFF`. The cocktail P2 stick (IN1
+bits 0–3) is still unmapped — see §1.
+
+The in-page **DIP switches** panel (`#dipPanel` in `web/index.html`) is
+a labelled stand-in for opening the cabinet and flipping that bank, not
+a setting on the attract screen. Physical switches survive a power
+cycle, so the panel persists in `localStorage` (`retroweb.pacman.dips`,
+or `retroweb.mspacman.dips` on the aux-board cabinet) by default —
+authentic, not a labelled departure. Ms. Pac-Man has no ghost-names pad
+(DSW1 bit 7 is unused and reads 1); that control is hidden on
+`?game=mspacman`. The program samples the ports on the next credit;
+changing a switch does not reset the board.
+
+GoogleTest pins the port decode (`Machine.Dsw1FactoryDefaultIsThreeLivesBonus10k`,
+`Machine.Dsw1PortFollowsInputsIncludingMirrors`). Playwright
+`web/tests/dip.spec.ts` drives every control: factory `0xC9`, each
+non-default coinage/lives/bonus option, hard difficulty, alternate
+ghost names, rack test (IN0 bit 4), cocktail (IN1 bit 7), and a
+reload that keeps DSW1 + those two IN bits.
 
 ## 8. Test ROM vs. copyrighted ROMs
 
@@ -291,7 +354,14 @@ test patterns — a crosshatch, then color bars, about 1.5 s each — then
 holds a help screen in an original 8×8 arcade font (the glyphs are
 generated in that script, not copied from `pacman.5e`) explaining that
 Namco's program/graphics ROMs are still under copyright and the user has
-to load their own Midway `pacman` set; it stays in this browser. The ROM
+to load their own Midway `pacman` set; it stays in this browser. On
+`?game=mspacman` the same generator emits a second program
+(`mspacman_program` / `mspacman-program.bin`) whose help screen says
+`MS PAC-MAN ARCADE` / `MS PAC-MAN ROMS` / `MIDWAY MSPACMAN SET` instead
+(`Machine.MsPacmanHwtestHelpScreenShowsMsPacManTitle`,
+`web/tests/mspacman.spec.ts`). The landing-page cards use two original
+marquees from the same script (`assets/pacman-cabinet.png` and
+`assets/mspacman-cabinet.png`). The ROM
 also still writes a RAM signature (`TST1` bytes), IRQ-echoes the joystick
 into RAM, drives one WSG voice, parks a sprite during the test patterns,
 and kicks the watchdog — enough for GoogleTest
@@ -300,44 +370,71 @@ and kicks the watchdog — enough for GoogleTest
 single byte of Namco's code or graphics. The in-page copy
 (`web/index.html`'s `.legal` text) says the same thing.
 
-A real Midway `pacman` ROM set is opt-in and client-side only: `web/app.js`
-accepts a `.zip` or loose chips, maps members by the usual MAME/board
-names (`pacman.6e`, `puckman.6e`, `82s123.7f`, … — the socket ids on the
-real PCB), and accepts any dump whose sizes match the original chips
-(16K program or four 4K banks, 4K tiles, 4K sprites, 32-byte color PROM,
-256-byte lookup, 256-byte wave; overdumps are clipped; the unused
-`82s126.3m` timing PROM is ignored). CRC32 is used only to *label* the
-generated self-test ROM vs. a user set, not as a whitelist. Bytes stay
-in IndexedDB (`retroweb-pacman`) and are never sent to a server; "Remove
-ROMs" clears them and reverts to the test ROM. This is the same labelled
-copyright departure as PC-DOS/IBM BIOS elsewhere in this repo (see
-`CLAUDE.md`). A failed load opens `#romErrorHint` (a shared `.site-dialog`
-in `web/index.html` / `shared/fullscreen.css`) with the size/name rules
-above; OK dismisses it.
+A real Midway `pacman` or `mspacman` ROM set is opt-in and client-side
+only: `web/app.js` accepts a `.zip` or loose chips, maps members by the
+usual MAME/board names (`pacman.6e`, `puckman.6e`, `u5`, `82s123.7f`, …
+— the socket ids on the real PCB / aux board), and accepts any dump
+whose sizes match the original chips (16K program or four 4K banks, 4K
+tiles, 4K sprites, 32-byte color PROM, 256-byte lookup, 256-byte wave;
+Ms. Pac-Man also needs U5 2K + U6/U7 4K; overdumps are clipped; the
+unused `82s126.3m` timing PROM is ignored). CRC32 is used only to
+*label* the generated self-test ROM vs. a user set, not as a whitelist.
+Bytes stay in IndexedDB (`retroweb-pacman`, keys `set` / `set-mspacman`)
+and are never sent to a server; "Remove ROMs" clears them and reverts
+to the test ROM. Extra U5/U6/U7 on the Pac-Man cabinet are ignored
+(those sockets are not on the main PCB). A Pac-Man-only zip on
+`?game=mspacman` is rejected — that cabinet has the aux board and needs
+the three extra chips. This is the same labelled copyright departure as
+PC-DOS/IBM BIOS elsewhere in this repo (see `CLAUDE.md`). A failed load
+opens `#romErrorHint` (a shared `.site-dialog` in `web/index.html` /
+`shared/fullscreen.css`) with the size/name rules above; OK dismisses it.
 
-A native GoogleTest, `Machine.UserRomInsertsCoinStartsAndEatsAPellet`
-(`tests/play_test.cpp`), is the one suite that actually plays Pac-Man.
-CI has no Namco dump, so it `GTEST_SKIP`s. Locally, unzip a MAME
-`pacman`/`puckman` set into `roms/user/` (gitignored) or set `PACMAN_ROM`
-to that zip or directory, then `make check`. After 8 s of POST/attract it
-pulses IN0 coin, asserts credits at `$4E6E` are a 1–9 coin count (not
-mid-init garbage), holds 1P start until lives at `$4E14`/`$4E15` appear
-or the credit is spent, holds left, and expects the player sprite at
-`$4D08`/`$4D09` to move and P1 score at `$4E80` to leave zero — the same
-work-RAM cells the original program keeps (Data Crystal's Pac-Man arcade
-RAM map; Midway disassembly comments at cubeman.org/arcade-source/mspac.asm).
-The generated self-test ROM is rejected here (`TST1` signature) so a
-misplaced hwtest dump cannot pass as a playthrough. This is the regression
-that would have caught the rotation / mouth-facing / ghost-eat bring-up
-bugs against a real set; the rest of the suite never inserts a credit into
-Namco's program.
+Two native GoogleTests in `tests/play_test.cpp` are the suite that
+actually plays the games. CI has no Namco dump, so both `GTEST_SKIP`.
+Locally, drop a MAME zip (or the loose chips) in `roms/user/`
+(gitignored) — `pacman`/`puckman` for Pac-Man, `mspacman` (6e–6j plus
+aux U5/U6/U7) for Ms. Pac-Man — or point `PACMAN_ROM` / `MSPACMAN_ROM`
+at that zip or directory, then `make check`. After 8 s of POST/attract
+each pulses IN0 coin, asserts credits at `$4E6E` are a 1–9 coin count
+(not mid-init garbage), holds 1P start until lives at `$4E14`/`$4E15`
+appear or the credit is spent, holds left, and expects the player
+sprite at `$4D08`/`$4D09` to move and P1 score at `$4E80` to leave
+zero — the same work-RAM cells both programs keep (Data Crystal's
+Pac-Man arcade RAM map; Midway disassembly comments at
+cubeman.org/arcade-source/mspac.asm). The Ms. Pac-Man test also
+asserts the GCC latch starts clear and is set by the first IM2 vector
+fetch. A folder that holds both zips picks by aux-board chips, so the
+Pac-Man playthrough does not silently run the overlay. The generated
+self-test ROM is rejected (`TST1` signature) so a misplaced hwtest dump
+cannot pass as a playthrough. These are the regressions that would
+have caught the rotation / mouth-facing / ghost-eat / aux-decode
+bring-up bugs against a real set; the rest of the suite never inserts
+a credit into Namco's program.
 
 ## 9. Known simplifications (documented, not silent)
 
-- **No aux/decoder MCU support.** Some later Pac-Man bootlegs added extra
-  protection MCUs; only the standard Midway board is modeled.
-- **DIP switches are fixed at factory defaults, no UI.** See §7.
+- **No later protection MCUs.** Some Pac-Man bootlegs added extra decoder
+  MCUs beyond the GCC PAL/HAL aux board; those stay out of scope. The
+  original Ms. Pac-Man conversion kit *is* modeled (see §1). Decrypted
+  six-EPROM “no daughterboard” hacks (`mspacmab`) are not a substitute
+  for that kit.
+- **DIP switches are in-page.** See §7. The panel is a labelled stand-in
+  for the cabinet's operator bank; the bit values themselves match the
+  real ports. Cocktail-cabinet player-2 joystick (IN1 bits 0–3) is not
+  mapped. Covered by `dip.spec.ts` and the two `Machine.Dsw1*` tests.
 - **Coin counter / lockout solenoid outputs are not modeled.** The on-page
   25¢ slots are a labelled UI control that pulses the same IN0 coin bit as
   the `5` key; they do not drive (or claim to drive) the cabinet's physical
   coin-counter or lockout coils.
+- **HIGH SCORE RAM is volatile on the real PCB.** There is no battery.
+  `$4E88–$4E8A` (BCD TOP, low byte first — Data Crystal RAM map) dies on
+  power-off. A page refresh is a power cycle, so the default is to lose it.
+  **Keep HIGH SCORE after refresh** (`#keepHiscore` in `web/index.html`) is
+  an opt-in labelled departure: it stores those three bytes in IndexedDB
+  keyed by program CRC and pokes them back once attract starts (`$4E00 ==
+  1`) and TOP is still zero. Off (the default) is authentic.
+  `web/tests/hiscore.spec.ts` covers default-off, the checkbox surviving
+  a reload, an IndexedDB round-trip with the box on, and a no-restore
+  with the box off. CI has no Namco dump, so save/restore goes through
+  the `?test=1` `__test` seam (CRC-patched self-test ROM as a stand-in
+  user set) rather than waiting for attract on the real program.

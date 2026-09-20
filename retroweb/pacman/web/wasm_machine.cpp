@@ -54,6 +54,14 @@ public:
         m_.reset();
     }
 
+    void loadMsHwtest() {
+        pacman::RomSet s = hwtest_set();
+        std::copy(pacman::hwtest::mspacman_program.begin(),
+                  pacman::hwtest::mspacman_program.end(), s.program.begin());
+        m_.load_roms(s);
+        m_.reset();
+    }
+
     void loadRomSet(val prog, val tiles, val sprites, val color, val lookup, val wave) {
         pacman::RomSet s;
         copy_val(prog, s.program.data(), s.program.size());
@@ -62,6 +70,23 @@ public:
         copy_val(color, s.color_prom.data(), s.color_prom.size());
         copy_val(lookup, s.lookup_prom.data(), s.lookup_prom.size());
         copy_val(wave, s.wave_prom.data(), s.wave_prom.size());
+        m_.load_roms(s);
+        m_.reset();
+    }
+
+    void loadMsPacmanSet(val prog, val tiles, val sprites, val color, val lookup, val wave,
+                         val u5, val u6, val u7) {
+        pacman::RomSet s;
+        copy_val(prog, s.program.data(), s.program.size());
+        copy_val(tiles, s.tiles.data(), s.tiles.size());
+        copy_val(sprites, s.sprites.data(), s.sprites.size());
+        copy_val(color, s.color_prom.data(), s.color_prom.size());
+        copy_val(lookup, s.lookup_prom.data(), s.lookup_prom.size());
+        copy_val(wave, s.wave_prom.data(), s.wave_prom.size());
+        copy_val(u5, s.aux_u5.data(), s.aux_u5.size());
+        copy_val(u6, s.aux_u6.data(), s.aux_u6.size());
+        copy_val(u7, s.aux_u7.data(), s.aux_u7.size());
+        s.aux_board = true;
         m_.load_roms(s);
         m_.reset();
     }
@@ -87,6 +112,7 @@ public:
 
     void setIn0(int v) { m_.inputs.in0 = uint8_t(v); }
     void setIn1(int v) { m_.inputs.in1 = uint8_t(v); }
+    void setDsw1(int v) { m_.inputs.dsw1 = uint8_t(v); }
     // The host AudioContext's actual sample rate varies by device (commonly
     // but not always 48 kHz); Wsg::advance resamples its 96 kHz WSG clock to
     // whatever rate this is set to, so playback pitch/speed always matches
@@ -94,6 +120,7 @@ public:
     void setAudioHz(int hz) { m_.audio_hz = hz; }
     int in0() const { return m_.inputs.in0; }
     int in1() const { return m_.inputs.in1; }
+    int dsw1() const { return m_.inputs.dsw1; }
 
     val drainAudio() {
         val out = val::global("Float32Array").new_(m_.audio.size());
@@ -123,6 +150,16 @@ public:
         return m_.ram[unsigned(addr - 0x4800)];
     }
 
+    // Work RAM only — sprite RAM is $4FF0–$4FFF.
+    void setRamByte(int addr, int v) {
+        if (addr < 0x4800 || addr >= 0x4FF0) return;
+        m_.ram[unsigned(addr - 0x4800)] = uint8_t(v);
+    }
+
+    int memRead(int addr) { return m_.mem_read(uint16_t(addr & 0xFFFF)); }
+    bool auxBoard() const { return m_.aux_board; }
+    bool auxDecode() const { return m_.aux_decode; }
+
 private:
     pacman::Machine m_;
     int cpu_pc() const { return m_.cpu.pc; }
@@ -133,18 +170,26 @@ EMSCRIPTEN_BINDINGS(pacman) {
         .constructor<>()
         .function("reset", &Machine::reset)
         .function("loadHwtest", &Machine::loadHwtest)
+        .function("loadMsHwtest", &Machine::loadMsHwtest)
         .function("loadRomSet", &Machine::loadRomSet)
+        .function("loadMsPacmanSet", &Machine::loadMsPacmanSet)
         .function("runCycles", &Machine::runCycles)
         .function("frameBuffer", &Machine::frameBuffer)
         .function("setIn0", &Machine::setIn0)
         .function("setIn1", &Machine::setIn1)
+        .function("setDsw1", &Machine::setDsw1)
         .function("setAudioHz", &Machine::setAudioHz)
         .function("in0", &Machine::in0)
         .function("in1", &Machine::in1)
+        .function("dsw1", &Machine::dsw1)
         .function("drainAudio", &Machine::drainAudio)
         .function("state", &Machine::state)
         .function("totalCycles", &Machine::totalCycles)
         .function("screenWidth", &Machine::screenWidth)
         .function("screenHeight", &Machine::screenHeight)
-        .function("ramByte", &Machine::ramByte);
+        .function("ramByte", &Machine::ramByte)
+        .function("setRamByte", &Machine::setRamByte)
+        .function("memRead", &Machine::memRead)
+        .function("auxBoard", &Machine::auxBoard)
+        .function("auxDecode", &Machine::auxDecode);
 }

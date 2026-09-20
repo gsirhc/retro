@@ -921,6 +921,7 @@ int Cpu::interrupt() {
 }
 
 int Cpu::nmi() {
+    iff2 = iff1;
     iff1 = false;
     halted = false;
     push16(pc);

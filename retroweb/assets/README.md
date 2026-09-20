@@ -51,3 +51,7 @@
   (`make -C retroweb/pacman/web roms` writes this file). 286×128, same
   aspect as `altair-panel.jpg`, so the landing page's 143×64 card box
   doesn't crop it.
+
+- **`mspacman-cabinet.png`** — same generator, `game="mspacman"`: pinker
+  plexi, "MS PAC-MAN" in the same original 8×8 font, a geometric bow
+  (two loops + a knot — not Namco's sprite). Same 286×128 box.

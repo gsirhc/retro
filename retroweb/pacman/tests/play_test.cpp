@@ -20,7 +20,7 @@ namespace fs = std::filesystem;
 // Same board-socket names and sizes as web/app.js identifySet. CRC is not
 // a whitelist — a complete original-board dump is enough. 82s126.3m is the
 // unused timing PROM and is ignored.
-const std::regex kChipRe{R"((?:^|[._-])(6e|6f|6h|6j|5e|5f|7f|4a|1m)(?:[^a-z0-9]|$))",
+const std::regex kChipRe{R"((?:^|[._-])(6e|6f|6h|6j|5e|5f|7f|4a|1m|u5|u6|u7)(?:[^a-z0-9]|$))",
                          std::regex::icase};
 const std::regex kIgnoreRe{R"((?:^|[._-])3m(?:[^a-z0-9]|$))", std::regex::icase};
 
@@ -106,6 +106,11 @@ std::optional<pacman::RomSet> identify(const std::map<std::string, std::vector<u
     if (!take("7f", set.color_prom.data(), kColor)) return std::nullopt;
     if (!take("4a", set.lookup_prom.data(), kLookup)) return std::nullopt;
     if (!take("1m", set.wave_prom.data(), kWave)) return std::nullopt;
+    if (take("u5", set.aux_u5.data(), 0x0800) &&
+        take("u6", set.aux_u6.data(), 0x1000) &&
+        take("u7", set.aux_u7.data(), 0x1000)) {
+        set.aux_board = true;
+    }
     return set;
 }
 
@@ -175,19 +180,36 @@ std::optional<pacman::RomSet> load_zip(const fs::path& zip) {
     return identify(collect_chips(tmp.p));
 }
 
-std::optional<pacman::RomSet> load_path(const fs::path& p) {
+std::vector<pacman::RomSet> collect_sets(const fs::path& p) {
+    std::vector<pacman::RomSet> out;
     std::error_code ec;
-    if (!fs::exists(p, ec)) return std::nullopt;
-    if (fs::is_regular_file(p) && is_zip_name(p.filename().string())) return load_zip(p);
-    if (!fs::is_directory(p)) return std::nullopt;
-    if (auto set = identify(collect_chips(p))) return set;
+    if (!fs::exists(p, ec)) return out;
+    if (fs::is_regular_file(p) && is_zip_name(p.filename().string())) {
+        if (auto set = load_zip(p)) out.push_back(std::move(*set));
+        return out;
+    }
+    if (!fs::is_directory(p)) return out;
+    if (auto set = identify(collect_chips(p))) out.push_back(std::move(*set));
     for (auto it = fs::directory_iterator(p, ec); it != fs::directory_iterator(); ++it) {
         if (ec || !it->is_regular_file()) continue;
         if (is_zip_name(it->path().filename().string())) {
-            if (auto set = load_zip(it->path())) return set;
+            if (auto set = load_zip(it->path())) out.push_back(std::move(*set));
         }
     }
+    return out;
+}
+
+std::optional<pacman::RomSet> pick_set(const std::vector<pacman::RomSet>& sets, bool want_aux) {
+    for (const auto& s : sets) {
+        if (s.aux_board == want_aux) return s;
+    }
+    // Pac-Man can still run the 6e–6j banks out of an mspacman zip.
+    if (!want_aux && !sets.empty()) return sets.front();
     return std::nullopt;
+}
+
+std::optional<pacman::RomSet> load_path(const fs::path& p, bool want_aux) {
+    return pick_set(collect_sets(p), want_aux);
 }
 
 fs::path default_user_dir() {
@@ -216,12 +238,12 @@ bool score_nonzero(pacman::Machine& m) {
 TEST(Machine, UserRomInsertsCoinStartsAndEatsAPellet) {
     std::optional<pacman::RomSet> set;
     if (const char* env = std::getenv("PACMAN_ROM"); env && *env) {
-        set = load_path(env);
+        set = load_path(env, /*want_aux=*/false);
         ASSERT_TRUE(set) << "PACMAN_ROM=" << env
                          << " is not a complete original-board set "
                             "(16K program or 6e/6f/6h/6j + 5e/5f + 7f/4a/1m)";
     } else {
-        set = load_path(default_user_dir());
+        set = load_path(default_user_dir(), /*want_aux=*/false);
         if (!set) {
             GTEST_SKIP() << "no user ROM set — unzip a MAME pacman/puckman set into "
                             "roms/user/ or set PACMAN_ROM to a zip/directory "
@@ -230,6 +252,7 @@ TEST(Machine, UserRomInsertsCoinStartsAndEatsAPellet) {
     }
 
     pacman::Machine m;
+    set->aux_board = false;  // stock PCB even if the folder also has U5/U6/U7
     m.load_roms(*set);
     m.watchdog_reset = false;
     m.reset();
@@ -294,3 +317,83 @@ TEST(Machine, UserRomInsertsCoinStartsAndEatsAPellet) {
     EXPECT_TRUE(moved) << "Pac-Man sprite at $4D08/$4D09 did not move";
     EXPECT_TRUE(score_nonzero(m)) << "P1 score at $4E80 stayed 0 — no pellet eaten";
 }
+
+// Same skippable local playthrough against a MAME mspacman zip (6e–6j +
+// U5/U6/U7). The GCC aux board has to sit in the Z80 socket — a Pac-Man-only
+// dump is not enough. CI never has those chips. PACMAN_REVIEW.md §8.
+TEST(Machine, UserMsPacmanRomInsertsCoinStartsAndEatsAPellet) {
+    std::optional<pacman::RomSet> set;
+    if (const char* env = std::getenv("MSPACMAN_ROM"); env && *env) {
+        set = load_path(env, /*want_aux=*/true);
+        ASSERT_TRUE(set) << "MSPACMAN_ROM=" << env
+                         << " is not a complete mspacman set (pacman 6e–6j + u5/u6/u7 + 5e/5f)";
+        ASSERT_TRUE(set->aux_board) << "MSPACMAN_ROM is missing U5/U6/U7";
+    } else {
+        set = load_path(default_user_dir(), /*want_aux=*/true);
+        if (!set || !set->aux_board) {
+            GTEST_SKIP() << "no Ms. Pac-Man aux ROMs — unzip a MAME mspacman set into "
+                            "roms/user/ or set MSPACMAN_ROM (CI skips this on purpose)";
+        }
+    }
+
+    pacman::Machine m;
+    m.load_roms(*set);
+    m.watchdog_reset = false;
+    m.reset();
+    ASSERT_EQ(m.program[0], 0xF3);
+    EXPECT_FALSE(m.aux_decode) << "latch starts clear; the first IM2 vector fetch sets it";
+
+    ASSERT_TRUE(run_frames(m, 480)) << "watchdog tripped during POST/attract";
+    if (m.ram[0x4C00 - 0x4800] == 'T' && m.ram[0x4C01 - 0x4800] == 'S' &&
+        m.ram[0x4C02 - 0x4800] == 'T' && m.ram[0x4C03 - 0x4800] == '1') {
+        GTEST_SKIP() << "that dump is the generated hardware self-test ROM, not Ms. Pac-Man";
+    }
+    EXPECT_TRUE(m.aux_decode) << "vblank IM2 fetch at $3FFx should have enabled the overlay";
+
+    const uint8_t cred0 = m.mem_read(kCredits);
+    m.inputs.in0 = static_cast<uint8_t>(0xFF & ~0x20);
+    ASSERT_TRUE(run_frames(m, 30));
+    m.inputs.in0 = 0xFF;
+    ASSERT_TRUE(run_frames(m, 60));
+    const uint8_t cred1 = m.mem_read(kCredits);
+    ASSERT_GE(cred1, 1) << "coin did not increment credits at $4E6E"
+                        << " (before=" << int(cred0) << " after=" << int(cred1)
+                        << " mode=" << int(m.mem_read(0x4E00))
+                        << " pc=" << m.cpu.pc << ")";
+    ASSERT_LE(cred1, 9) << "credits at $4E6E look like garbage, not a coin count: "
+                        << int(cred1);
+
+    m.inputs.in1 = static_cast<uint8_t>(0xFF & ~0x20);
+    bool started = false;
+    for (int i = 0; i < 600; i++) {
+        ASSERT_TRUE(run_frames(m, 1));
+        const uint8_t lives = m.mem_read(kLives);
+        const uint8_t disp = m.mem_read(0x4E15);
+        if ((lives >= 1 && lives <= 5) || (disp >= 1 && disp <= 5) ||
+            m.mem_read(kCredits) < cred1) {
+            started = true;
+            break;
+        }
+    }
+    m.inputs.in1 = 0xFF;
+    ASSERT_TRUE(started) << "1P start did not take (lives=" << int(m.mem_read(kLives))
+                         << " credits=" << int(m.mem_read(kCredits))
+                         << " mode=" << int(m.mem_read(0x4E00)) << ")";
+    EXPECT_LT(m.mem_read(kCredits), cred1) << "start should spend the credit";
+
+    // Maze 1 spawn still faces left. Hold LEFT through READY.
+    m.inputs.in0 = static_cast<uint8_t>(0xFF & ~0x02);
+    const uint8_t x0 = m.mem_read(kPacX);
+    const uint8_t y0 = m.mem_read(kPacY);
+    bool ate = false;
+    bool moved = false;
+    for (int i = 0; i < 900; i++) {
+        ASSERT_TRUE(run_frames(m, 1)) << "watchdog tripped during play";
+        if (score_nonzero(m)) ate = true;
+        if (m.mem_read(kPacX) != x0 || m.mem_read(kPacY) != y0) moved = true;
+        if (ate && moved) break;
+    }
+    EXPECT_TRUE(moved) << "Ms. Pac-Man sprite at $4D08/$4D09 did not move";
+    EXPECT_TRUE(score_nonzero(m)) << "P1 score at $4E80 stayed 0 — no pellet eaten";
+}
+

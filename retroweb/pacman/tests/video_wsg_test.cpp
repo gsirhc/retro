@@ -113,6 +113,29 @@ TEST(Video, SpritePositionMatchesMameRegisterRoles) {
     EXPECT_EQ(out[69 * pacman::kUprightW + 1], 0u) << "swapped-register location must stay dark";
 }
 
+TEST(Video, FlipScreenUsesTheCocktailSpriteRegisterRoles) {
+    pacman::Video v;
+    v.reset();
+    v.flip_screen = true;
+    v.color_prom[31] = 0xFF;
+    v.lookup_prom[1] = 31;
+    v.sprite_rom[8] = 0x08;  // local (0,0) lit; cocktail also inverts both flip bits
+    v.spriteram[0] = 0;
+    v.spriteram[1] = 0;
+    v.sprite_xy[0] = 100;
+    v.sprite_xy[1] = 50;
+    // Cocktail: sx = ram2[i+1] = 50, sy = 240 - ram2[i] = 140, then both
+    // flips invert so local (0,0) lands at native (50+15, 140+15) = (65,155).
+    std::array<uint32_t, pacman::kUprightW * pacman::kUprightH> out{};
+    v.render(out.data());
+    int dx = (pacman::kVisH - 1) - 155;
+    int dy = 65;
+    EXPECT_NE(out[unsigned(dy * pacman::kUprightW + dx)], 0u)
+        << "cocktail sprite pixel at native (65,155)";
+    EXPECT_EQ(out[222 * pacman::kUprightW + 154], 0u)
+        << "upright (unflipped) location must stay dark";
+}
+
 // Bit 0 of the sprite's first RAM byte is X flip, bit 1 is Y flip -- MAME's
 // own `fx = spriteram[offs] & 1` / `fy = spriteram[offs] & 2`. Verified
 // against real gameplay in all four joystick directions (mouth must open

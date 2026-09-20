@@ -11,6 +11,7 @@ class Z80 : public ::testing::Test {
 protected:
     std::array<uint8_t, 0x10000> mem{};
     std::unique_ptr<z80::Cpu> cpu;
+    uint8_t irq_byte = 0xFF;
 
     void SetUp() override {
         z80::Bus bus;
@@ -18,6 +19,7 @@ protected:
         bus.write = [this](uint16_t a, uint8_t v) { mem[a] = v; };
         bus.in = [](uint8_t) { return uint8_t(0xFF); };
         bus.out = [](uint8_t, uint8_t) {};
+        bus.irq_data = [this] { return irq_byte; };
         cpu = std::make_unique<z80::Cpu>(bus);
         cpu->reset();
     }
@@ -116,6 +118,31 @@ TEST_F(Z80, EiDelaysInterruptOneInstruction) {
     cpu->step();                     // NOP
     EXPECT_EQ(cpu->interrupt(), 13);
     EXPECT_EQ(cpu->pc, 0x0038);
+}
+
+TEST_F(Z80, Im2InterruptReadsVectorTableAtIConcatData) {
+    irq_byte = 0xFC;
+    cpu->i = 0x3F;
+    cpu->im = 2;
+    cpu->iff1 = cpu->iff2 = true;
+    cpu->sp = 0x8000;
+    cpu->pc = 0x1234;
+    mem[0x3FFC] = 0x8D;
+    mem[0x3FFD] = 0x00;
+    EXPECT_EQ(cpu->interrupt(), 19);
+    EXPECT_EQ(cpu->pc, 0x008D);
+    EXPECT_FALSE(cpu->iff1);
+}
+
+TEST_F(Z80, NmiVectorsTo66AndCopiesIff1ToIff2) {
+    cpu->iff1 = true;
+    cpu->iff2 = false;
+    cpu->sp = 0x8000;
+    cpu->pc = 0x1234;
+    EXPECT_EQ(cpu->nmi(), 11);
+    EXPECT_EQ(cpu->pc, 0x0066);
+    EXPECT_FALSE(cpu->iff1);
+    EXPECT_TRUE(cpu->iff2);
 }
 
 }  // namespace

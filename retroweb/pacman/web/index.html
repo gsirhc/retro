@@ -162,6 +162,20 @@
   .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
   #romStatus { font-size: 12px; color: var(--dim); }
   .legal { font-size: 11px; color: var(--dim); margin: 8px 0 0; line-height: 1.4; }
+  .dip-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 10px 14px;
+    margin-top: 10px;
+  }
+  .dip-grid label {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font: 12px Arial, Helvetica, sans-serif;
+    color: var(--dim);
+  }
+  .dip-grid label[hidden] { display: none; }
   :root:not([data-theme]) body { background: #0e0f12; color: #d8dbe2; }
 </style>
 </head>
@@ -219,13 +233,74 @@
 
     <div class="panel">
       <h2>ROM sockets</h2>
-      <p class="legal">This page ships a hardware self-test ROM, not Namco Pac-Man — those ROMs are still under copyright and are <strong>not</strong> included or downloaded. Load a complete original-board set (MAME <code>pacman</code> / <code>puckman</code> zip, or the loose chips). Each chip is identified by its usual name and checked by size, not a particular CRC; extra files are ignored. The set stays in this browser.</p>
+      <p class="legal" id="romLegal">This page ships a hardware self-test ROM, not Namco Pac-Man — those ROMs are still under copyright and are <strong>not</strong> included or downloaded. Load a complete original-board set (MAME <code>pacman</code> / <code>puckman</code> zip, or the loose chips). Each chip is identified by its usual name and checked by size, not a particular CRC; extra files are ignored. The set stays in this browser.</p>
       <div class="row">
         <button type="button" id="loadRomBtn">Load ROM set…</button>
-        <input id="romFile" type="file" accept=".zip,.bin,.6e,.6f,.6h,.6j,.5e,.5f" multiple hidden>
+        <input id="romFile" type="file" accept=".zip,.bin,.6e,.6f,.6h,.6j,.5e,.5f,.u5,.u6,.u7" multiple hidden>
         <button type="button" id="removeRomBtn">Remove ROMs</button>
         <label><input type="checkbox" id="mute"> Mute</label>
         <span id="romStatus">Running test ROM</span>
+      </div>
+      <p class="legal">
+        <label title="Real Pac-Man PCBs have no battery-backed score RAM. Off is authentic: a refresh is a power cycle.">
+          <input type="checkbox" id="keepHiscore"> Keep HIGH SCORE after refresh
+        </label>
+        — the real board loses it when you pull the plug; this is opt-in.
+      </p>
+    </div>
+
+    <div class="panel" id="dipPanel">
+      <h2>DIP switches</h2>
+      <p class="legal" id="dipLegal">Same operator bank as inside the cabinet (Midway service manual). Settings survive a refresh the way the physical switches do. Difficulty and ghost names are solder pads on some boards; cabinet type is an edge-connector jumper. The game samples these on the next credit.</p>
+      <div class="dip-grid">
+        <label>Coinage
+          <select id="dipCoinage">
+            <option value="3">2 coins / 1 credit</option>
+            <option value="1" selected>1 coin / 1 credit</option>
+            <option value="2">1 coin / 2 credits</option>
+            <option value="0">Free play</option>
+          </select>
+        </label>
+        <label>Lives
+          <select id="dipLives">
+            <option value="0">1</option>
+            <option value="4">2</option>
+            <option value="8" selected>3</option>
+            <option value="12">5</option>
+          </select>
+        </label>
+        <label>Bonus life
+          <select id="dipBonus">
+            <option value="0" selected>10,000</option>
+            <option value="16">15,000</option>
+            <option value="32">20,000</option>
+            <option value="48">None</option>
+          </select>
+        </label>
+        <label>Difficulty
+          <select id="dipDifficulty">
+            <option value="64" selected>Normal</option>
+            <option value="0">Hard</option>
+          </select>
+        </label>
+        <label id="dipGhostsRow">Ghost names
+          <select id="dipGhosts">
+            <option value="128" selected>Normal</option>
+            <option value="0">Alternate</option>
+          </select>
+        </label>
+        <label>Cabinet
+          <select id="dipCabinet">
+            <option value="0" selected>Upright</option>
+            <option value="1">Cocktail</option>
+          </select>
+        </label>
+        <label>Rack test
+          <select id="dipRack">
+            <option value="0" selected>Off</option>
+            <option value="1">On</option>
+          </select>
+        </label>
       </div>
     </div>
   </div>
@@ -233,7 +308,7 @@
 
 <dialog class="site-dialog" id="romErrorHint">
   <h2>ROM set not loaded</h2>
-  <p>Need a complete original-board set — a MAME <code>pacman</code> or
+  <p id="romErrorCopy">Need a complete original-board set — a MAME <code>pacman</code> or
     <code>puckman</code> zip, or the loose chips (16K program or four 4K
     banks, 4K tiles, 4K sprites, color and wave PROMs). Usual names like
     <code>pacman.6e</code> / <code>puckman.5e</code> / <code>82s123.7f</code>.

@@ -83,6 +83,24 @@ HELP_LINES = [
     (32, "BROWSER ONLY",      2),
 ]
 
+# Same self-test on the Ms. Pac-Man cabinet (`?game=mspacman`). Still original
+# 8×8 font, not Namco's 5E; the copy names that conversion kit.
+MSPACMAN_HELP_TITLE = "MS PAC-MAN ARCADE"
+MSPACMAN_HELP_LINES = [
+    (4,  MSPACMAN_HELP_TITLE, 1),
+    (7,  "SELF TEST OK",      2),
+    (11, "THIS PAGE DOES NOT", 2),
+    (13, "INCLUDE NAMCO'S",   2),
+    (15, "MS PAC-MAN ROMS",   2),
+    (18, "THEY ARE STILL",    3),
+    (20, "UNDER COPYRIGHT",   3),
+    (23, "IF YOU OWN A",      2),
+    (25, "MIDWAY MSPACMAN SET", 2),
+    (27, "LOAD IT YOURSELF",  1),
+    (30, "IT STAYS IN THIS",  2),
+    (32, "BROWSER ONLY",      2),
+]
+
 
 class Asm:
     def __init__(self):
@@ -187,10 +205,10 @@ def screen_color_bars():
     return video + color
 
 
-def screen_help():
+def screen_help(lines=None):
     video = bytearray(0x400)
     color = bytearray(0x400)
-    for urow, text, attr in HELP_LINES:
+    for urow, text, attr in (lines or HELP_LINES):
         put_text(video, color, center_col(text), urow, text, attr)
     return video + color
 
@@ -429,15 +447,19 @@ def write_png(path, w, h, rgb_rows):
         f.write(png)
 
 
-def marquee_png(path):
-    """Landing-page thumbnail: an original approximation of a 1980 upright
-    marquee's *layout* (black housing, backlit yellow plexi, the game's
-    name, a pellet trail, four color chips). Not a scan or redraw of
-    Namco/Midway art — no official logotype, no character sprites, no
-    Midway mark. Uses this file's own 8×8 font. 286×128 matches the
-    Altair card so `.machine-card .shot`'s 143×64 box doesn't crop it."""
+def marquee_png(path, game="pacman"):
+    """Landing-page thumbnail: an original approximation of an upright
+    marquee's *layout* (black housing, backlit plexi, the game's name, a
+    pellet trail, four color chips). Not a scan or redraw of Namco/Midway
+    art — no official logotype, no character sprites, no Midway mark.
+    Uses this file's own 8×8 font. 286×128 matches the Altair card so
+    `.machine-card .shot`'s 143×64 box doesn't crop it.
+
+    `game="mspacman"` uses a pinker plexi and "MS PAC-MAN" so the two
+    home-page cards are distinguishable without copying the real marquee."""
     w, h = 286, 128
     pix = [[(14, 12, 10) for _ in range(w)] for _ in range(h)]
+    mspac = game == "mspacman"
 
     def put(x, y, rgb):
         if 0 <= x < w and 0 <= y < h:
@@ -455,11 +477,17 @@ def marquee_png(path):
             if in_plexi:
                 ty = (y - y0) / (y1 - y0)
                 tx = abs((x - w / 2) / (w / 2))
-                base = lerp((255, 232, 70), (196, 140, 16), ty)
+                if mspac:
+                    base = lerp((255, 168, 196), (196, 72, 112), ty)
+                    hot = (255, 230, 236)
+                else:
+                    base = lerp((255, 232, 70), (196, 140, 16), ty)
+                    hot = (255, 250, 180)
                 # Hotter in the middle, like a backlit marquee.
-                pix[y][x] = lerp(base, (255, 250, 180), 0.28 * (1 - tx) * (1 - abs(ty - 0.35)))
+                pix[y][x] = lerp(base, hot, 0.28 * (1 - tx) * (1 - abs(ty - 0.35)))
             elif in_lip:
-                pix[y][x] = (196, 160, 32) if (x == 5 or y == 5 or x == w - 6 or y == h - 6) else (40, 32, 16)
+                lip = (196, 96, 128) if mspac else (196, 160, 32)
+                pix[y][x] = lip if (x == 5 or y == 5 or x == w - 6 or y == h - 6) else (40, 32, 16)
 
     def blit_char(ch, ox, oy, scale, fill, outline):
         rows = FONT.get(ch, FONT[" "])
@@ -485,15 +513,33 @@ def marquee_png(path):
                     for dx in range(scale):
                         put(ox + gx * scale + dx, oy + gy * scale + dy, fill)
 
-    text = "PAC-MAN"
-    scale, gap = 4, 3
+    if mspac:
+        text, scale, gap, ty = "MS PAC-MAN", 3, 2, 36
+        fill, outline = (176, 16, 80), (40, 0, 16)
+    else:
+        text, scale, gap, ty = "PAC-MAN", 4, 3, 22
+        fill, outline = (176, 16, 16), (32, 8, 0)
     cw = 8 * scale
     tw = len(text) * cw + (len(text) - 1) * gap
     tx = (w - tw) // 2
-    ty = 22
-    fill, outline = (176, 16, 16), (32, 8, 0)
     for i, ch in enumerate(text):
         blit_char(ch, tx + i * (cw + gap), ty, scale, fill, outline)
+
+    if mspac:
+        # Geometric bow (two loops + a knot) — original, not Namco's sprite.
+        bow = (220, 48, 96)
+        knot = (160, 24, 64)
+        bx, by = w // 2, 18
+        for dy in range(-7, 8):
+            for dx in range(-8, 9):
+                left = (dx + 5) ** 2 / 36 + dy * dy / 25 <= 1
+                right = (dx - 5) ** 2 / 36 + dy * dy / 25 <= 1
+                if left or right:
+                    put(bx + dx, by + dy, bow)
+        for dy in range(-3, 4):
+            for dx in range(-3, 4):
+                if dx * dx + dy * dy <= 10:
+                    put(bx + dx, by + dy, knot)
 
     # Pellet trail (plain circles — not maze art) and four color chips
     # standing in for the attract-screen palette, not ghost sprites.
@@ -510,6 +556,8 @@ def marquee_png(path):
                     put(cx + dx, py + dy, (255, 248, 220))
 
     chips = ((255, 32, 32), (255, 176, 208), (32, 224, 224), (255, 176, 32))
+    if mspac:
+        chips = ((220, 32, 64), (255, 140, 64), (80, 200, 80), (255, 220, 64))
     cx0 = p0 + span + 18
     for i, col in enumerate(chips):
         cx = cx0 + i * 14
@@ -527,11 +575,15 @@ def main():
     ap.add_argument("--dir", required=True)
     ap.add_argument("--header")
     ap.add_argument("--png")
+    ap.add_argument("--png-ms")
     args = ap.parse_args()
     os.makedirs(args.dir, exist_ok=True)
-    s1, s2, s3 = screen_crosshatch(), screen_color_bars(), screen_help()
+    s1, s2 = screen_crosshatch(), screen_color_bars()
+    s3 = screen_help(HELP_LINES)
+    s3ms = screen_help(MSPACMAN_HELP_LINES)
     blobs = {
         "program": assemble_program(s1, s2, s3),
+        "mspacman_program": assemble_program(s1, s2, s3ms),
         "tiles": tiles(),
         "sprites": sprites(),
         "color_prom": color_prom(),
@@ -540,15 +592,16 @@ def main():
     }
     names = {
         "program": "program.bin",
+        "mspacman_program": "mspacman-program.bin",
         "tiles": "pacman.5e",
         "sprites": "pacman.5f",
         "color_prom": "82s123.7f",
         "lookup_prom": "82s126.4a",
         "wave_prom": "82s126.1m",
     }
-    for k, data in blobs.items():
-        with open(os.path.join(args.dir, names[k]), "wb") as f:
-            f.write(data)
+    for k, fname in names.items():
+        with open(os.path.join(args.dir, fname), "wb") as f:
+            f.write(blobs[k])
     with open(os.path.join(args.dir, "82s126.3m"), "wb") as f:
         f.write(blobs["wave_prom"])
     for i, name in enumerate(("pacman.6e", "pacman.6f", "pacman.6h", "pacman.6j")):
@@ -559,8 +612,11 @@ def main():
         write_c_header(args.header, blobs)
     if args.png:
         os.makedirs(os.path.dirname(os.path.abspath(args.png)) or ".", exist_ok=True)
-        marquee_png(args.png)
-    crcs = {names[k]: crc32(data) for k, data in blobs.items()}
+        marquee_png(args.png, "pacman")
+    if args.png_ms:
+        os.makedirs(os.path.dirname(os.path.abspath(args.png_ms)) or ".", exist_ok=True)
+        marquee_png(args.png_ms, "mspacman")
+    crcs = {names[k]: crc32(blobs[k]) for k in names}
     for i, name in enumerate(("pacman.6e", "pacman.6f", "pacman.6h", "pacman.6j")):
         crcs[name] = crc32(blobs["program"][i * 4096:(i + 1) * 4096])
     with open(os.path.join(args.dir, "crc.json"), "w") as f:

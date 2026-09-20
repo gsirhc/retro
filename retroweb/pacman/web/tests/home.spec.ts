@@ -22,6 +22,17 @@ test.describe("retroweb landing page", () => {
     ).toBeGreaterThan(0);
   });
 
+  test("lists Ms. Pac-Man Arcade on the same page via ?game=mspacman", async ({ page }) => {
+    await page.goto(HOME);
+    const card = page.locator('a.machine-card[href="pacman/?game=mspacman"]');
+    await expect(card.locator(".name")).toHaveText(/Ms\. Pac-Man Arcade/i);
+    await expect(card.locator("img.shot")).toHaveAttribute("src", /assets\/mspacman-cabinet\.png$/);
+    await expect(card.locator("img.shot")).toHaveJSProperty("complete", true);
+    expect(
+      await card.locator("img.shot").evaluate((img: HTMLImageElement) => img.naturalWidth),
+    ).toBeGreaterThan(0);
+  });
+
   test("the theme selector switches the page and persists to retro8080.theme", async ({ page }) => {
     await page.goto(HOME);
     const root = page.locator("html");

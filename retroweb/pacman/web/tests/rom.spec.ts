@@ -30,6 +30,56 @@ function hwtestNamed(names: Record<string, string>, patchProgram?: (b: Buffer) =
   });
 }
 
+function crc32(buf: Buffer) {
+  let c = ~0;
+  for (let i = 0; i < buf.length; i++) {
+    c ^= buf[i];
+    for (let j = 0; j < 8; j++) c = (c >>> 1) ^ (0xEDB88320 & -(c & 1));
+  }
+  return (~c) >>> 0;
+}
+
+function zipStore(files: { name: string; data: Buffer }[]) {
+  const locals: Buffer[] = [];
+  const centrals: Buffer[] = [];
+  let offset = 0;
+  for (const f of files) {
+    const name = Buffer.from(f.name);
+    const crc = crc32(f.data);
+    const local = Buffer.alloc(30 + name.length);
+    local.writeUInt32LE(0x04034b50, 0);
+    local.writeUInt16LE(20, 4);
+    local.writeUInt16LE(0, 8); // STORE
+    local.writeUInt32LE(crc, 14);
+    local.writeUInt32LE(f.data.length, 18);
+    local.writeUInt32LE(f.data.length, 22);
+    local.writeUInt16LE(name.length, 26);
+    name.copy(local, 30);
+    const piece = Buffer.concat([local, f.data]);
+    locals.push(piece);
+    const central = Buffer.alloc(46 + name.length);
+    central.writeUInt32LE(0x02014b50, 0);
+    central.writeUInt16LE(20, 4);
+    central.writeUInt16LE(20, 6);
+    central.writeUInt32LE(crc, 16);
+    central.writeUInt32LE(f.data.length, 20);
+    central.writeUInt32LE(f.data.length, 24);
+    central.writeUInt16LE(name.length, 28);
+    central.writeUInt32LE(offset, 42);
+    name.copy(central, 46);
+    centrals.push(central);
+    offset += piece.length;
+  }
+  const cd = Buffer.concat(centrals);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(files.length, 8);
+  end.writeUInt16LE(files.length, 10);
+  end.writeUInt32LE(cd.length, 12);
+  end.writeUInt32LE(offset, 16);
+  return Buffer.concat([...locals, cd, end]);
+}
+
 test.describe("ROM set loader", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto("/?test=1");
@@ -86,7 +136,7 @@ test.describe("ROM set loader", () => {
   });
 
   test("tells the visitor which sets are allowed", async ({ page }) => {
-    const legal = page.locator(".legal");
+    const legal = page.locator(".legal").first();
     await expect(legal).toContainText(/complete original-board set/i);
     await expect(legal).toContainText(/puckman/);
     await expect(legal).toContainText(/checked by size, not a particular CRC/i);
@@ -113,7 +163,8 @@ test.describe("ROM set loader", () => {
   test("a too-short chip is rejected", async ({ page }) => {
     const files = hwtestNamed({});
     const tiles = files.find((f) => f.name === "pacman.5e")!;
-    tiles.buffer = tiles.buffer.subarray(0, 100);
+    tiles.buffer = Buffer.from(tiles.buffer.subarray(0, 100));
+    await page.waitForFunction(() => (window as any).__test);
     await page.locator("#romFile").setInputFiles(files);
     await expect(page.locator("#romStatus")).toContainText("ROM rejected");
   });
@@ -124,6 +175,17 @@ test.describe("ROM set loader", () => {
       return { ...f, buffer: Buffer.concat([f.buffer, Buffer.alloc(4096, 0xff)]) };
     });
     await page.locator("#romFile").setInputFiles(files);
+    await expect(page.locator("#romStatus")).toHaveText("Hardware test ROM");
+  });
+
+  test("a .zip of the generated set is accepted", async ({ page }) => {
+    const members = hwtestNamed({});
+    const zip = zipStore(members.map((f) => ({ name: f.name, data: f.buffer })));
+    await page.locator("#romFile").setInputFiles({
+      name: "pacman.zip",
+      mimeType: "application/zip",
+      buffer: zip,
+    });
     await expect(page.locator("#romStatus")).toHaveText("Hardware test ROM");
   });
 });

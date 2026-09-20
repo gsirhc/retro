@@ -62,4 +62,21 @@ test.describe("keyboard input", () => {
     await page.keyboard.up("Digit2");
     expect(await in1(page)).toBe(0xFF);
   });
+
+  test("numpad 5/1/2 map to the same coin and start bits", async ({ page }) => {
+    await page.keyboard.down("Numpad5");
+    expect(await in0(page)).toBe(0xFF & ~0x20);
+    await page.keyboard.up("Numpad5");
+    expect(await in0(page)).toBe(0xFF);
+
+    await page.keyboard.down("Numpad1");
+    expect(await in1(page)).toBe(0xFF & ~0x20);
+    await page.keyboard.up("Numpad1");
+    expect(await in1(page)).toBe(0xFF);
+
+    await page.keyboard.down("Numpad2");
+    expect(await in1(page)).toBe(0xFF & ~0x40);
+    await page.keyboard.up("Numpad2");
+    expect(await in1(page)).toBe(0xFF);
+  });
 });

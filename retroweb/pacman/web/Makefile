@@ -22,7 +22,8 @@ hwtest_roms.h: $(CORE)/roms/hwtest/gen_hwtest.py
 wasm: pacman.js
 roms: hwtest_roms.h
 	python3 $(CORE)/roms/hwtest/gen_hwtest.py --dir roms --header hwtest_roms.h \
-	  --png ../../assets/pacman-cabinet.png
+	  --png ../../assets/pacman-cabinet.png \
+	  --png-ms ../../assets/mspacman-cabinet.png
 
 SHARED = ../../shared
 shared:
