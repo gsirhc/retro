@@ -56,6 +56,8 @@ public:
     int frames = 0;
     std::vector<float> audio;
     int audio_hz = 48000;
+    // Sticky: set when the 8-vblank watchdog elapses. reset() does not
+    // clear it — a host that wants a clean board assigns false itself.
     bool watchdog_reset = false;
 
     Machine();

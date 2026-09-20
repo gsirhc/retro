@@ -1,6 +1,8 @@
 # Namco Pac-Man (1980) arcade board emulator.
 #
-#   make test    GoogleTest suite (Z80 + video + WSG + test ROM)
+#   make test    GoogleTest suite (Z80 + video + WSG + test ROM).
+#                An optional playthrough (`UserRomInsertsCoinStartsAndEatsAPellet`)
+#                skips unless roms/user/ or PACMAN_ROM holds a pacman/puckman set.
 #   make check   test (what CI runs)
 #   make wasm    WebAssembly module
 #   make serve   wasm + test ROM + shared chrome, serve on :8000

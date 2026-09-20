@@ -90,6 +90,9 @@ retroweb/pacman/web/pacman.js
 retroweb/pacman/web/pacman.wasm
 retroweb/pacman/web/hwtest_roms.h
 retroweb/pacman/web/roms/
+# Optional local Midway/Namco dumps for the skippable playthrough test.
+# Never commit these — see PACMAN_REVIEW.md §8.
+retroweb/pacman/roms/user/
 retroweb/pacman/web/coverage/
 retroweb/pacman/web/.v8-coverage/
 

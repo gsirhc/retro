@@ -5,20 +5,31 @@ This document plays the same role as `retroweb/altair8800/ALTAIR_REVIEW.md`,
 `retroweb/ibmpc-at/IBM_PCAT_REVIEW.md`: a citation trail for the decisions
 behind the emulator's behavior, and an honest list of what isn't built yet.
 
-## 0. Status: core + native tests done, wasm front end wired
+## 0. Status: v1 of the Midway Pac-Man board is done
 
 The Z80 core (`cpu_z80.{h,cpp}`), video (`video.{h,cpp}`), Namco WSG
 (`wsg.{h,cpp}`), and the board-level `machine.{h,cpp}` are implemented and
-covered by GoogleTest (`make check`, 15/15 passing). The generated hardware
-self-test ROM (`roms/hwtest/gen_hwtest.py`) exercises the CPU, tilemap,
-sprites, WSG, watchdog, and IRQ path end to end against real memory-mapped
-addresses, not a scripted trace. The Emscripten wrapper
-(`web/wasm_machine.cpp`) and canvas front end (`web/index.html`, `web/app.js`)
-are written; landing-page card and CI jobs are wired in
+covered by GoogleTest (`make check`). The generated hardware self-test ROM
+(`roms/hwtest/gen_hwtest.py`) exercises the CPU, tilemap, sprites, WSG,
+watchdog, and IRQ path end to end against real memory-mapped addresses.
+The Emscripten wrapper (`web/wasm_machine.cpp`) and canvas front end
+(`web/index.html`, `web/app.js`) ship on the live page: cabinet bezel,
+coin door, keyboard/joystick, theme chrome, and a size-checked ROM-set
+loader (failed loads open a shared `.site-dialog`). Landing-page card and
+CI jobs (`pacman-test` / `pacman-web-test`) are wired in
 `retroweb/index.html` / `.github/workflows/deploy-emulator.yml`.
 
-**Not yet done**: the Playwright suite (`web/tests/`), `web/package.json` /
-`playwright.config.ts`, and a real (non-placeholder) landing-page screenshot.
+Playwright (`web/tests/`, `web/package.json`, `playwright.config.ts`)
+covers boot of the self-test ROM, the help screen, keyboard/coin-door
+input, theme/fullscreen/focus-hint/footer/home chrome, and the ROM loader
+(including the rejection dialog). It never ships or fetches Namco's
+program. A skippable native playthrough (`Machine.UserRomInsertsCoinStartsAndEatsAPellet`
+in `tests/play_test.cpp`) coins in, starts, and eats a pellet against a
+local `pacman`/`puckman` dump when one is present; CI skips it. See §8.
+
+Ms. Pac-Man's aux board, a DIP UI, and coin-counter solenoids stay out of
+scope (see §1 and §9). Mute, numpad coin/start, and a `.zip` upload path
+in Playwright are the remaining coverage gaps, not missing hardware.
 
 ## 1. Scope: Midway Pac-Man (1980) single-board upright, no Ms. Pac-Man
 
@@ -290,14 +301,36 @@ single byte of Namco's code or graphics. The in-page copy
 (`web/index.html`'s `.legal` text) says the same thing.
 
 A real Midway `pacman` ROM set is opt-in and client-side only: `web/app.js`
-accepts a `.zip` (MAME romset shape) or loose `.bin`/`.6e` etc. files,
-identifies members by their **public CRC32** (a hash, not the copyrighted
-bytes themselves) against the well-known Midway set, stores the raw bytes
-in IndexedDB (`retroweb-pacman` database), and restores them on revisit.
-Nothing is fetched from or sent to a server; "Remove ROMs" clears the
-IndexedDB entry and reverts to the test ROM. This is the same labelled
+accepts a `.zip` or loose chips, maps members by the usual MAME/board
+names (`pacman.6e`, `puckman.6e`, `82s123.7f`, … — the socket ids on the
+real PCB), and accepts any dump whose sizes match the original chips
+(16K program or four 4K banks, 4K tiles, 4K sprites, 32-byte color PROM,
+256-byte lookup, 256-byte wave; overdumps are clipped; the unused
+`82s126.3m` timing PROM is ignored). CRC32 is used only to *label* the
+generated self-test ROM vs. a user set, not as a whitelist. Bytes stay
+in IndexedDB (`retroweb-pacman`) and are never sent to a server; "Remove
+ROMs" clears them and reverts to the test ROM. This is the same labelled
 copyright departure as PC-DOS/IBM BIOS elsewhere in this repo (see
-`CLAUDE.md`).
+`CLAUDE.md`). A failed load opens `#romErrorHint` (a shared `.site-dialog`
+in `web/index.html` / `shared/fullscreen.css`) with the size/name rules
+above; OK dismisses it.
+
+A native GoogleTest, `Machine.UserRomInsertsCoinStartsAndEatsAPellet`
+(`tests/play_test.cpp`), is the one suite that actually plays Pac-Man.
+CI has no Namco dump, so it `GTEST_SKIP`s. Locally, unzip a MAME
+`pacman`/`puckman` set into `roms/user/` (gitignored) or set `PACMAN_ROM`
+to that zip or directory, then `make check`. After 8 s of POST/attract it
+pulses IN0 coin, asserts credits at `$4E6E` are a 1–9 coin count (not
+mid-init garbage), holds 1P start until lives at `$4E14`/`$4E15` appear
+or the credit is spent, holds left, and expects the player sprite at
+`$4D08`/`$4D09` to move and P1 score at `$4E80` to leave zero — the same
+work-RAM cells the original program keeps (Data Crystal's Pac-Man arcade
+RAM map; Midway disassembly comments at cubeman.org/arcade-source/mspac.asm).
+The generated self-test ROM is rejected here (`TST1` signature) so a
+misplaced hwtest dump cannot pass as a playthrough. This is the regression
+that would have caught the rotation / mouth-facing / ghost-eat bring-up
+bugs against a real set; the rest of the suite never inserts a credit into
+Namco's program.
 
 ## 9. Known simplifications (documented, not silent)
 

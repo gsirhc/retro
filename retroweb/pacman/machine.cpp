@@ -20,7 +20,9 @@ void Machine::reset() {
     irq_enable = false;
     irq_vector = 0xFF;
     watchdog_ = kWatchdogFrames;
-    watchdog_reset = false;
+    // watchdog_reset is sticky: run_cycles sets it when the 8-frame
+    // watchdog elapses, then calls reset() to mimic the real pulse.
+    // Clearing the flag here would hide the trip from tests.
     frames = 0;
     audio.clear();
     video.reset();

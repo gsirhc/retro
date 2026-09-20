@@ -67,18 +67,19 @@
 /* One-time hint shown the first time anyone hits Fullscreen -- a plain
    <dialog> promotes to the browser's top layer, the same layer fullscreen
    elements use, so it renders above the fullscreened bezel rather than
-   being covered by it (see fullscreen.js). Styled from the same
-   panel/button theme tokens as everything else so it matches whichever of
-   the four themes is active instead of looking like a foreign popup. */
-#fsEscHint {
+   being covered by it (see fullscreen.js). `.site-dialog` is the same
+   chrome for other page popups (ROM-load errors, etc.). Styled from the
+   shared panel/button theme tokens so it matches whichever theme is
+   active instead of looking like a foreign popup. */
+#fsEscHint, .site-dialog {
   max-width: 340px; padding: 16px 18px 18px;
   background: var(--panel-bg); color: var(--text);
   border: var(--panel-border); border-radius: var(--panel-radius);
 }
-#fsEscHint::backdrop { background: rgba(0,0,0,.55); }
-#fsEscHint h2 {
+#fsEscHint::backdrop, .site-dialog::backdrop { background: rgba(0,0,0,.55); }
+#fsEscHint h2, .site-dialog h2 {
   margin: 0 0 10px; font: bold 13px Arial, Helvetica, sans-serif;
   text-transform: none; letter-spacing: normal; color: var(--text);
 }
-#fsEscHint p { margin: 0 0 14px; font-size: 12px; color: var(--dim); line-height: 1.5; }
-#fsEscHint .row { justify-content: flex-end; }
+#fsEscHint p, .site-dialog p { margin: 0 0 14px; font-size: 12px; color: var(--dim); line-height: 1.5; }
+#fsEscHint .row, .site-dialog .row { justify-content: flex-end; }

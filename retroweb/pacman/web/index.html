@@ -219,10 +219,10 @@
 
     <div class="panel">
       <h2>ROM sockets</h2>
-      <p class="legal">This page ships a hardware self-test ROM, not Namco Pac-Man. Pac-Man program and graphics ROMs are still under copyright and are <strong>not</strong> included or downloaded. If you own a Midway <code>pacman</code> set, you can load it here; it stays in this browser (IndexedDB) and never leaves the machine.</p>
+      <p class="legal">This page ships a hardware self-test ROM, not Namco Pac-Man — those ROMs are still under copyright and are <strong>not</strong> included or downloaded. Load a complete original-board set (MAME <code>pacman</code> / <code>puckman</code> zip, or the loose chips). Each chip is identified by its usual name and checked by size, not a particular CRC; extra files are ignored. The set stays in this browser.</p>
       <div class="row">
         <button type="button" id="loadRomBtn">Load ROM set…</button>
-        <input id="romFile" type="file" accept=".zip,.bin,.6e,.6f,.6h,.6j" multiple hidden>
+        <input id="romFile" type="file" accept=".zip,.bin,.6e,.6f,.6h,.6j,.5e,.5f" multiple hidden>
         <button type="button" id="removeRomBtn">Remove ROMs</button>
         <label><input type="checkbox" id="mute"> Mute</label>
         <span id="romStatus">Running test ROM</span>
@@ -230,6 +230,18 @@
     </div>
   </div>
 </div>
+
+<dialog class="site-dialog" id="romErrorHint">
+  <h2>ROM set not loaded</h2>
+  <p>Need a complete original-board set — a MAME <code>pacman</code> or
+    <code>puckman</code> zip, or the loose chips (16K program or four 4K
+    banks, 4K tiles, 4K sprites, color and wave PROMs). Usual names like
+    <code>pacman.6e</code> / <code>puckman.5e</code> / <code>82s123.7f</code>.
+    Each chip is checked by size, not a particular CRC; extra files are ignored.</p>
+  <div class="row">
+    <button type="button" id="romErrorOk" autofocus>OK</button>
+  </div>
+</dialog>
 <script src="pacman.js"></script>
 <script src="shared/theme-picker.js"></script>
 <script src="shared/fullscreen.js"></script>
