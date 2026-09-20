@@ -7,7 +7,7 @@ behind the emulator's behavior, and an honest list of what isn't built yet.
 
 ## 0. Status: v1 of the Midway Pac-Man board is done
 
-The Z80 core (`cpu_z80.{h,cpp}`), video (`video.{h,cpp}`), Namco WSG
+The Z80 core (`retroweb/shared/cpu/cpu_z80.{h,cpp}`), video (`video.{h,cpp}`), Namco WSG
 (`wsg.{h,cpp}`), and the board-level `machine.{h,cpp}` are implemented and
 covered by GoogleTest (`make check`). The generated hardware self-test ROM
 (`roms/hwtest/gen_hwtest.py`) exercises the CPU, tilemap, sprites, WSG,
@@ -91,7 +91,7 @@ and `web/tests/mspacman.spec.ts`.
 
 ## 3. Z80 core
 
-Own core (`cpu_z80.h`/`.cpp`), separate from `retroweb/altair8800/i8080.h`
+Shared core (`retroweb/shared/cpu/cpu_z80.h`/`.cpp`), separate from `retroweb/altair8800/i8080.h`
 (8080 stays 8080 — this repo doesn't try to make one core paper over both
 ISAs, since Z80 flag polarity and several opcodes genuinely differ). Source
 for instruction semantics and official T-states: the Zilog Z80 CPU User's
@@ -100,7 +100,7 @@ IX/IY (including `(IX+d)`/`(IY+d)` displacement addressing), I/R registers,
 `IM 0`/`IM 1`/`IM 2`, NMI (vectors to `$0066`; `iff2` latches the pre-NMI
 `iff1` per UM0080, tested in `Z80.NmiVectorsTo66AndCopiesIff1ToIff2`), and
 the `EI`-delays-interrupt-by-one-instruction rule (`ei_delay_` in
-`cpu_z80.h`, tested in `Z80.EiDelaysInterruptOneInstruction`). `Z80.Im2InterruptReadsVectorTableAtIConcatData`
+`retroweb/shared/cpu/cpu_z80.h`, tested in `Z80.EiDelaysInterruptOneInstruction`). `Z80.Im2InterruptReadsVectorTableAtIConcatData`
 pins the CPU-side IM 2 table walk (`I` concatenated with the bus data
 byte) separately from the board latch.
 

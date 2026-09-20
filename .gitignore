@@ -103,3 +103,16 @@ retroweb/altair8800/web/shared/
 retroweb/assembler6502/web/shared/
 retroweb/ibmpc-at/web/shared/
 retroweb/pacman/web/shared/
+
+retroweb/shared/cpu/tests/build/
+
+retroweb/frogger/tests/build/
+retroweb/frogger/web/frogger.js
+retroweb/frogger/web/frogger.wasm
+retroweb/frogger/web/hwtest_roms.h
+retroweb/frogger/web/roms/
+retroweb/frogger/roms/user/
+retroweb/frogger/web/shared/
+
+# local mkcert pair for `devserve.py --https` / LAN preview
+retroweb/.preview-tls/

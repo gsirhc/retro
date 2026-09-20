@@ -5,8 +5,8 @@
 // polarity and ALU rules are Z80, not 8080 (P/V is overflow on add/sub,
 // parity on logic; N distinguishes add vs subtract for DAA).
 
-#ifndef PACMAN_CPU_Z80_H
-#define PACMAN_CPU_Z80_H
+#ifndef SHARED_CPU_Z80_H
+#define SHARED_CPU_Z80_H
 
 #include <cstdint>
 #include <functional>

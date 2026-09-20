@@ -15,18 +15,9 @@ FetchContent_MakeAvailable(googletest)
 enable_testing()
 
 option(COVERAGE "instrument the unit-test binaries for llvm-cov" OFF)
-function(add_unit_test name)
-  add_executable(${name} ${ARGN})
-  target_include_directories(${name} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/.. ${CMAKE_CURRENT_BINARY_DIR})
-  target_link_libraries(${name} PRIVATE GTest::gtest_main)
-  target_compile_options(${name} PRIVATE -Wall -Wextra)
-  if(COVERAGE)
-    target_compile_options(${name} PRIVATE -O0 -g -fprofile-instr-generate -fcoverage-mapping)
-    target_link_options(${name} PRIVATE -fprofile-instr-generate -fcoverage-mapping)
-  endif()
-endfunction()
 
 set(CORE ${CMAKE_CURRENT_SOURCE_DIR}/..)
+set(Z80 ${CMAKE_CURRENT_SOURCE_DIR}/../../shared/cpu)
 
 add_custom_command(
   OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/hwtest_roms.h
@@ -38,16 +29,28 @@ add_custom_command(
 )
 add_custom_target(hwtest_roms DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/hwtest_roms.h)
 
-add_unit_test(cpu_z80_test cpu_z80_test.cpp ${CORE}/cpu_z80.cpp)
+function(add_unit_test name)
+  add_executable(${name} ${ARGN})
+  target_include_directories(${name} PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+    ${Z80}
+    ${CMAKE_CURRENT_BINARY_DIR})
+  target_link_libraries(${name} PRIVATE GTest::gtest_main)
+  target_compile_options(${name} PRIVATE -Wall -Wextra)
+  if(COVERAGE)
+    target_compile_options(${name} PRIVATE -O0 -g -fprofile-instr-generate -fcoverage-mapping)
+    target_link_options(${name} PRIVATE -fprofile-instr-generate -fcoverage-mapping)
+  endif()
+endfunction()
+
 add_unit_test(video_wsg_test video_wsg_test.cpp ${CORE}/video.cpp ${CORE}/wsg.cpp)
 add_unit_test(machine_test machine_test.cpp
-  ${CORE}/machine.cpp ${CORE}/cpu_z80.cpp ${CORE}/video.cpp ${CORE}/wsg.cpp)
+  ${CORE}/machine.cpp ${Z80}/cpu_z80.cpp ${CORE}/video.cpp ${CORE}/wsg.cpp)
 add_dependencies(machine_test hwtest_roms)
 add_unit_test(play_test play_test.cpp
-  ${CORE}/machine.cpp ${CORE}/cpu_z80.cpp ${CORE}/video.cpp ${CORE}/wsg.cpp)
+  ${CORE}/machine.cpp ${Z80}/cpu_z80.cpp ${CORE}/video.cpp ${CORE}/wsg.cpp)
 
 include(GoogleTest)
-gtest_discover_tests(cpu_z80_test)
 gtest_discover_tests(video_wsg_test)
 gtest_discover_tests(machine_test)
 gtest_discover_tests(play_test PROPERTIES TIMEOUT 60)
