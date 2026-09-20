@@ -110,7 +110,7 @@
 
     <p>
       This site contains era-correct microcomputer and arcade emulators simulating hardware from the 1970s through the 1990s.  
-      The goal of this site is to emulate the physical hardware as accurately as possible.  This
+      The goal here is to emulate the physical hardware as accurately as possible.  This
       includes full CPU instruction sets, clock speeds, bus architecture, peripheral boards and ICs.   
     </p>
 
@@ -121,19 +121,18 @@
     </p>
     <figure class="mission">
       <p>
-        Build period-accurate system emulators which simulate the bare metal as closely as possible.
+        Build period-accurate system emulators from scratch to simulate the bare metal as closely as possible.
         Each emulator must function at real system speeds and be able to run in
         a web browser.  Automated unit and end-to-end testing will be used to verify everything down to
-        the CPU instruction level targeting full test coverage.  Finally, I will not use any third-party
-        emulator libraries to keep the system pure and built from scratch.
+        the CPU instruction level targeting full test coverage.
       </p>
     </figure>
 
     <h3>How the site works</h3>
     <p>
       The emulators are written in C++ and built into WebAssembly (WASM) files.  Where applicable, hard drive and 
-      ROM images are stored in the browser's IndexedDB storage.  This allows you to save the emulator state for later 
-      use.
+      ROM images are automatically saved/updated in the browser's IndexedDB storage so you don't lose your data
+      when you leave the site.
     </p>
 
     <h3>Google Drive</h3>
@@ -146,15 +145,15 @@
     <h3>Why is software not included?</h3>
     <p>
       This site generally doesn't host proprietary software.  However, it does provide a way for you to 
-      add such software to the emulators.  Emulators with floppy drives or tape readers allow you to install
+      add such software to the emulators.  Emulators with ROMs, hard drives, floppy drives or tape readers allow you to install
       or run software like you would have back in the day.
     </p>
 
     <h3>Use of AI</h3>
     <p>
-      As a disclaimer, the majority of the work was done using Artificial Intelligence (AI) agents, 
+      The majority of the work was done using Artificial Intelligence (AI) agents, 
       in particular, Claude and Cursor.  I am an old-school professional programmer but I found that AI could allow
-      me to build complex hardware without pouring over dense specifications.  I decided to
+      me to build complex hardware emulation without poring over dense specifications.  I decided
       to take on the role of a software architect where I prompted the AI agents to build the software how
       I envisioned.
     </p>
@@ -166,22 +165,24 @@
         <li><b>Altair 8800</b>: This one fascinates me for its raw programming.  I was born when it came out.</li>
         <li><b>IBM PC-AT</b>: This was my first computer.  I wrote so many BASIC programs on it.</li>
         <li><b>486 DX-66</b>: My first custom built PC (Computer Shopper!).  I learned C++ and played so much Doom.</li>
-        <li><b>6502 Programmer</b>: I tried to build this IRL but failed.  I've been having fun learning assembly.</li>
-        <li><b>Arcades</b>: I built a full-sized MAME arcade many years ago.  Its fun to learn the original hardware.</li>
+        <li><b>6502 Assembler</b>: I tried to build this IRL but failed.  I've been having fun learning assembly.</li>
+        <li><b>Arcades</b>: I built a full-sized MAME arcade many years ago.  It's fun to learn the original hardware.</li>
       </ul>
-      <p>
-        <b>What's Next?</b>:  I have too many ideas so there is much more to come.  The 486 may be the most "modern" system I build
-          as its very complex due to the protected memory.  To emulate Pentiums or newer will be difficult.
-      </p>
+    </p>
+    <h3>What's Next?</h3>
+    <p>
+      I have too many ideas so there is much more to come.  The 486 may be the most "modern" system I build
+        as it's very complex due to the paged and protected memory.  To emulate Pentiums or newer will be difficult.
     </p>
 
     <h3>Contact Me</h3>
-    <p>
+    <b>TBD: Need a domain</b>
+    <!-- p>
       I am open to any questions or complaints.  If you want me to
       take you seriously, please use English, spell correctly and provide one obscure
       fact about retro computing. <br/><br/>
       <b>prog @ retrocg . io</b>
-    </p>
+    </p -->
   </div>
 </div>
 
