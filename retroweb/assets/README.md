@@ -57,3 +57,13 @@
   Built by `retroweb/shared/marquee.py` (`python3 retroweb/shared/marquee.py
   retroweb/assets`; atlas rebuild `--rebuild-atlas`). Also invoked from
   each machine's `gen_hwtest.py`.
+
+- **`pc486-panel.png`** — **PLACEHOLDER**, not a real screenshot: a solid
+  712×128 PNG generated procedurally (no emulator involved) so the landing
+  page's `.machine-card` has a valid image to lay out while the
+  `retroweb/pc486/` machine's HDD image builder (and so a real bootable
+  screenshot) doesn't exist yet -- see `retroweb/pc486/Makefile`'s
+  MILESTONE 1 STATUS note. Replace with a real screenshot of
+  `#frontPanelCard .at-case`, following `ibmpcat-panel.jpg`'s own
+  regeneration steps above (same 712×128 sizing -- this machine's case
+  fascia is the same wide/short shape), once the machine actually boots.

@@ -1,0 +1,524 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>486DX2-66 Gaming PC</title>
+<!-- Site icon: see ../../assets/README.md for provenance/regeneration --
+     this is a committed copy (only web/ ever gets staged). -->
+<link rel="icon" href="assets/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="assets/favicon-16.png">
+<link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+<!-- apply the shared site theme before first paint, so there's no flash of
+     the wrong theme (matches retroweb/index.html's own inline snippet) -->
+<script src="shared/theme-init.js"></script>
+<link rel="stylesheet" href="shared/theme.css">
+<link rel="stylesheet" href="shared/pagebar.css">
+<link rel="stylesheet" href="shared/fullscreen.css">
+<link rel="stylesheet" href="shared/focus-hint.css">
+<link rel="stylesheet" href="shared/footer.css">
+<style>
+  /* ---- page themes: default = Windows 95; web94 = mid-90s Mosaic web;
+     modern = clean; moderndark = modern's layout, dark palette; ai = the
+     for-fun fifth theme. The color palette for all five lives in
+     shared/theme.css (linked above) -- only this page's own layout-sizing
+     token *values* stay local, below, same convention as ibmpc-at's page. */
+  :root {
+    --page-max:  920px;
+    --body-pad:  18px 12px;
+    --inner-pad: 14px 22px 22px;
+    --h1-font:   900 36px "Arial Black", Arial, sans-serif;
+  }
+  :root[data-theme="web94"] {
+    --body-pad:  26px 16px;
+    --h1-font:   bold 27px "Times New Roman", Times, serif;
+  }
+  :root[data-theme="modern"] {
+    --body-pad:  36px 20px;
+    --inner-pad: 22px 30px 30px;
+    --h1-font:   700 30px/1.15 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  :root[data-theme="ai"] {
+    --h1-font:   800 32px/1.15 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  :root[data-theme="ai"] body {
+    background:
+      linear-gradient(180deg, rgba(8,6,18,.55), rgba(8,6,18,.68)),
+      url("assets/ai-theme-bg.jpg") center/cover fixed;
+    color: #ece9ff;
+  }
+  :root[data-theme="ai"] .pagebar { border-bottom: 1px solid rgba(168,140,255,.35); }
+  :root[data-theme="ai"] .inner { padding-bottom: 32px; }
+  :root[data-theme="ai"] #fkeysCard { padding-bottom: 28px; }
+
+  :root:not([data-theme]) body {
+    background: #0e0f12; color: #d8dbe2;
+  }
+
+  h1 { margin: 4px 0 0; text-align: center; font: var(--h1-font); letter-spacing: .5px; color: var(--h1-color); text-shadow: var(--h1-shadow); }
+  :root[data-theme="modern"] h1 {
+    position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
+    overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+  }
+  .tagline { text-align: center; color: var(--dim); font-size: 12px; margin: 4px 0 0; }
+  :root[data-theme="modern"] .tagline { display: none; }
+  hr.rule { border: 0; border-top: var(--rule); margin: 12px 0; }
+  :root[data-theme="modern"] hr.rule { display: none; }
+
+  .panel h2 {
+    font: bold 12px Arial, Helvetica, sans-serif;
+    text-transform: uppercase; letter-spacing: .06em; color: var(--dim);
+    margin: 0 0 10px; display: flex; align-items: center; justify-content: space-between;
+  }
+  .panel {
+    background: var(--panel-bg); border: var(--panel-border); border-radius: var(--panel-radius);
+    padding: 14px 16px 16px;
+  }
+  .panel + .panel { margin-top: 18px; }
+
+  button, select, input[type=text] {
+    font: 12px Arial, Helvetica, sans-serif; color: var(--btn-fg); background: var(--btn-bg);
+    border: var(--btn-border); border-radius: var(--btn-radius); padding: 4px 9px;
+  }
+  button { cursor: pointer; }
+  button:active:not(:disabled) { border-style: inset; }
+  :root[data-theme="modern"] button:hover { background: #f4f5f7; }
+  :root[data-theme="modern"][data-mode="dark"] button:hover { background: #2f333d; }
+  :root[data-theme="modern"] button:active:not(:disabled) { border-style: solid; transform: translateY(1px); }
+  button:disabled { opacity: .5; cursor: default; }
+  label { user-select: none; }
+  .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .row + .row { margin-top: 8px; }
+  .row[hidden] { display: none; }
+  .muted { color: var(--dim); font-size: 14px; }
+  code { color: var(--link); }
+  .filebtn { position: relative; overflow: hidden; display: inline-block; }
+  .filebtn input[type=file] { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; }
+
+  /* ---- CRT monitor -- photoreal hardware, not page chrome, in every theme */
+  .monitor { width: max-content; max-width: 100%; margin: 0 auto; }
+  .monitor .bezel {
+    position: relative; padding: 16px 18px;
+    background: #0c0b0a; border-radius: 6px;
+    box-shadow: inset 0 0 0 1px #000, inset 0 4px 12px rgba(0,0,0,.9),
+                inset 0 -3px 8px rgba(0,0,0,.8), 0 1px 1px rgba(255,255,255,.28);
+    display: flex; justify-content: center; align-items: center;
+  }
+  #screen { width: 860px; max-width: 100%; height: auto; aspect-ratio: 640/350; background: #000; display: block; image-rendering: pixelated; }
+  :root[data-theme="modern"] .monitor { width: 100%; }
+  :root[data-theme="modern"] #screen { width: 100%; max-width: 1400px; margin: 0 auto; }
+  .crt-overlay {
+    position: absolute; inset: 16px 18px; pointer-events: none; z-index: 6; mix-blend-mode: multiply;
+    background: radial-gradient(150% 150% at 50% 45%, rgba(0,0,0,0) 82%, rgba(0,0,0,.10) 100%),
+      repeating-linear-gradient(0deg, rgba(0,0,0,.05) 0 1px, rgba(0,0,0,0) 1px 4px);
+    box-shadow: inset 0 0 18px rgba(0,0,0,.14);
+  }
+  .power-led {
+    position: absolute; right: 13px; bottom: 7px; width: 6px; height: 6px; border-radius: 50%;
+    background: #33ff66; box-shadow: 0 0 6px 2px rgba(51,255,102,.8), 0 0 0 1px #0a2a15;
+  }
+  #screen:focus { outline: none; }
+  .audio-row { margin-top: 14px; justify-content: center; }
+
+  /* ---- front panel: a clone-era mid-tower fascia, not a recreation of any
+     specific historical machine (this build is "a gamer's dream 486", per
+     the approved plan) -- photoreal in every theme, like the CRT above.
+     Left cluster: an Intel-homage badge (an original SVG drawn in the
+     spirit of the era's "Intel Inside" OEM case stickers -- NOT a
+     reproduction of Intel's actual trademarked logo artwork, a deliberate
+     deviation from a literal reading of the request; see PC486_REVIEW.md),
+     the power/activity LEDs, a fixed seven-segment "66" clock-speed
+     display (genuinely fixed -- no dynamic logic, matching real turbo-
+     button-era cases that wired theirs straight to a jumper, not a real
+     clock counter), and a momentary Reset button -- a real, later clone-
+     era convention this machine's whole premise calls for, unlike
+     ibmpc-at's genuine 5170 (which never had one). Right cluster: one 3.5"
+     floppy bay and one CD-ROM bay. ---------------------------------- */
+  .at-case {
+    display: flex; gap: 16px; align-items: stretch; flex-wrap: wrap;
+    background: linear-gradient(180deg, #e6dfc9 0%, #d3cab0 45%, #b6ac92 100%);
+    border-radius: 6px;
+    box-shadow: inset 0 0 0 2px #f2ecd8, inset 0 0 0 3px #8f886f,
+                inset 0 3px 6px rgba(255,255,255,.5), inset 0 -8px 14px rgba(0,0,0,.18),
+                0 10px 24px rgba(0,0,0,.35);
+    padding: 14px 16px 16px;
+    color: #3a3527;
+    font: 10px Arial, Helvetica, sans-serif;
+    overflow-x: auto;
+    width: 100%;
+  }
+  :root[data-theme="modern"] .at-case { max-width: 920px; margin: 0 auto; }
+  .at-left {
+    flex: 2 1 0%; min-width: 0;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  /* Intel-homage badge -- an original tilted-oval "chip" mark, evoking the
+     era's OEM case badges without copying Intel's actual artwork. */
+  .cpu-badge { display: inline-flex; align-items: center; gap: 8px; }
+  .cpu-badge svg { width: 30px; height: 30px; flex: 0 0 auto; }
+  .cpu-badge .cpu-badge-text {
+    font: 700 12px Arial, Helvetica, sans-serif; letter-spacing: .5px; color: #2b2b28;
+    text-shadow: 0 1px 0 rgba(255,255,255,.5);
+  }
+  .cpu-badge .cpu-badge-text span { display: block; margin-top: 2px; font: 400 10px Arial, Helvetica, sans-serif; color: #6b6450; letter-spacing: .3px; }
+  .at-toprow { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .at-indicators { display: flex; align-items: center; gap: 6px; }
+  .led-box {
+    display: flex; align-items: center; justify-content: center;
+    width: 15px; height: 15px; flex: 0 0 auto;
+    background: #100f0d; border-radius: 1px;
+    box-shadow: inset 0 0 0 1px #000, inset 0 1px 3px rgba(0,0,0,.9), 0 1px 0 rgba(255,255,255,.3);
+  }
+  .at-indicators .drive-led { width: 8px; height: 8px; border-radius: 1px; }
+  .at-vents {
+    flex: 1; min-height: 40px; border-radius: 2px;
+    margin: 0 4px 14px 16px;
+    background: repeating-linear-gradient(90deg, #8f886f 0 3px, #c9c0a6 3px 7px);
+    box-shadow: inset 0 0 0 1px #8f886f, inset 0 2px 5px rgba(0,0,0,.3);
+  }
+
+  /* fixed seven-segment "66" clock-speed display -- classic turbo-button-
+     era case jewelry. Genuinely fixed: only the segments digit "6" lights
+     (a, c, d, e, f, g -- everything but b) are ever lit, no JS drives this. */
+  .sevenseg-group { display: flex; align-items: center; gap: 10px; }
+  .sevenseg-digits { display: flex; gap: 4px; padding: 5px 6px; background: #1a0605; border-radius: 2px;
+    box-shadow: inset 0 0 0 1px #000, inset 0 1px 3px rgba(0,0,0,.9); }
+  .sevenseg { position: relative; width: 13px; height: 22px; }
+  .sevenseg i { position: absolute; background: #300; border-radius: 1px; }
+  .sevenseg .on { background: #ff2a1e; box-shadow: 0 0 4px 1px rgba(255,50,30,.85); }
+  /* segment geometry: a=top, b=top-right, c=bottom-right, d=bottom,
+     e=bottom-left, f=top-left, g=middle -- standard 7-seg layout */
+  .sevenseg .a { top: 0;    left: 2px;  width: 9px; height: 2px; }
+  .sevenseg .b { top: 1px;  right: 0;   width: 2px; height: 9px; }
+  .sevenseg .c { top: 11px; right: 0;   width: 2px; height: 9px; }
+  .sevenseg .d { bottom: 0; left: 2px;  width: 9px; height: 2px; }
+  .sevenseg .e { top: 11px; left: 0;    width: 2px; height: 9px; }
+  .sevenseg .f { top: 1px;  left: 0;    width: 2px; height: 9px; }
+  .sevenseg .g { top: 10px; left: 2px;  width: 9px; height: 2px; }
+  .sevenseg-label { font: 700 9px Arial, Helvetica, sans-serif; letter-spacing: .5px; color: #6b6450; text-transform: uppercase; }
+
+  /* rocker power switch -- a real physical toggle, not a checkbox look */
+  .at-switch-group { display: inline-flex; align-items: center; gap: 7px; cursor: pointer; }
+  .at-switch-group input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+  .at-switch {
+    position: relative; width: 34px; height: 18px; border-radius: 3px; flex: 0 0 auto;
+    background: linear-gradient(#2a2c30, #17181b);
+    box-shadow: inset 0 0 0 1px #000, inset 0 2px 3px rgba(0,0,0,.8);
+  }
+  .at-switch::after {
+    content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px;
+    border-radius: 2px; background: linear-gradient(#8a9099, #565b62);
+    box-shadow: 0 1px 2px rgba(0,0,0,.6), inset 0 1px 0 rgba(255,255,255,.3);
+    transition: left .12s ease;
+  }
+  .at-switch-group input:checked + .at-switch::after { left: 18px; background: linear-gradient(#9fd9ff, #4aa3e0); }
+  .at-switch-group input:focus-visible + .at-switch { outline: 2px solid var(--link); outline-offset: 2px; }
+  .at-switch-label { font: 700 10px Arial, Helvetica, sans-serif; letter-spacing: .5px; text-transform: uppercase; }
+
+  /* momentary Reset button -- a small recessed pushbutton, distinct from
+     the power rocker above (real clone-era towers wire these separately:
+     the reset button pulses the RESET line only, the power switch cuts
+     mains power entirely). */
+  .reset-btn {
+    width: 26px; height: 26px; border-radius: 50%; flex: 0 0 auto;
+    background: linear-gradient(#c9c0a6, #9a9488);
+    box-shadow: inset 0 0 0 1px #6b6558, inset 0 2px 2px rgba(255,255,255,.4), 0 1px 2px rgba(0,0,0,.4);
+    cursor: pointer; padding: 0;
+  }
+  .reset-btn:active { box-shadow: inset 0 0 0 1px #6b6558, inset 0 2px 4px rgba(0,0,0,.5); transform: translateY(1px); }
+  .reset-label { font: 700 9px Arial, Helvetica, sans-serif; letter-spacing: .5px; color: #6b6450; text-transform: uppercase; }
+
+  .at-drives { flex: 1 1 0%; min-width: 230px; display: flex; flex-direction: column; gap: 10px; justify-content: center; }
+  .at-bay {
+    background: linear-gradient(180deg, #ded6bf, #b8ae94);
+    border-radius: 2px; padding: 10px 12px;
+    box-shadow: inset 0 0 0 1px #f2ecd8, inset 0 0 0 2px #8f886f, 0 2px 5px rgba(0,0,0,.3);
+  }
+  .at-drive-face { display: flex; align-items: center; gap: 8px; }
+  .drive-letter { font: 700 13px "Courier New", monospace; color: #55503f; flex: 0 0 auto; }
+  .at-slot {
+    flex: 1; position: relative; height: 30px; border-radius: 1px;
+    background: linear-gradient(#0d0d0d, #2a2a2a 45%, #0d0d0d);
+    box-shadow: inset 0 0 0 1px #000, inset 0 1px 3px rgba(0,0,0,.9);
+  }
+  .at-slot::after {
+    content: ""; position: absolute; left: 6px; right: 6px; top: 50%; height: 1px;
+    transform: translateY(-50%); background: #000; box-shadow: 0 1px 0 #3a3a3a;
+  }
+  .at-bay.loaded .at-slot { background: linear-gradient(#1c1a12, #3a3320 45%, #1c1a12); }
+  .at-latch {
+    width: 18px; height: 10px; border-radius: 1px; flex: 0 0 auto;
+    background: linear-gradient(#9a9488, #6b6558);
+    box-shadow: 0 1px 1px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.35);
+  }
+  .at-bay-ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin-top: 6px; }
+  .drive-label { font: 11px "Courier New", monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #2b2b28; flex: 1 1 100%; min-width: 0; }
+  .drive-label.empty { color: #7a7358; font-style: italic; }
+
+  .drive-led {
+    width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto;
+    background: radial-gradient(circle at 40% 35%, #5a1414, #250606 65%);
+    box-shadow: inset 0 0 2px rgba(0,0,0,.8), 0 0 0 1px rgba(0,0,0,.6);
+  }
+  .drive-led.on {
+    background: radial-gradient(circle at 40% 35%, #ffb199, #ff2200 60%, #b32200 100%);
+    box-shadow: 0 0 8px 3px rgba(255,60,20,.85), inset 0 0 1px rgba(0,0,0,.5);
+  }
+  .drive-led.power-on {
+    background: radial-gradient(circle at 40% 35%, #baffc8, #33cc55 55%, #147a2c);
+    box-shadow: 0 0 8px 3px rgba(50,220,90,.85), inset 0 0 1px rgba(0,0,0,.5);
+  }
+
+  .footer { margin-top: 26px; color: var(--dim); font-size: 12px; text-align: center; padding-bottom: 24px; }
+  .fb-mod { display: none; }
+  :root[data-theme="web94"] .fb-built { display: none; }
+  :root[data-theme="web94"] .fb-mod   { display: inline; }
+
+  button.danger-key {
+    border-color: var(--warn);
+    color: var(--warn);
+  }
+</style>
+</head>
+<body>
+<div class="page">
+  <header class="pagebar">
+    <a class="pb-home" href="../">&#8592;&nbsp;All&nbsp;machines</a>
+    <span class="pb-title"><img class="pb-icon" src="assets/favicon-32.png" alt="" aria-hidden="true"> PC486.EXE &mdash; [DX2-66]</span>
+    <span class="pb-name">486DX2-66 Gaming PC</span>
+    <span class="pb-tag">80486DX2 &middot; 66&nbsp;MHz &middot; running entirely in your browser</span>
+    <span class="pb-tools">
+      <label class="pb-theme">Theme
+        <select id="pageTheme">
+          <option value="win">Windows 95</option>
+          <option value="web94">Mid-1990s Web</option>
+          <option value="modern">Modern</option>
+          <option value="moderndark">Dark Modern</option>
+          <option value="ai">AI Generated</option>
+        </select>
+      </label>
+      <span class="pb-winbtns"><span aria-hidden="true">_</span><span aria-hidden="true">&#9633;</span><a class="pb-close" href="../" title="back to all machines" aria-label="close &mdash; back to all machines">&times;</a></span>
+    </span>
+  </header>
+
+  <div class="inner">
+    <h1>486DX2-66 Gaming PC</h1>
+    <p class="tagline">A real-mode 80486DX2-66, booted to FreeDOS, running entirely in your browser.</p>
+    <hr class="rule">
+
+    <div class="panel" id="displayCard">
+      <div class="monitor" id="monitor">
+        <div class="bezel" id="bezel">
+          <canvas id="screen" width="640" height="350" tabindex="0" aria-label="VGA display -- click to type"></canvas>
+          <div class="crt-overlay"></div>
+          <div class="focus-hint" id="focusHint" aria-hidden="true">Click to focus</div>
+          <span class="power-led"></span>
+          <div class="bezel-controls">
+            <button type="button" id="escBtn" class="bezel-btn" data-key="Escape"
+                    title="Send Esc -- your Esc key exits fullscreen instead, without reaching DOS"
+                    aria-label="Send Esc" disabled>Esc</button>
+            <button type="button" id="fullscreenBtn" class="bezel-btn" title="Fullscreen" aria-label="Fullscreen">&#x26F6;</button>
+          </div>
+        </div>
+      </div>
+      <div class="row audio-row">
+        <label><input type="checkbox" id="speakerEnabled"> Enable sound (PC speaker + Sound Blaster 16)</label>
+        <span class="muted">Off by default -- browsers block audio until you opt in, and so does this control.</span>
+      </div>
+      <div class="row mouse-row">
+        <label><input type="checkbox" id="mouseCaptureEnabled"> Enable mouse (click screen to capture, Esc releases)</label>
+        <span class="muted">Off by default -- captures your pointer while the screen has focus.</span>
+      </div>
+    </div>
+
+    <dialog id="fsEscHint">
+      <h2>Before you go fullscreen</h2>
+      <p>Your Esc key exits fullscreen instead of reaching DOS -- browsers reserve
+        it for that. Use the <strong>Esc</strong> button next to the fullscreen
+        button, in the screen's own corner, to send Esc to the operating system
+        instead.</p>
+      <div class="row">
+        <button type="button" id="fsEscHintOk" autofocus>Got it, go fullscreen</button>
+      </div>
+    </dialog>
+
+    <div class="panel" id="fkeysCard">
+      <h2>Function &amp; extended keys</h2>
+      <div class="row" id="fkeyRow">
+        <button type="button" data-key="F1" disabled>F1</button>
+        <button type="button" data-key="F2" disabled>F2</button>
+        <button type="button" data-key="F3" disabled>F3</button>
+        <button type="button" data-key="F4" disabled>F4</button>
+        <button type="button" data-key="F5" disabled>F5</button>
+        <button type="button" data-key="F6" disabled>F6</button>
+        <button type="button" data-key="F7" disabled>F7</button>
+        <button type="button" data-key="F8" disabled>F8</button>
+        <button type="button" data-key="F9" disabled>F9</button>
+        <button type="button" data-key="F10" disabled>F10</button>
+        <button type="button" data-key="F11" disabled>F11</button>
+        <button type="button" data-key="F12" disabled>F12</button>
+        <button type="button" id="ctrlAltDelBtn" class="danger-key" disabled>Ctrl+Alt+Del</button>
+      </div>
+      <span class="muted">Extra keys, for keyboards without a dedicated key of their own:</span>
+      <div class="row" id="extraKeyRow">
+        <button type="button" data-key="Insert" disabled>Insert</button>
+        <button type="button" data-key="Delete" disabled>Delete</button>
+        <button type="button" data-key="Home" disabled>Home</button>
+        <button type="button" data-key="End" disabled>End</button>
+        <button type="button" data-key="PageUp" disabled>Page Up</button>
+        <button type="button" data-key="PageDown" disabled>Page Down</button>
+        <button type="button" data-key="PrintScreen" disabled>Print Screen</button>
+        <button type="button" data-key="ScrollLock" disabled>Scroll Lock</button>
+        <button type="button" data-key="Pause" disabled>Pause/Break</button>
+        <button type="button" data-key="NumLock" disabled>Num Lock</button>
+      </div>
+    </div>
+
+    <div class="panel" id="frontPanelCard">
+      <h2>Front panel</h2>
+      <div class="at-case">
+        <div class="at-left">
+          <div class="cpu-badge" aria-hidden="true">
+            <svg viewBox="0 0 32 32" role="img" aria-label="486DX2-66 badge">
+              <ellipse cx="16" cy="16" rx="15" ry="10" fill="#0068b5" transform="rotate(-8 16 16)"/>
+              <text x="16" y="19" text-anchor="middle" font-family="Arial, sans-serif" font-weight="700"
+                    font-size="9" fill="#fff" transform="rotate(-8 16 16)">486</text>
+            </svg>
+            <span class="cpu-badge-text">80486DX2<span>66 MHz &middot; on-die FPU</span></span>
+          </div>
+          <div class="at-toprow">
+            <div class="at-indicators">
+              <span class="led-box"><span class="drive-led" id="powerLed" title="Power"></span></span>
+              <span class="led-box"><span class="drive-led" id="hddLed" title="Hard disk activity"></span></span>
+            </div>
+            <div class="sevenseg-group">
+              <div class="sevenseg-digits" aria-hidden="true">
+                <div class="sevenseg">
+                  <i class="a on"></i><i class="b"></i><i class="c on"></i><i class="d on"></i><i class="e on"></i><i class="f on"></i><i class="g on"></i>
+                </div>
+                <div class="sevenseg">
+                  <i class="a on"></i><i class="b"></i><i class="c on"></i><i class="d on"></i><i class="e on"></i><i class="f on"></i><i class="g on"></i>
+                </div>
+              </div>
+              <span class="sevenseg-label">MHz</span>
+            </div>
+            <label class="at-switch-group">
+              <input type="checkbox" id="powerSwitch">
+              <span class="at-switch"></span>
+              <span class="at-switch-label">Power</span>
+            </label>
+            <button type="button" class="reset-btn" id="resetBtn" title="Reset" aria-label="Reset"></button>
+          </div>
+          <div class="at-vents" aria-hidden="true"></div>
+        </div>
+        <div class="at-drives">
+          <div class="at-bay" data-drive="0">
+            <div class="at-drive-face">
+              <span class="drive-letter">A:</span>
+              <div class="at-slot" data-role="slot"></div>
+              <span class="at-latch" aria-hidden="true"></span>
+              <span class="drive-led" data-role="led" title="Activity"></span>
+            </div>
+            <div class="at-bay-ctl">
+              <span class="drive-label empty" data-role="label">empty (1.44MB, 3.5&Prime;)</span>
+              <label class="filebtn"><button type="button" tabindex="-1">Insert&hellip;</button><input type="file" accept=".img,.IMG" data-role="file"></label>
+              <button type="button" data-role="eject" disabled>Eject</button>
+            </div>
+          </div>
+          <div class="at-bay" data-drive="cdrom">
+            <div class="at-drive-face">
+              <span class="drive-letter">D:</span>
+              <div class="at-slot" data-role="slot"></div>
+              <span class="at-latch" aria-hidden="true"></span>
+              <span class="drive-led" data-role="led" title="Activity"></span>
+            </div>
+            <div class="at-bay-ctl">
+              <span class="drive-label empty" data-role="label">empty (CD-ROM, 2x)</span>
+              <label class="filebtn"><button type="button" tabindex="-1">Insert&hellip;</button><input type="file" accept=".iso,.ISO" data-role="file"></label>
+              <button type="button" data-role="eject" disabled>Eject</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel" id="hddCard">
+      <h2>Hard disk</h2>
+      <div class="row">
+        <span class="muted" id="hddStatus">Checking for a saved hard disk&hellip;</span>
+      </div>
+      <div class="row">
+        <button type="button" id="hddResetBtn" disabled>Reset to factory FreeDOS</button>
+        <button type="button" id="hddBlankBtn" disabled>Mount blank drive&hellip;</button>
+        <span class="muted">Changes you make while running (FORMAT, COPY, installing
+          software) are saved automatically in this browser every few seconds or on
+          power off, and restored on your next visit. Both take effect at the next
+          power-on -- a real fixed disk can't be swapped while the machine is
+          running.</span>
+      </div>
+      <div class="row">
+        <button type="button" id="hddDownloadBtn" disabled>Download image&hellip;</button>
+        <label class="filebtn"><button type="button" id="hddUploadBtn" tabindex="-1" disabled>Upload image&hellip;</button><input type="file" accept=".img,.IMG" id="hddUploadInput" disabled></label>
+        <span class="muted">A real file on your own disk, independent of this browser's
+          storage -- download it as a backup, or upload a previously-downloaded (or
+          otherwise obtained) image to use as C:. Also takes effect at the next
+          power-on.</span>
+      </div>
+    </div>
+
+    <div class="panel" id="floppyInfoCard">
+      <h2>Removable media</h2>
+      <div class="row">
+        <span class="muted">One 3.5&Prime; 1.44MB floppy bay (drive A:) -- also
+          reads genuine double-density 720KB 3.5&Prime; media. Mount a raw .IMG of
+          exactly one of those two sizes.</span>
+      </div>
+      <div class="row">
+        <span class="muted">One 2x ATAPI CD-ROM bay (drive D:) -- mount a raw .ISO
+          (2048-byte sectors). Ships with FreeDOS's own official install/live CD
+          already in the drive.</span>
+      </div>
+    </div>
+
+    <div class="panel" id="softwareCompatCard">
+      <h2>Software compatibility</h2>
+      <div class="row">
+        <span class="muted">Ships with FreeDOS 1.3 on C:, and runs real PC-DOS/
+          MS-DOS 6.x-era real-mode software the same way -- this is currently a
+          real-mode-only 80486DX2, so protected mode, paging, the on-die FPU, a
+          sound card, and VESA/256-color VGA modes aren't implemented yet
+          (Milestone 1 of a multi-milestone build -- see
+          <a href="https://github.com/gsirhc/retro/blob/main/retroweb/pc486/PC486_REVIEW.md" target="_blank" rel="noopener">PC486_REVIEW.md</a>
+          for what's next). Keyboard and the internal PC speaker only for now.</span>
+      </div>
+      <div class="row">
+        <span class="muted">Disk images aren't included or hosted here (beyond the
+          freely-licensed FreeDOS install/live CD and HDD image) -- commercial
+          software remains copyrighted. You'll need to find your own compatible
+          disk image and mount it yourself.</span>
+      </div>
+    </div>
+
+    <hr class="rule">
+    <div class="footer">
+      <p>A 1990s "gamer's dream" 486 build -- not a recreation of a specific
+        historical machine. Real-mode 80486DX2 CPU, chipset, WD1003 hard disk,
+        ATAPI CD-ROM, NEC 765 floppy controller, VGA graphics, PC speaker --
+        the source and hardware findings live in
+        <a href="https://github.com/gsirhc/retro/tree/main/retroweb/pc486" target="_blank" rel="noopener">retroweb/pc486/</a>
+        (<a href="https://github.com/gsirhc/retro/blob/main/retroweb/pc486/PC486_REVIEW.md" target="_blank" rel="noopener">hardware notes</a>).
+        BIOS/VGA BIOS and FreeDOS are freely-licensed stand-ins for still-copyrighted originals.</p>
+      <p><i><span class="fb-built">Last built </span><span class="fb-mod">Page last modified: </span><span id="buildDate">&hellip;</span></i></p>
+    </div>
+  </div>
+</div>
+
+<script src="pc486.js"></script>
+<script src="shared/theme-picker.js"></script>
+<script src="shared/fullscreen.js"></script>
+<script src="shared/focus-hint.js"></script>
+<script src="shared/footer.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

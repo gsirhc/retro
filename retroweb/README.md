@@ -65,6 +65,19 @@ The browser emulators and the landing page that lists them.
   browser-local. Hardware findings live in
   [`GALAGA_REVIEW.md`](galaga/GALAGA_REVIEW.md). The wavetable generator
   lives in [`shared/namco/`](shared/namco/).
+- [`pc486/`](pc486/) — 486DX2-66 Gaming PC: a 1990s "gamer's dream" 486
+  build, not a recreation of a specific historical machine. A real
+  protected-mode 80486DX2 CPU (paging, task switching, x87 FPU) + chipset +
+  WD1003 504MB hard disk + ATAPI CD-ROM + NEC 765 3.5" floppy controller +
+  VGA mode 13h with the VESA BIOS Extensions + PC speaker + PS/2 mouse +
+  Sound Blaster 16, C++ core + GoogleTest + WebAssembly front end in
+  `pc486/web/`. Ships pre-loaded with FreeDOS 1.3 on its virtual hard disk
+  (installed by actually running the real, unmodified FreeDOS 1.3 installer
+  end to end — see `pc486/disks/build_freedos_hdd.cpp`) — boots straight to
+  a `C:\>` prompt, and its `C:\GAMES` directory has BOOM (a real DJGPP/
+  CWSDPMI DOS Doom source port) actually running and rendering through the
+  full protected-mode/VGA stack. **Milestones 1-4 complete** — see
+  [`PC486_REVIEW.md`](pc486/PC486_REVIEW.md).
 
 ## Shared front-end code
 
@@ -96,8 +109,9 @@ uses the video with `Board::Galaxian`; it has no AY or 8255).
 
 CI builds every front end, fetches the pinned Altair BASIC / CP/M media,
 builds the 6502 Assembler ROM from its own source, fetches/builds the IBM
-PC/AT's BIOS + shipped FreeDOS hard disk image, and generates Pac-Man's
-hardware self-test ROM, then **stages** the site so URLs are clean:
+PC/AT's BIOS + shipped FreeDOS hard disk image, generates Pac-Man's
+hardware self-test ROM, and fetches/builds the 486DX2-66's BIOS + shipped
+FreeDOS hard disk and CD-ROM images, then **stages** the site so URLs are clean:
 
 ```
 _site/index.html      <- retroweb/index.html
@@ -112,6 +126,7 @@ _site/frogger/        <- retroweb/frogger/web/       (dev-only files stripped)
 _site/galaga/         <- retroweb/galaga/web/        (dev-only files stripped)
 _site/galaxian/       <- retroweb/galaxian/web/      (dev-only files stripped)
 _site/scramble/       <- retroweb/scramble/web/      (dev-only files stripped)
+_site/pc486/          <- retroweb/pc486/web/         (dev-only files stripped)
 ```
 
 `_site/` is git-ignored, built by `make -C retroweb site` (CI runs the same
@@ -125,12 +140,12 @@ make -C retroweb preview-stop  # stop the detached server
 
 Both build every emulator's wasm (+ the 6502 Assembler ROM from source,
 needs `cc65` — see `cpu6502/README.md`; + Pac-Man's generated hardware
-self-test ROM), fetch the Altair BASIC / CP/M media and the IBM PC/AT's
+self-test ROM; + the 486DX2-66's BIOS + shipped FreeDOS HDD/CD images), fetch the Altair BASIC / CP/M media and the IBM PC/AT's
 BIOS + shipped FreeDOS hard disk image (the latter a real multi-minute
 build only the first time — see `ibmpc-at/IBM_PCAT_REVIEW.md` §11 — instant
-afterward), stage `_site/`, and serve `http://0.0.0.0:8000/` (landing page)
+afterward), stage `_site/`, and serve `https://0.0.0.0:8000/` (landing page)
 + `/altair8800/` + `/assembler6502/` + `/ibmpc-at/` + `/pacman/` + `/frogger/`
-+ `/galaga/` + `/galaxian/` + `/scramble/` on the LAN.
++ `/galaga/` + `/galaxian/` + `/scramble/` + `/pc486/` on the LAN.
 A bare `python3 -m http.server` in `retroweb/` will **not** work — each
 emulator lives at `<machine>/web/` in source, only at `/<machine>/` in the
 staged site.

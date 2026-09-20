@@ -276,6 +276,82 @@ jobs:
             retroweb/pacman/web/test-results/
           retention-days: 7
 
+  # 486DX2-66 Gaming PC: GoogleTest suite over the 80486 core + chipset,
+  # WD1003/ATAPI CD-ROM, floppy, VGA/VBE, PS/2 mouse and Sound Blaster 16
+  # (see retroweb/pc486/PC486_REVIEW.md).
+  pc486-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: make -C retroweb/pc486 check
+
+  # Playwright suite for the 486DX2-66 front end: boots the real 80486 core
+  # + shipped FreeDOS HDD image and CD-ROM ISO, drives keyboard/mouse/floppy/
+  # HDD/CD-ROM/speaker/Sound Blaster/theme controls and asserts VGA text-mode
+  # screen contents (see PC486_REVIEW.md's Playwright coverage). Two large
+  # media artifacts get their own cache, same reasoning as ibmpcat-web-test's
+  # single HDD-image cache below: the HDD image comes out of a genuine,
+  # slow FreeDOS 1.3 installer run (PC486_REVIEW.md §5), and the CD-ROM ISO
+  # is a ~400MB download that's otherwise pointless to repeat every run.
+  pc486-web-test:
+    needs: pc486-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: latest
+
+      - working-directory: retroweb/pc486/web
+        run: make roms
+
+      - name: Cache pc486 FreeDOS CD-ROM ISO
+        id: pc486-cd
+        uses: actions/cache@v4
+        with:
+          path: |
+            retroweb/pc486/disks/freedos-cd.iso
+            retroweb/pc486/disks/freedos-boot.img
+          key: pc486-cd-${{ hashFiles('retroweb/pc486/disks/fetch-freedos-cd.sh') }}
+
+      - name: Fetch pc486 FreeDOS CD-ROM ISO
+        if: steps.pc486-cd.outputs.cache-hit != 'true'
+        run: bash retroweb/pc486/disks/fetch-freedos-cd.sh
+
+      - name: Cache pc486 FreeDOS HDD image
+        id: pc486-hdd
+        uses: actions/cache@v4
+        with:
+          path: retroweb/pc486/disks/freedos-hdd.img
+          key: pc486-hdd-${{ hashFiles('retroweb/pc486/*.h', 'retroweb/pc486/*.cpp', 'retroweb/pc486/disks/*.cpp', 'retroweb/pc486/disks/*.sh', 'retroweb/pc486/roms/*.sh') }}
+
+      - name: Build pc486 FreeDOS HDD image
+        if: steps.pc486-hdd.outputs.cache-hit != 'true'
+        run: make -C retroweb/pc486 hdd-image
+
+      - working-directory: retroweb/pc486/web
+        run: make pc486.js hdd-image cdrom-image shared
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - working-directory: retroweb/pc486/web
+        run: make test-install
+
+      - working-directory: retroweb/pc486/web
+        run: make test
+
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pc486-playwright-report
+          path: |
+            retroweb/pc486/web/playwright-report/
+            retroweb/pc486/web/test-results/
+          retention-days: 7
+
   # Shared Z80 ISA: named GoogleTest groups (UM0080) plus Frank Cringle's
   # zexdoc documented-opcode exerciser. Pac-Man, Frogger, Scramble, and
   # Galaxian all `needs:` this job; each board then only smokes that the CPU is wired.
@@ -509,6 +585,8 @@ jobs:
         ibmpcat-web-test,
         pacman-test,
         pacman-web-test,
+        pc486-test,
+        pc486-web-test,
         z80-test,
         frogger-test,
         frogger-web-test,
@@ -586,11 +664,45 @@ jobs:
       - working-directory: retroweb/galaga/web
         run: make wasm roms shared
 
+      # 486DX2-66: BIOS/VGA-BIOS ROMs (fetched, checksummed) are cheap; the
+      # shipped FreeDOS HDD image is built by actually running the real
+      # FreeDOS 1.3 installer end to end against the emulator (see
+      # PC486_REVIEW.md §5) -- genuinely slow, so it's cached across runs,
+      # keyed on everything that could change its bytes. The CD-ROM ISO is
+      # a ~400MB download with its own cache.
+      - name: Cache pc486 FreeDOS CD-ROM ISO
+        id: pc486-cd
+        uses: actions/cache@v4
+        with:
+          path: |
+            retroweb/pc486/disks/freedos-cd.iso
+            retroweb/pc486/disks/freedos-boot.img
+          key: pc486-cd-${{ hashFiles('retroweb/pc486/disks/fetch-freedos-cd.sh') }}
+
+      - name: Fetch pc486 FreeDOS CD-ROM ISO
+        if: steps.pc486-cd.outputs.cache-hit != 'true'
+        run: bash retroweb/pc486/disks/fetch-freedos-cd.sh
+
+      - name: Cache pc486 FreeDOS HDD image
+        id: pc486-hdd
+        uses: actions/cache@v4
+        with:
+          path: retroweb/pc486/disks/freedos-hdd.img
+          key: pc486-hdd-${{ hashFiles('retroweb/pc486/*.h', 'retroweb/pc486/*.cpp', 'retroweb/pc486/disks/*.cpp', 'retroweb/pc486/disks/*.sh', 'retroweb/pc486/roms/*.sh') }}
+
+      - name: Build pc486 FreeDOS HDD image
+        if: steps.pc486-hdd.outputs.cache-hit != 'true'
+        run: make -C retroweb/pc486 hdd-image
+
+      - working-directory: retroweb/pc486/web
+        run: make pc486.js roms hdd-image cdrom-image shared
+
       # stage the site: retroweb/index.html at the root, the Altair front end
       # at /altair8800/, 6502 Assembler at /assembler6502/, IBM PC/AT at
       # /ibmpc-at/, Pac-Man at /pacman/, Frogger at /frogger/, Galaxian at
-      # /galaxian/, Galaga at /galaga/, Scramble at /scramble/ -- the C++ core /
-      # tests / dev-only files stay out of the artifact.
+      # /galaxian/, Galaga at /galaga/, Scramble at /scramble/, 486DX2-66 at
+      # /pc486/ -- the C++ core / tests / dev-only files stay out of the
+      # artifact.
       # Same target `make preview` uses.
       - working-directory: retroweb
         run: make site

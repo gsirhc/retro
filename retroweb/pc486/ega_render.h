@@ -1,0 +1,188 @@
+// Renders the EGA's current screen to a packed RGBA8888 buffer -- one
+// canonical implementation shared between render_screen.cpp (the native
+// BMP diagnostic) and the WASM front end's canvas renderer, so there's a
+// single, tested source of truth for "what does this screen actually look
+// like" rather than the same decode logic duplicated in C++ and JS.
+//
+// Three real hardware layouts are supported:
+//   - Text mode (80x25 or 40x25, 8-pixel-wide cells, row height from the
+//     CRTC): the mode a real BIOS's own POST/boot messages and a plain DOS
+//     prompt use (80x25); 40-column text (mode 0/1) is real too -- some DOS
+//     software uses it for a large-character screen. See RenderTextScreen.
+//   - The EGA/VGA "CGA-compatibility" 4-color 320x200 graphics mode (GR05
+//     Shift Register field = 1): what INT 10h mode 4/5 programs, and
+//     genuinely common -- any DOS program written for plain CGA graphics
+//     (no EGA/VGA-specific code) runs in exactly this mode on real EGA
+//     hardware unmodified. See RenderCgaGraphics4Screen.
+//   - Native 16-color EGA graphics (Shift Register field = 0 -- modes
+//     0x0D/0x0E/0x10, 320x200/640x200/640x350): resolution is derived from
+//     the CRTC's own Horizontal/Vertical Display End timing registers,
+//     not a BIOS mode-number guess, and verified against this machine's
+//     real BIOS: directly invoking its INT 10h AL=0x10 handler and
+//     reading back what it actually programs gave Horizontal Display
+//     End=79 -> (79+1)*8=640, Vertical Display End=349 -> 349+1=350,
+//     exactly real mode 0x10's resolution. See RenderEgaNative16Screen
+//     and ibmpc-at/IBM_PCAT_REVIEW.md §16.
+//
+//   - VGA 256-color graphics (Shift Register field = 2 -- mode 13h,
+//     320x200x256): one byte per pixel through the Sequencer's Chain-4
+//     addressing, each byte an index into the real 256-entry DAC. See
+//     RenderVga256Screen and PC486_REVIEW.md §7.
+//
+// Any still-unrecognized register combination renders as a plain black
+// frame rather than misinterpreting graphics VRAM as text glyphs (the
+// original bug this whole module replaced).
+#ifndef PC486_EGA_RENDER_H
+#define PC486_EGA_RENDER_H
+
+#include <cstdint>
+#include <vector>
+
+#include "ega.h"
+
+namespace pc486 {
+
+constexpr int kTextRenderWidth = 640;
+constexpr int kTextRenderHeight = 350;  // the classic 14-line/row default -- see RenderTextScreen
+
+// Fills `rgba`/`width`/`height` (resized as needed) reflecting the Ega's
+// current text-mode screen: glyph bitmaps read straight from VRAM plane 2
+// (the character generator RAM, exactly where a real vgabios's mode-set
+// writes it, at the standard EGA/VGA convention of 32 bytes reserved per
+// character) and colors from the live Attribute Controller palette
+// registers, decoded via the genuine EGA 6-bit color format -- no
+// hardcoded font or color table.
+//
+// Scan lines per character row (and so the overall frame height) comes
+// from the CRTC's own Maximum Scan Line register (ega.crtc_max_scan_line()),
+// not a hardcoded constant -- the same "trust the real register, don't
+// guess a mode number" discipline RenderEgaNative16Screen already applies.
+// This matters in practice: this machine's freely-licensed BIOS substitute
+// is a full VGA BIOS (see PC486_REVIEW.md §6), and programs VGA's native
+// 16-line-per-row text mode (640x400) rather than genuine EGA's own
+// 14-line/640x350 convention. Hardcoding 14 rendered every glyph correctly
+// shaped but with its last 2 scanlines silently discarded -- invisible for
+// most letters, but exactly where the VGA 8x16 font draws descenders on
+// g/y/p/q/j, which is why they looked clipped. A freshly-reset Ega (no
+// BIOS has run yet) reads Max Scan Line as 0 -- not a real value any text
+// mode uses -- so that specific case falls back to the classic 14-line
+// default rather than a nonsensical 1-line-per-row render.
+//
+// Columns/row is likewise read from the CRTC's Horizontal Displayed
+// register (crtc_horizontal_display_end(), R01) rather than hardcoded as
+// 80 -- real 40-column text (mode 0/1) is genuine hardware, not a guess,
+// and VRAM is laid out row*cols+col with cols=40 in that mode. A period
+// DOS program (MECC's The Oregon Trail's "Look at map" screen, confirmed
+// live) switching to 40-column text for a screen got every row after the
+// first read starting at the wrong VRAM offset when this hardcoded 80,
+// scrambling into unrelated glyph/attribute bytes -- the exact "garbled
+// glyph noise" the file header above warns RenderScreen's dispatch was
+// written to avoid, just reached through this function instead of a
+// missed graphics-mode detection. Same 0-reads-as-"not configured yet"
+// fallback as scan_lines. See PC486_REVIEW.md.
+//
+// `blink_on` selects whether a non-disabled text cursor is currently drawn
+// as a solid block at its real CRTC-programmed scanlines; the caller paces
+// the actual blink rate (this function just draws the requested phase,
+// matching how a real CRT controller has no opinion of its own about
+// blink timing -- that's a separate counter in the CRTC feeding this same
+// enable bit).
+void RenderTextScreen(const Ega &ega, std::vector<uint8_t> &rgba, bool blink_on, int &width, int &height);
+
+// Fills `rgba` with 320*200 RGBA8888 pixels reflecting the EGA/VGA CGA-
+// compatibility 4-color graphics mode's current screen. Real hardware
+// fact this decodes: a CGA-unaware program writes what it thinks is one
+// flat 8000-byte CGA bank (even scanlines in the first half, odd
+// scanlines in the second, 80 bytes/scanline, 4 pixels/byte) -- odd/even
+// plane chaining (already implemented for Phase 5's memory engine) splits
+// those writes across planes 0 and 1 by address parity, so each pair of
+// consecutive CGA bytes lands at the SAME plane offset, one in each
+// plane. The real CRT controller's shift registers then read plane 0's
+// byte as pixels 0-3 of that pair and plane 1's byte as pixels 4-7, each
+// 2-bit value indexing the live Attribute Controller palette (registers
+// 0-3) exactly like text mode's colors -- not a fixed CGA palette table.
+void RenderCgaGraphics4Screen(const Ega &ega, std::vector<uint8_t> &rgba);
+
+// Fills `rgba`/`width`/`height` (resized as needed) with the current
+// native 16-color EGA graphics screen. Resolution comes straight from
+// the CRTC's Horizontal/Vertical Display End registers (see ega.h's
+// crtc_horizontal_display_end()/crtc_vertical_display_end()), not a
+// hardcoded mode table -- the same real CRT-controller-timing approach
+// as every other real detail in this codebase. Real hardware fact this
+// decodes: with odd/even chaining disabled (linear addressing, unlike
+// text/CGA-compatible modes), each byte at a given plane offset holds 8
+// consecutive pixels' worth of ONE bit each; the CRT controller reads the
+// same plane offset from all 4 planes simultaneously (planar VRAM always
+// answers a memory cycle on all 4 planes at once) and combines each
+// pixel's 4 bits -- plane 0 = bit 0 (LSB) through plane 3 = bit 3 (MSB)
+// of the color index, the standard EGA/VGA plane-to-bit convention -- into
+// a 4-bit index into the live Attribute Controller palette (registers
+// 0-15), same as text mode's colors.
+//
+// The per-scanline VRAM stride comes from the CRTC's own Offset Register
+// (ega.crtc_scanline_stride(), R13) rather than being derived from the
+// displayed width -- a real CRT controller advances exactly that many
+// bytes between scanlines regardless of how much of the row is actually
+// shown, and real software that programs a wider logical scan line than
+// it displays (confirmed live: a real commercial game's "look at map"
+// screen does exactly this) relies on the two being independent. Deriving
+// stride from width instead reads every scanline after the first starting
+// at the wrong VRAM offset -- exactly the scrambled-pixel-noise failure
+// mode the file header above describes, just reached through a missed
+// CRTC register on the graphics side rather than a missed mode bit. See
+// PC486_REVIEW.md.
+void RenderEgaNative16Screen(const Ega &ega, std::vector<uint8_t> &rgba, int &width, int &height);
+
+// Fills `rgba`/`width`/`height` (resized as needed) with the current VGA
+// 256-color graphics screen -- mode 13h and anything else programmed the
+// same way. Real hardware facts this decodes:
+//
+//   - Addressing: the Sequencer's Chain-4 bit makes CPU address bits 0-1
+//     the plane select, so software's flat byte-per-pixel frame buffer is
+//     the planar VRAM read straight through (see ega.h's file header).
+//   - Width: the CRTC is programmed for the SAME 640-dot horizontal
+//     timing a 640-wide mode uses (Horizontal Display End = 79), and the
+//     Attribute Controller's 8-bit-color bit (AR10 bit 6) is what halves
+//     the pixel clock to give 320 visible pixels. Reading the CRTC alone
+//     would report 640 -- twice the truth.
+//   - Height: the CRTC is likewise programmed for the full ~400-line
+//     raster, with Maximum Scan Line (R09) set to 1 so every logical row
+//     occupies two scan lines. Dividing by the real register (rather than
+//     hardcoding 200) is the same "trust the CRTC" discipline the 16-color
+//     path already uses for scan doubling.
+//   - Stride: the Offset Register's 40 is in *doubleword* units here
+//     (Underline Location R14 bit 6), so the scan line is 40*2*4 = 320
+//     bytes, not the 80 the same register value means in mode 10h. See
+//     ega.h's crtc_address_unit_bytes().
+//   - Color: each pixel byte is ANDed with the PEL Mask and then looked up
+//     in the live 256-entry DAC, whose 6-bit-per-channel values are scaled
+//     to full-scale 8-bit output. Not the Attribute Controller palette --
+//     in 256-color mode the attribute registers are bypassed entirely.
+void RenderVga256Screen(const Ega &ega, std::vector<uint8_t> &rgba, int &width, int &height);
+
+enum class ScreenMode { kText, kCgaGraphics4, kEgaGraphics16, kVga256, kUnsupportedGraphics };
+
+// Examines the Graphics Controller's Miscellaneous register (graphics vs.
+// alphanumeric) and Mode register (Shift Register field) -- the same
+// registers a real EGA's own CRT controller consults -- to decide which
+// screen layout is currently active. Not a BIOS video-mode-number guess.
+ScreenMode DetectScreenMode(const Ega &ega);
+
+// One packed frame plus the resolution it's actually at -- each mode
+// renders at a different real resolution, so a caller (a canvas, a BMP
+// writer) needs both together, not an assumed fixed size.
+struct RenderedFrame {
+    int width = 0;
+    int height = 0;
+    std::vector<uint8_t> rgba;
+};
+
+// Renders whatever screen is currently active into `out`, resizing it as
+// needed -- the one entry point render_screen.cpp and the WASM front end
+// both call, so a real, tested single implementation decides what's on
+// screen rather than each caller guessing.
+void RenderScreen(const Ega &ega, RenderedFrame &out, bool blink_on);
+
+}  // namespace pc486
+
+#endif  // PC486_EGA_RENDER_H

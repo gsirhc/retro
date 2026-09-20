@@ -30,6 +30,8 @@ cpu6502/rom/tmp/
 # deployed-site staging (built by CI, previewed locally)
 retroweb/_site/
 retroweb/_site.new/
+# local TLS cert for `make preview` (see retroweb/Makefile's preview-cert)
+retroweb/.preview-tls/
 
 retroweb/altair8800/emu8080
 retroweb/altair8800/tests/build/
@@ -98,6 +100,28 @@ retroweb/pacman/roms/user/
 retroweb/pacman/web/coverage/
 retroweb/pacman/web/.v8-coverage/
 
+retroweb/pc486/tests/build/
+retroweb/pc486/tests/build-cov/
+retroweb/pc486/tests/coverage-cpp/
+retroweb/pc486/roms/BIOS-bochs-legacy
+retroweb/pc486/roms/VGABIOS-lgpl-latest.bin
+retroweb/pc486/bios_host
+retroweb/pc486/render_screen
+retroweb/pc486/pm_stub_check
+retroweb/pc486/vbe_mode13_check
+retroweb/pc486/disks/build_freedos_hdd
+retroweb/pc486/disks/hdd_boot_check
+retroweb/pc486/disks/boom_run_check
+retroweb/pc486/disks/freedos-hdd.img
+retroweb/pc486/disks/freedos-cd.iso
+retroweb/pc486/disks/freedos-boot.img
+retroweb/pc486/web/pc486.js
+retroweb/pc486/web/pc486.wasm
+retroweb/pc486/web/roms/
+retroweb/pc486/web/disks/
+retroweb/pc486/web/coverage/
+retroweb/pc486/web/.v8-coverage/
+
 # shared/ front-end code (retroweb/shared/) is copied into each machine's
 # own web/shared/ at build time by its own `make shared` target -- a build
 # artifact like wasm/roms above, not committed per-machine.
@@ -141,5 +165,4 @@ retroweb/scramble/web/roms/
 retroweb/scramble/roms/user/
 retroweb/scramble/web/shared/
 
-# local mkcert pair for `devserve.py --https` / LAN preview
-retroweb/.preview-tls/
+retroweb/pc486/web/shared/
