@@ -34,6 +34,13 @@ The browser emulators and the landing page that lists them.
   be loaded client-side and stays in the browser's IndexedDB, never
   fetched or committed. Hardware findings live in
   [`PACMAN_REVIEW.md`](pacman/PACMAN_REVIEW.md).
+- [`frogger/`](frogger/) — Konami Frogger (1981) arcade board: dual Z80
+  (3.072 MHz main, 1.79 MHz sound), Galaxian-family video, AY-3-8910,
+  C++ core + GoogleTest + WebAssembly front end in `frogger/web/`. Deploys
+  to `/frogger/`. Ships a from-scratch hardware self-test ROM; a real
+  Konami/Sega `frogger` set is opt-in and browser-local. Hardware findings
+  live in [`FROGGER_REVIEW.md`](frogger/FROGGER_REVIEW.md). The Z80 core is
+  shared with Pac-Man at [`shared/cpu/`](shared/cpu/).
 
 ## Shared front-end code
 
@@ -53,6 +60,9 @@ genuinely differs — a machine's own tuned spacing, an extra dead-hardware
 control) stay local to that machine's `index.html`, layered on top of the
 shared CSS via the cascade.
 
+[`shared/cpu/`](shared/cpu/) is the C++ Z80 core used by Pac-Man and Frogger
+— not front-end chrome, and not copied into `_site/shared/`.
+
 ## The deployed site
 
 CI builds every front end, fetches the pinned Altair BASIC / CP/M media,
@@ -69,6 +79,7 @@ _site/altair8800/     <- retroweb/altair8800/web/    (dev-only files stripped)
 _site/assembler6502/  <- retroweb/assembler6502/web/ (dev-only files stripped)
 _site/ibmpc-at/       <- retroweb/ibmpc-at/web/      (dev-only files stripped)
 _site/pacman/         <- retroweb/pacman/web/        (dev-only files stripped)
+_site/frogger/        <- retroweb/frogger/web/       (dev-only files stripped)
 ```
 
 `_site/` is git-ignored, built by `make -C retroweb site` (CI runs the same

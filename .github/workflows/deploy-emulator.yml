@@ -273,6 +273,57 @@ jobs:
             retroweb/pacman/web/test-results/
           retention-days: 7
 
+  # Shared Z80 ISA suite (used by Pac-Man and Frogger).
+  z80-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: make -C retroweb/shared/cpu check
+
+  # Frogger arcade board: GoogleTest suite over the dual Z80 + Galaxian
+  # video + AY-3-8910 + machine (see retroweb/frogger/FROGGER_REVIEW.md).
+  frogger-test:
+    needs: z80-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: make -C retroweb/frogger check
+
+  frogger-web-test:
+    needs: frogger-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: latest
+
+      - working-directory: retroweb/frogger/web
+        run: make wasm roms shared
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - working-directory: retroweb/frogger/web
+        run: npm ci
+
+      - working-directory: retroweb/frogger/web
+        run: npx playwright install --with-deps chromium
+
+      - working-directory: retroweb/frogger/web
+        run: npx playwright test
+
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frogger-playwright-report
+          path: |
+            retroweb/frogger/web/playwright-report/
+            retroweb/frogger/web/test-results/
+          retention-days: 7
+
   build:
     needs:
       [
@@ -284,6 +335,9 @@ jobs:
         ibmpcat-web-test,
         pacman-test,
         pacman-web-test,
+        z80-test,
+        frogger-test,
+        frogger-web-test,
       ]
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
@@ -340,10 +394,13 @@ jobs:
       - working-directory: retroweb/pacman/web
         run: make wasm roms shared
 
+      - working-directory: retroweb/frogger/web
+        run: make wasm roms shared
+
       # stage the site: retroweb/index.html at the root, the Altair front end
       # at /altair8800/, 6502 Assembler at /assembler6502/, IBM PC/AT at
-      # /ibmpc-at/, Pac-Man at /pacman/ -- the C++ core / tests / dev-only
-      # files stay out of the artifact.
+      # /ibmpc-at/, Pac-Man at /pacman/, Frogger at /frogger/ -- the C++ core /
+      # tests / dev-only files stay out of the artifact.
       # Same target `make preview` uses.
       - working-directory: retroweb
         run: make site
