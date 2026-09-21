@@ -61,7 +61,7 @@
     padding: 28px 14px;
   }
   .page {
-    max-width: 720px;
+    max-width: 780px;
     margin: 0 auto;
     background: var(--page-bg);
     border: var(--page-border);
@@ -115,13 +115,15 @@
   :root[data-theme="web94"] .section-heading { font: bold 17px "Times New Roman", Times, serif; letter-spacing: normal; text-transform: none; }
   :root[data-theme="modern"] .section-heading { font: 700 12px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: var(--muted); }
 
-  .machines { display: grid; gap: 16px; }
+  .machines {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;
+  }
 
   .machine-card {
-    display: flex; align-items: center; gap: 16px;
-    padding: 12px 14px; text-decoration: none; color: inherit;
+    display: flex; flex-direction: column; padding: 0;
+    text-decoration: none; color: inherit;
     background: var(--card-bg); border: var(--card-border);
-    border-radius: var(--card-radius);
+    border-radius: var(--card-radius); overflow: hidden;
     transition: transform .12s ease, box-shadow .12s ease;
   }
   .machine-card:hover { transform: translateY(-2px); }
@@ -130,30 +132,15 @@
   }
   :root:not([data-theme="modern"]) .machine-card:active { border-style: inset; }
 
-  /* ---- thumbnail of the emulator's own rendered front panel ----
-     Fixed box, not just a fixed height: Altair's and the 6502 board's own
-     shots are already 286x128 (2.234:1), so 143x64 is just their natural
-     size -- unchanged from before. The AT case fascia is a wider, shorter
-     shape (450x128, 3.52:1), so fitting the same 143x64 box means
-     object-fit: cover zooms in and crops it rather than letterboxing -- a
-     deliberate trade so every card's name/Launch column still starts at
-     the same x. object-position: left keeps the crop anchored on the
-     panel's own left edge (badge, LEDs, power switch) instead of centering
-     it, which would cut an equal sliver off both ends and show neither
-     landmark fully; doesn't affect Altair/the 6502 board since their shots
-     already match the box's aspect ratio exactly (nothing to crop). */
+  /* Thumbnail-only tiles. Shots are 286×128 (2.234:1) except the AT fascia
+     (712×128); object-fit: cover + left keeps that crop on the badge/LEDs. */
   .machine-card .shot {
-    flex: 0 0 auto; width: 143px; height: 64px; display: block;
+    display: block; width: 100%; height: auto; aspect-ratio: 286 / 128;
     object-fit: cover; object-position: left center;
-    border-radius: 3px; box-shadow: 0 1px 4px rgba(0,0,0,.35);
   }
-  :root[data-theme="modern"] .machine-card .shot { border-radius: 6px; }
-
   .machine-card .name {
-    flex: 1; min-width: 0; font-weight: 700; font-size: 17px; letter-spacing: .5px;
-  }
-  .machine-card .go {
-    color: var(--link); font-size: 13px; font-weight: 700; white-space: nowrap;
+    display: block; padding: 8px 8px 10px; text-align: center;
+    font-weight: 700; font-size: 13px; letter-spacing: .3px;
   }
 
   a { color: var(--link); }
@@ -193,13 +180,30 @@
         <img class="shot" src="assets/altair-panel.jpg" width="286" height="128"
              decoding="async" alt="Altair 8800 front panel">
         <span class="name">MITS Altair 8800</span>
-        <span class="go">Launch &rarr;</span>
       </a>
       <a class="machine-card" href="ibmpc-at/">
         <img class="shot" src="assets/ibmpcat-panel.jpg" width="712" height="128"
              decoding="async" alt="IBM PC/AT front panel, powered on">
         <span class="name">IBM PC/AT</span>
-        <span class="go">Launch &rarr;</span>
+      </a>
+    </div>
+
+    <h2 class="section-heading">Arcade: Z-80 Powered</h2>
+    <div class="machines">
+      <a class="machine-card" href="pacman/">
+        <img class="shot" src="assets/pacman-cabinet.png" width="286" height="128"
+             decoding="async" alt="Original Pac-Man arcade tile, starfield and Courier New lettering">
+        <span class="name">Pac-Man Arcade</span>
+      </a>
+      <a class="machine-card" href="pacman/?game=mspacman">
+        <img class="shot" src="assets/mspacman-cabinet.png" width="286" height="128"
+             decoding="async" alt="Original Ms. Pac-Man arcade tile, starfield and Courier New lettering">
+        <span class="name">Ms. Pac-Man Arcade</span>
+      </a>
+      <a class="machine-card" href="frogger/">
+        <img class="shot" src="assets/frogger-cabinet.png" width="286" height="128"
+             decoding="async" alt="Original Frogger arcade tile, starfield and Courier New lettering">
+        <span class="name">Frogger Arcade</span>
       </a>
     </div>
 
@@ -209,29 +213,6 @@
         <img class="shot" src="assets/cg-oac-6502-board.svg" width="286" height="128"
              decoding="async" alt="6502 Assembler board and terminal">
         <span class="name">6502 Assembler</span>
-        <span class="go">Launch &rarr;</span>
-      </a>
-    </div>
-
-    <h2 class="section-heading">Arcade</h2>
-    <div class="machines">
-      <a class="machine-card" href="pacman/">
-        <img class="shot" src="assets/pacman-cabinet.png" width="286" height="128"
-             decoding="async" alt="Original approximation of a Pac-Man cabinet marquee">
-        <span class="name">Pac-Man Arcade</span>
-        <span class="go">Launch &rarr;</span>
-      </a>
-      <a class="machine-card" href="pacman/?game=mspacman">
-        <img class="shot" src="assets/mspacman-cabinet.png" width="286" height="128"
-             decoding="async" alt="Original approximation of a Ms. Pac-Man cabinet marquee">
-        <span class="name">Ms. Pac-Man Arcade</span>
-        <span class="go">Launch &rarr;</span>
-      </a>
-      <a class="machine-card" href="frogger/">
-        <img class="shot" src="assets/frogger-cabinet.png" width="286" height="128"
-             decoding="async" alt="Original approximation of a Frogger cabinet marquee">
-        <span class="name">Frogger Arcade</span>
-        <span class="go">Launch &rarr;</span>
       </a>
     </div>
   </div>

@@ -448,126 +448,13 @@ def write_png(path, w, h, rgb_rows):
 
 
 def marquee_png(path, game="pacman"):
-    """Landing-page thumbnail: an original approximation of an upright
-    marquee's *layout* (black housing, backlit plexi, the game's name, a
-    pellet trail, four color chips). Not a scan or redraw of Namco/Midway
-    art — no official logotype, no character sprites, no Midway mark.
-    Uses this file's own 8×8 font. 286×128 matches the Altair card so
-    `.machine-card .shot`'s 143×64 box doesn't crop it.
-
-    `game="mspacman"` uses a pinker plexi and "MS PAC-MAN" so the two
-    home-page cards are distinguishable without copying the real marquee."""
-    w, h = 286, 128
-    pix = [[(14, 12, 10) for _ in range(w)] for _ in range(h)]
-    mspac = game == "mspacman"
-
-    def put(x, y, rgb):
-        if 0 <= x < w and 0 <= y < h:
-            pix[y][x] = rgb
-
-    def lerp(a, b, t):
-        return tuple(int(a[i] + (b[i] - a[i]) * t) for i in range(3))
-
-    # Inner plexi, inset in a black housing with a thin gold lip.
-    x0, y0, x1, y1 = 8, 8, w - 8, h - 8
-    for y in range(h):
-        for x in range(w):
-            in_lip = 5 <= x < w - 5 and 5 <= y < h - 5
-            in_plexi = x0 <= x < x1 and y0 <= y < y1
-            if in_plexi:
-                ty = (y - y0) / (y1 - y0)
-                tx = abs((x - w / 2) / (w / 2))
-                if mspac:
-                    base = lerp((255, 168, 196), (196, 72, 112), ty)
-                    hot = (255, 230, 236)
-                else:
-                    base = lerp((255, 232, 70), (196, 140, 16), ty)
-                    hot = (255, 250, 180)
-                # Hotter in the middle, like a backlit marquee.
-                pix[y][x] = lerp(base, hot, 0.28 * (1 - tx) * (1 - abs(ty - 0.35)))
-            elif in_lip:
-                lip = (196, 96, 128) if mspac else (196, 160, 32)
-                pix[y][x] = lip if (x == 5 or y == 5 or x == w - 6 or y == h - 6) else (40, 32, 16)
-
-    def blit_char(ch, ox, oy, scale, fill, outline):
-        rows = FONT.get(ch, FONT[" "])
-        for gy, bits in enumerate(rows):
-            if gy == 7:
-                continue
-            for gx in range(8):
-                if not (bits & (0x80 >> gx)):
-                    continue
-                for dy in range(scale):
-                    for dx in range(scale):
-                        px, py = ox + gx * scale + dx, oy + gy * scale + dy
-                        for ox2, oy2 in ((-1, 0), (1, 0), (0, -1), (0, 1),
-                                         (-1, -1), (1, -1), (-1, 1), (1, 1)):
-                            put(px + ox2, py + oy2, outline)
-        for gy, bits in enumerate(rows):
-            if gy == 7:
-                continue
-            for gx in range(8):
-                if not (bits & (0x80 >> gx)):
-                    continue
-                for dy in range(scale):
-                    for dx in range(scale):
-                        put(ox + gx * scale + dx, oy + gy * scale + dy, fill)
-
-    if mspac:
-        text, scale, gap, ty = "MS PAC-MAN", 3, 2, 36
-        fill, outline = (176, 16, 80), (40, 0, 16)
-    else:
-        text, scale, gap, ty = "PAC-MAN", 4, 3, 22
-        fill, outline = (176, 16, 16), (32, 8, 0)
-    cw = 8 * scale
-    tw = len(text) * cw + (len(text) - 1) * gap
-    tx = (w - tw) // 2
-    for i, ch in enumerate(text):
-        blit_char(ch, tx + i * (cw + gap), ty, scale, fill, outline)
-
-    if mspac:
-        # Geometric bow (two loops + a knot) — original, not Namco's sprite.
-        bow = (220, 48, 96)
-        knot = (160, 24, 64)
-        bx, by = w // 2, 18
-        for dy in range(-7, 8):
-            for dx in range(-8, 9):
-                left = (dx + 5) ** 2 / 36 + dy * dy / 25 <= 1
-                right = (dx - 5) ** 2 / 36 + dy * dy / 25 <= 1
-                if left or right:
-                    put(bx + dx, by + dy, bow)
-        for dy in range(-3, 4):
-            for dx in range(-3, 4):
-                if dx * dx + dy * dy <= 10:
-                    put(bx + dx, by + dy, knot)
-
-    # Pellet trail (plain circles — not maze art) and four color chips
-    # standing in for the attract-screen palette, not ghost sprites.
-    pellets = 8
-    py = 98
-    span = 150
-    p0 = (w - span) // 2 - 10
-    for i in range(pellets):
-        cx = p0 + i * (span // (pellets - 1))
-        r = 3 if i % 2 == 0 else 2
-        for dy in range(-r, r + 1):
-            for dx in range(-r, r + 1):
-                if dx * dx + dy * dy <= r * r:
-                    put(cx + dx, py + dy, (255, 248, 220))
-
-    chips = ((255, 32, 32), (255, 176, 208), (32, 224, 224), (255, 176, 32))
-    if mspac:
-        chips = ((220, 32, 64), (255, 140, 64), (80, 200, 80), (255, 220, 64))
-    cx0 = p0 + span + 18
-    for i, col in enumerate(chips):
-        cx = cx0 + i * 14
-        for dy in range(-5, 6):
-            for dx in range(-5, 6):
-                if dx * dx + dy * dy <= 25:
-                    put(cx + dx, py + dy, col)
-
-    rows = [bytearray(c for rgb in row for c in rgb) for row in pix]
-    write_png(path, w, h, rows)
+    """Landing-page tile. Shared renderer — see retroweb/shared/marquee.py."""
+    import sys
+    shared = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "shared"))
+    if shared not in sys.path:
+        sys.path.insert(0, shared)
+    from marquee import render_marquee
+    render_marquee(path, "mspacman" if game == "mspacman" else "pacman")
 
 
 def main():
