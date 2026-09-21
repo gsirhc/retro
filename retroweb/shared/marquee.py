@@ -388,6 +388,25 @@ SCHEMES = {
         "glow": (255, 180, 40),
         "lip": (16, 20, 48),
     },
+    "galaxian": {
+        "text": "GALAXIAN",
+        "void": (4, 4, 16),
+        "nebula_a": (30, 20, 90),
+        "nebula_b": (180, 40, 20),
+        "nebula_c": (20, 20, 80),
+        "neb1": (0.35, 0.45),
+        "neb2": (0.78, 0.62),
+        "seed": 13.7,
+        "star": (255, 240, 180),
+        "planet": (220.0, 18.0, 30.0),
+        "planet_lit": (255, 200, 40),
+        "planet_shade": (40, 16, 8),
+        "spikes": ((22.0, 106.0), (264.0, 18.0)),
+        "fill": (255, 220, 50),
+        "outline": (24, 8, 0),
+        "glow": (255, 140, 30),
+        "lip": (32, 16, 8),
+    },
 }
 
 
@@ -421,6 +440,6 @@ if __name__ == "__main__":
         print("rebuilt", rebuild_atlas())
     out = args[0] if args else os.path.join(os.path.dirname(__file__), "..", "assets")
     os.makedirs(out, exist_ok=True)
-    for name in ("pacman", "mspacman", "frogger", "scramble"):
+    for name in ("pacman", "mspacman", "frogger", "galaxian", "scramble"):
         render_marquee(os.path.join(out, f"{name}-cabinet.png"), name)
-    print(f"wrote {len(('pacman', 'mspacman', 'frogger', 'scramble'))} tiles to {out}")
+    print(f"wrote {len(('pacman', 'mspacman', 'frogger', 'galaxian', 'scramble'))} tiles to {out}")

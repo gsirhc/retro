@@ -59,9 +59,9 @@ material). MAME `theend_map` is a cross-check of the decode.
 Sound CPU: ROM `$0000–$1FFF` (6K populated), RAM `$8000–$83FF` (mirrored).
 AY I/O is bit-decoded: bits 4–5 = AY2 (addr/data), bits 6–7 = AY1
 (addr/data). AY1 port A is the command latch; port B is the **generic**
-Konami sound-board timer (no Frogger 3↔5 swap). Filter netlist writes at
-`$9000` are ignored — labelled dry-mix simplification, same policy as
-Frogger §6.
+Konami sound-board timer (no Frogger 3↔5 swap). Tone f = fclock/(16·TP);
+envelope step is 16·EP clocks. Filter netlist writes at `$9000` are
+ignored — labelled dry-mix simplification, same policy as Frogger §6.
 
 ## 5. Video
 

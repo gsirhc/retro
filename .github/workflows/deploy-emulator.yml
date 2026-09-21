@@ -277,8 +277,8 @@ jobs:
           retention-days: 7
 
   # Shared Z80 ISA: named GoogleTest groups (UM0080) plus Frank Cringle's
-  # zexdoc documented-opcode exerciser. Pac-Man, Frogger, and Scramble all
-  # `needs:` this job; each board then only smokes that the CPU is wired.
+  # zexdoc documented-opcode exerciser. Pac-Man, Frogger, Scramble, and
+  # Galaxian all `needs:` this job; each board then only smokes that the CPU is wired.
   z80-test:
     runs-on: ubuntu-latest
     steps:
@@ -387,6 +387,51 @@ jobs:
             retroweb/scramble/web/test-results/
           retention-days: 7
 
+  # Galaxian arcade board: GoogleTest suite over the single Z80 + Galaxian
+  # video + discrete sound (see retroweb/galaxian/GALAXIAN_REVIEW.md).
+  # Shared Z80 ISA is z80-test; Smoke.HwtestBoots* is the board smoke.
+  galaxian-test:
+    needs: z80-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: make -C retroweb/galaxian check
+
+  galaxian-web-test:
+    needs: galaxian-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: latest
+
+      - working-directory: retroweb/galaxian/web
+        run: make wasm roms shared
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - working-directory: retroweb/galaxian/web
+        run: npm ci
+
+      - working-directory: retroweb/galaxian/web
+        run: npx playwright install --with-deps chromium
+
+      - working-directory: retroweb/galaxian/web
+        run: npx playwright test
+
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: galaxian-playwright-report
+          path: |
+            retroweb/galaxian/web/playwright-report/
+            retroweb/galaxian/web/test-results/
+          retention-days: 7
+
   build:
     needs:
       [
@@ -403,6 +448,8 @@ jobs:
         frogger-web-test,
         scramble-test,
         scramble-web-test,
+        galaxian-test,
+        galaxian-web-test,
       ]
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
@@ -465,10 +512,13 @@ jobs:
       - working-directory: retroweb/scramble/web
         run: make wasm roms shared
 
+      - working-directory: retroweb/galaxian/web
+        run: make wasm roms shared
+
       # stage the site: retroweb/index.html at the root, the Altair front end
       # at /altair8800/, 6502 Assembler at /assembler6502/, IBM PC/AT at
-      # /ibmpc-at/, Pac-Man at /pacman/, Frogger at /frogger/, Scramble at
-      # /scramble/ -- the C++ core /
+      # /ibmpc-at/, Pac-Man at /pacman/, Frogger at /frogger/, Galaxian at
+      # /galaxian/, Scramble at /scramble/ -- the C++ core /
       # tests / dev-only files stay out of the artifact.
       # Same target `make preview` uses.
       - working-directory: retroweb

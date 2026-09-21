@@ -77,14 +77,18 @@ uint8_t Ay8910::env_level() const {
 }
 
 void Ay8910::tick() {
-    // Tone: period is in units of 16 AY clocks.
-    if ((ay_cycle_ & 15) == 0) {
+    // GI datasheet: square-wave f = fclock/(16·TP), so the output toggles
+    // every 8·TP clocks. Noise is fclock/(16·NP). MAME ay8910.cpp (stream
+    // at fclock/8) is a ratio cross-check.
+    if ((ay_cycle_ & 7) == 0) {
         for (int ch = 0; ch < 3; ch++) {
             if (++tone_cnt_[ch] >= tone_period(regs, ch)) {
                 tone_cnt_[ch] = 0;
                 tone_out_[ch] = !tone_out_[ch];
             }
         }
+    }
+    if ((ay_cycle_ & 15) == 0) {
         int np = regs[6] & 0x1F;
         if (np == 0) np = 1;
         if (++noise_cnt_ >= np) {
@@ -95,6 +99,7 @@ void Ay8910::tick() {
             noise_out_ = (noise_lfsr_ & 1) != 0;
         }
 
+        // One envelope step every 16·EP clocks; 16 steps → cycle fclock/(256·EP).
         int ep = regs[11] | (int(regs[12]) << 8);
         if (ep == 0) ep = 1;
         if (!env_hold_ && ++env_cnt_ >= ep) {

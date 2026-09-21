@@ -2,7 +2,7 @@
 #
 #   make site        build _site/ : index.html at the root, the emulators at
 #                    /altair8800/, /assembler6502/, /ibmpc-at/, /pacman/,
-#                    /frogger/, /scramble/ (dev-only files stripped) — what CI publishes
+#                    /frogger/, /galaxian/, /scramble/ (dev-only files stripped) — what CI publishes
 #   make preview     stage _site/ (wasm + media first) and serve it on :8000 in
 #                    the FOREGROUND — dies when the terminal closes or on Ctrl-C
 #   make preview-bg  same, but detached: survives the terminal, logs to
@@ -32,7 +32,7 @@ help:
 # server never finds its document root deleted out from under it
 site:
 	rm -rf _site.new
-	mkdir -p _site.new/altair8800 _site.new/assembler6502 _site.new/ibmpc-at _site.new/pacman _site.new/frogger _site.new/scramble
+	mkdir -p _site.new/altair8800 _site.new/assembler6502 _site.new/ibmpc-at _site.new/pacman _site.new/frogger _site.new/galaxian _site.new/scramble
 	cp index.html about.html _site.new/
 	cp -R assets _site.new/ && rm -f _site.new/assets/README.md
 	mkdir -p _site.new/shared
@@ -68,6 +68,12 @@ site:
 	         .playwright .v8-coverage && \
 	  rm -f Makefile devserve.py wasm_machine.cpp \
 	        package.json package-lock.json playwright.config.ts )
+	cp -R galaxian/web/. _site.new/galaxian/
+	( cd _site.new/galaxian && \
+	  rm -rf tests node_modules coverage test-results playwright-report \
+	         .playwright .v8-coverage && \
+	  rm -f Makefile devserve.py wasm_machine.cpp \
+	        package.json package-lock.json playwright.config.ts )
 	cp -R scramble/web/. _site.new/scramble/
 	( cd _site.new/scramble && \
 	  rm -rf tests node_modules coverage test-results playwright-report \
@@ -83,6 +89,7 @@ _stage:
 	$(MAKE) -C ibmpc-at/web ibmpcat.js roms hdd-image shared
 	$(MAKE) -C pacman/web wasm roms shared
 	$(MAKE) -C frogger/web wasm roms shared
+	$(MAKE) -C galaxian/web wasm roms shared
 	$(MAKE) -C scramble/web wasm roms shared
 	$(MAKE) site
 

@@ -118,6 +118,14 @@ retroweb/frogger/web/roms/
 retroweb/frogger/roms/user/
 retroweb/frogger/web/shared/
 
+retroweb/galaxian/tests/build/
+retroweb/galaxian/web/galaxian.js
+retroweb/galaxian/web/galaxian.wasm
+retroweb/galaxian/web/hwtest_roms.h
+retroweb/galaxian/web/roms/
+retroweb/galaxian/roms/user/
+retroweb/galaxian/web/shared/
+
 retroweb/scramble/tests/build/
 retroweb/scramble/web/scramble.js
 retroweb/scramble/web/scramble.wasm

@@ -118,11 +118,14 @@ uint32_t Video::prom_rgb(uint8_t pen) const {
     uint8_t p = color_prom[pen & 31];
     int r = 0x21 * ((p >> 0) & 1) + 0x47 * ((p >> 1) & 1) + 0x97 * ((p >> 2) & 1);
     int g = 0x21 * ((p >> 3) & 1) + 0x47 * ((p >> 4) & 1) + 0x97 * ((p >> 5) & 1);
-    // Frogger's blue 220 Ω gun is open; Scramble wires PROM bits 6–7 fully
-    // (220 Ω + 470 Ω). Galaxian PROM has no third blue bit.
-    int b = board == Board::Frogger
-                ? (0x47 * ((p >> 6) & 1) + 0x97 * ((p >> 7) & 1))
-                : (0x21 * ((p >> 6) & 1) + 0x47 * ((p >> 7) & 1));
+    // 82S123: bits 0–2 R, 3–5 G (1 kΩ / 470 Ω / 220 Ω). Blue is only two
+    // bits. Namco Galaxian (and Frogger) wire bit 6 = 470 Ω, bit 7 = 220 Ω;
+    // there is no 1 kΩ blue. Scramble's else path keeps the 1 kΩ / 470 Ω
+    // weights it shipped with. Cross-checked against MAME galaxian_palette
+    // resistor table, not a source.
+    int b = board == Board::Scramble
+                ? (0x21 * ((p >> 6) & 1) + 0x47 * ((p >> 7) & 1))
+                : (0x47 * ((p >> 6) & 1) + 0x97 * ((p >> 7) & 1));
     return uint32_t((r << 16) | (g << 8) | b);
 }
 
@@ -178,12 +181,13 @@ uint32_t Video::backdrop(int nx, int ny) const {
         bool river = flip_x ? (nx >= kRiverSplit) : (nx < kRiverSplit);
         return river ? kRiverBlue : 0;
     }
-    uint32_t bg = background_enable ? kScrambleBgBlue : 0;
+    uint32_t bg = (board == Board::Scramble && background_enable) ? kScrambleBgBlue : 0;
     if (!stars_enable) return bg;
-    int blink = stars_blink_state & 3;
-    // Blink state 2 suppresses stars when 2V == 0. Cross-checked against
-    // MAME scramble_draw_stars; 555 Ra/Rb/C from the Konami service material.
-    if (blink == 2 && (ny & 2) == 0) return bg;
+    int blink = (board == Board::Scramble) ? (stars_blink_state & 3) : 3;
+    // Scramble blink state 2 suppresses stars when 2V == 0. Namco Galaxian
+    // has the star LFSR but no 555 blink. Cross-checked against MAME
+    // scramble_draw_stars / galaxian_draw_stars; 555 Ra/Rb/C from Konami.
+    if (board == Board::Scramble && blink == 2 && (ny & 2) == 0) return bg;
     static constexpr uint8_t kMask[4] = {0x20, 0x08, 0xFF, 0xFF};
     int enable_star = (ny ^ (nx >> 3)) & 1;
     if (!enable_star) return bg;
@@ -195,18 +199,18 @@ uint32_t Video::backdrop(int nx, int ny) const {
 }
 
 uint32_t Video::bullet_at(int nx, int ny) const {
-    if (board != Board::Scramble) return 0;
+    if (board != Board::Scramble && board != Board::Galaxian) return 0;
     // Eight shells in object RAM at $60. First three match V−1, the rest
-    // match V. Scramble shells are two yellow pixels. Cross-checked against
-    // MAME bullets_draw / scramble_draw_bullet.
+    // match V. Namco Galaxian draws four yellow pixels; Scramble draws two.
+    // Cross-checked against MAME bullets_draw / galaxian_draw_bullet.
     int y = ny;
     for (int which = 0; which < 8; which++) {
         int base = 0x60 + which * 4;
         int effy = (which < 3) ? (y - 1) : y;
         if (uint8_t(objram[unsigned(base + 1)] + effy) != 0xFF) continue;
         int x = 255 - objram[unsigned(base + 3)] - 4;
-        // Two pixels ending at x, x-1 (scramble_draw_bullet).
-        if (nx == x || nx == x - 1) return 0xFFFF00;
+        int width = (board == Board::Galaxian) ? 4 : 2;
+        if (nx <= x && nx > x - width) return 0xFFFF00;
     }
     return 0;
 }

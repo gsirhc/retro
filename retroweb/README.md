@@ -47,11 +47,16 @@ The browser emulators and the landing page that lists them.
   [`shared/galaxian/`](shared/galaxian/); the Z80 core is
   [`shared/cpu/`](shared/cpu/).
 - [`scramble/`](scramble/) — Konami Scramble (1981) arcade board, parent of
-  this Galaxian/Konami family: same dual Z80 clocks and chips as Frogger,
+  this Galaxian/Konami dual-Z80 family: same clocks and chips as Frogger,
   The End map, two AY-3-8910s, PAL 6J, starfield and shells. Deploys to
   `/scramble/`. Ships a from-scratch hardware self-test ROM; a real Konami
   `scramble` set is opt-in and browser-local. Hardware findings live in
   [`SCRAMBLE_REVIEW.md`](scramble/SCRAMBLE_REVIEW.md).
+- [`galaxian/`](galaxian/) — Namco Galaxian (1979) arcade board, parent of
+  the video family: single Z80 at 3.072 MHz, Galaxian raster, discrete analog
+  sound (no AY). Deploys to `/galaxian/`. Ships a from-scratch hardware
+  self-test ROM; a real Namco `galaxian` set is opt-in and browser-local.
+  Hardware findings live in [`GALAXIAN_REVIEW.md`](galaxian/GALAXIAN_REVIEW.md).
 
 ## Shared front-end code
 
@@ -72,11 +77,12 @@ control) stay local to that machine's `index.html`, layered on top of the
 shared CSS via the cascade.
 
 [`shared/cpu/`](shared/cpu/) is the C++ Z80 core used by Pac-Man, Frogger,
-and Scramble — not front-end chrome, and not copied into `_site/shared/`.
+Scramble, and Galaxian — not front-end chrome, and not copied into `_site/shared/`.
 `make -C retroweb/shared/cpu check` is the full ISA suite (GoogleTest +
 zexdoc); each arcade board then only smokes that the CPU is wired.
 [`shared/galaxian/`](shared/galaxian/) is the AY / 8255 / Galaxian video /
-Konami timer shared by Frogger and Scramble.
+Konami timer shared by Frogger, Scramble, and Galaxian (Galaxian the game
+uses the video with `Board::Galaxian`; it has no AY or 8255).
 
 ## The deployed site
 
@@ -95,6 +101,7 @@ _site/assembler6502/  <- retroweb/assembler6502/web/ (dev-only files stripped)
 _site/ibmpc-at/       <- retroweb/ibmpc-at/web/      (dev-only files stripped)
 _site/pacman/         <- retroweb/pacman/web/        (dev-only files stripped)
 _site/frogger/        <- retroweb/frogger/web/       (dev-only files stripped)
+_site/galaxian/       <- retroweb/galaxian/web/      (dev-only files stripped)
 _site/scramble/       <- retroweb/scramble/web/      (dev-only files stripped)
 ```
 
@@ -114,7 +121,7 @@ BIOS + shipped FreeDOS hard disk image (the latter a real multi-minute
 build only the first time — see `ibmpc-at/IBM_PCAT_REVIEW.md` §11 — instant
 afterward), stage `_site/`, and serve `http://0.0.0.0:8000/` (landing page)
 + `/altair8800/` + `/assembler6502/` + `/ibmpc-at/` + `/pacman/` + `/frogger/`
-+ `/scramble/` on the LAN.
++ `/galaxian/` + `/scramble/` on the LAN.
 A bare `python3 -m http.server` in `retroweb/` will **not** work — each
 emulator lives at `<machine>/web/` in source, only at `/<machine>/` in the
 staged site.

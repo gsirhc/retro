@@ -76,8 +76,8 @@ PROM wiring, cross-checked against MAME `frogger_extend_tile_info` /
 ## 6. Sound
 
 One AY-3-8910. PPI1 port A is the command latch, read back on AY I/O A.
-Bit 4 of the control port mutes. Discrete analog filter on the real PCB
-is not modeled (dry mix) — documented simplification.
+Bit 4 of the control port mutes. Tone f = fclock/(16·TP). Discrete analog
+filter on the real PCB is not modeled (dry mix) — documented simplification.
 
 ## 7. Inputs / DIPs
 
