@@ -379,9 +379,11 @@ ScrambleArcade().then(async (Module) => {
     const files = {};
     for (const f of items) {
       const name = f.name.toLowerCase();
-      let bytes;
-      if (f.bytes) bytes = f.bytes instanceof Uint8Array ? f.bytes : new Uint8Array(f.bytes);
-      else bytes = new Uint8Array(await f.arrayBuffer());
+      // File/Blob.bytes is a method on current Chromium; Drive items carry
+      // a Uint8Array on .bytes. Only treat the latter as payload.
+      const bytes = f.bytes instanceof Uint8Array
+        ? f.bytes
+        : new Uint8Array(await f.arrayBuffer());
       if (name.endsWith(".zip")) Object.assign(files, await unzip(bufOf(bytes)));
       else files[name] = bytes;
     }
