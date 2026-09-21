@@ -2,11 +2,14 @@
 
 The browser emulators and the landing page that lists them.
 
-- [`index.html`](index.html) — the landing page (site root). Plain static HTML
-  plus one image from [`assets/`](assets/) (a screenshot of the emulator's own
-  rendered front panel); a `<select id="pageTheme">` that shares the
-  `retro8080.theme` `localStorage` key with the emulators, so a theme choice
-  carries across.
+- [`index.html`](index.html) — the landing page (site root). Machines are
+  grouped as 3-column tiles (computers, then **Arcade: Z-80 Powered**, then
+  Homebrew). Computer cards use screenshots of this project's own rendered
+  hardware; arcade cards are original 286×128 starfield titles in Courier
+  New — see [`assets/README.md`](assets/README.md) and
+  [`shared/marquee.py`](shared/marquee.py). A `<select id="pageTheme">`
+  shares the `retro8080.theme` `localStorage` key with the emulators, so a
+  theme choice carries across.
 - [`altair8800/`](altair8800/) — MITS Altair 8800 (Intel 8080). C++ core +
   GoogleTest + WebAssembly front end in `altair8800/web/`. Deploys to
   `/altair8800/`. See its [README](altair8800/README.md).

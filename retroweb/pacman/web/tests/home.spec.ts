@@ -10,27 +10,34 @@ test.describe("retroweb landing page", () => {
   test("lists Pac-Man Arcade under an Arcade section, linking to /pacman/", async ({ page }) => {
     await page.goto(HOME);
     await expect(page).toHaveTitle(/RETRO/i);
+    await expect(page.locator("h2.section-heading")).toHaveText([
+      "Arcade: Z-80 Powered",
+      "Homebrew",
+    ]);
 
     const card = page.locator('a.machine-card[href="pacman/"]');
     await expect(card.locator(".name")).toHaveText(/Pac-Man Arcade/i);
 
     const shot = card.locator("img.shot");
     await expect(shot).toHaveAttribute("src", /assets\/pacman-cabinet\.png$/);
+    await expect(shot).toHaveAttribute("width", "286");
+    await expect(shot).toHaveAttribute("height", "128");
     await expect(shot).toHaveJSProperty("complete", true);
-    expect(
-      await shot.evaluate((img: HTMLImageElement) => img.naturalWidth),
-    ).toBeGreaterThan(0);
+    expect(await shot.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(286);
+    expect(await shot.evaluate((img: HTMLImageElement) => img.naturalHeight)).toBe(128);
   });
 
   test("lists Ms. Pac-Man Arcade on the same page via ?game=mspacman", async ({ page }) => {
     await page.goto(HOME);
     const card = page.locator('a.machine-card[href="pacman/?game=mspacman"]');
     await expect(card.locator(".name")).toHaveText(/Ms\. Pac-Man Arcade/i);
-    await expect(card.locator("img.shot")).toHaveAttribute("src", /assets\/mspacman-cabinet\.png$/);
-    await expect(card.locator("img.shot")).toHaveJSProperty("complete", true);
-    expect(
-      await card.locator("img.shot").evaluate((img: HTMLImageElement) => img.naturalWidth),
-    ).toBeGreaterThan(0);
+    const shot = card.locator("img.shot");
+    await expect(shot).toHaveAttribute("src", /assets\/mspacman-cabinet\.png$/);
+    await expect(shot).toHaveAttribute("width", "286");
+    await expect(shot).toHaveAttribute("height", "128");
+    await expect(shot).toHaveJSProperty("complete", true);
+    expect(await shot.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(286);
+    expect(await shot.evaluate((img: HTMLImageElement) => img.naturalHeight)).toBe(128);
   });
 
   test("the theme selector switches the page and persists to retro8080.theme", async ({ page }) => {
