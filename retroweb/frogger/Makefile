@@ -1,6 +1,6 @@
 # Konami Frogger (1981) arcade board emulator.
 #
-#   make test    GoogleTest suite (Z80 board + video + AY + 8255 + test ROM).
+#   make test    GoogleTest suite (board + video + AY + 8255 + board smoke).
 #                Optional playthrough skips unless roms/user/ holds a dump:
 #                `UserRomInsertsCoinStartsAndHops` (FROGGER_ROM / frogger.zip).
 #   make check   test (what CI runs)

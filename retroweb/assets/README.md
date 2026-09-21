@@ -43,7 +43,8 @@
   (progressive JPEG q≈88).
 
 - **`pacman-cabinet.png`** / **`mspacman-cabinet.png`** /
-  **`frogger-cabinet.png`** — original landing-page tiles. Spec, pinned by
+  **`frogger-cabinet.png`** / **`scramble-cabinet.png`** — original
+  landing-page tiles. Spec, pinned by
   each arcade machine's `web/tests/home.spec.ts`:
 
   - **286×128** PNG (same box as `altair-panel.jpg`)

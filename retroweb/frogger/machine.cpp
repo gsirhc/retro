@@ -1,5 +1,7 @@
 #include "machine.h"
 
+#include "galaxian/timer.h"
+
 namespace frogger {
 
 uint8_t swap_d0d1(uint8_t v) {
@@ -7,20 +9,8 @@ uint8_t swap_d0d1(uint8_t v) {
 }
 
 uint8_t sound_timer_port(uint64_t sound_cpu_cycles) {
-    // Crystal 14.31818 MHz → ÷8 = sound Z80. The timer chain is
-    // 16×16×2×8×5×2 = 40960 crystal clocks (sound T-states × 8).
-    constexpr uint32_t kPeriod = 16u * 16u * 2u * 8u * 5u * 2u;  // 40960
-    constexpr uint32_t kHalf = 16u * 16u * 2u * 8u * 5u;         // 20480
-    uint32_t clocks = uint32_t((sound_cpu_cycles * 8) % kPeriod);
-    uint8_t hibit = 0;
-    if (clocks >= kHalf) {
-        hibit = 1;
-        clocks -= kHalf;
-    }
-    uint8_t v = uint8_t((hibit << 7) | (uint8_t((clocks >> 14) & 1) << 6) |
-                        (uint8_t((clocks >> 13) & 1) << 5) |
-                        (uint8_t((clocks >> 11) & 1) << 4) | 0x0E);
-    // Frogger PCB swaps timer bits 3 and 5.
+    uint8_t v = galaxian::konami_sound_timer(sound_cpu_cycles);
+    // Frogger PCB swaps timer bits 3 and 5 of the generic Konami reading.
     return uint8_t((v & 0xD7) | ((v & 0x08) << 2) | ((v & 0x20) >> 2));
 }
 

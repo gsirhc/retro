@@ -3,10 +3,13 @@
 EMCC ?= em++
 CORE = ..
 Z80 = ../../shared/cpu
+SHARED = ../../shared
+GAL = $(SHARED)/galaxian
 SRC = wasm_machine.cpp $(CORE)/machine.cpp $(Z80)/cpu_z80.cpp \
-      $(CORE)/video.cpp $(CORE)/ay8910.cpp $(CORE)/i8255.cpp
+      $(GAL)/video.cpp $(GAL)/ay8910.cpp $(GAL)/i8255.cpp $(GAL)/timer.cpp
 HDR = wasm_machine.cpp $(CORE)/machine.h $(Z80)/cpu_z80.h \
-      $(CORE)/video.h $(CORE)/ay8910.h $(CORE)/i8255.h hwtest_roms.h
+      $(CORE)/video.h $(CORE)/ay8910.h $(CORE)/i8255.h \
+      $(GAL)/video.h $(GAL)/ay8910.h $(GAL)/i8255.h $(GAL)/timer.h hwtest_roms.h
 
 EMFLAGS = -O2 -std=c++17 -lembind --no-entry \
   -sMODULARIZE=1 -sEXPORT_NAME=FroggerArcade \
@@ -16,7 +19,7 @@ EMFLAGS = -O2 -std=c++17 -lembind --no-entry \
   -sSTACK_SIZE=1MB
 
 frogger.js: $(SRC) $(HDR)
-	$(EMCC) $(EMFLAGS) -I. -I$(CORE) -I$(Z80) $(SRC) -o $@
+	$(EMCC) $(EMFLAGS) -I. -I$(CORE) -I$(Z80) -I$(SHARED) $(SRC) -o $@
 
 hwtest_roms.h: $(CORE)/roms/hwtest/gen_hwtest.py
 	python3 $(CORE)/roms/hwtest/gen_hwtest.py --dir roms --header hwtest_roms.h

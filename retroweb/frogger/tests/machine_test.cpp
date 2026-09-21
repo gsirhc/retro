@@ -135,19 +135,6 @@ TEST(Machine, FlipLatches) {
     EXPECT_TRUE(m.video.flip_x);
 }
 
-TEST(Machine, HwtestWritesSignatureAndKicksWatchdog) {
-    frogger::Machine m;
-    m.load_roms(test_set());
-    m.reset();
-    m.run_cycles(frogger::kCpuHz / 10);
-    EXPECT_EQ(m.ram[0], 'T');
-    EXPECT_EQ(m.ram[1], 'S');
-    EXPECT_EQ(m.ram[2], 'T');
-    EXPECT_EQ(m.ram[3], '1');
-    EXPECT_FALSE(m.watchdog_reset);
-    EXPECT_GT(m.frames, 0);
-}
-
 TEST(Machine, JoystickEchoesToRam) {
     frogger::Machine m;
     m.load_roms(test_set());
@@ -197,20 +184,6 @@ TEST(Machine, HwtestHelpScreenShowsCopyrightPrompt) {
     EXPECT_GT(yellow, 40);
     EXPECT_GT(white, 80);
     EXPECT_LT(lit, frogger::kUprightW * frogger::kUprightH * 35 / 100);
-}
-
-TEST(Machine, RendersNonBlackFrame) {
-    frogger::Machine m;
-    m.load_roms(test_set());
-    m.reset();
-    m.run_cycles(frogger::kCpuHz / 10);
-    std::array<uint32_t, frogger::kUprightW * frogger::kUprightH> rgb{};
-    m.render(rgb.data());
-    bool any = false;
-    for (uint32_t p : rgb) {
-        if (p) { any = true; break; }
-    }
-    EXPECT_TRUE(any);
 }
 
 TEST(Machine, FactoryDipIdles) {

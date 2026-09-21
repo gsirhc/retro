@@ -9,6 +9,8 @@ cpu6502/vasm6502_oldstyle
 
 cpu6502/rom/basic/a.out
 
+__pycache__/
+
 *.sym
 
 *.o
@@ -105,6 +107,8 @@ retroweb/ibmpc-at/web/shared/
 retroweb/pacman/web/shared/
 
 retroweb/shared/cpu/tests/build/
+retroweb/shared/cpu/zex/zexdoc.com
+retroweb/shared/cpu/zex/zex_host
 
 retroweb/frogger/tests/build/
 retroweb/frogger/web/frogger.js
@@ -113,6 +117,14 @@ retroweb/frogger/web/hwtest_roms.h
 retroweb/frogger/web/roms/
 retroweb/frogger/roms/user/
 retroweb/frogger/web/shared/
+
+retroweb/scramble/tests/build/
+retroweb/scramble/web/scramble.js
+retroweb/scramble/web/scramble.wasm
+retroweb/scramble/web/hwtest_roms.h
+retroweb/scramble/web/roms/
+retroweb/scramble/roms/user/
+retroweb/scramble/web/shared/
 
 # local mkcert pair for `devserve.py --https` / LAN preview
 retroweb/.preview-tls/

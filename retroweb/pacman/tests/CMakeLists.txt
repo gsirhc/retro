@@ -47,10 +47,14 @@ add_unit_test(video_wsg_test video_wsg_test.cpp ${CORE}/video.cpp ${CORE}/wsg.cp
 add_unit_test(machine_test machine_test.cpp
   ${CORE}/machine.cpp ${Z80}/cpu_z80.cpp ${CORE}/video.cpp ${CORE}/wsg.cpp)
 add_dependencies(machine_test hwtest_roms)
+add_unit_test(smoke_test smoke_test.cpp
+  ${CORE}/machine.cpp ${Z80}/cpu_z80.cpp ${CORE}/video.cpp ${CORE}/wsg.cpp)
+add_dependencies(smoke_test hwtest_roms)
 add_unit_test(play_test play_test.cpp
   ${CORE}/machine.cpp ${Z80}/cpu_z80.cpp ${CORE}/video.cpp ${CORE}/wsg.cpp)
 
 include(GoogleTest)
 gtest_discover_tests(video_wsg_test)
 gtest_discover_tests(machine_test)
+gtest_discover_tests(smoke_test)
 gtest_discover_tests(play_test PROPERTIES TIMEOUT 60)

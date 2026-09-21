@@ -4,7 +4,9 @@ import { test, expect } from "@playwright/test";
 // checks the real, wall-clock-paced 3.072 MHz Z80 core is actually running:
 // the tile/sprite pattern paints, and cycles/real-second lands near the
 // genuine clock rate -- see CLAUDE.md's "Never speed these up". Modeled on
-// retroweb/ibmpc-at/web/tests/smoke.spec.ts's real-speed check.
+// retroweb/ibmpc-at/web/tests/smoke.spec.ts's real-speed check. Native ISA
+// coverage is retroweb/shared/cpu (zexdoc); this file only smokes the
+// board in a browser.
 
 test("boots the test ROM, paints a non-black frame, no console errors", async ({ page }) => {
   const errors: string[] = [];

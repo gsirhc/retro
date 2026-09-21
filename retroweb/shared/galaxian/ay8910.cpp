@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace frogger {
+namespace galaxian {
 namespace {
 
 // 16-level AY DAC, relative to full scale. Datasheet resistor ladder
@@ -153,4 +153,4 @@ void Ay8910::advance(int ay_cycles, int host_hz, std::vector<float>& out) {
     }
 }
 
-}  // namespace frogger
+}  // namespace galaxian

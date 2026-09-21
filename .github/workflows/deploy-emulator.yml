@@ -227,9 +227,12 @@ jobs:
             retroweb/ibmpc-at/web/test-results/
           retention-days: 7
 
-  # Pac-Man arcade board: GoogleTest suite over the Z80 core + tilemap/
-  # sprite video + Namco WSG + machine (see retroweb/pacman/PACMAN_REVIEW.md).
+  # Pac-Man arcade board: GoogleTest suite over the tilemap/sprite video
+  # + Namco WSG + machine (see retroweb/pacman/PACMAN_REVIEW.md). The
+  # shared Z80 ISA is z80-test, not this job; Smoke.HwtestBoots* is the
+  # board-level "this CPU actually runs here" check.
   pacman-test:
+    needs: z80-test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -273,15 +276,30 @@ jobs:
             retroweb/pacman/web/test-results/
           retention-days: 7
 
-  # Shared Z80 ISA suite (used by Pac-Man and Frogger).
+  # Shared Z80 ISA: named GoogleTest groups (UM0080) plus Frank Cringle's
+  # zexdoc documented-opcode exerciser. Pac-Man, Frogger, and Scramble all
+  # `needs:` this job; each board then only smokes that the CPU is wired.
   z80-test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Cache zexdoc
+        id: zexdoc
+        uses: actions/cache@v4
+        with:
+          path: retroweb/shared/cpu/zex/zexdoc.com
+          key: zexdoc-${{ hashFiles('retroweb/shared/cpu/Makefile') }}
+
+      - name: Fetch zexdoc
+        if: steps.zexdoc.outputs.cache-hit != 'true'
+        run: make -C retroweb/shared/cpu zex/zexdoc.com
+
       - run: make -C retroweb/shared/cpu check
 
   # Frogger arcade board: GoogleTest suite over the dual Z80 + Galaxian
   # video + AY-3-8910 + machine (see retroweb/frogger/FROGGER_REVIEW.md).
+  # Shared Z80 ISA is z80-test; Smoke.HwtestBoots* is the board smoke.
   frogger-test:
     needs: z80-test
     runs-on: ubuntu-latest
@@ -324,6 +342,51 @@ jobs:
             retroweb/frogger/web/test-results/
           retention-days: 7
 
+  # Scramble arcade board: GoogleTest suite over the dual Z80 + Galaxian
+  # video + two AY-3-8910s + PAL 6J (see retroweb/scramble/SCRAMBLE_REVIEW.md).
+  # Shared Z80 ISA is z80-test; Smoke.HwtestBoots* is the board smoke.
+  scramble-test:
+    needs: z80-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: make -C retroweb/scramble check
+
+  scramble-web-test:
+    needs: scramble-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: latest
+
+      - working-directory: retroweb/scramble/web
+        run: make wasm roms shared
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - working-directory: retroweb/scramble/web
+        run: npm ci
+
+      - working-directory: retroweb/scramble/web
+        run: npx playwright install --with-deps chromium
+
+      - working-directory: retroweb/scramble/web
+        run: npx playwright test
+
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scramble-playwright-report
+          path: |
+            retroweb/scramble/web/playwright-report/
+            retroweb/scramble/web/test-results/
+          retention-days: 7
+
   build:
     needs:
       [
@@ -338,6 +401,8 @@ jobs:
         z80-test,
         frogger-test,
         frogger-web-test,
+        scramble-test,
+        scramble-web-test,
       ]
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
@@ -397,9 +462,13 @@ jobs:
       - working-directory: retroweb/frogger/web
         run: make wasm roms shared
 
+      - working-directory: retroweb/scramble/web
+        run: make wasm roms shared
+
       # stage the site: retroweb/index.html at the root, the Altair front end
       # at /altair8800/, 6502 Assembler at /assembler6502/, IBM PC/AT at
-      # /ibmpc-at/, Pac-Man at /pacman/, Frogger at /frogger/ -- the C++ core /
+      # /ibmpc-at/, Pac-Man at /pacman/, Frogger at /frogger/, Scramble at
+      # /scramble/ -- the C++ core /
       # tests / dev-only files stay out of the artifact.
       # Same target `make preview` uses.
       - working-directory: retroweb

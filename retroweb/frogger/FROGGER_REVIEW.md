@@ -12,7 +12,10 @@ end ships the self-test; a real Konami/Sega `frogger` set is opt-in and
 browser-local. Landing-page card (286×128 Courier New starfield tile from
 `retroweb/shared/marquee.py`) and CI jobs (`frogger-test` /
 `frogger-web-test`) are wired in. The Z80 core lives in
-`retroweb/shared/cpu/` and is shared with Pac-Man.
+`retroweb/shared/cpu/`. Generic Galaxian/Konami chips (AY, 8255, video
+raster, sound-board timer) live in `retroweb/shared/galaxian/` and are
+shared with Scramble; Frogger keeps its own map, D0↔D1 swaps, nibble-swap,
+river split, and timer bits 3↔5.
 
 ## 1. Scope
 
@@ -31,7 +34,9 @@ Super Cobra, or bootlegs.
 ## 3. Shared Z80
 
 `retroweb/shared/cpu/cpu_z80.{h,cpp}`. Two `z80::Cpu` instances, each with
-its own `Bus`. ISA tests run as `make -C retroweb/shared/cpu check`.
+its own `Bus`. ISA tests run as `make -C retroweb/shared/cpu check` (named
+GoogleTests plus zexdoc). This board smokes that CPU in
+`Smoke.HwtestBootsSignatureWatchdogAndPaints`.
 
 ## 4. Memory map
 

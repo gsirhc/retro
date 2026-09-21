@@ -1,6 +1,6 @@
 #include "i8255.h"
 
-namespace frogger {
+namespace galaxian {
 
 void I8255::reset() {
     a = b = c = 0;
@@ -55,4 +55,4 @@ void I8255::write(int port, uint8_t v) {
     }
 }
 
-}  // namespace frogger
+}  // namespace galaxian

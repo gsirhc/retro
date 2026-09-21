@@ -103,7 +103,11 @@ IX/IY (including `(IX+d)`/`(IY+d)` displacement addressing), I/R registers,
 the `EI`-delays-interrupt-by-one-instruction rule (`ei_delay_` in
 `retroweb/shared/cpu/cpu_z80.h`, tested in `Z80.EiDelaysInterruptOneInstruction`). `Z80.Im2InterruptReadsVectorTableAtIConcatData`
 pins the CPU-side IM 2 table walk (`I` concatenated with the bus data
-byte) separately from the board latch.
+byte) separately from the board latch. Named GoogleTests cover the UM0080
+opcode groups; Frank Cringle's zexdoc exerciser (`make -C retroweb/shared/cpu zexdoc`)
+is the independent documented-ISA gate — same role Klaus Dormann / 8080PRE
+play for the other cores. CI's `z80-test` job runs both; Pac-Man's native
+suite then only smokes that this CPU is wired (`Smoke.HwtestBootsSignatureWatchdogAndPaints`).
 
 The self-test ROM only ever programs `IM 1` (RST 7, vector `$0038`); the
 real Midway `pacman`/`puckman` program ROM uses `IM 2` instead, reprogramming
@@ -366,7 +370,8 @@ and `assets/mspacman-cabinet.png`), invoked from this same generator. The ROM
 also still writes a RAM signature (`TST1` bytes), IRQ-echoes the joystick
 into RAM, drives one WSG voice, parks a sprite during the test patterns,
 and kicks the watchdog — enough for GoogleTest
-(`Machine.HwtestHelpScreenShowsCopyrightPrompt`) and Playwright
+(`Smoke.HwtestBootsSignatureWatchdogAndPaints`,
+`Machine.HwtestHelpScreenShowsCopyrightPrompt`) and Playwright
 (`tests/help.spec.ts`) to assert the help screen without containing a
 single byte of Namco's code or graphics. The in-page copy
 (`web/index.html`'s `.legal` text) says the same thing.

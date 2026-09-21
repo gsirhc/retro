@@ -4,7 +4,6 @@
 #include "hwtest_roms.h"
 
 #include <algorithm>
-#include <array>
 
 namespace {
 
@@ -17,19 +16,6 @@ pacman::RomSet test_set() {
     std::copy(pacman::hwtest::lookup_prom.begin(), pacman::hwtest::lookup_prom.end(), s.lookup_prom.begin());
     std::copy(pacman::hwtest::wave_prom.begin(), pacman::hwtest::wave_prom.end(), s.wave_prom.begin());
     return s;
-}
-
-TEST(Machine, HwtestWritesSignatureAndKicksWatchdog) {
-    pacman::Machine m;
-    m.load_roms(test_set());
-    m.reset();
-    m.run_cycles(pacman::kCpuHz / 10);  // 100 ms
-    EXPECT_EQ(m.ram[0x4C00 - 0x4800], 'T');
-    EXPECT_EQ(m.ram[0x4C01 - 0x4800], 'S');
-    EXPECT_EQ(m.ram[0x4C02 - 0x4800], 'T');
-    EXPECT_EQ(m.ram[0x4C03 - 0x4800], '1');
-    EXPECT_FALSE(m.watchdog_reset);
-    EXPECT_GT(m.frames, 0);
 }
 
 // The self-test ROM programs voice 0's real hardware registers ($5050/
@@ -101,19 +87,6 @@ TEST(Machine, OutPort0LatchesInterruptVector) {
     m.run_cycles(pacman::kCpuPerFrame * 2);
 
     EXPECT_EQ(m.ram[0x4800 - 0x4800], 0x42) << "interrupt should vector through the OUT-latched byte, not a fixed address";
-}
-
-TEST(Machine, RendersNonBlackFrame) {
-    pacman::Machine m;
-    m.load_roms(test_set());
-    m.reset();
-    m.run_cycles(pacman::kCpuPerFrame * 3);
-    std::array<uint32_t, pacman::kUprightW * pacman::kUprightH> fb{};
-    m.render(fb.data());
-    int lit = 0;
-    for (uint32_t p : fb)
-        if (p != 0) lit++;
-    EXPECT_GT(lit, 1000);
 }
 
 int vram_off(int col, int row) {
