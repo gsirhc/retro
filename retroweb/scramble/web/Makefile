@@ -35,6 +35,9 @@ shared:
 	   $(SHARED)/fullscreen.css $(SHARED)/fullscreen.js \
 	   $(SHARED)/focus-hint.css $(SHARED)/focus-hint.js \
 	   $(SHARED)/footer.css $(SHARED)/footer.js \
+	   $(SHARED)/arcade-cab.css $(SHARED)/gdrive.js \
+	   $(SHARED)/cab-start-1p-yellow.png $(SHARED)/cab-start-2p-yellow.png \
+	   $(SHARED)/cab-start-1p-white.png $(SHARED)/cab-start-2p-white.png \
 	   shared/
 
 serve: scramble.js roms shared

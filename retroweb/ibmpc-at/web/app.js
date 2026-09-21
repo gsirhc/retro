@@ -489,34 +489,19 @@
   //     reason (offline, revoked access, nothing synced yet): a visitor
   //     should never be stuck looking at a blank page over a cloud hiccup.
   //
-  // GDRIVE_CLIENT_ID below is a real, working OAuth Client ID for this
-  // site's own deployment (see IBM_PCAT_REVIEW.md §39 for how it was set
-  // up) -- but it's scoped to specific Authorized JavaScript origins in
-  // Google Cloud Console, so it simply won't authenticate from anywhere
-  // else. A fork/clone serving this from a different origin needs its own
-  // (Client IDs are public identifiers, safe to commit -- unlike a client
-  // secret, which this flow never uses or needs at all): enable the Drive
-  // API, configure the OAuth consent screen, create a Web-application
-  // OAuth Client ID with the new origin(s) authorized, and replace the
-  // value below. Until a real, origin-matching Client ID is in place, the
+  // GDRIVE_CLIENT_ID / token / Drive fetch live in shared/gdrive.js
+  // (window.RetroGdrive) so arcade ROM loading can reuse the same OAuth
+  // client. This section is the HDD-specific find-by-name / upload / pull
+  // flow on top of that. See IBM_PCAT_REVIEW.md §39 for how the Client ID
+  // was set up. Until a real, origin-matching Client ID is in place, the
   // Sync button reports a clear "not set up yet" status (with the steps
-  // above spelled out inline, right in the page -- #gdriveSetupHelp below)
-  // instead of a cryptic Google error.
-  const GDRIVE_CLIENT_ID = "610038606273-nmjm5il8en76ge8i6heh908073b1klh0.apps.googleusercontent.com";
-  const GDRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
+  // spelled out inline -- #gdriveSetupHelp below) instead of a cryptic
+  // Google error.
   const GDRIVE_FILE_NAME = "IBM PC-AT (5170) hard disk.img";
+  const gd = window.RetroGdrive;
 
-  // `?test=1&gdrive_unconfigured=1` forces the not-configured code path
-  // regardless of GDRIVE_CLIENT_ID's real value -- the only way
-  // tests/gdrive.spec.ts can deterministically exercise that path without
-  // either faking a fork's missing credentials or (never done here) an
-  // automated test actually attempting Google's real interactive sign-in.
-  // Gated behind test=1 like every other test-only override in this file,
-  // so no real visitor's URL can reach it.
-  const GDRIVE_TEST_FORCE_UNCONFIGURED =
-    testParams.get("test") === "1" && testParams.get("gdrive_unconfigured") === "1";
   function gdriveIsConfigured() {
-    return !GDRIVE_TEST_FORCE_UNCONFIGURED && !GDRIVE_CLIENT_ID.startsWith("REPLACE_ME");
+    return !!(gd && gd.isClientConfigured());
   }
   // Whether *this browser* has connected before -- persisted so a returning
   // visit knows to attempt the silent boot-time pull below without asking
@@ -532,9 +517,6 @@
     } catch {}
   }
 
-  let gdriveTokenClient = null;
-  let gdriveAccessToken = null;   // in-memory only -- never persisted anywhere
-  let gdriveTokenExpiry = 0;      // ms epoch
   let gdriveFileId = null;        // Drive file ID, once known, to skip a find-by-name lookup
   let gdriveBusy = false;
   // Tracks "has C: changed since the last successful Google sync", separate
@@ -630,91 +612,23 @@
     ]);
   }
 
-  // The GIS script tag is `async defer` (see index.html) -- it's small, but
-  // there's no guarantee it's finished by the time this runs, especially
-  // for the boot-time silent pull below, which fires right alongside much
-  // larger fetches (the ~30MB HDD image, BIOS, wasm module). A short poll
-  // rather than failing immediately the first time it isn't there yet.
-  function gdriveWaitForGis(timeoutMs = 5000) {
-    return new Promise((resolve, reject) => {
-      const start = Date.now();
-      (function poll() {
-        if (window.google && google.accounts && google.accounts.oauth2) { resolve(); return; }
-        if (Date.now() - start > timeoutMs) { reject(new Error("Google sign-in script failed to load")); return; }
-        setTimeout(poll, 100);
-      })();
-    });
-  }
+  // The GIS script tag is `async defer` (see index.html) -- shared/gdrive.js
+  // polls for it. Token / fetch / download are RetroGdrive's; this file
+  // keeps the HDD find-by-name and resumable upload on top.
 
-  // Resolves with a valid access token, requesting a fresh one only if the
-  // one already held is missing or about to expire. `interactive` allows
-  // Google to show a popup/consent screen if a silent refresh isn't
-  // possible -- only ever pass true from a real, direct click (see
-  // gdriveSyncNow()'s callers); the boot-time pull always passes false, so
-  // a bare page load never pops up a login window on its own.
   async function gdriveGetToken(interactive) {
-    if (gdriveAccessToken && Date.now() < gdriveTokenExpiry) return gdriveAccessToken;
-    await gdriveWaitForGis();
-    if (!gdriveTokenClient) {
-      gdriveTokenClient = google.accounts.oauth2.initTokenClient({
-        client_id: GDRIVE_CLIENT_ID,
-        scope: GDRIVE_SCOPE,
-        // FedCM lets a returning visitor's silent (prompt: "") token
-        // request complete via the browser's own native account-chooser
-        // mediation instead of a Google popup window. GIS's classic
-        // silent flow still opens an actual popup under the hood even
-        // with prompt: "" -- it just skips the account-picker/consent
-        // screens *inside* that window when there's an active Google
-        // session and prior grant -- and some browsers' popup blockers
-        // can swallow that popup outright since it isn't fired from a
-        // direct click, which is what was showing up as a login popup on
-        // every page refresh. FedCM support varies by browser (Chrome/
-        // Edge yes; Safari/Firefox not yet); where it isn't supported,
-        // GIS just falls back to the normal popup-based flow, so this is
-        // a strict improvement with no downside on unsupported browsers.
-        use_fedcm_for_auth: true,
-        callback: () => {},  // replaced per-request below; initTokenClient requires one up front
-      });
-    }
-    return new Promise((resolve, reject) => {
-      gdriveTokenClient.callback = (resp) => {
-        if (resp && resp.error) { reject(new Error(resp.error)); return; }
-        gdriveAccessToken = resp.access_token;
-        // 30s safety margin so a sync that starts right at the boundary
-        // doesn't get a token that expires mid-upload.
-        gdriveTokenExpiry = Date.now() + resp.expires_in * 1000 - 30_000;
-        resolve(gdriveAccessToken);
-      };
-      // FedCM-specific failures (browser doesn't support it, the user
-      // dismissed the native chooser, disabled by browser policy, ...)
-      // surface here rather than through `callback` above -- without this,
-      // such a failure would leave the returned promise hanging until
-      // withTimeout()'s own ceiling (every gdriveGetToken() caller already
-      // wraps the call in one) instead of failing fast.
-      gdriveTokenClient.error_callback = (err) => {
-        reject(new Error((err && err.type) || "FedCM/token request failed"));
-      };
-      gdriveTokenClient.requestAccessToken({ prompt: interactive ? "consent" : "" });
-    });
+    return gd.getToken(interactive);
   }
 
-  // `signal` (an AbortController's, optional) lets a Cancel click actually
-  // stop an in-flight request rather than just walking away from it --
-  // see gdriveCancelSync() below, the one caller that passes one.
   async function gdriveApiFetch(url, opts, token, signal) {
-    const res = await fetch(url, { ...opts, signal, headers: { ...(opts && opts.headers), Authorization: "Bearer " + token } });
-    if (!res.ok) {
-      const body = await res.text().catch(() => "");
-      throw new Error(`Google Drive API error ${res.status}: ${body.slice(0, 200)}`);
-    }
-    return res;
+    return gd.apiFetch(url, opts, token, signal);
   }
 
   // drive.file scope only ever sees files this app itself created (or the
-  // visitor opened with it via a picker, unused here), so a plain name
-  // search among those is exactly "find the file we made last time" --
-  // there's no broader Drive access to accidentally match someone else's
-  // file with the same name.
+  // visitor opened with it via a picker), so a plain name search among
+  // those is exactly "find the file we made last time" -- there's no
+  // broader Drive access to accidentally match someone else's file with
+  // the same name.
   async function gdriveFindFile(token, signal) {
     const q = encodeURIComponent(`name='${GDRIVE_FILE_NAME}' and trashed=false`);
     const res = await gdriveApiFetch(
@@ -725,9 +639,7 @@
   }
 
   async function gdriveDownload(fileId, token, signal) {
-    const res = await gdriveApiFetch(
-      `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, { method: "GET" }, token, signal);
-    return new Uint8Array(await res.arrayBuffer());
+    return gd.download(fileId, token, signal);
   }
 
   // Resumable upload: Drive's simple "uploadType=media" is Google's own

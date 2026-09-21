@@ -15,7 +15,7 @@ html, body { margin: 0; }
 body {
   background: var(--desktop);
   color: var(--text);
-  font: 14px/1.5 var(--body-font);
+  font: 16px/1.5 var(--body-font);
   padding: var(--body-pad);
 }
 :root:not([data-theme]) body {
@@ -40,7 +40,7 @@ h1, h2, h3 { font-weight: 600; }
 .pagebar {
   display: flex; align-items: center; gap: 10px;
   background: var(--titlebar-bg); color: var(--titlebar-fg);
-  font: bold 13px Arial, Helvetica, sans-serif;
+  font: bold 14px Arial, Helvetica, sans-serif;
   padding: 4px 8px;
 }
 .pagebar a { color: inherit; }
@@ -55,7 +55,7 @@ h1, h2, h3 { font-weight: 600; }
 .pb-tools { flex: 0 0 auto; margin-left: auto; display: flex; align-items: center; gap: 10px; }
 .pb-theme { display: inline-flex; align-items: center; gap: 5px; font: inherit; }
 .pb-theme select {
-  font: 11px Arial, Helvetica, sans-serif;
+  font: 12px Arial, Helvetica, sans-serif;
   color: var(--text); background: var(--field-bg);
   border: var(--field-border); border-radius: var(--btn-radius);
   padding: 1px 3px;
@@ -70,7 +70,7 @@ h1, h2, h3 { font-weight: 600; }
 :root[data-theme="web94"] .pagebar {
   background: #c0c0c0; color: #000;
   border-bottom: 1px solid #808080;
-  font: 13px "Times New Roman", Times, serif;
+  font: 15px "Times New Roman", Times, serif;
 }
 :root[data-theme="web94"] .pb-title   { display: none; }
 :root[data-theme="web94"] .pb-winbtns { display: none; }
@@ -90,9 +90,9 @@ h1, h2, h3 { font-weight: 600; }
 :root[data-theme="modern"][data-mode="dark"] .pagebar { border-bottom: var(--rule); }
 :root[data-theme="modern"] .pb-title   { display: none; }
 :root[data-theme="modern"] .pb-winbtns { display: none; }
-:root[data-theme="modern"] .pb-home { display: inline; color: var(--link); text-decoration: none; font-weight: 600; font-size: 12px; opacity: .85; }
-:root[data-theme="modern"] .pb-name { display: block; flex: 0 0 auto; margin-left: 2px; font-weight: 700; font-size: 15px; letter-spacing: .3px; color: var(--h1-color); }
-:root[data-theme="modern"] .pb-tag { display: block; flex: 1 1 auto; min-width: 0; color: var(--muted); font-size: 12px; font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  :root[data-theme="modern"] .pb-home { display: inline; color: var(--link); text-decoration: none; font-weight: 600; font-size: 14px; opacity: .85; }
+  :root[data-theme="modern"] .pb-name { display: block; flex: 0 0 auto; margin-left: 2px; font-weight: 700; font-size: 17px; letter-spacing: .3px; color: var(--h1-color); }
+  :root[data-theme="modern"] .pb-tag { display: block; flex: 1 1 auto; min-width: 0; color: var(--muted); font-size: 14px; font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media (max-width: 700px) { :root[data-theme="modern"] .pb-tag { display: none; } }
 
 .inner { padding: 16px 20px 20px; }

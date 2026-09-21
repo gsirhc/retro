@@ -24,6 +24,34 @@ test.describe("coin door", () => {
     expect(box!.width).toBeGreaterThan(60);
   });
 
+  test("shows 1 PLAYER and 2 PLAYER start buttons above the slots", async ({ page }) => {
+    await expect(page.locator("[data-start]")).toHaveCount(2);
+    await expect(page.locator("[data-start='1']")).toHaveAttribute("aria-label", "1 Player start");
+    await expect(page.locator("[data-start='2']")).toHaveAttribute("aria-label", "2 Player start");
+    await expect(page.locator("[data-start='1'] .cab-start-img")).toBeVisible();
+    await expect(page.locator("[data-start='2'] .cab-start-img")).toBeVisible();
+  });
+
+  const in1 = (page: import("@playwright/test").Page) =>
+    page.evaluate(() => (window as any).__test.machine.in1());
+
+  test("holding 1 PLAYER clears IN1 bit 0x20, then releases", async ({ page }) => {
+    expect(await in1(page)).toBe(0xFF);
+    const btn = page.locator("[data-start='1']");
+    await btn.dispatchEvent("pointerdown", { button: 0, pointerId: 1 });
+    await expect.poll(() => in1(page)).toBe(0xFF & ~0x20);
+    await btn.dispatchEvent("pointerup", { button: 0, pointerId: 1 });
+    await expect.poll(() => in1(page)).toBe(0xFF);
+  });
+
+  test("holding 2 PLAYER clears IN1 bit 0x40, then releases", async ({ page }) => {
+    const btn = page.locator("[data-start='2']");
+    await btn.dispatchEvent("pointerdown", { button: 0, pointerId: 1 });
+    await expect.poll(() => in1(page)).toBe(0xFF & ~0x40);
+    await btn.dispatchEvent("pointerup", { button: 0, pointerId: 1 });
+    await expect.poll(() => in1(page)).toBe(0xFF);
+  });
+
   test("clicking a 25¢ slot pulses IN0 coin (bit 0x20), then releases", async ({ page }) => {
     expect(await in0(page)).toBe(0xFF);
 

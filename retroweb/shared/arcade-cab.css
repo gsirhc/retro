@@ -1,0 +1,136 @@
+/* Shared arcade cabinet fascia: painted-metal plate, 1P/2P start
+   buttons (original photoreal assets of generic US convex start
+   buttons — not vendor catalog photography), and the inner dark
+   coin door. Each machine sets color tokens on `.cab-face`. */
+
+.cab-face {
+  margin: 16px auto 0;
+  width: max-content;
+  max-width: 100%;
+  background: var(--cab-face-bg);
+  border-radius: 6px;
+  padding: 16px 18px 18px;
+  box-shadow: var(--cab-face-inset);
+}
+
+.cab-starts {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 48px;
+  margin: 0 0 14px;
+}
+
+/* Photo fills a circular clip; slight zoom hides the studio backdrop. */
+.cab-start {
+  appearance: none;
+  -webkit-appearance: none;
+  box-sizing: border-box;
+  width: 80px;
+  height: 80px;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  border-radius: 50%;
+  overflow: hidden;
+  cursor: pointer;
+  color: inherit;
+  background: #c8c4bc;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .35);
+  display: block;
+  touch-action: manipulation;
+  transition: box-shadow .08s ease;
+}
+
+.cab-start-img {
+  display: block;
+  width: 118%;
+  height: 118%;
+  margin: -9%;
+  object-fit: cover;
+  pointer-events: none;
+  user-select: none;
+  transition: transform .08s ease, filter .08s ease;
+}
+
+.cab-start:active,
+.cab-start.pressed {
+  box-shadow: 0 0 1px rgba(0, 0, 0, .3);
+}
+
+.cab-start:active .cab-start-img,
+.cab-start.pressed .cab-start-img {
+  transform: scale(.97);
+  filter: brightness(.92);
+}
+
+.coin-door {
+  background: linear-gradient(180deg, #3f3a36 0%, #2c2825 50%, #1c1a18 100%);
+  border-radius: 4px;
+  padding: 20px 24px;
+  box-shadow: inset 0 0 0 2px #534e49, inset 0 2px 4px rgba(255, 255, 255, .08),
+              inset 0 -6px 12px rgba(0, 0, 0, .55), 0 2px 0 #111;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 56px;
+}
+
+.coin-door button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  appearance: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.cd-lamp {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 80px;
+  height: 44px;
+  border-radius: 4px;
+  flex: 0 0 auto;
+  background: #140808;
+  color: #ffc8c8;
+  font: 700 22px Arial, Helvetica, sans-serif;
+  letter-spacing: .02em;
+  box-shadow: inset 0 0 0 1px #000, inset 0 3px 6px rgba(0, 0, 0, .85),
+              0 1px 0 rgba(255, 255, 255, .12);
+  transition: color .12s, box-shadow .12s;
+}
+
+.coin-door.coined .cd-lamp,
+.cd-mech:active .cd-lamp {
+  color: #fff;
+  box-shadow: inset 0 0 0 1px #000, 0 0 12px 3px rgba(255, 80, 80, .55);
+}
+
+.cd-throat {
+  width: 88px;
+  height: 44px;
+  border-radius: 4px;
+  flex: 0 0 auto;
+  background: linear-gradient(#0a0a0a, #2a2a2a 45%, #0a0a0a);
+  box-shadow: inset 0 0 0 1px #000, inset 0 4px 8px rgba(0, 0, 0, .9);
+  position: relative;
+}
+
+.cd-throat::after {
+  content: "";
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  top: 50%;
+  height: 6px;
+  transform: translateY(-50%);
+  background: #000;
+  border-radius: 2px;
+  box-shadow: 0 1px 0 #3a3a3a;
+}

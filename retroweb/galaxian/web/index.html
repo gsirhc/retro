@@ -14,6 +14,9 @@
 <link rel="stylesheet" href="shared/fullscreen.css">
 <link rel="stylesheet" href="shared/focus-hint.css">
 <link rel="stylesheet" href="shared/footer.css">
+<link rel="stylesheet" href="shared/arcade-cab.css">
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script src="https://apis.google.com/js/api.js" async defer></script>
 <style>
   :root {
     --page-max:  960px;
@@ -46,7 +49,7 @@
     position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
     overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
   }
-  .tagline { text-align: center; color: var(--dim); font-size: 12px; margin: 4px 0 0; }
+  .tagline { text-align: center; color: var(--dim); font-size: 14px; margin: 4px 0 0; }
   :root[data-theme="modern"] .tagline { display: none; }
   hr.rule { border: 0; border-top: var(--rule); margin: 12px 0; }
   :root[data-theme="modern"] hr.rule { display: none; }
@@ -59,13 +62,13 @@
   }
   .panel + .panel { margin-top: 18px; }
   .panel h2 {
-    font: bold 12px Arial, Helvetica, sans-serif;
+    font: bold 14px Arial, Helvetica, sans-serif;
     text-transform: uppercase; letter-spacing: .06em; color: var(--dim);
     margin: 0 0 10px;
   }
 
   button, select, input[type=file] {
-    font: 12px Arial, Helvetica, sans-serif; color: var(--btn-fg); background: var(--btn-bg);
+    font: 14px Arial, Helvetica, sans-serif; color: var(--btn-fg); background: var(--btn-bg);
     border: var(--btn-border); padding: 4px 10px; cursor: pointer;
   }
 
@@ -100,67 +103,19 @@
     font: 12px Arial, Helvetica, sans-serif; color: #ccc; background: #333;
     border: 1px solid #555; padding: 2px 6px; cursor: pointer;
   }
-  .keys { color: var(--dim); font-size: 12px; margin-top: 10px; text-align: center; }
+  .keys { color: var(--dim); font-size: 14px; margin-top: 10px; text-align: center; }
 
-  /* Coin slots on a black painted-metal plate (Galaxian cabinet fascia).
-     Only the 25¢ lamps and throats — clicking either pair pulses IN0
-     coin (same bit as the 5 key). */
+  /* Midway Galaxian navy painted-metal fascia. Layout lives in
+     shared/arcade-cab.css; only the cabinet color tokens stay here. */
   .cab-face {
-    margin: 16px auto 0;
-    width: max-content;
-    max-width: 100%;
-    background: linear-gradient(180deg, #2a2a2a 0%, #141414 50%, #0a0a0a 100%);
-    border-radius: 6px;
-    padding: 16px 18px 18px;
-    box-shadow: inset 0 0 0 2px #3a3a3a, inset 0 0 0 3px #000,
-                inset 0 3px 6px rgba(255,255,255,.08), inset 0 -8px 14px rgba(0,0,0,.55),
-                0 10px 24px rgba(0,0,0,.35);
-  }
-  .coin-door {
-    background: linear-gradient(180deg, #3f3a36 0%, #2c2825 50%, #1c1a18 100%);
-    border-radius: 4px;
-    padding: 20px 24px;
-    box-shadow: inset 0 0 0 2px #534e49, inset 0 2px 4px rgba(255,255,255,.08),
-                inset 0 -6px 12px rgba(0,0,0,.55), 0 2px 0 #111;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 56px;
-  }
-  .coin-door button {
-    font: inherit; color: inherit; background: none; border: 0; padding: 0;
-    cursor: pointer; appearance: none;
-    display: flex; align-items: center; gap: 12px;
-  }
-  .cd-lamp {
-    display: flex; align-items: center; justify-content: center;
-    width: 80px; height: 44px; border-radius: 4px; flex: 0 0 auto;
-    background: #140808; color: #ffc8c8;
-    font: 700 22px Arial, Helvetica, sans-serif; letter-spacing: .02em;
-    box-shadow: inset 0 0 0 1px #000, inset 0 3px 6px rgba(0,0,0,.85),
-                0 1px 0 rgba(255,255,255,.12);
-    transition: color .12s, box-shadow .12s;
-  }
-  .coin-door.coined .cd-lamp,
-  .cd-mech:active .cd-lamp {
-    color: #fff;
-    box-shadow: inset 0 0 0 1px #000, 0 0 12px 3px rgba(255,80,80,.55);
-  }
-  .cd-throat {
-    width: 88px; height: 44px; border-radius: 4px; flex: 0 0 auto;
-    background: linear-gradient(#0a0a0a, #2a2a2a 45%, #0a0a0a);
-    box-shadow: inset 0 0 0 1px #000, inset 0 4px 8px rgba(0,0,0,.9);
-    position: relative;
-  }
-  .cd-throat::after {
-    content: ""; position: absolute; left: 16px; right: 16px; top: 50%; height: 6px;
-    transform: translateY(-50%);
-    background: #000; border-radius: 2px;
-    box-shadow: 0 1px 0 #3a3a3a;
+    --cab-face-bg: linear-gradient(180deg, #2a3a8a 0%, #1a2868 42%, #0e1848 100%);
+    --cab-face-inset: inset 0 0 0 2px #4a5aaa, inset 0 0 0 3px #081030,
+                      inset 0 3px 6px rgba(255,255,255,.25), inset 0 -8px 14px rgba(0,0,0,.35),
+                      0 10px 24px rgba(0,0,0,.35);
   }
   .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
-  #romStatus { font-size: 12px; color: var(--dim); }
-  .legal { font-size: 11px; color: var(--dim); margin: 8px 0 0; line-height: 1.4; }
+  #romStatus { font-size: 14px; color: var(--dim); }
+  .legal { font-size: 13px; color: var(--dim); margin: 8px 0 0; line-height: 1.4; }
   .dip-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
@@ -171,7 +126,7 @@
     display: flex;
     flex-direction: column;
     gap: 4px;
-    font: 12px Arial, Helvetica, sans-serif;
+    font: 14px Arial, Helvetica, sans-serif;
     color: var(--dim);
   }
   .dip-grid label[hidden] { display: none; }
@@ -217,6 +172,14 @@
       </div>
       <p class="keys">Arrows / AD move &nbsp;·&nbsp; <kbd>Z</kbd>/<kbd>Space</kbd> fire &nbsp;·&nbsp; click a 25¢ slot or <kbd>5</kbd> coin &nbsp;·&nbsp; <kbd>1</kbd> 1P start &nbsp;·&nbsp; <kbd>2</kbd> 2P start</p>
       <div class="cab-face">
+        <div class="cab-starts" role="group" aria-label="Start buttons">
+          <button type="button" class="cab-start" data-start="1" aria-label="1 Player start">
+            <img class="cab-start-img" src="shared/cab-start-1p-white.png" width="80" height="80" alt="" draggable="false">
+          </button>
+          <button type="button" class="cab-start" data-start="2" aria-label="2 Player start">
+            <img class="cab-start-img" src="shared/cab-start-2p-white.png" width="80" height="80" alt="" draggable="false">
+          </button>
+        </div>
         <div class="coin-door" id="coinDoor" role="group" aria-label="Coin slots">
           <button type="button" class="cd-mech" data-coin aria-label="Insert coin, 25 cents">
             <span class="cd-lamp">25¢</span>
@@ -235,6 +198,7 @@
       <p class="legal" id="romLegal">This page ships a hardware self-test ROM, not Namco Galaxian — those ROMs are still under copyright and are <strong>not</strong> included or downloaded. Load a complete original-board set (MAME <code>galaxian</code> zip, or the loose chips). Each chip is identified by its usual name and checked by size, not a particular CRC; extra files are ignored. The set stays in this browser.</p>
       <div class="row">
         <button type="button" id="loadRomBtn">Load ROM set…</button>
+        <button type="button" id="loadRomDriveBtn">Load ROM from Google Drive</button>
         <input id="romFile" type="file" accept=".zip,.bin,.u,.v,.w,.y,.bpr" multiple hidden>
         <button type="button" id="removeRomBtn">Remove ROMs</button>
         <label><input type="checkbox" id="mute"> Mute</label>
@@ -290,11 +254,21 @@
     <button type="button" id="romErrorOk" autofocus>OK</button>
   </div>
 </dialog>
+<dialog class="site-dialog" id="romDriveLegalHint">
+  <h2>Load ROM from Google Drive</h2>
+  <p>Any ROM you select from Google Drive stays in this browser only.
+    Nothing is uploaded to our servers.</p>
+  <div class="row">
+    <button type="button" id="romDriveLegalCancel">Cancel</button>
+    <button type="button" id="romDriveLegalOk" autofocus>OK</button>
+  </div>
+</dialog>
 <script src="galaxian.js"></script>
 <script src="shared/theme-picker.js"></script>
 <script src="shared/fullscreen.js"></script>
 <script src="shared/focus-hint.js"></script>
 <script src="shared/footer.js"></script>
+<script src="shared/gdrive.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

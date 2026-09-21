@@ -6,7 +6,7 @@
   margin: 0;
   padding: 16px 22px 20px;
   color: var(--dim);
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.55;
   text-align: center;
   border-top: var(--rule, 1px solid rgba(0, 0, 0, .18));

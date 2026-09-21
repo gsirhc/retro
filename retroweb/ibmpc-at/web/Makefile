@@ -36,6 +36,7 @@ shared:
 	   $(SHARED)/fullscreen.css $(SHARED)/fullscreen.js \
 	   $(SHARED)/focus-hint.css $(SHARED)/focus-hint.js \
 	   $(SHARED)/footer.css $(SHARED)/footer.js \
+	   $(SHARED)/gdrive.js \
 	   shared/
 # Firmware + shipped HDD image are fetched/built via the native-core
 # Makefile's own targets (single source of truth for pinning/verification,

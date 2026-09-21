@@ -214,6 +214,27 @@ ScrambleArcade().then(async (Module) => {
   coinDoor.querySelectorAll("[data-coin]").forEach((el) => {
     el.addEventListener("click", insertCoin);
   });
+  document.querySelectorAll("[data-start]").forEach((el) => {
+    const code = el.getAttribute("data-start") === "2" ? "Digit2" : "Digit1";
+    const down = (e) => {
+      if (e.button != null && e.button !== 0) return;
+      e.preventDefault();
+      try { el.setPointerCapture(e.pointerId); } catch {}
+      el.classList.add("pressed");
+      keys[code] = true;
+      applyKeys();
+      screen.focus();
+      ensureAudio().catch(() => {});
+    };
+    const up = () => {
+      el.classList.remove("pressed");
+      keys[code] = false;
+      applyKeys();
+    };
+    el.addEventListener("pointerdown", down);
+    el.addEventListener("pointerup", up);
+    el.addEventListener("pointercancel", up);
+  });
 
   window.addEventListener("keydown", (e) => {
     keys[e.code] = true;
@@ -346,6 +367,31 @@ ScrambleArcade().then(async (Module) => {
     }
   }
 
+  function bufOf(bytes) {
+    if (bytes instanceof ArrayBuffer) return bytes;
+    if (ArrayBuffer.isView(bytes)) {
+      return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+    }
+    return bytes;
+  }
+
+  async function ingestRomFiles(items) {
+    const files = {};
+    for (const f of items) {
+      const name = f.name.toLowerCase();
+      let bytes;
+      if (f.bytes) bytes = f.bytes instanceof Uint8Array ? f.bytes : new Uint8Array(f.bytes);
+      else bytes = new Uint8Array(await f.arrayBuffer());
+      if (name.endsWith(".zip")) Object.assign(files, await unzip(bufOf(bytes)));
+      else files[name] = bytes;
+    }
+    const set = identifySet(files, hwtestCrcs);
+    if (!set) throw new Error("incomplete or wrong-sized ROM set");
+    applySet(set, labelFor(set.kind));
+    await idbSet(ROM_KEY, set);
+    hideRomError();
+  }
+
   document.getElementById("loadRomBtn").addEventListener("click", () => {
     document.getElementById("romFile").click();
   });
@@ -354,17 +400,20 @@ ScrambleArcade().then(async (Module) => {
     const list = [...ev.target.files];
     ev.target.value = "";
     try {
-      const files = {};
-      for (const f of list) {
-        const buf = await f.arrayBuffer();
-        if (f.name.toLowerCase().endsWith(".zip")) Object.assign(files, await unzip(buf));
-        else files[f.name.toLowerCase()] = new Uint8Array(buf);
-      }
-      const set = identifySet(files, hwtestCrcs);
-      if (!set) throw new Error("incomplete or wrong-sized ROM set");
-      applySet(set, labelFor(set.kind));
-      await idbSet(ROM_KEY, set);
-      hideRomError();
+      await ingestRomFiles(list);
+    } catch (e) {
+      setStatus("ROM rejected: " + e.message);
+      showRomError();
+    }
+  });
+
+  document.getElementById("loadRomDriveBtn").addEventListener("click", async () => {
+    const gd = window.RetroGdrive;
+    if (!gd) return;
+    try {
+      const items = await gd.pickAndDownloadRoms({ setStatus });
+      if (!items || !items.length) return;
+      await ingestRomFiles(items);
     } catch (e) {
       setStatus("ROM rejected: " + e.message);
       showRomError();
