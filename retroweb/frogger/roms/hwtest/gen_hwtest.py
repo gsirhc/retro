@@ -280,8 +280,24 @@ def assemble_main(s1, s2, s3):
     a.call(copy_screen)
     a.call(hide_sprites)
 
-    # Pulse a sound command so the second Z80 programs the AY.
+    # Pulse command 1 (POST beep), hold ~20 frames, then command 0 (silence).
     a.ld_a(1)
+    a.ld_nn_a(0xD000)
+    a.ld_a(0x08)
+    a.ld_nn_a(0xD002)
+    a.db(0xAF)
+    a.ld_nn_a(0xD002)
+    a.ld_a_nn(0x8008)
+    a.db(0xC6, 20)
+    a.db(0x47)             # LD B,A
+    beep_w = a.pc
+    a.ld_a_nn(0xE000)
+    a.ld_nn_a(0x8010)
+    a.ld_a_nn(0x8800)
+    a.ld_a_nn(0x8008)
+    a.db(0xB8)             # CP B
+    a.db(0x20, (beep_w - (a.pc + 2)) & 0xFF)
+    a.db(0xAF)
     a.ld_nn_a(0xD000)
     a.ld_a(0x08)
     a.ld_nn_a(0xD002)
@@ -309,32 +325,31 @@ def assemble_sound():
     a.org(0x0000)
     a.jp(0x0100)
 
+    def ay_out(reg, val):
+        a.ld_a(reg)
+        a.db(0xD3, 0x80)   # OUT (80),A  AY address (bit 7)
+        a.ld_a(val)
+        a.db(0xD3, 0x40)   # OUT (40),A  AY data (bit 6)
+
     a.org(0x0038)
     a.db(0xF5)
     a.ld_a(14)
-    a.db(0xD3, 0x80)       # OUT (80),A  AY address (bit 7)
+    a.db(0xD3, 0x80)
     a.db(0xDB, 0x40)       # IN A,(40)   command (bit 6 = data)
     a.db(0xA7)             # AND A
     jr_z = a.pc
-    a.db(0x28, 0)          # JR Z, patched
-    a.ld_a(0)
-    a.db(0xD3, 0x80)
-    a.ld_a(0xFE)
-    a.db(0xD3, 0x40)
-    a.ld_a(1)
-    a.db(0xD3, 0x80)
-    a.ld_a(1)
-    a.db(0xD3, 0x40)
-    a.ld_a(7)
-    a.db(0xD3, 0x80)
-    a.ld_a(0x38)
-    a.db(0xD3, 0x40)
-    a.ld_a(8)
-    a.db(0xD3, 0x80)
-    a.ld_a(0x0F)
-    a.db(0xD3, 0x40)
-    skip = a.pc
-    a.mem[jr_z + 1] = (skip - (jr_z + 2)) & 0xFF
+    a.db(0x28, 0)          # JR Z → silence
+    ay_out(0, 0xFE)        # tone A period ~219 Hz
+    ay_out(1, 1)
+    ay_out(7, 0x38)        # tone A on, noise off
+    ay_out(8, 0x0F)
+    jr_done = a.pc
+    a.db(0x18, 0)          # JR done, patched
+    hush = a.pc
+    a.mem[jr_z + 1] = (hush - (jr_z + 2)) & 0xFF
+    ay_out(8, 0)
+    done = a.pc
+    a.mem[jr_done + 1] = (done - (jr_done + 2)) & 0xFF
     a.db(0xF1)
     a.db(0xFB)
     a.db(0xED, 0x4D)       # RETI
@@ -432,78 +447,13 @@ def write_png(path, w, h, rgb_rows):
 
 
 def marquee_png(path):
-    """Landing-page thumbnail: original upright-marquee layout (black
-    housing, backlit green plexi, the game's name). Not Konami/Sega art."""
-    w, h = 286, 128
-    pix = [[(14, 12, 10) for _ in range(w)] for _ in range(h)]
-
-    def put(x, y, rgb):
-        if 0 <= x < w and 0 <= y < h:
-            pix[y][x] = rgb
-
-    def lerp(a, b, t):
-        return tuple(int(a[i] + (b[i] - a[i]) * t) for i in range(3))
-
-    x0, y0, x1, y1 = 8, 8, w - 8, h - 8
-    for y in range(h):
-        for x in range(w):
-            in_lip = 5 <= x < w - 5 and 5 <= y < h - 5
-            in_plexi = x0 <= x < x1 and y0 <= y < y1
-            if in_plexi:
-                ty = (y - y0) / (y1 - y0)
-                tx = abs((x - w / 2) / (w / 2))
-                base = lerp((80, 196, 72), (20, 96, 36), ty)
-                hot = (200, 255, 180)
-                pix[y][x] = lerp(base, hot, 0.28 * (1 - tx) * (1 - abs(ty - 0.35)))
-            elif in_lip:
-                pix[y][x] = (40, 120, 48) if (x == 5 or y == 5 or x == w - 6 or y == h - 6) else (16, 32, 16)
-
-    def blit_char(ch, ox, oy, scale, fill, outline):
-        rows = FONT.get(ch, FONT[" "])
-        for gy, bits in enumerate(rows):
-            if gy == 7:
-                continue
-            for gx in range(8):
-                if not (bits & (0x80 >> gx)):
-                    continue
-                for dy in range(scale):
-                    for dx in range(scale):
-                        px, py = ox + gx * scale + dx, oy + gy * scale + dy
-                        for ox2, oy2 in ((-1, 0), (1, 0), (0, -1), (0, 1),
-                                         (-1, -1), (1, -1), (-1, 1), (1, 1)):
-                            put(px + ox2, py + oy2, outline)
-        for gy, bits in enumerate(rows):
-            if gy == 7:
-                continue
-            for gx in range(8):
-                if not (bits & (0x80 >> gx)):
-                    continue
-                for dy in range(scale):
-                    for dx in range(scale):
-                        put(ox + gx * scale + dx, oy + gy * scale + dy, fill)
-
-    text, scale, gap, ty = "FROGGER", 4, 3, 28
-    fill, outline = (16, 80, 24), (0, 24, 8)
-    cw = 8 * scale
-    tw = len(text) * cw + (len(text) - 1) * gap
-    tx = (w - tw) // 2
-    for i, ch in enumerate(text):
-        blit_char(ch, tx + i * (cw + gap), ty, scale, fill, outline)
-
-    # Five lily-pad circles — original, not Konami sprites.
-    pads = 5
-    py = 98
-    span = 160
-    p0 = (w - span) // 2
-    for i in range(pads):
-        cx = p0 + i * (span // (pads - 1))
-        for dy in range(-8, 9):
-            for dx in range(-10, 11):
-                if dx * dx / 100 + dy * dy / 64 <= 1:
-                    put(cx + dx, py + dy, (32, 140, 48) if (dx + dy) & 1 else (20, 100, 36))
-
-    rows = [bytearray(c for rgb in row for c in rgb) for row in pix]
-    write_png(path, w, h, rows)
+    """Landing-page tile. Shared renderer — see retroweb/shared/marquee.py."""
+    import sys
+    shared = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "shared"))
+    if shared not in sys.path:
+        sys.path.insert(0, shared)
+    from marquee import render_marquee
+    render_marquee(path, "frogger")
 
 
 def main():

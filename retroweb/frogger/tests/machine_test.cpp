@@ -161,16 +161,22 @@ TEST(Machine, HwtestVoiceIsAudible) {
     frogger::Machine m;
     m.load_roms(test_set());
     m.reset();
-    // Crosshatch + color bars (~3 s) then the sound pulse.
-    m.run_cycles(frogger::kCpuHz * 4);
     m.audio.clear();
-    m.run_cycles(frogger::kCpuHz / 20);
+    // Crosshatch + color bars (~3 s) then a short POST beep.
+    m.run_cycles(frogger::kCpuHz * 4);
     ASSERT_FALSE(m.audio.empty());
     bool any = false;
     for (float s : m.audio) {
         if (s != 0.0f) { any = true; break; }
     }
-    EXPECT_TRUE(any) << "self-test ROM should leave the AY playing a tone";
+    EXPECT_TRUE(any) << "self-test ROM should beep the AY after the screens";
+    m.audio.clear();
+    m.run_cycles(frogger::kCpuHz / 5);
+    bool still = false;
+    for (float s : m.audio) {
+        if (s != 0.0f) { still = true; break; }
+    }
+    EXPECT_FALSE(still) << "POST beep should end; help screen is silent";
 }
 
 TEST(Machine, HwtestHelpScreenShowsCopyrightPrompt) {
