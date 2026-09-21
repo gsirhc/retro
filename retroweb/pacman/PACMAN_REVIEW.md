@@ -45,7 +45,8 @@ Ms. Pac-Man is the same page with `?game=mspacman`: the GCC conversion
 kit's aux board in the Z80 socket, not a second machine. The landing
 page has two cards to that one URL. Cocktail-cabinet player-2 joystick
 and a distinct painted Ms. Pac-Man bezel stay out of scope (the home-page
-card uses an original generated marquee, not Midway art).
+card is an original 286×128 Courier New starfield tile from
+`retroweb/shared/marquee.py`, not Midway art).
 
 The aux board relocates the same Z80 (not a second CPU), adds U5 (2716)
 and U6/U7 (2532), and a PAL/HAL overlay. Address and data lines on those
@@ -360,8 +361,8 @@ to load their own Midway `pacman` set; it stays in this browser. On
 `MS PAC-MAN ARCADE` / `MS PAC-MAN ROMS` / `MIDWAY MSPACMAN SET` instead
 (`Machine.MsPacmanHwtestHelpScreenShowsMsPacManTitle`,
 `web/tests/mspacman.spec.ts`). The landing-page cards use two original
-marquees from the same script (`assets/pacman-cabinet.png` and
-`assets/mspacman-cabinet.png`). The ROM
+286×128 tiles from `retroweb/shared/marquee.py` (`assets/pacman-cabinet.png`
+and `assets/mspacman-cabinet.png`), invoked from this same generator. The ROM
 also still writes a RAM signature (`TST1` bytes), IRQ-echoes the joystick
 into RAM, drives one WSG voice, parks a sprite during the test patterns,
 and kicks the watchdog — enough for GoogleTest

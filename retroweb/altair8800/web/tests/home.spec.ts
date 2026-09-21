@@ -20,10 +20,11 @@ test.describe("retroweb landing page", () => {
     // the front-panel thumbnail is served from assets/ and decodes
     const shot = card.locator("img.shot");
     await expect(shot).toHaveAttribute("src", /assets\/altair-panel\.jpg$/);
+    await expect(shot).toHaveAttribute("width", "286");
+    await expect(shot).toHaveAttribute("height", "128");
     await expect(shot).toHaveJSProperty("complete", true);
-    expect(
-      await shot.evaluate((img: HTMLImageElement) => img.naturalWidth),
-    ).toBeGreaterThan(0);
+    expect(await shot.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(286);
+    expect(await shot.evaluate((img: HTMLImageElement) => img.naturalHeight)).toBe(128);
   });
 
   test("the theme selector switches the page and persists to retro8080.theme", async ({ page }) => {

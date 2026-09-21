@@ -9,7 +9,8 @@ source — same rule as Pac-Man vs. `pacman.cpp`.
 Dual Z80 + Galaxian video + AY-3-8910 + two i8255s, covered by GoogleTest
 (`make check`) and a generated hardware self-test ROM. The Emscripten front
 end ships the self-test; a real Konami/Sega `frogger` set is opt-in and
-browser-local. Landing-page card and CI jobs (`frogger-test` /
+browser-local. Landing-page card (286×128 Courier New starfield tile from
+`retroweb/shared/marquee.py`) and CI jobs (`frogger-test` /
 `frogger-web-test`) are wired in. The Z80 core lives in
 `retroweb/shared/cpu/` and is shared with Pac-Man.
 
