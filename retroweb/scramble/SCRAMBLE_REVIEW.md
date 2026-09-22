@@ -93,3 +93,14 @@ IN2: U/D `$10/$40`, coinage bits 2:1, cabinet bit 3, protection bits 5/7.
 Optional. `roms/user/`, `SCRAMBLE_ROM`, or `~/Downloads/scramble.zip`.
 Size-check only, MAME `scramble` chip names. IndexedDB `retroweb-scramble`.
 CI never has a Konami dump, so playthrough tests skip there.
+
+## 9. Known simplifications
+
+- Cocktail P2 stick unmapped; coin counters not modeled.
+- Filter netlist writes at `$9000` ignored (dry mix).
+- **HIGH SCORE RAM is volatile on the real PCB.** There is no battery.
+  `$4200` (10 × 3 BCD) plus displayed HI at `$40A8` die on power-off. The
+  Konami parent set has no initials. This page always persists those bytes
+  in IndexedDB for a user ROM — a labelled departure. **Reset HIGH SCORE**
+  deletes the save and `machine.reset()`s the board. Covered by
+  `web/tests/hiscore.spec.ts`.

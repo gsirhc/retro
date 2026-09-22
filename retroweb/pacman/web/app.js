@@ -5,7 +5,6 @@ const IDB_NAME = "retroweb-pacman";
 const IDB_STORE = "roms";
 const TEST = new URLSearchParams(location.search).has("test");
 const MSPAC = new URLSearchParams(location.search).get("game") === "mspacman";
-const KEEP_HISCORE_KEY = "retroweb.pacman.keepHiscore";
 const DIP_KEY = MSPAC ? "retroweb.mspacman.dips" : "retroweb.pacman.dips";
 const ROM_KEY = MSPAC ? "set-mspacman" : "set";
 const DSW1_FACTORY = 0xC9;
@@ -261,11 +260,13 @@ PacmanArcade().then(async (Module) => {
   const img = ctx.createImageData(224, 288);
   const status = document.getElementById("romStatus");
   const mute = document.getElementById("mute");
-  const keepHiscore = document.getElementById("keepHiscore");
+  const resetHiscore = document.getElementById("resetHiscore");
+  const hiscoreResetHint = document.getElementById("hiscoreResetHint");
 
   let usingUserRom = false;
   let programCrc = 0;
   let hiscoreRestored = false;
+  let restoredBytes = null;
   let lastSavedHiscore = "";
   let in0 = 0xFF, in1 = 0xFF;
   let rackTest = false;
@@ -390,7 +391,9 @@ PacmanArcade().then(async (Module) => {
     if (romErrorHint && romErrorHint.open) romErrorHint.close();
   }
 
-  function keepingHiscore() { return !!(keepHiscore && keepHiscore.checked); }
+  function syncHiscoreResetBtn() {
+    if (resetHiscore) resetHiscore.disabled = !usingUserRom;
+  }
 
   function readHiscore() {
     const b = [];
@@ -401,39 +404,99 @@ PacmanArcade().then(async (Module) => {
   function writeHiscore(bytes) {
     if (!bytes || bytes.length < HISCORE_LEN) return;
     for (let i = 0; i < HISCORE_LEN; i++) machine.setRamByte(HISCORE_ADDR + i, bytes[i] & 0xff);
+    paintHiscoreTiles(bytes);
+  }
+
+  // Midway #2A9B/#2ABE (cubeman.org mspac.asm): HIGH SCORE digits are only
+  // copied to tilemap $43F2 when a player's score beats TOP — attract never
+  // redraws them from $4E88. Paint the same 6 tiles (and color RAM at +$400)
+  // so boot restore is visible. Palette comes from the ROM-drawn "00".
+  function paintHiscoreTiles(bytes) {
+    if (!machine.setMemByte) return;
+    let color = machine.memRead(0x47F2) & 0x3f;
+    if (!color) color = machine.memRead(0x47ED) & 0x3f;
+    if (!color) color = 0x0f;
+    let hl = 0x43F2;
+    let c = 4;
+    for (let i = 2; i >= 0; i--) {
+      const b = bytes[i] & 0xff;
+      for (const nib of [(b >> 4) & 0xf, b & 0xf]) {
+        let tile;
+        if (nib !== 0) { c = 0; tile = nib; }
+        else if (c === 0) tile = 0;
+        else { tile = 0x40; c--; }
+        machine.setMemByte(hl, tile);
+        machine.setMemByte(hl + 0x400, color);
+        hl--;
+      }
+    }
   }
 
   function hiscoreIsZero(b) { return !b[0] && !b[1] && !b[2]; }
 
+  // Pac-Man TOP is BCD, multiples of 10 (ones nibble always 0). Attract
+  // leftover at $4E88 often looks like a counter, not a score.
+  function isPlausibleTop(b) {
+    if (!b || b.length < HISCORE_LEN || hiscoreIsZero(b)) return false;
+    for (const x of b) {
+      if (((x >> 4) & 0xf) > 9 || (x & 0xf) > 9) return false;
+    }
+    return (b[0] & 0xf) === 0;
+  }
+
+  function bcdScore(b) {
+    let n = 0;
+    for (let i = 2; i >= 0; i--) n = n * 100 + ((b[i] >> 4) & 0xf) * 10 + (b[i] & 0xf);
+    return n;
+  }
+
   async function loadSavedHiscores() {
     const all = await idbGet("hiscores");
-    return (all && typeof all === "object") ? all : {};
+    if (!all || typeof all !== "object" || Array.isArray(all)) return {};
+    return { ...all };
   }
+
+  function hiscoreKey() { return String(programCrc >>> 0); }
 
   async function saveHiscoreNow(bytes) {
     const all = await loadSavedHiscores();
-    all[programCrc >>> 0] = [bytes[0] & 0xff, bytes[1] & 0xff, bytes[2] & 0xff];
+    all[hiscoreKey()] = [bytes[0] & 0xff, bytes[1] & 0xff, bytes[2] & 0xff];
     await idbSet("hiscores", all);
     lastSavedHiscore = bytes.join(",");
+    restoredBytes = [bytes[0] & 0xff, bytes[1] & 0xff, bytes[2] & 0xff];
+  }
+
+  // POST's RAM test walks patterns through work RAM, including $4E00==1.
+  // That is not attract (Midway #03CE). Wait out ~8 s of irq-on frames
+  // and a stable mode-1 streak before touching $4E88.
+  let attractStreak = 0;
+  function attractReady() {
+    const st = machine.state();
+    if (machine.ramByte(0x4E00) === 1 && st.irqEnable && st.frames >= 480) {
+      attractStreak++;
+    } else {
+      attractStreak = 0;
+    }
+    return attractStreak >= 30;
   }
 
   let restoreInFlight = false;
-  async function maybeRestoreHiscore() {
-    if (!keepingHiscore() || !usingUserRom || restoreInFlight) return;
-    // POST zeros work RAM, including TOP. Wait for attract ($4E00 == 1)
-    // and only write back if the ROM still has a zero high score.
-    if (machine.ramByte(0x4E00) !== 1) return;
-    if (!hiscoreIsZero(readHiscore())) {
-      hiscoreRestored = true;
-      return;
-    }
+  async function maybeRestoreHiscore(ready) {
+    if (!usingUserRom || restoreInFlight || hiscoreRestored) return;
+    if (!ready) return;
     restoreInFlight = true;
     try {
       const all = await loadSavedHiscores();
-      const saved = all[programCrc >>> 0];
-      if (saved && saved.length >= HISCORE_LEN) writeHiscore(saved);
+      const saved = all[hiscoreKey()];
+      if (saved && isPlausibleTop(saved)) {
+        restoredBytes = Array.from(saved).slice(0, HISCORE_LEN);
+        writeHiscore(restoredBytes);
+      } else {
+        const live = readHiscore();
+        if (isPlausibleTop(live)) restoredBytes = live;
+      }
       hiscoreRestored = true;
-      lastSavedHiscore = readHiscore().join(",");
+      lastSavedHiscore = (restoredBytes || readHiscore()).join(",");
     } finally {
       restoreInFlight = false;
     }
@@ -441,22 +504,40 @@ PacmanArcade().then(async (Module) => {
 
   let saveInFlight = false;
   async function maybeSaveHiscore() {
-    if (!keepingHiscore() || !usingUserRom || saveInFlight) return;
+    if (!usingUserRom || saveInFlight || !hiscoreRestored) return;
     const cur = readHiscore();
-    if (hiscoreIsZero(cur) && !hiscoreRestored) return;
+    if (!isPlausibleTop(cur)) return;
+    if (restoredBytes && bcdScore(cur) <= bcdScore(restoredBytes)) return;
     const key = cur.join(",");
     if (key === lastSavedHiscore) return;
     saveInFlight = true;
-    try { await saveHiscoreNow(cur); }
-    finally { saveInFlight = false; }
+    try {
+      await saveHiscoreNow(cur);
+      restoredBytes = cur;
+    } finally { saveInFlight = false; }
   }
 
-  try {
-    keepHiscore.checked = localStorage.getItem(KEEP_HISCORE_KEY) === "1";
-  } catch {}
-  keepHiscore.addEventListener("change", () => {
-    try { localStorage.setItem(KEEP_HISCORE_KEY, keepHiscore.checked ? "1" : "0"); } catch {}
-    if (!keepHiscore.checked) hiscoreRestored = false;
+  async function resetHiscoreNow() {
+    if (!usingUserRom) return;
+    hiscoreRestored = false;
+    restoredBytes = null;
+    attractStreak = 0;
+    lastSavedHiscore = readHiscore().join(",");
+    const all = await loadSavedHiscores();
+    delete all[hiscoreKey()];
+    await idbSet("hiscores", all);
+    machine.reset();
+    applyDips();
+  }
+
+  resetHiscore.addEventListener("click", () => {
+    if (!usingUserRom) return;
+    if (hiscoreResetHint && !hiscoreResetHint.open) hiscoreResetHint.showModal();
+  });
+  document.getElementById("hiscoreResetCancel")?.addEventListener("click", () => hiscoreResetHint?.close());
+  document.getElementById("hiscoreResetOk")?.addEventListener("click", async () => {
+    hiscoreResetHint?.close();
+    await resetHiscoreNow();
   });
 
   const dipCoinage = document.getElementById("dipCoinage");
@@ -530,7 +611,10 @@ PacmanArcade().then(async (Module) => {
     programCrc = crc32(set.program);
     if (set.aux) programCrc = crc32(set.u5) ^ crc32(set.u6) ^ crc32(set.u7) ^ programCrc;
     hiscoreRestored = false;
+    restoredBytes = null;
+    attractStreak = 0;
     lastSavedHiscore = "";
+    syncHiscoreResetBtn();
     setStatus(label);
   }
 
@@ -542,6 +626,10 @@ PacmanArcade().then(async (Module) => {
     else machine.loadHwtest();
     usingUserRom = false;
     hiscoreRestored = false;
+    restoredBytes = null;
+    attractStreak = 0;
+    lastSavedHiscore = "";
+    syncHiscoreResetBtn();
     setStatus("Running test ROM");
   }
 
@@ -623,8 +711,20 @@ PacmanArcade().then(async (Module) => {
     if (dt > 0.08) dt = 0.08;
     const cycles = Math.floor(CPU_HZ * dt);
     if (cycles > 0) machine.runCycles(cycles);
-    maybeRestoreHiscore().catch(() => {});
+    const ready = attractReady();
+    maybeRestoreHiscore(ready).catch(() => {});
     maybeSaveHiscore().catch(() => {});
+    if (usingUserRom && hiscoreRestored && restoredBytes) {
+      const live = readHiscore();
+      if (isPlausibleTop(live) && bcdScore(live) > bcdScore(restoredBytes)) {
+        restoredBytes = live;
+        paintHiscoreTiles(restoredBytes);
+      } else if (ready) {
+        writeHiscore(restoredBytes);
+      } else {
+        paintHiscoreTiles(restoredBytes);
+      }
+    }
     blit();
     pumpAudio();
     requestAnimationFrame(tick);
@@ -636,21 +736,34 @@ PacmanArcade().then(async (Module) => {
       machine,
       get status() { return status.textContent; },
       get usingUserRom() { return usingUserRom; },
-      keepHiscore,
       mute,
       get muted() { return !!mute.checked; },
       encodeDsw1,
       readHiscore,
       writeHiscore,
+      paintHiscoreTiles,
       saveHiscoreNow,
+      maybeSaveHiscore,
+      resetHiscoreNow,
+      hiscoreTiles: () => {
+        const t = [];
+        for (let a = 0x43F2; a >= 0x43ED; a--) t.push(machine.memRead(a) & 0xff);
+        return t;
+      },
+      get hiscoreRestored() { return hiscoreRestored; },
+      get mode() { return machine.ramByte(0x4E00); },
+      get hiscoreKey() { return hiscoreKey(); },
       restoreHiscoreNow: async () => {
         // Same gates as maybeRestoreHiscore, but skip the attract wait —
         // the generated self-test ROM (even CRC-patched as a "user" set)
         // never sets $4E00 == 1.
-        if (!keepingHiscore() || !usingUserRom) return false;
+        if (!usingUserRom) return false;
         const all = await loadSavedHiscores();
-        const saved = all[programCrc >>> 0];
-        if (saved && saved.length >= HISCORE_LEN) writeHiscore(saved);
+        const saved = all[hiscoreKey()];
+        if (saved && saved.length >= HISCORE_LEN) {
+          restoredBytes = Array.from(saved).slice(0, HISCORE_LEN);
+          writeHiscore(restoredBytes);
+        }
         hiscoreRestored = true;
         lastSavedHiscore = readHiscore().join(",");
         return true;
@@ -661,6 +774,12 @@ PacmanArcade().then(async (Module) => {
       applySet,
       MSPAC,
       ROM_KEY,
+      loadSavedHiscores,
+      wipeStorage: async () => {
+        await idbDel("set");
+        await idbDel("set-mspacman");
+        await idbDel("hiscores");
+      },
     };
   }
 });

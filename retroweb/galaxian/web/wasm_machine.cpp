@@ -107,6 +107,10 @@ public:
         if (addr < 0x4000 || addr >= 0x4400) return -1;
         return m_.ram[unsigned(addr - 0x4000)];
     }
+    void setRamByte(int addr, int v) {
+        if (addr < 0x4000 || addr >= 0x4400) return;
+        m_.ram[unsigned(addr - 0x4000)] = uint8_t(v);
+    }
     int memRead(int addr) { return m_.mem_read(uint16_t(addr & 0xFFFF)); }
 
 private:
@@ -134,5 +138,6 @@ EMSCRIPTEN_BINDINGS(galaxian) {
         .function("screenWidth", &Machine::screenWidth)
         .function("screenHeight", &Machine::screenHeight)
         .function("ramByte", &Machine::ramByte)
+        .function("setRamByte", &Machine::setRamByte)
         .function("memRead", &Machine::memRead);
 }

@@ -134,6 +134,9 @@ spec sheet or reference document. Every addition must:
   clearly (README, boot banner) as a compatible stand-in, not the literal
   factory firmware — the same labelled-departure rule as any override above.
 
+Arcade cabinets (Pac-Man, Frogger, Scramble, Galaxian, and any new one) also
+follow [`.claude/arcade.md`](.claude/arcade.md).
+
 ## Wiring a machine into the site
 
 `retroweb/index.html` (the landing page) and `retroweb/Makefile` (site
@@ -223,6 +226,12 @@ matters.
 - `*.bin` and `*.dsk` are git-ignored — binary media (BASIC images, disk images)
   are fetched at build time by the `fetch-*.sh` scripts, not committed.
 - Commit messages: no AI attribution, no `Co-Authored-By` trailer.
+- **One working copy.** Always work in `/Users/chrisgall/code/retro` (the git
+  root). Never `git worktree add`, never create sibling folders
+  (`retro-about`, `retro-arcade-hiscore`, …). Point Cursor at that path.
+- **Ask where new work goes.** Default is `main`. Before starting, ask Chris
+  whether to stay on `main` or work on a branch — do not create a branch
+  unless he says so. Do not open pull requests unless asked.
 
 ## Code comments
 

@@ -83,3 +83,12 @@ Optional. `roms/user/`, `GALAXIAN_ROM`, `~/images/arcade/galaxian.zip`, or
 `~/Downloads/galaxian.zip`. Size-check only, MAME `galaxian` / `galaxiana`
 chip names. IndexedDB `retroweb-galaxian`. CI never has a Namco dump, so
 playthrough tests skip there.
+
+## 8. Known simplifications
+
+- Cocktail P2 stick unmapped; coin counters and lamps not modeled.
+- **HIGH SCORE RAM is volatile on the real PCB.** There is no battery.
+  `$40A8` (3 BCD HI-SCORE, `hiscore.dat`) dies on power-off. This page always
+  persists those bytes in IndexedDB for a user ROM — a labelled departure.
+  **Reset HIGH SCORE** deletes the save and `machine.reset()`s the board.
+  Covered by `web/tests/hiscore.spec.ts`.

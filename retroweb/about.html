@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>About — RETRO</title>
+<title>Help / About</title>
 <link rel="icon" href="assets/favicon.ico" sizes="any">
 <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="assets/favicon-16.png">
@@ -55,8 +55,8 @@
 <div class="page">
   <header class="pagebar">
     <a class="pb-home" href="./">&#8592;&nbsp;All&nbsp;machines</a>
-    <span class="pb-title"><img class="pb-icon" src="assets/favicon-32.png" alt="" aria-hidden="true"> ABOUT</span>
-    <span class="pb-name">About</span>
+    <span class="pb-title"><img class="pb-icon" src="assets/favicon-32.png" alt="" aria-hidden="true"> HELP_ABOUT</span>
+    <span class="pb-name">Help / About</span>
     <span class="pb-tag">Vintage machines, running entirely in your browser</span>
     <span class="pb-tools">
       <label class="pb-theme">Theme
@@ -73,7 +73,7 @@
   </header>
 
   <div class="inner">
-    <h1>About</h1>
+    <h1>Help / About</h1>
     <p class="tagline">Vintage machines, running entirely in your browser.</p>
 
     <p>
@@ -100,36 +100,42 @@
     <p>
       The hardware emulation is written from scratch in C++ and compiled to a WebAssembly module so the system
       runs natively in your browser.  There are no virtual machines or 3rd party emulator engines involved.  Where applicable, hard drive and 
-      ROM images are automatically saved/updated in the browser's IndexedDB storage so you don't lose your data
-      when you leave the site.  Do note that none of your ROMs, floppy disks, hard disks or paper tapes are uploaded to our servers.  
-      Everything is stored in your browser or your Google Drive account.
+      ROM images are automatically saved/updated in the browser's IndexedDB storage so you don't lose your data.  
+      Note that none of your ROMs, floppy disks, hard disks or paper tapes are uploaded to our servers.  
+      Everything is stored only in your browser or your Google Drive account.
+    </p>
+    <p>
+      <b>High-Scores:</b> For arcade games with high-scores, the emulators will store your scores in browser storage alongside
+      your ROMs to maintain them between sessions.  The games are true to 
+      life where some only ran a single high-score (no initials) and some store ranked initials.  What may not be true to life
+      is traditionally high-scores reset when the game lost power.  Since we are in a browser, the games "lose power" all
+      the time so storing off high-scores makes it more fun.  You can reset your high-scores at any time.
     </p>
 
     <h3>Google Drive</h3>
     <p>
       Some emulators provide integration with Google Drive which is currently by invitation only.  
-      Please contact me below if you'd like to use this feature.  Send the email from your Google Drive account, 
-      or include which email you'd like me to use.
+      Please contact me below if you'd like to use this feature.
     </p>
 
     <h3>Why is software not included?</h3>
     <p>
       This site generally doesn't host proprietary software.  However, it does provide a way for you to 
       add such software to the emulators.  Systems featuring ROMs, hard drives, floppy drives or tape readers allow you to install
-      or run software like you would have back in the day.
+      and run software like you would have back in the day.
     </p>
 
     <h3>Use of AI</h3>
     <p>
-      The majority of the work was done using Artificial Intelligence (AI) agents, 
+      The work for this site is done in conjunction with Artificial Intelligence (AI), 
       in particular, Claude and Cursor.  I am an old-school professional programmer but I found that AI could allow
-      me to build complex hardware emulation without poring over dense specifications.  I decided
+      me to build complex hardware emulation without poring over dense specifications.  So, I decided
       to take on the role of a software architect where I prompted the AI agents to build the software how
       I envisioned.  
     </p>
     <p>
-      I know there are AI haters out there but I invite you to check out the site anyway.
-      I've done my best to assure no AI-slop and any bugs should be traditional in nature.  If AI is really
+      I know there are AI haters out there (I used to be one) but I invite you to check out the site anyway.
+      I've done my best to assure no AI-slop so any bugs should be traditional in nature.  If AI is really
       not your jam, thats fine.  There are plenty of non-AI built emulators out there.
     </p>
 
@@ -138,20 +144,21 @@
       The emulators built on this site are primarily chosen from my own experience or curiosity:
     </p>
     <ul>
-      <li><b>Altair 8800</b>: This one fascinates me for its raw programming.  I was born when it came out.</li>
+      <li><b>Altair 8800</b>: This one fascinates me for its bare-bones raw programming.  Not to mention, it was one of the first microcomputers.</li>
       <li><b>IBM PC-AT</b>: This was my first computer.  I wrote so many BASIC programs on it.</li>
-      <li><b>486 DX-66</b>: My first custom built PC (Computer Shopper!).  However, I don't remember the exact hardware I used so this implementation is era correct maxxed out.</li>
+      <li><b>486 DX-66</b>: My first custom built PC (Computer Shopper!).  However, I don't remember the exact hardware I used so this implementation is era correct maxed out.</li>
       <li><b>6502 Assembler</b>: I tried to build this IRL but failed.  This is loosly based on the Ben Eater board.</li>
-      <li><b>Arcades</b>: These are just cool and fairly simple since the boards have 1 purpose.
-      You may notice arcades grouped by CPU.  Thats because once you emulate one game, the related games are (mostly) easy.  
-      Also notice how some original arcades ran two or even three CPUs.  Multi-core before it was cool.</li>
+      <li><b>Arcades</b>: These are just cool and fairly simple since the boards have only one purpose.
+      You may notice arcades grouped by CPU.  Once you emulate a game, the related games are (mostly) easy.  
+      Also notice in the descriptions how some original arcades ran two or more CPUs.  Those are failthully emulated
+      here as they were built back in the day.</li>
     </ul>
 
     <h3>What's Next?</h3>
     <p>
-      I have too many ideas so there is much more to come.  However, the 286/486 CPUs may be the most "modern" systems I build
-        as they are very complex due to the paged and protected memory.  Not to mention, the increasing graphics and sound
-        complexity of those systems.  But there are no shortage of systems to build with less complexity.
+      I have too many ideas so there is much more to come from full computer systems to arcade games.
+      If you have ideas, please contact me below.  I miss when the internet was a place to share ideas (and get flamed)
+      so rather than doom-scrolling on by, share your ideas with me.
     </p>
 
     <h3>Contact Me</h3>

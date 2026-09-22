@@ -434,13 +434,21 @@ a credit into Namco's program.
   coin-counter or lockout coils.
 - **HIGH SCORE RAM is volatile on the real PCB.** There is no battery.
   `$4E88–$4E8A` (BCD TOP, low byte first — Data Crystal RAM map) dies on
-  power-off. A page refresh is a power cycle, so the default is to lose it.
-  **Keep HIGH SCORE after refresh** (`#keepHiscore` in `web/index.html`) is
-  an opt-in labelled departure: it stores those three bytes in IndexedDB
-  keyed by program CRC and pokes them back once attract starts (`$4E00 ==
-  1`) and TOP is still zero. Off (the default) is authentic.
-  `web/tests/hiscore.spec.ts` covers default-off, the checkbox surviving
-  a reload, an IndexedDB round-trip with the box on, and a no-restore
-  with the box off. CI has no Namco dump, so save/restore goes through
-  the `?test=1` `__test` seam (CRC-patched self-test ROM as a stand-in
-  user set) rather than waiting for attract on the real program.
+  power-off. A page refresh is a power cycle. This page always persists those
+  three bytes in IndexedDB (keyed by program CRC) for a user ROM and pokes
+  them back once attract is stable (`$4E00 == 1` with irq on after ~8 s —
+  POST's RAM test also writes `1` through `$4E00`, and poking `$4E88`
+  during that test fails as BAD RAM), preferring the saved TOP over
+  leftover attract bytes at `$4E88`, and paints the six HIGH SCORE tiles
+  at `$43F2` (Midway `#2ABE` — the ROM only copies TOP to the tilemap
+  when a score beats it, not on attract) — a labelled departure.
+  **Reset HIGH SCORE** (`#resetHiscore`) is how you get
+  the authentic empty table: a `.site-dialog` confirm deletes the save and
+  `machine.reset()`s the board. The button is disabled on the self-test ROM.
+  `web/tests/hiscore.spec.ts` covers persist-across-reload, Cancel keeping
+  the bytes, and confirm clearing them. CI has no Namco dump, so
+  save/restore goes through the `?test=1` `__test` seam (CRC-patched
+  self-test ROM as a stand-in user set). When a local `pacman.zip` /
+  `mspacman.zip` is present, the same file also waits for real attract
+  restore (not the seam) and asserts `$4E88` plus the `$43F2` tiles and
+  their canvas pixels.

@@ -6,6 +6,8 @@ const IDB_STORE = "roms";
 const TEST = new URLSearchParams(location.search).has("test");
 const DIP_KEY = "retroweb.frogger.dips";
 const ROM_KEY = "set";
+const HISCORE_ADDR = 0x83EF;
+const HISCORE_LEN = 12;
 
 function crc32(bytes) {
   let c = ~0;
@@ -181,8 +183,13 @@ FroggerArcade().then(async (Module) => {
   const img = ctx.createImageData(224, 256);
   const status = document.getElementById("romStatus");
   const mute = document.getElementById("mute");
+  const resetHiscore = document.getElementById("resetHiscore");
+  const hiscoreResetHint = document.getElementById("hiscoreResetHint");
 
   let usingUserRom = false;
+  let programCrc = 0;
+  let hiscoreRestored = false;
+  let lastSavedHiscore = "";
   const keys = {};
   let coinUntil = 0;
   const coinDoor = document.getElementById("coinDoor");
@@ -318,6 +325,93 @@ FroggerArcade().then(async (Module) => {
     if (romErrorHint && romErrorHint.open) romErrorHint.close();
   }
 
+  function syncHiscoreResetBtn() {
+    if (resetHiscore) resetHiscore.disabled = !usingUserRom;
+  }
+
+  function readHiscore() {
+    const b = [];
+    for (let i = 0; i < HISCORE_LEN; i++) b.push(machine.ramByte(HISCORE_ADDR + i) & 0xff);
+    return b;
+  }
+
+  function writeHiscore(bytes) {
+    if (!bytes || bytes.length < HISCORE_LEN) return;
+    for (let i = 0; i < HISCORE_LEN; i++) machine.setRamByte(HISCORE_ADDR + i, bytes[i] & 0xff);
+  }
+
+  function hiscoreIsFactory(b) {
+    if (b.every((x) => !x)) return true;
+    return b[2] === 0x63 && b[11] === 0x01;
+  }
+
+  async function loadSavedHiscores() {
+    const all = await idbGet("hiscores");
+    if (!all || typeof all !== "object" || Array.isArray(all)) return {};
+    return { ...all };
+  }
+
+  function hiscoreKey() { return String(programCrc >>> 0); }
+
+  async function saveHiscoreNow(bytes) {
+    const all = await loadSavedHiscores();
+    all[hiscoreKey()] = bytes.map((x) => x & 0xff);
+    await idbSet("hiscores", all);
+    lastSavedHiscore = bytes.join(",");
+  }
+
+  let restoreInFlight = false;
+  async function maybeRestoreHiscore() {
+    if (!usingUserRom || restoreInFlight) return;
+    if (machine.ramByte(0x83F1) !== 0x63 || machine.ramByte(0x83FA) !== 0x01) return;
+    if (!hiscoreIsFactory(readHiscore())) {
+      hiscoreRestored = true;
+      return;
+    }
+    restoreInFlight = true;
+    try {
+      const all = await loadSavedHiscores();
+      const saved = all[hiscoreKey()];
+      if (saved && saved.length >= HISCORE_LEN) writeHiscore(saved);
+      hiscoreRestored = true;
+      lastSavedHiscore = readHiscore().join(",");
+    } finally {
+      restoreInFlight = false;
+    }
+  }
+
+  let saveInFlight = false;
+  async function maybeSaveHiscore() {
+    if (!usingUserRom || saveInFlight || !hiscoreRestored) return;
+    const cur = readHiscore();
+    const key = cur.join(",");
+    if (key === lastSavedHiscore) return;
+    saveInFlight = true;
+    try { await saveHiscoreNow(cur); }
+    finally { saveInFlight = false; }
+  }
+
+  async function resetHiscoreNow() {
+    if (!usingUserRom) return;
+    hiscoreRestored = false;
+    lastSavedHiscore = readHiscore().join(",");
+    const all = await loadSavedHiscores();
+    delete all[hiscoreKey()];
+    await idbSet("hiscores", all);
+    machine.reset();
+    applyKeys();
+  }
+
+  resetHiscore.addEventListener("click", () => {
+    if (!usingUserRom) return;
+    if (hiscoreResetHint && !hiscoreResetHint.open) hiscoreResetHint.showModal();
+  });
+  document.getElementById("hiscoreResetCancel")?.addEventListener("click", () => hiscoreResetHint?.close());
+  document.getElementById("hiscoreResetOk")?.addEventListener("click", async () => {
+    hiscoreResetHint?.close();
+    await resetHiscoreNow();
+  });
+
   function saveDips() {
     try {
       localStorage.setItem(DIP_KEY, JSON.stringify({
@@ -350,6 +444,10 @@ FroggerArcade().then(async (Module) => {
       throw new Error("incomplete ROM set");
     machine.loadRomSet(set.program, set.sound, set.gfx, set.color);
     usingUserRom = set.kind !== "hwtest";
+    programCrc = crc32(set.program);
+    hiscoreRestored = false;
+    lastSavedHiscore = "";
+    syncHiscoreResetBtn();
     setStatus(label);
   }
 
@@ -359,6 +457,9 @@ FroggerArcade().then(async (Module) => {
   function loadBuiltInRom() {
     machine.loadHwtest();
     usingUserRom = false;
+    hiscoreRestored = false;
+    lastSavedHiscore = "";
+    syncHiscoreResetBtn();
     setStatus("Running test ROM");
   }
 
@@ -440,6 +541,8 @@ FroggerArcade().then(async (Module) => {
     if (dt > 0.08) dt = 0.08;
     const cycles = Math.floor(CPU_HZ * dt);
     if (cycles > 0) machine.runCycles(cycles);
+    maybeRestoreHiscore().catch(() => {});
+    maybeSaveHiscore().catch(() => {});
     blit();
     pumpAudio();
     requestAnimationFrame(tick);
@@ -453,6 +556,20 @@ FroggerArcade().then(async (Module) => {
       get usingUserRom() { return usingUserRom; },
       mute,
       get muted() { return !!mute.checked; },
+      readHiscore,
+      writeHiscore,
+      saveHiscoreNow,
+      maybeSaveHiscore,
+      resetHiscoreNow,
+      restoreHiscoreNow: async () => {
+        if (!usingUserRom) return false;
+        const all = await loadSavedHiscores();
+        const saved = all[hiscoreKey()];
+        if (saved && saved.length >= HISCORE_LEN) writeHiscore(saved);
+        hiscoreRestored = true;
+        lastSavedHiscore = readHiscore().join(",");
+        return true;
+      },
       crc32,
       identifySet,
       hwtestCrcs,

@@ -3,6 +3,20 @@
    buttons — not vendor catalog photography), and the inner dark
    coin door. Each machine sets color tokens on `.cab-face`. */
 
+/* Fullscreen drops the plastic frame (3vh pad + 8px border) so the
+   portrait picture uses the full viewport height. Side letterbox stays
+   via aspect-ratio + auto margins in fullscreen.css. Terminals keep
+   the shared frame; this file is arcade-only. */
+#bezel:fullscreen, #bezel:-webkit-full-screen {
+  padding: 0;
+  border: none;
+}
+#bezel:fullscreen .crt-overlay, #bezel:-webkit-full-screen .crt-overlay { inset: 0; }
+#bezel:fullscreen .bezel-controls, #bezel:-webkit-full-screen .bezel-controls {
+  top: 6px;
+  right: 8px;
+}
+
 .cab-face {
   margin: 16px auto 0;
   width: max-content;

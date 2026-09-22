@@ -155,6 +155,9 @@ public:
         if (addr < 0x4800 || addr >= 0x4FF0) return;
         m_.ram[unsigned(addr - 0x4800)] = uint8_t(v);
     }
+    void setMemByte(int addr, int v) {
+        m_.mem_write(uint16_t(addr & 0xFFFF), uint8_t(v));
+    }
 
     int memRead(int addr) { return m_.mem_read(uint16_t(addr & 0xFFFF)); }
     bool auxBoard() const { return m_.aux_board; }
@@ -189,6 +192,7 @@ EMSCRIPTEN_BINDINGS(pacman) {
         .function("screenHeight", &Machine::screenHeight)
         .function("ramByte", &Machine::ramByte)
         .function("setRamByte", &Machine::setRamByte)
+        .function("setMemByte", &Machine::setMemByte)
         .function("memRead", &Machine::memRead)
         .function("auxBoard", &Machine::auxBoard)
         .function("auxDecode", &Machine::auxDecode);

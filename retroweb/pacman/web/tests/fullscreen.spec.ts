@@ -42,8 +42,13 @@ test.describe("fullscreen", () => {
       .poll(() => page.locator("#screen").boundingBox().then((b) => b!.height))
       .toBeGreaterThan(before!.height * 1.2);
     const after = await page.locator("#screen").boundingBox();
+    const bezel = await page.locator("#bezel").boundingBox();
     // 224x288 aspect ratio preserved (within a pixel of rounding).
     expect(Math.abs(after!.width / after!.height - before!.width / before!.height)).toBeLessThan(0.02);
+    expect(Math.abs((after!.x + after!.width / 2) - (bezel!.x + bezel!.width / 2))).toBeLessThan(4);
+    expect(Math.abs((after!.y + after!.height / 2) - (bezel!.y + bezel!.height / 2))).toBeLessThan(8);
+    expect(bezel!.height).toBeGreaterThan(900 * 0.98);
+    expect(after!.height).toBeGreaterThan(bezel!.height * 0.98);
   });
 
   test("the machine keeps running while fullscreen", async ({ page }) => {

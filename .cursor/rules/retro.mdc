@@ -13,3 +13,5 @@ In particular:
 - **Real clocks.** The live page runs at the machine’s actual speed. No visitor-facing turbo. Test-only speed overrides follow the three rules in CLAUDE.md (default off, labelled, opt-in).
 - **New machines** are full browser WASM emulators (real CPU, real graphics, real storage), plus GoogleTest and Playwright, wired through `retroweb/Makefile` and `.github/workflows/deploy-emulator.yml`.
 - **Copyright.** Do not bundle or fetch ROMs still under active copyright. Ship a labelled free stand-in (test ROM, open BIOS, FreeDOS) and let the user supply originals locally.
+- **Arcade cabinets** follow [`.claude/arcade.md`](../../.claude/arcade.md) (high-score persist, hwtest ROMs, shared chips, cabinet chrome).
+- **One working copy.** Always `/Users/chrisgall/code/retro`. Never create git worktrees or sibling folders. For new work, ask Chris where it should go (default `main`; a branch only if he says so). Do not open PRs unless asked.

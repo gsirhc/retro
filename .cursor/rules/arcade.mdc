@@ -1,0 +1,10 @@
+---
+description: Arcade cabinet spec — high scores, ROMs, clocks, site wiring
+globs: retroweb/pacman/**,retroweb/frogger/**,retroweb/scramble/**,retroweb/galaxian/**,retroweb/shared/galaxian/**
+alwaysApply: false
+---
+
+# Arcade cabinets
+
+Follow [`.claude/arcade.md`](../../.claude/arcade.md). Do not contradict
+[`CLAUDE.md`](../../CLAUDE.md).

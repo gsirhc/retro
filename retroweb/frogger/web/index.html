@@ -202,8 +202,14 @@
         <input id="romFile" type="file" accept=".zip,.bin,.26,.27,.606,.607,.608,.609,.610" multiple hidden>
         <button type="button" id="removeRomBtn">Remove ROMs</button>
         <label><input type="checkbox" id="mute"> Mute</label>
+        <button type="button" id="resetHiscore" disabled>Reset HIGH SCORE</button>
         <span id="romStatus">Running test ROM</span>
       </div>
+      <p class="legal">
+        HIGH SCORE is kept in this browser after refresh — the real board has no
+        battery and loses it when you pull the plug. Reset clears the saved table
+        and restarts the cabinet.
+      </p>
     </div>
 
     <div class="panel" id="dipPanel">
@@ -255,6 +261,15 @@
   <div class="row">
     <button type="button" id="romDriveLegalCancel">Cancel</button>
     <button type="button" id="romDriveLegalOk" autofocus>OK</button>
+  </div>
+</dialog>
+<dialog class="site-dialog" id="hiscoreResetHint">
+  <h2>Reset HIGH SCORE</h2>
+  <p>The real board loses it when you pull the plug. Clear the saved table
+    and restart the cabinet?</p>
+  <div class="row">
+    <button type="button" id="hiscoreResetCancel" autofocus>Cancel</button>
+    <button type="button" id="hiscoreResetOk">Reset</button>
   </div>
 </dialog>
 <script src="frogger.js"></script>

@@ -27,7 +27,14 @@
   padding: 3vh 3vw; box-sizing: border-box; background: #0c0b0a;
 }
 #bezel:fullscreen #screen, #bezel:-webkit-full-screen #screen {
+  /* Portrait cabinets (Pac-Man 224×288, Galaxian-family 224×256) fill
+     height and leave side letterbox. A block canvas with a definite
+     width (from aspect-ratio) and auto side margins sits in the
+     middle of that leftover instead of pinning left. Terminals set
+     their own inline pixel size, so this rule never applies there. */
+  display: block;
   width: auto; height: 100%; max-width: 100%; max-height: 100%;
+  margin-left: auto; margin-right: auto;
 }
 #bezel:fullscreen .crt-overlay, #bezel:-webkit-full-screen .crt-overlay { inset: 3vh 3vw; }
 

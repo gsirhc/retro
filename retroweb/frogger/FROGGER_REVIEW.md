@@ -102,3 +102,9 @@ the frog at `$8044`/`$8047` moves and P1 score / furthest-row tick.
 - Galaxian starfield not populated on this game (Frogger uses the river
   colour split instead).
 - AY output is a dry mix (no discrete filter).
+- **HIGH SCORE RAM is volatile on the real PCB.** There is no battery.
+  `$83EF–$83FA` (display HI word plus five 16-bit ranks — Computer Archaeology
+  RAM map) dies on power-off. This page always persists those bytes in
+  IndexedDB for a user ROM — a labelled departure. **Reset HIGH SCORE**
+  deletes the save and `machine.reset()`s the board. Covered by
+  `web/tests/hiscore.spec.ts`.
