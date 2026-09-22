@@ -218,7 +218,7 @@ function applyChrome() {
     const icon = pb.querySelector("img");
     pb.textContent = "";
     if (icon) pb.appendChild(icon);
-    pb.appendChild(document.createTextNode(" MSPACMAN.EXE"));
+    pb.appendChild(document.createTextNode(" MSPACMAN"));
   }
   const dipLegal = document.getElementById("dipLegal");
   if (dipLegal) {

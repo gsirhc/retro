@@ -9,9 +9,14 @@
 <link rel="icon" type="image/png" sizes="16x16" href="assets/favicon-16.png">
 <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
 <link rel="stylesheet" href="shared/theme.css">
+<link rel="stylesheet" href="shared/pagebar.css">
 <link rel="stylesheet" href="shared/footer.css">
 <style>
-  :root { --title-font: 900 30px "Arial Black", Arial, sans-serif; }
+  :root {
+    --title-font: 900 30px "Arial Black", Arial, sans-serif;
+    --page-max: 720px;
+    --body-pad: 28px 14px;
+  }
   :root[data-theme="web94"] { --title-font: bold 26px "Times New Roman", Times, serif; }
   :root[data-theme="modern"] { --title-font: 700 28px/1.15 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
   :root[data-theme="ai"] { --title-font: 800 30px/1.15 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
@@ -20,54 +25,19 @@
       linear-gradient(180deg, rgba(8,6,18,.55), rgba(8,6,18,.68)),
       url("assets/ai-theme-bg.jpg") center/cover fixed;
   }
-  * { box-sizing: border-box; }
-  html, body { margin: 0; }
+  :root[data-theme="ai"] .pagebar { border-bottom: 1px solid rgba(168,140,255,.35); }
   body {
-    background: var(--desktop);
     color: var(--text);
     font: 18px/1.5 var(--body-font);
     min-height: 100vh;
-    padding: 28px 14px;
   }
-  .page {
-    max-width: 720px;
-    margin: 0 auto;
-    background: var(--page-bg);
-    border: var(--page-border);
-    border-radius: var(--page-radius);
-    box-shadow: var(--page-shadow);
-  }
-  .titlebar {
-    display: var(--titlebar-display);
-    align-items: center; justify-content: space-between;
-    background: linear-gradient(90deg, #000080, #1084d0);
-    color: #fff; font: bold 15px "MS Sans Serif", Tahoma, sans-serif;
-    padding: 3px 4px 3px 8px;
-  }
-  .titlebar .btns span {
-    display: inline-block; width: 16px; height: 14px; margin-left: 2px;
-    background: #c0c0c0; border: 1px outset #dfdfdf; color: #000;
-    text-align: center; line-height: 12px; font-size: 10px;
-  }
-  .titlebar .win-icon { width: 14px; height: 14px; vertical-align: -2px; margin-right: 3px; }
-  .inner { padding: 22px 26px 26px; min-height: 220px; }
-  header {
-    display: flex; align-items: center; justify-content: space-between;
-    gap: 16px; flex-wrap: wrap; margin-bottom: 22px;
-  }
-  .brand { display: flex; align-items: center; gap: 14px; min-width: 0; }
-  .site-icon { width: 56px; height: 56px; flex: 0 0 auto; border-radius: 4px; }
   h1 {
-    margin: 0; font: var(--title-font); color: var(--title-color);
+    margin: 0 0 8px; font: var(--title-font); color: var(--title-color);
     text-shadow: var(--title-shadow); letter-spacing: 2px;
   }
-  .theme-pick { font-size: 15px; color: var(--muted); white-space: nowrap; }
-  .theme-pick select {
-    font: inherit; background: var(--field-bg); border: var(--field-border);
-    color: var(--text); padding: 2px 4px;
-  }
-  :root[data-theme="modern"] .theme-pick select { border-radius: 6px; padding: 4px 8px; }
-  .tagline { margin: 8px 0 0; color: var(--muted); }
+  :root[data-theme="modern"] h1,
+  :root[data-theme="modern"] .tagline { display: none; }
+  .tagline { margin: 0 0 22px; color: var(--muted); }
   a { color: var(--link); }
   .mission {
     margin: 14px 0 22px;
@@ -83,21 +53,13 @@
 <script>try{var t=localStorage.getItem("retro8080.theme")||"win",r=document.documentElement;if(t=="moderndark"){r.dataset.theme="modern";r.dataset.mode="dark";}else{r.dataset.theme=t;}}catch(e){}</script>
 
 <div class="page">
-  <div class="titlebar">
-    <span><img class="win-icon" src="assets/favicon-32.png" alt="" aria-hidden="true"> RETRO</span>
-    <span class="btns"><span>_</span><span>&#9633;</span><a href="./" title="back to all machines" aria-label="close — back to all machines" style="display:inline-block;width:16px;height:14px;margin-left:2px;background:#c0c0c0;border:1px outset #dfdfdf;color:#000;text-align:center;line-height:12px;font-size:10px;text-decoration:none;">&times;</a></span>
-  </div>
-
-  <div class="inner">
-    <header>
-      <div class="brand">
-        <a href="./"><img class="site-icon" src="assets/icon-512.png" width="56" height="56" decoding="async" alt=""></a>
-        <div class="brand-text">
-          <h1>About</h1>
-          <p class="tagline">Vintage machines, running entirely in your browser.</p>
-        </div>
-      </div>
-      <label class="theme-pick">Theme:
+  <header class="pagebar">
+    <a class="pb-home" href="./">&#8592;&nbsp;All&nbsp;machines</a>
+    <span class="pb-title"><img class="pb-icon" src="assets/favicon-32.png" alt="" aria-hidden="true"> ABOUT</span>
+    <span class="pb-name">About</span>
+    <span class="pb-tag">Vintage machines, running entirely in your browser</span>
+    <span class="pb-tools">
+      <label class="pb-theme">Theme
         <select id="pageTheme">
           <option value="win">Windows 95</option>
           <option value="web94">Mid-1990s Web</option>
@@ -106,7 +68,13 @@
           <option value="ai">AI Generated</option>
         </select>
       </label>
-    </header>
+      <span class="pb-winbtns"><span aria-hidden="true">_</span><span aria-hidden="true">&#9633;</span><a class="pb-close" href="./" title="back to all machines" aria-label="close — back to all machines">&times;</a></span>
+    </span>
+  </header>
+
+  <div class="inner">
+    <h1>About</h1>
+    <p class="tagline">Vintage machines, running entirely in your browser.</p>
 
     <p>
       This site contains era-correct microcomputer and arcade emulators simulating hardware from the 1970s through the 1990s.  

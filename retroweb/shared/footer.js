@@ -4,7 +4,9 @@
 (function () {
   function aboutHref() {
     var close = document.querySelector("a.pb-close");
-    return close ? "../about.html" : "about.html";
+    if (!close) return "about.html";
+    var href = close.getAttribute("href") || "";
+    return href.indexOf("..") === 0 ? "../about.html" : "about.html";
   }
 
   var SOURCE_HREF = "https://github.com/gsirhc/retro/tree/main/retroweb";
@@ -20,7 +22,7 @@
       '" title="About" aria-label="About this site">' +
       '<span class="about-sign-win">Help</span>' +
       '<span class="about-sign-about">About</span></a></p>' +
-      "<p>(c) 2026 RetroCG - An indie project featuring old-a$$ tech " +
+      "<p>(c) 2026 RetroCG - An indie project featuring old-ass tech " +
       "to play with for free.</p>" +
       '<p>Source code available on <a class="source-link" href="' +
       SOURCE_HREF + '" target="_blank" rel="noopener noreferrer">GitHub</a></p>';

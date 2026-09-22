@@ -95,7 +95,7 @@ hardware self-test ROM, then **stages** the site so URLs are clean:
 _site/index.html      <- retroweb/index.html
 _site/about.html      <- retroweb/about.html
 _site/assets/         <- retroweb/assets/
-_site/shared/         <- retroweb/shared/theme.css, footer.css, footer.js
+_site/shared/         <- retroweb/shared/theme.css, pagebar.css, footer.css, footer.js
 _site/altair8800/     <- retroweb/altair8800/web/    (dev-only files stripped)
 _site/assembler6502/  <- retroweb/assembler6502/web/ (dev-only files stripped)
 _site/ibmpc-at/       <- retroweb/ibmpc-at/web/      (dev-only files stripped)

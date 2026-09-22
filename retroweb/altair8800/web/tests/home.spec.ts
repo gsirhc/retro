@@ -57,12 +57,15 @@ test.describe("retroweb landing page", () => {
     await page.goto(HOME);
     const footer = page.locator("#siteFooter");
     await expect(footer).toContainText(/\(c\) 2026 RetroCG/);
-    await expect(footer).toContainText(/old-a\$\$ tech/);
+    await expect(footer).toContainText(/old-ass tech/);
     const about = footer.locator("a.about-sign");
     await expect(about).toHaveAttribute("href", "about.html");
     await expect(about.locator(".about-sign-win")).toBeVisible();
     await about.click();
     await expect(page).toHaveURL(/\/about\.html$/);
     await expect(page).toHaveTitle(/About/i);
+    await expect(page.locator("a.pb-close")).toHaveAttribute("href", "./");
+    await page.locator("a.pb-close").click();
+    await expect(page).toHaveTitle(/RETRO — vintage machines/i);
   });
 });
