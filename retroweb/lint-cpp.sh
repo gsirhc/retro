@@ -30,8 +30,21 @@ if [ -z "$gtest" ]; then
   exit 1
 fi
 
+# libgtest-dev drops headers in /usr/include/gtest. Passing -I /usr/include
+# makes cppcheck treat libc as project code; Ubuntu's cppcheck 2.13 then
+# syntax-errors inside stdlib.h. Expose only the gtest directory.
+gtest_inc=$gtest
+gtest_tmp=""
+case "$gtest" in
+  /usr/include|/usr/local/include|/opt/homebrew/include)
+    gtest_tmp=$(mktemp -d)
+    ln -s "$gtest/gtest" "$gtest_tmp/gtest"
+    gtest_inc=$gtest_tmp
+    ;;
+esac
+
 files=$(mktemp)
-trap 'rm -f "$files"' EXIT
+trap 'rm -rf "$files" ${gtest_tmp:+"$gtest_tmp"}' EXIT
 find . \( \
     -path ./_site -o -path ./_site.new -o -path ./node_modules \
     -o -path '*/tests/build' -o -path '*/tests/build-cov' -o -path '*/tests/coverage-cpp' \
@@ -42,11 +55,15 @@ find . \( \
 cppcheck --language=c++ --std=c++17 \
   --enable=warning,performance,portability \
   --error-exitcode=1 --inline-suppr --quiet \
+  --max-configs=1 \
   --suppress=missingIncludeSystem \
   --suppress=ctuOneDefinitionRuleViolation \
+  --suppress=toomanyconfigs \
   --suppress='*:*/gtest/*' \
+  --suppress='*:/usr/include/*' \
+  --suppress='*:/usr/include/c++/*' \
   --template='{file}:{line}: {severity}: {id}: {message}' \
   -I altair8800 -I assembler6502 -I ibmpc-at -I pacman -I frogger \
   -I galaxian -I scramble -I shared/cpu -I shared/galaxian -I shared \
-  -I "$gtest" \
+  -I "$gtest_inc" \
   --file-list="$files"
