@@ -22,8 +22,8 @@
       '" title="About" aria-label="About this site">' +
       '<span class="about-sign-win">Help</span>' +
       '<span class="about-sign-about">About</span></a></p>' +
-      "<p>(c) 2026 RetroCG - An indie project featuring old-ass tech " +
-      "to play with for free.</p>" +
+      "<p>&copy; 2026 RetroCG - An indie project featuring old-ass tech " +
+      "emulation you can use for free.</p>" +
       '<p>Source code available on <a class="source-link" href="' +
       SOURCE_HREF + '" target="_blank" rel="noopener noreferrer">GitHub</a></p>';
     var page = document.querySelector(".page");

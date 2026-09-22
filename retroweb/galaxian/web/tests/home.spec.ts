@@ -50,7 +50,7 @@ test.describe("retroweb landing page", () => {
   test("the shared site footer credits RetroCG and the About sign goes to about.html", async ({ page }) => {
     await page.goto(HOME);
     const footer = page.locator("#siteFooter");
-    await expect(footer).toContainText(/\(c\) 2026 RetroCG/);
+    await expect(footer).toContainText(/© 2026 RetroCG/);
     await expect(footer).toContainText(/old-ass tech/);
     const about = footer.locator("a.about-sign");
     await expect(about).toHaveAttribute("href", "about.html");

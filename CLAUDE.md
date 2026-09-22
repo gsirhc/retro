@@ -245,6 +245,9 @@ matters.
   "Realism is the default" section above: source citations for ported
   hardware quirks (SIMH, a manual, a ROM disassembly) stay, trimmed to the
   rules above, never deleted outright.
+- **No HTML comments.** Do not add `<!-- -->` in HTML, including inline
+  SVG. If a constraint would be lost without the comment, write it in
+  this file.
 
 ## Formatting
 
@@ -280,7 +283,11 @@ else. There is no formatter in the repo (no Prettier, no clang-format).
   or `<!doctype html>` as the page you are editing already has it. Head
   metadata and stylesheets sit at column 0. Body content indents 2 spaces.
   Decorative images keep `alt=""`. Inline `<style>` and `<script>` stay in
-  the page.
+  the page. No HTML comments (`<!-- -->`), including inside inline SVG.
+  The 6502 Assembler board diagram's `viewBox`
+  (`65.85 20.13 148.47 103.25`) is wider than the PCB outline plus its
+  4 mm margin so J2, the edge-mounted DB9, is not clipped — its shield
+  reaches absolute x=212.32.
 - **CSS.** Custom properties on `:root` and `[data-theme]`. A short rule
   may stay on one line. A rule with several declarations gets one
   declaration per line.

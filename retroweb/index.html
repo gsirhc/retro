@@ -3,20 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>RETRO — vintage machines in your browser</title>
-<!-- Site icon: a CRT-with-circuit-traces glyph, cropped/resized from a
-     user-supplied source image -- see assets/README.md for provenance and
-     how to regenerate. Shared across the landing page and every machine
-     (each machine's own web/assets/ holds a copy -- only web/ ever gets
-     staged, see CLAUDE.md "Wiring a machine into the site"). -->
+<title>Retro Computers & Games</title>
 <link rel="icon" href="assets/favicon.ico" sizes="any">
 <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="assets/favicon-16.png">
 <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
-<!-- apply the shared site theme before first paint, so there's no flash of
-     the wrong theme (see the inline script below, which mirrors every
-     machine page's own shared/theme-init.js) -->
 <link rel="stylesheet" href="shared/theme.css">
+<link rel="stylesheet" href="shared/pagebar.css">
 <link rel="stylesheet" href="shared/footer.css">
 <style>
   /* ---- page themes: default = Windows 95; web94 = mid-90s Mosaic web;
@@ -44,7 +37,7 @@
       url("assets/ai-theme-bg.jpg") center/cover fixed;
     display: flex; flex-direction: column; align-items: center; justify-content: center;
   }
-  :root[data-theme="ai"] .theme-pick select { border-radius: 6px; padding: 4px 8px; }
+  :root[data-theme="ai"] .pagebar { border-bottom: 1px solid rgba(168,140,255,.35); }
   :root[data-theme="ai"] .section-heading { font: 700 14px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: var(--muted); }
   :root[data-theme="ai"] .machine-card .shot { border-radius: 6px; }
   :root[data-theme="ai"] .machine-card:hover {
@@ -68,19 +61,6 @@
     border-radius: var(--page-radius);
     box-shadow: var(--page-shadow);
   }
-  .titlebar {
-    display: var(--titlebar-display);
-    align-items: center; justify-content: space-between;
-    background: linear-gradient(90deg, #000080, #1084d0);
-    color: #fff; font: bold 15px "MS Sans Serif", Tahoma, sans-serif;
-    padding: 3px 4px 3px 8px;
-  }
-  .titlebar .btns span {
-    display: inline-block; width: 16px; height: 14px; margin-left: 2px;
-    background: #c0c0c0; border: 1px outset #dfdfdf; color: #000;
-    text-align: center; line-height: 12px; font-size: 10px;
-  }
-  .titlebar .win-icon { width: 14px; height: 14px; vertical-align: -2px; margin-right: 3px; }
   .inner { padding: 22px 26px 26px; }
 
   header {
@@ -98,13 +78,6 @@
     margin: 0; font: var(--title-font); color: var(--title-color);
     text-shadow: var(--title-shadow); letter-spacing: 2px;
   }
-  .theme-pick { font-size: 15px; color: var(--muted); white-space: nowrap; }
-  .theme-pick select {
-    font: inherit; background: var(--field-bg); border: var(--field-border);
-    color: var(--text); padding: 2px 4px;
-  }
-  :root[data-theme="modern"] .theme-pick select { border-radius: 6px; padding: 4px 8px; }
-
   .tagline { margin: 8px 0 0; color: var(--muted); }
 
   .section-heading {
@@ -150,21 +123,10 @@
 <script>try{var t=localStorage.getItem("retro8080.theme")||"win",r=document.documentElement;if(t=="moderndark"){r.dataset.theme="modern";r.dataset.mode="dark";}else{r.dataset.theme=t;}}catch(e){}</script>
 
 <div class="page">
-  <div class="titlebar">
-    <span><img class="win-icon" src="assets/favicon-32.png" alt="" aria-hidden="true"> RETRO</span>
-    <span class="btns"><span>_</span><span>&#9633;</span><span>&times;</span></span>
-  </div>
-
-  <div class="inner">
-    <header>
-      <div class="brand">
-        <img class="site-icon" src="assets/icon-512.png" width="56" height="56" decoding="async" alt="">
-        <div class="brand-text">
-          <h1>RETRO</h1>
-          <p class="tagline">Vintage machines, running entirely in your browser.</p>
-        </div>
-      </div>
-      <label class="theme-pick">Theme:
+  <header class="pagebar">
+    <span class="pb-title"><img class="pb-icon" src="assets/favicon-32.png" alt="" aria-hidden="true"> RetroCG</span>
+    <span class="pb-tools">
+      <label class="pb-theme">Theme
         <select id="pageTheme">
           <option value="win">Windows 95</option>
           <option value="web94">Mid-1990s Web</option>
@@ -173,6 +135,19 @@
           <option value="ai">AI Generated</option>
         </select>
       </label>
+      <span class="pb-winbtns"><span aria-hidden="true">_</span><span aria-hidden="true">&#9633;</span><span aria-hidden="true">&times;</span></span>
+    </span>
+  </header>
+
+  <div class="inner">
+    <header>
+      <div class="brand">
+        <img class="site-icon" src="assets/icon-512.png" width="56" height="56" decoding="async" alt="">
+        <div class="brand-text">
+          <h1>Retro Computers & Games</h1>
+          <p class="tagline">Vintage machines, running entirely in your browser.</p>
+        </div>
+      </div>
     </header>
 
     <div class="machines">

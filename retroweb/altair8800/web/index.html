@@ -4,14 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ALTAIR 8800 - 8080 Microcomputer</title>
-<!-- Site icon: see ../../assets/README.md for provenance/regeneration --
-     this is a committed copy (only web/ ever gets staged). -->
 <link rel="icon" href="assets/favicon.ico" sizes="any">
 <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="assets/favicon-16.png">
 <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
-<!-- apply the shared site theme before first paint, so there's no flash of
-     the wrong theme (matches retroweb/index.html's own inline snippet) -->
 <script src="shared/theme-init.js"></script>
 <link rel="stylesheet" href="shared/theme.css">
 <link rel="stylesheet" href="shared/pagebar.css">
@@ -1304,7 +1300,7 @@
         <option value="cpm">CP/M Workstation &middot; 1978 &middot; 64K &middot; VT100 + floppy &middot; CP/M</option>
       </select>
       <button id="presetGuide" title="what this setup is and how to use it">&#9432; Guide</button>
-      <div id="panelGuide" class="panel-guide"><!-- front-panel bootstrap how-to, built by app.js --></div>
+      <div id="panelGuide" class="panel-guide"></div>
       <span id="deviceChips" class="device-chips" hidden>
         <span class="dc-label">Load devices:</span>
         <label><input type="checkbox" data-dev="papertape">&nbsp;Paper tape</label>
@@ -1317,7 +1313,7 @@
 
     <div class="workspace">
       <div class="ws-machine">
-        <div id="altair" class="altair"><!-- front panel built by app.js, before this readout -->
+        <div id="altair" class="altair">
           <div class="statusline"><span id="regs">booting...</span></div>
         </div>
       </div>
@@ -1362,9 +1358,9 @@
       </div>
 
       <div class="ws-devices">
-        <div id="ptr" class="ptr"><!-- paper-tape reader, built by app.js --></div>
-        <div id="dcdd" class="dcdd"><!-- 88-DCDD disk drive cabinet, built by app.js --></div>
-        <div id="acr" class="acr"><!-- 88-ACR cassette deck, built by app.js --></div>
+        <div id="ptr" class="ptr"></div>
+        <div id="dcdd" class="dcdd"></div>
+        <div id="acr" class="acr"></div>
       </div>
     </div>
 
@@ -1381,8 +1377,7 @@
 
     <hr class="rule">
 
-    <!-- least-useful reference, kept at the very bottom -->
-    <div id="backplane" class="backplane"><!-- S-100 expansion cards, built by app.js --></div>
+    <div id="backplane" class="backplane"></div>
 
     <div class="footer">
       <p><i><span class="fb-built">Last built </span><span class="fb-mod">Page last modified: </span><span id="buildDate">&hellip;</span></i></p>

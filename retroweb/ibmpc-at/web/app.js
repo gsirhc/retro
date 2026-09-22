@@ -612,9 +612,10 @@
     ]);
   }
 
-  // The GIS script tag is `async defer` (see index.html) -- shared/gdrive.js
-  // polls for it. Token / fetch / download are RetroGdrive's; this file
-  // keeps the HDD find-by-name and resumable upload on top.
+  // The GIS script tag is async defer; nothing needs it before Sync, and
+  // shared/gdrive.js's waitForGis() polls until it loads. Token / fetch /
+  // download are RetroGdrive's; this file keeps the HDD find-by-name and
+  // resumable upload on top.
 
   async function gdriveGetToken(interactive) {
     return gd.getToken(interactive);

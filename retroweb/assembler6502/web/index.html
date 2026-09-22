@@ -4,15 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>6502 Assembler</title>
-<!-- Site icon: see ../../assets/README.md for provenance/regeneration --
-     this is a committed copy (only web/ ever gets staged). -->
 <link rel="icon" href="assets/favicon.ico" sizes="any">
 <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="assets/favicon-16.png">
 <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
 <link rel="stylesheet" href="vendor/xterm.css">
-<!-- apply the shared site theme before first paint, so there's no flash of
-     the wrong theme (matches retroweb/index.html's own inline snippet) -->
 <script src="shared/theme-init.js"></script>
 <link rel="stylesheet" href="shared/theme.css">
 <link rel="stylesheet" href="shared/pagebar.css">
@@ -376,13 +372,6 @@
 
       <div class="pcb-wrap">
        <div class="pcb-frame">
-        <!-- viewBox right edge is wider than the board rect's own +4mm
-             margin would give: J2 (DB9) is a real edge-mounted connector
-             whose shield genuinely overhangs the PCB edge out to abs
-             x=212.32 (computed from its real courtyard + rotation, see
-             gen_pcb_v5.py's abs_bbox) -- the board-rect margin alone would
-             clip it, so the box is widened to fit every real component's
-             true bounds, not just the board outline. -->
         <svg id="pcbSvg" viewBox="65.85 20.13 148.47 103.25" xmlns="http://www.w3.org/2000/svg">
 <rect class="pcb-board" x="69.85" y="24.13" width="135.89" height="95.25" rx="3"/>
 <circle class="mtg-hole" cx="200.80" cy="29.21" r="1.6"/>
@@ -478,9 +467,6 @@
 <rect class="dsub-ear" x="15.54" y="8.18" width="5.00" height="5.00" rx="0.3"/>
 </g>
 <g transform="translate(118.25,28.75) rotate(-0)" data-ref="SW1">
-<!-- generous invisible hit-rect, padded well beyond the visible button
-     housing -- the drawn sw-body/sw-button alone is a tight, easy-to-miss
-     click target at this scale. -->
 <rect class="pcb-hit" x="-4.10" y="-4.10" width="14.70" height="12.70"/>
 <rect class="sw-body" x="-1.10" y="-1.10" width="8.70" height="6.70" rx="0.6"/>
 <circle class="sw-button" cx="3.25" cy="2.25" r="1.9"/>
@@ -583,15 +569,6 @@
 <line class="chip-pin" x1="16.80" y1="48.26" x2="17.70" y2="48.26"/>
 </g>
 <g transform="translate(153.20,46.17) rotate(-180)" data-ref="U2">
-<!-- The generated 14-pins-a-side rows (real 28C256 spacing, +-16.51) badly
-     overshot this body (only +-8.87 -- the "weird gray squares poking up
-     above ROM" the user spotted): enlarging the body to match would in
-     turn collide with RAM (U3), which sits directly below at an equally
-     real, KiCad-traced position -- there's genuinely no room for a
-     literal 28-pin-DIP-sized ROM in this diagram's layout. Pin *count*
-     (14/side, real) is kept; only their spacing is compressed (~0.44x) so
-     every tick lands inside the body, same margin convention (~1.6 units)
-     every other chip here already uses. -->
 <rect class="chip-body" x="-17.36" y="-8.87" width="34.72" height="17.74" rx="0.6"/>
 <circle class="chip-notch" cx="-15.76" cy="0.00" r="0.9"/>
 <line class="chip-pin" x1="-17.36" y1="-7.30" x2="-18.26" y2="-7.30"/>
@@ -744,13 +721,6 @@
 <text class="lbl-part" x="197.77" y="33.80" text-anchor="middle">Power</text>
 <text class="lbl-part" x="203.34" y="89.04" text-anchor="middle">RS232</text>
 </svg>
-
-        <!-- J7 (VIA/ACIA interrupt routing), J5 (BOOT select) and J8
-             (RTS->CTS) are all real jumpers, but none are exposed as
-             controls on this page -- all three default to the shipped
-             ROM's own wiring (bus.h's JumperState defaults: VIA->IRQ,
-             ACIA->NMI, BOOT select 0, RTS->CTS open), which is all the
-             ROM actually reads or needs. -->
        </div>
       </div>
       <div class="row muted" style="font-size:11px;margin-top:10px">

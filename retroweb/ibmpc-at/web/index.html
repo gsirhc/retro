@@ -4,27 +4,16 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>IBM PC/AT</title>
-<!-- Site icon: see ../../assets/README.md for provenance/regeneration --
-     this is a committed copy (only web/ ever gets staged). -->
 <link rel="icon" href="assets/favicon.ico" sizes="any">
 <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="assets/favicon-16.png">
 <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
-<!-- apply the shared site theme before first paint, so there's no flash of
-     the wrong theme (matches retroweb/index.html's own inline snippet) -->
 <script src="shared/theme-init.js"></script>
 <link rel="stylesheet" href="shared/theme.css">
 <link rel="stylesheet" href="shared/pagebar.css">
 <link rel="stylesheet" href="shared/fullscreen.css">
 <link rel="stylesheet" href="shared/focus-hint.css">
 <link rel="stylesheet" href="shared/footer.css">
-<!-- Google Identity Services -- the OAuth token client the "Sync to
-     Google" hard-disk feature uses (see app.js's "Google Drive sync"
-     section). Loaded async/defer since nothing on the page needs it before
-     a visitor actually clicks Sync (or, for an already-connected browser,
-     before the firmware-fetch block's own silent reconnect attempt, which
-     itself tolerates the library not being ready yet -- see
-     gdriveWaitForGis()). -->
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>
   /* ---- page themes: default = Windows 95; web94 = mid-90s Mosaic web;
@@ -429,13 +418,6 @@
       </div>
     </dialog>
 
-    <!-- Shown for any Google Drive sync failure -- a direct Sync/Connect
-         click, the 10-minute background timer, power-off, or the silent
-         boot-time pull -- see gdriveShowError() in app.js. Deliberately not
-         silent even for the background paths: this is a feature a visitor
-         isn't otherwise watching, so something they need to act on (a
-         blocked popup, a dropped sign-in) belongs on screen, not just in a
-         status line easy to miss. -->
     <dialog id="gdriveErrorHint">
       <h2>Google Drive sync problem</h2>
       <p id="gdriveErrorMsg"></p>

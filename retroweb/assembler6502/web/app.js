@@ -693,10 +693,9 @@ async function boot() {
   // ---- reset / jumpers -------------------------------------------------
   // the PCB graphic's own SW1 (labelled RST) doubles as a real control,
   // same as the board panel. J7 (interrupt routing), J5 (BOOT select) and
-  // J8 (RTS->CTS) aren't exposed as controls on this page -- see
-  // index.html's own note by the board graphic -- so there's no listener
-  // to wire up for any of them; bus.h's JumperState defaults already
-  // match the shipped ROM's wiring.
+  // J8 (RTS->CTS) aren't exposed as controls on this page, so there's no
+  // listener to wire up for any of them; bus.h's JumperState defaults
+  // already match the shipped ROM's wiring (CGOAC6502_REVIEW.md).
   document.querySelector('#pcbSvg [data-ref="SW1"]').addEventListener("click", () => { m.pressReset(); });
 
   // ---- power (J1) ---------------------------------------------------
