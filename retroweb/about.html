@@ -130,9 +130,11 @@
 
     <h3>How the site works</h3>
     <p>
-      The emulators are written in C++ and built into WebAssembly (WASM) files.  Where applicable, hard drive and 
+      The hardware emulation is written from scratch in C++ and compiled to a WebAssembly module so the system
+      runs natively in your browser.  There are no virtual machines or 3rd party emulator engines involved.  Where applicable, hard drive and 
       ROM images are automatically saved/updated in the browser's IndexedDB storage so you don't lose your data
-      when you leave the site.
+      when you leave the site.  Do note that none of your ROMs, floppy disks, hard disks or paper tapes are uploaded to our servers.  
+      Everything is stored in your browser or your Google Drive account.
     </p>
 
     <h3>Google Drive</h3>
@@ -145,7 +147,7 @@
     <h3>Why is software not included?</h3>
     <p>
       This site generally doesn't host proprietary software.  However, it does provide a way for you to 
-      add such software to the emulators.  Emulators with ROMs, hard drives, floppy drives or tape readers allow you to install
+      add such software to the emulators.  Systems featuring ROMs, hard drives, floppy drives or tape readers allow you to install
       or run software like you would have back in the day.
     </p>
 
@@ -155,24 +157,32 @@
       in particular, Claude and Cursor.  I am an old-school professional programmer but I found that AI could allow
       me to build complex hardware emulation without poring over dense specifications.  I decided
       to take on the role of a software architect where I prompted the AI agents to build the software how
-      I envisioned.
+      I envisioned.  
+    </p>
+    <p>
+      I know there are AI haters out there but I invite you to check out the site anyway.
+      I've done my best to assure no AI-slop and any bugs should be traditional in nature.  If AI is really
+      not your jam, thats fine.  There are plenty of non-AI built emulators out there.
     </p>
 
     <h3>Why I Chose the Emulators</h3>
     <p>
       The emulators built on this site are primarily chosen from my own experience or curiosity:
-      <ul>
-        <li><b>Altair 8800</b>: This one fascinates me for its raw programming.  I was born when it came out.</li>
-        <li><b>IBM PC-AT</b>: This was my first computer.  I wrote so many BASIC programs on it.</li>
-        <li><b>486 DX-66</b>: My first custom built PC (Computer Shopper!).  I learned C++ and played so much Doom.</li>
-        <li><b>6502 Programmer</b>: I tried to build this IRL but failed.  I've been having fun learning assembly.</li>
-        <li><b>Arcades</b>: I built a full-sized MAME arcade many years ago.  It's fun to learn the original hardware.</li>
-      </ul>
     </p>
+    <ul>
+      <li><b>Altair 8800</b>: This one fascinates me for its raw programming.  I was born when it came out.</li>
+      <li><b>IBM PC-AT</b>: This was my first computer.  I wrote so many BASIC programs on it.</li>
+      <li><b>6502 Assembler</b>: I tried to build this IRL but failed.  This is loosly based on the Ben Eater board.</li>
+      <li><b>Arcades</b>: These are just cool and fairly simple since the boards have 1 purpose.
+      You may notice arcades grouped by CPU.  Thats because once you emulate one game, the related games are (mostly) easy.  
+      Also notice how some original arcades ran two or even three CPUs.  Multi-core before it was cool.</li>
+    </ul>
+
     <h3>What's Next?</h3>
     <p>
-      I have too many ideas so there is much more to come.  The 486 may be the most "modern" system I build
-        as it's very complex due to the paged and protected memory.  To emulate Pentiums or newer will be difficult.
+      I have too many ideas so there is much more to come.  However, the 286/486 CPUs may be the most "modern" systems I build
+        as they are very complex due to the paged and protected memory.  Not to mention, the increasing graphics and sound
+        complexity of those systems.  But there are no shortage of systems to build with less complexity.
     </p>
 
     <h3>Contact Me</h3>

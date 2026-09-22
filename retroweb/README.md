@@ -65,7 +65,7 @@ page — the theme system (`theme-init.js`'s anti-FOUC bootstrap,
 `theme-picker.js`'s interactive `<select>` logic), the pagebar/titlebar
 chrome (`pagebar.css`), the fullscreen + "click to focus" mechanisms
 (`fullscreen.css`/`.js`, `focus-hint.css`/`.js`), and the site footer
-(`footer.css`/`.js`, including the EXIT sign that links to `about.html`).
+(`footer.css`/`.js`, including the theme-matched Help/About control that links to `about.html`).
 The landing page and `about.html` link `shared/` directly; each machine's
 own `web/Makefile` has a `shared` target that copies these files into that
 machine's own `web/shared/` (git-ignored, regenerated like the wasm build
