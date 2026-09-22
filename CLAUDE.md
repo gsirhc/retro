@@ -197,7 +197,8 @@ machine itself (see "Adding a new machine" above).
   `scramble-test`/`scramble-web-test`, `galaxian-test`/`galaxian-web-test`
   (plus `z80-test` for the shared CPU — full ISA, including zexdoc). Pac-Man,
   Frogger, Scramble, and Galaxian native jobs `needs: z80-test` and run a board smoke
-  rather than re-testing the Z80. `build`
+  rather than re-testing the Z80. `lint` (ESLint, HTMLHint, cppcheck,
+  `make -C retroweb lint`) covers `retroweb/` only. `build`
   lists every one of these in its own `needs:` so a red test job blocks
   deploy. Add a new machine's pair here the same way rather than inventing
   a different naming shape.
@@ -244,6 +245,50 @@ matters.
   "Realism is the default" section above: source citations for ported
   hardware quirks (SIMH, a manual, a ROM disassembly) stay, trimmed to the
   rules above, never deleted outright.
+
+## Formatting
+
+Match the file you are editing. New code looks like the code next to it.
+Do not reformat a file, or a neighboring function, while changing something
+else. There is no formatter in the repo (no Prettier, no clang-format).
+`make -C retroweb lint` checks bugs, not layout.
+
+- **Spaces.** 4 spaces in C++. 2 spaces in JavaScript, TypeScript, HTML,
+  and CSS. Makefiles keep real tabs. No trailing whitespace.
+- **Braces.** Opening brace on the same line for functions, classes, and
+  control statements. `else` stays on the same line as the closing brace.
+- **Line length.** Wrap prose comments near 80 columns. Leave opcode
+  tables, flag lists, and other column-aligned data on their existing
+  columns. A long call in `app.js` or a Playwright test stays on one line
+  when a break would obscure it.
+- **Names, C++.** Types `PascalCase`, functions and methods `snake_case`,
+  data members with a trailing underscore (`bus_`). Compile-time constants
+  are `kCamel`, or `constexpr` opcode names in `UPPER_SNAKE` when that file
+  already uses them. Enum flag bits are `FLAG_*`. `*` binds to the type
+  (`uint8_t* p`).
+- **Includes, C++.** The matching header first, then other project headers,
+  then the standard library, with a blank line between groups. A test
+  includes `<gtest/gtest.h>` before the project header.
+- **Names, JavaScript.** `const` and `let`, double quotes, semicolons.
+  Page entry points that other scripts call (`initThemePicker`,
+  `initFullscreen`, `initFocusHint`) stay `function` declarations so they
+  are globals on the page. Use `===`.
+- **Theme bootstrap.** `shared/theme-init.js` and the one-line copy inlined
+  in `index.html` and `about.html` stay in sync and stay compact (`var`,
+  `==`, a single `catch`). That snippet runs before anything else paints.
+- **HTML.** Lowercase tags, double-quoted attributes. Keep `<!DOCTYPE html>`
+  or `<!doctype html>` as the page you are editing already has it. Head
+  metadata and stylesheets sit at column 0. Body content indents 2 spaces.
+  Decorative images keep `alt=""`. Inline `<style>` and `<script>` stay in
+  the page.
+- **CSS.** Custom properties on `:root` and `[data-theme]`. A short rule
+  may stay on one line. A rule with several declarations gets one
+  declaration per line.
+- **Section breaks.** When a file already uses them: `// --- name ---` in
+  C++ and `// ---- name ----` in JavaScript. Keep the column alignment in
+  any table you are editing.
+- **TypeScript tests.** Same 2-space, double-quote, semicolon style as the
+  JavaScript. `import { test, expect } from "@playwright/test"`.
 
 ## Build / test
 

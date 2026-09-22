@@ -7,4 +7,5 @@ alwaysApply: false
 # Arcade cabinets
 
 Follow [`.claude/arcade.md`](../../.claude/arcade.md). Do not contradict
-[`CLAUDE.md`](../../CLAUDE.md).
+[`CLAUDE.md`](../../CLAUDE.md). Formatting follows the Formatting section
+there: match the cabinet file you are editing, and do not reformat it.

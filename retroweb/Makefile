@@ -13,9 +13,14 @@
 #                    editing the source run `make site` to refresh what it serves
 #   make preview-uninstall  remove that agent
 #   make clean       remove _site/
+#   make lint        ESLint, HTMLHint, and cppcheck on this tree.
+#                    JS/HTML need `npm ci` here (the lint target installs
+#                    them if node_modules is missing). C++ needs cppcheck
+#                    on PATH and gtest headers (libgtest-dev / googletest,
+#                    or a native test build that already fetched them).
 
 .PHONY: help site _stage preview preview-bg preview-stop preview-status \
-        preview-install preview-uninstall clean
+        preview-install preview-uninstall clean lint lint-js lint-html lint-cpp
 
 PREVIEW_PORT  ?= 8000
 PREVIEW_PID   := /tmp/retroweb-preview.pid
@@ -163,3 +168,17 @@ preview-uninstall:
 
 clean:
 	rm -rf _site _site.new
+
+# Source only: not _site, vendored xterm, copied web/shared, or test build trees.
+lint: lint-js lint-html lint-cpp
+
+lint-js:
+	@test -x node_modules/.bin/eslint || npm ci
+	npx eslint .
+
+lint-html:
+	@test -x node_modules/.bin/htmlhint || npm ci
+	npm run lint:html
+
+lint-cpp:
+	sh lint-cpp.sh
