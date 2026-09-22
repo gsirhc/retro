@@ -7,7 +7,7 @@
 namespace hd44780 {
 
 void Lcd::reset() {
-    for (auto &r : text) std::memset(r, ' ', sizeof(r));
+    for (auto &r : text) std::memset(r, ' ', sizeof(text[0]));
     row_ = col_ = 0;
 }
 

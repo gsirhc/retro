@@ -432,9 +432,30 @@ jobs:
             retroweb/galaxian/web/test-results/
           retention-days: 7
 
+  # HTML (HTMLHint), JavaScript (ESLint), and C++ (cppcheck) under retroweb/.
+  # A red run blocks deploy the same way a red test job does.
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: retroweb/package-lock.json
+
+      - run: sudo apt-get update && sudo apt-get install -y cppcheck libgtest-dev
+
+      - working-directory: retroweb
+        run: npm ci
+
+      - run: make -C retroweb lint
+
   build:
     needs:
       [
+        lint,
         altair8800-test,
         altair8800-web-test,
         assembler6502-test,

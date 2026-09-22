@@ -360,7 +360,7 @@
           } catch (e) {
             const msg = (e && e.message) || "";
             if (/404|File not found/.test(msg)) {
-              throw new Error("Drive couldn't open \"" + f.name + "\". Open the folder and select the ROM zip or chips inside it.");
+              throw new Error("Drive couldn't open \"" + f.name + "\". Open the folder and select the ROM zip or chips inside it.", { cause: e });
             }
             throw e;
           }

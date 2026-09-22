@@ -135,6 +135,25 @@ make -C retroweb site                # refresh what it serves, after editing sou
 make -C retroweb preview-uninstall   # remove it
 ```
 
+## Lint
+
+`make lint` checks this tree only (not `cpu6502/` or anything above
+`retroweb/`):
+
+- **JavaScript** — ESLint (`eslint.config.js`). Browser scripts, not
+  vendored xterm, generated wasm glue, or the copied `web/shared/`.
+- **HTML** — HTMLHint (`.htmlhintrc`) on the landing page, `about.html`,
+  and each machine's `web/index.html`.
+- **C++** — cppcheck (`lint-cpp.sh`), warning / performance / portability,
+  C++17. Needs `cppcheck` on `PATH` and gtest headers (`apt install
+  cppcheck libgtest-dev`, or `brew install cppcheck googletest`). A native
+  test build that already fetched googletest is enough if the headers
+  aren't installed system-wide.
+
+JS and HTML deps install with `npm ci` in this directory (the `lint` target
+does that itself when `node_modules/` is missing). CI runs the same target
+in the `lint` job; a failure blocks deploy.
+
 ## Adding a machine
 
 New subdir `retroweb/<machine>/` with its own project + `web/` front end; add a
