@@ -9,7 +9,7 @@ const HOME = "http://localhost:8110/";
 test.describe("retroweb landing page", () => {
   test("lists the Altair 8800 with a launch link to /altair8800/", async ({ page }) => {
     await page.goto(HOME);
-    await expect(page).toHaveTitle(/RETRO/i);
+    await expect(page).toHaveTitle(/Retro Computers & Games/);
 
     // scoped by href -- assembler6502/ and ibmpc-at/ each have their own
     // .machine-card on the same page now too
@@ -66,6 +66,6 @@ test.describe("retroweb landing page", () => {
     await expect(page).toHaveTitle(/About/i);
     await expect(page.locator("a.pb-close")).toHaveAttribute("href", "./");
     await page.locator("a.pb-close").click();
-    await expect(page).toHaveTitle(/RETRO — vintage machines/i);
+    await expect(page).toHaveTitle(/Retro Computers & Games/);
   });
 });

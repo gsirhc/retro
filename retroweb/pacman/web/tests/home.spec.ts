@@ -9,7 +9,7 @@ const HOME = "http://localhost:8510/";
 test.describe("retroweb landing page", () => {
   test("lists Pac-Man Arcade under an Arcade section, linking to /pacman/", async ({ page }) => {
     await page.goto(HOME);
-    await expect(page).toHaveTitle(/RETRO/i);
+    await expect(page).toHaveTitle(/Retro Computers & Games/);
     await expect(page.locator("h2.section-heading")).toHaveText([
       "Arcade: Z-80 Powered",
       "Homebrew",
@@ -65,6 +65,6 @@ test.describe("retroweb landing page", () => {
     await expect(page).toHaveTitle(/About/i);
     await expect(page.locator("a.pb-close")).toHaveAttribute("href", "./");
     await page.locator("a.pb-close").click();
-    await expect(page).toHaveTitle(/RETRO — vintage machines/i);
+    await expect(page).toHaveTitle(/Retro Computers & Games/);
   });
 });

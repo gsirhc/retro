@@ -5,7 +5,7 @@ const HOME = "http://localhost:8610/";
 test.describe("retroweb landing page", () => {
   test("lists Frogger Arcade under an Arcade section, linking to /frogger/", async ({ page }) => {
     await page.goto(HOME);
-    await expect(page).toHaveTitle(/RETRO/i);
+    await expect(page).toHaveTitle(/Retro Computers & Games/);
 
     const card = page.locator('a.machine-card[href="frogger/"]');
     await expect(card.locator(".name")).toHaveText(/Frogger Arcade/i);
@@ -46,6 +46,6 @@ test.describe("retroweb landing page", () => {
     await expect(page).toHaveTitle(/About/i);
     await expect(page.locator("a.pb-close")).toHaveAttribute("href", "./");
     await page.locator("a.pb-close").click();
-    await expect(page).toHaveTitle(/RETRO — vintage machines/i);
+    await expect(page).toHaveTitle(/Retro Computers & Games/);
   });
 });
