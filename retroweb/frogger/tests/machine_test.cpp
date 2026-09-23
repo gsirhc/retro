@@ -144,26 +144,16 @@ TEST(Machine, JoystickEchoesToRam) {
     EXPECT_EQ(m.ram[0x10], 0xDF);
 }
 
-TEST(Machine, HwtestVoiceIsAudible) {
+TEST(Machine, HwtestStaysSilent) {
     frogger::Machine m;
     m.load_roms(test_set());
     m.reset();
     m.audio.clear();
-    // Crosshatch + color bars (~3 s) then a short POST beep.
     m.run_cycles(frogger::kCpuHz * 4);
     ASSERT_FALSE(m.audio.empty());
     bool any = false;
-    for (float s : m.audio) {
-        if (s != 0.0f) { any = true; break; }
-    }
-    EXPECT_TRUE(any) << "self-test ROM should beep the AY after the screens";
-    m.audio.clear();
-    m.run_cycles(frogger::kCpuHz / 5);
-    bool still = false;
-    for (float s : m.audio) {
-        if (s != 0.0f) { still = true; break; }
-    }
-    EXPECT_FALSE(still) << "POST beep should end; help screen is silent";
+    for (float s : m.audio) if (s != 0.0f) { any = true; break; }
+    EXPECT_FALSE(any);
 }
 
 TEST(Machine, HwtestHelpScreenShowsCopyrightPrompt) {

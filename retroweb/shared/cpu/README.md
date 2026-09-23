@@ -1,6 +1,7 @@
 # Shared Z80 core
 
-`cpu_z80.{h,cpp}` is the Zilog Z80 used by Pac-Man, Frogger, and Scramble.
+`cpu_z80.{h,cpp}` is the Zilog Z80 used by Pac-Man, Frogger, Scramble,
+Galaxian, and Galaga (three CPUs).
 Instruction semantics and T-states follow the Zilog Z80 CPU User's Manual
 (UM0080). It is not the Altair's 8080 — flag polarity and several opcodes
 differ, so the cores stay separate.

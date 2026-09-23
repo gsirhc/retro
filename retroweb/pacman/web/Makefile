@@ -3,8 +3,10 @@
 EMCC ?= em++
 CORE = ..
 Z80 = ../../shared/cpu
-SRC = wasm_machine.cpp $(CORE)/machine.cpp $(Z80)/cpu_z80.cpp $(CORE)/video.cpp $(CORE)/wsg.cpp
-HDR = wasm_machine.cpp $(CORE)/machine.h $(Z80)/cpu_z80.h $(CORE)/video.h $(CORE)/wsg.h hwtest_roms.h
+SHARED = ../../shared
+SRC = wasm_machine.cpp $(CORE)/machine.cpp $(Z80)/cpu_z80.cpp $(CORE)/video.cpp $(SHARED)/namco/wsg.cpp
+HDR = wasm_machine.cpp $(CORE)/machine.h $(Z80)/cpu_z80.h $(CORE)/video.h $(CORE)/wsg.h \
+      $(SHARED)/namco/wsg.h hwtest_roms.h
 
 EMFLAGS = -O2 -std=c++17 -lembind --no-entry \
   -sMODULARIZE=1 -sEXPORT_NAME=PacmanArcade \
@@ -14,7 +16,7 @@ EMFLAGS = -O2 -std=c++17 -lembind --no-entry \
   -sSTACK_SIZE=1MB
 
 pacman.js: $(SRC) $(HDR)
-	$(EMCC) $(EMFLAGS) -I. -I$(CORE) -I$(Z80) $(SRC) -o $@
+	$(EMCC) $(EMFLAGS) -I. -I$(CORE) -I$(Z80) -I$(SHARED) $(SRC) -o $@
 
 hwtest_roms.h: $(CORE)/roms/hwtest/gen_hwtest.py
 	python3 $(CORE)/roms/hwtest/gen_hwtest.py --dir roms --header hwtest_roms.h

@@ -1,7 +1,7 @@
 # Arcade cabinets
 
 Requirements for arcade machines under `retroweb/` (Pac-Man, Frogger,
-Scramble, Galaxian, and any new cabinet). Repo-wide principles still live in
+Scramble, Galaxian, Galaga, and any new cabinet). Repo-wide principles still live in
 [`CLAUDE.md`](../CLAUDE.md); this file does not override them.
 
 ## High scores
@@ -26,6 +26,7 @@ the ROM actually keeps:
 | Galaxian | `$40A8` (3 BCD HI-SCORE) |
 | Frogger | `$83EF–$83FA` (display HI + 5-rank table) |
 | Scramble | `$4200` (10 × 3 BCD) + `$40A8` (displayed HI) |
+| Galaga | `$8A20` (0x2D) + `$83ED` (6). Factory top score is the 20000 character bytes, not zeros |
 
 Scramble’s parent set has **numeric** scores only — no initials in the Konami
 ROM. Real PCBs have no battery; persist is a labelled departure, Reset is

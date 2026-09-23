@@ -28,6 +28,7 @@ test.describe("retroweb landing page", () => {
     const arcade = await page.locator('h2.section-heading:has-text("Arcade") + .machines .name').allTextContents();
     expect(arcade).toEqual([
       "Frogger Arcade",
+      "Galaga Arcade",
       "Galaxian Arcade",
       "Ms. Pac-Man Arcade",
       "Pac-Man Arcade",

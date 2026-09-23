@@ -43,7 +43,7 @@
   (progressive JPEG q≈88).
 
 - **`pacman-cabinet.png`** / **`mspacman-cabinet.png`** /
-  **`frogger-cabinet.png`** / **`galaxian-cabinet.png`** /
+  **`frogger-cabinet.png`** / **`galaga-cabinet.png`** / **`galaxian-cabinet.png`** /
   **`scramble-cabinet.png`** — original
   landing-page tiles. Spec, pinned by
   each arcade machine's `web/tests/home.spec.ts`:

@@ -118,6 +118,13 @@ retroweb/frogger/web/roms/
 retroweb/frogger/roms/user/
 retroweb/frogger/web/shared/
 
+retroweb/galaga/tests/build/
+retroweb/galaga/web/galaga.js
+retroweb/galaga/web/galaga.wasm
+retroweb/galaga/web/hwtest_roms.h
+retroweb/galaga/web/roms/
+retroweb/galaga/roms/user/
+retroweb/galaga/web/shared/
 retroweb/galaxian/tests/build/
 retroweb/galaxian/web/galaxian.js
 retroweb/galaxian/web/galaxian.wasm

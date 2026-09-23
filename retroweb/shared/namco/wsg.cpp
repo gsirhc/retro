@@ -1,6 +1,6 @@
-#include "wsg.h"
+#include "namco/wsg.h"
 
-namespace pacman {
+namespace namco {
 
 void Wsg::reset() {
     regs.fill(0);
@@ -68,7 +68,6 @@ void Wsg::advance(int cpu_cycles, int host_hz, std::vector<float>& out) {
         while (sample_hold_ >= 1.0) {
             sample_hold_ -= 1.0;
             uint64_t sc = cpu_cycle_ / 32;
-            // Emit host samples proportionally.
             host_acc_ += double(host_hz) / wsg_hz;
             float s = mix_at(sc);
             while (host_acc_ >= 1.0) {
@@ -79,4 +78,4 @@ void Wsg::advance(int cpu_cycles, int host_hz, std::vector<float>& out) {
     }
 }
 
-}  // namespace pacman
+}  // namespace namco

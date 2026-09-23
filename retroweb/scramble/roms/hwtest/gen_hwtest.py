@@ -278,30 +278,6 @@ def assemble_main(s1, s2, s3):
     a.call(copy_screen)
     a.call(hide_sprites)
 
-    # Pulse command 1 (POST beep), hold ~20 frames, then command 0 (silence).
-    a.ld_a(1)
-    a.ld_nn_a(0x8200)
-    a.ld_a(0x08)
-    a.ld_nn_a(0x8201)
-    a.db(0xAF)
-    a.ld_nn_a(0x8201)
-    a.ld_a_nn(0x4008)
-    a.db(0xC6, 20)
-    a.db(0x47)             # LD B,A
-    beep_w = a.pc
-    a.ld_a_nn(0x8100)
-    a.ld_nn_a(0x4010)
-    a.ld_a_nn(0x7000)
-    a.ld_a_nn(0x4008)
-    a.db(0xB8)             # CP B
-    a.db(0x20, (beep_w - (a.pc + 2)) & 0xFF)
-    a.db(0xAF)
-    a.ld_nn_a(0x8200)
-    a.ld_a(0x08)
-    a.ld_nn_a(0x8201)
-    a.db(0xAF)
-    a.ld_nn_a(0x8201)
-
     hang = a.pc
     a.ld_a_nn(0x8100)
     a.ld_nn_a(0x4010)

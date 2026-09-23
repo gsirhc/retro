@@ -18,6 +18,7 @@ option(COVERAGE "instrument the unit-test binaries for llvm-cov" OFF)
 
 set(CORE ${CMAKE_CURRENT_SOURCE_DIR}/..)
 set(Z80 ${CMAKE_CURRENT_SOURCE_DIR}/../../shared/cpu)
+set(SHARED ${CMAKE_CURRENT_SOURCE_DIR}/../../shared)
 
 add_custom_command(
   OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/hwtest_roms.h
@@ -34,6 +35,7 @@ function(add_unit_test name)
   target_include_directories(${name} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/..
     ${Z80}
+    ${SHARED}
     ${CMAKE_CURRENT_BINARY_DIR})
   target_link_libraries(${name} PRIVATE GTest::gtest_main)
   target_compile_options(${name} PRIVATE -Wall -Wextra)
@@ -43,15 +45,15 @@ function(add_unit_test name)
   endif()
 endfunction()
 
-add_unit_test(video_wsg_test video_wsg_test.cpp ${CORE}/video.cpp ${CORE}/wsg.cpp)
+add_unit_test(video_wsg_test video_wsg_test.cpp ${CORE}/video.cpp ${SHARED}/namco/wsg.cpp)
 add_unit_test(machine_test machine_test.cpp
-  ${CORE}/machine.cpp ${Z80}/cpu_z80.cpp ${CORE}/video.cpp ${CORE}/wsg.cpp)
+  ${CORE}/machine.cpp ${Z80}/cpu_z80.cpp ${CORE}/video.cpp ${SHARED}/namco/wsg.cpp)
 add_dependencies(machine_test hwtest_roms)
 add_unit_test(smoke_test smoke_test.cpp
-  ${CORE}/machine.cpp ${Z80}/cpu_z80.cpp ${CORE}/video.cpp ${CORE}/wsg.cpp)
+  ${CORE}/machine.cpp ${Z80}/cpu_z80.cpp ${CORE}/video.cpp ${SHARED}/namco/wsg.cpp)
 add_dependencies(smoke_test hwtest_roms)
 add_unit_test(play_test play_test.cpp
-  ${CORE}/machine.cpp ${Z80}/cpu_z80.cpp ${CORE}/video.cpp ${CORE}/wsg.cpp)
+  ${CORE}/machine.cpp ${Z80}/cpu_z80.cpp ${CORE}/video.cpp ${SHARED}/namco/wsg.cpp)
 
 include(GoogleTest)
 gtest_discover_tests(video_wsg_test)

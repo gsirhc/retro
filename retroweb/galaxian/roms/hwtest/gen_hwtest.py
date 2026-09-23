@@ -272,27 +272,6 @@ def assemble_main(s1, s2, s3):
     a.call(copy_screen)
     a.call(hide_sprites)
 
-    # FIRE retrigger + pitch 0x40 (audible LS164 tone), then pitch 0xFF
-    # (ultrasonic / silent) and FIRE off so the help screen stays quiet.
-    a.ld_a(1)
-    a.ld_nn_a(0x6805)      # FIRE
-    a.ld_a(0x40)
-    a.ld_nn_a(0x7800)      # pitch
-    a.ld_a_nn(0x4008)
-    a.db(0xC6, 20)
-    a.db(0x47)             # LD B,A
-    beep_w = a.pc
-    a.ld_a_nn(0x6000)
-    a.ld_nn_a(0x4010)
-    a.ld_a_nn(0x7800)
-    a.ld_a_nn(0x4008)
-    a.db(0xB8)             # CP B
-    a.db(0x20, (beep_w - (a.pc + 2)) & 0xFF)
-    a.db(0xAF)
-    a.ld_nn_a(0x6805)
-    a.ld_a(0xFF)
-    a.ld_nn_a(0x7800)
-
     hang = a.pc
     a.ld_a_nn(0x6000)
     a.ld_nn_a(0x4010)

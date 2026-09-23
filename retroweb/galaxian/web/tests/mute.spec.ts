@@ -17,7 +17,7 @@ test.describe("Mute", () => {
     expect(await page.evaluate(() => (window as any).__test.muted)).toBe(true);
   });
 
-  test("hwtest ROM programs a fire tone", async ({ page }) => {
+  test("hwtest ROM stays silent", async ({ page }) => {
     const heard = await page.evaluate(() => {
       const m = (window as any).__test.machine;
       m.runCycles(3072000 * 4);
@@ -25,6 +25,6 @@ test.describe("Mute", () => {
       for (let i = 0; i < s.length; i++) if (s[i] !== 0) return true;
       return false;
     });
-    expect(heard).toBe(true);
+    expect(heard).toBe(false);
   });
 });

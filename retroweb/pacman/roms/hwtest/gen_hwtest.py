@@ -299,17 +299,6 @@ def assemble_program(screen1, screen2, screen3):
     a.ld_nn_a(0x5061)
 
     a.ld_a(0x01)
-    a.ld_nn_a(0x5001)        # sound enable
-    a.ld_a(0x0F)
-    a.ld_nn_a(0x5055)        # voice 0 volume
-    a.ld_a(0x01)
-    a.ld_nn_a(0x5050)
-    a.ld_a(0x08)
-    a.ld_nn_a(0x5051)
-    a.ld_a(0x00)
-    a.ld_nn_a(0x5045)        # waveform 0
-
-    a.ld_a(0x01)
     a.ld_nn_a(0x5000)        # IRQ enable
     a.db(0xFB)               # EI
 
