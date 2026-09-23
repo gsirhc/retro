@@ -300,7 +300,12 @@ FroggerArcade().then(async (Module) => {
     const url = URL.createObjectURL(new Blob([src], { type: "text/javascript" }));
     await audioCtx.audioWorklet.addModule(url);
     audioNode = new AudioWorkletNode(audioCtx, "ay");
-    audioNode.connect(audioCtx.destination);
+    // Dry mix keeps headroom for three full voices. The tune and hop sit
+    // on one mid log step (often 0x0A–0x0D), so 4× matches the other cabinets.
+    const speaker = audioCtx.createGain();
+    speaker.gain.value = 4;
+    audioNode.connect(speaker);
+    speaker.connect(audioCtx.destination);
   }
 
   document.addEventListener("click", () => { ensureAudio().catch(() => {}); }, { once: true });

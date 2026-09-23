@@ -78,6 +78,8 @@ PROM wiring, cross-checked against MAME `frogger_extend_tile_info` /
 One AY-3-8910. PPI1 port A is the command latch, read back on AY I/O A.
 Bit 4 of the control port mutes. Tone f = fclock/(16·TP). Discrete analog
 filter on the real PCB is not modeled (dry mix) — documented simplification.
+The page multiplies that mix by 4 so a mid-level voice matches the other
+cabinets; the chip samples are unchanged.
 
 ## 7. Inputs / DIPs
 
@@ -101,7 +103,8 @@ the frog at `$8044`/`$8047` moves and P1 score / furthest-row tick.
 - Coin-counter solenoids not modeled.
 - Galaxian starfield not populated on this game (Frogger uses the river
   colour split instead).
-- AY output is a dry mix (no discrete filter).
+- AY output is a dry mix (no discrete filter). The page applies a 4×
+  playback gain on that mix.
 - **HIGH SCORE RAM is volatile on the real PCB.** There is no battery.
   `$83EF–$83FA` (display HI word plus five 16-bit ranks — Computer Archaeology
   RAM map) dies on power-off. This page always persists those bytes in
