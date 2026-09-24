@@ -803,6 +803,38 @@ private:
                                                  : (rm == 5 ? int(SEG_SS) : int(SEG_DS)));
             return out;
         }
+        // A SIB byte: how 32-bit compiled code reaches its locals and its
+        // arrays, and what was left of the slow decoder once the two forms
+        // above were taken out of it (7.2% of a BOOM run in wasm --
+        // PC486_REVIEW.md §16). Every 32-bit SIB form lands here, so the SIB
+        // byte this consumes is never one decode_modrm_slow() re-fetches.
+        if (addrsize32_ && rm == 4) {
+            uint8_t sib = fetch8();
+            uint8_t base = uint8_t(sib & 7);
+            uint8_t index = uint8_t((sib >> 3) & 7);
+            // base == 5 with mod == 0 is "no base register, disp32 instead";
+            // index == 4 is "no index register", since ESP can never be an
+            // index on real hardware.
+            bool no_base = base == 5 && mod == 0;
+            bool has_index = index != 4;
+            bool has_disp = no_base;
+            uint32_t ea = no_base ? 0 : get_reg32(base);
+            if (has_index) ea += get_reg32(index) << ((sib >> 6) & 3);
+            if (no_base) ea += fetch32();
+            else if (mod == 0x40) { ea += uint32_t(int32_t(int8_t(fetch8()))); has_disp = true; }
+            else if (mod == 0x80) { ea += fetch32(); has_disp = true; }
+            // The same published 486 effective-address penalty
+            // decode_modrm_slow() charges: base+index+displacement costs one
+            // extra clock, every other form nothing.
+            if (!no_base && has_index && has_disp) extra_cycles_ += 1;
+            RM out;
+            out.off = ea;
+            out.is_mem = true;
+            out.reg = 0;
+            out.seg = uint8_t(seg_override_ >= 0 ? seg_override_
+                              : (!no_base && (base == 4 || base == 5) ? int(SEG_SS) : int(SEG_DS)));
+            return out;
+        }
         return decode_modrm_slow(modrm);
     }
     // Entered only with mod != 3, and with the ModR/M byte already consumed.

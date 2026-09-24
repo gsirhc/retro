@@ -206,7 +206,6 @@ private:
     // comment for why re-raising on every tick (rather than only on the
     // 0->1 transition) causes a real interrupt-storm bug.
     bool fdc_irq_prev_ = false;
-    bool kbc_irq_prev_ = false;   // IRQ1 (keyboard)
     bool hdd_irq_prev_ = false;   // IRQ14 (hard disk, slave PIC line 6)
     bool cdrom_irq_prev_ = false; // IRQ15 (CD-ROM, slave PIC line 7)
     bool sb_irq_prev_ = false;    // IRQ5 (Sound Blaster, master PIC line 5)

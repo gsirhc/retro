@@ -227,6 +227,49 @@ TEST(ChipsetTest, KeyboardIrq1ReachesThePic) {
     EXPECT_EQ(cs.poll_interrupt(), 0x08 + 1);  // vector_base(8) + IR1
 }
 
+TEST(ChipsetTest, SecondQueuedKeyboardByteStillReachesThePic) {
+    // A repro for the freeze the browser keeps reporting: two keyboard
+    // bytes land close enough together that the second is still in the
+    // queue when the first is read. The extended-key 0xE0 prefix pair is
+    // one real-world source (disks/build_freedos_hdd.cpp needed a fix for
+    // exactly this before this test existed); ordinary fast typing that
+    // outruns the guest's own ISR is another. in(0x60)'s pump_output()
+    // re-fills the output register and re-asserts irq1_pending() for byte
+    // two inside the very same call that cleared it for byte one -- no
+    // 1->0->1 transition is ever visible at tick granularity, which is
+    // the identical shape IRQ12 (see chipset.cpp's tick()) was already
+    // fixed for and IRQ1 was not.
+    Chipset cs;
+    cs.pic_master.out(0x20, 0x11);
+    cs.pic_master.out(0x21, 0x08);
+    cs.pic_master.out(0x21, 0x04);
+    cs.pic_master.out(0x21, 0x01);
+    cs.pic_master.out(0x21, 0x00);  // unmask all, vector base 8
+    cs.kbc.out(0x64, 0x60); cs.kbc.out(0x60, 0x01);  // command byte: enable IRQ1
+    cs.kbc.in(0x60);  // drain the keyboard's power-on BAT byte, as BIOS POST does
+
+    cs.kbc.inject_scancode(0x1E);        // 'A' make code
+    cs.kbc.inject_scancode(0x9E);        // 'A' break code, queued behind it -- no tick in between
+    cs.tick(0, 66000000.0);
+    ASSERT_TRUE(cs.pic_master.has_interrupt());
+    EXPECT_EQ(cs.poll_interrupt(), 0x08 + 1);  // service byte one
+    // Through io_in(), not kbc.in() directly -- a real guest's IN AL,60h
+    // goes through the chipset's port dispatch, which is what re-opens
+    // tick()'s own PIT-paced service gate (see chipset.h's tick()/
+    // next_service_ comment) for the second pass below.
+    EXPECT_EQ(cs.io_in(0x60), 0x1E);            // the ISR's own IN AL,60h
+    cs.pic_master.out(0x20, 0x20);              // and its EOI
+
+    // Byte two is genuinely sitting in the output register right now.
+    ASSERT_TRUE(cs.kbc.irq1_pending());
+    cs.tick(0, 66000000.0);
+    EXPECT_TRUE(cs.pic_master.has_interrupt())
+        << "byte two's interrupt never reached the PIC -- a purely "
+           "interrupt-driven guest will never read it";
+    EXPECT_EQ(cs.poll_interrupt(), 0x08 + 1);
+    EXPECT_EQ(cs.kbc.in(0x60), 0x9E);
+}
+
 TEST(ChipsetTest, CdromOwnsSecondaryChannelWithoutStealingHddsPrimaryPorts) {
     // The secondary IDE channel (CD-ROM) and primary channel (HDD) must
     // each own only their own ports -- a too-wide range on either would

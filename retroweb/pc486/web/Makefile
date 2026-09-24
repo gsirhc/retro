@@ -46,7 +46,14 @@ EMFLAGS = -O3 -flto -std=c++17 -lembind --no-entry -fwasm-exceptions -sSUPPORT_L
   -sALLOW_MEMORY_GROWTH=1 \
   -sFILESYSTEM=0
 
-pc486.js: $(SRC)
+# Headers count: the CPU core's hot paths (the decoder's fast path, the
+# prefetch window, the page cache, every device's inline tick) live in the
+# .h files, so a header-only change that isn't rebuilt leaves a stale module
+# behind -- which reads as a change that did nothing. Same family of trap as
+# the stale-wasm cache serve_nocache.py exists for (PC486_REVIEW.md §15).
+HDRS = $(wildcard $(CORE)/*.h)
+
+pc486.js: $(SRC) $(HDRS)
 	$(EMCC) $(EMFLAGS) $(SRC) -o $@
 
 .PHONY: shared roms hdd-image cdrom-image serve test test-install coverage clean

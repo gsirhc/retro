@@ -390,12 +390,32 @@
 
   // Same ring-buffer-behind-a-worklet shape as the PC speaker above, just
   // stereo: two channels fed together so left/right stay sample-locked.
+  //
+  // Depth is a latency/robustness tradeoff, not a free "more headroom is
+  // always safer" knob: once the ring is ever driven to its own capacity
+  // (any single moment where production outruns consumption, which normal
+  // browser scheduling jitter makes an early near-certainty), it *stays*
+  // there under steady 1:1 real-time playback -- there is no mechanism to
+  // drain it back down except an underrun. So this number is not "average
+  // slack", it is close to the *actual, permanent* audio latency once the
+  // game has been running a few seconds, which a browser gunshot-to-bang
+  // report of "about a second" matches almost exactly at the old 32768
+  // (683 ms @48kHz). Measured, not assumed, against the real stall this
+  // headroom exists for -- persistHddIfDirty()'s full-disk-image copy off
+  // the wasm heap (the "periodic HDD autosave's array copy" the PC
+  // speaker's own comment above names) -- 180-350 ms in a real headless
+  // Chromium run against this machine's 504 MB image. 8192 (~171 ms
+  // @48kHz) cuts steady-state latency roughly 4x while still covering
+  // ordinary GC-pause-scale jank; a stall bigger than that underruns into
+  // a brief held-last-sample tone rather than the click the ring-buffer
+  // architecture itself was built to avoid (see above) -- not silent, but
+  // no longer the dominant cost on every shot.
   const kSbWorkletSrc = `
     class Sb16Processor extends AudioWorkletProcessor {
       constructor() {
         super();
-        this.left = new Float32Array(32768);
-        this.right = new Float32Array(32768);
+        this.left = new Float32Array(8192);
+        this.right = new Float32Array(8192);
         this.writeIdx = 0;
         this.readIdx = 0;
         this.available = 0;

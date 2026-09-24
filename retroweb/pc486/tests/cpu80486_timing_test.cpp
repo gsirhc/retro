@@ -141,6 +141,20 @@ TEST_F(Cpu80486TimingTest, BaseIndexDisplacementAddressingCostsOneExtraClock) {
     EXPECT_EQ(runCycles({0x8B, 0x47, 0x04}), 1);  // MOV AX,[BX+4]     -- base+disp, no penalty
 }
 
+TEST_F(Cpu80486TimingTest, Addr32SibChargesTheSameEffectiveAddressPenalty) {
+    // The same legend, on the 32-bit SIB forms the decoder resolves inline
+    // (PC486_REVIEW.md §16) rather than in decode_modrm_slow. Each figure is
+    // MOV's 1 clock plus 1 for the 0x67 prefix, plus the penalty where the
+    // form earns it.
+    cpu->eax = 0x50;
+    cpu->ebx = 0x02;
+    EXPECT_EQ(runCycles({0x67, 0x8B, 0x04, 0x98}), 2);        // MOV AX,[EAX+EBX*4]     -- base+index, no disp
+    EXPECT_EQ(runCycles({0x67, 0x8B, 0x44, 0x98, 0x04}), 3);  // MOV AX,[EAX+EBX*4+4]   -- +1
+    EXPECT_EQ(runCycles({0x67, 0x8B, 0x44, 0x20, 0x04}), 2);  // MOV AX,[EAX+4]         -- base+disp, no index
+    EXPECT_EQ(runCycles({0x67, 0x8B, 0x04, 0x9D, 0x00, 0x03, 0x00, 0x00}),
+              2);                                            // MOV AX,[EBX*4+300h]    -- index+disp, no base
+}
+
 TEST_F(Cpu80486TimingTest, LeaLandsOnItsPublishedOneToTwoRange) {
     cpu->ebx = 0x50;
     cpu->esi = 0x02;

@@ -358,6 +358,31 @@ TEST_F(Cpu80486Test, Addr32EspBaseDefaultsToStackSegmentAndIndexFourMeansNoIndex
     EXPECT_EQ(cpu->eax & 0xFFFF, 0x5678u);
 }
 
+TEST_F(Cpu80486Test, Addr32SibEbpBaseWithDisplacementDefaultsToStackSegment) {
+    // modrm 44 = SIB with mod=01 (disp8), SIB 15 = scale 1, index EDX, base
+    // EBP. An EBP base defaults to SS whether it arrives through a SIB byte
+    // or not, and the decoder's inline SIB path has to say so on its own
+    // (PC486_REVIEW.md §16).
+    cpu->ss = 0x3000;
+    cpu->ds = 0x1000;  // decoy -- must not be used
+    cpu->ebp = 0x20;
+    cpu->edx = 0x04;
+    poke16((0x3000u << 4) + 0x34, 0x7654);
+    poke16((0x1000u << 4) + 0x34, 0x9999);
+    run({0x67, 0x8B, 0x44, 0x15, 0x10});  // MOV AX, [EBP + EDX + 10h]
+    EXPECT_EQ(cpu->eax & 0xFFFF, 0x7654u);
+}
+
+TEST_F(Cpu80486Test, Addr32SibSegmentOverrideBeatsTheEspStackDefault) {
+    cpu->es = 0x5000;
+    cpu->ss = 0x4000;  // the default this override must displace
+    cpu->esp = 0x50;
+    poke16((0x5000u << 4) + 0x50, 0x1111);
+    poke16((0x4000u << 4) + 0x50, 0x2222);
+    run({0x26, 0x67, 0x8B, 0x04, 0x24});  // ES: MOV AX, [ESP]
+    EXPECT_EQ(cpu->eax & 0xFFFF, 0x1111u);
+}
+
 TEST_F(Cpu80486Test, Addr32EffectiveAddressAboveSixtyFourKReachesPastTheSegment) {
     // "Unreal mode": a 32-bit effective address above 0FFFFh is used as
     // computed rather than truncated into a 64KB window. Period DOS software

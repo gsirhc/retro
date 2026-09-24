@@ -28,7 +28,6 @@ void Chipset::reset() {
     port61_ = 0;
     refresh_toggle_ = false;
     fdc_irq_prev_ = false;
-    kbc_irq_prev_ = false;
     hdd_irq_prev_ = false;
     cdrom_irq_prev_ = false;
     sb_irq_prev_ = false;
@@ -201,16 +200,19 @@ void Chipset::service(uint64_t cpu_cycles, double cpu_hz) {
     if (fdc_irq_now && !fdc_irq_prev_) pic_master.raise(6);
     fdc_irq_prev_ = fdc_irq_now;
 
-    bool kbc_irq_now = kbc.irq1_pending();
-    if (kbc_irq_now && !kbc_irq_prev_) pic_master.raise(1);
-    kbc_irq_prev_ = kbc_irq_now;
-
-    // IRQ12 (PS/2 mouse, master PIC line 4 -- slave line 4, cascaded):
-    // level-checked every tick, NOT edge-detected like every other IRQ
-    // here. The controller re-asserts it inside the same in(0x60) call
-    // that cleared it (the next packet byte is already queued), so no
-    // 1->0->1 transition is ever observable at tick granularity -- an
-    // edge-detect would drop bytes 2 and 3 of every 3-byte packet.
+    // IRQ1 (keyboard) and IRQ12 (PS/2 mouse, master PIC line 4 -- slave line
+    // 4, cascaded): level-checked every tick, NOT edge-detected like every
+    // other IRQ here. Both share one output register behind i8042.cpp's
+    // queue, and its in(0x60) re-fills that register and re-asserts the
+    // pending line inside the very same call that cleared it, whenever a
+    // second byte was already queued -- the extended-key 0xE0 prefix pair,
+    // a multi-byte command response, or ordinary typing outrunning the
+    // guest's own ISR. No 1->0->1 transition is ever observable at tick
+    // granularity, so an edge-detect here would drop that second byte's
+    // interrupt outright (a keyboard byte sitting unread forever looks
+    // exactly like the browser's reported "keyboard freezes" -- see
+    // PC486_REVIEW.md for the trace that pinned it on IRQ1 specifically).
+    if (kbc.irq1_pending()) { pic_master.raise(1); kbc.clear_irq1(); }
     if (kbc.irq12_pending()) { pic_slave.raise(4); kbc.clear_irq12(); }
 
     // IRQ5 (Sound Blaster, master PIC line 5) -- edge-triggered like the

@@ -4,12 +4,19 @@ import { boot, typeStr, waitForScreen } from "./helpers";
 // SCRATCH throughput benchmark -- not part of the suite, deleted before the
 // work lands. Boots, launches BOOM, waits for its attract demo to render,
 // then times synchronous runCycles() windows in the real browser build.
+//
+// BENCH_REALTIME=1 boots the genuinely real-speed page (`?test=1`, no
+// `fast=1`) so the pump-driven figure is what an actual visitor gets;
+// without it the boot uses the fast-test multiplier to reach BOOM sooner,
+// which leaves the synchronous runCycles() figure unaffected either way.
+// PROFILE=1 adds a CDP sampling profile over BOOM.
 test.describe("bench", () => {
-  test.setTimeout(600_000);
+  test.setTimeout(900_000);
   test("BOOM gameplay throughput", async ({ page }) => {
-    await boot(page, { params: "", timeout: 300_000 });
+    const realtime = !!process.env.BENCH_REALTIME;
+    await boot(page, { params: "", realtime, timeout: 600_000 });
     await typeStr(page, "cd \\games\\boom");
-    await waitForScreen(page, /BOOM>/, 60_000);
+    await waitForScreen(page, /BOOM>/, 120_000);
     await typeStr(page, "boom");
 
     // Wait for mode 13h with genuinely changing frames.
@@ -26,7 +33,7 @@ test.describe("bench", () => {
         return (g.__run || 0) >= 6;
       },
       null,
-      { timeout: 300_000, polling: 250 },
+      { timeout: 600_000, polling: 250 },
     );
 
     // Into a live game: any key during the attract demo opens BOOM's menu,
@@ -55,11 +62,12 @@ test.describe("bench", () => {
     });
     console.log(thumb);
 
-    // Pump-driven rate: what the page actually achieves end to end.
+    // Pump-driven rate: what the page actually achieves end to end. Measured
+    // over a long enough window that one shed frame cannot dominate it.
     const paced = await page.evaluate(async () => {
       const m = (window as any).__test.machine;
       const c0 = m.totalCycles(), t0 = performance.now();
-      await new Promise((r) => setTimeout(r, 3000));
+      await new Promise((r) => setTimeout(r, 10000));
       return ((m.totalCycles() - c0) / (performance.now() - t0)) * 1000 / 1e6;
     });
 
@@ -105,7 +113,8 @@ test.describe("bench", () => {
     });
     const mean = raw.reduce((a, b) => a + b, 0) / raw.length;
     console.log(
-      `BENCH paced=${paced.toFixed(1)} M/s   raw=[${raw.map((r) => r.toFixed(1)).join(" ")}] mean=${mean.toFixed(1)} M/s`,
+      `BENCH mode=${realtime ? "realtime" : "fast"} paced=${paced.toFixed(1)} M/s   ` +
+        `raw=[${raw.map((r) => r.toFixed(1)).join(" ")}] mean=${mean.toFixed(1)} M/s`,
     );
   });
 });

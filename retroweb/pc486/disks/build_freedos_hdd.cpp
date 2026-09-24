@@ -101,11 +101,20 @@ void SendKey(Machine &m, uint8_t make) {
 // Extended (grey) keys -- arrows and friends -- arrive as an 0xE0 prefix
 // byte followed by the base make code, and the break as 0xE0 + (code|0x80).
 // This is how a real 101-key keyboard reports them in scan code set 1.
+// Every byte needs its own gap, not just each make/break pair: the 8042 has
+// one output register, and a byte queued behind an unread one is not
+// announced again until the guest's handler drains the first -- so two bytes
+// sent in the same instant wedge the controller with an undelivered byte. A
+// real keyboard cannot outrun that (it clocks one bit at a time), and the
+// browser front end spaces every byte of a multi-byte sequence for the same
+// reason (web/app.js's injectScancodeSequence).
 void SendExtendedKey(Machine &m, uint8_t make) {
     m.chipset.kbc.inject_scancode(0xE0);
+    m.run_cycles(150000);
     m.chipset.kbc.inject_scancode(make);
     m.run_cycles(150000);
     m.chipset.kbc.inject_scancode(0xE0);
+    m.run_cycles(150000);
     m.chipset.kbc.inject_scancode(uint8_t(make | 0x80));
     m.run_cycles(150000);
 }

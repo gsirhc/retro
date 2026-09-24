@@ -26,6 +26,7 @@ export default [
       "galaxian/web/galaxian.js",
       "galaga/web/galaga.js",
       "scramble/web/scramble.js",
+      "pc486/web/pc486.js",
     ],
   },
   {
@@ -46,6 +47,7 @@ export default [
         GalagaArcade: "readonly",
         ScrambleArcade: "readonly",
         IbmPcAt: "readonly",
+        Pc486: "readonly",
         google: "readonly",
         gapi: "readonly",
         LcdFont: "readonly",

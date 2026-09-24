@@ -3915,3 +3915,323 @@ shot, 1,183,155 samples at 22,727 Hz against a programmed 22,727 Hz. The
 same pixel-for-pixel and sample-for-sample identical run §14 relied on, and
 the same reason: it is the strongest available statement that none of this
 changed what the machine does.
+
+## 16. Real speed in a browser, and the last call left in the decoder
+
+§15.4 ended on a warning about its own figures: they were native, "and the
+wasm build has to be re-measured in a browser before any claim about BOOM's
+actual frame rate is made". This section is that measurement. The answer is
+that **BOOM now holds real time in the browser** -- which is the reported
+symptom §14 opened with, closed.
+
+### 16.1 The code this section was written around had already landed
+
+A body of work citing "PC486_REVIEW.md §16" was in the tree before this
+section existed: 500 GoogleTest cases against the 495 §15.5 recorded, and
+comments referring to a section that had never been written. It is listed
+here with the figures each change shipped with -- **those per-change shares
+are the ones recorded in the comments, not re-measured here**; everything in
+§16.2 onward is measured fresh.
+
+| change | what it takes out of every instruction |
+| ------ | -------------------------------------- |
+| `kPrefix`, a 256-entry table, replaces the prefix loop's switch | an eleven-way branch on an answer that is "not a prefix" nearly every time (4.5% of a BOOM run) |
+| the dense ALU block 0x00-0x3D decoded ahead of the main switch | a second dispatch for the opcodes a compiler emits most |
+| `decode_modrm()` resolves a register operand and a plain base register inline | an out-of-line call measured at 14.8% of a BOOM run in wasm |
+| `RM` shrunk to 8 bytes | a hidden return slot on every decoded operand |
+| `always_inline` on `fetch8` and the `rm_read*`/`rm_write*` pairs | a call for a two-instruction helper, which `step_inner`'s size had pushed past the inliner's budget |
+| `prefetch_revalidate()` folds its ten compares into one XOR/OR test | nine short-circuiting branches on the emulator's most frequently executed line (11.5%) |
+| the GPR file as a `kGpr32`/`kGpr8` pointer-to-member table | an eight-way branch that never predicted, since the ModR/M field differs on nearly every instruction |
+| `Pic8259::pending_`, memoized | re-resolving priority twice per instruction (5.2%) |
+| `Chipset::tick()`'s `next_service_` gate, with `Pit8253::cycles_to_next_count()` | the whole device service pass, on all but one instruction in ~55 |
+
+The gate is the one with a real argument behind it rather than an inlining
+decision, and chipset.h states it: nothing on this board is clocked by the
+CPU, the 8253's 1.193182 MHz is the fastest clock among them, and no device
+state can become observable sooner than the next count of it. Any port
+access re-opens the gate, so a guest polling a device is still serviced on
+every poll, and A20 is still checked on every call.
+
+(The same batch carried one change that is not a throughput change at all:
+`RenderEgaNative16Screen` sizes mode 0x10 from the CRTC's own horizontal and
+vertical display-end registers rather than a table, verified against what
+this machine's real video BIOS programs for that mode.)
+
+### 16.2 What a browser actually does now
+
+Same benchmark as §14.1 -- `Machine::totalCycles()` over synchronous
+`runCycles(20,000,000)` windows, BOOM in mode 13h in a live game, headless
+Chromium 1.63 driving the real page, the shipped `-O3 -flto` module. Host is
+an Apple M4.
+
+|                                   | wasm, in a browser |
+| --------------------------------- | ------------------ |
+| §14.1, before the §14 work        | 36.1-38.9 M/s      |
+| §14.3, after it                   | 38.9-41.4 M/s      |
+| this section, before §16.4        | 111.8-113.5 M/s (mean 112.5) |
+| this section, after §16.4         | 115.1-116.6 M/s (mean **116.0**) |
+
+Against 66.0 M/s required. The browser is now **1.76x faster than the
+machine it is emulating**, where §14 left it at 60% of real speed -- and
+almost all of that is §15's page cache and prefetch window plus §16.1's
+list, neither of which had ever been measured here.
+
+The figure that answers the original complaint is the other one. On the
+genuinely real-speed page (`?test=1`, no `fast=1`), measured over a 10-second
+window with BOOM running, rendering and audio pumping exactly as a visitor
+gets them:
+
+| pump-driven rate, real-speed page | 67.7 M/s against a 66.0 MHz target |
+| --------------------------------- | ---------------------------------- |
+
+That is real time, with the ~2.6% over the target being the measurement
+window and the pump's credit accounting rather than any speed-up: the pump
+asks for `dt * 66,000,000 * 1` and `TEST_CPU_MULTIPLIER` is 1 on that page.
+§8.4's shedding no longer sheds anything, because there is nothing left to
+shed.
+
+This is one host. The improvement factor is what carries to a slower one,
+not the 116.
+
+### 16.3 Where the time goes, in wasm rather than natively
+
+§15.4's ranking was native and said so, flagging `Chipset::tick`'s 22% as
+inflated by the native build's lack of cross-TU inlining. Profiled properly
+-- Chrome's sampling profiler over a CDP session, against the shipped module
+rebuilt with `--profiling-funcs` so the name section survives, ~29,900
+samples under BOOM:
+
+| wasm, self time                     | share |
+| ----------------------------------- | ----- |
+| `runCycles` (everything LTO inlined into it) | 61.3% |
+| `Cpu::access_phys`                  | 7.7%  |
+| `Cpu::decode_modrm_slow`            | 7.2%  |
+| `Cpu::read32`                       | 4.7%  |
+| `Cpu::alu_apply32`                  | 4.1%  |
+| `Cpu::write32`                      | 2.2%  |
+| `Cpu::fetch32`                      | 2.1%  |
+| `Cpu::read8`                        | 2.0%  |
+| the `Bus` memory-write thunk        | 1.3%  |
+
+The native ranking was indeed misleading, and in the direction it warned
+about: **`Chipset::tick`, `Pit8253::tick`, `SoundBlaster::advance`,
+`PcSpeaker::update` and `Chipset::page_host` do not appear in the wasm
+profile at all.** §16.1's service gate is why. The chipset, which opened
+§14 as the prime suspect and was 19% of the run then, is now unmeasurable.
+
+### 16.4 The SIB byte was the last thing left in the slow decoder
+
+`decode_modrm_slow` at 7.2% is not a slow path being taken rarely. §16.1's
+inline decoder covers a register operand and a plain base register; what it
+sends out of line is every form with a SIB byte -- which is how 32-bit
+compiled code reaches its locals and its arrays, so DJGPP-built BOOM is full
+of them.
+
+`decode_modrm()` now resolves **every** 32-bit SIB form inline: base, index
+with its scale, the `index == 4` encoding that means no index, the
+`base == 5, mod == 0` encoding that means disp32 instead of a base, and the
+ESP/EBP-base default to SS. Covering all of them is what lets it consume the
+SIB byte without a bail-out path that would have to un-fetch it. The
+published 486 effective-address penalty -- base+index+displacement costs one
+extra clock, every other form nothing -- is charged here exactly as
+`decode_modrm_slow` charges it, so no instruction's cost moves.
+
+|                              | before | after |
+| ---------------------------- | ------ | ----- |
+| wasm, BOOM in a live game    | mean 112.5 M/s | mean **116.0 M/s** |
+| `decode_modrm_slow`, self time | 7.2% | 2.1% |
+| shipped `pc486.wasm`         | 231,957 B | 251,162 B |
+
+**+3.1%**, for 19KB of code. What is left in `decode_modrm_slow` is 16-bit
+addressing and the bare disp32 form, neither of which 32-bit BOOM runs often.
+
+Two things were measured and *not* kept, which is the more useful half of a
+profile:
+
+- **`access_phys` inlined into the header**, the obvious read of its 7.7%.
+  Measured 112.8 M/s against a 112.5 baseline -- inside the ~0.4% spread
+  between repeat runs of the same build, so: nothing. That 7.7% is the
+  segment check and the page walk themselves, work that moves into
+  `runCycles` when inlined rather than disappearing. Reverted.
+- **Single-word loads and stores** for `read32`/`write32`'s host-pointer
+  path, which compose their result a byte at a time. Checked before writing
+  any code, by compiling the pattern on its own: clang already emits one
+  unaligned `i32.load`/`i32.store`/`i64.load` for each. Nothing to win.
+
+### 16.5 What is deliberately not being done
+
+The profile after §16.4 has no next candidate of the same kind. `runCycles`
+is 66% and is the interpreter itself -- `step`, `step_inner`, the dispatch,
+the inline decoder, the chipset gate, all folded together by LTO. Everything
+under it is genuine work rather than call overhead: `access_phys` is the
+segment check and the page walk (measured, above), `alu_apply32` at 4.2% is
+the arithmetic and its flags, `shld` at 1.0% is Doom's fixed-point math, and
+`translate_slow` at 1.0% is real TLB misses.
+
+The one structural item left is the `Bus` write thunk's 1.3%: BOOM writes
+64,000 bytes of mode 13h frame per frame into the VGA window, which
+`page_host()` refuses by design (§15.2) because the card answers there, not
+RAM -- latches, plane masks and chain-4 addressing all live in that write.
+Handing a host pointer to it would mean reproducing those, for about 1.3%,
+on a machine that already runs 1.76x faster than real time. Not worth the
+risk, and recorded here rather than attempted.
+
+Anything beyond that is a restructuring of the interpreter -- and this core
+is deliberately an interpreter with real per-instruction cycle accounting,
+so a basic-block cache or a JIT is not on the table at any speed.
+
+### 16.6 The shipped HDD image cannot be rebuilt from this repo
+
+Discovered by needing to rebuild it. Nothing in `retroweb/pc486/` puts BOOM
+on the disk: `build_freedos_hdd.cpp` runs the real FreeDOS installer and
+stops, while `boom_run_check` expects `C:\GAMES\BOOM` to hold `BOOM.EXE`,
+`CWSDPMI.EXE` and `DOOM.WAD` already. Every other pinned asset here has a
+`fetch-*.sh` with a published checksum; this one existed only in whatever
+working copy first built it.
+
+It is very nearly free to close, because the pinned FreeDOS LiveCD already
+carries all of it:
+
+- `packages/games/boom.zip` is BOOM 2.02 itself -- `BOOM.EXE`,
+  `CWSDPMI.EXE` (r5, the build §9.7 names), `GO32-V2.EXE`, `BOOM.CFG` -- and
+  the installer **already puts it at `C:\GAMES\BOOM`**, unprompted.
+- `packages/games/freedoom.zip` is Freedoom Phase 1, whose
+  `GAMES/FREEDOOM/PHASE1/DOOM.WAD` the installer also lands, at
+  `C:\GAMES\FREEDOOM\PHASE1\DOOM.WAD`.
+- `FDAUTO.BAT` already sets `BLASTER` (§11's `A220 I5 D1 H5 T6`), so BOOM's
+  Allegro driver finds the card with nothing added.
+
+So the whole missing step is copying one WAD the image is already carrying
+into the directory BOOM is already installed in. **One caveat matters for
+reading §13.5, §14.5 and §15.5:** their pixel counts belong to a
+17,659,828-byte `DOOM.WAD`, and no Freedoom release nor the pinned LiveCD
+contains a WAD of that size -- the one FreeDOS ships is 27,284,988 bytes
+(SHA-256 `c403ea7c...`, identical to Freedoom 0.12.1's `freedoom1.wad`).
+Those figures are therefore not reproducible from pinned media, and the
+image rebuilt here reports its own -- see §16.7.
+
+Rebuilding it also turned up two things worth fixing on the way:
+
+- **`build_freedos_hdd.cpp`'s `SendExtendedKey` wedged the keyboard.** It
+  injected an arrow key's `0xE0` prefix and its make code in the same
+  instant. The 8042 has one output register, and a byte queued behind an
+  unread one is not announced again until the guest's handler drains the
+  first, so the `48` sat there undelivered and every scancode after it
+  queued behind it. The installer's partition prompt is the first one
+  answered with an arrow key; it never advanced, and the run failed after 30
+  nag presses. Measured directly rather than inferred: with the power-on BAT
+  byte drained first, `E0 48` raises IRQ1 once, the handler's read of 0x60
+  takes the `E0`, and nothing raises IRQ1 for the `48`. Bypassing §16.1's
+  service gate changes none of it. The fix is one real gap per byte -- what
+  a keyboard clocking one bit at a time does anyway, and the rule this
+  machine's own front end already follows for every multi-byte Set 1
+  sequence (`web/app.js`'s `injectScancodeSequence`, `helpers.ts`'s `tap`).
+  The asymmetry underneath it is left alone deliberately, but recorded:
+  `Chipset::service()` edge-detects `kbc.irq1_pending()` against a previous
+  sample, while the mouse's IRQ12 is consumed as the one-shot it is
+  (`raise(4)` then `clear_irq12()`, §13); `clear_irq1()` exists with no
+  caller. On real hardware the read drops IRQ1 and the next byte re-asserts
+  it, a genuine edge -- and that transition happens entirely inside one
+  `in(0x60)` call here, where sampling the line cannot see it. Changing it
+  changes interrupt delivery, which is not what this section is for.
+- **`web/Makefile` did not depend on its own headers.** `pc486.js: $(SRC)`
+  lists only the `.cpp` files, and this machine's hot paths -- the decoder's
+  fast path, the prefetch window, the page cache, every device's inline tick
+  -- are in the headers. A header-only change could leave the previous
+  module in place and measure as having done nothing, which is the same
+  family of trap `serve_nocache.py` exists for (§15). Fixed.
+
+### 16.7 Tests
+
+`make check` green: **503 GoogleTest cases** (500 before), `pm-check` 24/24,
+`vbe-check` all-pass. The three new cases pin what §16.4's inline decoder now
+answers for itself: a SIB with an EBP base defaulting to SS, a segment
+override beating a SIB's ESP-base default, and -- in the timing suite, where
+the published effective-address penalty had only ever been checked on 16-bit
+addressing -- the same +1 clock charged on the 32-bit SIB forms, and not
+charged on the three forms that do not earn it.
+
+`make boom-check` green on all three phases, with **every figure identical
+before and after §16.4**: 24 consecutive differing 320x200x256 frames; 4,884
+-> 675 still pixels around the menu click; 49,662 view pixels turned and 0 on
+the way back; 43,302 on the shot; 1,216,400 samples at 22,727 Hz against a
+programmed 22,727 Hz, ratio 1.000, with 2,375 IRQ5 edges. A pixel-for-pixel
+and sample-for-sample identical run is the same standard §14.5 and §15.5
+used, for the same reason.
+
+Those absolute numbers are not §13.5's, and §16.6 says why: this image's
+`DOOM.WAD` is the one the pinned FreeDOS LiveCD ships, not the
+17,659,828-byte WAD the earlier figures were taken against. The proof is the
+before/after identity on one image, which is unaffected.
+
+## 17. IRQ1 gets the fix IRQ12 already had
+
+§16.6 found the keyboard-freeze bug and recorded it, deliberately unfixed,
+as out of scope for a throughput section. The browser kept reporting it --
+typing an ordinary DOS command line, not just BOOM's extended-key sequences
+-- so this is that fix.
+
+### 17.1 The asymmetry §16.6 flagged
+
+`Chipset::service()` treated IRQ1 (keyboard) and IRQ12 (mouse) differently
+for no documented reason. IRQ12 was level-checked every service pass --
+`if (kbc.irq12_pending()) { pic_slave.raise(4); kbc.clear_irq12(); }` -- with
+a comment explaining why: the controller's shared output register re-fills
+and re-asserts the pending line inside the very same `in(0x60)` call that
+cleared it, whenever a second byte was already queued, so no 1->0->1
+transition is ever observable at the service pass's own granularity. IRQ1
+instead compared against a `kbc_irq_prev_` sample from the previous pass and
+raised only on a 0->1 edge -- the one shape §16.6 said would drop a second
+queued byte's interrupt outright, for the identical reason.
+
+A keyboard byte reaches `i8042.cpp`'s shared FIFO the same way a mouse byte
+does (this file's own header: "no byte is ever lost, only delayed"), and
+gets there just as easily two-at-a-time: the extended-key 0xE0 prefix pair
+§16.6 hit, a multi-byte command response, or -- what the browser was
+actually reporting -- two ordinary keystrokes landing close enough together
+that the guest's own ISR hasn't drained the first when the second is
+already queued behind it. Once that happens, the second byte sits in the
+output register, genuinely present (`OBF` set, `irq1_pending()` true), but
+edge-detection at service-pass granularity never tells the PIC, and a
+purely interrupt-driven keyboard handler -- which is what DOS and every
+Set-1 keyboard ISR is -- never reads it. Everything typed after that byte
+queues up behind it forever. That is the freeze.
+
+### 17.2 Proof before the fix, not just a reading of the code
+
+`chipset_test.cpp`'s new `SecondQueuedKeyboardByteStillReachesThePic`
+enqueues two scan codes (a make and its break code) with no service pass
+between them, services the first normally with an EOI, then checks the
+second. Against the code as §16 left it: `pic_master.has_interrupt()` is
+false and `poll_interrupt()` returns -1 -- the byte is sitting in the
+controller, unread, and the PIC was never told. Confirmed failing before
+touching `chipset.cpp`, the same discipline §14 and §15 held their own
+findings to.
+
+### 17.3 The fix
+
+`Chipset::service()` now level-checks IRQ1 exactly like IRQ12, right next to
+it:
+
+```cpp
+if (kbc.irq1_pending()) { pic_master.raise(1); kbc.clear_irq1(); }
+if (kbc.irq12_pending()) { pic_slave.raise(4); kbc.clear_irq12(); }
+```
+
+`raise()` only sets an IRR bit (`pic8259.cpp`), so calling it every pass
+while the line is already asserted is idempotent -- the same property that
+already made the IRQ12 pattern safe. `kbc_irq_prev_` (`chipset.h`) is gone
+along with its one caller; `clear_irq1()` (`i8042.h`) now has one, matching
+`clear_irq12()`.
+
+### 17.4 Tests
+
+`make check` green: **504 GoogleTest cases** (503 before), `pm-check` 24/24,
+`vbe-check` all-pass. `make boom-check` green on all three phases, with
+every figure identical before and after this change -- unsurprising, since
+nothing about what byte reaches the guest or when it is *queued* moved, only
+whether the PIC is told a byte that was already there is waiting. `boom-
+check` drives BOOM successfully either way; it was never the reproduction
+for this bug, which needed two keyboard bytes with no service pass between
+them and a purely interrupt-driven read -- exactly what §17.2's test forces
+and what a fast typist or an extended key does to the real front end.
