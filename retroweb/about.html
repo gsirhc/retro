@@ -77,9 +77,8 @@
     <p class="tagline">Vintage machines, running entirely in your browser.</p>
 
     <p>
-      This site contains era-correct microcomputer and arcade emulators simulating hardware from the 1970s through the 1990s.  
-      The goal here is to emulate the physical hardware as accurately as possible.  This
-      includes full CPU instruction sets, clock speeds, bus architecture, peripheral boards and ICs.   
+      This site contains era-correct microcomputer and arcade emulators simulating hardware from the 1970s to the 1990s.  
+      The goal here is to emulate the physical hardware as accurately and realistically as possible.   
     </p>
 
     <h3>Mission Statement</h3>
@@ -100,16 +99,13 @@
     <p>
       The hardware emulation is written from scratch in C++ and compiled to a WebAssembly module so the system
       runs natively in your browser.  There are no virtual machines or 3rd party emulator engines involved.  Where applicable, hard drive and 
-      ROM images are automatically saved/updated in the browser's IndexedDB storage so you don't lose your data.  
-      Note that none of your ROMs, floppy disks, hard disks or paper tapes are uploaded to our servers.  
+      ROM images are automatically saved in the browser's IndexedDB storage so you don't lose your data.  
+      Note that none of your ROMs, floppy disks, hard disks or cassette/paper tapes are uploaded to our servers.  
       Everything is stored only in your browser or your Google Drive account.
     </p>
     <p>
-      <b>High-Scores:</b> For arcade games with high-scores, the emulators will store your scores in browser storage alongside
-      your ROMs to maintain them between sessions.  The games are true to 
-      life where some only ran a single high-score (no initials) and some store ranked initials.  What may not be true to life
-      is traditionally high-scores reset when the game lost power.  Since we are in a browser, the games "lose power" all
-      the time so storing off high-scores makes it more fun.  You can reset your high-scores at any time.
+      <b>High-Scores:</b> For arcade games with high-scores, the emulators will store your scores in browser storage
+      so they persist across sessions.  You can reset your high-scores at any time.
     </p>
 
     <h3>Google Drive</h3>
@@ -118,57 +114,46 @@
       Please contact me below if you'd like to use this feature.
     </p>
 
-    <h3>Why is software and game ROMs not included?</h3>
+    <h3>Why are software and game ROMs not included?</h3>
     <p>
-      This site generally doesn't host proprietary software.  However, it does provide a way for you to 
-      add such software or ROMs to the emulators.  Systems featuring ROMs, hard drives, floppy drives or tape readers allow you to install
-      and run software like you would have back in the day.  Everything is available on the web.  I would not have
-      built an emulator if I couldn't easily find the software and game ROMs online.
+      The bottom line is that this site does not host proprietary software.  Instead, each emulator implements 
+      era-correct virtual storage devices for loading your personal copies of the software.  To load
+      software, obtain a simple binary dump of the physical media then follow the instructions
+      on the device. Each machine loads the media as it would in real life.
+    </p>
+    <p>
+      I do realize that not including the fun software increases the barrier-of-entry for the site but I'm not 
+      going for the casual scroller.  I'm looking to engage the enthusiast/hobbyist who will take the time to 
+      get the software.  That said, if you have questions, contact me below.   
+    </p>
+
+    <h3>Browser Support</h3>
+    <p>
+      Chrome or Edge are recommended as most testing is done in Chrome however, the site should run
+      fine in all major browsers.  You may notice issues with sound, mouse, fullscreen or browser storage 
+      if you use privacy extensions or privacy focused browsers.  If you do encounter issues first 
+      check your browser extensions, then contact me below if you believe its a general browser issue.
+    </p>
+
+    <h3>Privacy Statement</h3>
+    <p>
+      This site does not collect your identity, data or usage. The Google Drive feature is completely 
+      opt-in and only connects when you choose to use it. Your ROMs and media files stay entirely 
+      on your device or directly in Google.  Nothing is uploaded to this site's servers.
     </p>
 
     <h3>Use of AI</h3>
     <p>
       The work for this site is done in conjunction with Artificial Intelligence (AI), 
-      in particular, Claude and Cursor.  I am an old-school professional programmer but I found that AI could allow
-      me to build complex hardware emulation without poring over dense specifications.  So, I decided
-      to take on the role of a software architect where I prompted the AI agents to build the software how
-      I envisioned.  
+      in particular, Claude and Cursor.  I am an old-school professional programmer but I found that AI 
+      could allow me to build complex hardware emulation without poring over dense specifications.  So, 
+      I decided to take on the role of a software architect where I prompt the AI agents to build the 
+      software how I envision it.  
     </p>
     <p>
-      I know there are AI haters out there (I used to be one) but I invite you to check out the site anyway.
-      I've done my best to assure no AI-slop so any bugs should be traditional in nature.  If AI is really
-      not your jam, thats fine.  There are plenty of non-AI built emulators out there.
-    </p>
-
-    <h3>Why I Chose the Emulators</h3>
-    <p>
-      The emulators built on this site are primarily chosen from my own experience or curiosity:
-    </p>
-    <ul>
-      <li><b>Altair 8800</b>: This one fascinates me for its bare-bones raw programming.  Not to mention, it was one of the first microcomputers.</li>
-      <li><b>IBM PC-AT</b>: This was my first computer.  I wrote so many BASIC programs on it.</li>
-      <li><b>486 DX-66</b>: My first custom built PC (Computer Shopper!).  However, I don't remember the exact hardware I used so this implementation is era correct maxed out.</li>
-      <li><b>6502 Assembler</b>: I tried to build this IRL but failed.  This is loosly based on the Ben Eater board.</li>
-      <li><b>Arcades</b>: These are just cool and fairly simple since the boards have only one purpose.
-      You may notice arcades grouped by CPU.  Once you emulate a game, the related games are (mostly) easy.  
-      Also notice in the descriptions how some original arcades ran two or more CPUs.  Those are failthully emulated
-      here as they were built back in the day.</li>
-    </ul>
-
-    <h3>What's Next?</h3>
-    <p>
-      I have too many ideas so there is much more to come from full computer systems to arcade games.
-      If you have ideas, please contact me below.  I miss when the internet was a place to share ideas (and get flamed)
-      so rather than doom-scrolling on by, share your ideas with me.
-    </p>
-
-    <h3>What's up with the themes?</h3>
-    <p>
-      Since most of the systems emulated here pre-date the web, I went with 1990s themes to keep
-      the site "retro".  I didn't want the sort of themes that represent 1970s or 1980s hardware but rather early web sites.
-      The modern themes are so I could offer light and dark modes with full width pages.  I did let AI design 
-      a theme entirely on its own.  I think its OK.  It basically copied the Windows 95 theme and added its own colors.
-      By the way, I'm not a UI/UX designer so if you have ideas for improvements or other themes, contact me below.
+      I know there are AI haters out there but I invite you to check out the site anyway.
+      I've done my best to assure there is no AI-slop.  So, any bugs you find should be traditional in nature.  
+      If AI is really not your jam, thats fine.  There are plenty of non-AI built emulators out there.
     </p>
 
     <h3>Contact Me</h3>
