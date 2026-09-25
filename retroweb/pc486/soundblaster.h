@@ -251,8 +251,11 @@ private:
     void reset_mixer();
     void mixer_write(uint8_t index, uint8_t v);
     uint8_t mixer_read(uint8_t index) const;
+    // `dma_units` is the length exactly as the DSP command programmed it
+    // (already +1'd): bytes on the 8-bit channel, words on the 16-bit one.
+    // begin_dma converts to frames -- see its comment.
     void begin_dma(bool input, bool is16, bool ai, bool stereo, bool signed_data,
-                   uint32_t frames);
+                   uint32_t dma_units);
     void push_sample(uint64_t cycle, int16_t l, int16_t r);
     void raise_block_irq();
     void fill_input_buffer(std::size_t len);

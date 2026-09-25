@@ -316,9 +316,9 @@ void SoundBlaster::run_command() {
                 const bool input = (cmd_ & 0x08) != 0;
                 const bool ai = (cmd_ & 0x04) != 0;
                 const uint8_t mode = params_[0];
-                const uint32_t frames =
+                const uint32_t dma_units =
                     uint32_t(uint16_t(uint16_t(params_[2]) << 8 | params_[1])) + 1;
-                begin_dma(input, is16, ai, (mode & 0x20) != 0, (mode & 0x10) != 0, frames);
+                begin_dma(input, is16, ai, (mode & 0x20) != 0, (mode & 0x10) != 0, dma_units);
                 break;
             }
             switch (cmd_) {
@@ -361,13 +361,27 @@ void SoundBlaster::run_command() {
 }
 
 void SoundBlaster::begin_dma(bool input, bool is16, bool ai, bool stereo, bool signed_data,
-                             uint32_t frames) {
+                             uint32_t dma_units) {
     is_input_ = input;
     bits16_ = is16;
     autoinit_ = ai;
     stereo_ = stereo;
     signed_data_ = signed_data;
-    block_frames_ = block_left_ = frames;
+    // The DSP's block counter counts DMA transfer cycles, not audio frames --
+    // bytes on the 8-bit channel, WORDS on the 16-bit one. SBPG's own Bxh
+    // pages give the 16-bit length in words, which is only coherent if the
+    // counter sits on the DMA side of the FIFO; the same counter then serves
+    // stereo, so a stereo block covers half as many frames as it does units.
+    // Reading the length as frames instead makes an 8-bit stereo block twice
+    // too long, so a double-buffering driver's refill falls a half-block
+    // behind the play position and every sound is heard twice -- which is
+    // exactly how DOOM 1.2 (11025 Hz 8-bit stereo, C6h mode 20h, 2 KB
+    // auto-init buffer) reproduced it. DOSBox-X's sblaster.cpp likewise
+    // decrements its block counter by bytes read for 8-bit stereo and by
+    // words for 16-bit; flagged as second-hand corroboration, not as the
+    // primary source, per this repo's rule on other emulators.
+    const uint32_t units_per_frame = stereo ? 2u : 1u;
+    block_frames_ = block_left_ = dma_units / units_per_frame;
     exit_autoinit_ = false;
     paused_ = false;
     transfer_ready_ = false;
@@ -474,5 +488,7 @@ std::vector<SoundBlaster::Sample> SoundBlaster::drain_samples() {
     samples_.clear();
     return out;
 }
+
+
 
 }  // namespace pc486

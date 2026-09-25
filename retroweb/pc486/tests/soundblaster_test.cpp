@@ -376,7 +376,7 @@ TEST_F(SoundBlasterTest, SixteenBitSignedStereoAutoInitUsesChannelFiveAndTheSixt
     // (16-bit, auto-init, FIFO on) with mode 30h (16-bit signed stereo).
     ResetDsp();
     Cmd({0x41, 0xAC, 0x44});      // 44100 Hz
-    Cmd({0xB6, 0x30, 0x03, 0x00});  // 4 frames per block
+    Cmd({0xB6, 0x30, 0x07, 0x00});  // 8 words per block = 4 frames of 16-bit stereo
     EXPECT_TRUE(sb.transfer_is_16bit());
     EXPECT_TRUE(sb.transfer_is_autoinit());
     EXPECT_TRUE(sb.stereo());
@@ -417,11 +417,50 @@ TEST_F(SoundBlasterTest, SixteenBitSignedStereoAutoInitUsesChannelFiveAndTheSixt
     EXPECT_FALSE(sb.irq_pending());
 }
 
+// The DSP's Bxh/Cxh block length counts DMA transfer cycles -- bytes on the
+// 8-bit channel, words on the 16-bit one -- NOT audio frames, so a stereo
+// block spans half as many frames as the programmed length. Reading it as
+// frames made every 8-bit stereo block twice too long, which is what made
+// DOOM 1.2's sound effects each play twice (see begin_dma's comment).
+TEST_F(SoundBlasterTest, StereoBlockLengthCountsDmaUnitsNotFrames) {
+    ResetDsp();
+    Cmd({0x41, 0x2B, 0x11});  // 11025 Hz, exactly as DOOM 1.2 programs it
+    // C6h mode 20h length 00FFh: DOOM's real command. 256 BYTES = 128 frames.
+    Cmd({0xC6, 0x20, 0xFF, 0x00});
+    ASSERT_TRUE(sb.stereo());
+    ASSERT_FALSE(sb.sixteen_bit());
+    ASSERT_TRUE(sb.transfer_is_autoinit());
+
+    std::vector<uint8_t> pcm(256, 0x80);
+    std::size_t offset = 0, moved = 0;
+    while (!sb.irq8_pending()) {
+        ASSERT_TRUE(RunUntilTransfer(4096));
+        moved += ServeBurst(pcm, offset);
+        ASSERT_LE(moved, 256u) << "block ran past the 256 bytes DOOM programmed";
+    }
+    EXPECT_EQ(moved, 256u) << "one block must consume 256 bytes, not 512";
+    EXPECT_EQ(sb.drain_samples().size(), 128u) << "256 bytes of 8-bit stereo is 128 frames";
+
+    // Mono is unaffected: the length is already in bytes, one byte per frame.
+    ResetDsp();
+    Cmd({0x41, 0x2B, 0x11});
+    Cmd({0xC0, 0x00, 0xFF, 0x00});  // 8-bit mono single-cycle, 256 bytes
+    std::size_t mono_moved = 0;
+    offset = 0;
+    while (sb.playing()) {
+        ASSERT_TRUE(RunUntilTransfer(4096));
+        mono_moved += ServeBurst(pcm, offset);
+        ASSERT_LE(mono_moved, 256u);
+    }
+    EXPECT_EQ(mono_moved, 256u);
+    EXPECT_EQ(sb.drain_samples().size(), 256u) << "256 bytes of 8-bit mono is 256 frames";
+}
+
 TEST_F(SoundBlasterTest, EightBitUnsignedStereoSingleCycleViaCxCommand) {
     ResetDsp();
     Cmd({0x41, 0x2B, 0x11});        // 11025 Hz exactly
     EXPECT_EQ(sb.sample_rate_hz(), 11025u);
-    Cmd({0xC0, 0x20, 0x01, 0x00});  // 8-bit, single-cycle, mode 20h = stereo unsigned
+    Cmd({0xC0, 0x20, 0x03, 0x00});  // 8-bit single-cycle, mode 20h = stereo unsigned; 4 bytes = 2 frames
     EXPECT_FALSE(sb.transfer_is_16bit());
     EXPECT_FALSE(sb.transfer_is_autoinit());
     EXPECT_TRUE(sb.stereo());
