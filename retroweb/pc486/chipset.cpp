@@ -102,6 +102,7 @@ uint8_t Chipset::io_in(uint16_t port) {
     if (pic_slave.owns(port)) return pic_slave.in(port);
     if (pit.owns(port)) return pit.in(port);
     if (kbc.owns(port)) return kbc.in(port);
+    if (kbc.owns_fast_a20(port)) return kbc.fast_a20_in();
     if (cmos.owns(port)) return cmos.in(port);
     if (dma1.owns(port)) return dma1.in(port);
     if (dma2.owns(port)) return dma2.in(port);
@@ -121,6 +122,7 @@ void Chipset::io_out(uint16_t port, uint8_t v) {
     if (pic_slave.owns(port)) { pic_slave.out(port, v); return; }
     if (pit.owns(port)) { pit.out(port, v); return; }
     if (kbc.owns(port)) { kbc.out(port, v); note_a20(); return; }
+    if (kbc.owns_fast_a20(port)) { kbc.fast_a20_out(v); note_a20(); return; }
     if (cmos.owns(port)) { cmos.out(port, v); return; }
     if (dma1.owns(port)) { dma1.out(port, v); return; }
     if (dma2.owns(port)) { dma2.out(port, v); return; }

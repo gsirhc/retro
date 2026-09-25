@@ -253,6 +253,51 @@ TEST_F(Wd1003Test, WriteSectorsAcceptsDataImmediatelyThenCommitsSynchronously) {
     EXPECT_FALSE(hdd.in(0x3F6) & 0x80);  // and NOT still BSY
     EXPECT_TRUE(hdd.irq_pending());
     EXPECT_TRUE(hdd.dirty(0));  // and the front end is told the image changed
+
+    // The write landed at byte offset 0 -- exactly one 4KB dirty page,
+    // rounded up from the 512 real bytes actually touched. See dirty_ranges().
+    auto ranges = hdd.dirty_ranges(0);
+    ASSERT_EQ(ranges.size(), 1u);
+    EXPECT_EQ(ranges[0].offset, 0u);
+    EXPECT_EQ(ranges[0].length, 4096u);
+}
+
+TEST_F(Wd1003Test, DirtyRangesTracksOnlyWhatWasActuallyWrittenAndClearsCleanly) {
+    // Real purpose: the browser's periodic autosave (app.js's
+    // persistHddIfDirty()) copies and re-persists only these ranges instead
+    // of the whole 504MB image every time -- see wd1003.h's dirty_ranges()
+    // comment. Two writes far apart in the image must show up as two
+    // separate, non-adjacent ranges, not one giant range spanning the gap
+    // between them (which would defeat the whole point).
+    MountDrive0(4096);  // 4096 sectors * 512 = 2,097,152 bytes = 512 dirty pages
+    EXPECT_TRUE(hdd.dirty_ranges(0).empty());  // freshly mounted: nothing dirty yet
+
+    auto write_one_sector = [&](uint16_t lba_low_sector_number, uint8_t cyl_low, uint8_t cyl_high) {
+        hdd.out(0x1F6, 0xA0);
+        hdd.out(0x1F2, 1);  // one sector
+        hdd.out(0x1F3, uint8_t(lba_low_sector_number));
+        hdd.out(0x1F4, cyl_low); hdd.out(0x1F5, cyl_high);
+        hdd.out(0x1F7, 0x30);  // WRITE SECTORS
+        for (int i = 0; i < 256; ++i) hdd.data_out16(0x1234);
+    };
+
+    // Sector 1 (CHS, cyl 0, head 0) -> byte offset 0, page 0.
+    write_one_sector(1, 0, 0);
+    // Sector 17 of the same track -> byte offset 16*512 = 8192, page 2 --
+    // leaves page 1 clean in between, so the two dirty pages do NOT coalesce
+    // into one range spanning the untouched gap.
+    write_one_sector(17, 0, 0);
+
+    auto ranges = hdd.dirty_ranges(0);
+    ASSERT_EQ(ranges.size(), 2u);
+    EXPECT_EQ(ranges[0].offset, 0u);
+    EXPECT_EQ(ranges[0].length, 4096u);
+    EXPECT_EQ(ranges[1].offset, 8192u);
+    EXPECT_EQ(ranges[1].length, 4096u);
+
+    hdd.clear_dirty(0);
+    EXPECT_FALSE(hdd.dirty(0));
+    EXPECT_TRUE(hdd.dirty_ranges(0).empty());
 }
 
 TEST_F(Wd1003Test, RecalibrateAndInitializeDeviceParametersCompleteImmediately) {

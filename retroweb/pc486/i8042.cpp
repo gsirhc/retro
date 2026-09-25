@@ -196,9 +196,27 @@ void I8042::out(uint16_t port, uint8_t v) {
             // keyboard would -- except 0xFF (RESET), where a real keyboard
             // follows its ACK with a second, separate self-test-passed
             // byte (0xAA), which real BIOS keyboard POST explicitly checks
-            // for (see PC486_REVIEW.md).
-            push_kbd(0xFA);
-            if (v == 0xFF) push_kbd(0xAA);
+            // for (see PC486_REVIEW.md), and 0xF2 (Read ID), whose ACK is
+            // followed by a genuine two-byte device ID, 0xAB then 0x83 --
+            // "the keyboard responds by sending a two-byte device ID of
+            // 0xAB, 0x83" (Chapweske, "The AT-PS/2 Keyboard Interface",
+            // command 0xF2). Every one of these is real keyboard-device
+            // output, not the controller answering for itself (push_ctrl,
+            // above), so it takes irq=true, not the false this file used to
+            // pass here -- see push_kbd's own comment in i8042.h for the
+            // citation that caught it. That was a real, live bug: MS-DOS
+            // 6.22's SETUP.EXE sends 0xF2 during its own keyboard probe,
+            // gets an ACK it correctly interprets as "arrived" via the
+            // (missing) IRQ1 rather than by polling, and -- seeing no
+            // interrupt -- retries 0xF2 three times over. Every one of
+            // those four unacknowledged ACKs (and, before this fix, the
+            // missing ID bytes too) piled up unread behind the single-byte
+            // output register (see chipset.cpp's IRQ1 comment on that
+            // register), wedging it full forever and silently dropping
+            // every keystroke typed afterward, Setup included.
+            push_kbd(0xFA, true);
+            if (v == 0xFF) push_kbd(0xAA, true);
+            if (v == 0xF2) { push_kbd(0xAB, true); push_kbd(0x83, true); }
             break;
     }
 }

@@ -257,7 +257,25 @@ void Cpu::protected_mode_interrupt(uint8_t vector, bool software, bool has_error
     uint32_t old_eflags = eflags;
     uint16_t old_cs = cs, old_ss = ss;
     uint32_t old_eip = eip, old_esp = esp;
+    uint16_t old_es = es, old_ds = ds, old_fs = fs, old_gs = gs;
     int target_dpl = acc_dpl(ca);
+
+    // Leaving V86. The gate must be a 32-bit trap or interrupt gate pointing
+    // at "a nonconforming, privilege-level zero, code segment" (Intel 80386
+    // PRM, "Entering and Leaving Virtual 8086 Mode"), so the handler always
+    // runs as ordinary protected-mode ring 0 on the TSS's ring-0 stack.
+    bool from_v86 = v86_mode();
+    if (from_v86) {
+        if (!gate32 || acc_conforming(ca) || target_dpl != 0) raise_sel(EXC_GP, target_sel);
+        // VM is cleared in the *live* flags -- "the processor stores the
+        // current setting of EFLAGS on the stack, then clears the VM bit"
+        // (same section). old_eflags, captured above, keeps VM = 1 so the
+        // frame pushed below still says the interrupted code was an 8086
+        // program and the matching IRETD can restore V86. Done here, before
+        // any stack work, so every push below goes through the ordinary
+        // protected-mode segmentation path.
+        set_flag(FLAG_VM, false);
+    }
 
     if (!acc_conforming(ca) && target_dpl < cpl()) {
         // Inter-privilege interrupt: the new stack comes from the current
@@ -290,6 +308,14 @@ void Cpu::protected_mode_interrupt(uint8_t vector, bool software, bool has_error
         sd_[SEG_CS] = decode_desc(cd);
         sd_[SEG_CS].sel = cs;
         cpl_ = uint8_t(target_dpl);
+        // "The contents of all the 8086 segment registers are stored on the
+        // PL 0 stack" (Intel 80386 PRM, "Entering and Leaving Virtual 8086
+        // Mode"), below the SS:ESP pair, so the ring-0 frame reads
+        // GS FS DS ES SS ESP EFLAGS CS EIP from high address to low -- the
+        // nine doublewords IRETD's own return-to-V86 path pops back (Intel
+        // 80486 PRM, IRET; the 386 PRM checks "the top 36 bytes" of the
+        // stack for exactly this frame).
+        if (from_v86) { push32(old_gs); push32(old_fs); push32(old_ds); push32(old_es); }
         if (gate32) { push32(old_ss); push32(old_esp); }
         else        { push16(old_ss); push16(uint16_t(old_esp)); }
     } else {
@@ -300,6 +326,17 @@ void Cpu::protected_mode_interrupt(uint8_t vector, bool software, bool has_error
     if (gate32) { push32(old_eflags); push32(old_cs); push32(old_eip); }
     else        { push16(uint16_t(old_eflags)); push16(old_cs); push16(uint16_t(old_eip)); }
     if (has_error) { if (gate32) push32(error); else push16(uint16_t(error)); }
+
+    if (from_v86) {
+        // "After the processor stores all the 8086 segment registers on the
+        // PL 0 stack, it loads all the segment registers with zeros before
+        // starting to execute the handler procedure" (Intel 80386 PRM,
+        // "Entering and Leaving Virtual 8086 Mode"). Unconditional, unlike
+        // far_return()'s DPL-conditional sweep: there the four registers hold
+        // real descriptors and only the over-privileged ones are unsafe,
+        // while an 8086 segment value is not a usable selector at all.
+        for (int si : {SEG_ES, SEG_DS, SEG_FS, SEG_GS}) load_seg(si, 0);
+    }
 
     // An interrupt gate clears IF (the handler runs with interrupts off);
     // a trap gate leaves it alone. Both clear TF, NT and RF.
@@ -411,8 +448,10 @@ void Cpu::load_seg_real(int si, uint16_t selector) {
     // the segment value's low two bits. This is what lets a memory manager
     // set CR0.PE while running from an arbitrary real-mode CS -- FreeDOS's
     // HimemX does it from CS=0291h -- and then immediately load a DPL-0 data
-    // selector without faulting (PC486_REVIEW.md §6.5).
-    if (si == SEG_CS) cpl_ = 0;
+    // selector without faulting (PC486_REVIEW.md §6.5). The same load in V86
+    // lands at CPL 3 instead, which is what makes the IOPL-sensitive and
+    // privileged instructions there trap to the monitor.
+    if (si == SEG_CS) cpl_ = v86_mode() ? 3 : 0;
 }
 
 void Cpu::refresh_real_bases() {
@@ -435,7 +474,7 @@ void Cpu::refresh_real_bases() {
 }
 
 void Cpu::load_seg(int si, uint16_t selector) {
-    if (!protected_mode()) { load_seg_real(si, selector); return; }
+    if (real_addressing()) { load_seg_real(si, selector); return; }
     if ((selector & 0xFFFCu) == 0) {
         // A null selector may be loaded into DS/ES/FS/GS: the register
         // becomes unusable and only an actual *access* through it faults,
@@ -753,8 +792,8 @@ void Cpu::prefetch_fill() {
     if (bus_.page == nullptr || bus_.map_epoch == nullptr) return;
     uint32_t lin = seg_linear(SEG_CS, eip, 1, false);  // still faults past the limit
     uint32_t span = 0x1000u - (lin & 0xFFFu);
-    if (!protected_mode()) {
-        // Real mode's fixed 64KB limit: the window must stop at the wrap.
+    if (real_addressing()) {
+        // Real mode's (and V86's) fixed 64KB limit: the window must stop at the wrap.
         if (eip <= 0xFFFFu && span > 0x10000u - eip) span = 0x10000u - eip;
     } else {
         const SegDesc &s = sd_[SEG_CS];
@@ -833,7 +872,12 @@ void Cpu::check_io_permission(uint16_t port, int size) {
     // *set* denies access (Intel 80486 PRM, "I/O Permission Bit Map").
     // Real mode has no privilege at all, so nothing to check.
     if (!protected_mode()) return;
-    if (cpl() <= iopl()) return;
+    // V86 is the exception to the IOPL shortcut: "the protection mechanism
+    // does not consult IOPL when executing the I/O instructions IN, INS, OUT,
+    // OUTS. Only the I/O permission bit map controls the right for V86 tasks
+    // to execute these I/O instructions" (Intel 80386 PRM, "Virtual I/O"), so
+    // even at IOPL 3 a V86 task's ports go through the map below.
+    if (!v86_mode() && cpl() <= iopl()) return;
     if (tr_access_ == 0) raise_err(EXC_GP, 0);
     bool tss32 = (sys_type(tr_access_) == SYS_TSS32_AVAIL || sys_type(tr_access_) == SYS_TSS32_BUSY);
     if (!tss32) raise_err(EXC_GP, 0);   // a 16-bit TSS has no I/O map at all
@@ -871,7 +915,7 @@ constexpr int kTaskSwitchCost = 199;
 }  // namespace
 
 int Cpu::far_transfer(uint16_t selector, uint32_t offset, bool is_call) {
-    if (!protected_mode()) {
+    if (real_addressing()) {   // real mode, and V86, where CS behaves as on an 8086
         if (is_call) { push16(cs); push16(uint16_t(eip)); }
         load_seg_real(SEG_CS, selector);
         eip = offset & 0xFFFFu;
@@ -1008,16 +1052,29 @@ int Cpu::far_transfer(uint16_t selector, uint32_t offset, bool is_call) {
 }
 
 int Cpu::far_return(uint32_t stack_adjust, bool is_iret) {
-    if (!protected_mode()) {
+    if (real_addressing()) {
+        // Real mode, and V86, where a far return is an 8086 far return. IRET
+        // itself is IOPL-sensitive in V86 -- "CPL is always three in V86 mode;
+        // therefore, if IOPL < 3, these instructions will trigger a
+        // general-protection exception" -- specifically so the monitor can
+        // control the interrupted routine's interrupt-enable flag (Intel 80386
+        // PRM, "Additional Sensitive Instructions" / "Virtualizing the
+        // Interrupt-Enable Flag").
+        if (is_iret && v86_mode() && iopl() != 3) raise_err(EXC_GP, 0);
+        // A V86 task cannot change VM or IOPL: the 8086 flags image it pops
+        // has neither, and honoring bit 17 out of one would drop the task out
+        // of the mode it is running in.
+        uint32_t keep = v86_mode() ? uint32_t(FLAG_VM | FLAG_IOPL) : 0u;
         if (is_iret) {
             if (opsize32_) {
                 set_ip(pop32());
                 load_seg_real(SEG_CS, uint16_t(pop32()));
-                eflags = (pop32() & kIretdMask) | FLAG_R1;
+                eflags = ((pop32() & kIretdMask & ~keep) | (eflags & keep)) | FLAG_R1;
             } else {
                 set_ip(pop16());
                 load_seg_real(SEG_CS, pop16());
-                eflags = (eflags & 0xFFFF0000u) | (pop16() & kPopfMask) | FLAG_R1;
+                eflags = (eflags & 0xFFFF0000u) |
+                         ((uint32_t(pop16()) & kPopfMask & ~keep) | (eflags & keep & 0xFFFFu)) | FLAG_R1;
             }
         } else {
             uint32_t off = opsize32_ ? pop32() : pop16();
@@ -1041,6 +1098,7 @@ int Cpu::far_return(uint32_t stack_adjust, bool is_iret) {
     uint32_t new_eip;
     uint16_t new_cs;
     uint32_t new_flags = eflags;
+    const int entry_cpl = cpl();   // the level that executed the return; see the flag load below
     if (opsize32_) {
         new_eip = pop32();
         new_cs = uint16_t(pop32());
@@ -1049,6 +1107,41 @@ int Cpu::far_return(uint32_t stack_adjust, bool is_iret) {
         new_eip = pop16();
         new_cs = pop16();
         if (is_iret) new_flags = (eflags & 0xFFFF0000u) | pop16();
+    }
+    // IRETD from CPL 0 with VM set in the popped flags image returns to a
+    // virtual-8086 task: "a value of one in VM in this case indicates that the
+    // procedure to which control is being returned is an 8086 procedure. The
+    // CPL at the time the IRET is executed must be zero, else the processor
+    // does not change VM" (Intel 80386 PRM, "Entering and Leaving Virtual 8086
+    // Mode"). A separate path from the returns below, because new_cs is an
+    // 8086 segment value rather than a selector, so none of their descriptor
+    // checks can run on it. Pops ESP, SS, ES, DS, FS, GS -- the mirror of the
+    // frame protected_mode_interrupt() pushed (Intel 80486 PRM, IRET).
+    if (is_iret && opsize32_ && (new_flags & FLAG_VM) && entry_cpl == 0) {
+        uint32_t new_esp = pop32();
+        uint16_t n_ss = uint16_t(pop32());
+        uint16_t n_es = uint16_t(pop32()), n_ds = uint16_t(pop32());
+        uint16_t n_fs = uint16_t(pop32()), n_gs = uint16_t(pop32());
+        // VM goes live before the segment loads, so each one takes the 8086
+        // path and CS's load lands at CPL 3.
+        eflags = (new_flags & kIretdMask) | FLAG_R1;
+        const int order[6] = {SEG_CS, SEG_SS, SEG_ES, SEG_DS, SEG_FS, SEG_GS};
+        const uint16_t sel[6] = {new_cs, n_ss, n_es, n_ds, n_fs, n_gs};
+        for (int i = 0; i < 6; ++i) {
+            load_seg_real(order[i], sel[i]);
+            SegDesc &s = sd_[order[i]];
+            // load_seg_real() keeps the cached limit and D/B bit, which is the
+            // "unreal mode" quirk real mode depends on (PC486_REVIEW.md §5.4)
+            // and exactly what a V86 task must not inherit from the monitor:
+            // it is an 8086, so every segment is a 16-bit 64KB one at
+            // privilege level 3.
+            s.limit = 0xFFFFu;
+            s.big = false;
+            s.access = uint8_t(order[i] == SEG_CS ? 0xFB : 0xF3);
+        }
+        esp = new_esp;
+        set_ip(new_eip);
+        return 36;   // published protected-mode IRET
     }
     if ((new_cs & 0xFFFCu) == 0) raise_err(EXC_GP, 0);
     RawDesc d = read_desc(new_cs, EXC_GP);
@@ -1110,11 +1203,19 @@ int Cpu::far_return(uint32_t stack_adjust, bool is_iret) {
     if (is_iret) {
         // IOPL is only writable at CPL 0, and IF only when CPL <= IOPL --
         // an IRET from a less privileged level silently keeps the old
-        // values rather than faulting (Intel 80486 PRM, "IRET").
+        // values rather than faulting (Intel 80486 PRM, "IRET"). VM goes with
+        // IOPL: outside CPL 0 the processor leaves it alone, which is why the
+        // V86-entry path above is the only way into the mode.
+        //
+        // Both rules test the CPL that *executed* the IRET, not the one being
+        // returned to, so an outward return from ring 0 does load IOPL out of
+        // the stack image -- which is how a monitor hands a ring-3 task an
+        // IOPL in the first place. (Same as Bochs' iret_protected, which
+        // builds its flag change mask from `prev_cpl`.)
         uint32_t mask = opsize32_ ? kIretdMask : kPopfMask;
         uint32_t keep = 0;
-        if (cpl() > 0) keep |= FLAG_IOPL;
-        if (cpl() > iopl()) keep |= FLAG_IF;
+        if (entry_cpl > 0) keep |= FLAG_IOPL | FLAG_VM;
+        if (entry_cpl > iopl()) keep |= FLAG_IF;
         eflags = ((new_flags & mask & ~keep) | (eflags & keep) |
                   (opsize32_ ? 0u : (eflags & 0xFFFF0000u))) | FLAG_R1;
     }
@@ -1160,6 +1261,15 @@ void Cpu::task_switch(uint16_t tss_selector, TaskLink link, bool has_error, uint
     // anything smaller cannot hold a task (Intel 80486 PRM: "#TS if TSS
     // segment limit less than 67h" for the 32-bit form).
     if (new_limit < (new_is32 ? 0x67u : 0x2Bu)) raise_sel(EXC_TS, tss_selector);
+    // A TSS whose saved EFLAGS has VM set describes a virtual-8086 task, and
+    // entering V86 through a task gate is a deliberate, documented gap (see
+    // cpu80486.h's header): the CS load below is a bespoke descriptor lookup
+    // that would read an 8086 segment value as a selector and take CPL from
+    // its low two bits. Reporting the TSS as invalid stops here instead, with
+    // nothing yet committed -- a period V86 memory manager enters the mode
+    // with an IRETD inside one task, which far_return() implements. (A 16-bit
+    // TSS has no room for EFLAGS' upper half, so it cannot ask for this.)
+    if (new_is32 && (read_tss_dword(new_base, 36) & FLAG_VM)) raise_sel(EXC_TS, tss_selector);
 
     // 1. Save the outgoing task's state. TR must already be valid -- a task
     // switch out of "no task at all" is a software error, not a bootstrap
@@ -4003,7 +4113,21 @@ int Cpu::step_inner() {
             c += 3;
             break;
         }
-        case 0x8F: { RM rm = decode_modrm(); if (opsize32_) rm_write32(rm, pop32()); else rm_write16(rm, pop16()); c += rm.is_mem ? 6 : 1; break; }  // POP r/m
+        case 0x8F: {  // POP r/m
+            // "If the ESP register is used as a base register for addressing
+            // a destination operand in memory, the POP instruction computes
+            // the effective address of the operand after it increments the
+            // ESP register" (Intel SDM, POP) -- so POP [ESP+n] resolves
+            // against the *post*-pop ESP, not the value ESP held when the
+            // instruction started. Popping before decoding the ModRM/SIB --
+            // rather than decoding it up front, as every other rm_write user
+            // does -- is what gets that ordering right; decode_modrm() only
+            // ever reads EIP for the encoding bytes, never ESP, so moving it
+            // after the pop changes nothing else.
+            if (opsize32_) { uint32_t v = pop32(); RM rm = decode_modrm(); rm_write32(rm, v); c += rm.is_mem ? 6 : 1; }
+            else            { uint16_t v = pop16(); RM rm = decode_modrm(); rm_write16(rm, v); c += rm.is_mem ? 6 : 1; }
+            break;
+        }
 
         case 0x90: c += 1; break;  // NOP (XCHG eAX,eAX)
         case 0x91: case 0x92: case 0x93: case 0x94: case 0x95: case 0x96: case 0x97: {
@@ -4041,6 +4165,16 @@ int Cpu::step_inner() {
             // PUSHFD is half of the AP-485 486-detection sequence (PUSHFD,
             // POP EAX, flip bit 18, PUSH EAX, POPFD, PUSHFD, POP EAX), so
             // the AC bit has to survive a round trip through here.
+            //
+            // In V86 it is IOPL-sensitive: "PUSHF, POPF, and IRET are
+            // sensitive to IOPL so that the V86 monitor can control changes to
+            // the interrupt-enable flag", and "CPL is always three in V86 mode;
+            // therefore, if IOPL < 3, these instructions will trigger a
+            // general-protection exception" (Intel 80386 PRM, "Additional
+            // Sensitive Instructions"). A real fault to the monitor, not
+            // POPF's silent masking below, which is a different rule for
+            // ordinary protected-mode CPL > 0.
+            if (v86_mode() && iopl() != 3) raise_err(EXC_GP, 0);
             if (opsize32_) push32(eflags); else push16(uint16_t(eflags));
             c += 4;
             break;
@@ -4057,8 +4191,19 @@ int Cpu::step_inner() {
             // In protected mode IOPL is writable only at CPL 0 and IF only
             // when CPL <= IOPL; a POPF that tries otherwise silently keeps
             // the old value rather than faulting (Intel 80486 PRM, POPF).
+            // And in V86 it faults outright instead, at IOPL < 3 -- see PUSHF
+            // above for the citation.
+            if (v86_mode() && iopl() != 3) raise_err(EXC_GP, 0);
             {
-                uint32_t keep = 0;
+                // VM (like RF) is never affected by POPF/POPFD, in any mode --
+                // "the VM and RF flags... are not affected by the POPF/POPFD
+                // instructions" (Intel 80486 PRM, "POPF/POPFD"); only IRETD
+                // from CPL 0, or a task switch, can change it. kPopfMask and
+                // kPopfdMask already keep the *popped* value from supplying a
+                // VM bit, but without also keeping it here, the OR below would
+                // silently zero whatever VM already was -- dropping a running
+                // V86 task out of virtual-8086 mode on its own POPF/POPFD.
+                uint32_t keep = FLAG_VM;
                 if (protected_mode()) {
                     if (cpl() > 0) keep |= FLAG_IOPL;
                     if (cpl() > iopl()) keep |= FLAG_IF;
@@ -4132,7 +4277,19 @@ int Cpu::step_inner() {
         case 0xCA: { uint16_t n = fetch16(); c += far_return(n, false); break; }  // RETF imm16
         case 0xCB: c += far_return(0, false); break;                              // RETF
         case 0xCC: do_interrupt(3, true); c += 26; break;
-        case 0xCD: { uint8_t n = fetch8(); do_interrupt(n, true); c += 30; break; }
+        case 0xCD: {  // INT imm8
+            uint8_t n = fetch8();
+            // The fourth IOPL-sensitive instruction in V86: "INT n is
+            // sensitive so that the V86 monitor can intercept calls to the
+            // 8086 OS" (Intel 80386 PRM, "Emulating 8086 Operating System
+            // Calls"), so at IOPL < 3 the monitor gets a #GP instead of the
+            // vector. INT3 and INTO are exceptions rather than software
+            // interrupts and are not in that list.
+            if (v86_mode() && iopl() != 3) raise_err(EXC_GP, 0);
+            do_interrupt(n, true);
+            c += 30;
+            break;
+        }
         case 0xCE: if (flag(FLAG_OF)) { do_interrupt(4, true); c += 28; } else c += 3; break;  // INTO: published 3/28
         case 0xCF: c += far_return(0, true); break;  // IRET / IRETD
 

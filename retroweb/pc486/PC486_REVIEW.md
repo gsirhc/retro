@@ -15,7 +15,20 @@ graphics, booting to a FreeDOS/MS-DOS prompt), Milestone 2 (protected mode,
 paging, task switching, the FPU -- §6), Milestone 3 (VGA mode 13h and the
 VESA BIOS Extensions -- §7), and Milestone 4 (a PS/2 mouse and a Sound
 Blaster 16 -- §10-§12) are all complete; BOOM, a real DJGPP/CWSDPMI DOS
-Doom source port, runs and renders through the whole stack (§9).
+Doom source port, ran and rendered through the whole stack (§9) when the
+shipped image carried FreeDOS's Full package set. The machine now ships
+FreeDOS's trimmed-down Base set instead -- a barebones DOS environment with
+no games, apps, or dev tools, meant as a starting point for installing your
+own OS -- so BOOM is no longer part of the default image and `boom-check`
+is retired; §9/§13's account of that work stands as a historical record of
+what this core has been proven against. See §19.5. That "bring your own
+OS" path is verified against a real, genuine MS-DOS 6.22 install end to
+end in §20, which also found and fixed two real bugs (a keyboard-freeze
+and a missing "Fast A20 Gate" I/O port) along the way. §21 goes one step
+further and installs and plays a real commercial DOS game (DOOM 1.2) on
+top of that MS-DOS install, finding and fixing two more (an unchained-
+mode-13h rendering bug and a 5-second whole-disk autosave stall audible as
+a sound glitch).
 
 This doc follows the same discipline as `ibmpc-at/IBM_PCAT_REVIEW.md`:
 each section is a real design decision or bug, written up as fact ->
@@ -1096,6 +1109,12 @@ build faster.
 
 ### 5.9 The installed system's own boot menu selects a V86 memory manager
 
+> **Superseded by §19.** V86 mode is implemented, `SelectRealModeBootMenuEntry()`
+> is deleted, and `make hdd-boot-check` now boots FreeDOS's real,
+> unmodified default -- JEMMEX included. This section is kept as written
+> because it explains the workaround's reasoning while it was needed; §19.3
+> has the current result.
+
 The installer reporting success was necessary but not sufficient, and this is
 the gap: `make hdd-image` completed, produced a byte-exact 528,482,304-byte
 image with a real MBR and a full 250MB FreeDOS install -- and
@@ -1286,7 +1305,9 @@ Still deliberately absent, and now the complete list:
   §5.9's `MENUDEFAULT=4,5` workaround **stays in place**: JemmEx is a V86
   monitor, so protected mode alone does not help it. V86 is the next thing to
   do if the goal is running FreeDOS's default configuration rather than a DOS
-  extender.
+  extender. (Superseded by §19: V86 mode is implemented and the workaround
+  is gone, task-gate V86 entry aside -- that one narrow form stays a
+  declared gap, §19.1.)
 - **Debug and test registers.** DR0-DR7 round-trip but no breakpoint ever
   fires; TR3-TR7 read 0, because there is no cache model to test and the TLB
   model here is not the silicon's structure.
@@ -2311,12 +2332,10 @@ of disc images, which is genuinely unavoidable work at that point.
 
 ### 8.6 Known remaining issues, not fixed here
 
-- **`persistHddIfDirty()` copies all 528 MB of C: to take a snapshot.**
-  This is the 65 ms long task at the 20-second mark above. It fires at most
-  once per 5 s and only when C: has actually been written, so it is well
-  inside the responsiveness bar, but it is the largest remaining avoidable
-  stall and wants incremental (dirty-sector) persistence rather than a
-  whole-image copy.
+- ~~`persistHddIfDirty()` copies all 528 MB of C: to take a snapshot.~~
+  Fixed in §21.2: `persistHddIfDirty()` now copies and re-persists only the
+  4KB pages a session actually wrote (`wd1003.h`'s `dirty_ranges()`),
+  instead of the whole image every 5 s.
 - **`Ega::tick`'s frame period is still `8000000.0 / 60.0`** -- the *AT's*
   8 MHz clock, inherited verbatim from `ibmpc-at`, not this machine's
   66 MHz. The emulated vertical retrace therefore cycles at roughly
@@ -4235,3 +4254,604 @@ check` drives BOOM successfully either way; it was never the reproduction
 for this bug, which needed two keyboard bytes with no service pass between
 them and a purely interrupt-driven read -- exactly what §17.2's test forces
 and what a fast typist or an extended key does to the real front end.
+
+## 18. The CD-ROM drive stops being on the critical path
+
+Reported: a page load downloads close to a gigabyte before the machine will
+even power on. It does, and the CD-ROM had nothing to do with why -- V86
+mode (§6.1) was suspected, since it gates a genuine FreeDOS reinstall, but
+this machine ships with FreeDOS *already installed* on C: (§5), and nothing
+about booting or running touches drive D: at all.
+
+### 18.1 What was actually being fetched, and why it never needed to be
+
+`app.js`'s startup `Promise.all()` fetched `disks/freedos-hdd.img` (the
+factory C: image, ~122MB gzip-compressed -- `serve_nocache.py`/§15 already
+cover that path) *and* `disks/freedos-cd.iso` (FreeDOS's own official
+install/live CD, ~420MB, and -- per `web/Makefile`'s own comment -- a
+densely-packed ISO9660 image that gzip barely touches) unconditionally,
+before the power switch even enabled. The CD was there because the original
+plan bundled it as "shipped pre-loaded media, the same idea the factory HDD
+image uses" (CLAUDE.md's own "Adding a new machine" convention) -- a
+reasonable read of that rule for the *fixed* disk, but the CD-ROM is
+removable media, and every other machine here (the floppy bay included)
+treats removable media as something a visitor supplies or requests, not
+something fetched on their behalf whether they want it or not.
+
+Measured, not assumed: `hdd_boot_check` (§5.10) already cold-boots this
+machine with **nothing but the finished HDD image mounted** -- no floppy,
+no CD -- and reaches an idle `C:\>` prompt. The CD-ROM path being real and
+tested (§7's other milestone, `atapi_cdrom.cpp`) never required the CD
+being *in the drive by default*.
+
+### 18.2 The fix
+
+The CD-ROM bay now starts empty, like the floppy bay always has.
+`app.js`'s firmware fetch drops `freedos-cd.iso` entirely; `powerOn()` only
+calls `mountCdrom()` when `pendingCdrom` is actually set. A new "Load
+FreeDOS CD..." button next to the existing "Insert..." file picker fetches
+that same shipped `.iso` on demand -- one `fetch()` call, wired through the
+same `pendingCdrom` path a user-supplied file already uses, so swapping
+discs, ejecting, and power-state independence (§7) all keep working
+identically once a disc -- any disc -- is actually in the drive. Nothing on
+the build side changes: `cdrom-image` still builds and stages the file:
+only *when* a browser asks for it moved.
+
+### 18.3 Tests
+
+`web/tests/cdrom.spec.ts`: the old "ships with the CD already in the drive"
+case is replaced with "boots with the drive empty, and never fetches the
+FreeDOS CD unasked" -- which asserts `cdromPresent()` is false *and* that no
+request for `freedos-cd.iso` was ever made during boot, not just that the UI
+looks empty. A new case drives "Load FreeDOS CD..." end to end: click, real
+fetch, `cdromPresent()` becomes true. The eject/insert-arbitrary-ISO and
+swap-while-powered-off cases needed only their setup adjusted for the new
+empty-by-default start, not their actual assertions.
+
+Full suite: 55 cases, 54 passed. The one failure (`footer.spec.ts` expecting
+"Copyright 2026" against the shared footer's "© 2026") predates this change
+and is unrelated to it -- §16 already recorded it as a pre-existing
+mismatch before any of this section's changes existed.
+
+## 19. Virtual-8086 mode, and FreeDOS's own default boot menu
+
+§5.9 documented a labelled departure: FreeDOS's installer always configures
+its boot menu to load JEMMEX, a V86-mode memory manager, and this core had
+no V86 mode -- so `disks/build_freedos_hdd.cpp` patched one digit in the
+installed `FDCONFIG.SYS` to default to Safe Mode (HIMEMX only) instead.
+§6.1 listed V86 as the one remaining item on "still deliberately absent."
+Both are now stale: V86 mode is implemented in `cpu80486.h`/`.cpp`, the
+`SelectRealModeBootMenuEntry()` workaround is deleted outright (not just
+disabled), and `make hdd-boot-check` boots FreeDOS's real, unmodified
+default -- JEMMEX and all -- to a genuine idle `C:\>`.
+
+### 19.1 What V86 mode required
+
+EFLAGS.VM already had storage (§6.1); actually entering the mode meant:
+
+- **`cpl()` and segmentation stay correct under VM.** V86 is a submode of
+  protected mode (VM implies PE=1), so every place that branched on bare
+  `protected_mode()` to decide "real-mode-style addressing" -- `seg_linear()`,
+  `load_seg()`, `wraps_at_64k()`, `far_transfer()`, `far_return()` -- needed
+  a `v86_mode()`/`real_addressing()` check added alongside it, while paging
+  (`translate()`, gated on `CR0.PG` alone) stays untouched -- V86 is exactly
+  "8086-style segmentation, over paged memory." `load_seg_real()`'s CS load
+  sets `cpl_ = 3` under VM instead of the unreal-mode `cpl_ = 0` (Intel 80386
+  PRM: "CPL is always three in V86 mode").
+- **Leaving V86 on an interrupt.** `protected_mode_interrupt()` gained a
+  `from_v86` branch: the gate must be a 32-bit, DPL-0, non-conforming gate
+  (else #GP), VM is cleared in the *live* EFLAGS before the push (the pushed
+  copy keeps VM=1 so IRETD can restore it), and the extended frame -- GS FS
+  DS ES, then SS ESP, then EFLAGS CS EIP -- goes onto the TSS's ring-0 stack
+  with all four data segments unconditionally nulled after (Intel 80386 PRM,
+  "Entering and Leaving Virtual 8086 Mode").
+- **Entering V86 on IRETD.** `far_return()` gained a structurally separate
+  early-exit branch, checked before the ordinary outward/inward-return code
+  (which assumes `new_cs` is a real selector -- an 8086 segment value is
+  not): pop ESP, SS, ES, DS, FS, GS mirroring the exit frame, force each
+  segment's limit to 0xFFFF/D-B to 0/DPL to 3 (since `load_seg_real()`
+  deliberately *preserves* the cached limit and D-B bit for unreal mode's
+  sake -- exactly what a V86 task must not inherit from the monitor's flat
+  32-bit segments), and set `cpl_ = 3`.
+- **The four IOPL-sensitive V86 traps.** CLI/STI already faulted correctly
+  once `cpl()` read 3 in V86 (no change needed). PUSHF, POPF, IRET and INT
+  n all gained an explicit `if (v86_mode() && iopl() != 3) raise_err(EXC_GP,
+  0)` (Intel 80386 PRM, "Additional Sensitive Instructions" /
+  "Emulating 8086 Operating System Calls") -- these four, and only these
+  four, trap to the monitor so it can virtualize IF and intercept synthetic
+  OS calls.
+- **V86 ignores IOPL for I/O entirely.** `check_io_permission()`'s existing
+  `cpl() <= iopl()` shortcut had to gain `!v86_mode() &&` in front of it:
+  "the protection mechanism does not consult IOPL when executing the I/O
+  instructions... only the I/O permission bit map controls the right for
+  V86 tasks" (Intel 80386 PRM, "Virtual I/O") -- without the fix, IOPL 3
+  would let a V86 task's I/O bypass the TSS bitmap entirely, which is
+  backwards.
+- **Task-gate V86 entry is a declared gap, not silent corruption.**
+  `task_switch()`'s CS load is a bespoke inline descriptor lookup, entirely
+  separate from `load_seg()`/`load_seg_real()`, so none of the above reaches
+  it. A VM=1 TSS would misread an 8086 segment value as a selector and
+  derive CPL from its low bits. Since every period V86 monitor (JEMMEX
+  included) enters V86 via IRETD inside one task -- task-gate V86 entry is
+  Windows 3.x Enhanced Mode's mechanism, out of scope here -- `task_switch()`
+  now reports such a TSS as invalid (`#TS`) rather than corrupting state.
+  This also makes the base-386/486 interrupt-redirection bitmap
+  unreachable, for the same reason.
+
+22 new `Cpu80486V86Test` cases cover all of the above, including a
+synthetic round-trip (`AMonitorEmulatesThreeTrappedInstructionsAndTheTaskRunsOn`):
+a ring-0 harness IRETDs into V86 code that executes CLI, an `IN` denied by
+the TSS bitmap, and a software `INT`, with the ring-0 handler emulating each
+and IRETDing back -- three traps, three emulations, the 8086 program runs to
+completion.
+
+### 19.2 Two CPU bugs surfaced on the way, both pre-existing
+
+Getting from "the synthetic test passes" to "JEMMEX actually boots" surfaced
+two bugs in already-shipped, non-V86 code -- V86 simply exercises paths
+FreeDOS's real-mode boot and Milestone 2's protected-mode tests never
+reached.
+
+**`POP r/m` resolved its memory destination against the wrong ESP.**
+`case 0x8F` called `decode_modrm()` -- which reads live register values,
+including ESP, to compute a SIB-relative address -- *before* `pop32()`/
+`pop16()` incremented ESP. Intel's documented quirk: "If the ESP register is
+used as a base register for addressing a destination operand in memory, the
+POP instruction increments the ESP register before data is written into the
+destination operand" (Intel SDM, POP). So `POP [ESP+4]` must resolve
+against the *post*-pop ESP, not the value ESP held when the instruction
+started. The fix reorders: pop the value first, decode the ModRM/SIB
+second (`decode_modrm()` only ever consumes bytes from EIP; reordering it
+after the pop changes nothing about instruction-stream parsing, only which
+ESP value the address computation sees).
+
+This one caused a real, observable crash: JEMMEX's own early V86-capability
+self-test uses a "CALL a two-instruction thunk that pops-and-relays a stack
+slot via `POP [ESP+n]`" idiom, apparently a common stack-manipulation trick
+in period DOS-era assembly. The thunk's *first* iteration happened to still
+work (leftover data on the stack coincidentally matched), but the second
+wrote its relayed value 4 bytes short of where the following `RET` expected
+to find it -- so that `RET` popped stale, unrelated data and jumped into
+what was actually a page-table page, executing its raw PTE bytes as code
+until the first wild `[EAX]` dereference faulted.
+`Cpu80486Test.PopEspRelativeMemoryResolvesAgainstThePostIncrementEsp` pins
+the fix directly: `POP DWORD [ESP+4]` with known markers at the pre- and
+post-increment addresses, asserting the popped value lands at the *far*
+one and the near one is untouched.
+
+**`POPF`/`POPFD` could silently drop a task out of V86 mode.** Both already
+masked which EFLAGS bits a POPF/POPFD could actually change (`keep`), but
+`keep` never included `FLAG_VM` -- so `eflags = (popped & mask & ~keep) |
+(eflags & keep)` zeroed VM every time. §19.1's new IOPL-sensitive fault only
+covers a POPF/POPFD executed at IOPL below 3; at IOPL 3, a V86 task's
+perfectly ordinary POPF/POPFD (restoring flags it saved with PUSHF/PUSHFD
+moments earlier) ran unfaulted and silently dropped the task out of V86
+mid-instruction-stream, with every cached CPL/segment assumption built on
+VM staying 1 now wrong. Intel 80486 PRM, "POPF/POPFD": "the VM and RF
+flags... are not affected by the POPF/POPFD instructions" -- only IRETD
+from CPL 0, or a task switch, may change VM. Fix: `uint32_t keep =
+FLAG_VM;` (was `0`).
+`Cpu80486V86Test.PopfdAtIoplThreeCannotDropOutOfV86` is the 32-bit sibling
+of the existing 16-bit-POPF IOPL/VM test -- needed separately because 16-bit
+POPF always preserves EFLAGS' upper 16 bits unconditionally (so it cannot
+disturb bit 17 regardless of `keep`), while 32-bit POPFD builds its whole
+result from `mask`/`keep` and so needs VM listed explicitly.
+
+This second bug is what actually blocked JEMMEX: once the first bug's crash
+was fixed, JEMMEX progressed to loading its kernel and printing its own
+banner, then FreeCom itself started loading -- but a guest `POPFD` executed
+somewhere in that startup path dropped VM silently, and the next segment
+load went through the protected-mode `load_seg()` validation path instead
+of `load_seg_real()`, tried to validate an 8086 segment value as a GDT
+selector, and raised #GP -- which cascaded into an unrecoverable loop, since
+JEMMEX's own exception path never re-sets VM either (nothing should have to;
+POPF/POPFD dropping it was the actual bug).
+
+`make check`: 529/529, including both fixes' regression tests and §19.1's
+22 V86 cases.
+
+### 19.3 The result: FreeDOS's real default boots
+
+With both fixes in and `SelectRealModeBootMenuEntry()` deleted,
+`make hdd-image` reinstalls FreeDOS exactly as before (§5), and
+`make hdd-boot-check` now reaches:
+
+```
+OK: reached an idle C:\> prompt at cycle 1530335551
+=== screen ===
+
+Modules using memory below 1 MB:
+
+  Name           Total           Conventional       Upper Memory
+  --------  ----------------   ----------------   ----------------
+  SYSTEM      17,056   (17K)     10,752   (11K)      6,304    (6K)
+  COMMAND      3,376    (3K)          0    (0K)      3,376    (3K)
+  FDAPM          928    (1K)          0    (0K)        928    (1K)
+  CTMOUSE      3,104    (3K)          0    (0K)      3,104    (3K)
+  UDVD2        1,984    (2K)          0    (0K)      1,984    (2K)
+  SHSUCDX      6,160    (6K)          0    (0K)      6,160    (6K)
+  Free       751,856  (734K)    643,136  (628K)    108,720  (106K)
+```
+
+-- JEMMEX loaded and genuinely provisioned 106K of upper memory, into which
+COMMAND.COM, FDAPM, CTMOUSE, UDVD2 and SHSUCDX all actually load (contrast
+§5.10's Safe-Mode figure: HIMEMX only, no UMBs, everything in conventional
+memory). This is the real, unmodified FreeDOS 1.3 default -- the boot menu
+a visitor sees now matches what the installer itself wrote, with JEMMEX
+highlighted, exactly as CLAUDE.md's override rules require once the
+override is no longer necessary.
+
+### 19.4 Open regression: `make boom-check` still fails under JEMMEX
+
+BOOM (§9) does not reach this bar yet. Cold-booting through JEMMEX and
+running BOOM off the same HDD image still crashes:
+
+```
+General Protection Fault at eip=b4; flags=3206
+eax=07ca010f ebx=0013000a ecx=00000000 edx=000000b7 esi=00005178 edi=00122200
+ebp=0000091e esp=0000075c cs=a7 ds=af es=af fs=8f gs=0 ss=8f error=0000
+```
+
+-- a `#GP` inside CWSDPMI (BOOM's DOS-extender host), at cycle ~1.71B,
+109.5M cycles into BOOM's own run. This is confirmed to be **specific to
+JEMMEX, not a general CPU-core bug**: patching the same, already-built HDD
+image's `FDCONFIG.SYS` to boot FreeDOS's old Safe-Mode entry (HIMEMX only,
+no V86 monitor active) instead runs the identical `BOOM.EXE`/`CWSDPMI.EXE`
+binaries past 3.4 billion cycles -- full boot, render, mouse input and
+Sound Blaster audio all confirmed working, more than double the cycle count
+where the JEMMEX boot dies. Both of JEMMEX's own menu entries -- the
+default ("more compatible" EMS/UMB config) and the alternate ("no EMS, max
+RAM free" variant) -- fail at essentially the same cycle count with the
+identical `cr2=10005178`/`eip=b4` signature, which rules out "not enough
+free memory" as the cause -- the variable is whether JEMMEX is loaded at
+all, not how much headroom it leaves.
+
+Extensive tracing (instruction-level, register-level, and cross-checked
+against `ndisasm` and CWSDPMI's real upstream source) ruled out every
+CPU-instruction-level explanation checked: the task switch into CWSDPMI's
+TSS, the TSS base address, the restored `ESI` value, the ModRM/SIB decode
+of every instruction from entry to the fault, the page-fault restart
+immediately preceding it, and the far-pointer table the crash path is
+reached through are all individually correct against Intel's documented
+semantics and CWSDPMI's own source. `tlb_flush()`/`tlb_invalidate()`/
+`prefetch_revalidate()` are also individually correct: CR3 writes,
+CR0.PG/WP toggles, INVLPG, and task switches all bump the TLB generation
+counter that `prefetch_revalidate()` checks, and V86 entry/exit touches
+none of CR3/CR0.PG/`tlb_gen_` at all (architecturally correct, since a
+V86-to-protected-mode transition never changes address spaces).
+
+The instruction bytes at the actual fault site (`eip=b4`) are BOOM's own
+*static* loaded code -- not data -- which only makes sense if that physical
+page's frame was overwritten sometime after BOOM's code was loaded into it.
+JEMMEX is the one component in this picture that actively remaps physical
+page frames at runtime while running as ordinary V86-trapped guest code
+(EMS page-frame mapping, UMB carving) -- entirely in software, with no
+special chipset support, the same as anything else that runs in V86.
+CWSDPMI runs its own, independently-`CR3`'d allocator over the same finite
+pool of extended memory at the same time. The leading hypothesis is a
+**physical-frame collision between JEMMEX's EMS/UMB allocator and
+CWSDPMI's own allocator** -- each side legitimately believing it owns a
+given frame -- which would produce exactly this symptom regardless of how
+correctly any single instruction executes, because the bug would live in
+the negotiation between two pieces of guest software over a shared
+resource, not in the CPU core. (Notably, `FDCONFIG.SYS`'s JEMMEX lines
+already carry `NOVME NOINVLPG`, suggesting a known rough edge in this
+exact area predates this investigation.) Not yet confirmed or fixed;
+next step for whoever picks this up is tracing JEMM32's own EMS/UMB
+allocation routines against CWSDPMI's `paging.c` (`valloc()`/`getpte()`),
+both available from their real upstream sources.
+
+### 19.5 Shipping FreeDOS's Base package set instead of Full; `boom-check` retired
+
+The goal changed: rather than a fully-loaded FreeDOS system, the machine
+now ships a barebones DOS environment meant as a starting point for
+installing your own OS (MS-DOS 6.22 or otherwise) onto the blank-HDD
+option `hddBlankBtn` already provides (`web/app.js`/`web/index.html`,
+the same mount-an-all-zero-image pattern as `ibmpc-at`'s own "Mount blank
+drive...") -- no games, no applications, no dev tools, no network stack
+cluttering that starting point.
+
+FreeDOS 1.3's installer already offers exactly this as a stock option, at
+the same `FDASK700` "packages do you want to install" screen §5.8 already
+documented. Traced with `PC486_TRACE=1`, the screen lists, top to bottom:
+"Plain DOS system", "Plain DOS system, with sources", "Full installation
+including applications and games", "Full installation with sources" -- and
+the installer's own default highlight sits on "Full installation..."
+(confirmed empirically: a bare `@ENTER`, unchanged since §5.2, is what
+produced the 205-package Full image every prior section of this document
+describes). `disks/build_freedos_hdd.cpp`'s answer for that one step
+changed from `@ENTER` to `@UP @UP @ENTER` -- two Ups off "Full" onto
+"Plain DOS system" -- leaving every other stage300-800 answer untouched.
+
+FreeDOS's own Base package group is documented at 65 packages against
+Full's 205 (the [FreeDOS 1.3 report](https://www.ibiblio.org/pub/micro/pc-stuff/freedos/files/distributions/1.3/official/report.html));
+games, applications, editors, development tools, networking, sound, and
+GUI-desktop categories are Full-only. The rebuilt image confirms this
+directly -- `C:\FREEDOS\PACKAGES` holds 67 package manifests (Base plus a
+couple of installer-pulled dependencies such as `CWSDPMI.LST`, not present
+in the bare "65" headline count), and `C:\GAMES` does not exist at all,
+where the Full image's `C:\GAMES\BOOM` (§9) used to be.
+
+Rebuilt end to end against the real, unmodified installer exactly as
+before -- same `build_freedos_hdd` tool, only that one answer changed --
+and it completes cleanly: 85,747,404,698 cycles to the installer's own
+completion screen, against §5.8's 317.5 billion for the Full set (the same
+`total_cycles()`-at-write measurement in both cases). Fewer than a third
+of the packages, well under a third of the cycles -- consistent, since
+per-package copying dominates the run and the fixed
+boot/partition/format/reboot overhead §5.8 already measured (~22.4 billion
+cycles) is unchanged.
+
+`make hdd-boot-check` against the rebuilt image still reaches an idle
+`C:\>` (cycle 1,448,204,026) through JEMMEX, with the identical UMB
+provisioning §19.3 measured -- COMMAND.COM, FDAPM, CTMOUSE, UDVD2, and
+SHSUCDX all still loading high, 106K free upper memory. This is exactly
+what §19.1's own finding predicts: JEMMEX's presence is driven by
+`fdins900.bat`'s CPU-class detection into `CONFIG.DEF`, not by package
+selection, so switching to Base does not, and was never going to, avoid
+JEMMEX by default -- Safe Mode at the boot menu remains the only
+JEMMEX-free path, unchanged from §5.10.
+
+BOOM no longer ships, so `make boom-check` (§9-§13's proof that this core
+runs genuine third-party protected-mode software) is retired as a
+Makefile target -- there is no `C:\GAMES\BOOM` left on the shipped image
+for it to run. `disks/boom_run_check.cpp` itself is left in place,
+buildable by hand, for anyone who builds a Full-package image locally and
+wants to re-run that proof; it is simply no longer wired to `make` or to
+the shipped asset. `web/tests/zzbench.spec.ts`, a Playwright benchmark
+that also launched BOOM and was already self-labeled scratch code ("not
+part of the suite, deleted before the work lands"), is deleted outright
+rather than retargeted, since it never was meant to survive as shipped
+test coverage.
+
+## 20. Installing a real copy of MS-DOS 6.22: two real bugs, found by
+running the genuine, unmodified installer end to end
+
+FreeDOS ships as this machine's out-of-the-box OS, but a visitor can also
+blank the HDD (`hddBlankBtn`) and install their own DOS onto it. The two
+bugs below were both found the same way this document's other bugs were
+(§5.4, §16.6): by actually running a real, commercially-shipped install
+end to end -- Microsoft's genuine MS-DOS 6.22 "Plus Enhanced Tools" retail
+media, kept local and never committed (this repo's media policy: real
+MS-DOS stays BYO, same as `web/index.html` already documents) -- rather
+than guessing from the symptom.
+
+### 20.1 SETUP.EXE's own keyboard probe wedged the 8042's output register
+
+Booting Disk 1 and running SETUP.EXE, the keyboard stopped responding
+partway into the setup screens -- not immediately, and not for every
+keystroke, which is what made this a genuine bug hunt rather than an
+obvious wiring error. Root cause, found with the same native-harness +
+`I8042_TRACE` technique §16.6 used: `i8042.cpp`'s `push_kbd()` -- the
+function that delivers every byte the *keyboard device itself* sends back,
+scan codes and command responses (ACK, reset's BAT byte, Read-ID's device
+ID) alike -- was called with `irq=false` at every keyboard-command-response
+call site. Real hardware doesn't distinguish: "If no errors occur, the
+response byte is placed in the input buffer, the IBF flag is set, and IRQ1
+is activated, signaling the keyboard driver" (Chapweske, "The AT-PS/2
+Keyboard Interface," "Writing to keyboard") -- true of an ACK exactly as
+much as a scan code. SETUP.EXE's own keyboard-presence probe sends `0xF2`
+(Read ID) and waits on IRQ1, not on polling, to learn the response arrived;
+with no interrupt ever raised, it retried three times, and -- compounding
+it -- this core's `0xF2` handling was *also* missing the genuine two-byte
+ID response `0xAB, 0x83` (Chapweske, command `0xF2`: "the keyboard responds
+by sending a two-byte device ID of 0xAB, 0x83"), on top of not existing.
+Every one of those unacknowledged responses piled up, unread, behind the
+8042's single-byte output register (§16.6's own comment on that register),
+wedging it full forever and silently dropping every keystroke typed
+afterward, SETUP.EXE included. Fixed by adding the missing `0xAB`/`0x83`
+bytes and making `irq` a required (not defaulted) parameter of
+`push_kbd()`, forcing every call site to say explicitly whether it raises
+IRQ1 -- and every keyboard-*device* response site now says yes. Two new
+regression tests (`ReadIdRespondsWithAckThenTwoIdBytes`,
+`KeyboardCommandAckRaisesIrq1WhenEnabled`) cover both halves. Landed
+before §20.2 below, so the account there already assumes a keyboard that
+works throughout the whole install.
+
+### 20.2 Missing port 0x92 ("Fast A20 Gate"): A20 never actually turns on,
+and DOS silently corrupts its own low memory writing into the HMA
+
+With §20.1 fixed, SETUP.EXE ran the real install to completion (disk
+swaps, partition, format, file copy, all of it) and produced a genuine,
+bootable `C:\` -- confirmed by automating the *entire* install the same
+way `disks/build_freedos_hdd.cpp` automates FreeDOS's (a scratch harness,
+not committed, mirroring that file's screen-text-match / keystroke-inject
+/ floppy-swap technique against Disk 1-3). Cold-booting the resulting
+image, though, hung forever at `HIMEM is testing extended memory...` --
+not slow, genuinely stuck: a 60-billion-cycle run (real hardware would
+call this roughly 15 minutes at 66MHz) made zero further progress.
+
+Tracing found the CPU spinning in a tight loop between two addresses
+inside HIMEM.SYS's own loaded segment, `RET` repeatedly popping a stale
+`0x0000` off the stack. The segment's own first bytes, which should have
+been its real device-driver header (confirmed by extracting the file
+straight off the finished image and comparing: it starts
+`FF FF FF FF 00 A0 4C 00 3F 0D 58 4D 53 58...`, a completely ordinary
+"next=none, strategy@004C, interrupt@0D3F, name=XMSXXXX0" header), instead
+read as one repeated byte, `0xE6`, for tens of kilobytes -- CS had wandered
+into a swath of memory that had been overwritten wholesale.
+
+Instruction-level tracing (`on_instruction`, the same hook §14.4/§16.6
+use) caught the actual write: a plain `STOSB` inside MS-DOS's own kernel,
+`AL=0xE6`, executed in a loop with `ES=0000` and a 32-bit `EDI` climbing
+past `0x00100000` -- i.e. this is DOS deliberately writing into the HMA,
+just above the 1MB line, almost certainly as part of loading its own
+resident kernel "high" (`DOS=HIGH`). The byte landed at physical
+`0x100472` -- and, watched live, the *same* byte simultaneously appeared
+at `0x000472`, the low-memory alias exactly 1MB below it. That is the
+textbook A20-disabled wraparound (`chipset.cpp`: `if
+(!kbc.a20_enabled()) addr &= 0xFFFFF;`) -- confirmed directly:
+`kbc.a20_enabled()` read false for the *entire* run, from cold boot
+straight through the corruption and beyond. DOS believed A20 was on and
+wrote a long run of bytes starting just above 1MB; every one of them
+aliased back down into conventional memory instead, sweeping upward
+through low memory as the HMA write advanced and eventually overwriting
+HIMEM.SYS's own just-loaded code with the fill byte -- which is exactly
+the corrupted segment traced above. The CPU then fell out of that wrecked
+region into an unrelated, coincidentally-valid subroutine elsewhere in the
+image, whose `RET` popped whatever zero happened to be sitting on the
+(also never-actually-used-for-this-call) stack, landing back at the start
+of the corrupted region -- a self-sustaining, silent infinite loop with no
+fault and no I/O to show for it, which is why it presented as a hang
+rather than a crash.
+
+The actual gap: **port 0x92, "Fast A20 Gate" / "System Control Port A,"
+did not exist in this chipset at all** -- confirmed by grep, and by
+instrumented tracing showing the guest never once issues the
+already-correctly-implemented keyboard-controller A20 sequence (`0xD1`
+then a data byte) during this entire boot; it relies exclusively on port
+0x92, silently hitting the "unmapped port" default (`chipset.cpp`:
+reads return `0xFF`, writes "vanish -- open bus"). This is real,
+widely-documented period hardware, not an obscure corner: essentially
+every 386+ chipset carries it specifically because toggling A20 through
+the keyboard controller's command protocol is slow, and Microsoft's own
+HIMEM.SYS tries it first for exactly that reason (OSDev Wiki, "A20 Line";
+the AMD64 Architecture Programmer's Manual's chipset chapter still
+guarantees port 0x92 bit 1 for backward compatibility on modern
+hardware). FreeDOS's HIMEMX apparently never exercises this path -- it
+goes straight to the keyboard-controller method -- which is why this sat
+undiscovered until a genuine MS-DOS install reached it.
+
+Fixed in `i8042.h`/`i8042.cpp`: `owns_fast_a20()`/`fast_a20_in()`/
+`fast_a20_out()` read and write the *same* `output_port_` bit 1 the
+keyboard-controller path already uses -- not a second, independent latch,
+matching real chipsets wiring both to one physical A20 line -- with bit 0
+triggering the documented fast-reset behavior exactly like output-port bit
+0 already does. `chipset.cpp`'s `io_in`/`io_out` route port `0x92` through
+these before falling to the unmapped-port default, calling `note_a20()` on
+writes so the page-mapping cache invalidates correctly, identically to the
+existing `0xD1` path. Three new tests (`FastA20PortEnablesA20`,
+`FastA20PortAndOutputPortShareTheSameA20State`,
+`FastA20PortBitZeroTriggersReset`) cover the port directly.
+
+Verified against the real install end to end, not just the unit tests:
+rebuilding the diagnostic harness against the fixed core and cold-booting
+the same MS-DOS 6.22 image that hung above now reaches
+`HIMEM is testing extended memory...done.` and a genuine, idle `C:\>`
+(SMARTDRV loaded, prompt responsive) in 1.12 billion cycles. `make
+hdd-boot-check` against the shipped FreeDOS image was re-run afterward and
+still reaches its own idle `C:\>` at the same cycle count as §19.5 measured
+(1,448,203,634 against 1,448,204,026 -- within run-to-run noise), confirming
+FreeDOS's own boot path is unaffected. `make check`: all existing tests
+plus the six new ones (three per bug above) pass.
+
+## 21. Real Doom 1.2: an unchained-mode-13h rendering bug and a 5-second
+audio stall, both found by actually installing and playing it
+
+With MS-DOS 6.22 installed (§20) and playable, the obvious next real-world
+test was a real commercial DOS game -- id Software's registered DOOM v1.2
+(the user's own retail floppies, kept local per this repo's BYO-media
+policy). Driving the genuine `INSTALL.EXE`/`SETUP.EXE` end to end the same
+way §20 drove MS-DOS's, then letting the title-screen demo run, surfaced
+two more real bugs.
+
+### 21.1 `RenderVga256Screen` assumed chain-4 was always on
+
+The user reported the title screen rendering as a tiled, banded field of
+color noise instead of the actual DOOM art. Reproducing it natively (the
+same scratch-harness technique as §20: real `INSTALL.EXE`, real
+`SETUP.EXE` menu navigation -- including its own Port/IRQ/DMA/digital-
+channel submenus, all confirming this machine's fixed SB16 wiring of
+220/IRQ5/DMA1 -- then the real `DOOM.EXE`) reproduced the exact pattern
+frame-for-frame, ruling out a browser-only rendering artifact before
+looking anywhere near the code.
+
+DOOM's engine doesn't just set mode 13h and blit -- it also disables
+Sequencer Memory Mode's Chain-4 bit (SR04 bit 3) while leaving 256-color
+shift-out selected, the well-known "unchained mode 13h" trick: with
+chain-4 off, four adjacent displayed pixels live at the *same* per-plane
+offset, one byte per plane, selected for writing through Map Mask (SR02) --
+which is what lets a column-based software renderer and up to four
+64KB-aligned page-flip buffers coexist in the card's 256KB of VRAM. Real,
+genuine 1993 DOS-VGA programming, not a DOOM bug.
+
+`RenderVga256Screen` (`ega_render.cpp`) had no branch for this at all. Its
+comment even says so: "Chain-4 makes the flat frame-buffer offset and the
+planar VRAM index the same number" -- true, and exactly why the function
+just walked `vram[]` with `crtc_row_byte_stride()`/`start_byte_offset()`
+as a flat array. Once chain-4 is off those two accessors stop meaning
+what the renderer assumed: DOOM's own CRTC reprogramming (clearing
+Underline Location's Doubleword bit, setting Mode Control's Byte Mode bit)
+made `crtc_row_byte_stride()` report 80 instead of 320 and
+`start_byte_offset()` report the page-flip buffers at 16384/32768 instead
+of their real 65536/131072-byte starts -- both exactly 4x short, because
+those two accessors' unit-of-measure scaling (`crtc_address_unit_bytes()`)
+is only ever correct for the flat chain-4 case. The renderer was reading
+one quarter as far into VRAM as the real hardware's shift register does,
+which round-robins all four planes for *display* regardless of how the
+CPU addresses them for *writes* -- producing exactly the tiled, four-plane-
+interleaved noise the user saw.
+
+Fixed with a new public accessor, `Ega::chain4_enabled()` (a thin wrapper
+over the Sequencer Chain-4 bit `mem_read`/`mem_write` already consult
+internally), and a chain4-aware branch in `RenderVga256Screen`: when
+chain-4 is off, it walks `plane_off`/`plane` directly --
+`(plane_off << 2) + (x & 3)` with `plane_off` advancing by
+`crtc_scanline_stride()` (the *unscaled* Offset-register figure, which
+turns out to be exactly the real per-plane-group stride regardless of the
+byte/word/dword bits DOOM's own reprogramming touches) -- the identical
+addressing `mem_write()` already uses for CPU-side unchained writes,
+applied to the display side. The existing chain-4 (flat) path is
+untouched and still passes its own doubleword-address-unit test
+(`Vga256ScanLineStrideUsesTheDoublewordAddressUnit`, which deliberately
+never touches Sequencer Chain-4, so it stays on the flat path).
+
+Two new tests cover the fix directly:
+`Vga256UnchainedWalksPlaneOffDirectlyNotAFlatOffset` (writes one byte to
+each of the four planes at the same `plane_off` through Map Mask, exactly
+like a real unchained column blit, and checks all four resulting pixels
+decode through the live DAC correctly) and
+`Vga256UnchainedStartAddressSelectsA64KAlignedBuffer` (programs Start
+Address to select the second of DOOM's four 64KB-aligned page-flip
+buffers and confirms the renderer reads from the right one) -- 21 tests in
+`ega_render_test` now, up from 19. `make vbe-check` re-run clean
+afterward, confirming the chain-4 path is unaffected. The
+native DOOM harness, re-run against the fix, now shows the actual title
+screen, HUD, weapon, and monster sprites rendering correctly through real
+gameplay.
+
+### 21.2 The 5-second whole-disk autosave stall was audible, not just slow
+
+Separately, the user reported DOOM's *audio* sounding delayed and
+repeating. Capturing the Sound Blaster's raw output natively across a full
+minute of real gameplay (cycle-stamped samples drained every tick,
+rendered to a WAV via the same sample-and-hold resampling `web/app.js`'s
+`pumpSbAudio()` uses, then scanned for literal byte-identical repeated
+windows) found zero genuine repeats in the device's own output -- the
+DMA/DSP emulation (§11-§13) was not the source. That pointed at the
+browser runtime instead, and the user confirmed the glitch was periodic
+(every few seconds), which matches exactly one thing: §8.6's already-
+documented, previously-unfixed `persistHddIfDirty()` cost -- a full
+528MB copy off the wasm heap, measured at 180-350ms, firing on a plain 5s
+`setInterval` whenever C: had been written -- comfortably longer than the
+Sound Blaster worklet's 8192-sample (~171ms) ring buffer, so every firing
+underran it into a held-last-sample glitch.
+
+Fixed by tracking *which* 4KB pages of C: a session actually wrote,
+instead of one whole-drive boolean: `Wd1003::Drive` gained a
+`dirty_page` bitmap (sized at `mount()`, marked in
+`finish_read_or_write()`'s existing WRITE SECTORS path, cleared by
+`clear_dirty()` alongside the existing flag), and a new
+`dirty_ranges()` that coalesces contiguous dirty pages into byte
+ranges. `wasm_machine.cpp` exposes these as `hddDirtyPatches()` --
+`[{offset, bytes}, ...]` for only the changed bytes, not the whole image.
+`persistHddIfDirty()` now `.set()`s each patch into its existing in-memory
+mirror (`savedHdd`) instead of calling `hddImage()`'s full 528MB copy,
+falling back to the full copy only when there's no same-size mirror yet to
+patch onto (the very first save after a fresh boot). A real DOS session's
+writes are a handful of FAT/directory/file pages, not the whole disk, so
+the common-case stall drops from a fixed 180-350ms to whatever copying a
+few 4KB pages costs -- well under the ring buffer's headroom.
+
+Two new `Wd1003Test` cases cover the tracking directly:
+`WriteSectorsAcceptsDataImmediatelyThenCommitsSynchronously` (extended) now
+also checks the single sector it writes produces exactly one 4KB dirty
+range at the right offset, and
+`DirtyRangesTracksOnlyWhatWasActuallyWrittenAndClearsCleanly` writes two
+sectors far enough apart to land in non-adjacent pages and confirms they
+report as two separate ranges (not one merged across the untouched gap
+between them), and that `clear_dirty()` resets both the flag and the
+bitmap. `make check` (all suites) and the `hdd`/`soundblaster`/`speaker`
+Playwright specs -- including "C: persists across a page reload via
+IndexedDB", which exercises the exact patch-then-save path this fix
+changed -- all still pass.

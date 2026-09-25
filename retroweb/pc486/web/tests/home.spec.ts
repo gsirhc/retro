@@ -16,7 +16,7 @@ test.describe("retroweb landing page", () => {
     await expect(card.locator(".name")).toHaveText(/486DX2-66/i);
 
     const shot = card.locator("img.shot");
-    await expect(shot).toHaveAttribute("src", /assets\/pc486-panel\.png$/);
+    await expect(shot).toHaveAttribute("src", /assets\/pc486-cpu\.png$/);
     await expect(shot).toHaveJSProperty("complete", true);
     expect(
       await shot.evaluate((img: HTMLImageElement) => img.naturalWidth),

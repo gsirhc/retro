@@ -153,4 +153,41 @@ test.describe("keyboard", () => {
     await setPowerSwitch(page, false);
     expect(await hintVisible()).toBe(false);
   });
+
+  test("\"Barebones FreeDOS\" boot notice shows once, dismisses on focus, and stays dismissed", async ({ page }) => {
+    await boot(page);
+    const noticeVisible = () =>
+      page.locator("#bootNotice").evaluate((el) => el.classList.contains("visible"));
+    // Shown the instant the machine powers on (see app.js's powerOn()) --
+    // boot() already waits past this, so it should still be up. Each
+    // Playwright test gets a fresh, empty localStorage, matching a
+    // genuinely new visitor who has never dismissed it.
+    expect(await noticeVisible()).toBe(true);
+
+    // pointer-events: none, like .focus-hint -- it sits dead center over
+    // the screen, exactly where a real click to focus the screen lands, so
+    // that click has to reach the canvas underneath rather than get eaten
+    // by the banner. focusScreen() is that same real click; it both
+    // focuses the screen and (via app.js's focusin listener) dismisses
+    // the notice in one gesture, remembering that in localStorage.
+    await focusScreen(page);
+    expect(await noticeVisible()).toBe(false);
+    expect(
+      await page.evaluate(() => localStorage.getItem("retro8080.pc486BootNoticeDismissed")),
+    ).toBe("1");
+
+    // Powering off and back on does NOT re-arm it -- once dismissed, it
+    // stays dismissed for the rest of this visitor's localStorage, not
+    // just for the current power cycle.
+    await setPowerSwitch(page, false);
+    await setPowerSwitch(page, true);
+    expect(await noticeVisible()).toBe(false);
+
+    // Clearing localStorage (a genuinely new visitor, or one who's cleared
+    // site data) brings it back on the next power-on.
+    await page.evaluate(() => localStorage.clear());
+    await setPowerSwitch(page, false);
+    await setPowerSwitch(page, true);
+    expect(await noticeVisible()).toBe(true);
+  });
 });

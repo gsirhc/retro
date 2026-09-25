@@ -173,6 +173,12 @@ export async function ejectCdrom(page: Page): Promise<void> {
   await bay(page, "cdrom").locator('[data-role="eject"]').click();
 }
 
+/** Fetches and mounts the shipped FreeDOS install/live CD on demand -- see
+ * app.js's "Load FreeDOS CD..." button. Not fetched at page load. */
+export async function loadFreedosCdrom(page: Page): Promise<void> {
+  await bay(page, "cdrom").locator('[data-role="load-freedos-cd"]').click();
+}
+
 /** Byte length of C:'s current image (factory, blank, or written-to). */
 export function hddImageLength(page: Page): Promise<number> {
   return page.evaluate(() => (window as any).__test.machine.hddImage().length);

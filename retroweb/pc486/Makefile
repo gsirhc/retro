@@ -9,7 +9,6 @@
 #   make vbe-check   run the VGA mode 13h / DAC / VESA end-to-end pixel proof
 #   make hdd-image   build the shipped FreeDOS HDD image (see below -- SLOW)
 #   make hdd-boot-check  cold-boot the finished HDD image standalone, report the screen
-#   make boom-check  run BOOM (DJGPP/CWSDPMI DOS Doom) off the HDD image, require it to render
 #   make render_screen   build the screen-to-BMP diagnostic tool (see below)
 #   make wasm        build the WebAssembly module (needs emsdk -- see web/Makefile)
 #   make serve       build the wasm module + serve the browser front end
@@ -51,10 +50,12 @@
 # MILESTONE 4 STATUS: a PS/2 mouse on the 8042's AUX port and a Sound
 # Blaster 16 at 0x220/IRQ5/DMA1+5 are wired into the chipset and exposed to
 # the browser front end (injectMouseEvent/sbDrainSamples in
-# web/wasm_machine.cpp). `boom-check` is the end-to-end bar: BOOM, a real
-# DJGPP/CWSDPMI DOS Doom source port, boots off the shipped HDD image and is
-# required to actually render changing 320x200x256 frames. See
-# PC486_REVIEW.md §10-§12.
+# web/wasm_machine.cpp). Both were proved end to end against BOOM, a real
+# DJGPP/CWSDPMI DOS Doom source port (PC486_REVIEW.md §9-§13); `boom-check`
+# is gone now that the shipped HDD image installs FreeDOS's Base package
+# set (no games -- see §19.5), so that proof is historical record, not a
+# standing target. Ongoing coverage is the unit tests (i8042_test,
+# soundblaster_test).
 
 CXX      ?= c++
 CXXFLAGS ?= -std=c++17 -O2 -Wall -Wextra
@@ -62,7 +63,7 @@ CXXFLAGS ?= -std=c++17 -O2 -Wall -Wextra
 CHIPSET_SRCS = machine.cpp chipset.cpp cpu80486.cpp pic8259.cpp pit8253.cpp i8042.cpp cmos_rtc.cpp dma8237.cpp fdc765.cpp ega.cpp wd1003.cpp atapi_cdrom.cpp pcspeaker.cpp soundblaster.cpp
 UNIT_TESTS = cpu80486_test cpu80486_timing_test pic8259_test pit8253_test i8042_test cmos_rtc_test dma8237_test chipset_test machine_test fdc765_test ega_test ega_render_test wd1003_test atapi_cdrom_test pcspeaker_test soundblaster_test
 
-.PHONY: help test bios bios-check pm-check vbe-check hdd-image hdd-boot-check boom-check wasm serve coverage check clean
+.PHONY: help test bios bios-check pm-check vbe-check hdd-image hdd-boot-check wasm serve coverage check clean
 
 LLVM_PROFDATA ?= xcrun llvm-profdata
 LLVM_COV      ?= xcrun llvm-cov
@@ -144,18 +145,6 @@ disks/build_freedos_hdd: disks/build_freedos_hdd.cpp $(CHIPSET_SRCS)
 hdd-image: bios disks/build_freedos_hdd disks/freedos-cd.iso disks/freedos-boot.img
 	./disks/build_freedos_hdd roms/BIOS-bochs-legacy roms/VGABIOS-lgpl-latest.bin \
 	  disks/freedos-boot.img disks/freedos-cd.iso disks/freedos-hdd.img
-
-# --- run BOOM (a real DJGPP/CWSDPMI DOS Doom port) off the shipped HDD
-# image and require it to actually render -- see disks/boom_run_check.cpp.
-# This is the Milestone 4 bar: genuine third-party protected-mode software
-# driving paging, the DPMI host's own #PF handler and mode 13h at once,
-# rather than a stub this repo wrote. Needs the HDD image, so like
-# hdd-boot-check it is not part of `check`.
-boom-check: bios disks/boom_run_check
-	./disks/boom_run_check roms/BIOS-bochs-legacy roms/VGABIOS-lgpl-latest.bin disks/freedos-hdd.img
-
-disks/boom_run_check: disks/boom_run_check.cpp ega_render.cpp $(CHIPSET_SRCS)
-	$(CXX) $(CXXFLAGS) -o $@ disks/boom_run_check.cpp ega_render.cpp $(CHIPSET_SRCS)
 
 # --- boot the finished HDD image standalone (no floppy), the actual
 # "does this image work?" check -- see hdd_boot_check.cpp.

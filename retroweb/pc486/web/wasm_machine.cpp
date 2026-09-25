@@ -12,6 +12,8 @@
 //                                         // power-on -- factory FreeDOS, a blank drive, or a
 //                                         // previously-saved image; no swap UI while running
 //   m.hddDirty() / m.clearHddDirty() / m.hddImage()  // for persisting C:'s writes across power cycles
+//   m.hddDirtyPatches()                  // [{offset, bytes}, ...] -- only what actually changed,
+//                                         // for periodic persistence without re-copying all 504MB
 //   m.mountFloppy(imgBytes);             // this machine's one 3.5" bay (A:)
 //   m.mountCdrom(isoBytes) / m.ejectCdrom()  // swappable, like the floppy
 //   m.runCycles(66000000/60);            // advance one frame at real 66 MHz
@@ -144,6 +146,24 @@ public:
             out.call<void>("set", val(emscripten::typed_memory_view(img.size(), img.data())));
         return out;
     }
+    // Only the byte ranges dirty_ranges() says actually changed, each as its
+    // own small Uint8Array -- see wd1003.h's dirty_ranges() comment. The
+    // front end patches these into its own kept copy of C: instead of
+    // pulling the whole 504MB image on every periodic save.
+    val hddDirtyPatches() {
+        auto ranges = m_.chipset.hdd.dirty_ranges(0);
+        const std::vector<uint8_t> &img = m_.chipset.hdd.image(0);
+        val out = val::array();
+        for (const auto &r : ranges) {
+            val entry = val::object();
+            entry.set("offset", r.offset);
+            val bytes = val::global("Uint8Array").new_(r.length);
+            bytes.call<void>("set", val(emscripten::typed_memory_view(r.length, img.data() + r.offset)));
+            entry.set("bytes", bytes);
+            out.call<val>("push", entry);
+        }
+        return out;
+    }
 
     // ---- CD-ROM (atapi_cdrom) -- removable media, like the floppy -------
     void mountCdrom(val bytes) {
@@ -266,6 +286,7 @@ EMSCRIPTEN_BINDINGS(pc486_machine) {
         .function("hddDirty", &WasmMachine::hddDirty)
         .function("clearHddDirty", &WasmMachine::clearHddDirty)
         .function("hddImage", &WasmMachine::hddImage)
+        .function("hddDirtyPatches", &WasmMachine::hddDirtyPatches)
         .function("mountCdrom", &WasmMachine::mountCdrom)
         .function("ejectCdrom", &WasmMachine::ejectCdrom)
         .function("cdromPresent", &WasmMachine::cdromPresent)

@@ -185,6 +185,20 @@ void RenderVga256Screen(const Ega &ega, std::vector<uint8_t> &rgba, int &width, 
     // these comes from the register it comes from.
     int stride;
     uint32_t base;
+    // Chain-4 makes the flat CPU byte address and the interleaved vram[]
+    // index the same number (mem_read()/mem_write()'s file-header comment),
+    // which is what lets this function walk vram[] with a plain byte
+    // stride below. "Unchained mode 13h" -- chain-4 off, 256-color shift-out
+    // still selected -- breaks that equivalence: real DOS software (id's
+    // DOOM engine among it) uses this to write one plane at a time via Map
+    // Mask for a faster column blit and for page-flipping. Once chain-4 is
+    // off, the CRTC's own Start Address / Offset registers still count in
+    // the same per-plane-group units mem_write()'s plane_off does --
+    // unaffected by the CRTC's byte/word/dword bits, which only ever
+    // scaled the *flat* address chain-4 exposes to the CPU -- so the fix
+    // is to walk plane_off/plane directly instead of a flat offset. See
+    // PC486_REVIEW.md.
+    bool chain4 = ega.chain4_enabled();
     if (ega.vbe_mode_active()) {
         // An SVGA mode is described by the card's own extension registers,
         // not by the legacy CRTC -- the ROM programs geometry there and
@@ -213,20 +227,43 @@ void RenderVga256Screen(const Ega &ega, std::vector<uint8_t> &rgba, int &width, 
         if (width <= 0 || height <= 0) { width = height = 0; rgba.clear(); return; }
         rgba.assign(std::size_t(width) * std::size_t(height) * 4, 0);
 
-        stride = ega.crtc_row_byte_stride();
-        if (stride <= 0) stride = width;  // never programmed yet -- see RenderEgaNative16Screen
-        base = ega.start_byte_offset();
+        if (chain4) {
+            stride = ega.crtc_row_byte_stride();
+            if (stride <= 0) stride = width;  // never programmed yet -- see RenderEgaNative16Screen
+            base = ega.start_byte_offset();
+        } else {
+            // Unchained: the CRTC's byte/word/dword bits no longer scale to
+            // a valid flat vram[] stride (they only ever scaled the chain-4
+            // flat address), so use the raw per-plane-group units directly
+            // -- exactly what mem_write()'s plane_off math consumes.
+            stride = ega.crtc_scanline_stride();
+            if (stride <= 0) stride = (width + 3) / 4;
+            base = ega.start_offset();
+        }
     }
+    bool flat_addressing = ega.vbe_mode_active() || chain4;
 
     for (int y = 0; y < height; ++y) {
         for (int x = 0; x < width; ++x) {
-            // Chain-4 makes the flat frame-buffer offset and the planar
-            // VRAM index the same number -- see ega.h's file header. The
-            // wrap is the card's own 256KB, the same way a real VGA's
-            // address counter wraps rather than reading someone else's RAM.
-            uint32_t off = (base + uint32_t(y) * uint32_t(stride) + uint32_t(x)) % uint32_t(ega.vram.size());
+            uint8_t pixel;
+            if (flat_addressing) {
+                // Chain-4 (or an SVGA linear mode) makes the flat frame-
+                // buffer offset and the planar VRAM index the same number --
+                // see ega.h's file header. The wrap is the card's own
+                // 256KB, the same way a real VGA's address counter wraps
+                // rather than reading someone else's RAM.
+                uint32_t off = (base + uint32_t(y) * uint32_t(stride) + uint32_t(x)) % uint32_t(ega.vram.size());
+                pixel = ega.vram[off];
+            } else {
+                // Unchained: walk plane_off/plane exactly like mem_write()'s
+                // (plane_off << 2) + plane addressing -- one plane_off group
+                // covers 4 consecutive displayed pixels, one byte per plane.
+                uint32_t plane_off = (base + uint32_t(y) * uint32_t(stride) + uint32_t(x) / 4) % (1u << 16);
+                uint32_t plane = uint32_t(x) & 3u;
+                pixel = ega.vram[(plane_off << 2) + plane];
+            }
             uint8_t r, g, b;
-            DecodeDacColor(ega, ega.vram[off], r, g, b);
+            DecodeDacColor(ega, pixel, r, g, b);
             std::size_t i = (std::size_t(y) * std::size_t(width) + std::size_t(x)) * 4;
             rgba[i + 0] = r;
             rgba[i + 1] = g;

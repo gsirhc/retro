@@ -187,6 +187,26 @@ TEST_F(Cpu80486Test, PushEspPushesThePreDecrementValue) {
     EXPECT_EQ(memw(0x1FFE), 0x2000) << "486 pushes SP's pre-decrement value";
 }
 
+TEST_F(Cpu80486Test, PopEspRelativeMemoryResolvesAgainstThePostIncrementEsp) {
+    // The POP-side counterpart of PushEspPushesThePreDecrementValue above:
+    // "If the ESP register is used as a base register for addressing a
+    // destination operand in memory, the POP instruction increments the
+    // ESP register before data is written into the destination operand"
+    // (Intel SDM, POP). So POP [ESP+4] does NOT write to the address ESP+4
+    // held before the pop -- it writes 4 bytes further out, to where ESP+4
+    // points *after* the pop's own increment.
+    cpu->ss = 0;
+    cpu->esp = 0x2000;
+    mem[0x2000] = 0xAA; mem[0x2001] = 0xAA; mem[0x2002] = 0xAA; mem[0x2003] = 0xAA;
+    mem[0x2004] = 0xBB; mem[0x2005] = 0xBB; mem[0x2006] = 0xBB; mem[0x2007] = 0xBB;
+    mem[0x2008] = 0xCC; mem[0x2009] = 0xCC; mem[0x200A] = 0xCC; mem[0x200B] = 0xCC;
+    run({0x66, 0x67, 0x8F, 0x44, 0x24, 0x04});  // POP DWORD [ESP+4]
+    EXPECT_EQ(cpu->esp, 0x2004u) << "one dword popped, ordinary increment";
+    EXPECT_EQ(memd(0x2008), 0xAAAAAAAAu)
+        << "the popped value lands at the post-increment ESP+4, not the pre-increment one";
+    EXPECT_EQ(memd(0x2004), 0xBBBBBBBBu) << "the pre-increment ESP+4 slot is untouched";
+}
+
 TEST_F(Cpu80486Test, PushadPopadRoundTripsAllEightThirtyTwoBitRegisters) {
     cpu->ss = 0;
     cpu->esp = 0x4000;
@@ -2126,6 +2146,31 @@ TEST_F(Cpu80486PmTest, InterPrivilegeInterruptSwitchesStackFromTheTssAndIretdRet
     EXPECT_EQ(cpu->eax, 0x99u);
 }
 
+TEST_F(Cpu80486PmTest, OutwardIretdLoadsIoplFromTheStackImage) {
+    // "IOPL... can be modified only when CPL = 0" (Intel 80486 PRM, IRET) --
+    // that is the CPL *executing* the IRETD, not the ring it returns to. A
+    // ring-0 monitor handing a ring-3 task an elevated IOPL via IRETD is
+    // exactly this case, and it must not be confused with the *inward* rule
+    // (a CPL-3 POPFD/IRETD leaving IOPL alone -- see
+    // PopfdCannotChangeIoplOutsideRingZeroOrIfAboveIopl above).
+    enter_pm32();
+    put(pm_code_ + 7, {0x68, uint8_t(kStack3 | 3), 0x00, 0x00, 0x00,
+                       0x68, 0x00, 0x7C, 0x00, 0x00,
+                       0x68, 0x02, 0x32, 0x00, 0x00,   // EFLAGS: IOPL 3, IF set
+                       0x68, uint8_t(kCode3), 0x00, 0x00, 0x00,
+                       0x68, 0x00, 0x64, 0x00, 0x00,
+                       0xCF});
+    cpu->eip = pm_code_ + 7;
+    for (int i = 0; i < 5; ++i) cpu->step();
+    ASSERT_TRUE(faults.empty());
+    ASSERT_EQ(cpu->cpl(), 0) << "still ring 0 -- only the pushes have run";
+    cpu->step();   // iretd, ring 0 -> ring 3
+    EXPECT_TRUE(faults.empty());
+    EXPECT_EQ(cpu->cpl(), 3) << "IRETD returned outward";
+    EXPECT_EQ((cpu->eflags & uint32_t(cpu80486::FLAG_IOPL)) >> 12, 3u)
+        << "a ring-0 IRETD can hand a lower-privilege task an elevated IOPL";
+}
+
 TEST_F(Cpu80486PmTest, AnExceptionPushesItsErrorCode) {
     enter_pm32();
     put(kData, {0xF4});
@@ -2467,6 +2512,607 @@ TEST_F(Cpu80486PmTest, ABigLimitLoadedInProtectedModeSurvivesIntoRealModeAsUnrea
     EXPECT_EQ(cpu->desc(Cpu::SEG_ES).limit, 0xFFFFFFFFu)
         << "the limit is not reset by a real-mode load -- that is unreal mode";
     EXPECT_TRUE(faults.empty());
+}
+
+
+// ===========================================================================
+// Virtual-8086 mode.
+//
+// Built on the paging fixture (which is the protected-mode one plus page
+// tables), because that is how a V86 task starts on real hardware: a CPL-0
+// monitor builds an interrupt-style frame with EFLAGS.VM set in it and IRETDs
+// into that frame. enter_v86() executes exactly that -- LTR, nine pushes and
+// an IRETD -- rather than poking EFLAGS, so everything asserted below is
+// reached the way FreeDOS's JEMMEX reaches it (PC486_REVIEW.md §5.9).
+//
+// Reference: Intel 80386 Programmer's Reference Manual chapter 15, "Virtual
+// 8086 Mode" -- 15.3 "Entering and Leaving Virtual 8086 Mode" for the ring-0
+// frame and the VM rules, 15.4 "Additional Sensitive Instructions" for the
+// IOPL-sensitive set, 15.5 "Virtual I/O" for the I/O permission map -- plus
+// the Intel 80486 PRM's IRET description for the return frame. The 486
+// behaves identically to the 386 here.
+// ===========================================================================
+
+class Cpu80486V86Test : public Cpu80486PagingTest {
+protected:
+    // The 8086 world the V86 task runs in: segment 0F00h, so its offsets land
+    // at linear 0F000h + offset, clear of everything the fixture above uses.
+    static constexpr uint16_t kV86Seg  = 0x0F00;
+    static constexpr uint32_t kV86Base = uint32_t(kV86Seg) << 4;
+    // Deliberately an offset that falls inside the monitor's own instruction
+    // prefetch window (the monitor runs on linear page 3000h and this EIP is
+    // 3100h), so a window left behind across the mode change would execute the
+    // wrong bytes -- see EnteringV86ClearsTheStalePrefetchWindow.
+    static constexpr uint32_t kV86Off  = 0x3100;
+    static constexpr uint32_t kV86Sp   = 0x0F00;
+    static constexpr uint32_t kIopl3   = 3u << 12;
+    static constexpr uint32_t kRing0Sp = 0x00007E00;   // TSS ESP0, from build_default_gdt()
+
+    // Where an 8086 offset in the V86 task's own segments lands.
+    static uint32_t v86_lin(uint32_t off) { return kV86Base + off; }
+    uint16_t r16(uint32_t a) const { return uint16_t(mem[a] | (uint16_t(mem[a + 1]) << 8)); }
+
+    // Gives the TSS a real I/O permission bitmap: a *set* bit denies the port,
+    // so port 60h is granted and everything else denied. Must run before the
+    // LTR inside enter_v86(), since LTR is what caches the TSS limit.
+    void give_tss_io_bitmap() {
+        set_desc(kTssSel, seg_desc(kTss, 0x67 + 0x20, 0x89, false, false));
+        w16(kTss + 102, 0x68);
+        for (uint32_t i = 0; i < 0x20; ++i) w8(kTss + 0x68 + i, 0xFF);
+        w8(kTss + 0x68 + (0x60 / 8), 0x00);
+    }
+
+    // Assembles and runs the monitor's entry sequence at `at` (pm_code_ when
+    // 0): LTR, then the nine-doubleword frame IRETD's return-to-V86 path pops
+    // -- GS FS DS ES SS ESP EFLAGS CS EIP pushed in that order, so GS ends up
+    // at the highest address -- and the IRETD itself. `flags_image` is ORed
+    // into the task's starting EFLAGS (VM is always set).
+    void enter_v86(uint32_t flags_image = 0, uint32_t at = 0) {
+        std::vector<uint8_t> c;
+        auto b = [&](std::initializer_list<int> v) { for (int x : v) c.push_back(uint8_t(x)); };
+        auto pushd = [&](uint32_t v) {
+            c.push_back(0x68);
+            for (int i = 0; i < 4; ++i) c.push_back(uint8_t(v >> (8 * i)));
+        };
+        b({0x66, 0xB8, kTssSel, 0x00, 0x0F, 0x00, 0xD8});   // mov ax,kTssSel / ltr ax
+        pushd(0);                                            // GS
+        pushd(0);                                            // FS
+        pushd(kV86Seg);                                      // DS
+        pushd(kV86Seg);                                      // ES
+        pushd(kV86Seg);                                      // SS
+        pushd(kV86Sp);                                       // ESP
+        pushd(uint32_t(cpu80486::FLAG_VM) | uint32_t(cpu80486::FLAG_R1) | flags_image);
+        pushd(kV86Seg);                                      // CS
+        pushd(kV86Off);                                      // EIP
+        b({0xCF});                                           // iretd
+        uint32_t a = (at != 0) ? at : pm_code_;
+        for (uint8_t x : c) w8(a++, x);
+        cpu->eip = a - uint32_t(c.size());
+        for (int i = 0; i < 12; ++i) cpu->step();
+    }
+
+    // Assembles 8086 code at the V86 task's entry point.
+    void v86_code(std::initializer_list<uint8_t> code) { put(v86_lin(kV86Off), code); }
+
+    // The ring-0 frame a V86 trap left behind, by its offset from the handler's
+    // ESP. Index 0 is EIP, 8 is EFLAGS, 32 is GS.
+    uint32_t frame(uint32_t off) const { return r32(cpu->esp + off); }
+
+public:
+    // The optional bulk-access path (cpu80486.h's Bus::page / map_epoch),
+    // which the fixtures above deliberately leave unbound. Binding it here is
+    // what gives the interpreter a live page cache and instruction prefetch
+    // window, so what a V86 transition does to them is observable at all
+    // (PC486_REVIEW.md §15). Every byte of this fixture's 1MB array is plain
+    // RAM; anything above it is open bus, as it is on the real machine.
+    uint8_t *page_host(uint32_t page_base, bool) {
+        return page_base < mem.size() ? &mem[page_base] : nullptr;
+    }
+    const uint32_t *map_epoch() { return &map_epoch_; }
+
+protected:
+    // Rebuilt here rather than inherited so Bus::For() sees this class, and
+    // therefore binds page_host()/map_epoch() above.
+    void SetUp() override {
+        Cpu80486PagingTest::SetUp();
+        cpu = std::make_unique<Cpu>(Bus::For(this));
+        cpu->reset();
+        cpu->on_unimplemented = [this](uint16_t, uint32_t, uint16_t) { ++unimpl_count; };
+        cpu->on_fault = [this](int v, uint32_t e, uint16_t c, uint32_t ip) {
+            if (faults.size() < 8) faults.push_back({v, e, c, ip, cpu->esp});
+        };
+    }
+
+private:
+    uint32_t map_epoch_ = 1;
+};
+
+// --- entering the mode ----------------------------------------------------
+
+TEST_F(Cpu80486V86Test, IretdFromRingZeroWithVmSetEntersVirtualEightyEightySixMode) {
+    enter_pm32();
+    enter_v86();
+    ASSERT_TRUE(faults.empty()) << fault_desc();
+    EXPECT_TRUE(cpu->flag(cpu80486::FLAG_VM));
+    EXPECT_TRUE(cpu->v86_mode());
+    EXPECT_TRUE(cpu->protected_mode()) << "V86 is a submode of protected mode, not a third mode";
+    EXPECT_EQ(cpu->cpl(), 3) << "CPL is always three in V86 mode";
+    EXPECT_EQ(cpu->cs, kV86Seg);
+    EXPECT_EQ(cpu->ss, kV86Seg);
+    EXPECT_EQ(cpu->ds, kV86Seg);
+    EXPECT_EQ(cpu->es, kV86Seg);
+    EXPECT_EQ(cpu->fs, 0);
+    EXPECT_EQ(cpu->gs, 0);
+    EXPECT_EQ(cpu->eip, kV86Off);
+    EXPECT_EQ(cpu->esp, kV86Sp);
+    // Every descriptor cache is an 8086 segment again -- base selector*16,
+    // 64KB, 16-bit -- rather than the monitor's flat 32-bit ones. Inheriting
+    // the monitor's D/B bit or 4GB limit here is exactly what "unreal mode"
+    // does in real mode (PC486_REVIEW.md §5.4) and what V86 must not do.
+    for (int si : {int(Cpu::SEG_CS), int(Cpu::SEG_SS), int(Cpu::SEG_DS), int(Cpu::SEG_ES)}) {
+        EXPECT_EQ(cpu->desc(si).base, kV86Base) << "segment index " << si;
+        EXPECT_EQ(cpu->desc(si).limit, 0xFFFFu) << "segment index " << si;
+        EXPECT_FALSE(cpu->desc(si).big) << "segment index " << si;
+    }
+}
+
+TEST_F(Cpu80486V86Test, AV86TaskAddressesMemoryTheWayAnEightyEightySixDoes) {
+    enter_pm32();
+    enter_v86();
+    ASSERT_TRUE(faults.empty()) << fault_desc();
+    // Three bytes, not five: a V86 code segment is 16-bit however wide the
+    // monitor's was.
+    v86_code({0xB8, 0x34, 0x12,          // mov ax,1234h
+              0xA3, 0x00, 0x50});        // mov [5000h],ax
+    cpu->step();
+    cpu->step();
+    EXPECT_TRUE(faults.empty()) << fault_desc();
+    EXPECT_EQ(cpu->eax & 0xFFFFu, 0x1234u);
+    EXPECT_EQ(cpu->eip, kV86Off + 6);
+    EXPECT_EQ(r16(v86_lin(0x5000)), 0x1234u) << "DS = 0F00h, so the store is at 0F000h + 5000h";
+    EXPECT_EQ(r16(0x5000), 0u) << "and not at the monitor's flat 5000h";
+}
+
+TEST_F(Cpu80486V86Test, AV86SegmentWrapsAtSixtyFourKInsteadOfFaulting) {
+    enter_pm32();
+    enter_v86();
+    // A word read at offset 0FFFFh takes its high byte from offset 0 of the
+    // same segment, which is what a fixed 64KB segment means on an 8086.
+    w8(v86_lin(0xFFFF), 0xCD);
+    w8(v86_lin(0x0000), 0xAB);
+    v86_code({0xA1, 0xFF, 0xFF});   // mov ax,[0FFFFh]
+    cpu->step();
+    EXPECT_TRUE(faults.empty()) << fault_desc();
+    EXPECT_EQ(cpu->eax & 0xFFFFu, 0xABCDu);
+}
+
+TEST_F(Cpu80486V86Test, AV86TaskRunsItsEightyEightySixAddressesThroughThePageTables) {
+    enter_pm32();
+    build_page_tables();
+    // Remap the one page the V86 store lands on (linear 0F000h + 5000h) onto
+    // kFrame. Paging is gated on CR0.PG alone, independent of the mode, so a
+    // V86 task's 8086 addressing sits on top of the monitor's page tables --
+    // which is the entire reason a V86 memory manager can exist.
+    w32(kPageTab + (v86_lin(0x5000) >> 12) * 4, kFrame | 0x07u);
+    enable_paging();
+    ASSERT_TRUE(cpu->paging_enabled());
+    ASSERT_TRUE(faults.empty()) << fault_desc();
+    enter_v86(0, paged_code_);
+    ASSERT_TRUE(faults.empty()) << fault_desc();
+    ASSERT_EQ(cpu->cpl(), 3);
+    v86_code({0xB8, 0xEF, 0xBE,          // mov ax,0BEEFh
+              0xA3, 0x00, 0x50});        // mov [5000h],ax
+    cpu->step();
+    cpu->step();
+    EXPECT_TRUE(faults.empty()) << fault_desc();
+    EXPECT_EQ(r16(kFrame), 0xBEEFu) << "the 8086 address was translated, not used directly";
+    EXPECT_EQ(r16(v86_lin(0x5000)), 0u);
+}
+
+TEST_F(Cpu80486V86Test, EnteringV86ClearsTheStalePrefetchWindow) {
+    enter_pm32();
+    // The monitor's prefetch window covers its own code page, 3000h-3FFFh, and
+    // the V86 task's first EIP is 3100h -- inside that range, but a completely
+    // different linear address once CS is an 8086 segment. If the window
+    // survived the transition the CPU would execute the byte at linear 3100h
+    // instead of the one at 0F000h + 3100h.
+    put(0x3100, {0xB0, 0xA5});                 // mov al,0A5h -- must NOT run
+    put(v86_lin(kV86Off), {0xB0, 0x5A});       // mov al,5Ah  -- the real V86 instruction
+    enter_v86();
+    ASSERT_TRUE(faults.empty()) << fault_desc();
+    ASSERT_EQ(cpu->eip, kV86Off);
+    cpu->step();
+    EXPECT_EQ(cpu->eax & 0xFFu, 0x5Au) << "the stale window would have executed 0A5h";
+}
+
+// --- leaving the mode: the extended interrupt frame (PRM 15.3) -------------
+
+TEST_F(Cpu80486V86Test, AnInterruptOutOfV86PushesTheEightyEightySixSegmentsAndClearsVm) {
+    enter_pm32();
+    // A DPL-3 32-bit interrupt gate, so the V86 task's own INT n may reach it,
+    // pointing at nonconforming ring-0 code as the PRM requires.
+    set_gate(0x40, gate_desc(kCode32, kData, 0xEE));
+    put(kData, {0xF4});                        // the handler just halts
+    enter_v86(kIopl3);                         // IOPL 3: INT n is not trapped
+    ASSERT_TRUE(faults.empty()) << fault_desc();
+    v86_code({0xCD, 0x40});
+    cpu->step();
+    ASSERT_TRUE(faults.empty()) << fault_desc();
+    EXPECT_FALSE(cpu->flag(cpu80486::FLAG_VM)) << "the handler runs in ordinary protected mode";
+    EXPECT_EQ(cpu->cpl(), 0) << "a V86 gate always lands at ring 0";
+    EXPECT_EQ(cpu->cs, kCode32);
+    EXPECT_EQ(cpu->eip, kData);
+    EXPECT_EQ(cpu->ss, kData32) << "SS:ESP came from TSS.SS0/ESP0";
+    // All four are zeroed: an 8086 segment value is not a usable selector.
+    EXPECT_EQ(cpu->es, 0);
+    EXPECT_EQ(cpu->ds, 0);
+    EXPECT_EQ(cpu->fs, 0);
+    EXPECT_EQ(cpu->gs, 0);
+    EXPECT_TRUE(cpu->desc(Cpu::SEG_DS).null);
+    // Nine doublewords: EIP CS EFLAGS ESP SS ES DS FS GS, GS highest.
+    EXPECT_EQ(cpu->esp, kRing0Sp - 36);
+    EXPECT_EQ(frame(0), kV86Off + 2) << "EIP, past the INT";
+    EXPECT_EQ(frame(4), kV86Seg) << "CS";
+    EXPECT_NE(frame(8) & uint32_t(cpu80486::FLAG_VM), 0u)
+        << "the pushed EFLAGS still says the interrupted code was an 8086 program";
+    EXPECT_EQ(frame(12), kV86Sp) << "the 8086 task's own ESP";
+    EXPECT_EQ(frame(16), kV86Seg) << "SS";
+    EXPECT_EQ(frame(20), kV86Seg) << "ES";
+    EXPECT_EQ(frame(24), kV86Seg) << "DS";
+    EXPECT_EQ(frame(28), 0u) << "FS";
+    EXPECT_EQ(frame(32), 0u) << "GS";
+}
+
+TEST_F(Cpu80486V86Test, AHardwareInterruptOutOfV86PushesTheSameExtendedFrame) {
+    enter_pm32();
+    // Delivered from outside, so no gate-DPL check applies and IOPL is
+    // irrelevant -- but the frame is the V86 one all the same.
+    set_gate(0x40, gate_desc(kCode32, kData, 0x8E));
+    put(kData, {0xF4});
+    enter_v86();
+    ASSERT_TRUE(faults.empty()) << fault_desc();
+    ASSERT_EQ(cpu->eip, kV86Off);
+    cpu->interrupt(0x40);
+    ASSERT_TRUE(faults.empty()) << fault_desc();
+    EXPECT_FALSE(cpu->flag(cpu80486::FLAG_VM));
+    EXPECT_EQ(cpu->cpl(), 0);
+    EXPECT_EQ(cpu->esp, kRing0Sp - 36);
+    EXPECT_EQ(frame(0), kV86Off) << "an interrupted, not completed, instruction";
+    EXPECT_NE(frame(8) & uint32_t(cpu80486::FLAG_VM), 0u);
+    EXPECT_EQ(frame(32), 0u) << "GS sits at the top of the frame";
+    EXPECT_EQ(frame(20), kV86Seg) << "and ES below SS";
+}
+
+TEST_F(Cpu80486V86Test, AV86InterruptThroughAConformingOrRingThreeTargetIsRefused) {
+    enter_pm32();
+    // The PRM requires "a nonconforming, privilege-level zero, code segment".
+    // A conforming target would leave the handler at CPL 3 with no ring-0
+    // stack, which is exactly the hole the requirement closes.
+    set_gate(0x40, gate_desc(kConform, kData, 0xEE));
+    set_gate(cpu80486::EXC_GP, gate_desc(kCode32, kData + 0x100, 0x8E));
+    put(kData + 0x100, {0xF4});
+    enter_v86(kIopl3);
+    ASSERT_TRUE(faults.empty()) << fault_desc();
+    v86_code({0xCD, 0x40});
+    cpu->step();
+    expect_fault(cpu80486::EXC_GP, kConform & 0xFFFCu);
+}
+
+// --- the IOPL-sensitive instructions (PRM 15.4) ---------------------------
+
+TEST_F(Cpu80486V86Test, CliAndStiTrapToTheMonitorBelowIoplThree) {
+    enter_pm32();
+    set_gate(cpu80486::EXC_GP, gate_desc(kCode32, kData, 0x8E));
+    put(kData, {0xF4});
+    enter_v86();   // IOPL 0
+    ASSERT_TRUE(faults.empty()) << fault_desc();
+    v86_code({0xFA});   // cli
+    cpu->step();
+    expect_fault(cpu80486::EXC_GP, 0, "CLI at IOPL 0 in V86");
+}
+
+TEST_F(Cpu80486V86Test, CliIsPermittedAtIoplThree) {
+    enter_pm32();
+    set_gate(cpu80486::EXC_GP, gate_desc(kCode32, kData, 0x8E));
+    put(kData, {0xF4});
+    enter_v86(kIopl3 | uint32_t(cpu80486::FLAG_IF));
+    ASSERT_TRUE(faults.empty()) << fault_desc();
+    v86_code({0xFA});
+    cpu->step();
+    EXPECT_TRUE(faults.empty()) << fault_desc();
+    EXPECT_FALSE(cpu->flag(cpu80486::FLAG_IF)) << "the 8086 program really masked interrupts";
+}
+
+TEST_F(Cpu80486V86Test, PushfIsIoplSensitiveInV86) {
+    enter_pm32();
+    set_gate(cpu80486::EXC_GP, gate_desc(kCode32, kData, 0x8E));
+    put(kData, {0xF4});
+    enter_v86();   // IOPL 0
+    ASSERT_TRUE(faults.empty()) << fault_desc();
+    v86_code({0x9C});   // pushf
+    cpu->step();
+    expect_fault(cpu80486::EXC_GP, 0, "PUSHF at IOPL 0 in V86");
+}
+
+TEST_F(Cpu80486V86Test, PopfIsIoplSensitiveInV86) {
+    // The same rule as PUSHF, and a real fault -- not the silent IOPL masking
+    // an ordinary CPL-3 POPF performs.
+    enter_pm32();
+    set_gate(cpu80486::EXC_GP, gate_desc(kCode32, kData, 0x8E));
+    put(kData, {0xF4});
+    enter_v86();   // IOPL 0
+    ASSERT_TRUE(faults.empty()) << fault_desc();
+    v86_code({0x9D});   // popf
+    cpu->step();
+    expect_fault(cpu80486::EXC_GP, 0, "POPF at IOPL 0 in V86");
+}
+
+TEST_F(Cpu80486V86Test, PushfAndPopfAtIoplThreeRunAndCannotChangeIoplOrVm) {
+    enter_pm32();
+    set_gate(cpu80486::EXC_GP, gate_desc(kCode32, kData, 0x8E));
+    put(kData, {0xF4});
+    enter_v86(kIopl3);
+    ASSERT_TRUE(faults.empty()) << fault_desc();
+    v86_code({0x9C,          // pushf
+              0x9D});        // popf -- pops back what pushf wrote
+    cpu->step();
+    EXPECT_TRUE(faults.empty()) << fault_desc();
+    EXPECT_EQ(cpu->esp, kV86Sp - 2) << "a 16-bit push onto the 8086 stack";
+    EXPECT_EQ(r16(v86_lin(kV86Sp - 2)), uint16_t(cpu->eflags & 0xFFFFu));
+    // Poke IOPL 0 into the image the POPF is about to load: the 8086 program
+    // must not be able to lower IOPL, and bit 17 is above the 16-bit image
+    // altogether, so VM cannot move either.
+    w16(v86_lin(kV86Sp - 2), 0x0002);
+    cpu->step();
+    EXPECT_TRUE(faults.empty()) << fault_desc();
+    EXPECT_EQ((cpu->eflags & uint32_t(cpu80486::FLAG_IOPL)) >> 12, 3u);
+    EXPECT_TRUE(cpu->flag(cpu80486::FLAG_VM));
+    EXPECT_EQ(cpu->esp, kV86Sp);
+}
+
+TEST_F(Cpu80486V86Test, PopfdAtIoplThreeCannotDropOutOfV86) {
+    // The 32-bit-operand sibling of PushfAndPopfAtIoplThreeRunAndCannotChangeIoplOrVm
+    // above, with PUSHFD/POPFD (66 9C / 66 9D) in place of the 16-bit forms.
+    // "The VM and RF flags... are not affected by the POPF/POPFD instructions"
+    // (Intel 80486 PRM, "POPF/POPFD") -- VM is exactly as untouchable as IOPL
+    // here, in either operand size. But unlike 16-bit POPF, which always
+    // preserves the upper 16 bits of EFLAGS unconditionally and so cannot
+    // disturb VM no matter what `keep` is, the 32-bit POPFD path builds its
+    // whole result from `mask`/`keep`, so VM has to be listed in `keep`
+    // explicitly -- a case 16-bit POPF's test above cannot exercise.
+    enter_pm32();
+    set_gate(cpu80486::EXC_GP, gate_desc(kCode32, kData, 0x8E));
+    put(kData, {0xF4});
+    enter_v86(kIopl3);
+    ASSERT_TRUE(faults.empty()) << fault_desc();
+    v86_code({0x66, 0x9C,          // pushfd
+              0x66, 0x9D});        // popfd -- pops back what pushfd wrote
+    cpu->step();
+    EXPECT_TRUE(faults.empty()) << fault_desc();
+    EXPECT_EQ(cpu->esp, kV86Sp - 4) << "a 32-bit push onto the 8086 stack";
+    EXPECT_EQ(r32(v86_lin(kV86Sp - 4)), cpu->eflags);
+    // Poke IOPL 0 and VM 0 into the image the POPFD is about to load: the
+    // 8086 program must not be able to lower IOPL, and it must not be able to
+    // drop VM either, even though this pop -- unlike the 16-bit one -- easily
+    // could reach bit 17.
+    w32(v86_lin(kV86Sp - 4), 0x00000002u);
+    cpu->step();
+    EXPECT_TRUE(faults.empty()) << fault_desc();
+    EXPECT_EQ((cpu->eflags & uint32_t(cpu80486::FLAG_IOPL)) >> 12, 3u);
+    EXPECT_TRUE(cpu->flag(cpu80486::FLAG_VM))
+        << "POPFD must not be able to drop the task out of virtual-8086 mode";
+    EXPECT_TRUE(cpu->v86_mode());
+    EXPECT_EQ(cpu->esp, kV86Sp);
+}
+
+TEST_F(Cpu80486V86Test, OutsideV86ARingThreePushfStillDoesNotFault) {
+    // Regression guard for the fault added above: at CPL 3 with VM clear,
+    // PUSHF is unprivileged and POPF masks IOPL silently (Intel 80486 PRM,
+    // POPF) -- a different rule, which must stay exactly as it was.
+    enter_pm32();
+    put(kData, {0xF4});
+    set_gate(cpu80486::EXC_GP, gate_desc(kCode32, kData, 0x8E));
+    put(kData + 0x400, {0x9C,                                // pushfd
+                        0x68, 0x02, 0x00, 0x00, 0x00,        // push 0002h -- IOPL 0
+                        0x9D});                              // popfd
+    pm_run({0x68, uint8_t(kStack3 | 3), 0x00, 0x00, 0x00,
+            0x68, 0x00, 0x7C, 0x00, 0x00,
+            0x68, 0x02, 0x32, 0x00, 0x00,                    // EFLAGS: IOPL 3, IF set
+            0x68, uint8_t(kCode3), 0x00, 0x00, 0x00,
+            0x68, 0x00, 0x64, 0x00, 0x00,
+            0xCF}, 6);
+    ASSERT_EQ(cpu->cpl(), 3);
+    ASSERT_FALSE(cpu->v86_mode());
+    for (int i = 0; i < 3; ++i) cpu->step();
+    EXPECT_TRUE(faults.empty()) << fault_desc();
+    EXPECT_EQ((cpu->eflags & uint32_t(cpu80486::FLAG_IOPL)) >> 12, 3u)
+        << "the CPL-3 POPFD left IOPL alone instead of faulting";
+}
+
+TEST_F(Cpu80486V86Test, IntNIsIoplSensitiveInV86) {
+    enter_pm32();
+    set_gate(0x21, gate_desc(kCode32, kData, 0xEE));
+    set_gate(cpu80486::EXC_GP, gate_desc(kCode32, kData + 0x100, 0x8E));
+    put(kData, {0xF4});
+    put(kData + 0x100, {0xF4});
+    enter_v86();   // IOPL 0
+    ASSERT_TRUE(faults.empty()) << fault_desc();
+    v86_code({0xCD, 0x21});
+    cpu->step();
+    // The monitor gets a #GP instead of the vector, which is how it intercepts
+    // an 8086 program's calls to the 8086 operating system.
+    expect_fault(cpu80486::EXC_GP, 0);
+    EXPECT_EQ(cpu->eip, kData + 0x100) << "the #GP handler ran, not vector 21h's";
+}
+
+TEST_F(Cpu80486V86Test, IretInV86IsIoplSensitive) {
+    enter_pm32();
+    set_gate(cpu80486::EXC_GP, gate_desc(kCode32, kData, 0x8E));
+    put(kData, {0xF4});
+    enter_v86();   // IOPL 0
+    ASSERT_TRUE(faults.empty()) << fault_desc();
+    v86_code({0xCF});
+    cpu->step();
+    expect_fault(cpu80486::EXC_GP, 0, "IRET at IOPL 0 in V86");
+}
+
+TEST_F(Cpu80486V86Test, IretAtIoplThreeInV86IsThePlainEightyEightySixIret) {
+    // It pops IP, CS and FLAGS off the 8086 stack and leaves VM and IOPL
+    // exactly where they are.
+    enter_pm32();
+    set_gate(cpu80486::EXC_GP, gate_desc(kCode32, kData, 0x8E));
+    put(kData, {0xF4});
+    enter_v86(kIopl3);
+    ASSERT_TRUE(faults.empty()) << fault_desc();
+    w16(v86_lin(kV86Sp + 0), 0x0200);       // IP
+    w16(v86_lin(kV86Sp + 2), kV86Seg);      // CS
+    w16(v86_lin(kV86Sp + 4), 0x0003);       // FLAGS: CF set, IOPL 0 in the image
+    v86_code({0xCF});
+    cpu->step();
+    EXPECT_TRUE(faults.empty()) << fault_desc();
+    EXPECT_TRUE(cpu->flag(cpu80486::FLAG_VM)) << "an 8086 IRET stays in V86";
+    EXPECT_EQ((cpu->eflags & uint32_t(cpu80486::FLAG_IOPL)) >> 12, 3u)
+        << "and cannot lower IOPL out of its own flags image";
+    EXPECT_TRUE(cpu->flag(cpu80486::FLAG_CF));
+    EXPECT_EQ(cpu->cs, kV86Seg);
+    EXPECT_EQ(cpu->eip, 0x0200u);
+    EXPECT_EQ(cpu->esp, kV86Sp + 6);
+    EXPECT_EQ(cpu->cpl(), 3);
+}
+
+TEST_F(Cpu80486V86Test, PortIoInV86AlwaysConsultsTheBitmapEvenAtIoplThree) {
+    enter_pm32();
+    set_gate(cpu80486::EXC_GP, gate_desc(kCode32, kData, 0x8E));
+    put(kData, {0xF4});
+    give_tss_io_bitmap();
+    // IOPL 3 would permit any port outright in ordinary protected mode. In V86
+    // "the protection mechanism does not consult IOPL" for IN/OUT at all --
+    // only the map decides (PRM 15.5).
+    enter_v86(kIopl3);
+    ASSERT_TRUE(faults.empty()) << fault_desc();
+    v86_code({0xE4, 0x60,    // in al,60h -- bit clear, granted
+              0xE4, 0x70});  // in al,70h -- bit set, denied
+    cpu->step();
+    EXPECT_TRUE(faults.empty()) << fault_desc();
+    cpu->step();
+    expect_fault(cpu80486::EXC_GP, 0, "port 70h is denied by the map whatever IOPL says");
+}
+
+TEST_F(Cpu80486V86Test, PrivilegedInstructionsInV86TrapToTheMonitor) {
+    enter_pm32();
+    set_gate(cpu80486::EXC_GP, gate_desc(kCode32, kData, 0x8E));
+    put(kData, {0xF4});
+    enter_v86(kIopl3);
+    ASSERT_TRUE(faults.empty()) << fault_desc();
+    // CPL 3 makes the ring-0-only instructions fault without a V86 rule of
+    // their own -- LGDT here, which is what a memory manager inside a V86 task
+    // would try if it thought it owned the machine.
+    v86_code({0x0F, 0x01, 0x16, 0x00, 0x05});   // lgdt [0500h]
+    cpu->step();
+    expect_fault(cpu80486::EXC_GP, 0);
+}
+
+// --- IRETD and the VM bit outside ring 0 ---------------------------------
+
+TEST_F(Cpu80486V86Test, AnIretdOutsideRingZeroCannotSetVm) {
+    enter_pm32();
+    put(kData, {0xF4});
+    set_gate(cpu80486::EXC_GP, gate_desc(kCode32, kData, 0x8E));
+    // A ring-3 IRETD returning to ring 3 with VM set in its flags image: "the
+    // CPL at the time the IRET is executed must be zero, else the processor
+    // does not change VM" (PRM 15.3). The bit is ignored, not honored and not
+    // faulted on.
+    put(kData + 0x400, {0x68, 0x02, 0x00, 0x02, 0x00,        // push EFLAGS with VM (bit 17)
+                        0x68, uint8_t(kCode3), 0x00, 0x00, 0x00,
+                        0x68, 0x10, 0x64, 0x00, 0x00,        // push kData+0x410
+                        0xCF});
+    put(kData + 0x410, {0xB8, 0x77, 0x00, 0x00, 0x00});      // mov eax,77h
+    pm_run({0x68, uint8_t(kStack3 | 3), 0x00, 0x00, 0x00,
+            0x68, 0x00, 0x7C, 0x00, 0x00,
+            0x68, 0x02, 0x02, 0x00, 0x00,
+            0x68, uint8_t(kCode3), 0x00, 0x00, 0x00,
+            0x68, 0x00, 0x64, 0x00, 0x00,
+            0xCF}, 6);
+    ASSERT_EQ(cpu->cpl(), 3);
+    for (int i = 0; i < 4; ++i) cpu->step();   // three pushes and the IRETD
+    EXPECT_TRUE(faults.empty()) << fault_desc();
+    EXPECT_FALSE(cpu->flag(cpu80486::FLAG_VM)) << "VM was ignored, not loaded";
+    EXPECT_EQ(cpu->cpl(), 3);
+    cpu->step();
+    EXPECT_EQ(cpu->eax, 0x77u) << "and execution continued in ordinary protected mode";
+}
+
+// --- the deliberate gap: no task-gate entry into V86 (cpu80486.h header) --
+
+TEST_F(Cpu80486V86Test, ATaskSwitchIntoAV86TaskIsRefusedRatherThanCorruptingState) {
+    enter_pm32();
+    for (uint32_t i = 0; i < 104; i += 4) w32(kTss2 + i, 0);
+    w32(kTss2 + 32, kData);                                   // EIP
+    w32(kTss2 + 36, 0x00000202u | uint32_t(cpu80486::FLAG_VM));  // EFLAGS with VM set
+    w32(kTss2 + 56, 0x00007A00u);
+    w32(kTss2 + 72, kV86Seg);   // 8086 segment values, not selectors
+    w32(kTss2 + 76, kV86Seg);
+    w32(kTss2 + 80, kV86Seg);
+    w32(kTss2 + 84, kV86Seg);
+    pm_run({0x66, 0xB8, uint8_t(kTssSel), 0x00, 0x0F, 0x00, 0xD8}, 2);   // ltr
+    ASSERT_TRUE(faults.empty()) << fault_desc();
+    put(pm_code_ + 7, {0xEA, 0x00, 0x00, 0x00, 0x00, uint8_t(kTss2Sel), 0x00});
+    cpu->eip = pm_code_ + 7;
+    cpu->step();
+    // Reported as an invalid TSS with nothing committed: still the old task,
+    // still ring 0, still not in V86.
+    expect_fault(cpu80486::EXC_TS, kTss2Sel & 0xFFFCu);
+    EXPECT_EQ(cpu->tr_selector(), kTssSel) << "the switch did not happen";
+    EXPECT_FALSE(cpu->flag(cpu80486::FLAG_VM));
+    EXPECT_EQ(cpu->cpl(), 0);
+    EXPECT_EQ(cpu->cs, kCode32);
+}
+
+// --- the whole cycle, composed -------------------------------------------
+
+// Everything above tests one rule at a time. This runs a small V86 session the
+// way a monitor actually drives one: an 8086 program at IOPL 0 executes three
+// instructions it is not allowed to (CLI, an IN the I/O map denies, and an INT
+// into the 8086 OS), the monitor's single #GP handler emulates each one by
+// stepping the saved EIP past it, and IRETDs back into the mode each time.
+// Each faulting instruction is deliberately two bytes -- the CS: prefix on the
+// CLI is there only to make the skip uniform -- so the handler needs no
+// instruction-length decoding.
+TEST_F(Cpu80486V86Test, AMonitorEmulatesThreeTrappedInstructionsAndTheTaskRunsOn) {
+    enter_pm32();
+    give_tss_io_bitmap();
+    set_gate(cpu80486::EXC_GP, gate_desc(kCode32, kData, 0x8E));
+    // The handler, at ring 0 with every data segment nulled: it touches only
+    // SS (through ESP) and EBX, which survives the round trip and counts the
+    // traps for the test. #GP carries an error code, so the frame's EIP is at
+    // [esp+4] and the code itself has to come off before the IRETD.
+    put(kData, {0x43,                          // inc ebx
+                0x83, 0x44, 0x24, 0x04, 0x02,  // add dword [esp+4],2
+                0x83, 0xC4, 0x04,              // add esp,4
+                0xCF});                        // iretd -- back into V86
+    enter_v86();
+    ASSERT_TRUE(faults.empty()) << fault_desc();
+    cpu->ebx = 0;
+    v86_code({0x2E, 0xFA,     // cs: cli   -- IOPL-sensitive
+              0xE4, 0x70,     // in al,70h -- denied by the I/O permission map
+              0xCD, 0x21,     // int 21h   -- IOPL-sensitive
+              0xB0, 0x5A,     // mov al,5Ah
+              0xEB, 0xFE});   // jmp $
+    for (int i = 0; i < 20; ++i) cpu->step();
+    EXPECT_EQ(cpu->ebx, 3u) << "three traps, three emulated instructions";
+    ASSERT_EQ(faults.size(), 3u);
+    for (const FaultRec &f : faults) {
+        EXPECT_EQ(f.vector, cpu80486::EXC_GP);
+        EXPECT_EQ(f.error, 0u);
+        EXPECT_EQ(f.cs, kV86Seg) << "every trap came out of the 8086 task";
+    }
+    EXPECT_TRUE(cpu->v86_mode()) << "and each IRETD put the task back in V86";
+    EXPECT_EQ(cpu->cpl(), 3);
+    EXPECT_EQ(cpu->eax & 0xFFu, 0x5Au) << "the 8086 program ran past all three";
+    EXPECT_EQ(cpu->eip, kV86Off + 8) << "parked on its own jmp $";
+    EXPECT_EQ(cpu->esp, kV86Sp) << "the 8086 stack was never touched -- the frames went to ring 0";
+    EXPECT_EQ(cpu->ds, kV86Seg) << "and the IRETD restored the 8086 segment registers";
+    EXPECT_EQ(cpu->es, kV86Seg);
 }
 
 

@@ -27,6 +27,19 @@
 // PS/2-superset KBC instead, which is what this models -- see
 // PC486_REVIEW.md §10.
 //
+// Port 0x92 ("System Control Port A" / "Fast A20 Gate") is a genuinely
+// separate piece of period hardware modeled here alongside the 8042
+// because it drives the *same* A20 signal, not a distinct one: virtually
+// every 386+ motherboard chipset exposes this port specifically because
+// toggling A20 through the keyboard controller's command protocol is slow,
+// and real-world software of this era (Microsoft's own HIMEM.SYS included)
+// commonly tries it first. Bit 1 is the A20 gate (1 = enabled), bit 0
+// triggers a fast CPU reset on being written 1 (OSDev Wiki, "A20 Line";
+// see also the AMD64 Architecture Programmer's Manual chipset notes, which
+// guarantee port 0x92 bit 1 stays available for this on any AMD64 chipset
+// for backward compatibility). See PC486_REVIEW.md §19.6 for the real,
+// live bug this port's total absence caused.
+//
 // Controller-command scope: self-test, interface test, read/write command
 // byte, enable/disable keyboard, enable/disable/test the AUX interface,
 // write-to-AUX-device, write-to-either-output-buffer, read/write output
@@ -50,6 +63,23 @@ public:
     bool owns(uint16_t port) const { return port == 0x60 || port == 0x64; }
     uint8_t in(uint16_t port) const;
     void out(uint16_t port, uint8_t v);
+
+    // Port 0x92 -- see the file header. This is the *same* A20 gate as the
+    // 8042's own output port, not an independent latch: real chipsets tie
+    // both to one physical line, and software of the era freely mixes
+    // "read output port" (0xD0) with a direct port-0x92 read expecting to
+    // see the identical bit, so this reads/writes output_port_ bit 1
+    // directly rather than keeping a second copy that could drift out of
+    // sync. Bit 0 pulses a reset exactly like output-port bit 0 already
+    // does (reset_requested()) -- it is a distinct write-only trigger, not
+    // stored back into the readable byte, matching real hardware where
+    // that bit self-clears.
+    bool owns_fast_a20(uint16_t port) const { return port == 0x92; }
+    uint8_t fast_a20_in() const { return output_port_ & 0x02; }
+    void fast_a20_out(uint8_t v) {
+        output_port_ = uint8_t((output_port_ & ~0x02) | (v & 0x02));
+        if (v & 0x01) reset_requested_ = true;
+    }
 
     bool irq1_pending() const { return irq1_pending_; }
     void clear_irq1() { irq1_pending_ = false; }
@@ -206,7 +236,15 @@ private:
     // there unread, and raises no interrupt. It has no queue of its own,
     // and every caller of these commands polls for the answer.
     void push_ctrl(uint8_t v) const;
-    void push_kbd(uint8_t v, bool irq = false);
+    // Every byte the *keyboard* itself sends back -- scan codes, but
+    // exactly as much a command ACK (0xFA), a reset's BAT-pass (0xAA), or
+    // a Read-ID's 0xAB/0x83 -- sets IBF and fires IRQ1 on real hardware,
+    // with no distinction by content: "If no errors occur, the response
+    // byte is placed in the input buffer, the IBF flag is set, and IRQ1 is
+    // activated" (Chapweske, "The AT-PS/2 Keyboard Interface", "Writing to
+    // keyboard"). No caller here has a real reason to suppress that, so
+    // `irq` takes no default -- every call site must say so explicitly.
+    void push_kbd(uint8_t v, bool irq);
     void push_aux(uint8_t v) const;
     void enqueue(uint8_t v, bool aux, bool irq) const;
     void pump_output() const;

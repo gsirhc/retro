@@ -232,6 +232,36 @@
     isRunning,
   });
 
+  // "Barebones FreeDOS" notice -- shown over the screen on power-on to
+  // explain why C: has no games/apps (the Base package set, PC486_REVIEW.md
+  // §19.5) and that JEMMEX is a real V86 memory manager, not a stub. Purely
+  // a web-UI convenience like the focus-hint banner above, dismissed by the
+  // same signal that banner reacts to: the screen gaining focus. That
+  // covers both a real click (the notice is pointer-events:none, so the
+  // click reaches the canvas and focuses it in one gesture) and Tab-key
+  // navigation, which is every reachable way to start typing here -- the
+  // power switch itself is a separate focusable control, so toggling power
+  // off and back on always moves focus there first, never leaves it
+  // sitting on the screen underneath. Dismissing it once is remembered
+  // (localStorage, same "retro8080." site-wide key namespace ibmpc-at's
+  // own gdriveConnected flag uses) so a returning visitor doesn't see it
+  // again every power-on -- only a fresh visitor, or one who's cleared
+  // site data, gets it back.
+  const BOOT_NOTICE_KEY = "retro8080.pc486BootNoticeDismissed";
+  const bootNoticeEl = document.getElementById("bootNotice");
+  function hideBootNotice() { bootNoticeEl.classList.remove("visible"); }
+  // Only the screen actually gaining focus counts as "seen it" and is
+  // remembered -- powerOff() also hides it (nothing to type into once
+  // powered off) but that's not the visitor dismissing anything, so it
+  // must not mark this permanently seen.
+  function dismissBootNotice() {
+    hideBootNotice();
+    try { localStorage.setItem(BOOT_NOTICE_KEY, "1"); } catch {}
+  }
+  document.addEventListener("focusin", () => {
+    if (screenEl.contains(document.activeElement)) dismissBootNotice();
+  });
+
   // ---- floppy drive (this machine's single 3.5" bay) ---------------------
   // A real floppy is a mechanical slot: you can insert or eject one
   // whether the machine is powered on or off (pendingFloppy, populated
@@ -289,9 +319,18 @@
   // ---- CD-ROM drive (atapi_cdrom) -- removable, like the floppy ---------
   // No dirty-image/download path -- a real CD-ROM is read-only media, so
   // there's nothing to hand back on eject the way the floppy flow does.
+  //
+  // Empty by default, unlike the HDD: C: already ships with FreeDOS
+  // installed (see the factory HDD image), so nothing about booting or
+  // running needs a disc in this drive. Fetching FreeDOS's own ~400MB
+  // install/live CD on every page load regardless was a real, reported
+  // cost with no runtime benefit -- "Load FreeDOS CD..." below fetches
+  // that same shipped .iso lazily, only when someone actually wants it in
+  // the drive (see PC486_REVIEW.md).
   const cdromBay = document.querySelector('.at-bay[data-drive="cdrom"]');
   {
     const fileInput = cdromBay.querySelector('[data-role="file"]');
+    const loadFreedosBtn = cdromBay.querySelector('[data-role="load-freedos-cd"]');
     const ejectBtn = cdromBay.querySelector('[data-role="eject"]');
     fileInput.addEventListener("change", async () => {
       const f = fileInput.files[0];
@@ -301,6 +340,20 @@
       pendingCdrom = { name: f.name, bytes };
       if (machine) machine.mountCdrom(bytes);
       setBayLoaded(cdromBay, f.name);
+    });
+    loadFreedosBtn.addEventListener("click", async () => {
+      loadFreedosBtn.disabled = true;
+      const originalText = loadFreedosBtn.textContent;
+      loadFreedosBtn.textContent = "Loading…";
+      try {
+        const bytes = new Uint8Array(await (await fetch("disks/freedos-cd.iso")).arrayBuffer());
+        pendingCdrom = { name: "FreeDOS install/live CD", bytes };
+        if (machine) machine.mountCdrom(bytes);
+        setBayLoaded(cdromBay, pendingCdrom.name);
+      } finally {
+        loadFreedosBtn.textContent = originalText;
+        loadFreedosBtn.disabled = false;
+      }
     });
     ejectBtn.addEventListener("click", () => {
       if (machine) machine.ejectCdrom();
@@ -344,14 +397,44 @@
     class PcSpeakerProcessor extends AudioWorkletProcessor {
       constructor() {
         super();
-        // ~350ms at 48kHz -- generous headroom against main-thread jank
-        // (GC pauses, the periodic HDD autosave's array copy) without
-        // making genuine underrun-driven latency noticeable.
+        // ~350ms at 48kHz -- generous headroom to absorb a single main-thread
+        // jank spike (a GC pause, the periodic HDD autosave's array copy)
+        // without an audible click. This is a transient-absorption ceiling,
+        // not the steady-state depth: see targetAvailable below.
         this.ring = new Float32Array(16384);
         this.writeIdx = 0;
         this.readIdx = 0;
         this.available = 0;
         this.lastSample = 0;
+        // A jank spike that fills the ring would otherwise latch there
+        // forever: under steady 1:1 real-time playback nothing ever drains
+        // it back down except an underrun, so one stall used to leave a
+        // permanent, ever-present latency behind (measured as an audible
+        // ~0.3-0.5s input-to-sound lag once a game had been running a
+        // while -- PC486_REVIEW.md). Instead, resync back down to a small
+        // target depth: this keeps enough slack to absorb the next spike
+        // without a click, but the backlog a spike leaves behind is trimmed
+        // away quickly instead of persisting for the rest of the session.
+        //
+        // This trim MUST run inside process(), not onmessage(): process()
+        // is paced by the real audio clock (one call per ~128-sample
+        // render quantum, ~2.7ms @48kHz), which is the only thing here with
+        // a guaranteed real-time rate. onmessage() has no such guarantee --
+        // pump()'s main-thread loop can re-enter far faster than its
+        // nominal ~12ms cadence whenever the emulated CPU is idle (each
+        // call still posts at least one sample, Math.max(1, ...) in
+        // pumpAudio()), and trimming there fires once per *message*
+        // instead of once per real audio quantum. With enough of those
+        // excess messages, readIdx's forced jumps outrun what process()
+        // has actually played, walking it forward through ring positions
+        // process() hasn't reached yet -- including stale audio from
+        // *before* the current silence that was never overwritten, since a
+        // jump only touches readIdx, not the ring contents in between. The
+        // audible result was the previous sound looping on its own, long
+        // after the emulator had gone silent (see PC486_REVIEW.md's audio
+        // investigation). Trimming once per process() call instead bounds
+        // the jump to what real playback has actually consumed.
+        this.targetAvailable = Math.round(sampleRate * 0.05);  // 50ms
         this.port.onmessage = (e) => {
           const chunk = e.data;
           for (let i = 0; i < chunk.length; i++) {
@@ -370,6 +453,11 @@
         };
       }
       process(_inputs, outputs) {
+        if (this.available > this.targetAvailable) {
+          const drop = this.available - this.targetAvailable;
+          this.readIdx = (this.readIdx + drop) % this.ring.length;
+          this.available = this.targetAvailable;
+        }
         const out = outputs[0][0];
         for (let i = 0; i < out.length; i++) {
           if (this.available > 0) {
@@ -391,25 +479,29 @@
   // Same ring-buffer-behind-a-worklet shape as the PC speaker above, just
   // stereo: two channels fed together so left/right stay sample-locked.
   //
-  // Depth is a latency/robustness tradeoff, not a free "more headroom is
-  // always safer" knob: once the ring is ever driven to its own capacity
-  // (any single moment where production outruns consumption, which normal
-  // browser scheduling jitter makes an early near-certainty), it *stays*
-  // there under steady 1:1 real-time playback -- there is no mechanism to
-  // drain it back down except an underrun. So this number is not "average
-  // slack", it is close to the *actual, permanent* audio latency once the
-  // game has been running a few seconds, which a browser gunshot-to-bang
-  // report of "about a second" matches almost exactly at the old 32768
-  // (683 ms @48kHz). Measured, not assumed, against the real stall this
-  // headroom exists for -- persistHddIfDirty()'s full-disk-image copy off
-  // the wasm heap (the "periodic HDD autosave's array copy" the PC
-  // speaker's own comment above names) -- 180-350 ms in a real headless
-  // Chromium run against this machine's 504 MB image. 8192 (~171 ms
-  // @48kHz) cuts steady-state latency roughly 4x while still covering
-  // ordinary GC-pause-scale jank; a stall bigger than that underruns into
-  // a brief held-last-sample tone rather than the click the ring-buffer
-  // architecture itself was built to avoid (see above) -- not silent, but
-  // no longer the dominant cost on every shot.
+  // Depth is a transient-absorption ceiling, not the steady-state latency:
+  // resync-to-target (below, same mechanism as the PC speaker worklet)
+  // trims the backlog a jank spike leaves behind back down to targetAvailable
+  // within one message, instead of letting it latch at whatever depth the
+  // spike drove the ring to for the rest of the session. Before that existed,
+  // this number WAS close to the actual steady-state latency once a jank
+  // event had occurred (a near-certainty within a few seconds of real
+  // browser scheduling jitter) -- a browser gunshot-to-bang report of
+  // "about a second" matched the old 32768 depth (683 ms @48kHz) almost
+  // exactly. Measured against the real stall this headroom exists for --
+  // persistHddIfDirty()'s full-disk-image copy off the wasm heap (the
+  // "periodic HDD autosave's array copy" the PC speaker's own comment above
+  // names) -- 180-350 ms in a real headless Chromium run against this
+  // machine's 504 MB image, EVERY 5 seconds whenever anything on C: was
+  // written. persistHddIfDirty() now patches only the sectors a session
+  // actually wrote (wd1003.h's dirty_ranges()), so that specific 180-350ms/5s
+  // hit is gone in the common case -- typical DOS writes are a handful of
+  // 4KB pages, not the whole disk -- but this depth stays as headroom for
+  // ordinary GC-pause-scale jank and the rare full-copy fallback (no
+  // same-size mirror yet to patch onto): a stall bigger than it underruns
+  // into a brief held-last-sample tone rather than the click the ring-buffer
+  // architecture itself was built to avoid, and now drains back to target
+  // afterward instead of leaving that depth as the new permanent floor.
   const kSbWorkletSrc = `
     class Sb16Processor extends AudioWorkletProcessor {
       constructor() {
@@ -421,6 +513,15 @@
         this.available = 0;
         this.lastLeft = 0;
         this.lastRight = 0;
+        // Resync-to-target trim MUST run inside process(), not onmessage() --
+        // see the identical reasoning in kSpeakerWorkletSrc above. onmessage()
+        // has no real-time guarantee (pump() can re-enter far faster than its
+        // nominal ~12ms cadence when the emulated CPU is idle), and trimming
+        // there let readIdx's forced jumps outrun real playback, walking it
+        // into stale ring positions from a *previous* sound that process()
+        // hadn't reached yet and hadn't been overwritten -- heard as that
+        // sound looping on its own long after the emulator went silent.
+        this.targetAvailable = Math.round(sampleRate * 0.05);  // 50ms, see comment above
         this.port.onmessage = (e) => {
           const { left, right } = e.data;
           for (let i = 0; i < left.length; i++) {
@@ -436,6 +537,11 @@
         };
       }
       process(_inputs, outputs) {
+        if (this.available > this.targetAvailable) {
+          const drop = this.available - this.targetAvailable;
+          this.readIdx = (this.readIdx + drop) % this.left.length;
+          this.available = this.targetAvailable;
+        }
         const outL = outputs[0][0], outR = outputs[0][1];
         for (let i = 0; i < outL.length; i++) {
           if (this.available > 0) {
@@ -612,6 +718,41 @@
     pumpChannel.port2.postMessage(0);
   }
 
+  // pump() reschedules itself via a zero-delay macrotask (deliberately, so
+  // CPU throughput isn't capped by setTimeout's ~4ms clamp -- see
+  // schedulePump()'s own comment) -- but that means when the emulated CPU
+  // is idle (HLT, waiting on the next timer interrupt) with nothing to run,
+  // pump() can re-enter thousands of times per real second doing no CPU
+  // work at all. Calling pumpAudio()/pumpSbAudio() on every one of those
+  // spins used to flood both worklets with thousands of near-empty
+  // messages a second; each one's sampleCount is floored to at least one
+  // sample (Math.max(1, ...) in both functions, so a genuinely tiny real
+  // dt still gets *some* coverage rather than a gap), and at that rate the
+  // worklet's own real-time-paced resync trim couldn't keep the ring's
+  // read/write pointers from drifting past positions process() hadn't
+  // reached yet -- including stale audio from a *previous* sound sitting
+  // in ring slots the flood hadn't caught up to overwriting. Heard as that
+  // sound looping on its own long after the emulator had gone silent (see
+  // PC486_REVIEW.md's audio investigation). Coalescing here -- accumulating
+  // cycles/dt across spins and only actually pumping audio once enough
+  // real time has passed to be worth a message -- fixes it at the source:
+  // a normal ~12ms-cadence call already exceeds the threshold and flushes
+  // immediately (unchanged from before), only the pathological idle-spin
+  // case gets batched.
+  const kMinAudioPumpDt = 0.001;  // 1ms -- far below anything perceptible
+  let audioPumpStartCycle = null, audioPumpCycles = 0, audioPumpDt = 0;
+  function pumpAudioCoalesced(chunkStartCycle, cyclesThisChunk, dtSeconds) {
+    if (audioPumpStartCycle === null) audioPumpStartCycle = chunkStartCycle;
+    audioPumpCycles += cyclesThisChunk;
+    audioPumpDt += dtSeconds;
+    if (audioPumpDt < kMinAudioPumpDt) return;
+    pumpAudio(audioPumpStartCycle, audioPumpCycles, audioPumpDt);
+    pumpSbAudio(audioPumpStartCycle, audioPumpCycles, audioPumpDt);
+    audioPumpStartCycle = null;
+    audioPumpCycles = 0;
+    audioPumpDt = 0;
+  }
+
   function clearScreenToBlack() {
     screenEl.width = kTextRenderWidth;
     screenEl.height = kTextRenderHeight;
@@ -660,8 +801,7 @@
       if (elapsed >= 1) cyclesPerMs += 0.25 * (cyclesThisChunk / elapsed - cyclesPerMs);
     }
 
-    pumpAudio(chunkStartCycle, cyclesThisChunk, dtSeconds);
-    pumpSbAudio(chunkStartCycle, cyclesThisChunk, dtSeconds);
+    pumpAudioCoalesced(chunkStartCycle, cyclesThisChunk, dtSeconds);
     schedulePump();
   }
 
@@ -765,7 +905,11 @@
   const powerLed = document.getElementById("powerLed");
   const resetBtn = document.getElementById("resetBtn");
   let poweredOn = false;
-  let firmware = null;  // {Module, bios, vga, hdd, cdrom} once fetched -- fetched once, reused every power-on
+  let firmware = null;  // {Module, bios, vga, hdd} once fetched -- fetched once, reused every power-on
+  // 1024 cyl x 16 head x 63 sec/track x 512 bytes -- this machine's one
+  // fixed C: geometry (wd1003.cpp), known without needing the actual
+  // factory FreeDOS bytes downloaded yet.
+  const kHddImageBytes = 528482304;
   let pendingFloppy = null;  // {name, bytes} -- "what's physically in the drive" (this system's one bay)
   let pendingCdrom = null;   // {name, bytes} -- same idea, for the CD-ROM bay
 
@@ -806,7 +950,7 @@
   });
   hddBlankBtn.addEventListener("click", () => {
     if (!firmware) return;
-    savedHdd = new Uint8Array(firmware.hdd.byteLength);  // all zero -- unformatted, like a drive fresh from the factory floor
+    savedHdd = new Uint8Array(kHddImageBytes);  // all zero -- unformatted, like a drive fresh from the factory floor
     hddLabel = "blank drive, unformatted (FDISK/FORMAT and install your own OS) -- takes effect next power-on";
     refreshHddControls();
     saveHdd(savedHdd);
@@ -842,9 +986,9 @@
     // genuine IDNF error rather than silently doing nothing), but refusing
     // it up front gives a clearer reason than a mysterious disk error deep
     // into a boot.
-    if (bytes.byteLength !== firmware.hdd.byteLength) {
+    if (bytes.byteLength !== kHddImageBytes) {
       alert("That file is " + bytes.byteLength + " bytes; this machine's hard disk " +
-            "must be exactly " + firmware.hdd.byteLength + " bytes (1024 cyl / 16 head / " +
+            "must be exactly " + kHddImageBytes + " bytes (1024 cyl / 16 head / " +
             "63 sec/track, 504MB). Not mounted.");
       return;
     }
@@ -860,9 +1004,10 @@
       // Free the previous power cycle's machine before building the next
       // one. An embind handle owns a C++ object that outlives the JS
       // reference, so dropping `machine` at powerOff() freed nothing and
-      // every power cycle leaked another ~950MB of wasm heap (the 528MB C:
-      // image plus the 419MB CD) -- the second power-on then died trying to
-      // grow past it. Deleted here rather than in powerOff() so the handle
+      // every power cycle leaked another ~528MB of wasm heap (C:'s image;
+      // +419MB more whenever a CD-ROM disc happens to be loaded too) -- the
+      // second power-on then died trying to grow past it. Deleted here
+      // rather than in powerOff() so the handle
       // stays callable while the machine is off, which is how "power off
       // really does stop the cycle counter" is observed (tests/boot.spec.ts).
       if (lastMachine) {
@@ -877,20 +1022,18 @@
         machine.mountFloppy(pendingFloppy.bytes);
         setBayLoaded(floppyBay, pendingFloppy.name);
       }
-      // This machine ships with a CD-ROM already in the drive -- FreeDOS's
-      // own official install/live CD, the same "shipped pre-loaded" idea
-      // the factory FreeDOS HDD image uses (see CLAUDE.md "Adding a new
-      // machine"), just for removable media instead of the fixed disk.
-      // new Uint8Array(...), not the raw ArrayBuffer fetch() returned:
-      // mountCdrom() goes through embind's convertJSArrayToNumberVector,
-      // which reads `.length` -- an ArrayBuffer only has `byteLength`, so
-      // it converts to an EMPTY vector and the drive comes up with no disc
-      // in it, silently. Same wrapping the HDD path above already does.
-      const cdBytes = pendingCdrom ? pendingCdrom.bytes : new Uint8Array(firmware.cdrom);
-      const cdLabel = pendingCdrom ? pendingCdrom.name : "FreeDOS install/live CD";
-      if (cdBytes) {
-        machine.mountCdrom(cdBytes);
-        setBayLoaded(cdromBay, cdLabel);
+      // Empty by default -- see the CD-ROM section above for why this
+      // drive isn't pre-loaded the way the HDD is. `pendingCdrom.bytes` is
+      // already a real Uint8Array by the time it lands here (both the file
+      // input and "Load FreeDOS CD..." construct one from the fetched/read
+      // ArrayBuffer), which matters because mountCdrom() goes through
+      // embind's convertJSArrayToNumberVector -- that reads `.length`, and
+      // a bare ArrayBuffer only has `byteLength`, so passing one directly
+      // converts to an empty vector and the drive comes up with no disc in
+      // it, silently. Same wrapping the HDD path above already does.
+      if (pendingCdrom) {
+        machine.mountCdrom(pendingCdrom.bytes);
+        setBayLoaded(cdromBay, pendingCdrom.name);
       }
     }
     poweredOn = true;
@@ -901,6 +1044,9 @@
     refreshHddControls();
     refreshFkeyControls();
     updateFocusHint();  // e.g. the auto power-on at boot never focuses the screen itself
+    let noticeDismissed = false;
+    try { noticeDismissed = localStorage.getItem(BOOT_NOTICE_KEY) === "1"; } catch {}
+    if (!noticeDismissed) bootNoticeEl.classList.add("visible");
     if (new URLSearchParams(location.search).get("test") === "1") {
       window.__test = {
         machine, sendKey, screenEl,
@@ -923,7 +1069,20 @@
   // once at a clean power-off nobody reliably triggers by hand.
   function persistHddIfDirty() {
     if (!machine || !machine.hddDirty()) return;
-    savedHdd = machine.hddImage();
+    // Patch only the sectors this session actually wrote into the kept
+    // mirror, instead of re-copying and re-storing the whole 504MB image --
+    // see wd1003.h's dirty_ranges() comment and the audio-worklet comment
+    // above this file's speaker code. This machine's C: is a fixed,
+    // non-removable disk of one constant size (kHddImageBytes), so that's the
+    // cheap check for "is there already a same-size mirror to patch" --
+    // asking machine.hddImage().length instead would force the very full
+    // copy this exists to avoid. Falls back to a full copy the first time
+    // (freshly booted, no prior save to patch onto).
+    if (savedHdd && savedHdd.length === kHddImageBytes) {
+      for (const { offset, bytes } of machine.hddDirtyPatches()) savedHdd.set(bytes, offset);
+    } else {
+      savedHdd = machine.hddImage();
+    }
     machine.clearHddDirty();
     hddLabel = "saved state (changes from this session)";
     refreshHddControls();
@@ -945,6 +1104,7 @@
     refreshHddControls();
     refreshFkeyControls();
     updateFocusHint();  // nothing to type into once powered off -- hide it
+    hideBootNotice();
   }
 
   // ---- function/extended-key panel -- a real AT keyboard's F-keys and
@@ -1043,19 +1203,31 @@
   // Not modeling anything physical -- purely the web delivery mechanism --
   // so there's no reason to gate it behind the power switch: fetch starts
   // immediately, and flipping power on is instant once it's done.
+  //
+  // The CD-ROM's ~400MB install/live CD is deliberately not in this list --
+  // see the CD-ROM drive section above for why C: doesn't need it to boot,
+  // and "Load FreeDOS CD..." for where it's actually fetched.
   (async () => {
-    const [Module, savedHddResult, bios, vga, hdd, cdrom] = await Promise.all([
+    // Kicked off immediately but deliberately NOT in the Promise.all below:
+    // a visitor with saved state (the overwhelmingly common case after the
+    // first visit) never touches these bytes at all, so gating page-ready
+    // on this one 504MB fetch finishing would stall every reload behind a
+    // download most sessions never need. Awaited below only in the one
+    // case that genuinely needs it -- no saved state at all yet.
+    const hddFetchPromise = fetch("disks/freedos-hdd.img").then((r) => r.arrayBuffer());
+    const [Module, savedHddResult, bios, vga] = await Promise.all([
       Pc486({}),
       loadSavedHdd(),
       fetch("roms/BIOS-bochs-legacy").then((r) => r.arrayBuffer()),
       fetch("roms/VGABIOS-lgpl-latest.bin").then((r) => r.arrayBuffer()),
-      fetch("disks/freedos-hdd.img").then((r) => r.arrayBuffer()),
-      fetch("disks/freedos-cd.iso").then((r) => r.arrayBuffer()),
     ]);
-    firmware = { Module, bios, vga, hdd, cdrom };
+    firmware = { Module, bios, vga, hdd: null };
+    hddFetchPromise.then((bytes) => { firmware.hdd = bytes; });
     if (savedHddResult) {
       savedHdd = savedHddResult;
       hddLabel = "saved state (from a previous visit)";
+    } else {
+      firmware.hdd = await hddFetchPromise;
     }
 
     powerSwitch.disabled = false;

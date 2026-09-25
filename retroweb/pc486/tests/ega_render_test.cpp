@@ -508,6 +508,80 @@ TEST(EgaRenderTest, Vga256StartAddressScrollsByWholeAddressUnits) {
     ExpectRgb(rgba, w, 0, 0, 255, 255, 0);  // that pixel is now the top-left one
 }
 
+// Real DOS software commonly disables chain-4 while keeping 256-color
+// shift-out selected ("unchained mode 13h") to write one plane at a time
+// through Map Mask -- id's DOOM engine does this for its column renderer
+// and for page-flipping among up to four 64KB-aligned buffers in the
+// card's 256KB of VRAM. Once chain-4 is off, the CPU's write address no
+// longer equals the interleaved vram[] index the way it does under
+// chain-4, so the renderer must walk plane_off/plane directly instead of
+// a flat byte offset -- this reproduces the corrupted, tiled/banded
+// screen a real DOOM install produced on this emulator before the fix.
+// See PC486_REVIEW.md.
+TEST(EgaRenderTest, Vga256UnchainedWalksPlaneOffDirectlyNotAFlatOffset) {
+    Ega ega;
+    ega.reset();
+    SetupMode13h(ega);
+    ega.out(0x3C4, 0x04); ega.out(0x3C5, 0x06);  // Memory Mode: Chain 4 OFF, odd/even disabled
+    ega.out(0x3D4, 0x14); ega.out(0x3D5, 0x00);  // clear Doubleword Mode
+    ega.out(0x3D4, 0x17); ega.out(0x3D5, 0xE3);  // Mode Control: Byte Mode
+    EXPECT_EQ(ega.chain4_enabled(), false);
+
+    SetDac(ega, 11, 63, 0, 0);
+    SetDac(ega, 22, 0, 63, 0);
+    SetDac(ega, 33, 0, 0, 63);
+    SetDac(ega, 44, 63, 63, 0);
+
+    // Four consecutive displayed pixels (x=0..3) are one byte from each of
+    // the four planes at the same plane_off=0 -- select each plane through
+    // Map Mask and write it individually, exactly like the real unchained
+    // write path (and Doom's own per-plane column blit) does.
+    auto write_plane = [&](int plane, uint8_t value) {
+        ega.out(0x3C4, 0x02); ega.out(0x3C5, uint8_t(1 << plane));
+        ega.mem_write(0xA0000 + 0, value);
+    };
+    write_plane(0, 11);
+    write_plane(1, 22);
+    write_plane(2, 33);
+    write_plane(3, 44);
+
+    std::vector<uint8_t> rgba;
+    int w = 0, h = 0;
+    RenderVga256Screen(ega, rgba, w, h);
+    ExpectRgb(rgba, w, 0, 0, 255, 0, 0);
+    ExpectRgb(rgba, w, 1, 0, 0, 255, 0);
+    ExpectRgb(rgba, w, 2, 0, 0, 0, 255);
+    ExpectRgb(rgba, w, 3, 0, 255, 255, 0);
+}
+
+// The CRTC Start Address register still counts in the same per-plane-group
+// units mem_write()'s plane_off does, regardless of chain-4 -- unaffected
+// by the byte/word/dword bits, which only ever scaled the flat address
+// chain-4 exposes to the CPU. This is exactly Doom's page-flip mechanism:
+// up to four 64KB-aligned buffers selected by Start Address alone.
+TEST(EgaRenderTest, Vga256UnchainedStartAddressSelectsA64KAlignedBuffer) {
+    Ega ega;
+    ega.reset();
+    SetupMode13h(ega);
+    ega.out(0x3C4, 0x04); ega.out(0x3C5, 0x06);  // Chain 4 OFF, odd/even disabled
+    ega.out(0x3D4, 0x14); ega.out(0x3D5, 0x00);
+    ega.out(0x3D4, 0x17); ega.out(0x3D5, 0xE3);
+
+    SetDac(ega, 55, 10, 20, 30);
+    // Start Address = 0x4000 (16384) plane_off units -> the second of the
+    // four 64KB-aligned unchained buffers.
+    ega.out(0x3D4, 0x0C); ega.out(0x3D5, 0x40);
+    ega.out(0x3D4, 0x0D); ega.out(0x3D5, 0x00);
+    ega.out(0x3C4, 0x02); ega.out(0x3C5, 0x01);  // Map Mask: plane 0
+    // With chain-4 and odd/even both off, plane_off == the raw CPU offset.
+    ega.mem_write(0xA0000 + 0x4000, 55);         // plane_off 0x4000, plane 0
+
+    std::vector<uint8_t> rgba;
+    int w = 0, h = 0;
+    RenderVga256Screen(ega, rgba, w, h);
+    ExpectRgb(rgba, w, 0, 0, 40, 81, 121);
+}
+
 // --- SVGA (VBE-programmed) linear modes ----------------------------------
 
 TEST(EgaRenderTest, SvgaLinearGeometryComesFromTheExtensionRegistersNotTheCrtc) {

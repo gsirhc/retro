@@ -86,6 +86,44 @@ TEST(I8042Test, WriteOutputPortEnablesA20) {
     EXPECT_FALSE(kbc.reset_requested());
 }
 
+// Port 0x92, the "Fast A20 Gate" / System Control Port A almost every
+// 386+ chipset carries alongside the 8042 -- real, MS-DOS-era software
+// (Microsoft's own HIMEM.SYS included) commonly tries this first, since
+// toggling A20 through the keyboard controller's command protocol is much
+// slower (OSDev Wiki, "A20 Line"). This is the same physical A20 line the
+// 8042's own output port drives, not a second, independent latch.
+TEST(I8042Test, FastA20PortEnablesA20) {
+    I8042 kbc;
+    kbc.reset();
+    EXPECT_TRUE(kbc.owns_fast_a20(0x92));
+    EXPECT_FALSE(kbc.a20_enabled());
+    kbc.fast_a20_out(0x02);  // bit1 set -> A20 enabled; bit0 clear -> no reset
+    EXPECT_TRUE(kbc.a20_enabled());
+    EXPECT_FALSE(kbc.reset_requested());
+    EXPECT_EQ(kbc.fast_a20_in(), 0x02);
+}
+
+TEST(I8042Test, FastA20PortAndOutputPortShareTheSameA20State) {
+    I8042 kbc;
+    kbc.reset();
+    // Enabled via the slow (keyboard-controller) path...
+    kbc.out(0x64, 0xD1);
+    kbc.out(0x60, 0x02);
+    EXPECT_TRUE(kbc.a20_enabled());
+    EXPECT_EQ(kbc.fast_a20_in(), 0x02);  // ...reads back the same state via port 0x92
+    // ...and disabled via the fast path is visible to the slow path's own read-back.
+    kbc.fast_a20_out(0x00);
+    EXPECT_FALSE(kbc.a20_enabled());
+}
+
+TEST(I8042Test, FastA20PortBitZeroTriggersReset) {
+    I8042 kbc;
+    kbc.reset();
+    kbc.fast_a20_out(0x03);  // bit1 (A20) and bit0 (reset) both set
+    EXPECT_TRUE(kbc.a20_enabled());
+    EXPECT_TRUE(kbc.reset_requested());
+}
+
 TEST(I8042Test, OutputPortBitZeroLowTriggersReset) {
     I8042 kbc;
     kbc.reset();
@@ -151,6 +189,53 @@ TEST(I8042Test, ResetCommandGetsAckThenBatByteOnSeparateReads) {
     EXPECT_TRUE(kbc.in(0x64) & 0x01);  // a second byte is already waiting
     EXPECT_EQ(kbc.in(0x60), 0xAA);
     EXPECT_FALSE(kbc.in(0x64) & 0x01);
+}
+
+TEST(I8042Test, ReadIdRespondsWithAckThenTwoIdBytes) {
+    // "0xF2 (Read ID) - The keyboard responds by sending a two-byte device
+    // ID of 0xAB, 0x83" (Chapweske, "The AT-PS/2 Keyboard Interface") --
+    // on top of the ACK every keyboard command gets, per the same
+    // document's command-set list ("Every byte sent to the keyboard gets a
+    // response of 0xFA").
+    I8042 kbc;
+    kbc.reset();
+    kbc.in(0x60);  // drain the power-on BAT byte
+    kbc.out(0x60, 0xF2);  // Read ID
+    EXPECT_EQ(kbc.in(0x60), 0xFA);
+    EXPECT_EQ(kbc.in(0x60), 0xAB);
+    EXPECT_EQ(kbc.in(0x60), 0x83);
+    EXPECT_FALSE(kbc.in(0x64) & 0x01);  // nothing left queued
+}
+
+// Real, live bug: MS-DOS 6.22's SETUP.EXE sends 0xF2 during its own
+// keyboard probe and relies on IRQ1 (not polling) to learn the response
+// arrived. Before this fix every keyboard-command response -- the ACK
+// included -- was pushed with irq=false, so Setup never saw an interrupt,
+// retried 0xF2 three times over, and each retry's unread response piled up
+// behind the single-byte output register, wedging it full forever and
+// silently dropping every keystroke typed afterward.
+TEST(I8042Test, KeyboardCommandAckRaisesIrq1WhenEnabled) {
+    // "If no errors occur, the response byte is placed in the input
+    // buffer, the IBF flag is set, and IRQ1 is activated, signaling the
+    // keyboard driver" (Chapweske, "The AT-PS/2 Keyboard Interface",
+    // "Writing to keyboard") -- true of every response the keyboard itself
+    // sends back, an ACK included, with no special case for command
+    // replies vs. scan codes.
+    I8042 kbc;
+    kbc.reset();
+    kbc.in(0x60);  // drain the power-on BAT byte
+
+    kbc.out(0x60, 0xF4);  // enable scanning -- IRQ1 not yet enabled in the command byte
+    EXPECT_FALSE(kbc.irq1_pending());
+    EXPECT_EQ(kbc.in(0x60), 0xFA);  // ACK still delivered
+
+    kbc.out(0x64, 0x60);
+    kbc.out(0x60, 0x01);  // bit0 = enable IRQ1
+    kbc.out(0x60, 0xF4);  // enable scanning again, now with IRQ1 enabled
+    EXPECT_TRUE(kbc.irq1_pending());
+    EXPECT_EQ(kbc.in(0x60), 0xFA);
+    kbc.clear_irq1();
+    EXPECT_FALSE(kbc.irq1_pending());
 }
 
 TEST(I8042Test, DisabledKeyboardDropsScancodes) {

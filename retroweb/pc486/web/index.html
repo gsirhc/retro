@@ -118,6 +118,26 @@
     position: absolute; right: 13px; bottom: 7px; width: 6px; height: 6px; border-radius: 50%;
     background: #33ff66; box-shadow: 0 0 6px 2px rgba(51,255,102,.8), 0 0 0 1px #0a2a15;
   }
+  /* Same banner color/weight as .focus-hint (shared/focus-hint.css), but a
+     centered box rather than a bottom strip -- shown on power-on (see
+     app.js's powerOn()) to explain that FreeDOS ships barebones, until
+     dismissed once (screen gains focus -- a click or Tab), which app.js
+     remembers in localStorage so a returning visitor doesn't see it again.
+     pointer-events: none for the same reason focus-hint is: it sits dead
+     center, right where a visitor's first click on the screen naturally
+     lands, and that click has to reach the canvas underneath and focus it,
+     not get eaten by this banner. */
+  .boot-notice {
+    position: absolute; left: 50%; top: 50%; z-index: 7; max-width: 320px;
+    transform: translate(-50%,-50%) scale(.97); text-align: center; pointer-events: none;
+    background: rgba(230,126,34,.85); color: #fff; border-radius: 5px;
+    padding: 12px 16px; box-shadow: 0 4px 18px rgba(0,0,0,.5);
+    opacity: 0; visibility: hidden; transition: opacity .2s ease, transform .2s ease;
+  }
+  .boot-notice.visible { opacity: 1; visibility: visible; transform: translate(-50%,-50%) scale(1); }
+  .boot-notice strong { display: block; font-size: 13px; letter-spacing: .03em; margin-bottom: 4px; }
+  .boot-notice p { margin: 0; font-size: 12px; font-weight: 600; line-height: 1.4; }
+  .boot-notice .dismiss-hint { display: block; margin-top: 6px; font-size: 10px; font-weight: 400; opacity: .85; text-transform: uppercase; letter-spacing: .04em; }
   #screen:focus { outline: none; }
   .audio-row { margin-top: 14px; justify-content: center; }
 
@@ -313,6 +333,14 @@
           <canvas id="screen" width="640" height="350" tabindex="0" aria-label="VGA display -- click to type"></canvas>
           <div class="crt-overlay"></div>
           <div class="focus-hint" id="focusHint" aria-hidden="true">Click to focus</div>
+          <div class="boot-notice" id="bootNotice" aria-hidden="true">
+            <strong>Barebones FreeDOS</strong>
+            <p>No games, apps, or dev tools -- just JEMMEX (FreeDOS's real
+              V86 memory manager) and a clean C:\&gt; prompt. Want your own
+              OS instead? Power off and use "Mount blank drive&hellip;"
+              below.</p>
+            <span class="dismiss-hint">Click or press any key to dismiss</span>
+          </div>
           <span class="power-led"></span>
           <div class="bezel-controls">
             <button type="button" id="escBtn" class="bezel-btn" data-key="Escape"
@@ -436,6 +464,7 @@
             <div class="at-bay-ctl">
               <span class="drive-label empty" data-role="label">empty (CD-ROM, 2x)</span>
               <label class="filebtn"><button type="button" tabindex="-1">Insert&hellip;</button><input type="file" accept=".iso,.ISO" data-role="file"></label>
+              <button type="button" data-role="load-freedos-cd">Load FreeDOS CD&hellip;</button>
               <button type="button" data-role="eject" disabled>Eject</button>
             </div>
           </div>
@@ -476,8 +505,10 @@
       </div>
       <div class="row">
         <span class="muted">One 2x ATAPI CD-ROM bay (drive D:) -- mount a raw .ISO
-          (2048-byte sectors). Ships with FreeDOS's own official install/live CD
-          already in the drive.</span>
+          (2048-byte sectors). "Load FreeDOS CD&hellip;" fetches FreeDOS's own
+          official install/live CD on demand (a ~400MB download) -- it is
+          not fetched at page load, since C: already ships with FreeDOS
+          installed and does not need it to boot.</span>
       </div>
     </div>
 

@@ -36,13 +36,24 @@
 //   - x87 FPU: the 8-register 80-bit stack with its tag/status/control
 //     words, the ESC opcode space 0xD8-0xDF, and the CR0.EM/TS/MP
 //     coprocessor-emulation faults (#NM).
+//   - Virtual-8086 mode: EFLAGS.VM is live, entered by a CPL-0 monitor's
+//     IRETD. A V86 task addresses memory the way an 8086 does (base =
+//     selector*16, 64KB segments) while paging stays in force underneath
+//     it, runs at CPL 3, and traps to the monitor through the ordinary
+//     protected-mode IDT -- the extended interrupt frame carries the
+//     8086 segment registers so the matching IRET can restore them.
+//     FreeDOS's JEMMEX needs this (PC486_REVIEW.md §5.9).
 //
 // Deliberately still unimplemented, as documented gaps rather than silent
 // guesses:
-//   - Virtual-8086 mode. EFLAGS.VM has storage and reads back, but the
-//     core never enters V86 and the mode's own address translation, I/O
-//     permission bitmap and #GP-to-monitor path are absent. FreeDOS's
-//     JEMMEX wants this (PC486_REVIEW.md §5.9); a DOS extender does not.
+//   - Entering V86 through a *task gate*, i.e. a task switch into a TSS
+//     whose saved EFLAGS has VM set. That is Windows 3.x Enhanced Mode's
+//     mechanism; a period DOS memory manager (JEMMEX included) enters V86
+//     with an IRETD inside one task. task_switch() reports such a TSS as
+//     invalid rather than deriving CPL from an 8086 segment value. The
+//     base-486 interrupt-redirection bitmap (the 32 TSS bytes below the
+//     I/O permission map) only redirects INT n inside a task-gate V86
+//     session, so it is unreachable for the same reason.
 //   - Debug registers DR0-DR7 round-trip as storage but no breakpoint,
 //     single-step-on-branch or data watchpoint ever fires from them.
 //   - Test registers TR3-TR7 (the 486's cache and TLB test interface) read
@@ -102,7 +113,12 @@ enum Flag : uint32_t {
     FLAG_IOPL = 3u << 12,  // I/O privilege level (2 bits)
     FLAG_NT   = 1u << 14,  // nested task -- set by a CALL-driven task switch
     FLAG_RF   = 1u << 16,  // resume (debug); storage only, no breakpoints here
-    FLAG_VM   = 1u << 17,  // virtual-8086 mode; storage only, never entered
+    // Virtual-8086 mode. Loadable only by IRETD from CPL 0 (or a task
+    // switch): "The CPL at the time the IRET is executed must be zero, else
+    // the processor does not change VM" (Intel 80386 PRM, "Entering and
+    // Leaving Virtual 8086 Mode"), which is why kIretdMask in cpu80486.cpp
+    // carries this bit and kPopfMask/kPopfdMask do not.
+    FLAG_VM   = 1u << 17,
     // Alignment Check. Genuinely new on the Intel486: AP-485's "Intel386
     // processor check" says "The AC bit, bit #18, is a new bit introduced
     // in the EFLAGS register on the Intel486 processor to generate
@@ -361,6 +377,11 @@ public:
     // --- tests, need to see these) ---------------------------------------
     bool protected_mode() const { return (cr_[0] & CR0_PE) != 0; }
     bool paging_enabled() const { return (cr_[0] & CR0_PG) != 0; }
+    // Virtual-8086 mode. V86 is a submode of protected mode, so CR0.PE is
+    // part of the test: EFLAGS.VM means nothing without it, and testing both
+    // keeps a stray VM bit in a real-mode flags image from turning the
+    // IOPL-sensitive traps below on in real mode.
+    bool v86_mode() const { return (eflags & FLAG_VM) != 0 && (cr_[0] & CR0_PE) != 0; }
     // Current privilege level. CPL lives in an internal register loaded from
     // the code segment's descriptor every time CS is loaded -- it is NOT
     // simply the low two bits of whatever is in the CS field. The two are
@@ -368,7 +389,10 @@ public:
     // protected-mode CS load always sets RPL = CPL, but real mode maintains
     // no such invariant: a real-mode CS load sets CPL to 0 whatever the
     // segment value's low bits happen to be. That distinction is load-bearing
-    // -- see PC486_REVIEW.md §6.5 for the FreeDOS boot it broke.
+    // -- see PC486_REVIEW.md §6.5 for the FreeDOS boot it broke. In V86 it
+    // reads 3 ("CPL is always three in V86 mode" -- Intel 80386 PRM,
+    // "Additional Sensitive Instructions"), which is what makes CLI/STI and
+    // IN/OUT trap to the monitor there.
     int  cpl() const { return protected_mode() ? int(cpl_) : 0; }
     uint32_t cr(int i) const { return cr_[i & 3]; }
     uint32_t dr(int i) const { return dr_[i & 7]; }
@@ -564,6 +588,12 @@ private:
     // generation change clears the window too (see page_map_flush). Nothing
     // mid-instruction can move any of them: a CS load, a CR3 write or a mode
     // change ends the instruction it happens in.
+    //
+    // EFLAGS.VM needs no term of its own. It can only move on an IRETD, a
+    // task switch or an interrupt/exception, and every one of those reloads
+    // CS -- whose descriptor base changes from a protected-mode base to
+    // selector*16 or back -- so a V86 entry or exit already fails the
+    // comparison below on pf_cs_ and pf_cpl_.
     const uint8_t *pf_base_ = nullptr;  // host pointer for EIP == pf_lo_
     uint32_t pf_lo_ = 0, pf_hi_ = 0;    // the EIP range pf_base_ covers
     SegDesc  pf_cs_{};                  // CS's descriptor when the window was filled
@@ -619,6 +649,14 @@ private:
     // the base depends on *which* segment register is in use, which a bare
     // selector cannot tell us.
     uint32_t seg_base(int si) const { return sd_[si & 7].base; }
+    // True when segmentation behaves as it does on an 8086: real mode, and
+    // V86, where "the processor interprets the contents of the segment
+    // registers as an 8086 does" -- it shifts the selector left four bits and
+    // enforces a fixed 64KB segment (Intel 80386 PRM, "Registers and
+    // Instructions"). Paging is *not* part of this: CR0.PG alone gates
+    // translate(), which is exactly what puts a V86 task's 8086 addresses
+    // over the monitor's page tables.
+    bool real_addressing() const { return !protected_mode() || (eflags & FLAG_VM) != 0; }
     // Checks `off`..`off+size-1` against the segment's limit and access
     // rights, then returns the linear address. A no-op in real mode, where
     // there are no descriptors to enforce (see PC486_REVIEW.md §4.3/§5.4).
@@ -630,7 +668,7 @@ private:
     // entered in exactly the cases this does not answer.
     uint32_t seg_linear(int si, uint32_t off, int size, bool write) {
         const SegDesc &s = sd_[si & 7];
-        if (!protected_mode()) return s.base + off;  // no descriptors to enforce
+        if (real_addressing()) return s.base + off;  // no descriptors to enforce
         if (!s.null && !acc_expand_down(s.access)) {
             uint32_t last = off + uint32_t(size) - 1u;
             if (last >= off && last <= s.limit &&
@@ -672,12 +710,12 @@ private:
     void     lin_write32(uint32_t linear, uint32_t v);
 
     // True when a multi-byte access starting at `off` must wrap back to
-    // offset 0 of the same segment. That is what real mode's fixed 64KB
-    // limit means on real hardware; a protected-mode segment has an actual
-    // descriptor limit instead, and an offset a 32-bit addressing form
+    // offset 0 of the same segment. That is what real mode's (and V86's) fixed
+    // 64KB limit means on real hardware; a protected-mode segment has an
+    // actual descriptor limit instead, and an offset a 32-bit addressing form
     // produced above 0FFFFh is the "unreal mode" case (PC486_REVIEW.md
     // §5.4), where there is nothing at 0FFFFh to wrap at.
-    bool wraps_at_64k(uint32_t off) const { return !protected_mode() && off <= 0xFFFFu; }
+    bool wraps_at_64k(uint32_t off) const { return real_addressing() && off <= 0xFFFFu; }
     uint32_t seg_off(uint32_t base_off, uint32_t delta) const {
         return wraps_at_64k(base_off) ? uint32_t(uint16_t(base_off + delta)) : base_off + delta;
     }

@@ -34,6 +34,7 @@ void Wd1003::mount(int drive, const uint8_t *data, std::size_t len) {
     d.image.assign(data, data + len);
     d.present = true;
     d.dirty = false;
+    d.dirty_page.assign((len + Drive::kDirtyPageSize - 1) / Drive::kDirtyPageSize, false);
     // 504MB geometry -- this system's only fixed-disk configuration, and
     // deliberately the exact pre-EIDE CHS ceiling rather than a round
     // number: 1024 cyl x 16 head x 63 sec = 1,032,192 sectors =
@@ -331,6 +332,9 @@ void Wd1003::finish_read_or_write() {
     if (xfer_is_write_) {
         std::copy(pio_buffer_.begin(), pio_buffer_.end(), d.image.begin() + xfer_offset_);
         d.dirty = true;
+        std::size_t first_page = std::size_t(xfer_offset_) / Drive::kDirtyPageSize;
+        std::size_t last_page = (std::size_t(xfer_offset_) + xfer_len_ - 1) / Drive::kDirtyPageSize;
+        for (std::size_t p = first_page; p <= last_page && p < d.dirty_page.size(); ++p) d.dirty_page[p] = true;
         status_ = ST_DRDY | ST_DSC;
         irq_pending_ = !nien_;
     } else {

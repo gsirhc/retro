@@ -62,6 +62,7 @@
 #ifndef PC486_WD1003_H
 #define PC486_WD1003_H
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <vector>
@@ -81,6 +82,14 @@ public:
             return ((long(cyl) * heads + head) * sectors_per_track + (sector - 1)) * kBytesPerSector;
         }
         long capacity_sectors() const { return long(cylinders) * heads * sectors_per_track; }
+
+        // Which 4KB pages of `image` a WRITE SECTORS has touched since the
+        // last clear_dirty() -- see dirty_ranges() below. `dirty` above
+        // stays the plain "anything at all" flag every existing caller
+        // already uses (whether it's even worth looking further); this is
+        // the finer-grained record that makes it possible to look further.
+        static constexpr std::size_t kDirtyPageSize = 4096;
+        std::vector<bool> dirty_page;
     };
     Drive drives[2];  // 0 = C: (this system's only populated drive), 1 = unused (D:, always absent)
 
@@ -131,7 +140,37 @@ public:
     // be re-supplied the same pristine bytes every time).
     const std::vector<uint8_t> &image(int drive) const { return drives[drive & 1].image; }
     bool dirty(int drive) const { return drives[drive & 1].dirty; }
-    void clear_dirty(int drive) { drives[drive & 1].dirty = false; }
+    void clear_dirty(int drive) {
+        Drive &d = drives[drive & 1];
+        d.dirty = false;
+        std::fill(d.dirty_page.begin(), d.dirty_page.end(), false);
+    }
+
+    // Host/front-end side: which byte ranges of the image actually changed
+    // since the last clear_dirty(), coalesced into runs of contiguous dirty
+    // pages. A real fixed disk never needs a "what changed" query -- this
+    // exists purely so periodic browser-side persistence (see app.js's
+    // persistHddIfDirty()) can copy and store only what a session actually
+    // wrote instead of re-copying and re-storing all 504MB every time,
+    // which measured 180-350ms of main-thread stall on this machine's
+    // shipped image size, enough to underrun the audio ring buffer. See
+    // PC486_REVIEW.md.
+    struct DirtyRange { uint32_t offset, length; };
+    std::vector<DirtyRange> dirty_ranges(int drive) const {
+        std::vector<DirtyRange> out;
+        const Drive &d = drives[drive & 1];
+        std::size_t i = 0, n = d.dirty_page.size();
+        while (i < n) {
+            if (!d.dirty_page[i]) { ++i; continue; }
+            std::size_t j = i;
+            while (j < n && d.dirty_page[j]) ++j;
+            uint32_t off = uint32_t(i * Drive::kDirtyPageSize);
+            uint32_t end = uint32_t(std::min<std::size_t>(j * Drive::kDirtyPageSize, d.image.size()));
+            out.push_back({off, end - off});
+            i = j;
+        }
+        return out;
+    }
 
 private:
     enum Status : uint8_t {

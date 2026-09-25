@@ -32,10 +32,8 @@
 
 #include "../machine.h"
 
-#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
-#include <cstring>
 #include <fstream>
 #include <map>
 #include <string>
@@ -134,59 +132,6 @@ void SendString(Machine &m, const std::string &s) {
 // through the language/welcome screens with drive C: now partitioned), so
 // `uses` says how many times a given prompt is expected rather than
 // pinning it to one slot in a fixed sequence.
-// Selects FreeDOS's own boot-menu entry 4 as the installed system's default,
-// by changing the single digit in the FDCONFIG.SYS the installer just wrote.
-//
-// Why this is needed, and why it is a one-digit edit rather than a different
-// answer to the installer: FreeDOS's installer picks its CONFIG.SYS template
-// purely from CPU/environment detection (`fdins900.bat` runs `vinfo /m`, sets
-// FEXT=486 for this machine, finds no CONFIG.486 on the media, and falls back
-// to CONFIG.DEF), asks the user nothing about memory management anywhere in
-// its FDASK sequence, and CONFIG.DEF hardcodes `MENUDEFAULT=2,5` instead of
-// using the $FDEFMENU$ placeholder its other templates use. So there is no
-// installer answer that produces a JEMM-free config -- it cannot be steered.
-//
-// Menu entry 2 loads JEMMEX, which is a V86-mode monitor (its own readme: EMS
-// via "VCPI services to allow DOS applications running in V86-mode", and a
-// whole section on "Emulation of privileged Opcodes"). This Milestone 1 core
-// has no protected mode and no V86 at all, so JEMMEX sets up its monitor,
-// writes CR0, and jumps into what it believes is V86 mode -- landing in the
-// interrupt vector table and spinning there forever. Entry 4 ("Load FreeDOS
-// low with some drivers (Safe Mode)") loads only HIMEMX, which genuinely
-// works on this machine. All five of FreeDOS's entries stay present and
-// selectable; only which one the 5-second timeout picks changes.
-//
-// This is a labelled departure per CLAUDE.md, and it should be reverted once
-// a later milestone implements protected mode + V86. See PC486_REVIEW.md §5.9.
-//
-// The search is anchored on the whole MENUDEFAULT+MENU-1 block rather than the
-// bare "MENUDEFAULT=" string, because a full FreeDOS install contains ten
-// copies of the latter in package documentation and only one of the former.
-bool SelectRealModeBootMenuEntry(std::vector<uint8_t> &image) {
-    static const std::string kNeedle =
-        "MENUDEFAULT=2,5\r\nMENU 1 - Load FreeDOS with JEMMEX";
-    const auto it = std::search(image.begin(), image.end(), kNeedle.begin(), kNeedle.end());
-    if (it == image.end()) {
-        std::fprintf(stderr, "FAILED: installed FDCONFIG.SYS boot-menu block not found; "
-                             "the installer's CONFIG.DEF template may have changed\n");
-        return false;
-    }
-    // Exactly one match, or this is patching something other than FDCONFIG.SYS.
-    if (std::search(it + 1, image.end(), kNeedle.begin(), kNeedle.end()) != image.end()) {
-        std::fprintf(stderr, "FAILED: boot-menu block found more than once; refusing to patch\n");
-        return false;
-    }
-    const std::size_t digit = std::size_t(it - image.begin()) + std::strlen("MENUDEFAULT=");
-    if (image[digit] != '2') {
-        std::fprintf(stderr, "FAILED: expected '2' at MENUDEFAULT, found '%c'\n", image[digit]);
-        return false;
-    }
-    image[digit] = '4';
-    std::fprintf(stderr, "set FDCONFIG.SYS MENUDEFAULT to entry 4 (HIMEMX, no JEMMEX) "
-                         "at image offset %zu -- see PC486_REVIEW.md §5.9\n", digit);
-    return true;
-}
-
 struct Step {
     std::string wait_for;  // substring to watch for on screen
     std::string send;      // key action tokens ("@ENTER @UP"), or literal keys
@@ -273,9 +218,22 @@ int main(int argc, char **argv) {
         // stage700's FDASK000-FDASK700 questions (keyboard layout, target
         // directory, config-file handling, package set, ...). Every one of
         // them passes `/d 1` or a preselect, i.e. the highlighted entry is
-        // already the wanted answer, so each just needs Enter.
+        // already the wanted answer, so each just needs Enter -- except the
+        // package-set question below, which this machine deliberately
+        // overrides.
         {"Please select your keyboard layout", "@ENTER", 4},
-        {"packages do you want to install",    "@ENTER", 4},
+        // The installer's own default here is "Full installation including
+        // applications and games" (option 3 of 4, confirmed with
+        // PC486_TRACE=1: "Plain DOS system" / "...with sources" / "Full
+        // installation including applications and games" / "Full
+        // installation with sources", top to bottom). This machine ships
+        // the trimmed-down Base set instead -- 65 packages, no games/apps/
+        // dev tools/networking (FreeDOS 1.3 report,
+        // https://www.ibiblio.org/pub/micro/pc-stuff/freedos/files/distributions/1.3/official/report.html)
+        // -- so two Ups move the highlight off "Full" onto "Plain DOS
+        // system" before accepting. `make boom-check` no longer applies:
+        // BOOM/FreeDoom is a Games-category package, absent from Base.
+        {"packages do you want to install",    "@UP @UP @ENTER", 4},
         {"Change installation target directory", "@ENTER", 4},
         {"Replace the system configuration files", "@ENTER", 4},
         {"Transfer system files to drive",     "@ENTER", 4},
@@ -426,7 +384,6 @@ int main(int argc, char **argv) {
     // disk contents live (matching real hardware: the drive owns its
     // storage; mount() is just how it was loaded once).
     std::vector<uint8_t> final_image = m.chipset.hdd.image(0);
-    if (!SelectRealModeBootMenuEntry(final_image)) return 1;
     std::ofstream out(out_path, std::ios::binary);
     out.write(reinterpret_cast<const char *>(final_image.data()), std::streamsize(final_image.size()));
     if (!out) { std::fprintf(stderr, "failed to write %s\n", out_path.c_str()); return 2; }

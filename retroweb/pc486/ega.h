@@ -260,6 +260,22 @@ public:
     // §7), so it does. Value 3 is not a mode real VGA silicon defines.
     uint8_t gc_shift_register_mode() const { return uint8_t((gfx_[5] >> 5) & 0x03); }
 
+    // Host/front-end convenience: Sequencer Memory Mode's Chain-4 bit (SR04
+    // bit 3). mem_read()/mem_write() already consult this (see the file
+    // header) to fold the CPU address's low two bits into plane selection;
+    // a 256-color renderer needs the same answer for the opposite reason.
+    // With chain-4 on, the flat CPU-visible byte offset IS the interleaved
+    // vram[] index, so walking vram[] by crtc_row_byte_stride() (scaled by
+    // the CRTC address unit) is correct. Real DOS software commonly turns
+    // chain-4 off while keeping 256-color shift-out selected -- the classic
+    // "unchained mode 13h" trick (id's DOOM engine's column renderer and
+    // page-flip among them) -- to write one plane at a time via Map Mask.
+    // Once chain-4 is off, the CPU's write address no longer aligns with
+    // the interleaved vram[] layout, so RenderVga256Screen must instead
+    // walk plane_off/plane directly, exactly like mem_read()/mem_write()'s
+    // own (plane_off << 2) + plane addressing. See PC486_REVIEW.md.
+    bool chain4_enabled() const { return seq_chain4(); }
+
     // Host/front-end convenience: the CRTC registers that determine a
     // graphics mode's actual resolution -- Horizontal Display End
     // (register 0x01, in character clocks; genuine EGA graphics modes
