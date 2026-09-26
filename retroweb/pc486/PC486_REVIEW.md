@@ -2933,15 +2933,26 @@ acknowledge at base+Fh.
 
 Two decode decisions are deliberate rather than incidental:
 
-- **The 0x388/0x389 alternate FM pair is not claimed at all**, and the FM
-  status registers inside the block read back 00h. No FM synthesizer is
-  implemented this milestone (it was the plan's explicit stretch goal), and
-  the standard AdLib probe -- reset both timers, read status, start timer 1,
-  read status again and expect C0h -- therefore fails. That is the point. A
-  fake OPL3 that passed detection and then produced silence would be *worse*
-  than absent hardware: software would believe its music was playing and
-  report success. Absent hardware is a condition period software already
-  knows how to handle; a lying status register is not.
+- **The 0x388/0x389 AdLib FM pair IS claimed**, and so are the FM ports
+  inside the card's own block, all reaching one real YMF262 (`opl3.h`,
+  §11.1). 0x388/0x389 is the original AdLib card's address pair and every
+  Sound Blaster answers it; that is the path that actually matters, because
+  an AdLib-era music driver -- DOOM's included -- writes FM registers there
+  and never touches the card's own block at all. A machine that decoded
+  base+0h..3h but not 0x388 would let software detect an OPL and then play
+  nothing, which is exactly the silence this fixed. 0x38Ah/0x38Bh, the
+  bank-1 pair an AdLib Gold or PAS puts there, stay unclaimed: an SB16 puts
+  the OPL3's second bank at base+2h/3h. Within the block: base+0h/1h
+  is its bank-0 address/data pair, base+2h/3h bank 1, base+8h/9h the
+  AdLib-compatible alias of bank 0, and all three status ports return the
+  chip's one status register. The standard AdLib probe -- reset both timers,
+  read status, start timer 1, read status again and expect C0h -- therefore
+  succeeds. It deliberately did not until the OPL3 existed: a fake OPL3 that
+  passed detection and then produced silence would have been *worse* than
+  absent hardware, because software would believe its music was playing.
+  Absent hardware is a condition period software already knows how to
+  handle; a lying status register is not. That constraint is why FM detection
+  and FM audio landed in the same change rather than detection first.
 - **base+Eh acknowledges the 8-bit interrupt on every read.** Creative is
   explicit that this is how it works ("to remain backward compatible, the
   interrupt acknowledgment of 8-bit DMA mode digitized sound I/O and SB-MIDI
@@ -3089,6 +3100,71 @@ wrong fails quietly:
   unsigned mono is the format the digitized-output path most needs to get
   right for this era, and why auto-init DMA (rather than a chain of
   single-cycle blocks) is the mode that matters.
+
+## 11.1 The OPL3: FM music
+
+`opl3.h`/`opl3.cpp` add the YMF262 the SB16 carries for music -- 18 channels
+over 36 operators, two- and four-operator FM, eight waveforms, the rhythm
+section, and the two timers. Written from the Yamaha YMF262 register
+documentation and the OPL decap analyses of the internal ROM tables; MAME's
+`ymf262.cpp` and Nuked-OPL3 were consulted as cross-checks on table values
+only, and no code is taken from either -- the same standing rule `ay8910.h`
+records for MAME. The repo has no bundled third-party license, and
+Nuked-OPL3 is LGPL, which is the other reason this is a from-scratch
+implementation rather than a port.
+
+**The output rate is not a choice.** The chip divides its 14.31818 MHz master
+clock by 288, emitting one stereo frame every 288 clocks: 49715.9 Hz. That is
+a property of the silicon, so `kSampleHz` is `constexpr` and the front end
+resamples from the `cpu_cycle` stamps -- the same contract the digitized path
+already had, and the reason no speed override question arises here.
+
+**Two sample streams, not one.** `SoundBlaster::drain_samples()` and
+`Opl3::drain_samples()` stay separate all the way to the browser, where
+`pumpSbAudio()` sums them. That mirrors the card: the OPL3 and the DSP have
+their own DACs and are summed in the analog domain, each behind its own
+CT1745 attenuator -- Voice (mixer 32h/33h) for digitized audio, MIDI
+(34h/35h) for FM, since the OPL3 *is* the card's internal MIDI source. Mixing
+them in the core would have meant forcing the event-driven DAC stream onto the
+FM chip's continuous timebase for no gain.
+
+One departure worth naming: those attenuators are pure attenuation, and both
+Master and the per-source pair power on at 24 (-14 dB), so the chain sits
+~28 dB down at defaults. A real card makes that up in the analog output amp
+after the mixer, so the front end normalizes by the power-on product --
+default mixer settings play at full scale and a program moving a slider still
+attenuates relative to it. Without that, correct emulation of the attenuators
+alone would have made every sound nearly inaudible.
+
+**`tick()` steps the FM chip before the digitized path's early-out**, so music
+keeps playing while no sample block is in flight, and `active_` counts a
+running timer as well as an unreleased envelope. That second point is
+load-bearing rather than incidental: a driver probes the timers with nothing
+keyed on, so keying the early-out off envelope state alone deadlocks
+detection -- the chip never advances, the envelope never leaves its off state,
+and the probe hangs forever.
+
+### Known approximations
+
+These are labelled in `opl3.cpp` at the point they matter, and none of them
+affect whether software finds the chip or plays in time:
+
+- **The modulation index for a normal modulator-to-carrier connection is not
+  a verified figure.** The datasheet specifies feedback's modulation depth
+  exactly (0 to 4 pi by the FB field) but never states the non-feedback
+  index; the code uses pi. This affects timbre -- how bright an instrument
+  sounds -- not pitch, timing or detection.
+- **The rhythm section's snare, hi-hat and top cymbal** use a reasoned
+  noise/phase combination rather than a verified reproduction: the operator
+  assignment is documented, the exact bit the silicon XORs is not. Bass drum
+  and tom-tom are plain FM voices and are on solid ground.
+- **The noise LFSR taps** are a generic maximal-length polynomial; no primary
+  source for OPL3's actual tap positions was found.
+- **C0h's power-on value.** One source claims C0h-C8h come up with their
+  output-enable bits already set; it could not be corroborated, so every
+  register clears to 0 as every other OPL reference states. Behaviour is
+  identical either way, because the pan bits are ignored entirely while NEW
+  is clear -- which is what keeps an OPL2-era driver audible on both outputs.
 
 ## 12. Milestone 4: wiring the mouse and Sound Blaster into the chipset
 

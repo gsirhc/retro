@@ -24,6 +24,8 @@
 //   const edges = m.speakerEdges();       // {cycles: Float64Array, levels: Uint8Array}
 //   const audio = m.sbDrainSamples();     // {cycles: Float64Array, left: Int16Array, right: Int16Array}
 //   m.sbSampleRateHz();                   // the DSP's currently-programmed output rate
+//   const fm = m.fmDrainSamples();        // the OPL3's stream, same shape as above
+//   m.fmGainLeft(); m.sbGainLeft();       // the CT1745 attenuators the front end mixes with
 //   m.textScreen();                       // test-only: current text-mode screen as a string, "" in graphics modes
 
 #include <emscripten/bind.h>
@@ -34,6 +36,7 @@
 #include <vector>
 
 #include "../chipset.h"
+#include "../opl3.h"
 #include "../ega_render.h"
 #include "../machine.h"
 
@@ -226,6 +229,47 @@ public:
     // Drains the samples the DSP produced since the last call, paced at the
     // real programmed sample rate (soundblaster.h's Sample log) -- same
     // drain-and-clear shape as speakerEdges() above.
+    // The OPL3's own stream. Separate from sbDrainSamples() because the card
+    // sums FM and digitized audio in the analog domain, each behind its own
+    // CT1745 attenuator -- the front end applies those and mixes.
+    val fmDrainSamples() {
+        std::vector<pc486::Opl3::Sample> samples = m_.chipset.sb.fm.drain_samples();
+        std::vector<double> cycles(samples.size());
+        std::vector<int16_t> left(samples.size());
+        std::vector<int16_t> right(samples.size());
+        for (std::size_t i = 0; i < samples.size(); ++i) {
+            cycles[i] = double(samples[i].cpu_cycle);
+            left[i] = samples[i].left;
+            right[i] = samples[i].right;
+        }
+        val c = val::global("Float64Array").new_(cycles.size());
+        if (!cycles.empty())
+            c.call<void>("set", val(emscripten::typed_memory_view(cycles.size(), cycles.data())));
+        val l = val::global("Int16Array").new_(left.size());
+        if (!left.empty())
+            l.call<void>("set", val(emscripten::typed_memory_view(left.size(), left.data())));
+        val r = val::global("Int16Array").new_(right.size());
+        if (!right.empty())
+            r.call<void>("set", val(emscripten::typed_memory_view(right.size(), right.data())));
+        val out = val::object();
+        out.set("cycles", c);
+        out.set("left", l);
+        out.set("right", r);
+        return out;
+    }
+
+    // Test-only: the machine's real I/O decode, so a test can drive a device
+    // through its actual ports rather than reaching past the port block.
+    uint8_t portIn(uint16_t port) { return m_.chipset.io_in(port); }
+    void portOut(uint16_t port, uint8_t v) { m_.chipset.io_out(port, v); }
+    uint8_t fmReg(uint16_t index) const { return m_.chipset.sb.fm.reg(index); }
+    bool fmOpl3Mode() const { return m_.chipset.sb.fm.opl3_mode(); }
+
+    float fmGainLeft() const { return m_.chipset.sb.fm_gain_left(); }
+    float fmGainRight() const { return m_.chipset.sb.fm_gain_right(); }
+    float sbGainLeft() const { return m_.chipset.sb.output_gain_left(); }
+    float sbGainRight() const { return m_.chipset.sb.output_gain_right(); }
+
     val sbDrainSamples() {
         std::vector<pc486::SoundBlaster::Sample> samples = m_.chipset.sb.drain_samples();
         std::vector<double> cycles(samples.size());
@@ -295,5 +339,14 @@ EMSCRIPTEN_BINDINGS(pc486_machine) {
         .function("speakerEdges", &WasmMachine::speakerEdges)
         .function("sbDrainSamples", &WasmMachine::sbDrainSamples)
         .function("sbSampleRateHz", &WasmMachine::sbSampleRateHz)
+        .function("portIn", &WasmMachine::portIn)
+        .function("portOut", &WasmMachine::portOut)
+        .function("fmReg", &WasmMachine::fmReg)
+        .function("fmOpl3Mode", &WasmMachine::fmOpl3Mode)
+        .function("fmDrainSamples", &WasmMachine::fmDrainSamples)
+        .function("fmGainLeft", &WasmMachine::fmGainLeft)
+        .function("fmGainRight", &WasmMachine::fmGainRight)
+        .function("sbGainLeft", &WasmMachine::sbGainLeft)
+        .function("sbGainRight", &WasmMachine::sbGainRight)
         .function("textScreen", &WasmMachine::textScreen);
 }

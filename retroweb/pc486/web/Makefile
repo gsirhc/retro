@@ -11,7 +11,8 @@ SRC = wasm_machine.cpp $(CORE)/machine.cpp $(CORE)/chipset.cpp $(CORE)/cpu80486.
       $(CORE)/pic8259.cpp $(CORE)/pit8253.cpp $(CORE)/i8042.cpp $(CORE)/cmos_rtc.cpp \
       $(CORE)/dma8237.cpp $(CORE)/fdc765.cpp $(CORE)/ega.cpp $(CORE)/ega_render.cpp \
       $(CORE)/wd1003.cpp $(CORE)/atapi_cdrom.cpp $(CORE)/pcspeaker.cpp \
-      $(CORE)/soundblaster.cpp
+      $(CORE)/soundblaster.cpp \
+      $(CORE)/opl3.cpp
 
 # Exception catching is required, not optional: the CPU core raises a
 # protected-mode fault (#GP/#NP/#SS/#PF/#UD/#NM) by throwing cpu80486::Fault,

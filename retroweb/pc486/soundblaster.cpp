@@ -60,6 +60,7 @@ int lowest_set_bit_channel(uint8_t v, const int *map, int count) {
 }  // namespace
 
 void SoundBlaster::reset() {
+    fm.reset();
     reset_dsp(false);
     reset_mixer();
     test_reg_ = 0;  // cleared only by a cold power-on; a DSP reset leaves it alone
@@ -133,6 +134,13 @@ float SoundBlaster::output_gain_right() const {
     return five_bit_gain(mixer_[0x31]) * five_bit_gain(mixer_[0x33]);
 }
 
+float SoundBlaster::fm_gain_left() const {
+    return five_bit_gain(mixer_[0x30]) * five_bit_gain(mixer_[0x34]);
+}
+float SoundBlaster::fm_gain_right() const {
+    return five_bit_gain(mixer_[0x31]) * five_bit_gain(mixer_[0x35]);
+}
+
 uint8_t SoundBlaster::mixer_read(uint8_t index) const {
     switch (index) {
         case 0x82: {
@@ -173,11 +181,15 @@ void SoundBlaster::mixer_write(uint8_t index, uint8_t v) {
 }
 
 uint8_t SoundBlaster::in(uint16_t port) {
+    // The AdLib pair sits outside the card's own block, so it is decoded
+    // before the base-relative switch below.
+    if (port == kAdLibFmAddr) return fm.status();
+    if (port == kAdLibFmData) return 0xFF;  // data port: write-only, open bus
     switch (port - base_) {
-        // FM (OPL3) status registers. 00h, not a plausible OPL status byte:
-        // AdLib detection is meant to fail here, because no FM synthesizer
-        // is implemented -- see the file header.
-        case 0x00: case 0x02: case 0x08: return 0x00;
+        // FM status. All three of the chip's status ports return the same
+        // byte on real hardware -- there is one status register, not one per
+        // bank -- and base+8h is simply the AdLib alias of base+0h.
+        case 0x00: case 0x02: case 0x08: return fm.status();
         case 0x04: return mixer_index_;
         case 0x05: return mixer_read(mixer_index_);
         case 0x0A: {  // DSP Read Data
@@ -212,10 +224,15 @@ uint8_t SoundBlaster::in(uint16_t port) {
 }
 
 void SoundBlaster::out(uint16_t port, uint8_t v) {
+    if (port == kAdLibFmAddr) { fm.write_address(0, v); return; }
+    if (port == kAdLibFmData) { fm.write_data(0, v); return; }
     switch (port - base_) {
-        // FM register/data ports: decoded and accepted, but no FM synthesis
-        // (see the file header).
-        case 0x00: case 0x01: case 0x02: case 0x03: case 0x08: case 0x09: return;
+        // FM: base+0h/1h is bank 0, base+2h/3h bank 1, base+8h/9h the
+        // AdLib-compatible alias of bank 0.
+        case 0x00: case 0x08: fm.write_address(0, v); return;
+        case 0x01: case 0x09: fm.write_data(0, v); return;
+        case 0x02: fm.write_address(1, v); return;
+        case 0x03: fm.write_data(1, v); return;
         case 0x04: mixer_index_ = v; return;
         case 0x05: mixer_write(mixer_index_, v); return;
         case 0x06:

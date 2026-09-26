@@ -104,30 +104,15 @@ protected:
 
 // --- port decode ---------------------------------------------------------
 
-TEST_F(SoundBlasterTest, DecodesTheWholeSixteenPortBlockAndNothingElse) {
+TEST_F(SoundBlasterTest, DecodesTheWholeSixteenPortBlockPlusTheAdLibFmPair) {
     // A real card decodes base+0h..base+Fh (SBPG Appendix A), all sixteen
     // ports, not just the DSP's four.
     for (uint16_t p = 0x220; p <= 0x22F; ++p) EXPECT_TRUE(sb.owns(p)) << std::hex << p;
     EXPECT_FALSE(sb.owns(0x21F));
     EXPECT_FALSE(sb.owns(0x230));
-    // 0x388/0x389, the alternate FM address pair, are deliberately NOT
-    // claimed: no FM synthesizer is implemented, and claiming the ports
-    // would let AdLib detection succeed against silence. See soundblaster.h.
-    EXPECT_FALSE(sb.owns(0x388));
-    EXPECT_FALSE(sb.owns(0x389));
-}
-
-TEST_F(SoundBlasterTest, AdlibDetectionFailsBecauseNoFmSynthesizerIsPresent) {
-    // The standard AdLib probe: reset timers 1 and 2, read status (expects
-    // 00h), start timer 1, read status again and expect C0h. The second read
-    // must not produce C0h here -- see soundblaster.h on why a fake OPL that
-    // passed this would be worse than absent hardware.
-    sb.out(kBase + 0x08, 0x04); sb.out(kBase + 0x09, 0x60);  // reset both timers
-    sb.out(kBase + 0x08, 0x04); sb.out(kBase + 0x09, 0x80);  // reset IRQ flags
-    EXPECT_EQ(sb.in(kBase + 0x08) & 0xE0, 0x00);
-    sb.out(kBase + 0x08, 0x02); sb.out(kBase + 0x09, 0xFF);  // timer 1 preset
-    sb.out(kBase + 0x08, 0x04); sb.out(kBase + 0x09, 0x21);  // start timer 1
-    EXPECT_NE(sb.in(kBase + 0x08) & 0xE0, 0xC0);
+    // ...plus the AdLib card's own FM pair, which every Sound Blaster answers.
+    EXPECT_TRUE(sb.owns(0x388));
+    EXPECT_TRUE(sb.owns(0x389));
 }
 
 // --- DSP reset / identification ------------------------------------------
@@ -367,6 +352,115 @@ TEST_F(SoundBlasterTest, PauseAndContinueOnlyActOnTheMatchingTransferWidth) {
     Cmd({0xD4});  // continue 8-bit DMA
     EXPECT_TRUE(sb.playing());
     EXPECT_TRUE(RunUntilTransfer());
+}
+
+// --- FM (OPL3) through the card's own ports ------------------------------
+
+// The reason the OPL3 exists: a driver must be able to FIND it through the
+// card's port block. This is the canonical AdLib detection sequence run
+// against base+8h/9h, the AdLib-compatible alias every period program uses.
+// Before the OPL3 was wired up these ports returned 00h and this failed by
+// design, so software concluded the machine had no music hardware at all.
+TEST_F(SoundBlasterTest, AdLibDetectionSucceedsThroughTheFmPorts) {
+    const uint16_t kFmAddr = kBase + 0x08, kFmData = kBase + 0x09;
+    auto fm_write = [&](uint8_t reg, uint8_t v) {
+        sb.out(kFmAddr, reg);
+        sb.out(kFmData, v);
+    };
+    fm_write(0x04, 0x60);  // mask and reset both timers
+    fm_write(0x04, 0x80);  // reset the IRQ flags
+    EXPECT_EQ(sb.in(kFmAddr), 0x00) << "a quiet OPL3 must read back 00h";
+
+    fm_write(0x02, 0xFF);  // timer 1 preset: expires after one 80.8 us tick
+    fm_write(0x04, 0x21);  // mask timer 2, start timer 1
+    Tick(uint64_t(kCpuHz * 200e-6));
+    EXPECT_EQ(sb.in(kFmAddr), 0xC0) << "timer 1 expired: IRQ + timer-1 flag";
+    // base+0h and base+2h are the same status register, not three of them.
+    EXPECT_EQ(sb.in(kBase + 0x00), 0xC0);
+    EXPECT_EQ(sb.in(kBase + 0x02), 0xC0);
+
+    fm_write(0x04, 0x60);
+    fm_write(0x04, 0x80);
+    EXPECT_EQ(sb.in(kFmAddr), 0x00);
+}
+
+// 0x388/0x389 is the original AdLib card's own FM pair, and every Sound
+// Blaster answers it for compatibility. This is the path that actually
+// matters: an AdLib-era music driver writes FM registers here and never
+// touches the card's own port block, so a machine that decodes base+0h..3h
+// but not 0x388 detects an OPL and then plays nothing at all.
+TEST_F(SoundBlasterTest, AdLibDetectionSucceedsThroughThe388Pair) {
+    auto fm_write = [&](uint8_t reg, uint8_t v) {
+        sb.out(SoundBlaster::kAdLibFmAddr, reg);
+        sb.out(SoundBlaster::kAdLibFmData, v);
+    };
+    EXPECT_TRUE(sb.owns(SoundBlaster::kAdLibFmAddr));
+    EXPECT_TRUE(sb.owns(SoundBlaster::kAdLibFmData));
+
+    fm_write(0x04, 0x60);
+    fm_write(0x04, 0x80);
+    EXPECT_EQ(sb.in(SoundBlaster::kAdLibFmAddr), 0x00);
+    fm_write(0x02, 0xFF);
+    fm_write(0x04, 0x21);
+    Tick(uint64_t(kCpuHz * 200e-6));
+    EXPECT_EQ(sb.in(SoundBlaster::kAdLibFmAddr), 0xC0);
+
+    // It is the same chip as base+8h/9h, not a second one: a register written
+    // through 0x388 reads back through the card's own block.
+    fm_write(0x04, 0x80);
+    fm_write(0x20, 0x0A);
+    EXPECT_EQ(sb.fm.reg(0x20), 0x0A);
+}
+
+// 0x38Ah/0x38Bh are the bank-1 pair an AdLib Gold or PAS puts there. An SB16
+// does not decode them -- its OPL3 second bank is at base+2h/3h.
+TEST_F(SoundBlasterTest, TheCardDoesNotClaimThe38ABankOnePair) {
+    EXPECT_FALSE(sb.owns(0x38A));
+    EXPECT_FALSE(sb.owns(0x38B));
+}
+
+// Bank 1 lives at base+2h/3h and is inert until the OPL3 NEW bit is set,
+// which is how an OPL2-era program and an OPL3-aware one share the ports.
+TEST_F(SoundBlasterTest, FmBankOneReachesTheSecondRegisterBankOnlyInOpl3Mode) {
+    sb.out(kBase + 0x02, 0x20);  // bank 1, register 20h
+    sb.out(kBase + 0x03, 0x01);
+    EXPECT_EQ(sb.fm.reg(0x120), 0x00) << "bank 1 is inert while NEW is clear";
+    EXPECT_FALSE(sb.fm.opl3_mode());
+
+    sb.out(kBase + 0x02, 0x05);  // 105h: NEW
+    sb.out(kBase + 0x03, 0x01);
+    EXPECT_TRUE(sb.fm.opl3_mode());
+    sb.out(kBase + 0x02, 0x20);
+    sb.out(kBase + 0x03, 0x01);
+    EXPECT_EQ(sb.fm.reg(0x120), 0x01);
+}
+
+// FM and digitized playback are independent: music must keep sounding while
+// no sample block is in flight, which is why tick() steps the OPL3 before
+// the DSP path's early-out.
+TEST_F(SoundBlasterTest, FmKeepsPlayingWhileTheDigitizedPathIsIdle) {
+    const uint16_t kFmAddr = kBase + 0x08, kFmData = kBase + 0x09;
+    auto fm_write = [&](uint8_t reg, uint8_t v) {
+        sb.out(kFmAddr, reg);
+        sb.out(kFmData, v);
+    };
+    fm_write(0x20, 0x01); fm_write(0x23, 0x01);  // MULT=1 on both operators
+    fm_write(0x40, 0x10); fm_write(0x43, 0x00);  // modest modulator TL, loud carrier
+    fm_write(0x60, 0xF0); fm_write(0x63, 0xF0);  // fast attack
+    fm_write(0x80, 0x00); fm_write(0x83, 0x00);
+    fm_write(0xC0, 0x30);                        // both outputs on
+    fm_write(0xA0, 0x98); fm_write(0xB0, 0x2E);  // key on, mid octave
+
+    ASSERT_FALSE(sb.playing()) << "no digitized transfer programmed";
+    Tick(uint64_t(kCpuHz * 0.01));
+    auto fm_samples = sb.fm.drain_samples();
+    EXPECT_FALSE(fm_samples.empty()) << "FM ran with the DSP idle";
+    bool any_nonzero = false;
+    for (const auto &f : fm_samples) {
+        if (f.left != 0 || f.right != 0) { any_nonzero = true; break; }
+    }
+    EXPECT_TRUE(any_nonzero);
+    EXPECT_TRUE(sb.drain_samples().empty()) << "no digitized output was programmed";
 }
 
 // --- DSP 4.xx programmed transfers --------------------------------------

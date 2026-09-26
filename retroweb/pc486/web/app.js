@@ -388,7 +388,7 @@
   const speakerCheckbox = document.getElementById("speakerEnabled");
   speakerCheckbox.checked = false;
   let audioCtx = null, speakerNode = null, lastLevel = false;
-  let sbNode = null, lastSbLeft = 0, lastSbRight = 0;
+  let sbNode = null, lastSbLeft = 0, lastSbRight = 0, lastFmLeft = 0, lastFmRight = 0;
 
   // The worklet module's source, registered from a Blob URL rather than a
   // separate fetched file -- keeps the whole speaker path in this one
@@ -648,8 +648,40 @@
   // each incoming sample is held (sample-and-hold, the same thing a real
   // DAC does between updates) from its own mapped position up to the next
   // sample's, rather than interpolated.
+  // The CT1745's attenuators are pure attenuation, and both the Master and
+  // the per-source pair power on at 24 (-14 dB), leaving the chain ~28 dB
+  // down at defaults -- a real card makes that back up in the analog output
+  // amplifier after the mixer. Normalizing by the power-on product models
+  // that fixed amplifier gain: default mixer settings play at full scale,
+  // and a program that moves a slider still attenuates relative to it.
+  const kMixerUnityGain = 0.2 * 0.2;  // five_bit_gain(24)^2, see soundblaster.cpp
+
+  // Sample-and-holds one cpu_cycle-stamped stream into `left`/`right`,
+  // scaled by that source's own CT1745 attenuator, and ADDS it -- the card
+  // sums FM and digitized audio in the analog domain, so the two streams mix
+  // here rather than in the core. Returns the stream's last value so the next
+  // frame resumes the hold where this one left off.
+  function mixStampedStream(s, left, right, sampleCount, frameStartCycle,
+                            cyclesPerRealSecond, sampleRate, startL, startR, gainL, gainR) {
+    let idx = 0, curL = startL, curR = startR;
+    const gL = gainL / kMixerUnityGain, gR = gainR / kMixerUnityGain;
+    const cycles = s.cycles, ls = s.left, rs = s.right;
+    for (let i = 0; i < cycles.length; i++) {
+      let pos = Math.round(((cycles[i] - frameStartCycle) / cyclesPerRealSecond) * sampleRate);
+      if (pos < 0) pos = 0;
+      if (pos > sampleCount) pos = sampleCount;
+      for (; idx < pos; idx++) { left[idx] += curL * gL; right[idx] += curR * gR; }
+      curL = ls[i] / 32768;
+      curR = rs[i] / 32768;
+    }
+    for (; idx < sampleCount; idx++) { left[idx] += curL * gL; right[idx] += curR * gR; }
+    return [curL, curR];
+  }
+
   function pumpSbAudio(frameStartCycle, cyclesThisFrame, dtSeconds) {
-    const s = machine.sbDrainSamples();  // always drain -- even if muted, so the log can't grow unbounded
+    // Always drain both -- even if muted, so neither log can grow unbounded.
+    const s = machine.sbDrainSamples();
+    const fm = machine.fmDrainSamples();
     if (!audioCtx || !sbNode || !speakerCheckbox.checked || cyclesThisFrame <= 0) return;
     const sampleRate = audioCtx.sampleRate;
     const sampleCount = Math.max(1, Math.round(dtSeconds * sampleRate));
@@ -657,19 +689,12 @@
     const right = new Float32Array(sampleCount);
     const cyclesPerRealSecond = cyclesThisFrame / dtSeconds;
 
-    let idx = 0, curL = lastSbLeft, curR = lastSbRight;
-    const cycles = s.cycles, ls = s.left, rs = s.right;
-    for (let i = 0; i < cycles.length; i++) {
-      let pos = Math.round(((cycles[i] - frameStartCycle) / cyclesPerRealSecond) * sampleRate);
-      if (pos < 0) pos = 0;
-      if (pos > sampleCount) pos = sampleCount;
-      for (; idx < pos; idx++) { left[idx] = curL; right[idx] = curR; }
-      curL = ls[i] / 32768;
-      curR = rs[i] / 32768;
-    }
-    for (; idx < sampleCount; idx++) { left[idx] = curL; right[idx] = curR; }
-    lastSbLeft = curL;
-    lastSbRight = curR;
+    [lastSbLeft, lastSbRight] = mixStampedStream(s, left, right, sampleCount, frameStartCycle,
+      cyclesPerRealSecond, sampleRate, lastSbLeft, lastSbRight,
+      machine.sbGainLeft(), machine.sbGainRight());
+    [lastFmLeft, lastFmRight] = mixStampedStream(fm, left, right, sampleCount, frameStartCycle,
+      cyclesPerRealSecond, sampleRate, lastFmLeft, lastFmRight,
+      machine.fmGainLeft(), machine.fmGainRight());
 
     sbNode.port.postMessage({ left, right }, [left.buffer, right.buffer]);
   }

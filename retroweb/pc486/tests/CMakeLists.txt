@@ -37,19 +37,20 @@ add_unit_test(dma8237_test  dma8237_test.cpp  ${CORE}/dma8237.cpp)
 add_unit_test(chipset_test  chipset_test.cpp
   ${CORE}/chipset.cpp ${CORE}/pic8259.cpp ${CORE}/pit8253.cpp
   ${CORE}/i8042.cpp ${CORE}/cmos_rtc.cpp ${CORE}/dma8237.cpp ${CORE}/fdc765.cpp ${CORE}/ega.cpp
-  ${CORE}/wd1003.cpp ${CORE}/atapi_cdrom.cpp ${CORE}/pcspeaker.cpp ${CORE}/soundblaster.cpp)
+  ${CORE}/wd1003.cpp ${CORE}/atapi_cdrom.cpp ${CORE}/pcspeaker.cpp ${CORE}/soundblaster.cpp ${CORE}/opl3.cpp)
 add_unit_test(machine_test  machine_test.cpp
   ${CORE}/machine.cpp ${CORE}/chipset.cpp ${CORE}/cpu80486.cpp
   ${CORE}/pic8259.cpp ${CORE}/pit8253.cpp ${CORE}/i8042.cpp
   ${CORE}/cmos_rtc.cpp ${CORE}/dma8237.cpp ${CORE}/fdc765.cpp ${CORE}/ega.cpp
-  ${CORE}/wd1003.cpp ${CORE}/atapi_cdrom.cpp ${CORE}/pcspeaker.cpp ${CORE}/soundblaster.cpp)
+  ${CORE}/wd1003.cpp ${CORE}/atapi_cdrom.cpp ${CORE}/pcspeaker.cpp ${CORE}/soundblaster.cpp ${CORE}/opl3.cpp)
 add_unit_test(fdc765_test   fdc765_test.cpp  ${CORE}/fdc765.cpp)
 add_unit_test(ega_test      ega_test.cpp     ${CORE}/ega.cpp)
 add_unit_test(ega_render_test ega_render_test.cpp ${CORE}/ega.cpp ${CORE}/ega_render.cpp)
 add_unit_test(wd1003_test   wd1003_test.cpp  ${CORE}/wd1003.cpp)
 add_unit_test(atapi_cdrom_test atapi_cdrom_test.cpp ${CORE}/atapi_cdrom.cpp)
 add_unit_test(pcspeaker_test pcspeaker_test.cpp ${CORE}/pcspeaker.cpp)
-add_unit_test(soundblaster_test soundblaster_test.cpp ${CORE}/soundblaster.cpp)
+add_unit_test(soundblaster_test soundblaster_test.cpp ${CORE}/soundblaster.cpp ${CORE}/opl3.cpp)
+add_unit_test(opl3_test        opl3_test.cpp        ${CORE}/opl3.cpp)
 
 include(GoogleTest)
 gtest_discover_tests(cpu80486_test)
@@ -68,3 +69,4 @@ gtest_discover_tests(wd1003_test)
 gtest_discover_tests(atapi_cdrom_test)
 gtest_discover_tests(pcspeaker_test)
 gtest_discover_tests(soundblaster_test)
+gtest_discover_tests(opl3_test)

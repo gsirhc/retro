@@ -53,15 +53,18 @@
 // card and work out which IRQ it is really on.
 //
 // Scope/simplifications (see PC486_REVIEW.md):
-//  - No FM synthesis. base+0h..3h and base+8h..9h are decoded (a real card
-//    decodes its whole 16-port block) and accept writes, but the FM status
-//    registers read back 00h, so the standard AdLib detection sequence
-//    (reset both timers, read status, start timer 1, read status again and
-//    expect C0h) fails -- deliberately. A fake OPL3 that passed detection
-//    and then produced silence would be worse than absent hardware: software
-//    would believe its music is playing. 0x388/0x389, the alternate FM
-//    address pair, are for the same reason not decoded at all. FM is the
-//    stretch goal this milestone explicitly left out.
+//  - FM synthesis is a real YMF262 (OPL3) -- see opl3.h. base+0h/1h is its
+//    bank-0 address/data pair, base+2h/3h bank 1, and base+8h/9h the
+//    AdLib-compatible alias of base+0h/1h; reading base+0h, base+2h or
+//    base+8h returns the chip's status byte, so the standard AdLib
+//    detection sequence succeeds.
+//  - 0x388/0x389 IS decoded, as bank 0. This is the original AdLib card's
+//    own address pair, and every Sound Blaster presents the OPL there for
+//    AdLib compatibility -- which is the whole point, because an AdLib-era
+//    music driver (DOOM's among them) writes FM registers to 0x388/0x389 and
+//    never touches the card's own block at all. 0x38Ah/0x38Bh, the bank-1
+//    pair an AdLib Gold or PAS puts there, are NOT decoded: on an SB16 the
+//    OPL3's second bank lives at base+2h/3h instead.
 //  - No MIDI (SB-MIDI 30h/31h/34h-38h or MPU-401 at 0x330), no joystick
 //    port, no ADPCM. The ADPCM playback commands (16h/17h/74h-77h, 1Fh/7Dh/
 //    7Fh) are decoded far enough to swallow their parameter bytes -- so a
@@ -117,6 +120,8 @@
 #ifndef PC486_SOUNDBLASTER_H
 #define PC486_SOUNDBLASTER_H
 
+#include "opl3.h"
+
 #include <cstddef>
 #include <cstdint>
 #include <deque>
@@ -140,14 +145,26 @@ public:
 
     explicit SoundBlaster(uint16_t base = kDefaultBase) : base_(base) { reset(); }
 
+    // The OPL3 behind base+0h..3h and base+8h/9h. Public like Chipset's own
+    // device members: the front end drains its samples directly, because the
+    // card sums FM and digitized audio in the analog domain rather than
+    // mixing them into one digital stream (see the gain accessors below).
+    Opl3 fm;
+
     // Cold power-on: DSP idle, mixer back to the CT1745 defaults SBPG
     // chapter 4 lists, IRQ/DMA selection back to IRQ5/DMA1/DMA5.
     void reset();
 
     // --- chipset port decode ---------------------------------------------
-    // The whole 16-port block, as a real card decodes it. 0x388/0x389 are
-    // deliberately not claimed (see the file header's "no FM" note).
-    bool owns(uint16_t port) const { return port >= base_ && port <= uint16_t(base_ + 0x0F); }
+    // The whole 16-port block, as a real card decodes it, plus the AdLib
+    // card's own 0x388/0x389 FM pair every Sound Blaster also answers -- see
+    // the file header.
+    static constexpr uint16_t kAdLibFmAddr = 0x388;
+    static constexpr uint16_t kAdLibFmData = 0x389;
+    bool owns(uint16_t port) const {
+        return (port >= base_ && port <= uint16_t(base_ + 0x0F)) ||
+               port == kAdLibFmAddr || port == kAdLibFmData;
+    }
     uint8_t in(uint16_t port);
     void out(uint16_t port, uint8_t v);
 
@@ -157,6 +174,10 @@ public:
     // card -- the common case -- must cost almost nothing (see
     // PC486_REVIEW.md §8).
     void tick(uint64_t cpu_cycles) {
+        // The FM chip runs independently of the DSP's transfer state, so it
+        // is stepped before the digitized path's early-out -- music keeps
+        // playing while no sample block is in flight.
+        fm.tick(cpu_cycles);
         uint64_t delta = cpu_cycles - prev_cycles_;
         prev_cycles_ = cpu_cycles;
         if (mode_ == Mode::kIdle || paused_) return;
@@ -226,6 +247,11 @@ public:
     // exactly the values the program wrote.
     float output_gain_left() const;
     float output_gain_right() const;
+    // The FM chip's own leg of the same chain. On the CT1745 the OPL3 is the
+    // card's internal MIDI source, so its level is mixer 34h/35h ("MIDI
+    // volume") into the same Master attenuator -- not the Voice pair above.
+    float fm_gain_left() const;
+    float fm_gain_right() const;
     uint8_t mixer_register(uint8_t index) const { return mixer_[index]; }
 
 private:
