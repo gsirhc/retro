@@ -21,10 +21,10 @@ test.describe("retroweb landing page", () => {
     expect(await shot.evaluate((img: HTMLImageElement) => img.naturalHeight)).toBe(128);
   });
 
-  test("arcade cards are alphabetical; computers stay Altair then IBM", async ({ page }) => {
+  test("arcade cards are alphabetical; computers stay Altair, IBM, then 486", async ({ page }) => {
     await page.goto(HOME);
     const computers = await page.locator(".machines").first().locator(".name").allTextContents();
-    expect(computers).toEqual(["MITS Altair 8800", "IBM PC/AT"]);
+    expect(computers).toEqual(["MITS Altair 8800", "IBM PC/AT", "486DX2-66 Gaming PC"]);
     const arcade = await page.locator('h2.section-heading:has-text("Arcade") + .machines .name').allTextContents();
     expect(arcade).toEqual([
       "Frogger Arcade",

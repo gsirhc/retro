@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures";
-import { boot, bay, insertFloppy, ejectFloppy } from "./helpers";
+import { bootLive, bay, insertFloppy, ejectFloppy } from "./helpers";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
@@ -12,7 +12,7 @@ function makeBlankImage(bytes: number): string {
 
 test.describe("floppy drive", () => {
   test("the bay starts empty with its real capacity in the label", async ({ page }) => {
-    await boot(page);
+    await bootLive(page);
 
     const bayA = bay(page, 0);
     await expect(bayA).not.toHaveClass(/loaded/);
@@ -23,7 +23,7 @@ test.describe("floppy drive", () => {
   });
 
   test("inserting a diskette loads it and enables Eject", async ({ page }) => {
-    await boot(page);
+    await bootLive(page);
 
     const imagePath = makeBlankImage(4096);
     await insertFloppy(page, imagePath);
@@ -42,7 +42,7 @@ test.describe("floppy drive", () => {
   });
 
   test("ejecting an unmodified diskette just empties the bay (no download)", async ({ page }) => {
-    await boot(page);
+    await bootLive(page);
 
     const imagePath = makeBlankImage(4096);
     await insertFloppy(page, imagePath);
@@ -60,7 +60,7 @@ test.describe("floppy drive", () => {
   });
 
   test("floppyDirty/floppyImage reflect the embind API shape", async ({ page }) => {
-    await boot(page);
+    await bootLive(page);
 
     const imagePath = makeBlankImage(4096);
     await insertFloppy(page, imagePath);
@@ -75,7 +75,7 @@ test.describe("floppy drive", () => {
   test("ejecting is independent of power state -- works while the machine is off", async ({ page }) => {
     // Physical floppy slots work with or without power, just like the real
     // hardware -- see app.js's pendingFloppy.
-    await boot(page);
+    await bootLive(page);
 
     await page.locator("#powerSwitch").click({ force: true });
     await expect(page.locator("#powerLed")).not.toHaveClass(/power-on/);

@@ -16,8 +16,10 @@ export const TEST_QS = "test=1";
  * switch click needed), so `window.__test` appearing at all already
  * confirms that fired; by default this also waits for a fresh factory boot
  * to reach its genuine, interactive `C:\>` FreeDOS prompt. Pass
- * `expectScreen: null` to skip that wait for scenarios that deliberately
- * don't reach a normal prompt (e.g. a blank/unformatted C:).
+ * `expectScreen: null` (or use `bootLive`) to skip that wait when the test
+ * only needs a running machine -- a full prompt wait is host-bound wall
+ * clock even under `fast=1` (PC486_REVIEW.md §8.6), so skipping it is what
+ * keeps the suite under a few minutes rather than an hour.
  */
 export async function boot(
   page: Page,
@@ -28,7 +30,10 @@ export async function boot(
   // POST + FreeDOS boot at genuine 66 MHz on every test. Pass
   // `realtime: true` to opt a specific (smoke) test back into genuine
   // real-speed pacing -- see tests/smoke.spec.ts and CLAUDE.md "Current
-  // sanctioned overrides".
+  // sanctioned overrides". On this machine `fast=1` still only means "as
+  // fast as the host can" -- see PC486_REVIEW.md §8.6 -- so prefer
+  // `bootLive` / `expectScreen: null` whenever the prompt itself is not
+  // under test.
   const speed = opts.realtime ? "" : "&fast=1";
   const qs = TEST_QS + speed + (opts.params ? `&${opts.params}` : "");
   await page.goto(`/?${qs}`);
@@ -36,8 +41,16 @@ export async function boot(
     timeout: 15_000,
   });
   if (opts.expectScreen !== null) {
-    await waitForScreen(page, opts.expectScreen ?? /C:\\>/, opts.timeout ?? 120_000);
+    await waitForScreen(page, opts.expectScreen ?? /C:\\>/, opts.timeout ?? 90_000);
   }
+}
+
+/** Machine powered on; does not wait for FreeDOS. Prefer over `boot` for UI/API tests. */
+export async function bootLive(
+  page: Page,
+  opts: { params?: string; timeout?: number; realtime?: boolean } = {},
+): Promise<void> {
+  await boot(page, { ...opts, expectScreen: null });
 }
 
 /** Current VGA text-mode screen as plain text (25 rows, "" outside text mode). */

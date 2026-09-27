@@ -1,10 +1,10 @@
 // EGA canvas; boot detection via window.__test.machine.textScreen() instead of terminal text
 import { test, expect } from "./fixtures";
-import { boot, waitForScreen } from "./helpers";
+import { bootLive } from "./helpers";
 
 test.describe("page theme", () => {
   test.beforeEach(async ({ page }) => {
-    await boot(page);
+    await bootLive(page);
   });
 
   test("defaults to Windows 95 (retro8080.theme unset)", async ({ page }) => {
@@ -31,7 +31,6 @@ test.describe("page theme", () => {
     await page.selectOption("#pageTheme", "web94");
     await page.reload();
     await page.waitForFunction(() => !!(window as any).__test?.machine, null, { timeout: 15000 });
-    await waitForScreen(page, /C:\\>/);
     await expect(page.locator("html")).toHaveAttribute("data-theme", "web94");
     await expect(page.locator("#pageTheme")).toHaveValue("web94");
     expect(await page.evaluate(() => localStorage.getItem("retro8080.theme"))).toBe("web94");

@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures";
-import { boot, waitForScreen, focusScreen, typeStr } from "./helpers";
+import { boot, bootLive, waitForScreen, focusScreen, typeStr } from "./helpers";
 
 // Fullscreen mode (expands #bezel -- CRT frame + vignette + power LED, not
 // just the bare canvas -- see index.html's .bezel:fullscreen CSS comment),
@@ -21,7 +21,7 @@ import { boot, waitForScreen, focusScreen, typeStr } from "./helpers";
 
 test.describe("fullscreen", () => {
   test("first-ever click shows the hint dialog and does not enter fullscreen yet", async ({ page }) => {
-    await boot(page);
+    await bootLive(page);
     await expect(page.locator("#fsEscHint")).toBeHidden();
     await page.locator("#fullscreenBtn").click();
     await expect(page.locator("#fsEscHint")).toBeVisible();
@@ -29,7 +29,7 @@ test.describe("fullscreen", () => {
   });
 
   test("dismissing the hint enters fullscreen and reveals the Esc button", async ({ page }) => {
-    await boot(page);
+    await bootLive(page);
     await expect(page.locator("#escBtn")).toBeHidden();
     await page.locator("#fullscreenBtn").click();
     await page.locator("#fsEscHintOk").click();
@@ -42,7 +42,7 @@ test.describe("fullscreen", () => {
   });
 
   test("hint does not reappear once the current version has already been seen", async ({ page }) => {
-    await boot(page);
+    await bootLive(page);
     await page.evaluate(() => localStorage.setItem("retro8080.fsEscHintSeen", "2"));
     await page.locator("#fullscreenBtn").click();
     await expect(page.locator("#fsEscHint")).toBeHidden();
@@ -50,7 +50,7 @@ test.describe("fullscreen", () => {
   });
 
   test("a stale stored version re-shows the hint -- the cache-bust", async ({ page }) => {
-    await boot(page);
+    await bootLive(page);
     await page.evaluate(() => localStorage.setItem("retro8080.fsEscHintSeen", "0"));
     await page.locator("#fullscreenBtn").click();
     await expect(page.locator("#fsEscHint")).toBeVisible();
@@ -58,7 +58,7 @@ test.describe("fullscreen", () => {
   });
 
   test("exiting fullscreen hides the Esc button again and resets the toggle label", async ({ page }) => {
-    await boot(page);
+    await bootLive(page);
     await page.evaluate(() => localStorage.setItem("retro8080.fsEscHintSeen", "2"));
     await page.locator("#fullscreenBtn").click();
     await expect.poll(() => page.evaluate(() => !!document.fullscreenElement)).toBe(true);
@@ -69,6 +69,7 @@ test.describe("fullscreen", () => {
   });
 
   test("the Esc button sends a real Escape to DOS -- clears a typed command line", async ({ page }) => {
+    test.setTimeout(120_000);
     await boot(page);
     await page.evaluate(() => localStorage.setItem("retro8080.fsEscHintSeen", "2"));
     await page.locator("#fullscreenBtn").click();

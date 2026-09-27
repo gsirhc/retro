@@ -15,24 +15,23 @@ export default defineConfig({
   testMatch: /.*\.spec\.ts$/,
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 2 : 0,
-  // Each page runs a real requestAnimationFrame-paced 66 MHz 80486 core, and
-  // POST + a FreeDOS boot is genuinely tens of real seconds (see CLAUDE.md's
-  // "Never speed these up" -- the CPU clock is never sped up, not even under
-  // test) -- too much parallelism just makes every tab's boot take longer by
-  // starving it of real wall-clock CPU time, not faster overall. Coverage
-  // aggregates per-worker, so it also pins to one worker for the same reason
-  // ibmpc-at's config does.
-  workers: process.env.COVERAGE ? 1 : process.env.CI ? 2 : 3,
+  // One retry is enough to clear a flake; a second retry turns a stuck boot
+  // into a multi-minute stall (each attempt can wait the full test timeout).
+  retries: process.env.CI ? 1 : 0,
+  // The guest is host-bound near real 66 MHz even under `fast=1`
+  // (PC486_REVIEW.md §8.6). Extra workers just split that ceiling and make
+  // every FreeDOS-prompt wait longer, with no wall-clock win -- pin to one
+  // in CI so each boot gets the whole core. Coverage aggregates per-worker,
+  // so it also pins to one.
+  workers: process.env.COVERAGE ? 1 : process.env.CI ? 1 : 2,
   globalSetup: process.env.COVERAGE ? "./tests/coverage.setup.ts" : undefined,
   globalTeardown: process.env.COVERAGE ? "./tests/coverage.global.ts" : undefined,
   reporter: process.env.CI ? [["list"], ["html", { open: "never" }]] : [["list"]],
 
-  // A real POST + FreeDOS boot at genuine 66 MHz is tens of real seconds, and
-  // slower still under CI/system contention -- generous headroom, same
-  // reasoning as ibmpc-at's own real-8MHz-boot timeout.
-  timeout: 120_000,
-  expect: { timeout: 20_000 },
+  // FreeDOS to C:\> is host-bound wall clock (tens of seconds). Headroom for
+  // CI scheduling jitter; tests that don't need the prompt use bootLive().
+  timeout: 90_000,
+  expect: { timeout: 15_000 },
 
   use: {
     baseURL: `http://localhost:${PORT}`,

@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures";
-import { boot, waitForScreen } from "./helpers";
+import { bootLive } from "./helpers";
 
 // PC speaker checkbox is muted (unchecked) by default on every page load
 // and deliberately never restored from saved preference — browser audio
@@ -8,14 +8,14 @@ import { boot, waitForScreen } from "./helpers";
 // of the front end's mute checkbox.
 test.describe("PC speaker", () => {
   test("is unchecked (muted) by default", async ({ page }) => {
-    await boot(page);
+    await bootLive(page);
     await expect(page.locator("#speakerEnabled")).not.toBeChecked();
   });
 
   test("stays unchecked across a reload -- never restored from a saved preference", async ({
     page,
   }) => {
-    await boot(page);
+    await bootLive(page);
     await page.locator("#speakerEnabled").check();
     await expect(page.locator("#speakerEnabled")).toBeChecked();
 
@@ -30,7 +30,7 @@ test.describe("PC speaker", () => {
   test("checking/unchecking it doesn't affect the running machine", async ({
     page,
   }) => {
-    await boot(page);
+    await bootLive(page);
     const cycles1 = await page.evaluate(
       () => (window as any).__test.machine.totalCycles()
     );
@@ -42,13 +42,12 @@ test.describe("PC speaker", () => {
       () => (window as any).__test.machine.totalCycles()
     );
     expect(cycles2).toBeGreaterThan(cycles1);
-    await waitForScreen(page, /C:\\>/);
   });
 
   test("the underlying speaker device is queryable via the embind API regardless of the UI mute state", async ({
     page,
   }) => {
-    await boot(page);
+    await bootLive(page);
 
     const level = await page.evaluate(
       () => (window as any).__test.machine.speakerLevel()
@@ -65,7 +64,7 @@ test.describe("PC speaker", () => {
   test("checking the box leaves the audio context actually running, not merely created", async ({
     page,
   }) => {
-    await boot(page);
+    await bootLive(page);
     await page.locator("#speakerEnabled").check();
     await expect
       .poll(() => page.evaluate(() => (window as any).__test.audioState))
@@ -98,7 +97,7 @@ test.describe("PC speaker", () => {
     const pageErrors: Error[] = [];
     page.on("pageerror", (e) => pageErrors.push(e));
 
-    await boot(page);
+    await bootLive(page);
     await page.locator("#speakerEnabled").check();
     // Give ensureAudioStarted's async work a moment to run (and, if the
     // guard were missing, to throw) before asserting nothing did.

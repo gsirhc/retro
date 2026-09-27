@@ -296,6 +296,10 @@ jobs:
   pc486-web-test:
     needs: pc486-test
     runs-on: ubuntu-latest
+    # Suite is host-bound near real 66 MHz (PC486_REVIEW.md §8.6); without a
+    # cap a stuck boot waits out the runner's 6 h default. Warm-cache target
+    # is under 10 minutes; 20 leaves room for a cold HDD-image rebuild.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 

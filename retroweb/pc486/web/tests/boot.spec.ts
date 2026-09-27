@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures";
-import { boot, screenText, setPowerSwitch, clickReset, waitForScreen, focusScreen } from "./helpers";
+import { boot, bootLive, screenText, setPowerSwitch, clickReset, waitForScreen, focusScreen } from "./helpers";
 
 // Auto-boot-on-load, the power switch, and the front-panel Reset button
 // (a real, later clone-era convention this machine's whole premise calls
@@ -14,6 +14,7 @@ test.describe("boot and power", () => {
   });
 
   test("power switch off discards the running machine; on boots a fresh one", async ({ page }) => {
+    test.setTimeout(180_000);
     await boot(page);
     const cyclesRunning = await page.evaluate(() => (window as any).__test.machine.totalCycles());
     expect(cyclesRunning).toBeGreaterThan(0);
@@ -35,6 +36,7 @@ test.describe("boot and power", () => {
   });
 
   test("Reset pulses CPU+chipset reset but keeps the machine running and RAM intact", async ({ page }) => {
+    test.setTimeout(180_000);
     await boot(page);
     // A real reset button doesn't cut power -- the power LED and cycle
     // count both keep going, unlike the power-off case above.
@@ -48,7 +50,7 @@ test.describe("boot and power", () => {
   });
 
   test("F-keys and Ctrl+Alt+Del are disabled while powered off, enabled while on", async ({ page }) => {
-    await boot(page);
+    await bootLive(page);
     await expect(page.locator("#ctrlAltDelBtn")).toBeEnabled();
     await expect(page.locator('[data-key="F1"]')).toBeEnabled();
 
@@ -58,7 +60,7 @@ test.describe("boot and power", () => {
   });
 
   test("clicking a control focuses the control, not the screen", async ({ page }) => {
-    await boot(page);
+    await bootLive(page);
     await focusScreen(page);
     await expect(page.locator("#screen")).toBeFocused();
 

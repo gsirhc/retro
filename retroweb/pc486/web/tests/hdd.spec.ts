@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures";
-import { boot, waitForScreen, setPowerSwitch } from "./helpers";
+import { boot, bootLive, waitForScreen, setPowerSwitch } from "./helpers";
 
 // Hard disk (C: fixed drive) controls: reset/blank/download/upload operations
 // take effect only on next power-on since a real WD1003 can't be swapped live.
@@ -15,7 +15,7 @@ test.describe("hard disk", () => {
     // while running FDAUTO.BAT, ~2s of real time BEFORE the prompt appears,
     // so by then persistHddIfDirty()'s 5s tick has correctly relabelled the
     // drive "saved state (changes from this session)". See PC486_REVIEW.md §8.
-    await boot(page, { expectScreen: null });
+    await bootLive(page);
     await expect(page.locator("#hddStatus")).toHaveText(
       /Using: factory FreeDOS \(default\)/
     );
@@ -28,7 +28,7 @@ test.describe("hard disk", () => {
   test("Reset to factory FreeDOS and Mount blank drive are only usable while powered off, and update the status label", async ({
     page,
   }) => {
-    await boot(page);
+    await bootLive(page);
     await setPowerSwitch(page, false);
 
     await expect(page.locator("#hddResetBtn")).toBeEnabled();
@@ -50,7 +50,7 @@ test.describe("hard disk", () => {
   test("a blank drive takes effect next power-on and won't boot to a normal prompt", async ({
     page,
   }) => {
-    await boot(page);
+    await bootLive(page);
     await setPowerSwitch(page, false);
     await page.locator("#hddBlankBtn").click();
     await setPowerSwitch(page, true);
@@ -68,7 +68,7 @@ test.describe("hard disk", () => {
   test("Download image is enabled even while the machine is running", async ({
     page,
   }) => {
-    await boot(page);
+    await bootLive(page);
 
     await expect(page.locator("#hddDownloadBtn")).toBeEnabled();
 

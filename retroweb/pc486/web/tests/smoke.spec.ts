@@ -1,19 +1,17 @@
 import { test, expect } from "./fixtures";
-import { boot } from "./helpers";
+import { bootLive } from "./helpers";
 
 // Real-speed timing verification. Every other spec in this suite boots via
-// helpers.ts's boot(), which defaults to the fast-test CPU multiplier
-// (`?test=1&fast=1` -- see app.js's TEST_CPU_MULTIPLIER) so the suite isn't
-// paying a real POST + FreeDOS boot at genuine 66 MHz on every test. This
-// is the one test that deliberately opts back out (`realtime: true`), to
-// confirm the underlying "genuine, wall-clock-paced 66 MHz" contract
-// (CLAUDE.md's "Never speed these up") actually holds. See CLAUDE.md
-// "Current sanctioned overrides" (automated-test CPU clock multiplier).
+// helpers.ts's boot()/bootLive() under `?test=1&fast=1` (see app.js's
+// TEST_CPU_MULTIPLIER). This is the one that deliberately opts back out
+// (`realtime: true`) to confirm the underlying "genuine, wall-clock-paced
+// 66 MHz" contract (CLAUDE.md's "Never speed these up") actually holds.
+// See CLAUDE.md "Current sanctioned overrides".
 test.describe("real-speed smoke test", () => {
   test("the guest CPU runs at real, wall-clock-paced 66 MHz -- not sped up", async ({ page }) => {
     // Skip the (slow, at real speed) wait for a live prompt -- this test
     // only needs the machine running, not fully booted.
-    await boot(page, { realtime: true, expectScreen: null });
+    await bootLive(page, { realtime: true });
 
     const c0 = await page.evaluate(() => (window as any).__test.machine.totalCycles());
     const t0 = Date.now();
@@ -54,7 +52,7 @@ test.describe("real-speed smoke test", () => {
           (window as any).__longTasks.push({ at: e.startTime, dur: e.duration });
       }).observe({ entryTypes: ["longtask"] });
     });
-    await boot(page, { realtime: true, expectScreen: null });
+    await bootLive(page, { realtime: true });
     // Let the machine run a real stretch of its boot under observation.
     await page.waitForTimeout(15_000);
 

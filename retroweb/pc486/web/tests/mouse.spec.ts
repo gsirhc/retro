@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures";
-import { boot, waitForScreen } from "./helpers";
+import { bootLive } from "./helpers";
 
 // Mouse capture checkbox is unchecked by default on every page load, same
 // off-by-default/never-restored policy as the speaker checkbox (see
@@ -8,14 +8,14 @@ import { boot, waitForScreen } from "./helpers";
 // cursor on a page they didn't ask for that on.
 test.describe("PS/2 mouse", () => {
   test("capture checkbox is unchecked by default", async ({ page }) => {
-    await boot(page);
+    await bootLive(page);
     await expect(page.locator("#mouseCaptureEnabled")).not.toBeChecked();
   });
 
   test("stays unchecked across a reload -- never restored from a saved preference", async ({
     page,
   }) => {
-    await boot(page);
+    await bootLive(page);
     await page.locator("#mouseCaptureEnabled").check();
     await expect(page.locator("#mouseCaptureEnabled")).toBeChecked();
 
@@ -30,7 +30,7 @@ test.describe("PS/2 mouse", () => {
   test("checking/unchecking it doesn't affect the running machine", async ({
     page,
   }) => {
-    await boot(page);
+    await bootLive(page);
     const cycles1 = await page.evaluate(
       () => (window as any).__test.machine.totalCycles()
     );
@@ -42,13 +42,12 @@ test.describe("PS/2 mouse", () => {
       () => (window as any).__test.machine.totalCycles()
     );
     expect(cycles2).toBeGreaterThan(cycles1);
-    await waitForScreen(page, /C:\\>/);
   });
 
   test("injectMouseEvent is callable via the embind API regardless of the UI capture state", async ({
     page,
   }) => {
-    await boot(page);
+    await bootLive(page);
 
     // A relative move plus a left-button-down/up round trip -- doesn't
     // assert on any DOS-side effect (no mouse driver is loaded at a bare

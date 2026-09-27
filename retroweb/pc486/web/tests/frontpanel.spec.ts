@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures";
-import { boot } from "./helpers";
+import { bootLive } from "./helpers";
 
 // The front panel's static jewelry: the fixed "66" seven-segment display
 // and the Intel-homage CPU badge. Both are genuinely fixed -- no dynamic
@@ -9,7 +9,7 @@ import { boot } from "./helpers";
 
 test.describe("front panel jewelry", () => {
   test("the seven-segment display shows a fixed '66', independent of power", async ({ page }) => {
-    await boot(page);
+    await bootLive(page);
     const digits = page.locator(".sevenseg");
     await expect(digits).toHaveCount(2);
     // Digit "6" lights every segment except b (top-right) -- see index.html's
@@ -31,7 +31,7 @@ test.describe("front panel jewelry", () => {
   });
 
   test("the CPU badge identifies the real part, not a marketing name", async ({ page }) => {
-    await boot(page);
+    await bootLive(page);
     // The genuine Intel retail part for 66MHz was the clock-doubled DX2,
     // not a plain (never-sold) "486DX-66" -- see PC486_REVIEW.md.
     await expect(page.locator(".cpu-badge-text")).toContainText(/80486DX2/);

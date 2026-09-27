@@ -17,7 +17,7 @@ test.describe("WASD to arrow keys", () => {
 
   test("off: W types a literal w at the DOS prompt", async ({ page }) => {
     await boot(page);
-    await waitForScreen(page, /C:\\>/, 120_000);
+    await waitForScreen(page, /C:\\>/, 90_000);
     await page.locator("#screen").click();
     await page.keyboard.press("w");
     await expect.poll(() => screenText(page), { timeout: 10_000 }).toMatch(/C:\\>w/);
@@ -25,7 +25,7 @@ test.describe("WASD to arrow keys", () => {
 
   test("on: W no longer types a w -- it becomes the up arrow", async ({ page }) => {
     await boot(page);
-    await waitForScreen(page, /C:\\>/, 120_000);
+    await waitForScreen(page, /C:\\>/, 90_000);
     await page.locator("#wasdArrows").check();
     await page.locator("#screen").click();
     await page.keyboard.press("w");
@@ -40,7 +40,7 @@ test.describe("WASD to arrow keys", () => {
 
   test("keys held across a toggle are released, not left stuck down", async ({ page }) => {
     await boot(page);
-    await waitForScreen(page, /C:\\>/, 120_000);
+    await waitForScreen(page, /C:\\>/, 90_000);
     await page.locator("#screen").click();
     await page.keyboard.down("w");            // tracked as ArrowUp once mapped
     await page.locator("#wasdArrows").check();

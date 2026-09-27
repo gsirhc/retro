@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures";
-import { boot, screenText, waitForScreen, focusScreen, clickCtrlAltDel, typeStr, setPowerSwitch } from "./helpers";
+import { boot, bootLive, screenText, waitForScreen, focusScreen, clickCtrlAltDel, typeStr, setPowerSwitch } from "./helpers";
 
 // The real keyboard path (physical DOM key events -> SET1 scan codes -> the
 // emulated 8042), the F-key/extended-key panel (a labelled substitute for
@@ -22,7 +22,7 @@ test.describe("keyboard", () => {
   test("losing focus while a key is held releases it instead of leaving it stuck", async ({
     page,
   }) => {
-    await boot(page);
+    await bootLive(page);
     await focusScreen(page);
     await page.evaluate(() => (window as any).__test.screenEl.dispatchEvent(
       new KeyboardEvent("keydown", { code: "KeyW", bubbles: true })
@@ -85,6 +85,8 @@ test.describe("keyboard", () => {
   });
 
   test("Ctrl+Alt+Del performs a real warm reboot", async ({ page }) => {
+    // Cold boot to C:\> plus a second warm reboot -- two host-bound waits.
+    test.setTimeout(180_000);
     await boot(page);
     await clickCtrlAltDel(page);
     // POST clears and re-initializes the display almost immediately in
@@ -98,7 +100,7 @@ test.describe("keyboard", () => {
       .not.toMatch(/C:\\>/);
     // ...and the machine finishes a genuine full reboot back to the same
     // live prompt, not just a blanked screen.
-    await waitForScreen(page, /C:\\>/, 120_000);
+    await waitForScreen(page, /C:\\>/, 90_000);
   });
 
   test("function-key panel (F1-F12) stays live and doesn't desync the keyboard", async ({ page }) => {
@@ -137,7 +139,7 @@ test.describe("keyboard", () => {
   });
 
   test("\"Click to focus\" hint shows only while running and unfocused", async ({ page }) => {
-    await boot(page);
+    await bootLive(page);
     const hintVisible = () =>
       page.locator("#focusHint").evaluate((el) => el.classList.contains("visible"));
     // boot() never focuses the screen itself -- neither does app.js's own
@@ -155,7 +157,7 @@ test.describe("keyboard", () => {
   });
 
   test("\"Barebones FreeDOS\" boot notice shows once, dismisses on focus, and stays dismissed", async ({ page }) => {
-    await boot(page);
+    await bootLive(page);
     const noticeVisible = () =>
       page.locator("#bootNotice").evaluate((el) => el.classList.contains("visible"));
     // Shown the instant the machine powers on (see app.js's powerOn()) --
