@@ -26,9 +26,8 @@ test.describe("hard disk", () => {
   });
 
   test("Reset to factory FreeDOS and Mount blank drive are only usable while powered off, and update the status label", async ({
-    page,
+    livePage: page,
   }) => {
-    await bootLive(page);
     await setPowerSwitch(page, false);
 
     await expect(page.locator("#hddResetBtn")).toBeEnabled();
@@ -48,9 +47,8 @@ test.describe("hard disk", () => {
   });
 
   test("a blank drive takes effect next power-on and won't boot to a normal prompt", async ({
-    page,
+    livePage: page,
   }) => {
-    await bootLive(page);
     await setPowerSwitch(page, false);
     await page.locator("#hddBlankBtn").click();
     await setPowerSwitch(page, true);
@@ -63,6 +61,16 @@ test.describe("hard disk", () => {
     expect(
       await page.evaluate(() => (window as any).__test.machine.textScreen())
     ).not.toMatch(/C:\\>/);
+
+    // Put factory FreeDOS back so the shared livePage isn't left on a blank
+    // image (status becomes "saved state" after mount, which resetLivePage
+    // cannot distinguish from a normal dirty factory disk).
+    await setPowerSwitch(page, false);
+    await page.locator("#hddResetBtn").click();
+    await setPowerSwitch(page, true);
+    await page.waitForFunction(() => !!(window as any).__test?.machine, null, {
+      timeout: 15000,
+    });
   });
 
   test("Download image is enabled even while the machine is running", async ({

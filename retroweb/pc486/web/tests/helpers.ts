@@ -65,6 +65,18 @@ export async function resetLivePage(page: Page): Promise<void> {
   }).catch(() => {});
 
   const power = page.locator("#powerSwitch");
+  // HDD remounts only take effect while powered off -- put any blank /
+  // pending factory reset back before the next shared-page test runs.
+  const hddStatus = page.locator("#hddStatus");
+  const hddText = (await hddStatus.count()) ? (await hddStatus.textContent()) || "" : "";
+  const needsFactoryHdd =
+    /blank drive|takes effect next power-on/i.test(hddText);
+  if (needsFactoryHdd) {
+    if (await power.isChecked()) await power.click({ force: true });
+    const reset = page.locator("#hddResetBtn");
+    if (await reset.isEnabled()) await reset.click();
+  }
+
   if (!(await power.isChecked())) await power.click({ force: true });
   await page.waitForFunction(() => !!(window as any).__test?.machine, null, {
     timeout: 15_000,
@@ -79,14 +91,21 @@ export async function resetLivePage(page: Page): Promise<void> {
     if (await box.count() && (await box.isChecked())) await box.uncheck();
   }
 
-  // Theme lives in the DOM for the life of the shared page -- put it back
-  // to the factory default so a prior test's picker change cannot flake
-  // "defaults to Windows 95".
-  await page.evaluate(() => localStorage.removeItem("retro8080.theme"));
+  // Theme / one-shot hints live in localStorage for the life of the shared
+  // page -- clear them so "first visit" and "defaults to Windows 95" tests
+  // see a clean slate without remounting the 504MB HDD. (Boot-notice
+  // re-arm needs a power cycle; the notice test does that itself.)
+  await page.evaluate(() => {
+    localStorage.removeItem("retro8080.theme");
+    localStorage.removeItem("retro8080.fsEscHintSeen");
+    localStorage.removeItem("retro8080.pc486BootNoticeDismissed");
+  });
   const theme = page.locator("#pageTheme");
   if ((await theme.count()) && (await theme.inputValue()) !== "win") {
     await theme.selectOption("win");
   }
+  // Focus hint only shows while the screen is unfocused.
+  await page.locator("#fullscreenBtn").focus();
 }
 
 /**

@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures";
-import { boot, bootLive, screenText, waitForScreen, focusScreen, clickCtrlAltDel, typeStr, setPowerSwitch } from "./helpers";
+import { screenText, waitForScreen, focusScreen, clickCtrlAltDel, typeStr, setPowerSwitch } from "./helpers";
 
 // The real keyboard path (physical DOM key events -> SET1 scan codes -> the
 // emulated 8042), the F-key/extended-key panel (a labelled substitute for
@@ -82,10 +82,9 @@ test.describe("keyboard", () => {
     await waitForScreen(page, /C:\\>\s*$/);
   });
 
-  test("Ctrl+Alt+Del performs a real warm reboot", async ({ page }) => {
-    // Cold boot to C:\> plus a second warm reboot -- two host-bound waits.
+  test("Ctrl+Alt+Del performs a real warm reboot", async ({ promptPage: page }) => {
+    // Shared prompt page plus a warm reboot -- one FreeDOS wait after CAD.
     test.setTimeout(180_000);
-    await boot(page);
     // Plant a marker on the command line first. Asserting that C:\> merely
     // vanishes races a fast-test reboot that can return to a fresh prompt
     // inside one poll tick (same Welcome banner, looks unchanged) -- and
@@ -136,8 +135,7 @@ test.describe("keyboard", () => {
     await waitForScreen(page, /C:\\>\s*$/);
   });
 
-  test("\"Click to focus\" hint shows only while running and unfocused", async ({ page }) => {
-    await bootLive(page);
+  test("\"Click to focus\" hint shows only while running and unfocused", async ({ livePage: page }) => {
     const hintVisible = () =>
       page.locator("#focusHint").evaluate((el) => el.classList.contains("visible"));
     // boot() never focuses the screen itself -- neither does app.js's own
@@ -154,14 +152,16 @@ test.describe("keyboard", () => {
     expect(await hintVisible()).toBe(false);
   });
 
-  test("\"Barebones FreeDOS\" boot notice shows once, dismisses on focus, and stays dismissed", async ({ page }) => {
-    await bootLive(page);
+  test("\"Barebones FreeDOS\" boot notice shows once, dismisses on focus, and stays dismissed", async ({ livePage: page }) => {
     const noticeVisible = () =>
       page.locator("#bootNotice").evaluate((el) => el.classList.contains("visible"));
-    // Shown the instant the machine powers on (see app.js's powerOn()) --
-    // boot() already waits past this, so it should still be up. Each
-    // Playwright test gets a fresh, empty localStorage, matching a
-    // genuinely new visitor who has never dismissed it.
+    // Shared livePage clears the dismissed flag; re-arm with a power cycle
+    // so this matches a genuinely new visitor who has never dismissed it.
+    await setPowerSwitch(page, false);
+    await setPowerSwitch(page, true);
+    await page.waitForFunction(() => !!(window as any).__test?.machine, null, {
+      timeout: 15_000,
+    });
     expect(await noticeVisible()).toBe(true);
 
     // pointer-events: none, like .focus-hint -- it sits dead center over

@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures";
-import { boot, screenText, setPowerSwitch, clickReset, waitForScreen, focusScreen } from "./helpers";
+import { screenText, setPowerSwitch, clickReset, waitForScreen, focusScreen } from "./helpers";
 
 // Auto-boot-on-load, the power switch, and the front-panel Reset button
 // (a real, later clone-era convention this machine's whole premise calls
@@ -12,9 +12,10 @@ test.describe("boot and power", () => {
     await expect.poll(() => screenText(page)).toMatch(/C:\\>/);
   });
 
-  test("power switch off discards the running machine; on boots a fresh one", async ({ page }) => {
+  test("power switch off discards the running machine; on boots a fresh one", async ({
+    promptPage: page,
+  }) => {
     test.setTimeout(180_000);
-    await boot(page);
     const cyclesRunning = await page.evaluate(() => (window as any).__test.machine.totalCycles());
     expect(cyclesRunning).toBeGreaterThan(0);
 
@@ -34,9 +35,10 @@ test.describe("boot and power", () => {
     await waitForScreen(page, /C:\\>/);
   });
 
-  test("Reset pulses CPU+chipset reset but keeps the machine running and RAM intact", async ({ page }) => {
+  test("Reset pulses CPU+chipset reset but keeps the machine running and RAM intact", async ({
+    promptPage: page,
+  }) => {
     test.setTimeout(180_000);
-    await boot(page);
     // A real reset button doesn't cut power -- the power LED and cycle
     // count both keep going, unlike the power-off case above.
     const cyclesBefore = await page.evaluate(() => (window as any).__test.machine.totalCycles());

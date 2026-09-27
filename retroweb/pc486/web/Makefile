@@ -106,8 +106,8 @@ disks/freedos-hdd.img: $(CORE)/disks/freedos-hdd.img
 	cp $(CORE)/disks/freedos-hdd.img disks/
 
 # A freshly-installed 504MB FAT disk is mostly unwritten space (§5 built it
-# with real packages but nowhere near fills the drive), so it gzips down to
-# roughly a quarter of its raw size (measured: 528MB -> ~119MB at -9) --
+# with real packages but nowhere near fills the drive), so it gzips hard
+# (measured: 504MB -> ~6.5MB at -9; older installs were ~119MB) --
 # unlike freedos-cd.iso below, which is a densely-packed LiveCD image and
 # barely compresses at all, not worth the same treatment. serve_nocache.py
 # serves this sibling transparently (Content-Encoding: gzip) whenever a
@@ -163,6 +163,12 @@ test: pc486.js pc486-perf.js roms shared cdrom-image driver-images
 	@if [ ! -f disks/freedos-hdd.img ]; then \
 	  echo "disks/freedos-hdd.img not found -- run 'make hdd-image' first"; \
 	  echo "(NOT YET IMPLEMENTED for this machine -- see ../Makefile's MILESTONE 1 STATUS note)."; \
+	  exit 1; \
+	fi
+	@if [ ! -f disks/freedos-hdd.img.gz ]; then \
+	  echo "disks/freedos-hdd.img.gz not found -- run 'make hdd-image' first"; \
+	  echo "(Playwright's devserve.py serves this sibling as Content-Encoding: gzip;"; \
+	  echo " without it every remount transfers the raw 504MB image.)"; \
 	  exit 1; \
 	fi
 	npx playwright test
