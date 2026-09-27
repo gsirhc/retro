@@ -342,6 +342,74 @@ void SetupChain4(Ega &ega) {
     ega.out(0x3CE, 0x08); ega.out(0x3CF, 0xFF);  // Bit Mask: all bits pass through
 }
 
+// The CPU may touch the aperture as plain linear bytes only while every
+// planar stage is pass-through, which is exactly mode 13h. Handing out a
+// pointer when any stage still transforms the byte would silently skip that
+// stage -- so each guard gets its own assertion, and each must also move
+// mapping_epoch() so the CPU's cached page pointers are invalidated.
+TEST(EgaTest, LinearPageOnlyWhileEveryPlanarStageIsPassThrough) {
+    Ega ega;
+    ega.reset();
+    // A freshly reset (text-mode) card is planar: no pointer.
+    EXPECT_EQ(ega.linear_page(0xA0000, true), nullptr);
+
+    SetupChain4(ega);
+    uint8_t *p = ega.linear_page(0xA0000, true);
+    ASSERT_NE(p, nullptr) << "mode 13h's configuration is linear";
+
+    // A pointer write and the decode path must see the same byte, both ways --
+    // otherwise the fast path is a second, divergent copy of video memory.
+    p[0x123] = 0x5A;
+    EXPECT_EQ(ega.mem_read(0xA0123), 0x5A);
+    ega.mem_write(0xA0456, 0xC3);
+    EXPECT_EQ(p[0x456], 0xC3);
+
+    struct Guard { const char *what; uint16_t port_idx, port_dat; uint8_t index, value; };
+    const Guard guards[] = {
+        {"narrowed Map Mask drops planes",      0x3C4, 0x3C5, 0x02, 0x03},
+        {"write mode 2 reinterprets the byte",  0x3CE, 0x3CF, 0x05, 0x42},
+        {"a Bit Mask masks bits",               0x3CE, 0x3CF, 0x08, 0x0F},
+        {"Enable Set/Reset substitutes it",     0x3CE, 0x3CF, 0x01, 0x0F},
+        {"a rotate count alters it",            0x3CE, 0x3CF, 0x03, 0x03},
+    };
+    for (const Guard &g : guards) {
+        Ega e;
+        e.reset();
+        SetupChain4(e);
+        ASSERT_NE(e.linear_page(0xA0000, true), nullptr) << g.what;
+        const uint32_t before = e.mapping_epoch();
+        e.out(g.port_idx, g.index); e.out(g.port_dat, g.value);
+        EXPECT_EQ(e.linear_page(0xA0000, true), nullptr) << g.what;
+        EXPECT_NE(e.mapping_epoch(), before) << g.what << ": epoch must move";
+    }
+
+    // Read mode 1 returns a colour-compare result, not stored data.
+    Ega r;
+    r.reset();
+    SetupChain4(r);
+    ASSERT_NE(r.linear_page(0xA0000, false), nullptr);
+    r.out(0x3CE, 0x05); r.out(0x3CF, 0x48);
+    EXPECT_EQ(r.linear_page(0xA0000, false), nullptr);
+
+    // Without Chain 4 the aperture is planar no matter what else is set.
+    Ega planar;
+    planar.reset();
+    SetupChain4(planar);
+    planar.out(0x3C4, 0x04); planar.out(0x3C5, 0x06);  // Chain 4 off
+    EXPECT_EQ(planar.linear_page(0xA0000, true), nullptr);
+}
+
+// A page must lie wholly inside the active window, or a pointer would let the
+// CPU walk past the end of what the card decodes.
+TEST(EgaTest, LinearPageRefusesPagesOutsideTheActiveWindow) {
+    Ega ega;
+    ega.reset();
+    SetupChain4(ega);   // 64K @ A0000
+    EXPECT_NE(ega.linear_page(0xAF000, true), nullptr) << "last page of the window";
+    EXPECT_EQ(ega.linear_page(0xB0000, true), nullptr) << "past the 64K window";
+    EXPECT_EQ(ega.linear_page(0xB8000, true), nullptr);
+}
+
 TEST(EgaTest, Chain4SendsFourConsecutiveCpuBytesToFourDifferentPlanes) {
     // Real hardware: address bits 0-1 become the plane select and drop out
     // of the per-plane offset. With this file's byte-interleaved plane

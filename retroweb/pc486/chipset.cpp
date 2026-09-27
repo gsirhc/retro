@@ -72,11 +72,18 @@ void Chipset::mem_write(uint32_t addr, uint8_t v) {
 }
 
 uint8_t *Chipset::page_host(uint32_t page_base, bool write) {
+    note_vga_mapping();
     // The gate masks a 4KB-aligned base the same way it masks a byte address:
     // 0xFFFFF+1 is a whole number of pages, so the offset within the page is
     // untouched.
     if (!kbc.a20_enabled()) page_base &= 0xFFFFF;
-    if (vga.owns_mem(page_base)) return nullptr;  // the card answers, not RAM
+    if (vga.owns_mem(page_base)) {
+        // The card answers, not RAM -- but in a mode whose planar stages are
+        // all pass-through (mode 13h) the aperture is plain linear bytes, so
+        // the CPU can be handed a pointer straight into VRAM instead of
+        // paying mem_read/mem_write's per-byte plane decode on every pixel.
+        return vga.linear_page(page_base, write);
+    }
     if (page_base >= mem.size()) return nullptr;  // nothing populated up there
     if (write && rom_page_[page_base >> 12]) return nullptr;
     return mem.data() + page_base;
@@ -117,6 +124,15 @@ uint8_t Chipset::io_in(uint16_t port) {
     return 0xFF;
 }
 void Chipset::io_out(uint16_t port, uint8_t v) {
+    io_out_impl(port, v);
+    // A VGA register write can change how its aperture maps, and page_host()
+    // hands the CPU cached pointers into VRAM -- so the mapping is re-checked
+    // after every port write, before the guest's next memory access can use a
+    // pointer resolved under the old mode.
+    note_vga_mapping();
+}
+
+void Chipset::io_out_impl(uint16_t port, uint8_t v) {
     next_service_ = 0;
     if (pic_master.owns(port)) { pic_master.out(port, v); return; }
     if (pic_slave.owns(port)) { pic_slave.out(port, v); return; }

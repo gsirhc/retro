@@ -87,6 +87,25 @@ public:
     uint8_t mem_read(uint32_t addr) const;
     void mem_write(uint32_t addr, uint8_t v);
 
+    // A 4KB page of the aperture that the CPU may touch as plain linear
+    // bytes, or nullptr. Chain-4 already decodes to vram[off] exactly (see
+    // the file header's ((off>>2)<<2) + (off&3) == off identity), so when
+    // every planar stage is in its pass-through state -- which is precisely
+    // how a mode-13h driver leaves them -- a byte access needs none of
+    // mem_read/mem_write's per-byte decode. The CPU's page map caches this
+    // pointer, so mapping_epoch() below must change whenever the answer
+    // could.
+    uint8_t *linear_page(uint32_t page_base, bool write);
+    // Bumped whenever a register that could change linear_page()'s answer is
+    // written. The chipset watches it to invalidate cached page pointers.
+    uint32_t mapping_epoch() const { return mapping_epoch_; }
+    // Recomputes the signature of every register linear_page() consults and
+    // bumps mapping_epoch() if it moved. Called after any register write, so
+    // a palette or CRTC write -- neither of which changes the answer -- costs
+    // no page-map flush.
+    void note_mapping_change();
+
+
     // Advances the Input Status 1 retrace toggle against the CPU's running
     // cycle count -- so a BIOS/driver's "wait for vertical retrace" polling
     // loop can't hang. Not a real ~70Hz refresh timing; just enough
@@ -349,6 +368,8 @@ public:
     // 256KB planar VRAM: 4 bitplanes x 64KB, byte-interleaved as
     // vram[(plane_offset << 2) + plane] -- see the file header.
     std::array<uint8_t, 256 * 1024> vram{};
+    uint32_t mapping_epoch_ = 0;
+    uint32_t mapping_sig_ = 0xFFFFFFFFu;
 
 private:
     // Decodes a CPU address (already known to be within 0xA0000-0xBFFFF)

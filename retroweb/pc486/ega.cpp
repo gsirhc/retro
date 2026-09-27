@@ -154,6 +154,7 @@ void Ega::out(uint16_t port, uint8_t v) {
         case 0x3D5: crtc_[crtc_index_ % crtc_.size()] = v; break;
         default: break;
     }
+    note_mapping_change();
 }
 
 uint16_t Ega::in16(uint16_t port) {
@@ -164,9 +165,49 @@ uint16_t Ega::in16(uint16_t port) {
 
 void Ega::out16(uint16_t port, uint16_t v) {
     if (port == kVbeIndexPort) { vbe_index_ = v; return; }
-    if (port == kVbeDataPort) { vbe_write_(vbe_index_, v); return; }
+    // A VBE mode change moves the aperture between planar and linear, so the
+    // mapping has to be re-checked here; every other path below goes through
+    // out(), which notes for itself.
+    if (port == kVbeDataPort) { vbe_write_(vbe_index_, v); note_mapping_change(); return; }
     out(port, uint8_t(v & 0xFF));
     out(uint16_t(port + 1), uint8_t(v >> 8));
+}
+
+void Ega::note_mapping_change() {
+    uint32_t sig = uint32_t(sequencer_[2] & 0x0F) |
+                   (uint32_t(sequencer_[4] & 0x0F) << 4) |
+                   (uint32_t(gfx_[1] & 0x0F) << 8) |
+                   (uint32_t(gfx_[3] & 0x07) << 12) |
+                   (uint32_t(gfx_[5] & 0x0B) << 16) |
+                   (uint32_t(gfx_[6] & 0x0F) << 20) |
+                   (uint32_t(gfx_[8]) << 24);
+    if (vbe_mode_active()) sig = ~sig;
+    if (sig != mapping_sig_) { mapping_sig_ = sig; ++mapping_epoch_; }
+}
+
+uint8_t *Ega::linear_page(uint32_t page_base, bool write) {
+    if (vbe_mode_active()) return nullptr;   // the VBE window has its own banked mapping
+    if (!seq_chain4()) return nullptr;
+    // Every planar stage must be pass-through, or a byte write is not just a
+    // store: Map Mask can drop planes (a mode-13h driver narrowing it really
+    // does lose pixels), the bit mask and rotate alter the byte, Set/Reset
+    // substitutes it outright, and write modes 1-3 ignore it entirely.
+    if (write) {
+        if (gc_write_mode() != 0) return nullptr;
+        if (seq_map_mask() != 0x0F) return nullptr;
+        if (gc_bit_mask() != 0xFF) return nullptr;
+        if (gc_rotate_count() != 0) return nullptr;
+        if (gc_enable_set_reset() != 0) return nullptr;
+    } else if (gc_read_mode1()) {
+        return nullptr;  // read mode 1 returns a colour-compare result, not data
+    }
+    // The whole page has to sit inside the active window, so the CPU cannot
+    // walk off the end of it through a pointer we handed out.
+    uint32_t off = window_offset(page_base);
+    if (off == kOutOfWindow) return nullptr;
+    if (window_offset(page_base + 0xFFFu) != off + 0xFFFu) return nullptr;
+    if (off + 0x1000u > vram.size()) return nullptr;
+    return vram.data() + off;
 }
 
 uint32_t Ega::window_offset(uint32_t addr) const {

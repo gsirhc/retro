@@ -191,6 +191,17 @@ private:
     // noticed too), since moving the gate changes what every page above 1MB
     // resolves to.
     bool a20_prev_ = false;
+    // The VGA's memory mapping semantics can change with a register write,
+    // and page_host() hands the CPU cached pointers into VRAM when they are
+    // linear -- so a change has to invalidate those, exactly like an A20
+    // change does. Called from io_out() (immediate) and from page_host().
+    void note_vga_mapping() {
+        if (vga.mapping_epoch() != vga_map_prev_) {
+            vga_map_prev_ = vga.mapping_epoch();
+            ++map_epoch_;
+        }
+    }
+
     void note_a20() {
         if (kbc.a20_enabled() != a20_prev_) { a20_prev_ = kbc.a20_enabled(); ++map_epoch_; }
     }
@@ -208,6 +219,7 @@ private:
     bool fdc_irq_prev_ = false;
     bool hdd_irq_prev_ = false;   // IRQ14 (hard disk, slave PIC line 6)
     bool cdrom_irq_prev_ = false; // IRQ15 (CD-ROM, slave PIC line 7)
+    uint32_t vga_map_prev_ = 0xFFFFFFFFu;
     bool sb_irq_prev_ = false;    // IRQ5 (Sound Blaster, master PIC line 5)
 
     // Moves one Sound Blaster DMA block (8-bit channel 1 or 16-bit channel
@@ -216,6 +228,7 @@ private:
     // the two SB16-specific corrections `soundblaster.h`'s header
     // documents (16-bit channel counts words, and auto-init needs the DMA
     // controller to reload at terminal count -- now real, see dma8237.h).
+    void io_out_impl(uint16_t port, uint8_t v);
     void service_sb_dma();
 };
 
