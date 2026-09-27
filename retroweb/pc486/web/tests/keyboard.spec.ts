@@ -86,16 +86,18 @@ test.describe("keyboard", () => {
     // Cold boot to C:\> plus a second warm reboot -- two host-bound waits.
     test.setTimeout(180_000);
     await boot(page);
+    // Plant a marker on the command line first. Asserting that C:\> merely
+    // vanishes races a fast-test reboot that can return to a fresh prompt
+    // inside one poll tick (same Welcome banner, looks unchanged) -- and
+    // also cannot tell a no-op click from a completed reboot. The marker
+    // is gone only if the BIOS actually took the warm-boot path.
+    await focusScreen(page);
+    await typeStr(page, "REM CADMARKER", { pressEnterAfter: false });
+    await waitForScreen(page, /CADMARKER/i);
     await clickCtrlAltDel(page);
-    // POST clears and re-initializes the display almost immediately in
-    // machine time -- the screen should leave the old prompt well within a
-    // few real seconds, proving the combo actually reached the BIOS's
-    // keyboard ISR (the exact thing §31's bug silently failed to do: only
-    // Del ever arrived, with no Ctrl/Alt held, so the BIOS never recognized
-    // it and nothing happened at all).
     await expect
-      .poll(() => screenText(page), { timeout: 5_000 })
-      .not.toMatch(/C:\\>/);
+      .poll(() => screenText(page), { timeout: 15_000 })
+      .not.toMatch(/CADMARKER/i);
     // ...and the machine finishes a genuine full reboot back to the same
     // live prompt, not just a blanked screen.
     await waitForScreen(page, /C:\\>/, 90_000);

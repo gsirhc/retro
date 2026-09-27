@@ -109,12 +109,16 @@
   // sequences, Pause's 6-byte sequence, and the Ctrl-Alt-Del combo below --
   // needs real spacing between EVERY byte, not just between make and
   // break. See IBM_PCAT_REVIEW.md.
-  function injectScancodeSequence(codes) {
+  // gapMs defaults to 20 -- enough for INT 9 to drain one byte on an idle
+  // host. Longer sequences that the BIOS's own multi-key checks depend on
+  // (Ctrl-Alt-Del) pass 50 so a contended main thread cannot collapse the
+  // makes into the 8042's single-byte buffer.
+  function injectScancodeSequence(codes, gapMs = 20) {
     let i = 0;
     (function step() {
       if (!machine || i >= codes.length) return;
       machine.injectScancode(codes[i++]);
-      if (i < codes.length) setTimeout(step, 20);
+      if (i < codes.length) setTimeout(step, gapMs);
     })();
   }
 
@@ -1108,7 +1112,10 @@
       // using -- the browser exposes no system-wide figure, and claiming one
       // would be inventing it. Emulation and drawing share that thread, so
       // it is also the number that decides whether the pump starts dropping.
-      const cpuPct = busy / 10;
+      // Clamp: a sample window can attribute more than `secs` of emu+draw
+      // when a long runCycles chunk straddles the tick (busy/10 > 100), but
+      // a single thread cannot honestly exceed one core.
+      const cpuPct = Math.min(100, busy / 10);
       const cores = navigator.hardwareConcurrency || 0;
       // Guest RAM lives inside the wasm heap, so its size is the emulator's
       // real memory footprint. performance.memory is Chrome-only.
@@ -1635,13 +1642,12 @@
     // extended block), which is what the historical Ctrl-Alt-Del check
     // (present in this machine's real Bochs-legacy BIOS, matching genuine
     // x86 BIOS convention) looks for -- NOT SET1.Delete, which is the
-    // newer extended [0xE0, 0x53] forward-Delete key. No new C++ needed:
-    // the real BIOS's own keyboard ISR already implements the warm-boot
-    // check, exactly like genuine hardware. All 6 bytes go through
-    // injectScancodeSequence() so each one gets its own real gap -- sending
-    // even the 3 makes back to back clobbered everything but the last
-    // (Del), so the BIOS only ever saw a lone Del with no Ctrl/Alt held
-    // and never recognized the combo. See IBM_PCAT_REVIEW.md.
+    // newer extended [0xE0, 0x53] forward-Delete key. Gaps matter: sending
+    // the makes back to back clobbered everything but Del (IBM_PCAT_REVIEW
+    // §31). Under FreeDOS+JEMMEX (V86) that BIOS INT 9 check does not
+    // currently take effect, so after the authentic sequence we also pulse
+    // CPU+chipset reset -- same durable outcome as the front-panel Reset
+    // -- until the V86 keyboard path handles CAD on its own.
     injectScancodeSequence([
       0x1D,          // Ctrl make
       0x38,          // Alt make
@@ -1649,7 +1655,8 @@
       0x53 | 0x80,   // Del break
       0x38 | 0x80,   // Alt break
       0x1D | 0x80,   // Ctrl break
-    ]);
+    ], 50);
+    setTimeout(() => { if (machine) machine.reset(); }, 350);
   });
 
   powerSwitch.checked = false;  // starts unchecked -- switched on programmatically the instant
