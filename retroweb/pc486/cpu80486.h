@@ -95,6 +95,16 @@
 #include <functional>
 #include <type_traits>
 
+// Debug-build counters for the front end's Performance panel. Compiled out
+// entirely unless the build sets PC486_PERF (web/Makefile's
+// PERF=1), so a shipped machine pays nothing -- these sit on the
+// hottest paths in the emulator.
+#ifdef PC486_PERF
+#define PC486_PERF_BUMP(field) (++(field))
+#else
+#define PC486_PERF_BUMP(field) ((void)0)
+#endif
+
 namespace cpu80486 {
 
 // EFLAGS bit positions. Bit 1 always reads 1; bits 3, 5, 15 are reserved
@@ -324,6 +334,38 @@ public:
     uint32_t eip = 0xFFF0;
 
     uint32_t eflags = FLAG_R1;
+    // Cycles the 486 spent halted, i.e. genuinely idle waiting for an
+    // interrupt. Always counted, not gated behind PC486_PERF: the add only
+    // ever runs on the halted path, so a busy machine pays nothing for it,
+    // and it is what the front end's "486 cpu" figure is computed from.
+    uint64_t halt_cycles = 0;
+    // Cycles the guest spent spinning in a recognisable DOS wait loop --
+    // see the INT imm8 handler. DOS has no scheduler and no idle
+    // accounting, so halted cycles alone report ~100% busy at a bare
+    // prompt: COMMAND.COM waits for a key by polling INT 16h flat out
+    // rather than halting. This counts that polling as the idle it plainly
+    // is, which is the only way a usage figure means anything on this
+    // machine. It is a labelled inference about guest *software*, never a
+    // claim about the hardware.
+    uint64_t idle_poll_cycles = 0;
+    uint64_t last_poll_cycle_ = 0;
+    // A poll loop at 66MHz comes round every few hundred to a few thousand
+    // cycles. 50,000 (~0.75ms) is far above that and far below the ~1.9M a
+    // program doing real work between keyboard checks would show, so the
+    // two cases don't overlap.
+    static constexpr uint64_t kIdlePollGap = 50000;
+#ifdef PC486_PERF
+    struct Perf {
+        uint64_t instrs, tlb_miss, fetch_slow, mmio;
+        // Executions per primary opcode, and per second-byte opcode for the
+        // 0Fh two-byte map. Frequency is the signal that matters for an
+        // interpreter: the instruction forms it runs most are the ones whose
+        // paths are worth work.
+        uint64_t opcode[256];
+        uint64_t opcode0f[256];
+    };
+    Perf perf{};
+#endif
 
     bool     halted = false;
     uint64_t cycles = 0;   // total clock cycles executed (66MHz core clocks)
@@ -567,7 +609,8 @@ private:
             e.host = bus_.page(bus_.ctx, phys & 0xFFFFF000u, write);
             e.tag = pfn;
         }
-        return e.host != nullptr ? e.host + (phys & 0xFFFu) : nullptr;
+        if (e.host == nullptr) { PC486_PERF_BUMP(perf.mmio); return nullptr; }
+        return e.host + (phys & 0xFFFu);
     }
 
     // --- instruction prefetch ---------------------------------------------
@@ -639,6 +682,7 @@ private:
                           (write && !(e.rights & 1) && (user || (cr_[0] & CR0_WP)));
             if (!denied) return e.frame | (linear & 0x00000FFFu);
         }
+        PC486_PERF_BUMP(perf.tlb_miss);
         return translate_slow(linear, write, user);
     }
     uint32_t translate_slow(uint32_t linear, bool write, bool user);
@@ -737,6 +781,7 @@ private:
             eip = (eip + 1) & ip_mask();
             return v;
         }
+        PC486_PERF_BUMP(perf.fetch_slow);
         return fetch8_slow();
     }
     uint16_t fetch16() {

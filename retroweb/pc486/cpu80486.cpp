@@ -2738,6 +2738,7 @@ int Cpu::mov_control_reg(uint8_t op2) {
 
 int Cpu::two_byte() {
     uint8_t op2 = fetch8();
+    PC486_PERF_BUMP(perf.opcode0f[op2]);
     switch (op2) {
         case 0x00: return grp0f00();   // SLDT/STR/LLDT/LTR/VERR/VERW
         case 0x01: return grp0f01();   // SGDT/SIDT/LGDT/LIDT/SMSW/LMSW/INVLPG
@@ -3794,7 +3795,7 @@ int Cpu::step() {
     // HLT idles until an interrupt arrives. Charged the published 486 HLT
     // cost per idle step so the embedding machine's wall-clock pacing keeps
     // advancing at a sane rate while halted.
-    if (halted) { cycles += 4; return 4; }
+    if (halted) { cycles += 4; halt_cycles += 4; return 4; }
     // In real mode a segment register's base simply tracks selector*16, so
     // a host or test assigning one of the public selector fields directly
     // is a segment load and must re-derive the base (see
@@ -3894,6 +3895,7 @@ int Cpu::step_inner() {
         // listed: 0 = not a prefix.
         uint8_t kind = kPrefix[op];
         if (kind == 0) break;
+        PC486_PERF_BUMP(perf.opcode[op]);   // prefix bytes, counted in their own right
         switch (kind) {
             case kPfxSegEs: seg_override_ = SEG_ES; break;
             case kPfxSegCs: seg_override_ = SEG_CS; break;
@@ -3915,6 +3917,10 @@ int Cpu::step_inner() {
         // extension of it for the others.
         c += 1;
     }
+    // 0Fh is an escape, not an instruction: two_byte() counts the opcode it
+    // actually runs, and counting the escape as well would report every
+    // two-byte instruction twice and deflate every share.
+    if (op != 0x0F) PC486_PERF_BUMP(perf.opcode[op]);
     instr_start_eip_ = (eip - 1) & ip_mask();  // eip has already advanced past `op`
 
     // Fast path: the dense ALU block 0x00-0x3D, laid out as 8 groups of 6
@@ -4279,6 +4285,24 @@ int Cpu::step_inner() {
         case 0xCC: do_interrupt(3, true); c += 26; break;
         case 0xCD: {  // INT imm8
             uint8_t n = fetch8();
+            // Idle detection. Two calls mean "I have nothing to do": INT 16h
+            // AH=01h/11h, the peek-keystroke every DOS prompt and text-mode
+            // program spins on, and INT 2Fh AX=1680h, the release-time-slice
+            // call a well-behaved app makes under a multitasker. Time BETWEEN
+            // consecutive polls is what is actually idle -- the spin loop
+            // around the call -- so the gap is credited, and only when it is
+            // short enough to be a tight loop rather than a program that
+            // happens to check the keyboard once a frame while working.
+            {
+                const uint8_t ah = get_reg8(4);
+                const bool key_poll = (n == 0x16 && (ah == 0x01 || ah == 0x11));
+                const bool yield = (n == 0x2F && ah == 0x16 && get_reg8(0) == 0x80);
+                if (key_poll || yield) {
+                    const uint64_t gap = cycles - last_poll_cycle_;
+                    if (gap < kIdlePollGap) idle_poll_cycles += gap;
+                    last_poll_cycle_ = cycles;
+                }
+            }
             // The fourth IOPL-sensitive instruction in V86: "INT n is
             // sensitive so that the V86 monitor can intercept calls to the
             // 8086 OS" (Intel 80386 PRM, "Emulating 8086 Operating System

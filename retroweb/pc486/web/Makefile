@@ -6,6 +6,19 @@
 # that the C driver won't link.
 EMCC ?= em++
 
+# DEBUG_PERF=1 compiles in the emulator's own performance counters and the
+# front end's Debug panel (which appears only when the module reports a debug
+# build). Off by default: the counters sit on the hottest paths there are, so
+# a shipped machine must not carry them.
+# The Performance panel's Tier 2 (the emulator's own counters) needs an
+# instrumented build. It is a SECOND binary, pc486-perf.js/.wasm, loaded only
+# by ?perf -- the shipped pc486.wasm carries none of the counters, which sit
+# on the hottest paths there are.
+PERF ?= 0
+ifeq ($(PERF),1)
+EMCC_PERF_FLAGS = -DPC486_PERF
+endif
+
 CORE = ..
 SRC = wasm_machine.cpp $(CORE)/machine.cpp $(CORE)/chipset.cpp $(CORE)/cpu80486.cpp \
       $(CORE)/pic8259.cpp $(CORE)/pit8253.cpp $(CORE)/i8042.cpp $(CORE)/cmos_rtc.cpp \
@@ -42,6 +55,7 @@ SRC = wasm_machine.cpp $(CORE)/machine.cpp $(CORE)/chipset.cpp $(CORE)/cpu80486.
 # calls that no amount of per-file optimization can reach. Worth ~10% of
 # raw interpreter throughput on its own -- see PC486_REVIEW.md §8.
 EMFLAGS = -O3 -flto -std=c++17 -lembind --no-entry -fwasm-exceptions -sSUPPORT_LONGJMP=wasm \
+          $(EMCC_PERF_FLAGS) \
   -sMODULARIZE=1 -sEXPORT_NAME=Pc486 \
   -sENVIRONMENT=web \
   -sALLOW_MEMORY_GROWTH=1 \
@@ -57,7 +71,14 @@ HDRS = $(wildcard $(CORE)/*.h)
 pc486.js: $(SRC) $(HDRS)
 	$(EMCC) $(EMFLAGS) $(SRC) -o $@
 
-.PHONY: shared roms hdd-image cdrom-image serve test test-install coverage clean
+# The instrumented twin. Same sources, same export name -- only ever one of
+# the two is loaded, chosen by ?perf -- built with the counters compiled in.
+pc486-perf.js: $(SRC) $(HDRS)
+	$(EMCC) $(EMFLAGS) -DPC486_PERF $(SRC) -o $@
+
+perf-build: pc486-perf.js
+
+.PHONY: shared roms hdd-image cdrom-image driver-images perf-build serve test test-install coverage clean
 
 # Theme system / pagebar chrome / fullscreen / focus-hint -- one canonical
 # copy in retroweb/shared/, copied into this machine's own web/shared/ at
@@ -124,7 +145,7 @@ cdrom-image: disks/freedos-cd.iso
 # Port 8000, matching every other machine's own `make serve` default --
 # this machine's Playwright suite reserves ports 8400/8410 instead (see
 # `test` below), precisely so it never collides with a hand-run `make serve`.
-serve: pc486.js roms shared cdrom-image driver-images
+serve: pc486.js pc486-perf.js roms shared cdrom-image driver-images
 	@if [ ! -f disks/freedos-hdd.img ]; then \
 	  echo "disks/freedos-hdd.img not found -- run 'make hdd-image' first"; \
 	  echo "(NOT YET IMPLEMENTED for this machine -- see ../Makefile's MILESTONE 1 STATUS note)."; \
@@ -138,7 +159,7 @@ serve: pc486.js roms shared cdrom-image driver-images
 # 8400/8410 (this suite's own webServer block in playwright.config.ts) are
 # dedicated to this machine's Playwright run -- 8100 altair8800, 8200
 # assembler6502, 8300/8310 ibmpc-at, so 8400/8410 is the next free pair.
-test: pc486.js roms shared cdrom-image driver-images
+test: pc486.js pc486-perf.js roms shared cdrom-image driver-images
 	@if [ ! -f disks/freedos-hdd.img ]; then \
 	  echo "disks/freedos-hdd.img not found -- run 'make hdd-image' first"; \
 	  echo "(NOT YET IMPLEMENTED for this machine -- see ../Makefile's MILESTONE 1 STATUS note)."; \

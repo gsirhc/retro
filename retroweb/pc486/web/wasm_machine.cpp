@@ -29,9 +29,12 @@
 //   m.textScreen();                       // test-only: current text-mode screen as a string, "" in graphics modes
 
 #include <emscripten/bind.h>
+#include <emscripten/heap.h>
 #include <emscripten/val.h>
 
 #include <cstdint>
+#include <algorithm>
+#include <cstdio>
 #include <string>
 #include <vector>
 
@@ -265,6 +268,83 @@ public:
     uint8_t fmReg(uint16_t index) const { return m_.chipset.sb.fm.reg(index); }
     bool fmOpl3Mode() const { return m_.chipset.sb.fm.opl3_mode(); }
 
+    // Cycles the 486 has spent halted. The front end differences this
+    // against totalCycles() to show the guest's own CPU usage -- the share
+    // of its time the machine is doing work rather than waiting on an
+    // interrupt. Always available; see Cpu::halt_cycles.
+    double haltCycles() const { return double(m_.cpu.halt_cycles); }
+
+    // Cycles the guest spent in a DOS wait loop rather than halted -- see
+    // Cpu::idle_poll_cycles. Added to halted cycles, this is what makes a
+    // usage figure mean anything on a machine whose OS has no idea what
+    // idle is.
+    double idleCycles() const { return double(m_.cpu.idle_poll_cycles); }
+
+    // The emulator's real memory footprint: the wasm heap holds the 32MB of
+    // guest RAM, video memory, the disk images in flight and everything else
+    // the machine owns. Always available -- it costs one call and is the
+    // figure a visitor is most likely to find interesting.
+    double heapBytes() const { return double(emscripten_get_heap_size()); }
+
+    // Always present, so the front end can ask whether this build carries
+    // the emulator's own counters -- the Performance panel's Tier 2 -- and
+    // show them only then. The shipped binary answers false.
+    bool perfBuild() const {
+#ifdef PC486_PERF
+        return true;
+#else
+        return false;
+#endif
+    }
+#ifdef PC486_PERF
+    // Counters since the last call, as "name=value" pairs. Reading resets
+    // them, so the front end gets a per-interval rate rather than a total.
+    std::string perfStats() {
+        auto &p = m_.cpu.perf;
+        char buf[256];
+        std::snprintf(buf, sizeof buf,
+                      "instrs=%llu tlb_miss=%llu fetch_slow=%llu mmio=%llu services=%llu",
+                      (unsigned long long)p.instrs, (unsigned long long)p.tlb_miss,
+                      (unsigned long long)p.fetch_slow, (unsigned long long)p.mmio,
+                      (unsigned long long)m_.chipset.perf_services);
+        p.instrs = p.tlb_miss = p.fetch_slow = p.mmio = 0;
+        m_.chipset.perf_services = 0;
+        return buf;
+    }
+
+    // The busiest instruction forms since the last call, ranked. For an
+    // interpreter, what it runs most is what is worth optimizing -- and a
+    // count costs one increment, where timing each instruction would cost
+    // more than the instruction. "0f" marks the two-byte map.
+    std::string perfHotOpcodes(int top) {
+        auto &p = m_.cpu.perf;
+        struct Entry { uint64_t n; int op; bool two; };
+        std::vector<Entry> all;
+        all.reserve(512);
+        for (int i = 0; i < 256; ++i) {
+            if (p.opcode[i]) all.push_back({p.opcode[i], i, false});
+            if (p.opcode0f[i]) all.push_back({p.opcode0f[i], i, true});
+        }
+        std::sort(all.begin(), all.end(),
+                  [](const Entry &a, const Entry &b) { return a.n > b.n; });
+        uint64_t total = 0;
+        for (const Entry &e : all) total += e.n;
+        std::string out;
+        char line[64];
+        int shown = 0;
+        for (const Entry &e : all) {
+            if (shown++ >= top) break;
+            std::snprintf(line, sizeof line, "%s%02X=%llu ", e.two ? "0f" : "",
+                          e.op, (unsigned long long)e.n);
+            out += line;
+        }
+        std::snprintf(line, sizeof line, "total=%llu", (unsigned long long)total);
+        out += line;
+        for (int i = 0; i < 256; ++i) { p.opcode[i] = 0; p.opcode0f[i] = 0; }
+        return out;
+    }
+#endif
+
     float fmGainLeft() const { return m_.chipset.sb.fm_gain_left(); }
     float fmGainRight() const { return m_.chipset.sb.fm_gain_right(); }
     float sbGainLeft() const { return m_.chipset.sb.output_gain_left(); }
@@ -344,6 +424,14 @@ EMSCRIPTEN_BINDINGS(pc486_machine) {
         .function("fmReg", &WasmMachine::fmReg)
         .function("fmOpl3Mode", &WasmMachine::fmOpl3Mode)
         .function("fmDrainSamples", &WasmMachine::fmDrainSamples)
+        .function("heapBytes", &WasmMachine::heapBytes)
+        .function("haltCycles", &WasmMachine::haltCycles)
+        .function("idleCycles", &WasmMachine::idleCycles)
+        .function("perfBuild", &WasmMachine::perfBuild)
+#ifdef PC486_PERF
+        .function("perfStats", &WasmMachine::perfStats)
+        .function("perfHotOpcodes", &WasmMachine::perfHotOpcodes)
+#endif
         .function("fmGainLeft", &WasmMachine::fmGainLeft)
         .function("fmGainRight", &WasmMachine::fmGainRight)
         .function("sbGainLeft", &WasmMachine::sbGainLeft)

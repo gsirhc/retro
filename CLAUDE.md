@@ -196,7 +196,7 @@ machine itself (see "Adding a new machine" above).
   `assembler6502-web-test`, `ibmpcat-test`/`ibmpcat-web-test`,
   `pacman-test`/`pacman-web-test`, `frogger-test`/`frogger-web-test`,
   `scramble-test`/`scramble-web-test`, `galaxian-test`/`galaxian-web-test`,
-  `galaga-test`/`galaga-web-test`
+  `galaga-test`/`galaga-web-test`, `pc486-test`/`pc486-web-test`
   (plus `z80-test` for the shared CPU — full ISA, including zexdoc). Pac-Man,
   Frogger, Scramble, Galaxian, and Galaga native jobs `needs: z80-test` and run a board smoke
   rather than re-testing the Z80. `lint` (ESLint, HTMLHint, cppcheck,
@@ -362,6 +362,19 @@ separate suite.
   test` (Playwright). Ships a from-scratch self-test ROM; a real Midway
   `galagamw` set is opt-in and browser-local — see `GALAGA_REVIEW.md`.
   The wavetable generator lives in `retroweb/shared/namco/`.
+- **486DX2-66 Gaming PC** (`retroweb/pc486/`): `make -C retroweb/pc486 check`
+  (GoogleTest over the 80486 core, chipset, EGA/VGA+VBE, WD1003, ATAPI
+  CD-ROM, Sound Blaster 16 and its OPL3), `make -C retroweb/pc486/web
+  pc486.js roms hdd-image cdrom-image driver-images`, `make -C
+  retroweb/pc486/web test-install test` (Playwright). The FreeDOS HDD image
+  is a real, slow installer run the first time and cached after that (see
+  `PC486_REVIEW.md` §11); the CuteMouse driver floppy the Drivers panel
+  offers is built from that image and needs `mtools` on PATH.
+  `make -C retroweb/pc486/web pc486-perf.js` builds a *second* wasm with the
+  emulator's own performance counters compiled in (`PC486_PERF`), which
+  `?perf` loads for the Performance panel's Tier 2 — the shipped binary
+  carries none of them, since they sit on the hottest paths there are. CI
+  builds and tests both; see `PC486_REVIEW.md` §23.
 - Front ends live in each machine's own `web/`; generated wasm/ROM/media
   files (`retro8080.js`/`.wasm`, `cgoac6502.js`/`.wasm`/`roms/*.bin`,
   `ibmpcat.js`/`.wasm`, `pacman.js`/`.wasm`, `frogger.js`/`.wasm`,

@@ -27,6 +27,7 @@ export default [
       "galaga/web/galaga.js",
       "scramble/web/scramble.js",
       "pc486/web/pc486.js",
+      "pc486/web/pc486-perf.js",
     ],
   },
   {

@@ -157,9 +157,13 @@ public:
     bool tick(uint64_t cpu_cycles, double cpu_hz) {
         note_a20();
         if (cpu_cycles < next_service_) return false;
+        PC486_PERF_BUMP(perf_services);
         service(cpu_cycles, cpu_hz);
         return true;
     }
+#ifdef PC486_PERF
+    uint64_t perf_services = 0;
+#endif
 
     // Services one INTA cycle: cascades through the slave when the
     // master's highest-pending line is IR2, exactly like real AT-derived

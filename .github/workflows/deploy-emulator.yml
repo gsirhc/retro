@@ -306,6 +306,10 @@ jobs:
       - working-directory: retroweb/pc486/web
         run: make roms
 
+      # mtools builds the CuteMouse driver floppy from the FreeDOS image --
+      # see retroweb/pc486/disks/build-ctmouse-floppy.sh.
+      - run: sudo apt-get update && sudo apt-get install -y mtools
+
       - name: Cache pc486 FreeDOS CD-ROM ISO
         id: pc486-cd
         uses: actions/cache@v4
@@ -330,8 +334,11 @@ jobs:
         if: steps.pc486-hdd.outputs.cache-hit != 'true'
         run: make -C retroweb/pc486 hdd-image
 
+      # Both binaries: the shipped one and the instrumented twin the
+      # Performance panel's ?perf loads. Building only the shipped one would
+      # let the PC486_PERF paths rot unnoticed -- nothing else compiles them.
       - working-directory: retroweb/pc486/web
-        run: make pc486.js hdd-image cdrom-image shared
+        run: make pc486.js pc486-perf.js hdd-image cdrom-image driver-images shared
 
       - uses: actions/setup-node@v4
         with:
@@ -342,6 +349,17 @@ jobs:
 
       - working-directory: retroweb/pc486/web
         run: make test
+
+      # The suite above runs against whichever binary ?perf picks, which is
+      # the instrumented one. Run the Performance panel's own spec again with
+      # that binary hidden, so the shipped-build path -- Tier 1 only, no
+      # counters -- is exercised too rather than merely assumed.
+      - name: pc486 Performance panel against the shipped binary
+        working-directory: retroweb/pc486/web
+        run: |
+          mv pc486-perf.js pc486-perf.js.hidden
+          npx playwright test tests/performance.spec.ts
+          mv pc486-perf.js.hidden pc486-perf.js
 
       - if: failure()
         uses: actions/upload-artifact@v4
@@ -670,6 +688,10 @@ jobs:
       # PC486_REVIEW.md §5) -- genuinely slow, so it's cached across runs,
       # keyed on everything that could change its bytes. The CD-ROM ISO is
       # a ~400MB download with its own cache.
+      # mtools builds the CuteMouse driver floppy from the FreeDOS image --
+      # see retroweb/pc486/disks/build-ctmouse-floppy.sh.
+      - run: sudo apt-get update && sudo apt-get install -y mtools
+
       - name: Cache pc486 FreeDOS CD-ROM ISO
         id: pc486-cd
         uses: actions/cache@v4
@@ -695,7 +717,7 @@ jobs:
         run: make -C retroweb/pc486 hdd-image
 
       - working-directory: retroweb/pc486/web
-        run: make pc486.js roms hdd-image cdrom-image shared
+        run: make pc486.js pc486-perf.js roms hdd-image cdrom-image driver-images shared
 
       # stage the site: retroweb/index.html at the root, the Altair front end
       # at /altair8800/, 6502 Assembler at /assembler6502/, IBM PC/AT at

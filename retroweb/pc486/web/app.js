@@ -442,6 +442,7 @@
   speakerCheckbox.checked = false;
   let audioCtx = null, speakerNode = null, lastLevel = false;
   let sbNode = null, lastSbLeft = 0, lastSbRight = 0, lastFmLeft = 0, lastFmRight = 0;
+  let audioStats = null;
 
   // The worklet module's source, registered from a Blob URL rather than a
   // separate fetched file -- keeps the whole speaker path in this one
@@ -575,6 +576,12 @@
         // hadn't reached yet and hadn't been overwritten -- heard as that
         // sound looping on its own long after the emulator went silent.
         this.targetAvailable = Math.round(sampleRate * 0.05);  // 50ms, see comment above
+        // Health counters for the Performance panel. Underruns are the
+        // interesting one: the ring running dry is what "the sound got off"
+        // actually is, and nothing on the main thread can observe it.
+        this.starved = 0;
+        this.trimmed = 0;
+        this.statFrames = 0;
         this.port.onmessage = (e) => {
           const { left, right } = e.data;
           for (let i = 0; i < left.length; i++) {
@@ -594,6 +601,7 @@
           const drop = this.available - this.targetAvailable;
           this.readIdx = (this.readIdx + drop) % this.left.length;
           this.available = this.targetAvailable;
+          this.trimmed += drop;
         }
         const outL = outputs[0][0], outR = outputs[0][1];
         for (let i = 0; i < outL.length; i++) {
@@ -602,9 +610,21 @@
             this.lastRight = this.right[this.readIdx];
             this.readIdx = (this.readIdx + 1) % this.left.length;
             this.available--;
+          } else {
+            this.starved++;
           }
           outL[i] = this.lastLeft;
           outR[i] = this.lastRight;
+        }
+        this.statFrames += outL.length;
+        if (this.statFrames >= sampleRate / 2) {   // twice a second
+          this.port.postMessage({
+            stats: { depth: this.available, starved: this.starved,
+                     trimmed: this.trimmed, secs: this.statFrames / sampleRate },
+          });
+          this.statFrames = 0;
+          this.starved = 0;
+          this.trimmed = 0;
         }
         return true;
       }
@@ -652,6 +672,11 @@
       URL.revokeObjectURL(sbBlobUrl);
     }
     sbNode = new AudioWorkletNode(audioCtx, "sb16-processor", { numberOfOutputs: 1, outputChannelCount: [2] });
+    // The ring's own view of its health -- depth, and how often it ran dry.
+    // Only the worklet thread can see this; the pump cannot.
+    sbNode.port.onmessage = (e) => {
+      if (e.data && e.data.stats) audioStats = e.data.stats;
+    };
     sbNode.connect(audioCtx.destination);
   }
   speakerCheckbox.addEventListener("change", () => {
@@ -749,7 +774,386 @@
       cyclesPerRealSecond, sampleRate, lastFmLeft, lastFmRight,
       machine.fmGainLeft(), machine.fmGainRight());
 
+    if (dbg.on) { dbg.posted += sampleCount; dbg.dsp += s.cycles.length; dbg.fm += fm.cycles.length; }
     sbNode.port.postMessage({ left, right }, [left.buffer, right.buffer]);
+  }
+
+  // Names for the opcode forms a DOS game actually spends its time in --
+  // enough to read the histogram at a glance without an opcode map open.
+  // Anything unlisted shows as its raw byte.
+  const kOpNames = {
+    "88": "mov rm8,r8", "89": "mov rm,r", "8A": "mov r8,rm8", "8B": "mov r,rm",
+    "8D": "lea", "8E": "mov sreg,rm", "8F": "pop rm",
+    "00": "add rm8,r8", "01": "add rm,r", "02": "add r8,rm8", "03": "add r,rm",
+    "28": "sub rm8,r8", "29": "sub rm,r", "2B": "sub r,rm",
+    "30": "xor rm8,r8", "31": "xor rm,r", "33": "xor r,rm",
+    "20": "and rm8,r8", "21": "and rm,r", "23": "and r,rm",
+    "38": "cmp rm8,r8", "39": "cmp rm,r", "3A": "cmp r8,rm8", "3B": "cmp r,rm",
+    "3C": "cmp al,imm8", "3D": "cmp eax,imm",
+    "80": "grp1 rm8,imm8", "81": "grp1 rm,imm", "83": "grp1 rm,imm8",
+    "84": "test rm8,r8", "85": "test rm,r",
+    "C0": "shift rm8,imm", "C1": "shift rm,imm", "D0": "shift rm8,1",
+    "D1": "shift rm,1", "D3": "shift rm,cl",
+    "F6": "grp3 rm8", "F7": "grp3 rm", "FE": "inc/dec rm8", "FF": "grp5 rm",
+    "50": "push r", "58": "pop r", "68": "push imm", "6A": "push imm8",
+    "E8": "call rel", "E9": "jmp rel", "EB": "jmp short", "C3": "ret",
+    "74": "je", "75": "jne", "72": "jb", "73": "jae", "7C": "jl", "7D": "jge",
+    "7E": "jle", "7F": "jg", "76": "jbe", "77": "ja",
+    "A4": "movsb", "A5": "movsd", "AA": "stosb", "AB": "stosd",
+    "AC": "lodsb", "AD": "lodsd", "B0": "mov al,imm", "B8": "mov eax,imm",
+    "C6": "mov rm8,imm", "C7": "mov rm,imm",
+    "26": "pfx es", "2E": "pfx cs", "36": "pfx ss", "3E": "pfx ds",
+    "64": "pfx fs", "65": "pfx gs", "66": "pfx opsize", "67": "pfx addrsize",
+    "F2": "pfx repnz", "F3": "pfx rep",
+    "0fA4": "shld rm,r,imm", "0fA5": "shld rm,r,cl",
+    "0fAC": "shrd rm,r,imm", "0fAD": "shrd rm,r,cl",
+    "0fAF": "imul r,rm", "0fB6": "movzx r,rm8", "0fB7": "movzx r,rm16",
+    "0fBE": "movsx r,rm8", "0fBF": "movsx r,rm16", "0f84": "je near",
+    "0f85": "jne near", "0f45": "cmovne", "0f44": "cmove",
+  };
+  function opName(tok) {
+    const key = tok.startsWith("0f") ? tok : tok.toUpperCase();
+    return kOpNames[key] || kOpNames[tok] || tok;
+  }
+
+  // ?perf asks for the instrumented build: a separate binary carrying the
+  // emulator's own counters (the panel's Tier 2). The shipped one has none
+  // of them -- they sit on the hottest paths there are. Only one of the two
+  // is ever fetched, and if the instrumented build is missing we fall back
+  // so the panel still gets its host-side half instead of the page failing.
+  const perfRequested = new URLSearchParams(location.search).has("perf");
+  function loadScript(src) {
+    return new Promise((resolve, reject) => {
+      const el = document.createElement("script");
+      el.src = src;
+      el.onload = () => resolve();
+      el.onerror = () => reject(new Error("could not load " + src));
+      document.head.appendChild(el);
+    });
+  }
+  async function loadEmulatorModule() {
+    let src = "pc486.js";
+    if (perfRequested) {
+      // Ask whether the instrumented build was deployed BEFORE committing to
+      // it, so exactly one module script is ever appended -- appending a
+      // second after a failed one leaves the page with two half-initialized
+      // emscripten modules and no machine at all.
+      try {
+        const head = await fetch("pc486-perf.js", { method: "HEAD" });
+        if (head.ok) src = "pc486-perf.js";
+        else console.warn("instrumented build not deployed -- host metrics only");
+      } catch (err) {
+        console.warn("instrumented build not reachable -- host metrics only:", err);
+      }
+    }
+    await loadScript(src);
+  }
+
+  // Per-second accumulators behind the Performance panel. dbg.on is set only
+  // while the panel is open, so a normal visit does no bookkeeping -- the
+  // cost of measuring stays out of the thing being measured.
+  const dbg = { on: false, emuMs: 0, renderMs: 0, frames: 0, dropped: 0, pumps: 0,
+                posted: 0, dsp: 0, fm: 0 };
+
+  // A Task Manager-style trace of the last minute: filled area for the main
+  // thread's share of one core, line for the emulated clock against its real
+  // 66 MHz. Both are percentages on the same axis, so one chart shows "is it
+  // busy" and "is it keeping up" together -- which is the pair that matters,
+  // since the clock only falls once the thread runs out of room.
+  function drawPerfChart(c, canvas, history) {
+    const w = canvas.width, h = canvas.height;
+    c.clearRect(0, 0, w, h);
+    c.fillStyle = "#0b0f0b";
+    c.fillRect(0, 0, w, h);
+
+    c.strokeStyle = "#1e2c1e";
+    c.lineWidth = 1;
+    for (let i = 1; i < 4; i++) {          // 25/50/75%
+      const y = Math.round(h * i / 4) + 0.5;
+      c.beginPath(); c.moveTo(0, y); c.lineTo(w, y); c.stroke();
+    }
+    for (let i = 1; i < 6; i++) {          // every 10s across a 60s window
+      const x = Math.round(w * i / 6) + 0.5;
+      c.beginPath(); c.moveTo(x, 0); c.lineTo(x, h); c.stroke();
+    }
+
+    const n = 60;                           // fixed window, so it scrolls
+    const xAt = (i) => (i / (n - 1)) * w;
+    const yAt = (pct) => h - Math.max(0, Math.min(120, pct)) / 120 * h;
+    const first = n - history.length;
+
+    if (history.length > 1) {
+      c.beginPath();
+      c.moveTo(xAt(first), h);
+      history.forEach((p, i) => c.lineTo(xAt(first + i), yAt(p.cpu)));
+      c.lineTo(xAt(first + history.length - 1), h);
+      c.closePath();
+      c.fillStyle = "rgba(64, 160, 255, 0.28)";
+      c.fill();
+      c.beginPath();
+      history.forEach((p, i) => {
+        const x = xAt(first + i), y = yAt(p.cpu);
+        if (i === 0) c.moveTo(x, y); else c.lineTo(x, y);
+      });
+      c.strokeStyle = "#5ab0ff";
+      c.lineWidth = 1.5;
+      c.stroke();
+
+      c.beginPath();
+      history.forEach((p, i) => {
+        const x = xAt(first + i), y = yAt(p.clock);
+        if (i === 0) c.moveTo(x, y); else c.lineTo(x, y);
+      });
+      c.strokeStyle = "#6f6";
+      c.lineWidth = 1.5;
+      c.stroke();
+    }
+
+    // 100% is where the clock should sit and where the thread runs out.
+    const full = Math.round(yAt(100)) + 0.5;
+    c.strokeStyle = "#4a5a4a";
+    c.setLineDash([3, 3]);
+    c.beginPath(); c.moveTo(0, full); c.lineTo(w, full); c.stroke();
+    c.setLineDash([]);
+
+    c.font = "11px ui-monospace, Menlo, Consolas, monospace";
+    c.fillStyle = "#5ab0ff";
+    c.fillText("486 cpu", 6, 13);
+    c.fillStyle = "#6f6";
+    c.fillText("clock", 56, 13);
+    c.fillStyle = "#6a7a6a";
+    c.fillText("60s", w - 26, h - 5);
+  }
+
+  // The host's side of the same minute: the share of one core this page is
+  // using, and the frame rate it is managing. Separate from the 486's chart
+  // because these are the browser's numbers, not the machine's -- and
+  // because a fullscreen stall shows here as draw cost and falling fps while
+  // the machine's own chart barely moves.
+  function drawHostChart(c, canvas, history) {
+    const w = canvas.width, h = canvas.height;
+    c.fillStyle = "#0b0f0b";
+    c.fillRect(0, 0, w, h);
+
+    c.strokeStyle = "#1e2c1e";
+    c.lineWidth = 1;
+    for (let i = 1; i < 4; i++) {
+      const y = Math.round(h * i / 4) + 0.5;
+      c.beginPath(); c.moveTo(0, y); c.lineTo(w, y); c.stroke();
+    }
+    for (let i = 1; i < 6; i++) {
+      const x = Math.round(w * i / 6) + 0.5;
+      c.beginPath(); c.moveTo(x, 0); c.lineTo(x, h); c.stroke();
+    }
+
+    const n = 60;
+    const xAt = (i) => (i / (n - 1)) * w;
+    const first = n - history.length;
+    // fps has no natural percentage, so it gets its own scale off the
+    // fastest rate actually seen -- a 60Hz display would otherwise sit at
+    // half height forever and read as a problem.
+    let fpsMax = 60;
+    for (const p of history) if (p.fps > fpsMax) fpsMax = p.fps;
+    fpsMax = Math.ceil(fpsMax / 30) * 30;
+
+    if (history.length > 1) {
+      c.beginPath();
+      c.moveTo(xAt(first), h);
+      history.forEach((p, i) => c.lineTo(xAt(first + i), h - Math.min(100, p.host) / 120 * h));
+      c.lineTo(xAt(first + history.length - 1), h);
+      c.closePath();
+      c.fillStyle = "rgba(255, 176, 64, 0.26)";
+      c.fill();
+      c.beginPath();
+      history.forEach((p, i) => {
+        const x = xAt(first + i), y = h - Math.min(100, p.host) / 120 * h;
+        if (i === 0) c.moveTo(x, y); else c.lineTo(x, y);
+      });
+      c.strokeStyle = "#ffb040";
+      c.lineWidth = 1.5;
+      c.stroke();
+
+      c.beginPath();
+      history.forEach((p, i) => {
+        const x = xAt(first + i), y = h - Math.min(1, p.fps / fpsMax) * h * (100 / 120);
+        if (i === 0) c.moveTo(x, y); else c.lineTo(x, y);
+      });
+      c.strokeStyle = "#8ad";
+      c.lineWidth = 1.5;
+      c.stroke();
+    }
+
+    const full = Math.round(h - 100 / 120 * h) + 0.5;
+    c.strokeStyle = "#4a5a4a";
+    c.setLineDash([3, 3]);
+    c.beginPath(); c.moveTo(0, full); c.lineTo(w, full); c.stroke();
+    c.setLineDash([]);
+
+    c.font = "11px ui-monospace, Menlo, Consolas, monospace";
+    c.fillStyle = "#ffb040";
+    c.fillText("host core", 6, 13);
+    c.fillStyle = "#8ad";
+    c.fillText("fps (max " + fpsMax + ")", 72, 13);
+    c.fillStyle = "#6a7a6a";
+    c.fillText("60s", w - 26, h - 5);
+  }
+
+  // ---- performance panel -------------------------------------------
+  // Shown only when the wasm module reports a debug build (web/Makefile's
+  // DEBUG_PERF=1); a shipped machine has neither the counters nor the panel.
+  // Everything lands in the page rather than the console deliberately:
+  // reading it needs no DevTools, and DevTools attached plus a log line a
+  // second spends the very main-thread budget being measured -- which is how
+  // the first round of numbers came out lower than the machine really ran.
+  function startPerfPanel() {
+    const card = document.getElementById("perfCard");
+    const out = document.getElementById("perfReadout");
+    card.hidden = false;
+    dbg.on = true;
+    // Tier 2 is the emulator's own counters, and only the instrumented
+    // binary has them. Saying so on the page matters: absent counters read
+    // as genuine zeros otherwise, which is exactly how a measurement gets
+    // misread.
+    const tier2 = typeof machine.perfBuild === "function" && machine.perfBuild();
+    document.getElementById("perfTier").textContent = tier2
+      ? "Instrumented build (pc486-perf.wasm): host metrics + the emulator's own counters."
+      : "Shipped build: host metrics only. Reload with ?perf after 'make perf-build' for " +
+        "the emulator's internal counters.";
+    const chart = document.getElementById("perfChart");
+    const cctx = chart.getContext("2d");
+    const chart2 = document.getElementById("perfChart2");
+    const cctx2 = chart2.getContext("2d");
+    const history = [];   // {cpu, clock} per second, newest last
+    let c0 = machine.totalCycles(), h0 = machine.haltCycles();
+    let i0 = machine.idleCycles(), t0 = performance.now();
+    // The panel opens before the ROMs load and before power-on, so the first
+    // sample spans a window the machine was not really running in. A
+    // cumulative average that included it would sit permanently wrong -- and
+    // wrong in a way that looks plausible, since the pump can never grant
+    // more than 66 MHz of wall time and a reading above it is the giveaway.
+    let first = true;
+    const recent = [];
+    // Discard whatever accumulated before the panel opened -- only the
+    // instrumented build has counters to discard.
+    if (tier2) machine.perfStats();
+    setInterval(() => {
+      if (!machine) return;
+      const secs = (performance.now() - t0) / 1000;
+      const cyc = Number(machine.totalCycles() - c0);
+      const halt = machine.haltCycles() - h0;
+      const idlePoll = machine.idleCycles() - i0;
+      const stats = tier2 ? machine.perfStats() : "";
+      c0 = machine.totalCycles();
+      h0 = machine.haltCycles();
+      i0 = machine.idleCycles();
+      t0 = performance.now();
+      if (secs <= 0 || cyc <= 0) return;   // powered off, or no time elapsed
+      const mhz = cyc / secs / 1e6;
+      if (first) { first = false; return; }
+      recent.push(mhz);
+      if (recent.length > 30) recent.shift();   // last 30s, so a dip decays out
+      const avg = recent.reduce((a, b) => a + b, 0) / recent.length;
+      // Windowed like the average: a session-wide minimum just reports the
+      // boot or a level load forever, which says nothing about how the
+      // machine is running now.
+      const worst = Math.min(...recent);
+      const per = {};
+      for (const pair of stats.split(" ")) {
+        const [k, v] = pair.split("=");
+        per[k] = Number(v) / secs;
+      }
+      const m = (n) => (n / 1e6).toFixed(2) + "M/s";
+      // Ranked opcode counts -- what the interpreter actually spends itself
+      // on. Frequency, not time: timing each instruction would cost more
+      // than running it.
+      let hot = "";
+      const parts = tier2 ? machine.perfHotOpcodes(8).split(" ") : [];
+      const totalOps = Number((parts.pop() || "total=0").split("=")[1]) || 1;
+      for (const pair of parts) {
+        if (!pair) continue;
+        const eq = pair.lastIndexOf("=");
+        const tok = pair.slice(0, eq), n = Number(pair.slice(eq + 1));
+        hot += "  " + (n / totalOps * 100).toFixed(1).padStart(5) + "%  " +
+               tok.padEnd(5) + opName(tok) + "\n";
+      }
+      const emuMs = dbg.emuMs / secs, renderMs = dbg.renderMs / secs;
+      const fps = dbg.frames / secs, dropped = dbg.dropped / secs;
+      const busy = emuMs + renderMs;
+      const posted = dbg.posted / secs, dspRate = dbg.dsp / secs, fmRate = dbg.fm / secs;
+      dbg.emuMs = dbg.renderMs = dbg.dropped = 0;
+      dbg.frames = dbg.pumps = 0;
+      dbg.posted = dbg.dsp = dbg.fm = 0;
+
+      // The ring's own numbers, reported by the worklet twice a second. A
+      // starved ring is what "the sound got off" is: the emulator can be
+      // keeping perfect time and the audio still break up, because the ring
+      // is fed from the main thread and a stall there empties it.
+      let audio = "audio   off\n";
+      if (audioCtx && sbNode && speakerCheckbox.checked) {
+        const sr = audioCtx.sampleRate;
+        const st = audioStats;
+        const depthMs = st ? (st.depth / sr) * 1000 : 0;
+        const starvedMs = st && st.secs ? (st.starved / sr) * 1000 / st.secs : 0;
+        const trimMs = st && st.secs ? (st.trimmed / sr) * 1000 / st.secs : 0;
+        const outLat = audioCtx.outputLatency || audioCtx.baseLatency || 0;
+        audio =
+          "audio   ring " + depthMs.toFixed(0) + " ms of 50 target   " +
+          audioCtx.state + " " + (sr / 1000).toFixed(1) + " kHz\n" +
+          "        starved " + starvedMs.toFixed(1) + " ms/s   trimmed " +
+          trimMs.toFixed(1) + " ms/s   latency " + (outLat * 1000).toFixed(0) + " ms\n" +
+          "        fed " + (posted / 1000).toFixed(1) + "k/s   dsp " +
+          (dspRate / 1000).toFixed(1) + "k/s   fm " + (fmRate / 1000).toFixed(1) + "k/s\n";
+      }
+      // "CPU" here is the share of ONE core this page's main thread is
+      // using -- the browser exposes no system-wide figure, and claiming one
+      // would be inventing it. Emulation and drawing share that thread, so
+      // it is also the number that decides whether the pump starts dropping.
+      const cpuPct = busy / 10;
+      const cores = navigator.hardwareConcurrency || 0;
+      // Guest RAM lives inside the wasm heap, so its size is the emulator's
+      // real memory footprint. performance.memory is Chrome-only.
+      const heapMB = machine.heapBytes() / 1048576;
+      const jsMem = performance.memory
+        ? (performance.memory.usedJSHeapSize / 1048576).toFixed(0) + " / " +
+          (performance.memory.jsHeapSizeLimit / 1048576).toFixed(0) + " MB JS heap"
+        : "JS heap n/a";
+
+      // The 486's own CPU usage: the share of its cycles spent doing work
+      // rather than halted waiting for an interrupt. Bare DOS busy-waits at
+      // the prompt instead of halting, so 100% here is the honest, period
+      // answer -- an idle driver (FreeDOS's FDAPM, DOS 6's POWER) is what
+      // makes it drop, exactly as on the real machine.
+      const idlePct = cyc > 0 ? Math.min(100, ((halt + idlePoll) / cyc) * 100) : 0;
+      const guestPct = 100 - idlePct;
+      history.push({ cpu: guestPct, clock: mhz / 66 * 100, host: cpuPct, fps: fps });
+      if (history.length > 60) history.shift();
+      drawPerfChart(cctx, chart, history);
+      drawHostChart(cctx2, chart2, history);
+
+      out.innerHTML =
+        "clock   " + mhz.toFixed(1) + " MHz of 66.0  (" + (mhz / 66 * 100).toFixed(0) + "%)\n" +
+        "        avg " + avg.toFixed(1) + " (30s)   min " + worst.toFixed(1) + "\n" +
+        "dropped " + m(dropped) + " cyc  " + (dropped / 66e6 * 100).toFixed(1) + "% of clock\n" +
+        "\n" +
+        "486 cpu " + guestPct.toFixed(0) + "% busy   " + idlePct.toFixed(0) + "% idle\n" +
+        "        idle = halted or spinning in a DOS wait loop\n" +
+        "\n" +
+        "<b>host</b>    " + cpuPct.toFixed(0) + "% of one core" +
+        (cores ? "  (" + cores + " cores)" : "") + "\n" +
+        "  emul  " + emuMs.toFixed(0) + " ms/s\n" +
+        "  draw  " + renderMs.toFixed(0) + " ms/s   " + fps.toFixed(1) + " fps\n" +
+        "  heap  " + heapMB.toFixed(0) + " MB   " + jsMem + "\n" +
+        "\n" + audio +
+        (tier2
+          ? "\ninstrs  " + m(per.instrs) + "   " +
+            (per.instrs ? (cyc / secs / per.instrs).toFixed(2) : "0") + " cyc/instr\n" +
+            "tlb miss " + m(per.tlb_miss) + "\n" +
+            "fetch slow " + m(per.fetch_slow) + "\n" +
+            "mmio    " + m(per.mmio) + "\n" +
+            "service " + m(per.services) + "\n" +
+            "\nhot instructions (share of all executed)\n" + hot
+          : "");
+    }, 1000);
   }
 
   // ---- main loop ---------------------------------------------------
@@ -863,6 +1267,7 @@
     // to the real article than a 486 whose keyboard stops answering.
     const chunkBudget = Math.max(1, Math.floor(cyclesPerMs * kChunkMs));
     if (cyclesThisChunk > chunkBudget) {
+      if (dbg.on) dbg.dropped += cycleCredit - chunkBudget;
       cyclesThisChunk = chunkBudget;
       cycleCredit = 0;
     } else {
@@ -877,6 +1282,7 @@
       // Only re-measure off a chunk long enough to time meaningfully;
       // performance.now()'s resolution makes a sub-millisecond sample noise.
       if (elapsed >= 1) cyclesPerMs += 0.25 * (cyclesThisChunk / elapsed - cyclesPerMs);
+      if (dbg.on) { dbg.emuMs += elapsed; dbg.pumps++; }
     }
 
     pumpAudioCoalesced(chunkStartCycle, cyclesThisChunk, dtSeconds);
@@ -885,6 +1291,7 @@
 
   function frame(t) {
     if (!poweredOn || !machine) return;  // power switched off mid-loop -- stop, don't reschedule
+    const frameT0 = dbg.on ? performance.now() : 0;
     const blinkOn = Math.floor(t / 266) % 2 === 0;  // ~1.9Hz block-cursor blink
     const rgba = machine.renderFrame(blinkOn);
     // Resolution varies by mode (640x400 text, 320x200 CGA-compatible and
@@ -909,6 +1316,7 @@
     cdromBay.querySelector('[data-role="led"]').classList.toggle("on", machine.cdromBusy());
     hddLed.classList.toggle("on", machine.hddBusy());
 
+    if (dbg.on) { dbg.renderMs += performance.now() - frameT0; dbg.frames++; }
     requestAnimationFrame(frame);
   }
 
@@ -1093,6 +1501,7 @@
         lastMachine = null;
       }
       machine = new firmware.Module.Machine();
+      if (perfRequested) startPerfPanel();
       machine.loadRom(0x100000 - firmware.bios.byteLength, new Uint8Array(firmware.bios));
       machine.loadRom(0xC0000, new Uint8Array(firmware.vga));
       machine.mountHdd(savedHdd || new Uint8Array(firmware.hdd));
@@ -1293,6 +1702,7 @@
     // download most sessions never need. Awaited below only in the one
     // case that genuinely needs it -- no saved state at all yet.
     const hddFetchPromise = fetch("disks/freedos-hdd.img").then((r) => r.arrayBuffer());
+    await loadEmulatorModule();
     const [Module, savedHddResult, bios, vga] = await Promise.all([
       Pc486({}),
       loadSavedHdd(),

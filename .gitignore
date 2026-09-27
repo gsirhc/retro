@@ -118,6 +118,8 @@ retroweb/pc486/disks/freedos-boot.img
 retroweb/pc486/disks/ctmouse.img
 retroweb/pc486/web/pc486.js
 retroweb/pc486/web/pc486.wasm
+retroweb/pc486/web/pc486-perf.js
+retroweb/pc486/web/pc486-perf.wasm
 retroweb/pc486/web/roms/
 retroweb/pc486/web/disks/
 retroweb/pc486/web/coverage/

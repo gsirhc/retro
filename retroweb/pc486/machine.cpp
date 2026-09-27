@@ -92,6 +92,7 @@ void Machine::run_cycles(int64_t cycles) {
     service_kbc_reset();
     while (int64_t(total_cycles_) < target) {
         if (on_instruction) on_instruction(on_instruction_ctx, *this);
+        PC486_PERF_BUMP(cpu.perf.instrs);
         int spent = cpu.step();
         total_cycles_ += uint64_t(spent);
         // The 8042 drives the CPU's RESET line from its own output port, and

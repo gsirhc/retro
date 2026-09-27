@@ -118,7 +118,7 @@ _stage:
 	$(MAKE) -C galaga/web wasm roms shared
 	$(MAKE) -C galaxian/web wasm roms shared
 	$(MAKE) -C scramble/web wasm roms shared
-	$(MAKE) -C pc486/web pc486.js roms hdd-image cdrom-image driver-images shared
+	$(MAKE) -C pc486/web pc486.js pc486-perf.js roms hdd-image cdrom-image driver-images shared
 	$(MAKE) site
 
 # Locally-trusted TLS cert for the preview server, covering localhost, this

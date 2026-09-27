@@ -2873,12 +2873,13 @@ commands), and two integration-shaped cases: keyboard and mouse bytes
 interleaving without loss, and the BIOS's own INT 15h AH=C2h init sequence
 run end to end.
 
-The bar this milestone is *not* yet at is the same one every milestone here
-is judged by: real third-party software. A DOS game reaches the mouse
-through INT 33h, which is a driver (FreeDOS ships CTMOUSE), not firmware --
-so "BOOM sees the mouse at its setup screen" needs the chipset's IRQ12
-line, a host-side event path, and that driver on the shipped image before
-it can be claimed.
+The bar every milestone here is judged by is real third-party software. A
+DOS game reaches the mouse through INT 33h, which is a driver (FreeDOS
+ships CTMOUSE), not firmware -- so "a game sees the mouse at its setup
+screen" needed the chipset's IRQ12 line, a host-side event path, and that
+driver actually reachable. The first two landed with this milestone; the
+third is §14's Drivers panel, which hands the machine a CuteMouse diskette.
+Until then the hardware was complete and nothing could use it.
 
 ### 10.7 Sources
 
@@ -4931,3 +4932,139 @@ bitmap. `make check` (all suites) and the `hdd`/`soundblaster`/`speaker`
 Playwright specs -- including "C: persists across a page reload via
 IndexedDB", which exercises the exact patch-then-save path this fix
 changed -- all still pass.
+
+## 22. FM music, and the bugs the Sound Blaster had been hiding
+
+§11 built the SB16's digitized path and left FM as a stated gap. Closing it
+turned up three defects in the path that was already "working", each found
+by measurement rather than reading, and each with a regression test.
+
+**The DSP block length counts DMA cycles, not audio frames.** The Bxh/Cxh
+length is bytes on the 8-bit channel and words on the 16-bit one. Reading it
+as frames made every 8-bit *stereo* block twice too long, so a double-
+buffering driver refilled half a block behind the play position and the
+stale half played again: DOOM 1.2 sounded every effect twice. Mono is
+arithmetically unchanged, which is why the legacy 14h/1Ch paths never showed
+it. SBPG gives the 16-bit length in words, which is only coherent if the
+counter sits on the DMA side of the FIFO -- and that same counter then
+serves stereo.
+
+**0x388/0x389 has to be decoded.** FM ports inside the card's own block were
+not enough: an AdLib-era music driver writes FM registers to 0x388 and never
+touches 220h at all, so the machine detected an OPL and then played nothing.
+This was the review's own "a fake OPL3 that passed detection and then
+produced silence would be worse than absent hardware" failure mode, reached
+by a different route -- detection succeeded, and the writes fell into an
+undecoded hole.
+
+**Pitch ran two octaves sharp.** The phase increment used
+`fnum << (block + 2)` where one lap of the 20-bit accumulator is one cycle
+and wave_sample indexes it as `phase >> 10`, making the correct step
+`fnum << block`. Measured at exactly 4.00x across four octaves against
+F = fnum * kSampleHz / 2^(20-Block), the formula the classic AdLib note
+table is built on (fnum 159h at block 4 is middle C). Nothing in the suite
+pinned pitch until this; two tests now do.
+
+A fourth bug was found by inspection rather than by ear: `Opl3::advance`
+capped a catch-up burst *before* consuming the credit for it, so a long tick
+gap left the shortfall in `frame_credit_` and the chip's clock fell further
+behind on every such call -- music that starts at the right speed and slows
+down indefinitely. Dropping a slice of audio is recoverable; running the
+chip slow is not. Verified by reintroducing the cap order and watching the
+test fail.
+
+## 23. The Performance panel, and what it cost to learn to measure
+
+Doom appeared to run at 85% of real speed, and three rounds of optimisation
+were aimed at that number before the number itself turned out to be the
+artifact: every reading had been taken with DevTools attached and a
+`console.log` per second, which spends the very main-thread budget being
+measured. With DevTools closed the machine sits at 100%.
+
+That is the reason the panel reports to the *page* and never to the console,
+and the reason it is split in two tiers:
+
+- **Tier 1** is pure host-side timing -- achieved clock, dropped cycles, the
+  main thread's share of one core, the emulation/draw split, fps, memory,
+  and the audio ring's health. It needs no instrumentation in the emulator
+  and works against the shipped binary.
+- **Tier 2** is the emulator's own counters -- instructions, cycles per
+  instruction, TLB misses, prefetch-window misses, MMIO accesses, device
+  service passes, and a ranked opcode histogram. These sit on the hottest
+  paths there are, so they are compiled out entirely unless the build sets
+  `PC486_PERF` (`make PERF=1`), which produces a *second* binary,
+  `pc486-perf.wasm`. `?perf` loads it; a page without it falls back to the
+  shipped one and shows Tier 1 alone. The panel says which build it is on,
+  because absent counters otherwise read as genuine zeros.
+
+**Guest CPU usage needed a definition.** DOS has no scheduler and no idle
+accounting, and bare DOS does not halt: COMMAND.COM waits for a key by
+polling INT 16h flat out. Halt cycles alone therefore report ~100% busy at
+an idle prompt, which is true and useless. Idle here means halted *or*
+spinning in a recognisable DOS wait loop -- INT 16h AH=01h/11h, and INT 2Fh
+AX=1680h -- crediting the gap *between* consecutive polls, and only when it
+is short enough to be a tight loop (under 50,000 cycles) rather than a
+program checking the keyboard once a frame while working. It is a labelled
+inference about guest software, never a claim about the hardware, which is
+why the panel spells out what idle means instead of just printing a number.
+
+**Two measurement traps worth recording.** Collapsing the six read-modify-
+writes each ALU primitive does on `eflags` into one produced no measurable
+gain -- clang already does it. And doubling *all* flag computation cost only
+2.4%, which prices the ceiling on lazy flag evaluation: a 16-point shortfall
+against the 18% that was wanted, so the invasive refactor was not attempted.
+Both are negative results, and both are cheaper to record than to rediscover.
+
+## 24. Mode 13h as linear memory
+
+Every VGA memory access went through `mem_read`/`mem_write`'s per-byte
+planar decode, because `page_host()` returned nullptr for the whole
+aperture. Chain-4 already decodes to `vram[off]` exactly -- the
+`((off>>2)<<2) + (off&3) == off` identity is *why* mode 13h looks linear to
+software -- so when every planar stage is pass-through, the CPU's existing
+page map can cache a pointer straight into VRAM.
+
+`Ega::linear_page()` is deliberately conservative, refusing unless chain-4
+is on, write mode is 0, Map Mask is 0Fh, the bit mask is FFh, the rotate
+count is 0 and Enable Set/Reset is clear; reads additionally refuse read
+mode 1. A page must also sit wholly inside the active window. Because the
+page map caches the answer, `mapping_epoch()` moves whenever a register that
+could change it is written, and the chipset turns that into a flush after
+every port write -- built from a signature over only those registers, so the
+palette writes of a fade cost nothing.
+
+Its benefit in DOOM is **unconfirmed**: the profiling that motivated it was
+taken with DevTools attached (§23), and once that was corrected the machine
+was already at 100% with `mmio` unchanged, which means the fast path is not
+engaging for DOOM's writes. It is kept because it is correct and guarded,
+not because it was shown to pay.
+
+## 25. Front-end: a driver disk, and what the panel found
+
+**The Drivers panel** closes §10.6's gap by handing the machine a CuteMouse
+diskette. The files are extracted from the FreeDOS image this machine
+already builds rather than downloaded: CuteMouse's own SourceForge URL
+serves an HTML interstitial to anything without a browser session and the
+FreeDOS ibiblio paths for it 404, so a pinned URL would be a build that
+breaks elsewhere. The bytes inherit the FreeDOS zip's published SHA-256, and
+`build-ctmouse-floppy.sh` re-checks CTMOUSE.EXE against the official 2.1b4
+release hash so a future image carrying a different build fails loudly.
+
+**Esc** joins the Function & extended keys panel: a user's own Esc releases
+pointer lock and leaves fullscreen rather than reaching DOS, and the bezel's
+copy is easy to miss. **Map WASD to Arrow Keys** is off by default and
+translates at the browser edge, so the guest still receives genuine arrow
+scancodes -- DOOM 1.2 and its contemporaries predate WASD.
+
+**The CRT overlay is removed.** It was a `mix-blend-mode: multiply` layer
+with a repeating 1px scanline gradient, blended against the canvas on every
+composited frame. Windowed that is ~860x470 px and invisible in the
+profile; fullscreen it is several million, and blend modes routinely defeat
+GPU fast paths. Fullscreen frame rate collapsed while `draw` time *fell*
+(fewer rAF callbacks doing the same work) and not one emulated cycle was
+dropped -- the cost was entirely in the browser's compositing, after the
+canvas was handed over, where no JS timer can see it. Removing it restored
+the frame rate and lifted the clock minimum from 60.2 to 65.7 MHz. The
+panel found this only because it measures the host's frame rate and the
+emulator's dropped cycles separately; either number alone points the wrong
+way.
