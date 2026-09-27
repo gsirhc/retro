@@ -298,8 +298,9 @@ jobs:
     runs-on: ubuntu-latest
     # Suite is host-bound near real 66 MHz (PC486_REVIEW.md §8.6); without a
     # cap a stuck boot waits out the runner's 6 h default. Warm-cache target
-    # is under 10 minutes; 20 leaves room for a cold HDD-image rebuild.
-    timeout-minutes: 20
+    # is under 10 minutes for make test; 45 leaves room for a cold ~8 min
+    # HDD-image rebuild plus the suite.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
@@ -327,9 +328,12 @@ jobs:
         if: steps.pc486-cd.outputs.cache-hit != 'true'
         run: bash retroweb/pc486/disks/fetch-freedos-cd.sh
 
-      - name: Cache pc486 FreeDOS HDD image
+      # restore/save split so a cancelled or timed-out suite still leaves the
+      # ~8 min HDD image in cache for the next run (combined cache@v4 only
+      # uploads in the post step, which cancel skips).
+      - name: Restore pc486 FreeDOS HDD image
         id: pc486-hdd
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: retroweb/pc486/disks/freedos-hdd.img
           key: pc486-hdd-${{ hashFiles('retroweb/pc486/*.h', 'retroweb/pc486/*.cpp', 'retroweb/pc486/disks/*.cpp', 'retroweb/pc486/disks/*.sh', 'retroweb/pc486/roms/*.sh') }}
@@ -337,6 +341,13 @@ jobs:
       - name: Build pc486 FreeDOS HDD image
         if: steps.pc486-hdd.outputs.cache-hit != 'true'
         run: make -C retroweb/pc486 hdd-image
+
+      - name: Save pc486 FreeDOS HDD image
+        if: steps.pc486-hdd.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: retroweb/pc486/disks/freedos-hdd.img
+          key: pc486-hdd-${{ hashFiles('retroweb/pc486/*.h', 'retroweb/pc486/*.cpp', 'retroweb/pc486/disks/*.cpp', 'retroweb/pc486/disks/*.sh', 'retroweb/pc486/roms/*.sh') }}
 
       # Both binaries: the shipped one and the instrumented twin the
       # Performance panel's ?perf loads. Building only the shipped one would
@@ -709,9 +720,9 @@ jobs:
         if: steps.pc486-cd.outputs.cache-hit != 'true'
         run: bash retroweb/pc486/disks/fetch-freedos-cd.sh
 
-      - name: Cache pc486 FreeDOS HDD image
+      - name: Restore pc486 FreeDOS HDD image
         id: pc486-hdd
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: retroweb/pc486/disks/freedos-hdd.img
           key: pc486-hdd-${{ hashFiles('retroweb/pc486/*.h', 'retroweb/pc486/*.cpp', 'retroweb/pc486/disks/*.cpp', 'retroweb/pc486/disks/*.sh', 'retroweb/pc486/roms/*.sh') }}
@@ -719,6 +730,13 @@ jobs:
       - name: Build pc486 FreeDOS HDD image
         if: steps.pc486-hdd.outputs.cache-hit != 'true'
         run: make -C retroweb/pc486 hdd-image
+
+      - name: Save pc486 FreeDOS HDD image
+        if: steps.pc486-hdd.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: retroweb/pc486/disks/freedos-hdd.img
+          key: pc486-hdd-${{ hashFiles('retroweb/pc486/*.h', 'retroweb/pc486/*.cpp', 'retroweb/pc486/disks/*.cpp', 'retroweb/pc486/disks/*.sh', 'retroweb/pc486/roms/*.sh') }}
 
       - working-directory: retroweb/pc486/web
         run: make pc486.js pc486-perf.js roms hdd-image cdrom-image driver-images shared
