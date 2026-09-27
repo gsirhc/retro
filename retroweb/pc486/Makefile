@@ -146,6 +146,14 @@ hdd-image: bios disks/build_freedos_hdd disks/freedos-cd.iso disks/freedos-boot.
 	./disks/build_freedos_hdd roms/BIOS-bochs-legacy roms/VGABIOS-lgpl-latest.bin \
 	  disks/freedos-boot.img disks/freedos-cd.iso disks/freedos-hdd.img
 
+# The CuteMouse driver floppy the Drivers panel offers. Built from the files
+# already on the FreeDOS HDD image rather than fetched separately -- see
+# disks/build-ctmouse-floppy.sh for why, and for the checksum it enforces.
+disks/ctmouse.img: disks/build-ctmouse-floppy.sh disks/freedos-hdd.img
+	bash disks/build-ctmouse-floppy.sh
+
+ctmouse-image: disks/ctmouse.img
+
 # --- boot the finished HDD image standalone (no floppy), the actual
 # "does this image work?" check -- see hdd_boot_check.cpp.
 hdd-boot-check: bios disks/hdd_boot_check

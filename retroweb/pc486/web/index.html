@@ -351,12 +351,13 @@
         </div>
       </div>
       <div class="row audio-row">
-        <label><input type="checkbox" id="speakerEnabled"> Enable sound (PC speaker + Sound Blaster 16)</label>
-        <span class="muted">Off by default -- browsers block audio until you opt in, and so does this control.</span>
+        <label><input type="checkbox" id="speakerEnabled"> Enable Sound</label>
       </div>
       <div class="row mouse-row">
-        <label><input type="checkbox" id="mouseCaptureEnabled"> Enable mouse (click screen to capture, Esc releases)</label>
-        <span class="muted">Off by default -- captures your pointer while the screen has focus.</span>
+        <label><input type="checkbox" id="mouseCaptureEnabled"> Enable Mouse</label>
+      </div>
+      <div class="row wasd-row">
+        <label><input type="checkbox" id="wasdArrows"> Map WASD to Arrow Keys</label>
       </div>
     </div>
 
@@ -390,6 +391,7 @@
       </div>
       <span class="muted">Extra keys, for keyboards without a dedicated key of their own:</span>
       <div class="row" id="extraKeyRow">
+        <button type="button" data-key="Escape" disabled>Esc</button>
         <button type="button" data-key="Insert" disabled>Insert</button>
         <button type="button" data-key="Delete" disabled>Delete</button>
         <button type="button" data-key="Home" disabled>Home</button>
@@ -469,6 +471,14 @@
             </div>
           </div>
         </div>
+      </div>
+    </div>
+
+    <div class="panel" id="driversCard">
+      <h2>Drivers</h2>
+      <div class="row">
+        <button type="button" id="ctmouseBtn">Insert CuteMouse driver disk</button>
+        <span class="muted" id="ctmouseStatus"></span>
       </div>
     </div>
 

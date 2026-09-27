@@ -150,9 +150,30 @@
     for (const code of heldKeys) sendKey(code, true);
     heldKeys.clear();
   }
+  // Doom 1.2 and its contemporaries predate WASD: they default to the arrow
+  // cluster, with Ctrl/Alt/Shift for fire/strafe/run. This translates the
+  // modern habit at the browser edge, so the guest still receives genuine
+  // arrow-key scancodes -- nothing in the emulated keyboard changes, and a
+  // program that reads the arrows cannot tell the difference.
+  const kWasdToArrows = {
+    KeyW: "ArrowUp", KeyA: "ArrowLeft", KeyS: "ArrowDown", KeyD: "ArrowRight",
+  };
+  const wasdCheckbox = document.getElementById("wasdArrows");
+  function mapKey(code) {
+    return wasdCheckbox.checked ? (kWasdToArrows[code] || code) : code;
+  }
   const screenEl = document.getElementById("screen");
-  screenEl.addEventListener("keydown", (e) => { heldKeys.add(e.code); sendKey(e.code, false); e.preventDefault(); });
-  screenEl.addEventListener("keyup", (e) => { heldKeys.delete(e.code); sendKey(e.code, true); e.preventDefault(); });
+  screenEl.addEventListener("keydown", (e) => {
+    const code = mapKey(e.code);
+    heldKeys.add(code); sendKey(code, false); e.preventDefault();
+  });
+  screenEl.addEventListener("keyup", (e) => {
+    const code = mapKey(e.code);
+    heldKeys.delete(code); sendKey(code, true); e.preventDefault();
+  });
+  // heldKeys tracks the *mapped* code, so toggling mid-hold would otherwise
+  // leave the guest holding a key whose break code never arrives.
+  wasdCheckbox.addEventListener("change", releaseAllHeldKeys);
   screenEl.addEventListener("click", () => {
     screenEl.focus();
     if (mouseCaptureCheckbox.checked && document.pointerLockElement !== screenEl) screenEl.requestPointerLock();
@@ -327,6 +348,38 @@
   // cost with no runtime benefit -- "Load FreeDOS CD..." below fetches
   // that same shipped .iso lazily, only when someone actually wants it in
   // the drive (see PC486_REVIEW.md).
+  // ---- drivers -----------------------------------------------------
+  // Fetches the CuteMouse floppy this machine builds (web/disks/ctmouse.img,
+  // see disks/build-ctmouse-floppy.sh) and puts it in drive A:, taking the
+  // same path a file the user picked would -- so ejecting, writing and the
+  // pending-image handling all behave identically. The button stays live: a
+  // real drive takes a diskette whenever you hand it one, including over a
+  // disk already in the bay.
+  {
+    const btn = document.getElementById("ctmouseBtn");
+    const status = document.getElementById("ctmouseStatus");
+    btn.addEventListener("click", async () => {
+      status.textContent = "Fetching\u2026";
+      try {
+        const res = await fetch("disks/ctmouse.img");
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const bytes = new Uint8Array(await res.arrayBuffer());
+        pendingFloppy = { name: "ctmouse.img", bytes };
+        if (machine) machine.mountFloppy(bytes);
+        setBayLoaded(floppyBay, "ctmouse.img");
+        status.innerHTML =
+          "In drive A:. At the prompt: <code>A:</code> then <code>CTMOUSE /P</code> " +
+          "-- it stays resident in memory, so you can eject the disk afterwards, but " +
+          "it is gone at the next reboot. <code>MOUSETST</code> checks it. " +
+          "To load it every boot: <code>COPY CTMOUSE.EXE C:\\</code> and add " +
+          "<code>C:\\CTMOUSE /P</code> to <code>AUTOEXEC.BAT</code>.";
+      } catch (err) {
+        console.error("could not load the CuteMouse driver disk:", err);
+        status.textContent = "Could not fetch the driver disk -- see the console.";
+      }
+    });
+  }
+
   const cdromBay = document.querySelector('.at-bay[data-drive="cdrom"]');
   {
     const fileInput = cdromBay.querySelector('[data-role="file"]');

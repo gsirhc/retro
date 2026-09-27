@@ -108,12 +108,23 @@ disks/freedos-cd.iso: $(CORE)/disks/freedos-cd.iso
 	mkdir -p disks
 	cp $(CORE)/disks/freedos-cd.iso disks/
 
+# The Drivers panel fetches this at runtime, so it has to live under web/ --
+# nothing one level up is staged (see retroweb/README.md).
+$(CORE)/disks/ctmouse.img:
+	$(MAKE) -C $(CORE) disks/ctmouse.img
+
+disks/ctmouse.img: $(CORE)/disks/ctmouse.img
+	mkdir -p disks
+	cp $(CORE)/disks/ctmouse.img disks/
+
+driver-images: disks/ctmouse.img
+
 cdrom-image: disks/freedos-cd.iso
 
 # Port 8000, matching every other machine's own `make serve` default --
 # this machine's Playwright suite reserves ports 8400/8410 instead (see
 # `test` below), precisely so it never collides with a hand-run `make serve`.
-serve: pc486.js roms shared cdrom-image
+serve: pc486.js roms shared cdrom-image driver-images
 	@if [ ! -f disks/freedos-hdd.img ]; then \
 	  echo "disks/freedos-hdd.img not found -- run 'make hdd-image' first"; \
 	  echo "(NOT YET IMPLEMENTED for this machine -- see ../Makefile's MILESTONE 1 STATUS note)."; \
@@ -127,7 +138,7 @@ serve: pc486.js roms shared cdrom-image
 # 8400/8410 (this suite's own webServer block in playwright.config.ts) are
 # dedicated to this machine's Playwright run -- 8100 altair8800, 8200
 # assembler6502, 8300/8310 ibmpc-at, so 8400/8410 is the next free pair.
-test: pc486.js roms shared cdrom-image
+test: pc486.js roms shared cdrom-image driver-images
 	@if [ ! -f disks/freedos-hdd.img ]; then \
 	  echo "disks/freedos-hdd.img not found -- run 'make hdd-image' first"; \
 	  echo "(NOT YET IMPLEMENTED for this machine -- see ../Makefile's MILESTONE 1 STATUS note)."; \
