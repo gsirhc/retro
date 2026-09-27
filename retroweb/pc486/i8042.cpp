@@ -346,19 +346,19 @@ void I8042::aux_write(uint8_t v) {
     if (mouse_.expect_param != 0) {
         uint8_t cmd = mouse_.expect_param;
         mouse_.expect_param = 0;
-        const uint8_t ack = 0xFA;
+        const uint8_t ack[1] = {0xFA};
         if (cmd == 0xF3) {
             // Valid rates are 10, 20, 40, 60, 80, 100 and 200 samples/sec.
             mouse_.sample_rate = v;
         } else if (cmd == 0xE8) {
             mouse_.resolution = v & 0x03;  // 0..3 => 1/2/4/8 counts/mm
         }
-        aux_respond(&ack, 1);
+        aux_respond(ack, 1);
         mouse_clear_counters();
         return;
     }
 
-    const uint8_t ack = 0xFA;
+    const uint8_t ack[1] = {0xFA};
     switch (v) {
         case 0xFF: {  // Reset
             // ACK, then the BAT result, then the device ID -- three
@@ -385,20 +385,20 @@ void I8042::aux_write(uint8_t v) {
         case 0xF6:  // Set defaults
             mouse_set_defaults();
             mouse_.mode = MouseMode::kStream;
-            aux_respond(&ack, 1);
+            aux_respond(ack, 1);
             break;
         case 0xF5:  // Disable data reporting
             mouse_.reporting = false;
-            aux_respond(&ack, 1);
+            aux_respond(ack, 1);
             break;
         case 0xF4:  // Enable data reporting
             mouse_.reporting = true;
-            aux_respond(&ack, 1);
+            aux_respond(ack, 1);
             break;
         case 0xF3:  // Set sample rate: ACK, then one argument byte
         case 0xE8:  // Set resolution: ACK, then one argument byte
             mouse_.expect_param = v;
-            aux_respond(&ack, 1);
+            aux_respond(ack, 1);
             break;
         case 0xF2: {  // Get device ID
             const uint8_t resp[2] = {0xFA, 0x00};  // 0x00: standard PS/2 mouse
@@ -407,24 +407,24 @@ void I8042::aux_write(uint8_t v) {
         }
         case 0xF0:  // Set remote mode
             mouse_.mode = MouseMode::kRemote;
-            aux_respond(&ack, 1);
+            aux_respond(ack, 1);
             break;
         case 0xEE:  // Set wrap mode
             mouse_.mode_before_wrap = mouse_.mode;
             mouse_.mode = MouseMode::kWrap;
-            aux_respond(&ack, 1);
+            aux_respond(ack, 1);
             break;
         case 0xEC:  // Reset wrap mode -- back to whatever mode preceded it
             if (mouse_.mode == MouseMode::kWrap) mouse_.mode = mouse_.mode_before_wrap;
-            aux_respond(&ack, 1);
+            aux_respond(ack, 1);
             break;
         case 0xEB:  // Read data: ACK, then one packet, unscaled (footnote 1)
-            aux_respond(&ack, 1);
+            aux_respond(ack, 1);
             mouse_queue_packet(false);
             return;
         case 0xEA:  // Set stream mode
             mouse_.mode = MouseMode::kStream;
-            aux_respond(&ack, 1);
+            aux_respond(ack, 1);
             break;
         case 0xE9: {  // Status request
             // Byte 1: [0][mode][enable][scaling][0][left][middle][right] --
@@ -445,18 +445,18 @@ void I8042::aux_write(uint8_t v) {
         }
         case 0xE7:  // Set scaling 2:1
             mouse_.scaling_2to1 = true;
-            aux_respond(&ack, 1);
+            aux_respond(ack, 1);
             break;
         case 0xE6:  // Set scaling 1:1
             mouse_.scaling_2to1 = false;
-            aux_respond(&ack, 1);
+            aux_respond(ack, 1);
             break;
         default: {
             // A real device answers a command it does not recognise with
             // 0xFE (Resend/error) rather than a bare ACK, which is how a
             // driver probing for an extension finds out it is absent.
-            const uint8_t resend = 0xFE;
-            aux_respond(&resend, 1);
+            const uint8_t resend[1] = {0xFE};
+            aux_respond(resend, 1);
             return;
         }
     }

@@ -457,7 +457,7 @@ int main(int argc, char **argv) {
     for (const Trace &t : faults)
         std::printf("  fault: vector %2d error %08X at %04X:%08X\n", t.vector, t.error, t.cs, t.eip);
 
-    struct Check { const char *what; bool ok; std::string got, want; };
+    struct Check { const char *what = nullptr; bool ok = false; std::string got, want; };
     std::vector<Check> checks;
     auto hex = [](uint64_t v) { char b[32]; std::snprintf(b, sizeof b, "%08llX", (unsigned long long)v); return std::string(b); };
     auto dec = [](double d) { char b[48]; std::snprintf(b, sizeof b, "%.17g", d); return std::string(b); };
