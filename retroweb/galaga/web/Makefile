@@ -22,7 +22,7 @@ galaga.js: $(SRC) $(HDR)
 hwtest_roms.h: $(CORE)/roms/hwtest/gen_hwtest.py
 	python3 $(CORE)/roms/hwtest/gen_hwtest.py --dir roms --header hwtest_roms.h
 
-.PHONY: shared roms wasm serve test test-install clean
+.PHONY: shared roms wasm serve test test-smoke test-install clean
 wasm: galaga.js
 roms: hwtest_roms.h
 	python3 $(CORE)/roms/hwtest/gen_hwtest.py --dir roms --header hwtest_roms.h \
@@ -45,6 +45,11 @@ serve: galaga.js roms shared
 
 test: galaga.js roms shared
 	npx playwright test
+
+# Smoke: tests/smoke.spec.ts only -- what deploy CI runs. Full suite
+# is `make test` (nightly + local). See CLAUDE.md "Smoke vs full".
+test-smoke: galaga.js roms shared
+	npx playwright test tests/smoke.spec.ts
 
 test-install:
 	npm ci

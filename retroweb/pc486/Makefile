@@ -13,7 +13,8 @@
 #   make wasm        build the WebAssembly module (needs emsdk -- see web/Makefile)
 #   make serve       build the wasm module + serve the browser front end
 #   make coverage    build + run the unit tests with llvm-cov, print a report
-#   make check       what CI would run
+#   make test-smoke  GoogleTest (what deploy CI runs)
+#   make check       test + pm-check + vbe-check (what nightly runs)
 #   make clean       remove all build output
 #
 # `make` with no target prints this list.
@@ -63,7 +64,7 @@ CXXFLAGS ?= -std=c++17 -O2 -Wall -Wextra
 CHIPSET_SRCS = machine.cpp chipset.cpp cpu80486.cpp pic8259.cpp pit8253.cpp i8042.cpp cmos_rtc.cpp dma8237.cpp fdc765.cpp ega.cpp wd1003.cpp atapi_cdrom.cpp pcspeaker.cpp soundblaster.cpp opl3.cpp
 UNIT_TESTS = cpu80486_test cpu80486_timing_test pic8259_test pit8253_test i8042_test cmos_rtc_test dma8237_test chipset_test machine_test fdc765_test ega_test ega_render_test wd1003_test atapi_cdrom_test pcspeaker_test soundblaster_test
 
-.PHONY: help test bios bios-check pm-check vbe-check hdd-image hdd-boot-check wasm serve coverage check clean
+.PHONY: help test test-smoke bios bios-check pm-check vbe-check hdd-image hdd-boot-check wasm serve coverage check clean
 
 LLVM_PROFDATA ?= xcrun llvm-profdata
 LLVM_COV      ?= xcrun llvm-cov
@@ -193,6 +194,8 @@ coverage:
 	  echo "  html: retroweb/pc486/tests/coverage-cpp/index.html"
 
 # --- aggregate ------------------------------------------------------
+test-smoke: test
+
 check: test pm-check vbe-check
 
 clean:

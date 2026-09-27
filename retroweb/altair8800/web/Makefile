@@ -18,7 +18,7 @@ EMFLAGS = -O2 -std=c++17 -lembind --no-entry \
 retro8080.js: $(SRC) $(HDR)
 	$(EMCC) $(EMFLAGS) $(SRC) -o $@
 
-.PHONY: shared roms media serve test test-install clean
+.PHONY: shared roms media serve test test-smoke test-install clean
 roms: roms/echo.bin
 roms/echo.bin roms/hello.bin roms/killbits.bin: roms/gen_roms.py
 	python3 roms/gen_roms.py
@@ -50,6 +50,11 @@ serve: retro8080.js roms media shared
 # `make test-install` once to pull the runner and a headless Chromium.
 test: retro8080.js roms media shared
 	npx playwright test
+
+# Smoke: tests/smoke.spec.ts only -- what deploy CI runs. Full suite
+# is `make test` (nightly + local). See CLAUDE.md "Smoke vs full".
+test-smoke: retro8080.js roms media shared
+	npx playwright test tests/smoke.spec.ts
 
 # same suite, one worker, with V8 line/branch/function coverage for app.js
 # -> coverage/index.html  (+ coverage/lcov.info)

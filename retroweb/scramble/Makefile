@@ -3,7 +3,8 @@
 #   make test    GoogleTest suite (board + video + 2×AY + 8255 + board smoke).
 #                Optional playthrough skips unless roms/user/ holds a dump:
 #                `UserRomInsertsCoinStartsAndFires` (SCRAMBLE_ROM / scramble.zip).
-#   make check   test (what CI runs)
+#   make test-smoke  Smoke.* GoogleTest only (what deploy CI runs)
+#   make check   test (what nightly runs)
 #   make wasm    WebAssembly module
 #   make serve   wasm + test ROM + shared chrome, serve on :8000
 #   make clean
@@ -11,7 +12,7 @@
 CXX      ?= c++
 CXXFLAGS ?= -std=c++17 -O2 -Wall -Wextra
 
-.PHONY: help test check wasm serve clean roms
+.PHONY: help test check wasm serve clean roms test-smoke
 
 help:
 	@sed -n 's/^#   //p' $(MAKEFILE_LIST)
@@ -20,6 +21,12 @@ test:
 	cmake -S tests -B tests/build
 	cmake --build tests/build -j
 	ctest --test-dir tests/build --output-on-failure
+
+# Board smoke only (Smoke.*). Full GoogleTest is `make test` / `make check`.
+test-smoke:
+	cmake -S tests -B tests/build
+	cmake --build tests/build -j --target smoke_test
+	ctest --test-dir tests/build -R '^Smoke\.' --output-on-failure
 
 roms:
 	$(MAKE) -C web roms

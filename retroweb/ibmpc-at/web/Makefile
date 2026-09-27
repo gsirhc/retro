@@ -21,7 +21,7 @@ EMFLAGS = -O2 -std=c++17 -lembind --no-entry \
 ibmpcat.js: $(SRC)
 	$(EMCC) $(EMFLAGS) $(SRC) -o $@
 
-.PHONY: shared roms hdd-image serve test test-install coverage clean
+.PHONY: shared roms hdd-image serve test test-smoke test-install coverage clean
 
 # Theme system / pagebar chrome / fullscreen / focus-hint -- one canonical
 # copy in retroweb/shared/, copied into this machine's own web/shared/ at
@@ -90,6 +90,16 @@ test: ibmpcat.js roms shared
 	  exit 1; \
 	fi
 	npx playwright test
+
+# Smoke: tests/smoke.spec.ts only -- what deploy CI runs. Full suite
+# is `make test` (nightly + local). See CLAUDE.md "Smoke vs full".
+test-smoke: ibmpcat.js roms shared
+	@if [ ! -f disks/freedos-hdd.img ]; then \
+	  echo "disks/freedos-hdd.img not found -- run 'make hdd-image' first"; \
+	  echo "(builds the shipped FreeDOS image by running the real installer; takes real minutes, run once)."; \
+	  exit 1; \
+	fi
+	npx playwright test tests/smoke.spec.ts
 
 # same suite, one worker, with V8 line/branch/function coverage for app.js
 # -> coverage/index.html  (+ coverage/lcov.info)

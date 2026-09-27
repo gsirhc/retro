@@ -1,44 +1,78 @@
-name: Deploy site
+name: Nightly full tests
 
-# Deploy CI runs smoke only (`make test-smoke` / Playwright
-# tests/smoke.spec.ts). The full suites run in nightly-full.yml.
-# See CLAUDE.md "Smoke vs full".
+# Full native + Playwright suites for every machine (and shared Z80).
+# Deploy CI (deploy-emulator.yml) runs smoke only. See CLAUDE.md "Smoke vs full".
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "retroweb/**"
-      - "cpu6502/rom/**"
-      - ".github/workflows/deploy-emulator.yml"
-      - ".github/workflows/nightly-full.yml"
-  pull_request:
-    paths:
-      - "retroweb/**"
-      - "cpu6502/rom/**"
-      - ".github/workflows/deploy-emulator.yml"
-      - ".github/workflows/nightly-full.yml"
+  schedule:
+    # 08:00 UTC daily (~01:00 Pacific)
+    - cron: "0 8 * * *"
   workflow_dispatch:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: nightly-full-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  # Smoke: demo + GoogleTest. CP/M diagnostics + disk boot are nightly
-  # (nightly-full.yml). See CLAUDE.md "Smoke vs full".
   altair8800-test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: make -C retroweb/altair8800 test-smoke
 
-  # Playwright smoke (tests/smoke.spec.ts). Full fidelity suite is nightly.
+      # native echo demo + GoogleTest unit suite
+      - run: make -C retroweb/altair8800 check
+
+      # the diagnostic COMs + CP/M disk this job downloads (pins live in this
+      # file, so key the cache on it) -- a cache hit skips both fetch steps
+      - name: Cache test images
+        id: test-images
+        uses: actions/cache@v4
+        with:
+          path: |
+            retroweb/altair8800/cpm/8080PRE.COM
+            retroweb/altair8800/cpm/TST8080.COM
+            retroweb/altair8800/cpm/CPUTEST.COM
+            retroweb/altair8800/cpm/8080EXM.COM
+            retroweb/altair8800/cpm/cpm22.dsk
+          key: test-images-${{ hashFiles('.github/workflows/nightly-full.yml') }}
+
+      # public-domain 8080 diagnostics (kept out of the repo), pinned + checksummed
+      - name: Fetch 8080 diagnostic images
+        if: steps.test-images.outputs.cache-hit != 'true'
+        working-directory: retroweb/altair8800/cpm
+        run: |
+          base=https://raw.githubusercontent.com/superzazu/8080/c5d403ce7ac967b6ec4980a45b5447d8880888b0/cpu_tests
+          for f in 8080PRE.COM TST8080.COM CPUTEST.COM 8080EXM.COM; do
+            curl -sSfL -o "$f" "$base/$f"
+          done
+          sha256sum -c <<'EOF'
+          18eb3c79cba42c0718f160be6a1853cb64cdce7aa47d65780189a57bdd98c4e0  8080PRE.COM
+          9561c6fb6c99efe3de00eb77e4044fd102151058b39ac2d7bce10483838a08e7  TST8080.COM
+          e61a9a75348c774486c2207080ea4effbf6c2367fdace31b0731081a4144030b  CPUTEST.COM
+          6e3286e11bb1a8f47b8ee1280b4a067be813193363e3223c99b0d21912f44aeb  8080EXM.COM
+          EOF
+
+      # 8080PRE / TST8080 / CPUTEST / 8080EXM via the CP/M host (exits non-zero on failure)
+      - run: make -C retroweb/altair8800 cpm
+
+      # a real Altair CP/M 2.2 disk (kept out of the repo), pinned + checksummed
+      - name: Fetch a CP/M diskette image
+        if: steps.test-images.outputs.cache-hit != 'true'
+        working-directory: retroweb/altair8800/cpm
+        run: |
+          url=https://raw.githubusercontent.com/dhansel/Altair8800/8b0ac49448144f0afed1d5108559dc8507268a85/disks/DISK01.DSK
+          curl -sSfL -o cpm22.dsk "$url"
+          sha256sum -c <<'EOF'
+          730a806ae374c99d8c1ee1c4ab83b674ea7773050300c7d7aa4bfbd29752e4f2  cpm22.dsk
+          EOF
+
+      # boot CP/M on the emulated 88-DCDD and run DIR/STAT (exits non-zero if it hangs)
+      - run: make -C retroweb/altair8800 cpmdisk DISK=cpm/cpm22.dsk
+
+  # Full Playwright suite (every control / fidelity case). Smoke is deploy CI.
   altair8800-web-test:
     needs: altair8800-test
     runs-on: ubuntu-latest
@@ -65,7 +99,7 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - working-directory: retroweb/altair8800/web
-        run: make test-smoke
+        run: npx playwright test
 
       - if: failure()
         uses: actions/upload-artifact@v4
@@ -76,13 +110,15 @@ jobs:
             retroweb/altair8800/web/test-results/
           retention-days: 7
 
-  # 6502 Assembler smoke: ROM build + GoogleTest. Dormann suites are nightly.
+  # 6502 Assembler: GoogleTest suite + Klaus Dormann's 6502/65C02 functional
+  # test suites, plus building the real ROM from cpu6502/rom/ source (cc65,
+  # not fetched -- see CGOAC6502_REVIEW.md §8).
   assembler6502-test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - run: sudo apt-get update && sudo apt-get install -y cc65
-      - run: make -C retroweb/assembler6502 test-smoke
+      - run: make -C retroweb/assembler6502 check
 
   # Playwright suite for the 6502 Assembler front end: boots the real ROM,
   # drives the board controls, terminal, and ROM programmer in a real browser.
@@ -111,7 +147,7 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - working-directory: retroweb/assembler6502/web
-        run: make test-smoke
+        run: npx playwright test
 
       - if: failure()
         uses: actions/upload-artifact@v4
@@ -128,7 +164,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: make -C retroweb/ibmpc-at test-smoke
+      - run: make -C retroweb/ibmpc-at check
 
   # Playwright suite for the IBM PC/AT front end: boots the real 80286 core
   # + shipped FreeDOS HDD image, drives keyboard/floppy/HDD/speaker/theme
@@ -171,7 +207,7 @@ jobs:
         run: make test-install
 
       - working-directory: retroweb/ibmpc-at/web
-        run: make test-smoke
+        run: make test
 
       - if: failure()
         uses: actions/upload-artifact@v4
@@ -191,7 +227,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: make -C retroweb/pacman test-smoke
+      - run: make -C retroweb/pacman check
 
   # Playwright suite for the Pac-Man front end: boots the built-in hardware
   # self-test ROM (no Namco IP), drives keyboard/theme controls, and
@@ -220,7 +256,7 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - working-directory: retroweb/pacman/web
-        run: make test-smoke
+        run: npx playwright test
 
       - if: failure()
         uses: actions/upload-artifact@v4
@@ -238,7 +274,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: make -C retroweb/pc486 test-smoke
+      - run: make -C retroweb/pc486 check
 
   # Playwright suite for the 486DX2-66 front end: boots the real 80486 core
   # + shipped FreeDOS HDD image and CD-ROM ISO, drives keyboard/mouse/floppy/
@@ -251,9 +287,11 @@ jobs:
   pc486-web-test:
     needs: pc486-test
     runs-on: ubuntu-latest
-    # Smoke only (tests/smoke.spec.ts). Full Playwright suite is nightly.
-    # Cap still needed: cold HDD rebuild is ~8 min; smoke itself is short.
-    timeout-minutes: 25
+    # Suite is host-bound near real 66 MHz (PC486_REVIEW.md §8.6); without a
+    # cap a stuck boot waits out the runner's 6 h default. Warm-cache target
+    # is under 10 minutes for make test; 45 leaves room for a cold ~8 min
+    # HDD-image rebuild plus the suite.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
@@ -316,7 +354,18 @@ jobs:
         run: make test-install
 
       - working-directory: retroweb/pc486/web
-        run: make test-smoke
+        run: make test
+
+      # The suite above runs against whichever binary ?perf picks, which is
+      # the instrumented one. Run the Performance panel's own spec again with
+      # that binary hidden, so the shipped-build path -- Tier 1 only, no
+      # counters -- is exercised too rather than merely assumed.
+      - name: pc486 Performance panel against the shipped binary
+        working-directory: retroweb/pc486/web
+        run: |
+          mv pc486-perf.js pc486-perf.js.hidden
+          npx playwright test tests/performance.spec.ts
+          mv pc486-perf.js.hidden pc486-perf.js
 
       - if: failure()
         uses: actions/upload-artifact@v4
@@ -327,12 +376,26 @@ jobs:
             retroweb/pc486/web/test-results/
           retention-days: 7
 
-  # Shared Z80 ISA smoke: named GoogleTest groups (UM0080). zexdoc is nightly.
+  # Shared Z80 ISA: named GoogleTest groups (UM0080) plus Frank Cringle's
+  # zexdoc documented-opcode exerciser. Pac-Man, Frogger, Scramble, and
+  # Galaxian all `needs:` this job; each board then only smokes that the CPU is wired.
   z80-test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: make -C retroweb/shared/cpu test-smoke
+
+      - name: Cache zexdoc
+        id: zexdoc
+        uses: actions/cache@v4
+        with:
+          path: retroweb/shared/cpu/zex/zexdoc.com
+          key: zexdoc-${{ hashFiles('retroweb/shared/cpu/Makefile') }}
+
+      - name: Fetch zexdoc
+        if: steps.zexdoc.outputs.cache-hit != 'true'
+        run: make -C retroweb/shared/cpu zex/zexdoc.com
+
+      - run: make -C retroweb/shared/cpu check
 
   # Frogger arcade board: GoogleTest suite over the dual Z80 + Galaxian
   # video + AY-3-8910 + machine (see retroweb/frogger/FROGGER_REVIEW.md).
@@ -342,7 +405,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: make -C retroweb/frogger test-smoke
+      - run: make -C retroweb/frogger check
 
   frogger-web-test:
     needs: frogger-test
@@ -368,7 +431,7 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - working-directory: retroweb/frogger/web
-        run: make test-smoke
+        run: npx playwright test
 
       - if: failure()
         uses: actions/upload-artifact@v4
@@ -387,7 +450,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: make -C retroweb/scramble test-smoke
+      - run: make -C retroweb/scramble check
 
   scramble-web-test:
     needs: scramble-test
@@ -413,7 +476,7 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - working-directory: retroweb/scramble/web
-        run: make test-smoke
+        run: npx playwright test
 
       - if: failure()
         uses: actions/upload-artifact@v4
@@ -432,7 +495,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: make -C retroweb/galaga test-smoke
+      - run: make -C retroweb/galaga check
 
   galaga-web-test:
     needs: galaga-test
@@ -458,7 +521,7 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - working-directory: retroweb/galaga/web
-        run: make test-smoke
+        run: npx playwright test
 
       - if: failure()
         uses: actions/upload-artifact@v4
@@ -477,7 +540,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: make -C retroweb/galaxian test-smoke
+      - run: make -C retroweb/galaxian check
 
   galaxian-web-test:
     needs: galaxian-test
@@ -503,7 +566,7 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - working-directory: retroweb/galaxian/web
-        run: make test-smoke
+        run: npx playwright test
 
       - if: failure()
         uses: actions/upload-artifact@v4
@@ -515,7 +578,6 @@ jobs:
           retention-days: 7
 
   # HTML (HTMLHint), JavaScript (ESLint), and C++ (cppcheck) under retroweb/.
-  # A red run blocks deploy the same way a red test job does.
   lint:
     runs-on: ubuntu-latest
     steps:
@@ -534,164 +596,3 @@ jobs:
 
       - run: make -C retroweb lint
 
-  build:
-    needs:
-      [
-        lint,
-        altair8800-test,
-        altair8800-web-test,
-        assembler6502-test,
-        assembler6502-web-test,
-        ibmpcat-test,
-        ibmpcat-web-test,
-        pacman-test,
-        pacman-web-test,
-        pc486-test,
-        pc486-web-test,
-        z80-test,
-        frogger-test,
-        frogger-web-test,
-        scramble-test,
-        scramble-web-test,
-        galaxian-test,
-        galaxian-web-test,
-        galaga-test,
-        galaga-web-test,
-      ]
-    if: github.event_name != 'pull_request'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install -y cc65
-
-      - uses: mymindstorm/setup-emsdk@v14
-        with:
-          version: latest
-
-      # wasm module + generated ROM images
-      - working-directory: retroweb/altair8800/web
-        run: make retro8080.js roms shared
-
-      # ship a ready-to-run machine: Altair 4K/8K BASIC + CP/M 2.2, pinned +
-      # checksummed, fetched into the Pages artifact so users need supply nothing.
-      - uses: ./.github/actions/fetch-altair-media
-
-      # 6502 Assembler's wasm module + its real ROM, built from cpu6502/rom/
-      # source, plus the Example programs' captured-source .bins
-      # (gen_example_bin.cpp) `make site` below expects to already be sitting
-      # in web/examples/ -- `site` itself only copies web/, it doesn't build
-      # anything (see retroweb/Makefile's own `_stage` vs `site` split).
-      - working-directory: retroweb/assembler6502/web
-        run: make wasm roms examples-bin shared
-
-      # IBM PC/AT: BIOS/VGA-BIOS ROMs (fetched, checksummed) are cheap; the
-      # shipped FreeDOS HDD image is built by actually running the real
-      # FreeDOS 1.3 installer end to end against the emulator (see
-      # IBM_PCAT_REVIEW.md §11) -- genuinely slow (real minutes: tens of
-      # billions of emulated 8MHz cycles, every floppy read paced to its
-      # genuine transfer rate), so it's cached across runs, keyed on
-      # everything that could change its bytes (the native core + the
-      # disk-build harness + the fetch scripts' pinned checksums).
-      - name: Cache IBM PC/AT FreeDOS HDD image
-        id: ibmpcat-hdd
-        uses: actions/cache@v4
-        with:
-          path: retroweb/ibmpc-at/disks/freedos-hdd.img
-          key: ibmpcat-hdd-${{ hashFiles('retroweb/ibmpc-at/*.h', 'retroweb/ibmpc-at/*.cpp', 'retroweb/ibmpc-at/disks/*.cpp', 'retroweb/ibmpc-at/disks/*.sh', 'retroweb/ibmpc-at/roms/*.sh') }}
-
-      - name: Build IBM PC/AT FreeDOS HDD image
-        if: steps.ibmpcat-hdd.outputs.cache-hit != 'true'
-        run: make -C retroweb/ibmpc-at hdd-image
-
-      # IBM PC/AT's wasm module -- hdd-image here just copies the (cached
-      # or just-built) native disks/freedos-hdd.img into web/disks/, it
-      # doesn't rebuild it (see web/Makefile).
-      - working-directory: retroweb/ibmpc-at/web
-        run: make ibmpcat.js roms hdd-image shared
-
-      # Pac-Man arcade board's wasm module + generated hardware self-test ROM
-      - working-directory: retroweb/pacman/web
-        run: make wasm roms shared
-
-      - working-directory: retroweb/frogger/web
-        run: make wasm roms shared
-
-      - working-directory: retroweb/scramble/web
-        run: make wasm roms shared
-
-      - working-directory: retroweb/galaxian/web
-        run: make wasm roms shared
-
-      - working-directory: retroweb/galaga/web
-        run: make wasm roms shared
-
-      # 486DX2-66: BIOS/VGA-BIOS ROMs (fetched, checksummed) are cheap; the
-      # shipped FreeDOS HDD image is built by actually running the real
-      # FreeDOS 1.3 installer end to end against the emulator (see
-      # PC486_REVIEW.md §5) -- genuinely slow, so it's cached across runs,
-      # keyed on everything that could change its bytes. The CD-ROM ISO is
-      # a ~400MB download with its own cache.
-      # mtools builds the CuteMouse driver floppy from the FreeDOS image --
-      # see retroweb/pc486/disks/build-ctmouse-floppy.sh.
-      - run: sudo apt-get update && sudo apt-get install -y mtools
-
-      - name: Cache pc486 FreeDOS CD-ROM ISO
-        id: pc486-cd
-        uses: actions/cache@v4
-        with:
-          path: |
-            retroweb/pc486/disks/freedos-cd.iso
-            retroweb/pc486/disks/freedos-boot.img
-          key: pc486-cd-${{ hashFiles('retroweb/pc486/disks/fetch-freedos-cd.sh') }}
-
-      - name: Fetch pc486 FreeDOS CD-ROM ISO
-        if: steps.pc486-cd.outputs.cache-hit != 'true'
-        run: bash retroweb/pc486/disks/fetch-freedos-cd.sh
-
-      - name: Restore pc486 FreeDOS HDD image
-        id: pc486-hdd
-        uses: actions/cache/restore@v4
-        with:
-          path: retroweb/pc486/disks/freedos-hdd.img
-          key: pc486-hdd-${{ hashFiles('retroweb/pc486/*.h', 'retroweb/pc486/*.cpp', 'retroweb/pc486/disks/*.cpp', 'retroweb/pc486/disks/*.sh', 'retroweb/pc486/roms/*.sh') }}
-
-      - name: Build pc486 FreeDOS HDD image
-        if: steps.pc486-hdd.outputs.cache-hit != 'true'
-        run: make -C retroweb/pc486 hdd-image
-
-      - name: Save pc486 FreeDOS HDD image
-        if: steps.pc486-hdd.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: retroweb/pc486/disks/freedos-hdd.img
-          key: pc486-hdd-${{ hashFiles('retroweb/pc486/*.h', 'retroweb/pc486/*.cpp', 'retroweb/pc486/disks/*.cpp', 'retroweb/pc486/disks/*.sh', 'retroweb/pc486/roms/*.sh') }}
-
-      - working-directory: retroweb/pc486/web
-        run: make pc486.js pc486-perf.js roms hdd-image cdrom-image driver-images shared
-
-      # stage the site: retroweb/index.html at the root, the Altair front end
-      # at /altair8800/, 6502 Assembler at /assembler6502/, IBM PC/AT at
-      # /ibmpc-at/, Pac-Man at /pacman/, Frogger at /frogger/, Galaxian at
-      # /galaxian/, Galaga at /galaga/, Scramble at /scramble/, 486DX2-66 at
-      # /pc486/ -- the C++ core / tests / dev-only files stay out of the
-      # artifact.
-      # Same target `make preview` uses.
-      - working-directory: retroweb
-        run: make site
-
-      - uses: actions/configure-pages@v5
-
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: retroweb/_site
-
-  deploy:
-    needs: build
-    if: github.event_name != 'pull_request'
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
-    steps:
-      - id: deploy
-        uses: actions/deploy-pages@v4

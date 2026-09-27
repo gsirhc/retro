@@ -7,7 +7,8 @@
 #   make coverage  build + run the unit tests with llvm-cov, print a report
 #   make serve     build the wasm module + serve the browser front end
 #   make wasm      build the wasm module only
-#   make check     rom + test + dormann (what CI would run)
+#   make test-smoke  rom + GoogleTest (what deploy CI runs)
+#   make check       rom + test + dormann (what nightly runs)
 #   make clean     remove all build output
 #
 # `make` with no target prints this list.
@@ -17,7 +18,7 @@ CXXFLAGS ?= -std=c++17 -O2 -Wall -Wextra
 
 CPU6502_ROM_DIR = ../../cpu6502/rom
 
-.PHONY: help rom test dormann coverage serve wasm check clean
+.PHONY: help rom test test-smoke dormann coverage serve wasm check clean
 
 LLVM_PROFDATA ?= xcrun llvm-profdata
 LLVM_COV      ?= xcrun llvm-cov
@@ -79,6 +80,8 @@ serve:
 	$(MAKE) -C web serve
 
 # --- aggregate ------------------------------------------------------
+test-smoke: rom test
+
 check: rom test dormann
 
 clean:

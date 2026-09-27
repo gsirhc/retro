@@ -6,7 +6,8 @@
 #   make cpmdisk build the 88-DCDD boot test; DISK=<img> boots a CP/M diskette
 #   make serve   build the wasm module + serve the browser front end
 #   make wasm    build the wasm module only
-#   make check   demo + tests (what CI would run)
+#   make test-smoke  demo + GoogleTest (what deploy CI runs)
+#   make check       demo + tests + cpm (what nightly runs)
 #   make coverage  build + run the unit tests with llvm-cov, print a report
 #   make clean   remove all build output
 #
@@ -18,7 +19,7 @@ CXXFLAGS ?= -std=c++17 -O2 -Wall -Wextra
 SRC = main.cpp i8080.cpp serial2sio.cpp
 HDR = i8080.h serial2sio.h ringbuffer.h
 
-.PHONY: help demo test coverage cpm cpmdisk serve wasm check clean
+.PHONY: help demo test test-smoke coverage cpm cpmdisk serve wasm check clean
 
 # llvm tools: Apple ships them behind xcrun; on Linux they're on PATH
 LLVM_PROFDATA ?= xcrun llvm-profdata
@@ -107,6 +108,8 @@ serve:
 # --- aggregate --------------------------------------------------
 # cpm is included so a broken ALU/flag/cycle model fails a local `make check`,
 # not just CI; harmless if cpm/*.COM aren't fetched locally (it just no-ops)
+test-smoke: demo test
+
 check: demo test cpm
 
 clean:

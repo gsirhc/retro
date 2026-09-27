@@ -58,7 +58,7 @@ EXAMPLE_BINS := $(EXAMPLE_SRCS:.asm=.bin)
 examples/%.bin: examples/%.asm gen_example_bin roms/firmware.bin
 	./gen_example_bin roms/firmware.bin $(CORE)/../../cpu6502/rom/tmp/firmware.lbl $< $@
 
-.PHONY: shared wasm roms examples-bin roms/firmware.bin serve test test-install clean
+.PHONY: shared wasm roms examples-bin roms/firmware.bin serve test test-smoke test-install clean
 wasm: cgoac6502.js
 roms: roms/firmware.bin roms/entrypoints.js
 examples-bin: $(EXAMPLE_BINS)
@@ -83,6 +83,11 @@ serve: wasm roms examples-bin shared
 
 test: wasm roms examples-bin shared
 	npx playwright test
+
+# Smoke: tests/smoke.spec.ts only -- what deploy CI runs. Full suite
+# is `make test` (nightly + local). See CLAUDE.md "Smoke vs full".
+test-smoke: wasm roms examples-bin shared
+	npx playwright test tests/smoke.spec.ts
 
 coverage: wasm roms examples-bin shared
 	COVERAGE=1 npx playwright test

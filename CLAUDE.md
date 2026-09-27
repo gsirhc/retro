@@ -190,21 +190,62 @@ machine itself (see "Adding a new machine" above).
   specifically so a hand-run `make serve` and an automated test run never
   collide.
 - **CI job naming**: `.github/workflows/deploy-emulator.yml` gives every
-  machine a `<machine>-test` (GoogleTest/native) and, once its Playwright
-  suite exists, a `<machine>-web-test` job (`needs: <machine>-test`) — e.g.
-  `altair8800-test`/`altair8800-web-test`, `assembler6502-test`/
-  `assembler6502-web-test`, `ibmpcat-test`/`ibmpcat-web-test`,
-  `pacman-test`/`pacman-web-test`, `frogger-test`/`frogger-web-test`,
-  `scramble-test`/`scramble-web-test`, `galaxian-test`/`galaxian-web-test`,
-  `galaga-test`/`galaga-web-test`, `pc486-test`/`pc486-web-test`
-  (plus `z80-test` for the shared CPU — full ISA, including zexdoc). Pac-Man,
-  Frogger, Scramble, Galaxian, and Galaga native jobs `needs: z80-test` and run a board smoke
-  rather than re-testing the Z80. `lint` (ESLint, HTMLHint, cppcheck,
-  `make -C retroweb lint`) covers `retroweb/` only. `build`
-  lists every one of these in its own `needs:` so a red test job blocks
-  deploy. Add a new machine's pair here the same way rather than inventing
-  a different naming shape.
+  machine a `<machine>-test` (native smoke) and, once its Playwright suite
+  exists, a `<machine>-web-test` job (`needs: <machine>-test`) — e.g.
+  `altair8800-test`/`altair8800-web-test`, …, `pc486-test`/`pc486-web-test`
+  (plus `z80-test` for the shared CPU). Pac-Man, Frogger, Scramble,
+  Galaxian, and Galaga native jobs `needs: z80-test`. `lint` covers
+  `retroweb/` only. `build` lists every one of these in its own `needs:`
+  so a red smoke job blocks deploy. Add a new machine's pair the same way.
+  Deploy CI runs **smoke only**; the full suites run in
+  `.github/workflows/nightly-full.yml` (see "Smoke vs full" below).
 - Full details: `retroweb/README.md`.
+
+## Smoke vs full
+
+Deploy CI (`deploy-emulator.yml`, on push/PR to `main`) must stay fast
+enough to gate Pages deploys. The full fidelity suites are slower
+(FreeDOS boots, zexdoc, Dormann, every Playwright control). Split:
+
+| When | Workflow | What runs |
+|------|----------|-----------|
+| Push / PR | `deploy-emulator.yml` | **Smoke** (`make test-smoke`) + lint + site build/deploy |
+| Nightly 08:00 UTC + manual | `nightly-full.yml` | **Full** (`make check` / `make test`) — no deploy |
+
+**What belongs in smoke** (keep this set small):
+
+- The machine **boots** (wasm loads, or native board starts).
+- One real interaction or paint proof (echo byte, Wozmon examine, hwtest
+  ROM paints, etc.).
+- Where the suite has a sanctioned fast-test CPU override: the
+  **real wall-clock pacing** check (`tests/smoke.spec.ts` realtime /
+  `realtime: true` cases) — the contract in "Never speed these up".
+- Arcade native: the existing `TEST(Smoke, …)` board smoke only.
+- Shared Z80: the named ISA GoogleTest suite only (not zexdoc).
+
+**What is nightly / local full** (not deploy CI):
+
+- Every other Playwright spec (controls, media, themes, home card, …).
+- Long native exercisers: Altair CP/M diagnostics + disk boot, Klaus
+  Dormann 6502/65C02, Frank Cringle's zexdoc, pc486 `pm-check` /
+  `vbe-check`, pc486 Performance panel against the shipped (non-`?perf`)
+  binary, arcade `play_test` optional ROM playthroughs.
+
+**How to run locally**
+
+- Smoke (what deploy CI runs): `make -C retroweb/<machine> test-smoke`
+  and/or `make -C retroweb/<machine>/web test-smoke`.
+- Full (what nightly runs): `make -C retroweb/<machine> check` and
+  `make -C retroweb/<machine>/web test`.
+
+**Playwright smoke file**: each machine's `web/tests/smoke.spec.ts` is
+the CI web smoke set — `make test-smoke` runs only that file. Put a new
+deploy-critical case there; put exhaustive control coverage in the other
+`*.spec.ts` files (nightly). Do not grow smoke into a second full suite.
+
+**Native smoke target**: `make test-smoke` — arcade filters `Smoke.*`;
+Altair/assembler/ibmpc-at/pc486/z80 omit the long exercisers listed above
+(`make check` still runs them for nightly/local).
 
 ## Delegate to a cheaper model when the task allows it
 
@@ -373,8 +414,9 @@ separate suite.
   `make -C retroweb/pc486/web pc486-perf.js` builds a *second* wasm with the
   emulator's own performance counters compiled in (`PC486_PERF`), which
   `?perf` loads for the Performance panel's Tier 2 — the shipped binary
-  carries none of them, since they sit on the hottest paths there are. CI
-  builds and tests both; see `PC486_REVIEW.md` §23.
+  carries none of them, since they sit on the hottest paths there are.
+  Deploy CI builds both binaries; nightly also re-runs the Performance
+  panel against the shipped (non-`?perf`) binary — see `PC486_REVIEW.md` §23.
 - Front ends live in each machine's own `web/`; generated wasm/ROM/media
   files (`retro8080.js`/`.wasm`, `cgoac6502.js`/`.wasm`/`roms/*.bin`,
   `ibmpcat.js`/`.wasm`, `pacman.js`/`.wasm`, `frogger.js`/`.wasm`,
@@ -384,9 +426,9 @@ separate suite.
 - **Every control, device, terminal behaviour, and preset has an automated
   test.** Each machine's `web/tests/` (Playwright) covers its front end;
   its own `tests/` (GoogleTest) covers the core. A change that adds or
-  alters behaviour adds or updates a test in the same commit. CI runs every
-  machine's native and Playwright suites (see "CI job naming" above) and
-  **does not deploy a red build**. Coverage targets exist for
+  alters behaviour adds or updates a test in the same commit. Deploy CI
+  runs **smoke** only and **does not deploy a red build**; the full suites
+  run nightly (see "Smoke vs full" above). Coverage targets exist for
   altair8800 today; none of them gate CI. Use `/* v8 ignore next */` only
   for genuinely unreachable defensive paths, never to hide an untested
   feature.

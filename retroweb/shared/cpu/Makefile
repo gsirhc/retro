@@ -3,13 +3,14 @@
 #   make test    GoogleTest suite over the ISA / T-states / INT / NMI
 #   make zexdoc  fetch + run Frank Cringle's documented-opcode exerciser
 #                (~40 s locally; the real ISA gate, like 8080EXM / Dormann)
-#   make check   test + zexdoc (what CI's z80-test job runs)
+#   make test-smoke  named ISA GoogleTest only (what deploy CI runs)
+#   make check       test + zexdoc (what nightly runs)
 #   make clean
 
 CXX      ?= c++
 CXXFLAGS ?= -std=c++17 -O2 -Wall -Wextra
 
-.PHONY: help test zexdoc check clean
+.PHONY: help test test-smoke zexdoc check clean
 
 help:
 	@sed -n 's/^#   //p' $(MAKEFILE_LIST)
@@ -36,6 +37,8 @@ zex/zex_host: zex/zex_host.cpp cpu_z80.cpp cpu_z80.h
 
 zexdoc: zex/zex_host zex/zexdoc.com
 	./zex/zex_host zex/zexdoc.com
+
+test-smoke: test
 
 check: test zexdoc
 

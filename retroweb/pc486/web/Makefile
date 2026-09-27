@@ -78,7 +78,7 @@ pc486-perf.js: $(SRC) $(HDRS)
 
 perf-build: pc486-perf.js
 
-.PHONY: shared roms hdd-image cdrom-image driver-images perf-build serve test test-install coverage clean
+.PHONY: shared roms hdd-image cdrom-image driver-images perf-build serve test test-smoke test-install coverage clean
 
 # Theme system / pagebar chrome / fullscreen / focus-hint -- one canonical
 # copy in retroweb/shared/, copied into this machine's own web/shared/ at
@@ -172,6 +172,22 @@ test: pc486.js pc486-perf.js roms shared cdrom-image driver-images
 	  exit 1; \
 	fi
 	npx playwright test
+
+# Smoke: tests/smoke.spec.ts only -- what deploy CI runs. Full suite
+# is `make test` (nightly + local). See CLAUDE.md "Smoke vs full".
+test-smoke: pc486.js pc486-perf.js roms shared cdrom-image driver-images
+	@if [ ! -f disks/freedos-hdd.img ]; then \
+	  echo "disks/freedos-hdd.img not found -- run 'make hdd-image' first"; \
+	  echo "(NOT YET IMPLEMENTED for this machine -- see ../Makefile's MILESTONE 1 STATUS note)."; \
+	  exit 1; \
+	fi
+	@if [ ! -f disks/freedos-hdd.img.gz ]; then \
+	  echo "disks/freedos-hdd.img.gz not found -- run 'make hdd-image' first"; \
+	  echo "(Playwright's devserve.py serves this sibling as Content-Encoding: gzip;"; \
+	  echo " without it every remount transfers the raw 504MB image.)"; \
+	  exit 1; \
+	fi
+	npx playwright test tests/smoke.spec.ts
 
 # same suite, one worker, with V8 line/branch/function coverage for app.js
 # -> coverage/index.html  (+ coverage/lcov.info)
