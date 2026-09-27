@@ -3,16 +3,12 @@ import { test, expect } from "./fixtures";
 import { bootLive } from "./helpers";
 
 test.describe("page theme", () => {
-  test.beforeEach(async ({ page }) => {
-    await bootLive(page);
-  });
-
-  test("defaults to Windows 95 (retro8080.theme unset)", async ({ page }) => {
+  test("defaults to Windows 95 (retro8080.theme unset)", async ({ livePage: page }) => {
     await expect(page.locator("html")).toHaveAttribute("data-theme", "win");
     await expect(page.locator("#pageTheme")).toHaveValue("win");
   });
 
-  test("every theme is selectable and sets the expected data-theme/data-mode", async ({ page }) => {
+  test("every theme is selectable and sets the expected data-theme/data-mode", async ({ livePage: page }) => {
     const cases: [string, string, string | null][] = [
       ["win", "win", null],
       ["web94", "web94", null],
@@ -28,6 +24,7 @@ test.describe("page theme", () => {
   });
 
   test("persists across reload via the shared retro8080.theme key", async ({ page }) => {
+    await bootLive(page);
     await page.selectOption("#pageTheme", "web94");
     await page.reload();
     await page.waitForFunction(() => !!(window as any).__test?.machine, null, { timeout: 15000 });

@@ -68,9 +68,7 @@ test.describe("fullscreen", () => {
     await expect(page.locator("#fullscreenBtn")).toHaveAttribute("aria-label", "Fullscreen");
   });
 
-  test("the Esc button sends a real Escape to DOS -- clears a typed command line", async ({ page }) => {
-    test.setTimeout(120_000);
-    await boot(page);
+  test("the Esc button sends a real Escape to DOS -- clears a typed command line", async ({ promptPage: page }) => {
     await page.evaluate(() => localStorage.setItem("retro8080.fsEscHintSeen", "2"));
     await page.locator("#fullscreenBtn").click();
     await expect.poll(() => page.evaluate(() => !!document.fullscreenElement)).toBe(true);

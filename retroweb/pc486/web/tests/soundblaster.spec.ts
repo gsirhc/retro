@@ -1,5 +1,4 @@
 import { test, expect } from "./fixtures";
-import { bootLive } from "./helpers";
 
 // The Sound Blaster 16's digitized output rides the same "Enable sound"
 // checkbox as the PC speaker (see speaker.spec.ts) -- one opt-in gate for
@@ -9,9 +8,8 @@ import { bootLive } from "./helpers";
 // (SET BLASTER=...), out of scope for a bare FreeDOS-prompt test.
 test.describe("Sound Blaster 16", () => {
   test("sbDrainSamples and sbSampleRateHz are queryable via the embind API regardless of the UI mute state", async ({
-    page,
+    livePage: page,
   }) => {
-    await bootLive(page);
 
     const result = await page.evaluate(() => {
       const m = (window as any).__test.machine;
@@ -31,9 +29,8 @@ test.describe("Sound Blaster 16", () => {
   });
 
   test("draining twice in a row returns an empty log the second time -- drain_samples() clears as it reads", async ({
-    page,
+    livePage: page,
   }) => {
-    await bootLive(page);
 
     const secondLen = await page.evaluate(() => {
       const m = (window as any).__test.machine;

@@ -66,9 +66,8 @@ test.describe("hard disk", () => {
   });
 
   test("Download image is enabled even while the machine is running", async ({
-    page,
+    livePage: page,
   }) => {
-    await bootLive(page);
 
     await expect(page.locator("#hddDownloadBtn")).toBeEnabled();
 

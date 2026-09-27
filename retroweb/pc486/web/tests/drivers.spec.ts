@@ -1,5 +1,4 @@
 import { test, expect } from "./fixtures";
-import { bootLive } from "./helpers";
 
 // The Drivers panel: a DOS program reaches the mouse through INT 33h, which
 // is a driver rather than firmware, so the machine ships the driver disk
@@ -20,9 +19,8 @@ test.describe("Drivers panel", () => {
   });
 
   test("inserting the CuteMouse disk loads a real 1.44MB image into drive A:", async ({
-    page,
+    livePage: page,
   }) => {
-    await bootLive(page);
     const bay = page.locator('.at-bay[data-drive="0"]');
     await expect(bay).not.toHaveClass(/loaded/);
 

@@ -1,13 +1,12 @@
 import { test, expect } from "./fixtures";
-import { boot, bootLive, screenText, setPowerSwitch, clickReset, waitForScreen, focusScreen } from "./helpers";
+import { boot, screenText, setPowerSwitch, clickReset, waitForScreen, focusScreen } from "./helpers";
 
 // Auto-boot-on-load, the power switch, and the front-panel Reset button
 // (a real, later clone-era convention this machine's whole premise calls
 // for -- unlike ibmpc-at's genuine 5170, which never had one).
 
 test.describe("boot and power", () => {
-  test("boots itself to a live C:\\> prompt with no interaction", async ({ page }) => {
-    await boot(page);
+  test("boots itself to a live C:\\> prompt with no interaction", async ({ promptPage: page }) => {
     await expect(page.locator("#powerSwitch")).toBeChecked();
     await expect(page.locator("#powerLed")).toHaveClass(/power-on/);
     await expect.poll(() => screenText(page)).toMatch(/C:\\>/);
@@ -49,8 +48,7 @@ test.describe("boot and power", () => {
     expect(cyclesAfter).toBeGreaterThan(cyclesBefore);
   });
 
-  test("F-keys and Ctrl+Alt+Del are disabled while powered off, enabled while on", async ({ page }) => {
-    await bootLive(page);
+  test("F-keys and Ctrl+Alt+Del are disabled while powered off, enabled while on", async ({ livePage: page }) => {
     await expect(page.locator("#ctrlAltDelBtn")).toBeEnabled();
     await expect(page.locator('[data-key="F1"]')).toBeEnabled();
 
@@ -59,8 +57,7 @@ test.describe("boot and power", () => {
     await expect(page.locator('[data-key="F1"]')).toBeDisabled();
   });
 
-  test("clicking a control focuses the control, not the screen", async ({ page }) => {
-    await bootLive(page);
+  test("clicking a control focuses the control, not the screen", async ({ livePage: page }) => {
     await focusScreen(page);
     await expect(page.locator("#screen")).toBeFocused();
 

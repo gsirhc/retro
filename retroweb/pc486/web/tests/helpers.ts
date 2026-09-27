@@ -53,6 +53,53 @@ export async function bootLive(
   await boot(page, { ...opts, expectScreen: null });
 }
 
+/**
+ * Restore a shared live page between tests: powered on, no media in the
+ * bays, convenience checkboxes off, not fullscreen. Used by the worker-
+ * scoped `livePage` / `perfPage` fixtures so dozens of specs can share one
+ * 504MB HDD mount instead of remounting per test.
+ */
+export async function resetLivePage(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    if (document.fullscreenElement) await document.exitFullscreen();
+  }).catch(() => {});
+
+  const power = page.locator("#powerSwitch");
+  if (!(await power.isChecked())) await power.click({ force: true });
+  await page.waitForFunction(() => !!(window as any).__test?.machine, null, {
+    timeout: 15_000,
+  });
+
+  for (const drive of ["0", "cdrom"] as const) {
+    const eject = page.locator(`.at-bay[data-drive="${drive}"] [data-role="eject"]`);
+    if (await eject.isEnabled()) await eject.click();
+  }
+  for (const id of ["#speakerEnabled", "#mouseCaptureEnabled", "#wasdArrows"]) {
+    const box = page.locator(id);
+    if (await box.count() && (await box.isChecked())) await box.uncheck();
+  }
+
+  // Theme lives in the DOM for the life of the shared page -- put it back
+  // to the factory default so a prior test's picker change cannot flake
+  // "defaults to Windows 95".
+  await page.evaluate(() => localStorage.removeItem("retro8080.theme"));
+  const theme = page.locator("#pageTheme");
+  if ((await theme.count()) && (await theme.inputValue()) !== "win") {
+    await theme.selectOption("win");
+  }
+}
+
+/**
+ * Like resetLivePage, then ensure a bare `C:\>` prompt (Esc clears a typed
+ * line). Used by the worker-scoped `promptPage` fixture.
+ */
+export async function resetPromptPage(page: Page): Promise<void> {
+  await resetLivePage(page);
+  await focusScreen(page);
+  await tap(page, "Escape");
+  await waitForScreen(page, /C:\\>\s*$/, 90_000);
+}
+
 /** Current VGA text-mode screen as plain text (25 rows, "" outside text mode). */
 export function screenText(page: Page): Promise<string> {
   return page.evaluate(() => (window as any).__test.machine.textScreen());

@@ -1,5 +1,4 @@
 import { test, expect } from "./fixtures";
-import { bootLive } from "./helpers";
 
 // The OPL3 behind the card's FM ports (see opl3.h). These drive the real
 // front end in a browser: the point is that a program running on the guest
@@ -12,9 +11,8 @@ import { bootLive } from "./helpers";
 // keeps to.
 test.describe("OPL3 FM synthesizer", () => {
   test("the canonical AdLib detection sequence succeeds through base+8h/9h", async ({
-    page,
+    livePage: page,
   }) => {
-    await bootLive(page);
 
     const result = await page.evaluate(() => {
       const m = (window as any).__test.machine;
@@ -38,9 +36,8 @@ test.describe("OPL3 FM synthesizer", () => {
   });
 
   test("the detection sequence also succeeds through the AdLib 0x388/0x389 pair", async ({
-    page,
+    livePage: page,
   }) => {
-    await bootLive(page);
 
     // This is the pair an AdLib-era music driver actually uses -- it never
     // touches the card's own block, so decoding only base+0h..3h would let a
@@ -67,9 +64,8 @@ test.describe("OPL3 FM synthesizer", () => {
   });
 
   test("a keyed-on channel produces non-zero stereo samples at the real 49716 Hz rate", async ({
-    page,
+    livePage: page,
   }) => {
-    await bootLive(page);
 
     const result = await page.evaluate(() => {
       const m = (window as any).__test.machine;
@@ -100,9 +96,8 @@ test.describe("OPL3 FM synthesizer", () => {
   });
 
   test("FM audio and digitized audio are separate streams behind their own mixer attenuators", async ({
-    page,
+    livePage: page,
   }) => {
-    await bootLive(page);
 
     const result = await page.evaluate(() => {
       const m = (window as any).__test.machine;
@@ -128,9 +123,8 @@ test.describe("OPL3 FM synthesizer", () => {
   });
 
   test("bank 1 at base+2h/3h stays inert until the OPL3 NEW bit is set", async ({
-    page,
+    livePage: page,
   }) => {
-    await bootLive(page);
 
     const result = await page.evaluate(() => {
       const m = (window as any).__test.machine;

@@ -19,10 +19,10 @@ export default defineConfig({
   // into a multi-minute stall (each attempt can wait the full test timeout).
   retries: process.env.CI ? 1 : 0,
   // The guest is host-bound near real 66 MHz even under `fast=1`
-  // (PC486_REVIEW.md §8.6). Extra workers just split that ceiling and make
-  // every FreeDOS-prompt wait longer, with no wall-clock win -- pin to one
-  // in CI so each boot gets the whole core. Coverage aggregates per-worker,
-  // so it also pins to one.
+  // (PC486_REVIEW.md §8.6). Worker-scoped livePage/perfPage/promptPage
+  // fixtures mount the 504MB HDD once per worker; extra workers multiply
+  // those mounts and split the CPU ceiling, so CI pins to one. Coverage
+  // aggregates per-worker, so it also pins to one.
   workers: process.env.COVERAGE ? 1 : process.env.CI ? 1 : 2,
   globalSetup: process.env.COVERAGE ? "./tests/coverage.setup.ts" : undefined,
   globalTeardown: process.env.COVERAGE ? "./tests/coverage.global.ts" : undefined,

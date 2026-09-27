@@ -1,14 +1,12 @@
 import { test, expect } from "./fixtures";
-import { boot } from "./helpers";
 
 // A user's own Esc key releases pointer lock and leaves fullscreen rather
 // than reaching DOS, so the only way to send Esc to the guest is a button.
 // One lives in the bezel, but it is easy to miss up in the monitor chrome --
 // this is the copy in the panel where a user goes looking for keys.
 test("Esc is offered in the Function & extended keys panel and reaches the guest", async ({
-  page,
+  livePage: page,
 }) => {
-  await boot(page);
   const esc = page.locator('#extraKeyRow [data-key="Escape"]');
   await expect(esc).toHaveCount(1);
   await expect(esc).toBeEnabled();

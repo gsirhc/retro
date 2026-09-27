@@ -20,9 +20,8 @@ test.describe("keyboard", () => {
   // (not the DOS-side effect, which needs a specific running program to
   // observe) actually cleared.
   test("losing focus while a key is held releases it instead of leaving it stuck", async ({
-    page,
+    livePage: page,
   }) => {
-    await bootLive(page);
     await focusScreen(page);
     await page.evaluate(() => (window as any).__test.screenEl.dispatchEvent(
       new KeyboardEvent("keydown", { code: "KeyW", bubbles: true })
@@ -41,8 +40,7 @@ test.describe("keyboard", () => {
   });
 
 
-  test("typing through the real focused keyboard reaches COMMAND.COM", async ({ page }) => {
-    await boot(page);
+  test("typing through the real focused keyboard reaches COMMAND.COM", async ({ promptPage: page }) => {
     await focusScreen(page);
     // Lowercase, not "DIR" -- DOS is case-insensitive so this is still a
     // real, faithful command, and it sidesteps a genuine finding from this
@@ -103,8 +101,7 @@ test.describe("keyboard", () => {
     await waitForScreen(page, /C:\\>/, 90_000);
   });
 
-  test("function-key panel (F1-F12) stays live and doesn't desync the keyboard", async ({ page }) => {
-    await boot(page);
+  test("function-key panel (F1-F12) stays live and doesn't desync the keyboard", async ({ promptPage: page }) => {
     for (const key of ["F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12"]) {
       await page.locator(`[data-key="${key}"]`).click();
     }
@@ -119,8 +116,7 @@ test.describe("keyboard", () => {
     await waitForScreen(page, /C:\\>\s*$/);
   });
 
-  test("extended-key panel (Insert/Delete/Home/End/PgUp/PgDn/PrintScreen/ScrollLock/Pause/NumLock) stays live", async ({ page }) => {
-    await boot(page);
+  test("extended-key panel (Insert/Delete/Home/End/PgUp/PgDn/PrintScreen/ScrollLock/Pause/NumLock) stays live", async ({ promptPage: page }) => {
     // Print Screen and Pause/Break are the two keys with non-standard,
     // fixed multi-byte sequences (Pause has no break code at all -- a
     // genuine AT keyboard quirk, see app.js's SET1 table comment) --

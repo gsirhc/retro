@@ -7,8 +7,7 @@ import { bootLive } from "./helpers";
 // capturing the pointer without an explicit opt-in would trap the user's
 // cursor on a page they didn't ask for that on.
 test.describe("PS/2 mouse", () => {
-  test("capture checkbox is unchecked by default", async ({ page }) => {
-    await bootLive(page);
+  test("capture checkbox is unchecked by default", async ({ livePage: page }) => {
     await expect(page.locator("#mouseCaptureEnabled")).not.toBeChecked();
   });
 
@@ -28,9 +27,8 @@ test.describe("PS/2 mouse", () => {
   });
 
   test("checking/unchecking it doesn't affect the running machine", async ({
-    page,
+    livePage: page,
   }) => {
-    await bootLive(page);
     const cycles1 = await page.evaluate(
       () => (window as any).__test.machine.totalCycles()
     );
@@ -45,9 +43,8 @@ test.describe("PS/2 mouse", () => {
   });
 
   test("injectMouseEvent is callable via the embind API regardless of the UI capture state", async ({
-    page,
+    livePage: page,
   }) => {
-    await bootLive(page);
 
     // A relative move plus a left-button-down/up round trip -- doesn't
     // assert on any DOS-side effect (no mouse driver is loaded at a bare

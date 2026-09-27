@@ -28,8 +28,7 @@ test.describe("CD-ROM drive", () => {
     expect(requests.some((u) => u.includes("freedos-cd.iso"))).toBe(false);
   });
 
-  test('"Load FreeDOS CD..." fetches and mounts it on demand', async ({ page }) => {
-    await bootLive(page);
+  test('"Load FreeDOS CD..." fetches and mounts it on demand', async ({ livePage: page }) => {
 
     const bayCd = bay(page, "cdrom");
     await loadFreedosCdrom(page);
@@ -42,8 +41,7 @@ test.describe("CD-ROM drive", () => {
       .toBe(true);
   });
 
-  test("ejecting empties the bay; inserting a new ISO loads it", async ({ page }) => {
-    await bootLive(page);
+  test("ejecting empties the bay; inserting a new ISO loads it", async ({ livePage: page }) => {
     const bayCd = bay(page, "cdrom");
 
     const isoPath = makeBlankIso(2048 * 16);  // a handful of 2048-byte CD-ROM sectors
@@ -64,10 +62,9 @@ test.describe("CD-ROM drive", () => {
       .toBe(false);
   });
 
-  test("swapping discs is independent of power state -- works while the machine is off", async ({ page }) => {
+  test("swapping discs is independent of power state -- works while the machine is off", async ({ livePage: page }) => {
     // A real CD-ROM tray opens/closes with or without power, just like the
     // floppy bay -- see app.js's pendingCdrom.
-    await bootLive(page);
 
     await page.locator("#powerSwitch").click({ force: true });
     await expect(page.locator("#powerLed")).not.toHaveClass(/power-on/);

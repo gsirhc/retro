@@ -8,13 +8,11 @@ import { bootLive } from "./helpers";
 // built with PERF=1) carries, because they sit on the hottest paths there
 // are. ?perf asks for the instrumented build and falls back if it is absent.
 test.describe("Performance panel", () => {
-  test("is absent without ?perf", async ({ page }) => {
-    await bootLive(page);
+  test("is absent without ?perf", async ({ livePage: page }) => {
     await expect(page.locator("#perfCard")).toBeHidden();
   });
 
-  test("?perf shows Tier 1 host metrics and the chart", async ({ page }) => {
-    await bootLive(page, { params: "perf=1" });
+  test("?perf shows Tier 1 host metrics and the chart", async ({ perfPage: page }) => {
     const card = page.locator("#perfCard");
     await expect(card).toBeVisible();
 
@@ -92,14 +90,13 @@ test.describe("Performance panel", () => {
     await expect(page.locator("#perfTier")).toContainText("Shipped build");
   });
 
-  test("reports the audio ring's health once sound is enabled", async ({ page }) => {
+  test("reports the audio ring's health once sound is enabled", async ({ perfPage: page }) => {
     // Needs a genuinely running AudioContext, and a full parallel run has
     // three browsers starting one at once -- contention, not a slow metric.
     // Tripling the budget beats weakening the assertions, which are the
     // whole point: a test that passed whether or not audio started would
     // check nothing.
     test.slow();
-    await bootLive(page, { params: "perf=1" });
     await page.locator("#speakerEnabled").check();
     // Wait for the context to be genuinely running, not merely created --
     // see speaker.spec.ts. Asserting on the ring before then races the
@@ -132,8 +129,7 @@ test.describe("Performance panel", () => {
     expect(fedNow).toBeLessThan(100);
   });
 
-  test("Tier 2 follows the loaded binary's own perfBuild() answer", async ({ page }) => {
-    await bootLive(page, { params: "perf=1" });
+  test("Tier 2 follows the loaded binary's own perfBuild() answer", async ({ perfPage: page }) => {
     await expect(page.locator("#perfReadout")).toContainText("MHz of 66.0", { timeout: 15_000 });
     const tier2 = await page.evaluate(() => {
       const m = (window as any).__test.machine;

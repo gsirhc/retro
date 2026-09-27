@@ -7,8 +7,7 @@ import { bootLive } from "./helpers";
 // across visits. The C++ device tracks its own speaker state independent
 // of the front end's mute checkbox.
 test.describe("PC speaker", () => {
-  test("is unchecked (muted) by default", async ({ page }) => {
-    await bootLive(page);
+  test("is unchecked (muted) by default", async ({ livePage: page }) => {
     await expect(page.locator("#speakerEnabled")).not.toBeChecked();
   });
 
@@ -28,9 +27,8 @@ test.describe("PC speaker", () => {
   });
 
   test("checking/unchecking it doesn't affect the running machine", async ({
-    page,
+    livePage: page,
   }) => {
-    await bootLive(page);
     const cycles1 = await page.evaluate(
       () => (window as any).__test.machine.totalCycles()
     );
@@ -45,9 +43,8 @@ test.describe("PC speaker", () => {
   });
 
   test("the underlying speaker device is queryable via the embind API regardless of the UI mute state", async ({
-    page,
+    livePage: page,
   }) => {
-    await bootLive(page);
 
     const level = await page.evaluate(
       () => (window as any).__test.machine.speakerLevel()
@@ -62,9 +59,8 @@ test.describe("PC speaker", () => {
   // which is why ensureAudioStarted() explicitly resumes a suspended
   // context both on creation and every time the box is re-checked.
   test("checking the box leaves the audio context actually running, not merely created", async ({
-    page,
+    livePage: page,
   }) => {
-    await bootLive(page);
     await page.locator("#speakerEnabled").check();
     await expect
       .poll(() => page.evaluate(() => (window as any).__test.audioState))
