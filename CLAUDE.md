@@ -403,7 +403,7 @@ separate suite.
   test` (Playwright). Ships a from-scratch self-test ROM; a real Midway
   `galagamw` set is opt-in and browser-local — see `GALAGA_REVIEW.md`.
   The wavetable generator lives in `retroweb/shared/namco/`.
-- **486DX2-66 Gaming PC** (`retroweb/pc486/`): `make -C retroweb/pc486 check`
+- **486 DX2-66 Gaming PC** (`retroweb/pc486/`): `make -C retroweb/pc486 check`
   (GoogleTest over the 80486 core, chipset, EGA/VGA+VBE, WD1003, ATAPI
   CD-ROM, Sound Blaster 16 and its OPL3), `make -C retroweb/pc486/web
   pc486.js roms hdd-image cdrom-image driver-images`, `make -C

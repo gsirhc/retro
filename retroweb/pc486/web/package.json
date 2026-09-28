@@ -1,7 +1,7 @@
 {
   "name": "pc486-web-tests",
   "private": true,
-  "description": "Playwright integration suite for the 486DX2-66 Gaming PC emulator front end",
+  "description": "Playwright integration suite for the 486 DX2-66 Gaming PC emulator front end",
   "scripts": {
     "test": "playwright test",
     "test:headed": "playwright test --headed",

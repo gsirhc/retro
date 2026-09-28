@@ -1,4 +1,4 @@
-// Intel 80486DX2-66 CPU core: real address mode, protected mode, paging
+// Intel 80486 DX2-66 CPU core: real address mode, protected mode, paging
 // and the on-die x87 FPU.
 //
 // This is a genuine Intel486 DX2 -- 33MHz external bus, clock-doubled to

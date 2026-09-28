@@ -65,7 +65,7 @@ The browser emulators and the landing page that lists them.
   browser-local. Hardware findings live in
   [`GALAGA_REVIEW.md`](galaga/GALAGA_REVIEW.md). The wavetable generator
   lives in [`shared/namco/`](shared/namco/).
-- [`pc486/`](pc486/) — 486DX2-66 Gaming PC: a 1990s "gamer's dream" 486
+- [`pc486/`](pc486/) — 486 DX2-66 Gaming PC: a 1990s "gamer's dream" 486
   build, not a recreation of a specific historical machine. A real
   protected-mode 80486DX2 CPU (paging, task switching, x87 FPU) + chipset +
   WD1003 504MB hard disk + ATAPI CD-ROM + NEC 765 3.5" floppy controller +
@@ -110,7 +110,7 @@ uses the video with `Board::Galaxian`; it has no AY or 8255).
 CI builds every front end, fetches the pinned Altair BASIC / CP/M media,
 builds the 6502 Assembler ROM from its own source, fetches/builds the IBM
 PC/AT's BIOS + shipped FreeDOS hard disk image, generates Pac-Man's
-hardware self-test ROM, and fetches/builds the 486DX2-66's BIOS + shipped
+hardware self-test ROM, and fetches/builds the 486 DX2-66's BIOS + shipped
 FreeDOS hard disk and CD-ROM images, then **stages** the site so URLs are clean:
 
 ```
@@ -140,7 +140,7 @@ make -C retroweb preview-stop  # stop the detached server
 
 Both build every emulator's wasm (+ the 6502 Assembler ROM from source,
 needs `cc65` — see `cpu6502/README.md`; + Pac-Man's generated hardware
-self-test ROM; + the 486DX2-66's BIOS + shipped FreeDOS HDD/CD images), fetch the Altair BASIC / CP/M media and the IBM PC/AT's
+self-test ROM; + the 486 DX2-66's BIOS + shipped FreeDOS HDD/CD images), fetch the Altair BASIC / CP/M media and the IBM PC/AT's
 BIOS + shipped FreeDOS hard disk image (the latter a real multi-minute
 build only the first time — see `ibmpc-at/IBM_PCAT_REVIEW.md` §11 — instant
 afterward), stage `_site/`, and serve `https://0.0.0.0:8000/` (landing page)

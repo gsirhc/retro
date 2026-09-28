@@ -1,6 +1,6 @@
 import { Page, expect } from "@playwright/test";
 
-// Shared helpers for the 486DX2-66 Gaming PC integration suite. Everything
+// Shared helpers for the 486 DX2-66 Gaming PC integration suite. Everything
 // drives the real page; `window.__test = { machine, sendKey, screenEl }`
 // (present only under `?test=1`, see app.js) is the inspection seam. Like
 // ibmpc-at, this machine's output is a VGA-rendered canvas with no serial-
@@ -253,9 +253,10 @@ export async function ejectCdrom(page: Page): Promise<void> {
 }
 
 /** Fetches and mounts the shipped FreeDOS install/live CD on demand -- see
- * app.js's "Load FreeDOS CD..." button. Not fetched at page load. */
+ * the Freeware Disks & Drivers panel's "Insert FreeDOS CD..." button. Not
+ * fetched at page load. */
 export async function loadFreedosCdrom(page: Page): Promise<void> {
-  await bay(page, "cdrom").locator('[data-role="load-freedos-cd"]').click();
+  await page.locator("#freedosCdBtn").click();
 }
 
 /** Byte length of C:'s current image (factory, blank, or written-to). */

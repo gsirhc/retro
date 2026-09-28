@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>486DX2-66 Gaming PC</title>
+<title>486 DX2-66 Gaming PC</title>
 <!-- Site icon: see ../../assets/README.md for provenance/regeneration --
      this is a committed copy (only web/ ever gets staged). -->
 <link rel="icon" href="assets/favicon.ico" sizes="any">
@@ -138,7 +138,20 @@
   .boot-notice p { margin: 0; font-size: 12px; font-weight: 600; line-height: 1.4; }
   .boot-notice .dismiss-hint { display: block; margin-top: 6px; font-size: 10px; font-weight: 400; opacity: .85; text-transform: uppercase; letter-spacing: .04em; }
   #screen:focus { outline: none; }
-  .audio-row { margin-top: 14px; justify-content: center; }
+  .audio-row { margin-top: 14px; justify-content: center; gap: 16px; }
+  /* Sound / mouse / WASD mirrors of the checkboxes below -- live in the
+     bezel so they stay reachable once fullscreen covers the page chrome. */
+  .bezel-btn[aria-pressed="true"] {
+    opacity: 1; background: rgba(255,255,255,.22); color: #fff;
+  }
+  #speakerBtn, #mouseCaptureBtn {
+    width: 26px; padding: 0;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  #mouseCaptureBtn svg { display: block; }
+  #wasdArrowsBtn {
+    font-size: 9px; font-weight: 700; letter-spacing: .04em; padding: 0 5px;
+  }
 
   /* ---- front panel: a clone-era mid-tower fascia, not a recreation of any
      specific historical machine (this build is "a gamer's dream 486", per
@@ -305,7 +318,7 @@
   <header class="pagebar">
     <a class="pb-home" href="../">&#8592;&nbsp;All&nbsp;machines</a>
     <span class="pb-title"><img class="pb-icon" src="assets/favicon-32.png" alt="" aria-hidden="true"> PC486.EXE &mdash; [DX2-66]</span>
-    <span class="pb-name">486DX2-66 Gaming PC</span>
+    <span class="pb-name">486 DX2-66 Gaming PC</span>
     <span class="pb-tag">80486DX2 &middot; 66&nbsp;MHz &middot; running entirely in your browser</span>
     <span class="pb-tools">
       <label class="pb-theme">Theme
@@ -322,8 +335,8 @@
   </header>
 
   <div class="inner">
-    <h1>486DX2-66 Gaming PC</h1>
-    <p class="tagline">A real-mode 80486DX2-66, booted to FreeDOS, running entirely in your browser.</p>
+    <h1>486 DX2-66 Gaming PC</h1>
+    <p class="tagline">A real-mode 80486 DX2-66, booted to FreeDOS, running entirely in your browser.</p>
     <hr class="rule">
 
     <div class="panel" id="displayCard">
@@ -344,17 +357,19 @@
             <button type="button" id="escBtn" class="bezel-btn" data-key="Escape"
                     title="Send Esc -- your Esc key exits fullscreen instead, without reaching DOS"
                     aria-label="Send Esc" disabled>Esc</button>
+            <button type="button" id="speakerBtn" class="bezel-btn" title="Enable Sound"
+                    aria-label="Enable Sound" aria-pressed="false">&#9834;</button>
+            <button type="button" id="mouseCaptureBtn" class="bezel-btn" title="Enable Mouse"
+                    aria-label="Enable Mouse" aria-pressed="false"><svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path fill="currentColor" d="M8 1.5C6.1 1.5 4.5 2.9 4.5 4.7v5.1c0 1.9 1.6 3.5 3.5 3.5s3.5-1.6 3.5-3.5V4.7C11.5 2.9 9.9 1.5 8 1.5zm0 1.2c1.1 0 2 .8 2 1.8v1.5H6V4.5c0-1 .9-1.8 2-1.8z"/></svg></button>
+            <button type="button" id="wasdArrowsBtn" class="bezel-btn" title="Map WASD to Arrow Keys"
+                    aria-label="Map WASD to Arrow Keys" aria-pressed="false">WASD</button>
             <button type="button" id="fullscreenBtn" class="bezel-btn" title="Fullscreen" aria-label="Fullscreen">&#x26F6;</button>
           </div>
         </div>
       </div>
       <div class="row audio-row">
         <label><input type="checkbox" id="speakerEnabled"> Enable Sound</label>
-      </div>
-      <div class="row mouse-row">
         <label><input type="checkbox" id="mouseCaptureEnabled"> Enable Mouse</label>
-      </div>
-      <div class="row wasd-row">
         <label><input type="checkbox" id="wasdArrows"> Map WASD to Arrow Keys</label>
       </div>
     </div>
@@ -420,7 +435,7 @@
       <div class="at-case">
         <div class="at-left">
           <div class="cpu-badge" aria-hidden="true">
-            <svg viewBox="0 0 32 32" role="img" aria-label="486DX2-66 badge">
+            <svg viewBox="0 0 32 32" role="img" aria-label="486 DX2-66 badge">
               <ellipse cx="16" cy="16" rx="15" ry="10" fill="#0068b5" transform="rotate(-8 16 16)"/>
               <text x="16" y="19" text-anchor="middle" font-family="Arial, sans-serif" font-weight="700"
                     font-size="9" fill="#fff" transform="rotate(-8 16 16)">486</text>
@@ -476,7 +491,6 @@
             <div class="at-bay-ctl">
               <span class="drive-label empty" data-role="label">empty (CD-ROM, 2x)</span>
               <label class="filebtn"><button type="button" tabindex="-1">Insert&hellip;</button><input type="file" accept=".iso,.ISO" data-role="file"></label>
-              <button type="button" data-role="load-freedos-cd">Load FreeDOS CD&hellip;</button>
               <button type="button" data-role="eject" disabled>Eject</button>
             </div>
           </div>
@@ -485,10 +499,17 @@
     </div>
 
     <div class="panel" id="driversCard">
-      <h2>Drivers</h2>
+      <h2>Freeware Disks &amp; Drivers</h2>
+      <div class="row">
+        <span class="muted">Useful freeware drivers and software to help you get up and running.</span>
+      </div>
       <div class="row">
         <button type="button" id="ctmouseBtn">Insert CuteMouse driver disk</button>
+        <button type="button" id="freedosCdBtn">Insert FreeDOS CD&hellip;</button>
         <span class="muted" id="ctmouseStatus"></span>
+      </div>
+      <div class="row">
+        <span class="muted" id="freedosCdStatus"></span>
       </div>
     </div>
 
@@ -525,10 +546,11 @@
       </div>
       <div class="row">
         <span class="muted">One 2x ATAPI CD-ROM bay (drive D:) -- mount a raw .ISO
-          (2048-byte sectors). "Load FreeDOS CD&hellip;" fetches FreeDOS's own
-          official install/live CD on demand (a ~400MB download) -- it is
-          not fetched at page load, since C: already ships with FreeDOS
-          installed and does not need it to boot.</span>
+          (2048-byte sectors). "Insert FreeDOS CD&hellip;" under Freeware Disks
+          &amp; Drivers fetches FreeDOS's own official install/live CD on
+          demand (a ~400MB download) -- it is not fetched at page load, since
+          C: already ships with FreeDOS installed and does not need it to
+          boot.</span>
       </div>
     </div>
 

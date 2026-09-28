@@ -235,7 +235,7 @@ private:
     static constexpr uint32_t kHeadUnknown = 0xFFFFFFFF;
     uint32_t head_lba_ = kHeadUnknown;
 
-    // The cycle count Chipset feeds tick() is this machine's 80486DX2-66
+    // The cycle count Chipset feeds tick() is this machine's 80486 DX2-66
     // internal clock. If that counter's units ever change (e.g. to 33 MHz
     // bus clocks), this constant changes with it or every paced delay is
     // wrong by the same factor.

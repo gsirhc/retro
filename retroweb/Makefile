@@ -180,7 +180,7 @@ preview: _stage preview-cert
 	@echo "  https://0.0.0.0:$(PREVIEW_PORT)/galaga/      the Galaga arcade emulator"
 	@echo "  https://0.0.0.0:$(PREVIEW_PORT)/galaxian/    the Galaxian arcade emulator"
 	@echo "  https://0.0.0.0:$(PREVIEW_PORT)/scramble/    the Scramble arcade emulator"
-	@echo "  https://0.0.0.0:$(PREVIEW_PORT)/pc486/       the 486DX2-66 emulator"
+	@echo "  https://0.0.0.0:$(PREVIEW_PORT)/pc486/       the 486 DX2-66 emulator"
 	@echo "  (foreground — leave this terminal open; Ctrl-C to stop)"
 	@echo
 	$(PY) serve_nocache.py $(PREVIEW_PORT) _site 0.0.0.0 $(PREVIEW_CERT) $(PREVIEW_KEY)

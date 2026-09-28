@@ -80,4 +80,41 @@ test.describe("fullscreen", () => {
     // prompt is left bare again, not still holding "abc".
     await waitForScreen(page, /C:\\>\s*$/);
   });
+
+  // Sound / mouse / WASD live as bezel icons too, so they stay reachable
+  // once fullscreen covers the checkbox row under the monitor.
+  test("bezel sound/mouse/WASD icons toggle the same checkboxes", async ({ livePage: page }) => {
+    await expect(page.locator("#speakerBtn")).toHaveAttribute("aria-pressed", "false");
+    await expect(page.locator("#mouseCaptureBtn")).toHaveAttribute("aria-pressed", "false");
+    await expect(page.locator("#wasdArrowsBtn")).toHaveAttribute("aria-pressed", "false");
+
+    await page.locator("#speakerBtn").click();
+    await expect(page.locator("#speakerEnabled")).toBeChecked();
+    await expect(page.locator("#speakerBtn")).toHaveAttribute("aria-pressed", "true");
+
+    await page.locator("#mouseCaptureBtn").click();
+    await expect(page.locator("#mouseCaptureEnabled")).toBeChecked();
+    await expect(page.locator("#mouseCaptureBtn")).toHaveAttribute("aria-pressed", "true");
+
+    await page.locator("#wasdArrowsBtn").click();
+    await expect(page.locator("#wasdArrows")).toBeChecked();
+    await expect(page.locator("#wasdArrowsBtn")).toHaveAttribute("aria-pressed", "true");
+
+    // Checkbox → icon stays in sync the other way too.
+    await page.locator("#speakerEnabled").uncheck();
+    await expect(page.locator("#speakerBtn")).toHaveAttribute("aria-pressed", "false");
+  });
+
+  test("bezel toggles stay usable while fullscreen", async ({ livePage: page }) => {
+    await page.evaluate(() => localStorage.setItem("retro8080.fsEscHintSeen", "2"));
+    await page.locator("#fullscreenBtn").click();
+    await expect.poll(() => page.evaluate(() => !!document.fullscreenElement)).toBe(true);
+
+    await page.locator("#speakerBtn").click();
+    await expect(page.locator("#speakerEnabled")).toBeChecked();
+    await expect(page.locator("#speakerBtn")).toHaveAttribute("aria-pressed", "true");
+
+    await page.locator("#wasdArrowsBtn").click();
+    await expect(page.locator("#wasdArrows")).toBeChecked();
+  });
 });

@@ -267,7 +267,7 @@ jobs:
             retroweb/pacman/web/test-results/
           retention-days: 7
 
-  # 486DX2-66 Gaming PC: GoogleTest suite over the 80486 core + chipset,
+  # 486 DX2-66 Gaming PC: GoogleTest suite over the 80486 core + chipset,
   # WD1003/ATAPI CD-ROM, floppy, VGA/VBE, PS/2 mouse and Sound Blaster 16
   # (see retroweb/pc486/PC486_REVIEW.md).
   pc486-test:
@@ -276,7 +276,7 @@ jobs:
       - uses: actions/checkout@v4
       - run: make -C retroweb/pc486 check
 
-  # Playwright suite for the 486DX2-66 front end: boots the real 80486 core
+  # Playwright suite for the 486 DX2-66 front end: boots the real 80486 core
   # + shipped FreeDOS HDD image and CD-ROM ISO, drives keyboard/mouse/floppy/
   # HDD/CD-ROM/speaker/Sound Blaster/theme controls and asserts VGA text-mode
   # screen contents (see PC486_REVIEW.md's Playwright coverage). Two large

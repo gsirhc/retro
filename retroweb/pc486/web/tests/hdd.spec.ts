@@ -99,4 +99,24 @@ test.describe("hard disk", () => {
     await expect(page.locator("#hddStatus")).toBeVisible();
     await waitForScreen(page, /C:\\>/);
   });
+
+  // Mirrors the CD-ROM "never fetches unasked" case: once C: lives in
+  // IndexedDB, a reload must not pull disks/freedos-hdd.img again. The
+  // previous eager fetch started that download on every visit and only
+  // skipped *awaiting* it when saved state existed.
+  test("a reload with saved C: does not re-fetch the factory FreeDOS image", async ({
+    page,
+  }) => {
+    await boot(page);
+    await setPowerSwitch(page, false);
+
+    const requests: string[] = [];
+    page.on("request", (req) => requests.push(req.url()));
+    await page.reload();
+    await page.waitForFunction(() => !!(window as any).__test?.machine, null, {
+      timeout: 15000,
+    });
+    await expect(page.locator("#hddStatus")).toHaveText(/saved state/);
+    expect(requests.some((u) => u.includes("freedos-hdd.img"))).toBe(false);
+  });
 });

@@ -24,7 +24,7 @@ test.describe("retroweb landing page", () => {
   test("arcade cards are alphabetical; computers stay Altair, IBM, then 486", async ({ page }) => {
     await page.goto(HOME);
     const computers = await page.locator(".machines").first().locator(".name").allTextContents();
-    expect(computers).toEqual(["MITS Altair 8800", "IBM PC/AT", "486DX2-66 Gaming PC"]);
+    expect(computers).toEqual(["MITS Altair 8800", "IBM PC/AT", "486 DX2-66 Gaming PC"]);
     const arcade = await page.locator('h2.section-heading:has-text("Arcade") + .machines .name').allTextContents();
     expect(arcade).toEqual([
       "Frogger Arcade",

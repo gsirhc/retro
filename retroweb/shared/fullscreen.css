@@ -42,7 +42,7 @@
    while fullscreen -- the Fullscreen API only expands #bezel's own subtree,
    so a control placed outside it would be visually covered and unclickable
    the moment fullscreen engaged. Grouped in one corner cluster of the
-   bezel's own plastic-frame padding, not over the picture, so both buttons
+   bezel's own plastic-frame padding, not over the picture, so the controls
    move together with a single position rule. */
 .bezel-controls {
   position: absolute; top: 6px; right: 8px; z-index: 7;

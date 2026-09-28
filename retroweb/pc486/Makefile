@@ -1,4 +1,4 @@
-# Top-level "scripts" for the 486DX2-66 Gaming PC emulator -- a 1990s
+# Top-level "scripts" for the 486 DX2-66 Gaming PC emulator -- a 1990s
 # "gamer's dream" 486 build, not a recreation of a specific historical
 # machine (see PC486_REVIEW.md). Each target is a no-arg command:
 #
@@ -147,7 +147,7 @@ hdd-image: bios disks/build_freedos_hdd disks/freedos-cd.iso disks/freedos-boot.
 	./disks/build_freedos_hdd roms/BIOS-bochs-legacy roms/VGABIOS-lgpl-latest.bin \
 	  disks/freedos-boot.img disks/freedos-cd.iso disks/freedos-hdd.img
 
-# The CuteMouse driver floppy the Drivers panel offers. Built from the files
+# The CuteMouse driver floppy the Freeware Disks & Drivers panel offers. Built from the files
 # already on the FreeDOS HDD image rather than fetched separately -- see
 # disks/build-ctmouse-floppy.sh for why, and for the checksum it enforces.
 disks/ctmouse.img: disks/build-ctmouse-floppy.sh disks/freedos-hdd.img

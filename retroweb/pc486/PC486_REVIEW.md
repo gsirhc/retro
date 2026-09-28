@@ -1,9 +1,9 @@
-# 486DX2-66 Gaming PC -- build review log
+# 486 DX2-66 Gaming PC -- build review log
 
 This machine is not a recreation of a specific historical model, the way
 `ibmpc-at` recreates a genuine IBM 5170. It's a "gamer's dream" 486-class
 PC as a well-appointed enthusiast might have assembled/bought in 1993-94:
-a real Intel 80486DX2-66 (33MHz bus, clock-doubled to 66MHz internally,
+a real Intel 80486 DX2-66 (33MHz bus, clock-doubled to 66MHz internally,
 on-die FPU), 32MB RAM, a 504MB IDE hard disk (the genuine pre-EIDE INT13h
 CHS addressing ceiling -- 1024 cyl x 16 head x 63 sec -- that period
 "maxed out" drives actually ran into), a single 3.5" 1.44MB floppy, a 2x
@@ -375,7 +375,7 @@ suite described in §3.1.
 - **The reset unit attention** (§3.7) is the behavior most likely to look
   like a bug during driver bring-up.
 
-## 4. CPU core: a real-mode 80486DX2-66
+## 4. CPU core: a real-mode 80486 DX2-66
 
 > **Superseded in part by §6.** This section records the core as Milestone 1
 > left it -- real address mode only. Milestone 2 made protected mode, paging,

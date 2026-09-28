@@ -349,10 +349,10 @@
   // installed (see the factory HDD image), so nothing about booting or
   // running needs a disc in this drive. Fetching FreeDOS's own ~400MB
   // install/live CD on every page load regardless was a real, reported
-  // cost with no runtime benefit -- "Load FreeDOS CD..." below fetches
-  // that same shipped .iso lazily, only when someone actually wants it in
-  // the drive (see PC486_REVIEW.md).
-  // ---- drivers -----------------------------------------------------
+  // cost with no runtime benefit -- "Insert FreeDOS CD..." in the Freeware
+  // Disks & Drivers panel fetches that same shipped .iso lazily, only when
+  // someone actually wants it in the drive (see PC486_REVIEW.md).
+  // ---- freeware disks & drivers ----------------------------------------
   // Fetches the CuteMouse floppy this machine builds (web/disks/ctmouse.img,
   // see disks/build-ctmouse-floppy.sh) and puts it in drive A:, taking the
   // same path a file the user picked would -- so ejecting, writing and the
@@ -387,8 +387,9 @@
   const cdromBay = document.querySelector('.at-bay[data-drive="cdrom"]');
   {
     const fileInput = cdromBay.querySelector('[data-role="file"]');
-    const loadFreedosBtn = cdromBay.querySelector('[data-role="load-freedos-cd"]');
     const ejectBtn = cdromBay.querySelector('[data-role="eject"]');
+    const loadFreedosBtn = document.getElementById("freedosCdBtn");
+    const freedosStatus = document.getElementById("freedosCdStatus");
     fileInput.addEventListener("change", async () => {
       const f = fileInput.files[0];
       fileInput.value = "";
@@ -401,12 +402,23 @@
     loadFreedosBtn.addEventListener("click", async () => {
       loadFreedosBtn.disabled = true;
       const originalText = loadFreedosBtn.textContent;
-      loadFreedosBtn.textContent = "Loading…";
+      loadFreedosBtn.textContent = "Loading\u2026";
+      freedosStatus.textContent = "Fetching\u2026 (~400MB)";
       try {
-        const bytes = new Uint8Array(await (await fetch("disks/freedos-cd.iso")).arrayBuffer());
+        const res = await fetch("disks/freedos-cd.iso");
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const bytes = new Uint8Array(await res.arrayBuffer());
         pendingCdrom = { name: "FreeDOS install/live CD", bytes };
         if (machine) machine.mountCdrom(bytes);
         setBayLoaded(cdromBay, pendingCdrom.name);
+        freedosStatus.innerHTML =
+          "In drive D:. At the prompt: <code>D:</code> then <code>DIR</code> to browse -- " +
+          "FreeDOS's official install/live CD (packages, SETUP, extras). " +
+          "C: already boots FreeDOS without it; use this to install more packages or " +
+          "reinstall. Eject from the CD-ROM bay when done.";
+      } catch (err) {
+        console.error("could not load the FreeDOS CD:", err);
+        freedosStatus.textContent = "Could not fetch the FreeDOS CD -- see the console.";
       } finally {
         loadFreedosBtn.textContent = originalText;
         loadFreedosBtn.disabled = false;
@@ -493,6 +505,16 @@
         // investigation). Trimming once per process() call instead bounds
         // the jump to what real playback has actually consumed.
         this.targetAvailable = Math.round(sampleRate * 0.05);  // 50ms
+        // One-pole DC blocker. pumpAudio encodes the speaker as ±0.25, which
+        // is right for a square-wave beep, but a cone parked on either rail
+        // (the FreeDOS prompt: level stuck low, zero edges) is a constant
+        // DC bias into Web Audio -- browsers are DC-coupled, unlike a real
+        // speaker amp's AC coupling, and that held −0.25 shows up as a
+        // quiet periodic thump. This settles a held level to digital
+        // silence while letting actual beeps through.
+        this.prevIn = 0;
+        this.prevOut = 0;
+        this.dcR = 0.995;
         this.port.onmessage = (e) => {
           const chunk = e.data;
           for (let i = 0; i < chunk.length; i++) {
@@ -526,7 +548,11 @@
           // Underrun: hold the last real sample instead of snapping to 0 --
           // a real speaker cone doesn't teleport to rest either, and
           // holding avoids adding its own click on top of the stall.
-          out[i] = this.lastSample;
+          const x = this.lastSample;
+          const y = x - this.prevIn + this.dcR * this.prevOut;
+          this.prevIn = x;
+          this.prevOut = y;
+          out[i] = y;
         }
         return true;
       }
@@ -684,8 +710,35 @@
     sbNode.connect(audioCtx.destination);
   }
   speakerCheckbox.addEventListener("change", () => {
-    if (speakerCheckbox.checked) ensureAudioStarted();
+    if (speakerCheckbox.checked) {
+      ensureAudioStarted();
+    } else if (audioCtx) {
+      // Stopping the sample pump alone leaves the context "running", so
+      // Chrome (and friends) keep the tab's speaker icon lit even though
+      // nothing is audible. Suspend matches powerOff()'s own treatment and
+      // clears that indicator; ensureAudioStarted() resumes on re-check.
+      audioCtx.suspend().catch(() => {});
+    }
   });
+
+  // Bezel-corner icons mirror the three checkboxes under the monitor --
+  // same state, same change handlers -- so sound / mouse / WASD stay
+  // reachable once fullscreen covers the page chrome below the bezel.
+  function bindBezelToggle(btn, checkbox) {
+    const sync = () => {
+      btn.setAttribute("aria-pressed", checkbox.checked ? "true" : "false");
+    };
+    btn.addEventListener("click", () => {
+      checkbox.checked = !checkbox.checked;
+      checkbox.dispatchEvent(new Event("change"));
+      sync();
+    });
+    checkbox.addEventListener("change", sync);
+    sync();
+  }
+  bindBezelToggle(document.getElementById("speakerBtn"), speakerCheckbox);
+  bindBezelToggle(document.getElementById("mouseCaptureBtn"), mouseCaptureCheckbox);
+  bindBezelToggle(document.getElementById("wasdArrowsBtn"), wasdCheckbox);
 
   // Converts this frame's real (cpu_cycle, level) edge trace --
   // PcSpeaker::drain_edges() via speakerEdges() -- into a sample array and
@@ -714,6 +767,8 @@
       let edgeSample = Math.round(((cycles[i] - frameStartCycle) / cyclesPerRealSecond) * sampleRate);
       if (edgeSample < 0) edgeSample = 0;
       if (edgeSample > sampleCount) edgeSample = sampleCount;
+      // ±0.25 bipolar square wave; a held rail (idle prompt) is DC that the
+      // worklet's DC blocker settles to silence -- see kSpeakerWorkletSrc.
       const v = level ? 0.25 : -0.25;
       for (; sampleIdx < edgeSample; sampleIdx++) data[sampleIdx] = v;
       level = levels[i] !== 0;
@@ -1420,6 +1475,26 @@
   // exists purely to describe that choice in the status line below.
   let savedHdd = null;   // Uint8Array | null
   let hddLabel = "factory FreeDOS (default)";
+  // Lazily populated -- only fetched when a session actually needs the
+  // pristine factory image (no IndexedDB C: yet, or "Reset to factory").
+  // Starting the fetch eagerly used to download ~7MB gzip on every reload
+  // even when savedHdd already covered the mount (see ensureFactoryHdd).
+  let factoryHddPromise = null;
+  function ensureFactoryHdd() {
+    if (firmware && firmware.hdd) return Promise.resolve(firmware.hdd);
+    if (!factoryHddPromise) {
+      factoryHddPromise = fetch("disks/freedos-hdd.img")
+        .then((r) => {
+          if (!r.ok) throw new Error("freedos-hdd.img HTTP " + r.status);
+          return r.arrayBuffer();
+        })
+        .then((bytes) => {
+          if (firmware) firmware.hdd = bytes;
+          return bytes;
+        });
+    }
+    return factoryHddPromise;
+  }
   const hddStatus = document.getElementById("hddStatus");
   const hddResetBtn = document.getElementById("hddResetBtn");
   const hddBlankBtn = document.getElementById("hddBlankBtn");
@@ -1440,6 +1515,9 @@
     hddLabel = "factory FreeDOS (default) -- takes effect next power-on";
     refreshHddControls();
     clearSavedHdd();
+    // Kick the factory fetch now (if we never needed it this session) so
+    // the next power-on isn't stalled behind a cold 504MB download.
+    ensureFactoryHdd();
   });
   hddBlankBtn.addEventListener("click", () => {
     if (!firmware) return;
@@ -1452,11 +1530,12 @@
   // storage -- the same "save modified media" idea the floppy eject flow
   // already offers, just for C: (which isn't ejectable, so it needs its
   // own explicit control instead of piggybacking on a drive-swap gesture).
-  hddDownloadBtn.addEventListener("click", () => {
+  hddDownloadBtn.addEventListener("click", async () => {
     if (!firmware) return;
     // Whatever is *actually* current: the live, possibly-just-written
     // image if the machine is running, else whatever's staged for the
     // next power-on, else the pristine factory image.
+    if (!(poweredOn && machine) && !savedHdd) await ensureFactoryHdd();
     const bytes = (poweredOn && machine) ? machine.hddImage() : (savedHdd || new Uint8Array(firmware.hdd));
     const blob = new Blob([bytes], { type: "application/octet-stream" });
     const a = document.createElement("a");
@@ -1491,7 +1570,7 @@
     saveHdd(savedHdd);
   });
 
-  function powerOn() {
+  async function powerOn() {
     if (poweredOn || !firmware) return;
     if (!machine) {
       // Free the previous power cycle's machine before building the next
@@ -1511,6 +1590,9 @@
       if (perfRequested) startPerfPanel();
       machine.loadRom(0x100000 - firmware.bios.byteLength, new Uint8Array(firmware.bios));
       machine.loadRom(0xC0000, new Uint8Array(firmware.vga));
+      // Factory image is fetched on demand -- a session that already has
+      // C: in IndexedDB never downloads it (see ensureFactoryHdd).
+      if (!savedHdd) await ensureFactoryHdd();
       machine.mountHdd(savedHdd || new Uint8Array(firmware.hdd));
       if (pendingFloppy) {
         machine.mountFloppy(pendingFloppy.bytes);
@@ -1519,7 +1601,7 @@
       // Empty by default -- see the CD-ROM section above for why this
       // drive isn't pre-loaded the way the HDD is. `pendingCdrom.bytes` is
       // already a real Uint8Array by the time it lands here (both the file
-      // input and "Load FreeDOS CD..." construct one from the fetched/read
+      // input and "Insert FreeDOS CD..." construct one from the fetched/read
       // ArrayBuffer), which matters because mountCdrom() goes through
       // embind's convertJSArrayToNumberVector -- that reads `.length`, and
       // a bare ArrayBuffer only has `byteLength`, so passing one directly
@@ -1693,22 +1775,19 @@
     }
   });
 
-  // ---- fetch firmware + the shipped HDD image once, up front ------------
+  // ---- fetch firmware once, up front ------------------------------------
   // Not modeling anything physical -- purely the web delivery mechanism --
   // so there's no reason to gate it behind the power switch: fetch starts
   // immediately, and flipping power on is instant once it's done.
   //
-  // The CD-ROM's ~400MB install/live CD is deliberately not in this list --
-  // see the CD-ROM drive section above for why C: doesn't need it to boot,
-  // and "Load FreeDOS CD..." for where it's actually fetched.
+  // The factory HDD image is deliberately NOT in this list -- a visitor
+  // with C: already in IndexedDB (the overwhelmingly common case after the
+  // first visit, and anyone who uploaded their own image) never touches
+  // those bytes. ensureFactoryHdd() fetches on demand for the cold-start
+  // and "Reset to factory FreeDOS" paths only. The CD-ROM's ~400MB
+  // install/live CD stays out for the same reason -- see the CD-ROM drive
+  // section above / "Insert FreeDOS CD...".
   (async () => {
-    // Kicked off immediately but deliberately NOT in the Promise.all below:
-    // a visitor with saved state (the overwhelmingly common case after the
-    // first visit) never touches these bytes at all, so gating page-ready
-    // on this one 504MB fetch finishing would stall every reload behind a
-    // download most sessions never need. Awaited below only in the one
-    // case that genuinely needs it -- no saved state at all yet.
-    const hddFetchPromise = fetch("disks/freedos-hdd.img").then((r) => r.arrayBuffer());
     await loadEmulatorModule();
     const [Module, savedHddResult, bios, vga] = await Promise.all([
       Pc486({}),
@@ -1717,12 +1796,11 @@
       fetch("roms/VGABIOS-lgpl-latest.bin").then((r) => r.arrayBuffer()),
     ]);
     firmware = { Module, bios, vga, hdd: null };
-    hddFetchPromise.then((bytes) => { firmware.hdd = bytes; });
     if (savedHddResult) {
       savedHdd = savedHddResult;
       hddLabel = "saved state (from a previous visit)";
     } else {
-      firmware.hdd = await hddFetchPromise;
+      await ensureFactoryHdd();
     }
 
     powerSwitch.disabled = false;
@@ -1730,7 +1808,7 @@
     // Boot straight to a running machine once firmware is ready, rather
     // than making the visitor find and click the power switch themselves.
     powerSwitch.checked = true;
-    powerOn();
+    await powerOn();
   })().catch((err) => {
     // no on-page error surface -- the power switch simply never enables;
     // the real failure detail goes to the console for diagnosis.

@@ -1,4 +1,4 @@
-// Intel 80486DX2-66 CPU core -- implementation. Real address mode,
+// Intel 80486 DX2-66 CPU core -- implementation. Real address mode,
 // protected mode, paging, and the on-die x87 FPU.
 //
 // Semantics are cited from the Intel 80486 Programmer's Reference Manual

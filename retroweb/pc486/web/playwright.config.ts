@@ -1,6 +1,6 @@
 import { defineConfig, devices } from "@playwright/test";
 
-// Integration suite for the 486DX2-66 Gaming PC emulator front end. Drives
+// Integration suite for the 486 DX2-66 Gaming PC emulator front end. Drives
 // the real page in a real browser: asserts control behaviour, machine
 // state (via the `?test=1`-gated window.__test seam app.js exposes), and
 // the VGA text-mode screen (via Machine::textScreen(), a test-only

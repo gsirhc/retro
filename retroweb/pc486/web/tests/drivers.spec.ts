@@ -1,9 +1,11 @@
 import { test, expect } from "./fixtures";
 
-// The Drivers panel: a DOS program reaches the mouse through INT 33h, which
-// is a driver rather than firmware, so the machine ships the driver disk
-// rather than pretending the bare hardware is enough (PC486_REVIEW.md §10).
-test.describe("Drivers panel", () => {
+// The Freeware Disks & Drivers panel: a DOS program reaches the mouse
+// through INT 33h, which is a driver rather than firmware, so the machine
+// ships the CuteMouse diskette rather than pretending the bare hardware is
+// enough (PC486_REVIEW.md §10). The FreeDOS install/live CD lives here too
+// -- freely redistributable media, fetched on demand, not at page load.
+test.describe("Freeware Disks & Drivers panel", () => {
   test("sits between the front panel and the hard disk", async ({ page }) => {
     await page.goto("/?test=1");
     const order = await page.evaluate(() => {
@@ -16,6 +18,22 @@ test.describe("Drivers panel", () => {
     expect(order[0]).toBeGreaterThanOrEqual(0);
     expect(order[1]).toBe(order[0] + 1);
     expect(order[2]).toBe(order[1] + 1);
+  });
+
+  test("is labelled Freeware Disks & Drivers and hosts both opt-in media buttons", async ({
+    page,
+  }) => {
+    await page.goto("/?test=1");
+    await expect(page.locator("#driversCard h2")).toHaveText("Freeware Disks & Drivers");
+    await expect(page.locator("#driversCard .row").first()).toContainText(
+      "Useful freeware drivers and software"
+    );
+    await expect(page.locator("#ctmouseBtn")).toBeVisible();
+    await expect(page.locator("#freedosCdBtn")).toHaveText(/Insert FreeDOS CD/);
+    // The FreeDOS CD shortcut left the CD-ROM bay -- Insert/Eject stay there.
+    await expect(
+      page.locator('.at-bay[data-drive="cdrom"] #freedosCdBtn')
+    ).toHaveCount(0);
   });
 
   test("inserting the CuteMouse disk loads a real 1.44MB image into drive A:", async ({

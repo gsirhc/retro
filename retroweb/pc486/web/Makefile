@@ -129,7 +129,7 @@ disks/freedos-cd.iso: $(CORE)/disks/freedos-cd.iso
 	mkdir -p disks
 	cp $(CORE)/disks/freedos-cd.iso disks/
 
-# The Drivers panel fetches this at runtime, so it has to live under web/ --
+# The Freeware Disks & Drivers panel fetches this at runtime, so it has to live under web/ --
 # nothing one level up is staged (see retroweb/README.md).
 $(CORE)/disks/ctmouse.img:
 	$(MAKE) -C $(CORE) disks/ctmouse.img

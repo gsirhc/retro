@@ -67,6 +67,20 @@ test.describe("PC speaker", () => {
       .toBe("running");
   });
 
+  // Unchecking must suspend the context, not just stop feeding it -- a
+  // still-running AudioContext keeps the browser's tab speaker icon lit
+  // even when the page is silent.
+  test("unchecking the box suspends the audio context", async ({ livePage: page }) => {
+    await page.locator("#speakerEnabled").check();
+    await expect
+      .poll(() => page.evaluate(() => (window as any).__test.audioState))
+      .toBe("running");
+    await page.locator("#speakerEnabled").uncheck();
+    await expect
+      .poll(() => page.evaluate(() => (window as any).__test.audioState))
+      .toBe("suspended");
+  });
+
   // AudioWorklet doesn't exist at all outside a "secure context" (https://,
   // or http://localhost specifically -- a LAN IP/hostname on your own
   // network does not count, even though nothing about that setup is
