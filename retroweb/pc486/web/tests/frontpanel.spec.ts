@@ -1,10 +1,8 @@
 import { test, expect } from "./fixtures";
 
-// The front panel's static jewelry: the fixed "66" seven-segment display
-// and the Intel-homage CPU badge. Both are genuinely fixed -- no dynamic
-// logic drives them (see index.html's own comments) -- so these tests
-// assert the markup itself, not any behavior. Power/reset LED behavior is
-// covered in boot.spec.ts.
+// The front panel's static jewelry: fixed green "66" seven-segment display
+// and the Turbo LED (cosmetic only -- never changes the guest clock).
+// Power/reset behavior is covered in boot.spec.ts.
 
 test.describe("front panel jewelry", () => {
   test("the seven-segment display shows a fixed '66', independent of power", async ({ livePage: page }) => {
@@ -28,10 +26,42 @@ test.describe("front panel jewelry", () => {
     }
   });
 
-  test("the CPU badge identifies the real part, not a marketing name", async ({ livePage: page }) => {
-    // The genuine Intel retail part for 66MHz was the clock-doubled DX2,
-    // not a plain (never-sold) "486DX-66" -- see PC486_REVIEW.md.
-    await expect(page.locator(".cpu-badge-text")).toContainText(/80486DX2/);
-    await expect(page.locator(".cpu-badge-text")).toContainText(/66 MHz/);
+  test("reads as a tower turbo cluster with 5.25\" CD above 3.5\" floppy", async ({ livePage: page }) => {
+    await expect(page.locator(".tower-panel")).toBeVisible();
+    await expect(page.locator("#turboBtn")).toBeVisible();
+    await expect(page.locator("#resetBtn")).toBeVisible();
+    await expect(page.locator("#powerSwitch")).toBeVisible();
+    await expect(page.locator(".power-rocker")).toBeVisible();
+    await expect(page.locator(".tower-keylock")).toHaveCount(0);
+
+    // Usual tower stack: 5.25" CD-ROM on top, 3.5" floppy below.
+    const drives = page.locator(".at-drives .at-bay");
+    await expect(drives).toHaveCount(2);
+    await expect(drives.nth(0)).toHaveAttribute("data-drive", "cdrom");
+    await expect(drives.nth(0)).toHaveClass(/bay-525/);
+    await expect(drives.nth(0).locator(".cd-door")).toBeVisible();
+    await expect(drives.nth(1)).toHaveAttribute("data-drive", "0");
+    await expect(drives.nth(1)).toHaveClass(/bay-35/);
+    await expect(drives.nth(1).locator(".floppy-door")).toBeVisible();
+  });
+
+  test("Turbo toggles its amber LED only -- never the guest clock", async ({ livePage: page }) => {
+    const btn = page.locator("#turboBtn");
+    const led = page.locator("#turboLed");
+    await expect(btn).toHaveAttribute("aria-pressed", "true");
+    await expect(led).toHaveClass(/turbo-on/);
+
+    const cycles1 = await page.evaluate(() => (window as any).__test.machine.totalCycles());
+    await btn.click();
+    await expect(btn).toHaveAttribute("aria-pressed", "false");
+    await expect(led).not.toHaveClass(/turbo-on/);
+    await page.waitForTimeout(200);
+    const cycles2 = await page.evaluate(() => (window as any).__test.machine.totalCycles());
+    // Still advancing at real speed -- Turbo is jewelry, not a clock multiplier.
+    expect(cycles2).toBeGreaterThan(cycles1);
+
+    await btn.click();
+    await expect(btn).toHaveAttribute("aria-pressed", "true");
+    await expect(led).toHaveClass(/turbo-on/);
   });
 });

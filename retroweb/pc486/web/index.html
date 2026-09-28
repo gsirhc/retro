@@ -153,22 +153,15 @@
     font-size: 9px; font-weight: 700; letter-spacing: .04em; padding: 0 5px;
   }
 
-  /* ---- front panel: a clone-era mid-tower fascia, not a recreation of any
-     specific historical machine (this build is "a gamer's dream 486", per
-     the approved plan) -- photoreal in every theme, like the CRT above.
-     Left cluster: an Intel-homage badge (an original SVG drawn in the
-     spirit of the era's "Intel Inside" OEM case stickers -- NOT a
-     reproduction of Intel's actual trademarked logo artwork, a deliberate
-     deviation from a literal reading of the request; see PC486_REVIEW.md),
-     the power/activity LEDs, a fixed seven-segment "66" clock-speed
-     display (genuinely fixed -- no dynamic logic, matching real turbo-
-     button-era cases that wired theirs straight to a jumper, not a real
-     clock counter), and a momentary Reset button -- a real, later clone-
-     era convention this machine's whole premise calls for, unlike
-     ibmpc-at's genuine 5170 (which never had one). Right cluster: one 3.5"
-     floppy bay and one CD-ROM bay. ---------------------------------- */
+  /* ---- front panel: a typical mid-90s beige-tower control cluster, not
+     an IBM 5170 AT fascia. Compact LED strip + green "66" display + Turbo
+     / Reset pushbuttons and a large vertical throw power rocker inside
+     the green island (right side); a 5.25" CD-ROM bay above a 3.5"
+     floppy bay on the right. The "66" is genuinely fixed (real turbo-era
+     cases often jumper-wired the display). Turbo only toggles its amber
+     LED -- never the CPU clock (CLAUDE.md). ------------------------- */
   .at-case {
-    display: flex; gap: 16px; align-items: stretch; flex-wrap: wrap;
+    display: flex; gap: 14px; align-items: stretch; flex-wrap: wrap;
     background: linear-gradient(180deg, #e6dfc9 0%, #d3cab0 45%, #b6ac92 100%);
     border-radius: 6px;
     box-shadow: inset 0 0 0 2px #f2ecd8, inset 0 0 0 3px #8f886f,
@@ -181,109 +174,246 @@
     width: 100%;
   }
   :root[data-theme="modern"] .at-case { max-width: 920px; margin: 0 auto; }
-  .at-left {
-    flex: 2 1 0%; min-width: 0;
-    display: flex; flex-direction: column; gap: 10px;
-  }
-  /* Intel-homage badge -- an original tilted-oval "chip" mark, evoking the
-     era's OEM case badges without copying Intel's actual artwork. */
-  .cpu-badge { display: inline-flex; align-items: center; gap: 8px; }
-  .cpu-badge svg { width: 30px; height: 30px; flex: 0 0 auto; }
-  .cpu-badge .cpu-badge-text {
-    font: 700 12px Arial, Helvetica, sans-serif; letter-spacing: .5px; color: #2b2b28;
-    text-shadow: 0 1px 0 rgba(255,255,255,.5);
-  }
-  .cpu-badge .cpu-badge-text span { display: block; margin-top: 2px; font: 400 10px Arial, Helvetica, sans-serif; color: #6b6450; letter-spacing: .3px; }
-  .at-toprow { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
-  .at-indicators { display: flex; align-items: center; gap: 6px; }
-  .led-box {
-    display: flex; align-items: center; justify-content: center;
-    width: 15px; height: 15px; flex: 0 0 auto;
-    background: #100f0d; border-radius: 1px;
-    box-shadow: inset 0 0 0 1px #000, inset 0 1px 3px rgba(0,0,0,.9), 0 1px 0 rgba(255,255,255,.3);
-  }
-  .at-indicators .drive-led { width: 8px; height: 8px; border-radius: 1px; }
-  .at-vents {
-    flex: 1; min-height: 40px; border-radius: 2px;
-    margin: 0 4px 14px 16px;
-    background: repeating-linear-gradient(90deg, #8f886f 0 3px, #c9c0a6 3px 7px);
-    box-shadow: inset 0 0 0 1px #8f886f, inset 0 2px 5px rgba(0,0,0,.3);
+  .at-controls {
+    flex: 0 0 auto;
+    display: flex; flex-direction: row; align-items: center;
   }
 
-  /* fixed seven-segment "66" clock-speed display -- classic turbo-button-
-     era case jewelry. Genuinely fixed: only the segments digit "6" lights
-     (a, c, d, e, f, g -- everything but b) are ever lit, no JS drives this. */
-  .sevenseg-group { display: flex; align-items: center; gap: 10px; }
-  .sevenseg-digits { display: flex; gap: 4px; padding: 5px 6px; background: #1a0605; border-radius: 2px;
-    box-shadow: inset 0 0 0 1px #000, inset 0 1px 3px rgba(0,0,0,.9); }
-  .sevenseg { position: relative; width: 13px; height: 22px; }
-  .sevenseg i { position: absolute; background: #300; border-radius: 1px; }
-  .sevenseg .on { background: #ff2a1e; box-shadow: 0 0 4px 1px rgba(255,50,30,.85); }
-  /* segment geometry: a=top, b=top-right, c=bottom-right, d=bottom,
-     e=bottom-left, f=top-left, g=middle -- standard 7-seg layout */
-  .sevenseg .a { top: 0;    left: 2px;  width: 9px; height: 2px; }
-  .sevenseg .b { top: 1px;  right: 0;   width: 2px; height: 9px; }
-  .sevenseg .c { top: 11px; right: 0;   width: 2px; height: 9px; }
-  .sevenseg .d { bottom: 0; left: 2px;  width: 9px; height: 2px; }
-  .sevenseg .e { top: 11px; left: 0;    width: 2px; height: 9px; }
-  .sevenseg .f { top: 1px;  left: 0;    width: 2px; height: 9px; }
-  .sevenseg .g { top: 10px; left: 2px;  width: 9px; height: 2px; }
-  .sevenseg-label { font: 700 9px Arial, Helvetica, sans-serif; letter-spacing: .5px; color: #6b6450; text-transform: uppercase; }
-
-  /* rocker power switch -- a real physical toggle, not a checkbox look */
-  .at-switch-group { display: inline-flex; align-items: center; gap: 7px; cursor: pointer; }
-  .at-switch-group input { position: absolute; opacity: 0; width: 1px; height: 1px; }
-  .at-switch {
-    position: relative; width: 34px; height: 18px; border-radius: 3px; flex: 0 0 auto;
-    background: linear-gradient(#2a2c30, #17181b);
-    box-shadow: inset 0 0 0 1px #000, inset 0 2px 3px rgba(0,0,0,.8);
+  /* Recessed dark-green button island -- the classic tower "turbo panel". */
+  .tower-panel {
+    background: linear-gradient(180deg, #2a4a2a 0%, #1a331a 55%, #122412 100%);
+    border-radius: 3px;
+    box-shadow: inset 0 0 0 1px #0a1a0a, inset 0 2px 4px rgba(0,0,0,.55),
+                0 1px 0 rgba(255,255,255,.25);
+    padding: 0;
+    width: 348px;
   }
-  .at-switch::after {
-    content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px;
-    border-radius: 2px; background: linear-gradient(#8a9099, #565b62);
-    box-shadow: 0 1px 2px rgba(0,0,0,.6), inset 0 1px 0 rgba(255,255,255,.3);
-    transition: left .12s ease;
+  .tower-strip {
+    display: flex; align-items: flex-end; gap: 10px;
+    background: linear-gradient(180deg, #1a1a1a, #0c0c0c);
+    border-bottom: 1px solid #000;
+    padding: 5px 10px 4px;
+    border-radius: 3px 3px 0 0;
   }
-  .at-switch-group input:checked + .at-switch::after { left: 18px; background: linear-gradient(#9fd9ff, #4aa3e0); }
-  .at-switch-group input:focus-visible + .at-switch { outline: 2px solid var(--link); outline-offset: 2px; }
-  .at-switch-label { font: 700 10px Arial, Helvetica, sans-serif; letter-spacing: .5px; text-transform: uppercase; }
-
-  /* momentary Reset button -- a small recessed pushbutton, distinct from
-     the power rocker above (real clone-era towers wire these separately:
-     the reset button pulses the RESET line only, the power switch cuts
-     mains power entirely). */
-  .reset-btn {
-    width: 26px; height: 26px; border-radius: 50%; flex: 0 0 auto;
-    background: linear-gradient(#c9c0a6, #9a9488);
-    box-shadow: inset 0 0 0 1px #6b6558, inset 0 2px 2px rgba(255,255,255,.4), 0 1px 2px rgba(0,0,0,.4);
-    cursor: pointer; padding: 0;
+  .tower-led-item {
+    display: flex; flex-direction: column; align-items: center; gap: 2px;
+    position: relative; cursor: default;
   }
-  .reset-btn:active { box-shadow: inset 0 0 0 1px #6b6558, inset 0 2px 4px rgba(0,0,0,.5); transform: translateY(1px); }
-  .reset-label { font: 700 9px Arial, Helvetica, sans-serif; letter-spacing: .5px; color: #6b6450; text-transform: uppercase; }
+  .tower-led-cap {
+    font: 700 7px Arial, Helvetica, sans-serif; letter-spacing: .4px;
+    color: #c8c8c8; text-transform: uppercase;
+  }
+  .tower-led {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: radial-gradient(circle at 40% 35%, #3a3a3a, #111 65%);
+    box-shadow: inset 0 0 2px rgba(0,0,0,.9), 0 0 0 1px rgba(0,0,0,.7);
+  }
+  .tower-led.power-on {
+    background: radial-gradient(circle at 40% 35%, #baffc8, #33cc55 55%, #147a2c);
+    box-shadow: 0 0 6px 2px rgba(50,220,90,.85), inset 0 0 1px rgba(0,0,0,.5);
+  }
+  .tower-led.turbo-on {
+    background: radial-gradient(circle at 40% 35%, #ffe08a, #ffb000 55%, #b36b00);
+    box-shadow: 0 0 6px 2px rgba(255,180,0,.8), inset 0 0 1px rgba(0,0,0,.5);
+  }
+  .tower-led.on {
+    background: radial-gradient(circle at 40% 35%, #ffb199, #ff2200 60%, #b32200 100%);
+    box-shadow: 0 0 6px 2px rgba(255,60,20,.85), inset 0 0 1px rgba(0,0,0,.5);
+  }
 
-  .at-drives { flex: 1 1 0%; min-width: 230px; display: flex; flex-direction: column; gap: 10px; justify-content: center; }
+  .tower-body {
+    display: flex; align-items: center; justify-content: space-between; gap: 16px;
+    padding: 12px 12px 14px;
+  }
+
+  /* Fixed green seven-segment "66" -- green to match typical tower LEDs.
+     Digit "6" lights a/c/d/e/f/g (everything but b); no JS drives this. */
+  .sevenseg-group { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+  .sevenseg-digits {
+    display: flex; gap: 5px; padding: 6px 7px; background: #061406; border-radius: 2px;
+    box-shadow: inset 0 0 0 1px #000, inset 0 1px 3px rgba(0,0,0,.9);
+  }
+  .sevenseg { position: relative; width: 22px; height: 38px; }
+  .sevenseg i { position: absolute; background: #0a2a0a; border-radius: 1px; }
+  .sevenseg .on { background: #3dff5a; box-shadow: 0 0 6px 1px rgba(40,255,80,.9); }
+  .sevenseg .a { top: 0;    left: 3px;  width: 16px; height: 3px; }
+  .sevenseg .b { top: 2px;  right: 0;   width: 3px; height: 16px; }
+  .sevenseg .c { top: 19px; right: 0;   width: 3px; height: 16px; }
+  .sevenseg .d { bottom: 0; left: 3px;  width: 16px; height: 3px; }
+  .sevenseg .e { top: 19px; left: 0;    width: 3px; height: 16px; }
+  .sevenseg .f { top: 2px;  left: 0;    width: 3px; height: 16px; }
+  .sevenseg .g { top: 17px; left: 3px;  width: 16px; height: 3px; }
+
+  .tower-btns {
+    display: flex; align-items: flex-end; justify-content: space-evenly;
+    gap: 18px; flex: 1 1 auto; min-width: 0;
+  }
+  .tower-btn-wrap {
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+  }
+  .tower-btn-cap {
+    font: 700 9px Arial, Helvetica, sans-serif; letter-spacing: .6px;
+    color: #d8d8d8; text-transform: uppercase;
+  }
+  .tower-btn {
+    width: 38px; height: 38px; border-radius: 50%; flex: 0 0 auto; padding: 0;
+    background: linear-gradient(180deg, #f0ebe0, #c9c0a6 55%, #a89f8a);
+    box-shadow: inset 0 0 0 1px #6b6558, inset 0 2px 2px rgba(255,255,255,.55),
+                0 2px 3px rgba(0,0,0,.45);
+    cursor: pointer;
+  }
+  .tower-btn:active {
+    box-shadow: inset 0 0 0 1px #6b6558, inset 0 2px 4px rgba(0,0,0,.5);
+    transform: translateY(1px);
+  }
+  .tower-btn[aria-pressed="true"] {
+    box-shadow: inset 0 0 0 1px #6b6558, inset 0 2px 5px rgba(0,0,0,.45),
+                0 0 0 1px rgba(255,180,0,.35);
+  }
+
+  /* Large vertical throw rocker -- typical mid/full-tower mains switch of
+     the 386/486 era. Mounted inside the green island on the right
+     (replacing the decorative keylock). Off: bottom paddle out; On: top out. */
+  .power-rocker {
+    position: relative; display: flex; flex-direction: column;
+    align-items: center; gap: 3px;
+    cursor: pointer; flex: 0 0 auto;
+  }
+  .power-rocker input {
+    position: absolute; opacity: 0; width: 1px; height: 1px;
+  }
+  .power-rocker-well {
+    width: 44px; height: 42px; padding: 2px; border-radius: 4px; box-sizing: border-box;
+    background: linear-gradient(180deg, #a89f88 0%, #8f886f 55%, #7a7460 100%);
+    box-shadow: inset 0 0 0 1px #3a3527, inset 0 2px 3px rgba(0,0,0,.55),
+                0 1px 0 rgba(255,255,255,.12);
+  }
+  .power-rocker-paddle {
+    display: block; width: 100%; height: 100%; border-radius: 3px;
+    /* Rectangular footprint (no perspective foreshortening). Throw is
+       shading only: recessed half darker/inset, protruding half lit. */
+    background:
+      radial-gradient(ellipse 90% 55% at 50% 42%, rgba(0,0,0,.14) 0%, transparent 70%),
+      linear-gradient(90deg, rgba(0,0,0,.12) 0%, transparent 16%, transparent 84%, rgba(0,0,0,.12) 100%),
+      linear-gradient(180deg,
+        #b8ae94 0%, #cfc6ae 42%,
+        #8f886f 48%, #8f886f 52%,
+        #e8dfc8 58%, #f2ebd8 100%);
+    box-shadow:
+      inset 0 0 0 1px #6b6558,
+      inset 0 10px 8px rgba(0,0,0,.35),
+      inset 0 -2px 1px rgba(255,255,255,.35),
+      0 2px 3px rgba(0,0,0,.4);
+    transition: background .12s ease, box-shadow .12s ease;
+  }
+  .power-rocker input:checked + .power-rocker-well .power-rocker-paddle {
+    background:
+      radial-gradient(ellipse 90% 55% at 50% 58%, rgba(0,0,0,.14) 0%, transparent 70%),
+      linear-gradient(90deg, rgba(0,0,0,.12) 0%, transparent 16%, transparent 84%, rgba(0,0,0,.12) 100%),
+      linear-gradient(180deg,
+        #f2ebd8 0%, #e8dfc8 42%,
+        #8f886f 48%, #8f886f 52%,
+        #cfc6ae 58%, #b8ae94 100%);
+    box-shadow:
+      inset 0 0 0 1px #6b6558,
+      inset 0 -10px 8px rgba(0,0,0,.35),
+      inset 0 2px 1px rgba(255,255,255,.35),
+      0 1px 2px rgba(0,0,0,.35);
+  }
+  .power-rocker input:focus-visible + .power-rocker-well {
+    outline: 2px solid var(--link); outline-offset: 2px;
+  }
+  .power-rocker input:disabled + .power-rocker-well,
+  .power-rocker input:disabled ~ .power-rocker-cap { opacity: .55; cursor: default; }
+  .power-rocker:has(input:disabled) { cursor: default; }
+  .power-rocker-cap {
+    font: 700 8px Arial, Helvetica, sans-serif; letter-spacing: .6px;
+    color: #d8d8d8; text-transform: uppercase; white-space: nowrap;
+    order: -1; /* label above the rocker, matching Turbo/Reset */
+  }
+
+  .at-drives {
+    flex: 1 1 0%; min-width: 260px;
+    display: flex; flex-direction: column; gap: 8px; justify-content: center;
+  }
   .at-bay {
     background: linear-gradient(180deg, #ded6bf, #b8ae94);
-    border-radius: 2px; padding: 10px 12px;
+    border-radius: 2px; padding: 8px 10px;
     box-shadow: inset 0 0 0 1px #f2ecd8, inset 0 0 0 2px #8f886f, 0 2px 5px rgba(0,0,0,.3);
   }
   .at-drive-face { display: flex; align-items: center; gap: 8px; }
   .drive-letter { font: 700 13px "Courier New", monospace; color: #55503f; flex: 0 0 auto; }
-  .at-slot {
-    flex: 1; position: relative; height: 30px; border-radius: 1px;
-    background: linear-gradient(#0d0d0d, #2a2a2a 45%, #0d0d0d);
-    box-shadow: inset 0 0 0 1px #000, inset 0 1px 3px rgba(0,0,0,.9);
+
+  /* 5.25" CD-ROM: taller face, full-width tray door with a thin load slot
+     and a round eject button on the right -- like a mid-90s ATAPI drive. */
+  .at-bay.bay-525 .at-drive-face { min-height: 52px; }
+  .cd-door {
+    flex: 1; position: relative; height: 44px; border-radius: 2px;
+    background: linear-gradient(180deg, #cfc6ae 0%, #a89f88 40%, #8f866f 100%);
+    box-shadow: inset 0 0 0 1px #6b6558, inset 0 2px 3px rgba(255,255,255,.35),
+                inset 0 -2px 4px rgba(0,0,0,.25), 0 1px 2px rgba(0,0,0,.3);
   }
-  .at-slot::after {
-    content: ""; position: absolute; left: 6px; right: 6px; top: 50%; height: 1px;
-    transform: translateY(-50%); background: #000; box-shadow: 0 1px 0 #3a3a3a;
+  .cd-door::before {
+    content: ""; position: absolute; left: 8px; right: 36px; top: 50%;
+    height: 3px; margin-top: -2px; border-radius: 1px;
+    background: linear-gradient(#1a1a1a, #050505);
+    box-shadow: inset 0 1px 2px rgba(0,0,0,.9), 0 1px 0 rgba(255,255,255,.2);
   }
-  .at-bay.loaded .at-slot { background: linear-gradient(#1c1a12, #3a3320 45%, #1c1a12); }
-  .at-latch {
-    width: 18px; height: 10px; border-radius: 1px; flex: 0 0 auto;
-    background: linear-gradient(#9a9488, #6b6558);
-    box-shadow: 0 1px 1px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.35);
+  .cd-eject {
+    position: absolute; right: 8px; top: 50%; width: 16px; height: 16px;
+    margin-top: -8px; border-radius: 50%;
+    background: linear-gradient(180deg, #ddd4bc, #9a9180);
+    box-shadow: inset 0 0 0 1px #6b6558, inset 0 1px 1px rgba(255,255,255,.5),
+                0 1px 1px rgba(0,0,0,.4);
   }
+  .cd-eject::after {
+    content: ""; position: absolute; left: 5px; right: 5px; top: 7px; height: 2px;
+    background: #4a4538; border-radius: 1px;
+  }
+  .at-bay.bay-525.loaded .cd-door {
+    background: linear-gradient(180deg, #c4bb9f 0%, #9a9178 40%, #7a725c 100%);
+  }
+  .at-bay.bay-525.loaded .cd-door::before {
+    background: linear-gradient(#2a2418, #0c0a06);
+    box-shadow: inset 0 1px 2px rgba(0,0,0,.9), 0 0 4px rgba(255,200,80,.15);
+  }
+
+  /* 3.5" floppy: shorter bay, spring-flap door with a narrow media slot and
+     a rectangular eject button -- classic mid-tower A: drive. Width is
+     1/1.46 of the 5.25" bay (146 mm / 101.6 mm form-factor faces). */
+  .at-bay.bay-35 { width: calc(100% / 1.46); }
+  .at-bay.bay-35 .at-drive-face { min-height: 28px; }
+  .floppy-door {
+    flex: 1; position: relative; height: 26px; border-radius: 1px;
+    background: linear-gradient(180deg, #2a2a2a 0%, #111 45%, #1c1c1c 100%);
+    box-shadow: inset 0 0 0 1px #000, inset 0 2px 4px rgba(0,0,0,.85),
+                0 1px 0 rgba(255,255,255,.2);
+  }
+  .floppy-flap {
+    position: absolute; left: 4px; right: 28px; top: 3px; bottom: 3px;
+    border-radius: 1px;
+    background: linear-gradient(180deg, #3a3a3a, #181818 55%, #2a2a2a);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.12), 0 1px 0 #000;
+  }
+  .floppy-flap::after {
+    content: ""; position: absolute; left: 6px; right: 6px; top: 50%;
+    height: 1px; margin-top: -1px; background: #050505;
+    box-shadow: 0 1px 0 rgba(255,255,255,.08);
+  }
+  .floppy-eject {
+    position: absolute; right: 4px; top: 4px; bottom: 4px; width: 18px;
+    border-radius: 1px;
+    background: linear-gradient(180deg, #c9c0a6, #8f886f);
+    box-shadow: inset 0 0 0 1px #5a5548, inset 0 1px 0 rgba(255,255,255,.4),
+                0 1px 1px rgba(0,0,0,.45);
+  }
+  .at-bay.bay-35.loaded .floppy-door {
+    background: linear-gradient(180deg, #3a3220 0%, #1a160e 45%, #2a2418 100%);
+  }
+  .at-bay.bay-35.loaded .floppy-flap {
+    background: linear-gradient(180deg, #5a4a30, #2a2010 55%, #3a3020);
+  }
+
   .at-bay-ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin-top: 6px; }
   .drive-label { font: 11px "Courier New", monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #2b2b28; flex: 1 1 100%; min-width: 0; }
   .drive-label.empty { color: #7a7358; font-style: italic; }
@@ -433,64 +563,79 @@
     <div class="panel" id="frontPanelCard">
       <h2>Front panel</h2>
       <div class="at-case">
-        <div class="at-left">
-          <div class="cpu-badge" aria-hidden="true">
-            <svg viewBox="0 0 32 32" role="img" aria-label="486 DX2-66 badge">
-              <ellipse cx="16" cy="16" rx="15" ry="10" fill="#0068b5" transform="rotate(-8 16 16)"/>
-              <text x="16" y="19" text-anchor="middle" font-family="Arial, sans-serif" font-weight="700"
-                    font-size="9" fill="#fff" transform="rotate(-8 16 16)">486</text>
-            </svg>
-            <span class="cpu-badge-text">80486DX2<span>66 MHz &middot; on-die FPU</span></span>
-          </div>
-          <div class="at-toprow">
-            <div class="at-indicators">
-              <span class="led-box"><span class="drive-led" id="powerLed" title="Power"></span></span>
-              <span class="led-box"><span class="drive-led" id="hddLed" title="Hard disk activity"></span></span>
+        <div class="at-controls">
+          <div class="tower-panel">
+            <div class="tower-strip">
+              <div class="tower-led-item" title="Power">
+                <span class="tower-led" id="powerLed"></span>
+                <span class="tower-led-cap">Power</span>
+              </div>
+              <div class="tower-led-item" title="Turbo (display only -- does not change CPU speed)">
+                <span class="tower-led turbo-on" id="turboLed"></span>
+                <span class="tower-led-cap">Turbo</span>
+              </div>
+              <div class="tower-led-item" title="Hard disk activity">
+                <span class="tower-led" id="hddLed"></span>
+                <span class="tower-led-cap">HDD</span>
+              </div>
             </div>
-            <div class="sevenseg-group">
-              <div class="sevenseg-digits" aria-hidden="true">
-                <div class="sevenseg">
-                  <i class="a on"></i><i class="b"></i><i class="c on"></i><i class="d on"></i><i class="e on"></i><i class="f on"></i><i class="g on"></i>
-                </div>
-                <div class="sevenseg">
-                  <i class="a on"></i><i class="b"></i><i class="c on"></i><i class="d on"></i><i class="e on"></i><i class="f on"></i><i class="g on"></i>
+            <div class="tower-body">
+              <div class="sevenseg-group" title="Clock display (fixed)">
+                <div class="sevenseg-digits" aria-hidden="true">
+                  <div class="sevenseg">
+                    <i class="a on"></i><i class="b"></i><i class="c on"></i><i class="d on"></i><i class="e on"></i><i class="f on"></i><i class="g on"></i>
+                  </div>
+                  <div class="sevenseg">
+                    <i class="a on"></i><i class="b"></i><i class="c on"></i><i class="d on"></i><i class="e on"></i><i class="f on"></i><i class="g on"></i>
+                  </div>
                 </div>
               </div>
-              <span class="sevenseg-label">MHz</span>
+              <div class="tower-btns">
+                <div class="tower-btn-wrap">
+                  <span class="tower-btn-cap">Turbo</span>
+                  <button type="button" class="tower-btn" id="turboBtn" title="Turbo -- toggles the LED only; CPU stays at real 66 MHz"
+                          aria-label="Turbo" aria-pressed="true"></button>
+                </div>
+                <div class="tower-btn-wrap">
+                  <span class="tower-btn-cap">Reset</span>
+                  <button type="button" class="tower-btn" id="resetBtn" title="Reset" aria-label="Reset"></button>
+                </div>
+              </div>
+              <label class="power-rocker" title="Power">
+                <input type="checkbox" id="powerSwitch">
+                <span class="power-rocker-well"><span class="power-rocker-paddle"></span></span>
+                <span class="power-rocker-cap">Power</span>
+              </label>
             </div>
-            <label class="at-switch-group">
-              <input type="checkbox" id="powerSwitch">
-              <span class="at-switch"></span>
-              <span class="at-switch-label">Power</span>
-            </label>
-            <button type="button" class="reset-btn" id="resetBtn" title="Reset" aria-label="Reset"></button>
           </div>
-          <div class="at-vents" aria-hidden="true"></div>
         </div>
         <div class="at-drives">
-          <div class="at-bay" data-drive="0">
+          <div class="at-bay bay-525" data-drive="cdrom">
+            <div class="at-drive-face">
+              <span class="drive-letter">D:</span>
+              <div class="cd-door" data-role="slot" aria-hidden="true">
+                <span class="cd-eject"></span>
+              </div>
+              <span class="drive-led" data-role="led" title="Activity"></span>
+            </div>
+            <div class="at-bay-ctl">
+              <span class="drive-label empty" data-role="label">empty (CD-ROM, 5.25&Prime; / 2x)</span>
+              <label class="filebtn"><button type="button" tabindex="-1">Insert&hellip;</button><input type="file" accept=".iso,.ISO" data-role="file"></label>
+              <button type="button" data-role="eject" disabled>Eject</button>
+            </div>
+          </div>
+          <div class="at-bay bay-35" data-drive="0">
             <div class="at-drive-face">
               <span class="drive-letter">A:</span>
-              <div class="at-slot" data-role="slot"></div>
-              <span class="at-latch" aria-hidden="true"></span>
+              <div class="floppy-door" data-role="slot" aria-hidden="true">
+                <span class="floppy-flap"></span>
+                <span class="floppy-eject"></span>
+              </div>
               <span class="drive-led" data-role="led" title="Activity"></span>
             </div>
             <div class="at-bay-ctl">
               <span class="drive-label empty" data-role="label">empty (1.44MB, 3.5&Prime;)</span>
               <label class="filebtn"><button type="button" tabindex="-1">Insert&hellip;</button><input type="file" accept=".img,.IMG" data-role="file"></label>
-              <button type="button" data-role="eject" disabled>Eject</button>
-            </div>
-          </div>
-          <div class="at-bay" data-drive="cdrom">
-            <div class="at-drive-face">
-              <span class="drive-letter">D:</span>
-              <div class="at-slot" data-role="slot"></div>
-              <span class="at-latch" aria-hidden="true"></span>
-              <span class="drive-led" data-role="led" title="Activity"></span>
-            </div>
-            <div class="at-bay-ctl">
-              <span class="drive-label empty" data-role="label">empty (CD-ROM, 2x)</span>
-              <label class="filebtn"><button type="button" tabindex="-1">Insert&hellip;</button><input type="file" accept=".iso,.ISO" data-role="file"></label>
               <button type="button" data-role="eject" disabled>Eject</button>
             </div>
           </div>

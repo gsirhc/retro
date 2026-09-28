@@ -427,7 +427,7 @@
     ejectBtn.addEventListener("click", () => {
       if (machine) machine.ejectCdrom();
       pendingCdrom = null;
-      setBayEmpty(cdromBay, "empty");
+      setBayEmpty(cdromBay, "empty (CD-ROM, 5.25″ / 2x)");
     });
   }
 
@@ -1447,11 +1447,20 @@
   // were still "in the drive" (remembered in JS, not the discarded Machine)
   // when power was cut. Unlike ibmpc-at's genuine 5170 (no front-panel reset
   // button on real hardware), this is a period clone-era tower case with a
-  // real momentary Reset button -- see resetBtn below -- separate from this
-  // power switch.
+  // real momentary Reset button -- see resetBtn below -- separate from the
+  // Power LED/switch on the tower strip.
   const powerSwitch = document.getElementById("powerSwitch");
   const powerLed = document.getElementById("powerLed");
   const resetBtn = document.getElementById("resetBtn");
+  const turboBtn = document.getElementById("turboBtn");
+  const turboLed = document.getElementById("turboLed");
+  // Turbo is case jewelry only: it lights/dims the amber LED and never
+  // touches the guest clock (real 66 MHz always -- CLAUDE.md).
+  turboBtn.addEventListener("click", () => {
+    const on = turboBtn.getAttribute("aria-pressed") !== "true";
+    turboBtn.setAttribute("aria-pressed", on ? "true" : "false");
+    turboLed.classList.toggle("turbo-on", on);
+  });
   let poweredOn = false;
   let firmware = null;  // {Module, bios, vga, hdd} once fetched -- fetched once, reused every power-on
   // 1024 cyl x 16 head x 63 sec/track x 512 bytes -- this machine's one
