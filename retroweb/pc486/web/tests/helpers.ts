@@ -128,11 +128,41 @@ export function screenText(page: Page): Promise<string> {
  * Poll the text-mode screen until it matches. Generous default timeout: a
  * real POST + FreeDOS boot at genuine, never-sped-up 66 MHz is tens of real
  * seconds (see CLAUDE.md's "Never speed these up"), more under contention.
+ * On failure, dump cycle/halt rates and CS:EIP so a post-JemmEx stall is
+ * distinguishable from a slow boot (PC486_REVIEW.md §5.9 signature).
  */
 export async function waitForScreen(page: Page, re: RegExp, timeout = 120_000): Promise<void> {
-  await expect
-    .poll(() => screenText(page), { timeout, message: `screen never matched ${re}` })
-    .toMatch(re);
+  try {
+    await expect
+      .poll(() => screenText(page), { timeout, message: `screen never matched ${re}` })
+      .toMatch(re);
+  } catch (err) {
+    // Sample cycle rate over a real pump interval (must yield to rAF, not
+    // busy-wait the page -- that would freeze the emulator).
+    const before = await page.evaluate(() => {
+      const m = (window as any).__test?.machine;
+      if (!m) return null;
+      return { cycles: m.totalCycles(), halt: m.haltCycles(), t: performance.now() };
+    }).catch(() => null);
+    await page.waitForTimeout(250);
+    const dump = await page.evaluate((b) => {
+      const m = (window as any).__test?.machine;
+      if (!m) return { missing: true };
+      const c1 = m.totalCycles();
+      const h1 = m.haltCycles();
+      const t1 = performance.now();
+      const dt = b ? (t1 - b.t) / 1000 : 0;
+      const screen = (m.textScreen() || "").replace(/\u00b7/g, " ").replace(/\s+/g, " ").trim().slice(0, 200);
+      return {
+        cyclesPerSec: b && dt > 0 ? (c1 - b.cycles) / dt : 0,
+        haltPerSec: b && dt > 0 ? (h1 - b.halt) / dt : 0,
+        totalCycles: c1,
+        state: typeof m.debugCpuState === "function" ? m.debugCpuState() : "(no debugCpuState)",
+        screen,
+      };
+    }, before).catch((e: Error) => ({ error: String(e) }));
+    throw new Error(`screen never matched ${re}\nstall dump: ${JSON.stringify(dump, null, 2)}\n\n${err}`);
+  }
 }
 
 /**

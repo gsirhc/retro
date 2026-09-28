@@ -287,6 +287,19 @@ public:
     // idle is.
     double idleCycles() const { return double(m_.cpu.idle_poll_cycles); }
 
+    // Test-only CS:EIP / mode snapshot for hang diagnosis (e.g. stuck after
+    // "JemmEx loaded"). Format matches the histograms in PC486_REVIEW.md §5.9.
+    std::string debugCpuState() const {
+        const auto& c = m_.cpu;
+        char buf[160];
+        std::snprintf(buf, sizeof buf,
+                      "cs:eip=%04X:%08X eflags=%08X cr0=%08X cpl=%u vm=%d pe=%d pg=%d halted=%d",
+                      c.cs, c.eip, c.eflags, c.cr(0), c.cpl(),
+                      c.v86_mode() ? 1 : 0, c.protected_mode() ? 1 : 0,
+                      (c.cr(0) & 0x80000000u) ? 1 : 0, c.halted ? 1 : 0);
+        return buf;
+    }
+
     // The emulator's real memory footprint: the wasm heap holds the 32MB of
     // guest RAM, video memory, the disk images in flight and everything else
     // the machine owns. Always available -- it costs one call and is the
@@ -437,6 +450,7 @@ EMSCRIPTEN_BINDINGS(pc486_machine) {
         .function("heapBytes", &WasmMachine::heapBytes)
         .function("haltCycles", &WasmMachine::haltCycles)
         .function("idleCycles", &WasmMachine::idleCycles)
+        .function("debugCpuState", &WasmMachine::debugCpuState)
         .function("perfBuild", &WasmMachine::perfBuild)
 #ifdef PC486_PERF
         .function("perfStats", &WasmMachine::perfStats)
