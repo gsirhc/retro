@@ -50,6 +50,13 @@ void Chipset::reset() {
     // unchanged on this machine.
 }
 
+void Chipset::set_cpu_hz(double hz) {
+    fdc.set_cpu_hz(hz);
+    hdd.set_cpu_hz(hz);
+    cdrom.set_cpu_hz(hz);
+    sb.set_cpu_hz(hz);
+}
+
 void Chipset::load_rom(uint32_t addr, const uint8_t *data, std::size_t len) {
     std::memcpy(mem.data() + addr, data, len);
     for (std::size_t i = 0; i < len; ++i) rom_[addr + i] = true;

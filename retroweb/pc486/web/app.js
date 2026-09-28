@@ -1187,15 +1187,17 @@
       // makes it drop, exactly as on the real machine.
       const idlePct = cyc > 0 ? Math.min(100, ((halt + idlePoll) / cyc) * 100) : 0;
       const guestPct = 100 - idlePct;
-      history.push({ cpu: guestPct, clock: mhz / 66 * 100, host: cpuPct, fps: fps });
+      const targetHz = machine.cpuHz();
+      const targetMhz = targetHz / 1e6;
+      history.push({ cpu: guestPct, clock: mhz / targetMhz * 100, host: cpuPct, fps: fps });
       if (history.length > 60) history.shift();
       drawPerfChart(cctx, chart, history);
       drawHostChart(cctx2, chart2, history);
 
       out.innerHTML =
-        "clock   " + mhz.toFixed(1) + " MHz of 66.0  (" + (mhz / 66 * 100).toFixed(0) + "%)\n" +
+        "clock   " + mhz.toFixed(1) + " MHz of " + targetMhz.toFixed(1) + "  (" + (mhz / targetMhz * 100).toFixed(0) + "%)\n" +
         "        avg " + avg.toFixed(1) + " (30s)   min " + worst.toFixed(1) + "\n" +
-        "dropped " + m(dropped) + " cyc  " + (dropped / 66e6 * 100).toFixed(1) + "% of clock\n" +
+        "dropped " + m(dropped) + " cyc  " + (dropped / targetHz * 100).toFixed(1) + "% of clock\n" +
         "\n" +
         "486 cpu " + guestPct.toFixed(0) + "% busy   " + idlePct.toFixed(0) + "% idle\n" +
         "        idle = halted or spinning in a DOS wait loop\n" +
@@ -1314,9 +1316,10 @@
     lastT = t;
     dtSeconds = Math.min(dtSeconds, 0.25);  // clamp a backgrounded-tab gap -- no runaway catch-up burst
 
-    // Real, fixed 66 MHz -- never sped up for a real visitor, per CLAUDE.md.
-    // TEST_CPU_MULTIPLIER is 1 outside `?test=1&fast=1`; see its own comment.
-    cycleCredit += dtSeconds * 66000000 * TEST_CPU_MULTIPLIER;
+    // Real rate for the selected Turbo state -- 66 MHz on / 33 MHz off
+    // (DX2 clock doubling). Never sped above that for a real visitor
+    // (CLAUDE.md). TEST_CPU_MULTIPLIER is 1 outside `?test=1&fast=1`.
+    cycleCredit += dtSeconds * cpuHz * TEST_CPU_MULTIPLIER;
     let cyclesThisChunk = Math.floor(cycleCredit);
 
     // Bound this one call's wall-clock cost. Anything over the chunk budget
@@ -1454,12 +1457,37 @@
   const resetBtn = document.getElementById("resetBtn");
   const turboBtn = document.getElementById("turboBtn");
   const turboLed = document.getElementById("turboLed");
-  // Turbo is case jewelry only: it lights/dims the amber LED and never
-  // touches the guest clock (real 66 MHz always -- CLAUDE.md).
-  turboBtn.addEventListener("click", () => {
-    const on = turboBtn.getAttribute("aria-pressed") !== "true";
+  // Turbo models a real DX2 clock-doubling switch: on = 66 MHz internal,
+  // off = 33 MHz bus rate. The PIT crystal and device wall-clock pacing
+  // stay correct (Machine::set_turbo); only CPU instruction throughput
+  // drops. The seven-segment readout tracks the selected rate. Default
+  // on -- matching a tower shipped with Turbo engaged.
+  let cpuHz = 66000000;
+  // Segment maps for digits this panel shows (3 and 6 only).
+  const kSevenSegOn = {
+    3: { a: 1, b: 1, c: 1, d: 1, g: 1 },
+    6: { a: 1, c: 1, d: 1, e: 1, f: 1, g: 1 },
+  };
+  function setClockDisplay(mhz) {
+    const tens = Math.floor(mhz / 10) % 10;
+    const ones = mhz % 10;
+    const digits = document.querySelectorAll("#clockDisplay .sevenseg");
+    [tens, ones].forEach((n, i) => {
+      const on = kSevenSegOn[n] || {};
+      digits[i].querySelectorAll("i").forEach((seg) => {
+        seg.classList.toggle("on", !!on[seg.classList[0]]);
+      });
+    });
+  }
+  function applyTurbo(on) {
     turboBtn.setAttribute("aria-pressed", on ? "true" : "false");
     turboLed.classList.toggle("turbo-on", on);
+    cpuHz = on ? 66000000 : 33000000;
+    setClockDisplay(on ? 66 : 33);
+    if (machine) machine.setTurbo(on);
+  }
+  turboBtn.addEventListener("click", () => {
+    applyTurbo(turboBtn.getAttribute("aria-pressed") !== "true");
   });
   let poweredOn = false;
   let firmware = null;  // {Module, bios, vga, hdd} once fetched -- fetched once, reused every power-on
@@ -1596,6 +1624,7 @@
         lastMachine = null;
       }
       machine = new firmware.Module.Machine();
+      applyTurbo(turboBtn.getAttribute("aria-pressed") === "true");
       if (perfRequested) startPerfPanel();
       machine.loadRom(0x100000 - firmware.bios.byteLength, new Uint8Array(firmware.bios));
       machine.loadRom(0xC0000, new Uint8Array(firmware.vga));

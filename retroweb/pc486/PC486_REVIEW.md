@@ -5130,3 +5130,24 @@ the frame rate and lifted the clock minimum from 60.2 to 65.7 MHz. The
 panel found this only because it measures the host's frame rate and the
 emulator's dropped cycles separately; either number alone points the wrong
 way.
+
+## 26. Front-panel Turbo: DX2 clock doubling, not a whole-board slowdown
+
+A real 80486DX2-66 Turbo button disables the chip's clock doubling: the
+internal CPU drops from 66 MHz to the 33 MHz bus rate, while the PIT's
+1.193182 MHz crystal (and every other wall-clock device -- floppy RPM,
+IDE transfer rate, SB/OPL3 sample clocks) keeps running at real time.
+Games that wait on IRQ0 still wake on the same wall-clock schedule; they
+just get half as many instructions between ticks.
+
+`Machine::set_turbo(false)` sets `cpu_hz_` to 33 MHz and propagates that
+rate through `Chipset::set_cpu_hz` into FDC/HDD/CD-ROM/SB/OPL3 so their
+seconds-to-cycles conversions stay wall-clock accurate. The PIT already
+took `cpu_hz` per `tick()`, so it needed no new API. The browser's frame
+pump credits `dt * cpuHz` (66e6 or 33e6) and never above the selected
+rate -- CLAUDE.md's three override rules: default is Turbo on (66 MHz),
+the control is labelled, and it is opt-in.
+
+The seven-segment "66"/"33" readout tracks Turbo (many period cases wired
+the display to the same switch that gated clock doubling); only the amber
+Turbo LED and the actual clock change with it.

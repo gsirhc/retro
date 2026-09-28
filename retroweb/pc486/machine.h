@@ -40,13 +40,25 @@ public:
     void configure_factory_cmos();
 
     // Executes instructions until at least `cycles` more CPU cycles have
-    // elapsed (real 66 MHz -- see kCpuHz -- never sped up, per CLAUDE.md;
-    // this is the CPU's own internal clock, the DX2's doubled rate off a
-    // 33MHz external bus), servicing the keyboard controller's reset-
-    // request line and pending interrupts at each instruction boundary.
+    // elapsed. Cycle units are the CPU's internal clock -- 66 MHz with
+    // Turbo on (DX2 clock-doubled), 33 MHz with Turbo off (bus rate; see
+    // set_turbo). Wall-clock pacing of that counter is the front end's job
+    // (never sped above the selected rate, per CLAUDE.md).
     void run_cycles(int64_t cycles);
 
     uint64_t total_cycles() const { return total_cycles_; }
+
+    // The CPU's current internal clock. Turbo on = kCpuHz (66 MHz, the DX2's
+    // doubled rate); Turbo off = kCpuHzDeturbo (33 MHz bus rate, clock
+    // doubling disabled). The PIT crystal and other wall-clock-paced
+    // devices stay correct because chipset.tick() is told this rate --
+    // slowing the CPU does not slow the 1.193182 MHz PIT. See PC486_REVIEW.
+    static constexpr double kCpuHz = 66000000.0;         // Turbo on
+    static constexpr double kCpuHzDeturbo = 33000000.0;  // Turbo off
+    double cpu_hz() const { return cpu_hz_; }
+    void set_cpu_hz(double hz);
+    bool turbo() const { return cpu_hz_ >= (kCpuHz + kCpuHzDeturbo) * 0.5; }
+    void set_turbo(bool on) { set_cpu_hz(on ? kCpuHz : kCpuHzDeturbo); }
 
     // Diagnostic hook, called immediately before each instruction executes,
     // with the CPU already standing at that instruction's CS:EIP. A plain
@@ -67,10 +79,9 @@ public:
     Chipset chipset;
     cpu80486::Cpu cpu;
 
-    static constexpr double kCpuHz = 66000000.0;  // real 66 MHz 80486DX2
-
 private:
     uint64_t total_cycles_ = 0;
+    double cpu_hz_ = kCpuHz;
     void service_kbc_reset() {
         if (!chipset.kbc.reset_requested()) return;
         chipset.kbc.clear_reset_request();

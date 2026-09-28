@@ -1,15 +1,15 @@
 import { test, expect } from "./fixtures";
 
-// The front panel's static jewelry: fixed green "66" seven-segment display
-// and the Turbo LED (cosmetic only -- never changes the guest clock).
-// Power/reset behavior is covered in boot.spec.ts.
+// The front panel's turbo cluster: seven-segment clock readout tracks
+// Turbo (66 / 33), amber LED matches, and Turbo actually changes the
+// guest clock (DX2 doubling). Power/reset behavior is in boot.spec.ts.
 
 test.describe("front panel jewelry", () => {
-  test("the seven-segment display shows a fixed '66', independent of power", async ({ livePage: page }) => {
+  test("the seven-segment display shows 66 with Turbo on, 33 with Turbo off", async ({ livePage: page }) => {
     const digits = page.locator(".sevenseg");
     await expect(digits).toHaveCount(2);
-    // Digit "6" lights every segment except b (top-right) -- see index.html's
-    // segment-geometry comment.
+
+    // Turbo on (default): both digits are "6" (everything but b).
     for (let i = 0; i < 2; i++) {
       const digit = digits.nth(i);
       for (const seg of ["a", "c", "d", "e", "f", "g"]) {
@@ -18,12 +18,19 @@ test.describe("front panel jewelry", () => {
       await expect(digit.locator(".b")).not.toHaveClass(/on/);
     }
 
-    // Still lit, unchanged, after powering off -- it's wired to nothing,
-    // matching a real turbo-button-era case's fixed jumper-set display.
-    await page.locator("#powerSwitch").click({ force: true });
+    await page.locator("#turboBtn").click();
+    // Turbo off: both digits are "3" (a/b/c/d/g; not e/f).
     for (let i = 0; i < 2; i++) {
-      await expect(digits.nth(i).locator(".a")).toHaveClass(/on/);
+      const digit = digits.nth(i);
+      for (const seg of ["a", "b", "c", "d", "g"]) {
+        await expect(digit.locator(`.${seg}`)).toHaveClass(/on/);
+      }
+      await expect(digit.locator(".e")).not.toHaveClass(/on/);
+      await expect(digit.locator(".f")).not.toHaveClass(/on/);
     }
+
+    await page.locator("#turboBtn").click();
+    await expect(digits.nth(0).locator(".e")).toHaveClass(/on/);  // back to "6"
   });
 
   test("reads as a tower turbo cluster with 5.25\" CD above 3.5\" floppy", async ({ livePage: page }) => {
@@ -45,23 +52,41 @@ test.describe("front panel jewelry", () => {
     await expect(drives.nth(1).locator(".floppy-door")).toBeVisible();
   });
 
-  test("Turbo toggles its amber LED only -- never the guest clock", async ({ livePage: page }) => {
+  test("Turbo toggles DX2 clock doubling: 66 MHz on, 33 MHz off", async ({ livePage: page }) => {
     const btn = page.locator("#turboBtn");
     const led = page.locator("#turboLed");
     await expect(btn).toHaveAttribute("aria-pressed", "true");
     await expect(led).toHaveClass(/turbo-on/);
 
-    const cycles1 = await page.evaluate(() => (window as any).__test.machine.totalCycles());
+    // Turbo on: ~66M cycles/sec. Measure over a short wall window.
+    const rateOn = await page.evaluate(async () => {
+      const m = (window as any).__test.machine;
+      const t0 = performance.now();
+      const c0 = m.totalCycles();
+      await new Promise((r) => setTimeout(r, 200));
+      return (m.totalCycles() - c0) / ((performance.now() - t0) / 1000);
+    });
+    expect(rateOn).toBeGreaterThan(40e6);  // well above 33 MHz even if host lags
+
     await btn.click();
     await expect(btn).toHaveAttribute("aria-pressed", "false");
     await expect(led).not.toHaveClass(/turbo-on/);
-    await page.waitForTimeout(200);
-    const cycles2 = await page.evaluate(() => (window as any).__test.machine.totalCycles());
-    // Still advancing at real speed -- Turbo is jewelry, not a clock multiplier.
-    expect(cycles2).toBeGreaterThan(cycles1);
+    await expect.poll(async () => page.evaluate(() => (window as any).__test.machine.cpuHz())).toBe(33000000);
+
+    const rateOff = await page.evaluate(async () => {
+      const m = (window as any).__test.machine;
+      const t0 = performance.now();
+      const c0 = m.totalCycles();
+      await new Promise((r) => setTimeout(r, 200));
+      return (m.totalCycles() - c0) / ((performance.now() - t0) / 1000);
+    });
+    // Off should be roughly half of on (same host, same load).
+    expect(rateOff).toBeLessThan(rateOn * 0.7);
+    expect(rateOff).toBeGreaterThan(15e6);
 
     await btn.click();
     await expect(btn).toHaveAttribute("aria-pressed", "true");
     await expect(led).toHaveClass(/turbo-on/);
+    await expect.poll(async () => page.evaluate(() => (window as any).__test.machine.cpuHz())).toBe(66000000);
   });
 });

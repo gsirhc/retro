@@ -412,9 +412,16 @@ uint8_t AtapiCdrom::read_data_byte() {
 void AtapiCdrom::begin_execute(double seconds) {
     exec_active_ = true;
     exec_credit_ = 0.0;
-    exec_target_ = seconds * kCpuHz;
+    exec_target_ = seconds * cpu_hz_;
     status_ = ST_BSY;
     if (exec_target_ <= 0.0) finish_execute();
+}
+
+void AtapiCdrom::set_cpu_hz(double hz) {
+    if (!(hz > 0.0) || hz == cpu_hz_) return;
+    const double scale = hz / cpu_hz_;
+    if (exec_active_) exec_target_ = exec_credit_ + (exec_target_ - exec_credit_) * scale;
+    cpu_hz_ = hz;
 }
 
 void AtapiCdrom::finish_execute() {

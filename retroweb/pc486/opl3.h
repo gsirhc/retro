@@ -116,12 +116,14 @@ class Opl3 {
 public:
     // 14.31818 MHz / 288, the real YMF262 output frame rate. Not tunable.
     static constexpr double kSampleHz = 14318180.0 / 288.0;
-    // This machine's 66 MHz CPU clock (machine.h's kCpuHz); tick() is fed a
-    // counter paced at that rate, so this must match or FM runs at the wrong
-    // wall-clock speed. Same contract as SoundBlaster::kCpuHz.
+    // This machine's 66 MHz CPU clock (machine.h's kCpuHz) as the Turbo-on
+    // default; set_cpu_hz() updates the live rate so Turbo-off (33 MHz)
+    // keeps FM wall-clock timing correct.
     static constexpr double kCpuHz = 66000000.0;
 
     Opl3() { reset(); }
+
+    void set_cpu_hz(double hz);
 
     // Cold power-on: every register 0, both timers stopped and their flags
     // clear, NEW clear (so the chip starts OPL2-compatible), all 36 operators
@@ -206,6 +208,7 @@ private:
     bool active_ = false;
     uint64_t prev_cycles_ = 0;
     double frame_credit_ = 0.0;
+    double cpu_hz_ = kCpuHz;
 
     std::deque<Sample> samples_;
 

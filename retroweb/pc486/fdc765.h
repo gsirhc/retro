@@ -136,6 +136,10 @@ public:
     bool dirty(int drive) const { return drives[drive & 1].dirty; }
     void clear_dirty(int drive) { drives[drive & 1].dirty = false; }
 
+    // Turbo can drop the DX2 from 66 MHz to 33 MHz; wall-clock transfers
+    // stay correct when this tracks Machine::cpu_hz().
+    void set_cpu_hz(double hz);
+
 private:
     enum class Phase { kIdle, kCommand, kExecution, kResult };
     Phase phase_ = Phase::kIdle;
@@ -168,10 +172,10 @@ private:
 
     uint64_t prev_cycles_ = 0;
 
-    // This machine's real 66 MHz clock (see machine.h's kCpuHz) -- Chipset
-    // feeds tick() a cycle counter paced at that rate, so this pacing
-    // constant must match it or transfers run at the wrong wall-clock speed.
+    // Default = Turbo on (DX2 doubled). set_cpu_hz() updates the live rate
+    // so a Turbo-off drop to 33 MHz keeps wall-clock seek/transfer times.
     static constexpr double kCpuHz = 66000000.0;
+    double cpu_hz_ = kCpuHz;
 
     uint8_t msr() const;
     void start_command(uint8_t first_byte);

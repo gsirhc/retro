@@ -221,4 +221,48 @@ TEST(MachineTest, CodeThatPatchesItselfAheadOfEipExecutesThePatchedByte) {
     EXPECT_EQ(m.cpu.eax & 0xFFFFu, 1u);
 }
 
+TEST(MachineTest, TurboOffHalvesCpuClockButPreservesPitWallTime) {
+    // A real DX2-66 Turbo button disables clock doubling: internal CPU
+    // drops from 66 MHz to the 33 MHz bus rate, while the PIT's 1.193182 MHz
+    // crystal is unchanged. Equal wall-time cycle budgets must therefore
+    // produce the same IRQ0 edge count; equal cycle counts must produce
+    // twice as many edges at the slower rate.
+    Machine m;
+    EXPECT_TRUE(m.turbo());
+    EXPECT_DOUBLE_EQ(m.cpu_hz(), Machine::kCpuHz);
+
+    auto count_pit_edges = [](double cpu_hz, uint64_t cycles) {
+        pc486::Pit8253 pit;
+        pit.out(0x43, 0x36);  // channel 0, mode 3, LSB/MSB
+        pit.out(0x40, 0);     // divisor 0 = 65536 -> ~18.2 Hz
+        pit.out(0x40, 0);
+        int edges = 0;
+        uint64_t c = 0;
+        const uint64_t chunk = uint64_t(cpu_hz / 100.0);  // ~10 ms
+        while (c < cycles) {
+            uint64_t step = cycles - c < chunk ? cycles - c : chunk;
+            c += step;
+            edges += pit.tick(c, cpu_hz);
+        }
+        return edges;
+    };
+
+    const int edges_1s_66 = count_pit_edges(Machine::kCpuHz, uint64_t(Machine::kCpuHz));
+    const int edges_1s_33 = count_pit_edges(Machine::kCpuHzDeturbo, uint64_t(Machine::kCpuHzDeturbo));
+    EXPECT_NEAR(edges_1s_66, 18, 2);
+    EXPECT_NEAR(edges_1s_33, 18, 2);
+    EXPECT_EQ(edges_1s_66, edges_1s_33);
+
+    const int edges_cyc_66 = count_pit_edges(Machine::kCpuHz, 33'000'000ull);
+    const int edges_cyc_33 = count_pit_edges(Machine::kCpuHzDeturbo, 33'000'000ull);
+    EXPECT_NEAR(double(edges_cyc_33), double(edges_cyc_66) * 2.0, 2.0);
+
+    m.set_turbo(false);
+    EXPECT_FALSE(m.turbo());
+    EXPECT_DOUBLE_EQ(m.cpu_hz(), Machine::kCpuHzDeturbo);
+    m.set_turbo(true);
+    EXPECT_TRUE(m.turbo());
+    EXPECT_DOUBLE_EQ(m.cpu_hz(), Machine::kCpuHz);
+}
+
 }  // namespace

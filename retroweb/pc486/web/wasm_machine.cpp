@@ -57,6 +57,13 @@ public:
     // same as ibmpc-at's own reset()/comment.
     void reset() { m_.reset(); }
 
+    // Front-panel Turbo: on = 66 MHz (DX2 clock-doubled), off = 33 MHz
+    // (bus rate). The PIT crystal and device wall-clock pacing stay correct
+    // -- only the CPU's internal clock drops. See Machine::set_turbo.
+    void setTurbo(bool on) { m_.set_turbo(on); }
+    bool turbo() const { return m_.turbo(); }
+    double cpuHz() const { return m_.cpu_hz(); }
+
     // Drop a ROM image at a physical address -- BIOS-bochs-legacy at
     // 0x100000-bios.size() (the real reset vector, F000:FFF0, expects a
     // 64KB image there) or VGABIOS-lgpl-latest.bin at 0xC0000 (the
@@ -389,6 +396,9 @@ EMSCRIPTEN_BINDINGS(pc486_machine) {
     emscripten::class_<WasmMachine>("Machine")
         .constructor<>()
         .function("reset", &WasmMachine::reset)
+        .function("setTurbo", &WasmMachine::setTurbo)
+        .function("turbo", &WasmMachine::turbo)
+        .function("cpuHz", &WasmMachine::cpuHz)
         .function("loadRom", &WasmMachine::loadRom)
         .function("runCycles", &WasmMachine::runCycles)
         .function("totalCycles", &WasmMachine::totalCycles)

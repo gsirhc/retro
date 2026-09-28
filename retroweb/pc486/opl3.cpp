@@ -243,6 +243,14 @@ int32_t wave_sample(uint8_t waveform, uint32_t phase20, double atten_env_units) 
 
 }  // namespace
 
+void Opl3::set_cpu_hz(double hz) {
+    if (!(hz > 0.0) || hz == cpu_hz_) return;
+    // frame_credit_ is in CPU cycles; scale so the pending fractional frame
+    // stays the same wall-clock remainder across a Turbo toggle.
+    frame_credit_ *= hz / cpu_hz_;
+    cpu_hz_ = hz;
+}
+
 void Opl3::reset() {
     std::memset(regs_, 0, sizeof(regs_));
     addr_[0] = addr_[1] = 0;
@@ -410,7 +418,7 @@ void Opl3::write_reg(uint16_t index, uint8_t v) {
 // AdLib detection sequence's own "wait at least 80us" already tolerates.
 void Opl3::step_timers(uint32_t frames) {
     if (frames == 0) return;
-    const double cycles_per_frame = kCpuHz / kSampleHz;
+    const double cycles_per_frame = cpu_hz_ / kSampleHz;
     // frame_credit_'s per-call remainder means this call's span doesn't
     // land exactly where the previous call's left off; over-extend the
     // window by a couple of frames so consecutive calls' windows always
@@ -421,7 +429,7 @@ void Opl3::step_timers(uint32_t frames) {
     const double start_cycle = end_cycle > span ? end_cycle - span : 0.0;
 
     if (timer1_run_) {
-        const double period = kCpuHz * 80.8e-6;
+        const double period = cpu_hz_ * 80.8e-6;
         const long long n = 256 - (long long)(timer1_preset_);
         long long t0 = (long long)std::floor(start_cycle / period);
         long long t1 = (long long)std::floor(end_cycle / period);
@@ -432,7 +440,7 @@ void Opl3::step_timers(uint32_t frames) {
         }
     }
     if (timer2_run_) {
-        const double period = kCpuHz * 323.1e-6;
+        const double period = cpu_hz_ * 323.1e-6;
         const long long n = 256 - (long long)(timer2_preset_);
         long long t0 = (long long)std::floor(start_cycle / period);
         long long t1 = (long long)std::floor(end_cycle / period);
@@ -466,7 +474,7 @@ void Opl3::recompute_active() {
 
 void Opl3::advance(uint64_t cpu_cycles, uint64_t delta) {
     frame_credit_ += double(delta);
-    const double cycles_per_frame = kCpuHz / kSampleHz;
+    const double cycles_per_frame = cpu_hz_ / kSampleHz;
     uint64_t due = uint64_t(frame_credit_ / cycles_per_frame);
     if (due == 0) { recompute_active(); return; }
     // Consume the credit for every frame that came due BEFORE bounding the

@@ -56,18 +56,29 @@ void Fdc765::mount(int drive, const uint8_t *data, std::size_t len) {
         // densities a real 3.5" HD drive supports).
         d.cylinders = 80; d.heads = 2; d.sectors_per_track = 9;
         d.bytes_per_sec = 31250.0;
-        d.cycles_per_track_step = 0.003 * kCpuHz;
+        d.cycles_per_track_step = 0.003 * cpu_hz_;
     } else {
         // 1.44MB: 80 cyl / 2 head / 18 sec/track, 500 kbit/s, ~3ms/track step.
         d.cylinders = 80; d.heads = 2; d.sectors_per_track = 18;
         d.bytes_per_sec = 62500.0;
-        d.cycles_per_track_step = 0.003 * kCpuHz;
+        d.cycles_per_track_step = 0.003 * cpu_hz_;
     }
 }
 void Fdc765::unmount(int drive) {
     Drive &d = drives[drive & 1];
     d.image.clear();
     d.present = false;
+}
+
+void Fdc765::set_cpu_hz(double hz) {
+    if (!(hz > 0.0) || hz == cpu_hz_) return;
+    const double scale = hz / cpu_hz_;
+    if (seeking_) seek_target_ = seek_credit_ + (seek_target_ - seek_credit_) * scale;
+    if (xfer_active_) xfer_target_ = xfer_credit_ + (xfer_target_ - xfer_credit_) * scale;
+    cpu_hz_ = hz;
+    for (int i = 0; i < 2; ++i) {
+        if (drives[i].present) drives[i].cycles_per_track_step = 0.003 * cpu_hz_;
+    }
 }
 
 uint8_t Fdc765::msr() const {
@@ -182,7 +193,7 @@ void Fdc765::begin_transfer(bool is_write) {
     xfer_drive_ = drive;
     transfer_is_write_ = is_write;
     xfer_credit_ = 0.0;
-    xfer_target_ = double(transfer_len_) / d.bytes_per_sec * kCpuHz;
+    xfer_target_ = double(transfer_len_) / d.bytes_per_sec * cpu_hz_;
     xfer_active_ = true;
     transfer_ready_ = false;
     phase_ = Phase::kExecution;

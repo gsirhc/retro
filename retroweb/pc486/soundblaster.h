@@ -184,6 +184,10 @@ public:
         advance(cpu_cycles, delta);
     }
 
+    // Turbo can drop the DX2 from 66 MHz to 33 MHz; sample pacing stays
+    // wall-clock correct when this (and fm) track Machine::cpu_hz().
+    void set_cpu_hz(double hz);
+
     // --- interrupts -------------------------------------------------------
     // One IRQ line carries the 8-bit DMA, 16-bit DMA and MIDI sources; mixer
     // register 82h says which fired, and software acknowledges by reading
@@ -265,10 +269,9 @@ private:
     // hardware has no such limit, this only caps memory if the front end
     // stops draining a card that is actively playing.
     static constexpr std::size_t kMaxSamples = 1u << 16;
-    // This machine's real 66 MHz clock (machine.h's kCpuHz) -- tick() is fed
-    // a counter paced at that rate, so this must match or playback runs at
-    // the wrong wall-clock speed.
+    // Default = Turbo on (DX2 doubled). set_cpu_hz() updates the live rate.
     static constexpr double kCpuHz = 66000000.0;
+    double cpu_hz_ = kCpuHz;
 
     void advance(uint64_t cpu_cycles, uint64_t delta);
     void dsp_write(uint8_t v);

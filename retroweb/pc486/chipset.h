@@ -180,6 +180,12 @@ public:
     // build and opportunistically writes progress/panic text there.
     const std::string &debug_console() const { return debug_console_; }
 
+    // Propagates the CPU's current internal clock to every device that
+    // converts wall-clock seconds into CPU-cycle waits (FDC/HDD/CD-ROM/
+    // SB/OPL3). The PIT already takes cpu_hz per tick(); this keeps the
+    // others matching when Turbo drops the DX2 from 66 MHz to 33 MHz.
+    void set_cpu_hz(double hz);
+
 private:
     // vector<bool> is bit-packed (4MB, not 32MB) -- same stack-overflow
     // reasoning as `mem` above, plus it'd otherwise double the footprint.

@@ -2,6 +2,12 @@
 
 namespace pc486 {
 
+void Machine::set_cpu_hz(double hz) {
+    if (!(hz > 0.0) || hz == cpu_hz_) return;
+    cpu_hz_ = hz;
+    chipset.set_cpu_hz(hz);
+}
+
 void Machine::configure_factory_cmos() {
     auto &c = chipset.cmos;
     // Floppy drive types (0x10): high nibble = drive A:, low nibble =
@@ -100,7 +106,7 @@ void Machine::run_cycles(int64_t cycles) {
         // chipset's service gate (see Chipset::tick), so asking on the
         // serviced pass catches the pulse on exactly the instruction boundary
         // a per-instruction check did.
-        if (chipset.tick(total_cycles_, kCpuHz)) service_kbc_reset();
+        if (chipset.tick(total_cycles_, cpu_hz_)) service_kbc_reset();
         // Real hardware only begins an INTA cycle if the CPU's IF flag
         // permits it to respond to INTR -- see ibmpc-at/machine.cpp's
         // identical comment; unchanged reasoning on this CPU.

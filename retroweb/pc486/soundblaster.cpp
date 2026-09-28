@@ -70,6 +70,13 @@ void SoundBlaster::reset() {
     reset_asserted_ = false;
 }
 
+void SoundBlaster::set_cpu_hz(double hz) {
+    if (!(hz > 0.0) || hz == cpu_hz_) return;
+    frame_credit_ *= hz / cpu_hz_;
+    cpu_hz_ = hz;
+    fm.set_cpu_hz(hz);
+}
+
 void SoundBlaster::reset_dsp(bool from_reset_port) {
     mode_ = Mode::kIdle;
     is_input_ = bits16_ = autoinit_ = stereo_ = signed_data_ = false;
@@ -427,7 +434,7 @@ void SoundBlaster::fill_input_buffer(std::size_t len) {
 
 void SoundBlaster::advance(uint64_t cpu_cycles, uint64_t delta) {
     frame_credit_ += double(delta);
-    const double cycles_per_frame = kCpuHz / double(rate_hz_ ? rate_hz_ : 1);
+    const double cycles_per_frame = cpu_hz_ / double(rate_hz_ ? rate_hz_ : 1);
     const uint64_t due = uint64_t(frame_credit_ / cycles_per_frame);
     if (due == 0) return;
 
@@ -472,7 +479,7 @@ void SoundBlaster::finish_transfer(std::size_t actual_len) {
     transfer_len_ = 0;
 
     if (!is_input_) {
-        const double cycles_per_frame = kCpuHz / double(rate_hz_ ? rate_hz_ : 1);
+        const double cycles_per_frame = cpu_hz_ / double(rate_hz_ ? rate_hz_ : 1);
         for (std::size_t i = 0; i < frames; ++i) {
             const uint64_t cycle = xfer_start_cycle_ + uint64_t(double(i) * cycles_per_frame);
             const uint8_t *p = buffer_.data() + i * bpf;

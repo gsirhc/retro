@@ -49,10 +49,10 @@ public:
     int tick(uint64_t cpu_cycles, double cpu_hz) {
         uint64_t d = cpu_cycles - prev_cycles_;
         prev_cycles_ = cpu_cycles;
-        // cpu_hz never changes at run time, but this runs after every single
-        // instruction, so the divide is worth doing once rather than 66
-        // million times a second. See PC486_REVIEW.md §8.
-        if (cpu_hz != ratio_hz_) {
+        // cpu_hz can change at run time (front-panel Turbo drops the DX2 from
+    // 66 MHz to 33 MHz). Memoize the ratio so the divide is not redone on
+    // every instruction. See PC486_REVIEW.md §8.
+    if (cpu_hz != ratio_hz_) {
             ratio_hz_ = cpu_hz;
             pit_per_cpu_cycle_ = PIT_HZ / cpu_hz;
             cpu_per_pit_count_ = cpu_hz / PIT_HZ;

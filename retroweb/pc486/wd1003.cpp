@@ -299,8 +299,15 @@ void Wd1003::begin_read() {
     xfer_is_write_ = false;
     xfer_active_ = true;
     xfer_credit_ = 0.0;
-    xfer_target_ = double(xfer_len_) / kBytesPerSec * kCpuHz;
+    xfer_target_ = double(xfer_len_) / kBytesPerSec * cpu_hz_;
     status_ = ST_BSY;
+}
+
+void Wd1003::set_cpu_hz(double hz) {
+    if (!(hz > 0.0) || hz == cpu_hz_) return;
+    const double scale = hz / cpu_hz_;
+    if (xfer_active_) xfer_target_ = xfer_credit_ + (xfer_target_ - xfer_credit_) * scale;
+    cpu_hz_ = hz;
 }
 
 void Wd1003::begin_write() {

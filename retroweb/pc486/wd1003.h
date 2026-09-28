@@ -172,6 +172,10 @@ public:
         return out;
     }
 
+    // Turbo can drop the DX2 from 66 MHz to 33 MHz; wall-clock transfers
+    // stay correct when this tracks Machine::cpu_hz().
+    void set_cpu_hz(double hz);
+
 private:
     enum Status : uint8_t {
         ST_ERR = 0x01, ST_DRQ = 0x08, ST_DSC = 0x10, ST_DF = 0x20, ST_DRDY = 0x40, ST_BSY = 0x80,
@@ -218,10 +222,9 @@ private:
     double xfer_credit_ = 0.0, xfer_target_ = 0.0;
     uint64_t prev_cycles_ = 0;
 
-    // This machine's real 66 MHz clock (see machine.h's kCpuHz) -- Chipset
-    // feeds tick() a cycle counter paced at that rate, so this pacing
-    // constant must match it or transfers run at the wrong wall-clock speed.
+    // Default = Turbo on (DX2 doubled). set_cpu_hz() updates the live rate.
     static constexpr double kCpuHz = 66000000.0;
+    double cpu_hz_ = kCpuHz;
     static constexpr double kBytesPerSec = 625000.0;  // representative ST-506/412-interface MFM rate
 
     // True when the currently-selected drive (via drive_head_ bit4) has no

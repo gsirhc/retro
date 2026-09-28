@@ -140,6 +140,10 @@ public:
     // serviced -- what a real drive's activity LED lights for.
     bool busy() const { return (status_ & ST_BSY) != 0 || exec_active_; }
 
+    // Turbo can drop the DX2 from 66 MHz to 33 MHz; wall-clock command
+    // times stay correct when this tracks Machine::cpu_hz().
+    void set_cpu_hz(double hz);
+
 private:
     // Status register, PACKET device flavor (ATA/ATAPI-4 §7.15.6.3). Note
     // what is NOT here: bit 0 is CHK (check condition), not ATA's ERR, and
@@ -235,11 +239,10 @@ private:
     static constexpr uint32_t kHeadUnknown = 0xFFFFFFFF;
     uint32_t head_lba_ = kHeadUnknown;
 
-    // The cycle count Chipset feeds tick() is this machine's 80486 DX2-66
-    // internal clock. If that counter's units ever change (e.g. to 33 MHz
-    // bus clocks), this constant changes with it or every paced delay is
-    // wrong by the same factor.
+    // Default = Turbo on (DX2 doubled). set_cpu_hz() updates the live rate
+    // so a Turbo-off drop to 33 MHz keeps wall-clock seeks/reads correct.
     static constexpr double kCpuHz = 66000000.0;
+    double cpu_hz_ = kCpuHz;
     // 2x CD-ROM: 1x is 75 sectors/sec of 2048-byte user data = 153,600
     // bytes/sec, so 2x is exactly double. Not a round "300 KB/s".
     static constexpr double kBytesPerSec = 307200.0;
