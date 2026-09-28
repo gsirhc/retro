@@ -632,4 +632,58 @@ TEST(EgaRenderTest, SvgaVirtualWidthAndOffsetsPanTheVisibleWindow) {
     ExpectRgb(rgba, w, 0, 0, 0, 255, 255);
 }
 
+// The three larger 8bpp SVGA geometries the ROM newly advertises (0x0101,
+// 0x0103, 0x0105) once ega.h's kVbeMaxXres/Yres and vram grow to admit them
+// -- see PC486_REVIEW.md §7.5's mode_info_check_mode gate. Each mirrors
+// SvgaLinearGeometryComesFromTheExtensionRegistersNotTheCrtc: a corner pixel
+// at linear offset `width` (row 1, column 0) proves the stride, not just the
+// reported width/height, is right.
+TEST(EgaRenderTest, Svga640x480EntersVbeModeAndRendersAtTheRightSize) {
+    Ega ega;
+    ega.reset();
+    SetSvgaMode(ega, 640, 480);
+    EXPECT_EQ(DetectScreenMode(ega), ScreenMode::kVga256);
+
+    SetDac(ega, 12, 63, 21, 0);
+    ega.mem_write(0xA0000 + 640, 12);
+    std::vector<uint8_t> rgba;
+    int w = 0, h = 0;
+    RenderVga256Screen(ega, rgba, w, h);
+    EXPECT_EQ(w, 640);
+    EXPECT_EQ(h, 480);
+    ExpectRgb(rgba, w, 0, 1, 255, 85, 0);
+}
+
+TEST(EgaRenderTest, Svga800x600EntersVbeModeAndRendersAtTheRightSize) {
+    Ega ega;
+    ega.reset();
+    SetSvgaMode(ega, 800, 600);
+    EXPECT_EQ(DetectScreenMode(ega), ScreenMode::kVga256);
+
+    SetDac(ega, 13, 0, 63, 21);
+    ega.mem_write(0xA0000 + 800, 13);
+    std::vector<uint8_t> rgba;
+    int w = 0, h = 0;
+    RenderVga256Screen(ega, rgba, w, h);
+    EXPECT_EQ(w, 800);
+    EXPECT_EQ(h, 600);
+    ExpectRgb(rgba, w, 0, 1, 0, 255, 85);
+}
+
+TEST(EgaRenderTest, Svga1024x768EntersVbeModeAndRendersAtTheRightSize) {
+    Ega ega;
+    ega.reset();
+    SetSvgaMode(ega, 1024, 768);
+    EXPECT_EQ(DetectScreenMode(ega), ScreenMode::kVga256);
+
+    SetDac(ega, 14, 21, 0, 63);
+    ega.mem_write(0xA0000 + 1024, 14);
+    std::vector<uint8_t> rgba;
+    int w = 0, h = 0;
+    RenderVga256Screen(ega, rgba, w, h);
+    EXPECT_EQ(w, 1024);
+    EXPECT_EQ(h, 768);
+    ExpectRgb(rgba, w, 0, 1, 85, 0, 255);
+}
+
 }  // namespace

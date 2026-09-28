@@ -84,6 +84,22 @@ TEST(EgaTest, MemoryMappingSelectsWhichLegacyWindowIsDecoded) {
     EXPECT_EQ(ega.mem_read(0xA0000), 0xFF);
 }
 
+TEST(EgaTest, LegacyPlanarStrideStaysFixedRegardlessOfTheEnlargedVram) {
+    // The plane interleave in mem_read/mem_write is the literal "<< 2" in
+    // (plane_off << 2) + plane, not anything derived from vram.size() -- so
+    // growing vram for the SVGA maxima (ega.h) must not shift where legacy
+    // planar bytes land. Writing at the top of the 64K@A0000 window (the
+    // widest offset any legacy mode reaches) lands at the fixed byte
+    // 0xFFFF*4 = 262,140 -- the last word of the old 256KB card -- not
+    // somewhere scaled into the new 1MB.
+    Ega ega;
+    ega.reset();
+    SetupLinearGraphics(ega);
+    ega.mem_write(0xAFFFF, 0x42);
+    for (int p = 0; p < 4; ++p) EXPECT_EQ(ega.vram[std::size_t(262140 + p)], 0x42) << "plane " << p;
+    EXPECT_EQ(ega.vram[262144], 0x00);  // one byte into the "new" megabyte: untouched
+}
+
 TEST(EgaTest, WriteMode0AppliesDataRotateAluFunction) {
     Ega ega;
     ega.reset();
@@ -521,11 +537,31 @@ TEST(EgaTest, SvgaGetCapsReportsCardMaximaNotTheCurrentGeometry) {
     EXPECT_EQ(get(Ega::kVbeRegXres), 320);  // the programmed value was never lost
 }
 
+TEST(EgaTest, SvgaMaximaAndVramMatchTheOneMegabyteCard) {
+    // Pins the literal numbers behind kVbeMaxXres/Yres/Bpp and vram's size
+    // -- 1024x768x8 = 786,432 bytes is the largest 8bpp frame that fits in
+    // this card's 1MB, reported here as 16 64KB units. See ega.h.
+    Ega ega;
+    ega.reset();
+    EXPECT_EQ(ega.vram.size(), std::size_t(1024 * 1024));
+    ega.out16(Ega::kVbeIndexPort, Ega::kVbeRegEnable);
+    ega.out16(Ega::kVbeDataPort, Ega::kVbeGetCaps);
+    auto get = [&](uint16_t reg) {
+        ega.out16(Ega::kVbeIndexPort, reg); return ega.in16(Ega::kVbeDataPort);
+    };
+    EXPECT_EQ(get(Ega::kVbeRegXres), 1024);
+    EXPECT_EQ(get(Ega::kVbeRegYres), 768);
+    EXPECT_EQ(get(Ega::kVbeRegBpp), 8);
+    ega.out16(Ega::kVbeIndexPort, Ega::kVbeRegEnable);
+    ega.out16(Ega::kVbeDataPort, 0);
+    EXPECT_EQ(get(Ega::kVbeRegVideoMemory64K), 16);
+}
+
 TEST(EgaTest, SvgaVideoMemoryRegisterReportsInstalledVramAndIsReadOnly) {
     Ega ega;
     ega.reset();
     ega.out16(Ega::kVbeIndexPort, Ega::kVbeRegVideoMemory64K);
-    EXPECT_EQ(ega.in16(Ega::kVbeDataPort), ega.vram.size() / 65536);  // 256KB -> 4
+    EXPECT_EQ(ega.in16(Ega::kVbeDataPort), ega.vram.size() / 65536);  // 1MB -> 16
     ega.out16(Ega::kVbeDataPort, 64);  // software cannot solder on more RAM
     EXPECT_EQ(ega.in16(Ega::kVbeDataPort), ega.vram.size() / 65536);
 }
@@ -580,8 +616,9 @@ TEST(EgaTest, SvgaWindowIsFlatLinearMemorySlidByTheBankRegister) {
     EXPECT_EQ(ega.mem_read(0xA0000), 0x77);
     EXPECT_EQ(ega.vram[0], 0x20);  // bank 0's byte is untouched
 
-    // Past the end of the card's real 256KB there is nothing to answer.
-    ega.out16(Ega::kVbeIndexPort, Ega::kVbeRegBank); ega.out16(Ega::kVbeDataPort, 9);
+    // Past the end of the card's real 1MB there is nothing to answer.
+    uint16_t past_end_bank = uint16_t(ega.vram.size() / Ega::kVbeBankSize + 1);
+    ega.out16(Ega::kVbeIndexPort, Ega::kVbeRegBank); ega.out16(Ega::kVbeDataPort, past_end_bank);
     EXPECT_EQ(ega.mem_read(0xA0000), 0xFF);
 }
 

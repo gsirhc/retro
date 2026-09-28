@@ -1884,7 +1884,7 @@ Two register semantics carry real weight:
   or the probe wrongly concludes the card speaks it.
 - **GETCAPS is a query mode.** See §7.5.
 
-`VideoMemory` reports the card's genuine 256KB and is read-only -- software
+`VideoMemory` reports the card's genuine 1MB and is read-only -- software
 cannot solder on more RAM.
 
 ### 7.5 Bug found: GETCAPS, and an empty VESA mode list
@@ -1918,10 +1918,49 @@ probe (the ROM does build as the PCI variant). Reading the firmware's own
 source at the pinned revision, rather than reasoning from the symptom,
 found the actual gate in four lines.
 
-With GETCAPS implemented the card advertises the three modes it can truly
-show, all 8bpp, all inside 256KB: **100h** (640x400), **150h** (320x200)
-and **151h** (320x240). 640x480x256 needs 307,200 bytes and is correctly
+With GETCAPS implemented the card advertises exactly the modes that fit
+its VRAM and its reported maxima. At the original 256KB / 640x400 ceiling
+that was three, all 8bpp: **100h** (640x400), **150h** (320x200) and
+**151h** (320x240) -- 640x480x256 needs 307,200 bytes and was correctly
 *not* offered.
+
+The card now carries **1MB**, the realistic amount on a 1993 SVGA board,
+and reports maxima of **1024x768** -- 1024x768x8 is 786,432 bytes, so the
+largest 8bpp frame fits. `kVbeMaxBpp` stays 8. With no change to the ROM
+binary the firmware then advertises five more entries from its own built-in
+table: **101h** (640x480x8), **102h** (800x600x4), **103h** (800x600x8),
+**104h** (1024x768x4) and **105h** (1024x768x8). 1280x1024 stays blocked by
+xres; every 15/16/24/32bpp mode stays blocked by bpp.
+
+### 7.5.1 Departure: 104h is advertised but cannot be fully painted
+
+The ROM gates advertising only on xres, yres, bpp and capacity
+(`mode_info_check_mode`, plus `mode_info_number_of_image_pages` against
+VideoMemory), so there is no way to admit 800x600x8 and 1024x768x8 while
+excluding the 4bpp entries that come with them -- not without patching the
+ROM binary.
+
+Of those two, **102h** (800x600x4) is genuinely correct. For bpp=4 the
+firmware's `dispi_set_mode` calls `_biosfn_set_video_mode(0x6A)` and then
+`vga_compat_setup`, which reprograms the real CRTC, Sequencer and Graphics
+Controller to the requested resolution, and `RenderEgaNative16Screen`
+derives its geometry from those live registers rather than a hardcoded 640
+(§7.3).
+
+**104h** (1024x768x4) is the departure. It needs 98,304 bytes per plane,
+while the planar path's CPU-visible window is the standard 64KB aperture:
+the Bank register is consulted only by `vbe_linear_offset()`, which is
+gated behind `vbe_mode_active()`, and that requires bpp == 8. A guest
+selecting 104h can therefore address only the first 64KB of each plane.
+The mode is offered and does not fully work -- the same quiet-lie class as
+the GETCAPS bug above, recorded here rather than left to be rediscovered.
+
+The faithful fix is not done yet. A real 1MB SVGA card does display
+1024x768 in 16 colours, through extended bank registers that apply in
+planar modes as well as packed ones, so the honest repair is to make the
+Bank register apply at bpp=4 -- which first needs checking against what the
+pinned firmware actually expects of a 4bpp DISPI mode, the same
+read-the-ROM-source discipline that found the GETCAPS gate.
 
 ### 7.6 The one thing that does not work, and why it is not a bug here
 
@@ -2060,7 +2099,7 @@ harness is the right home for it.
   probe refusing an unimplemented revision, GETCAPS reporting maxima without
   losing the programmed values, the read-only VideoMemory register, the
   clear-on-enable and NoClearMem behaviours, the bank-slid linear window
-  (including reading 0xFF past the card's real 256KB), the round trip back
+  (including reading 0xFF past the card's real VRAM), the round trip back
   to planar decoding, and port ownership.
 - **`ega_render_test.cpp`** (+7): mode 13h's resolution derived from the
   CRTC *and* the Attribute Controller (proved by clearing the 8-bit-colour

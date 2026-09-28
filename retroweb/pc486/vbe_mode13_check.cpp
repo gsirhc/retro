@@ -63,6 +63,12 @@ constexpr uint16_t kSvgaInfo = 0x1400;  // ModeInfoBlock for the VESA-defined mo
 // The lowest VESA-defined 256-color mode, and the only one that fits in
 // this card's real 256KB of VRAM (640*400 = 256,000 bytes). See §7.
 constexpr uint16_t kSvgaMode = 0x0100;
+constexpr uint16_t kSvga2Info = 0x1600;  // ModeInfoBlock for the higher-res VESA mode below
+// The largest 8bpp mode the ROM advertises once ega.h's SVGA maxima and
+// VRAM are raised to admit it -- see PC486_REVIEW.md §7.5's
+// mode_info_check_mode gate and ega.h's kVbeMaxXres/kVbeMaxYres.
+constexpr uint16_t kSvga2Mode = 0x0105;
+constexpr int kSvga2Width = 1024, kSvga2Height = 768;
 constexpr uint16_t kBootSeg  = 0x7C00;  // where the BIOS loads us, and our stack top
 
 // Result slots (absolute addresses; DS is 0 throughout the guest).
@@ -84,6 +90,9 @@ enum Slot {
     S_SVGA_CUR_AX= kResults + 0x16,  // AX from 4F03 while in kSvgaMode
     S_SVGA_CUR_BX= kResults + 0x18,  // BX from 4F03 while in kSvgaMode
     S_SVGA_PIX   = kResults + 0x1A,  // a pixel read back out of the SVGA window
+    S_SVGA2_INFO = kResults + 0x1C,  // AX from 4F01 for kSvga2Mode
+    S_SVGA2_SET  = kResults + 0x1E,  // AX from 4F02 for kSvga2Mode
+    S_SVGA2_PIX  = kResults + 0x20,  // a pixel read back out of the kSvga2Mode window
     S_PHASE1     = kResults + 0xFA,  // 0xBEEF once the SVGA screen is painted
     S_GO         = kResults + 0xFC,  // host writes 1 here to release the guest
     S_DONE       = kResults + 0xFE,  // 0xC0DE once the guest is finished
@@ -279,6 +288,41 @@ std::vector<uint8_t> BuildBootSector() {
     // it. A plain poll, not a HLT, so this can't depend on interrupts.
     a.mov_m16_imm(S_PHASE1, kPhase1Magic);
     a.poll_until_nonzero(S_GO);
+
+    // --- 2d. A second VESA-defined mode, at the new higher resolution -----
+    // Proves the same 4F01/4F02 path the 640x400 phase above exercises also
+    // reaches the larger 8bpp modes the ROM only started advertising once
+    // ega.h's SVGA maxima and VRAM grew to admit them (§7.5's
+    // mode_info_check_mode gate). Deliberately minimal -- no DAC
+    // reprogramming, no host-rendered frame capture -- because the boot
+    // sector is a single 512-byte disk sector with little room left, and
+    // per-pixel/geometry correctness at this resolution is already
+    // exhaustively covered by ega_render_test.cpp's direct-register tests.
+    // This phase's job is narrower: proving the real ROM's
+    // dispi_set_mode/vga_compat_setup actually runs for this mode too, so a
+    // raw write-then-read-back through the chain-4 window is enough.
+    a.xor_ax_ax(); a.mov_es_ax();
+    a.mov_di(kSvga2Info);
+    a.mov_cx(kSvga2Mode);
+    a.mov_ax(0x4F01);
+    a.int_(0x10);
+    a.restore_ds_keep_ax();
+    a.mov_m16_ax(S_SVGA2_INFO);
+
+    a.mov_bx(kSvga2Mode);
+    a.mov_ax(0x4F02);
+    a.int_(0x10);
+    a.restore_ds_keep_ax();
+    a.mov_m16_ax(S_SVGA2_SET);
+
+    a.mov_ax(0xA000);
+    a.mov_es_ax();
+    a.mov_di(uint16_t(kSvga2Width));  // row 1, column 0 -- proves the stride, not just offset 0
+    a.mov_al(77);
+    a.stosb();
+    a.mov_di(uint16_t(kSvga2Width));
+    a.mov_al_es_di();
+    a.mov_m8_al(S_SVGA2_PIX);
 
     // --- 3. VBE 4F02: Set VBE Mode 13h ------------------------------------
     a.mov_bx(0x0013);
@@ -558,6 +602,13 @@ int main(int argc, char **argv) {
     CheckFrame(svga_frame, kSvgaWidth, kSvgaHeight,
                kSvgaPattern, int(sizeof kSvgaPattern / sizeof kSvgaPattern[0]),
                kSvgaRunRow, kSvgaRunX0, kSvgaRunLen, kSvgaRunIdx, kSvgaDac, kSvgaDacFirst);
+
+    std::printf("\n--- higher-resolution SVGA mode %03Xh (%dx%d), minimal proof ---\n",
+                kSvga2Mode, kSvga2Width, kSvga2Height);
+    CheckEq(rd16(S_SVGA2_INFO), 0x004F, "4F01 Return Mode Information (mode 105h) -> AX");
+    if (rd16(S_SVGA2_INFO) == 0x004F) check_mode_info(kSvga2Info, kSvga2Width, kSvga2Height, "105h:");
+    CheckEq(rd16(S_SVGA2_SET), 0x004F, "4F02 Set VBE Mode (BX=105h) -> AX");
+    CheckEq(rd8(S_SVGA2_PIX), 77, "guest read back a pixel from mode 105h at (0,1)");
 
     CheckEq(rd16(S_SET_MODE), 0x004F, "4F02 Set VBE Mode (BX=13h) -> AX");
     CheckEq(rd16(S_CUR_MODE_AX), 0x004F, "4F03 Return Current VBE Mode -> AX");

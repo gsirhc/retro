@@ -230,12 +230,12 @@ public:
     static constexpr uint16_t kVbeGetCaps    = 0x02;
     static constexpr uint16_t kVbeNoClearMem = 0x80;
     // What this board can actually do in a linear 8-bit-per-pixel mode:
-    // 640x400 is the largest such frame that fits in its 256KB of VRAM
-    // (640*400 = 256,000 <= 262,144), and 8bpp is the only depth its DAC
+    // 1024x768 is the largest such frame that fits in its 1MB of VRAM
+    // (1024*768 = 786,432 <= 1,048,576), and 8bpp is the only depth its DAC
     // path handles. Reporting anything larger would have the ROM advertise
     // modes the card cannot display.
-    static constexpr uint16_t kVbeMaxXres = 640;
-    static constexpr uint16_t kVbeMaxYres = 400;
+    static constexpr uint16_t kVbeMaxXres = 1024;
+    static constexpr uint16_t kVbeMaxYres = 768;
     static constexpr uint16_t kVbeMaxBpp  = 8;
     // Only these IDs are accepted into the ID register, so a probe that
     // writes an unknown value and reads it back correctly concludes this
@@ -365,9 +365,13 @@ public:
     // VRAM by this, not by (displayed width / 8), whenever it differs.
     int crtc_scanline_stride() const { return int(crtc_[0x13]) * 2; }
 
-    // 256KB planar VRAM: 4 bitplanes x 64KB, byte-interleaved as
-    // vram[(plane_offset << 2) + plane] -- see the file header.
-    std::array<uint8_t, 256 * 1024> vram{};
+    // 1MB VRAM. Legacy planar/chain-4 addressing (see the file header) only
+    // ever reaches the first 256KB -- 4 bitplanes x 64KB, byte-interleaved
+    // as vram[(plane_offset << 2) + plane], a fixed layout independent of
+    // this array's total size. The rest is reachable only through the SVGA
+    // linear window's Bank register (vbe_linear_offset), for the larger
+    // 8bpp modes this card advertises -- see kVbeMaxXres/Yres above.
+    std::array<uint8_t, 1024 * 1024> vram{};
     uint32_t mapping_epoch_ = 0;
     uint32_t mapping_sig_ = 0xFFFFFFFFu;
 
