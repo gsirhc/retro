@@ -145,19 +145,35 @@ export async function waitForScreen(page: Page, re: RegExp, timeout = 120_000): 
       return { cycles: m.totalCycles(), halt: m.haltCycles(), t: performance.now() };
     }).catch(() => null);
     await page.waitForTimeout(250);
+    // Force guest progress even if the rAF pump has stopped (e.g. after a
+    // test timeout freezes the page) so the histogram reflects the stall
+    // itself rather than a dead pump.
     const dump = await page.evaluate((b) => {
       const m = (window as any).__test?.machine;
       if (!m) return { missing: true };
+      const hist: Record<string, number> = {};
+      const stateOf = () =>
+        typeof m.debugCpuState === "function" ? m.debugCpuState() : "(no debugCpuState)";
+      for (let i = 0; i < 200; i++) {
+        m.runCycles(50_000);
+        const k = stateOf().replace(/ eflags=.*$/, "");
+        hist[k] = (hist[k] || 0) + 1;
+      }
       const c1 = m.totalCycles();
       const h1 = m.haltCycles();
       const t1 = performance.now();
       const dt = b ? (t1 - b.t) / 1000 : 0;
       const screen = (m.textScreen() || "").replace(/\u00b7/g, " ").replace(/\s+/g, " ").trim().slice(0, 200);
+      const top = Object.entries(hist)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 12)
+        .map(([k, n]) => `${n} ${k}`);
       return {
         cyclesPerSec: b && dt > 0 ? (c1 - b.cycles) / dt : 0,
         haltPerSec: b && dt > 0 ? (h1 - b.halt) / dt : 0,
         totalCycles: c1,
-        state: typeof m.debugCpuState === "function" ? m.debugCpuState() : "(no debugCpuState)",
+        state: stateOf(),
+        hist: top,
         screen,
       };
     }, before).catch((e: Error) => ({ error: String(e) }));
