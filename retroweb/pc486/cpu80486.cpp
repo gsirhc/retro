@@ -156,6 +156,8 @@ void Cpu::reset() {
     eip = 0xFFF0;
     eflags = FLAG_R1;
     halted = false;
+    fault_pending_ = false;
+    pending_fault_ = {};
     cycles = 0;
     seg_override_ = -1;
     rep_ = REP_NONE;
@@ -3806,8 +3808,15 @@ int Cpu::step() {
     instr_start_ss_ = ss;
     instr_start_ss_desc_ = sd_[SEG_SS];
     try {
-        return step_inner();
+        int c = step_inner();
+        // Ring>0 HLT arms fault_pending_ instead of throwing (see HLT case).
+        if (fault_pending_) {
+            fault_pending_ = false;
+            return deliver_fault(pending_fault_, start_eip);
+        }
+        return c;
     } catch (const Fault &f) {
+        fault_pending_ = false;
         return deliver_fault(f, start_eip);
     }
 }
@@ -4371,8 +4380,19 @@ int Cpu::step_inner() {
         case 0xF4:
             // HLT stops the CPU until an interrupt arrives, so only ring 0
             // may issue it -- a user program halting the machine would be
-            // a denial of service.
-            if (protected_mode() && cpl() != 0) raise_err(EXC_GP, 0);
+            // a denial of service. Architecturally #GP(0) at CPL > 0
+            // (including all of V86). Deliver that without throw: FreeDOS's
+            // EMMQXXX0 strategy/interrupt entries are a HLT pad in the UMB
+            // (C800:001A), and JEMMEX's monitor catches each #GP then IRETs
+            // -- a tight throw/catch loop that soft-locks Chromium's wasm
+            // exception handling on CI (cycles freeze, runCycles never
+            // returns). Pending-fault delivery is the same #GP; only the
+            // host unwinding changes.
+            if (protected_mode() && cpl() != 0) {
+                pending_fault_ = Fault{EXC_GP, 0, true};
+                fault_pending_ = true;
+                return 0;
+            }
             halted = true;
             c += 4;
             break;

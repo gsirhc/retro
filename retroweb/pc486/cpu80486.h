@@ -1046,6 +1046,11 @@ private:
     uint16_t instr_start_ss_ = 0;
     SegDesc  instr_start_ss_desc_;  // and its descriptor cache, in case the fault hit mid stack-switch
 
+    // Non-throwing #GP path for ring>0 HLT (see HLT in step_inner). Cleared
+    // by step() after deliver_fault consumes it.
+    bool  fault_pending_ = false;
+    Fault pending_fault_{};
+
     // --- x87 FPU ----------------------------------------------------------
     Float80  fpu_reg_[8];
     int      fpu_top_ = 0;    // TOP field of the status word (0-7)

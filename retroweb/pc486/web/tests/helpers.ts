@@ -132,51 +132,40 @@ export function screenText(page: Page): Promise<string> {
  * distinguishable from a slow boot (PC486_REVIEW.md §5.9 signature).
  */
 export async function waitForScreen(page: Page, re: RegExp, timeout = 120_000): Promise<void> {
+  // FreeDOS+JEMMEX can soft-lock right after "JemmEx loaded" (C800:001A
+  // EMMQXXX0 strategy HLT / wasm EH). Fail fast there instead of burning
+  // the full timeout. Dump is state-only — never call runCycles here; a
+  // wedged pump makes that evaluate hang (`page.evaluate: Exception`).
+  const jemmStallMs = 8_000;
+  let jemmSince = 0;
+  const probe = async (): Promise<string> => {
+    const text = await screenText(page);
+    if (/JemmEx loaded/i.test(text) && !/Kernel:|FreeCom|C:\\>/i.test(text)) {
+      if (!jemmSince) jemmSince = Date.now();
+      else if (Date.now() - jemmSince > jemmStallMs) {
+        throw new Error(`JemmEx stall (${jemmStallMs}ms without Kernel/FreeCom)`);
+      }
+    } else {
+      jemmSince = 0;
+    }
+    return text;
+  };
   try {
     await expect
-      .poll(() => screenText(page), { timeout, message: `screen never matched ${re}` })
+      .poll(probe, { timeout, message: `screen never matched ${re}` })
       .toMatch(re);
   } catch (err) {
-    // Sample cycle rate over a real pump interval (must yield to rAF, not
-    // busy-wait the page -- that would freeze the emulator).
-    const before = await page.evaluate(() => {
-      const m = (window as any).__test?.machine;
-      if (!m) return null;
-      return { cycles: m.totalCycles(), halt: m.haltCycles(), t: performance.now() };
-    }).catch(() => null);
-    await page.waitForTimeout(250);
-    // Force guest progress even if the rAF pump has stopped (e.g. after a
-    // test timeout freezes the page) so the histogram reflects the stall
-    // itself rather than a dead pump.
-    const dump = await page.evaluate((b) => {
+    const dump = await page.evaluate(() => {
       const m = (window as any).__test?.machine;
       if (!m) return { missing: true };
-      const hist: Record<string, number> = {};
-      const stateOf = () =>
-        typeof m.debugCpuState === "function" ? m.debugCpuState() : "(no debugCpuState)";
-      for (let i = 0; i < 200; i++) {
-        m.runCycles(50_000);
-        const k = stateOf().replace(/ eflags=.*$/, "");
-        hist[k] = (hist[k] || 0) + 1;
-      }
-      const c1 = m.totalCycles();
-      const h1 = m.haltCycles();
-      const t1 = performance.now();
-      const dt = b ? (t1 - b.t) / 1000 : 0;
       const screen = (m.textScreen() || "").replace(/\u00b7/g, " ").replace(/\s+/g, " ").trim().slice(0, 200);
-      const top = Object.entries(hist)
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 12)
-        .map(([k, n]) => `${n} ${k}`);
       return {
-        cyclesPerSec: b && dt > 0 ? (c1 - b.cycles) / dt : 0,
-        haltPerSec: b && dt > 0 ? (h1 - b.halt) / dt : 0,
-        totalCycles: c1,
-        state: stateOf(),
-        hist: top,
+        totalCycles: m.totalCycles(),
+        haltCycles: m.haltCycles(),
+        state: typeof m.debugCpuState === "function" ? m.debugCpuState() : "(no debugCpuState)",
         screen,
       };
-    }, before).catch((e: Error) => ({ error: String(e) }));
+    }).catch((e: Error) => ({ error: String(e) }));
     throw new Error(`screen never matched ${re}\nstall dump: ${JSON.stringify(dump, null, 2)}\n\n${err}`);
   }
 }

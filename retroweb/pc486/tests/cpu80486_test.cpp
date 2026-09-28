@@ -2811,6 +2811,37 @@ TEST_F(Cpu80486V86Test, CliAndStiTrapToTheMonitorBelowIoplThree) {
     expect_fault(cpu80486::EXC_GP, 0, "CLI at IOPL 0 in V86");
 }
 
+// HLT at CPL 3 is #GP(0) — same rule as protected mode — and FreeDOS's
+// EMMQXXX0 strategy stub is literally a HLT in the UMB that JEMMEX catches.
+// The monitor below skips the HLT and IRETs; the 8086 task must resume past
+// it (and the delivery path must not depend on C++ throw, see step()'s
+// pending-fault arm for ring>0 HLT).
+TEST_F(Cpu80486V86Test, HltTrapsToTheMonitorWhichCanSkipIt) {
+    enter_pm32();
+    set_gate(cpu80486::EXC_GP, gate_desc(kCode32, kData, 0x8E));
+    // #GP error code is on the stack; bump the restart EIP past the HLT
+    // (1 byte) then IRETD back into V86.
+    put(kData, {0x83, 0x44, 0x24, 0x04, 0x01,  // add dword [esp+4],1
+                0x83, 0xC4, 0x04,              // add esp,4
+                0xCF});                        // iretd
+    enter_v86();
+    ASSERT_TRUE(faults.empty()) << fault_desc();
+    v86_code({0xF4,            // hlt -- must #GP, never actually halt
+              0xB0, 0x5A,      // mov al,5Ah
+              0xEB, 0xFE});    // jmp $
+    cpu->step();               // HLT -> #GP -> monitor
+    expect_fault(cpu80486::EXC_GP, 0, "HLT at CPL 3 in V86");
+    EXPECT_FALSE(cpu->v86_mode()) << "handler runs in ordinary ring 0";
+    cpu->step();               // add [esp+4],1
+    cpu->step();               // add esp,4
+    cpu->step();               // iretd
+    EXPECT_TRUE(cpu->v86_mode());
+    EXPECT_EQ(cpu->eip, kV86Off + 1u) << "restarted past the HLT";
+    cpu->step();               // mov al,5Ah
+    EXPECT_EQ(cpu->eax & 0xFFu, 0x5Au);
+    EXPECT_FALSE(cpu->halted) << "ring-3 HLT must not set halted";
+}
+
 TEST_F(Cpu80486V86Test, CliIsPermittedAtIoplThree) {
     enter_pm32();
     set_gate(cpu80486::EXC_GP, gate_desc(kCode32, kData, 0x8E));
