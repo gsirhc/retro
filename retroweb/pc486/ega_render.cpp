@@ -130,35 +130,57 @@ void RenderCgaGraphics4Screen(const Ega &ega, std::vector<uint8_t> &rgba) {
 }
 
 void RenderEgaNative16Screen(const Ega &ega, std::vector<uint8_t> &rgba, int &width, int &height) {
-    width = (ega.crtc_horizontal_display_end() + 1) * 8;
-    height = ega.crtc_vertical_display_end() + 1;
-    // Scan Doubling (see crtc_scan_doubling() in ega.h): the CRTC's own
-    // vertical counters describe the full doubled raster (e.g. 400 lines for
-    // a 200-line picture), but VRAM only ever holds one copy of each row --
-    // the second physical scanline of every pair is a hardware-side repeat,
-    // not distinct data. Render at the logical (halved) height directly and
-    // address VRAM by that same row count below; that reproduces the
-    // doubled picture exactly (every row would just draw itself twice) with
-    // half the work and no separate duplication pass.
-    if (ega.crtc_scan_doubling()) height /= 2;
+    // A 4bpp DISPI mode still paints through the planar engine, but its
+    // geometry lives in the extension registers -- the ROM's
+    // vga_compat_setup does reprogram the CRTC, yet this card's VDE
+    // accessor deliberately reads only EGA's 9-bit overflow (see ega.h),
+    // which cannot express 600 or 768 lines. Trust the DISPI registers the
+    // same way RenderVga256Screen does for 8bpp, matching Bochs's bpp=4
+    // path taking vbe.xres/yres/line_offset for the tall modes.
+    int displayed_bytes;
+    int row_stride;
+    if (ega.vbe_planar_banked()) {
+        width = ega.vbe_reg(Ega::kVbeRegXres);
+        height = ega.vbe_reg(Ega::kVbeRegYres);
+        int virt = ega.vbe_reg(Ega::kVbeRegVirtWidth);
+        if (virt < width) virt = width;
+        displayed_bytes = width / 8;
+        row_stride = virt / 8;  // 1 bit/pixel/plane; Bochs line_offset = xres>>3
+    } else {
+        width = (ega.crtc_horizontal_display_end() + 1) * 8;
+        height = ega.crtc_vertical_display_end() + 1;
+        // Scan Doubling (see crtc_scan_doubling() in ega.h): the CRTC's own
+        // vertical counters describe the full doubled raster (e.g. 400 lines for
+        // a 200-line picture), but VRAM only ever holds one copy of each row --
+        // the second physical scanline of every pair is a hardware-side repeat,
+        // not distinct data. Render at the logical (halved) height directly and
+        // address VRAM by that same row count below; that reproduces the
+        // doubled picture exactly (every row would just draw itself twice) with
+        // half the work and no separate duplication pass.
+        if (ega.crtc_scan_doubling()) height /= 2;
+        displayed_bytes = width / 8;  // bytes/scanline actually drawn -- 1 bit/pixel/plane
+        // The real per-scanline VRAM stride comes from the CRTC's own Offset
+        // Register, NOT from the displayed width -- see crtc_scanline_stride()
+        // in ega.h. They're usually equal, but real software that programs a
+        // logical scan-line wider than what it shows (confirmed happening with
+        // a real commercial game's "look at map" screen) relies on the
+        // distinction; walking VRAM by displayed width instead reads every
+        // scanline after the first starting at the wrong offset, scrambling
+        // into unrelated pixel data. A freshly-reset/never-programmed Offset
+        // register reads 0 -- fall back to the displayed width in that case.
+        int real_stride = ega.crtc_scanline_stride();
+        row_stride = real_stride > 0 ? real_stride : displayed_bytes;
+    }
     if (width <= 0 || height <= 0) { width = height = 0; rgba.clear(); return; }
     rgba.assign(std::size_t(width) * std::size_t(height) * 4, 0);
 
-    int displayed_bytes = width / 8;  // bytes/scanline actually drawn -- 1 bit/pixel/plane
-    // The real per-scanline VRAM stride comes from the CRTC's own Offset
-    // Register, NOT from the displayed width -- see crtc_scanline_stride()
-    // in ega.h. They're usually equal, but real software that programs a
-    // logical scan-line wider than what it shows (confirmed happening with
-    // a real commercial game's "look at map" screen) relies on the
-    // distinction; walking VRAM by displayed width instead reads every
-    // scanline after the first starting at the wrong offset, scrambling
-    // into unrelated pixel data. A freshly-reset/never-programmed Offset
-    // register reads 0 -- fall back to the displayed width in that case.
-    int real_stride = ega.crtc_scanline_stride();
-    int row_stride = real_stride > 0 ? real_stride : displayed_bytes;
     for (int y = 0; y < height; ++y) {
         for (int byte_col = 0; byte_col < displayed_bytes; ++byte_col) {
             uint32_t plane_offset = uint32_t(y) * uint32_t(row_stride) + uint32_t(byte_col);
+            // Past the card's interleaved VRAM there is nothing to show --
+            // a banked 4bpp frame can ask for plane_off past 256KB of
+            // groups when VirtWidth is oversized; leave those pixels black.
+            if ((plane_offset << 2) + 3 >= ega.vram.size()) continue;
             uint8_t p0 = ega.vram[(plane_offset << 2) + 0];
             uint8_t p1 = ega.vram[(plane_offset << 2) + 1];
             uint8_t p2 = ega.vram[(plane_offset << 2) + 2];

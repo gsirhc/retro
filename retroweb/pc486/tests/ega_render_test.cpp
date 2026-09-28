@@ -686,4 +686,41 @@ TEST(EgaRenderTest, Svga1024x768EntersVbeModeAndRendersAtTheRightSize) {
     ExpectRgb(rgba, w, 0, 1, 85, 0, 255);
 }
 
+TEST(EgaRenderTest, FourBpp1024x768UsesDispiGeometryAndTheBankedPlanarWindow) {
+    // Mode 104h: planar 16-colour at a size that will not fit in one 64KB
+    // plane window. Geometry comes from the DISPI registers (this card's
+    // 9-bit VDE cannot express 768 lines), and bank 1 reaches plane_off
+    // 65536 -- row 512 at a 128-byte stride. See PC486_REVIEW.md §7.5.1.
+    Ega ega;
+    ega.reset();
+    SetGraphicsMode(ega, true, 0);
+    ega.out(0x3C4, 0x02); ega.out(0x3C5, 0x0F);  // Map Mask: all planes
+    ega.out(0x3C4, 0x04); ega.out(0x3C5, 0x06);  // odd/even off, chain-4 off
+    ega.out(0x3CE, 0x06); ega.out(0x3CF, 0x05);  // graphics, 64K @ A0000
+    ega.out(0x3CE, 0x08); ega.out(0x3CF, 0xFF);
+    auto put = [&](uint16_t reg, uint16_t v) {
+        ega.out16(Ega::kVbeIndexPort, reg);
+        ega.out16(Ega::kVbeDataPort, v);
+    };
+    put(Ega::kVbeRegXres, 1024);
+    put(Ega::kVbeRegYres, 768);
+    put(Ega::kVbeRegBpp, 4);
+    put(Ega::kVbeRegEnable, Ega::kVbeEnabled);
+    EXPECT_TRUE(ega.vbe_planar_banked());
+    EXPECT_EQ(DetectScreenMode(ega), ScreenMode::kEgaGraphics16);
+
+    SetPalette(ega, 0x0, 0x00);
+    SetPalette(ega, 0xF, 0x3F);  // white
+    put(Ega::kVbeRegBank, 1);
+    ega.mem_write(0xA0000, 0x80);  // MSB = leftmost pixel, all planes -> index 0xF
+
+    std::vector<uint8_t> rgba;
+    int w = 0, h = 0;
+    RenderEgaNative16Screen(ega, rgba, w, h);
+    EXPECT_EQ(w, 1024);
+    EXPECT_EQ(h, 768);
+    ExpectRgb(rgba, w, 0, 512, 255, 255, 255);
+    ExpectRgb(rgba, w, 1, 512, 0, 0, 0);  // next pixel in the same byte is background
+}
+
 }  // namespace

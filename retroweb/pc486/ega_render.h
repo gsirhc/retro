@@ -107,8 +107,10 @@ void RenderCgaGraphics4Screen(const Ega &ega, std::vector<uint8_t> &rgba);
 // native 16-color EGA graphics screen. Resolution comes straight from
 // the CRTC's Horizontal/Vertical Display End registers (see ega.h's
 // crtc_horizontal_display_end()/crtc_vertical_display_end()), not a
-// hardcoded mode table -- the same real CRT-controller-timing approach
-// as every other real detail in this codebase. Real hardware fact this
+// hardcoded mode table -- except in a 4bpp DISPI mode
+// (`ega.vbe_planar_banked()`), where geometry comes from the extension
+// registers instead (this card's 9-bit VDE cannot express 600/768 lines;
+// see PC486_REVIEW.md §7.5.1). Real hardware fact this
 // decodes: with odd/even chaining disabled (linear addressing, unlike
 // text/CGA-compatible modes), each byte at a given plane offset holds 8
 // consecutive pixels' worth of ONE bit each; the CRT controller reads the

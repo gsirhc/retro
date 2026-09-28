@@ -228,6 +228,15 @@ public:
     // called from mode_info_check_mode -- see PC486_REVIEW.md §7).
     static constexpr uint16_t kVbeEnabled    = 0x01;
     static constexpr uint16_t kVbeGetCaps    = 0x02;
+    // Enable-register / GETCAPS-on-BANK: the card can slide the window in
+    // 32KB steps. The pinned VGABIOS always enables this on mode set when
+    // GETCAPS reports it (dispi_support_bank_granularity_32k), and its 4F05
+    // path then writes bank*2 so a guest's 64KB WinGranularity unit still
+    // maps one-to-one. Without advertising it, 4F05 still doubles the bank
+    // but the hardware stays at 64KB steps -- every write lands twice as
+    // far as the guest intended (SimCity 2000's banded title screen).
+    // Bochs vga.cc advertises and honours the same bit.
+    static constexpr uint16_t kVbeBankGranularity32K = 0x10;
     static constexpr uint16_t kVbeNoClearMem = 0x80;
     // What this board can actually do in a linear 8-bit-per-pixel mode:
     // 1024x768 is the largest such frame that fits in its 1MB of VRAM
@@ -252,10 +261,30 @@ public:
     bool vbe_mode_active() const {
         return (vbe_[kVbeRegEnable] & kVbeEnabled) != 0 && vbe_[kVbeRegBpp] == 8;
     }
-    // Size of the window the Bank register slides over VRAM. 64KB is the
-    // whole 0xA0000 aperture, which is what the ROM reports to software as
-    // both WinGranularity and WinSize in every ModeInfoBlock it builds.
+    // DISPI on with bpp=4: the planar engine stays in charge (latches, Map
+    // Mask, Graphics Controller ALU -- matching Bochs vga.cc, which routes
+    // bpp!=4 to its flat VBE window and leaves bpp=4 on the VGA core), but
+    // the Bank register slides the 64KB aperture over the larger per-plane
+    // frame. Needed for 104h (1024x768x4): 98,304 bytes/plane will not fit
+    // in one 64KB window. See PC486_REVIEW.md §7.5.1.
+    bool vbe_planar_banked() const {
+        return (vbe_[kVbeRegEnable] & kVbeEnabled) != 0 && vbe_[kVbeRegBpp] == 4;
+    }
+    // Size of the CPU-visible window at 0xA0000 -- what the ROM reports as
+    // both WinGranularity and WinSize in every ModeInfoBlock. The Bank
+    // register's step can be 64KB or 32KB (see kVbeBankGranularity32K);
+    // vbe_bank_bytes() is the live step.
     static constexpr uint32_t kVbeBankSize = 65536;
+    // Bank register low bits are the bank number; bits 14/15 are the
+    // optional RD/WR window selects the firmware's 4F05 path ORs in
+    // (VBE_DISPI_BANK_RD/WR in the pinned VGABIOS). The number itself is
+    // what slides the window -- Bochs masks the same way in vga.cc.
+    static constexpr uint16_t kVbeBankNumberMask = 0x1FF;
+    // Live Bank-register step in bytes -- 32KB when the Enable bit is on,
+    // otherwise the classic 64KB window size.
+    uint32_t vbe_bank_bytes() const {
+        return (vbe_[kVbeRegEnable] & kVbeBankGranularity32K) ? 32768u : kVbeBankSize;
+    }
 
     // Host/front-end convenience: whether the Graphics Controller's own
     // Miscellaneous register currently selects graphics addressing over
@@ -365,12 +394,12 @@ public:
     // VRAM by this, not by (displayed width / 8), whenever it differs.
     int crtc_scanline_stride() const { return int(crtc_[0x13]) * 2; }
 
-    // 1MB VRAM. Legacy planar/chain-4 addressing (see the file header) only
-    // ever reaches the first 256KB -- 4 bitplanes x 64KB, byte-interleaved
-    // as vram[(plane_offset << 2) + plane], a fixed layout independent of
-    // this array's total size. The rest is reachable only through the SVGA
-    // linear window's Bank register (vbe_linear_offset), for the larger
-    // 8bpp modes this card advertises -- see kVbeMaxXres/Yres above.
+    // 1MB VRAM, byte-interleaved as vram[(plane_offset << 2) + plane].
+    // Without banking, legacy planar/chain-4 addressing only reaches the
+    // first 256KB (4 planes x 64KB). The rest is reachable through the Bank
+    // register: as a flat linear window in 8bpp DISPI modes
+    // (vbe_linear_offset), and as a plane-offset slide in 4bpp DISPI modes
+    // (vbe_planar_banked) -- see kVbeMaxXres/Yres and §7.5.1.
     std::array<uint8_t, 1024 * 1024> vram{};
     uint32_t mapping_epoch_ = 0;
     uint32_t mapping_sig_ = 0xFFFFFFFFu;
@@ -390,6 +419,9 @@ private:
     // buffer, positioned by the Bank register. Returns the linear VRAM
     // offset, or kOutOfWindow.
     uint32_t vbe_linear_offset(uint32_t addr) const;
+    // In a 4bpp DISPI mode the Bank register slides plane_off the same way
+    // Bochs's ext_offset does -- see vbe_planar_banked().
+    uint32_t vbe_planar_plane_off(uint32_t plane_off) const;
 
     // Register field accessors -- decode straight from the raw indexed
     // register arrays below (the single source of truth, also what in()/

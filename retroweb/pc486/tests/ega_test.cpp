@@ -616,10 +616,49 @@ TEST(EgaTest, SvgaWindowIsFlatLinearMemorySlidByTheBankRegister) {
     EXPECT_EQ(ega.mem_read(0xA0000), 0x77);
     EXPECT_EQ(ega.vram[0], 0x20);  // bank 0's byte is untouched
 
-    // Past the end of the card's real 1MB there is nothing to answer.
+    // Past the end of the card's real 1MB the write is rejected and the
+    // window stays put -- Bochs (vga.cc) does the same.
     uint16_t past_end_bank = uint16_t(ega.vram.size() / Ega::kVbeBankSize + 1);
     ega.out16(Ega::kVbeIndexPort, Ega::kVbeRegBank); ega.out16(Ega::kVbeDataPort, past_end_bank);
-    EXPECT_EQ(ega.mem_read(0xA0000), 0xFF);
+    EXPECT_EQ(ega.vbe_reg(Ega::kVbeRegBank), 2);
+    EXPECT_EQ(ega.mem_read(0xA0000), 0x77);
+}
+
+TEST(EgaTest, GetCapsOnBankAdvertisesThirtyTwoKGranularity) {
+    // The firmware's dispi_support_bank_granularity_32k reads BANK under
+    // GETCAPS and expects bit 0x10 in the high byte -- without it, 4F05
+    // still doubles the bank number against a 64KB step and every SVGA
+    // blit lands twice as far as the guest intended.
+    Ega ega;
+    ega.reset();
+    ega.out16(Ega::kVbeIndexPort, Ega::kVbeRegEnable);
+    ega.out16(Ega::kVbeDataPort, Ega::kVbeGetCaps);
+    ega.out16(Ega::kVbeIndexPort, Ega::kVbeRegBank);
+    EXPECT_EQ(ega.in16(Ega::kVbeDataPort), uint16_t(Ega::kVbeBankGranularity32K << 8));
+}
+
+TEST(EgaTest, ThirtyTwoKBankGranularityMakesFourFZeroFiveLandCorrectly) {
+    // With the 32KB Enable bit on (what the ROM ORs in after GETCAPS
+    // succeeds), hardware bank N is N*32KB. The firmware's 4F05 path
+    // writes guest_bank*2, so guest bank 1 -> hardware bank 2 -> offset
+    // 64KB -- one WinGranularity unit, not two.
+    Ega ega;
+    ega.reset();
+    SetupChain4(ega);
+    ega.out16(Ega::kVbeIndexPort, Ega::kVbeRegBpp); ega.out16(Ega::kVbeDataPort, 8);
+    ega.out16(Ega::kVbeIndexPort, Ega::kVbeRegXres); ega.out16(Ega::kVbeDataPort, 640);
+    ega.out16(Ega::kVbeIndexPort, Ega::kVbeRegYres); ega.out16(Ega::kVbeDataPort, 480);
+    ega.out16(Ega::kVbeIndexPort, Ega::kVbeRegEnable);
+    ega.out16(Ega::kVbeDataPort, uint16_t(Ega::kVbeEnabled | Ega::kVbeBankGranularity32K));
+    EXPECT_EQ(ega.vbe_bank_bytes(), 32768u);
+
+    // Firmware-style 4F05 for guest bank 1: shl 1, OR RW flags.
+    ega.out16(Ega::kVbeIndexPort, Ega::kVbeRegBank);
+    ega.out16(Ega::kVbeDataPort, uint16_t(0xC000 | (1u << 1)));
+    EXPECT_EQ(ega.vbe_reg(Ega::kVbeRegBank), 2);
+    ega.mem_write(0xA0000, 0x5A);
+    EXPECT_EQ(ega.vram[Ega::kVbeBankSize], 0x5A);  // 2 * 32KB = 64KB
+    EXPECT_EQ(ega.vram[2 * Ega::kVbeBankSize], 0x00);  // not the old doubled landing
 }
 
 TEST(EgaTest, LeavingAnSvgaModeGivesThePlanarEngineBackItsMemory) {
@@ -640,6 +679,62 @@ TEST(EgaTest, LeavingAnSvgaModeGivesThePlanarEngineBackItsMemory) {
     ega.mem_write(0xA0000, 0x5C);
     // Planar again: one CPU byte lands in all four planes at once.
     for (int p = 0; p < 4; ++p) EXPECT_EQ(ega.vram[std::size_t(p)], 0x5C) << "plane " << p;
+}
+
+TEST(EgaTest, FourBppDispiModeKeepsThePlanarEngineAndSlidesItByTheBankRegister) {
+    // Mode 104h (1024x768x4) needs 98,304 bytes/plane -- past the 64KB
+    // aperture -- so the Bank register has to slide plane_off the same way
+    // Bochs's ext_offset does, without switching to the flat 8bpp window.
+    // See PC486_REVIEW.md §7.5.1 and the pinned VGABIOS dispi_set_mode
+    // (bpp=4 keeps _biosfn_set_video_mode + the planar path).
+    Ega ega;
+    ega.reset();
+    SetupLinearGraphics(ega);
+    ega.out16(Ega::kVbeIndexPort, Ega::kVbeRegBpp); ega.out16(Ega::kVbeDataPort, 4);
+    ega.out16(Ega::kVbeIndexPort, Ega::kVbeRegXres); ega.out16(Ega::kVbeDataPort, 1024);
+    ega.out16(Ega::kVbeIndexPort, Ega::kVbeRegYres); ega.out16(Ega::kVbeDataPort, 768);
+    ega.out16(Ega::kVbeIndexPort, Ega::kVbeRegEnable); ega.out16(Ega::kVbeDataPort, Ega::kVbeEnabled);
+    EXPECT_TRUE(ega.vbe_planar_banked());
+    EXPECT_FALSE(ega.vbe_mode_active());
+
+    ega.mem_write(0xA0000, 0xA5);
+    for (int p = 0; p < 4; ++p) EXPECT_EQ(ega.vram[std::size_t(p)], 0xA5) << "plane " << p;
+
+    // Bank 1: same CPU address lands at plane_off 65536 -- interleaved
+    // index (65536 << 2) = 262144, the first byte past the old 256KB card.
+    ega.out16(Ega::kVbeIndexPort, Ega::kVbeRegBank); ega.out16(Ega::kVbeDataPort, 1);
+    ega.mem_write(0xA0000, 0x5A);
+    for (int p = 0; p < 4; ++p) {
+        EXPECT_EQ(ega.vram[262144 + std::size_t(p)], 0x5A) << "plane " << p;
+        EXPECT_EQ(ega.vram[std::size_t(p)], 0xA5) << "bank 0 plane " << p << " untouched";
+    }
+    EXPECT_EQ(ega.mem_read(0xA0000), 0x5A);
+
+    // A 1MB card has only four planar banks at 64KB gran
+    // ((1MB/64KB)/4); a fifth is rejected and the window stays put.
+    ega.out16(Ega::kVbeIndexPort, Ega::kVbeRegBank); ega.out16(Ega::kVbeDataPort, 4);
+    EXPECT_EQ(ega.vbe_reg(Ega::kVbeRegBank), 1);
+    EXPECT_EQ(ega.mem_read(0xA0000), 0x5A);
+}
+
+TEST(EgaTest, BankRegisterIgnoresTheFirmwareRdWrFlagBits) {
+    // The pinned VGABIOS's 4F05 path ORs VBE_DISPI_BANK_RW (bits 15:14)
+    // into the value it writes; only the low bank number slides the
+    // window. Storing the flags would send an 8bpp linear offset into
+    // the weeds.
+    Ega ega;
+    ega.reset();
+    SetupChain4(ega);
+    ega.out16(Ega::kVbeIndexPort, Ega::kVbeRegBpp); ega.out16(Ega::kVbeDataPort, 8);
+    ega.out16(Ega::kVbeIndexPort, Ega::kVbeRegXres); ega.out16(Ega::kVbeDataPort, 640);
+    ega.out16(Ega::kVbeIndexPort, Ega::kVbeRegYres); ega.out16(Ega::kVbeDataPort, 400);
+    ega.out16(Ega::kVbeIndexPort, Ega::kVbeRegEnable); ega.out16(Ega::kVbeDataPort, Ega::kVbeEnabled);
+
+    ega.out16(Ega::kVbeIndexPort, Ega::kVbeRegBank);
+    ega.out16(Ega::kVbeDataPort, uint16_t(0xC000 | 2));  // RW flags + bank 2
+    EXPECT_EQ(ega.vbe_reg(Ega::kVbeRegBank), 2);
+    ega.mem_write(0xA0000, 0x77);
+    EXPECT_EQ(ega.vram[2 * Ega::kVbeBankSize], 0x77);
 }
 
 TEST(EgaTest, OwnsTheDacAndSvgaPortsItImplements) {

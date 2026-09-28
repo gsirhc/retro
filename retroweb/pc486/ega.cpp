@@ -39,13 +39,15 @@ bool Ega::owns_port(uint16_t port) const {
 
 uint16_t Ega::vbe_read_(int index) const {
     if (index < 0 || index >= kVbeRegCount) return 0;
-    // Capability query: see kVbeGetCaps in ega.h. Only the three geometry
-    // registers answer differently; everything else reads normally.
+    // Capability query: see kVbeGetCaps in ega.h. Geometry registers
+    // answer with maxima; BANK answers with the 32KB-granularity flag in
+    // its high byte -- what dispi_support_bank_granularity_32k reads.
     if (vbe_[kVbeRegEnable] & kVbeGetCaps) {
         switch (index) {
             case kVbeRegXres: return kVbeMaxXres;
             case kVbeRegYres: return kVbeMaxYres;
             case kVbeRegBpp: return kVbeMaxBpp;
+            case kVbeRegBank: return uint16_t(kVbeBankGranularity32K << 8);
             default: break;
         }
     }
@@ -64,9 +66,31 @@ void Ega::vbe_write_(int index, uint16_t v) {
             return;
         case kVbeRegVideoMemory64K:
             return;  // read-only: how much RAM is soldered to the card
+        case kVbeRegBank: {
+            // Low 9 bits are the bank number; bits 14/15 are the optional
+            // RD/WR selects the firmware ORs in (see kVbeBankNumberMask).
+            // Bochs vga.cc masks the same way before storing.
+            uint16_t bank = uint16_t(v & kVbeBankNumberMask);
+            uint32_t bank_bytes = vbe_bank_bytes();
+            uint32_t num_banks = uint32_t(vram.size() / bank_bytes);
+            // At bpp=4 the aperture slides over per-plane offsets, and each
+            // plane_off unit costs 4 interleaved VRAM bytes, so the number
+            // of reachable banks is quartered. Rejecting past-end values
+            // matches Bochs (vga.cc VBE_DISPI_INDEX_BANK).
+            if (vbe_[kVbeRegBpp] == 4) num_banks >>= 2;
+            if (bank >= num_banks) return;
+            vbe_[kVbeRegBank] = bank;
+            return;
+        }
         case kVbeRegEnable: {
             bool was_on = (vbe_[kVbeRegEnable] & kVbeEnabled) != 0;
+            bool was_32k = (vbe_[kVbeRegEnable] & kVbeBankGranularity32K) != 0;
             vbe_[kVbeRegEnable] = v;
+            bool now_32k = (v & kVbeBankGranularity32K) != 0;
+            // Switching the Bank step size (or turning an SVGA mode on)
+            // resets the window so software never sees a stale bank index
+            // interpreted under the new granularity -- Bochs does the same.
+            if (now_32k != was_32k) vbe_[kVbeRegBank] = 0;
             if ((v & kVbeEnabled) && !was_on) {
                 // Switching an SVGA mode on resets the window/pan state and
                 // (unless the caller asks otherwise) blanks the frame
@@ -228,8 +252,16 @@ uint32_t Ega::window_offset(uint32_t addr) const {
 
 uint32_t Ega::vbe_linear_offset(uint32_t addr) const {
     if (addr < 0xA0000 || addr > 0xAFFFF) return kOutOfWindow;
-    uint32_t lin = uint32_t(vbe_[kVbeRegBank]) * kVbeBankSize + (addr - 0xA0000);
+    uint32_t lin = uint32_t(vbe_[kVbeRegBank]) * vbe_bank_bytes() + (addr - 0xA0000);
     return lin < vram.size() ? lin : kOutOfWindow;
+}
+
+// Planar plane_off after the Bank register's slide, when a 4bpp DISPI mode
+// is on. Bochs does the same as vgacore's ext_offset (bank << 16 at 64KB
+// gran, bank << 15 at 32KB).
+uint32_t Ega::vbe_planar_plane_off(uint32_t plane_off) const {
+    if (!vbe_planar_banked()) return plane_off;
+    return plane_off + uint32_t(vbe_[kVbeRegBank]) * vbe_bank_bytes();
 }
 
 uint8_t Ega::mem_read(uint32_t addr) const {
@@ -255,6 +287,10 @@ uint8_t Ega::mem_read(uint32_t addr) const {
     bool c4 = seq_chain4();
     bool oe = !c4 && !seq_odd_even_disabled();
     uint32_t plane_off = c4 ? (off >> 2) : (oe ? (off >> 1) : off);
+    plane_off = vbe_planar_plane_off(plane_off);
+    // Past the last interleaved group there is nothing to answer -- same
+    // open-bus convention as an address outside the active window.
+    if ((plane_off << 2) + 3 >= vram.size()) return 0xFF;
 
     // Real hardware: every memory read loads all 4 planes into the latch,
     // regardless of which read mode (or even which write mode a later
@@ -304,6 +340,8 @@ void Ega::mem_write(uint32_t addr, uint8_t v) {
     bool c4 = seq_chain4();
     bool oe = !c4 && !seq_odd_even_disabled();
     uint32_t plane_off = c4 ? (off >> 2) : (oe ? (off >> 1) : off);
+    plane_off = vbe_planar_plane_off(plane_off);
+    if ((plane_off << 2) + 3 >= vram.size()) return;
     uint8_t map_mask = seq_map_mask();
     uint8_t write_mode = gc_write_mode();
     uint8_t bit_mask = gc_bit_mask();

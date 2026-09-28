@@ -1932,7 +1932,7 @@ table: **101h** (640x480x8), **102h** (800x600x4), **103h** (800x600x8),
 **104h** (1024x768x4) and **105h** (1024x768x8). 1280x1024 stays blocked by
 xres; every 15/16/24/32bpp mode stays blocked by bpp.
 
-### 7.5.1 Departure: 104h is advertised but cannot be fully painted
+### 7.5.1 104h: planar banking at bpp=4
 
 The ROM gates advertising only on xres, yres, bpp and capacity
 (`mode_info_check_mode`, plus `mode_info_number_of_image_pages` against
@@ -1940,27 +1940,50 @@ VideoMemory), so there is no way to admit 800x600x8 and 1024x768x8 while
 excluding the 4bpp entries that come with them -- not without patching the
 ROM binary.
 
-Of those two, **102h** (800x600x4) is genuinely correct. For bpp=4 the
-firmware's `dispi_set_mode` calls `_biosfn_set_video_mode(0x6A)` and then
-`vga_compat_setup`, which reprograms the real CRTC, Sequencer and Graphics
-Controller to the requested resolution, and `RenderEgaNative16Screen`
-derives its geometry from those live registers rather than a hardcoded 640
-(§7.3).
+Of those two, **102h** (800x600x4) is correct for the same reason **104h**
+now is. For bpp=4 the firmware's `dispi_set_mode` calls
+`_biosfn_set_video_mode(0x6A)` and then `vga_compat_setup`, which
+reprograms the real CRTC, Sequencer and Graphics Controller, and keeps the
+planar engine in charge -- matching Bochs `vga.cc`, which routes
+`bpp != 4` to its flat VBE window and leaves bpp=4 on the VGA core.
 
-**104h** (1024x768x4) is the departure. It needs 98,304 bytes per plane,
-while the planar path's CPU-visible window is the standard 64KB aperture:
-the Bank register is consulted only by `vbe_linear_offset()`, which is
-gated behind `vbe_mode_active()`, and that requires bpp == 8. A guest
-selecting 104h can therefore address only the first 64KB of each plane.
-The mode is offered and does not fully work -- the same quiet-lie class as
-the GETCAPS bug above, recorded here rather than left to be rediscovered.
+**104h** (1024x768x4) needs 98,304 bytes per plane, past the standard 64KB
+aperture. The Bank register applies here the same way Bochs does: as an
+`ext_offset` of `bank << 16` added to the planar plane offset
+(`vbe_planar_banked()` / `vbe_planar_plane_off()`), not by switching to the
+linear 8bpp path (`vbe_mode_active()` still requires bpp == 8). A 1MB card
+has four such planar banks (`(1MB/64KB)/4`); past-end bank writes are
+rejected. The RD/WR flag bits the firmware's 4F05 path ORs into the Bank
+register are masked off on write, matching Bochs.
 
-The faithful fix is not done yet. A real 1MB SVGA card does display
-1024x768 in 16 colours, through extended bank registers that apply in
-planar modes as well as packed ones, so the honest repair is to make the
-Bank register apply at bpp=4 -- which first needs checking against what the
-pinned firmware actually expects of a 4bpp DISPI mode, the same
-read-the-ROM-source discipline that found the GETCAPS gate.
+Geometry for a bpp=4 DISPI mode comes from the extension registers, not
+the CRTC. `vga_compat_setup` does reprogram the CRTC, but this card's
+`crtc_vertical_display_end()` deliberately reads only EGA's 9-bit overflow
+(Prince of Persia; see `ega.h`) and cannot express 600 or 768 lines -- so
+`RenderEgaNative16Screen` trusts DISPI XRES/YRES/VIRT_WIDTH when
+`vbe_planar_banked()` is set, the same source Bochs uses for tall 4bpp
+frames.
+
+Verified against the pinned firmware source
+(`bochs-emu/VGABIOS@12d978bd` `vgabios/vbe.c` `dispi_set_mode` /
+`vga_compat_setup`) and Bochs's device backend at the same BIOS pin
+(`bochs-emu/Bochs@ff17a0c2` `iodev/display/vga.cc` bank write +
+`vgacore.cc` `ext_offset`).
+
+### 7.5.2 Departure found live: 32KB bank granularity
+
+SimCity 2000's VESA title screen arrived as horizontal content strips
+separated by black bands -- classic doubled-bank symptom. The pinned
+VGABIOS's `4F05` always writes `guest_bank << 1` because it expects the
+card's Bank register to step in 32KB units when
+`dispi_support_bank_granularity_32k` succeeds (GETCAPS on BANK returns
+`VBE_DISPI_BANK_GRANULARITY_32K` in the high byte; mode set ORs the same
+bit into Enable). Bochs advertises and honours that. This card only
+implemented 64KB steps and never answered GETCAPS on BANK, so the
+firmware still doubled the index against a 64KB step: guest bank N landed
+at `2N * 64KB`. Fixed by advertising the flag, honouring Enable bit
+`0x10` as a 32KB step (`vbe_bank_bytes()`), and rejecting past-end bank
+numbers for every depth the way Bochs does.
 
 ### 7.6 The one thing that does not work, and why it is not a bug here
 
