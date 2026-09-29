@@ -685,18 +685,6 @@ PacmanArcade().then(async (Module) => {
     }
   });
 
-  document.getElementById("loadRomDriveBtn").addEventListener("click", async () => {
-    const gd = window.RetroGdrive;
-    if (!gd) return;
-    try {
-      const items = await gd.pickAndDownloadRoms({ setStatus });
-      if (!items || !items.length) return;
-      await ingestRomFiles(items);
-    } catch (e) {
-      setStatus("ROM rejected: " + e.message);
-      showRomError();
-    }
-  });
 
   document.getElementById("removeRomBtn").addEventListener("click", async () => {
     await idbDel(ROM_KEY);

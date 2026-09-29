@@ -137,6 +137,10 @@ spec sheet or reference document. Every addition must:
 Arcade cabinets (Pac-Man, Frogger, Scramble, Galaxian, and any new one) also
 follow [`.claude/arcade.md`](.claude/arcade.md).
 
+`retroweb/about.html` follows [`.claude/about.md`](.claude/about.md): agents
+may change navigation, header, and footer chrome only. Chris owns the body
+copy — do not edit content sections.
+
 ## Wiring a machine into the site
 
 `retroweb/index.html` (the landing page) and `retroweb/Makefile` (site

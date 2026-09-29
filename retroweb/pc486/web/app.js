@@ -268,10 +268,9 @@
   // power switch itself is a separate focusable control, so toggling power
   // off and back on always moves focus there first, never leaves it
   // sitting on the screen underneath. Dismissing it once is remembered
-  // (localStorage, same "retro8080." site-wide key namespace ibmpc-at's
-  // own gdriveConnected flag uses) so a returning visitor doesn't see it
-  // again every power-on -- only a fresh visitor, or one who's cleared
-  // site data, gets it back.
+  // (localStorage, same "retro8080." site-wide key namespace other machines
+  // use) so a returning visitor doesn't see it again every power-on --
+  // only a fresh visitor, or one who's cleared site data, gets it back.
   const BOOT_NOTICE_KEY = "retro8080.pc486BootNoticeDismissed";
   const bootNoticeEl = document.getElementById("bootNotice");
   function hideBootNotice() { bootNoticeEl.classList.remove("visible"); }

@@ -14,7 +14,6 @@
 <link rel="stylesheet" href="shared/fullscreen.css">
 <link rel="stylesheet" href="shared/focus-hint.css">
 <link rel="stylesheet" href="shared/footer.css">
-<script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>
   /* ---- page themes: default = Windows 95; web94 = mid-90s Mosaic web;
      modern = clean; moderndark = modern's layout, dark palette; ai = the
@@ -87,21 +86,6 @@
     background: var(--panel-bg); border: var(--panel-border); border-radius: var(--panel-radius);
     padding: 14px 16px 16px;
   }
-  /* "Modified" -- shown next to the Sync button, only while connected to
-     Google Drive (no connection = nothing this would be telling you to go
-     do), for "C: has writes since the last sync." Toggled in
-     refreshHddControls() (app.js). Amber/warning, not red -- this is
-     normal, expected state while running, not an error. */
-  .dirty-pill {
-    font: bold 10px Arial, Helvetica, sans-serif; letter-spacing: .04em;
-    color: #5a3d00; background: #ffcc33; border: 1px solid #cc9900;
-    border-radius: 3px; padding: 2px 6px; text-transform: none;
-  }
-  :root[data-theme="modern"] .dirty-pill,
-  :root[data-theme="modern"][data-mode="dark"] .dirty-pill {
-    border-radius: 999px; border: none; color: #7a5200; background: #ffe1a8;
-  }
-  :root[data-theme="modern"][data-mode="dark"] .dirty-pill { color: #1b1508; background: #f2b93d; }
   .panel + .panel { margin-top: 18px; }
 
   button, select, input[type=text] {
@@ -119,8 +103,7 @@
   .row + .row { margin-top: 8px; }
   /* Author rules of equal specificity beat the UA stylesheet's own
      [hidden] { display: none }, so a plain hidden attribute on a .row
-     (e.g. #gdriveSetupHelp) does nothing without this -- caught by
-     tests/gdrive.spec.ts's "hidden once configured" test. */
+     does nothing without this. */
   .row[hidden] { display: none; }
   .muted { color: var(--dim); font-size: 14px; }
   code { color: var(--link); }
@@ -132,25 +115,6 @@
      shared/fullscreen.css and shared/focus-hint.css (linked in <head>
      above) -- shared verbatim across every machine page. */
 
-  /* #gdriveErrorHint mirrors #fsEscHint's own treatment (see
-     shared/fullscreen.css's comment on it) exactly -- same panel/button
-     theme tokens as everything else, so under the default theme it reads
-     as a real Win95 popup (flat gray, raised outset border) rather than the
-     browser's plain, oversized default <dialog> box. Kept local instead of
-     moved into shared/ since the Google Drive sync feature only exists on
-     this machine. */
-  #gdriveErrorHint {
-    max-width: 340px; padding: 16px 18px 18px;
-    background: var(--panel-bg); color: var(--text);
-    border: var(--panel-border); border-radius: var(--panel-radius);
-  }
-  #gdriveErrorHint::backdrop { background: rgba(0,0,0,.55); }
-  #gdriveErrorHint h2 {
-    margin: 0 0 10px; font: bold 13px Arial, Helvetica, sans-serif;
-    color: var(--text);
-  }
-  #gdriveErrorHint p { margin: 0 0 14px; font-size: 14px; color: var(--dim); line-height: 1.5; }
-  #gdriveErrorHint .row { justify-content: flex-end; }
 
   /* ---- CRT monitor -- photoreal hardware, not page chrome, in every theme */
   .monitor { width: max-content; max-width: 100%; margin: 0 auto; }
@@ -418,13 +382,6 @@
       </div>
     </dialog>
 
-    <dialog id="gdriveErrorHint">
-      <h2>Google Drive sync problem</h2>
-      <p id="gdriveErrorMsg"></p>
-      <div class="row">
-        <button type="button" id="gdriveErrorOk" autofocus>OK</button>
-      </div>
-    </dialog>
 
     <div class="panel" id="fkeysCard">
       <h2>Function &amp; extended keys</h2>
@@ -529,33 +486,6 @@
           otherwise obtained) image to use as C:. Also takes effect at the next
           power-on.</span>
       </div>
-      <div class="row">
-        <span id="hddDirtyPill" class="dirty-pill" hidden
-          title="C: has changes since the last Google Drive sync">Modified</span>
-        <button type="button" id="gdriveSyncBtn" disabled>Connect Google Drive&hellip;</button>
-        <button type="button" id="gdriveCancelBtn" hidden>Cancel</button>
-        <span class="muted" id="gdriveStatus">Not connected.</span>
-      </div>
-      <div class="row">
-        <span class="muted">Syncs your HDD to Google Drive so any browser or device
-          signed into the same account stays up to date. Connect while powered off so
-          it can pull down anything already saved; after that it syncs automatically
-          every 10 minutes, on power off, or on demand -- last sync wins, so don't run
-          two browsers at once. Google Sync is by invite only.</span>
-      </div>
-      <div class="row" id="gdriveSetupHelp" hidden>
-        <span class="muted"><strong>Not set up yet.</strong> This needs a Google Cloud
-          OAuth Client ID before it can sign anyone in:
-          (1) <a href="https://console.cloud.google.com/apis/library/drive.googleapis.com" target="_blank" rel="noopener">enable the Drive API</a>
-          for a project,
-          (2) <a href="https://console.cloud.google.com/apis/credentials/consent" target="_blank" rel="noopener">configure its OAuth consent screen</a>
-          (External type, Testing status is fine for personal use -- up to 100 test users, no review needed),
-          (3) <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener">create an OAuth Client ID</a>,
-          type <strong>Web application</strong>, with this page's own URL added under
-          "Authorized JavaScript origins",
-          (4) paste that Client ID into <code>GDRIVE_CLIENT_ID</code> in
-          <code>shared/gdrive.js</code>, replacing the placeholder.</span>
-      </div>
     </div>
 
     <div class="panel" id="floppyInfoCard">
@@ -603,7 +533,6 @@
 <script src="shared/fullscreen.js"></script>
 <script src="shared/focus-hint.js"></script>
 <script src="shared/footer.js"></script>
-<script src="shared/gdrive.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

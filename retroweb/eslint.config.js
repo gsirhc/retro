@@ -2,7 +2,7 @@ import js from "@eslint/js";
 import globals from "globals";
 
 // Browser scripts loaded with <script src>, plus the emscripten factory and
-// xterm / Google globals those pages pull in the same way. Generated glue
+// xterm globals those pages pull in the same way. Generated glue
 // (wasm .js, copied web/shared/, vendored xterm) is not source.
 export default [
   {
@@ -49,8 +49,6 @@ export default [
         ScrambleArcade: "readonly",
         IbmPcAt: "readonly",
         Pc486: "readonly",
-        google: "readonly",
-        gapi: "readonly",
         LcdFont: "readonly",
       },
     },
