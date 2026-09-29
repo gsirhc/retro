@@ -6,7 +6,8 @@ import { boot, bootLive, waitForScreen, setPowerSwitch } from "./helpers";
 // Buttons disabled while running, upload/reset/blank also disabled until firmware
 // loads. C: state persists across reloads via IndexedDB.
 
-/** Snapshot C: into IndexedDB even if FreeDOS never dirtied it this boot. */
+/** Snapshot C: into IndexedDB even if FreeDOS never dirtied it this boot.
+ * Factory-derived images persist as a small delta record (not a 504MB put). */
 async function forcePersistHdd(page: import("@playwright/test").Page): Promise<void> {
   await page.evaluate(async () => {
     await (window as any).__test.forcePersistHdd();
@@ -113,14 +114,19 @@ test.describe("hard disk", () => {
   });
 
   // Mirrors the CD-ROM "never fetches unasked" case: once C: lives in
-  // IndexedDB, a reload must not pull disks/freedos-hdd.img again. The
-  // previous eager fetch started that download on every visit and only
-  // skipped *awaiting* it when saved state existed.
+  // IndexedDB as a factory-delta, a reload reconstructs from the stashed
+  // factory image + patches -- no second download of freedos-hdd.img.
   test("a reload with saved C: does not re-fetch the factory FreeDOS image", async ({
     page,
   }) => {
+    // Factory stash is a one-time 504MB IndexedDB put of the already-fetched
+    // ArrayBuffer (no wasm copy); give it room on a loaded host.
+    test.setTimeout(300_000);
     await boot(page);
     await forcePersistHdd(page);
+    await page.evaluate(async () => {
+      await (window as any).__test.whenFactoryStashed();
+    });
     await setPowerSwitch(page, false);
     await page.evaluate(() => (window as any).__test.whenHddSaved());
 

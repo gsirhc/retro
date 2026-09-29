@@ -60,9 +60,35 @@ export async function bootLive(
  * 504MB HDD mount instead of remounting per test.
  */
 export async function resetLivePage(page: Page): Promise<void> {
-  await page.evaluate(async () => {
-    if (document.fullscreenElement) await document.exitFullscreen();
+  // Shared livePage can leave the Esc hint dialog open and/or the bezel
+  // fullscreen from a prior test. Important: fsEscHint's 'close' listener
+  // in shared/fullscreen.js *enters* fullscreen (that's the "Got it → go
+  // fullscreen" path), so closing a leftover dialog here would otherwise
+  // leave #escBtn visible for the next test.
+  await page.evaluate(() => {
+    try { localStorage.setItem("retro8080.fsEscHintSeen", "2"); } catch {}
   }).catch(() => {});
+  const hintWasOpen = await page.evaluate(() => {
+    const hint = document.getElementById("fsEscHint") as HTMLDialogElement | null;
+    if (!hint?.open) return false;
+    hint.close();
+    return true;
+  }).catch(() => false);
+  if (hintWasOpen) {
+    // close() scheduled enterFullscreen(); give it a beat, then exit below.
+    await page.waitForTimeout(200);
+  }
+  const inFs = await page.evaluate(
+    () => !!(document.fullscreenElement || (document as any).webkitFullscreenElement),
+  ).catch(() => false);
+  if (inFs || await page.locator("#escBtn").isVisible().catch(() => false)) {
+    await page.locator("#fullscreenBtn").click();
+    await expect.poll(
+      () => page.evaluate(() => !document.fullscreenElement && !(document as any).webkitFullscreenElement),
+      { timeout: 5_000 },
+    ).toBe(true);
+    await expect(page.locator("#escBtn")).toBeHidden();
+  }
 
   const power = page.locator("#powerSwitch");
   // HDD remounts only take effect while powered off -- put any blank /
@@ -90,11 +116,18 @@ export async function resetLivePage(page: Page): Promise<void> {
     const box = page.locator(id);
     if (await box.count() && (await box.isChecked())) await box.uncheck();
   }
+  // Turbo defaults on (DX2 doubling) -- restore if a prior shared-page test
+  // left it off so rate / cpuHz checks start from the factory setting.
+  const turbo = page.locator("#turboBtn");
+  if ((await turbo.count()) && (await turbo.getAttribute("aria-pressed")) !== "true") {
+    await turbo.click();
+  }
 
   // Theme / one-shot hints live in localStorage for the life of the shared
   // page -- clear them so "first visit" and "defaults to Windows 95" tests
   // see a clean slate without remounting the 504MB HDD. (Boot-notice
   // re-arm needs a power cycle; the notice test does that itself.)
+  // Do NOT hint.close() here: that listener enters fullscreen (handled above).
   await page.evaluate(() => {
     localStorage.removeItem("retro8080.theme");
     localStorage.removeItem("retro8080.fsEscHintSeen");

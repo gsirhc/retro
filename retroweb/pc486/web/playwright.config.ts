@@ -21,9 +21,14 @@ export default defineConfig({
   // The guest is host-bound near real 66 MHz even under `fast=1`
   // (PC486_REVIEW.md §8.6). Worker-scoped livePage/perfPage/promptPage
   // fixtures mount the 504MB HDD once per worker; extra workers multiply
-  // those mounts and split the CPU ceiling, so CI pins to one. Coverage
-  // aggregates per-worker, so it also pins to one.
-  workers: process.env.COVERAGE ? 1 : process.env.CI ? 1 : 2,
+  // those mounts and split the CPU ceiling. Default: 1 on CI, 2 locally.
+  // Override with PW_WORKERS=N when watching a run on a quiet machine.
+  workers: process.env.COVERAGE
+    ? 1
+    : (process.env.PW_WORKERS
+      ? Math.max(1, Number(process.env.PW_WORKERS) || 1)
+      : (process.env.CI ? 1 : 2)),
+
   globalSetup: process.env.COVERAGE ? "./tests/coverage.setup.ts" : undefined,
   globalTeardown: process.env.COVERAGE ? "./tests/coverage.global.ts" : undefined,
   reporter: process.env.CI ? [["list"], ["html", { open: "never" }]] : [["list"]],

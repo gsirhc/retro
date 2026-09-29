@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures";
-import { boot, bootLive, waitForScreen, focusScreen, typeStr } from "./helpers";
+import { waitForScreen, focusScreen, typeStr } from "./helpers";
 
 // Fullscreen mode (expands #bezel -- CRT frame + vignette + power LED, not
 // just the bare canvas -- see index.html's .bezel:fullscreen CSS comment),
@@ -18,18 +18,20 @@ import { boot, bootLive, waitForScreen, focusScreen, typeStr } from "./helpers";
 // one, matching how a real visitor's browser would hold whatever version
 // they last saw. Keep the "already seen" value here in sync if that
 // constant changes again.
+//
+// These use the shared livePage: resetLivePage already clears
+// retro8080.fsEscHintSeen, so "first visit" behaviour does not need a
+// fresh 504MB HDD mount per case.
 
 test.describe("fullscreen", () => {
-  test("first-ever click shows the hint dialog and does not enter fullscreen yet", async ({ page }) => {
-    await bootLive(page);
+  test("first-ever click shows the hint dialog and does not enter fullscreen yet", async ({ livePage: page }) => {
     await expect(page.locator("#fsEscHint")).toBeHidden();
     await page.locator("#fullscreenBtn").click();
     await expect(page.locator("#fsEscHint")).toBeVisible();
     expect(await page.evaluate(() => !!document.fullscreenElement)).toBe(false);
   });
 
-  test("dismissing the hint enters fullscreen and reveals the Esc button", async ({ page }) => {
-    await bootLive(page);
+  test("dismissing the hint enters fullscreen and reveals the Esc button", async ({ livePage: page }) => {
     await expect(page.locator("#escBtn")).toBeHidden();
     await page.locator("#fullscreenBtn").click();
     await page.locator("#fsEscHintOk").click();
@@ -41,24 +43,21 @@ test.describe("fullscreen", () => {
     expect(await page.evaluate(() => localStorage.getItem("retro8080.fsEscHintSeen"))).toBe("2");
   });
 
-  test("hint does not reappear once the current version has already been seen", async ({ page }) => {
-    await bootLive(page);
+  test("hint does not reappear once the current version has already been seen", async ({ livePage: page }) => {
     await page.evaluate(() => localStorage.setItem("retro8080.fsEscHintSeen", "2"));
     await page.locator("#fullscreenBtn").click();
     await expect(page.locator("#fsEscHint")).toBeHidden();
     await expect.poll(() => page.evaluate(() => !!document.fullscreenElement)).toBe(true);
   });
 
-  test("a stale stored version re-shows the hint -- the cache-bust", async ({ page }) => {
-    await bootLive(page);
+  test("a stale stored version re-shows the hint -- the cache-bust", async ({ livePage: page }) => {
     await page.evaluate(() => localStorage.setItem("retro8080.fsEscHintSeen", "0"));
     await page.locator("#fullscreenBtn").click();
     await expect(page.locator("#fsEscHint")).toBeVisible();
     expect(await page.evaluate(() => !!document.fullscreenElement)).toBe(false);
   });
 
-  test("exiting fullscreen hides the Esc button again and resets the toggle label", async ({ page }) => {
-    await bootLive(page);
+  test("exiting fullscreen hides the Esc button again and resets the toggle label", async ({ livePage: page }) => {
     await page.evaluate(() => localStorage.setItem("retro8080.fsEscHintSeen", "2"));
     await page.locator("#fullscreenBtn").click();
     await expect.poll(() => page.evaluate(() => !!document.fullscreenElement)).toBe(true);

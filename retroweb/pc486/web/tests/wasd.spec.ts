@@ -22,16 +22,22 @@ test.describe("WASD to arrow keys", () => {
   });
 
   test("on: W no longer types a w -- it becomes the up arrow", async ({ promptPage: page }) => {
+    await page.locator("#screen").click();
+    // FreeCom treats ArrowUp as command-history recall, not a no-op -- so
+    // seed a distinctive entry, then map W→Up and expect that recall (not
+    // the letter "w" typed onto a bare prompt).
+    await page.keyboard.type("xyzzy");
+    await page.keyboard.press("Enter");
+    await expect.poll(() => screenText(page), { timeout: 10_000 }).toMatch(/xyzzy/i);
     await page.locator("#wasdArrows").check();
     await page.locator("#screen").click();
     await page.keyboard.press("w");
-    await page.keyboard.press("a");
-    await page.keyboard.press("s");
-    await page.keyboard.press("d");
-    // None of the four may reach the guest as a character. Arrow keys at a
-    // bare prompt do not echo, so the command line must stay empty.
-    await page.waitForTimeout(500);
-    expect(await screenText(page)).not.toMatch(/C:\\>[wasd]/);
+    await expect
+      .poll(async () => {
+        const last = ((await screenText(page)).trimEnd().split(/\n/).pop() || "").trimEnd();
+        return last;
+      }, { timeout: 10_000 })
+      .toMatch(/^C:\\>xyzzy$/i);
   });
 
   test("keys held across a toggle are released, not left stuck down", async ({ promptPage: page }) => {
