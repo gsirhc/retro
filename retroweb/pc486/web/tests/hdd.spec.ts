@@ -1,10 +1,37 @@
 import { test, expect } from "./fixtures";
-import { boot, bootLive, waitForScreen, setPowerSwitch } from "./helpers";
+import { boot, bootLive, waitForScreen, setPowerSwitch, focusScreen, typeStr } from "./helpers";
 
 // Hard disk (C: fixed drive) controls: reset/blank/download/upload operations
 // take effect only on next power-on since a real WD1003 can't be swapped live.
 // Buttons disabled while running, upload/reset/blank also disabled until firmware
 // loads. C: state persists across reloads via IndexedDB.
+
+/** Force a guest write to C: and wait until the dirty bit and IndexedDB mirror catch up. */
+async function dirtyAndPersistHdd(page: import("@playwright/test").Page): Promise<void> {
+  // FreeDOS's own boot may not leave the image dirty (FDAUTO can be
+  // read-only on a fast boot), so poke a real file write before persisting.
+  await focusScreen(page);
+  await typeStr(page, "ECHO P>C:\\P.TXT");
+  await waitForScreen(page, /C:\\>/, 30_000);
+  // Either the write is still dirty, or the 5s autosave already mirrored it.
+  await expect
+    .poll(
+      () =>
+        page.evaluate(() => {
+          const t = (window as any).__test;
+          const status = document.getElementById("hddStatus")?.textContent || "";
+          return t.machine.hddDirty() || /saved state/.test(status);
+        }),
+      { timeout: 15_000, message: "guest write never dirtied C:" },
+    )
+    .toBe(true);
+  await page.evaluate(async () => {
+    await (window as any).__test.persistHdd();
+    await (window as any).__test.whenHddSaved();
+  });
+  await expect(page.locator("#hddStatus")).toHaveText(/saved state/);
+}
+
 test.describe("hard disk", () => {
   test("shows the factory-default label and correct button states on first load", async ({
     page,
@@ -90,12 +117,7 @@ test.describe("hard disk", () => {
     page,
   }) => {
     await boot(page);
-    // Flush before power-off so the 504MB IndexedDB put isn't racing the
-    // reload (persistHddIfDirty used to fire-and-forget saveHdd).
-    await page.evaluate(async () => {
-      await (window as any).__test.persistHdd();
-      await (window as any).__test.whenHddSaved();
-    });
+    await dirtyAndPersistHdd(page);
     await setPowerSwitch(page, false);
     await page.evaluate(() => (window as any).__test.whenHddSaved());
     await page.reload();
@@ -103,7 +125,7 @@ test.describe("hard disk", () => {
     await page.waitForFunction(() => !!(window as any).__test?.machine, null, {
       timeout: 15000,
     });
-    await expect(page.locator("#hddStatus")).toBeVisible();
+    await expect(page.locator("#hddStatus")).toHaveText(/saved state/);
     await waitForScreen(page, /C:\\>/);
   });
 
@@ -115,11 +137,7 @@ test.describe("hard disk", () => {
     page,
   }) => {
     await boot(page);
-    await page.evaluate(async () => {
-      await (window as any).__test.persistHdd();
-      await (window as any).__test.whenHddSaved();
-    });
-    await expect(page.locator("#hddStatus")).toHaveText(/saved state/);
+    await dirtyAndPersistHdd(page);
     await setPowerSwitch(page, false);
     await page.evaluate(() => (window as any).__test.whenHddSaved());
 

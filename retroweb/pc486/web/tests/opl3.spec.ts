@@ -78,8 +78,16 @@ test.describe("OPL3 FM synthesizer", () => {
       fmWrite(0xa0, 0x98); fmWrite(0xb0, 0x2e);  // key on, mid octave
       m.fmDrainSamples();                              // discard anything already queued
 
-      const cycles = 660000;  // 10ms at 66MHz
-      m.runCycles(cycles);
+      // 10ms at 66MHz. Loop in case a future wall-cap yields early mid-call
+      // (a host-side soft-lock guard must not shrink this sample count).
+      let left = 660000;
+      while (left > 0) {
+        const before = m.totalCycles();
+        m.runCycles(left);
+        const got = m.totalCycles() - before;
+        if (got <= 0) break;
+        left -= got;
+      }
       const s = m.fmDrainSamples();
       let nonZero = 0;
       for (let i = 0; i < s.left.length; i++) {

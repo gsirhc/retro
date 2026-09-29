@@ -208,6 +208,7 @@ for (let d = 0; d < 10; d++) CHAR_TO_KEY[String(d)] = "Digit" + d;
 // as tests need more of them, rather than guessing a full US layout table.
 const SHIFTED_CHAR_TO_KEY: Record<string, string> = {
   ":": "Semicolon",
+  ">": "Period",
 };
 
 /**
