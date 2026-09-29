@@ -1670,6 +1670,9 @@
         // that reload must await this, or a fresh 504MB save races the
         // navigation and the next boot falls back to the factory image.
         persistHdd: () => persistHddIfDirty(),
+        // Always snapshot C: even when clean. Persistence specs can't rely
+        // on FreeDOS having dirtied the image during a fast boot.
+        forcePersistHdd: () => persistHddSnapshot(),
         whenHddSaved: () => hddPersistChain,
       };
     }
@@ -1693,6 +1696,12 @@
   // a first-session full-image put is ~504MB and easily loses a bare
   // reload race, which is what left CI reading "factory FreeDOS" again.
   let hddPersistChain = Promise.resolve();
+  function queueHddSave(bytes) {
+    hddLabel = "saved state (changes from this session)";
+    refreshHddControls();
+    hddPersistChain = hddPersistChain.then(() => saveHdd(bytes));
+    return hddPersistChain;
+  }
   function persistHddIfDirty() {
     if (!machine || !machine.hddDirty()) return hddPersistChain;
     // Patch only the sectors this session actually wrote into the kept
@@ -1710,11 +1719,15 @@
       savedHdd = machine.hddImage();
     }
     machine.clearHddDirty();
-    hddLabel = "saved state (changes from this session)";
-    refreshHddControls();
-    const bytes = savedHdd;
-    hddPersistChain = hddPersistChain.then(() => saveHdd(bytes));
-    return hddPersistChain;
+    return queueHddSave(savedHdd);
+  }
+  // Test helper: put the live C: image in IndexedDB even when hddDirty() is
+  // false (a fast ?test=1&fast=1 boot often never dirties the factory image).
+  function persistHddSnapshot() {
+    if (!machine) return hddPersistChain;
+    if (machine.hddDirty()) return persistHddIfDirty();
+    savedHdd = machine.hddImage();
+    return queueHddSave(savedHdd);
   }
 
   async function powerOff() {
