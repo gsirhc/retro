@@ -155,17 +155,22 @@ export async function waitForScreen(page: Page, re: RegExp, timeout = 120_000): 
       .poll(probe, { timeout, message: `screen never matched ${re}` })
       .toMatch(re);
   } catch (err) {
-    const dump = await page.evaluate(() => {
-      const m = (window as any).__test?.machine;
-      if (!m) return { missing: true };
-      const screen = (m.textScreen() || "").replace(/\u00b7/g, " ").replace(/\s+/g, " ").trim().slice(0, 200);
-      return {
-        totalCycles: m.totalCycles(),
-        haltCycles: m.haltCycles(),
-        state: typeof m.debugCpuState === "function" ? m.debugCpuState() : "(no debugCpuState)",
-        screen,
-      };
-    }).catch((e: Error) => ({ error: String(e) }));
+    // Cap dump wait: if the main thread is still inside a wedged runCycles,
+    // evaluate never returns and we'd burn the whole job with no signature.
+    const dump = await Promise.race([
+      page.evaluate(() => {
+        const m = (window as any).__test?.machine;
+        if (!m) return { missing: true };
+        const screen = (m.textScreen() || "").replace(/\u00b7/g, " ").replace(/\s+/g, " ").trim().slice(0, 200);
+        return {
+          totalCycles: m.totalCycles(),
+          haltCycles: m.haltCycles(),
+          state: typeof m.debugCpuState === "function" ? m.debugCpuState() : "(no debugCpuState)",
+          screen,
+        };
+      }).catch((e: Error) => ({ error: String(e) })),
+      page.waitForTimeout(2_000).then(() => ({ error: "dump timed out (main thread wedged?)" })),
+    ]);
     throw new Error(`screen never matched ${re}\nstall dump: ${JSON.stringify(dump, null, 2)}\n\n${err}`);
   }
 }

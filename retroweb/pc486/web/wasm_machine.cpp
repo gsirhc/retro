@@ -31,6 +31,7 @@
 #include <emscripten/bind.h>
 #include <emscripten/heap.h>
 #include <emscripten/val.h>
+#include <emscripten.h>
 
 #include <cstdint>
 #include <algorithm>
@@ -79,10 +80,20 @@ public:
     // ibmpc-at/web/wasm_machine.cpp's identical comment for why sampling
     // busy()/motor_on only once at the end of a whole frame would miss
     // activity that started and finished mid-frame.
+    //
+    // Also capped by wall clock (~12 ms). A tight V86 HLT↔#GP loop
+    // (EMMQXXX0 after JemmEx) can otherwise hold the main thread inside one
+    // embind call forever on CI -- the pump never reschedules, Playwright
+    // evaluates hang, and cycles look frozen. Returning early drops remaining
+    // credit for this call; app.js's EWMA then shrinks the next chunk. Guest
+    // rate is unchanged when the host keeps up.
     void runCycles(double cycles) {
         int64_t remaining = int64_t(cycles);
         constexpr int64_t kSubChunk = 2000;
+        constexpr double kMaxWallMs = 12.0;
+        const double t0 = emscripten_get_now();
         while (remaining > 0) {
+            if (emscripten_get_now() - t0 >= kMaxWallMs) break;
             int64_t step = remaining < kSubChunk ? remaining : kSubChunk;
             m_.run_cycles(step);
             remaining -= step;

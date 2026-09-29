@@ -91,6 +91,7 @@
 #ifndef PC486_CPU80486_H
 #define PC486_CPU80486_H
 
+#include <csetjmp>
 #include <cstdint>
 #include <functional>
 #include <type_traits>
@@ -1046,10 +1047,14 @@ private:
     uint16_t instr_start_ss_ = 0;
     SegDesc  instr_start_ss_desc_;  // and its descriptor cache, in case the fault hit mid stack-switch
 
-    // Non-throwing #GP path for ring>0 HLT (see HLT in step_inner). Cleared
-    // by step() after deliver_fault consumes it.
-    bool  fault_pending_ = false;
-    Fault pending_fault_{};
+    // Non-throwing fault delivery for the wasm build (and ring>0 HLT on every
+    // host). step()/interrupt()/deliver_fault arm fault_jmp_; raise_* longjmps
+    // into it under __EMSCRIPTEN__ so a tight V86 #GP loop cannot soft-lock
+    // Chromium's wasm C++ EH. Native keeps throw. Cleared after deliver_fault.
+    bool     fault_pending_ = false;
+    Fault    pending_fault_{};
+    bool     fault_jmp_set_ = false;
+    std::jmp_buf fault_jmp_{};
 
     // --- x87 FPU ----------------------------------------------------------
     Float80  fpu_reg_[8];

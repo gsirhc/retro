@@ -158,6 +158,7 @@ void Cpu::reset() {
     halted = false;
     fault_pending_ = false;
     pending_fault_ = {};
+    fault_jmp_set_ = false;
     cycles = 0;
     seg_override_ = -1;
     rep_ = REP_NONE;
@@ -170,14 +171,32 @@ void Cpu::reset() {
 
 // --- faults ---------------------------------------------------------------
 
-void Cpu::raise(int vector) { throw Fault{vector, 0, false}; }
-void Cpu::raise_err(int vector, uint32_t error) { throw Fault{vector, error, true}; }
+void Cpu::raise(int vector) {
+    pending_fault_ = Fault{vector, 0, false};
+#ifdef __EMSCRIPTEN__
+    // Wasm C++ EH soft-locks under a tight V86 #GP storm (JEMMEX / EMMQXXX0);
+    // longjmp matches Bochs's BX_CPU_C::exception and stays off that path.
+    if (fault_jmp_set_) longjmp(fault_jmp_, 1);
+#endif
+    throw pending_fault_;
+}
+void Cpu::raise_err(int vector, uint32_t error) {
+    pending_fault_ = Fault{vector, error, true};
+#ifdef __EMSCRIPTEN__
+    if (fault_jmp_set_) longjmp(fault_jmp_, 1);
+#endif
+    throw pending_fault_;
+}
 void Cpu::raise_sel(int vector, uint16_t selector) {
     // Selector-shaped error code: the selector's index and table bits with
     // RPL cleared, i.e. the selector with its low two bits zeroed (Intel
     // 80486 PRM, "Error Code"). The EXT bit is left clear here -- every
     // caller in this core is reporting a selector the *instruction* named.
-    throw Fault{vector, uint32_t(selector & 0xFFFCu), true};
+    pending_fault_ = Fault{vector, uint32_t(selector & 0xFFFCu), true};
+#ifdef __EMSCRIPTEN__
+    if (fault_jmp_set_) longjmp(fault_jmp_, 1);
+#endif
+    throw pending_fault_;
 }
 
 // --- interrupts and exceptions --------------------------------------------
@@ -362,11 +381,22 @@ int Cpu::interrupt(uint8_t vector) {
     instr_start_esp_ = esp;
     instr_start_ss_ = ss;
     instr_start_ss_desc_ = sd_[SEG_SS];
+#ifdef __EMSCRIPTEN__
+    fault_jmp_set_ = true;
+    if (setjmp(fault_jmp_) == 0) {
+        do_interrupt(vector, false);
+        fault_jmp_set_ = false;
+    } else {
+        fault_jmp_set_ = false;
+        return deliver_fault(pending_fault_, start_eip);
+    }
+#else
     try {
         do_interrupt(vector, false);
     } catch (const Fault &f) {
         return deliver_fault(f, start_eip);
     }
+#endif
     // A hardware-delivered interrupt does the same vectoring work INT3
     // does, without an immediate operand to fetch, so INT3's published 26
     // is the best-anchored figure for it (INT imm8 is 30). Charged here
@@ -3807,9 +3837,24 @@ int Cpu::step() {
     instr_start_esp_ = esp;
     instr_start_ss_ = ss;
     instr_start_ss_desc_ = sd_[SEG_SS];
+#ifdef __EMSCRIPTEN__
+    fault_jmp_set_ = true;
+    if (setjmp(fault_jmp_) == 0) {
+        int c = step_inner();
+        fault_jmp_set_ = false;
+        // Ring>0 HLT arms fault_pending_ without longjmp (see HLT case).
+        if (fault_pending_) {
+            fault_pending_ = false;
+            return deliver_fault(pending_fault_, start_eip);
+        }
+        return c;
+    }
+    fault_jmp_set_ = false;
+    fault_pending_ = false;
+    return deliver_fault(pending_fault_, start_eip);
+#else
     try {
         int c = step_inner();
-        // Ring>0 HLT arms fault_pending_ instead of throwing (see HLT case).
         if (fault_pending_) {
             fault_pending_ = false;
             return deliver_fault(pending_fault_, start_eip);
@@ -3819,6 +3864,7 @@ int Cpu::step() {
         fault_pending_ = false;
         return deliver_fault(f, start_eip);
     }
+#endif
 }
 
 int Cpu::deliver_fault(const Fault &first, uint32_t start_eip) {
@@ -3834,6 +3880,20 @@ int Cpu::deliver_fault(const Fault &first, uint32_t start_eip) {
     Fault f = first;
     if (on_fault) on_fault(f.vector, f.error, cs, eip);
     for (int attempt = 0; attempt < 2; ++attempt) {
+#ifdef __EMSCRIPTEN__
+        fault_jmp_set_ = true;
+        if (setjmp(fault_jmp_) == 0) {
+            do_interrupt(uint8_t(f.vector), false, f.has_error, f.error);
+            fault_jmp_set_ = false;
+            int c = protected_mode() ? 44 : 26;
+            cycles += c;
+            return c;
+        }
+        fault_jmp_set_ = false;
+        if (f.vector == EXC_DF) break;
+        f = Fault{EXC_DF, 0, true};
+        if (on_fault) on_fault(EXC_DF, 0, cs, eip);
+#else
         try {
             do_interrupt(uint8_t(f.vector), false, f.has_error, f.error);
             // Published 486 INT cost: 26 for the real-mode vectoring work
@@ -3852,6 +3912,7 @@ int Cpu::deliver_fault(const Fault &first, uint32_t start_eip) {
             f = Fault{EXC_DF, 0, true};
             if (on_fault) on_fault(EXC_DF, 0, cs, eip);
         }
+#endif
     }
     halted = true;
     cycles += 4;
