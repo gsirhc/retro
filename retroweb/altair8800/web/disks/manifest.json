@@ -15,20 +15,6 @@
       "help": "  CATCHUM       a Pac-Man clone           press Q to quit\n  LADDER        a climbing game            Ctrl-C to quit\n  OTHELLO       reversi against the computer\n  STARTRK.BAS   run with:  MBASIC STARTRK   (leave BASIC: SYSTEM)\n  LUNAR.BAS     run with:  MBASIC LUNAR\n\nSwitch the Terminal dropdown to \"DEC VT100\" first -- these move\nthe cursor around and expect a real CRT."
     },
     {
-      "name": "WordStar 3.0",
-      "file": "wordstar.dsk",
-      "os": "cpm",
-      "description": "MicroPro WordStar 3.0 (dhansel DISK07), the word processor that sold CP/M.",
-      "help": "Start it:   WS\nAt the opening menu press  D  to edit a document, then type a\nfilename (created if new).\n\nWordStar is all Ctrl-key commands (^ = Ctrl):\n  ^E ^X ^S ^D    move cursor  up / down / left / right\n  ^KS           save, keep editing\n  ^KD           save and exit to A>\n  ^KQ           quit, abandon changes\n  ^J            on-screen help menu\n\nUse the \"DEC VT100\" terminal profile."
-    },
-    {
-      "name": "Zork I",
-      "file": "zork1.dsk",
-      "os": "cpm",
-      "description": "Infocom Zork I: The Great Underground Empire (dhansel DISK08).",
-      "help": "Start it:   ZORK1\n\nThen type plain English:\n  LOOK              N S E W U D  (compass directions)\n  TAKE LAMP         OPEN MAILBOX      READ LEAFLET\n  I                 your inventory\n  SAVE / RESTORE / QUIT\n\nYou begin west of a white house. Try  OPEN MAILBOX."
-    },
-    {
       "name": "Altair DOS 1.0",
       "file": "altairdos.dsk",
       "os": "dos",

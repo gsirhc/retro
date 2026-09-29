@@ -325,8 +325,6 @@ test.describe("88-DCDD disk cabinet", () => {
 
   for (const [label, re] of [
     ["CP/M Games", /CP\/M Games/],
-    ["WordStar 3.0", /WordStar/],
-    ["Zork I", /Zork/],
     ["Altair DOS 1.0", /Altair DOS/],
   ] as [string, RegExp][]) {
     test(`extra disk: ${label}`, async ({ page }) => {

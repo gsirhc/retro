@@ -26,8 +26,9 @@ won't boot here.)
 
 ## Where to get them
 
-`*.dsk` is git-ignored. All five come from Mike Douglas's collection, mirrored
-at <https://github.com/dhansel/Altair8800/tree/master/disks>, fetched pinned
+`*.dsk` is git-ignored. The three shipped images come from Mike Douglas's
+collection, mirrored at
+<https://github.com/dhansel/Altair8800/tree/master/disks>, fetched pinned
 (one commit, so this can't drift) and SHA-256 checked by `fetch-disks.sh`; CI
 runs it before deploying to Pages.
 
@@ -39,18 +40,15 @@ runs it before deploying to Pages.
 |---|---|---|
 | `cpm63k.dsk`    | `DISK01.DSK` | CP/M 2.2 (bootable) |
 | `games.dsk`    | `DISK05.DSK` | CP/M game disk (boots CP/M) |
-| `wordstar.dsk` | `DISK07.DSK` | WordStar 3.0 |
-| `zork1.dsk`    | `DISK08.DSK` | Zork I |
 | `altairdos.dsk`| `DISK02.DSK` | Altair DOS 1.0 |
 
-Redistribution rights for these vary and are, for most of them, not spelled
-out anywhere: `cpm63k.dsk` is the one exception with an explicit public
-release (DRDOS Inc. / Bryan Sparks, 2001, reconfirmed 2022); the game disk and
-Altair DOS are decades-old, unchallenged, effectively-orphaned hobbyist/MITS
-material; WordStar (MicroPro) and Zork I (Infocom/Activision, now Microsoft)
-are commercial titles with no comparable release, carrying real
-redistribution risk that's knowingly being accepted here rather than
-overlooked — see `fetch-disks.sh`'s header comment.
+Redistribution:
+
+- **`cpm63k.dsk`** — freely redistributable (DRDOS Inc. / Bryan Sparks, 2001,
+  reconfirmed 2022; <http://cpm.z80.de/license.html>).
+- **`games.dsk`** / **`altairdos.dsk`** — decades-old, unchallenged,
+  effectively-orphaned hobbyist / MITS-era material (no formal release letter
+  for Altair DOS; MITS closed in 1979).
 
 More MITS software (and the originals) live at
 <https://deramp.com/downloads/mits/> and <https://altairclone.com>.
