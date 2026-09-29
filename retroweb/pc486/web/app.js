@@ -1666,6 +1666,11 @@
         machine, sendKey, screenEl,
         get audioState() { return audioCtx ? audioCtx.state : null; },
         get heldKeysSize() { return heldKeys.size; },
+        // Flush C: to IndexedDB and resolve when the put finishes -- tests
+        // that reload must await this, or a fresh 504MB save races the
+        // navigation and the next boot falls back to the factory image.
+        persistHdd: () => persistHddIfDirty(),
+        whenHddSaved: () => hddPersistChain,
       };
     }
   }
@@ -1681,8 +1686,15 @@
   // powerOn() -- see there) -- so it has to be copied out to the one
   // place that actually survives that, on some real cadence, not just
   // once at a clean power-off nobody reliably triggers by hand.
+  //
+  // Returns a promise that settles when the IndexedDB put completes (or
+  // immediately when there is nothing dirty). Callers that are about to
+  // tear the page down (powerOff, a test about to reload) must await it:
+  // a first-session full-image put is ~504MB and easily loses a bare
+  // reload race, which is what left CI reading "factory FreeDOS" again.
+  let hddPersistChain = Promise.resolve();
   function persistHddIfDirty() {
-    if (!machine || !machine.hddDirty()) return;
+    if (!machine || !machine.hddDirty()) return hddPersistChain;
     // Patch only the sectors this session actually wrote into the kept
     // mirror, instead of re-copying and re-storing the whole 504MB image --
     // see wd1003.h's dirty_ranges() comment and the audio-worklet comment
@@ -1700,12 +1712,14 @@
     machine.clearHddDirty();
     hddLabel = "saved state (changes from this session)";
     refreshHddControls();
-    saveHdd(savedHdd);
+    const bytes = savedHdd;
+    hddPersistChain = hddPersistChain.then(() => saveHdd(bytes));
+    return hddPersistChain;
   }
 
-  function powerOff() {
+  async function powerOff() {
     if (!poweredOn) return;
-    persistHddIfDirty();
+    await persistHddIfDirty();
     poweredOn = false;  // pump()/frame() see this on their next tick and stop rescheduling
     lastMachine = machine;  // freed at the next powerOn() -- see there
     machine = null;      // real hardware: RAM is gone the instant power is cut
@@ -1785,7 +1799,10 @@
                                  // disabled state is the "still loading" signal, no status text needed
   clearScreenToBlack();
   refreshFkeyControls();  // start disabled while machine is off
-  powerSwitch.addEventListener("change", () => { if (powerSwitch.checked) powerOn(); else powerOff(); });
+  powerSwitch.addEventListener("change", () => {
+    if (powerSwitch.checked) powerOn();
+    else void powerOff();
+  });
 
   // Autosave C: every few seconds while running, not only at an explicit
   // power-off -- the machine now boots itself on page load (see the
@@ -1796,7 +1813,7 @@
   // powerOff()). 5s is arbitrary -- frequent enough that a mid-session
   // close loses at most a few seconds of writes, infrequent enough that
   // idle sessions (hddDirty() false) do nothing.
-  setInterval(persistHddIfDirty, 5000);
+  setInterval(() => { void persistHddIfDirty(); }, 5000);
 
   // Even with the autosave above, navigating away (closing the tab,
   // following a link, a browser-gesture back/forward navigation) can still

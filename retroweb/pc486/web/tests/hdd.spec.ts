@@ -90,7 +90,14 @@ test.describe("hard disk", () => {
     page,
   }) => {
     await boot(page);
+    // Flush before power-off so the 504MB IndexedDB put isn't racing the
+    // reload (persistHddIfDirty used to fire-and-forget saveHdd).
+    await page.evaluate(async () => {
+      await (window as any).__test.persistHdd();
+      await (window as any).__test.whenHddSaved();
+    });
     await setPowerSwitch(page, false);
+    await page.evaluate(() => (window as any).__test.whenHddSaved());
     await page.reload();
 
     await page.waitForFunction(() => !!(window as any).__test?.machine, null, {
@@ -108,7 +115,13 @@ test.describe("hard disk", () => {
     page,
   }) => {
     await boot(page);
+    await page.evaluate(async () => {
+      await (window as any).__test.persistHdd();
+      await (window as any).__test.whenHddSaved();
+    });
+    await expect(page.locator("#hddStatus")).toHaveText(/saved state/);
     await setPowerSwitch(page, false);
+    await page.evaluate(() => (window as any).__test.whenHddSaved());
 
     const requests: string[] = [];
     page.on("request", (req) => requests.push(req.url()));
