@@ -27,6 +27,13 @@ cpu6502/rom/tmp/
 **/.history/
 *.net
 
+# local emscripten / Playwright caches (never commit)
+.emcache/
+.playwright-browsers/
+
+# ad-hoc local test runners (see agent/debug sessions)
+tmp-run-*.sh
+
 # deployed-site staging (built by CI, previewed locally)
 retroweb/_site/
 retroweb/_site.new/
