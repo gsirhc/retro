@@ -12,8 +12,8 @@ async function dirtyAndPersistHdd(page: import("@playwright/test").Page): Promis
   // read-only on a fast boot), so poke a real file write before persisting.
   await focusScreen(page);
   await typeStr(page, "ECHO P>C:\\P.TXT");
-  await waitForScreen(page, /C:\\>/, 30_000);
-  // Either the write is still dirty, or the 5s autosave already mirrored it.
+  // Do not waitForScreen(/C:\\>/) here -- that regex already matches the
+  // pre-command prompt and would return before the write lands.
   await expect
     .poll(
       () =>
@@ -22,7 +22,7 @@ async function dirtyAndPersistHdd(page: import("@playwright/test").Page): Promis
           const status = document.getElementById("hddStatus")?.textContent || "";
           return t.machine.hddDirty() || /saved state/.test(status);
         }),
-      { timeout: 15_000, message: "guest write never dirtied C:" },
+      { timeout: 30_000, message: "guest write never dirtied C:" },
     )
     .toBe(true);
   await page.evaluate(async () => {
