@@ -19,8 +19,6 @@ runs:
           retroweb/altair8800/web/roms/8kBas_f8.bin
           retroweb/altair8800/web/disks/cpm63k.dsk
           retroweb/altair8800/web/disks/games.dsk
-          retroweb/altair8800/web/disks/wordstar.dsk
-          retroweb/altair8800/web/disks/zork1.dsk
           retroweb/altair8800/web/disks/altairdos.dsk
         key: altair-media-${{ hashFiles('retroweb/altair8800/web/roms/fetch-basic.sh', 'retroweb/altair8800/web/disks/fetch-disks.sh') }}
 
