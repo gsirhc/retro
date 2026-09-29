@@ -74,15 +74,13 @@
 
   <div class="inner">
     <h1>Help / About</h1>
-    <p class="tagline">Vintage machines, running entirely in your browser.</p>
 
     <h3>How the site works</h3>
     <p>
       The hardware emulation is written from scratch in C++ and compiled to a WebAssembly module so the system
-      runs natively in your browser.  There are no virtual machines or 3rd party emulator engines involved.  Where applicable, hard drive and 
+      runs entirely in your browser.  There are no virtual machines or 3rd party emulator engines involved.  Where applicable, hard drive and 
       ROM images are automatically saved in the browser's IndexedDB storage so you don't lose your data.  
-      Note that none of your ROMs, floppy disks, hard disks or cassette/paper tapes are uploaded to our servers.  
-      Everything is stored only in your browser or your Google Drive account.
+      Note that none of your ROMs, floppy disks, hard disks or cassette/paper tapes are uploaded to our servers.
     </p>
     <p>
       <b>High-Scores:</b> For arcade games with high-scores, the emulators will store your scores in browser storage
@@ -92,21 +90,45 @@
     <h3>Why are software and game ROMs not included?</h3>
     <p>
       The bottom line is that this site does not host proprietary software.  Instead, each emulator implements 
-      era-correct virtual storage devices for loading your personal copies of the software.  To load
+      era-correct storage devices for loading your personal copies of the software.  To load
       software, obtain a simple binary dump of the physical media then follow the instructions
       on the device. Each machine loads the media as it would in real life.
     </p>
     <p>
-      Not including the "fun" software does increase the barrier to entry for the site but we only provide 
-      the "hardware".  Its up to you to provide the software.  The idea here is to provide the systems as the 
-      existed back in the day for the enthusiast/hobbyist who will take the time. 
+      I understand that not including the "fun" software increases the barrier of entry to the site.  The 
+      idea here is to appeal to the enthusiast/hobbyist who will take the time to setup the systems like you 
+      would have back in the day.  So it's up to you to provide the proprietary software.  Even though this site is 
+      not intended for the casual user, setting up the systems and running the software should be easy and fun 
+      for everyone.
+    </p>
+
+    <h3>How the emulators are implemented</h3>
+    <p>First, I fully implement and test the CPU opcodes for accuracy and correct timing.  Then 
+      storage and peripherals are fully implemented to era correct specifications.  Once a full system is built, 
+      base software like operating systems are added and tested.  Then the fun testing begins!  
+    </p>
+
+    <h3>How the emulators are tested</h3>
+    <p>
+      Each emulator consists of full unit and end-to-end automated testing.  This means the CPUs and peripherals
+      are fully tested in their base configurations to ensure accurate timing and operation.  Then I move
+      on to scenarios like "will it run with this OS" or "what happens if I install and run that game" or 
+      "what if I write a program, will it execute".  With each scenario, the system is tweaked to reach 
+      maturity and robustness.  However, I can't test everything so keep reading...
+    </p>
+
+    <h3>I need your help!</h3>
+    <p>
+      Even though the systems are relatively simple, they still require a lot of testing.  If you would like to 
+      help test, please contact me below.  Specify your interest (if any) and we can work together on test plans.  
+      Or if you are just using the site and notice issues let me know.  Any help is greatly appreciated!
     </p>
 
     <h3>Browser Support</h3>
     <p>
       Chrome or Edge are recommended as most testing is done in Chrome however, the site should run
-      fine in all major browsers (Chrome, Egde, Firefox and Safari).  If you use privacy extensions 
-      or privacy-focused browsers, you may encounter issues with sound, fullscreen or browser storage.
+      fine in all major browsers (Chrome, Edge, Firefox and Safari).  If you use privacy extensions 
+      or privacy-focused browsers, you may encounter issues with sound, mouse, fullscreen or browser storage.
     </p>
 
     <h3>Google Drive</h3>
@@ -115,12 +137,20 @@
       Please contact me below if you'd like to use this feature.
     </p>
 
-    <h3>About</h3>
+    <h3>About the Creator</h3>
     <p>
-      This site contains era-correct microcomputer and arcade emulators simulating hardware from the 1970s to the 1990s.  
-      The goal here is to emulate the physical hardware as accurately and realistically as possible for the enthusiast/hobbyist 
-      to relive the old days without buying hardware.  Though this site is not intended for the casual user, setting 
-      up the system and running the software should be easy and fun for everyone.
+      I am a professional software engineer who has taken an interest in retro computing.  Modern 
+      computing is fun for its sheer scale and complexity but "the old days" really taught you how computers 
+      work.  The memories of setting up the old systems are fond not only for nostalgia but for how difficult 
+      and frustrating it was back in the day.  So I set out 
+      to create a site that could make it easy for me and others to experience the joy of retro computing.
+    </p>
+    <p>
+      Note that I've used AI to aid in implementing the emulators because it removes the tedious specification 
+      reading and coding work.  If using AI here bothers you, reach out to me.  I'd like to hear your 
+      thoughts plus I'd like to share my thoughts with you.  My use of AI is not the media spun engagement 
+      hype you hear about in the news.  Instead, I use it as a tool to help me build the most accurate 
+      hardware emulators possible.
     </p>
 
     <h3>Mission Statement</h3>
