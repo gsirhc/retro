@@ -128,51 +128,11 @@ export function screenText(page: Page): Promise<string> {
  * Poll the text-mode screen until it matches. Generous default timeout: a
  * real POST + FreeDOS boot at genuine, never-sped-up 66 MHz is tens of real
  * seconds (see CLAUDE.md's "Never speed these up"), more under contention.
- * On failure, dump cycle/halt rates and CS:EIP so a post-JemmEx stall is
- * distinguishable from a slow boot (PC486_REVIEW.md §5.9 signature).
  */
 export async function waitForScreen(page: Page, re: RegExp, timeout = 120_000): Promise<void> {
-  // FreeDOS+JEMMEX can soft-lock right after "JemmEx loaded" (C800:001A
-  // EMMQXXX0 strategy HLT / wasm EH). Fail fast there instead of burning
-  // the full timeout. Dump is state-only — never call runCycles here; a
-  // wedged pump makes that evaluate hang (`page.evaluate: Exception`).
-  const jemmStallMs = 8_000;
-  let jemmSince = 0;
-  const probe = async (): Promise<string> => {
-    const text = await screenText(page);
-    if (/JemmEx loaded/i.test(text) && !/Kernel:|FreeCom|C:\\>/i.test(text)) {
-      if (!jemmSince) jemmSince = Date.now();
-      else if (Date.now() - jemmSince > jemmStallMs) {
-        throw new Error(`JemmEx stall (${jemmStallMs}ms without Kernel/FreeCom)`);
-      }
-    } else {
-      jemmSince = 0;
-    }
-    return text;
-  };
-  try {
-    await expect
-      .poll(probe, { timeout, message: `screen never matched ${re}` })
-      .toMatch(re);
-  } catch (err) {
-    // Cap dump wait: if the main thread is still inside a wedged runCycles,
-    // evaluate never returns and we'd burn the whole job with no signature.
-    const dump = await Promise.race([
-      page.evaluate(() => {
-        const m = (window as any).__test?.machine;
-        if (!m) return { missing: true };
-        const screen = (m.textScreen() || "").replace(/\u00b7/g, " ").replace(/\s+/g, " ").trim().slice(0, 200);
-        return {
-          totalCycles: m.totalCycles(),
-          haltCycles: m.haltCycles(),
-          state: typeof m.debugCpuState === "function" ? m.debugCpuState() : "(no debugCpuState)",
-          screen,
-        };
-      }).catch((e: Error) => ({ error: String(e) })),
-      page.waitForTimeout(2_000).then(() => ({ error: "dump timed out (main thread wedged?)" })),
-    ]);
-    throw new Error(`screen never matched ${re}\nstall dump: ${JSON.stringify(dump, null, 2)}\n\n${err}`);
-  }
+  await expect
+    .poll(() => screenText(page), { timeout, message: `screen never matched ${re}` })
+    .toMatch(re);
 }
 
 /**
