@@ -116,6 +116,7 @@ retroweb/pc486/bios_host
 retroweb/pc486/render_screen
 retroweb/pc486/pm_stub_check
 retroweb/pc486/vbe_mode13_check
+retroweb/pc486/fm_trace_render
 retroweb/pc486/disks/build_freedos_hdd
 retroweb/pc486/disks/hdd_boot_check
 retroweb/pc486/disks/boom_run_check

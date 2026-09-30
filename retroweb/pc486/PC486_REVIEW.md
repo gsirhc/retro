@@ -2398,15 +2398,31 @@ of disc images, which is genuinely unavoidable work at that point.
   Fixed in §21.2: `persistHddIfDirty()` now copies and re-persists only the
   4KB pages a session actually wrote (`wd1003.h`'s `dirty_ranges()`),
   instead of the whole image every 5 s.
-- **`Ega::tick`'s frame period is still `8000000.0 / 60.0`** -- the *AT's*
-  8 MHz clock, inherited verbatim from `ibmpc-at`, not this machine's
-  66 MHz. The emulated vertical retrace therefore cycles at roughly
-  60 x 66/8 = 495 Hz instead of 60 Hz. This is a genuine fidelity bug and is
-  flagged, not fixed: correcting it makes every "wait for vertical retrace"
-  loop wait ~8x longer in emulated time, which is a real behavioural change
-  that deserves its own verification pass rather than riding along with a
-  performance fix. The constant is now commented in `ega.h` so it cannot be
-  mistaken for intentional.
+- ~~`Ega::tick`'s frame period is still `8000000.0 / 60.0`~~ Fixed:
+  `Ega::recompute_timing_()` (`ega.cpp`) now derives the frame period and
+  the vertical-retrace window from the CRTC's own programmed timing --
+  Horizontal Total, Vertical Total (+ Overflow bits), Vertical Retrace
+  Start/End (+ Overflow bits), the Sequencer's Clocking Mode (dots/char,
+  dot-clock divide-by-2), and the Misc Output dot-clock select -- the same
+  inputs a real CRT controller's scanout counters use, instead of a
+  hardcoded constant. `tick()` (called every CPU instruction) only
+  advances a cached credit counter; the division happens in
+  `recompute_timing_()`, called solely from the specific CRTC/Sequencer/
+  Misc Output write sites in `ega.cpp` that can change the answer, from
+  `reset()`, and from the new `Ega::set_cpu_hz()` (wired into
+  `Chipset::set_cpu_hz()`, so front-panel Turbo keeps vertical refresh at
+  the same wall-clock rate regardless of the 66/33 MHz CPU speed -- a real
+  DX2 Turbo button changes the CPU's clock, not the video card's crystal).
+  An unprogrammed or mid-mode-set CRTC (all registers 0, as right after
+  `reset()`) would plug into the formula as several hundred kHz; that's
+  clamped to a 40-120 Hz plausible range with a 70 Hz fallback (mode 03h's
+  own rate) until the guest programs real values. Verified against the
+  textbook numbers: mode 03h's real register values (28.322 MHz dot clock,
+  9 dots/char, HTotal=0x5F, VTotal=0xBF+Overflow -> 449 lines) land at
+  ~70.09 Hz, and a 640x480 VESA mode's (25.175 MHz, 8 dots/char, 525 lines)
+  lands at ~59.94 Hz -- both measured end to end in `ega_test.cpp` by
+  ticking and watching port 0x3DA bit 3 toggle, the same way a real "wait
+  for vertical retrace" loop would see it.
 - **`TEST_CPU_MULTIPLIER = 20` is not achievable and never was.** This host
   tops out near 76 M cycles/sec; 20x of 66 MHz would be 1.3 billion. Under
   the old loop, asking for it produced multi-second synchronous blocks for
@@ -3216,7 +3232,34 @@ affect whether software finds the chip or plays in time:
   a verified figure.** The datasheet specifies feedback's modulation depth
   exactly (0 to 4 pi by the FB field) but never states the non-feedback
   index; the code uses pi. This affects timbre -- how bright an instrument
-  sounds -- not pitch, timing or detection.
+  sounds -- not pitch, timing or detection. Re-searched since, without
+  finding a figure: the YMF262 datasheet p.12 carries the same FB table as
+  the YMF715x document p.9 (so the feedback figure is now doubly
+  primary-sourced), and the OPLx decap notes give the algebra with no
+  phase-domain scale attached. One reading was found and is recorded in
+  `opl3.cpp` but deliberately **not** applied -- YMF715x section 1-1 writes
+  the normal connection as `A sin(wc t + B sin wm t)` against feedback's
+  `A sin(wt + beta FM(t))`, so B carries an implicit coefficient of 1 where
+  feedback carries beta; if A and B share one normalised scale, which neither
+  document states, the index would be ~1 radian rather than pi. Acting on
+  that inference is how pi got here in the first place.
+- **The output stage's master gain has no hardware citation, and clipped
+  until measured.** The YMF262 datasheet (p.5) documents the output format --
+  16-bit offset binary on four buses at 49.7 kHz, which independently
+  confirms `kSampleHz` -- but neither Yamaha document says how up to 18
+  channels are summed internally or what headroom that leaves, and Creative's
+  SB16 programming guide (p.138) refers OPL3 internals back to the vendor. The
+  gain was 8.0, which put one zero-attenuation voice at 49% of full scale:
+  measured, three unison voices clipped 16% of their samples, four clipped
+  78%, and eighteen at realistic instrument attenuation clipped 44%. DOOM's
+  music runs that many voices, which is why it sounded distorted while PCM
+  effects -- separately scaled, never through this summing stage -- sounded
+  right. Now 3.0, giving one voice ~18% of full scale and leaving full
+  18-voice polyphony ~16% clear of the clamp. `opl3_test.cpp` gained
+  `FullPolyphonyAtModerateLevelsDoesNotClip` and
+  `OneFullVolumeVoiceLeavesHeadroomForEighteen`; both fail at 8.0, and the
+  first independently reproduces the 43.9% figure. The gap that let this ship
+  was that no test had ever summed more than one channel.
 - **The rhythm section's snare, hi-hat and top cymbal** use a reasoned
   noise/phase combination rather than a verified reproduction: the operator
   assignment is documented, the exact bit the silicon XORs is not. Bass drum
@@ -5151,3 +5194,110 @@ the control is labelled, and it is opt-in.
 The seven-segment "66"/"33" readout tracks Turbo (many period cases wired
 the display to the same switch that gated clock doubling); only the amber
 Turbo LED and the actual clock change with it.
+
+## 27. The stock FreeDOS boot menu is replaced with one plain MS-DOS config
+
+§19 got FreeDOS's own installer-written `FDCONFIG.SYS`/`FDAUTO.BAT` booting
+unmodified, five-way menu and all. That menu is itself not period-accurate
+to a 1993-94 MS-DOS gaming PC -- no real box booted through a FreeDOS-style
+numbered menu -- and its `MENUDEFAULT` (JEMMEX with `NOEMS`) gives no
+EMS or VCPI, which DOS/16M- and DOS/4GW-based extenders need. `disks/
+apply-dos-config.sh` now overwrites both files after install with a single,
+unconditional config: `DOS=HIGH,UMB`, `HIMEMX.EXE` for XMS, `JEMM386.EXE`
+(with EMS, not `NOEMS`) for EMS/VCPI, `UDVD2.SYS`/`SHSUCDX.COM` for the
+ATAPI CD-ROM (needed to install from CD), and `CTMOUSE.EXE` for the PS/2
+mouse (SimCity 2000 requires it) -- the CD-ROM and mouse drivers load high
+via `LH` so conventional memory stays free for a game's sound drivers.
+`BLASTER` omits the stock `P330`: this machine emulates no MPU-401 at
+0x330. This is the exact minimum to install and run period games (DOOM,
+SimCity 2000), nothing more -- a deliberate, labelled departure from stock
+FreeDOS's own config (CLAUDE.md requires substitutions to be labelled, not
+silent). The script runs as a post-install step of `make hdd-image`, right
+after `build_freedos_hdd` produces the image, so a from-scratch rebuild
+gets the same config as the shipped one.
+
+## 28. The factory HDD stash had no version identity
+
+### 28.1 The bug
+
+`ensureFactoryHdd()` caches the pristine 504MB `freedos-hdd.img` two ways
+so "Reset to factory" and factory-delta reconstruction (§ above, `savedHdd`/
+`hddSaveKind`) never re-download it: a Cache API entry (`FACTORY_HDD_CACHE`,
+the path an ordinary visitor actually takes) and a chunked IndexedDB stash
+(`stashFactoryInIdb()`/`FACTORY_META_KEY`, exercised by the Playwright "no
+re-fetch" spec). Neither recorded *which build* of the image it held.
+Once a visitor had either stash, a later deploy that replaced
+`freedos-hdd.img` was invisible to them forever: `ensureFactoryHdd()` kept
+handing back the old bytes, "Reset to factory FreeDOS" restored the stale
+image instead of the new one, and there was no recovery short of a visitor
+opening devtools and deleting the `pc486-hdd` IndexedDB database by hand.
+This hit the live site for real.
+
+The sharper failure mode was silent corruption, not just staleness. A
+normal session's C: is stored as a *factory-delta* record -- offsets into
+whatever factory image was current when it was written (see the "Deltas are
+what a normal FreeDOS session writes" comment on `isFactoryDeltaRecord()`).
+Once the factory image actually changes, those offsets are patches against
+a base that no longer exists. Applying them to the new image on the next
+boot -- which is exactly what `ensureFactoryHdd()` plus `applyFactoryPatches()`
+did unconditionally -- writes the old session's bytes into the wrong
+locations of a different disk image.
+
+### 28.2 The fix
+
+`factoryFingerprint()` does one `HEAD` request to `factoryHddUrl()` (no
+range or full fetch) and reduces the response to a small string: the
+`ETag` if the server sends one, else `Last-Modified`, plus `Content-Length`.
+`ensureFactoryHdd()` fetches this once per page load (memoized) before
+trusting either stash, and compares it against a `fp` field now carried on
+`FACTORY_META_KEY`. A stash written before this fix has no `fp` at all --
+that reads as *unknown*, not a match, so it fails the comparison exactly
+like a genuine mismatch rather than being grandfathered in. On any
+mismatch, `purgeFactoryStash()` deletes the chunked IndexedDB bytes, the
+legacy single-blob key, the meta record, and the `FACTORY_HDD_CACHE` Cache
+API entry, then execution falls through to a real network fetch and
+`recordFactoryFingerprint()` writes a fresh (lightweight, `chunks: 0`) meta
+record carrying the new `fp` -- cheap even though the full chunked
+byte-stash normally doesn't run in production (see `stashFactoryInIdb()`'s
+own comment on why: a one-shot 504MB structured-clone put is a main-thread
+longtask, so nothing calls it outside the Playwright spec written to prove
+the no-re-fetch case).
+
+The correctness-critical half is in the boot sequence, not
+`ensureFactoryHdd()` itself: when `isFactoryDeltaRecord(savedRecord)` is
+true and `ensureFactoryHdd()` reports the stash it just purged was stale
+(`factoryStashInvalidated`), the boot flow does not apply that record's
+patches to the freshly-fetched image. It calls `clearSavedHdd()` and falls
+back to the plain new factory image instead, with a status label that says
+why (`"...the shipped disk image changed, so your saved changes were
+reset"`) rather than silently reverting. A *full*-image record (blank
+drive, upload, or any non-factory-delta save) is untouched either way --
+that boot path never calls `ensureFactoryHdd()` at all, so it was never at
+risk and needed no special-casing.
+
+A `HEAD` failure (offline, CORS, the server down) is treated as *no
+information*, not as a mismatch: `ensureFactoryHdd()` falls back to
+whatever is already cached and logs the failure the way the rest of this
+file logs recoverable storage errors. A stale image that still boots beats
+a machine that won't boot at all over a freshness check.
+
+### 28.3 Tests
+
+`tests/hdd.spec.ts` gained two cases and one existing case needed a real
+fix, not just an addition: "a reload with saved C: does not re-fetch the
+factory FreeDOS image" tracked every request whose URL contained
+`freedos-hdd.img`, which the new `HEAD` now legitimately triggers on every
+boot. The assertion now distinguishes `HEAD` (the freshness check, expected)
+from `GET` (an actual re-download, still asserted never to happen) -- the
+spec was checking the wrong thing for what "re-fetch" actually means once
+freshness checking exists. The two new cases: a factory-image fingerprint
+rewritten in IndexedDB (simulating a stash from a build before this fix, or
+one that no longer matches) forces a real `GET` on the next boot *and*
+discards a saved factory-delta record, reverting C: to the new image with
+the explanatory label -- exercising both halves of §28.2 in one flow; and a
+full-image save (a small stand-in record substituted for what
+`hddBlankBtn`/`hddUploadInput` would write, since a real one is the same
+504MB single-put main-thread stall noted above and not something a test
+should wait on) survives the same fingerprint mismatch with no network
+request at all, proving the "full records are self-contained" half of the
+fix actually holds and isn't just believed from reading the code.

@@ -11,6 +11,7 @@ void Ega::reset() {
     retrace_ = false;
     prev_cycles_ = 0;
     retrace_credit_ = 0.0;
+    recompute_timing_();  // registers are all 0 here -- lands on the implausible-rate fallback below
     dac_.fill(0);
     dac_write_index_ = dac_read_index_ = dac_write_sub_ = dac_read_sub_ = dac_state_ = 0;
     dac_mask_ = 0xFF;  // real power-on default: every pixel bit reaches the DAC
@@ -152,7 +153,7 @@ void Ega::out(uint16_t port, uint8_t v) {
             else attr_[attr_index_ % attr_.size()] = v;
             attr_flip_flop_addr_ = !attr_flip_flop_addr_;
             break;
-        case 0x3C2: misc_output_ = v; break;
+        case 0x3C2: misc_output_ = v; recompute_timing_(); break;  // bit 2 picks the dot clock -- see recompute_timing_()
         case 0x3C6: dac_mask_ = v; break;                        // PEL Mask
         case 0x3C7:                                              // PEL Address Read Mode
             dac_read_index_ = v; dac_read_sub_ = 0; dac_state_ = 0x03; break;
@@ -171,11 +172,25 @@ void Ega::out(uint16_t port, uint8_t v) {
         case kVbeIndexPort: vbe_index_ = uint16_t((vbe_index_ & 0xFF00) | v); break;
         case kVbeDataPort: vbe_write_(vbe_index_, uint16_t((vbe_read_(vbe_index_) & 0xFF00) | v)); break;
         case 0x3C4: sequencer_index_ = v; break;
-        case 0x3C5: sequencer_[sequencer_index_ % sequencer_.size()] = v; break;
+        case 0x3C5:
+            sequencer_[sequencer_index_ % sequencer_.size()] = v;
+            // Clocking Mode (SR01): dots-per-char (bit 0) and the dot-clock
+            // divide-by-2 (bit 3) -- see recompute_timing_().
+            if (sequencer_index_ % sequencer_.size() == 0x01) recompute_timing_();
+            break;
         case 0x3CE: gfx_index_ = v; break;
         case 0x3CF: gfx_[gfx_index_ % gfx_.size()] = v; break;
         case 0x3D4: crtc_index_ = v; break;
-        case 0x3D5: crtc_[crtc_index_ % crtc_.size()] = v; break;
+        case 0x3D5: {
+            uint8_t idx = crtc_index_ % crtc_.size();
+            crtc_[idx] = v;
+            // Horizontal Total, Vertical Total (+ its two Overflow bits),
+            // Vertical Retrace Start (+ its two Overflow bits), Vertical
+            // Retrace End -- the only CRTC registers recompute_timing_()
+            // consults.
+            if (idx == 0x00 || idx == 0x06 || idx == 0x07 || idx == 0x10 || idx == 0x11) recompute_timing_();
+            break;
+        }
         default: break;
     }
     note_mapping_change();
@@ -207,6 +222,60 @@ void Ega::note_mapping_change() {
                    (uint32_t(gfx_[8]) << 24);
     if (vbe_mode_active()) sig = ~sig;
     if (sig != mapping_sig_) { mapping_sig_ = sig; ++mapping_epoch_; }
+}
+
+// Derives the vertical-frame period and retrace-window length from the
+// CRTC's own programmed timing -- the same inputs a real CRT controller's
+// scanout counters use, not a hardcoded refresh-rate constant. Register
+// semantics: IBM VGA CRTC/Sequencer/Misc Output, as documented in the
+// standard VGA register reference (e.g. FreeVGA's "CRTC Registers",
+// "Sequencer Registers" and "General Registers" pages) and reproduced
+// identically by every compatible BIOS, including this machine's Bochs
+// vgabios. See PC486_REVIEW.md §8.6.
+void Ega::recompute_timing_() {
+    int dots_per_char = (sequencer_[1] & 0x01) ? 8 : 9;               // Clocking Mode bit 0
+    double dot_clock = (misc_output_ & 0x04) ? 28322000.0 : 25175000.0;  // Misc Output bit 2
+    if (sequencer_[1] & 0x08) dot_clock *= 0.5;                       // Clocking Mode bit 3: /2
+
+    int h_total_chars = int(crtc_[0x00]) + 5;  // Horizontal Total stores total-5
+    int v_total_lines = (int(crtc_[0x06]) |
+                          ((int(crtc_[0x07]) & 0x01) << 8) |
+                          (((int(crtc_[0x07]) >> 5) & 1) << 9)) + 2;  // Vertical Total (+Overflow) stores total-2
+
+    double frame_hz = dot_clock / (double(dots_per_char) * double(h_total_chars) * double(v_total_lines));
+
+    // A freshly reset (or mid-mode-set) CRTC has every register at 0, which
+    // plugs into the formula above as several hundred kHz -- no real
+    // monitor could sync to that. Fall back to the rate this machine's own
+    // BIOS programs for its default mode 03h until the guest programs
+    // something plausible, rather than let a "wait for vertical retrace"
+    // loop see a nonsense frequency.
+    constexpr double kFallbackHz = 70.0;
+    bool implausible = !(frame_hz >= 40.0 && frame_hz <= 120.0);
+    frame_period_cycles_ = cpu_hz_ / (implausible ? kFallbackHz : frame_hz);
+
+    if (implausible) {
+        // The same implausible registers make Vertical Retrace Start/End
+        // meaningless too (their scanline numbers presume a real
+        // v_total_lines) -- use a plausible fixed slice of the fallback
+        // frame instead of propagating garbage into the retrace window.
+        retrace_start_cycles_ = 0.0;
+        retrace_window_cycles_ = frame_period_cycles_ * 0.08;
+        return;
+    }
+
+    // Vertical Retrace Start (CRTC 10h) + its two Overflow bits.
+    int vrs = int(crtc_[0x10]) |
+              ((int(crtc_[0x07]) & 0x04) << 6) |
+              (((int(crtc_[0x07]) >> 7) & 1) << 9);
+    // Vertical Retrace End (CRTC 11h) is only a 4-bit comparator against the
+    // low bits of the scanline counter, so its value wraps relative to vrs.
+    int vre = (vrs & ~0x0F) | (int(crtc_[0x11]) & 0x0F);
+    if (vre <= vrs) vre += 16;
+
+    double per_scanline_cycles = frame_period_cycles_ / double(v_total_lines);
+    retrace_start_cycles_ = double(vrs) * per_scanline_cycles;
+    retrace_window_cycles_ = double(vre - vrs) * per_scanline_cycles;
 }
 
 uint8_t *Ega::linear_page(uint32_t page_base, bool write) {

@@ -10,6 +10,7 @@
 #   make hdd-image   build the shipped FreeDOS HDD image (see below -- SLOW)
 #   make hdd-boot-check  cold-boot the finished HDD image standalone, report the screen
 #   make render_screen   build the screen-to-BMP diagnostic tool (see below)
+#   make fm-trace-render build the OPL3 trace-to-WAV dev tool (see below)
 #   make wasm        build the WebAssembly module (needs emsdk -- see web/Makefile)
 #   make serve       build the wasm module + serve the browser front end
 #   make coverage    build + run the unit tests with llvm-cov, print a report
@@ -64,7 +65,7 @@ CXXFLAGS ?= -std=c++17 -O2 -Wall -Wextra
 CHIPSET_SRCS = machine.cpp chipset.cpp cpu80486.cpp pic8259.cpp pit8253.cpp i8042.cpp cmos_rtc.cpp dma8237.cpp fdc765.cpp ega.cpp wd1003.cpp atapi_cdrom.cpp pcspeaker.cpp soundblaster.cpp opl3.cpp
 UNIT_TESTS = cpu80486_test cpu80486_timing_test pic8259_test pit8253_test i8042_test cmos_rtc_test dma8237_test chipset_test machine_test fdc765_test ega_test ega_render_test wd1003_test atapi_cdrom_test pcspeaker_test soundblaster_test
 
-.PHONY: help test test-smoke bios bios-check pm-check vbe-check hdd-image hdd-boot-check wasm serve coverage check clean
+.PHONY: help test test-smoke bios bios-check pm-check vbe-check hdd-image hdd-boot-check wasm serve coverage check clean fm-trace-render
 
 LLVM_PROFDATA ?= xcrun llvm-profdata
 LLVM_COV      ?= xcrun llvm-cov
@@ -121,6 +122,15 @@ vbe-check: bios vbe_mode13_check
 render_screen: render_screen.cpp ega_render.cpp $(CHIPSET_SRCS)
 	$(CXX) $(CXXFLAGS) -o $@ render_screen.cpp ega_render.cpp $(CHIPSET_SRCS)
 
+# --- OPL3 trace-to-WAV dev tool (see fm_trace_render.cpp) ----------------
+# Replays a `?fmtrace` register-write capture through the real Opl3 in
+# isolation, to tell a chip-emulation tempo/quality bug apart from a
+# browser-audio-path one. Only needs opl3.cpp/.h, not the whole chipset.
+fm_trace_render: fm_trace_render.cpp opl3.cpp opl3.h
+	$(CXX) $(CXXFLAGS) -o $@ fm_trace_render.cpp opl3.cpp
+
+fm-trace-render: fm_trace_render
+
 # --- FreeDOS LiveCD ISO + its companion boot floppy: this machine's
 # default mounted CD-ROM disc, and the traditional "boot from floppy,
 # install from CD" path FreeDOS itself ships FD13BOOT.img for. That's the
@@ -146,6 +156,7 @@ disks/build_freedos_hdd: disks/build_freedos_hdd.cpp $(CHIPSET_SRCS)
 hdd-image: bios disks/build_freedos_hdd disks/freedos-cd.iso disks/freedos-boot.img
 	./disks/build_freedos_hdd roms/BIOS-bochs-legacy roms/VGABIOS-lgpl-latest.bin \
 	  disks/freedos-boot.img disks/freedos-cd.iso disks/freedos-hdd.img
+	bash disks/apply-dos-config.sh disks/freedos-hdd.img
 
 # The CuteMouse driver floppy the Freeware Disks & Drivers panel offers. Built from the files
 # already on the FreeDOS HDD image rather than fetched separately -- see
@@ -199,5 +210,5 @@ test-smoke: test
 check: test pm-check vbe-check
 
 clean:
-	rm -rf tests/build tests/build-cov tests/coverage-cpp bios_host pm_stub_check vbe_mode13_check disks/build_freedos_hdd disks/hdd_boot_check disks/boom_run_check render_screen
+	rm -rf tests/build tests/build-cov tests/coverage-cpp bios_host pm_stub_check vbe_mode13_check disks/build_freedos_hdd disks/hdd_boot_check disks/boom_run_check render_screen fm_trace_render
 	$(MAKE) -C web clean

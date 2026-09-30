@@ -492,8 +492,8 @@
                     aria-label="Enable Sound" aria-pressed="false">&#9834;</button>
             <button type="button" id="mouseCaptureBtn" class="bezel-btn" title="Enable Mouse"
                     aria-label="Enable Mouse" aria-pressed="false"><svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path fill="currentColor" d="M8 1.5C6.1 1.5 4.5 2.9 4.5 4.7v5.1c0 1.9 1.6 3.5 3.5 3.5s3.5-1.6 3.5-3.5V4.7C11.5 2.9 9.9 1.5 8 1.5zm0 1.2c1.1 0 2 .8 2 1.8v1.5H6V4.5c0-1 .9-1.8 2-1.8z"/></svg></button>
-            <button type="button" id="wasdArrowsBtn" class="bezel-btn" title="Map WASD to Arrow Keys"
-                    aria-label="Map WASD to Arrow Keys" aria-pressed="false">WASD</button>
+            <button type="button" id="wasdArrowsBtn" class="bezel-btn" title="Map WASD to Arrows (A/D strafe)"
+                    aria-label="Map WASD to Arrows (A/D strafe)" aria-pressed="false">WASD</button>
             <button type="button" id="fullscreenBtn" class="bezel-btn" title="Fullscreen" aria-label="Fullscreen">&#x26F6;</button>
           </div>
         </div>
@@ -501,7 +501,7 @@
       <div class="row audio-row">
         <label><input type="checkbox" id="speakerEnabled"> Enable Sound</label>
         <label><input type="checkbox" id="mouseCaptureEnabled"> Enable Mouse</label>
-        <label><input type="checkbox" id="wasdArrows"> Map WASD to Arrow Keys</label>
+        <label><input type="checkbox" id="wasdArrows"> Map WASD to Arrows (A/D strafe)</label>
       </div>
     </div>
 
@@ -704,12 +704,21 @@
       <h2>Software compatibility</h2>
       <div class="row">
         <span class="muted">Ships with FreeDOS 1.3 on C:, and runs real PC-DOS/
-          MS-DOS 6.x-era real-mode software the same way -- this is currently a
-          real-mode-only 80486DX2, so protected mode, paging, the on-die FPU, a
-          sound card, and VESA/256-color VGA modes aren't implemented yet
-          (Milestone 1 of a multi-milestone build -- see
-          <a href="https://github.com/gsirhc/retro/blob/main/retroweb/pc486/PC486_REVIEW.md" target="_blank" rel="noopener">PC486_REVIEW.md</a>
-          for what's next). Keyboard and the internal PC speaker only for now.</span>
+          MS-DOS 6.x-era software the same way. An 80486DX2-66 -- 66 MHz doubled
+          from a 33 MHz bus, with the on-die FPU -- running real mode, 16- and
+          32-bit protected mode, paging, and virtual-8086 mode, with 32MB of
+          RAM. VGA/EGA plus this card's own VESA BIOS Extensions: 1MB of video
+          RAM, mode 13h, and 256-color linear modes up to 1024x768. A Sound
+          Blaster 16 (DSP 4.05) with 16-bit stereo DMA, an OPL3 FM synthesizer,
+          and the internal PC speaker. A 3-button PS/2 mouse. How each one was
+          built is in
+          <a href="https://github.com/gsirhc/retro/blob/main/retroweb/pc486/PC486_REVIEW.md" target="_blank" rel="noopener">the hardware notes</a>.</span>
+      </div>
+      <div class="row">
+        <span class="muted">What the board doesn't carry: no gameport or
+          joystick, no MIDI -- there's no MPU-401 and no SB-MIDI, so General
+          MIDI music isn't available and FM music plays through the OPL3 --
+          no CD digital audio, and no serial or parallel ports.</span>
       </div>
       <div class="row">
         <span class="muted">Disk images aren't included or hosted here (beyond the
@@ -722,9 +731,10 @@
     <hr class="rule">
     <div class="footer">
       <p>A 1990s "gamer's dream" 486 build -- not a recreation of a specific
-        historical machine. Real-mode 80486DX2 CPU, chipset, WD1003 hard disk,
-        ATAPI CD-ROM, NEC 765 floppy controller, VGA graphics, PC speaker --
-        the source and hardware findings live in
+        historical machine. 80486DX2-66 CPU with FPU and protected mode,
+        chipset, WD1003 hard disk, ATAPI CD-ROM, NEC 765 floppy controller,
+        VGA/VESA SVGA graphics, Sound Blaster 16 with OPL3 and PC speaker,
+        PS/2 mouse -- the source and hardware findings live in
         <a href="https://github.com/gsirhc/retro/tree/main/retroweb/pc486" target="_blank" rel="noopener">retroweb/pc486/</a>
         (<a href="https://github.com/gsirhc/retro/blob/main/retroweb/pc486/PC486_REVIEW.md" target="_blank" rel="noopener">hardware notes</a>).
         BIOS/VGA BIOS and FreeDOS are freely-licensed stand-ins for still-copyrighted originals.</p>

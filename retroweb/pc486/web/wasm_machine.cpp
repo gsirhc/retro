@@ -25,6 +25,7 @@
 //   const audio = m.sbDrainSamples();     // {cycles: Float64Array, left: Int16Array, right: Int16Array}
 //   m.sbSampleRateHz();                   // the DSP's currently-programmed output rate
 //   const fm = m.fmDrainSamples();        // the OPL3's stream, same shape as above
+//   m.fmStartTrace(400000); m.fmDrainTrace();  // opt-in register-write trace, see app.js's window.__fm
 //   m.fmGainLeft(); m.sbGainLeft();       // the CT1745 attenuators the front end mixes with
 //   m.textScreen();                       // test-only: current text-mode screen as a string, "" in graphics modes
 
@@ -275,6 +276,23 @@ public:
     uint8_t fmReg(uint16_t index) const { return m_.chipset.sb.fm.reg(index); }
     bool fmOpl3Mode() const { return m_.chipset.sb.fm.opl3_mode(); }
 
+    // ---- OPL3 register write trace (opt-in diagnostic, see app.js's
+    // window.__fm) -- captures every FM register write with its CPU cycle
+    // stamp so a real DOS game's music can be analysed offline.
+    void fmStartTrace(int maxEvents) { m_.chipset.sb.fm.start_trace(std::size_t(maxEvents)); }
+    val fmDrainTrace() {
+        std::vector<pc486::Opl3::TraceEvent> events = m_.chipset.sb.fm.drain_trace();
+        val out = val::array();
+        for (const auto &e : events) {
+            val entry = val::object();
+            entry.set("cycle", double(e.cycle));
+            entry.set("reg", e.reg);
+            entry.set("value", e.value);
+            out.call<val>("push", entry);
+        }
+        return out;
+    }
+
     // Cycles the 486 has spent halted. The front end differences this
     // against totalCycles() to show the guest's own CPU usage -- the share
     // of its time the machine is doing work rather than waiting on an
@@ -434,6 +452,8 @@ EMSCRIPTEN_BINDINGS(pc486_machine) {
         .function("fmReg", &WasmMachine::fmReg)
         .function("fmOpl3Mode", &WasmMachine::fmOpl3Mode)
         .function("fmDrainSamples", &WasmMachine::fmDrainSamples)
+        .function("fmStartTrace", &WasmMachine::fmStartTrace)
+        .function("fmDrainTrace", &WasmMachine::fmDrainTrace)
         .function("heapBytes", &WasmMachine::heapBytes)
         .function("haltCycles", &WasmMachine::haltCycles)
         .function("idleCycles", &WasmMachine::idleCycles)

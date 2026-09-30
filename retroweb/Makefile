@@ -48,59 +48,59 @@ site:
 	rm -rf _site.new
 	mkdir -p _site.new/altair8800 _site.new/assembler6502 _site.new/ibmpc-at _site.new/pacman _site.new/frogger _site.new/galaga _site.new/galaxian _site.new/scramble _site.new/pc486
 	cp index.html about.html _site.new/
-	cp -R assets _site.new/ && rm -f _site.new/assets/README.md
+	cp -Rp assets _site.new/ && rm -f _site.new/assets/README.md
 	mkdir -p _site.new/shared
 	cp shared/theme.css shared/pagebar.css shared/footer.css shared/footer.js _site.new/shared/
-	cp -R altair8800/web/. _site.new/altair8800/
+	cp -Rp altair8800/web/. _site.new/altair8800/
 	( cd _site.new/altair8800 && \
 	  rm -rf tests node_modules coverage test-results playwright-report \
 	         .playwright .v8-coverage && \
 	  rm -f Makefile README.md devserve.py wasm_machine.cpp \
 	        package.json package-lock.json playwright.config.ts )
-	cp -R assembler6502/web/. _site.new/assembler6502/
+	cp -Rp assembler6502/web/. _site.new/assembler6502/
 	( cd _site.new/assembler6502 && \
 	  rm -rf tests node_modules coverage test-results playwright-report \
 	         .playwright .v8-coverage && \
 	  rm -f Makefile devserve.py wasm_machine.cpp gen_entrypoints.py \
 	        gen_example_bin.cpp gen_example_bin \
 	        package.json package-lock.json playwright.config.ts )
-	cp -R ibmpc-at/web/. _site.new/ibmpc-at/
+	cp -Rp ibmpc-at/web/. _site.new/ibmpc-at/
 	( cd _site.new/ibmpc-at && \
 	  rm -rf tests node_modules coverage test-results playwright-report \
 	         .playwright .v8-coverage && \
 	  rm -f Makefile devserve.py wasm_machine.cpp \
 	        package.json package-lock.json playwright.config.ts )
-	cp -R pacman/web/. _site.new/pacman/
+	cp -Rp pacman/web/. _site.new/pacman/
 	( cd _site.new/pacman && \
 	  rm -rf tests node_modules coverage test-results playwright-report \
 	         .playwright .v8-coverage && \
 	  rm -f Makefile devserve.py wasm_machine.cpp \
 	        package.json package-lock.json playwright.config.ts )
-	cp -R frogger/web/. _site.new/frogger/
+	cp -Rp frogger/web/. _site.new/frogger/
 	( cd _site.new/frogger && \
 	  rm -rf tests node_modules coverage test-results playwright-report \
 	         .playwright .v8-coverage && \
 	  rm -f Makefile devserve.py wasm_machine.cpp \
 	        package.json package-lock.json playwright.config.ts )
-	cp -R galaga/web/. _site.new/galaga/
+	cp -Rp galaga/web/. _site.new/galaga/
 	( cd _site.new/galaga && \
 	  rm -rf tests node_modules coverage test-results playwright-report \
 	         .playwright .v8-coverage && \
 	  rm -f Makefile devserve.py wasm_machine.cpp \
 	        package.json package-lock.json playwright.config.ts )
-	cp -R galaxian/web/. _site.new/galaxian/
+	cp -Rp galaxian/web/. _site.new/galaxian/
 	( cd _site.new/galaxian && \
 	  rm -rf tests node_modules coverage test-results playwright-report \
 	         .playwright .v8-coverage && \
 	  rm -f Makefile devserve.py wasm_machine.cpp \
 	        package.json package-lock.json playwright.config.ts )
-	cp -R scramble/web/. _site.new/scramble/
+	cp -Rp scramble/web/. _site.new/scramble/
 	( cd _site.new/scramble && \
 	  rm -rf tests node_modules coverage test-results playwright-report \
 	         .playwright .v8-coverage && \
 	  rm -f Makefile devserve.py wasm_machine.cpp \
 	        package.json package-lock.json playwright.config.ts )
-	cp -R pc486/web/. _site.new/pc486/
+	cp -Rp pc486/web/. _site.new/pc486/
 	( cd _site.new/pc486 && \
 	  rm -rf tests node_modules coverage test-results playwright-report \
 	         .playwright .v8-coverage && \

@@ -13,7 +13,9 @@
 
 #include "opl3.h"
 
+#include <algorithm>
 #include <cstdint>
+#include <cstdlib>
 #include <vector>
 
 namespace {
@@ -68,6 +70,40 @@ protected:
         Reg(0, 0xC0, pan);
         Reg(0, 0xA0, 0xAE);  // F-number low byte; value itself is arbitrary
     }
+    // Operator slot offsets for channels 0-8 within one bank: the OPL's
+    // operator numbering is not contiguous across channels.
+    static uint8_t OpOffset(int ch, bool carrier) {
+        static const uint8_t kBase[9] = {0x00, 0x01, 0x02, 0x08, 0x09, 0x0A, 0x10, 0x11, 0x12};
+        return uint8_t(kBase[ch] + (carrier ? 3 : 0));
+    }
+
+    // Programs one 2-op FM voice on an arbitrary bank/channel at the given
+    // total levels and keys it on, so a test can build real polyphony instead
+    // of the single channel 0 SetUpAudibleChannel() covers.
+    void SetUpVoiceAndKeyOn(int bank, int ch, uint8_t mod_tl, uint8_t car_tl) {
+        uint8_t m = OpOffset(ch, false), c = OpOffset(ch, true);
+        Reg(bank, uint8_t(0x20 + m), 0x21);
+        Reg(bank, uint8_t(0x20 + c), 0x21);
+        Reg(bank, uint8_t(0x40 + m), mod_tl);
+        Reg(bank, uint8_t(0x40 + c), car_tl);
+        Reg(bank, uint8_t(0x60 + m), 0xF0);
+        Reg(bank, uint8_t(0x60 + c), 0xF0);
+        Reg(bank, uint8_t(0x80 + m), 0x0F);
+        Reg(bank, uint8_t(0x80 + c), 0x0F);
+        Reg(bank, uint8_t(0xC0 + ch), 0x30);
+        Reg(bank, uint8_t(0xA0 + ch), 0xAE);
+        Reg(bank, uint8_t(0xB0 + ch), 0x32);
+    }
+
+    // Fraction of drained samples sitting against either clamp bound.
+    static double ClippedFraction(const std::vector<Opl3::Sample> &samples) {
+        std::size_t clipped = 0;
+        for (const auto &s : samples) {
+            if (s.left >= 32767 || s.left <= -32768 || s.right >= 32767 || s.right <= -32768) ++clipped;
+        }
+        return samples.empty() ? 0.0 : double(clipped) / double(samples.size());
+    }
+
     // BLOCK=4, F-number high bits=2, KON set/clear -- channel 0's B0h.
     void KeyOn() { Reg(0, 0xB0, 0x32); }
     void KeyOff() { Reg(0, 0xB0, 0x12); }
@@ -457,6 +493,84 @@ TEST_F(Opl3Test, DrainSamplesReturnsAndClearsTheLog) {
     AdvanceMicroseconds(1000.0);
     EXPECT_FALSE(opl.drain_samples().empty());
     EXPECT_TRUE(opl.drain_samples().empty());
+}
+
+// --- output headroom ------------------------------------------------------
+
+// The output stage's master gain has no hardware citation (see opl3.cpp), so
+// what pins it is the clamp: real FM music runs many voices at once, and a
+// gain that clips them is audible as distortion. Nothing used to sum more
+// than one channel, which is exactly how a gain that clipped at three voices
+// shipped. 18 moderately-attenuated voices is full OPL3 polyphony voiced the
+// way period music actually is.
+TEST_F(Opl3Test, FullPolyphonyAtModerateLevelsDoesNotClip) {
+    Reg(1, 0x05, 0x01);  // NEW: OPL3 mode, so bank 1's nine channels sound
+    for (int ch = 0; ch < 9; ++ch) {
+        SetUpVoiceAndKeyOn(0, ch, 10, 18);
+        SetUpVoiceAndKeyOn(1, ch, 10, 18);
+    }
+    AdvanceMicroseconds(10000.0);  // past the attack
+    opl.drain_samples();
+    AdvanceMicroseconds(60000.0);  // steady state
+    auto samples = opl.drain_samples();
+    ASSERT_FALSE(samples.empty());
+    EXPECT_DOUBLE_EQ(0.0, ClippedFraction(samples));
+}
+
+// A single unattenuated voice must leave room for the rest of them: if one
+// channel alone eats a large share of full scale, any real arrangement
+// clips. The bound is what opl3.cpp's gain comment claims (~18%).
+TEST_F(Opl3Test, OneFullVolumeVoiceLeavesHeadroomForEighteen) {
+    SetUpAudibleChannel();
+    KeyOn();
+    AdvanceMicroseconds(10000.0);
+    opl.drain_samples();
+    AdvanceMicroseconds(20000.0);
+    auto samples = opl.drain_samples();
+    ASSERT_FALSE(samples.empty());
+    int peak = 0;
+    for (const auto &s : samples) {
+        peak = std::max(peak, std::abs(int(s.left)));
+        peak = std::max(peak, std::abs(int(s.right)));
+    }
+    EXPECT_GT(peak, 3000);   // still audibly present, not scaled into nothing
+    EXPECT_LT(peak, 8200);   // under 1/4 of full scale, so polyphony fits
+}
+
+// --- register write trace (opt-in diagnostic) ------------------------------
+
+TEST_F(Opl3Test, TraceStaysEmptyWhenNotArmed) {
+    Reg(0, 0x20, 0x21);
+    Reg(1, 0x05, 0x01);
+    EXPECT_TRUE(opl.drain_trace().empty());
+}
+
+TEST_F(Opl3Test, ArmedTraceCapturesCycleRegisterAndValue) {
+    opl.start_trace(10);
+    AdvanceCycles(1234);
+    Reg(0, 0x20, 0x21);   // bank 0 -> register index 0x020
+    Reg(1, 0x05, 0x01);   // bank 1 -> register index 0x105
+    auto events = opl.drain_trace();
+    ASSERT_EQ(events.size(), 2u);
+    EXPECT_EQ(events[0].cycle, cycles_);
+    EXPECT_EQ(events[0].reg, 0x020);
+    EXPECT_EQ(events[0].value, 0x21);
+    EXPECT_EQ(events[1].cycle, cycles_);
+    EXPECT_EQ(events[1].reg, 0x105);
+    EXPECT_EQ(events[1].value, 0x01);
+}
+
+TEST_F(Opl3Test, TraceStopsGrowingAtTheCap) {
+    opl.start_trace(3);
+    for (int i = 0; i < 10; ++i) Reg(0, 0x40, uint8_t(i));
+    EXPECT_EQ(opl.drain_trace().size(), 3u);
+}
+
+TEST_F(Opl3Test, DrainTraceClearsTheBuffer) {
+    opl.start_trace(10);
+    Reg(0, 0x40, 0x00);
+    EXPECT_FALSE(opl.drain_trace().empty());
+    EXPECT_TRUE(opl.drain_trace().empty());
 }
 
 }  // namespace

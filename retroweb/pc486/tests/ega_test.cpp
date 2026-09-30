@@ -12,6 +12,7 @@
 
 #include <cstddef>
 #include <ios>
+#include <vector>
 
 #include "ega.h"
 
@@ -51,6 +52,68 @@ void SetupLinearGraphics(Ega &ega) {
     ega.out(0x3CE, 0x05); ega.out(0x3CF, 0x00);  // Graphics Mode: write mode 0, odd/even off
     ega.out(0x3CE, 0x06); ega.out(0x3CF, 0x05);  // Misc: graphics mode, 64K @ A0000
     ega.out(0x3CE, 0x08); ega.out(0x3CF, 0xFF);  // Bit Mask: all bits pass through
+}
+
+// Programs the handful of CRTC/Sequencer/Misc Output registers
+// recompute_timing_() consults -- Horizontal Total, Vertical Total (+
+// Overflow), Vertical Retrace Start (+ Overflow) and End, Clocking Mode,
+// and the dot-clock select -- without touching anything else (these tests
+// care only about frame timing, not a full mode set).
+void ProgramCrtcTiming(Ega &ega, uint8_t htotal, uint8_t vtotal, uint8_t overflow,
+                        uint8_t vrs, uint8_t vre_low4, uint8_t seq_clocking_mode,
+                        uint8_t misc_output) {
+    ega.out(0x3D4, 0x00); ega.out(0x3D5, htotal);
+    ega.out(0x3D4, 0x06); ega.out(0x3D5, vtotal);
+    ega.out(0x3D4, 0x07); ega.out(0x3D5, overflow);
+    ega.out(0x3D4, 0x10); ega.out(0x3D5, vrs);
+    ega.out(0x3D4, 0x11); ega.out(0x3D5, uint8_t(vre_low4 & 0x0F));
+    ega.out(0x3C4, 0x01); ega.out(0x3C5, seq_clocking_mode);
+    ega.out(0x3C2, misc_output);
+}
+
+// Ticks ega cycle-by-cycle for `span` cycles starting at `*cursor`
+// (tick() expects a monotonically non-decreasing cycle count, exactly
+// like the real Machine::run_cycles() caller, so repeated measurements on
+// the same Ega must continue the timeline rather than restart it -- see
+// *cursor, which this leaves just past the last cycle ticked), returning
+// the cycle count of every rising edge (0x3DA bit 3 going 0->1) seen along
+// the way -- exactly what a real "wait for vertical retrace" polling loop
+// watches for. Consecutive onsets are one frame period apart.
+std::vector<uint64_t> RetraceOnsets(Ega &ega, uint64_t &cursor, uint64_t span) {
+    std::vector<uint64_t> onsets;
+    bool prev = (ega.in(0x3DA) & 0x08) != 0;
+    uint64_t end = cursor + span;
+    for (uint64_t c = cursor; c <= end; ++c) {
+        ega.tick(c);
+        bool now = (ega.in(0x3DA) & 0x08) != 0;
+        if (now && !prev) onsets.push_back(c);
+        prev = now;
+    }
+    cursor = end + 1;
+    return onsets;
+}
+
+// Cycle length of the first retrace pulse found within `span` cycles from
+// `*cursor` -- the distance from its onset to the following falling edge.
+// Continues the same cycle timeline as RetraceOnsets() above.
+uint64_t MeasureRetraceWindowCycles(Ega &ega, uint64_t &cursor, uint64_t span) {
+    bool prev = (ega.in(0x3DA) & 0x08) != 0;
+    uint64_t rising = 0;
+    bool have_rising = false;
+    uint64_t end = cursor + span;
+    uint64_t result = 0;
+    for (uint64_t c = cursor; c <= end; ++c) {
+        ega.tick(c);
+        bool now = (ega.in(0x3DA) & 0x08) != 0;
+        if (!have_rising) {
+            if (now && !prev) { rising = c; have_rising = true; }
+        } else if (prev && !now && result == 0) {
+            result = c - rising;
+        }
+        prev = now;
+    }
+    cursor = end + 1;
+    return result;  // 0 means no full pulse was seen within span -- caller asserts on that
 }
 
 TEST(EgaTest, TextModeMemoryReadWriteRoundTrip) {
@@ -759,6 +822,116 @@ TEST(EgaTest, RetraceBitToggledByTick) {
     }
     EXPECT_TRUE(saw_true);
     EXPECT_TRUE(saw_false);
+}
+
+// Standard mode 03h (720x400 text, 28.322 MHz dot clock, 9 dots/char,
+// Horizontal Total register 0x5F -> 100 char clocks, Vertical Total
+// register 0xBF + Overflow bits -> 449 scanlines) is the textbook ~70.1Hz
+// VGA frame rate -- the real register values every compatible BIOS
+// (including this machine's) programs for it. At this machine's 66 MHz
+// CPU clock that's 66e6/70.1 CPU cycles per frame.
+TEST(EgaTest, Mode03hTimingYieldsSeventyHertzFrame) {
+    Ega ega;
+    ega.reset();
+    ProgramCrtcTiming(ega, /*htotal=*/0x5F, /*vtotal=*/0xBF, /*overflow=*/0x05,
+                       /*vrs=*/0x9C, /*vre_low4=*/0x0E, /*seq clocking=*/0x00,
+                       /*misc=*/0x04);
+    uint64_t cursor = 0;
+    std::vector<uint64_t> onsets = RetraceOnsets(ega, cursor, 3'000'000);
+    ASSERT_GE(onsets.size(), 2u);
+    uint64_t period = onsets[1] - onsets[0];
+    EXPECT_NEAR(double(period), 66e6 / 70.1, 66e6 / 70.1 * 0.01);
+}
+
+// 640x480 (25.175 MHz dot clock, 8 dots/char, same Horizontal Total 0x5F
+// -> 100 char clocks, Vertical Total -> 525 scanlines) is the textbook
+// 59.94Hz VESA frame rate.
+TEST(EgaTest, SixForty480TimingYieldsFiftyNinePointNineFourHertzFrame) {
+    Ega ega;
+    ega.reset();
+    ProgramCrtcTiming(ega, /*htotal=*/0x5F, /*vtotal=*/0x0B, /*overflow=*/0x24,
+                       /*vrs=*/0xE0, /*vre_low4=*/0x02, /*seq clocking=*/0x01,
+                       /*misc=*/0x00);
+    uint64_t cursor = 0;
+    std::vector<uint64_t> onsets = RetraceOnsets(ega, cursor, 3'000'000);
+    ASSERT_GE(onsets.size(), 2u);
+    uint64_t period = onsets[1] - onsets[0];
+    EXPECT_NEAR(double(period), 66e6 / 59.94, 66e6 / 59.94 * 0.01);
+}
+
+// Front-panel Turbo off (33 MHz) must not change the wall-clock refresh
+// rate -- a real DX2's Turbo button changes only the CPU's internal
+// clock, never the video card's own crystal -- so the same mode 03h
+// timing should now take half as many CPU cycles per frame.
+TEST(EgaTest, SetCpuHzHalvesCyclesPerFrameAtHalfTheClock) {
+    Ega ega;
+    ega.reset();
+    ProgramCrtcTiming(ega, /*htotal=*/0x5F, /*vtotal=*/0xBF, /*overflow=*/0x05,
+                       /*vrs=*/0x9C, /*vre_low4=*/0x0E, /*seq clocking=*/0x00,
+                       /*misc=*/0x04);
+    ega.set_cpu_hz(33e6);
+    uint64_t cursor = 0;
+    std::vector<uint64_t> onsets = RetraceOnsets(ega, cursor, 1'500'000);
+    ASSERT_GE(onsets.size(), 2u);
+    uint64_t period = onsets[1] - onsets[0];
+    EXPECT_NEAR(double(period), 33e6 / 70.1, 33e6 / 70.1 * 0.01);
+}
+
+// The retrace window is CRTC 10h (Vertical Retrace Start) to CRTC 11h's
+// low 4 bits (Vertical Retrace End, a 4-bit comparator) -- not a fixed
+// fraction of the frame. Widening the programmed retrace-end value must
+// widen the measured window.
+TEST(EgaTest, RetraceWindowLengthTracksVerticalRetraceEndRegister) {
+    Ega ega;
+    ega.reset();
+    ProgramCrtcTiming(ega, /*htotal=*/0x5F, /*vtotal=*/0xBF, /*overflow=*/0x05,
+                       /*vrs=*/0x9C, /*vre_low4=*/0x0E, /*seq clocking=*/0x00,
+                       /*misc=*/0x04);
+    uint64_t cursor = 0;
+    uint64_t narrow_window = MeasureRetraceWindowCycles(ega, cursor, 1'500'000);
+    ASSERT_GT(narrow_window, 0u);
+
+    // Same Vertical Retrace Start, a Vertical Retrace End that wraps
+    // around to a value further from it -- a much wider pulse.
+    ega.out(0x3D4, 0x11); ega.out(0x3D5, 0x08);
+    uint64_t wide_window = MeasureRetraceWindowCycles(ega, cursor, 1'500'000);
+    ASSERT_GT(wide_window, 0u);
+
+    EXPECT_GT(wide_window, narrow_window * 3);
+}
+
+// A freshly reset Ega has every CRTC register at 0, which the formula in
+// recompute_timing_() would otherwise turn into a several-hundred-kHz
+// "frame rate" -- nonsense no real monitor could sync to. It must fall
+// back to the ~70Hz mode 03h default instead.
+TEST(EgaTest, UnprogrammedCrtcFallsBackToSeventyHertzInsteadOfNonsense) {
+    Ega ega;
+    ega.reset();
+    uint64_t cursor = 0;
+    std::vector<uint64_t> onsets = RetraceOnsets(ega, cursor, 2'000'000);
+    ASSERT_GE(onsets.size(), 2u);
+    uint64_t period = onsets[1] - onsets[0];
+    EXPECT_NEAR(double(period), 66e6 / 70.0, 66e6 / 70.0 * 0.01);
+}
+
+// Clocking Mode bit 3 (Dot Clock Rate) halves the dot clock -- the real
+// mode 0Dh (320x200x16) shape: Horizontal Total register 0x2D -> 50 char
+// clocks, 8 dots/char, the same 449-line Vertical Total as mode 03h. Should
+// still land near 70Hz -- the halved dot clock and the narrower/8-dot
+// horizontal geometry roughly offset each other, exactly as they do on
+// real VGA silicon (this is how a 320-wide low-res mode keeps the same
+// refresh rate as the 720-wide text mode it's often switched from).
+TEST(EgaTest, ClockingModeDivideByTwoBitIsHonoured) {
+    Ega ega;
+    ega.reset();
+    ProgramCrtcTiming(ega, /*htotal=*/0x2D, /*vtotal=*/0xBF, /*overflow=*/0x05,
+                       /*vrs=*/0x9C, /*vre_low4=*/0x0E, /*seq clocking=*/0x09,
+                       /*misc=*/0x00);
+    uint64_t cursor = 0;
+    std::vector<uint64_t> onsets = RetraceOnsets(ega, cursor, 3'000'000);
+    ASSERT_GE(onsets.size(), 2u);
+    uint64_t period = onsets[1] - onsets[0];
+    EXPECT_NEAR(double(period), 66e6 / 70.1, 66e6 / 70.1 * 0.01);
 }
 
 }  // namespace

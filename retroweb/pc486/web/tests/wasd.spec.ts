@@ -50,4 +50,29 @@ test.describe("WASD to arrow keys", () => {
     await page.keyboard.press("x");
     await expect.poll(() => screenText(page), { timeout: 10_000 }).toMatch(/x/);
   });
+
+  // A and D strafe rather than turn: Doom's strafe modifier is Alt
+  // (key_strafe), so they send Alt with the arrow.
+  test("A and D map to Alt+arrow so they strafe, W and S stay plain arrows", async ({
+    promptPage: page,
+  }) => {
+    const map = async (code: string) =>
+      page.evaluate((c) => (window as any).__test.mapKey(c), code);
+
+    expect(await map("KeyA")).toEqual(["KeyA"]);   // off: untouched
+
+    await page.locator("#wasdArrows").check();
+    expect(await map("KeyW")).toEqual(["ArrowUp"]);
+    expect(await map("KeyS")).toEqual(["ArrowDown"]);
+    expect(await map("KeyA")).toEqual(["AltLeft", "ArrowLeft"]);
+    expect(await map("KeyD")).toEqual(["AltLeft", "ArrowRight"]);
+  });
+
+  test("on: A no longer types a literal a at the DOS prompt", async ({ promptPage: page }) => {
+    await page.locator("#wasdArrows").check();
+    await page.locator("#screen").click();
+    await page.keyboard.press("a");
+    await page.waitForTimeout(500);
+    expect((await screenText(page)).trimEnd().split(/\n/).pop() || "").not.toMatch(/a\s*$/i);
+  });
 });

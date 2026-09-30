@@ -55,6 +55,7 @@ void Chipset::set_cpu_hz(double hz) {
     hdd.set_cpu_hz(hz);
     cdrom.set_cpu_hz(hz);
     sb.set_cpu_hz(hz);
+    vga.set_cpu_hz(hz);
 }
 
 void Chipset::load_rom(uint32_t addr, const uint8_t *data, std::size_t len) {

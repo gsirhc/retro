@@ -185,6 +185,20 @@ public:
     // stop advancing them and hang detection forever.
     bool active() const { return active_; }
 
+    // --- register write trace (opt-in diagnostic) -------------------------
+    // Off the hot path entirely when disarmed: write_data's capture is a
+    // single trace_max_ != 0 check. For offline FM analysis of a real DOS
+    // game's music, not part of the emulated machine -- see web/app.js's
+    // window.__fm.
+    struct TraceEvent {
+        uint64_t cycle;
+        uint16_t reg;
+        uint8_t value;
+    };
+    void start_trace(std::size_t max_events);
+    std::vector<TraceEvent> drain_trace();
+    bool tracing() const { return trace_max_ != 0; }
+
 private:
     // Same bound and reason as SoundBlaster::kMaxSamples: real hardware has
     // no such limit, this only caps memory if the front end stops draining.
@@ -211,6 +225,9 @@ private:
     double cpu_hz_ = kCpuHz;
 
     std::deque<Sample> samples_;
+
+    std::vector<TraceEvent> trace_;
+    std::size_t trace_max_ = 0;
 
     // --- operator and channel state --------------------------------------
     // 36 operators and 18 channels, laid out so a register index's operator

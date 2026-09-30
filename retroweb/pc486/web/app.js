@@ -41,6 +41,26 @@
   const TEST_CPU_MULTIPLIER =
     testParams.get("test") === "1" && testParams.get("fast") === "1" ? 20 : 1;
 
+  // Opt-in diagnostic capture, not part of the machine: `?fmtrace` exposes
+  // console hooks to record every OPL3 register write with its CPU cycle
+  // stamp, for offline analysis of a real DOS game's FM music. Independent
+  // of `?test=1`/`?perf`; costs nothing unless a visitor calls __fm.start().
+  if (testParams.has("fmtrace")) {
+    window.__fm = {
+      start: (n) => machine.fmStartTrace(n || 400000),
+      save: () => {
+        const events = machine.fmDrainTrace();
+        const blob = new Blob([JSON.stringify(events)], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "fmtrace.json";
+        a.click();
+        URL.revokeObjectURL(url);
+      },
+    };
+  }
+
   // ---- keyboard: physical key -> real IBM AT Set 1 scan code -----------
   // i8042.h's inject_scancode() is a verbatim Set-1 pass-through (see its
   // header) -- this table supplies exactly what a real AT keyboard's own
@@ -159,25 +179,45 @@
   // modern habit at the browser edge, so the guest still receives genuine
   // arrow-key scancodes -- nothing in the emulated keyboard changes, and a
   // program that reads the arrows cannot tell the difference.
+  // A and D strafe rather than turn, which is what the modern habit expects:
+  // Doom's own strafe modifier is Alt (key_strafe), so they send Alt plus the
+  // arrow and the guest sees exactly the combination a player would hold.
   const kWasdToArrows = {
-    KeyW: "ArrowUp", KeyA: "ArrowLeft", KeyS: "ArrowDown", KeyD: "ArrowRight",
+    KeyW: ["ArrowUp"], KeyS: ["ArrowDown"],
+    KeyA: ["AltLeft", "ArrowLeft"], KeyD: ["AltLeft", "ArrowRight"],
   };
   const wasdCheckbox = document.getElementById("wasdArrows");
   function mapKey(code) {
-    return wasdCheckbox.checked ? (kWasdToArrows[code] || code) : code;
+    return wasdCheckbox.checked ? (kWasdToArrows[code] || [code]) : [code];
   }
+  // Alt is shared by both strafe keys, so it is released only once neither is
+  // still down -- releasing it with the other held would turn a strafe into a
+  // turn mid-move.
+  let strafeHeld = 0;
   const screenEl = document.getElementById("screen");
   screenEl.addEventListener("keydown", (e) => {
-    const code = mapKey(e.code);
-    heldKeys.add(code); sendKey(code, false); e.preventDefault();
+    const codes = mapKey(e.code);
+    if (codes.length > 1 && !e.repeat) strafeHeld++;
+    for (const code of codes) {
+      if (heldKeys.has(code)) continue;
+      heldKeys.add(code); sendKey(code, false);
+    }
+    e.preventDefault();
   });
   screenEl.addEventListener("keyup", (e) => {
-    const code = mapKey(e.code);
-    heldKeys.delete(code); sendKey(code, true); e.preventDefault();
+    const codes = mapKey(e.code);
+    if (codes.length > 1 && strafeHeld > 0) strafeHeld--;
+    // Innermost key first, and keep Alt down while the other strafe key is.
+    for (let i = codes.length - 1; i >= 0; i--) {
+      const code = codes[i];
+      if (code === "AltLeft" && strafeHeld > 0) continue;
+      heldKeys.delete(code); sendKey(code, true);
+    }
+    e.preventDefault();
   });
   // heldKeys tracks the *mapped* code, so toggling mid-hold would otherwise
   // leave the guest holding a key whose break code never arrives.
-  wasdCheckbox.addEventListener("change", releaseAllHeldKeys);
+  wasdCheckbox.addEventListener("change", () => { strafeHeld = 0; releaseAllHeldKeys(); });
   screenEl.addEventListener("click", () => {
     screenEl.focus();
     if (mouseCaptureCheckbox.checked && document.pointerLockElement !== screenEl) screenEl.requestPointerLock();
@@ -988,6 +1028,10 @@
   // because these are the browser's numbers, not the machine's -- and
   // because a fullscreen stall shows here as draw cost and falling fps while
   // the machine's own chart barely moves.
+  // Sticky fps chart scale -- see the comment at its use below.
+  let fpsScale = 60, fpsShrinkFrames = 0;
+  const kFpsShrinkFrames = 90;
+
   function drawHostChart(c, canvas, history) {
     const w = canvas.width, h = canvas.height;
     c.fillStyle = "#0b0f0b";
@@ -1009,10 +1053,22 @@
     const first = n - history.length;
     // fps has no natural percentage, so it gets its own scale off the
     // fastest rate actually seen -- a 60Hz display would otherwise sit at
-    // half height forever and read as a problem.
-    let fpsMax = 60;
-    for (const p of history) if (p.fps > fpsMax) fpsMax = p.fps;
-    fpsMax = Math.ceil(fpsMax / 30) * 30;
+    // half height forever and read as a problem. The scale grows at once but
+    // shrinks only after the reading has stayed low for a while: recomputing
+    // it per frame made it flip between buckets as a spike aged out of the
+    // window, which redraws the whole graph at a new scale and reads as two
+    // charts alternating.
+    let wanted = 60;
+    for (const p of history) if (p.fps > wanted) wanted = p.fps;
+    wanted = Math.ceil(wanted / 30) * 30;
+    if (wanted >= fpsScale) {
+      fpsScale = wanted;
+      fpsShrinkFrames = 0;
+    } else if (++fpsShrinkFrames >= kFpsShrinkFrames) {
+      fpsScale = wanted;
+      fpsShrinkFrames = 0;
+    }
+    const fpsMax = fpsScale;
 
     if (history.length > 1) {
       c.beginPath();
@@ -1414,12 +1470,31 @@
   async function loadSavedHddRecord() {
     try {
       const db = await openHddDb();
-      return await new Promise((resolve, reject) => {
+      const rec = await new Promise((resolve, reject) => {
         const tx = db.transaction(HDD_STORE, "readonly");
         const req = tx.objectStore(HDD_STORE).get(HDD_KEY);
         req.onsuccess = () => resolve(req.result || null);
         req.onerror = () => reject(req.error);
       });
+      if (rec instanceof Blob) return await gunzipBlob(rec);
+      if (rec) return rec;  // raw bytes, or a factory-delta record, from an older build
+      // A save written in 512KB chunks by the build before this one.
+      const meta = await getLegacyChunkMeta();
+      if (meta && meta.v === 1 && meta.chunks > 0) {
+        const out = new Uint8Array(meta.length);
+        for (let i = 0; i < meta.chunks; i++) {
+          const chunk = await new Promise((resolve, reject) => {
+            const tx = db.transaction(HDD_STORE, "readonly");
+            const req = tx.objectStore(HDD_STORE).get(HDD_KEY + ":" + i);
+            req.onsuccess = () => resolve(req.result || null);
+            req.onerror = () => reject(req.error);
+          });
+          if (!chunk) return null;  // incomplete -- treat as no save
+          out.set(chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk), i * meta.chunkSize);
+        }
+        return out;
+      }
+      return null;
     } catch (err) {
       console.error("could not read saved hard disk, using factory default:", err);
       return null;
@@ -1467,7 +1542,7 @@
   // 150ms; a one-shot 504MB put blew past that during realtime boot).
   const FACTORY_CHUNK = 512 * 1024;
   const FACTORY_META_KEY = "factory-base-meta";
-  function stashFactoryInIdb(bytes) {
+  function stashFactoryInIdb(bytes, fp) {
     if (factoryIdbCurrent || !bytes) return factoryIdbChain;
     factoryIdbChain = factoryIdbChain.then(async () => {
       if (factoryIdbCurrent) return;
@@ -1492,7 +1567,10 @@
       await new Promise((resolve, reject) => {
         const tx = db.transaction(HDD_STORE, "readwrite");
         const store = tx.objectStore(HDD_STORE);
-        store.put({ v: 1, chunks: n, length: u8.length, chunkSize: FACTORY_CHUNK }, FACTORY_META_KEY);
+        // fp: the fingerprint ensureFactoryHdd() last confirmed these bytes
+        // against (null/unknown if it never got a successful HEAD this
+        // session) -- see factoryFingerprint() above.
+        store.put({ v: 1, chunks: n, length: u8.length, chunkSize: FACTORY_CHUNK, fp: fp || null }, FACTORY_META_KEY);
         store.delete(HDD_FACTORY_KEY);  // legacy single-blob key, if any
         tx.oncomplete = resolve;
         tx.onerror = () => reject(tx.error);
@@ -1503,22 +1581,65 @@
     });
     return factoryIdbChain;
   }
+  // C: is stored gzipped as a single Blob under HDD_KEY, matching
+  // ibmpc-at's one-entry shape. Raw, this image is 504MB -- far too big for
+  // one structured clone -- but it is mostly zeros, so gzip takes it to a few
+  // MB in about a second, and a Blob is stored by reference rather than
+  // deep-copied (measured: 10ms, against 31ms for one array and 36ms for the
+  // 512KB chunking this replaces).
+  async function gzipBytes(u8) {
+    const cs = new CompressionStream("gzip");
+    const stream = new Blob([u8]).stream().pipeThrough(cs);
+    return await new Response(stream).blob();
+  }
+  async function gunzipBlob(blob) {
+    const ds = new DecompressionStream("gzip");
+    const buf = await new Response(blob.stream().pipeThrough(ds)).arrayBuffer();
+    return new Uint8Array(buf);
+  }
   async function saveHdd(record) {
     try {
+      const u8 = record instanceof Uint8Array ? record : new Uint8Array(record);
+      const blob = await gzipBytes(u8);
       const db = await openHddDb();
       await new Promise((resolve, reject) => {
         const tx = db.transaction(HDD_STORE, "readwrite");
-        tx.objectStore(HDD_STORE).put(record, HDD_KEY);
+        tx.objectStore(HDD_STORE).put(blob, HDD_KEY);
         tx.oncomplete = resolve;
         tx.onerror = () => reject(tx.error);
       });
+      await dropLegacyHddChunks();
     } catch (err) {
       console.error("could not save hard disk changes:", err);
     }
   }
+  // Chunk records written by the build that stored C: uncompressed.
+  const HDD_CHUNK_META = "hdd-meta";
+  function getLegacyChunkMeta() {
+    return openHddDb().then((db) => new Promise((resolve, reject) => {
+      const tx = db.transaction(HDD_STORE, "readonly");
+      const req = tx.objectStore(HDD_STORE).get(HDD_CHUNK_META);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => reject(req.error);
+    })).catch(() => null);
+  }
+  async function dropLegacyHddChunks() {
+    const meta = await getLegacyChunkMeta();
+    if (!meta || meta.v !== 1) return;
+    const db = await openHddDb();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(HDD_STORE, "readwrite");
+      const store = tx.objectStore(HDD_STORE);
+      for (let i = 0; i < meta.chunks; i++) store.delete(HDD_KEY + ":" + i);
+      store.delete(HDD_CHUNK_META);
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
+    });
+  }
   async function clearSavedHdd() {
     try {
       const db = await openHddDb();
+      await dropLegacyHddChunks();
       await new Promise((resolve, reject) => {
         const tx = db.transaction(HDD_STORE, "readwrite");
         // Leave HDD_FACTORY_KEY alone -- a "Reset to factory" still wants
@@ -1610,7 +1731,6 @@
   let hddSaveKind = null;  // "factory" | "full" | null
   // offset → bytes for the factory-delta record; rebuilt on load, merged
   // on every dirty persist. Cleared when the visitor blanks/uploads/resets.
-  let factoryPatches = new Map();
   let hddLabel = "factory FreeDOS (default)";
   // Lazily populated -- only fetched when a session actually needs the
   // pristine factory image (no IndexedDB C: yet, or "Reset to factory").
@@ -1619,17 +1739,135 @@
   // Survives reloads via the Cache API so a factory-delta IDB record can
   // reconstruct C: without touching the network again.
   let factoryHddPromise = null;
-  const FACTORY_HDD_CACHE = "pc486-factory-hdd";
   function factoryHddUrl() {
     return new URL("disks/freedos-hdd.img", location.href).href;
   }
+  // Cheap identity for whatever freedos-hdd.img the server is currently
+  // shipping, so a stash from a build that has since been replaced can be
+  // told apart from a current one -- without downloading the 504MB body.
+  // ETag if the server sends one, else Last-Modified, plus Content-Length.
+  // Memoized: only one HEAD per page load, no matter how many callers ask.
+  let factoryFingerprintPromise = null;
+  function factoryFingerprint() {
+    if (!factoryFingerprintPromise) {
+      factoryFingerprintPromise = (async () => {
+        try {
+          const r = await fetch(factoryHddUrl(), { method: "HEAD", cache: "no-store" });
+          if (!r.ok) return null;
+          const id = r.headers.get("ETag") || r.headers.get("Last-Modified");
+          return id ? id + "|" + (r.headers.get("Content-Length") || "") : null;
+        } catch (err) {
+          // Offline / CORS / server down -- fail open, not closed: a stale
+          // image beats a machine that won't boot at all.
+          console.error("could not check factory hard disk freshness, using any cached copy:", err);
+          return null;
+        }
+      })();
+    }
+    return factoryFingerprintPromise;
+  }
+  async function getFactoryMeta() {
+    try {
+      const db = await openHddDb();
+      return await new Promise((resolve, reject) => {
+        const tx = db.transaction(HDD_STORE, "readonly");
+        const req = tx.objectStore(HDD_STORE).get(FACTORY_META_KEY);
+        req.onsuccess = () => resolve(req.result || null);
+        req.onerror = () => reject(req.error);
+      });
+    } catch (_) {
+      return null;
+    }
+  }
+  // Drops every trace of a stale stash -- the chunked IDB bytes (if any),
+  // the legacy single-blob key, the meta record, and the Cache API entry --
+  // so ensureFactoryHdd() falls through to a real network fetch below.
+  async function purgeFactoryStash() {
+    try {
+      const db = await openHddDb();
+      const meta = await new Promise((resolve, reject) => {
+        const tx = db.transaction(HDD_STORE, "readonly");
+        const req = tx.objectStore(HDD_STORE).get(FACTORY_META_KEY);
+        req.onsuccess = () => resolve(req.result || null);
+        req.onerror = () => reject(req.error);
+      });
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction(HDD_STORE, "readwrite");
+        const store = tx.objectStore(HDD_STORE);
+        const chunks = meta && meta.v === 1 && meta.chunks > 0 ? meta.chunks : 0;
+        for (let i = 0; i < chunks; i++) store.delete(HDD_FACTORY_KEY + ":" + i);
+        store.delete(HDD_FACTORY_KEY);  // legacy single-blob key, if any
+        store.delete(FACTORY_META_KEY);
+        tx.oncomplete = resolve;
+        tx.onerror = () => reject(tx.error);
+      });
+    } catch (err) {
+      console.error("could not clear stale factory hard disk stash:", err);
+    }
+    factoryIdbCurrent = false;
+  }
+  // A tiny record of what's now cached, written right after a genuine
+  // network fetch -- stashFactoryInIdb() later overwrites this with the
+  // real chunked byte-stash (same fp) if that ever runs (see its comment).
+  // chunks:0 tells loadFactoryFromIdb() there's no byte-stash to read yet.
+  async function recordFactoryFingerprint(fp, length) {
+    try {
+      const db = await openHddDb();
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction(HDD_STORE, "readwrite");
+        tx.objectStore(HDD_STORE).put(
+          { v: 1, chunks: 0, length, chunkSize: FACTORY_CHUNK, fp }, FACTORY_META_KEY);
+        tx.oncomplete = resolve;
+        tx.onerror = () => reject(tx.error);
+      });
+    } catch (err) {
+      console.error("could not record factory hard disk fingerprint:", err);
+    }
+  }
+  // Fingerprint last confirmed by a HEAD this session (null if never
+  // checked or the HEAD failed) -- stashFactoryInIdb() reads this so a test-
+  // triggered full byte-stash records the same identity ensureFactoryHdd()
+  // already validated. Set true when a stale stash was found and purged;
+  // the boot flow below reads it to also drop a now-meaningless
+  // factory-delta save (its patches are offsets into a base that's gone).
+  let currentFactoryFingerprint = null;
+  let factoryStashInvalidated = false;
+  // Drops every local copy of the factory image -- stash, Cache API entry,
+  // memoised promise, in-memory bytes -- so the fetch that follows is an
+  // unconditional trip to the network.
+  function refetchFactoryHdd() {
+    factoryHddPromise = null;
+    factoryIdbCurrent = false;
+    factoryStashInvalidated = false;
+    currentFactoryFingerprint = null;
+    if (firmware) firmware.hdd = null;
+    return (async () => {
+      await purgeFactoryStash();
+      return ensureFactoryHdd();
+    })();
+  }
+
   function ensureFactoryHdd() {
     if (firmware && firmware.hdd) return Promise.resolve(firmware.hdd);
     if (!factoryHddPromise) {
       factoryHddPromise = (async () => {
+        // Check the shipped image's identity before trusting anything
+        // already stashed. A HEAD failure fails open (see factoryFingerprint
+        // above) -- only a confirmed mismatch triggers a purge.
+        const liveFp = await factoryFingerprint();
+        if (liveFp !== null) {
+          const meta = await getFactoryMeta();
+          // A stash with no recorded fingerprint (written before this fix
+          // existed) is unknown, not a match -- it must not pass silently.
+          const stashFp = meta && typeof meta.fp === "string" ? meta.fp : null;
+          if (stashFp !== liveFp) {
+            await purgeFactoryStash();
+            factoryStashInvalidated = true;
+          }
+        }
         // Prefer the IndexedDB stash from a prior visit -- avoids re-fetching
         // 504MB when C: is a factory-delta record (see persistHddIfDirty).
-        const fromIdb = await loadFactoryFromIdb();
+        const fromIdb = factoryStashInvalidated ? null : await loadFactoryFromIdb();
         if (fromIdb) {
           factoryIdbCurrent = true;
           let bytes;
@@ -1637,25 +1875,20 @@
           else if (fromIdb instanceof ArrayBuffer) bytes = fromIdb;
           else bytes = fromIdb.buffer.slice(fromIdb.byteOffset, fromIdb.byteOffset + fromIdb.byteLength);
           if (firmware) firmware.hdd = bytes;
+          currentFactoryFingerprint = liveFp;
           return bytes;
         }
-        const url = factoryHddUrl();
-        let bytes = null;
-        try {
-          const cache = await caches.open(FACTORY_HDD_CACHE);
-          const hit = await cache.match(url);
-          if (hit) bytes = await hit.arrayBuffer();
-        } catch (_) { /* private mode / opaque cache -- fall through */ }
-        if (!bytes) {
-          const r = await fetch("disks/freedos-hdd.img");
-          if (!r.ok) throw new Error("freedos-hdd.img HTTP " + r.status);
-          try {
-            const cache = await caches.open(FACTORY_HDD_CACHE);
-            await cache.put(url, r.clone());
-          } catch (_) { /* Cache API often refuses a 504MB put */ }
-          bytes = await r.arrayBuffer();
-        }
+        // Not kept in Cache storage: that was a second ~504MB copy of bytes
+        // this page barely re-reads. C: is saved whole and self-contained, so
+        // a returning visitor never needs the shipped image, and Reset
+        // deliberately re-fetches it rather than trusting any local copy.
+        const r = await fetch("disks/freedos-hdd.img");
+        if (!r.ok) throw new Error("freedos-hdd.img HTTP " + r.status);
+        const bytes = await r.arrayBuffer();
+        const fetchedFresh = true;
         if (firmware) firmware.hdd = bytes;
+        currentFactoryFingerprint = liveFp;
+        if (fetchedFresh && liveFp !== null) recordFactoryFingerprint(liveFp, bytes.byteLength);
         // Do not stash into IndexedDB here: a 504MB structured-clone (even
         // chunked) is a main-thread longtask under suite load and trips
         // smoke.spec.ts's 150ms budget during realtime boot. Stashing is
@@ -1672,16 +1905,6 @@
       img.set(b, p.offset | 0);
     }
     return img;
-  }
-  function mergeFactoryPatches(ranges) {
-    for (const { offset, bytes } of ranges) {
-      factoryPatches.set(offset | 0, bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes));
-    }
-  }
-  function factoryDeltaRecord() {
-    const patches = [];
-    for (const [offset, bytes] of factoryPatches) patches.push({ offset, bytes });
-    return { v: 1, base: "factory", patches };
   }
   const hddStatus = document.getElementById("hddStatus");
   const hddResetBtn = document.getElementById("hddResetBtn");
@@ -1702,20 +1925,20 @@
     savedHdd = null;
     hddIdbCurrent = false;
     hddSaveKind = null;
-    factoryPatches = new Map();
     hddLabel = "factory FreeDOS (default) -- takes effect next power-on";
     refreshHddControls();
     clearSavedHdd();
-    // Kick the factory fetch now (if we never needed it this session) so
-    // the next power-on isn't stalled behind a cold 504MB download.
-    ensureFactoryHdd();
+    // "Reset to factory" means the image the server has right now: no
+    // fingerprint to trust, nothing local to fall back on. The stash stays
+    // an optimisation for ordinary page loads only -- a factory-delta C:
+    // would otherwise re-download 504MB on every visit.
+    refetchFactoryHdd();
   });
   hddBlankBtn.addEventListener("click", () => {
     if (!firmware) return;
     savedHdd = new Uint8Array(kHddImageBytes);  // all zero -- unformatted, like a drive fresh from the factory floor
     hddIdbCurrent = false;
     hddSaveKind = "full";
-    factoryPatches = new Map();
     hddLabel = "blank drive, unformatted (FDISK/FORMAT and install your own OS) -- takes effect next power-on";
     refreshHddControls();
     saveHdd(savedHdd).then(() => { hddIdbCurrent = true; });
@@ -1761,7 +1984,6 @@
     savedHdd = bytes;
     hddIdbCurrent = false;
     hddSaveKind = "full";
-    factoryPatches = new Map();
     hddLabel = "uploaded image (" + f.name + ") -- takes effect next power-on";
     refreshHddControls();
     saveHdd(savedHdd).then(() => { hddIdbCurrent = true; });
@@ -1796,9 +2018,12 @@
       if (!savedHdd) {
         await ensureFactoryHdd();
         savedHdd = new Uint8Array(firmware.hdd);
-        hddSaveKind = "factory";
+        // Self-contained: once anything is written, C: is stored whole and
+        // depends on nothing else. A delta keyed to the shipped image is
+        // smaller, but it dies whenever that image changes -- and losing
+        // installed software is a far worse trade than a larger write.
+        hddSaveKind = "full";
         hddIdbCurrent = false;
-        factoryPatches = new Map();
       }
       machine.mountHdd(savedHdd);
       if (pendingFloppy) {
@@ -1832,7 +2057,7 @@
     if (!noticeDismissed) bootNoticeEl.classList.add("visible");
     if (new URLSearchParams(location.search).get("test") === "1") {
       window.__test = {
-        machine, sendKey, screenEl,
+        machine, sendKey, screenEl, mapKey,
         get audioState() { return audioCtx ? audioCtx.state : null; },
         get heldKeysSize() { return heldKeys.size; },
         // Flush C: to IndexedDB and resolve when the put finishes -- tests
@@ -1848,7 +2073,7 @@
         // longtask budget under suite load. Specs that assert a reload
         // never re-fetches freedos-hdd.img must await this first.
         whenFactoryStashed: () => {
-          if (firmware && firmware.hdd) stashFactoryInIdb(firmware.hdd);
+          if (firmware && firmware.hdd) stashFactoryInIdb(firmware.hdd, currentFactoryFingerprint);
           return factoryIdbChain;
         },
       };
@@ -1899,10 +2124,6 @@
     }
     machine.clearHddDirty();
     hddIdbCurrent = false;
-    if (hddSaveKind === "factory") {
-      mergeFactoryPatches(patches);
-      return queueHddSave(factoryDeltaRecord());
-    }
     return queueHddSave(savedHdd);
   }
   // Test helper: put the live C: image in IndexedDB even when hddDirty() is
@@ -1920,9 +2141,6 @@
       hddSaveKind = hddSaveKind || "full";
     }
     hddIdbCurrent = false;
-    if (hddSaveKind === "factory") {
-      return queueHddSave(factoryDeltaRecord());
-    }
     return queueHddSave(savedHdd);
   }
 
@@ -2064,12 +2282,13 @@
       // Reconstruct C: from the cached factory image + the small dirty
       // patch list. Cache API hit → no network fetch of freedos-hdd.img.
       await ensureFactoryHdd();
+      // A delta written by an older build. Replay it once against the shipped
+      // image and keep the result whole, so this record shape disappears.
       savedHdd = applyFactoryPatches(new Uint8Array(firmware.hdd), savedRecord.patches);
-      factoryPatches = new Map();
-      mergeFactoryPatches(savedRecord.patches);
-      hddSaveKind = "factory";
+      hddSaveKind = "full";
       hddLabel = "saved state (from a previous visit)";
-      hddIdbCurrent = true;
+      hddIdbCurrent = false;
+      void queueHddSave(savedHdd);
     } else if (savedRecord) {
       savedHdd = savedRecord instanceof Uint8Array ? savedRecord : new Uint8Array(savedRecord);
       hddSaveKind = "full";

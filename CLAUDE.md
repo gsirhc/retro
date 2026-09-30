@@ -251,11 +251,13 @@ deploy-critical case there; put exhaustive control coverage in the other
 Altair/assembler/ibmpc-at/pc486/z80 omit the long exercisers listed above
 (`make check` still runs them for nightly/local).
 
-## Delegate to a cheaper model when the task allows it
+## Always delegate to a cheaper model when the task allows it
 
-If you're running as Sonnet, hand well-scoped, mechanical subtasks to a
-Haiku subagent instead of doing them yourself; if you're running as Opus,
-delegate down to Sonnet or Haiku the same way, whichever fits. Good
+**This is the default, not a suggestion, and it does not need asking about
+each time.** Before doing a well-scoped subtask yourself, hand it to a
+subagent: as Sonnet, delegate to Haiku; as Opus, delegate to Sonnet or
+Haiku, whichever fits. Delegate in parallel when subtasks are independent,
+and in the background so work continues while they run. Good
 candidates: running a fixed build/test command and reporting results,
 fetching and checksum-verifying a pinned asset, writing a test that
 mechanically follows an established pattern in the same file, a rename or
@@ -268,6 +270,15 @@ that context usually costs more than the delegation saves. When genuinely
 unsure whether a task is a good candidate, don't guess — do it yourself
 rather than risk a wrong answer from a smaller model on something that
 matters.
+
+**Delegating does not delegate responsibility for being right.** A
+subagent's report is a claim, not a verified result. Spot-check anything
+load-bearing before repeating it — run the test yourself, `ls` the file it
+says is missing, read the diff it says it made. Subagents in this repo have
+confidently reported a build blocker that wasn't real and "matching" style
+that didn't match. Correct what's wrong, say plainly what you verified
+versus what you're relaying, and never pass a subagent's summary to Chris as
+if it were a fact you'd checked.
 
 ## Conventions
 

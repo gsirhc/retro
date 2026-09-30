@@ -5,7 +5,7 @@
   "description": "HTML and JavaScript lint for retroweb. C++ lint is cppcheck, run from the Makefile.",
   "scripts": {
     "lint:js": "eslint .",
-    "lint:html": "htmlhint --config .htmlhintrc index.html about.html altair8800/web/index.html assembler6502/web/index.html ibmpc-at/web/index.html pacman/web/index.html frogger/web/index.html galaxian/web/index.html scramble/web/index.html"
+    "lint:html": "htmlhint --config .htmlhintrc index.html about.html altair8800/web/index.html assembler6502/web/index.html ibmpc-at/web/index.html pacman/web/index.html frogger/web/index.html galaxian/web/index.html scramble/web/index.html galaga/web/index.html pc486/web/index.html"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.0",

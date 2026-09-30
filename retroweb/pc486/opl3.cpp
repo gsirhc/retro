@@ -49,11 +49,18 @@ constexpr double kPhaseUnitsPerRadian = 1048576.0 / (2.0 * kPi);
 // below: the exponential table's implicit leading 1 puts unity at 1024.
 constexpr double kFullScale = 1024.0;
 // Modulation index (radians) a fully unattenuated modulator applies to its
-// carrier's phase in a normal (non-feedback) FM connection. The datasheet
-// only tabulates the feedback case numerically (kFeedbackRadians above); this
-// is a reasoned middle-of-the-road choice for the un-tabulated standard
-// connection, not a verified figure -- see PC486_REVIEW.md and the
-// opl3.cpp change notes.
+// carrier's phase in a normal (non-feedback) FM connection. Still not a
+// verified figure: the YMF262 datasheet (p.12) and the YMF715x Register
+// Description Document (p.9) both tabulate only the feedback case
+// (kFeedbackRadians above), and the OPLx decap notes give the algebra without
+// any phase-domain scale. One further reading, recorded but deliberately not
+// applied: YMF715x §1-1's two equations are "A sin(wc t + B sin wm t)" for the
+// normal connection against "A sin(wt + beta FM(t))" for feedback, so B
+// carries an implicit coefficient of 1 where feedback carries beta (up to
+// 4pi). If A and B share one normalised scale -- which neither document
+// states -- an unattenuated modulator would deviate the carrier by ~1 radian
+// rather than pi. Changing it on that inference alone is exactly how pi got
+// here, so it stands until a real figure turns up. See PC486_REVIEW.md §11.1.
 constexpr double kModulationIndexRadians = kPi;
 
 // Log-sin (first quarter-cycle) and exponential ROM tables, regenerated from
@@ -263,6 +270,8 @@ void Opl3::reset() {
     prev_cycles_ = 0;
     frame_credit_ = 0.0;
     samples_.clear();
+    trace_.clear();
+    trace_max_ = 0;
     for (auto &op : op_) {
         op = Operator();
         op.env_level = kEnvMax;  // env_level is kEnvScale fixed-point -- see kEnvScale
@@ -282,7 +291,11 @@ void Opl3::write_address(int bank, uint8_t v) {
 
 void Opl3::write_data(int bank, uint8_t v) {
     if (bank < 0 || bank > 1) return;
-    write_reg(uint16_t(bank * 0x100 + addr_[bank]), v);
+    const uint16_t index = uint16_t(bank * 0x100 + addr_[bank]);
+    if (trace_max_ != 0 && trace_.size() < trace_max_) {
+        trace_.push_back({prev_cycles_, index, v});
+    }
+    write_reg(index, v);
 }
 
 uint8_t Opl3::status() const {
@@ -299,6 +312,18 @@ uint8_t Opl3::status() const {
 std::vector<Opl3::Sample> Opl3::drain_samples() {
     std::vector<Sample> out(samples_.begin(), samples_.end());
     samples_.clear();
+    return out;
+}
+
+void Opl3::start_trace(std::size_t max_events) {
+    trace_max_ = max_events;
+    trace_.clear();
+    trace_.reserve(max_events);
+}
+
+std::vector<Opl3::TraceEvent> Opl3::drain_trace() {
+    std::vector<TraceEvent> out(trace_.begin(), trace_.end());
+    trace_.clear();
     return out;
 }
 
@@ -735,7 +760,19 @@ void Opl3::generate_frame(uint64_t cycle) {
         noise_percussion(op_index(0, 8, true), ch_[8].fnum, ch_[8].block, tc_on, 17, 8);
     }
 
-    constexpr double kMasterGain = 8.0;
+    // Scales the summed channel mix into the 16-bit offset-binary word the
+    // YMF262 hands its DAC (datasheet p.5: 4 buses, 49.7 kHz). That format is
+    // documented; the gain reaching it is not -- neither Yamaha document
+    // describes how up to 18 channels are summed internally or what headroom
+    // that leaves, and Creative's own SB16 programming guide (p.138) refers
+    // OPL3 internals back to the vendor. So this is an empirical scale with no
+    // hardware citation, chosen for headroom at realistic polyphony: one
+    // zero-attenuation voice reaches ~18% of full scale, leaving 18
+    // moderately-attenuated voices (how period FM music is actually voiced)
+    // ~16% clear of the clamp. The previous 8.0 put a single voice at 49% of
+    // full scale, so three in unison clipped and dense passages spent most of
+    // their samples against the rail. See PC486_REVIEW.md §11.1.
+    constexpr double kMasterGain = 3.0;
     auto clamp16 = [](double x) -> int16_t {
         if (x > 32767.0) return 32767;
         if (x < -32768.0) return -32768;

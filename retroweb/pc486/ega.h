@@ -106,24 +106,26 @@ public:
     void note_mapping_change();
 
 
-    // Advances the Input Status 1 retrace toggle against the CPU's running
-    // cycle count -- so a BIOS/driver's "wait for vertical retrace" polling
-    // loop can't hang. Not a real ~70Hz refresh timing; just enough
-    // liveness that the bit visibly changes over a bounded number of ticks.
-    //
-    // Inline for the same reason as Fdc765::tick: Machine::run_cycles()
-    // calls it after every instruction. See PC486_REVIEW.md §8 -- including
-    // the note that kFramePeriod's 8 MHz numerator is inherited from
-    // ibmpc-at and is NOT this machine's clock.
+    // Advances the Input Status 1 vertical-retrace toggle against the CPU's
+    // cycle count. The frame period and retrace window come from the CRTC's
+    // own programmed timing, cached by recompute_timing_() -- so this stays a
+    // credit counter with no division, cheap enough for Machine::run_cycles()
+    // to call after every instruction (same reason Fdc765::tick is inline).
     void tick(uint64_t cpu_cycles) {
         uint64_t d = cpu_cycles - prev_cycles_;
         prev_cycles_ = cpu_cycles;
         retrace_credit_ += double(d);
-        constexpr double kFramePeriod = 8000000.0 / 60.0;
-        constexpr double kRetraceWindow = kFramePeriod * 0.08;
-        while (retrace_credit_ >= kFramePeriod) retrace_credit_ -= kFramePeriod;
-        retrace_ = retrace_credit_ < kRetraceWindow;
+        while (retrace_credit_ >= frame_period_cycles_) retrace_credit_ -= frame_period_cycles_;
+        retrace_ = retrace_credit_ >= retrace_start_cycles_ &&
+                   retrace_credit_ < retrace_start_cycles_ + retrace_window_cycles_;
     }
+
+    // tick() counts CPU cycles, not wall-clock time, so the frame period has
+    // to be expressed in them. Front-panel Turbo calls this via
+    // Chipset::set_cpu_hz, which keeps vertical refresh at the same
+    // wall-clock rate at either speed: a real DX2 Turbo button changes the
+    // CPU's internal clock, never the video card's crystal.
+    void set_cpu_hz(double hz) { cpu_hz_ = hz; recompute_timing_(); }
 
     // Host/front-end convenience for a future renderer: current CRTC
     // cursor position and display start address (both are 16-bit CRTC
@@ -451,6 +453,16 @@ private:
         return uint8_t((v >> count) | (v << ((8 - count) & 7)));
     }
 
+    // Rederives frame_period_cycles_/retrace_start_cycles_/
+    // retrace_window_cycles_ from the CRTC/Sequencer/Misc Output registers
+    // and cpu_hz_. Called only from the specific register-write sites in
+    // ega.cpp that can change the answer (CRTC 00h/06h/07h/10h/11h,
+    // Sequencer 01h, Misc Output), from reset(), and from set_cpu_hz() --
+    // never from tick(), which runs every CPU instruction and can only
+    // afford the cached numbers. See ega.cpp for the derivation and its
+    // register-semantics source.
+    void recompute_timing_();
+
     std::array<uint8_t, 25> crtc_{};
     uint8_t crtc_index_ = 0;
 
@@ -496,6 +508,14 @@ private:
     bool retrace_ = false;
     uint64_t prev_cycles_ = 0;
     double retrace_credit_ = 0.0;
+
+    // --- Frame-rate / retrace-window cache (see tick(), set_cpu_hz(),
+    // recompute_timing_()) -- kept separate from mapping_epoch_ above,
+    // which is about VRAM page mapping, not video timing.
+    double cpu_hz_ = 66e6;                // this machine's CPU clock; see set_cpu_hz()
+    double frame_period_cycles_ = 0.0;    // cached CPU cycles per vertical frame
+    double retrace_start_cycles_ = 0.0;   // cached cycles from frame start to retrace onset
+    double retrace_window_cycles_ = 0.0;  // cached cycles the retrace bit stays asserted
 };
 
 }  // namespace pc486
