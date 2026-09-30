@@ -436,12 +436,13 @@ a credit into Namco's program.
   `$4E88–$4E8A` (BCD TOP, low byte first — Data Crystal RAM map) dies on
   power-off. A page refresh is a power cycle. This page always persists those
   three bytes in IndexedDB (keyed by program CRC) for a user ROM and pokes
-  them back once attract is stable (`$4E00 == 1` with irq on after ~8 s —
-  POST's RAM test also writes `1` through `$4E00`, and poking `$4E88`
-  during that test fails as BAD RAM), preferring the saved TOP over
-  leftover attract bytes at `$4E88`, and paints the six HIGH SCORE tiles
-  at `$43F2` (Midway `#2ABE` — the ROM only copies TOP to the tilemap
-  when a score beats it, not on attract) — a labelled departure.
+  them back once POST is done (irq on after ~8 s — POST's RAM test also
+  writes `1` through `$4E00`, and poking `$4E88` during that test fails as
+  BAD RAM). Attract is not required: a fast coin+start used to skip the
+  restore forever when the gate also demanded `$4E00 == 1`. Prefers the
+  saved TOP over leftover attract bytes at `$4E88`, and paints the six
+  HIGH SCORE tiles at `$43F2` (Midway `#2ABE` — the ROM only copies TOP to
+  the tilemap when a score beats it, not on attract) — a labelled departure.
   **Reset HIGH SCORE** (`#resetHiscore`) is how you get
   the authentic empty table: a `.site-dialog` confirm deletes the save and
   `machine.reset()`s the board. The button is disabled on the self-test ROM.

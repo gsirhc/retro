@@ -350,15 +350,18 @@ GalaxianArcade().then(async (Module) => {
     lastSavedHiscore = bytes.join(",");
   }
 
+  // POST can leave non-zero junk at $40A8 before NMI settles. Wait for a
+  // stretch of irq-on frames with a zero HI-SCORE (the factory table), then
+  // always poke IndexedDB — do not treat non-zero as "already restored".
+  function postDone() {
+    const st = machine.state();
+    return st.nmiEnable && st.frames >= 60 && hiscoreIsFactory(readHiscore());
+  }
+
   let restoreInFlight = false;
   async function maybeRestoreHiscore() {
-    if (!usingUserRom || restoreInFlight) return;
-    const st = machine.state();
-    if (!st.nmiEnable || st.frames < 60) return;
-    if (!hiscoreIsFactory(readHiscore())) {
-      hiscoreRestored = true;
-      return;
-    }
+    if (!usingUserRom || restoreInFlight || hiscoreRestored) return;
+    if (!postDone()) return;
     restoreInFlight = true;
     try {
       const all = await loadSavedHiscores();
@@ -375,6 +378,7 @@ GalaxianArcade().then(async (Module) => {
   async function maybeSaveHiscore() {
     if (!usingUserRom || saveInFlight || !hiscoreRestored) return;
     const cur = readHiscore();
+    if (hiscoreIsFactory(cur)) return;
     const key = cur.join(",");
     if (key === lastSavedHiscore) return;
     saveInFlight = true;
@@ -541,6 +545,7 @@ GalaxianArcade().then(async (Module) => {
       writeHiscore,
       saveHiscoreNow,
       maybeSaveHiscore,
+      get hiscoreRestored() { return hiscoreRestored; },
       resetHiscoreNow,
       restoreHiscoreNow: async () => {
         if (!usingUserRom) return false;

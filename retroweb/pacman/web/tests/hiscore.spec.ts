@@ -106,6 +106,31 @@ test.describe("HIGH SCORE persist", () => {
     });
     expect(bytes).toEqual([0x99, 0x99, 0x99]);
   });
+
+  // Old path also required $4E00==1 (attract). A coin+start before the
+  // ~8 s POST wait left attract and skipped the IndexedDB poke forever.
+  test("TOP restores after POST even when not in attract", async ({ page }) => {
+    await page.locator("#romFile").setInputFiles(userSet());
+    await expect(page.locator("#romStatus")).toHaveText("Loaded ROM set");
+    await page.evaluate(async () => {
+      const t = (window as any).__test;
+      t.writeHiscore([0x00, 0x80, 0x00]);
+      await t.saveHiscoreNow(t.readHiscore());
+    });
+
+    await page.reload();
+    await expect(page.locator("#romStatus")).toHaveText("Loaded stored ROM set");
+
+    await page.waitForFunction(() => {
+      const t = (window as any).__test;
+      if (!t || !t.usingUserRom) return false;
+      // Stay out of attract for the whole wait — the bug was hinging restore
+      // on $4E00==1, which a fast start clears.
+      t.machine.setRamByte(0x4E00, 3);
+      const ram = t.readHiscore();
+      return t.hiscoreRestored && ram[0] === 0x00 && ram[1] === 0x80 && ram[2] === 0x00;
+    }, null, { timeout: 30_000 });
+  });
 });
 
 function firstExisting(...candidates: (string | undefined)[]) {

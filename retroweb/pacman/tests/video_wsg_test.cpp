@@ -1,9 +1,12 @@
 #include <gtest/gtest.h>
 
+#include "machine.h"
 #include "video.h"
 #include "wsg.h"
 
 #include <array>
+#include <cmath>
+#include <vector>
 
 TEST(Video, FrameIs50688CpuCycles) {
     EXPECT_EQ(pacman::kCpuPerFrame, 50688);
@@ -304,4 +307,28 @@ TEST(Wsg, OnlyVoiceZeroHasLowFrequencyNibble) {
     w.write(0x15, 0x0F);  // ch0 volume, so ch0 is audible
     w.write(0x10, 0x01);  // ch0's low frequency nibble only
     EXPECT_NE(w.mix_at(1u << 15), 0.0f) << "ch0's low frequency nibble (offset 0x10) should drive its phase";
+}
+
+// Frequency register writes must not jump the waveform phase — absolute
+// sample_clock·freq phase did, and siren/waka sweeps sounded scratchy.
+TEST(Wsg, FrequencyWriteKeepsPhaseContinuous) {
+    pacman::Wsg w;
+    w.reset();
+    w.enabled = true;
+    for (int i = 0; i < 256; i++) w.wave_prom[unsigned(i)] = uint8_t(i & 15);
+    w.write(0x05, 0);
+    w.write(0x13, 1);  // freq = 0x1000
+    w.write(0x15, 15);
+    std::vector<float> a;
+    w.advance(pacman::kCpuHz / 20, 48000, a);
+    ASSERT_GT(a.size(), 10u);
+    double step = 0;
+    for (size_t i = 1; i < a.size(); i++) step += std::fabs(a[i] - a[i - 1]);
+    step /= double(a.size() - 1);
+    w.write(0x13, 2);  // freq = 0x2000
+    size_t mid = a.size();
+    w.advance(pacman::kCpuHz / 50, 48000, a);
+    ASSERT_GT(a.size(), mid);
+    float jump = std::fabs(a[mid] - a[mid - 1]);
+    EXPECT_LT(jump, step * 4.0) << "freq write jumped phase (jump=" << jump << " avg step=" << step << ")";
 }

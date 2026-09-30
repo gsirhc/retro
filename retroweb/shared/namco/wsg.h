@@ -26,15 +26,22 @@ public:
     // Advance `cpu_cycles` at 3.072 MHz; append mono samples at `host_hz`.
     void advance(int cpu_cycles, int host_hz, std::vector<float>& out);
 
+    // Mix using absolute sample_clock·freq (unit tests of the register map).
+    // Live playback uses per-voice counters in advance() so a frequency
+    // write does not jump the waveform phase.
     float mix_at(uint64_t sample_clock) const;
 
 private:
     uint64_t cpu_cycle_ = 0;
     double sample_hold_ = 0;
     double host_acc_ = 0;
+    // 20-bit phase accumulators, same model as MAME namco_wsg_device
+    // (counter += frequency each 96 kHz tick; top 5 bits index the wave).
+    uint32_t counter_[3] = {};
     uint32_t voice_freq(int v) const;
     uint8_t voice_wave(int v) const;
     uint8_t voice_vol(int v) const;
+    float mix_counters() const;
 };
 
 }  // namespace namco

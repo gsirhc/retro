@@ -356,14 +356,12 @@ ScrambleArcade().then(async (Module) => {
     lastSavedHiscore = bytes.join(",");
   }
 
+  // Factory sentinel at $4200/$421D — wait for POST to write the table, then
+  // always poke IndexedDB (never treat non-factory as already restored).
   let restoreInFlight = false;
   async function maybeRestoreHiscore() {
-    if (!usingUserRom || restoreInFlight) return;
+    if (!usingUserRom || restoreInFlight || hiscoreRestored) return;
     if (machine.ramByte(0x4200) !== 0x00 || machine.ramByte(0x421D) !== 0x01) return;
-    if (!hiscoreIsFactory(readHiscore())) {
-      hiscoreRestored = true;
-      return;
-    }
     restoreInFlight = true;
     try {
       const all = await loadSavedHiscores();
@@ -380,6 +378,7 @@ ScrambleArcade().then(async (Module) => {
   async function maybeSaveHiscore() {
     if (!usingUserRom || saveInFlight || !hiscoreRestored) return;
     const cur = readHiscore();
+    if (hiscoreIsFactory(cur)) return;
     const key = cur.join(",");
     if (key === lastSavedHiscore) return;
     saveInFlight = true;
@@ -544,6 +543,7 @@ ScrambleArcade().then(async (Module) => {
       writeHiscore,
       saveHiscoreNow,
       maybeSaveHiscore,
+      get hiscoreRestored() { return hiscoreRestored; },
       resetHiscoreNow,
       restoreHiscoreNow: async () => {
         if (!usingUserRom) return false;

@@ -365,14 +365,12 @@ FroggerArcade().then(async (Module) => {
     lastSavedHiscore = bytes.join(",");
   }
 
+  // Factory sentinel at $83F1/$83FA — wait for POST to write the table, then
+  // always poke IndexedDB (never treat non-factory as already restored).
   let restoreInFlight = false;
   async function maybeRestoreHiscore() {
-    if (!usingUserRom || restoreInFlight) return;
+    if (!usingUserRom || restoreInFlight || hiscoreRestored) return;
     if (machine.ramByte(0x83F1) !== 0x63 || machine.ramByte(0x83FA) !== 0x01) return;
-    if (!hiscoreIsFactory(readHiscore())) {
-      hiscoreRestored = true;
-      return;
-    }
     restoreInFlight = true;
     try {
       const all = await loadSavedHiscores();
@@ -389,6 +387,7 @@ FroggerArcade().then(async (Module) => {
   async function maybeSaveHiscore() {
     if (!usingUserRom || saveInFlight || !hiscoreRestored) return;
     const cur = readHiscore();
+    if (hiscoreIsFactory(cur)) return;
     const key = cur.join(",");
     if (key === lastSavedHiscore) return;
     saveInFlight = true;
@@ -553,6 +552,7 @@ FroggerArcade().then(async (Module) => {
       writeHiscore,
       saveHiscoreNow,
       maybeSaveHiscore,
+      get hiscoreRestored() { return hiscoreRestored; },
       resetHiscoreNow,
       restoreHiscoreNow: async () => {
         if (!usingUserRom) return false;

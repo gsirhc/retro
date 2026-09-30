@@ -161,13 +161,15 @@ what CI tests.
 
 MAME `plugins/hiscore/hiscore.dat`, `galagamw` in the `galaga` group:
 `$8A20` for `0x2D` bytes and `$83ED` for 6 bytes. IndexedDB `hiscores` in
-`retroweb-galaga`, keyed by program CRC. Restore after the main IRQ enable
-has been up for 60 frames. Both all-zero and the factory `00 00 00 00 02 24`
-prefix (" 20000") count as the reset table, so a save is not written over
-POST and a POST table is not stored as a player score. Reset HIGH SCORE
-is the labelled clear and is disabled on the self-test. The real factory
-bytes should be recorded from a local ROM's POST when one is available;
-the prefix above is the published reset table, not a trace from this tree.
+`retroweb-galaga`, keyed by program CRC. Restore once Midway has written
+the factory `00 00 00 00 02 24` prefix (" 20000") at `$8A20` — irq1 comes
+up ~100 frames earlier while that region still holds POST junk, so a
+frame-count gate alone would mark the table "already restored" and skip
+the IndexedDB poke forever. All-zero still counts as pre-table (not
+ready). A save is not written over the factory prefix. Reset HIGH SCORE
+is the labelled clear and is disabled on the self-test. The factory
+prefix is the published reset table; confirmed against a local
+`galagamw` POST (~frame 863).
 
 ## 7. Front end
 

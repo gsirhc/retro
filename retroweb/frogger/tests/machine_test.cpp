@@ -156,6 +156,19 @@ TEST(Machine, HwtestStaysSilent) {
     EXPECT_FALSE(any);
 }
 
+TEST(Machine, SoundCpuTracksMainClock) {
+    // Sound is 14.31818/8; main is 18.432/6. A leftover-discarding sync
+    // overshoots every instruction and drifts ~2× fast — catch that here.
+    frogger::Machine m;
+    m.reset();
+    const int main_run = frogger::kCpuHz / 10;
+    const uint64_t s0 = m.sound.cycles;
+    m.run_cycles(main_run);
+    const uint64_t got = m.sound.cycles - s0;
+    const uint64_t expect = uint64_t(main_run) * frogger::kSoundHz / frogger::kCpuHz;
+    EXPECT_NEAR(double(got), double(expect), double(expect) * 0.02);
+}
+
 TEST(Machine, HwtestHelpScreenShowsCopyrightPrompt) {
     frogger::Machine m;
     m.load_roms(test_set());

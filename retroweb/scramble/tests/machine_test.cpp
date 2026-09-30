@@ -169,6 +169,17 @@ TEST(Machine, HwtestStaysSilent) {
     EXPECT_FALSE(any);
 }
 
+TEST(Machine, SoundCpuTracksMainClock) {
+    scramble::Machine m;
+    m.reset();
+    const int main_run = scramble::kCpuHz / 10;
+    const uint64_t s0 = m.sound.cycles;
+    m.run_cycles(main_run);
+    const uint64_t got = m.sound.cycles - s0;
+    const uint64_t expect = uint64_t(main_run) * scramble::kSoundHz / scramble::kCpuHz;
+    EXPECT_NEAR(double(got), double(expect), double(expect) * 0.02);
+}
+
 TEST(Machine, HwtestHelpScreenShowsCopyrightPrompt) {
     scramble::Machine m;
     m.load_roms(test_set());

@@ -175,26 +175,28 @@ int Machine::run_cycles(int n) {
         int t = main.step();
         done += t;
         video.advance(t);
-        // Sound Z80 + AY share 1.789772 MHz. Accumulate fractional T-states
-        // so a long main-CPU burst still pays the right sound cycles.
+        // Sound Z80 + AY share 1.789772 MHz. Credit is in sound-cycle units
+        // scaled by kCpuHz so a single sound instruction that overshoots the
+        // budget is paid back on later main steps (a target/done loop that
+        // discarded the overshoot ran the sound CPU ~1.7–2.5× fast).
         sound_credit_ += t * kSoundHz;
-        int sound_target = sound_credit_ / kCpuHz;
-        sound_credit_ %= kCpuHz;
-        int sound_done = 0;
-        while (sound_done < sound_target) {
+        while (sound_credit_ >= kCpuHz) {
+            int st;
             if (sound_irq_) {
                 int it = sound.interrupt();
                 if (it > 0) {
                     sound_irq_ = false;
-                    sound_done += it;
-                    ay.advance(it, audio_hz, audio);
-                    continue;
+                    st = it;
+                } else {
+                    st = sound.step();
+                    if (st <= 0) st = 4;
                 }
+            } else {
+                st = sound.step();
+                if (st <= 0) st = 4;
             }
-            int st = sound.step();
-            if (st <= 0) st = 4;
-            sound_done += st;
             ay.advance(st, audio_hz, audio);
+            sound_credit_ -= st * kCpuHz;
         }
         if (video.vblank_edge) {
             frames++;

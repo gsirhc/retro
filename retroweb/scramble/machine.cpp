@@ -204,28 +204,28 @@ int Machine::run_cycles(int n) {
         int t = main.step();
         done += t;
         video.advance(t);
+        // Credit is in sound-cycle units scaled by kCpuHz so a sound
+        // instruction that overshoots the budget is paid back later.
         sound_credit_ += t * kSoundHz;
-        int sound_target = sound_credit_ / kCpuHz;
-        sound_credit_ %= kCpuHz;
-        int sound_done = 0;
-        while (sound_done < sound_target) {
+        while (sound_credit_ >= kCpuHz) {
+            int st;
             if (sound_irq_) {
                 int it = sound.interrupt();
                 if (it > 0) {
                     sound_irq_ = false;
-                    sound_done += it;
-                    ay1.advance(it, 0, audio);
-                    ay2.advance(it, 0, audio);
-                    audio_acc_ += it;
-                    continue;
+                    st = it;
+                } else {
+                    st = sound.step();
+                    if (st <= 0) st = 4;
                 }
+            } else {
+                st = sound.step();
+                if (st <= 0) st = 4;
             }
-            int st = sound.step();
-            if (st <= 0) st = 4;
-            sound_done += st;
             ay1.advance(st, 0, audio);
             ay2.advance(st, 0, audio);
             audio_acc_ += st;
+            sound_credit_ -= st * kCpuHz;
         }
         if (audio_hz > 0) {
             const double step = double(kSoundHz) / double(audio_hz);

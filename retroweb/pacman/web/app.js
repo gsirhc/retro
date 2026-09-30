@@ -467,23 +467,31 @@ PacmanArcade().then(async (Module) => {
   }
 
   // POST's RAM test walks patterns through work RAM, including $4E00==1.
-  // That is not attract (Midway #03CE). Wait out ~8 s of irq-on frames
-  // and a stable mode-1 streak before touching $4E88.
+  // That is not attract (Midway #03CE). Wait ~8 s of irq-on frames so POST
+  // is finished, then restore — do not also require still being in attract,
+  // or a fast coin+start skips the poke forever.
+  function postDone() {
+    const st = machine.state();
+    return st.irqEnable && st.frames >= 480;
+  }
+
+  // Attract is stable enough to re-assert TOP into $4E88 every frame.
+  // Mid-game we only paint tiles so we do not fight the player's score path.
   let attractStreak = 0;
   function attractReady() {
-    const st = machine.state();
-    if (machine.ramByte(0x4E00) === 1 && st.irqEnable && st.frames >= 480) {
-      attractStreak++;
-    } else {
+    if (!postDone()) {
       attractStreak = 0;
+      return false;
     }
+    if (machine.ramByte(0x4E00) === 1) attractStreak++;
+    else attractStreak = 0;
     return attractStreak >= 30;
   }
 
   let restoreInFlight = false;
-  async function maybeRestoreHiscore(ready) {
+  async function maybeRestoreHiscore() {
     if (!usingUserRom || restoreInFlight || hiscoreRestored) return;
-    if (!ready) return;
+    if (!postDone()) return;
     restoreInFlight = true;
     try {
       const all = await loadSavedHiscores();
@@ -700,7 +708,7 @@ PacmanArcade().then(async (Module) => {
     const cycles = Math.floor(CPU_HZ * dt);
     if (cycles > 0) machine.runCycles(cycles);
     const ready = attractReady();
-    maybeRestoreHiscore(ready).catch(() => {});
+    maybeRestoreHiscore().catch(() => {});
     maybeSaveHiscore().catch(() => {});
     if (usingUserRom && hiscoreRestored && restoredBytes) {
       const live = readHiscore();
@@ -742,9 +750,9 @@ PacmanArcade().then(async (Module) => {
       get mode() { return machine.ramByte(0x4E00); },
       get hiscoreKey() { return hiscoreKey(); },
       restoreHiscoreNow: async () => {
-        // Same gates as maybeRestoreHiscore, but skip the attract wait —
+        // Same poke as maybeRestoreHiscore, but skip the post-boot wait —
         // the generated self-test ROM (even CRC-patched as a "user" set)
-        // never sets $4E00 == 1.
+        // may not keep irq on long enough for the live path.
         if (!usingUserRom) return false;
         const all = await loadSavedHiscores();
         const saved = all[hiscoreKey()];

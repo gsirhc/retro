@@ -110,4 +110,31 @@ test.describe("HIGH SCORE persist", () => {
     expect(bytes.afterRestore).not.toEqual(SAMPLE);
     expect(bytes.afterPoke).toEqual(SENTINEL);
   });
+
+  // Old path restored on irq1+60 frames. Midway still has POST junk at
+  // $8A20 then, so it marked restored without poking IndexedDB. Live path
+  // waits for the factory 20000 prefix — plant it so the tick path runs.
+  test("HI-SCORE restores once the factory table is present", async ({ page }) => {
+    await page.locator("#romFile").setInputFiles(userSet());
+    await expect(page.locator("#romStatus")).toHaveText("Loaded ROM set");
+    await page.evaluate(async (bytes) => {
+      const t = (window as any).__test;
+      t.writeHiscore(bytes);
+      await t.saveHiscoreNow(t.readHiscore());
+    }, SAMPLE);
+
+    await page.reload();
+    await expect(page.locator("#romStatus")).toHaveText("Loaded stored ROM set");
+
+    await page.waitForFunction((want) => {
+      const t = (window as any).__test;
+      if (!t || !t.usingUserRom) return false;
+      if (!t.hiscoreRestored) {
+        const factory = [0x00, 0x00, 0x00, 0x00, 0x02, 0x24];
+        for (let i = 0; i < factory.length; i++) t.machine.setRamByte(0x8A20 + i, factory[i]);
+      }
+      const ram = t.readHiscore();
+      return t.hiscoreRestored && ram[4] === want[4];
+    }, SAMPLE, { timeout: 15_000 });
+  });
 });

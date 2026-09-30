@@ -123,6 +123,8 @@ private:
     bool irq1_line_ = false;
     bool irq2_line_ = false;
     double audio_acc_ = 0;
+    int sub_credit_ = 0;
+    int sound_credit_ = 0;
 };
 
 }  // namespace galaga

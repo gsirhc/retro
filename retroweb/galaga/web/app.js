@@ -419,6 +419,16 @@ GalagaArcade().then(async (Module) => {
     return FACTORY_PREFIX.every((x, i) => b[i] === x);
   }
 
+  // Midway POST leaves junk at $8A20 until it writes the 20000 table.
+  // irq1 turns on ~100+ frames before that — do not treat non-factory as
+  // "already restored" or the IndexedDB poke is skipped forever.
+  function factoryTableReady() {
+    for (let i = 0; i < FACTORY_PREFIX.length; i++) {
+      if ((machine.ramByte(0x8A20 + i) & 0xff) !== FACTORY_PREFIX[i]) return false;
+    }
+    return true;
+  }
+
   async function loadSavedHiscores() {
     const all = await idbGet("hiscores");
     if (!all || typeof all !== "object" || Array.isArray(all)) return {};
@@ -436,13 +446,8 @@ GalagaArcade().then(async (Module) => {
 
   let restoreInFlight = false;
   async function maybeRestoreHiscore() {
-    if (!usingUserRom || restoreInFlight) return;
-    const st = machine.state();
-    if (!st.irq1Enable || st.frames < 60) return;
-    if (!hiscoreIsFactory(readHiscore())) {
-      hiscoreRestored = true;
-      return;
-    }
+    if (!usingUserRom || restoreInFlight || hiscoreRestored) return;
+    if (!factoryTableReady()) return;
     restoreInFlight = true;
     try {
       const all = await loadSavedHiscores();
@@ -459,6 +464,7 @@ GalagaArcade().then(async (Module) => {
   async function maybeSaveHiscore() {
     if (!usingUserRom || saveInFlight || !hiscoreRestored) return;
     const cur = readHiscore();
+    if (hiscoreIsFactory(cur)) return;
     const key = cur.join(",");
     if (key === lastSavedHiscore) return;
     saveInFlight = true;
@@ -641,6 +647,7 @@ GalagaArcade().then(async (Module) => {
       writeHiscore,
       saveHiscoreNow,
       maybeSaveHiscore,
+      get hiscoreRestored() { return hiscoreRestored; },
       resetHiscoreNow,
       restoreHiscoreNow: async () => {
         if (!usingUserRom) return false;

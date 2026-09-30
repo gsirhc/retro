@@ -37,6 +37,8 @@ void Machine::reset() {
     credits = 0;
     audio.clear();
     audio_acc_ = 0;
+    sub_credit_ = 0;
+    sound_credit_ = 0;
     io_ctrl_ = 0;
     io_div_count_ = 0;
     io_stretch_ = false;
@@ -368,13 +370,23 @@ int Machine::run_cycles(int n) {
         // of them wait on the others. Advance sub and sound by the same
         // T-state count as the main instruction.
         int t = step_cpu(0);
+        // Pay back instruction overshoot so sub/sound stay locked to main
+        // (same leftover-credit pattern as Frogger/Scramble sound Z80).
         if (!sub_reset) {
-            int acc = 0;
-            while (acc < t) acc += step_cpu(1);
+            sub_credit_ += t;
+            while (sub_credit_ > 0) {
+                int st = step_cpu(1);
+                if (st <= 0) st = 4;
+                sub_credit_ -= st;
+            }
         }
         if (!sound_reset) {
-            int acc = 0;
-            while (acc < t) acc += step_cpu(2);
+            sound_credit_ += t;
+            while (sound_credit_ > 0) {
+                int st = step_cpu(2);
+                if (st <= 0) st = 4;
+                sound_credit_ -= st;
+            }
         }
         done += t;
         size_t audio_before = audio.size();
@@ -385,16 +397,21 @@ int Machine::run_cycles(int n) {
         if (video.sound_nmi_edge && !nmi_disable && !sound_reset) sound.nmi();
         if (video.vblank_edge) on_vblank();
         if (watchdog_reset) break;
-        float noise = 0;
+        // 54XX noise is mixed per host sample so duration tracks wall time
+        // and the LFSR is not stepped once per Z80 instruction.
         if (mcu54_hle && noise_left_ > 0 && noise_amp_ > 0) {
-            noise_lfsr_ = (noise_lfsr_ >> 1) ^ ((noise_lfsr_ & 1) ? 0xA300u : 0);
-            float s = (noise_lfsr_ & 1) ? 1.f : -1.f;
-            noise = s * (float(noise_amp_) / 15.f) * (float(noise_vol_) / 15.f) * 0.35f;
-            if (!audio.empty()) noise_left_--;
+            for (size_t i = audio_before; i < audio.size() && noise_left_ > 0; i++) {
+                noise_lfsr_ = (noise_lfsr_ >> 1) ^ ((noise_lfsr_ & 1) ? 0xA300u : 0);
+                float s = (noise_lfsr_ & 1) ? 1.f : -1.f;
+                float noise = s * (float(noise_amp_) / 15.f) * (float(noise_vol_) / 15.f) * 0.25f;
+                audio[i] += noise;
+                noise_left_--;
+            }
         } else if (!mcu54_hle) {
-            noise = (float(mcu54_.o_output) / 255.f) - 0.5f;
+            // Resistor-mixed 54XX DAC; leave headroom next to a full WSG sum.
+            float noise = ((float(mcu54_.o_output) / 255.f) - 0.5f) * 0.25f;
+            for (size_t i = audio_before; i < audio.size(); i++) audio[i] += noise;
         }
-        for (size_t i = audio_before; i < audio.size(); i++) audio[i] += noise;
     }
     return done;
 }

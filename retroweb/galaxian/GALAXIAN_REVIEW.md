@@ -90,5 +90,7 @@ playthrough tests skip there.
 - **HIGH SCORE RAM is volatile on the real PCB.** There is no battery.
   `$40A8` (3 BCD HI-SCORE, `hiscore.dat`) dies on power-off. This page always
   persists those bytes in IndexedDB for a user ROM — a labelled departure.
+  Restore once NMI is on, frames ≥ 60, and HI-SCORE is still the factory
+  zeros (POST junk must not mark the table "already restored").
   **Reset HIGH SCORE** deletes the save and `machine.reset()`s the board.
   Covered by `web/tests/hiscore.spec.ts`.
