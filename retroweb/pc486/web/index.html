@@ -139,6 +139,9 @@
   .boot-notice .dismiss-hint { display: block; margin-top: 6px; font-size: 10px; font-weight: 400; opacity: .85; text-transform: uppercase; letter-spacing: .04em; }
   #screen:focus { outline: none; }
   .audio-row { margin-top: 14px; justify-content: center; gap: 16px; }
+  .volwheel { display: flex; align-items: center; gap: 6px; }
+  .volwheel input[type="range"] { width: 110px; }
+  .volwheel .muted { min-width: 2.2em; text-align: right; font-variant-numeric: tabular-nums; }
   /* Sound / mouse / WASD mirrors of the checkboxes below -- live in the
      bezel so they stay reachable once fullscreen covers the page chrome. */
   .bezel-btn[aria-pressed="true"] {
@@ -500,6 +503,11 @@
       </div>
       <div class="row audio-row">
         <label><input type="checkbox" id="speakerEnabled"> Enable Sound</label>
+        <label class="volwheel" title="The SB16's own volume wheel, on the card's backplate next to the jacks -- an analog pot after the output amplifier, so it sets how loud the card plays and nothing in DOS can see it. The motherboard speaker is a separate part and is not affected.">SB16 wheel
+          <input type="range" id="sbVolume" min="0" max="100" step="1" value="70"
+                 aria-label="Sound Blaster 16 backplate volume wheel">
+          <span class="muted" id="sbVolumeReadout">70</span>
+        </label>
         <label><input type="checkbox" id="mouseCaptureEnabled"> Enable Mouse</label>
         <label><input type="checkbox" id="wasdArrows"> Map WASD to Arrows (A/D strafe)</label>
       </div>

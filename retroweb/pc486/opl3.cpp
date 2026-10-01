@@ -171,7 +171,7 @@ int ksl_env_units(uint8_t ksl_reg, uint16_t fnum, uint8_t block) {
 
 // A phase-modulation offset (in the 20-bit 10.10 phase-accumulator's own
 // units) for a modulator whose fully-formed output is `out_val` (roughly
-// +-2047, unity at 1024 -- see kFullScale), scaled by a modulation index in
+// +-1024, unity at 1024 -- see kFullScale), scaled by a modulation index in
 // radians.
 int32_t phase_offset(int32_t out_val, double radians) {
     return int32_t(std::lround((double(out_val) / kFullScale) * radians * kPhaseUnitsPerRadian));
@@ -242,9 +242,14 @@ int32_t wave_sample(uint8_t waveform, uint32_t phase20, double atten_env_units) 
     if (t < 0) t = 0;
     int32_t shift = t >> 8;
     if (shift >= 16) return 0;
+    // The exp ROM is read backwards -- the die stores it reversed, so the
+    // decode indexes 255-frac (Niemitalo & Gambrell, "OPLx decapsulated");
+    // exp_tab rises with its index while `t` is an attenuation. That form
+    // carries an inherent factor of two, which the extra shift takes back
+    // out to land on kFullScale's unity-at-1024 convention.
     int32_t frac = t & 0xFF;
-    int32_t mantissa = int32_t(kWave.exp_tab[frac]) + 1024;
-    int32_t mag = mantissa >> shift;
+    int32_t mantissa = int32_t(kWave.exp_tab[255 - frac]) + 1024;
+    int32_t mag = mantissa >> (shift + 1);
     return sign * mag;
 }
 
@@ -766,13 +771,11 @@ void Opl3::generate_frame(uint64_t cycle) {
     // describes how up to 18 channels are summed internally or what headroom
     // that leaves, and Creative's own SB16 programming guide (p.138) refers
     // OPL3 internals back to the vendor. So this is an empirical scale with no
-    // hardware citation, chosen for headroom at realistic polyphony: one
-    // zero-attenuation voice reaches ~18% of full scale, leaving 18
-    // moderately-attenuated voices (how period FM music is actually voiced)
-    // ~16% clear of the clamp. The previous 8.0 put a single voice at 49% of
-    // full scale, so three in unison clipped and dense passages spent most of
-    // their samples against the rail. See PC486_REVIEW.md §11.1.
-    constexpr double kMasterGain = 3.0;
+    // hardware citation, chosen for headroom at the polyphony that actually
+    // binds: one zero-attenuation voice reaches ~18% of full scale, and nine
+    // of them (the case that clips first -- not the many-quiet-voices case)
+    // peak at 86%. See PC486_REVIEW.md §11.1 and §29.
+    constexpr double kMasterGain = 6.0;
     auto clamp16 = [](double x) -> int16_t {
         if (x > 32767.0) return 32767;
         if (x < -32768.0) return -32768;

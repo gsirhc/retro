@@ -3255,7 +3255,10 @@ affect whether software finds the chip or plays in time:
   music runs that many voices, which is why it sounded distorted while PCM
   effects -- separately scaled, never through this summing stage -- sounded
   right. Now 3.0, giving one voice ~18% of full scale and leaving full
-  18-voice polyphony ~16% clear of the clamp. `opl3_test.cpp` gained
+  18-voice polyphony ~16% clear of the clamp. **This diagnosis was wrong:**
+  the clipping was caused by `wave_sample()` reading its exponent ROM
+  forwards, and cutting the gain suppressed it without removing the 36%
+  distortion underneath. See §29; the gain is now 6.0 on a correct waveform. `opl3_test.cpp` gained
   `FullPolyphonyAtModerateLevelsDoesNotClip` and
   `OneFullVolumeVoiceLeavesHeadroomForEighteen`; both fail at 8.0, and the
   first independently reproduces the 43.9% figure. The gap that let this ship
@@ -5301,3 +5304,161 @@ full-image save (a small stand-in record substituted for what
 should wait on) survives the same fingerprint mismatch with no network
 request at all, proving the "full records are self-contained" half of the
 fix actually holds and isn't just believed from reading the code.
+
+## 29. The OPL3 read its exponent ROM forwards, and the master gain had
+been compensating for it
+
+§11.1 recorded the output master gain as an empirical number with no
+hardware citation, cut from 8.0 to 3.0 because three unison voices clipped
+16% of their samples at 8.0 and eighteen at realistic attenuation clipped
+44%. Those measurements were real. Their cause was not the gain.
+
+`wave_sample()` decodes the log-sin/exp table pair the OPLx decapsulation
+gives: look up log-sin, add the attenuation, exponentiate. The exponent step
+read the ROM forwards:
+
+    int32_t frac = t & 0xFF;
+    int32_t mantissa = int32_t(kWave.exp_tab[frac]) + 1024;
+    int32_t mag = mantissa >> shift;
+
+`exp_tab[x] = round((2^(x/256) - 1) * 1024)` rises with its index, while `t`
+is an *attenuation*. So within each octave of attenuation the magnitude
+climbed toward 2x instead of decaying, and the `>> shift` snapped it back at
+every 256 boundary -- a sawtooth riding on the sine. The die stores that ROM
+reversed, so the decode indexes `255 - frac`; that form carries an inherent
+factor of two, which an extra shift takes back out to land on kFullScale's
+unity-at-1024 convention.
+
+Measured over all 1024 phase steps of waveform 0 at zero attenuation,
+against an ideal sine:
+
+| form | peak | worst local error | THD |
+|---|---|---|---|
+| forwards (as shipped) | 2042 | 3.98x at index 597 | **36.0%** (-8.9 dB) |
+| `exp_tab[255 - frac] >> (shift + 1)` | 1021 | 1.00x | 0.0% (-73.6 dB) |
+
+Every operator of every voice was generating 36% total harmonic distortion
+instead of a sine. The peak landing at 2042 rather than 1021 is what the
+8.0 gain was clipping against, and cutting the gain to 3.0 suppressed the
+clipping while leaving the distortion untouched -- which is what FM music
+actually sounded like: harsh, not merely loud.
+
+Two consequences beyond the waveform. `phase_offset()` normalises a
+modulator's output by `kFullScale` (1024), so an operator running 2x hot
+drove **twice the intended modulation index** on every FM patch, and
+`feedback_offset()` was inflated the same way; §11.1's standing "modulation
+index is pi, unverified" approximation was therefore being judged against a
+doubled value. And the error is not a uniform 2x -- it depends on `frac`, so
+the shipped waveform's *peak* did not even fall where the sine's does. For
+the 18-unison polyphony case the peak sat at log-sin 191, not 0.
+
+The gain is now 6.0, and picking it corrected a second mistaken assumption.
+Measured on the exact patch `FullPolyphonyAtModerateLevelsDoesNotClip` uses
+(18 voices, carrier TL=18, one pitch -- exact unison, the worst case for
+*coherent* summing), the raw summed peak fell from 9162 to 3852 once the
+waveform was correct, which suggested a gain as high as 8.0 would fit. It
+does not. That case is not what binds. Swept across polyphony at the
+corrected waveform, peak as a percentage of full scale:
+
+| case | gain 4.0 | 5.0 | 6.0 | 7.0 | 8.0 |
+|---|---|---|---|---|---|
+| 1 voice, TL=0 | 12.5 | 15.6 | 18.7 | 21.8 | 24.9 |
+| 6 voices, TL=0 | 57.1 | 71.4 | **85.7** | 100.0 clip | 114.3 clip |
+| 9 voices, TL=0 | 57.1 | 71.4 | **85.7** | 100.0 clip | 114.3 clip |
+| 9 voices, TL=16 | 15.1 | 18.8 | 22.6 | 26.4 | 30.2 |
+| 18 voices, TL=16 | 30.7 | 38.4 | 46.1 | 53.7 | 61.4 |
+| 18 voices, TL=18, unison | 47.0 | 58.8 | 70.5 | 82.3 | 94.0 |
+
+A handful of *full-volume* voices clips long before eighteen attenuated
+ones do -- the opposite of the "18-voice polyphony" framing §11.1 reasoned
+from. 6.0 is the highest gain that is clamp-free on every case above, with
+14% margin on the binding one, and it lands one zero-attenuation voice back
+on the ~18% of full scale §11.1 originally documented.
+
+Level against what shipped: on the unison case, RMS goes from 42.0% (gain
+3.0, forwards) to 36.4% (gain 6.0, reversed) -- about 1.3 dB down on the
+meter. That is not a loudness regression in any audible sense, because the
+42.0% included the 36% distortion as signal energy. Keeping 3.0 would have
+dropped RMS to 18.2%, so the gain change is needed simply to hold level
+while the distortion comes out. **This fix removes harshness; it does not
+make FM music louder** -- the perceived "quiet" is a separate question, and
+the front end's `kMixerUnityGain` normalisation against whatever the game
+programs into the CT1745's MIDI level (34h/35h) is where to look next.
+
+Both existing clipping tests pass unchanged at 7.0, which is the other half
+of the lesson: they bound the *summed* output, and a per-operator waveform
+error of this size passed straight through them. Nothing in the suite had
+ever compared one operator against the sine it is supposed to be.
+
+## 30. The SB16's volume wheel, which the card physically had
+
+§29 removed the FM distortion but deliberately held output level constant,
+which left the real complaint standing: FM music is quiet. Measured on the
+corrected waveform, the reason no gain constant fixes it is that the OPL3's
+own dynamic range between typical and maximal content is about 20 dB:
+
+| content | peak @ gain 6.0 | RMS |
+|---|---|---|
+| 9 voices, mixed TL (typical music) | 34.7% | -19.5 dBFS |
+| 18 voices, mixed TL | 57.7% | -16.5 dBFS |
+| 9 voices, all TL=0 (worst case) | 90.6% | -10.8 dBFS |
+
+Raising `kMasterGain` enough to put typical music at a healthy level clips
+the loud case outright. That is not a modelling failure -- it is the real
+chip's dynamic range, and the real card did not resolve it in the digital
+domain either.
+
+What a real card did: the YMF262 has no DAC. It emits two 16-bit serial
+streams into a companion **YAC512** (the sdiy.info YMF262 page; secondary
+sources describe the YAC512's format as a 10-bit mantissa with a 3-bit
+exponent, which is not corroborated by a primary datasheet here -- see
+below). From the DAC it is analog the rest of the way: the CT1745's FM level
+(34h/35h), then Master (30h/31h), then the card splits at the **OPSL/OPSR
+jumpers** -- either bypassing the onboard power amplifier for line-out, or
+engaging it for speaker-out, where the output level is set by a **thumbwheel
+potentiometer on the card's backplate**. The CT1740 and CT1750 (this
+machine's CT1745-mixer, DSP 4.05 generation) both "retained the thumbwheel
+volume control on the backplate seen on earlier cards" (DOS Days).
+
+So absolute loudness on a real 486 was set by an analog knob downstream of
+everything software could see, and `kMixerUnityGain` in `app.js` -- which
+models the output amplifier's fixed makeup gain -- had that wheel
+hardcoded at one position with no way to turn it.
+
+The wheel is now modelled: a range control in the audio row, applied as a
+`GainNode` after the mix so it cannot clip the emulation, square-law for a
+pot's audio taper, 50 = unity (exactly `kMixerUnityGain`'s modelled
+amplifier gain, i.e. the level before this section) and 100 = +12 dB.
+Default 70 (+5.8 dB). The position persists in `localStorage`, because a
+physical wheel stays where it was left -- unlike "Enable Sound", which must
+never be restored, since a browser blocks audio until a gesture. The
+motherboard speaker is a separate part on a real tower and does not pass
+through the card, so `speakerNode` is deliberately *not* routed through the
+gain node.
+
+One bug found by running it rather than reading it: the restore path was
+`Number(localStorage.getItem(key))`, and `Number(null)` is 0, which passes a
+`0 <= n <= 100` range check -- so every first-time visitor got the wheel
+turned fully down and no sound at all. The null is now checked before the
+coercion. Verified across three profiles: fresh (70), stored 25 (25), stored
+junk (70).
+
+**Not changed, for want of a source.** §29 noted that `wave_sample()` allows
+an exponent shift up to 15 while the YAC512's exponent is reportedly 3 bits.
+That observation was misplaced: the mantissa/exponent split is the format of
+the chip's *final output stage* into the DAC, not of the per-operator path
+`wave_sample()` implements, and the guard is dead code either way (the
+mantissa shifts to zero well before 16). The genuine question it raises --
+whether `generate_frame` should quantise its output to the YAC512's
+floating-point format rather than clamping linearly to int16, which would
+reproduce the real chip's non-uniform quantisation noise -- is left alone:
+the sdiy.info page says "two 16-bit serial data streams" and says nothing
+about a mantissa/exponent split, which conflicts with the 10+3 figure, and
+no YAC512 datasheet was obtained. Modelling it would *add* a noise floor
+around -60 dB, so it is not a change to make on conflicting secondary
+sources.
+
+**No test yet** -- added at the user's request to defer it. The control needs
+one in `web/tests/` per this repo's every-control rule: default position,
+persistence, the null-restore guard, the gain law's unity point, and that the
+PC speaker path is unaffected.

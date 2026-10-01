@@ -494,8 +494,25 @@
   // clicking. It also needs no nextPlayTime/resync bookkeeping, since
   // there's no scheduling clock to keep in sync.
   const speakerCheckbox = document.getElementById("speakerEnabled");
+  const sbVolume = document.getElementById("sbVolume");
+  const sbVolumeReadout = document.getElementById("sbVolumeReadout");
+  // A real wheel stays where it was left, so the position persists. Unlike
+  // "Enable Sound" -- which must not be restored, because a browser blocks
+  // audio until a gesture -- restoring a knob position starts nothing.
+  const SB_VOLUME_KEY = "retro8080.pc486SbVolume";
   speakerCheckbox.checked = false;
   let audioCtx = null, speakerNode = null, lastLevel = false;
+  // The SB16's backplate volume wheel: an analog pot after the card's output
+  // amplifier (CT1740/CT1750 kept the thumbwheel earlier cards had), so it
+  // sits outside everything the guest can see -- the CT1745's own Master and
+  // FM attenuators are already modelled in pumpSbAudio's gains. The
+  // motherboard speaker is a separate part on a real tower and does not pass
+  // through the card, so speakerNode is deliberately not routed through this.
+  let sbGainNode = null;
+  // Square law, a reasonable stand-in for a pot's audio taper: 50 is unity
+  // (kMixerUnityGain's modelled amplifier gain) and 100 is +12 dB.
+  const kWheelMaxGain = 4.0;
+  function wheelGain(pos) { const f = pos / 100; return f * f * kWheelMaxGain; }
   let sbNode = null, lastSbLeft = 0, lastSbRight = 0, lastFmLeft = 0, lastFmRight = 0;
   let audioStats = null;
 
@@ -746,8 +763,26 @@
     sbNode.port.onmessage = (e) => {
       if (e.data && e.data.stats) audioStats = e.data.stats;
     };
-    sbNode.connect(audioCtx.destination);
+    sbGainNode = audioCtx.createGain();
+    sbGainNode.gain.value = wheelGain(Number(sbVolume.value));
+    sbNode.connect(sbGainNode);
+    sbGainNode.connect(audioCtx.destination);
   }
+  function applyWheel(pos, persist) {
+    sbVolumeReadout.textContent = String(pos);
+    if (sbGainNode) sbGainNode.gain.value = wheelGain(pos);
+    if (persist) { try { localStorage.setItem(SB_VOLUME_KEY, String(pos)); } catch {} }
+  }
+  try {
+    // Guard the null: Number(null) is 0, which would silently leave a
+    // first-time visitor's wheel turned all the way down.
+    const stored = localStorage.getItem(SB_VOLUME_KEY);
+    const saved = stored === null ? NaN : Number(stored);
+    if (Number.isFinite(saved) && saved >= 0 && saved <= 100) sbVolume.value = String(saved);
+  } catch {}
+  applyWheel(Number(sbVolume.value), false);
+  sbVolume.addEventListener("input", () => applyWheel(Number(sbVolume.value), true));
+
   speakerCheckbox.addEventListener("change", () => {
     if (speakerCheckbox.checked) {
       ensureAudioStarted();
@@ -2059,6 +2094,7 @@
       window.__test = {
         machine, sendKey, screenEl, mapKey,
         get audioState() { return audioCtx ? audioCtx.state : null; },
+        get sbWheelGain() { return sbGainNode ? sbGainNode.gain.value : null; },
         get heldKeysSize() { return heldKeys.size; },
         // Flush C: to IndexedDB and resolve when the put finishes -- tests
         // that reload must await this, or a factory-delta / full-image save
