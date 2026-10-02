@@ -27,6 +27,7 @@
 //   const fm = m.fmDrainSamples();        // the OPL3's stream, same shape as above
 //   m.fmStartTrace(400000); m.fmDrainTrace();  // opt-in register-write trace, see app.js's window.__fm
 //   m.fmGainLeft(); m.sbGainLeft();       // the CT1745 attenuators the front end mixes with
+//   m.sbMixerRegister(0x44);              // raw CT1745 mixer register (treble/bass: 44h-47h)
 //   m.textScreen();                       // test-only: current text-mode screen as a string, "" in graphics modes
 
 #include <emscripten/bind.h>
@@ -374,6 +375,9 @@ public:
     float fmGainRight() const { return m_.chipset.sb.fm_gain_right(); }
     float sbGainLeft() const { return m_.chipset.sb.output_gain_left(); }
     float sbGainRight() const { return m_.chipset.sb.output_gain_right(); }
+    // Raw CT1745 mixer register, for the tone controls (44h-47h) the front
+    // end turns into shelving-filter gains -- see app.js's refreshSbTone().
+    uint8_t sbMixerRegister(uint8_t index) const { return m_.chipset.sb.mixer_register(index); }
 
     val sbDrainSamples() {
         std::vector<pc486::SoundBlaster::Sample> samples = m_.chipset.sb.drain_samples();
@@ -466,5 +470,6 @@ EMSCRIPTEN_BINDINGS(pc486_machine) {
         .function("fmGainRight", &WasmMachine::fmGainRight)
         .function("sbGainLeft", &WasmMachine::sbGainLeft)
         .function("sbGainRight", &WasmMachine::sbGainRight)
+        .function("sbMixerRegister", &WasmMachine::sbMixerRegister)
         .function("textScreen", &WasmMachine::textScreen);
 }

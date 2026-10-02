@@ -43,6 +43,7 @@ void Chipset::reset() {
     cdrom.reset();
     speaker.reset();
     sb.reset();
+    mpu.reset();
     note_a20();  // kbc.reset() closes the gate again
     // mem/rom_/cmos deliberately survive reset() -- see ibmpc-at/chipset.cpp's
     // identical comment; the same real-hardware facts (RAM, ROM write-
@@ -126,6 +127,7 @@ uint8_t Chipset::io_in(uint16_t port) {
     if (hdd.owns(port)) return hdd.in(port);
     if (cdrom.owns(port)) return cdrom.in(port);
     if (sb.owns(port)) return sb.in(port);
+    if (mpu.owns(port)) return mpu.in(port);
     if (port == 0x61) return port61();
     int controller, channel;
     if (page_port_map(port, controller, channel)) return (controller == 1 ? dma1 : dma2).page(channel);
@@ -155,6 +157,7 @@ void Chipset::io_out_impl(uint16_t port, uint8_t v) {
     if (hdd.owns(port)) { hdd.out(port, v); return; }
     if (cdrom.owns(port)) { cdrom.out(port, v); return; }
     if (sb.owns(port)) { sb.out(port, v); return; }
+    if (mpu.owns(port)) { mpu.out(port, v); return; }
     if (port == 0x61) { set_port61(v); return; }
     if (port == 0x80) { last_post_code_ = v; return; }
     if (port == 0xE9) { debug_console_.push_back(char(v)); return; }
@@ -251,7 +254,26 @@ void Chipset::service(uint64_t cpu_cycles, double cpu_hz) {
     // return -- same shape as run_cycles()'s has_interrupt() guard (§8).
     if (sb.transfer_ready()) service_sb_dma();
     bool sb_irq_now = sb.irq_pending();
-    if (sb_irq_now && !sb_irq_prev_) pic_master.raise(5);
+    if (sb_irq_now && !sb_irq_prev_) {
+        // Mixer register 80h picks which line the card actually drives --
+        // see soundblaster.cpp's irq_line() (SBPG 2-6). -1 means software
+        // deselected every line, so the card raises nothing at all.
+        switch (sb.irq_line()) {
+            case 2:
+                // The SB16's "IRQ2" jumper/mixer position is wired to global
+                // IRQ9, not the master's own IR2: on the AT, IBM cascaded the
+                // second 8259 in at the former XT IRQ2 line and rerouted the
+                // XT's IRQ2-using cards to the slave's IR1 (global IRQ9)
+                // instead, so master IR2 is only ever the cascade input, never
+                // a device's own interrupt. IBM 5170 Technical Reference.
+                pic_slave.raise(1);
+                break;
+            case 5: pic_master.raise(5); break;
+            case 7: pic_master.raise(7); break;
+            case 10: pic_slave.raise(2); break;  // global IRQ10 = slave line 2
+            default: break;                      // no line selected
+        }
+    }
     sb_irq_prev_ = sb_irq_now;
 
     // IRQ14 (hard disk) and IRQ15 (CD-ROM), both on the slave PIC --
@@ -286,31 +308,41 @@ void Chipset::service_sb_dma() {
     // reads memory into the card. Getting this backwards leaves the DAC
     // playing the card's own buffer while overwriting the program's mixed
     // audio (PC486_REVIEW.md §13).
+    // The physical address is recomputed from the DMA channel's own live
+    // page/address registers on every unit moved, then dma.advance() is
+    // called right after -- that's what makes a transfer that wraps the
+    // 64KB page (address increments/decrements and wraps, page register
+    // unchanged -- a real, documented 8237 quirk) or runs in decrement mode
+    // (mode register bit 5) fall out correctly, for both channel widths,
+    // instead of just walking a single phys+i computed once up front.
     std::size_t moved = 0;
     if (is16) {
         // 16-bit channel: address outputs are A1-A16 (page supplies
         // A17-A23, bit 0 not connected), and the count/advance() step in
         // words, not bytes -- see soundblaster.h's header formula.
-        uint32_t phys = (uint32_t(dma.page(idx)) << 16) | (uint32_t(dma.address(idx)) << 1);
         std::size_t avail_bytes = (std::size_t(dma.count(idx)) + 1) * 2;
         std::size_t len = std::min(want, avail_bytes) & ~std::size_t(1);  // whole words only
-        if (sb.transfer_is_input()) {
-            for (std::size_t i = 0; i < len; ++i) mem[(phys + i) & (kRamSize - 1)] = buf[i];
-        } else {
-            for (std::size_t i = 0; i < len; ++i) buf[i] = mem[(phys + i) & (kRamSize - 1)];
+        for (std::size_t i = 0; i < len; i += 2) {
+            uint32_t phys = (uint32_t(dma.page(idx)) << 16) | (uint32_t(dma.address(idx)) << 1);
+            if (sb.transfer_is_input()) {
+                mem[phys & (kRamSize - 1)] = buf[i];
+                mem[(phys + 1) & (kRamSize - 1)] = buf[i + 1];
+            } else {
+                buf[i] = mem[phys & (kRamSize - 1)];
+                buf[i + 1] = mem[(phys + 1) & (kRamSize - 1)];
+            }
+            dma.advance(idx);
         }
-        for (std::size_t i = 0; i < len; i += 2) dma.advance(idx);
         moved = len;
     } else {
-        uint32_t phys = (uint32_t(dma.page(idx)) << 16) | dma.address(idx);
         std::size_t avail_bytes = std::size_t(dma.count(idx)) + 1;
         std::size_t len = std::min(want, avail_bytes);
-        if (sb.transfer_is_input()) {
-            for (std::size_t i = 0; i < len; ++i) mem[(phys + i) & (kRamSize - 1)] = buf[i];
-        } else {
-            for (std::size_t i = 0; i < len; ++i) buf[i] = mem[(phys + i) & (kRamSize - 1)];
+        for (std::size_t i = 0; i < len; ++i) {
+            uint32_t phys = (uint32_t(dma.page(idx)) << 16) | dma.address(idx);
+            if (sb.transfer_is_input()) mem[phys & (kRamSize - 1)] = buf[i];
+            else buf[i] = mem[phys & (kRamSize - 1)];
+            dma.advance(idx);
         }
-        for (std::size_t i = 0; i < len; ++i) dma.advance(idx);
         moved = len;
     }
     sb.finish_transfer(moved);

@@ -465,6 +465,77 @@ TEST(ChipsetTest, SoundBlasterRecordingDmaWritesTheCardsSamplesIntoMemory) {
     EXPECT_TRUE(cs.sb.drain_samples().empty());  // recording produces no DAC output
 }
 
+TEST(ChipsetTest, SoundBlasterPlaybackWrapsWithinTheSixtyFourKPageNotAcrossIt) {
+    // The 8-bit channel's address register is 16 bits; starting near the top
+    // of a 64KB page and asking for more bytes than fit must wrap back to the
+    // bottom of that same page (a real, documented 8237 quirk -- see
+    // dma8237.h's Channel comment), not spill into the next page up. Before
+    // this fix, service_sb_dma() computed one phys address up front and
+    // walked phys+i, which ran straight off the end of the page instead.
+    Chipset cs;
+    const uint32_t page = 0x00020000;      // page-aligned
+    const uint32_t start = page + 0xFFFE;  // last 2 bytes of the page
+    const uint8_t pcm[4] = {0xA1, 0xB2, 0xC3, 0xD4};
+    cs.mem_write(start, pcm[0]);
+    cs.mem_write(start + 1, pcm[1]);
+    cs.mem_write(page, pcm[2]);      // where byte 2 must wrap back to
+    cs.mem_write(page + 1, pcm[3]);  // and byte 3
+
+    cs.io_out(0x0C, 0x00);
+    cs.io_out(0x02, uint8_t(start & 0xFF));
+    cs.io_out(0x02, uint8_t((start >> 8) & 0xFF));
+    cs.io_out(0x0C, 0x00);
+    cs.io_out(0x03, 0x03);  // count = 4 - 1
+    cs.io_out(0x03, 0x00);
+    cs.io_out(0x83, uint8_t(page >> 16));
+    cs.io_out(0x0B, 0x49);  // single transfer, read-from-memory, channel 1
+    cs.io_out(0x0A, 0x01);
+
+    cs.io_out(0x226, 1);
+    cs.io_out(0x226, 0);
+    ASSERT_EQ(cs.io_in(0x22A), 0xAA);
+    cs.io_out(0x22C, 0x40); cs.io_out(0x22C, 166);
+    cs.io_out(0x22C, 0x14); cs.io_out(0x22C, 0x03); cs.io_out(0x22C, 0x00);  // 4 bytes
+
+    for (uint64_t c = 0; c < 2'000'000 && cs.sb.playing(); c += 64) cs.tick(c, 66000000.0);
+    EXPECT_FALSE(cs.sb.playing());
+
+    auto samples = cs.sb.drain_samples();
+    ASSERT_EQ(samples.size(), 4u);
+    for (int i = 0; i < 4; ++i)
+        EXPECT_EQ(samples[i].left, int16_t((int(pcm[i]) - 128) * 256)) << "byte " << i;
+}
+
+TEST(ChipsetTest, DmaIdentificationWritesOneByteToMemoryWithNoInterrupt) {
+    // E2h's single-byte DMA write (see soundblaster.cpp's run_command) goes
+    // through the same chipset DMA path as every other transfer, but it is
+    // not a DSP "block": no interrupt, no block-counter bookkeeping.
+    Chipset cs;
+    InitPics(cs);
+    const uint32_t phys = 0x00015000;
+    cs.mem_write(phys, 0x00);
+
+    cs.io_out(0x0C, 0x00);
+    cs.io_out(0x02, uint8_t(phys & 0xFF));
+    cs.io_out(0x02, uint8_t((phys >> 8) & 0xFF));
+    cs.io_out(0x0C, 0x00);
+    cs.io_out(0x03, 0x00);  // count = 1 - 1
+    cs.io_out(0x03, 0x00);
+    cs.io_out(0x83, uint8_t(phys >> 16));
+    cs.io_out(0x0B, 0x45);  // single transfer, write-to-memory, channel 1
+    cs.io_out(0x0A, 0x01);
+
+    cs.io_out(0x226, 1);
+    cs.io_out(0x226, 0);
+    ASSERT_EQ(cs.io_in(0x22A), 0xAA);
+    cs.io_out(0x22C, 0xE2); cs.io_out(0x22C, 0x12);  // DMA identification, p = 0x12
+
+    for (uint64_t c = 0; c < 2000 && cs.sb.transfer_ready(); c += 64) cs.tick(c, 66000000.0);
+    EXPECT_FALSE(cs.sb.transfer_ready());
+    EXPECT_EQ(cs.mem_read(phys), uint8_t(0xAA + (0x12 ^ 0x96)));  // valadd=0xAA, valxor=0x96 out of reset
+    EXPECT_EQ(cs.poll_interrupt(), -1);
+}
+
 TEST(ChipsetTest, SoundBlasterBlockEndRaisesIrq5) {
     Chipset cs;
     InitPics(cs);
@@ -492,6 +563,56 @@ TEST(ChipsetTest, SoundBlasterBlockEndRaisesIrq5) {
     EXPECT_FALSE(cs.sb.irq_pending());
 }
 
+TEST(ChipsetTest, SoundBlasterHonoursTheMixerSelectedIrqLine) {
+    // Mixer 80h picks which real PIC line the card actually drives -- before
+    // this, chipset.cpp hardcoded IRQ5 regardless of the register.
+    Chipset cs;
+    uint64_t cycles = 0;  // kept monotonic across every sub-case below
+
+    auto select_and_trigger = [&](uint8_t mixer80) {
+        InitPics(cs);  // fresh master (vector base 8) and slave (0x70), fully unmasked
+        cs.io_out(0x226, 1);
+        cs.io_out(0x226, 0);
+        ASSERT_EQ(cs.io_in(0x22A), 0xAA);
+        // Flush chipset.cpp's sb_irq_prev_ edge-detect state before arming
+        // the next interrupt -- a DSP reset clears sb.irq_pending()
+        // immediately, but sb_irq_prev_ only catches up to that on the next
+        // tick(), and the F2h below sets it pending again synchronously.
+        cs.tick(cycles += 64, 66000000.0);
+        cs.io_out(0x224, 0x80);
+        cs.io_out(0x225, mixer80);
+        cs.io_out(0x22C, 0xF2);  // F2h: diagnostic 8-bit-source interrupt trigger
+    };
+    auto run_to_vector = [&]() {
+        int vec = -1;
+        for (int i = 0; i < 2000 && vec < 0; ++i) { cs.tick(cycles += 64, 66000000.0); vec = cs.poll_interrupt(); }
+        return vec;
+    };
+
+    select_and_trigger(0x02);  // bit1 = IRQ5 (the default), master PIC
+    EXPECT_EQ(run_to_vector(), 0x08 + 5);
+
+    select_and_trigger(0x04);  // bit2 = IRQ7, master PIC
+    EXPECT_EQ(run_to_vector(), 0x08 + 7);
+
+    select_and_trigger(0x08);  // bit3 = IRQ10 = global IRQ10 = slave line 2
+    EXPECT_EQ(run_to_vector(), 0x70 + 2);
+
+    // bit0 = the card's "IRQ2" jumper position. On an AT this is wired to
+    // the slave's IR1 (global IRQ9), not the master's own IR2 -- IBM
+    // rerouted XT cards jumpered for IRQ2 there when the second 8259 was
+    // cascaded in at that line (IBM 5170 Technical Reference). Master IR2
+    // is only ever the cascade input, never a device's own interrupt.
+    select_and_trigger(0x01);
+    EXPECT_EQ(run_to_vector(), 0x70 + 1);
+
+    // No bit set: software deselected every line, so the card drives no
+    // interrupt at all.
+    select_and_trigger(0x00);
+    for (int i = 0; i < 100; ++i) cs.tick(cycles += 64, 66000000.0);
+    EXPECT_EQ(cs.poll_interrupt(), -1);
+}
+
 TEST(ChipsetTest, SlaveInterruptCascadesThroughMasterIr2) {
     Chipset cs;
     cs.pic_master.out(0x20, 0x11);
@@ -509,3 +630,22 @@ TEST(ChipsetTest, SlaveInterruptCascadesThroughMasterIr2) {
 }
 
 }  // namespace
+
+TEST(ChipsetTest, Mpu401AnswersItsOwnPortsThroughTheBusDecode) {
+    // The MPU-401 is on the same SB16 card but at its own base address, so
+    // the bus has to reach it separately from the card's own block -- and
+    // without either device claiming the other's ports. SBPG Appendix A
+    // Table A-16 puts it at 330h/331h by factory default.
+    Chipset cs;
+    EXPECT_FALSE(cs.sb.owns(0x330)) << "the card's own block must not cover the MPU-401";
+    EXPECT_FALSE(cs.mpu.owns(0x220));
+    // The documented detection probe, driven entirely through the bus: write
+    // FFh to the command port, poll the status port, read 0FEh back.
+    cs.io_out(0x331, 0xFF);
+    EXPECT_EQ(cs.io_in(0x331) & 0x80, 0x00) << "status must report input data available";
+    EXPECT_EQ(cs.io_in(0x330), 0xFE);
+    // Entering UART mode works the same way round-trip.
+    cs.io_out(0x331, 0x3F);
+    EXPECT_EQ(cs.io_in(0x330), 0xFE);
+    EXPECT_TRUE(cs.mpu.uart_mode());
+}

@@ -61,6 +61,55 @@
     };
   }
 
+  // Opt-in diagnostic capture, not part of the machine: `?audiotrace`
+  // records one row per audio post -- how long the chunk was in wall time
+  // and in guest cycles, how many samples were handed over, how much FM and
+  // digitized audio arrived, and the ring's depth and health at that moment.
+  // A synthetic main-thread load does not reproduce what a real DOS game's
+  // redraw does to this path (PC486_REVIEW.md section 31), so the point of
+  // this is to replay a real session's pattern in the test harness. Needs
+  // sound enabled, since nothing is posted otherwise.
+  if (testParams.has("audiotrace")) {
+    window.__audio = {
+      start: (n) => { audioTraceMax = n || 40000; audioTrace = []; return "recording"; },
+      stop: () => { const n = audioTrace ? audioTrace.length : 0; audioTraceMax = 0; return n; },
+      // A few numbers to paste, rather than a file to send.
+      summary: () => {
+        if (!audioTrace || audioTrace.length === 0) return "no rows -- is sound enabled?";
+        const q = (vals, f) => {
+          const v = vals.slice().sort((a, b) => a - b);
+          return v[Math.floor(f * (v.length - 1))];
+        };
+        const dt = audioTrace.map((r) => r.dtMs);
+        const guestOverWall = audioTrace.map((r) => r.cycMs / r.dtMs);
+        const audioOverWall = audioTrace.map((r) => r.fmMs / r.dtMs);
+        // The worklet reports twice a second, so the first rows have no
+        // ring figure of their own yet.
+        const ring = audioTrace.map((r) => r.ringMs).filter((v) => v !== null);
+        const f = (x) => Number(x.toFixed(3));
+        return {
+          rows: audioTrace.length,
+          postMs: { p05: f(q(dt, 0.05)), p50: f(q(dt, 0.5)), p95: f(q(dt, 0.95)), max: f(q(dt, 1)) },
+          guestPerWall: { p05: f(q(guestOverWall, 0.05)), p50: f(q(guestOverWall, 0.5)), p95: f(q(guestOverWall, 0.95)) },
+          fmPerWall: { p05: f(q(audioOverWall, 0.05)), p50: f(q(audioOverWall, 0.5)), p95: f(q(audioOverWall, 0.95)) },
+          ringMs: ring.length
+            ? { min: f(q(ring, 0)), p50: f(q(ring, 0.5)), max: f(q(ring, 1)) }
+            : null,
+          starvedTotal: audioTrace[audioTrace.length - 1].starved,
+        };
+      },
+      save: () => {
+        const blob = new Blob([JSON.stringify(audioTrace || [])], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "audiotrace.json";
+        a.click();
+        URL.revokeObjectURL(url);
+      },
+    };
+  }
+
   // ---- keyboard: physical key -> real IBM AT Set 1 scan code -----------
   // i8042.h's inject_scancode() is a verbatim Set-1 pass-through (see its
   // header) -- this table supplies exactly what a real AT keyboard's own
@@ -513,8 +562,48 @@
   // (kMixerUnityGain's modelled amplifier gain) and 100 is +12 dB.
   const kWheelMaxGain = 4.0;
   function wheelGain(pos) { const f = pos / 100; return f * f * kWheelMaxGain; }
-  let sbNode = null, lastSbLeft = 0, lastSbRight = 0, lastFmLeft = 0, lastFmRight = 0;
+  let sbNode = null;
   let audioStats = null;
+  // Fractional sample carried between posts (see pumpSbAudio) and the ring
+  // depth the pump aims to hold, a little under the worklet's own 50ms trim
+  // ceiling so the two don't fight each other.
+  let spkSampleCarry = 0;
+  // Guest cycles per real second, averaged over ~0.2s of posts. The worklet
+  // steps its play position by this, so it must be the rate actually being
+  // achieved: nominal is right on the shipped page but wrong under the
+  // fast-test multiplier, where the host cannot reach 20x. Averaging is safe
+  // here in a way it was not on the main thread (PC486_REVIEW.md section 31):
+  // the worklet closes a loop around it on the lead it actually observes, so
+  // a slightly wrong rate self-corrects instead of draining the cushion.
+  // Accumulated over a window rather than averaged per post: the mean of
+  // per-post cycles/dt ratios sits above the true aggregate rate whenever
+  // those ratios are spread out (and under load they are), and that bias is
+  // larger than the correction the audio thread is allowed to apply.
+  let guestHzEma = 0, guestCycAcc = 0, guestDtAcc = 0;
+  // `?audiotrace` capture buffer -- see the window.__audio hook below. Null
+  // unless a visitor started one, so the pump pays one null check for it.
+  let audioTrace = null, audioTraceMax = 0;
+  let sbCapture = null;
+
+  // CT1745 mixer tone controls (SBPG chapter 4): registers 44h/45h (Treble
+  // L/R) and 46h/47h (Bass L/R), 4 bits in the value's high nibble like the
+  // other level registers, default 8<<4 -- 0 to 7 is -14 dB to 0 dB and 8 to
+  // 15 is 0 dB to +14 dB, both in 2 dB steps, so 7 and 8 are both flat. This
+  // sits in the mixer, upstream of the card's own output amplifier and the
+  // backplate volume wheel (sbGainNode) -- unlike output_gain_*/fm_gain_*,
+  // which the core already applies before samples reach here.
+  let sbBassLeft = null, sbBassRight = null, sbTrebleLeft = null, sbTrebleRight = null;
+  let lastTrebleLeftReg = -1, lastTrebleRightReg = -1, lastBassLeftReg = -1, lastBassRightReg = -1;
+  // Shelf corner frequencies: SBPG documents the register range (±14 dB) but
+  // not the real CT1745 tone circuit's corner frequencies anywhere we could
+  // find -- these two numbers are an UNCITED ESTIMATE of a period analog
+  // tone control, not a hardware-sourced value like the rest of this file.
+  const kBassShelfHz = 100;
+  const kTrebleShelfHz = 5000;
+  function mixerLevelDb(reg) {
+    const level = (reg >> 4) & 0x0f;
+    return level <= 7 ? level * 2 - 14 : (level - 8) * 2;
+  }
 
   // The worklet module's source, registered from a Blob URL rather than a
   // separate fetched file -- keeps the whole speaker path in this one
@@ -643,76 +732,187 @@
   // architecture itself was built to avoid, and now drains back to target
   // afterward instead of leaving that depth as the new permanent floor.
   const kSbWorkletSrc = `
+    // Placement happens HERE, against this thread's own sample clock, not on
+    // the main thread against performance.now(). The main thread hands over
+    // the card's samples exactly as the emulator stamped them -- a guest CPU
+    // cycle per sample -- and nothing else. That matters because the main
+    // thread measures elapsed time in ~1ms windows while runCycles() blocks
+    // it for up to 12ms at a stretch: when the guest is busy no post happens
+    // during a chunk and several fire at once afterwards, so a
+    // cycles-per-second figure derived there swings wildly, and every sample
+    // position divided by it swung with it. The audio clock has no such
+    // problem -- it advances one sample per sample, exactly -- so a cycle
+    // stamp converts to an output position with nothing measured at all.
     class Sb16Processor extends AudioWorkletProcessor {
       constructor() {
         super();
-        this.left = new Float32Array(8192);
-        this.right = new Float32Array(8192);
-        this.writeIdx = 0;
-        this.readIdx = 0;
-        this.available = 0;
-        this.lastLeft = 0;
-        this.lastRight = 0;
-        // Resync-to-target trim MUST run inside process(), not onmessage() --
-        // see the identical reasoning in kSpeakerWorkletSrc above. onmessage()
-        // has no real-time guarantee (pump() can re-enter far faster than its
-        // nominal ~12ms cadence when the emulated CPU is idle), and trimming
-        // there let readIdx's forced jumps outrun real playback, walking it
-        // into stale ring positions from a *previous* sound that process()
-        // hadn't reached yet and hadn't been overwritten -- heard as that
-        // sound looping on its own long after the emulator went silent.
-        this.targetAvailable = Math.round(sampleRate * 0.05);  // 50ms, see comment above
-        // Health counters for the Performance panel. Underruns are the
-        // interesting one: the ring running dry is what "the sound got off"
-        // actually is, and nothing on the main thread can observe it.
+        // Pending stamped samples per stream, as flat rings: a cycle stamp
+        // and the sample it belongs to. Two streams because the card sums FM
+        // and digitized audio in the analog domain, each behind its own
+        // CT1745 attenuator (see soundblaster.h) -- they arrive separately
+        // and mix here.
+        const kCap = 1 << 16;   // ~1.3s of FM at 49.7kHz
+        this.cap = kCap;
+        this.sb = { cyc: new Float64Array(kCap), l: new Int16Array(kCap), r: new Int16Array(kCap),
+                    head: 0, tail: 0, lastL: 0, lastR: 0 };
+        this.fm = { cyc: new Float64Array(kCap), l: new Int16Array(kCap), r: new Int16Array(kCap),
+                    head: 0, tail: 0, lastL: 0, lastR: 0 };
+        this.gain = { sbL: 1, sbR: 1, fmL: 1, fmR: 1 };
+        // Guest cycles per real second. The emulator is paced to this by
+        // construction (the pump grants exactly this much credit per real
+        // second), so it is exact rather than measured -- which is the whole
+        // point of doing the placement here.
+        this.cpuHz = 66000000;
+        this.playCycle = null;     // guest cycle the next output sample sits at
+        this.rateTrim = 1;         // tiny correction, see below
+        // How far ahead of the play position the newest stamp should sit.
+        // Same job as a ring's depth: it absorbs a late batch without the
+        // output having to stall, so it is also the longest main-thread stall
+        // that passes unheard. 80ms costs 80ms of output latency and covers
+        // the GC-pause and disk-persist scale of jank this page actually
+        // sees; measured dropouts at 40ms were stalls longer than that.
+        this.targetLeadSec = 0.08;
+        // Above this the surplus is dropped rather than queued: a guest that
+        // outruns real time (the fast-test multiplier, or a catch-up burst)
+        // would otherwise push latency up without bound. The old ring did the
+        // same thing by trimming to its target.
+        this.maxLeadSec = 0.12;
         this.starved = 0;
         this.trimmed = 0;
         this.statFrames = 0;
+        this.capture = null;
+        this.captureMax = 0;
         this.port.onmessage = (e) => {
-          const { left, right } = e.data;
-          for (let i = 0; i < left.length; i++) {
-            this.left[this.writeIdx] = left[i];
-            this.right[this.writeIdx] = right[i];
-            this.writeIdx = (this.writeIdx + 1) % this.left.length;
-            if (this.available < this.left.length) {
-              this.available++;
-            } else {
-              this.readIdx = (this.readIdx + 1) % this.left.length;
-            }
-          }
+          const d = e.data;
+          if (d.gain) this.gain = d.gain;
+          if (d.cpuHz) this.cpuHz = d.cpuHz;
+          if (d.sbCyc) this.push(this.sb, d.sbCyc, d.sbL, d.sbR);
+          if (d.fmCyc) this.push(this.fm, d.fmCyc, d.fmL, d.fmR);
+          // Diagnostic capture of what actually reaches the device, for
+          // web/tests/fmquality.spec.ts. Off unless asked for.
+          if (d.startCapture) { this.capture = []; this.captureMax = d.startCapture; }
         };
       }
-      process(_inputs, outputs) {
-        if (this.available > this.targetAvailable) {
-          const drop = this.available - this.targetAvailable;
-          this.readIdx = (this.readIdx + drop) % this.left.length;
-          this.available = this.targetAvailable;
-          this.trimmed += drop;
+
+      push(q, cyc, l, r) {
+        for (let i = 0; i < cyc.length; i++) {
+          q.cyc[q.head] = cyc[i];
+          q.l[q.head] = l[i];
+          q.r[q.head] = r[i];
+          q.head = (q.head + 1) % this.cap;
+          if (q.head === q.tail) {         // full: drop the oldest
+            q.tail = (q.tail + 1) % this.cap;
+            this.trimmed++;
+          }
         }
+      }
+
+      // Advances one stream to that cycle, holding the most recent sample at or
+      // before it -- a sample-and-hold, which is what the card's own DAC does
+      // between updates.
+      advance(q, cycle) {
+        while (q.tail !== q.head && q.cyc[q.tail] <= cycle) {
+          q.lastL = q.l[q.tail];
+          q.lastR = q.r[q.tail];
+          q.tail = (q.tail + 1) % this.cap;
+        }
+      }
+
+      newestCycle() {
+        let newest = null;
+        for (const q of [this.sb, this.fm]) {
+          if (q.tail === q.head) continue;
+          const last = (q.head - 1 + this.cap) % this.cap;
+          if (newest === null || q.cyc[last] > newest) newest = q.cyc[last];
+        }
+        return newest;
+      }
+
+      process(_inputs, outputs) {
         const outL = outputs[0][0], outR = outputs[0][1];
+        const newest = this.newestCycle();
+        if (this.playCycle === null) {
+          if (newest === null) { this.silence(outL, outR); return true; }
+          // Start a cushion behind the newest stamp rather than at it.
+          this.playCycle = newest - this.targetLeadSec * this.cpuHz;
+        }
+        // Hold the play position a fixed distance behind the incoming
+        // stamps. The correction is bounded hard: a fraction of a percent is
+        // inaudible (a few cents) and still removes any slow divergence
+        // between the guest's clock and this device's.
+        if (newest !== null) {
+          // A quiet stretch drains both queues and leaves the play position
+          // wherever it stopped; when sound resumes, its stamps can be far
+          // ahead of it. Re-anchor rather than racing through the gap.
+          const gapSec = (newest - this.playCycle) / this.cpuHz;
+          if (gapSec > this.maxLeadSec || gapSec < -0.5) {
+            const dropped = (gapSec - this.targetLeadSec) * sampleRate;
+            if (dropped > 0) this.trimmed += dropped;
+            this.playCycle = newest - this.targetLeadSec * this.cpuHz;
+          }
+          const leadSec = (newest - this.playCycle) / this.cpuHz;
+          const err = leadSec - this.targetLeadSec;
+          // Asymmetric on purpose. Going slightly fast is only ever needed
+          // to shed a small surplus, so +1% (about 17 cents) is plenty. Going
+          // slow is the fallback when the machine itself has fallen behind
+          // and the audio does not exist yet: -4% bends the pitch about 70
+          // cents, which is audible but gradual and recovers, where running
+          // out of samples gives dropouts instead. Either way it is one
+          // smooth drift rather than a per-post lurch.
+          this.rateTrim = 1 + Math.max(-0.04, Math.min(0.01, err * 1.5));
+        }
+        const step = (this.cpuHz / sampleRate) * this.rateTrim;
         for (let i = 0; i < outL.length; i++) {
-          if (this.available > 0) {
-            this.lastLeft = this.left[this.readIdx];
-            this.lastRight = this.right[this.readIdx];
-            this.readIdx = (this.readIdx + 1) % this.left.length;
-            this.available--;
-          } else {
+          this.playCycle += step;
+          // Never run past the newest sample the card has actually produced.
+          // The step rate is only an estimate of the guest's cycles per real
+          // second; pinning the play position here instead makes that
+          // estimate a hint rather than something that has to be right, and
+          // the machine not having produced the audio yet is the one case no
+          // amount of buffering can fix anyway.
+          if (newest !== null && this.playCycle > newest) {
+            this.playCycle = newest;
             this.starved++;
           }
-          outL[i] = this.lastLeft;
-          outR[i] = this.lastRight;
+          this.advance(this.sb, this.playCycle);
+          this.advance(this.fm, this.playCycle);
+          outL[i] = (this.sb.lastL * this.gain.sbL + this.fm.lastL * this.gain.fmL) / 32768;
+          outR[i] = (this.sb.lastR * this.gain.sbR + this.fm.lastR * this.gain.fmR) / 32768;
         }
-        this.statFrames += outL.length;
-        if (this.statFrames >= sampleRate / 2) {   // twice a second
-          this.port.postMessage({
-            stats: { depth: this.available, starved: this.starved,
-                     trimmed: this.trimmed, secs: this.statFrames / sampleRate },
-          });
-          this.statFrames = 0;
-          this.starved = 0;
-          this.trimmed = 0;
+        if (this.capture) {
+          for (let i = 0; i < outL.length && this.capture.length < this.captureMax; i++) {
+            this.capture.push(outL[i]);
+          }
+          if (this.capture.length >= this.captureMax) {
+            this.port.postMessage({ capture: this.capture });
+            this.capture = null;
+          }
         }
+        this.report(outL.length, newest);
         return true;
+      }
+
+      silence(outL, outR) {
+        for (let i = 0; i < outL.length; i++) { outL[i] = 0; outR[i] = 0; }
+        this.report(outL.length, null);
+      }
+
+      // Same shape the Performance panel already reads: depth is the lead
+      // expressed in output samples, so it still renders as milliseconds.
+      report(frames, newest) {
+        this.statFrames += frames;
+        if (this.statFrames < sampleRate / 2) return;
+        const leadSamples = (newest !== null && this.playCycle !== null)
+          ? Math.max(0, ((newest - this.playCycle) / this.cpuHz) * sampleRate)
+          : 0;
+        this.port.postMessage({
+          stats: { depth: leadSamples, starved: this.starved,
+                   trimmed: this.trimmed, secs: this.statFrames / sampleRate,
+                   targetMs: this.targetLeadSec * 1000 },
+        });
+        this.statFrames = 0;
+        this.starved = 0;
+        this.trimmed = 0;
       }
     }
     registerProcessor("sb16-processor", Sb16Processor);
@@ -761,11 +961,39 @@
     // The ring's own view of its health -- depth, and how often it ran dry.
     // Only the worklet thread can see this; the pump cannot.
     sbNode.port.onmessage = (e) => {
-      if (e.data && e.data.stats) audioStats = e.data.stats;
+      if (!e.data) return;
+      if (e.data.stats) audioStats = e.data.stats;
+      if (e.data.capture) sbCapture = e.data.capture;
     };
     sbGainNode = audioCtx.createGain();
     sbGainNode.gain.value = wheelGain(Number(sbVolume.value));
-    sbNode.connect(sbGainNode);
+
+    // Tone controls sit in the mixer, before the output amp/wheel: split to
+    // mono, run each channel through its own bass (low-shelf) then treble
+    // (high-shelf) filter, and recombine -- see the constants above.
+    const splitter = audioCtx.createChannelSplitter(2);
+    const merger = audioCtx.createChannelMerger(2);
+    sbBassLeft = audioCtx.createBiquadFilter();
+    sbBassLeft.type = "lowshelf";
+    sbBassLeft.frequency.value = kBassShelfHz;
+    sbTrebleLeft = audioCtx.createBiquadFilter();
+    sbTrebleLeft.type = "highshelf";
+    sbTrebleLeft.frequency.value = kTrebleShelfHz;
+    sbBassRight = audioCtx.createBiquadFilter();
+    sbBassRight.type = "lowshelf";
+    sbBassRight.frequency.value = kBassShelfHz;
+    sbTrebleRight = audioCtx.createBiquadFilter();
+    sbTrebleRight.type = "highshelf";
+    sbTrebleRight.frequency.value = kTrebleShelfHz;
+
+    sbNode.connect(splitter);
+    splitter.connect(sbBassLeft, 0);
+    sbBassLeft.connect(sbTrebleLeft);
+    sbTrebleLeft.connect(merger, 0, 0);
+    splitter.connect(sbBassRight, 1);
+    sbBassRight.connect(sbTrebleRight);
+    sbTrebleRight.connect(merger, 0, 1);
+    merger.connect(sbGainNode);
     sbGainNode.connect(audioCtx.destination);
   }
   function applyWheel(pos, persist) {
@@ -829,12 +1057,17 @@
     // samples for one real frame under a fast-test multiplier. Using real
     // dtSeconds keeps this correct (and harmless -- just pitch-shifted,
     // which nothing here asserts on) at any multiplier.
-    const sampleCount = Math.max(1, Math.round(dtSeconds * sampleRate));
+    // Sized from the guest time this chunk covered, and mapped in the same
+    // timebase -- see pumpSbAudio for why a wall-clock-sized buffer ends in
+    // a held fragment every post. The carry keeps the rounding exact.
+    const exactSamples = dtSeconds * sampleRate + spkSampleCarry;
+    const sampleCount = Math.max(1, Math.floor(exactSamples));
+    spkSampleCarry = Math.max(0, exactSamples - sampleCount);
     const data = new Float32Array(sampleCount);
 
     let level = lastLevel, sampleIdx = 0;
     const cycles = edges.cycles, levels = edges.levels;
-    // Effective this-frame rate: real 8 MHz normally, `multiplier`x that
+    // Effective this-chunk rate: real 66 MHz normally, `multiplier`x that
     // under the fast-test multiplier -- see sampleCount above.
     const cyclesPerRealSecond = cyclesThisFrame / dtSeconds;
     for (let i = 0; i < cycles.length; i++) {
@@ -872,43 +1105,83 @@
   // sums FM and digitized audio in the analog domain, so the two streams mix
   // here rather than in the core. Returns the stream's last value so the next
   // frame resumes the hold where this one left off.
-  function mixStampedStream(s, left, right, sampleCount, frameStartCycle,
-                            cyclesPerRealSecond, sampleRate, startL, startR, gainL, gainR) {
-    let idx = 0, curL = startL, curR = startR;
-    const gL = gainL / kMixerUnityGain, gR = gainR / kMixerUnityGain;
-    const cycles = s.cycles, ls = s.left, rs = s.right;
-    for (let i = 0; i < cycles.length; i++) {
-      let pos = Math.round(((cycles[i] - frameStartCycle) / cyclesPerRealSecond) * sampleRate);
-      if (pos < 0) pos = 0;
-      if (pos > sampleCount) pos = sampleCount;
-      for (; idx < pos; idx++) { left[idx] += curL * gL; right[idx] += curR * gR; }
-      curL = ls[i] / 32768;
-      curR = rs[i] / 32768;
-    }
-    for (; idx < sampleCount; idx++) { left[idx] += curL * gL; right[idx] += curR * gR; }
-    return [curL, curR];
+  // Re-reads the four tone registers and only touches an AudioParam when its
+  // register actually changed, so a silent mixer doesn't write 60 times/sec.
+  function refreshSbTone() {
+    if (!sbTrebleLeft) return;
+    const tl = machine.sbMixerRegister(0x44);
+    if (tl !== lastTrebleLeftReg) { sbTrebleLeft.gain.value = mixerLevelDb(tl); lastTrebleLeftReg = tl; }
+    const tr = machine.sbMixerRegister(0x45);
+    if (tr !== lastTrebleRightReg) { sbTrebleRight.gain.value = mixerLevelDb(tr); lastTrebleRightReg = tr; }
+    const bl = machine.sbMixerRegister(0x46);
+    if (bl !== lastBassLeftReg) { sbBassLeft.gain.value = mixerLevelDb(bl); lastBassLeftReg = bl; }
+    const br = machine.sbMixerRegister(0x47);
+    if (br !== lastBassRightReg) { sbBassRight.gain.value = mixerLevelDb(br); lastBassRightReg = br; }
   }
 
   function pumpSbAudio(frameStartCycle, cyclesThisFrame, dtSeconds) {
     // Always drain both -- even if muted, so neither log can grow unbounded.
     const s = machine.sbDrainSamples();
     const fm = machine.fmDrainSamples();
-    if (!audioCtx || !sbNode || !speakerCheckbox.checked || cyclesThisFrame <= 0) return;
-    const sampleRate = audioCtx.sampleRate;
-    const sampleCount = Math.max(1, Math.round(dtSeconds * sampleRate));
-    const left = new Float32Array(sampleCount);
-    const right = new Float32Array(sampleCount);
-    const cyclesPerRealSecond = cyclesThisFrame / dtSeconds;
-
-    [lastSbLeft, lastSbRight] = mixStampedStream(s, left, right, sampleCount, frameStartCycle,
-      cyclesPerRealSecond, sampleRate, lastSbLeft, lastSbRight,
-      machine.sbGainLeft(), machine.sbGainRight());
-    [lastFmLeft, lastFmRight] = mixStampedStream(fm, left, right, sampleCount, frameStartCycle,
-      cyclesPerRealSecond, sampleRate, lastFmLeft, lastFmRight,
-      machine.fmGainLeft(), machine.fmGainRight());
-
-    if (dbg.on) { dbg.posted += sampleCount; dbg.dsp += s.cycles.length; dbg.fm += fm.cycles.length; }
-    sbNode.port.postMessage({ left, right }, [left.buffer, right.buffer]);
+    if (!audioCtx || !sbNode || !speakerCheckbox.checked) return;
+    refreshSbTone();
+    // Hand the worklet the card's samples exactly as the emulator stamped
+    // them, plus the CT1745 attenuators to apply, and nothing else. No
+    // buffer length, no mapping, no mixing: all three used to be computed
+    // here from performance.now() deltas measured on the same thread
+    // runCycles() blocks, and placing samples by that measurement is what
+    // made FM music scratchy whenever the guest was busy. The audio thread
+    // has an exact clock of its own -- see kSbWorkletSrc.
+    const gain = {
+      sbL: machine.sbGainLeft() / kMixerUnityGain,
+      sbR: machine.sbGainRight() / kMixerUnityGain,
+      fmL: machine.fmGainLeft() / kMixerUnityGain,
+      fmR: machine.fmGainRight() / kMixerUnityGain,
+    };
+    guestCycAcc += cyclesThisFrame;
+    guestDtAcc += dtSeconds;
+    if (guestDtAcc >= 0.25) {
+      const aggregate = guestCycAcc / guestDtAcc;
+      guestHzEma = guestHzEma === 0 ? aggregate : guestHzEma + 0.3 * (aggregate - guestHzEma);
+      guestCycAcc = 0;
+      guestDtAcc = 0;
+    }
+    const msg = { gain, cpuHz: guestHzEma || cpuHz * TEST_CPU_MULTIPLIER };
+    const transfer = [];
+    if (s.cycles.length) {
+      msg.sbCyc = s.cycles; msg.sbL = s.left; msg.sbR = s.right;
+      transfer.push(s.cycles.buffer, s.left.buffer, s.right.buffer);
+    }
+    if (fm.cycles.length) {
+      msg.fmCyc = fm.cycles; msg.fmL = fm.left; msg.fmR = fm.right;
+      transfer.push(fm.cycles.buffer, fm.left.buffer, fm.right.buffer);
+    }
+    if (dbg.on) {
+      dbg.posted += s.cycles.length + fm.cycles.length;
+      dbg.dsp += s.cycles.length; dbg.fm += fm.cycles.length;
+      dbg.posts++;
+      dbg.guestCyc += cyclesThisFrame;
+      dbg.wallSec += dtSeconds;
+      const postMs = dtSeconds * 1000;
+      if (postMs > dbg.postMsMax) dbg.postMsMax = postMs;
+      if (dbg.postMs.length < 2000) dbg.postMs.push(postMs);
+    }
+    if (audioTrace && audioTrace.length < audioTraceMax) {
+      const fc = fm.cycles;
+      audioTrace.push({
+        tMs: Math.round(performance.now()),
+        dtMs: dtSeconds * 1000,
+        cycMs: (cyclesThisFrame / cpuHz) * 1000,
+        nFm: fc.length,
+        nDsp: s.cycles.length,
+        fmMs: (fc.length / 49715.9) * 1000,
+        fmSpanMs: fc.length > 1 ? ((fc[fc.length - 1] - fc[0]) / cpuHz) * 1000 : 0,
+        ringMs: audioStats ? (audioStats.depth / audioCtx.sampleRate) * 1000 : null,
+        starved: audioStats ? audioStats.starved : null,
+        trimmed: audioStats ? audioStats.trimmed : null,
+      });
+    }
+    sbNode.port.postMessage(msg, transfer);
   }
 
   // Names for the opcode forms a DOS game actually spends its time in --
@@ -985,7 +1258,11 @@
   // Per-second accumulators behind the Performance panel. dbg.on is set only
   // while the panel is open, so a normal visit does no bookkeeping -- the
   // cost of measuring stays out of the thing being measured.
+  // Per-post audio pacing, accumulated for the Performance panel. The pump's
+  // cadence is what feeds the ring, so its spread -- not just its average --
+  // is the thing to look at when audio breaks up while the clock holds.
   const dbg = { on: false, emuMs: 0, renderMs: 0, frames: 0, dropped: 0, pumps: 0,
+    posts: 0, postMsMax: 0, postMs: [], guestCyc: 0, wallSec: 0,
                 posted: 0, dsp: 0, fm: 0 };
 
   // A Task Manager-style trace of the last minute: filled area for the main
@@ -1147,6 +1424,79 @@
     c.fillText("60s", w - 26, h - 5);
   }
 
+  // Ring depth over the last minute, with the seconds the ring actually ran
+  // dry marked underneath it. This is the pair that says whether audio broke
+  // up because the machine fell behind or because the main thread did: the
+  // clock chart can sit at 100% through a dropout that shows plainly here.
+  function drawAudioChart(c, canvas, history, targetMs) {
+    const w = canvas.width, h = canvas.height;
+    c.fillStyle = "#0b0f0b";
+    c.fillRect(0, 0, w, h);
+
+    c.strokeStyle = "#1e2c1e";
+    c.lineWidth = 1;
+    for (let i = 1; i < 4; i++) {
+      const y = Math.round(h * i / 4) + 0.5;
+      c.beginPath(); c.moveTo(0, y); c.lineTo(w, y); c.stroke();
+    }
+    for (let i = 1; i < 6; i++) {
+      const x = Math.round(w * i / 6) + 0.5;
+      c.beginPath(); c.moveTo(x, 0); c.lineTo(x, h); c.stroke();
+    }
+
+    const n = 60;
+    const xAt = (i) => (i / (n - 1)) * w;
+    const first = n - history.length;
+    // Full height is half again the cushion the audio thread is actually
+    // holding, so the line has somewhere to go above target rather than
+    // clipping at the top.
+    const target = targetMs || 80;
+    const kFull = target * 1.5;
+
+    if (history.length > 1) {
+      c.beginPath();
+      c.moveTo(xAt(first), h);
+      history.forEach((p, i) => c.lineTo(xAt(first + i), h - Math.min(kFull, p.ring || 0) / kFull * h));
+      c.lineTo(xAt(first + history.length - 1), h);
+      c.closePath();
+      c.fillStyle = "rgba(120, 200, 255, 0.20)";
+      c.fill();
+      c.beginPath();
+      history.forEach((p, i) => {
+        const x = xAt(first + i), y = h - Math.min(kFull, p.ring || 0) / kFull * h;
+        if (i === 0) c.moveTo(x, y); else c.lineTo(x, y);
+      });
+      c.strokeStyle = "#78c8ff";
+      c.lineWidth = 1.5;
+      c.stroke();
+    }
+
+    // A second the ring ran dry gets a mark on the floor, scaled by how long
+    // it was dry -- any mark at all is a dropout the ear heard.
+    history.forEach((p, i) => {
+      if (!p.starvedMs) return;
+      const x = xAt(first + i);
+      const barH = Math.max(3, Math.min(h / 3, (p.starvedMs / 20) * (h / 3)));
+      c.fillStyle = "#e05545";
+      c.fillRect(x - 1, h - barH, 3, barH);
+    });
+
+    const targetY = Math.round(h - target / kFull * h) + 0.5;
+    c.strokeStyle = "#4a5a4a";
+    c.setLineDash([3, 3]);
+    c.beginPath(); c.moveTo(0, targetY); c.lineTo(w, targetY); c.stroke();
+    c.setLineDash([]);
+
+    c.font = "11px ui-monospace, Menlo, Consolas, monospace";
+    c.fillStyle = "#78c8ff";
+    const label = "audio ring (" + target.toFixed(0) + " ms target)";
+    c.fillText(label, 6, 13);
+    c.fillStyle = "#e05545";
+    c.fillText("starved", 12 + c.measureText(label).width, 13);
+    c.fillStyle = "#6a7a6a";
+    c.fillText("60s", w - 26, h - 5);
+  }
+
   // ---- performance panel -------------------------------------------
   // Shown only when the wasm module reports a debug build (web/Makefile's
   // DEBUG_PERF=1); a shipped machine has neither the counters nor the panel.
@@ -1172,6 +1522,8 @@
     const cctx = chart.getContext("2d");
     const chart2 = document.getElementById("perfChart2");
     const cctx2 = chart2.getContext("2d");
+    const chart3 = document.getElementById("perfChart3");
+    const cctx3 = chart3.getContext("2d");
     const history = [];   // {cpu, clock} per second, newest last
     let c0 = machine.totalCycles(), h0 = machine.haltCycles();
     let i0 = machine.idleCycles(), t0 = performance.now();
@@ -1229,9 +1581,20 @@
       const fps = dbg.frames / secs, dropped = dbg.dropped / secs;
       const busy = emuMs + renderMs;
       const posted = dbg.posted / secs, dspRate = dbg.dsp / secs, fmRate = dbg.fm / secs;
+      const targetHz = machine.cpuHz();
+      // Pump cadence: the spread matters more than the mean, because the
+      // ring only has to be empty once for the ear to hear it.
+      const postList = dbg.postMs.slice().sort((a, b) => a - b);
+      const pct = (f) => postList.length ? postList[Math.floor(f * (postList.length - 1))] : 0;
+      const postsPerSec = dbg.posts / secs;
+      const guestPerWall = dbg.wallSec > 0 ? (dbg.guestCyc / dbg.wallSec) / targetHz : 0;
+      const fmPerWall = dbg.wallSec > 0 ? (dbg.fm / dbg.wallSec) / 49715.9 : 0;
+      const postMsMax = dbg.postMsMax;
       dbg.emuMs = dbg.renderMs = dbg.dropped = 0;
       dbg.frames = dbg.pumps = 0;
       dbg.posted = dbg.dsp = dbg.fm = 0;
+      dbg.posts = 0; dbg.postMsMax = 0; dbg.postMs.length = 0;
+      dbg.guestCyc = 0; dbg.wallSec = 0;
 
       // The ring's own numbers, reported by the worklet twice a second. A
       // starved ring is what "the sound got off" is: the emulator can be
@@ -1246,12 +1609,26 @@
         const trimMs = st && st.secs ? (st.trimmed / sr) * 1000 / st.secs : 0;
         const outLat = audioCtx.outputLatency || audioCtx.baseLatency || 0;
         audio =
-          "audio   ring " + depthMs.toFixed(0) + " ms of 50 target   " +
+          "audio   ring " + depthMs.toFixed(0) + " ms of " +
+          (st && st.targetMs ? st.targetMs.toFixed(0) : "--") + " target   " +
           audioCtx.state + " " + (sr / 1000).toFixed(1) + " kHz\n" +
           "        starved " + starvedMs.toFixed(1) + " ms/s   trimmed " +
           trimMs.toFixed(1) + " ms/s   latency " + (outLat * 1000).toFixed(0) + " ms\n" +
+          // `fed` is what the main thread hands the audio thread -- the
+          // card's own samples at the rate the card makes them, not the
+          // device rate. The audio thread resamples to the device itself.
           "        fed " + (posted / 1000).toFixed(1) + "k/s   dsp " +
-          (dspRate / 1000).toFixed(1) + "k/s   fm " + (fmRate / 1000).toFixed(1) + "k/s\n";
+          (dspRate / 1000).toFixed(1) + "k/s   fm " + (fmRate / 1000).toFixed(1) + "k/s\n" +
+          // How the ring is being fed, which is the other half of why it
+          // empties: a post that arrives late is a hole the cushion has to
+          // cover, and the p95/max are where that shows up.
+          "  post  " + postsPerSec.toFixed(0) + "/s   p50 " + pct(0.5).toFixed(1) +
+          " ms   p95 " + pct(0.95).toFixed(1) + " ms   max " + postMsMax.toFixed(1) + " ms\n" +
+          // Guest time per wall second, and FM audio produced per wall
+          // second. Below 1.00 means the machine itself has not generated
+          // the audio yet -- no amount of buffering invents it.
+          "  pace  guest " + guestPerWall.toFixed(3) + "x   fm " + fmPerWall.toFixed(3) +
+          "x of real time\n";
       }
       // "CPU" here is the share of ONE core this page's main thread is
       // using -- the browser exposes no system-wide figure, and claiming one
@@ -1277,12 +1654,18 @@
       // makes it drop, exactly as on the real machine.
       const idlePct = cyc > 0 ? Math.min(100, ((halt + idlePoll) / cyc) * 100) : 0;
       const guestPct = 100 - idlePct;
-      const targetHz = machine.cpuHz();
       const targetMhz = targetHz / 1e6;
-      history.push({ cpu: guestPct, clock: mhz / targetMhz * 100, host: cpuPct, fps: fps });
+      const sr0 = audioCtx ? audioCtx.sampleRate : 48000;
+      history.push({
+        cpu: guestPct, clock: mhz / targetMhz * 100, host: cpuPct, fps: fps,
+        ring: audioStats ? (audioStats.depth / sr0) * 1000 : 0,
+        starvedMs: audioStats && audioStats.secs
+          ? (audioStats.starved / sr0) * 1000 / audioStats.secs : 0,
+      });
       if (history.length > 60) history.shift();
       drawPerfChart(cctx, chart, history);
       drawHostChart(cctx2, chart2, history);
+      drawAudioChart(cctx3, chart3, history, audioStats ? audioStats.targetMs : 0);
 
       out.innerHTML =
         "clock   " + mhz.toFixed(1) + " MHz of " + targetMhz.toFixed(1) + "  (" + (mhz / targetMhz * 100).toFixed(0) + "%)\n" +
@@ -2095,6 +2478,22 @@
         machine, sendKey, screenEl, mapKey,
         get audioState() { return audioCtx ? audioCtx.state : null; },
         get sbWheelGain() { return sbGainNode ? sbGainNode.gain.value : null; },
+        // Ring depth in ms as the worklet last reported it (it posts twice a
+        // second), null until the first report arrives.
+        get audioStatsRaw() { return audioStats; },
+        get hasSbCapture() { return sbCapture !== null; },
+        startSbCapture: (n) => { sbCapture = null; sbNode.port.postMessage({ startCapture: n || 48000 }); },
+        takeSbCapture: () => { const c = sbCapture; sbCapture = null; return c; },
+        get audioSampleRate() { return audioCtx ? audioCtx.sampleRate : null; },
+        get sbRingMs() {
+          return audioStats && audioCtx ? (audioStats.depth / audioCtx.sampleRate) * 1000 : null;
+        },
+        // Current tone-shelf filter gains in dB, for tests -- null until
+        // audio has started and at least one frame has refreshed them.
+        sbToneGains: () => sbTrebleLeft ? {
+          trebleLeft: sbTrebleLeft.gain.value, trebleRight: sbTrebleRight.gain.value,
+          bassLeft: sbBassLeft.gain.value, bassRight: sbBassRight.gain.value,
+        } : null,
         get heldKeysSize() { return heldKeys.size; },
         // Flush C: to IndexedDB and resolve when the put finishes -- tests
         // that reload must await this, or a factory-delta / full-image save

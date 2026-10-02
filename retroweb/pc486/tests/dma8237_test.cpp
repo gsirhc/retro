@@ -111,6 +111,43 @@ TEST(Dma8237Test, WithoutAutoinitializeAddressWrapsInsteadOfReloading) {
     EXPECT_EQ(dma.count(2), 0xFFFF);
 }
 
+TEST(Dma8237Test, AdvanceDecrementsAddressWhenModeBitFiveIsSet) {
+    // Intel 8237A-5 data sheet, "Mode Register": bit 5 selects address
+    // decrement instead of increment.
+    Dma8237 dma(0x00, 1);
+    dma.reset();
+    dma.out(0x04, 0x05); dma.out(0x04, 0x00);  // ch2 address = 5
+    dma.out(0x05, 0x02); dma.out(0x05, 0x00);  // ch2 count = 2 (3 bytes)
+    dma.out(0x0B, 0x22);                       // mode: channel 2, decrement set
+    EXPECT_FALSE(dma.advance(2));
+    EXPECT_EQ(dma.address(2), 4);
+    EXPECT_EQ(dma.count(2), 1);
+    EXPECT_FALSE(dma.advance(2));
+    EXPECT_EQ(dma.address(2), 3);
+}
+
+TEST(Dma8237Test, AddressWrapsWithinThe64KPageInDecrementMode) {
+    Dma8237 dma(0x00, 1);
+    dma.reset();
+    dma.out(0x04, 0x00); dma.out(0x04, 0x00);  // ch2 address = 0
+    dma.out(0x05, 0x01); dma.out(0x05, 0x00);  // ch2 count = 1 (2 bytes)
+    dma.out(0x0B, 0x22);                       // decrement mode
+    EXPECT_FALSE(dma.advance(2));
+    EXPECT_EQ(dma.address(2), 0xFFFF);  // wraps within the page; page register untouched
+}
+
+TEST(Dma8237Test, AddressWrapsWithinThe64KPageInIncrementMode) {
+    // Same quirk the other direction -- 0xFFFF + 1 wraps to 0, not into the
+    // next page.
+    Dma8237 dma(0x00, 1);
+    dma.reset();
+    dma.out(0x04, 0xFF); dma.out(0x04, 0xFF);  // ch2 address = 0xFFFF
+    dma.out(0x05, 0x01); dma.out(0x05, 0x00);  // ch2 count = 1 (2 bytes)
+    dma.out(0x0B, 0x02);                       // mode: channel 2, increment (default)
+    EXPECT_FALSE(dma.advance(2));
+    EXPECT_EQ(dma.address(2), 0x0000);
+}
+
 TEST(Dma8237Test, MasterClearResetsChipViaPort) {
     Dma8237 dma(0x00, 1);
     dma.reset();
