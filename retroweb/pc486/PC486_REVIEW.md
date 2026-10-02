@@ -3001,14 +3001,20 @@ emulator's source -- see §11.6. Where the guide is silent (a handful of
 diagnostic commands Creative never documented but drivers use anyway), the
 sources list says so explicitly.
 
-### 11.1 The whole 16-port block, not just the DSP's four
+### 11.1 The whole 20-port block, not just the DSP's four
 
-A real card decodes base+0h through base+Fh, so `owns()` claims
-0x220-0x22F: FM at base+0..3 and base+8..9, the CT1745 mixer's
-address/data pair at base+4/5, DSP reset at base+6, DSP read data at
-base+Ah, write command/data (and, on read, write-buffer status) at base+Ch,
-read-buffer status at base+Eh, and the SB16's own 16-bit interrupt
-acknowledge at base+Fh.
+A real SB16 decodes base+0h through base+13h -- twenty ports, per SBPG
+Appendix A Table A-15 -- so `owns()` claims 0x220-0x233: FM at base+0..3 and
+base+8..9, the CT1745 mixer's address/data pair at base+4/5, DSP reset at
+base+6, DSP read data at base+Ah, write command/data (and, on read,
+write-buffer status) at base+Ch, read-buffer status at base+Eh, the SB16's
+own 16-bit interrupt acknowledge at base+Fh, and the card's own proprietary
+CD-ROM interface at base+10h..13h. That last group decodes as "card present,
+no drive attached": this machine's CD-ROM is an ATAPI device on the secondary
+IDE channel, so nothing answers behind the SB16's own drive interface.
+Table 2-1, which an earlier draft of this section cited for the port list,
+covers only the four SB1.5-era DSP ports and predates both the mixer and
+base+Fh.
 
 Two decode decisions are deliberate rather than incidental:
 
@@ -3070,12 +3076,18 @@ Three groups are accepted and ignored, each for a documented reason:
   device, and Allegro only issues them after detecting a version below
   4.00 anyway. This is the one place where doing *less* is the accurate
   choice, which is why it has a test of its own.
-- **ADPCM (16h/17h/74h-77h, 1Fh/7Dh/7Fh) is decoded far enough to swallow
-  its parameter bytes** and no further. Swallowing matters: a driver
-  probing 75h writes a command and two length bytes, and a device that
-  consumed only the command byte would then read the two length bytes *as
-  commands*, desynchronizing the stream and leaving the card in a state no
-  real card can be in. A test pins this down.
+- **A0h/A8h (mono/stereo input select) do not exist on DSP 4.xx either**,
+  for the same documented reason: stereo is selected by the Bxh/Cxh mode
+  byte instead.
+
+ADPCM is no longer in that list. SBPG Table 3-1 checks 8-bit mono ADPCM
+single-cycle *and* auto-initialize for DSP 4.xx, so all three ratios
+(8-to-4-bit, 8-to-3-bit "2.6-bit", 8-to-2-bit) decode and play here,
+reference byte included, with each ratio's own sampling ceiling from
+Table 3-2. The DSP's length parameter for these commands counts compressed
+bytes rather than frames, which is why an ADPCM block counter is in bytes
+while a PCM one is in frames. The step tables themselves are the one part
+with no primary source -- see §31.
 - **Recording delivers digital silence, paced correctly, with its
   interrupts firing on schedule.** Nothing is plugged into the line or mic
   inputs, so silence is what a real card digitizes -- and note silence is
@@ -3226,43 +3238,25 @@ and the probe hangs forever.
 ### Known approximations
 
 These are labelled in `opl3.cpp` at the point they matter, and none of them
-affect whether software finds the chip or plays in time:
+affect whether software finds the chip or plays in time. The list is shorter
+than it was: the modulation index, the four-operator pair's F-number source,
+the note-select split point, the rhythm section's output level, waveform 7's
+ramp and the vibrato LFO's shape have all since been pinned to hardware
+behaviour, and what is left is in §31.
 
-- **The modulation index for a normal modulator-to-carrier connection is not
-  a verified figure.** The datasheet specifies feedback's modulation depth
-  exactly (0 to 4 pi by the FB field) but never states the non-feedback
-  index; the code uses pi. This affects timbre -- how bright an instrument
-  sounds -- not pitch, timing or detection. Re-searched since, without
-  finding a figure: the YMF262 datasheet p.12 carries the same FB table as
-  the YMF715x document p.9 (so the feedback figure is now doubly
-  primary-sourced), and the OPLx decap notes give the algebra with no
-  phase-domain scale attached. One reading was found and is recorded in
-  `opl3.cpp` but deliberately **not** applied -- YMF715x section 1-1 writes
-  the normal connection as `A sin(wc t + B sin wm t)` against feedback's
-  `A sin(wt + beta FM(t))`, so B carries an implicit coefficient of 1 where
-  feedback carries beta; if A and B share one normalised scale, which neither
-  document states, the index would be ~1 radian rather than pi. Acting on
-  that inference is how pi got here in the first place.
-- **The output stage's master gain has no hardware citation, and clipped
-  until measured.** The YMF262 datasheet (p.5) documents the output format --
-  16-bit offset binary on four buses at 49.7 kHz, which independently
-  confirms `kSampleHz` -- but neither Yamaha document says how up to 18
-  channels are summed internally or what headroom that leaves, and Creative's
-  SB16 programming guide (p.138) refers OPL3 internals back to the vendor. The
-  gain was 8.0, which put one zero-attenuation voice at 49% of full scale:
-  measured, three unison voices clipped 16% of their samples, four clipped
-  78%, and eighteen at realistic instrument attenuation clipped 44%. DOOM's
-  music runs that many voices, which is why it sounded distorted while PCM
-  effects -- separately scaled, never through this summing stage -- sounded
-  right. Now 3.0, giving one voice ~18% of full scale and leaving full
-  18-voice polyphony ~16% clear of the clamp. **This diagnosis was wrong:**
-  the clipping was caused by `wave_sample()` reading its exponent ROM
-  forwards, and cutting the gain suppressed it without removing the 36%
-  distortion underneath. See §29; the gain is now 6.0 on a correct waveform. `opl3_test.cpp` gained
+- **The output stage's master gain has no hardware citation.** The YMF262
+  datasheet (p.5) documents the output format -- 16-bit offset binary on four
+  buses at 49.7 kHz, which independently confirms `kSampleHz` -- but neither
+  Yamaha document says how up to 18 channels are summed internally or what
+  headroom that leaves, and Creative's SB16 programming guide (p.138) refers
+  OPL3 internals back to the vendor. It sat at 8.0, which clipped; the
+  diagnosis that the gain was the cause was wrong, the real fault being
+  `wave_sample()` reading its exponent ROM forwards (§29). On a correct
+  waveform it is 6.0, with `opl3_test.cpp`'s
   `FullPolyphonyAtModerateLevelsDoesNotClip` and
-  `OneFullVolumeVoiceLeavesHeadroomForEighteen`; both fail at 8.0, and the
-  first independently reproduces the 43.9% figure. The gap that let this ship
-  was that no test had ever summed more than one channel.
+  `OneFullVolumeVoiceLeavesHeadroomForEighteen` holding the headroom. The gap
+  that let the original bug ship was that no test had ever summed more than
+  one channel.
 - **The rhythm section's snare, hi-hat and top cymbal** use a reasoned
   noise/phase combination rather than a verified reproduction: the operator
   assignment is documented, the exact bit the silicon XORs is not. Bass drum
@@ -5211,8 +5205,9 @@ unconditional config: `DOS=HIGH,UMB`, `HIMEMX.EXE` for XMS, `JEMM386.EXE`
 ATAPI CD-ROM (needed to install from CD), and `CTMOUSE.EXE` for the PS/2
 mouse (SimCity 2000 requires it) -- the CD-ROM and mouse drivers load high
 via `LH` so conventional memory stays free for a game's sound drivers.
-`BLASTER` omits the stock `P330`: this machine emulates no MPU-401 at
-0x330. This is the exact minimum to install and run period games (DOOM,
+`BLASTER` keeps the stock `P330`, which the card's own MPU-401 UART
+interface now answers (see `mpu401.h`), so a game offered a "General MIDI /
+MPU-401" option completes its detection handshake instead of timing out. This is the exact minimum to install and run period games (DOOM,
 SimCity 2000), nothing more -- a deliberate, labelled departure from stock
 FreeDOS's own config (CLAUDE.md requires substitutions to be labelled, not
 silent). The script runs as a post-install step of `make hdd-image`, right
@@ -5462,3 +5457,183 @@ sources.
 one in `web/tests/` per this repo's every-control rule: default position,
 persistence, the null-restore guard, the gain law's unity point, and that the
 PC speaker path is unaffected.
+
+## 31. Sound Blaster 16, OPL3 and the audio path: what is still open
+
+The card and its FM chip now match hardware on every point there is a source
+for, and FM music plays clean on a real session including while a game is
+busy. What follows is what does not match, and what is still worth chasing --
+this is the list to work from, not a record of what was done.
+
+Three things to know before reading it:
+
+- **Measure audio at real speed.** The `fast=1` test multiplier runs the
+  guest faster than wall time on purpose and decimates the FM stream, which
+  is a different regime entirely and says nothing about the shipped page.
+  `web/tests/fmquality.spec.ts` boots with `realtime: true` for that reason.
+- **The Performance panel is the first instrument**, not the console: it
+  carries the ring chart, the pump's cadence (`post`) and whether the machine
+  has actually produced the audio yet (`pace`). DevTools attached costs the
+  very main-thread budget being measured.
+- **`?audiotrace` is the second**, for anything the panel's one-second
+  windows are too coarse to catch -- `window.__audio.start()`, `.summary()`,
+  `.save()`, one row per post.
+
+### Open on the OPL3
+
+- **The envelope generator's shape.** It is analytic: an exponential attack
+  calibrated from the datasheet's Attack Time(10-90%) table and a linear-dB
+  decay/release from the Decay/Release Time(0-100%) table. Envelope *times*
+  match the datasheet; the per-sample curve does not match the silicon, which
+  runs a global EG timer with 4-step quantised rate increments and a shift/add
+  attack. Doing it exactly means replacing the floating-point envelope with
+  that state machine, which moves every amplitude assertion in
+  `opl3_test.cpp`. Large change, subtle payoff -- lowest priority here.
+- **Timer mask semantics are unverified.** A masked timer still sets its own
+  status flag and the mask gates only bit 7 (the IRQ bit). No primary source
+  was found either way, and Nuked-OPL3 models no timers at all. Nothing on
+  this machine can observe the difference, because the OPL3's interrupt pin
+  is not bussed to the PIC -- a real SB16 does not wire it either -- so this
+  is a documentation gap more than a behavioural one.
+- **The output stage's master gain, the rhythm section's noise/phase bits,
+  the noise LFSR taps, and C0h's power-on value** all remain as §11.1
+  describes them. The master gain is the one that matters most, because it
+  alone sets the FM-against-digitized balance the front end mixes at.
+- **Synthesis test coverage is still partial.** There are now cases for the
+  modulation index, four-operator F-number sourcing, note-select, the rhythm
+  section's output level, waveform 7 and the vibrato LFO. KSL/KSR scaling,
+  the four four-operator algorithms individually, and waveforms 1-6 still
+  have no direct assertions -- which is the same shape of gap that let the
+  exponent-ROM bug of §29 ship.
+
+### The front end's audio path
+
+Audio placement happens on the **audio thread**, keyed to its own sample
+clock. The main thread hands the worklet the card's samples exactly as the
+emulator stamped them -- one guest CPU cycle per sample -- plus the CT1745
+attenuators to apply, and nothing else. It computes no buffer length, no
+mapping and no mix.
+
+That is the fix for a defect that took five attempts. The main thread
+measures elapsed time in ~1 ms windows (`kMinAudioPumpDt`, ~900 posts a
+second on a real session) while `runCycles()` blocks it for up to 12 ms at a
+stretch: when the guest is busy no post happens during a chunk and several
+fire immediately afterwards, so a cycles-per-second figure derived there
+swings wildly, and every sample position divided by it swung with it.
+Measured on a pure 309.5 Hz OPL3 tone captured as it reaches the device: with
+the main thread busy, 286 Hz and ~18% period jitter -- audible as scratchy,
+warbling FM music whenever a game was doing real work. The audio clock has no
+such problem: it advances one sample per sample. Same tone, same load, after:
+**310 Hz and 0.26% jitter**. `web/tests/fmquality.spec.ts` holds the
+assertion and fails on the old arrangement.
+
+Three details earn their keep in `kSbWorkletSrc`:
+
+- **The play position never runs past the newest sample the card has
+  produced.** The step rate is only an estimate of guest cycles per real
+  second, so pinning there makes the estimate a hint rather than something
+  that has to be right.
+- **The rate estimate is an aggregate**, cycles divided by elapsed time over
+  a window, not an average of per-post ratios -- that average sits above the
+  true rate whenever the ratios are spread out, which under load they are,
+  and the bias was larger than the correction the controller may apply.
+- **The correction is asymmetric**: +1% to shed a surplus, -4% when the
+  machine has fallen behind and the audio does not exist yet. A 70-cent bend
+  that recovers beats a dropout, and either way it is one smooth drift rather
+  than a per-post lurch.
+
+Two earlier fixes stand, both measured on a real session: the pump carries
+the fractional sample it used to round away (~450 samples/s at ~900 posts/s,
+which drained the cushion until it starved continuously -- `ring 8 ms of 50`,
+`starved 2.7 ms/s`), and the ring holds a real cushion (45 ms afterwards).
+
+The cushion is 80 ms of lead (120 ms before the surplus is dropped), which
+is also the longest main-thread stall that passes unheard. At 40 ms a real
+session still showed about three dropouts a minute with the clock at 100% and
+the pump regular -- stalls longer than the cushion, GC-pause and
+disk-persist scale. Raising it costs the same again in output latency, which
+FM music does not notice.
+
+**Where this stands on a real session** (SimCity 2000, the workload that
+started this): the music is clean, including while the game is busy enough to
+put up its wait cursor, which is what used to make it scratchy. The panel
+reads `ring 81 ms`, `starved 0.0 ms/s`, `pace guest 1.000x`, clock 100%, with
+the pump regular (`post ~900/s, p50 1.0 ms, max 8.3 ms`). What remains is the
+occasional dropout -- a main-thread stall longer than 80 ms, visible as a
+collapse in the ring chart with a red mark under it.
+
+**The next step is to catch one rather than buy it off with more latency.**
+`?audiotrace` during a dropout gives the stall's true length in `postMs.max`,
+which points at its source. Two candidates worth checking first:
+`persistHddIfDirty()`'s full-copy fallback (§8's note records 180-350 ms every
+5 s before it was narrowed to dirty sectors) and a GC pause on the ~1 GB
+heap. Both are fixable where they happen, which is better than paying for
+them in output latency forever.
+
+The Performance panel's ring chart and its `ring N ms of M target` line both
+read the target from the audio thread's own stats rather than a literal, so
+they follow the cushion if it is retuned instead of quietly going stale.
+
+**What is left.** If the emulator drops below real time the audio for that
+interval does not exist, and no arrangement here invents it -- the clock line
+on the Performance panel is what to watch. Under the fast-test multiplier the
+guest outruns wall time on purpose, so the audio thread sits pinned to
+whatever has been produced and the lead figure reads zero; the tests that
+measure the cushion run at real speed for that reason.
+
+**Four approaches were tried and rejected on measurement** before this one,
+and should not be re-tried blind: mapping by the nominal clock while sizing
+the buffer from wall time (49% jitter -- the two timebases must agree);
+sizing and mapping both from `cpuHz * TEST_CPU_MULTIPLIER` (starves under the
+multiplier, where the host cannot reach 20x); a smoothed
+guest-cycles-per-second on the main thread (starves *and* trims there); and
+letting the buffer follow the delivered audio with the ring carrying the
+slack (best of the four in the harness at 0.70% jitter, and worse on the real
+workload -- music alternately slowing and speeding up, reverted). The lesson
+that stuck: a synthetic main-thread load does not reproduce what a real DOS
+game's redraw does to this path, which is why `?audiotrace` exists.
+
+### Open on the SB16
+
+- **Burst DMA timing -- the hardest item here, and deliberately not
+  attempted.** The bytes for a window of samples are fetched from memory at
+  the end of the window they fill, so a program racing its own buffer can be
+  heard a burst later than real hardware would play it, and software polling
+  the DMA count for the play position sees it step rather than slide. Doing
+  it exactly means one DMA cycle per sample: 176 400 servicings a second at
+  44.1 kHz 16-bit stereo, against the per-instruction budget §8 and §14-16
+  were spent buying back. If it ever matters audibly, the cheap middle option
+  is to cap the burst window at about a millisecond, shrinking the race
+  window by an order of magnitude without a redesign.
+- **Two behaviours rest on second-hand sources**, both because the copy of
+  SBPG this repo works from is missing its DSP command-reference chapter: the
+  ADPCM step/adjust tables and the E2h identification state machine, each
+  transcribed from DOSBox-X and flagged as such where it appears. Obtaining
+  the real chapter would upgrade both to primary sourcing, and is the single
+  highest-value document to go looking for.
+- **The tone controls' corner frequencies are an estimate.** Mixer 44h-47h's
+  +-14 dB range in 2 dB steps is documented; the CT1745's actual shelf
+  corners are not, so the front end uses a 100 Hz low shelf and a 5 kHz high
+  shelf, labelled as uncited at the point of use. A measurement from a real
+  card would replace them.
+- **SB-MIDI (30h/31h/34h-38h) is still absent** -- the card's other MIDI
+  path, which shares the DSP's own ports and its 8-bit interrupt status bit.
+  The MPU-401 UART interface covers what period software actually selects, so
+  this is low value. MPU-401 *intelligent* mode is not a gap: a real SB16
+  implements only UART mode.
+- **The mixer's CD, line and mic inputs, and the 3Ch output switches, have
+  nothing to switch.** They become live the day `atapi_cdrom` grows CD-DA
+  playback -- it currently reports no audio support, honestly -- at which
+  point CD audio should route through mixer 36h/37h and 3Ch rather than
+  straight to the front end.
+- **8237 leftovers.** The status register still returns the command register
+  rather than per-channel terminal-count and request bits, and the
+  verify/single/block/demand mode distinctions are not modelled. No period
+  Sound Blaster or floppy driver needs either.
+- **The card's own CD-ROM interface at base+10h..13h decodes but has no drive
+  behind it** (§11.1), so a Panasonic/Matsushita-interface CD driver finds
+  nothing there.
+- **Two deliberate non-fixes.** base+4h returns the mixer index on read,
+  which Appendix A calls write-only but real cards do answer; and the
+  write-buffer status at base+Ch always reports ready, where real hardware is
+  briefly busy after each byte. Both stay as they are on purpose.

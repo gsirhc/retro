@@ -49,19 +49,15 @@ constexpr double kPhaseUnitsPerRadian = 1048576.0 / (2.0 * kPi);
 // below: the exponential table's implicit leading 1 puts unity at 1024.
 constexpr double kFullScale = 1024.0;
 // Modulation index (radians) a fully unattenuated modulator applies to its
-// carrier's phase in a normal (non-feedback) FM connection. Still not a
-// verified figure: the YMF262 datasheet (p.12) and the YMF715x Register
-// Description Document (p.9) both tabulate only the feedback case
-// (kFeedbackRadians above), and the OPLx decap notes give the algebra without
-// any phase-domain scale. One further reading, recorded but deliberately not
-// applied: YMF715x §1-1's two equations are "A sin(wc t + B sin wm t)" for the
-// normal connection against "A sin(wt + beta FM(t))" for feedback, so B
-// carries an implicit coefficient of 1 where feedback carries beta (up to
-// 4pi). If A and B share one normalised scale -- which neither document
-// states -- an unattenuated modulator would deviate the carrier by ~1 radian
-// rather than pi. Changing it on that inference alone is exactly how pi got
-// here, so it stands until a real figure turns up. See PC486_REVIEW.md §11.1.
-constexpr double kModulationIndexRadians = kPi;
+// carrier's phase in a normal (non-feedback) FM connection, pinned via the
+// decap's feedback path rather than guessed: the die forms feedback as
+// (out+prev_out) >> (9-FB), and a full-scale operator output is 4084
+// (exp_rom[0]<<1), so the phase adder runs at 1024 units/cycle. Modulator-to-
+// carrier coupling adds the modulator's raw output into that same adder
+// unshifted, so a full-scale modulator deviates the carrier by 4084/1024 =
+// 3.99 cycles = 8pi radians -- exactly double the FB=7 figure kFeedbackRadians
+// already carries (4pi). See PC486_REVIEW.md §11.1.
+constexpr double kModulationIndexRadians = 8.0 * kPi;
 
 // Log-sin (first quarter-cycle) and exponential ROM tables, regenerated from
 // the exact formulas in Niemitalo & Gambrell's "OPLx decapsulated" analysis
@@ -230,7 +226,12 @@ int32_t wave_sample(uint8_t waveform, uint32_t phase20, double atten_env_units) 
         default: {  // 7: exponential-decay sawtooth (derived linear-attenuation ramp)
             use_table = false;
             uint32_t li = idx1024 & 511;
-            logsin_units = int32_t(li) * 4;
+            // The negative half's phase is mirrored (real hardware ramps
+            // that half up to full amplitude by the end of the cycle, not
+            // down from it) and the ramp covers the full ~96 dB range per
+            // half-cycle, not ~48 dB -- hence <<3, not <<2.
+            if (quadrant >= 2) li = 511 - li;
+            logsin_units = int32_t(li) * 8;
             break;
         }
     }
@@ -282,7 +283,9 @@ void Opl3::reset() {
         op.env_level = kEnvMax;  // env_level is kEnvScale fixed-point -- see kEnvScale
     }
     for (auto &ch : ch_) ch = Channel();
-    am_phase_ = vib_phase_ = 0;
+    am_phase_ = 0;
+    vib_pos_ = 0;
+    vib_frame_ = 0;
     noise_ = 1;
     // Every register clears to 0. A cleared C0h does not mute the channel:
     // the pan bits are ignored entirely while NEW is clear, which is what
@@ -525,26 +528,28 @@ void Opl3::advance(uint64_t cpu_cycles, uint64_t delta) {
 }
 
 void Opl3::generate_frame(uint64_t cycle) {
-    // LFOs: am_phase_/vib_phase_ are 32-bit fixed-point accumulators, one
-    // full lap = 2^32, so the increment for a target frequency is
-    // freq/kSampleHz of that span.
+    // am_phase_ is a 32-bit fixed-point accumulator, one full lap = 2^32, so
+    // the increment for a target frequency is freq/kSampleHz of that span.
+    // Vibrato is handled separately below -- it is quantised, not a phase LFO.
     constexpr double kFull = 4294967296.0;
     am_phase_ += uint32_t(std::llround((3.7 / kSampleHz) * kFull));
-    vib_phase_ += uint32_t(std::llround((6.1 / kSampleHz) * kFull));
     double am01 = double(am_phase_) / kFull;
-    double vib01 = double(vib_phase_) / kFull;
     double am_tri = am01 < 0.5 ? am01 * 2.0 : 2.0 - am01 * 2.0;              // 0..1
-    double vib_tri = (vib01 < 0.5 ? vib01 * 2.0 : 2.0 - vib01 * 2.0) * 2.0 - 1.0;  // -1..1
     bool dam = (regs_[0xBD] & 0x80) != 0;
     bool dvb = (regs_[0xBD] & 0x40) != 0;
     double am_units_this_frame = am_tri * ((dam ? 4.8 : 1.0) / 0.1875);
-    double vib_cents = dvb ? 14.0 : 7.0;
-    double vib_ratio_this_frame = 1.0 + vib_tri * (std::pow(2.0, vib_cents / 1200.0) - 1.0);
+
+    // Vibrato position counter: real hardware steps through an 8-entry
+    // pattern once every 1024 output frames (49715.9/(1024*8) = 6.07 Hz),
+    // not a continuous LFO -- Niemitalo & Gambrell's decap notes (cross-
+    // checked against Nuked-OPL3's vibtab as a fact only, per this repo's
+    // standing rule).
+    if (++vib_frame_ >= 1024) { vib_frame_ = 0; vib_pos_ = (vib_pos_ + 1) & 7; }
 
     // Advances one operator's envelope and phase generator for this frame,
     // given the key state it should currently see (channel KON, or a
     // rhythm-instrument bit for channels 6-8 in rhythm mode).
-    auto advance_env_phase = [this, vib_ratio_this_frame](int opidx, uint16_t fnum, uint8_t block, bool key_on) {
+    auto advance_env_phase = [this, dvb](int opidx, uint16_t fnum, uint8_t block, bool key_on) {
         Operator &op = op_[opidx];
         if (key_on && !op.key_on) {
             op.env = Env::kAttack;
@@ -555,8 +560,10 @@ void Opl3::generate_frame(uint64_t cycle) {
         }
         op.key_on = key_on;
 
+        // NTS=0 selects F-number bit 9 for key scaling, NTS=1 selects bit 8 --
+        // Yamaha YMF715x Register Description Document's note-select table.
         bool nts = (regs_[0x08] & 0x40) != 0;
-        int ksn = (int(block) << 1) | int(nts ? ((fnum >> 9) & 1) : ((fnum >> 8) & 1));
+        int ksn = (int(block) << 1) | int(nts ? ((fnum >> 8) & 1) : ((fnum >> 9) & 1));
         switch (op.env) {
             case Env::kAttack: {
                 if (op.ar != 0) {
@@ -600,9 +607,22 @@ void Opl3::generate_frame(uint64_t cycle) {
         // classic AdLib note table is built on (fnum 159h at block 4 is
         // middle C, 261.6 Hz). kMultX2 holds twice the multiplier, so the
         // halving here is what makes MULT=0 the documented x0.5.
-        double base = double(uint64_t(fnum) << block) * double(kMultX2[op.mult]) / 2.0;
-        double increment = base * (op.vib ? vib_ratio_this_frame : 1.0);
-        op.phase = (op.phase + uint32_t(std::llround(increment))) & 0xFFFFF;
+        int32_t vfnum = int32_t(fnum);
+        if (op.vib) {
+            // Real hardware's vibrato is a quantised F-number delta keyed off
+            // the position step, not a continuous cents ratio -- Niemitalo &
+            // Gambrell's decap notes. DVB (register BDh bit 6) doubles the
+            // depth by skipping the final halving.
+            int range = (fnum >> 7) & 7;
+            if ((vib_pos_ & 3) == 0) range = 0;
+            else if (vib_pos_ & 1) range >>= 1;
+            range >>= dvb ? 0 : 1;
+            if (vib_pos_ & 4) range = -range;
+            vfnum += range;
+            if (vfnum < 0) vfnum = 0;
+        }
+        double base = double(uint64_t(uint32_t(vfnum)) << block) * double(kMultX2[op.mult]) / 2.0;
+        op.phase = (op.phase + uint32_t(std::llround(base))) & 0xFFFFF;
     };
 
     // Computes one operator's fully-formed (signed) sample for this frame,
@@ -644,8 +664,15 @@ void Opl3::generate_frame(uint64_t cycle) {
 
         if (ch_[c].four_op_primary) {
             int s = c + 3;
-            uint16_t sfnum = ch_[s].fnum;
-            uint8_t sblock = ch_[s].block;
+            // The secondary's own A0h/B0h are latched into ch_[s] but not
+            // live while the pair is in 4-op mode: the primary's fnum/block
+            // drive all four operators (Nuked-OPL3's OPL3_ChannelSync4Op,
+            // called on every A0h/B0h write and on a 104h change -- decap-
+            // corroborated behavior, not stated in the Yamaha datasheet).
+            // ch_[s].fnum/block stay as written and go live again once 104h
+            // clears that pairing, which is itself real behavior.
+            uint16_t sfnum = fnum;
+            uint8_t sblock = block;
             int op3 = op_index(bank, cib + 3, false);
             int op4 = op_index(bank, cib + 3, true);
             advance_env_phase(mod, fnum, block, ch_[c].key_on);
@@ -724,7 +751,12 @@ void Opl3::generate_frame(uint64_t cycle) {
             int32_t off = additive ? 0 : phase_offset(mod_out, kModulationIndexRadians);
             int32_t car_out = compute_sample(car, ch_[6].fnum, ch_[6].block, off);
             op_[car].prev_out = op_[car].out; op_[car].out = int16_t(car_out);
-            mix_channel(6, additive ? (mod_out + car_out) : car_out);
+            // Each rhythm voice is wired into two of the channel's four
+            // output buses on real silicon, so it sums at twice a melodic
+            // channel's amplitude -- decap-corroborated (Nuked-OPL3 wires
+            // out[0]/out[1] and out[2]/out[3] to the same slot in rhythm
+            // mode), not stated in a Yamaha document.
+            mix_channel(6, 2 * (additive ? (mod_out + car_out) : car_out));
         }
 
         // Noise LFSR, maximal-length 23-bit (polynomial x^23+x^18+1),
@@ -742,7 +774,7 @@ void Opl3::generate_frame(uint64_t cycle) {
             advance_env_phase(tom, ch_[8].fnum, ch_[8].block, tom_on);
             int32_t out = compute_sample(tom, ch_[8].fnum, ch_[8].block, 0);
             op_[tom].prev_out = op_[tom].out; op_[tom].out = int16_t(out);
-            mix_channel(8, out);
+            mix_channel(8, 2 * out);  // rhythm voice on two output buses -- see the bass drum note above
         }
 
         // Snare, hi-hat and top cymbal: noise-gated square shaped by each
@@ -758,7 +790,7 @@ void Opl3::generate_frame(uint64_t cycle) {
             int32_t mag = wave_sample(6, 0, atten);
             int32_t out = gate ? mag : -mag;
             op_[opidx].prev_out = op_[opidx].out; op_[opidx].out = int16_t(out);
-            mix_channel(c, out);
+            mix_channel(c, 2 * out);  // rhythm voice on two output buses -- see the bass drum note above
         };
         noise_percussion(op_index(0, 7, false), ch_[7].fnum, ch_[7].block, hh_on, 18, 7);
         noise_percussion(op_index(0, 7, true), ch_[7].fnum, ch_[7].block, sd_on, 16, 7);

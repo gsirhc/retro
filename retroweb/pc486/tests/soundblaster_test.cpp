@@ -104,15 +104,27 @@ protected:
 
 // --- port decode ---------------------------------------------------------
 
-TEST_F(SoundBlasterTest, DecodesTheWholeSixteenPortBlockPlusTheAdLibFmPair) {
-    // A real card decodes base+0h..base+Fh (SBPG Appendix A), all sixteen
-    // ports, not just the DSP's four.
-    for (uint16_t p = 0x220; p <= 0x22F; ++p) EXPECT_TRUE(sb.owns(p)) << std::hex << p;
+TEST_F(SoundBlasterTest, DecodesTheWholeTwentyPortBlockPlusTheAdLibFmPair) {
+    // A real card decodes base+0h..base+13h (SBPG Appendix A, Table A-15),
+    // all twenty ports -- base+10h-13h is the card's own CD-ROM interface,
+    // not just the DSP's four ports.
+    for (uint16_t p = 0x220; p <= 0x233; ++p) EXPECT_TRUE(sb.owns(p)) << std::hex << p;
     EXPECT_FALSE(sb.owns(0x21F));
-    EXPECT_FALSE(sb.owns(0x230));
+    EXPECT_FALSE(sb.owns(0x234));
     // ...plus the AdLib card's own FM pair, which every Sound Blaster answers.
     EXPECT_TRUE(sb.owns(0x388));
     EXPECT_TRUE(sb.owns(0x389));
+}
+
+TEST_F(SoundBlasterTest, CdRomInterfacePortsAreOpenBusWithNoDriveAttached) {
+    // This machine's CD-ROM is on the IDE/ATAPI channel instead -- the
+    // card's own proprietary CD-ROM interface at base+10h-13h is present
+    // (decoded) but has no drive behind it: reads float high, writes vanish.
+    for (uint16_t p = 0x230; p <= 0x233; ++p) {
+        EXPECT_EQ(sb.in(p), 0xFF) << std::hex << p;
+        sb.out(p, 0x00);           // must not disturb anything else
+        EXPECT_EQ(sb.in(p), 0xFF) << std::hex << p;
+    }
 }
 
 // --- DSP reset / identification ------------------------------------------
@@ -231,6 +243,51 @@ TEST_F(SoundBlasterTest, TimeConstantAndDirectRateBothProgramTheSampleRate) {
     EXPECT_EQ(sb.sample_rate_hz(), 22050u);
     Cmd({0x41, 0xAC, 0x44});
     EXPECT_EQ(sb.sample_rate_hz(), 44100u);   // SBPG's own worked example
+}
+
+TEST_F(SoundBlasterTest, SamplingRateClampsToWhatTheDspCanClockAtAll) {
+    // The rate registers hold anything the DSP can clock: 4000 Hz is the
+    // lowest figure anywhere in SBPG Tables 3-2/3-3 (the ADPCM rows) and
+    // 44100 the highest. Which range actually applies depends on the format
+    // the transfer command selects, so that limit lands when a transfer
+    // starts -- see the two tests below. Real hardware clamps rather than
+    // rejecting an out-of-range request.
+    ResetDsp();
+    Cmd({0x41, 0x00, 0x00});  // 0 Hz requested
+    EXPECT_EQ(sb.sample_rate_hz(), 4000u);
+    Cmd({0x41, 0xFF, 0xFF});  // 65535 Hz requested
+    EXPECT_EQ(sb.sample_rate_hz(), 44100u);
+    // The 40h time-constant path can ask for far outside the range too: tc 0
+    // inverts to ~3906 Hz, tc 255 to 1 MHz.
+    Cmd({0x40, 0});
+    EXPECT_EQ(sb.sample_rate_hz(), 4000u);
+    Cmd({0x40, 255});
+    EXPECT_EQ(sb.sample_rate_hz(), 44100u);
+}
+
+TEST_F(SoundBlasterTest, StartingAPcmTransferImposesTheFiveKFloor) {
+    // SBPG Tables 3-2/3-3: every PCM format on DSP 4.xx runs 5000-44100 Hz.
+    ResetDsp();
+    Cmd({0x41, 0x00, 0x00});          // asks for 0 Hz
+    Cmd({0xC0, 0x00, 0x0F, 0x00});    // 8-bit mono unsigned, 16 bytes
+    EXPECT_EQ(sb.sample_rate_hz(), 5000u);
+}
+
+TEST_F(SoundBlasterTest, StartingAnAdpcmTransferImposesThatRatiosOwnCeiling) {
+    // Table 3-2's ADPCM rows stop lower than PCM does: 4-bit at 12000 Hz,
+    // 3-bit at 13000, 2-bit at 11000, all from 4000.
+    ResetDsp();
+    Cmd({0x41, 0xAC, 0x44});   // asks for 44100 Hz
+    Cmd({0x75, 0x0F, 0x00});   // 4-bit ADPCM with reference
+    EXPECT_EQ(sb.sample_rate_hz(), 12000u);
+    ResetDsp();
+    Cmd({0x41, 0xAC, 0x44});
+    Cmd({0x77, 0x0F, 0x00});   // 3-bit (2.6-bit) with reference
+    EXPECT_EQ(sb.sample_rate_hz(), 13000u);
+    ResetDsp();
+    Cmd({0x41, 0xAC, 0x44});
+    Cmd({0x17, 0x0F, 0x00});   // 2-bit with reference
+    EXPECT_EQ(sb.sample_rate_hz(), 11000u);
 }
 
 // --- legacy 8-bit playback ----------------------------------------------
@@ -651,6 +708,45 @@ TEST_F(SoundBlasterTest, DirectModeOutputLatchesOneSamplePerCommand) {
     EXPECT_FALSE(sb.transfer_ready());
 }
 
+TEST_F(SoundBlasterTest, DirectModeAdcReturnsTheSilenceMidpoint) {
+    // 20h (direct-mode 8-bit ADC): nothing is plugged into the line/mic
+    // inputs, so the one byte returned through the read FIFO is the
+    // unsigned-8-bit silence midpoint -- same reasoning fill_input_buffer
+    // already uses for DMA-driven recording.
+    ResetDsp();
+    Cmd({0x20});
+    EXPECT_EQ(Read(), 0x80);
+    EXPECT_FALSE(sb.transfer_ready()) << "direct mode starts no DMA at all";
+}
+
+TEST_F(SoundBlasterTest, DmaIdentificationEvolvesItsStateAndArmsAOneByteTransfer) {
+    // E2h is undocumented by Creative; the only description anywhere is
+    // DOSBox/DOSBox-X's sblaster.cpp -- second-hand corroboration, not a
+    // primary source (see begin_dma's own block-counter comment). valadd and
+    // valxor start at 0xAA/0x96 out of a DSP reset.
+    ResetDsp();
+    Cmd({0xE2, 0x12});
+    const uint8_t expect1 = uint8_t(0xAA + (0x12 ^ 0x96));
+    ASSERT_TRUE(sb.transfer_ready());
+    EXPECT_EQ(sb.transfer_length(), 1u);
+    EXPECT_TRUE(sb.transfer_is_input());
+    EXPECT_FALSE(sb.transfer_is_16bit());
+    EXPECT_EQ(sb.transfer_dma_channel(), 1);  // the 8-bit channel
+    EXPECT_EQ(sb.transfer_buffer()[0], expect1);
+    EXPECT_FALSE(sb.irq_pending()) << "a one-byte identification write is not a DSP block";
+
+    sb.finish_transfer(1);
+    EXPECT_FALSE(sb.transfer_ready());
+    EXPECT_FALSE(sb.playing());
+    EXPECT_FALSE(sb.irq_pending());
+
+    // A second E2h evolves from where the first left off, not from scratch.
+    const uint8_t valxor2 = uint8_t((0x96 >> 2) | (0x96 << 6));
+    Cmd({0xE2, 0x34});
+    const uint8_t expect2 = uint8_t(expect1 + (0x34 ^ valxor2));
+    EXPECT_EQ(sb.transfer_buffer()[0], expect2);
+}
+
 TEST_F(SoundBlasterTest, HighSpeedCommandsAreIgnoredOnDspFourPointX) {
     // SBPG chapter 6's availability matrix lists 90h/91h/98h/99h for DSP
     // 2.01+ and 3.xx only: DSP 4.xx has no high-speed mode. Allegro issues
@@ -668,16 +764,149 @@ TEST_F(SoundBlasterTest, HighSpeedCommandsAreIgnoredOnDspFourPointX) {
     EXPECT_EQ(Read(), 5);
 }
 
-TEST_F(SoundBlasterTest, AdpcmCommandsSwallowTheirParametersWithoutDesyncing) {
-    // ADPCM playback is out of scope, but a driver probing 75h must not be
-    // able to knock the command stream out of step (its two length bytes
-    // would otherwise be read as commands). See soundblaster.h.
+TEST_F(SoundBlasterTest, AdpcmCommandsDoNotDesyncTheCommandStream) {
+    // A driver probing 75h must not be able to knock the command stream out
+    // of step: its two length bytes would otherwise be read as commands.
     ResetDsp();
+    Cmd({0x41, 0x1F, 0x40});  // 8000 Hz
     Cmd({0x75, 0xFF, 0x01});
-    EXPECT_FALSE(sb.playing());
+    EXPECT_TRUE(sb.playing());
     Cmd({0xE1});
     EXPECT_EQ(Read(), 4);
     EXPECT_EQ(Read(), 5);
+}
+
+// --- ADPCM output -------------------------------------------------------
+// SBPG Table 3-1 lists 8-bit mono ADPCM single-cycle and auto-initialize for
+// DSP 4.xx, so these are a real capability of this card. The decoder's step
+// tables are the one part with no primary source (see soundblaster.cpp).
+
+TEST_F(SoundBlasterTest, AdpcmFourBitDecodesTwoSamplesPerCompressedByte) {
+    ResetDsp();
+    Cmd({0x41, 0x1F, 0x40});        // 8000 Hz
+    Cmd({0x75, 0x02, 0x00});        // 4-bit with reference, 3 compressed bytes
+    // Byte 0 is the reference (SBPG 3-7), so it seeds the predictor at 80h
+    // and yields no sample of its own; the two code bytes then give two
+    // samples each. Codes 1 and 2 at step size 0 add +1 then +2 to the
+    // reference, which is the table walk this asserts. A burst carries only
+    // as many bytes as have come due at the sample rate, so the block takes
+    // several of them.
+    std::vector<uint8_t> data{0x80, 0x12, 0x00};
+    std::size_t offset = 0;
+    std::vector<SoundBlaster::Sample> samples;
+    for (int i = 0; i < 64 && !sb.irq8_pending(); ++i) {
+        if (!RunUntilTransfer()) break;
+        ServeBurst(data, offset);
+        for (const auto &s : sb.drain_samples()) samples.push_back(s);
+    }
+    ASSERT_EQ(samples.size(), 4u) << "two code bytes, two samples each";
+    EXPECT_EQ(samples[0].left, int16_t((0x81 - 128) * 256));
+    EXPECT_EQ(samples[1].left, int16_t((0x83 - 128) * 256));
+    EXPECT_EQ(samples[0].left, samples[0].right) << "ADPCM is mono, duplicated to both channels";
+}
+
+TEST_F(SoundBlasterTest, AdpcmThreeAndTwoBitPackMoreSamplesPerByte) {
+    // The 3-bit "2.6-bit" mode packs three samples into eight bits and the
+    // 2-bit mode four, against the 4-bit mode's two.
+    for (auto [cmd, per_byte] : {std::pair<uint8_t, std::size_t>{0x77, 3},
+                                 std::pair<uint8_t, std::size_t>{0x17, 4}}) {
+        ResetDsp();
+        Cmd({0x41, 0x1F, 0x40});
+        Cmd({cmd, 0x02, 0x00});     // reference byte plus two code bytes
+        std::vector<uint8_t> data{0x80, 0xB1, 0x4E};
+        std::size_t offset = 0;
+        std::size_t decoded = 0;
+        for (int i = 0; i < 64 && !sb.irq8_pending(); ++i) {
+            if (!RunUntilTransfer()) break;
+            ServeBurst(data, offset);
+            decoded += sb.drain_samples().size();
+        }
+        EXPECT_EQ(decoded, per_byte * 2) << "command " << std::hex << int(cmd);
+    }
+}
+
+TEST_F(SoundBlasterTest, AdpcmBlockCounterCountsCompressedBytesNotSamples) {
+    // The DSP's length parameter for these commands counts compressed bytes,
+    // so the block interrupt lands after that many bytes have moved -- not
+    // after that many decoded samples.
+    ResetDsp();
+    Cmd({0x41, 0x1F, 0x40});
+    Cmd({0x75, 0x03, 0x00});        // 4 compressed bytes
+    std::vector<uint8_t> data{0x80, 0x11, 0x22, 0x33};
+    std::size_t offset = 0;
+    std::size_t moved = 0;
+    for (int i = 0; i < 64 && !sb.irq8_pending(); ++i) {
+        if (!RunUntilTransfer()) break;
+        moved += ServeBurst(data, offset);
+    }
+    EXPECT_TRUE(sb.irq8_pending()) << "no block interrupt after the programmed byte count";
+    EXPECT_EQ(moved, 4u);
+    // 1 reference byte + 3 code bytes at 2 samples each.
+    EXPECT_EQ(sb.drain_samples().size(), 6u);
+}
+
+TEST_F(SoundBlasterTest, AdpcmPlaybackIsPacedAtTheRealSampleRate) {
+    ResetDsp();
+    Cmd({0x41, 0x1F, 0x40});        // 8000 Hz
+    Cmd({0x48, 0x3F, 0x00});        // 64 compressed bytes per block
+    Cmd({0x7D});                    // auto-init 4-bit, length from 48h
+    std::vector<uint8_t> data(64, 0x11);
+    data[0] = 0x80;
+    std::size_t offset = 0;
+    const uint64_t start = cycles_;
+    std::size_t frames = 0;
+    while (frames < 64 && cycles_ - start < uint64_t(kCpuHz)) {
+        if (!RunUntilTransfer()) break;
+        ServeBurst(data, offset);
+        frames = sb.drain_samples().size() + frames;
+    }
+    // 64 decoded samples at 8000 Hz is 8 ms of audio; the card must have
+    // taken at least that much wall-clock time to ask for them.
+    const double elapsed_s = double(cycles_ - start) / kCpuHz;
+    EXPECT_GE(elapsed_s, 0.0075) << "ADPCM playback ran faster than its own sample rate";
+}
+
+TEST_F(SoundBlasterTest, AdpcmAutoInitRepeatsUntilTheExitCommand) {
+    ResetDsp();
+    Cmd({0x41, 0x1F, 0x40});
+    Cmd({0x48, 0x03, 0x00});        // 4 compressed bytes per block
+    Cmd({0x7D});                    // auto-init 4-bit ADPCM
+    std::vector<uint8_t> data{0x80, 0x11, 0x22, 0x33};
+    std::size_t offset = 0;
+    int blocks = 0;
+    for (int i = 0; i < 400 && blocks < 3; ++i) {
+        if (!RunUntilTransfer()) break;
+        ServeBurst(data, offset);
+        if (sb.irq8_pending()) { ++blocks; sb.in(kReadStatus); }
+    }
+    EXPECT_EQ(blocks, 3) << "auto-init must keep reloading its block";
+    Cmd({0xDA});                    // exit auto-init at the end of this block
+    for (int i = 0; i < 400 && sb.playing(); ++i) {
+        if (!RunUntilTransfer()) break;
+        ServeBurst(data, offset);
+    }
+    EXPECT_FALSE(sb.playing());
+}
+
+TEST_F(SoundBlasterTest, DmaIdentificationStaysArmedUntilTheChannelIsServiced) {
+    // E2h's single-byte write is what a driver uses to work out which DMA
+    // channel the card is really on, so the request has to stay asserted
+    // until that channel is actually unmasked and serviced -- a masked
+    // channel moves nothing and must not consume the byte.
+    ResetDsp();
+    Cmd({0xE2, 0x00});
+    ASSERT_TRUE(sb.transfer_ready());
+    EXPECT_TRUE(sb.transfer_is_input()) << "identification is a write to memory";
+    EXPECT_EQ(sb.transfer_length(), 1u);
+    const uint8_t expected = sb.transfer_buffer()[0];
+    sb.finish_transfer(0);          // masked channel: nothing moved
+    EXPECT_TRUE(sb.transfer_ready()) << "the byte must not be dropped";
+    EXPECT_EQ(sb.transfer_buffer()[0], expected);
+    sb.finish_transfer(1);          // unmasked: the byte goes out
+    EXPECT_FALSE(sb.transfer_ready());
+    EXPECT_FALSE(sb.irq8_pending()) << "identification raises no interrupt";
+    // 0AAh + (00h ^ 96h) = 40h on the first call, per the evolving state.
+    EXPECT_EQ(expected, 0x40);
 }
 
 TEST_F(SoundBlasterTest, DspResetStopsAnActiveTransferAndClearsPendingInterrupts) {
@@ -691,6 +920,33 @@ TEST_F(SoundBlasterTest, DspResetStopsAnActiveTransferAndClearsPendingInterrupts
     EXPECT_FALSE(sb.playing());
     EXPECT_FALSE(sb.transfer_ready());
     EXPECT_FALSE(sb.irq_pending());
+}
+
+TEST_F(SoundBlasterTest, AssertingResetAloneHaltsPlaybackWithoutWaitingForTheZero) {
+    // Real hardware holds the DSP in reset for as long as the line stands
+    // high: an in-progress transfer stops the instant the 1 is written, not
+    // at the eventual 1->0 edge (which is only needed for the 0AAh
+    // handshake). Mixer volumes and the test register are a separate chip
+    // and survive untouched.
+    ResetDsp();
+    Cmd({0x40, 166});
+    Cmd({0x14, 0xFF, 0x00});
+    ASSERT_TRUE(RunUntilTransfer());
+    MixerWrite(0x30, 0x55);
+    Cmd({0xE4, 0x3C});  // test register
+
+    sb.out(kReset, 1);  // assert only -- no 0 follows yet
+    EXPECT_FALSE(sb.playing());
+    EXPECT_FALSE(sb.transfer_ready());
+    EXPECT_FALSE(RunUntilTransfer(512, 4000)) << "a held-in-reset card must not keep requesting bytes";
+    EXPECT_EQ(MixerRead(0x30), 0x55);
+
+    // The 0 still completes the handshake afterward.
+    sb.out(kReset, 0);
+    ASSERT_TRUE(sb.in(kReadStatus) & 0x80);
+    EXPECT_EQ(sb.in(kReadData), 0xAA);
+    Cmd({0xE8});
+    EXPECT_EQ(Read(), 0x3C);  // test register survives a DSP reset
 }
 
 // --- CT1745 mixer -------------------------------------------------------
@@ -756,6 +1012,28 @@ TEST_F(SoundBlasterTest, OutputGainCombinesMasterAndVoiceAttenuators) {
     MixerWrite(0x32, 26 << 3);  // voice -10 dB
     EXPECT_NEAR(sb.output_gain_left(), 0.31623f, 1e-3f);
     EXPECT_NEAR(sb.output_gain_right(), 1.0f, 1e-4f);
+}
+
+TEST_F(SoundBlasterTest, OutputGainRegisterBoostsBothTheDigitizedAndFmLegs) {
+    // Mixer 41h/42h (Output Gain .L/.R) sit after the mixer in the analog
+    // chain, so they apply to both the Voice leg (output_gain_*) and the FM
+    // leg (fm_gain_*) -- SBPG chapter 4: 2 bits, 0-3 => 0 dB to 18 dB in 6 dB
+    // steps.
+    MixerWrite(0x30, 31 << 3); MixerWrite(0x31, 31 << 3);  // master 0 dB
+    MixerWrite(0x32, 31 << 3); MixerWrite(0x33, 31 << 3);  // voice 0 dB
+    MixerWrite(0x34, 31 << 3); MixerWrite(0x35, 31 << 3);  // MIDI/FM 0 dB
+    ASSERT_NEAR(sb.output_gain_left(), 1.0f, 1e-4f);
+    ASSERT_NEAR(sb.fm_gain_left(), 1.0f, 1e-4f);
+
+    MixerWrite(0x41, 0x01 << 6);  // Output Gain Left level 1 => +6 dB
+    EXPECT_NEAR(sb.output_gain_left(), 1.99526f, 1e-3f);
+    EXPECT_NEAR(sb.fm_gain_left(), 1.99526f, 1e-3f);
+    EXPECT_NEAR(sb.output_gain_right(), 1.0f, 1e-4f);  // right leg untouched
+    EXPECT_NEAR(sb.fm_gain_right(), 1.0f, 1e-4f);
+
+    MixerWrite(0x42, 0x03 << 6);  // Output Gain Right level 3 => +18 dB
+    EXPECT_NEAR(sb.output_gain_right(), 7.94328f, 1e-3f);
+    EXPECT_NEAR(sb.fm_gain_right(), 7.94328f, 1e-3f);
 }
 
 TEST_F(SoundBlasterTest, MixerResetRegisterRestoresDefaultsButADspResetDoesNot) {

@@ -265,7 +265,10 @@ private:
     Channel ch_[18];
 
     uint32_t am_phase_ = 0;   // tremolo LFO, 3.7 Hz
-    uint32_t vib_phase_ = 0;  // vibrato LFO, 6.1 Hz
+    // Vibrato's quantised 8-step position and its 1024-frame-per-step
+    // counter -- see generate_frame.
+    uint8_t vib_pos_ = 0;
+    uint32_t vib_frame_ = 0;
     uint32_t noise_ = 1;      // rhythm-section noise LFSR
 
     void write_reg(uint16_t index, uint8_t v);

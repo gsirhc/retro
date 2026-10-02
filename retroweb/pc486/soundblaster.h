@@ -1,17 +1,19 @@
 // Creative Sound Blaster 16 (CT1745 mixer + DSP version 4.05), ISA wiring:
 // base I/O 0x220 (the factory default for every Sound Blaster card), the full
-// 16-port block 0x220-0x22F, IRQ5, 8-bit DMA channel 1 and 16-bit DMA channel
+// 20-port block 0x220-0x233, IRQ5, 8-bit DMA channel 1 and 16-bit DMA channel
 // 5 -- i.e. exactly the card a period driver describes as
 // `SET BLASTER=A220 I5 D1 H5 T6`, which is what this machine's DOS software
 // finds in its environment.
 //
 // Everything here is programmed the way Creative's own "Sound Blaster Series
 // Hardware Programming Guide" (Creative Technology Ltd, 1994 -- cited below
-// as "SBPG" with its section names) says to program it. The port block, per
-// SBPG Appendix A and Table 2-1 "DSP I/O Ports":
+// as "SBPG") says to program it. The port block is base+0h..13h, 20 ports
+// (SBPG Appendix A's SB16 map); Table 2-1 only lists the four SB1.5-era DSP
+// ports (reset/read-data/write/read-buffer-status) and predates the mixer
+// and base+Fh entirely, so it is cited below only where it actually applies:
 //
-//   base+0h/1h  FM (OPL3) left status/address, data        -- see "no FM" below
-//   base+2h/3h  FM (OPL3) right status/address, data       -- see "no FM" below
+//   base+0h/1h  FM (OPL3) left status/address, data
+//   base+2h/3h  FM (OPL3) right status/address, data
 //   base+4h     Mixer register address (CT1745)
 //   base+5h     Mixer data
 //   base+6h     DSP reset                        (write only)
@@ -20,7 +22,13 @@
 //   base+Ch     DSP write command/data (write) / write-buffer status (read)
 //   base+Eh     DSP read-buffer status (read only); reading it also
 //               acknowledges the 8-bit DMA-mode interrupt
-//   base+Fh     16-bit DMA-mode interrupt acknowledge (read only, DSP 4.xx)
+//   base+Fh     16-bit DMA-mode interrupt acknowledge (read only, DSP 4.xx;
+//               SBPG chapter 2's interrupt section, p.2-5 -- not in Table 2-1)
+//   base+10h-13h  the card's own CD-ROM interface (Command/Data, Status,
+//                 Reset, Enable) -- decoded as "card present, no drive
+//                 attached": this machine's CD-ROM is on the IDE/ATAPI
+//                 channel instead (see wd1003.h/atapi_cdrom.h), so nothing
+//                 answers behind the SB16's own proprietary drive interface.
 //
 // The DSP reset handshake, the interrupt-acknowledge ports, and the
 // software-selectable IRQ/DMA registers are all straight out of SBPG chapter
@@ -48,9 +56,12 @@
 // 3-26..3-29 and the Bxh/Cxh command pages, which is where the bCommand
 // A/D-vs-D/A, auto-init and FIFO bits and the bMode stereo/signed bits come
 // from); the pause/continue/exit controls D0h/D4h/D5h/D6h/D9h/DAh; speaker
-// D1h/D3h/D8h; the 80h silence period; and the identification/diagnostic
-// commands E0h, E1h, E3h, E4h, E8h, F2h and F3h a driver uses to find the
-// card and work out which IRQ it is really on.
+// D1h/D3h/D8h; the 80h silence period; the 8-bit-to-2/3/4-bit ADPCM output
+// commands 16h/17h/74h-77h and auto-init 1Fh/7Dh/7Fh, which SBPG Table 3-1
+// lists for DSP 4.xx as well as the earlier parts; direct-mode input 20h;
+// and the identification/diagnostic commands E0h, E1h, E2h, E3h, E4h, E8h,
+// F2h and F3h a driver uses to find the card and work out which IRQ and DMA
+// channel it is really on.
 //
 // Scope/simplifications (see PC486_REVIEW.md):
 //  - FM synthesis is a real YMF262 (OPL3) -- see opl3.h. base+0h/1h is its
@@ -65,11 +76,12 @@
 //    never touches the card's own block at all. 0x38Ah/0x38Bh, the bank-1
 //    pair an AdLib Gold or PAS puts there, are NOT decoded: on an SB16 the
 //    OPL3's second bank lives at base+2h/3h instead.
-//  - No MIDI (SB-MIDI 30h/31h/34h-38h or MPU-401 at 0x330), no joystick
-//    port, no ADPCM. The ADPCM playback commands (16h/17h/74h-77h, 1Fh/7Dh/
-//    7Fh) are decoded far enough to swallow their parameter bytes -- so a
-//    driver that probes one doesn't desynchronize the command stream -- but
-//    start no playback.
+//  - ADPCM output is real: all three ratios decode and play, reference byte
+//    included. The step tables behind them are the one part with no primary
+//    source -- see soundblaster.cpp's kAdpcm* tables.
+//  - No SB-MIDI (30h/31h/34h-38h) and no joystick port. The MPU-401
+//    interface the card also carries IS emulated, in its own UART-mode
+//    device at its own base address -- see mpu401.h.
 //  - The high-speed commands 90h/91h/98h/99h are accepted and ignored,
 //    because SBPG's own availability matrix lists them for DSP 2.01+ and
 //    3.xx only, not 4.xx: DSP 4.xx has no high-speed mode (it reaches full
@@ -156,13 +168,13 @@ public:
     void reset();
 
     // --- chipset port decode ---------------------------------------------
-    // The whole 16-port block, as a real card decodes it, plus the AdLib
-    // card's own 0x388/0x389 FM pair every Sound Blaster also answers -- see
-    // the file header.
+    // The whole 20-port block (SBPG Appendix A, Table A-15: base+0h..13h),
+    // as a real card decodes it, plus the AdLib card's own 0x388/0x389 FM
+    // pair every Sound Blaster also answers -- see the file header.
     static constexpr uint16_t kAdLibFmAddr = 0x388;
     static constexpr uint16_t kAdLibFmData = 0x389;
     bool owns(uint16_t port) const {
-        return (port >= base_ && port <= uint16_t(base_ + 0x0F)) ||
+        return (port >= base_ && port <= uint16_t(base_ + 0x13)) ||
                port == kAdLibFmAddr || port == kAdLibFmData;
     }
     uint8_t in(uint16_t port);
@@ -245,10 +257,12 @@ public:
     bool speaker_on() const { return speaker_on_; }
 
     // The analog chain the samples above still have to pass through: the
-    // CT1745's Voice and Master attenuators, as linear gains (SBPG chapter
-    // 4: 5-bit fields, 0-31 => -62 dB to 0 dB in 2 dB steps, default 24).
-    // Kept out of the sample path deliberately, so drain_samples() returns
-    // exactly the values the program wrote.
+    // CT1745's Voice and Master attenuators (SBPG chapter 4: 5-bit fields,
+    // 0-31 => -62 dB to 0 dB in 2 dB steps, default 24) followed by the
+    // Output Gain .L/.R stage (mixer 41h/42h: 2 bits, 0-3 => 0 dB to 18 dB in
+    // 6 dB steps), all as linear gains. Kept out of the sample path
+    // deliberately, so drain_samples() returns exactly the values the
+    // program wrote.
     float output_gain_left() const;
     float output_gain_right() const;
     // The FM chip's own leg of the same chain. On the CT1745 the OPL3 is the
@@ -259,7 +273,15 @@ public:
     uint8_t mixer_register(uint8_t index) const { return mixer_[index]; }
 
 private:
-    enum class Mode { kIdle, kDma, kSilence };
+    // kIdentify: the one-byte E2h DMA-identification write (see run_command's
+    // E2h case) -- a single unpaced DMA cycle, not a sample-rate-paced block,
+    // so it needs its own mode rather than reusing kDma's block accounting.
+    enum class Mode { kIdle, kDma, kSilence, kIdentify };
+
+    // The three ADPCM compression ratios the DSP decompresses (SBPG 3-7:
+    // "8-bit to 2-bit, 8-bit to 3-bit, and 8-bit to 4-bit"). kNone is
+    // ordinary PCM, which is every other transfer this device runs.
+    enum class Adpcm { kNone, k2Bit, k3Bit, k4Bit };
 
     // 256 KB: comfortably more than the largest block a period driver
     // programs (the 8237 can only address 64 KB of bytes / 64 K words per
@@ -285,10 +307,30 @@ private:
     // begin_dma converts to frames -- see its comment.
     void begin_dma(bool input, bool is16, bool ai, bool stereo, bool signed_data,
                    uint32_t dma_units);
+    // The ADPCM output commands (16h/17h/74h-77h and the auto-init 1Fh/7Dh/
+    // 7Fh). Always 8-bit mono on the 8-bit channel, and output only -- the
+    // DSP "supports decompression in the output process only" (SBPG 3-7).
+    // `need_ref` marks the commands whose first block byte is a reference
+    // value rather than compressed codes.
+    void begin_adpcm(Adpcm format, bool ai, bool need_ref, uint32_t dma_bytes);
+    // Decodes one compressed byte into frames_per_byte() samples, advancing
+    // the reference/step-size state, and pushes them from `cycle` onward.
+    void decode_adpcm_byte(uint8_t byte, uint64_t cycle, double cycles_per_frame);
     void push_sample(uint64_t cycle, int16_t l, int16_t r);
     void raise_block_irq();
     void fill_input_buffer(std::size_t len);
     int bytes_per_frame() const { return (bits16_ ? 2 : 1) * (stereo_ ? 2 : 1); }
+    // Samples packed into one compressed byte: 4 bits per sample gives 2,
+    // 3 bits gives 3 (the "2.6-bit" mode -- three samples in eight bits,
+    // the last one two bits wide), 2 bits gives 4. PCM is 1 byte per frame.
+    int frames_per_byte() const {
+        switch (adpcm_) {
+            case Adpcm::k4Bit: return 2;
+            case Adpcm::k3Bit: return 3;
+            case Adpcm::k2Bit: return 4;
+            default: return 1;
+        }
+    }
 
     uint16_t base_;
 
@@ -301,6 +343,10 @@ private:
     uint8_t test_reg_ = 0;    // E4h/E8h diagnostic register; survives a DSP reset
     bool reset_asserted_ = false;
     bool speaker_on_ = false;
+    // E2h DMA-identification state, reset to these values on every DSP reset
+    // (undocumented by Creative -- see run_command's E2h case).
+    uint8_t ident_valadd_ = 0xAA;
+    uint8_t ident_valxor_ = 0x96;
 
     // Transfer state.
     Mode mode_ = Mode::kIdle;
@@ -312,6 +358,14 @@ private:
                                     // driver always sets 40h or 41h before playing
     uint32_t block_frames_ = 0;     // 48h / Bxh-Cxh length, in frames
     uint32_t block_left_ = 0;
+
+    // ADPCM decompression state. An ADPCM block counts COMPRESSED BYTES in
+    // block_frames_/block_left_ rather than frames, because that is what the
+    // DSP's own length parameter counts for these commands.
+    Adpcm adpcm_ = Adpcm::kNone;
+    bool adpcm_need_ref_ = false;  // consume the next byte as the reference
+    uint8_t adpcm_ref_ = 0;        // last decoded sample, the decoder's predictor
+    uint8_t adpcm_step_ = 0;       // adaptive step-size index
     uint16_t dsp_block_size_ = 0;   // last 48h value, in samples-1 as programmed
 
     bool transfer_ready_ = false;

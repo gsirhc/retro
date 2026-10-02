@@ -33,6 +33,7 @@
 #include "pcspeaker.h"
 #include "pic8259.h"
 #include "pit8253.h"
+#include "mpu401.h"
 #include "soundblaster.h"
 #include "wd1003.h"
 
@@ -118,6 +119,9 @@ public:
     // `SET BLASTER=A220 I5 D1 H5 T6` a period driver finds in its
     // environment (§11).
     SoundBlaster sb;
+    // The MPU-401 UART interface the same SB16 card carries, at its own
+    // jumper-selected base address rather than inside the card's block.
+    Mpu401 mpu;
 
     // Host-facing: relay a mouse movement/button event into the 8042's
     // AUX port. `dy` follows the mouse's own axis convention (+Y is away
@@ -230,7 +234,7 @@ private:
     bool hdd_irq_prev_ = false;   // IRQ14 (hard disk, slave PIC line 6)
     bool cdrom_irq_prev_ = false; // IRQ15 (CD-ROM, slave PIC line 7)
     uint32_t vga_map_prev_ = 0xFFFFFFFFu;
-    bool sb_irq_prev_ = false;    // IRQ5 (Sound Blaster, master PIC line 5)
+    bool sb_irq_prev_ = false;    // Sound Blaster, line picked by mixer 80h (IRQ5 default)
 
     // Moves one Sound Blaster DMA block (8-bit channel 1 or 16-bit channel
     // 5) once its paced transfer is ready -- the same "one bulk copy per

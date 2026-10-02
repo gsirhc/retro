@@ -71,7 +71,13 @@ bool Dma8237::advance(int channel) {
         c.address = c.base_address;
         c.count = c.base_count;
     } else {
-        c.address = uint16_t(c.address + 1);
+        // Intel 8237A-5 data sheet, "Mode Register": bit 5 selects address
+        // decrement instead of increment. Either way the address is a plain
+        // uint16_t, so it wraps within the 64KB page on its own -- a real,
+        // documented 8237 quirk (a transfer never carries across a page-
+        // register boundary).
+        if ((c.mode & 0x20) != 0) c.address = uint16_t(c.address - 1);
+        else c.address = uint16_t(c.address + 1);
         c.count = uint16_t(c.count - 1);
     }
     return tc;

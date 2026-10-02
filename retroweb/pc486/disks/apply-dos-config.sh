@@ -39,7 +39,7 @@ trap 'rm -rf "$tmp"' EXIT
 # CRLF: DOS's own TYPE renders a bare LF as one unbroken line.
 printf 'DOS=HIGH\r\nFILES=40\r\nBUFFERS=20\r\nLASTDRIVE=Z\r\nDEVICE=C:\\FreeDOS\\BIN\\HIMEMX.EXE\r\nDEVICE=C:\\FreeDOS\\BIN\\UDVD2.SYS /D:FDCD0001\r\nSHELL=C:\\FreeDOS\\BIN\\COMMAND.COM C:\\FreeDOS\\BIN /E:1024 /P=C:\\FDAUTO.BAT\r\n' > "$tmp/FDCONFIG.SYS"
 
-printf '@ECHO OFF\r\nSET DOSDIR=C:\\FreeDOS\r\nSET PATH=C:\\FreeDOS\\BIN\r\nSET TEMP=C:\\FreeDOS\\TEMP\r\nSET BLASTER=A220 I5 D1 H5 T6\r\nC:\\FreeDOS\\BIN\\SHSUCDX.COM /D:FDCD0001\r\nC:\\FreeDOS\\BIN\\CTMOUSE.EXE\r\nPROMPT $P$G\r\n' > "$tmp/FDAUTO.BAT"
+printf '@ECHO OFF\r\nSET DOSDIR=C:\\FreeDOS\r\nSET PATH=C:\\FreeDOS\\BIN\r\nSET TEMP=C:\\FreeDOS\\TEMP\r\nSET BLASTER=A220 I5 D1 H5 T6 P330\r\nC:\\FreeDOS\\BIN\\SHSUCDX.COM /D:FDCD0001\r\nC:\\FreeDOS\\BIN\\CTMOUSE.EXE\r\nPROMPT $P$G\r\n' > "$tmp/FDAUTO.BAT"
 
 mcopy -o -i "$HDD@@$PART_OFFSET" "$tmp/FDCONFIG.SYS" "::FDCONFIG.SYS"
 mcopy -o -i "$HDD@@$PART_OFFSET" "$tmp/FDAUTO.BAT" "::FDAUTO.BAT"

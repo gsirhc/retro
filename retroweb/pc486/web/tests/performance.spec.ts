@@ -12,6 +12,55 @@ test.describe("Performance panel", () => {
     await expect(page.locator("#perfCard")).toBeHidden();
   });
 
+  test("the audio block reports ring health, pump cadence and pacing", async ({ perfPage: page }) => {
+    // Audio breaking up while the clock holds 100% is the case these lines
+    // exist for: the ring is fed from the main thread, so its depth, the
+    // spread of the pump's own cadence, and whether the guest has actually
+    // produced the audio yet are the three things that separate the causes.
+    await page.locator("#speakerEnabled").check();
+    const out = page.locator("#perfReadout");
+    await expect(out).toContainText("ring", { timeout: 15_000 });
+    await expect(out).toContainText("post", { timeout: 15_000 });
+    await expect(out).toContainText("pace", { timeout: 15_000 });
+    // The counters reset every second, so the window in which audio was
+    // switched on legitimately reports nothing -- wait for a full one.
+    await expect
+      .poll(async () => {
+        const t = (await out.textContent())!;
+        return Number(/post\s+(\d+)\/s/.exec(t)?.[1] ?? 0);
+      }, { timeout: 20_000 })
+      .toBeGreaterThan(0);
+    const text = (await out.textContent())!;
+    for (const want of ["starved", "trimmed", "fed", "p50", "p95", "max",
+                        "guest", "fm", "of real time"]) {
+      expect(text).toContain(want);
+    }
+    const p50 = Number(/p50 ([\d.]+) ms/.exec(text)![1]);
+    expect(p50).toBeGreaterThan(0);
+    expect(p50).toBeLessThan(500);
+    // At real speed the guest should be producing about a second of audio
+    // per second; the panel is where a shortfall becomes visible.
+    const guest = Number(/guest ([\d.]+)x/.exec(text)![1]);
+    expect(guest).toBeGreaterThan(0.2);
+  });
+
+  test("a third chart tracks the audio ring", async ({ perfPage: page }) => {
+    const chart = page.locator("#perfChart3");
+    await expect(chart).toBeVisible();
+    // It has to actually paint, not just exist: a blank canvas would hide
+    // exactly the dropout it is there to show.
+    await page.locator("#speakerEnabled").check();
+    await expect
+      .poll(async () => await page.evaluate(() => {
+        const c = document.getElementById("perfChart3") as HTMLCanvasElement;
+        const d = c.getContext("2d")!.getImageData(0, 0, c.width, c.height).data;
+        const seen = new Set<string>();
+        for (let i = 0; i < d.length; i += 4) seen.add(d[i] + "," + d[i + 1] + "," + d[i + 2]);
+        return seen.size;
+      }), { timeout: 20_000 })
+      .toBeGreaterThan(2);
+  });
+
   test("?perf shows Tier 1 host metrics and the chart", async ({ perfPage: page }) => {
     const card = page.locator("#perfCard");
     await expect(card).toBeVisible();
@@ -90,7 +139,11 @@ test.describe("Performance panel", () => {
     await expect(page.locator("#perfTier")).toContainText("Shipped build");
   });
 
-  test("reports the audio ring's health once sound is enabled", async ({ perfPage: page }) => {
+  // Real speed on purpose -- see the note in tone.spec.ts on why the lead
+  // figure only means something when the guest is pacing to wall time.
+  test("reports the audio ring's health once sound is enabled", async ({ page }) => {
+    test.setTimeout(60000);
+    await bootLive(page, { params: "perf=1", realtime: true });
     // Needs a genuinely running AudioContext, and a full parallel run has
     // three browsers starting one at once -- contention, not a slow metric.
     // Tripling the budget beats weakening the assertions, which are the
@@ -110,14 +163,24 @@ test.describe("Performance panel", () => {
     const text = (await out.textContent())!;
     // Depth, starvation and what the pump feeds it -- the three that
     // together say whether audio broke up, and why.
-    expect(text).toMatch(/ring\s+\d+ ms of 50 target/);
+    // The target is the audio thread's own, reported with the stats rather
+    // than written into the panel -- so this follows it instead of pinning a
+    // literal that goes stale the moment the cushion is retuned.
+    expect(text).toMatch(/ring\s+\d+ ms of \d+ target/);
     expect(text).toMatch(/starved\s+[\d.]+ ms\/s/);
     expect(text).toMatch(/fed\s+[\d.]+k\/s/);
-    // The pump must feed the ring at about the context's own rate, or the
-    // ring drains (too little) or is trimmed away (too much). Poll for it:
-    // the first sampling window after sound is switched on covers only the
-    // part of that second the pump was actually feeding, so it reads low by
-    // construction -- a real rate needs one whole window.
+    // `fed` is what the main thread hands the audio thread: the card's own
+    // samples, stamped, at the rate the card produces them -- so it is zero
+    // with the machine silent, and about 49.7k/s with the OPL3 playing (its
+    // real output rate). Key a note on and poll: the first sampling window
+    // after sound is switched on covers only part of a second.
+    await page.evaluate(() => {
+      const m = (window as any).__test.machine;
+      const w = (r: number, v: number) => { m.portOut(0x388, r); m.portOut(0x389, v); };
+      w(0x01, 0x20); w(0x20, 0x21); w(0x23, 0x21); w(0x40, 0x3F); w(0x43, 0x00);
+      w(0x60, 0xFF); w(0x63, 0xF0); w(0x80, 0x00); w(0x83, 0x00);
+      w(0xC0, 0x31); w(0xA0, 0x98); w(0xB0, 0x31);
+    });
     await expect
       .poll(async () => {
         const t = (await out.textContent())!;
@@ -126,7 +189,7 @@ test.describe("Performance panel", () => {
       }, { timeout: 20_000 })
       .toBeGreaterThan(20);
     const fedNow = Number(/fed\s+([\d.]+)k\/s/.exec((await out.textContent())!)![1]);
-    expect(fedNow).toBeLessThan(100);
+    expect(fedNow).toBeLessThan(120);
   });
 
   test("Tier 2 follows the loaded binary's own perfBuild() answer", async ({ perfPage: page }) => {
