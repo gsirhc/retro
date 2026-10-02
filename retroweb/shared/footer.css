@@ -1,4 +1,4 @@
-/* Site-wide copyright footer + theme-matched About/Help control.
+/* Site-wide copyright footer + theme-matched Help control.
    Markup is injected by footer.js; this file is only the look.
    Colors come from theme.css (--dim / --rule / --link / --btn-*). */
 
@@ -41,12 +41,8 @@
   outline: 1px dotted #000;
   outline-offset: -5px;
 }
-.about-sign-win { display: inline; }
-.about-sign-about { display: none; }
 
 /* Mid-1990s web: a bracketed Times link, same language as .pb-home. */
-:root[data-theme="web94"] .about-sign-win { display: none; }
-:root[data-theme="web94"] .about-sign-about { display: inline; }
 :root[data-theme="web94"] .site-footer .about-sign {
   min-width: 0;
   padding: 0;
@@ -69,9 +65,7 @@
   outline-offset: 2px;
 }
 
-/* Modern / Dark Modern: a quiet rounded About button. */
-:root[data-theme="modern"] .about-sign-win { display: none; }
-:root[data-theme="modern"] .about-sign-about { display: inline; }
+/* Modern / Dark Modern: a quiet rounded Help button. */
 :root[data-theme="modern"] .site-footer .about-sign {
   min-width: 0;
   padding: 7px 16px;
@@ -93,9 +87,7 @@
   outline-offset: 3px;
 }
 
-/* AI Generated: same About control, this theme's glassy gradient tokens. */
-:root[data-theme="ai"] .about-sign-win { display: none; }
-:root[data-theme="ai"] .about-sign-about { display: inline; }
+/* AI Generated: same Help control, this theme's glassy gradient tokens. */
 :root[data-theme="ai"] .site-footer .about-sign {
   min-width: 0;
   padding: 7px 16px;

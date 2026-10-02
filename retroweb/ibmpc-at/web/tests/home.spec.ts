@@ -29,27 +29,27 @@ test.describe("retroweb landing page", () => {
     const root = page.locator("html");
     await expect(root).toHaveAttribute("data-theme", "win");
 
-    await expect(page.locator("#siteFooter .about-sign-win")).toBeVisible();
+    await expect(page.locator("#siteFooter a.about-sign")).toHaveText("Help");
 
     await page.selectOption("#pageTheme", "modern");
     await expect(root).toHaveAttribute("data-theme", "modern");
     expect(await page.evaluate(() => localStorage.getItem("retro8080.theme"))).toBe("modern");
-    await expect(page.locator("#siteFooter .about-sign-about")).toBeVisible();
+    await expect(page.locator("#siteFooter a.about-sign")).toHaveText("Help");
 
     await page.selectOption("#pageTheme", "web94");
     await expect(root).toHaveAttribute("data-theme", "web94");
     expect(await page.evaluate(() => localStorage.getItem("retro8080.theme"))).toBe("web94");
-    await expect(page.locator("#siteFooter .about-sign-about")).toBeVisible();
+    await expect(page.locator("#siteFooter a.about-sign")).toHaveText("Help");
   });
 
-  test("the shared site footer credits RetroCG and the About sign goes to about.html", async ({ page }) => {
+  test("the shared site footer credits RetroCG and the Help control goes to about.html", async ({ page }) => {
     await page.goto(HOME);
     const footer = page.locator("#siteFooter");
     await expect(footer).toContainText(/© 2026 RetroCG/);
-    await expect(footer).toContainText(/old-ass tech/);
+    await expect(footer).toContainText(/old-ass computer/);
     const about = footer.locator("a.about-sign");
     await expect(about).toHaveAttribute("href", "about.html");
-    await expect(about.locator(".about-sign-win")).toBeVisible();
+    await expect(about).toHaveText("Help");
     await about.click();
     await expect(page).toHaveURL(/\/about\.html$/);
     await expect(page).toHaveTitle(/About/i);
