@@ -43,7 +43,7 @@ test.describe("CD-ROM drive", () => {
       .toBe(true);
     await expect(status).toContainText("In drive D:");
     await expect(status).toContainText("DIR");
-    await expect(status).toContainText("SETUP");
+    await expect(status).toContainText("install/live CD");
   });
 
   test("ejecting empties the bay; inserting a new ISO loads it", async ({ livePage: page }) => {

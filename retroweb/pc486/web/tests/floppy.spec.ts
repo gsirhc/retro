@@ -21,7 +21,7 @@ test.describe("floppy drive", () => {
     await expect(bayA.locator('[data-role="eject"]')).toBeDisabled();
   });
 
-  test("inserting a diskette loads it and enables Eject", async ({ livePage: page }) => {
+  test("inserting a diskette loads it and enables the faceplate eject", async ({ livePage: page }) => {
 
     const imagePath = makeBlankImage(4096);
     await insertFloppy(page, imagePath);
@@ -60,6 +60,7 @@ test.describe("floppy drive", () => {
 
     const imagePath = makeBlankImage(4096);
     await insertFloppy(page, imagePath);
+    await expect(bay(page, 0)).toHaveClass(/loaded/);
 
     const isDirty = await page.evaluate(() => (window as any).__test.machine.floppyDirty());
     expect(isDirty).toBe(false);

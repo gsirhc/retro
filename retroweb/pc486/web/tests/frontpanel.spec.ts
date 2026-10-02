@@ -41,8 +41,8 @@ test.describe("front panel jewelry", () => {
     await expect(page.locator(".power-rocker")).toBeVisible();
     await expect(page.locator(".tower-keylock")).toHaveCount(0);
 
-    // Usual tower stack: 5.25" CD-ROM on top, 3.5" floppy below.
-    const drives = page.locator(".at-drives .at-bay");
+    // Default (win) stack: CD above floppy. Blank covers are modern-only.
+    const drives = page.locator(".at-drives .at-bay:visible");
     await expect(drives).toHaveCount(2);
     await expect(drives.nth(0)).toHaveAttribute("data-drive", "cdrom");
     await expect(drives.nth(0)).toHaveClass(/bay-525/);
@@ -50,6 +50,64 @@ test.describe("front panel jewelry", () => {
     await expect(drives.nth(1)).toHaveAttribute("data-drive", "0");
     await expect(drives.nth(1)).toHaveClass(/bay-35/);
     await expect(drives.nth(1).locator(".floppy-door")).toBeVisible();
+    await expect(page.locator(".tower-blanks")).toBeHidden();
+
+    // Grill fills the leftover height beside the drive stack.
+    const grillStretch = await page.evaluate(() => {
+      const grill = document.querySelector(".tower-grill")!.getBoundingClientRect();
+      const drivesCol = document.querySelector(".at-drives")!.getBoundingClientRect();
+      const panel = document.querySelector(".tower-panel")!.getBoundingClientRect();
+      return {
+        tallerThanMin: grill.height > 40,
+        reachesNearDrives: Math.abs(grill.bottom - drivesCol.bottom) < 24,
+        belowPanel: grill.top >= panel.bottom - 2,
+      };
+    });
+    expect(grillStretch.tallerThanMin).toBe(true);
+    expect(grillStretch.reachesNearDrives).toBe(true);
+    expect(grillStretch.belowPanel).toBe(true);
+  });
+
+  test("modern theme shows blank 5.25\" covers and a mini-tower beside the screen", async ({
+    livePage: page,
+  }) => {
+    await page.locator("#pageTheme").selectOption("modern");
+    const blanks = page.locator(".at-bay.bay-blank");
+    await expect(blanks).toHaveCount(2);
+    await expect(blanks.nth(0)).toBeVisible();
+    await expect(blanks.nth(1)).toBeVisible();
+
+    const drives = page.locator(".at-drives .at-bay:visible");
+    await expect(drives).toHaveCount(4);
+    await expect(drives.nth(0)).toHaveAttribute("data-drive", "cdrom");
+    await expect(drives.nth(1)).toHaveClass(/bay-blank/);
+    await expect(drives.nth(2)).toHaveClass(/bay-blank/);
+    await expect(drives.nth(3)).toHaveAttribute("data-drive", "0");
+  });
+
+  test("modern theme puts the mini-tower beside the screen (CD, floppy, then controls)", async ({
+    livePage: page,
+  }) => {
+    await page.locator("#pageTheme").selectOption("modern");
+    const layout = await page.evaluate(() => {
+      const screen = document.getElementById("screen")!.getBoundingClientRect();
+      const cd = document.querySelector('.at-bay[data-drive="cdrom"]')!.getBoundingClientRect();
+      const floppy = document.querySelector('.at-bay[data-drive="0"]')!.getBoundingClientRect();
+      const tower = document.querySelector(".tower-panel")!.getBoundingClientRect();
+      const caseEl = document.querySelector("#frontPanelCard .at-case")!.getBoundingClientRect();
+      return {
+        towerRightOfScreen: cd.left >= screen.right - 4,
+        cdAboveFloppy: cd.bottom <= floppy.top + 4,
+        floppyAboveTower: floppy.bottom <= tower.top + 4,
+        // Tower case should land near the monitor height (not a short stub).
+        heightRatio: caseEl.height / screen.height,
+      };
+    });
+    expect(layout.towerRightOfScreen).toBe(true);
+    expect(layout.cdAboveFloppy).toBe(true);
+    expect(layout.floppyAboveTower).toBe(true);
+    expect(layout.heightRatio).toBeGreaterThan(0.85);
+    expect(layout.heightRatio).toBeLessThan(1.15);
   });
 
   test("Turbo toggles DX2 clock doubling: 66 MHz on, 33 MHz off", async ({ livePage: page }) => {

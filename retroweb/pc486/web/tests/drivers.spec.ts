@@ -59,8 +59,8 @@ test.describe("Freeware Disks & Drivers", () => {
     // The usage note has to cover loading it now AND making it stick, since a
     // TSR is gone at the next reboot.
     await expect(status).toContainText("CTMOUSE /P");
-    await expect(status).toContainText("MOUSETST");
     await expect(status).toContainText("AUTOEXEC.BAT");
+    await expect(status).toContainText("COPY CTMOUSE.EXE");
 
     // A real drive takes a diskette whenever you hand it one: the button never
     // latches off, and re-inserting over a loaded disk works.

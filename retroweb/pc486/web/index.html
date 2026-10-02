@@ -177,7 +177,110 @@
     background: #0b0f0b; border: 1px solid #2a3a2a; border-radius: 3px; }
   #screen { width: 860px; max-width: 100%; height: auto; aspect-ratio: 640/350; background: #000; display: block; image-rendering: pixelated; }
   :root[data-theme="modern"] .monitor { width: 100%; }
-  :root[data-theme="modern"] #screen { width: 100%; max-width: 1400px; margin: 0 auto; }
+  :root[data-theme="modern"] #screen { width: 100%; max-width: none; margin: 0; }
+  /* Win/web94/ai: wrapper is transparent so panels stack as before.
+     Modern: screen left, mini-tower right (CD, floppy, turbo/power),
+     tower height matched to the monitor via subgrid. */
+  .machine-deck { display: contents; }
+  :root[data-theme="modern"] .machine-deck {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
+    grid-template-rows: auto auto auto;
+    gap: 14px 18px;
+    align-items: stretch;
+  }
+  :root[data-theme="modern"] #displayCard {
+    grid-column: 1;
+    grid-row: 1 / 4;
+    display: grid;
+    grid-template-rows: subgrid;
+    min-width: 0;
+    align-self: stretch;
+  }
+  :root[data-theme="modern"] #displayCard > .monitor { grid-row: 1; }
+  :root[data-theme="modern"] #displayCard > .audio-row { grid-row: 2; }
+  :root[data-theme="modern"] #displayCard > .keys-attach { grid-row: 3; }
+  :root[data-theme="modern"] #frontPanelCard {
+    grid-column: 2;
+    grid-row: 1;
+    margin-top: 0;
+    display: flex;
+    flex-direction: column;
+    align-self: stretch;
+    min-height: 0;
+    height: auto;
+    box-sizing: border-box;
+    overflow: hidden;
+    padding: 8px 10px 10px;
+  }
+  :root[data-theme="modern"] #frontPanelCard > h2 { display: none; }
+  :root[data-theme="modern"] .at-case {
+    flex: 1 1 0;
+    flex-direction: column;
+    flex-wrap: nowrap;
+    align-items: stretch;
+    justify-content: flex-start;
+    width: 100%;
+    max-width: none;
+    margin: 0;
+    min-height: 0;
+    height: auto;
+    box-sizing: border-box;
+    overflow: hidden;
+    padding: 10px 12px 12px;
+    gap: 8px;
+  }
+  :root[data-theme="modern"] .at-drives {
+    order: 1;
+    flex: 0 1 auto;
+    min-width: 0;
+    min-height: 0;
+    width: 100%;
+    justify-content: flex-start;
+    gap: 5px;
+  }
+  :root[data-theme="modern"] .at-controls {
+    order: 2;
+    width: 100%;
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  :root[data-theme="modern"] .tower-panel { width: 100%; flex: 0 0 auto; }
+  /* 3.5" bay is ~101.6/146 of a 5.25" face -- keep that ratio in the tower column. */
+  :root[data-theme="modern"] .at-bay.bay-35 { width: calc(100% / 1.46); }
+  :root[data-theme="modern"] .at-bay.bay-525 {
+    flex: 0 1 auto;
+    min-height: 0;
+  }
+  :root[data-theme="modern"] .at-bay.bay-blank {
+    flex: 0 0 auto;
+  }
+  :root[data-theme="modern"] .tower-grill {
+    flex: 1 1 auto;
+    min-height: 16px;
+  }
+  @media (max-width: 900px) {
+    :root[data-theme="modern"] .machine-deck {
+      grid-template-columns: 1fr;
+      grid-template-rows: none;
+    }
+    :root[data-theme="modern"] #displayCard {
+      grid-column: auto;
+      grid-row: auto;
+      display: block;
+    }
+    :root[data-theme="modern"] #frontPanelCard {
+      grid-column: auto;
+      grid-row: auto;
+      height: auto;
+    }
+    :root[data-theme="modern"] .at-case { height: auto; }
+    :root[data-theme="modern"] .at-controls { flex: 0 0 auto; }
+    :root[data-theme="modern"] .tower-grill { flex: 0 0 auto; min-height: 28px; }
+  }
   .power-led {
     position: absolute; right: 13px; bottom: 7px; width: 6px; height: 6px; border-radius: 50%;
     background: #33ff66; box-shadow: 0 0 6px 2px rgba(51,255,102,.8), 0 0 0 1px #0a2a15;
@@ -290,10 +393,10 @@
     overflow-x: auto;
     width: 100%;
   }
-  :root[data-theme="modern"] .at-case { max-width: 920px; margin: 0 auto; }
+  :root[data-theme="modern"] .at-case { max-width: none; margin: 0; }
   .at-controls {
     flex: 0 0 auto;
-    display: flex; flex-direction: row; align-items: center;
+    display: flex; flex-direction: column; align-items: stretch; align-self: stretch; gap: 8px;
   }
 
   /* Recessed dark-green button island -- the classic tower "turbo panel". */
@@ -390,6 +493,24 @@
                 0 0 0 1px rgba(255,180,0,.35);
   }
 
+  /* Vent grill under the turbo island. Grows to fill leftover column
+     height (beside the drives in win/web94, under the turbo in modern).
+     More plastic body than openings: thick beige slats, thin dark slots. */
+  .tower-grill {
+    width: 100%; min-height: 28px; flex: 1 1 auto; border-radius: 2px; box-sizing: border-box;
+    background:
+      repeating-linear-gradient(
+        180deg,
+        #d8cfb8 0px, #c4bb9f 5px,
+        #9a9180 5px, #9a9180 6px,
+        #3a3527 6px, #1a160e 7px
+      );
+    box-shadow:
+      inset 0 0 0 1px #8f886f,
+      inset 0 2px 3px rgba(0,0,0,.25),
+      0 1px 0 rgba(255,255,255,.25);
+  }
+
   /* Large vertical throw rocker -- typical mid/full-tower mains switch of
      the 386/486 era. Mounted inside the green island on the right
      (replacing the decorative keylock). Off: bottom paddle out; On: top out. */
@@ -460,78 +581,246 @@
     border-radius: 2px; padding: 8px 10px;
     box-shadow: inset 0 0 0 1px #f2ecd8, inset 0 0 0 2px #8f886f, 0 2px 5px rgba(0,0,0,.3);
   }
+  /* Horizontal bay seam -- the score line between modular 5.25"/3.5" trays. */
+  .bay-rail {
+    flex: 0 0 auto; height: 4px; border-radius: 1px;
+    background:
+      linear-gradient(180deg,
+        #6b6558 0%, #a89f88 35%, #f2ecd8 50%, #a89f88 65%, #5a5548 100%);
+    box-shadow:
+      inset 0 1px 1px rgba(255,255,255,.4),
+      inset 0 -1px 2px rgba(0,0,0,.35),
+      0 1px 0 rgba(255,255,255,.15);
+  }
+  /* Blank 5.25" covers are modern-tower only; win/web94 keep CD + floppy. */
+  .tower-blanks { display: none; }
+  :root[data-theme="modern"] .tower-blanks { display: contents; }
   .at-drive-face { display: flex; align-items: center; gap: 8px; }
   .drive-letter { font: 700 13px "Courier New", monospace; color: #55503f; flex: 0 0 auto; }
 
-  /* 5.25" CD-ROM: taller face, full-width tray door with a thin load slot
-     and a round eject button on the right -- like a mid-90s ATAPI drive. */
-  .at-bay.bay-525 .at-drive-face { min-height: 52px; }
+  /* 5.25" CD-ROM: beige faceplate with a tray door on top and a control
+     strip below (jack, volume, LED, eject, 2x). Outside look does not
+     change when a disc is loaded -- same as a real tray drive. */
+  .at-bay[data-drive="cdrom"] .at-drive-face { min-height: 52px; align-items: stretch; }
   .cd-door {
-    flex: 1; position: relative; height: 44px; border-radius: 2px;
-    background: linear-gradient(180deg, #cfc6ae 0%, #a89f88 40%, #8f866f 100%);
-    box-shadow: inset 0 0 0 1px #6b6558, inset 0 2px 3px rgba(255,255,255,.35),
-                inset 0 -2px 4px rgba(0,0,0,.25), 0 1px 2px rgba(0,0,0,.3);
+    flex: 1; position: relative; height: 52px; border-radius: 2px;
+    background: linear-gradient(180deg, #ebe3d0 0%, #d8cfb8 50%, #c4bb9f 100%);
+    box-shadow:
+      inset 0 0 0 1px #f2ecd8,
+      inset 0 1px 0 rgba(255,255,255,.55),
+      inset 0 -1px 2px rgba(0,0,0,.18),
+      0 1px 2px rgba(0,0,0,.25);
   }
-  .cd-door::before {
-    content: ""; position: absolute; left: 8px; right: 36px; top: 50%;
-    height: 3px; margin-top: -2px; border-radius: 1px;
-    background: linear-gradient(#1a1a1a, #050505);
-    box-shadow: inset 0 1px 2px rgba(0,0,0,.9), 0 1px 0 rgba(255,255,255,.2);
+  /* Tray is the insert hit-target (hand cursor). */
+  .cd-insert {
+    position: absolute; left: 4px; right: 4px; top: 3px; height: 28px;
+    margin: 0; padding: 0; cursor: pointer; z-index: 1;
   }
+  .cd-insert input[type=file] {
+    position: absolute; inset: 0; opacity: 0; cursor: pointer;
+    width: 100%; height: 100%; z-index: 2;
+  }
+  .cd-tray {
+    position: absolute; inset: 0; border-radius: 1px; pointer-events: none;
+    background: linear-gradient(180deg, #e4dcc8 0%, #cfc6ae 55%, #b8ae94 100%);
+    box-shadow:
+      inset 0 0 0 1px #8f886f,
+      inset 0 1px 0 rgba(255,255,255,.4),
+      inset 0 -1px 2px rgba(0,0,0,.2);
+    transition: filter .12s ease;
+  }
+  .cd-insert:hover .cd-tray { filter: brightness(1.04); }
+  /* Emergency eject pinhole under the tray, left. */
+  .cd-pin {
+    position: absolute; left: 10px; top: 33px; width: 3px; height: 3px;
+    border-radius: 50%; background: #1a160e;
+    box-shadow: inset 0 1px 1px rgba(0,0,0,.8), 0 0 0 1px #8f886f;
+  }
+  /* Decorative headphone jack. */
+  .cd-jack {
+    position: absolute; left: 8px; bottom: 5px; width: 8px; height: 8px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 40% 35%, #3a3a3a, #0a0a0a 70%);
+    box-shadow: inset 0 0 0 1px #5a5548, 0 1px 0 rgba(255,255,255,.25);
+  }
+  /* Decorative volume thumbwheel. */
+  .cd-volume {
+    position: absolute; left: 22px; bottom: 5px; width: 18px; height: 8px;
+    border-radius: 1px;
+    background:
+      repeating-linear-gradient(90deg,
+        #c4bb9f 0px, #c4bb9f 1px,
+        #a89f88 1px, #a89f88 2px),
+      linear-gradient(180deg, #d8cfb8, #a89f88);
+    box-shadow:
+      inset 0 0 0 1px #8f886f,
+      inset 0 1px 0 rgba(255,255,255,.35),
+      0 1px 1px rgba(0,0,0,.25);
+  }
+  /* Activity LED window between volume and eject. */
+  .at-bay[data-drive="cdrom"] .drive-led {
+    position: absolute; left: 48px; bottom: 6px;
+    width: 8px; height: 6px; border-radius: 1px; flex: none;
+    background: linear-gradient(180deg, #3a2018, #120806);
+    box-shadow:
+      inset 0 0 0 1px #6b6558,
+      inset 0 1px 1px rgba(0,0,0,.85);
+  }
+  .at-bay[data-drive="cdrom"] .drive-led.on {
+    background: linear-gradient(180deg, #ffb199, #ff3300 60%, #b32200);
+    box-shadow: 0 0 6px 2px rgba(255,60,20,.75), inset 0 0 1px rgba(0,0,0,.3);
+  }
+  /* Rectangular eject paddle, lower right. */
   .cd-eject {
-    position: absolute; right: 8px; top: 50%; width: 16px; height: 16px;
-    margin-top: -8px; border-radius: 50%;
-    background: linear-gradient(180deg, #ddd4bc, #9a9180);
-    box-shadow: inset 0 0 0 1px #6b6558, inset 0 1px 1px rgba(255,255,255,.5),
-                0 1px 1px rgba(0,0,0,.4);
+    position: absolute; right: 28px; bottom: 4px; z-index: 3;
+    width: 22px; height: 10px; padding: 0; border: 0; border-radius: 1px;
+    cursor: pointer;
+    background: linear-gradient(180deg, #e0d8c4, #b8ae94 55%, #9a9180);
+    box-shadow:
+      inset 0 0 0 1px #8f886f,
+      inset 0 1px 0 rgba(255,255,255,.5),
+      0 1px 1px rgba(0,0,0,.35);
+    transition: transform .08s ease, box-shadow .08s ease, filter .12s ease;
   }
   .cd-eject::after {
-    content: ""; position: absolute; left: 5px; right: 5px; top: 7px; height: 2px;
-    background: #4a4538; border-radius: 1px;
+    content: ""; position: absolute; left: 4px; right: 4px; top: 4px; height: 2px;
+    border-radius: 1px; background: #6b6558;
+    box-shadow: 0 1px 0 rgba(255,255,255,.25);
   }
-  .at-bay.bay-525.loaded .cd-door {
-    background: linear-gradient(180deg, #c4bb9f 0%, #9a9178 40%, #7a725c 100%);
+  .cd-eject:hover:not(:disabled) { filter: brightness(1.06); }
+  .cd-eject:active:not(:disabled) {
+    transform: translateY(1px);
+    box-shadow:
+      inset 0 0 0 1px #6b6558,
+      inset 0 2px 3px rgba(0,0,0,.35);
   }
-  .at-bay.bay-525.loaded .cd-door::before {
-    background: linear-gradient(#2a2418, #0c0a06);
-    box-shadow: inset 0 1px 2px rgba(0,0,0,.9), 0 0 4px rgba(255,200,80,.15);
+  .cd-eject:disabled { cursor: default; opacity: .55; filter: none; }
+  .cd-speed {
+    position: absolute; right: 6px; bottom: 4px;
+    font: 700 8px Arial, Helvetica, sans-serif; letter-spacing: .3px;
+    color: #8f886f; text-shadow: 0 1px 0 rgba(255,255,255,.35);
+    pointer-events: none; user-select: none;
+  }
+  .at-bay[data-drive="cdrom"] .at-bay-ctl { flex-wrap: nowrap; gap: 6px; }
+  .at-bay[data-drive="cdrom"] .drive-letter { flex: 0 0 auto; line-height: 1.2; }
+  .at-bay[data-drive="cdrom"] .drive-label { flex: 1 1 auto; }
+
+  /* Blank 5.25" cover -- flat plate matching the CD face height (no ctl row). */
+  .at-bay.bay-blank {
+    box-sizing: border-box;
+    padding: 8px 10px;
+    height: 68px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .at-bay.bay-blank::after {
+    content: "";
+    width: 28%; height: 3px; border-radius: 1px;
+    background: linear-gradient(180deg, #a89f88, #8f886f);
+    box-shadow: inset 0 1px 1px rgba(0,0,0,.25), 0 1px 0 rgba(255,255,255,.35);
   }
 
-  /* 3.5" floppy: shorter bay, spring-flap door with a narrow media slot and
-     a rectangular eject button -- classic mid-tower A: drive. Width is
-     1/1.46 of the 5.25" bay (146 mm / 101.6 mm form-factor faces). */
+  /* 3.5" floppy: beige faceplate with a recessed flap opening (center
+     finger notch), eject on the lower right, activity LED window on the
+     lower left -- mid-90s PC bay, no brand mark. Width is 1/1.46 of the
+     5.25" bay (146 mm / 101.6 mm form-factor faces). */
   .at-bay.bay-35 { width: calc(100% / 1.46); }
-  .at-bay.bay-35 .at-drive-face { min-height: 28px; }
+  .at-bay.bay-35 .at-drive-face { min-height: 44px; align-items: stretch; }
   .floppy-door {
-    flex: 1; position: relative; height: 26px; border-radius: 1px;
-    background: linear-gradient(180deg, #2a2a2a 0%, #111 45%, #1c1c1c 100%);
-    box-shadow: inset 0 0 0 1px #000, inset 0 2px 4px rgba(0,0,0,.85),
-                0 1px 0 rgba(255,255,255,.2);
+    flex: 1; position: relative; height: 42px; border-radius: 2px;
+    background: linear-gradient(180deg, #ebe3d0 0%, #d8cfb8 50%, #c4bb9f 100%);
+    box-shadow:
+      inset 0 0 0 1px #f2ecd8,
+      inset 0 1px 0 rgba(255,255,255,.55),
+      inset 0 -1px 2px rgba(0,0,0,.18),
+      0 1px 2px rgba(0,0,0,.25);
+  }
+  /* Recessed flap well -- wide upper opening with a center finger notch.
+     The well is the insert hit-target (hand cursor); file input is overlaid. */
+  .floppy-insert {
+    position: absolute; left: 5px; right: 5px; top: 4px; height: 24px;
+    margin: 0; padding: 0; cursor: pointer; z-index: 1;
+  }
+  .floppy-insert input[type=file] {
+    position: absolute; inset: 0; opacity: 0; cursor: pointer;
+    width: 100%; height: 100%; z-index: 2;
+  }
+  .floppy-slot-well {
+    position: absolute; inset: 0;
+    background: #0c0c0c;
+    clip-path: polygon(
+      0% 0%, 100% 0%,
+      100% 58%,
+      66% 58%, 66% 100%, 34% 100%, 34% 58%,
+      0% 58%
+    );
+    box-shadow: inset 0 2px 4px rgba(0,0,0,.85);
+    pointer-events: none;
   }
   .floppy-flap {
-    position: absolute; left: 4px; right: 28px; top: 3px; bottom: 3px;
+    position: absolute; left: 2px; right: 2px; top: 2px; height: 11px;
     border-radius: 1px;
-    background: linear-gradient(180deg, #3a3a3a, #181818 55%, #2a2a2a);
-    box-shadow: inset 0 1px 0 rgba(255,255,255,.12), 0 1px 0 #000;
+    background: linear-gradient(180deg, #d0ccc4 0%, #a8a49c 45%, #7a766e 100%);
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,.45),
+      inset 0 -1px 1px rgba(0,0,0,.35),
+      0 1px 1px rgba(0,0,0,.5);
+    transition: top .18s ease, height .18s ease, background .18s ease, filter .12s ease;
   }
+  .floppy-insert:hover .floppy-flap { filter: brightness(1.08); }
   .floppy-flap::after {
-    content: ""; position: absolute; left: 6px; right: 6px; top: 50%;
-    height: 1px; margin-top: -1px; background: #050505;
-    box-shadow: 0 1px 0 rgba(255,255,255,.08);
+    content: ""; position: absolute; left: 8%; right: 8%; top: 50%;
+    height: 1px; margin-top: -1px; background: rgba(0,0,0,.35);
+    box-shadow: 0 1px 0 rgba(255,255,255,.2);
   }
+  /* Wide eject paddle, bottom-right of the bezel. */
   .floppy-eject {
-    position: absolute; right: 4px; top: 4px; bottom: 4px; width: 18px;
-    border-radius: 1px;
-    background: linear-gradient(180deg, #c9c0a6, #8f886f);
-    box-shadow: inset 0 0 0 1px #5a5548, inset 0 1px 0 rgba(255,255,255,.4),
-                0 1px 1px rgba(0,0,0,.45);
+    position: absolute; right: 6px; bottom: 4px; z-index: 3;
+    width: 30px; height: 10px; padding: 0; border: 0; border-radius: 2px;
+    cursor: pointer;
+    background: linear-gradient(180deg, #e8e0cc, #c4bb9f 55%, #a89f88);
+    box-shadow:
+      inset 0 0 0 1px #8f886f,
+      inset 0 1px 0 rgba(255,255,255,.55),
+      inset 0 -1px 1px rgba(0,0,0,.2),
+      0 1px 1px rgba(0,0,0,.35);
+    transition: transform .08s ease, box-shadow .08s ease, filter .12s ease;
   }
-  .at-bay.bay-35.loaded .floppy-door {
-    background: linear-gradient(180deg, #3a3220 0%, #1a160e 45%, #2a2418 100%);
+  .floppy-eject:hover:not(:disabled) { filter: brightness(1.06); }
+  .floppy-eject:active:not(:disabled) {
+    transform: translateY(1px);
+    box-shadow:
+      inset 0 0 0 1px #6b6558,
+      inset 0 2px 3px rgba(0,0,0,.35);
+  }
+  .floppy-eject:disabled {
+    cursor: default; opacity: .55; filter: none;
+  }
+  /* Horizontal LED window, bottom-left (no brand text). */
+  .at-bay.bay-35 .drive-led {
+    position: absolute; left: 8px; bottom: 5px;
+    width: 12px; height: 4px; border-radius: 1px; flex: none;
+    background: linear-gradient(180deg, #3a2018, #120806);
+    box-shadow:
+      inset 0 0 0 1px #6b6558,
+      inset 0 1px 1px rgba(0,0,0,.85);
+  }
+  .at-bay.bay-35 .drive-led.on {
+    background: linear-gradient(180deg, #8dff9a, #2acc40 60%, #1a8828);
+    box-shadow: 0 0 6px 2px rgba(50,220,90,.75), inset 0 0 1px rgba(0,0,0,.3);
   }
   .at-bay.bay-35.loaded .floppy-flap {
-    background: linear-gradient(180deg, #5a4a30, #2a2010 55%, #3a3020);
+    background: linear-gradient(180deg, #7a7468 0%, #4a463e 45%, #2a2822 100%);
+    top: 1px; height: 12px;
   }
+  .at-bay.bay-35.loaded .floppy-slot-well {
+    background: #1a160e;
+  }
+  /* Drive letter sits with the media label; faceplate is controls only. */
+  .at-bay.bay-35 .at-bay-ctl { flex-wrap: nowrap; gap: 6px; }
+  .at-bay.bay-35 .drive-letter { flex: 0 0 auto; line-height: 1.2; }
+  .at-bay.bay-35 .drive-label { flex: 1 1 auto; }
 
   .at-bay-ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin-top: 6px; }
   .drive-label { font: 11px "Courier New", monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #2b2b28; flex: 1 1 100%; min-width: 0; }
@@ -589,6 +878,7 @@
     <p class="tagline">80486DX2, 66 MHz, 32 MB RAM, 504 MB HDD, VGA, Sound Blaster 16, 2x CD-ROM.</p>
     <hr class="rule">
 
+    <div class="machine-deck">
     <div class="panel" id="displayCard">
       <div class="monitor" id="monitor">
         <div class="bezel" id="bezel">
@@ -696,29 +986,6 @@
       </div>
     </div>
 
-    <dialog id="fsEscHint">
-      <h2>Before you go fullscreen</h2>
-      <p>Your Esc key exits fullscreen instead of reaching DOS. Browsers reserve
-        it for that. Use the <strong>Esc</strong> button in the screen's corner
-        to send Esc to the OS.</p>
-      <div class="row">
-        <button type="button" id="fsEscHintOk" autofocus>Got it, go fullscreen</button>
-      </div>
-    </dialog>
-
-    <div class="panel" id="perfCard" hidden>
-      <h2>Performance</h2>
-      <div class="row perf-row">
-        <canvas id="perfChart" width="480" height="120" aria-label="486 CPU and clock over the last minute"></canvas>
-        <canvas id="perfChart2" width="480" height="120" aria-label="Host core share and frame rate over the last minute"></canvas>
-        <canvas id="perfChart3" width="480" height="120" aria-label="Audio ring depth and starvation over the last minute"></canvas>
-        <pre class="perf-readout" id="perfReadout"></pre>
-      </div>
-      <div class="row">
-        <span class="muted" id="perfTier"></span>
-      </div>
-    </div>
-
     <div class="panel" id="frontPanelCard">
       <h2>Front panel</h2>
       <div class="at-case">
@@ -768,38 +1035,80 @@
               </label>
             </div>
           </div>
+          <div class="tower-grill" aria-hidden="true"></div>
         </div>
         <div class="at-drives">
           <div class="at-bay bay-525" data-drive="cdrom">
             <div class="at-drive-face">
-              <span class="drive-letter">D:</span>
-              <div class="cd-door" data-role="slot" aria-hidden="true">
-                <span class="cd-eject"></span>
+              <div class="cd-door" data-role="slot">
+                <label class="cd-insert" title="Insert disc">
+                  <div class="cd-tray" aria-hidden="true"></div>
+                  <input type="file" accept=".iso,.ISO" data-role="file" aria-label="Insert disc">
+                </label>
+                <span class="cd-pin" aria-hidden="true"></span>
+                <span class="cd-jack" aria-hidden="true"></span>
+                <span class="cd-volume" aria-hidden="true"></span>
+                <span class="drive-led" data-role="led" title="Activity"></span>
+                <button type="button" class="cd-eject" data-role="eject" title="Eject" aria-label="Eject" disabled></button>
+                <span class="cd-speed" aria-hidden="true">2x</span>
               </div>
-              <span class="drive-led" data-role="led" title="Activity"></span>
             </div>
             <div class="at-bay-ctl">
+              <span class="drive-letter">D:</span>
               <span class="drive-label empty" data-role="label">empty (CD-ROM, 5.25&Prime; / 2x)</span>
-              <label class="filebtn"><button type="button" tabindex="-1">Insert&hellip;</button><input type="file" accept=".iso,.ISO" data-role="file"></label>
-              <button type="button" data-role="eject" disabled>Eject</button>
             </div>
           </div>
+          <div class="bay-rail" aria-hidden="true"></div>
+          <div class="tower-blanks" aria-hidden="true">
+            <div class="at-bay bay-525 bay-blank"></div>
+            <div class="bay-rail"></div>
+            <div class="at-bay bay-525 bay-blank"></div>
+          </div>
+          <div class="bay-rail" aria-hidden="true"></div>
           <div class="at-bay bay-35" data-drive="0">
             <div class="at-drive-face">
-              <span class="drive-letter">A:</span>
-              <div class="floppy-door" data-role="slot" aria-hidden="true">
-                <span class="floppy-flap"></span>
-                <span class="floppy-eject"></span>
+              <div class="floppy-door" data-role="slot">
+                <label class="floppy-insert" title="Insert diskette">
+                  <div class="floppy-slot-well" aria-hidden="true">
+                    <span class="floppy-flap"></span>
+                  </div>
+                  <input type="file" accept=".img,.IMG" data-role="file" aria-label="Insert diskette">
+                </label>
+                <span class="drive-led" data-role="led" title="Activity"></span>
+                <button type="button" class="floppy-eject" data-role="eject" title="Eject" aria-label="Eject" disabled></button>
               </div>
-              <span class="drive-led" data-role="led" title="Activity"></span>
             </div>
             <div class="at-bay-ctl">
+              <span class="drive-letter">A:</span>
               <span class="drive-label empty" data-role="label">empty (1.44MB, 3.5&Prime;)</span>
-              <label class="filebtn"><button type="button" tabindex="-1">Insert&hellip;</button><input type="file" accept=".img,.IMG" data-role="file"></label>
-              <button type="button" data-role="eject" disabled>Eject</button>
             </div>
           </div>
+          <div class="bay-rail" aria-hidden="true"></div>
         </div>
+      </div>
+    </div>
+    </div>
+
+    <dialog id="fsEscHint">
+      <h2>Before you go fullscreen</h2>
+      <p>Your Esc key exits fullscreen instead of reaching DOS. Browsers reserve
+        it for that. Use the <strong>Esc</strong> button in the screen's corner
+        to send Esc to the OS.</p>
+      <div class="row">
+        <button type="button" id="fsEscHintOk" autofocus>Got it, go fullscreen</button>
+      </div>
+    </dialog>
+
+    <div class="panel" id="perfCard" hidden>
+      <h2>Performance</h2>
+      <div class="row perf-row">
+        <canvas id="perfChart" width="480" height="120" aria-label="486 CPU and clock over the last minute"></canvas>
+        <canvas id="perfChart2" width="480" height="120" aria-label="Host core share and frame rate over the last minute"></canvas>
+        <canvas id="perfChart3" width="480" height="120" aria-label="Audio ring depth and starvation over the last minute"></canvas>
+        <pre class="perf-readout" id="perfReadout"></pre>
+      </div>
+      <div class="row">
+        <span class="muted" id="perfTier"></span>
       </div>
     </div>
 
