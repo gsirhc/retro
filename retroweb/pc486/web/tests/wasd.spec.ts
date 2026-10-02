@@ -2,17 +2,26 @@ import { test, expect } from "./fixtures";
 import { screenText } from "./helpers";
 
 // Doom 1.2 and its contemporaries predate WASD -- they default to the arrow
-// cluster. The mapping happens at the browser edge, so the guest receives
-// genuine arrow-key scancodes; it is off by default, like every other
-// convenience control on this page.
+// cluster. The mapping happens at the browser edge via the Key Mapper panel,
+// so the guest receives genuine arrow-key scancodes. Off by default; the
+// WASD → Arrows preset (and the bezel shortcut) turn it on.
 test.describe("WASD to arrow keys", () => {
-  test("is off by default and never restored from a saved preference", async ({ page }) => {
-    await page.goto("/?test=1");
-    const box = page.locator("#wasdArrows");
-    await expect(box).not.toBeChecked();
-    await box.check();
+  test("preset persists across reload", async ({ page }) => {
+    await page.goto("/?test=1&fast=1");
+    await page.waitForFunction(() => !!(window as any).__test?.machine, null, { timeout: 60_000 });
+    await page.evaluate(() => (window as any).__test.clearKeymap());
+    await expect(page.locator("#keymapAllBtn")).toBeDisabled();
+
+    await page.locator("#keymapPresetWasd").click();
+    await expect(page.locator("#keymapAllBtn")).toBeEnabled();
+    await expect(page.locator("#keymapAllBtn")).toHaveAttribute("aria-pressed", "true");
+    expect(await page.evaluate(() => (window as any).__test.isWasdPresetActive())).toBe(true);
+
     await page.reload();
-    await expect(page.locator("#wasdArrows")).not.toBeChecked();
+    await page.waitForFunction(() => !!(window as any).__test?.machine, null, { timeout: 60_000 });
+    await expect(page.locator("#keymapAllBtn")).toHaveAttribute("aria-pressed", "true");
+    expect(await page.evaluate(() => (window as any).__test.mapKey("KeyW"))).toEqual(["ArrowUp"]);
+    await page.evaluate(() => (window as any).__test.clearKeymap());
   });
 
   test("off: W types a literal w at the DOS prompt", async ({ promptPage: page }) => {
@@ -29,7 +38,7 @@ test.describe("WASD to arrow keys", () => {
     await page.keyboard.type("xyzzy");
     await page.keyboard.press("Enter");
     await expect.poll(() => screenText(page), { timeout: 10_000 }).toMatch(/xyzzy/i);
-    await page.locator("#wasdArrows").check();
+    await page.locator("#keymapPresetWasd").click();
     await page.locator("#screen").click();
     await page.keyboard.press("w");
     await expect
@@ -42,8 +51,8 @@ test.describe("WASD to arrow keys", () => {
 
   test("keys held across a toggle are released, not left stuck down", async ({ promptPage: page }) => {
     await page.locator("#screen").click();
-    await page.keyboard.down("w");            // tracked as ArrowUp once mapped
-    await page.locator("#wasdArrows").check();
+    await page.keyboard.down("w");
+    await page.locator("#keymapPresetWasd").click();
     await page.keyboard.up("w");
     // Whatever was held must have been broken; typing still works normally.
     await page.locator("#screen").click();
@@ -61,7 +70,7 @@ test.describe("WASD to arrow keys", () => {
 
     expect(await map("KeyA")).toEqual(["KeyA"]);   // off: untouched
 
-    await page.locator("#wasdArrows").check();
+    await page.locator("#keymapPresetWasd").click();
     expect(await map("KeyW")).toEqual(["ArrowUp"]);
     expect(await map("KeyS")).toEqual(["ArrowDown"]);
     expect(await map("KeyA")).toEqual(["AltLeft", "ArrowLeft"]);
@@ -69,7 +78,7 @@ test.describe("WASD to arrow keys", () => {
   });
 
   test("on: A no longer types a literal a at the DOS prompt", async ({ promptPage: page }) => {
-    await page.locator("#wasdArrows").check();
+    await page.locator("#keymapPresetWasd").click();
     await page.locator("#screen").click();
     await page.keyboard.press("a");
     await page.waitForTimeout(500);

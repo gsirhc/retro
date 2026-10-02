@@ -50,7 +50,7 @@
   }
   :root[data-theme="ai"] .pagebar { border-bottom: 1px solid rgba(168,140,255,.35); }
   :root[data-theme="ai"] .inner { padding-bottom: 32px; }
-  :root[data-theme="ai"] #fkeysCard { padding-bottom: 28px; }
+  :root[data-theme="ai"] #displayCard { padding-bottom: 28px; }
 
   :root:not([data-theme]) body {
     background: #0e0f12; color: #d8dbe2;
@@ -76,6 +76,60 @@
     padding: 14px 16px 16px;
   }
   .panel + .panel { margin-top: 18px; }
+  /* Function keys + Key Mapper sit flush under the monitor/audio chrome,
+     as one attached block rather than separate floating panels. */
+  #displayCard .keys-attach {
+    margin: 14px -16px -16px;
+    border-top: 1px solid rgba(0,0,0,.2);
+  }
+  :root[data-theme="modern"] #displayCard .keys-attach,
+  :root[data-theme="moderndark"] #displayCard .keys-attach {
+    border-top-color: var(--panel-border, #e7e9ee);
+  }
+  :root[data-theme="ai"] #displayCard .keys-attach {
+    border-top-color: rgba(168,140,255,.3);
+  }
+  #displayCard .keys-section {
+    padding: 10px 16px 12px;
+  }
+  #displayCard .keys-section + .keys-section {
+    border-top: 1px solid rgba(0,0,0,.15);
+  }
+  :root[data-theme="modern"] #displayCard .keys-section + .keys-section,
+  :root[data-theme="moderndark"] #displayCard .keys-section + .keys-section {
+    border-top-color: var(--panel-border, #e7e9ee);
+  }
+  :root[data-theme="ai"] #displayCard .keys-section + .keys-section {
+    border-top-color: rgba(168,140,255,.25);
+  }
+  #displayCard .keys-section h2 { margin: 0 0 10px; }
+  #displayCard .keys-section.collapsed h2 { margin-bottom: 0; }
+  #displayCard .keys-section.collapsed .panel-body { display: none; }
+  .panel-collapse-btn {
+    font: inherit; color: inherit; text-transform: inherit; letter-spacing: inherit;
+    background: none; border: 0; padding: 0; margin: 0; cursor: pointer;
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    width: 100%; text-align: left;
+  }
+  .panel-collapse-btn::after {
+    content: "\25BE"; font-size: 11px; opacity: .7; flex: 0 0 auto;
+  }
+  .panel.collapsed .panel-collapse-btn::after,
+  .keys-section.collapsed .panel-collapse-btn::after { content: "\25B8"; }
+  .panel.collapsed .panel-body { display: none; }
+  .panel.collapsed h2 { margin-bottom: 0; }
+  .keymap-table {
+    width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px;
+  }
+  .keymap-table th, .keymap-table td {
+    text-align: left; padding: 4px 8px; border-bottom: 1px solid rgba(0,0,0,.15);
+    vertical-align: middle;
+  }
+  .keymap-table th { color: var(--dim); font-weight: 700; text-transform: uppercase;
+    letter-spacing: .04em; font-size: 10px; }
+  .keymap-table td.keymap-actions { white-space: nowrap; }
+  .keymap-table .keymap-empty td { color: var(--dim); font-style: italic; border-bottom: 0; }
+  #keymapCaptureStatus { min-height: 1.2em; }
 
   button, select, input[type=text] {
     font: 12px Arial, Helvetica, sans-serif; color: var(--btn-fg); background: var(--btn-bg);
@@ -142,17 +196,23 @@
   .volwheel { display: flex; align-items: center; gap: 6px; }
   .volwheel input[type="range"] { width: 110px; }
   .volwheel .muted { min-width: 2.2em; text-align: right; font-variant-numeric: tabular-nums; }
-  /* Sound / mouse / WASD mirrors of the checkboxes below -- live in the
-     bezel so they stay reachable once fullscreen covers the page chrome. */
+  /* Sound / mouse / key-map mirrors -- live in the bezel so they stay
+     reachable once fullscreen covers the page chrome. KEYS toggles
+     enable/disable for every Key Mapper row. */
   .bezel-btn[aria-pressed="true"] {
     opacity: 1; background: rgba(255,255,255,.22); color: #fff;
+  }
+  /* Bezel chrome is flat overlays, not Win95 panel buttons -- don't inherit
+     the page's inset / translateY :active treatment. */
+  #bezel .bezel-btn:active:not(:disabled) {
+    border: none; transform: none;
   }
   #speakerBtn, #mouseCaptureBtn {
     width: 26px; padding: 0;
     display: inline-flex; align-items: center; justify-content: center;
   }
   #mouseCaptureBtn svg { display: block; }
-  #wasdArrowsBtn {
+  #keymapAllBtn {
     font-size: 9px; font-weight: 700; letter-spacing: .04em; padding: 0 5px;
   }
 
@@ -495,8 +555,8 @@
                     aria-label="Enable Sound" aria-pressed="false">&#9834;</button>
             <button type="button" id="mouseCaptureBtn" class="bezel-btn" title="Enable Mouse"
                     aria-label="Enable Mouse" aria-pressed="false"><svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path fill="currentColor" d="M8 1.5C6.1 1.5 4.5 2.9 4.5 4.7v5.1c0 1.9 1.6 3.5 3.5 3.5s3.5-1.6 3.5-3.5V4.7C11.5 2.9 9.9 1.5 8 1.5zm0 1.2c1.1 0 2 .8 2 1.8v1.5H6V4.5c0-1 .9-1.8 2-1.8z"/></svg></button>
-            <button type="button" id="wasdArrowsBtn" class="bezel-btn" title="Map WASD to Arrows (A/D strafe)"
-                    aria-label="Map WASD to Arrows (A/D strafe)" aria-pressed="false">WASD</button>
+            <button type="button" id="keymapAllBtn" class="bezel-btn" title="Enable / disable all key mappings"
+                    aria-label="Enable / disable all key mappings" aria-pressed="false" disabled>KEYS</button>
             <button type="button" id="fullscreenBtn" class="bezel-btn" title="Fullscreen" aria-label="Fullscreen">&#x26F6;</button>
           </div>
         </div>
@@ -509,7 +569,71 @@
           <span class="muted" id="sbVolumeReadout">70</span>
         </label>
         <label><input type="checkbox" id="mouseCaptureEnabled"> Enable Mouse</label>
-        <label><input type="checkbox" id="wasdArrows"> Map WASD to Arrows (A/D strafe)</label>
+      </div>
+
+      <div class="keys-attach">
+        <div class="keys-section" id="fkeysCard">
+          <h2>
+            <button type="button" class="panel-collapse-btn" id="fkeysToggle"
+                    aria-expanded="true" aria-controls="fkeysBody">Function &amp; extended keys</button>
+          </h2>
+          <div class="panel-body" id="fkeysBody">
+            <div class="row" id="fkeyRow">
+              <button type="button" data-key="F1" disabled>F1</button>
+              <button type="button" data-key="F2" disabled>F2</button>
+              <button type="button" data-key="F3" disabled>F3</button>
+              <button type="button" data-key="F4" disabled>F4</button>
+              <button type="button" data-key="F5" disabled>F5</button>
+              <button type="button" data-key="F6" disabled>F6</button>
+              <button type="button" data-key="F7" disabled>F7</button>
+              <button type="button" data-key="F8" disabled>F8</button>
+              <button type="button" data-key="F9" disabled>F9</button>
+              <button type="button" data-key="F10" disabled>F10</button>
+              <button type="button" data-key="F11" disabled>F11</button>
+              <button type="button" data-key="F12" disabled>F12</button>
+              <button type="button" id="ctrlAltDelBtn" class="danger-key" disabled>Ctrl+Alt+Del</button>
+            </div>
+            <span class="muted">Extra keys, for keyboards without a dedicated key of their own:</span>
+            <div class="row" id="extraKeyRow">
+              <button type="button" data-key="Escape" disabled>Esc</button>
+              <button type="button" data-key="Insert" disabled>Insert</button>
+              <button type="button" data-key="Delete" disabled>Delete</button>
+              <button type="button" data-key="Home" disabled>Home</button>
+              <button type="button" data-key="End" disabled>End</button>
+              <button type="button" data-key="PageUp" disabled>Page Up</button>
+              <button type="button" data-key="PageDown" disabled>Page Down</button>
+              <button type="button" data-key="PrintScreen" disabled>Print Screen</button>
+              <button type="button" data-key="ScrollLock" disabled>Scroll Lock</button>
+              <button type="button" data-key="Pause" disabled>Pause/Break</button>
+              <button type="button" data-key="NumLock" disabled>Num Lock</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="keys-section" id="keymapCard">
+          <h2>
+            <button type="button" class="panel-collapse-btn" id="keymapToggle"
+                    aria-expanded="true" aria-controls="keymapBody">Key Mapper</button>
+          </h2>
+          <div class="panel-body" id="keymapBody">
+            <div class="row">
+              <button type="button" id="keymapPresetWasd">WASD &rarr; Arrows</button>
+              <button type="button" id="keymapPresetShiftCtrl">Left Shift &rarr; Ctrl</button>
+              <button type="button" id="keymapAddBtn">Add mapping</button>
+              <button type="button" id="keymapToggleAll" disabled>Disable All</button>
+            </div>
+            <span class="muted" id="keymapCaptureStatus"></span>
+            <table class="keymap-table" id="keymapTable">
+              <thead>
+                <tr><th>From</th><th>To</th><th>On</th><th></th></tr>
+              </thead>
+              <tbody id="keymapTableBody"></tbody>
+            </table>
+            <p class="muted">Mappings apply while the screen has focus. Remapping physical
+              Ctrl does not stop macOS from stealing Ctrl+Arrow (Mission Control / Spaces)
+              -- use Left Shift &rarr; Ctrl (or similar) instead of holding physical Ctrl.</p>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -523,39 +647,6 @@
         <button type="button" id="fsEscHintOk" autofocus>Got it, go fullscreen</button>
       </div>
     </dialog>
-
-    <div class="panel" id="fkeysCard">
-      <h2>Function &amp; extended keys</h2>
-      <div class="row" id="fkeyRow">
-        <button type="button" data-key="F1" disabled>F1</button>
-        <button type="button" data-key="F2" disabled>F2</button>
-        <button type="button" data-key="F3" disabled>F3</button>
-        <button type="button" data-key="F4" disabled>F4</button>
-        <button type="button" data-key="F5" disabled>F5</button>
-        <button type="button" data-key="F6" disabled>F6</button>
-        <button type="button" data-key="F7" disabled>F7</button>
-        <button type="button" data-key="F8" disabled>F8</button>
-        <button type="button" data-key="F9" disabled>F9</button>
-        <button type="button" data-key="F10" disabled>F10</button>
-        <button type="button" data-key="F11" disabled>F11</button>
-        <button type="button" data-key="F12" disabled>F12</button>
-        <button type="button" id="ctrlAltDelBtn" class="danger-key" disabled>Ctrl+Alt+Del</button>
-      </div>
-      <span class="muted">Extra keys, for keyboards without a dedicated key of their own:</span>
-      <div class="row" id="extraKeyRow">
-        <button type="button" data-key="Escape" disabled>Esc</button>
-        <button type="button" data-key="Insert" disabled>Insert</button>
-        <button type="button" data-key="Delete" disabled>Delete</button>
-        <button type="button" data-key="Home" disabled>Home</button>
-        <button type="button" data-key="End" disabled>End</button>
-        <button type="button" data-key="PageUp" disabled>Page Up</button>
-        <button type="button" data-key="PageDown" disabled>Page Down</button>
-        <button type="button" data-key="PrintScreen" disabled>Print Screen</button>
-        <button type="button" data-key="ScrollLock" disabled>Scroll Lock</button>
-        <button type="button" data-key="Pause" disabled>Pause/Break</button>
-        <button type="button" data-key="NumLock" disabled>Num Lock</button>
-      </div>
-    </div>
 
     <div class="panel" id="perfCard" hidden>
       <h2>Performance</h2>

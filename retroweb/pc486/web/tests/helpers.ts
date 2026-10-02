@@ -112,9 +112,25 @@ export async function resetLivePage(page: Page): Promise<void> {
     const eject = page.locator(`.at-bay[data-drive="${drive}"] [data-role="eject"]`);
     if (await eject.isEnabled()) await eject.click();
   }
-  for (const id of ["#speakerEnabled", "#mouseCaptureEnabled", "#wasdArrows"]) {
+  for (const id of ["#speakerEnabled", "#mouseCaptureEnabled"]) {
     const box = page.locator(id);
     if (await box.count() && (await box.isChecked())) await box.uncheck();
+  }
+  // Key Mapper + UI prefs persist across reloads -- clear so each test
+  // starts unbound / panels open / sound+mouse off.
+  await page.evaluate(() => {
+    localStorage.removeItem("retro8080.pc486.keymap");
+    localStorage.removeItem("retro8080.pc486.ui");
+    const t = (window as any).__test;
+    if (t?.clearKeymap) t.clearKeymap();
+  });
+  // Re-expand panels if a prior test left them collapsed in the DOM
+  // without a reload (shared livePage).
+  for (const id of ["#fkeysToggle", "#keymapToggle"] as const) {
+    const btn = page.locator(id);
+    if ((await btn.count()) && (await btn.getAttribute("aria-expanded")) === "false") {
+      await btn.click();
+    }
   }
   // Turbo defaults on (DX2 doubling) -- restore if a prior shared-page test
   // left it off so rate / cpuHz checks start from the factory setting.

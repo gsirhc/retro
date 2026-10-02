@@ -1,20 +1,18 @@
 import { test, expect } from "./fixtures";
 import { bootLive } from "./helpers";
 
-// PC speaker checkbox is muted (unchecked) by default on every page load
-// and deliberately never restored from saved preference — browser audio
-// requires fresh user gesture anyway, and the default-off policy persists
-// across visits. The C++ device tracks its own speaker state independent
-// of the front end's mute checkbox.
+// PC speaker checkbox is muted (unchecked) by default for a first visit.
+// Once chosen, Enable Sound is remembered in retro8080.pc486.ui -- browsers
+// still need a gesture before audio actually plays. The C++ device tracks
+// its own speaker state independent of the front end's mute checkbox.
 test.describe("PC speaker", () => {
   test("is unchecked (muted) by default", async ({ livePage: page }) => {
     await expect(page.locator("#speakerEnabled")).not.toBeChecked();
   });
 
-  test("stays unchecked across a reload -- never restored from a saved preference", async ({
-    page,
-  }) => {
+  test("Enable Sound preference persists across reload", async ({ page }) => {
     await bootLive(page);
+    await page.evaluate(() => localStorage.removeItem("retro8080.pc486.ui"));
     await page.locator("#speakerEnabled").check();
     await expect(page.locator("#speakerEnabled")).toBeChecked();
 
@@ -23,7 +21,8 @@ test.describe("PC speaker", () => {
       timeout: 15000,
     });
 
-    await expect(page.locator("#speakerEnabled")).not.toBeChecked();
+    await expect(page.locator("#speakerEnabled")).toBeChecked();
+    await page.evaluate(() => localStorage.removeItem("retro8080.pc486.ui"));
   });
 
   test("checking/unchecking it doesn't affect the running machine", async ({

@@ -5152,11 +5152,21 @@ breaks elsewhere. The bytes inherit the FreeDOS zip's published SHA-256, and
 `build-ctmouse-floppy.sh` re-checks CTMOUSE.EXE against the official 2.1b4
 release hash so a future image carrying a different build fails loudly.
 
-**Esc** joins the Function & extended keys panel: a user's own Esc releases
-pointer lock and leaves fullscreen rather than reaching DOS, and the bezel's
-copy is easy to miss. **Map WASD to Arrow Keys** is off by default and
-translates at the browser edge, so the guest still receives genuine arrow
-scancodes -- DOOM 1.2 and its contemporaries predate WASD.
+**Esc** joins the Function & extended keys panel (collapsible; open/closed
+state is remembered): a user's own Esc releases pointer lock and leaves
+fullscreen rather than reaching DOS, and the bezel's copy is easy to miss.
+The **Key Mapper** panel sits below it (also collapsible, remembered): a
+table of physical-key → guest-key rows with per-row enable/disable and
+delete, plus presets for **WASD → Arrows** (A/D strafe via Alt+arrow, the
+modern habit for games that still read the arrow cluster) and **Left Shift
+→ Ctrl** (so macOS Mission Control / Spaces is not stolen by physical
+Ctrl+Arrow mid-game -- remapping physical Ctrl itself does not stop the OS
+shortcut). Mappings persist in `localStorage` (`retro8080.pc486.keymap`).
+Panel open/closed, Enable Sound, and Enable Mouse share a UI-state blob
+(`retro8080.pc486.ui`) -- first visit still defaults sound/mouse off and
+panels open. The bezel **KEYS** button enables/disables every mapping at
+once (same as the panel's Disable All / Enable All). Translation stays at
+the browser edge; the guest still receives genuine Set-1 scancodes.
 
 **The CRT overlay is removed.** It was a `mix-blend-mode: multiply` layer
 with a repeating 1px scanline gradient, blended against the canvas on every

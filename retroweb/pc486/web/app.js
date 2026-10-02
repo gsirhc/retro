@@ -110,6 +110,39 @@
     };
   }
 
+  // ---- UI state (panels, sound, mouse) --------------------------------
+  // Small prefs in localStorage under one key. Defaults stay opt-in / open
+  // for a first visit; once the visitor changes something, it comes back
+  // next time. Keymap bindings live in their own key (below) -- denser and
+  // already separately versioned.
+  const UI_STATE_KEY = "retro8080.pc486.ui";
+  const kUiStateDefaults = {
+    sound: false,
+    mouse: false,
+    fkeysOpen: true,
+    keymapOpen: true,
+  };
+  function loadUiState() {
+    try {
+      const raw = localStorage.getItem(UI_STATE_KEY);
+      if (!raw) return Object.assign({}, kUiStateDefaults);
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== "object") return Object.assign({}, kUiStateDefaults);
+      return {
+        sound: !!parsed.sound,
+        mouse: !!parsed.mouse,
+        fkeysOpen: parsed.fkeysOpen !== false,
+        keymapOpen: parsed.keymapOpen !== false,
+      };
+    } catch {
+      return Object.assign({}, kUiStateDefaults);
+    }
+  }
+  function persistUiState() {
+    try { localStorage.setItem(UI_STATE_KEY, JSON.stringify(uiState)); } catch {}
+  }
+  const uiState = loadUiState();
+
   // ---- keyboard: physical key -> real IBM AT Set 1 scan code -----------
   // i8042.h's inject_scancode() is a verbatim Set-1 pass-through (see its
   // header) -- this table supplies exactly what a real AT keyboard's own
@@ -219,54 +252,438 @@
   // physical, not routed through a page that can lose focus), so this is
   // purely a browser-integration safety net, not a hardware behavior.
   const heldKeys = new Set();
+  // Physical key -> guest codes attributed to that press. Guest keys are
+  // refcounted so a shared chord modifier (WASD's Alt strafe on A and D)
+  // stays down while any source that needs it is still held.
+  const physicalHeld = new Map();
+  const guestKeyRefs = new Map();
+  function pressGuestKey(code) {
+    const n = (guestKeyRefs.get(code) || 0) + 1;
+    guestKeyRefs.set(code, n);
+    if (n === 1) {
+      heldKeys.add(code);
+      sendKey(code, false);
+    }
+  }
+  function releaseGuestKey(code) {
+    const n = (guestKeyRefs.get(code) || 0) - 1;
+    if (n <= 0) {
+      guestKeyRefs.delete(code);
+      if (heldKeys.has(code)) {
+        heldKeys.delete(code);
+        sendKey(code, true);
+      }
+    } else {
+      guestKeyRefs.set(code, n);
+    }
+  }
   function releaseAllHeldKeys() {
     for (const code of heldKeys) sendKey(code, true);
     heldKeys.clear();
+    physicalHeld.clear();
+    guestKeyRefs.clear();
   }
-  // Doom 1.2 and its contemporaries predate WASD: they default to the arrow
-  // cluster, with Ctrl/Alt/Shift for fire/strafe/run. This translates the
-  // modern habit at the browser edge, so the guest still receives genuine
-  // arrow-key scancodes -- nothing in the emulated keyboard changes, and a
-  // program that reads the arrows cannot tell the difference.
-  // A and D strafe rather than turn, which is what the modern habit expects:
-  // Doom's own strafe modifier is Alt (key_strafe), so they send Alt plus the
-  // arrow and the guest sees exactly the combination a player would hold.
-  const kWasdToArrows = {
-    KeyW: ["ArrowUp"], KeyS: ["ArrowDown"],
-    KeyA: ["AltLeft", "ArrowLeft"], KeyD: ["AltLeft", "ArrowRight"],
-  };
-  const wasdCheckbox = document.getElementById("wasdArrows");
+
+  // ---- Key Mapper ----------------------------------------------------
+  // Browser-edge remapping: one physical KeyboardEvent.code -> one or more
+  // guest codes. The guest still sees genuine Set-1 scancodes; nothing in
+  // the emulated keyboard changes. Doom 1.2 and its contemporaries predate
+  // WASD (arrows + Ctrl/Alt/Shift), so the WASD preset translates the modern
+  // habit here -- A/D send Alt+arrow so they strafe rather than turn.
+  const KEYMAP_STORAGE_KEY = "retro8080.pc486.keymap";
+  const kWasdPresetRows = [
+    { from: "KeyW", to: ["ArrowUp"], preset: "wasd" },
+    { from: "KeyS", to: ["ArrowDown"], preset: "wasd" },
+    { from: "KeyA", to: ["AltLeft", "ArrowLeft"], preset: "wasd" },
+    { from: "KeyD", to: ["AltLeft", "ArrowRight"], preset: "wasd" },
+  ];
+  const kShiftCtrlPresetRows = [
+    { from: "ShiftLeft", to: ["ControlLeft"], preset: "shiftCtrl" },
+  ];
+  const kModifierCodes = new Set([
+    "ShiftLeft", "ShiftRight", "ControlLeft", "ControlRight",
+    "AltLeft", "AltRight", "MetaLeft", "MetaRight",
+  ]);
+  let keymapRows = [];
+  let keymapNextId = 1;
+  const keymapTableBody = document.getElementById("keymapTableBody");
+  const keymapCaptureStatus = document.getElementById("keymapCaptureStatus");
+  const keymapAllBtn = document.getElementById("keymapAllBtn");
+  const keymapToggleAllBtn = document.getElementById("keymapToggleAll");
+
   function mapKey(code) {
-    return wasdCheckbox.checked ? (kWasdToArrows[code] || [code]) : [code];
+    for (let i = 0; i < keymapRows.length; i++) {
+      const row = keymapRows[i];
+      if (row.enabled && row.from === code) return row.to.slice();
+    }
+    return [code];
   }
-  // Alt is shared by both strafe keys, so it is released only once neither is
-  // still down -- releasing it with the other held would turn a strafe into a
-  // turn mid-move.
-  let strafeHeld = 0;
+
+  function anyMappingEnabled() {
+    return keymapRows.some((r) => r.enabled);
+  }
+
+  function labelKeyCode(code) {
+    const labels = {
+      ArrowUp: "Up", ArrowDown: "Down", ArrowLeft: "Left", ArrowRight: "Right",
+      ShiftLeft: "Left Shift", ShiftRight: "Right Shift",
+      ControlLeft: "Left Ctrl", ControlRight: "Right Ctrl",
+      AltLeft: "Left Alt", AltRight: "Right Alt",
+      MetaLeft: "Left Meta", MetaRight: "Right Meta",
+      Escape: "Esc", Backspace: "Backspace", Enter: "Enter", Tab: "Tab",
+      Space: "Space", CapsLock: "Caps Lock",
+      Insert: "Insert", Delete: "Delete", Home: "Home", End: "End",
+      PageUp: "Page Up", PageDown: "Page Down",
+      PrintScreen: "Print Screen", ScrollLock: "Scroll Lock",
+      Pause: "Pause", NumLock: "Num Lock",
+    };
+    if (labels[code]) return labels[code];
+    if (code.startsWith("Key") && code.length === 4) return code.slice(3);
+    if (code.startsWith("Digit") && code.length === 6) return code.slice(5);
+    if (code.startsWith("F") && /^F\d{1,2}$/.test(code)) return code;
+    return code;
+  }
+  function labelKeyChord(codes) {
+    return codes.map(labelKeyCode).join("+");
+  }
+
+  function persistKeymap() {
+    try {
+      localStorage.setItem(KEYMAP_STORAGE_KEY, JSON.stringify(keymapRows.map((r) => ({
+        id: r.id, from: r.from, to: r.to, enabled: r.enabled, preset: r.preset || undefined,
+      }))));
+    } catch {}
+  }
+
+  function loadKeymap() {
+    try {
+      const raw = localStorage.getItem(KEYMAP_STORAGE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return;
+      const rows = [];
+      for (const item of parsed) {
+        if (!item || typeof item.from !== "string") continue;
+        if (!Array.isArray(item.to) || item.to.length === 0) continue;
+        if (!item.to.every((c) => typeof c === "string")) continue;
+        const id = Number.isFinite(item.id) ? item.id : keymapNextId++;
+        if (id >= keymapNextId) keymapNextId = id + 1;
+        rows.push({
+          id,
+          from: item.from,
+          to: item.to.slice(),
+          enabled: item.enabled !== false,
+          preset: item.preset === "wasd" || item.preset === "shiftCtrl" ? item.preset : undefined,
+        });
+      }
+      keymapRows = rows;
+    } catch {
+      keymapRows = [];
+    }
+  }
+
+  function isWasdPresetActive() {
+    return kWasdPresetRows.every((p) => {
+      const row = keymapRows.find((r) => r.from === p.from && r.preset === "wasd");
+      return row && row.enabled && row.to.join("\0") === p.to.join("\0");
+    });
+  }
+
+  function syncKeymapBezel() {
+    const has = keymapRows.length > 0;
+    const on = anyMappingEnabled();
+    keymapAllBtn.disabled = !has;
+    keymapAllBtn.setAttribute("aria-pressed", on ? "true" : "false");
+  }
+  function syncToggleAllBtn() {
+    const empty = keymapRows.length === 0;
+    keymapToggleAllBtn.disabled = empty;
+    keymapToggleAllBtn.textContent = anyMappingEnabled() ? "Disable All" : "Enable All";
+    syncKeymapBezel();
+  }
+  function setAllMappingsEnabled(on) {
+    if (keymapRows.length === 0) return;
+    for (const row of keymapRows) row.enabled = !!on;
+    releaseAllHeldKeys();
+    persistKeymap();
+    // Flip checkboxes in place -- a full table rebuild on every bezel click
+    // made KEYS feel different from the speaker / mouse toggles.
+    keymapTableBody.querySelectorAll('input[type="checkbox"]').forEach((c) => {
+      c.checked = !!on;
+    });
+    syncToggleAllBtn();
+  }
+
+  function appendMappingRow(opts) {
+    const { fromLabel, toLabel, enabled, ariaLabel, onToggle, onDelete } = opts;
+    const tr = document.createElement("tr");
+    const tdFrom = document.createElement("td");
+    tdFrom.textContent = fromLabel;
+    const tdTo = document.createElement("td");
+    tdTo.textContent = toLabel;
+    const tdOn = document.createElement("td");
+    const check = document.createElement("input");
+    check.type = "checkbox";
+    check.checked = enabled;
+    check.setAttribute("aria-label", ariaLabel);
+    check.addEventListener("change", () => onToggle(check.checked));
+    tdOn.appendChild(check);
+    const tdAct = document.createElement("td");
+    tdAct.className = "keymap-actions";
+    const del = document.createElement("button");
+    del.type = "button";
+    del.textContent = "Delete";
+    del.addEventListener("click", onDelete);
+    tdAct.appendChild(del);
+    tr.append(tdFrom, tdTo, tdOn, tdAct);
+    keymapTableBody.appendChild(tr);
+  }
+
+  function renderKeymapTable() {
+    keymapTableBody.replaceChildren();
+    if (keymapRows.length === 0) {
+      const tr = document.createElement("tr");
+      tr.className = "keymap-empty";
+      const td = document.createElement("td");
+      td.colSpan = 4;
+      td.textContent = "No mappings — presets above, or Add mapping.";
+      tr.appendChild(td);
+      keymapTableBody.appendChild(tr);
+      syncToggleAllBtn();
+      return;
+    }
+    // WASD's four underlying rows render as one table line.
+    const wasdRows = keymapRows.filter((r) => r.preset === "wasd");
+    const otherRows = keymapRows.filter((r) => r.preset !== "wasd");
+    if (wasdRows.length > 0) {
+      appendMappingRow({
+        fromLabel: "WASD",
+        toLabel: "Arrows (A/D strafe)",
+        enabled: wasdRows.every((r) => r.enabled),
+        ariaLabel: "Enable WASD to Arrows",
+        onToggle: (on) => {
+          for (const row of wasdRows) row.enabled = on;
+          releaseAllHeldKeys();
+          persistKeymap();
+          syncToggleAllBtn();
+        },
+        onDelete: () => {
+          const ids = new Set(wasdRows.map((r) => r.id));
+          keymapRows = keymapRows.filter((r) => !ids.has(r.id));
+          releaseAllHeldKeys();
+          persistKeymap();
+          renderKeymapTable();
+        },
+      });
+    }
+    for (const row of otherRows) {
+      appendMappingRow({
+        fromLabel: labelKeyCode(row.from),
+        toLabel: labelKeyChord(row.to),
+        enabled: row.enabled,
+        ariaLabel: `Enable mapping ${labelKeyCode(row.from)}`,
+        onToggle: (on) => {
+          row.enabled = on;
+          releaseAllHeldKeys();
+          persistKeymap();
+          syncToggleAllBtn();
+        },
+        onDelete: () => {
+          keymapRows = keymapRows.filter((r) => r.id !== row.id);
+          releaseAllHeldKeys();
+          persistKeymap();
+          renderKeymapTable();
+        },
+      });
+    }
+    syncToggleAllBtn();
+  }
+
+  function upsertMapping(from, to, preset) {
+    const existing = keymapRows.findIndex((r) => r.from === from);
+    const row = {
+      id: existing >= 0 ? keymapRows[existing].id : keymapNextId++,
+      from,
+      to: to.slice(),
+      enabled: true,
+      preset,
+    };
+    if (existing >= 0) keymapRows[existing] = row;
+    else keymapRows.push(row);
+  }
+
+  function applyPresetRows(presetRows) {
+    for (const p of presetRows) upsertMapping(p.from, p.to, p.preset);
+    releaseAllHeldKeys();
+    persistKeymap();
+    renderKeymapTable();
+  }
+
+  function setWasdPresetEnabled(on) {
+    if (on) {
+      applyPresetRows(kWasdPresetRows);
+      return;
+    }
+    let changed = false;
+    for (const p of kWasdPresetRows) {
+      const row = keymapRows.find((r) => r.from === p.from && r.preset === "wasd");
+      if (row && row.enabled) { row.enabled = false; changed = true; }
+    }
+    if (changed) {
+      releaseAllHeldKeys();
+      persistKeymap();
+      renderKeymapTable();
+    } else {
+      syncToggleAllBtn();
+    }
+  }
+
+  function clearKeymap() {
+    keymapRows = [];
+    releaseAllHeldKeys();
+    persistKeymap();
+    renderKeymapTable();
+  }
+
+  // Capture flow for Add mapping: From (one key), then To (one key; modifiers
+  // held with that key become a guest chord).
+  let capturePhase = null; // null | "from" | "to"
+  let captureFrom = null;
+  let capturePendingModifier = null;
+  function setCaptureStatus(text) {
+    keymapCaptureStatus.textContent = text || "";
+  }
+  function cancelCapture() {
+    capturePhase = null;
+    captureFrom = null;
+    capturePendingModifier = null;
+    setCaptureStatus("");
+    document.getElementById("keymapAddBtn").textContent = "Add mapping";
+  }
+  function chordFromEvent(e) {
+    const chord = [];
+    if (e.altKey && e.code !== "AltLeft" && e.code !== "AltRight") chord.push("AltLeft");
+    if (e.ctrlKey && e.code !== "ControlLeft" && e.code !== "ControlRight") chord.push("ControlLeft");
+    if (e.shiftKey && e.code !== "ShiftLeft" && e.code !== "ShiftRight") chord.push("ShiftLeft");
+    chord.push(e.code);
+    return chord;
+  }
+  function onCaptureKeyDown(e) {
+    if (!capturePhase) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.repeat) return;
+    if (e.code === "Escape") {
+      cancelCapture();
+      return;
+    }
+    if (capturePhase === "from") {
+      captureFrom = e.code;
+      capturePhase = "to";
+      capturePendingModifier = null;
+      setCaptureStatus(`From ${labelKeyCode(captureFrom)} — now press the guest key (modifiers held become a chord). Esc cancels.`);
+      return;
+    }
+    // Bare modifiers are valid targets (Left Shift → Ctrl). Defer until
+    // keyup so Alt+Arrow can still form a chord on the non-modifier press.
+    if (kModifierCodes.has(e.code)) {
+      capturePendingModifier = e.code;
+      return;
+    }
+    const to = chordFromEvent(e);
+    capturePendingModifier = null;
+    upsertMapping(captureFrom, to, undefined);
+    releaseAllHeldKeys();
+    persistKeymap();
+    renderKeymapTable();
+    cancelCapture();
+  }
+  function onCaptureKeyUp(e) {
+    if (!capturePhase) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (capturePhase === "to" && capturePendingModifier && e.code === capturePendingModifier) {
+      const to = [capturePendingModifier];
+      capturePendingModifier = null;
+      upsertMapping(captureFrom, to, undefined);
+      releaseAllHeldKeys();
+      persistKeymap();
+      renderKeymapTable();
+      cancelCapture();
+    }
+  }
+  document.addEventListener("keydown", onCaptureKeyDown, true);
+  document.addEventListener("keyup", onCaptureKeyUp, true);
+
+  document.getElementById("keymapAddBtn").addEventListener("click", () => {
+    if (capturePhase) {
+      cancelCapture();
+      return;
+    }
+    capturePhase = "from";
+    captureFrom = null;
+    capturePendingModifier = null;
+    document.getElementById("keymapAddBtn").textContent = "Cancel";
+    setCaptureStatus("Press the physical key to remap. Esc cancels.");
+  });
+  document.getElementById("keymapPresetWasd").addEventListener("click", () => {
+    cancelCapture();
+    applyPresetRows(kWasdPresetRows);
+  });
+  document.getElementById("keymapPresetShiftCtrl").addEventListener("click", () => {
+    cancelCapture();
+    applyPresetRows(kShiftCtrlPresetRows);
+  });
+  keymapToggleAllBtn.addEventListener("click", () => {
+    cancelCapture();
+    setAllMappingsEnabled(!anyMappingEnabled());
+  });
+
+  loadKeymap();
+  renderKeymapTable();
+
+  function applyPanelOpen(toggleId, panelId, open) {
+    const btn = document.getElementById(toggleId);
+    const panel = document.getElementById(panelId);
+    btn.setAttribute("aria-expanded", open ? "true" : "false");
+    panel.classList.toggle("collapsed", !open);
+  }
+  function wirePanelCollapse(toggleId, panelId, stateKey) {
+    const btn = document.getElementById(toggleId);
+    applyPanelOpen(toggleId, panelId, uiState[stateKey]);
+    btn.addEventListener("click", () => {
+      const open = btn.getAttribute("aria-expanded") !== "true";
+      applyPanelOpen(toggleId, panelId, open);
+      uiState[stateKey] = open;
+      persistUiState();
+    });
+  }
+  wirePanelCollapse("fkeysToggle", "fkeysCard", "fkeysOpen");
+  wirePanelCollapse("keymapToggle", "keymapCard", "keymapOpen");
+
   const screenEl = document.getElementById("screen");
   screenEl.addEventListener("keydown", (e) => {
-    const codes = mapKey(e.code);
-    if (codes.length > 1 && !e.repeat) strafeHeld++;
-    for (const code of codes) {
-      if (heldKeys.has(code)) continue;
-      heldKeys.add(code); sendKey(code, false);
+    if (capturePhase) return;
+    if (e.repeat) {
+      e.preventDefault();
+      return;
     }
+    if (physicalHeld.has(e.code)) {
+      e.preventDefault();
+      return;
+    }
+    const codes = mapKey(e.code);
+    physicalHeld.set(e.code, codes);
+    for (const code of codes) pressGuestKey(code);
     e.preventDefault();
   });
   screenEl.addEventListener("keyup", (e) => {
-    const codes = mapKey(e.code);
-    if (codes.length > 1 && strafeHeld > 0) strafeHeld--;
-    // Innermost key first, and keep Alt down while the other strafe key is.
-    for (let i = codes.length - 1; i >= 0; i--) {
-      const code = codes[i];
-      if (code === "AltLeft" && strafeHeld > 0) continue;
-      heldKeys.delete(code); sendKey(code, true);
-    }
+    if (capturePhase) return;
+    const codes = physicalHeld.get(e.code) || mapKey(e.code);
+    physicalHeld.delete(e.code);
+    for (let i = codes.length - 1; i >= 0; i--) releaseGuestKey(codes[i]);
     e.preventDefault();
   });
-  // heldKeys tracks the *mapped* code, so toggling mid-hold would otherwise
-  // leave the guest holding a key whose break code never arrives.
-  wasdCheckbox.addEventListener("change", () => { strafeHeld = 0; releaseAllHeldKeys(); });
   screenEl.addEventListener("click", () => {
     screenEl.focus();
     if (mouseCaptureCheckbox.checked && document.pointerLockElement !== screenEl) screenEl.requestPointerLock();
@@ -275,11 +692,14 @@
   document.addEventListener("visibilitychange", () => { if (document.hidden) releaseAllHeldKeys(); });
 
   // ---- PS/2 mouse (8042 AUX port) -----------------------------------
-  // Off by default, opt-in like sound above -- Pointer Lock is itself a
-  // browser permission gate, and capturing the pointer without the user
-  // asking for it would trap their cursor on a page they didn't expect to.
+  // Off by default for a first visit; remembered in UI state once chosen.
+  // Pointer Lock still needs an explicit canvas click to engage.
   const mouseCaptureCheckbox = document.getElementById("mouseCaptureEnabled");
-  mouseCaptureCheckbox.checked = false;
+  mouseCaptureCheckbox.checked = uiState.mouse;
+  mouseCaptureCheckbox.addEventListener("change", () => {
+    uiState.mouse = mouseCaptureCheckbox.checked;
+    persistUiState();
+  });
   let mouseButtons = 0;
   document.addEventListener("pointerlockchange", () => {
     if (document.pointerLockElement !== screenEl) {
@@ -545,11 +965,12 @@
   const speakerCheckbox = document.getElementById("speakerEnabled");
   const sbVolume = document.getElementById("sbVolume");
   const sbVolumeReadout = document.getElementById("sbVolumeReadout");
-  // A real wheel stays where it was left, so the position persists. Unlike
-  // "Enable Sound" -- which must not be restored, because a browser blocks
-  // audio until a gesture -- restoring a knob position starts nothing.
+  // A real wheel stays where it was left, so the position persists.
+  // Enable Sound is remembered in UI state too; browsers still block
+  // Autoplay until a gesture, so a restored checkmark may need one click
+  // before audio actually starts.
   const SB_VOLUME_KEY = "retro8080.pc486SbVolume";
-  speakerCheckbox.checked = false;
+  speakerCheckbox.checked = uiState.sound;
   let audioCtx = null, speakerNode = null, lastLevel = false;
   // The SB16's backplate volume wheel: an analog pot after the card's output
   // amplifier (CT1740/CT1750 kept the thumbwheel earlier cards had), so it
@@ -1012,6 +1433,8 @@
   sbVolume.addEventListener("input", () => applyWheel(Number(sbVolume.value), true));
 
   speakerCheckbox.addEventListener("change", () => {
+    uiState.sound = speakerCheckbox.checked;
+    persistUiState();
     if (speakerCheckbox.checked) {
       ensureAudioStarted();
     } else if (audioCtx) {
@@ -1023,9 +1446,9 @@
     }
   });
 
-  // Bezel-corner icons mirror the three checkboxes under the monitor --
-  // same state, same change handlers -- so sound / mouse / WASD stay
-  // reachable once fullscreen covers the page chrome below the bezel.
+  // Bezel-corner icons mirror the checkboxes under the monitor -- same
+  // state, same change handlers -- so sound / mouse stay reachable once
+  // fullscreen covers the page chrome. KEYS mirrors Enable/Disable All.
   function bindBezelToggle(btn, checkbox) {
     const sync = () => {
       btn.setAttribute("aria-pressed", checkbox.checked ? "true" : "false");
@@ -1040,7 +1463,10 @@
   }
   bindBezelToggle(document.getElementById("speakerBtn"), speakerCheckbox);
   bindBezelToggle(document.getElementById("mouseCaptureBtn"), mouseCaptureCheckbox);
-  bindBezelToggle(document.getElementById("wasdArrowsBtn"), wasdCheckbox);
+  keymapAllBtn.addEventListener("click", () => {
+    setAllMappingsEnabled(!anyMappingEnabled());
+  });
+  syncToggleAllBtn();
 
   // Converts this frame's real (cpu_cycle, level) edge trace --
   // PcSpeaker::drain_edges() via speakerEdges() -- into a sample array and
@@ -2476,6 +2902,37 @@
     if (new URLSearchParams(location.search).get("test") === "1") {
       window.__test = {
         machine, sendKey, screenEl, mapKey,
+        get keymapRows() { return keymapRows.map((r) => ({ ...r, to: r.to.slice() })); },
+        applyWasdPreset: () => applyPresetRows(kWasdPresetRows),
+        applyShiftCtrlPreset: () => applyPresetRows(kShiftCtrlPresetRows),
+        setWasdPresetEnabled,
+        isWasdPresetActive,
+        clearKeymap,
+        setAllMappingsEnabled,
+        upsertMapping: (from, to, preset) => {
+          upsertMapping(from, to, preset);
+          releaseAllHeldKeys();
+          persistKeymap();
+          renderKeymapTable();
+        },
+        setMappingEnabled: (from, enabled) => {
+          const row = keymapRows.find((r) => r.from === from);
+          if (!row) return false;
+          row.enabled = !!enabled;
+          releaseAllHeldKeys();
+          persistKeymap();
+          renderKeymapTable();
+          return true;
+        },
+        deleteMapping: (from) => {
+          const before = keymapRows.length;
+          keymapRows = keymapRows.filter((r) => r.from !== from);
+          if (keymapRows.length === before) return false;
+          releaseAllHeldKeys();
+          persistKeymap();
+          renderKeymapTable();
+          return true;
+        },
         get audioState() { return audioCtx ? audioCtx.state : null; },
         get sbWheelGain() { return sbGainNode ? sbGainNode.gain.value : null; },
         // Ring depth in ms as the worklet last reported it (it posts twice a

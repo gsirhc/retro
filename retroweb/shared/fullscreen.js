@@ -108,4 +108,17 @@ function initFullscreen(opts) {
   if (escBtn && sendEscape) {
     escBtn.addEventListener("click", () => sendEscape());
   }
+
+  // While fullscreen, the bezel chrome is the only UI still reachable --
+  // clicking a control steals focus from the guest. Bounce it back so
+  // typing continues without an extra canvas click. Windowed mode keeps
+  // normal focus (clicking a control focuses the control).
+  const bezelControls = bezelEl.querySelector(".bezel-controls");
+  if (bezelControls) {
+    bezelControls.addEventListener("click", (e) => {
+      if (!isFullscreen() || !isRunning()) return;
+      if (!e.target.closest(".bezel-btn")) return;
+      queueMicrotask(() => { if (isRunning()) screenEl.focus(); });
+    });
+  }
 }

@@ -1,20 +1,17 @@
 import { test, expect } from "./fixtures";
 import { bootLive } from "./helpers";
 
-// Mouse capture checkbox is unchecked by default on every page load, same
-// off-by-default/never-restored policy as the speaker checkbox (see
-// speaker.spec.ts) -- Pointer Lock is itself a permission gate, and
-// capturing the pointer without an explicit opt-in would trap the user's
-// cursor on a page they didn't ask for that on.
+// Mouse capture is unchecked by default for a first visit. Once chosen,
+// Enable Mouse is remembered in retro8080.pc486.ui -- Pointer Lock still
+// needs an explicit canvas click to engage.
 test.describe("PS/2 mouse", () => {
   test("capture checkbox is unchecked by default", async ({ livePage: page }) => {
     await expect(page.locator("#mouseCaptureEnabled")).not.toBeChecked();
   });
 
-  test("stays unchecked across a reload -- never restored from a saved preference", async ({
-    page,
-  }) => {
+  test("Enable Mouse preference persists across reload", async ({ page }) => {
     await bootLive(page);
+    await page.evaluate(() => localStorage.removeItem("retro8080.pc486.ui"));
     await page.locator("#mouseCaptureEnabled").check();
     await expect(page.locator("#mouseCaptureEnabled")).toBeChecked();
 
@@ -23,7 +20,8 @@ test.describe("PS/2 mouse", () => {
       timeout: 15000,
     });
 
-    await expect(page.locator("#mouseCaptureEnabled")).not.toBeChecked();
+    await expect(page.locator("#mouseCaptureEnabled")).toBeChecked();
+    await page.evaluate(() => localStorage.removeItem("retro8080.pc486.ui"));
   });
 
   test("checking/unchecking it doesn't affect the running machine", async ({

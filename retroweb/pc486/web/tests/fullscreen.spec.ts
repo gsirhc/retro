@@ -80,12 +80,13 @@ test.describe("fullscreen", () => {
     await waitForScreen(page, /C:\\>\s*$/);
   });
 
-  // Sound / mouse / WASD live as bezel icons too, so they stay reachable
-  // once fullscreen covers the checkbox row under the monitor.
-  test("bezel sound/mouse/WASD icons toggle the same checkboxes", async ({ livePage: page }) => {
+  // Sound / mouse live as bezel icons mirroring the checkboxes; KEYS
+  // mirrors Enable/Disable All so mappings stay reachable once fullscreen
+  // covers the page chrome below the bezel.
+  test("bezel sound/mouse/KEYS icons toggle sound, mouse, and all mappings", async ({ livePage: page }) => {
     await expect(page.locator("#speakerBtn")).toHaveAttribute("aria-pressed", "false");
     await expect(page.locator("#mouseCaptureBtn")).toHaveAttribute("aria-pressed", "false");
-    await expect(page.locator("#wasdArrowsBtn")).toHaveAttribute("aria-pressed", "false");
+    await expect(page.locator("#keymapAllBtn")).toBeDisabled();
 
     await page.locator("#speakerBtn").click();
     await expect(page.locator("#speakerEnabled")).toBeChecked();
@@ -95,9 +96,12 @@ test.describe("fullscreen", () => {
     await expect(page.locator("#mouseCaptureEnabled")).toBeChecked();
     await expect(page.locator("#mouseCaptureBtn")).toHaveAttribute("aria-pressed", "true");
 
-    await page.locator("#wasdArrowsBtn").click();
-    await expect(page.locator("#wasdArrows")).toBeChecked();
-    await expect(page.locator("#wasdArrowsBtn")).toHaveAttribute("aria-pressed", "true");
+    await page.locator("#keymapPresetWasd").click();
+    await expect(page.locator("#keymapAllBtn")).toBeEnabled();
+    await expect(page.locator("#keymapAllBtn")).toHaveAttribute("aria-pressed", "true");
+    await page.locator("#keymapAllBtn").click();
+    await expect(page.locator("#keymapAllBtn")).toHaveAttribute("aria-pressed", "false");
+    expect(await page.evaluate(() => (window as any).__test.mapKey("KeyW"))).toEqual(["KeyW"]);
 
     // Checkbox → icon stays in sync the other way too.
     await page.locator("#speakerEnabled").uncheck();
@@ -105,6 +109,9 @@ test.describe("fullscreen", () => {
   });
 
   test("bezel toggles stay usable while fullscreen", async ({ livePage: page }) => {
+    await page.locator("#keymapPresetWasd").click();
+    await expect(page.locator("#keymapAllBtn")).toHaveAttribute("aria-pressed", "true");
+
     await page.evaluate(() => localStorage.setItem("retro8080.fsEscHintSeen", "2"));
     await page.locator("#fullscreenBtn").click();
     await expect.poll(() => page.evaluate(() => !!document.fullscreenElement)).toBe(true);
@@ -113,7 +120,26 @@ test.describe("fullscreen", () => {
     await expect(page.locator("#speakerEnabled")).toBeChecked();
     await expect(page.locator("#speakerBtn")).toHaveAttribute("aria-pressed", "true");
 
-    await page.locator("#wasdArrowsBtn").click();
-    await expect(page.locator("#wasdArrows")).toBeChecked();
+    await page.locator("#keymapAllBtn").click();
+    await expect(page.locator("#keymapAllBtn")).toHaveAttribute("aria-pressed", "false");
+  });
+
+  test("bezel button clicks in fullscreen return focus to the screen", async ({ livePage: page }) => {
+    await page.locator("#keymapPresetWasd").click();
+    await page.evaluate(() => localStorage.setItem("retro8080.fsEscHintSeen", "2"));
+    await page.locator("#fullscreenBtn").click();
+    await expect.poll(() => page.evaluate(() => !!document.fullscreenElement)).toBe(true);
+
+    await page.locator("#screen").click();
+    await expect(page.locator("#screen")).toBeFocused();
+
+    await page.locator("#speakerBtn").click();
+    await expect(page.locator("#screen")).toBeFocused();
+
+    await page.locator("#keymapAllBtn").click();
+    await expect(page.locator("#screen")).toBeFocused();
+
+    await page.locator("#mouseCaptureBtn").click();
+    await expect(page.locator("#screen")).toBeFocused();
   });
 });
