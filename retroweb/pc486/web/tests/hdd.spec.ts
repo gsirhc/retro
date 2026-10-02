@@ -13,7 +13,7 @@ async function forcePersistHdd(page: import("@playwright/test").Page): Promise<v
     await (window as any).__test.forcePersistHdd();
     await (window as any).__test.whenHddSaved();
   });
-  await expect(page.locator("#hddStatus")).toHaveText(/saved state/);
+  await expect(page.locator("#hddStatus")).toHaveText(/saved \(this session\)/);
 }
 
 // Mirrors app.js's own openHddDb()/HDD_STORE -- there's no other seam to
@@ -119,10 +119,10 @@ test.describe("hard disk", () => {
     // for the C:\> prompt would defeat it: FreeDOS genuinely writes to C:
     // while running FDAUTO.BAT, ~2s of real time BEFORE the prompt appears,
     // so by then persistHddIfDirty()'s 5s tick has correctly relabelled the
-    // drive "saved state (changes from this session)". See PC486_REVIEW.md §8.
+    // drive "saved (this session)". See PC486_REVIEW.md §8.
     await bootLive(page);
     await expect(page.locator("#hddStatus")).toHaveText(
-      /Using: factory FreeDOS \(default\)/
+      /Using: FreeDOS \(default\)/
     );
     await expect(page.locator("#hddDownloadBtn")).toBeEnabled();
     await expect(page.locator("#hddResetBtn")).toBeDisabled();
@@ -140,15 +140,15 @@ test.describe("hard disk", () => {
 
     await page.locator("#hddBlankBtn").click();
     await expect(page.locator("#hddStatus")).toHaveText(
-      /blank drive, unformatted/
+      /blank drive \(unformatted\)/
     );
-    await expect(page.locator("#hddStatus")).toHaveText(/takes effect next power-on/);
+    await expect(page.locator("#hddStatus")).toHaveText(/Takes effect at next power-on/);
 
     await page.locator("#hddResetBtn").click();
     await expect(page.locator("#hddStatus")).toHaveText(
-      /factory FreeDOS \(default\)/
+      /FreeDOS \(default\)/
     );
-    await expect(page.locator("#hddStatus")).toHaveText(/takes effect next power-on/);
+    await expect(page.locator("#hddStatus")).toHaveText(/Takes effect at next power-on/);
   });
 
   test("a blank drive takes effect next power-on and won't boot to a normal prompt", async ({
@@ -168,7 +168,7 @@ test.describe("hard disk", () => {
     ).not.toMatch(/C:\\>/);
 
     // Put factory FreeDOS back so the shared livePage isn't left on a blank
-    // image (status becomes "saved state" after mount, which resetLivePage
+    // image (status becomes "saved (this session)" after mount, which resetLivePage
     // cannot distinguish from a normal dirty factory disk).
     await setPowerSwitch(page, false);
     await page.locator("#hddResetBtn").click();
@@ -203,7 +203,7 @@ test.describe("hard disk", () => {
     await page.waitForFunction(() => !!(window as any).__test?.machine, null, {
       timeout: 15000,
     });
-    await expect(page.locator("#hddStatus")).toHaveText(/saved state/);
+    await expect(page.locator("#hddStatus")).toHaveText(/saved \(previous visit\)/);
     await waitForScreen(page, /C:\\>/);
   });
 
@@ -233,7 +233,7 @@ test.describe("hard disk", () => {
     await page.waitForFunction(() => !!(window as any).__test?.machine, null, {
       timeout: 15000,
     });
-    await expect(page.locator("#hddStatus")).toHaveText(/saved state/);
+    await expect(page.locator("#hddStatus")).toHaveText(/saved \(previous visit\)/);
     expect(
       requests.some((r) => r.url.includes("freedos-hdd.img") && r.method === "GET")
     ).toBe(false);
@@ -259,7 +259,7 @@ test.describe("hard disk", () => {
     // A full-image record never consults the factory image on mount -- no
     // HEAD, no GET, and definitely not a reset to factory defaults.
     expect(requests.some((r) => r.url.includes("freedos-hdd.img"))).toBe(false);
-    await expect(page.locator("#hddStatus")).toHaveText(/saved state \(from a previous visit\)/);
+    await expect(page.locator("#hddStatus")).toHaveText(/saved \(previous visit\)/);
   });
 
   // "Reset to factory" has to mean the image the server has right now. The

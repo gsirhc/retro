@@ -292,6 +292,23 @@ if it were a fact you'd checked.
   whether to stay on `main` or work on a branch — do not create a branch
   unless he says so. Do not open pull requests unless asked.
 
+## Visitor-facing copy
+
+UI text on machine pages (status lines, boot notices, panel blurbs, tooltips,
+footers, button help) is Chris's voice, not generic "AI speak".
+`retroweb/about.html` is the reference for tone.
+
+- **Direct and conversational.** Short sentences. Contractions are fine.
+- **Prefer periods and commas** over em dashes and stacked hyphens (`--` /
+  `—`). Split an aside into its own sentence instead of bolting it on with a
+  dash.
+- **No marketing filler.** Skip phrases like "get up and running", "seamlessly",
+  or padded parenthetical stacks. Say what the control does.
+- When rewriting a block of existing copy, **propose the text and wait for
+  approval** before editing (same one-block-at-a-time habit as the pc486
+  page pass). `about.html` body copy stays off-limits per
+  [`.claude/about.md`](.claude/about.md).
+
 ## Code comments
 
 - **Present tense.** Describe what the code does now, not what it used to do

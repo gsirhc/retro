@@ -21,6 +21,10 @@ test.describe("boot and power", () => {
 
     await setPowerSwitch(page, false);
     await expect(page.locator("#powerLed")).not.toHaveClass(/power-on/);
+    // Turbo LED and seven-seg clock need power -- they go dark with the
+    // Power LED even though the Turbo button still remembers its latch.
+    await expect(page.locator("#turboLed")).not.toHaveClass(/turbo-on/);
+    await expect(page.locator("#clockDisplay .sevenseg i.on")).toHaveCount(0);
     // Real hardware: RAM is gone the instant power is cut -- see
     // ibmpc-at/web/tests/boot.spec.ts's identical test for the full
     // rationale (the observable signal is the cycle count stopping, not
@@ -32,6 +36,8 @@ test.describe("boot and power", () => {
 
     await setPowerSwitch(page, true);
     await expect(page.locator("#powerLed")).toHaveClass(/power-on/);
+    await expect(page.locator("#turboLed")).toHaveClass(/turbo-on/);
+    await expect(page.locator("#clockDisplay .sevenseg i.on")).not.toHaveCount(0);
     await waitForScreen(page, /C:\\>/);
   });
 

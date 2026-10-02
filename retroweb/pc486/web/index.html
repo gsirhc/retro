@@ -129,6 +129,17 @@
     letter-spacing: .04em; font-size: 10px; }
   .keymap-table td.keymap-actions { white-space: nowrap; }
   .keymap-table .keymap-empty td { color: var(--dim); font-style: italic; border-bottom: 0; }
+  .media-table {
+    border-collapse: collapse; font-size: 14px; color: var(--dim);
+  }
+  .media-table td {
+    text-align: left; padding: 2px 16px 2px 0; border: 0; vertical-align: top;
+  }
+  .media-table td:first-child {
+    text-align: right;
+    font-weight: 700; color: var(--text);
+    white-space: nowrap; padding-right: 20px;
+  }
   #keymapCaptureStatus { min-height: 1.2em; }
 
   button, select, input[type=text] {
@@ -191,11 +202,62 @@
   .boot-notice strong { display: block; font-size: 13px; letter-spacing: .03em; margin-bottom: 4px; }
   .boot-notice p { margin: 0; font-size: 12px; font-weight: 600; line-height: 1.4; }
   .boot-notice .dismiss-hint { display: block; margin-top: 6px; font-size: 10px; font-weight: 400; opacity: .85; text-transform: uppercase; letter-spacing: .04em; }
+  /* Covers the screen while a large image is fetched or read (first-visit
+     HDD download, floppy/CD insert) so a multi-second hang is not silent. */
+  .load-overlay {
+    position: absolute; left: 18px; right: 18px; top: 16px; bottom: 16px;
+    z-index: 8; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 12px;
+    background: rgba(0,0,0,.7); color: #fff; border-radius: 2px;
+    opacity: 0; visibility: hidden; pointer-events: none;
+    transition: opacity .15s ease;
+  }
+  .load-overlay.visible {
+    opacity: 1; visibility: visible; pointer-events: auto;
+  }
+  .load-spinner {
+    width: 36px; height: 36px; border-radius: 50%;
+    border: 3px solid rgba(255,255,255,.25); border-top-color: #fff;
+    animation: load-spin .75s linear infinite;
+  }
+  @keyframes load-spin { to { transform: rotate(360deg); } }
+  .load-overlay .load-label {
+    font: 600 12px Arial, Helvetica, sans-serif; letter-spacing: .03em;
+  }
   #screen:focus { outline: none; }
   .audio-row { margin-top: 14px; justify-content: center; gap: 16px; }
   .volwheel { display: flex; align-items: center; gap: 6px; }
   .volwheel input[type="range"] { width: 110px; }
   .volwheel .muted { min-width: 2.2em; text-align: right; font-variant-numeric: tabular-nums; }
+  .info-tip {
+    position: relative;
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 14px; height: 14px; border-radius: 50%;
+    font: 700 10px/1 Arial, Helvetica, sans-serif;
+    color: var(--dim); border: 1px solid var(--dim);
+    cursor: help; user-select: none; flex: 0 0 auto;
+  }
+  .info-tip:hover, .info-tip:focus-visible { color: var(--text); border-color: var(--text); outline: none; }
+  .info-tip::after,
+  .tower-btn[data-tip]::after {
+    content: attr(data-tip);
+    position: absolute; left: 50%; bottom: calc(100% + 8px);
+    transform: translateX(-50%);
+    width: max-content; max-width: 240px;
+    padding: 6px 10px; box-sizing: border-box;
+    background: #2a2a2a; color: #fff; border-radius: 3px;
+    font: 12px/1.35 Arial, Helvetica, sans-serif; font-weight: 400;
+    text-align: left; white-space: normal; text-transform: none; letter-spacing: normal;
+    box-shadow: 0 2px 8px rgba(0,0,0,.35);
+    opacity: 0; visibility: hidden; pointer-events: none; z-index: 20;
+    transition: opacity .12s ease, visibility .12s ease;
+    transition-delay: 0s;
+  }
+  .info-tip:hover::after, .info-tip:focus-visible::after,
+  .tower-btn[data-tip]:hover::after, .tower-btn[data-tip]:focus-visible::after {
+    opacity: 1; visibility: visible;
+    transition-delay: .4s;
+  }
   /* Sound / mouse / key-map mirrors -- live in the bezel so they stay
      reachable once fullscreen covers the page chrome. KEYS toggles
      enable/disable for every Key Mapper row. */
@@ -215,14 +277,6 @@
   #keymapAllBtn {
     font-size: 9px; font-weight: 700; letter-spacing: .04em; padding: 0 5px;
   }
-
-  /* ---- front panel: a typical mid-90s beige-tower control cluster, not
-     an IBM 5170 AT fascia. Compact LED strip + green clock display + Turbo
-     / Reset pushbuttons and a large vertical throw power rocker inside
-     the green island (right side); a 5.25" CD-ROM bay above a 3.5"
-     floppy bay on the right. The seven-segment readout tracks Turbo
-     (66 on / 33 off -- DX2 clock doubling); PIT stays real-time
-     (CLAUDE.md). ---------------------------------------------------- */
   .at-case {
     display: flex; gap: 14px; align-items: stretch; flex-wrap: wrap;
     background: linear-gradient(180deg, #e6dfc9 0%, #d3cab0 45%, #b6ac92 100%);
@@ -320,6 +374,7 @@
     color: #d8d8d8; text-transform: uppercase;
   }
   .tower-btn {
+    position: relative;
     width: 38px; height: 38px; border-radius: 50%; flex: 0 0 auto; padding: 0;
     background: linear-gradient(180deg, #f0ebe0, #c9c0a6 55%, #a89f8a);
     box-shadow: inset 0 0 0 1px #6b6558, inset 0 2px 2px rgba(255,255,255,.55),
@@ -496,7 +551,8 @@
     box-shadow: 0 0 8px 3px rgba(50,220,90,.85), inset 0 0 1px rgba(0,0,0,.5);
   }
 
-  .footer { margin-top: 26px; color: var(--dim); font-size: 12px; text-align: center; padding-bottom: 24px; }
+  .footer { margin-top: 0; color: var(--dim); font-size: 12px; text-align: center; padding: 0 0 4px; }
+  .footer p { margin: 2px 0; }
   .fb-mod { display: none; }
   :root[data-theme="web94"] .fb-built { display: none; }
   :root[data-theme="web94"] .fb-mod   { display: inline; }
@@ -513,7 +569,7 @@
     <a class="pb-home" href="../">&#8592;&nbsp;All&nbsp;machines</a>
     <span class="pb-title"><img class="pb-icon" src="assets/favicon-32.png" alt="" aria-hidden="true"> PC486.EXE &mdash; [DX2-66]</span>
     <span class="pb-name">486 DX2-66 Gaming PC</span>
-    <span class="pb-tag">80486DX2 &middot; 66&nbsp;MHz &middot; running entirely in your browser</span>
+    <span class="pb-tag">80486DX2 &middot; 66 MHz &middot; 32 MB RAM &middot; 504 MB HDD &middot; VGA &middot; Sound Blaster 16 &middot; 2x CD-ROM</span>
     <span class="pb-tools">
       <label class="pb-theme">Theme
         <select id="pageTheme">
@@ -530,7 +586,7 @@
 
   <div class="inner">
     <h1>486 DX2-66 Gaming PC</h1>
-    <p class="tagline">A real-mode 80486 DX2-66, booted to FreeDOS, running entirely in your browser.</p>
+    <p class="tagline">80486DX2, 66 MHz, 32 MB RAM, 504 MB HDD, VGA, Sound Blaster 16, 2x CD-ROM.</p>
     <hr class="rule">
 
     <div class="panel" id="displayCard">
@@ -540,11 +596,14 @@
           <div class="focus-hint" id="focusHint" aria-hidden="true">Click to focus</div>
           <div class="boot-notice" id="bootNotice" aria-hidden="true">
             <strong>Barebones FreeDOS</strong>
-            <p>No games, apps, or dev tools -- just JEMMEX (FreeDOS's real
-              V86 memory manager) and a clean C:\&gt; prompt. Want your own
-              OS instead? Power off and use "Mount blank drive&hellip;"
-              below.</p>
+            <p>FreeDOS is installed by default.  It contains no games, apps or
+              tools.  See the Hard Drive section for creating your own OS and
+              see the Removable Media section for how to install software.</p>
             <span class="dismiss-hint">Click or press any key to dismiss</span>
+          </div>
+          <div class="load-overlay" id="loadOverlay" aria-hidden="true" role="status">
+            <div class="load-spinner" aria-hidden="true"></div>
+            <span class="load-label" id="loadOverlayLabel">Loading&hellip;</span>
           </div>
           <span class="power-led"></span>
           <div class="bezel-controls">
@@ -563,9 +622,11 @@
       </div>
       <div class="row audio-row">
         <label><input type="checkbox" id="speakerEnabled"> Enable Sound</label>
-        <label class="volwheel" title="The SB16's own volume wheel, on the card's backplate next to the jacks -- an analog pot after the output amplifier, so it sets how loud the card plays and nothing in DOS can see it. The motherboard speaker is a separate part and is not affected.">SB16 wheel
+        <label class="volwheel">Volume
+          <span class="info-tip" tabindex="0" data-tip="Sound Blaster 16 volume (the pot on the card's backplate). DOS can't see or change it. Does not affect the PC speaker."
+                aria-label="Sound Blaster 16 volume (the pot on the card's backplate). DOS can't see or change it. Does not affect the PC speaker.">i</span>
           <input type="range" id="sbVolume" min="0" max="100" step="1" value="70"
-                 aria-label="Sound Blaster 16 backplate volume wheel">
+                 aria-label="Sound Blaster 16 volume">
           <span class="muted" id="sbVolumeReadout">70</span>
         </label>
         <label><input type="checkbox" id="mouseCaptureEnabled"> Enable Mouse</label>
@@ -593,7 +654,6 @@
               <button type="button" data-key="F12" disabled>F12</button>
               <button type="button" id="ctrlAltDelBtn" class="danger-key" disabled>Ctrl+Alt+Del</button>
             </div>
-            <span class="muted">Extra keys, for keyboards without a dedicated key of their own:</span>
             <div class="row" id="extraKeyRow">
               <button type="button" data-key="Escape" disabled>Esc</button>
               <button type="button" data-key="Insert" disabled>Insert</button>
@@ -629,9 +689,8 @@
               </thead>
               <tbody id="keymapTableBody"></tbody>
             </table>
-            <p class="muted">Mappings apply while the screen has focus. Remapping physical
-              Ctrl does not stop macOS from stealing Ctrl+Arrow (Mission Control / Spaces)
-              -- use Left Shift &rarr; Ctrl (or similar) instead of holding physical Ctrl.</p>
+            <p class="muted">Mappings apply while the screen has focus.  You can
+              enable/disable using the <b>KEYS</b> button in fullscreen.</p>
           </div>
         </div>
       </div>
@@ -639,10 +698,9 @@
 
     <dialog id="fsEscHint">
       <h2>Before you go fullscreen</h2>
-      <p>Your Esc key exits fullscreen instead of reaching DOS -- browsers reserve
-        it for that. Use the <strong>Esc</strong> button next to the fullscreen
-        button, in the screen's own corner, to send Esc to the operating system
-        instead.</p>
+      <p>Your Esc key exits fullscreen instead of reaching DOS. Browsers reserve
+        it for that. Use the <strong>Esc</strong> button in the screen's corner
+        to send Esc to the OS.</p>
       <div class="row">
         <button type="button" id="fsEscHintOk" autofocus>Got it, go fullscreen</button>
       </div>
@@ -671,8 +729,8 @@
                 <span class="tower-led" id="powerLed"></span>
                 <span class="tower-led-cap">Power</span>
               </div>
-              <div class="tower-led-item" title="Turbo -- on at 66 MHz, off at 33 MHz (DX2 clock doubling)">
-                <span class="tower-led turbo-on" id="turboLed"></span>
+              <div class="tower-led-item" title="Turbo">
+                <span class="tower-led" id="turboLed"></span>
                 <span class="tower-led-cap">Turbo</span>
               </div>
               <div class="tower-led-item" title="Hard disk activity">
@@ -681,20 +739,21 @@
               </div>
             </div>
             <div class="tower-body">
-              <div class="sevenseg-group" id="clockDisplay" title="Clock display -- 66 MHz Turbo on, 33 MHz Turbo off">
+              <div class="sevenseg-group" id="clockDisplay">
                 <div class="sevenseg-digits" aria-hidden="true">
                   <div class="sevenseg" data-digit="tens">
-                    <i class="a on"></i><i class="b"></i><i class="c on"></i><i class="d on"></i><i class="e on"></i><i class="f on"></i><i class="g on"></i>
+                    <i class="a"></i><i class="b"></i><i class="c"></i><i class="d"></i><i class="e"></i><i class="f"></i><i class="g"></i>
                   </div>
                   <div class="sevenseg" data-digit="ones">
-                    <i class="a on"></i><i class="b"></i><i class="c on"></i><i class="d on"></i><i class="e on"></i><i class="f on"></i><i class="g on"></i>
+                    <i class="a"></i><i class="b"></i><i class="c"></i><i class="d"></i><i class="e"></i><i class="f"></i><i class="g"></i>
                   </div>
                 </div>
               </div>
               <div class="tower-btns">
                 <div class="tower-btn-wrap">
                   <span class="tower-btn-cap">Turbo</span>
-                  <button type="button" class="tower-btn" id="turboBtn" title="Turbo -- on = 66 MHz (DX2 doubled), off = 33 MHz bus rate; PIT stays real-time"
+                  <button type="button" class="tower-btn" id="turboBtn"
+                          data-tip="On: 66 MHz. Off: 33 MHz. Real 486 towers had this switch because some software ran too fast or broke at 66 MHz."
                           aria-label="Turbo" aria-pressed="true"></button>
                 </div>
                 <div class="tower-btn-wrap">
@@ -744,8 +803,34 @@
       </div>
     </div>
 
-    <div class="panel" id="driversCard">
-      <h2>Freeware Disks &amp; Drivers</h2>
+    <div class="panel" id="hddCard">
+      <h2>Hard disk</h2>
+      <div class="row">
+        <span class="muted" id="hddStatus">Checking for a saved hard disk&hellip;</span>
+      </div>
+      <div class="row">
+        <button type="button" id="hddResetBtn" disabled>Reset to factory FreeDOS</button>
+        <button type="button" id="hddBlankBtn" disabled>Mount blank drive&hellip;</button>
+      </div>
+      <div class="row">
+        <span class="muted">You must power off to change the hard drive.</span>
+      </div>
+      <div class="row">
+        <button type="button" id="hddDownloadBtn" disabled>Download image&hellip;</button>
+        <label class="filebtn"><button type="button" id="hddUploadBtn" tabindex="-1" disabled>Upload image&hellip;</button><input type="file" accept=".img,.IMG" id="hddUploadInput" disabled></label>
+        <span class="muted">The hard drive is saved in this browser for later.
+          Use Download to back it up or move it to another computer.</span>
+      </div>
+    </div>
+
+    <div class="panel" id="floppyInfoCard">
+      <h2>Removable media</h2>
+      <table class="media-table">
+        <tr><td>A:</td><td>3.5&Prime; 1.44MB / 720KB floppy</td><td>Mount a raw .IMG</td></tr>
+        <tr><td>D:</td><td>2x ATAPI CD-ROM</td><td>Mount a raw .ISO</td></tr>
+      </table>
+      <p class="muted">You'll need to provide your own disk images. Commercial
+        software isn't hosted here (see Help for more info).</p>
       <div class="row">
         <span class="muted">Useful freeware drivers and software to help you get up and running.</span>
       </div>
@@ -759,85 +844,26 @@
       </div>
     </div>
 
-    <div class="panel" id="hddCard">
-      <h2>Hard disk</h2>
-      <div class="row">
-        <span class="muted" id="hddStatus">Checking for a saved hard disk&hellip;</span>
-      </div>
-      <div class="row">
-        <button type="button" id="hddResetBtn" disabled>Reset to factory FreeDOS</button>
-        <button type="button" id="hddBlankBtn" disabled>Mount blank drive&hellip;</button>
-        <span class="muted">Changes you make while running (FORMAT, COPY, installing
-          software) are saved automatically in this browser every few seconds or on
-          power off, and restored on your next visit. Both take effect at the next
-          power-on -- a real fixed disk can't be swapped while the machine is
-          running.</span>
-      </div>
-      <div class="row">
-        <button type="button" id="hddDownloadBtn" disabled>Download image&hellip;</button>
-        <label class="filebtn"><button type="button" id="hddUploadBtn" tabindex="-1" disabled>Upload image&hellip;</button><input type="file" accept=".img,.IMG" id="hddUploadInput" disabled></label>
-        <span class="muted">A real file on your own disk, independent of this browser's
-          storage -- download it as a backup, or upload a previously-downloaded (or
-          otherwise obtained) image to use as C:. Also takes effect at the next
-          power-on.</span>
-      </div>
-    </div>
-
-    <div class="panel" id="floppyInfoCard">
-      <h2>Removable media</h2>
-      <div class="row">
-        <span class="muted">One 3.5&Prime; 1.44MB floppy bay (drive A:) -- also
-          reads genuine double-density 720KB 3.5&Prime; media. Mount a raw .IMG of
-          exactly one of those two sizes.</span>
-      </div>
-      <div class="row">
-        <span class="muted">One 2x ATAPI CD-ROM bay (drive D:) -- mount a raw .ISO
-          (2048-byte sectors). "Insert FreeDOS CD&hellip;" under Freeware Disks
-          &amp; Drivers fetches FreeDOS's own official install/live CD on
-          demand (a ~400MB download) -- it is not fetched at page load, since
-          C: already ships with FreeDOS installed and does not need it to
-          boot.</span>
-      </div>
-    </div>
-
     <div class="panel" id="softwareCompatCard">
-      <h2>Software compatibility</h2>
-      <div class="row">
-        <span class="muted">Ships with FreeDOS 1.3 on C:, and runs real PC-DOS/
-          MS-DOS 6.x-era software the same way. An 80486DX2-66 -- 66 MHz doubled
-          from a 33 MHz bus, with the on-die FPU -- running real mode, 16- and
-          32-bit protected mode, paging, and virtual-8086 mode, with 32MB of
-          RAM. VGA/EGA plus this card's own VESA BIOS Extensions: 1MB of video
-          RAM, mode 13h, and 256-color linear modes up to 1024x768. A Sound
-          Blaster 16 (DSP 4.05) with 16-bit stereo DMA, an OPL3 FM synthesizer,
-          and the internal PC speaker. A 3-button PS/2 mouse. How each one was
-          built is in
-          <a href="https://github.com/gsirhc/retro/blob/main/retroweb/pc486/PC486_REVIEW.md" target="_blank" rel="noopener">the hardware notes</a>.</span>
-      </div>
-      <div class="row">
-        <span class="muted">What the board doesn't carry: no gameport or
-          joystick, no MIDI -- there's no MPU-401 and no SB-MIDI, so General
-          MIDI music isn't available and FM music plays through the OPL3 --
-          no CD digital audio, and no serial or parallel ports.</span>
-      </div>
-      <div class="row">
-        <span class="muted">Disk images aren't included or hosted here (beyond the
-          freely-licensed FreeDOS install/live CD and HDD image) -- commercial
-          software remains copyrighted. You'll need to find your own compatible
-          disk image and mount it yourself.</span>
-      </div>
+      <h2>System specs</h2>
+      <table class="media-table">
+        <tr><td>CPU</td><td>80486DX2-66 (33 MHz bus, clock doubled), on-die FPU</td></tr>
+        <tr><td>RAM</td><td>32 MB</td></tr>
+        <tr><td>Modes</td><td>Real mode, 16/32-bit protected mode, paging, virtual-8086</td></tr>
+        <tr><td>Graphics</td><td>VGA/EGA + VESA BIOS Extensions, 1 MB video RAM, mode 13h, 256-color up to 1024&times;768</td></tr>
+        <tr><td>Sound</td><td>Sound Blaster 16 (DSP 4.05), 16-bit stereo DMA, OPL3 FM, PC speaker</td></tr>
+        <tr><td>Storage</td><td>504 MB HDD (WD1003), 3.5&Prime; floppy (NEC 765), 2x ATAPI CD-ROM</td></tr>
+        <tr><td>Input</td><td>3-button PS/2 mouse</td></tr>
+        <tr><td>OS</td><td>Ships with FreeDOS 1.3, compatible with PC-DOS / MS-DOS 6.x</td></tr>
+        <tr><td>Not included</td><td>Gameport / joystick, MIDI (no MPU-401 or SB-MIDI), CD digital audio, serial / parallel ports</td></tr>
+      </table>
     </div>
 
     <hr class="rule">
     <div class="footer">
-      <p>A 1990s "gamer's dream" 486 build -- not a recreation of a specific
-        historical machine. 80486DX2-66 CPU with FPU and protected mode,
-        chipset, WD1003 hard disk, ATAPI CD-ROM, NEC 765 floppy controller,
-        VGA/VESA SVGA graphics, Sound Blaster 16 with OPL3 and PC speaker,
-        PS/2 mouse -- the source and hardware findings live in
+      <p>Source:
         <a href="https://github.com/gsirhc/retro/tree/main/retroweb/pc486" target="_blank" rel="noopener">retroweb/pc486/</a>
-        (<a href="https://github.com/gsirhc/retro/blob/main/retroweb/pc486/PC486_REVIEW.md" target="_blank" rel="noopener">hardware notes</a>).
-        BIOS/VGA BIOS and FreeDOS are freely-licensed stand-ins for still-copyrighted originals.</p>
+        (<a href="https://github.com/gsirhc/retro/blob/main/retroweb/pc486/PC486_REVIEW.md" target="_blank" rel="noopener">hardware notes</a>)</p>
       <p><i><span class="fb-built">Last built </span><span class="fb-mod">Page last modified: </span><span id="buildDate">&hellip;</span></i></p>
     </div>
   </div>

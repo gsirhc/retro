@@ -89,4 +89,28 @@ test.describe("floppy drive", () => {
     await expect(labelA).toHaveClass(/empty/);
     await expect(bayA.locator('[data-role="eject"]')).toBeDisabled();
   });
+
+  test("load overlay shows while a floppy image is being read", async ({ livePage: page }) => {
+    await expect(page.locator("#loadOverlay")).not.toHaveClass(/visible/);
+
+    // Delay File.arrayBuffer so the overlay is observable -- a 4KB test
+    // image otherwise finishes in the same turn as setInputFiles.
+    await page.evaluate(() => {
+      const orig = File.prototype.arrayBuffer;
+      File.prototype.arrayBuffer = function () {
+        return new Promise((resolve, reject) => {
+          setTimeout(() => {
+            orig.call(this).then(resolve, reject);
+          }, 400);
+        });
+      };
+    });
+
+    const imagePath = makeBlankImage(4096);
+    const done = insertFloppy(page, imagePath);
+    await expect(page.locator("#loadOverlay")).toHaveClass(/visible/);
+    await expect(page.locator("#loadOverlayLabel")).toHaveText(/Loading floppy/);
+    await done;
+    await expect(page.locator("#loadOverlay")).not.toHaveClass(/visible/);
+  });
 });

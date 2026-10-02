@@ -795,6 +795,41 @@
     if (screenEl.contains(document.activeElement)) dismissBootNotice();
   });
 
+  // Screen overlay while a large image is downloaded or read into memory.
+  // Nestable: overlapping HDD + media loads keep it up until the last one
+  // finishes. Two rAFs after show give the spinner a chance to paint before
+  // a sync wasm mount freezes the main thread.
+  const loadOverlayEl = document.getElementById("loadOverlay");
+  const loadOverlayLabel = document.getElementById("loadOverlayLabel");
+  let loadBusyDepth = 0;
+  function beginLoad(msg) {
+    loadBusyDepth++;
+    if (msg) loadOverlayLabel.textContent = msg;
+    loadOverlayEl.classList.add("visible");
+    loadOverlayEl.setAttribute("aria-hidden", "false");
+  }
+  function endLoad() {
+    loadBusyDepth = Math.max(0, loadBusyDepth - 1);
+    if (loadBusyDepth === 0) {
+      loadOverlayEl.classList.remove("visible");
+      loadOverlayEl.setAttribute("aria-hidden", "true");
+    }
+  }
+  function paintLoadOverlay() {
+    return new Promise((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(resolve));
+    });
+  }
+  async function withLoad(msg, fn) {
+    beginLoad(msg);
+    try {
+      await paintLoadOverlay();
+      return await fn();
+    } finally {
+      endLoad();
+    }
+  }
+
   // ---- floppy drive (this machine's single 3.5" bay) ---------------------
   // A real floppy is a mechanical slot: you can insert or eject one
   // whether the machine is powered on or off (pendingFloppy, populated
@@ -822,10 +857,12 @@
       const f = fileInput.files[0];
       fileInput.value = "";
       if (!f) return;
-      const bytes = new Uint8Array(await f.arrayBuffer());
-      pendingFloppy = { name: f.name, bytes };
-      if (machine) machine.mountFloppy(bytes);
-      setBayLoaded(floppyBay, f.name);
+      await withLoad("Loading floppy\u2026", async () => {
+        const bytes = new Uint8Array(await f.arrayBuffer());
+        pendingFloppy = { name: f.name, bytes };
+        if (machine) machine.mountFloppy(bytes);
+        setBayLoaded(floppyBay, f.name);
+      });
     });
     ejectBtn.addEventListener("click", () => {
       // A real swappable drive: if the session actually wrote to this
@@ -873,17 +910,17 @@
     btn.addEventListener("click", async () => {
       status.textContent = "Fetching\u2026";
       try {
-        const res = await fetch("disks/ctmouse.img");
-        if (!res.ok) throw new Error("HTTP " + res.status);
-        const bytes = new Uint8Array(await res.arrayBuffer());
-        pendingFloppy = { name: "ctmouse.img", bytes };
-        if (machine) machine.mountFloppy(bytes);
-        setBayLoaded(floppyBay, "ctmouse.img");
+        await withLoad("Loading floppy\u2026", async () => {
+          const res = await fetch("disks/ctmouse.img");
+          if (!res.ok) throw new Error("HTTP " + res.status);
+          const bytes = new Uint8Array(await res.arrayBuffer());
+          pendingFloppy = { name: "ctmouse.img", bytes };
+          if (machine) machine.mountFloppy(bytes);
+          setBayLoaded(floppyBay, "ctmouse.img");
+        });
         status.innerHTML =
-          "In drive A:. At the prompt: <code>A:</code> then <code>CTMOUSE /P</code> " +
-          "-- it stays resident in memory, so you can eject the disk afterwards, but " +
-          "it is gone at the next reboot. <code>MOUSETST</code> checks it. " +
-          "To load it every boot: <code>COPY CTMOUSE.EXE C:\\</code> and add " +
+          "CuteMouse is a freeware DOS mouse driver. To load it every boot: " +
+          "<code>COPY CTMOUSE.EXE C:\\</code> then add " +
           "<code>C:\\CTMOUSE /P</code> to <code>AUTOEXEC.BAT</code>.";
       } catch (err) {
         console.error("could not load the CuteMouse driver disk:", err);
@@ -902,10 +939,12 @@
       const f = fileInput.files[0];
       fileInput.value = "";
       if (!f) return;
-      const bytes = new Uint8Array(await f.arrayBuffer());
-      pendingCdrom = { name: f.name, bytes };
-      if (machine) machine.mountCdrom(bytes);
-      setBayLoaded(cdromBay, f.name);
+      await withLoad("Loading CD-ROM\u2026", async () => {
+        const bytes = new Uint8Array(await f.arrayBuffer());
+        pendingCdrom = { name: f.name, bytes };
+        if (machine) machine.mountCdrom(bytes);
+        setBayLoaded(cdromBay, f.name);
+      });
     });
     loadFreedosBtn.addEventListener("click", async () => {
       loadFreedosBtn.disabled = true;
@@ -913,16 +952,18 @@
       loadFreedosBtn.textContent = "Loading\u2026";
       freedosStatus.textContent = "Fetching\u2026 (~400MB)";
       try {
-        const res = await fetch("disks/freedos-cd.iso");
-        if (!res.ok) throw new Error("HTTP " + res.status);
-        const bytes = new Uint8Array(await res.arrayBuffer());
-        pendingCdrom = { name: "FreeDOS install/live CD", bytes };
-        if (machine) machine.mountCdrom(bytes);
-        setBayLoaded(cdromBay, pendingCdrom.name);
+        await withLoad("Loading CD-ROM\u2026", async () => {
+          const res = await fetch("disks/freedos-cd.iso");
+          if (!res.ok) throw new Error("HTTP " + res.status);
+          const bytes = new Uint8Array(await res.arrayBuffer());
+          pendingCdrom = { name: "FreeDOS install/live CD", bytes };
+          if (machine) machine.mountCdrom(bytes);
+          setBayLoaded(cdromBay, pendingCdrom.name);
+        });
         freedosStatus.innerHTML =
-          "In drive D:. At the prompt: <code>D:</code> then <code>DIR</code> to browse -- " +
-          "FreeDOS's official install/live CD (packages, SETUP, extras). " +
-          "C: already boots FreeDOS without it; use this to install more packages or " +
+          "In drive D:. At the prompt, type <code>D:</code> then <code>DIR</code> to browse. " +
+          "This is FreeDOS's official install/live CD. " +
+          "C: already boots without it; use this to install more packages or " +
           "reinstall. Eject from the CD-ROM bay when done.";
       } catch (err) {
         console.error("could not load the FreeDOS CD:", err);
@@ -2525,9 +2566,13 @@
     6: { a: 1, c: 1, d: 1, e: 1, f: 1, g: 1 },
   };
   function setClockDisplay(mhz) {
+    const digits = document.querySelectorAll("#clockDisplay .sevenseg");
+    if (mhz == null) {
+      digits.forEach((d) => d.querySelectorAll("i").forEach((seg) => seg.classList.remove("on")));
+      return;
+    }
     const tens = Math.floor(mhz / 10) % 10;
     const ones = mhz % 10;
-    const digits = document.querySelectorAll("#clockDisplay .sevenseg");
     [tens, ones].forEach((n, i) => {
       const on = kSevenSegOn[n] || {};
       digits[i].querySelectorAll("i").forEach((seg) => {
@@ -2535,17 +2580,29 @@
       });
     });
   }
+  // Turbo LED and clock need power -- the button still latches while off
+  // (like a real tower switch), but the jewelry goes dark with Power.
+  function syncTurboChrome() {
+    const on = turboBtn.getAttribute("aria-pressed") === "true";
+    if (!poweredOn) {
+      turboLed.classList.remove("turbo-on");
+      setClockDisplay(null);
+      return;
+    }
+    turboLed.classList.toggle("turbo-on", on);
+    setClockDisplay(on ? 66 : 33);
+  }
   function applyTurbo(on) {
     turboBtn.setAttribute("aria-pressed", on ? "true" : "false");
-    turboLed.classList.toggle("turbo-on", on);
     cpuHz = on ? 66000000 : 33000000;
-    setClockDisplay(on ? 66 : 33);
     if (machine) machine.setTurbo(on);
+    syncTurboChrome();
   }
   turboBtn.addEventListener("click", () => {
     applyTurbo(turboBtn.getAttribute("aria-pressed") !== "true");
   });
   let poweredOn = false;
+  syncTurboChrome();  // start dark until the first power-on
   let firmware = null;  // {Module, bios, vga, hdd} once fetched -- fetched once, reused every power-on
   // 1024 cyl x 16 head x 63 sec/track x 512 bytes -- this machine's one
   // fixed C: geometry (wd1003.cpp), known without needing the actual
@@ -2575,7 +2632,7 @@
   let hddSaveKind = null;  // "factory" | "full" | null
   // offset → bytes for the factory-delta record; rebuilt on load, merged
   // on every dirty persist. Cleared when the visitor blanks/uploads/resets.
-  let hddLabel = "factory FreeDOS (default)";
+  let hddLabel = "FreeDOS (default)";
   // Lazily populated -- only fetched when a session actually needs the
   // pristine factory image (no IndexedDB C: yet, or "Reset to factory").
   // Starting the fetch eagerly used to download ~7MB gzip on every reload
@@ -2713,6 +2770,7 @@
         // 504MB when C: is a factory-delta record (see persistHddIfDirty).
         const fromIdb = factoryStashInvalidated ? null : await loadFactoryFromIdb();
         if (fromIdb) {
+          if (loadBusyDepth > 0) loadOverlayLabel.textContent = "Loading hard disk\u2026";
           factoryIdbCurrent = true;
           let bytes;
           if (fromIdb instanceof Blob) bytes = await fromIdb.arrayBuffer();
@@ -2726,6 +2784,7 @@
         // this page barely re-reads. C: is saved whole and self-contained, so
         // a returning visitor never needs the shipped image, and Reset
         // deliberately re-fetches it rather than trusting any local copy.
+        if (loadBusyDepth > 0) loadOverlayLabel.textContent = "Downloading hard disk\u2026";
         const r = await fetch("disks/freedos-hdd.img");
         if (!r.ok) throw new Error("freedos-hdd.img HTTP " + r.status);
         const bytes = await r.arrayBuffer();
@@ -2740,7 +2799,8 @@
         return bytes;
       })();
     }
-    return factoryHddPromise;
+    beginLoad("Loading hard disk\u2026");
+    return factoryHddPromise.finally(() => endLoad());
   }
   function applyFactoryPatches(base, patches) {
     const img = base instanceof Uint8Array ? base : new Uint8Array(base);
@@ -2769,7 +2829,7 @@
     savedHdd = null;
     hddIdbCurrent = false;
     hddSaveKind = null;
-    hddLabel = "factory FreeDOS (default) -- takes effect next power-on";
+    hddLabel = "FreeDOS (default). Takes effect at next power-on";
     refreshHddControls();
     clearSavedHdd();
     // "Reset to factory" means the image the server has right now: no
@@ -2783,7 +2843,7 @@
     savedHdd = new Uint8Array(kHddImageBytes);  // all zero -- unformatted, like a drive fresh from the factory floor
     hddIdbCurrent = false;
     hddSaveKind = "full";
-    hddLabel = "blank drive, unformatted (FDISK/FORMAT and install your own OS) -- takes effect next power-on";
+    hddLabel = "blank drive (unformatted). Takes effect at next power-on";
     refreshHddControls();
     saveHdd(savedHdd).then(() => { hddIdbCurrent = true; });
   });
@@ -2811,26 +2871,28 @@
     const f = hddUploadInput.files[0];
     hddUploadInput.value = "";
     if (!f || !firmware) return;
-    const bytes = new Uint8Array(await f.arrayBuffer());
-    // This system's WD1003 geometry (1024 cyl/16 head/63 sec, see
-    // wd1003.cpp -- the real pre-EIDE INT13h CHS ceiling, 504MB) is fixed
-    // in CMOS, not derived from the image. An image of the wrong size
-    // would still fail safely (wd1003.cpp's own bounds check reports a
-    // genuine IDNF error rather than silently doing nothing), but refusing
-    // it up front gives a clearer reason than a mysterious disk error deep
-    // into a boot.
-    if (bytes.byteLength !== kHddImageBytes) {
-      alert("That file is " + bytes.byteLength + " bytes; this machine's hard disk " +
-            "must be exactly " + kHddImageBytes + " bytes (1024 cyl / 16 head / " +
-            "63 sec/track, 504MB). Not mounted.");
-      return;
-    }
-    savedHdd = bytes;
-    hddIdbCurrent = false;
-    hddSaveKind = "full";
-    hddLabel = "uploaded image (" + f.name + ") -- takes effect next power-on";
-    refreshHddControls();
-    saveHdd(savedHdd).then(() => { hddIdbCurrent = true; });
+    await withLoad("Loading hard disk\u2026", async () => {
+      const bytes = new Uint8Array(await f.arrayBuffer());
+      // This system's WD1003 geometry (1024 cyl/16 head/63 sec, see
+      // wd1003.cpp -- the real pre-EIDE INT13h CHS ceiling, 504MB) is fixed
+      // in CMOS, not derived from the image. An image of the wrong size
+      // would still fail safely (wd1003.cpp's own bounds check reports a
+      // genuine IDNF error rather than silently doing nothing), but refusing
+      // it up front gives a clearer reason than a mysterious disk error deep
+      // into a boot.
+      if (bytes.byteLength !== kHddImageBytes) {
+        alert("That file is " + bytes.byteLength + " bytes; this machine's hard disk " +
+              "must be exactly " + kHddImageBytes + " bytes (1024 cyl / 16 head / " +
+              "63 sec/track, 504MB). Not mounted.");
+        return;
+      }
+      savedHdd = bytes;
+      hddIdbCurrent = false;
+      hddSaveKind = "full";
+      hddLabel = "uploaded image (" + f.name + "). Takes effect at next power-on";
+      refreshHddControls();
+      saveHdd(savedHdd).then(() => { hddIdbCurrent = true; });
+    });
   });
 
   async function powerOn() {
@@ -2890,6 +2952,7 @@
     }
     poweredOn = true;
     powerLed.classList.add("power-on");
+    syncTurboChrome();
     lastT = null;
     requestAnimationFrame(frame);  // rendering only
     schedulePump();                // the machine's own clock -- see the main loop above
@@ -2934,6 +2997,9 @@
           return true;
         },
         get audioState() { return audioCtx ? audioCtx.state : null; },
+        get loadOverlayVisible() { return loadOverlayEl.classList.contains("visible"); },
+        get loadOverlayText() { return loadOverlayLabel.textContent; },
+        beginLoad, endLoad,
         get sbWheelGain() { return sbGainNode ? sbGainNode.gain.value : null; },
         // Ring depth in ms as the worklet last reported it (it posts twice a
         // second), null until the first report arrives.
@@ -2991,7 +3057,7 @@
   // reload race, which is what left CI reading "factory FreeDOS" again.
   let hddPersistChain = Promise.resolve();
   function queueHddSave(record) {
-    hddLabel = "saved state (changes from this session)";
+    hddLabel = "saved (this session)";
     refreshHddControls();
     hddPersistChain = hddPersistChain.then(async () => {
       await saveHdd(record);
@@ -3024,7 +3090,7 @@
     if (!machine) return hddPersistChain;
     if (machine.hddDirty()) return persistHddIfDirty();
     if (savedHdd && savedHdd.length === kHddImageBytes && hddIdbCurrent) {
-      hddLabel = "saved state (changes from this session)";
+      hddLabel = "saved (this session)";
       refreshHddControls();
       return hddPersistChain;
     }
@@ -3043,6 +3109,7 @@
     lastMachine = machine;  // freed at the next powerOn() -- see there
     machine = null;      // real hardware: RAM is gone the instant power is cut
     powerLed.classList.remove("power-on");
+    syncTurboChrome();
     floppyBay.querySelector('[data-role="led"]').classList.remove("on");
     cdromBay.querySelector('[data-role="led"]').classList.remove("on");
     hddLed.classList.remove("on");
@@ -3162,40 +3229,46 @@
   // install/live CD stays out for the same reason -- see the CD-ROM drive
   // section above / "Insert FreeDOS CD...".
   (async () => {
-    await loadEmulatorModule();
-    const [Module, savedRecord, bios, vga] = await Promise.all([
-      Pc486({}),
-      loadSavedHddRecord(),
-      fetch("roms/BIOS-bochs-legacy").then((r) => r.arrayBuffer()),
-      fetch("roms/VGABIOS-lgpl-latest.bin").then((r) => r.arrayBuffer()),
-    ]);
-    firmware = { Module, bios, vga, hdd: null };
-    if (isFactoryDeltaRecord(savedRecord)) {
-      // Reconstruct C: from the cached factory image + the small dirty
-      // patch list. Cache API hit → no network fetch of freedos-hdd.img.
-      await ensureFactoryHdd();
-      // A delta written by an older build. Replay it once against the shipped
-      // image and keep the result whole, so this record shape disappears.
-      savedHdd = applyFactoryPatches(new Uint8Array(firmware.hdd), savedRecord.patches);
-      hddSaveKind = "full";
-      hddLabel = "saved state (from a previous visit)";
-      hddIdbCurrent = false;
-      void queueHddSave(savedHdd);
-    } else if (savedRecord) {
-      savedHdd = savedRecord instanceof Uint8Array ? savedRecord : new Uint8Array(savedRecord);
-      hddSaveKind = "full";
-      hddLabel = "saved state (from a previous visit)";
-      hddIdbCurrent = true;
-    } else {
-      await ensureFactoryHdd();
-    }
+    beginLoad("Loading\u2026");
+    try {
+      await paintLoadOverlay();
+      await loadEmulatorModule();
+      const [Module, savedRecord, bios, vga] = await Promise.all([
+        Pc486({}),
+        loadSavedHddRecord(),
+        fetch("roms/BIOS-bochs-legacy").then((r) => r.arrayBuffer()),
+        fetch("roms/VGABIOS-lgpl-latest.bin").then((r) => r.arrayBuffer()),
+      ]);
+      firmware = { Module, bios, vga, hdd: null };
+      if (isFactoryDeltaRecord(savedRecord)) {
+        // Reconstruct C: from the cached factory image + the small dirty
+        // patch list. Cache API hit → no network fetch of freedos-hdd.img.
+        await ensureFactoryHdd();
+        // A delta written by an older build. Replay it once against the shipped
+        // image and keep the result whole, so this record shape disappears.
+        savedHdd = applyFactoryPatches(new Uint8Array(firmware.hdd), savedRecord.patches);
+        hddSaveKind = "full";
+        hddLabel = "saved (previous visit)";
+        hddIdbCurrent = false;
+        void queueHddSave(savedHdd);
+      } else if (savedRecord) {
+        savedHdd = savedRecord instanceof Uint8Array ? savedRecord : new Uint8Array(savedRecord);
+        hddSaveKind = "full";
+        hddLabel = "saved (previous visit)";
+        hddIdbCurrent = true;
+      } else {
+        await ensureFactoryHdd();
+      }
 
-    powerSwitch.disabled = false;
-    refreshHddControls();
-    // Boot straight to a running machine once firmware is ready, rather
-    // than making the visitor find and click the power switch themselves.
-    powerSwitch.checked = true;
-    await powerOn();
+      powerSwitch.disabled = false;
+      refreshHddControls();
+      // Boot straight to a running machine once firmware is ready, rather
+      // than making the visitor find and click the power switch themselves.
+      powerSwitch.checked = true;
+      await powerOn();
+    } finally {
+      endLoad();
+    }
   })().catch((err) => {
     // no on-page error surface -- the power switch simply never enables;
     // the real failure detail goes to the console for diagnosis.

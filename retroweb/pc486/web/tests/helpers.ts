@@ -96,7 +96,7 @@ export async function resetLivePage(page: Page): Promise<void> {
   const hddStatus = page.locator("#hddStatus");
   const hddText = (await hddStatus.count()) ? (await hddStatus.textContent()) || "" : "";
   const needsFactoryHdd =
-    /blank drive|takes effect next power-on/i.test(hddText);
+    /blank drive|takes effect at next power-on/i.test(hddText);
   if (needsFactoryHdd) {
     if (await power.isChecked()) await power.click({ force: true });
     const reset = page.locator("#hddResetBtn");
@@ -303,7 +303,7 @@ export async function ejectCdrom(page: Page): Promise<void> {
 }
 
 /** Fetches and mounts the shipped FreeDOS install/live CD on demand -- see
- * the Freeware Disks & Drivers panel's "Insert FreeDOS CD..." button. Not
+ * Removable media's "Insert FreeDOS CD..." button. Not
  * fetched at page load. */
 export async function loadFreedosCdrom(page: Page): Promise<void> {
   await page.locator("#freedosCdBtn").click();
