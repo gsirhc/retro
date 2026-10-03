@@ -127,6 +127,26 @@ TEST_F(SoundBlasterTest, CdRomInterfacePortsAreOpenBusWithNoDriveAttached) {
     }
 }
 
+TEST_F(SoundBlasterTest, CdGainFollowsMixerVolumeAndIsGatedByTheOutputSwitch) {
+    // Mixer 36h/37h (CD volume L/R) into the same five-bit attenuator as
+    // Voice/Line, gated by 3Ch's CD.L/CD.R output switches (bits 2/1) --
+    // same CT1745 register map atapi_cdrom.h's CD-DA output is meant to
+    // reach once it exists (PC486_REVIEW.md's "Open on the SB16" note).
+    // Default volume (0 -> -62 dB) is near-silent but the switches default
+    // closed (connected), so there is something to gate in the first place.
+    EXPECT_NEAR(sb.cd_gain_left(), 0.0f, 0.01f);
+    EXPECT_NEAR(sb.cd_gain_right(), 0.0f, 0.01f);
+    MixerWrite(0x30, 31 << 3);  // Master L: level 31 -> 0 dB, so only the CD leg is under test
+    MixerWrite(0x31, 31 << 3);  // Master R: ditto
+    MixerWrite(0x36, 31 << 3);  // CD volume L: level 31 -> 0 dB
+    MixerWrite(0x37, 31 << 3);  // CD volume R: ditto
+    EXPECT_NEAR(sb.cd_gain_left(), 1.0f, 0.01f);
+    EXPECT_NEAR(sb.cd_gain_right(), 1.0f, 0.01f);
+    MixerWrite(0x3C, 0x00);  // open every output switch
+    EXPECT_FLOAT_EQ(sb.cd_gain_left(), 0.0f) << "CD.L switch open -- the port is disconnected";
+    EXPECT_FLOAT_EQ(sb.cd_gain_right(), 0.0f) << "CD.R switch open";
+}
+
 // --- DSP reset / identification ------------------------------------------
 
 TEST_F(SoundBlasterTest, ResetPostsTheAcknowledgeByteOnlyOnTheOneToZeroTransition) {

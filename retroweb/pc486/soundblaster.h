@@ -270,6 +270,14 @@ public:
     // volume") into the same Master attenuator -- not the Voice pair above.
     float fm_gain_left() const;
     float fm_gain_right() const;
+    // The card's analog CD input leg: mixer 36h/37h ("CD volume") into the
+    // same Master attenuator, gated by the 3Ch output-switch bits (CD.L =
+    // bit 2, CD.R = bit 1 -- SBPG chapter 4's CT1745 register map) the way
+    // Line/Mic are. This is what atapi_cdrom.h's CD-DA output is meant to
+    // reach: PC486_REVIEW.md's "Open on the SB16" note that the mixer's CD
+    // input has "nothing to switch" until CD-DA exists -- it now does.
+    float cd_gain_left() const;
+    float cd_gain_right() const;
     uint8_t mixer_register(uint8_t index) const { return mixer_[index]; }
 
 private:

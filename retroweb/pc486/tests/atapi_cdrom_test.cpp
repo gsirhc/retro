@@ -15,7 +15,10 @@
 #include "atapi_cdrom.h"
 
 #include <cstdint>
+#include <cstdio>
+#include <initializer_list>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -23,6 +26,7 @@ namespace {
 using pc486::AtapiCdrom;
 
 constexpr int kSectorBytes = AtapiCdrom::kBytesPerSector;
+constexpr int kFramesPerLba = 588;  // CD-DA stereo sample pairs per 2352-byte frame
 
 // An ISO image of `blocks` 2048-byte sectors, each stamped with its own LBA
 // in the first two bytes so a test can confirm exactly which sector came
@@ -34,6 +38,42 @@ std::vector<uint8_t> MakeIso(uint32_t blocks) {
         img[std::size_t(b) * kSectorBytes + 1] = uint8_t((b >> 8) & 0xFF);
     }
     return img;
+}
+
+std::string MsfString(uint32_t lba) {
+    char buf[16];
+    std::snprintf(buf, sizeof(buf), "%02u:%02u:%02u", lba / (75 * 60), (lba / 75) % 60, lba % 75);
+    return std::string(buf);
+}
+
+// A mixed-mode CUE+BIN: track 1 is `data_blocks` MODE1/2048 sectors stamped
+// the same way MakeIso() does; track 2 is `audio_lbas` CD-DA frames of
+// interleaved 16-bit stereo, each frame's left sample set to its own frame
+// index (so a drained Sample's value identifies exactly which frame it
+// was) and right sample to the bitwise complement.
+struct CueBin {
+    std::string cue;
+    std::vector<uint8_t> bin;
+};
+CueBin MakeCueBin(uint32_t data_blocks, uint32_t audio_lbas) {
+    CueBin out;
+    out.bin = MakeIso(data_blocks);
+    const uint32_t frames = audio_lbas * uint32_t(kFramesPerLba);
+    out.bin.reserve(out.bin.size() + std::size_t(frames) * 4);
+    for (uint32_t f = 0; f < frames; ++f) {
+        const uint16_t l = uint16_t(f);
+        const uint16_t r = uint16_t(~f);
+        out.bin.push_back(uint8_t(l & 0xFF));
+        out.bin.push_back(uint8_t(l >> 8));
+        out.bin.push_back(uint8_t(r & 0xFF));
+        out.bin.push_back(uint8_t(r >> 8));
+    }
+    out.cue = "FILE \"disc.bin\" BINARY\n"
+              "  TRACK 01 MODE1/2048\n"
+              "    INDEX 01 00:00:00\n"
+              "  TRACK 02 AUDIO\n"
+              "    INDEX 01 " + MsfString(data_blocks) + "\n";
+    return out;
 }
 
 class AtapiCdromTest : public ::testing::Test {
@@ -136,6 +176,91 @@ protected:
     void MountDisc(uint32_t blocks) {
         auto img = MakeIso(blocks);
         cd.mount(img.data(), img.size());
+    }
+
+    void MountCueBin(const CueBin &cb) {
+        ASSERT_TRUE(cd.mount_cue(cb.cue.c_str(), cb.bin.data(), cb.bin.size()));
+    }
+
+    // Issues a data-OUT PACKET command (MODE SELECT(10) is the only one):
+    // the 12-byte CDB, then `param_list` through the data register the same
+    // way DrainData() reads a data-in block, just in the other direction.
+    // `cdb`'s own Parameter List Length field (bytes 7-8) must already
+    // match param_list.size().
+    void SendPacketOut(std::vector<uint8_t> cdb, std::vector<uint8_t> param_list,
+                        uint16_t limit = 0xFFFE) {
+        cdb.resize(12, 0);
+        cd.out(0x174, uint8_t(limit & 0xFF));
+        cd.out(0x175, uint8_t(limit >> 8));
+        cd.out(0x171, 0x00);
+        cd.out(0x177, 0xA0);
+        ASSERT_TRUE(Drq());
+        for (int i = 0; i < 12; i += 2) {
+            cd.data_out16(uint16_t(uint16_t(cdb[std::size_t(i)]) |
+                                   (uint16_t(cdb[std::size_t(i) + 1]) << 8)));
+        }
+        if (param_list.empty()) { RunToIdle(); return; }
+        ASSERT_TRUE(Drq()) << "device must request the parameter list via DRQ";
+        ASSERT_EQ(IntReason(), 0x00) << "C/D=0, I/O=0: data from host to device";
+        param_list.resize((param_list.size() + 1) & ~std::size_t(1), 0);
+        for (std::size_t i = 0; i < param_list.size(); i += 2) {
+            cd.data_out16(uint16_t(uint16_t(param_list[i]) | (uint16_t(param_list[i + 1]) << 8)));
+        }
+        RunToIdle();
+    }
+
+    // SFF-8020i Table 60's 16-byte Audio Control page, built from the 4
+    // ports' {channel_selection, volume} pairs.
+    static std::vector<uint8_t> AudioControlPage(
+        std::initializer_list<std::pair<uint8_t, uint8_t>> ports) {
+        std::vector<uint8_t> p(16, 0);
+        p[0] = 0x0E;
+        p[1] = 0x0E;
+        int i = 0;
+        for (auto &port : ports) {
+            p[8 + i * 2] = port.first;
+            p[9 + i * 2] = port.second;
+            ++i;
+        }
+        return p;
+    }
+
+    // ModeSelectCdb(14): opcode 55h, PF=1 (page-format parameter list), and
+    // the Parameter List Length set to match an 8-byte header + one 16-byte
+    // page.
+    static std::vector<uint8_t> ModeSelectCdb(uint16_t param_len) {
+        std::vector<uint8_t> cdb(12, 0);
+        cdb[0] = 0x55;
+        cdb[1] = 0x10;  // PF = 1
+        cdb[7] = uint8_t(param_len >> 8);
+        cdb[8] = uint8_t(param_len & 0xFF);
+        return cdb;
+    }
+
+    // Runs ticks until the drive's CD-DA engine has produced at least
+    // `want` samples (or gives up after a generous cycle budget), the
+    // audio-playback analog of RunToIdle().
+    std::vector<AtapiCdrom::Sample> RunAudioUntil(std::size_t want) {
+        std::vector<AtapiCdrom::Sample> all;
+        for (int i = 0; i < 200000 && all.size() < want; ++i) {
+            cycles_ += 64;  // small steps: 44.1kHz at 66MHz is ~1496 cycles/sample
+            cd.tick(cycles_);
+            auto drained = cd.drain_samples();
+            all.insert(all.end(), drained.begin(), drained.end());
+        }
+        return all;
+    }
+
+    // Ticks until the drive itself reports playback no longer in progress
+    // (completed, or stopped due to error) -- unlike RunAudioUntil(), which
+    // stops as soon as it has *enough* samples and so can return before a
+    // same-call completion transition has had a chance to fire.
+    void RunAudioUntilStopped() {
+        for (int i = 0; i < 200000 && cd.playing_audio(); ++i) {
+            cycles_ += 64;
+            cd.tick(cycles_);
+        }
+        ASSERT_FALSE(cd.playing_audio()) << "playback never stopped";
     }
 };
 
@@ -746,15 +871,18 @@ TEST_F(AtapiCdromTest, ModeSense10ReturnsTheCdCapabilitiesPage) {
     SendPacket({0x5A, 0, 0x2A, 0, 0, 0, 0, 0, 30, 0});
     ASSERT_FALSE(CheckCondition());
     auto d = DrainData();
-    ASSERT_EQ(d.size(), 30u);
-    EXPECT_EQ((uint16_t(d[0]) << 8) | d[1], 28) << "mode data length: total minus 2";
+    ASSERT_EQ(d.size(), 28u);
+    EXPECT_EQ((uint16_t(d[0]) << 8) | d[1], 26) << "mode data length: total minus 2";
     EXPECT_EQ((uint16_t(d[6]) << 8) | d[7], 0) << "no block descriptors";
     const uint8_t *p = &d[8];
     EXPECT_EQ(p[0] & 0x3F, 0x2A) << "page code";
-    EXPECT_EQ(p[1], 0x14) << "page length, SFF-8020i/MMC-1 form";
+    EXPECT_EQ(p[1], 0x12) << "page length, SFF-8020i Table 68: 18 more bytes, 20-byte page";
+    EXPECT_TRUE(p[4] & 0x01) << "Audio Play -- PLAY AUDIO(10)/MSF are implemented";
     EXPECT_EQ((p[6] >> 5) & 0x07, 0x01) << "loading mechanism: tray";
     EXPECT_TRUE(p[6] & 0x08) << "eject supported -- pairs with START STOP UNIT";
     EXPECT_TRUE(p[6] & 0x01) << "lock supported -- pairs with PREVENT ALLOW MEDIUM REMOVAL";
+    EXPECT_TRUE(p[7] & 0x01) << "separate volume -- mode page 0Eh's 4 independent ports";
+    EXPECT_TRUE(p[7] & 0x02) << "separate channel mute -- ditto";
     EXPECT_EQ((uint16_t(p[8]) << 8) | p[9], 353) << "2x = 2 x 176.4 KB/s";
     EXPECT_EQ((uint16_t(p[14]) << 8) | p[15], 353) << "current read speed";
 }
@@ -977,6 +1105,188 @@ TEST_F(AtapiCdromTest, DiscSurvivesAReset) {
     MountDisc(16);
     cd.reset();
     EXPECT_TRUE(cd.media_present());
+}
+
+// --- CD-DA audio playback ---------------------------------------------
+
+TEST_F(AtapiCdromTest, PlayAudio10PlaysTheAudioTrackAtTheRealSampleRate) {
+    MountCueBin(MakeCueBin(/*data_blocks=*/4, /*audio_lbas=*/2));
+    SelectDevice0();
+    ConsumeResetUnitAttention();
+    SendPacket({0x45, 0, 0, 0, 0, 4, 0, 0, 2});  // PLAY AUDIO(10), LBA 4, 2 blocks
+    EXPECT_TRUE(cd.playing_audio());
+    auto samples = RunAudioUntil(10);
+    ASSERT_GE(samples.size(), 10u);
+    for (std::size_t i = 0; i < 10; ++i) {
+        EXPECT_EQ(samples[i].left, int16_t(uint16_t(i))) << "frame " << i;
+        EXPECT_EQ(samples[i].right, int16_t(~uint16_t(i))) << "frame " << i;
+    }
+    EXPECT_LT(samples[0].cpu_cycle, samples[9].cpu_cycle) << "timestamps advance with playback";
+}
+
+TEST_F(AtapiCdromTest, PlaybackCompletesAtTheEndOfTheRequestedRange) {
+    MountCueBin(MakeCueBin(4, /*audio_lbas=*/1));  // exactly 588 frames to play
+    SelectDevice0();
+    ConsumeResetUnitAttention();
+    SendPacket({0x45, 0, 0, 0, 0, 4, 0, 0, 1});
+    auto samples = RunAudioUntil(kFramesPerLba);
+    RunAudioUntilStopped();
+    EXPECT_EQ(samples.size(), std::size_t(kFramesPerLba)) << "no samples past the requested range";
+    EXPECT_FALSE(cd.playing_audio());
+    SendPacket({0x42, 0, 0x40, 0x01, 0, 0, 0, 0, 16, 0});  // READ SUB-CHANNEL, format 01h
+    auto d = DrainData();
+    ASSERT_GE(d.size(), 2u);
+    EXPECT_EQ(d[1], 0x13) << "MMC Table 116: play operation successfully completed";
+}
+
+TEST_F(AtapiCdromTest, PauseHaltsSampleProductionAndResumeContinuesIt) {
+    MountCueBin(MakeCueBin(4, 4));
+    SelectDevice0();
+    ConsumeResetUnitAttention();
+    SendPacket({0x45, 0, 0, 0, 0, 4, 0, 0, 4});
+    (void)RunAudioUntil(5);
+    SendPacket({0x4B, 0, 0, 0, 0, 0, 0, 0, 0});  // PAUSE (Resume bit clear)
+    SendPacket({0x42, 0, 0x40, 0x01, 0, 0, 0, 0, 16, 0});
+    EXPECT_EQ(DrainData()[1], 0x12) << "paused";
+    auto while_paused = RunAudioUntil(5);
+    EXPECT_TRUE(while_paused.empty()) << "a paused drive produces no samples";
+    SendPacket({0x4B, 0, 0, 0, 0, 0, 0, 0, 0x01});  // RESUME
+    auto after_resume = RunAudioUntil(5);
+    EXPECT_FALSE(after_resume.empty());
+    SendPacket({0x42, 0, 0x40, 0x01, 0, 0, 0, 0, 16, 0});
+    EXPECT_EQ(DrainData()[1], 0x11) << "playing";
+}
+
+TEST_F(AtapiCdromTest, PauseWithNoPlayInProgressIsAnAbortedCommand) {
+    MountCueBin(MakeCueBin(4, 2));
+    SelectDevice0();
+    ConsumeResetUnitAttention();
+    SendPacket({0x4B, 0, 0, 0, 0, 0, 0, 0, 0});
+    EXPECT_TRUE(CheckCondition());
+    Sense s = RequestSense();
+    EXPECT_EQ(s.key, 0x0B) << "ABORTED COMMAND";
+    EXPECT_EQ(s.asc, 0xB9) << "PLAY OPERATION ABORTED";
+}
+
+TEST_F(AtapiCdromTest, StopPlayScanEndsPlaybackWithNoCurrentAudioStatus) {
+    MountCueBin(MakeCueBin(4, 4));
+    SelectDevice0();
+    ConsumeResetUnitAttention();
+    SendPacket({0x45, 0, 0, 0, 0, 4, 0, 0, 4});
+    SendPacket({0x4E});  // STOP PLAY/SCAN
+    EXPECT_FALSE(cd.playing_audio());
+    SendPacket({0x42, 0, 0x40, 0x01, 0, 0, 0, 0, 16, 0});
+    EXPECT_EQ(DrainData()[1], 0x15) << "no current audio status";
+}
+
+TEST_F(AtapiCdromTest, PlayAudioOnADataTrackLbaIsIllegalModeForThisTrack) {
+    MountCueBin(MakeCueBin(4, 2));
+    SelectDevice0();
+    ConsumeResetUnitAttention();
+    SendPacket({0x45, 0, 0, 0, 0, 0, 0, 0, 1});  // LBA 0 is the data track
+    EXPECT_TRUE(CheckCondition());
+    Sense s = RequestSense();
+    EXPECT_EQ(s.key, 0x05);
+    EXPECT_EQ(s.asc, 0x64) << "ILLEGAL MODE FOR THIS TRACK OR INCOMPATIBLE MEDIUM";
+}
+
+TEST_F(AtapiCdromTest, PlayAudioPastTheEndOfTheDiscIsEndOfUserArea) {
+    MountCueBin(MakeCueBin(4, 2));  // disc is 6 LBAs total (4 data + 2 audio)
+    SelectDevice0();
+    ConsumeResetUnitAttention();
+    SendPacket({0x45, 0, 0, 0, 0, 4, 0, 0, 5});  // LBA 4, 5 blocks -> runs to LBA 9
+    EXPECT_TRUE(CheckCondition());
+    Sense s = RequestSense();
+    EXPECT_EQ(s.key, 0x05);
+    EXPECT_EQ(s.asc, 0x63) << "END OF USER AREA ENCOUNTERED ON THIS TRACK";
+}
+
+TEST_F(AtapiCdromTest, ReadSubChannelReportsTheAudioTrackAndPosition) {
+    MountCueBin(MakeCueBin(4, 2));
+    SelectDevice0();
+    ConsumeResetUnitAttention();
+    SendPacket({0x45, 0, 0, 0, 0, 4, 0, 0, 2});
+    SendPacket({0x42, 0, 0x40, 0x01, 0, 0, 0, 0, 16, 0});
+    auto d = DrainData();
+    ASSERT_GE(d.size(), 16u);
+    EXPECT_EQ(d[1], 0x11) << "playing";
+    EXPECT_EQ(d[5] & 0x04, 0) << "CONTROL: audio track, not data";
+    EXPECT_EQ(d[6], 2) << "track number 2, the audio track";
+    EXPECT_EQ((uint32_t(d[8]) << 24) | (uint32_t(d[9]) << 16) | (uint32_t(d[10]) << 8) | d[11], 4u)
+        << "absolute address: just started, at LBA 4";
+    EXPECT_EQ((uint32_t(d[12]) << 24) | (uint32_t(d[13]) << 16) | (uint32_t(d[14]) << 8) | d[15], 0u)
+        << "track-relative address: 0 blocks into the track";
+}
+
+TEST_F(AtapiCdromTest, ReadTocReportsRealControlBitsForAMixedModeDisc) {
+    MountCueBin(MakeCueBin(4, 2));
+    SelectDevice0();
+    ConsumeResetUnitAttention();
+    SendPacket({0x43, 0, 0, 0, 0, 0, 0, 0, 0xFF, 0});
+    auto d = DrainData();
+    ASSERT_EQ(d.size(), 4u + 2 * 8 + 8);
+    EXPECT_EQ(d[2], 1) << "first track";
+    EXPECT_EQ(d[3], 2) << "last track";
+    EXPECT_EQ(d[5], 0x14) << "track 1 CONTROL: data";
+    EXPECT_EQ(d[6], 1);
+    EXPECT_EQ(d[13], 0x10) << "track 2 CONTROL: audio";
+    EXPECT_EQ(d[14], 2);
+    EXPECT_EQ(d[22], 0xAA) << "lead-out pseudo-track";
+    EXPECT_EQ((uint32_t(d[24]) << 24) | (uint32_t(d[25]) << 16) | (uint32_t(d[26]) << 8) | d[27], 6u)
+        << "lead-out at the whole disc's end, not just the data track's";
+}
+
+TEST_F(AtapiCdromTest, DefaultAudioPortsRouteBothChannelsAtFullVolume) {
+    // SFF-8020i Table 60: ports 0/1 default FFh (mandatory), and every real
+    // drive wires them straight through so audio is audible with no MODE
+    // SELECT at all.
+    MountCueBin(MakeCueBin(4, 2));
+    SelectDevice0();
+    ConsumeResetUnitAttention();
+    SendPacket({0x5A, 0, 0x0E, 0, 0, 0, 0, 0, 30, 0});
+    auto d = DrainData();
+    ASSERT_GE(d.size(), 8u + 16u);
+    const uint8_t *p = &d[8];
+    EXPECT_EQ(p[8] & 0x0F, 0x01) << "port 0 <- channel 0 (left)";
+    EXPECT_EQ(p[9], 0xFF);
+    EXPECT_EQ(p[10] & 0x0F, 0x02) << "port 1 <- channel 1 (right)";
+    EXPECT_EQ(p[11], 0xFF);
+    EXPECT_EQ(p[13], 0x00) << "port 2: optional, defaults muted";
+    EXPECT_EQ(p[15], 0x00) << "port 3: ditto";
+}
+
+TEST_F(AtapiCdromTest, ModeSelectAudioControlPageSetsPortsAndReadsBack) {
+    MountCueBin(MakeCueBin(4, 2));
+    SelectDevice0();
+    ConsumeResetUnitAttention();
+    auto page = AudioControlPage({{0x02, 0x80}, {0x01, 0x40}});  // swap L/R, half volume
+    std::vector<uint8_t> list(8, 0);
+    list.insert(list.end(), page.begin(), page.end());
+    SendPacketOut(ModeSelectCdb(uint16_t(list.size())), list);
+    EXPECT_FALSE(CheckCondition());
+    SendPacket({0x5A, 0, 0x0E, 0, 0, 0, 0, 0, 30, 0});
+    auto d = DrainData();
+    const uint8_t *p = &d[8];
+    EXPECT_EQ(p[8] & 0x0F, 0x02);
+    EXPECT_EQ(p[9], 0x80);
+    EXPECT_EQ(p[10] & 0x0F, 0x01);
+    EXPECT_EQ(p[11], 0x40);
+}
+
+TEST_F(AtapiCdromTest, ModeSelectRejectsAnythingOtherThanTheAudioControlPage) {
+    MountCueBin(MakeCueBin(4, 2));
+    SelectDevice0();
+    ConsumeResetUnitAttention();
+    std::vector<uint8_t> bad_page(16, 0);
+    bad_page[0] = 0x0D;  // CD-ROM Parameters page, not Audio Control
+    bad_page[1] = 0x0E;
+    std::vector<uint8_t> list(8, 0);
+    list.insert(list.end(), bad_page.begin(), bad_page.end());
+    SendPacketOut(ModeSelectCdb(uint16_t(list.size())), list);
+    EXPECT_TRUE(CheckCondition());
+    Sense s = RequestSense();
+    EXPECT_EQ(s.key, 0x05);
+    EXPECT_EQ(s.asc, 0x24) << "INVALID FIELD IN CDB";
 }
 
 TEST_F(AtapiCdromTest, MountTruncatesAPartialTrailingSector) {

@@ -265,6 +265,17 @@ float SoundBlaster::fm_gain_right() const {
            two_bit_boost_gain(mixer_[0x42]);
 }
 
+float SoundBlaster::cd_gain_left() const {
+    if (!(mixer_[0x3C] & 0x04)) return 0.0f;  // CD.L output switch open
+    return five_bit_gain(mixer_[0x30]) * five_bit_gain(mixer_[0x36]) *
+           two_bit_boost_gain(mixer_[0x41]);
+}
+float SoundBlaster::cd_gain_right() const {
+    if (!(mixer_[0x3C] & 0x02)) return 0.0f;  // CD.R output switch open
+    return five_bit_gain(mixer_[0x31]) * five_bit_gain(mixer_[0x37]) *
+           two_bit_boost_gain(mixer_[0x42]);
+}
+
 uint8_t SoundBlaster::mixer_read(uint8_t index) const {
     switch (index) {
         case 0x82: {
