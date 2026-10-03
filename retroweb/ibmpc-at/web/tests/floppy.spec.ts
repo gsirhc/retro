@@ -17,6 +17,12 @@ test.describe("floppy drives", () => {
     const bayA = bay(page, 0);
     const bayB = bay(page, 1);
 
+    await expect(bayA).toHaveClass(/bay-525/);
+    await expect(bayA.locator(".floppy-door")).toBeVisible();
+    await expect(bayB).toHaveClass(/bay-525/);
+    await expect(bayB.locator(".floppy-door")).toBeVisible();
+    await expect(page.locator(".at-drives .bay-rail")).toHaveCount(1);
+
     await expect(bayA).not.toHaveClass(/loaded/);
     const labelA = bayA.locator('[data-role="label"]');
     await expect(labelA).toHaveClass(/empty/);
@@ -30,7 +36,7 @@ test.describe("floppy drives", () => {
     await expect(bayB.locator('[data-role="eject"]')).toBeDisabled();
   });
 
-  test("inserting a diskette into drive A loads it and enables Eject", async ({ page }) => {
+  test("inserting a diskette into drive A loads it and enables the latch eject", async ({ page }) => {
     await boot(page);
 
     const imagePath = makeBlankImage(4096);
@@ -101,5 +107,30 @@ test.describe("floppy drives", () => {
     await expect(bayB).not.toHaveClass(/loaded/);
     await expect(labelB).toHaveClass(/empty/);
     await expect(bayB.locator('[data-role="eject"]')).toBeDisabled();
+  });
+
+  test("load overlay shows while a floppy image is being read", async ({ page }) => {
+    await boot(page);
+    await expect(page.locator("#loadOverlay")).not.toHaveClass(/visible/);
+
+    // Delay File.arrayBuffer so the overlay is observable -- a 4KB test
+    // image otherwise finishes in the same turn as setInputFiles.
+    await page.evaluate(() => {
+      const orig = File.prototype.arrayBuffer;
+      File.prototype.arrayBuffer = function () {
+        return new Promise((resolve, reject) => {
+          setTimeout(() => {
+            orig.call(this).then(resolve, reject);
+          }, 400);
+        });
+      };
+    });
+
+    const imagePath = makeBlankImage(4096);
+    const done = insertFloppy(page, 0, imagePath);
+    await expect(page.locator("#loadOverlay")).toHaveClass(/visible/);
+    await expect(page.locator("#loadOverlayLabel")).toHaveText(/Loading floppy/);
+    await done;
+    await expect(page.locator("#loadOverlay")).not.toHaveClass(/visible/);
   });
 });

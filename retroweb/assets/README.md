@@ -23,17 +23,12 @@
   to match; the 3-column tile crop (`object-fit: cover`, left-anchored)
   keeps the badge and power LED in frame.
 
-  `.at-case` also contains each drive bay's own page-UI controls
-  (`.at-bay-ctl` -- the Insert.../Eject buttons and filename/status text),
-  nested right alongside the visual drive slot for this page's own layout
-  convenience. Unlike `altair8800`'s `#altair .fp-case` (which has no
-  controls inside it at all), a bare screenshot of `.at-case` picks up that
-  UI chrome too -- an earlier version of this thumbnail did exactly that,
-  which is why it read as cluttered/button-covered next to the other two
-  cards' clean hardware-only shots. Hide `.at-bay-ctl` first (inject
-  `.at-bay-ctl { display: none !important; }`) so the screenshot shows only
-  the case, switch, and drive slots -- real hardware has no such buttons to
-  begin with.
+  `.at-case` also contains each drive bay's page-UI chrome (`.at-bay-ctl`
+  -- the A:/B: letter and filename/status text under each faceplate).
+  Unlike `altair8800`'s `#altair .fp-case` (which has no controls inside
+  it at all), a bare screenshot of `.at-case` picks that up too. Hide
+  `.at-bay-ctl` first (inject `.at-bay-ctl { display: none !important; }`)
+  so the screenshot shows only the case, switch, and drive faceplates.
 
   To regenerate: build the front end (`make -C ../ibmpc-at/web`, plus
   `roms`/`hdd-image` if not already built), serve it, load `/?test=1`, wait

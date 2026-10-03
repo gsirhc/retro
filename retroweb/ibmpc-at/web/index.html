@@ -109,6 +109,17 @@
   code { color: var(--link); }
   .filebtn { position: relative; overflow: hidden; display: inline-block; }
   .filebtn input[type=file] { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; }
+  .media-table {
+    border-collapse: collapse; font-size: 14px; color: var(--dim);
+  }
+  .media-table td {
+    text-align: left; padding: 2px 16px 2px 0; border: 0; vertical-align: top;
+  }
+  .media-table td:first-child {
+    text-align: right;
+    font-weight: 700; color: var(--text);
+    white-space: nowrap; padding-right: 20px;
+  }
 
   /* #fsEscHint, .focus-hint, and the #bezel:fullscreen/.bezel-controls/
      .bezel-btn/#escBtn fullscreen mechanism all now live in
@@ -150,6 +161,28 @@
     background: radial-gradient(150% 150% at 50% 45%, rgba(0,0,0,0) 82%, rgba(0,0,0,.10) 100%),
       repeating-linear-gradient(0deg, rgba(0,0,0,.05) 0 1px, rgba(0,0,0,0) 1px 4px);
     box-shadow: inset 0 0 18px rgba(0,0,0,.14);
+  }
+  /* Covers the screen while a large image is fetched or read (first-visit
+     HDD download, floppy insert) so a multi-second hang is not silent. */
+  .load-overlay {
+    position: absolute; left: 18px; right: 18px; top: 16px; bottom: 16px;
+    z-index: 8; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 12px;
+    background: rgba(0,0,0,.7); color: #fff; border-radius: 2px;
+    opacity: 0; visibility: hidden; pointer-events: none;
+    transition: opacity .15s ease;
+  }
+  .load-overlay.visible {
+    opacity: 1; visibility: visible; pointer-events: auto;
+  }
+  .load-spinner {
+    width: 36px; height: 36px; border-radius: 50%;
+    border: 3px solid rgba(255,255,255,.25); border-top-color: #fff;
+    animation: load-spin .75s linear infinite;
+  }
+  @keyframes load-spin { to { transform: rotate(360deg); } }
+  .load-overlay .load-label {
+    font: 600 12px Arial, Helvetica, sans-serif; letter-spacing: .03em;
   }
   .power-led {
     position: absolute; right: 13px; bottom: 7px; width: 6px; height: 6px; border-radius: 50%;
@@ -194,22 +227,26 @@
      runs much wider than that, so without a cap the case would stretch
      far wider here than it ever appears anywhere else. */
   :root[data-theme="modern"] .at-case { max-width: 920px; margin: 0 auto; }
-  /* left cluster (badge, LEDs+switch, grille) is still the wider side of
-     a real 5170's bezel, but not overwhelmingly so -- function over
-     exact-photo form, so the drive bays get a little more breathing
-     room than a strict 3/4 split would leave them. */
+  /* left cluster (badge, LEDs+switch, grille) is the wider side of a
+     real 5170's bezel -- roughly 2/3, so the drive stack sits over on
+     the right the way the real fascia does. */
   .at-left {
-    flex: 2 1 0%; min-width: 0;
+    flex: 3 1 0%; min-width: 0;
     display: flex; flex-direction: column; gap: 10px;
   }
   .at-plate {
     font: 700 12px Arial, Helvetica, sans-serif; letter-spacing: 1px; color: #2b2b28;
     text-shadow: 0 1px 0 rgba(255,255,255,.5);
+    /* same left inset as .at-vents so the badge lines up with the grille */
+    margin-left: 16px;
   }
   .at-plate span { display: block; margin-top: 2px; font: 400 10px Arial, Helvetica, sans-serif; color: #6b6450; letter-spacing: .3px; }
   /* indicator lights + power switch sit above the grille, like the real
      machine's own keylock/LED cluster -- not buried below it. */
-  .at-toprow { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .at-toprow {
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    margin-left: 16px;
+  }
   /* each indicator light sits in its own small recessed black box, like
      the real panel's instrument cluster -- not a bare dot floating on
      the case plastic. */
@@ -253,42 +290,138 @@
   .at-switch-group input:focus-visible + .at-switch { outline: 2px solid var(--link); outline-offset: 2px; }
   .at-switch-label { font: 700 10px Arial, Helvetica, sans-serif; letter-spacing: .5px; text-transform: uppercase; }
 
-  /* two stacked half-height 5.25" drive bays, matching the real machine --
-     a narrow column (roughly 1/4 of the case width) next to the wider
-     grille/badge cluster, not an equal-width split. */
-  .at-drives { flex: 1 1 0%; min-width: 230px; display: flex; flex-direction: column; gap: 10px; justify-content: center; }
+  /* two stacked half-height 5.25" drive bays in a recessed well on the
+     right of the fascia (~1/3 width). Whole faceplate inserts; the
+     rotating latch ejects (no separate eject button on these drives). */
+  .at-drives {
+    flex: 0 1 32%; min-width: 220px; max-width: 300px;
+    display: flex; flex-direction: column; gap: 0; justify-content: center;
+    margin-left: auto;
+  }
+  /* Recessed cutout the two faceplates sit in -- same warm beige family
+     as .at-case / .at-vents, just a shade darker so it reads as a well. */
+  .at-drive-stack {
+    display: flex; flex-direction: column; gap: 0;
+    padding: 4px; border-radius: 2px;
+    background: linear-gradient(180deg, #c9c0a6, #b8ae94);
+    box-shadow:
+      inset 0 2px 5px rgba(0,0,0,.35),
+      inset 0 0 0 1px #8f886f;
+  }
   .at-bay {
-    background: linear-gradient(180deg, #ded6bf, #b8ae94);
-    border-radius: 2px; padding: 10px 12px;
-    box-shadow: inset 0 0 0 1px #f2ecd8, inset 0 0 0 2px #8f886f, 0 2px 5px rgba(0,0,0,.3);
+    background: transparent; border-radius: 0; padding: 0;
+    box-shadow: none;
+  }
+  /* Thin seam between the two drive faceplates. */
+  .bay-rail {
+    flex: 0 0 auto; height: 1px;
+    background: #8f886f;
+    box-shadow: 0 1px 0 rgba(255,255,255,.2);
   }
   .at-drive-face { display: flex; align-items: center; gap: 8px; }
-  .drive-letter { font: 700 13px "Courier New", monospace; color: #55503f; flex: 0 0 auto; }
-  /* the drive slot -- a real 5.25" half-height drive's horizontal opening.
-     Sized closer to a genuine half-height bay's actual proportions (a
-     drive this size reads as a real physical unit, not a thin control
-     strip) -- also what set the grille-vs-drive ratio right: the two
-     bays now occupy roughly the case-front area they really would. */
-  .at-slot {
-    flex: 1; position: relative; height: 30px; border-radius: 1px;
-    background: linear-gradient(#0d0d0d, #2a2a2a 45%, #0d0d0d);
-    box-shadow: inset 0 0 0 1px #000, inset 0 1px 3px rgba(0,0,0,.9);
+  .drive-letter {
+    font: 700 11px "Courier New", monospace; color: #55503f;
+    flex: 0 0 auto; line-height: 1;
+    text-shadow: 0 1px 0 rgba(255,255,255,.35);
   }
-  .at-slot::after {
-    content: ""; position: absolute; left: 6px; right: 6px; top: 50%; height: 1px;
-    transform: translateY(-50%); background: #000; box-shadow: 0 1px 0 #3a3a3a;
+
+  /* 5.25" half-height faceplate matched to a real 5170 Teac-style bay:
+     thin centered slot, wide horizontal latch well just above it
+     (closed lever drops across the slot), small LED hole to the right.
+     Whole faceplate inserts; the latch is the only eject control. */
+  .at-bay.bay-525 .at-drive-face { align-items: stretch; }
+  .floppy-door {
+    flex: 1; position: relative; height: 52px; border-radius: 1px;
+    background: #cfc6ae;
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,.28),
+      inset 0 -1px 0 rgba(0,0,0,.18);
   }
-  .at-bay.loaded .at-slot { background: linear-gradient(#1c1a12, #3a3320 45%, #1c1a12); }
-  /* the drive's latch lever -- rotate down to seat a diskette, the real
-     mechanism on a drive of this vintage (a squeeze-latch is later/newer) */
-  .at-latch {
-    width: 18px; height: 10px; border-radius: 1px; flex: 0 0 auto;
-    background: linear-gradient(#9a9488, #6b6558);
-    box-shadow: 0 1px 1px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.35);
+  /* Wide, shallow finger pocket sitting just above the slot -- left of
+     center, same proportions as the real latch recess in the photo. */
+  .floppy-latch-well {
+    position: absolute; left: 16%; top: 8px; z-index: 3;
+    width: 38%; height: 18px; border-radius: 2px;
+    background: linear-gradient(180deg, #a89f88, #b8ae94 55%, #c4bb9f);
+    box-shadow:
+      inset 0 2px 3px rgba(0,0,0,.4),
+      inset 0 -1px 0 rgba(255,255,255,.15);
+    pointer-events: none;
   }
-  /* the drive-bay column is comparatively narrow (see .at-drives above) --
-     let the label take its own full line and the buttons wrap below it
-     rather than cramming both into one row and truncating the label. */
+  /* Horizontal latch handle. Sized so a 90° close drops it across the
+     slot mouth without overshooting the faceplate. */
+  .floppy-eject {
+    position: absolute; left: 4px; top: 4px; z-index: 4;
+    width: 26px; height: 10px; padding: 0; border: 0;
+    border-radius: 5px;
+    cursor: pointer;
+    pointer-events: auto;
+    background: linear-gradient(180deg, #e8e1cb 0%, #d8cfb6 45%, #c9c0a6 100%);
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,.55),
+      inset 0 -1px 1px rgba(0,0,0,.2),
+      0 1px 1px rgba(0,0,0,.25);
+    transform-origin: 5px 5px;
+    transition: transform .18s ease, filter .12s ease, box-shadow .12s ease;
+  }
+  .floppy-eject:hover:not(:disabled) { filter: brightness(1.04); }
+  .floppy-eject:active:not(:disabled) {
+    filter: brightness(.97);
+    box-shadow:
+      inset 0 1px 2px rgba(0,0,0,.3),
+      0 0 0 rgba(0,0,0,0);
+  }
+  /* Empty bay: let clicks fall through the latch onto the faceplate
+     insert target (there is no disk to eject). */
+  .floppy-eject:disabled { cursor: default; filter: none; pointer-events: none; }
+  /* Small LED hole, right of the latch, same band as the pocket. */
+  .at-bay.bay-525 .drive-led {
+    position: absolute; left: 60%; top: 13px; z-index: 2;
+    width: 6px; height: 6px; border-radius: 50%; flex: none;
+    background: radial-gradient(circle at 40% 35%, #2a261c, #0e0c08 70%);
+    box-shadow:
+      inset 0 1px 2px rgba(0,0,0,.9),
+      0 0 0 1px #9a9178;
+    pointer-events: none;
+  }
+  .at-bay.bay-525 .drive-led.on {
+    background: radial-gradient(circle at 40% 35%, #ffb199, #ff3300 55%, #b32200);
+    box-shadow: 0 0 6px 2px rgba(255,60,20,.75), inset 0 0 1px rgba(0,0,0,.3);
+  }
+  /* Whole faceplate is the insert hit-target. The black slot is just
+     the visual opening -- thin, nearly full-width, vertically centered. */
+  .floppy-insert {
+    position: absolute; inset: 0;
+    margin: 0; padding: 0; cursor: pointer; z-index: 1;
+  }
+  .floppy-insert input[type=file] {
+    position: absolute; inset: 0; opacity: 0; cursor: pointer;
+    width: 100%; height: 100%; z-index: 2;
+  }
+  .floppy-slot-well {
+    position: absolute; left: 5%; right: 5%; top: 28px; height: 3px;
+    border-radius: 0; pointer-events: none;
+    background: #0a0a0a;
+    box-shadow:
+      inset 0 1px 1px rgba(0,0,0,.95),
+      0 1px 0 rgba(255,255,255,.18);
+    transition: background .18s ease, filter .12s ease;
+  }
+  .floppy-insert:hover .floppy-slot-well { filter: brightness(1.35); }
+  /* Closed latch hangs down across the slot (pivot at the left of the
+     pocket; bar length reaches past the slot line). */
+  .at-bay.bay-525.loaded .floppy-eject {
+    transform: rotate(90deg);
+  }
+  .at-bay.bay-525.loaded .floppy-slot-well {
+    background: #1c1a12;
+  }
+  .at-bay.bay-525 .at-bay-ctl {
+    display: flex; flex-wrap: nowrap; align-items: center; gap: 6px;
+    margin-top: 3px; min-width: 0;
+  }
+  .at-bay.bay-525 .drive-label { flex: 1 1 auto; }
+
   .at-bay-ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin-top: 6px; }
   .drive-label { font: 11px "Courier New", monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #2b2b28; flex: 1 1 100%; min-width: 0; }
   .drive-label.empty { color: #7a7358; font-style: italic; }
@@ -309,7 +442,8 @@
     box-shadow: 0 0 8px 3px rgba(50,220,90,.85), inset 0 0 1px rgba(0,0,0,.5);
   }
 
-  .footer { margin-top: 26px; color: var(--dim); font-size: 12px; text-align: center; padding-bottom: 24px; }
+  .footer { margin-top: 0; color: var(--dim); font-size: 12px; text-align: center; padding: 0 0 4px; }
+  .footer p { margin: 2px 0; }
   /* "Last built" (wasm's own server mtime) vs. web94's period-appropriate
      "Page last modified" phrasing -- same mechanism/wording split as
      altair8800's and assembler6502's own footers. */
@@ -356,6 +490,10 @@
           <canvas id="screen" width="640" height="350" tabindex="0" aria-label="EGA display -- click to type"></canvas>
           <div class="crt-overlay"></div>
           <div class="focus-hint" id="focusHint" aria-hidden="true">Click to focus</div>
+          <div class="load-overlay" id="loadOverlay" aria-hidden="true" role="status">
+            <div class="load-spinner" aria-hidden="true"></div>
+            <span class="load-label" id="loadOverlayLabel">Loading&hellip;</span>
+          </div>
           <span class="power-led"></span>
           <div class="bezel-controls">
             <button type="button" id="escBtn" class="bezel-btn" data-key="Escape"
@@ -434,30 +572,43 @@
           <div class="at-vents" aria-hidden="true"></div>
         </div>
         <div class="at-drives">
-          <div class="at-bay" data-drive="0">
-            <div class="at-drive-face">
-              <span class="drive-letter">A:</span>
-              <div class="at-slot" data-role="slot"></div>
-              <span class="at-latch" aria-hidden="true"></span>
-              <span class="drive-led" data-role="led" title="Activity"></span>
+          <div class="at-drive-stack">
+            <div class="at-bay bay-525" data-drive="0">
+              <div class="at-drive-face">
+                <div class="floppy-door" data-role="slot">
+                  <label class="floppy-insert" title="Insert diskette">
+                    <div class="floppy-slot-well" aria-hidden="true"></div>
+                    <input type="file" accept=".img,.IMG" data-role="file" aria-label="Insert diskette">
+                  </label>
+                  <div class="floppy-latch-well">
+                    <button type="button" class="floppy-eject" data-role="eject" title="Eject" aria-label="Eject" disabled></button>
+                  </div>
+                  <span class="drive-led" data-role="led" title="Activity"></span>
+                </div>
+              </div>
+              <div class="at-bay-ctl">
+                <span class="drive-letter">A:</span>
+                <span class="drive-label empty" data-role="label">empty (1.2MB, 5.25&Prime;)</span>
+              </div>
             </div>
-            <div class="at-bay-ctl">
-              <span class="drive-label empty" data-role="label">empty (1.2MB, 5.25&Prime;)</span>
-              <label class="filebtn"><button type="button" tabindex="-1">Insert&hellip;</button><input type="file" accept=".img,.IMG" data-role="file"></label>
-              <button type="button" data-role="eject" disabled>Eject</button>
-            </div>
-          </div>
-          <div class="at-bay" data-drive="1">
-            <div class="at-drive-face">
-              <span class="drive-letter">B:</span>
-              <div class="at-slot" data-role="slot"></div>
-              <span class="at-latch" aria-hidden="true"></span>
-              <span class="drive-led" data-role="led" title="Activity"></span>
-            </div>
-            <div class="at-bay-ctl">
-              <span class="drive-label empty" data-role="label">empty (360KB, 5.25&Prime;)</span>
-              <label class="filebtn"><button type="button" tabindex="-1">Insert&hellip;</button><input type="file" accept=".img,.IMG" data-role="file"></label>
-              <button type="button" data-role="eject" disabled>Eject</button>
+            <div class="bay-rail" aria-hidden="true"></div>
+            <div class="at-bay bay-525" data-drive="1">
+              <div class="at-drive-face">
+                <div class="floppy-door" data-role="slot">
+                  <label class="floppy-insert" title="Insert diskette">
+                    <div class="floppy-slot-well" aria-hidden="true"></div>
+                    <input type="file" accept=".img,.IMG" data-role="file" aria-label="Insert diskette">
+                  </label>
+                  <div class="floppy-latch-well">
+                    <button type="button" class="floppy-eject" data-role="eject" title="Eject" aria-label="Eject" disabled></button>
+                  </div>
+                  <span class="drive-led" data-role="led" title="Activity"></span>
+                </div>
+              </div>
+              <div class="at-bay-ctl">
+                <span class="drive-letter">B:</span>
+                <span class="drive-label empty" data-role="label">empty (360KB, 5.25&Prime;)</span>
+              </div>
             </div>
           </div>
         </div>
@@ -472,57 +623,48 @@
       <div class="row">
         <button type="button" id="hddResetBtn" disabled>Reset to factory FreeDOS</button>
         <button type="button" id="hddBlankBtn" disabled>Mount blank drive&hellip;</button>
-        <span class="muted">Changes you make while running (FORMAT, COPY, installing
-          software) are saved automatically in this browser every few seconds or on
-          power off, and restored on your next visit. Both take effect at the next
-          power-on -- a real fixed disk can't be swapped while the machine is
-          running.</span>
+      </div>
+      <div class="row">
+        <span class="muted">You must power off to change the hard drive.</span>
       </div>
       <div class="row">
         <button type="button" id="hddDownloadBtn" disabled>Download image&hellip;</button>
         <label class="filebtn"><button type="button" id="hddUploadBtn" tabindex="-1" disabled>Upload image&hellip;</button><input type="file" accept=".img,.IMG" id="hddUploadInput" disabled></label>
-        <span class="muted">A real file on your own disk, independent of this browser's
-          storage -- download it as a backup, or upload a previously-downloaded (or
-          otherwise obtained) image to use as C:. Also takes effect at the next
-          power-on.</span>
+        <span class="muted">The hard drive is saved in this browser for later.
+          Use Download to back it up or move it to another computer.</span>
       </div>
     </div>
 
     <div class="panel" id="floppyInfoCard">
       <h2>Floppy drives</h2>
-      <div class="row">
-        <span class="muted">Two real 5.25&Prime; drives, matching the genuine 5170:
-          drive A is 1.2MB, drive B is 360KB. Mount a raw .IMG of exactly one of
-          those two sizes -- 3.5&Prime; formats (720KB, 1.44MB) and other 5.25&Prime;
-          densities aren't supported and will misread even if the file loads.</span>
-      </div>
+      <table class="media-table">
+        <tr><td>A:</td><td>5.25&Prime; 1.2MB floppy</td><td>Mount a raw .IMG</td></tr>
+        <tr><td>B:</td><td>5.25&Prime; 360KB floppy</td><td>Mount a raw .IMG</td></tr>
+      </table>
+      <p class="muted">You'll need to provide your own disk images. Commercial
+        software isn't hosted here (see Help for more info).</p>
     </div>
 
     <div class="panel" id="softwareCompatCard">
-      <h2>Software compatibility</h2>
-      <div class="row">
-        <span class="muted">Ships with FreeDOS 1.3 on C:, and runs real PC-DOS/
-          MS-DOS 3.x-era software the same way -- this is a genuine real-mode
-          80286, so nothing requiring protected mode (DOS 5+ memory managers,
-          Windows) will run. Keyboard and the internal PC speaker only: no
-          mouse, no sound card.</span>
-      </div>
-      <div class="row">
-        <span class="muted">Disk images aren't included or hosted here --
-          commercial software remains copyrighted. You'll need to find your
-          own compatible disk image (see Floppy drives above for the formats
-          this machine's drives can read) and mount it yourself.</span>
-      </div>
+      <h2>System specs</h2>
+      <table class="media-table">
+        <tr><td>CPU</td><td>80286 (8 MHz), real mode</td></tr>
+        <tr><td>RAM</td><td>640 KB conventional</td></tr>
+        <tr><td>Modes</td><td>Real mode only (no protected mode)</td></tr>
+        <tr><td>Graphics</td><td>EGA</td></tr>
+        <tr><td>Sound</td><td>PC speaker</td></tr>
+        <tr><td>Storage</td><td>30 MB HDD (WD1003), 5.25&Prime; floppy A: 1.2MB / B: 360KB (NEC 765)</td></tr>
+        <tr><td>Input</td><td>Keyboard only</td></tr>
+        <tr><td>OS</td><td>Ships with FreeDOS 1.3, compatible with PC-DOS / MS-DOS 3.x</td></tr>
+        <tr><td>Not included</td><td>Mouse, sound card, protected-mode software (DOS 5+ memory managers, Windows)</td></tr>
+      </table>
     </div>
 
     <hr class="rule">
     <div class="footer">
-      <p>Recreates a real IBM PC/AT (5170-339): 80286 real-mode CPU, chipset,
-        WD1003 hard disk, NEC 765 floppy controller, EGA graphics, PC speaker --
-        the source and hardware findings live in
+      <p>Source:
         <a href="https://github.com/gsirhc/retro/tree/main/retroweb/ibmpc-at" target="_blank" rel="noopener">retroweb/ibmpc-at/</a>
-        (<a href="https://github.com/gsirhc/retro/blob/main/retroweb/ibmpc-at/IBM_PCAT_REVIEW.md" target="_blank" rel="noopener">hardware notes</a>).
-        BIOS/VGA BIOS and FreeDOS are freely-licensed stand-ins for IBM's still-copyrighted originals.</p>
+        (<a href="https://github.com/gsirhc/retro/blob/main/retroweb/ibmpc-at/IBM_PCAT_REVIEW.md" target="_blank" rel="noopener">hardware notes</a>)</p>
       <p><i><span class="fb-built">Last built </span><span class="fb-mod">Page last modified: </span><span id="buildDate">&hellip;</span></i></p>
     </div>
   </div>

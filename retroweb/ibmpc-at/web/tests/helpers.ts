@@ -165,11 +165,18 @@ export function bay(page: Page, drive: 0 | 1) {
 }
 
 export async function insertFloppy(page: Page, drive: 0 | 1, filePath: string): Promise<void> {
-  await bay(page, drive).locator('[data-role="file"]').setInputFiles(filePath);
+  const b = bay(page, drive);
+  // withLoad is async (paint + arrayBuffer + mount) -- wait for the bay
+  // to actually show loaded, not just for setInputFiles to return.
+  await b.locator('[data-role="file"]').setInputFiles(filePath);
+  await expect(b).toHaveClass(/loaded/);
+  await expect(page.locator("#loadOverlay")).not.toHaveClass(/visible/);
 }
 
 export async function ejectFloppy(page: Page, drive: 0 | 1): Promise<void> {
-  await bay(page, drive).locator('[data-role="eject"]').click();
+  const b = bay(page, drive);
+  await b.locator('[data-role="eject"]').click();
+  await expect(b).not.toHaveClass(/loaded/);
 }
 
 /** Byte length of C:'s current image (factory, blank, or written-to). */

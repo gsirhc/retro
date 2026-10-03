@@ -157,6 +157,41 @@
     isRunning,
   });
 
+  // Screen overlay while a large image is downloaded or read into memory.
+  // Nestable: overlapping HDD + floppy loads keep it up until the last one
+  // finishes. Two rAFs after show give the spinner a chance to paint before
+  // a sync wasm mount freezes the main thread.
+  const loadOverlayEl = document.getElementById("loadOverlay");
+  const loadOverlayLabel = document.getElementById("loadOverlayLabel");
+  let loadBusyDepth = 0;
+  function beginLoad(msg) {
+    loadBusyDepth++;
+    if (msg) loadOverlayLabel.textContent = msg;
+    loadOverlayEl.classList.add("visible");
+    loadOverlayEl.setAttribute("aria-hidden", "false");
+  }
+  function endLoad() {
+    loadBusyDepth = Math.max(0, loadBusyDepth - 1);
+    if (loadBusyDepth === 0) {
+      loadOverlayEl.classList.remove("visible");
+      loadOverlayEl.setAttribute("aria-hidden", "true");
+    }
+  }
+  function paintLoadOverlay() {
+    return new Promise((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(resolve));
+    });
+  }
+  async function withLoad(msg, fn) {
+    beginLoad(msg);
+    try {
+      await paintLoadOverlay();
+      return await fn();
+    } finally {
+      endLoad();
+    }
+  }
+
   // ---- floppy drives ------------------------------------------------
   // A real floppy is a mechanical slot: you can insert or eject one
   // whether the machine is powered on or off (pendingFloppy, populated
@@ -186,10 +221,12 @@
       const f = fileInput.files[0];
       fileInput.value = "";
       if (!f) return;
-      const bytes = new Uint8Array(await f.arrayBuffer());
-      pendingFloppy[drive] = { name: f.name, bytes };
-      if (machine) machine.mountFloppy(drive, bytes);
-      setBayLoaded(bay, f.name);
+      await withLoad("Loading floppy\u2026", async () => {
+        const bytes = new Uint8Array(await f.arrayBuffer());
+        pendingFloppy[drive] = { name: f.name, bytes };
+        if (machine) machine.mountFloppy(drive, bytes);
+        setBayLoaded(bay, f.name);
+      });
     });
     ejectBtn.addEventListener("click", () => {
       // A real 88-DCDD-style swappable drive: if the session actually
@@ -536,26 +573,28 @@
     const f = hddUploadInput.files[0];
     hddUploadInput.value = "";
     if (!f || !firmware) return;
-    const bytes = new Uint8Array(await f.arrayBuffer());
-    // This system's WD1003 geometry (733 cyl/5 head/17 sec, see wd1003.cpp)
-    // is fixed in CMOS, not derived from the image the way the floppy
-    // controller now derives its own geometry from media size (see
-    // IBM_PCAT_REVIEW.md §27) -- a real fixed disk doesn't change shape
-    // depending on what's written to it. An image of the wrong size would
-    // still fail safely (wd1003.cpp's own bounds check reports a genuine
-    // IDNF error rather than silently doing nothing), but refusing it
-    // up front gives a clearer reason than a mysterious disk error deep
-    // into a boot.
-    if (bytes.byteLength !== firmware.hdd.byteLength) {
-      alert("That file is " + bytes.byteLength + " bytes; this machine's hard disk " +
-            "must be exactly " + firmware.hdd.byteLength + " bytes (733 cyl / 5 head / " +
-            "17 sec/track). Not mounted.");
-      return;
-    }
-    savedHdd = bytes;
-    hddLabel = "uploaded image (" + f.name + ") -- takes effect next power-on";
-    refreshHddControls();
-    saveHdd(savedHdd);
+    await withLoad("Loading hard disk\u2026", async () => {
+      const bytes = new Uint8Array(await f.arrayBuffer());
+      // This system's WD1003 geometry (733 cyl/5 head/17 sec, see wd1003.cpp)
+      // is fixed in CMOS, not derived from the image the way the floppy
+      // controller now derives its own geometry from media size (see
+      // IBM_PCAT_REVIEW.md §27) -- a real fixed disk doesn't change shape
+      // depending on what's written to it. An image of the wrong size would
+      // still fail safely (wd1003.cpp's own bounds check reports a genuine
+      // IDNF error rather than silently doing nothing), but refusing it
+      // up front gives a clearer reason than a mysterious disk error deep
+      // into a boot.
+      if (bytes.byteLength !== firmware.hdd.byteLength) {
+        alert("That file is " + bytes.byteLength + " bytes; this machine's hard disk " +
+              "must be exactly " + firmware.hdd.byteLength + " bytes (733 cyl / 5 head / " +
+              "17 sec/track). Not mounted.");
+        return;
+      }
+      savedHdd = bytes;
+      hddLabel = "uploaded image (" + f.name + ") -- takes effect next power-on";
+      refreshHddControls();
+      await saveHdd(savedHdd);
+    });
   });
 
   function remountPendingFloppies() {
@@ -584,7 +623,12 @@
     refreshFkeyControls();
     updateFocusHint();  // e.g. the auto power-on at boot never focuses the screen itself
     if (new URLSearchParams(location.search).get("test") === "1") {
-      window.__test = { machine, sendKey, screenEl };
+      window.__test = {
+        machine, sendKey, screenEl,
+        get loadOverlayVisible() { return loadOverlayEl.classList.contains("visible"); },
+        get loadOverlayText() { return loadOverlayLabel.textContent; },
+        beginLoad, endLoad,
+      };
     }
   }
 
@@ -720,25 +764,31 @@
   // so there's no reason to gate it behind the power switch: fetch starts
   // immediately, and flipping power on is instant once it's done.
   (async () => {
-    const [Module, savedHddResult, bios, vga, hdd] = await Promise.all([
-      IbmPcAt({}),
-      loadSavedHdd(),
-      fetch("roms/BIOS-bochs-legacy").then((r) => r.arrayBuffer()),
-      fetch("roms/VGABIOS-lgpl-latest.bin").then((r) => r.arrayBuffer()),
-      fetch("disks/freedos-hdd.img").then((r) => r.arrayBuffer()),
-    ]);
-    firmware = { Module, bios, vga, hdd };
-    if (savedHddResult) {
-      savedHdd = savedHddResult;
-      hddLabel = "saved state (from a previous visit)";
-    }
+    beginLoad("Loading\u2026");
+    try {
+      await paintLoadOverlay();
+      const [Module, savedHddResult, bios, vga, hdd] = await Promise.all([
+        IbmPcAt({}),
+        loadSavedHdd(),
+        fetch("roms/BIOS-bochs-legacy").then((r) => r.arrayBuffer()),
+        fetch("roms/VGABIOS-lgpl-latest.bin").then((r) => r.arrayBuffer()),
+        fetch("disks/freedos-hdd.img").then((r) => r.arrayBuffer()),
+      ]);
+      firmware = { Module, bios, vga, hdd };
+      if (savedHddResult) {
+        savedHdd = savedHddResult;
+        hddLabel = "saved state (from a previous visit)";
+      }
 
-    powerSwitch.disabled = false;
-    refreshHddControls();
-    // Boot straight to a running machine once firmware is ready, rather
-    // than making the visitor find and click the power switch themselves.
-    powerSwitch.checked = true;
-    powerOn();
+      powerSwitch.disabled = false;
+      refreshHddControls();
+      // Boot straight to a running machine once firmware is ready, rather
+      // than making the visitor find and click the power switch themselves.
+      powerSwitch.checked = true;
+      powerOn();
+    } finally {
+      endLoad();
+    }
   })().catch((err) => {
     // no on-page error surface -- the power switch simply never enables;
     // the real failure detail goes to the console for diagnosis.
