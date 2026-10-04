@@ -6150,3 +6150,30 @@ via `mcopy -s`), `fsck_msdos` found nothing, the partition table and BPB
 match FreeDOS's own byte for byte, and `hdd_boot_check` boots it to `C:\>`
 with the kernel reporting a 244MB C:.
 
+
+## 38. Making the nightly suite honest on a slow CI runner
+
+Three nightly failures, none from §37.
+
+**FM quality measured the runner, not the code.** `fmquality.spec.ts`
+heard its 309.5 Hz tone at 294-296 Hz on every nightly CI run and passed
+locally. A 3x CPU throttle reproduces the exact number: the guest still
+keeps real pace, but the main thread posts audio late, so the SB16
+worklet does what it is built to do -- slow playback up to 4% or hold,
+rather than drop out. That's a deliberate trade, so the test now asks the
+real question. The worklet's capture records the guest cycle each output
+sample played (`__test.sbCaptureCyc`), and every period of the tone is
+checked in guest time: 213,247 cycles, under 5% of periods off. The
+as-heard pitch and jitter checks still run, but only when the capture
+shows the host kept real speed with no starved hold. Verified across 1x-4x
+throttles, and against two sabotaged worklets: a per-post placement error
+fails at both 1x and 3x.
+
+**Panel order counted a hidden panel.** `drivers.spec.ts` counted the
+hidden Performance panel that `79a7b00` moved between the front panel and
+the hard disk panel. It now counts visible panels only.
+
+**Smoke pacing measured start-up.** The real-speed check started its
+2-second window the instant the machine was live, while a slow runner was
+still tiering up the wasm and writing the first C: to IndexedDB. It now
+waits a second first.

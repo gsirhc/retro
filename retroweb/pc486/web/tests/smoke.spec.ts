@@ -12,6 +12,9 @@ test.describe("real-speed smoke test", () => {
     // Skip the (slow, at real speed) wait for a live prompt -- this test
     // only needs the machine running, not fully booted.
     await bootLive(page, { realtime: true });
+    // Let page start-up settle first (wasm tier-up, the first C: write to
+    // IndexedDB), which a slow CI runner can still be busy with.
+    await page.waitForTimeout(1000);
 
     const c0 = await page.evaluate(() => (window as any).__test.machine.totalCycles());
     const t0 = Date.now();

@@ -1072,7 +1072,7 @@
   // `?audiotrace` capture buffer -- see the window.__audio hook below. Null
   // unless a visitor started one, so the pump pays one null check for it.
   let audioTrace = null, audioTraceMax = 0;
-  let sbCapture = null;
+  let sbCapture = null, sbCaptureCyc = null;
 
   // CT1745 mixer tone controls (SBPG chapter 4): registers 44h/45h (Treble
   // L/R) and 46h/47h (Bass L/R), 4 bits in the value's high nibble like the
@@ -1282,7 +1282,7 @@
           if (d.cdCyc) this.push(this.cd, d.cdCyc, d.cdL, d.cdR);
           // Diagnostic capture of what actually reaches the device, for
           // web/tests/fmquality.spec.ts. Off unless asked for.
-          if (d.startCapture) { this.capture = []; this.captureMax = d.startCapture; }
+          if (d.startCapture) { this.capture = []; this.captureCyc = []; this.captureMax = d.startCapture; }
         };
       }
 
@@ -1373,13 +1373,16 @@
                      this.cd.lastL * this.gain.cdL) / 32768;
           outR[i] = (this.sb.lastR * this.gain.sbR + this.fm.lastR * this.gain.fmR +
                      this.cd.lastR * this.gain.cdR) / 32768;
+          // The guest cycle each captured sample played, so a test can check
+          // placement in guest time whatever pace the trim chose.
+          if (this.capture && this.captureCyc.length < this.captureMax) this.captureCyc.push(this.playCycle);
         }
         if (this.capture) {
           for (let i = 0; i < outL.length && this.capture.length < this.captureMax; i++) {
             this.capture.push(outL[i]);
           }
           if (this.capture.length >= this.captureMax) {
-            this.port.postMessage({ capture: this.capture });
+            this.port.postMessage({ capture: this.capture, captureCyc: this.captureCyc });
             this.capture = null;
           }
         }
@@ -1458,7 +1461,10 @@
     sbNode.port.onmessage = (e) => {
       if (!e.data) return;
       if (e.data.stats) audioStats = e.data.stats;
-      if (e.data.capture) sbCapture = e.data.capture;
+      if (e.data.capture) {
+        sbCapture = e.data.capture;
+        sbCaptureCyc = e.data.captureCyc;
+      }
     };
     sbGainNode = audioCtx.createGain();
     sbGainNode.gain.value = wheelGain(Number(sbVolume.value));
@@ -2822,6 +2828,8 @@
         get hasSbCapture() { return sbCapture !== null; },
         startSbCapture: (n) => { sbCapture = null; sbNode.port.postMessage({ startCapture: n || 48000 }); },
         takeSbCapture: () => { const c = sbCapture; sbCapture = null; return c; },
+        // The guest cycle each sample of the last capture played.
+        get sbCaptureCyc() { return sbCaptureCyc; },
         get audioSampleRate() { return audioCtx ? audioCtx.sampleRate : null; },
         get sbRingMs() {
           return audioStats && audioCtx ? (audioStats.depth / audioCtx.sampleRate) * 1000 : null;

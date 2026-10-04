@@ -13,7 +13,8 @@ test.describe("Freeware Disks & Drivers", () => {
       const ids = ["frontPanelCard", "hddCard", "floppyInfoCard"];
       return ids.map((id) => {
         const el = document.getElementById(id);
-        return el ? Array.from(document.querySelectorAll(".panel")).indexOf(el) : -1;
+        // Hidden panels (the Performance panel without ?perf) aren't on the page.
+        return el ? Array.from(document.querySelectorAll(".panel:not([hidden])")).indexOf(el) : -1;
       });
     });
     expect(order[0]).toBeGreaterThanOrEqual(0);
