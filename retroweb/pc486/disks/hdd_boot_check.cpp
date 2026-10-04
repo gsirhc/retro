@@ -70,10 +70,10 @@ int main(int argc, char **argv) {
     {
         auto hdd = ReadFile(argv[3]);
         if (hdd.empty()) { std::fprintf(stderr, "cannot open %s\n", argv[3]); return 2; }
-        const std::size_t kExpected = 1024ULL * 16 * 63 * 512;  // 528,482,304
+        const std::size_t kExpected = pc486::Wd1003::kImageBytes;  // 255,974,400
         if (hdd.size() != kExpected) {
             std::fprintf(stderr, "FAILED: %s is %zu bytes, expected exactly %zu "
-                                 "(1024 cyl / 16 head / 63 sec)\n", argv[3], hdd.size(), kExpected);
+                                 "(1010 cyl / 9 head / 55 sec)\n", argv[3], hdd.size(), kExpected);
             return 1;
         }
         // Boot sector must carry the 55 AA signature or the BIOS will not

@@ -33,7 +33,7 @@ public:
     // Seeds CMOS with the configuration this machine would have left the
     // factory (or a BIOS Setup run) already holding: base + extended memory
     // size, the single 3.5" floppy drive type, the equipment byte, the
-    // boot-device sequence, and the 504MB fixed-disk geometry -- see
+    // boot-device sequence, and the 256MB fixed-disk geometry -- see
     // chipset's device defaults and PC486_REVIEW.md for the values' own
     // rationale. Called once, at construction, not on every reset() --
     // matching real non-volatile CMOS behavior.

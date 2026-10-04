@@ -1,5 +1,5 @@
 // GoogleTest suite for the top-level Machine: factory CMOS seeding for
-// this machine's own geometry (1.44MB floppy, 504MB HDD, 32MB RAM),
+// this machine's own geometry (1.44MB floppy, 256MB HDD, 32MB RAM),
 // run_cycles() progress, a full PIT-channel-0 -> PIC IRQ0 -> CPU interrupt
 // -> handler round trip (including waking a HLTed CPU), and the keyboard-
 // controller reset trick resetting the CPU without corrupting the
@@ -50,7 +50,11 @@ TEST(MachineTest, ConstructorSeedsFactoryCmosConfiguration) {
     EXPECT_EQ(m.chipset.cmos.peek(0x35), 0x01);
     EXPECT_EQ(m.chipset.cmos.peek(0x3D) & 0x0F, 0x01);         // 1st boot device = floppy
     EXPECT_EQ((m.chipset.cmos.peek(0x3D) >> 4) & 0x0F, 0x02);  // 2nd = hard disk fallback
-    EXPECT_EQ(m.chipset.cmos.peek(0x1D), 16);  // fixed-disk heads -- see wd1003.h's 504MB geometry
+    // Type 47 fixed-disk geometry: the WD Caviar AC2250's 1010/9/55.
+    EXPECT_EQ(m.chipset.cmos.peek(0x19), 47);
+    EXPECT_EQ(m.chipset.cmos.peek(0x1B) | (m.chipset.cmos.peek(0x1C) << 8), 1010);
+    EXPECT_EQ(m.chipset.cmos.peek(0x1D), 9);
+    EXPECT_EQ(m.chipset.cmos.peek(0x23), 55);
     // Checksum (0x2E/0x2F) covers 0x10-0x2D and must stay internally
     // consistent with whatever's actually in that range.
     uint16_t sum = 0;

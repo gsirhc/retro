@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <utility>
 
 namespace pc486 {
 
@@ -30,24 +31,23 @@ void Wd1003::reset() {
 }
 
 void Wd1003::mount(int drive, const uint8_t *data, std::size_t len) {
+    mount(drive, std::vector<uint8_t>(data, data + len));
+}
+
+void Wd1003::mount(int drive, std::vector<uint8_t> &&image) {
     Drive &d = drives[drive & 1];
-    d.image.assign(data, data + len);
+    d.image = std::move(image);
+    std::size_t len = d.image.size();
     d.present = true;
     d.dirty = false;
     d.dirty_page.assign((len + Drive::kDirtyPageSize - 1) / Drive::kDirtyPageSize, false);
-    // 504MB geometry -- this system's only fixed-disk configuration, and
-    // deliberately the exact pre-EIDE CHS ceiling rather than a round
-    // number: 1024 cyl x 16 head x 63 sec = 1,032,192 sectors =
-    // 528,482,304 bytes = 504MB. INT 13h packs the cylinder in 10 bits
-    // (max 1024) and the sector in 6 bits (max 63, 1-based), while the ATA
-    // task file allows 65536 cyl / 16 head / 255 sec; the intersection of
-    // the two addressing schemes is exactly this geometry, which is why
-    // "maxed out" 1993-94 IDE drives landed on 504MB (the well-documented
-    // 504MB/528-million-byte barrier that EIDE LBA translation was
-    // introduced to break). See PC486_REVIEW.md.
-    d.cylinders = 1024;
-    d.heads = 16;
-    d.sectors_per_track = 63;
+    // A Western Digital Caviar AC2250 (1993-94, 256MB): its documented
+    // translated setup geometry is 1010 cyl x 9 head x 55 sec = 499,950
+    // sectors = 255,974,400 bytes. Sources: WD's Caviar drive-parameter
+    // table and the AC-2250 entry on stason.org's hard-drive reference.
+    d.cylinders = kCylinders;
+    d.heads = kHeads;
+    d.sectors_per_track = kSectorsPerTrack;
 }
 
 bool Wd1003::owns(uint16_t port) const {
@@ -254,7 +254,7 @@ void Wd1003::do_identify() {
     put16(6, uint16_t(d.sectors_per_track));
     put_string(10, 10, "0");                  // serial number
     put_string(23, 4, "1.0");                  // firmware revision
-    put_string(27, 20, "RETROWEB IDE 504MB");  // model number
+    put_string(27, 20, "WDC AC2250");          // model number
     long total = d.capacity_sectors();
     put16(60, uint16_t(total & 0xFFFF));
     put16(61, uint16_t((total >> 16) & 0xFFFF));

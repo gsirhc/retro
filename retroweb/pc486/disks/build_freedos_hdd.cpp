@@ -16,7 +16,7 @@
 // Usage:
 //   build_freedos_hdd <bios> <vgabios> <boot.img> <cd.iso> <out.img> [max_cycles]
 //
-// <out.img> receives the finished 1024/16/63, 528,482,304-byte raw HDD
+// <out.img> receives the finished 1010/9/55, 255,974,400-byte raw HDD
 // image once the installer reports completion (or the cycle budget runs
 // out first, in which case this prints a clear failure and exits non-zero
 // -- callers must not silently accept a partial image). Running the real
@@ -178,11 +178,11 @@ int main(int argc, char **argv) {
     }
 
     // A genuinely blank, factory-fresh fixed disk -- no partition table, no
-    // filesystem. 1024 cyl / 16 head / 63 sec, the pre-EIDE CHS ceiling
+    // filesystem. The WD Caviar AC2250's 1010 cyl / 9 head / 55 sec, which
     // Wd1003::mount() and configure_factory_cmos() both describe. Everything
     // from here on is what the real installer itself writes.
     {
-        std::vector<uint8_t> blank_hdd(1024ULL * 16 * 63 * 512, 0);
+        std::vector<uint8_t> blank_hdd(pc486::Wd1003::kImageBytes, 0);
         m.chipset.hdd.mount(0, blank_hdd.data(), blank_hdd.size());
     }
 

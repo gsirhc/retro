@@ -57,7 +57,7 @@ export async function bootLive(
  * Restore a shared live page between tests: powered on, no media in the
  * bays, convenience checkboxes off, not fullscreen. Used by the worker-
  * scoped `livePage` / `perfPage` fixtures so dozens of specs can share one
- * 504MB HDD mount instead of remounting per test.
+ * 256MB HDD mount instead of remounting per test.
  */
 export async function resetLivePage(page: Page): Promise<void> {
   // Shared livePage can leave the Esc hint dialog open and/or the bezel
@@ -141,7 +141,7 @@ export async function resetLivePage(page: Page): Promise<void> {
 
   // Theme / one-shot hints live in localStorage for the life of the shared
   // page -- clear them so "first visit" and "defaults to Windows 95" tests
-  // see a clean slate without remounting the 504MB HDD. (Boot-notice
+  // see a clean slate without remounting the 256MB HDD. (Boot-notice
   // re-arm needs a power cycle; the notice test does that itself.)
   // Do NOT hint.close() here: that listener enters fullscreen (handled above).
   await page.evaluate(() => {

@@ -37,9 +37,9 @@
 //    Machine::configure_factory_cmos() *also* seeds the
 //    classic CMOS "Type 47 user-definable" geometry bytes this same BIOS
 //    separately reads into a legacy EBDA parameter table -- both paths
-//    must describe the identical 1024 cyl / 16 head / 63 sec geometry
-//    (504MB, the genuine pre-EIDE INT 13h CHS ceiling -- see mount()),
-//    so nothing is inconsistent.
+//    must describe the identical 1010 cyl / 9 head / 55 sec geometry
+//    (a WD Caviar AC2250, 256MB -- see mount()), so nothing is
+//    inconsistent.
 //  - A READ SECTORS command is paced to the real MFM transfer rate
 //    (~625,000 bytes/sec, a representative ST-506/412-interface figure)
 //    via a single accumulated byte-credit target, then executed as one
@@ -71,6 +71,13 @@ namespace pc486 {
 
 class Wd1003 {
 public:
+    // WD Caviar AC2250's translated (BIOS setup) geometry -- see mount().
+    static constexpr int kCylinders = 1010;
+    static constexpr int kHeads = 9;
+    static constexpr int kSectorsPerTrack = 55;
+    static constexpr std::size_t kImageBytes =
+        std::size_t(kCylinders) * kHeads * kSectorsPerTrack * 512;
+
     struct Drive {
         std::vector<uint8_t> image;
         bool present = false;
@@ -124,6 +131,8 @@ public:
     // matching a real fixed disk that ships already formatted from the
     // factory, not a swappable-media device.
     void mount(int drive, const uint8_t *data, std::size_t len);
+    // Takes ownership of `image` instead of copying it.
+    void mount(int drive, std::vector<uint8_t> &&image);
 
     // Host/front-end convenience: true while an actual command is being
     // serviced (BSY asserted) or a READ/WRITE SECTORS transfer is paced
@@ -151,7 +160,7 @@ public:
     // pages. A real fixed disk never needs a "what changed" query -- this
     // exists purely so periodic browser-side persistence (see app.js's
     // persistHddIfDirty()) can copy and store only what a session actually
-    // wrote instead of re-copying and re-storing all 504MB every time,
+    // wrote instead of re-copying and re-storing the whole image every time,
     // which measured 180-350ms of main-thread stall on this machine's
     // shipped image size, enough to underrun the audio ring buffer. See
     // PC486_REVIEW.md.

@@ -33,9 +33,6 @@ HDD=freedos-hdd.img
 OUT=ctmouse.img
 # CuteMouse 2.1b4's ctmouse.exe, the build FreeDOS 1.3 packages.
 CTMOUSE_SHA=822cf550c9e19a22785722d2306aa08ede10ff20bfe931d5a81a15f77c5f363e
-# The FreeDOS image's single partition starts at LBA 63 (see its MBR); mtools
-# addresses a partition inside an image with the @@<byte offset> suffix.
-PART_OFFSET=32256
 # CTMOUSE.EXE sits in BIN itself; its two diagnostics in the BIN/CTMOUSE
 # subdirectory alongside the localized builds.
 BIN_DIR="::/FREEDOS/BIN"
@@ -53,6 +50,10 @@ fi
 # mtools refuses a disk image whose geometry it cannot infer; the images here
 # are plain sector dumps, which is exactly the case this skips the check for.
 export MTOOLS_SKIP_CHECK=1
+
+# mtools addresses a partition inside an image with the @@<byte offset>
+# suffix; the single partition's start LBA is in the MBR's first entry.
+PART_OFFSET=$(( $(od -An -t u4 -j 454 -N 4 "$HDD" | tr -d ' ') * 512 ))
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT

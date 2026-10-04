@@ -1210,7 +1210,7 @@
   // persistHddIfDirty()'s full-disk-image copy off the wasm heap (the
   // "periodic HDD autosave's array copy" the PC speaker's own comment above
   // names) -- 180-350 ms in a real headless Chromium run against this
-  // machine's 504 MB image, EVERY 5 seconds whenever anything on C: was
+  // machine's old 504 MB image, EVERY 5 seconds whenever anything on C: was
   // written. persistHddIfDirty() now patches only the sectors a session
   // actually wrote (wd1003.h's dirty_ranges()), so that specific 180-350ms/5s
   // hit is gone in the common case -- typical DOS writes are a handful of
@@ -2373,218 +2373,49 @@
     requestAnimationFrame(frame);
   }
 
-  // ---- hard disk persistence (IndexedDB) ---------------------------------
+  // ---- hard disk persistence (IndexedDB, in hdd-worker.js) ---------------
   // A real fixed disk keeps its contents when the machine is off; this
   // emulator's own Machine is fully discarded on power-off (see the power
-  // switch section below), so without this C: would silently revert to
-  // whatever it was mount()ed with every single power-on. One record in
-  // one object store -- there's only ever one C: drive to remember.
-  const HDD_DB_NAME = "pc486-hdd", HDD_STORE = "hdd", HDD_KEY = "c-drive";
-  // Pristine factory FreeDOS bytes, stashed on first download so a
-  // factory-delta C: can reconstruct across reloads without touching the
-  // network (Cache API silently refuses a 504MB put on some hosts).
-  const HDD_FACTORY_KEY = "factory-base";
-  function openHddDb() {
-    return new Promise((resolve, reject) => {
-      const req = indexedDB.open(HDD_DB_NAME, 1);
-      req.onupgradeneeded = () => req.result.createObjectStore(HDD_STORE);
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => reject(req.error);
-    });
-  }
-  // IDB value is either a full Uint8Array (blank / upload / legacy) or a
-  // factory-delta record: { v:1, base:"factory", patches:[{offset, bytes}] }.
-  // Deltas are what a normal FreeDOS session writes (FDAUTO, a few files) --
-  // putting the whole 504MB image every dirty tick froze the main thread for
-  // minutes in Playwright and was the wrong default for visitors too.
-  function isFactoryDeltaRecord(raw) {
-    return !!(raw && raw.v === 1 && raw.base === "factory" && Array.isArray(raw.patches));
-  }
-  async function loadSavedHddRecord() {
-    try {
-      const db = await openHddDb();
-      const rec = await new Promise((resolve, reject) => {
-        const tx = db.transaction(HDD_STORE, "readonly");
-        const req = tx.objectStore(HDD_STORE).get(HDD_KEY);
-        req.onsuccess = () => resolve(req.result || null);
-        req.onerror = () => reject(req.error);
-      });
-      if (rec instanceof Blob) return await gunzipBlob(rec);
-      if (rec) return rec;  // raw bytes, or a factory-delta record, from an older build
-      // A save written in 512KB chunks by the build before this one.
-      const meta = await getLegacyChunkMeta();
-      if (meta && meta.v === 1 && meta.chunks > 0) {
-        const out = new Uint8Array(meta.length);
-        for (let i = 0; i < meta.chunks; i++) {
-          const chunk = await new Promise((resolve, reject) => {
-            const tx = db.transaction(HDD_STORE, "readonly");
-            const req = tx.objectStore(HDD_STORE).get(HDD_KEY + ":" + i);
-            req.onsuccess = () => resolve(req.result || null);
-            req.onerror = () => reject(req.error);
-          });
-          if (!chunk) return null;  // incomplete -- treat as no save
-          out.set(chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk), i * meta.chunkSize);
-        }
-        return out;
-      }
-      return null;
-    } catch (err) {
-      console.error("could not read saved hard disk, using factory default:", err);
-      return null;
-    }
-  }
-  async function loadFactoryFromIdb() {
-    try {
-      const db = await openHddDb();
-      const meta = await new Promise((resolve, reject) => {
-        const tx = db.transaction(HDD_STORE, "readonly");
-        const req = tx.objectStore(HDD_STORE).get(FACTORY_META_KEY);
-        req.onsuccess = () => resolve(req.result || null);
-        req.onerror = () => reject(req.error);
-      });
-      if (meta && meta.v === 1 && meta.chunks > 0) {
-        const out = new Uint8Array(meta.length);
-        for (let i = 0; i < meta.chunks; i++) {
-          const chunk = await new Promise((resolve, reject) => {
-            const tx = db.transaction(HDD_STORE, "readonly");
-            const req = tx.objectStore(HDD_STORE).get(HDD_FACTORY_KEY + ":" + i);
-            req.onsuccess = () => resolve(req.result || null);
-            req.onerror = () => reject(req.error);
-          });
-          if (!chunk) return null;
-          const u8 = chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk);
-          out.set(u8, i * meta.chunkSize);
-        }
-        return out;
-      }
-      // Legacy single-blob / Uint8Array stash from an earlier session.
-      return await new Promise((resolve, reject) => {
-        const tx = db.transaction(HDD_STORE, "readonly");
-        const req = tx.objectStore(HDD_STORE).get(HDD_FACTORY_KEY);
-        req.onsuccess = () => resolve(req.result || null);
-        req.onerror = () => reject(req.error);
-      });
-    } catch (_) {
-      return null;
-    }
-  }
-  let factoryIdbChain = Promise.resolve();
-  let factoryIdbCurrent = false;
-  // Chunk the factory stash so a single IndexedDB put never freezes the
-  // main thread for hundreds of ms (smoke.spec.ts's longtask budget is
-  // 150ms; a one-shot 504MB put blew past that during realtime boot).
-  const FACTORY_CHUNK = 512 * 1024;
-  const FACTORY_META_KEY = "factory-base-meta";
-  function stashFactoryInIdb(bytes, fp) {
-    if (factoryIdbCurrent || !bytes) return factoryIdbChain;
-    factoryIdbChain = factoryIdbChain.then(async () => {
-      if (factoryIdbCurrent) return;
-      let u8;
-      if (bytes instanceof Uint8Array) u8 = bytes;
-      else if (bytes instanceof ArrayBuffer) u8 = new Uint8Array(bytes);
-      else if (bytes instanceof Blob) u8 = new Uint8Array(await bytes.arrayBuffer());
-      else u8 = new Uint8Array(bytes);
-      const db = await openHddDb();
-      const n = Math.ceil(u8.length / FACTORY_CHUNK) || 1;
-      for (let i = 0; i < n; i++) {
-        const chunk = u8.slice(i * FACTORY_CHUNK, Math.min((i + 1) * FACTORY_CHUNK, u8.length));
-        await new Promise((resolve, reject) => {
-          const tx = db.transaction(HDD_STORE, "readwrite");
-          tx.objectStore(HDD_STORE).put(chunk, HDD_FACTORY_KEY + ":" + i);
-          tx.oncomplete = resolve;
-          tx.onerror = () => reject(tx.error);
+  // switch section below), so C: is mirrored to IndexedDB. hdd-worker.js
+  // owns that database, so saves, loads, and the one-time conversion of an
+  // old 504MB C: never run on this thread next to the emulator.
+  const hddWorker = (() => {
+    const worker = new Worker("hdd-worker.js");
+    const pending = new Map();
+    let nextId = 1;
+    const api = {
+      onProgress: null,
+      call(op, args, transfer) {
+        const id = nextId++;
+        return new Promise((resolve, reject) => {
+          pending.set(id, { resolve, reject });
+          worker.postMessage({ id, op, args }, transfer || []);
         });
-        // Yield so rAF / input / the smoke longtask observer see a gap.
-        await new Promise((r) => setTimeout(r, 0));
+      },
+    };
+    worker.onmessage = (e) => {
+      const m = e.data;
+      if (m.progress) {
+        if (api.onProgress) api.onProgress(m.progress);
+        return;
       }
-      await new Promise((resolve, reject) => {
-        const tx = db.transaction(HDD_STORE, "readwrite");
-        const store = tx.objectStore(HDD_STORE);
-        // fp: the fingerprint ensureFactoryHdd() last confirmed these bytes
-        // against (null/unknown if it never got a successful HEAD this
-        // session) -- see factoryFingerprint() above.
-        store.put({ v: 1, chunks: n, length: u8.length, chunkSize: FACTORY_CHUNK, fp: fp || null }, FACTORY_META_KEY);
-        store.delete(HDD_FACTORY_KEY);  // legacy single-blob key, if any
-        tx.oncomplete = resolve;
-        tx.onerror = () => reject(tx.error);
-      });
-      factoryIdbCurrent = true;
-    }).catch((err) => {
-      console.error("could not stash factory hard disk:", err);
-    });
-    return factoryIdbChain;
-  }
-  // C: is stored gzipped as a single Blob under HDD_KEY, matching
-  // ibmpc-at's one-entry shape. Raw, this image is 504MB -- far too big for
-  // one structured clone -- but it is mostly zeros, so gzip takes it to a few
-  // MB in about a second, and a Blob is stored by reference rather than
-  // deep-copied (measured: 10ms, against 31ms for one array and 36ms for the
-  // 512KB chunking this replaces).
-  async function gzipBytes(u8) {
-    const cs = new CompressionStream("gzip");
-    const stream = new Blob([u8]).stream().pipeThrough(cs);
-    return await new Response(stream).blob();
-  }
-  async function gunzipBlob(blob) {
-    const ds = new DecompressionStream("gzip");
-    const buf = await new Response(blob.stream().pipeThrough(ds)).arrayBuffer();
-    return new Uint8Array(buf);
-  }
-  async function saveHdd(record) {
-    try {
-      const u8 = record instanceof Uint8Array ? record : new Uint8Array(record);
-      const blob = await gzipBytes(u8);
-      const db = await openHddDb();
-      await new Promise((resolve, reject) => {
-        const tx = db.transaction(HDD_STORE, "readwrite");
-        tx.objectStore(HDD_STORE).put(blob, HDD_KEY);
-        tx.oncomplete = resolve;
-        tx.onerror = () => reject(tx.error);
-      });
-      await dropLegacyHddChunks();
-    } catch (err) {
-      console.error("could not save hard disk changes:", err);
+      const p = pending.get(m.id);
+      pending.delete(m.id);
+      if (m.ok) p.resolve(m.result);
+      else p.reject(new Error(m.error));
+    };
+    worker.onerror = (e) => {
+      console.error("hard disk worker failed:", e.message);
+      for (const p of pending.values()) p.reject(new Error(e.message));
+      pending.clear();
+    };
+    return api;
+  })();
+  hddWorker.onProgress = ({ fraction }) => {
+    if (loadBusyDepth > 0) {
+      loadOverlayLabel.textContent = "Converting hard disk to 256MB\u2026 " + Math.floor(fraction * 100) + "%";
     }
-  }
-  // Chunk records written by the build that stored C: uncompressed.
-  const HDD_CHUNK_META = "hdd-meta";
-  function getLegacyChunkMeta() {
-    return openHddDb().then((db) => new Promise((resolve, reject) => {
-      const tx = db.transaction(HDD_STORE, "readonly");
-      const req = tx.objectStore(HDD_STORE).get(HDD_CHUNK_META);
-      req.onsuccess = () => resolve(req.result || null);
-      req.onerror = () => reject(req.error);
-    })).catch(() => null);
-  }
-  async function dropLegacyHddChunks() {
-    const meta = await getLegacyChunkMeta();
-    if (!meta || meta.v !== 1) return;
-    const db = await openHddDb();
-    await new Promise((resolve, reject) => {
-      const tx = db.transaction(HDD_STORE, "readwrite");
-      const store = tx.objectStore(HDD_STORE);
-      for (let i = 0; i < meta.chunks; i++) store.delete(HDD_KEY + ":" + i);
-      store.delete(HDD_CHUNK_META);
-      tx.oncomplete = resolve;
-      tx.onerror = () => reject(tx.error);
-    });
-  }
-  async function clearSavedHdd() {
-    try {
-      const db = await openHddDb();
-      await dropLegacyHddChunks();
-      await new Promise((resolve, reject) => {
-        const tx = db.transaction(HDD_STORE, "readwrite");
-        // Leave HDD_FACTORY_KEY alone -- a "Reset to factory" still wants
-        // the pristine image locally so the next power-on is not a download.
-        tx.objectStore(HDD_STORE).delete(HDD_KEY);
-        tx.oncomplete = resolve;
-        tx.onerror = () => reject(tx.error);
-      });
-    } catch (err) {
-      console.error("could not clear saved hard disk:", err);
-    }
-  }
+  };
 
   // ---- power switch (off by default) -------------------------------------
   // Flipping power off cuts power to everything -- RAM (and so every bit of
@@ -2652,10 +2483,11 @@
   let poweredOn = false;
   syncTurboChrome();  // start dark until the first power-on
   let firmware = null;  // {Module, bios, vga, hdd} once fetched -- fetched once, reused every power-on
-  // 1024 cyl x 16 head x 63 sec/track x 512 bytes -- this machine's one
-  // fixed C: geometry (wd1003.cpp), known without needing the actual
-  // factory FreeDOS bytes downloaded yet.
-  const kHddImageBytes = 528482304;
+  // The WD Caviar AC2250's 1010 cyl x 9 head x 55 sec x 512 bytes
+  // (wd1003.h), and the 1024/16/63 drive older builds saved, which
+  // hdd-convert.js converts.
+  const kHddImageBytes = 255974400;
+  const kLegacyHddImageBytes = 528482304;
   let pendingFloppy = null;  // {name, bytes} -- "what's physically in the drive" (this system's one bay)
   let pendingCdrom = null;   // {name, bytes} for a plain ISO, or {name, cueText, bin}
                              // for a mounted CUE+BIN -- same idea, for the CD-ROM bay
@@ -2667,34 +2499,25 @@
     if (machine) machine.reset();
   });
 
-  // What C: actually mounts next power-on: a saved image from IndexedDB
-  // (whatever it last held -- factory FreeDOS with changes, a blank drive
-  // mid-install, or a real OS the visitor installed themselves) if one
-  // exists, otherwise the pristine fetched factory image. `hddLabel`
-  // exists purely to describe that choice in the status line below.
-  let savedHdd = null;   // Uint8Array | null
-  // True when IndexedDB already holds the current `savedHdd` mirror.
-  let hddIdbCurrent = false;
-  // "factory" = IDB holds a delta against the shipped FreeDOS image (Cache
-  // API keeps that image across reloads so we never re-fetch it). "full" =
-  // IDB holds the entire Uint8Array (blank drive, user upload, legacy).
-  let hddSaveKind = null;  // "factory" | "full" | null
-  // offset → bytes for the factory-delta record; rebuilt on load, merged
-  // on every dirty persist. Cleared when the visitor blanks/uploads/resets.
+  // What C: mounts next power-on. `pendingHdd` is an image already read for
+  // it at page load, so power-on doesn't read it twice; otherwise power-on
+  // asks the worker, and with nothing saved it mounts the factory image and
+  // hands those bytes to the worker as the new C:.
+  let pendingHdd = null;  // Uint8Array | null
   let hddLabel = "FreeDOS (default)";
-  // Lazily populated -- only fetched when a session actually needs the
-  // pristine factory image (no IndexedDB C: yet, or "Reset to factory").
-  // Starting the fetch eagerly used to download ~7MB gzip on every reload
-  // even when savedHdd already covered the mount (see ensureFactoryHdd).
-  // Survives reloads via the Cache API so a factory-delta IDB record can
-  // reconstruct C: without touching the network again.
+  // Set while an old 504MB save that couldn't be converted is still stored.
+  let legacyHddNote = null;
+  const kLegacyHddNote = "Your old 504MB C: couldn't be converted to 256MB. Download it before you reset.";
+  let legacyConvertFailed = false;  // don't retry it at every power-on
+  // Only fetched when a session actually needs the pristine factory image
+  // (nothing saved yet, or "Reset to factory").
   let factoryHddPromise = null;
   function factoryHddUrl() {
     return new URL("disks/freedos-hdd.img", location.href).href;
   }
   // Cheap identity for whatever freedos-hdd.img the server is currently
-  // shipping, so a stash from a build that has since been replaced can be
-  // told apart from a current one -- without downloading the 504MB body.
+  // shipping, so an untouched C: seeded from an older build can be told
+  // apart from a current one without downloading the body.
   // ETag if the server sends one, else Last-Modified, plus Content-Length.
   // Memoized: only one HEAD per page load, no matter how many callers ask.
   let factoryFingerprintPromise = null;
@@ -2709,163 +2532,68 @@
         } catch (err) {
           // Offline / CORS / server down -- fail open, not closed: a stale
           // image beats a machine that won't boot at all.
-          console.error("could not check factory hard disk freshness, using any cached copy:", err);
+          console.error("could not check factory hard disk freshness:", err);
           return null;
         }
       })();
     }
     return factoryFingerprintPromise;
   }
-  async function getFactoryMeta() {
-    try {
-      const db = await openHddDb();
-      return await new Promise((resolve, reject) => {
-        const tx = db.transaction(HDD_STORE, "readonly");
-        const req = tx.objectStore(HDD_STORE).get(FACTORY_META_KEY);
-        req.onsuccess = () => resolve(req.result || null);
-        req.onerror = () => reject(req.error);
-      });
-    } catch (_) {
-      return null;
-    }
-  }
-  // Drops every trace of a stale stash -- the chunked IDB bytes (if any),
-  // the legacy single-blob key, the meta record, and the Cache API entry --
-  // so ensureFactoryHdd() falls through to a real network fetch below.
-  async function purgeFactoryStash() {
-    try {
-      const db = await openHddDb();
-      const meta = await new Promise((resolve, reject) => {
-        const tx = db.transaction(HDD_STORE, "readonly");
-        const req = tx.objectStore(HDD_STORE).get(FACTORY_META_KEY);
-        req.onsuccess = () => resolve(req.result || null);
-        req.onerror = () => reject(req.error);
-      });
-      await new Promise((resolve, reject) => {
-        const tx = db.transaction(HDD_STORE, "readwrite");
-        const store = tx.objectStore(HDD_STORE);
-        const chunks = meta && meta.v === 1 && meta.chunks > 0 ? meta.chunks : 0;
-        for (let i = 0; i < chunks; i++) store.delete(HDD_FACTORY_KEY + ":" + i);
-        store.delete(HDD_FACTORY_KEY);  // legacy single-blob key, if any
-        store.delete(FACTORY_META_KEY);
-        tx.oncomplete = resolve;
-        tx.onerror = () => reject(tx.error);
-      });
-    } catch (err) {
-      console.error("could not clear stale factory hard disk stash:", err);
-    }
-    factoryIdbCurrent = false;
-  }
-  // A tiny record of what's now cached, written right after a genuine
-  // network fetch -- stashFactoryInIdb() later overwrites this with the
-  // real chunked byte-stash (same fp) if that ever runs (see its comment).
-  // chunks:0 tells loadFactoryFromIdb() there's no byte-stash to read yet.
-  async function recordFactoryFingerprint(fp, length) {
-    try {
-      const db = await openHddDb();
-      await new Promise((resolve, reject) => {
-        const tx = db.transaction(HDD_STORE, "readwrite");
-        tx.objectStore(HDD_STORE).put(
-          { v: 1, chunks: 0, length, chunkSize: FACTORY_CHUNK, fp }, FACTORY_META_KEY);
-        tx.oncomplete = resolve;
-        tx.onerror = () => reject(tx.error);
-      });
-    } catch (err) {
-      console.error("could not record factory hard disk fingerprint:", err);
-    }
-  }
-  // Fingerprint last confirmed by a HEAD this session (null if never
-  // checked or the HEAD failed) -- stashFactoryInIdb() reads this so a test-
-  // triggered full byte-stash records the same identity ensureFactoryHdd()
-  // already validated. Set true when a stale stash was found and purged;
-  // the boot flow below reads it to also drop a now-meaningless
-  // factory-delta save (its patches are offsets into a base that's gone).
   let currentFactoryFingerprint = null;
-  let factoryStashInvalidated = false;
-  // Drops every local copy of the factory image -- stash, Cache API entry,
-  // memoised promise, in-memory bytes -- so the fetch that follows is an
-  // unconditional trip to the network.
-  function refetchFactoryHdd() {
-    factoryHddPromise = null;
-    factoryIdbCurrent = false;
-    factoryStashInvalidated = false;
-    currentFactoryFingerprint = null;
-    if (firmware) firmware.hdd = null;
-    return (async () => {
-      await purgeFactoryStash();
-      return ensureFactoryHdd();
-    })();
-  }
 
   function ensureFactoryHdd() {
     if (firmware && firmware.hdd) return Promise.resolve(firmware.hdd);
     if (!factoryHddPromise) {
       factoryHddPromise = (async () => {
-        // Check the shipped image's identity before trusting anything
-        // already stashed. A HEAD failure fails open (see factoryFingerprint
-        // above) -- only a confirmed mismatch triggers a purge.
-        const liveFp = await factoryFingerprint();
-        if (liveFp !== null) {
-          const meta = await getFactoryMeta();
-          // A stash with no recorded fingerprint (written before this fix
-          // existed) is unknown, not a match -- it must not pass silently.
-          const stashFp = meta && typeof meta.fp === "string" ? meta.fp : null;
-          if (stashFp !== liveFp) {
-            await purgeFactoryStash();
-            factoryStashInvalidated = true;
-          }
-        }
-        // Prefer the IndexedDB stash from a prior visit -- avoids re-fetching
-        // 504MB when C: is a factory-delta record (see persistHddIfDirty).
-        const fromIdb = factoryStashInvalidated ? null : await loadFactoryFromIdb();
-        if (fromIdb) {
-          if (loadBusyDepth > 0) loadOverlayLabel.textContent = "Loading hard disk\u2026";
-          factoryIdbCurrent = true;
-          let bytes;
-          if (fromIdb instanceof Blob) bytes = await fromIdb.arrayBuffer();
-          else if (fromIdb instanceof ArrayBuffer) bytes = fromIdb;
-          else bytes = fromIdb.buffer.slice(fromIdb.byteOffset, fromIdb.byteOffset + fromIdb.byteLength);
-          if (firmware) firmware.hdd = bytes;
-          currentFactoryFingerprint = liveFp;
-          return bytes;
-        }
-        // Not kept in Cache storage: that was a second ~504MB copy of bytes
-        // this page barely re-reads. C: is saved whole and self-contained, so
-        // a returning visitor never needs the shipped image, and Reset
-        // deliberately re-fetches it rather than trusting any local copy.
-        if (loadBusyDepth > 0) loadOverlayLabel.textContent = "Downloading hard disk\u2026";
+        currentFactoryFingerprint = await factoryFingerprint();
+        if (loadBusyDepth > 0) loadOverlayLabel.textContent = "Downloading hard disk…";
         const r = await fetch("disks/freedos-hdd.img");
         if (!r.ok) throw new Error("freedos-hdd.img HTTP " + r.status);
         const bytes = await r.arrayBuffer();
-        const fetchedFresh = true;
         if (firmware) firmware.hdd = bytes;
-        currentFactoryFingerprint = liveFp;
-        if (fetchedFresh && liveFp !== null) recordFactoryFingerprint(liveFp, bytes.byteLength);
-        // Do not stash into IndexedDB here: a 504MB structured-clone (even
-        // chunked) is a main-thread longtask under suite load and trips
-        // smoke.spec.ts's 150ms budget during realtime boot. Stashing is
-        // kicked off only by whenFactoryStashed() (the no-re-fetch spec).
         return bytes;
       })();
+      factoryHddPromise.catch(() => { factoryHddPromise = null; });
     }
-    beginLoad("Loading hard disk\u2026");
+    beginLoad("Loading hard disk…");
     return factoryHddPromise.finally(() => endLoad());
   }
-  function applyFactoryPatches(base, patches) {
-    const img = base instanceof Uint8Array ? base : new Uint8Array(base);
-    for (const p of patches) {
-      const b = p.bytes instanceof Uint8Array ? p.bytes : new Uint8Array(p.bytes);
-      img.set(b, p.offset | 0);
+
+  // The saved C: as {bytes, status, modified}, or null when the factory
+  // image should be used. An untouched factory C: seeded from an older
+  // freedos-hdd.img is dropped so the visitor gets the current one.
+  async function loadSavedHdd() {
+    const info = await hddWorker.call("info");
+    legacyHddNote = info.legacy ? kLegacyHddNote : null;
+    if (info.kind === "none" || (info.kind === "legacy" && legacyConvertFailed)) return null;
+    if (info.kind === "saved" && !info.modified && info.factoryFp) {
+      const fp = await factoryFingerprint();
+      if (fp !== null && fp !== info.factoryFp) {
+        await hddWorker.call("forget");
+        return null;
+      }
     }
-    return img;
+    const r = await hddWorker.call("load");
+    if (r.status === "legacy-unconverted") {
+      console.error("old 504MB hard disk not converted:", r.reason);
+      legacyHddNote = kLegacyHddNote;
+      legacyConvertFailed = true;
+      return null;
+    }
+    if (r.status === "none") return null;
+    if (r.status === "converted") legacyHddNote = null;
+    return { bytes: new Uint8Array(r.buffer), status: r.status, modified: r.modified };
   }
+
   const hddStatus = document.getElementById("hddStatus");
   const hddResetBtn = document.getElementById("hddResetBtn");
   const hddBlankBtn = document.getElementById("hddBlankBtn");
   const hddDownloadBtn = document.getElementById("hddDownloadBtn");
+  const hddLegacyDownloadBtn = document.getElementById("hddLegacyDownloadBtn");
   const hddUploadInput = document.getElementById("hddUploadInput");
   function refreshHddControls() {
-    hddStatus.textContent = "Using: " + hddLabel;
+    hddStatus.textContent = "Using: " + hddLabel + (legacyHddNote ? ". " + legacyHddNote : "");
+    hddLegacyDownloadBtn.hidden = !legacyHddNote;
     // A real fixed disk can't be swapped while the machine is running --
     // every one of these actions only ever affects the *next* power-on.
     hddResetBtn.disabled = !firmware || poweredOn;
@@ -2875,27 +2603,40 @@
     document.getElementById("hddUploadBtn").disabled = !firmware || poweredOn;
   }
   hddResetBtn.addEventListener("click", () => {
-    savedHdd = null;
-    hddIdbCurrent = false;
-    hddSaveKind = null;
+    pendingHdd = null;
+    legacyHddNote = null;
     hddLabel = "FreeDOS (default). Takes effect at next power-on";
     refreshHddControls();
-    clearSavedHdd();
-    // "Reset to factory" means the image the server has right now: no
-    // fingerprint to trust, nothing local to fall back on. The stash stays
-    // an optimisation for ordinary page loads only -- a factory-delta C:
-    // would otherwise re-download 504MB on every visit.
-    refetchFactoryHdd();
+    // "Reset to factory" means the image the server has right now, so drop
+    // any copy already fetched and download it again.
+    factoryHddPromise = null;
+    if (firmware) firmware.hdd = null;
+    hddPersistChain = hddPersistChain.then(() => hddWorker.call("clear")).catch((err) => {
+      console.error("could not clear saved hard disk:", err);
+    });
+    ensureFactoryHdd().catch((err) => console.error(err));
   });
   hddBlankBtn.addEventListener("click", () => {
     if (!firmware) return;
-    savedHdd = new Uint8Array(kHddImageBytes);  // all zero -- unformatted, like a drive fresh from the factory floor
-    hddIdbCurrent = false;
-    hddSaveKind = "full";
+    pendingHdd = null;
+    legacyHddNote = null;
     hddLabel = "blank drive (unformatted). Takes effect at next power-on";
     refreshHddControls();
-    saveHdd(savedHdd).then(() => { hddIdbCurrent = true; });
+    // All zero -- unformatted, like a drive fresh from the factory floor.
+    hddPersistChain = hddPersistChain.then(() => hddWorker.call("blank", { length: kHddImageBytes })).catch((err) => {
+      console.error("could not save blank hard disk:", err);
+    });
   });
+  function downloadBytes(bytes, name) {
+    const blob = new Blob([bytes], { type: "application/octet-stream" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  }
   // A real file on the visitor's own disk, independent of this browser's
   // storage -- the same "save modified media" idea the floppy eject flow
   // already offers, just for C: (which isn't ejectable, so it needs its
@@ -2905,42 +2646,54 @@
     // Whatever is *actually* current: the live, possibly-just-written
     // image if the machine is running, else whatever's staged for the
     // next power-on, else the pristine factory image.
-    if (!(poweredOn && machine) && !savedHdd) await ensureFactoryHdd();
-    const bytes = (poweredOn && machine) ? machine.hddImage() : (savedHdd || new Uint8Array(firmware.hdd));
-    const blob = new Blob([bytes], { type: "application/octet-stream" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = "pc486-hdd.img";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    let bytes;
+    if (poweredOn && machine) {
+      bytes = machine.hddImage();
+    } else if (pendingHdd) {
+      bytes = pendingHdd;
+    } else {
+      await hddPersistChain;
+      const r = await hddWorker.call("load");
+      bytes = r.buffer ? new Uint8Array(r.buffer) : new Uint8Array(await ensureFactoryHdd());
+    }
+    downloadBytes(bytes, "pc486-hdd.img");
+  });
+  hddLegacyDownloadBtn.addEventListener("click", async () => {
+    const buf = await hddWorker.call("loadLegacy");
+    if (buf) downloadBytes(new Uint8Array(buf), "pc486-hdd-504mb.img");
   });
   hddUploadInput.addEventListener("change", async () => {
     const f = hddUploadInput.files[0];
     hddUploadInput.value = "";
     if (!f || !firmware) return;
-    await withLoad("Loading hard disk\u2026", async () => {
-      const bytes = new Uint8Array(await f.arrayBuffer());
-      // This system's WD1003 geometry (1024 cyl/16 head/63 sec, see
-      // wd1003.cpp -- the real pre-EIDE INT13h CHS ceiling, 504MB) is fixed
-      // in CMOS, not derived from the image. An image of the wrong size
-      // would still fail safely (wd1003.cpp's own bounds check reports a
-      // genuine IDNF error rather than silently doing nothing), but refusing
-      // it up front gives a clearer reason than a mysterious disk error deep
-      // into a boot.
-      if (bytes.byteLength !== kHddImageBytes) {
-        alert("That file is " + bytes.byteLength + " bytes; this machine's hard disk " +
-              "must be exactly " + kHddImageBytes + " bytes (1024 cyl / 16 head / " +
-              "63 sec/track, 504MB). Not mounted.");
+    await withLoad("Loading hard disk…", async () => {
+      const buf = await f.arrayBuffer();
+      // The AC2250's geometry is fixed in CMOS, not derived from the image.
+      // An image of the wrong size would still fail safely (wd1003.cpp's
+      // own bounds check reports a genuine IDNF error), but refusing it up
+      // front gives a clearer reason than a disk error deep into a boot.
+      if (buf.byteLength === kLegacyHddImageBytes) {
+        loadOverlayLabel.textContent = "Converting hard disk to 256MB…";
+        const r = await hddWorker.call("convert", { buffer: buf }, [buf]);
+        if (!r.ok) {
+          alert(r.code === "full"
+            ? "That 504MB image has more on it than fits in 256MB. Not mounted."
+            : "That 504MB image couldn't be converted (" + r.reason + "). Not mounted.");
+          return;
+        }
+        hddLabel = "converted from 504MB (" + f.name + "). Takes effect at next power-on";
+      } else if (buf.byteLength === kHddImageBytes) {
+        await hddWorker.call("replace", { buffer: buf, modified: true }, [buf]);
+        hddLabel = "uploaded image (" + f.name + "). Takes effect at next power-on";
+      } else {
+        alert("That file is " + buf.byteLength + " bytes. This machine's hard disk is a 256MB " +
+              "WD Caviar AC2250, exactly " + kHddImageBytes + " bytes. An older 504MB pc486 " +
+              "image (" + kLegacyHddImageBytes + " bytes) gets converted. Not mounted.");
         return;
       }
-      savedHdd = bytes;
-      hddIdbCurrent = false;
-      hddSaveKind = "full";
-      hddLabel = "uploaded image (" + f.name + "). Takes effect at next power-on";
+      pendingHdd = null;
+      legacyHddNote = null;
       refreshHddControls();
-      saveHdd(savedHdd).then(() => { hddIdbCurrent = true; });
     });
   });
 
@@ -2950,8 +2703,8 @@
       // Free the previous power cycle's machine before building the next
       // one. An embind handle owns a C++ object that outlives the JS
       // reference, so dropping `machine` at powerOff() freed nothing and
-      // every power cycle leaked another ~528MB of wasm heap (C:'s image;
-      // +419MB more whenever a CD-ROM disc happens to be loaded too) -- the
+      // every power cycle leaked another C:-sized block of wasm heap (plus
+      // 419MB more whenever a CD-ROM disc happens to be loaded too) -- the
       // second power-on then died trying to grow past it. Deleted here
       // rather than in powerOff() so the handle
       // stays callable while the machine is off, which is how "power off
@@ -2959,6 +2712,9 @@
       if (lastMachine) {
         lastMachine.delete();
         lastMachine = null;
+        // Power-on waits on the hard disk worker below, so tests waiting
+        // for the new machine must not see the one just deleted.
+        if (window.__test) window.__test.machine = null;
       }
       machine = new firmware.Module.Machine();
       applyTurbo(turboBtn.getAttribute("aria-pressed") === "true");
@@ -2966,21 +2722,27 @@
       machine.loadRom(0x100000 - firmware.bios.byteLength, new Uint8Array(firmware.bios));
       machine.loadRom(0xC0000, new Uint8Array(firmware.vga));
       // Factory image is fetched on demand -- a session that already has
-      // C: in IndexedDB never downloads it (see ensureFactoryHdd). Keep the
-      // Uint8Array we mount as `savedHdd` so the first dirty persist can
-      // patch it (and write a small factory-delta to IDB) instead of
-      // copying all 504MB out of wasm.
-      if (!savedHdd) {
-        await ensureFactoryHdd();
-        savedHdd = new Uint8Array(firmware.hdd);
-        // Self-contained: once anything is written, C: is stored whole and
-        // depends on nothing else. A delta keyed to the shipped image is
-        // smaller, but it dies whenever that image changes -- and losing
-        // installed software is a far worse trade than a larger write.
-        hddSaveKind = "full";
-        hddIdbCurrent = false;
+      // C: in IndexedDB never downloads it (see ensureFactoryHdd).
+      let hdd = pendingHdd;
+      pendingHdd = null;
+      if (!hdd) {
+        const saved = await loadSavedHdd();
+        if (saved) hdd = saved.bytes;
       }
-      machine.mountHdd(savedHdd);
+      const seedFactory = !hdd;
+      if (seedFactory) hdd = new Uint8Array(await ensureFactoryHdd());
+      machine.mountHdd(hdd);
+      if (seedFactory) {
+        // From here on the worker's copy is C:, so this thread lets go of
+        // the factory bytes instead of holding a second copy.
+        const buf = hdd.buffer;
+        firmware.hdd = null;
+        factoryHddPromise = null;
+        hddPersistChain = hddPersistChain.then(() => hddWorker.call("replace",
+          { buffer: buf, factoryFp: currentFactoryFingerprint, modified: false }, [buf])).catch((err) => {
+          console.error("could not save hard disk:", err);
+        });
+      }
       if (pendingFloppy) {
         machine.mountFloppy(pendingFloppy.bytes);
         setBayLoaded(floppyBay, pendingFloppy.name);
@@ -3071,22 +2833,14 @@
           bassLeft: sbBassLeft.gain.value, bassRight: sbBassRight.gain.value,
         } : null,
         get heldKeysSize() { return heldKeys.size; },
-        // Flush C: to IndexedDB and resolve when the put finishes -- tests
-        // that reload must await this, or a factory-delta / full-image save
-        // races the navigation and the next boot falls back to factory.
+        // Flush C: to IndexedDB and resolve when the worker's write
+        // finishes -- tests that reload must await this, or the save races
+        // the navigation and the next boot falls back to factory.
         persistHdd: () => persistHddIfDirty(),
-        // Always snapshot C: even when clean. Persistence specs can't rely
-        // on FreeDOS having dirtied the image during a fast boot.
+        // Mark C: as the visitor's own even when clean. Persistence specs
+        // can't rely on FreeDOS having dirtied the image during a fast boot.
         forcePersistHdd: () => persistHddSnapshot(),
         whenHddSaved: () => hddPersistChain,
-        // Kick off (and await) the chunked factory-base IndexedDB stash.
-        // Not started during boot -- that path tripped the realtime smoke
-        // longtask budget under suite load. Specs that assert a reload
-        // never re-fetches freedos-hdd.img must await this first.
-        whenFactoryStashed: () => {
-          if (firmware && firmware.hdd) stashFactoryInIdb(firmware.hdd, currentFactoryFingerprint);
-          return factoryIdbChain;
-        },
       };
     }
   }
@@ -3103,56 +2857,41 @@
   // place that actually survives that, on some real cadence, not just
   // once at a clean power-off nobody reliably triggers by hand.
   //
-  // Returns a promise that settles when the IndexedDB put completes (or
+  // Returns a promise that settles when the worker's write completes (or
   // immediately when there is nothing dirty). Callers that are about to
-  // tear the page down (powerOff, a test about to reload) must await it:
-  // a first-session full-image put is ~504MB and easily loses a bare
-  // reload race, which is what left CI reading "factory FreeDOS" again.
+  // tear the page down (powerOff, a test about to reload) must await it.
   let hddPersistChain = Promise.resolve();
-  function queueHddSave(record) {
+  function queueHddSave(m, patches) {
     hddLabel = "saved (this session)";
     refreshHddControls();
+    const transfer = patches.map((p) => p.bytes.buffer);
     hddPersistChain = hddPersistChain.then(async () => {
-      await saveHdd(record);
-      hddIdbCurrent = true;
+      const r = await hddWorker.call("patch", { patches }, transfer);
+      // Nothing stored to patch yet: store the whole image instead.
+      if (r.needFull) {
+        const img = m.hddImage();
+        await hddWorker.call("replace", { buffer: img.buffer, modified: true }, [img.buffer]);
+      }
+    }).catch((err) => {
+      console.error("could not save hard disk changes:", err);
     });
     return hddPersistChain;
   }
   function persistHddIfDirty() {
     if (!machine || !machine.hddDirty()) return hddPersistChain;
-    // Patch only the sectors this session actually wrote into the kept
-    // mirror, instead of re-copying the whole 504MB image off the wasm
-    // heap -- see wd1003.h's dirty_ranges() comment and the audio-worklet
-    // comment above this file's speaker code. Falls back to a full copy
-    // only when there's no same-size mirror yet (should not happen after
-    // powerOn always seeds savedHdd).
+    // Only the sectors this session actually wrote -- see wd1003.h's
+    // dirty_ranges() comment and the audio-worklet comment above this
+    // file's speaker code.
     const patches = machine.hddDirtyPatches();
-    if (savedHdd && savedHdd.length === kHddImageBytes) {
-      for (const { offset, bytes } of patches) savedHdd.set(bytes, offset);
-    } else {
-      savedHdd = machine.hddImage();
-      hddSaveKind = "full";
-    }
     machine.clearHddDirty();
-    hddIdbCurrent = false;
-    return queueHddSave(savedHdd);
+    return queueHddSave(machine, patches);
   }
-  // Test helper: put the live C: image in IndexedDB even when hddDirty() is
-  // false (a fast ?test=1&fast=1 boot often never dirties the factory image).
+  // Test helper: mark C: as saved even when hddDirty() is false (a fast
+  // ?test=1&fast=1 boot often never dirties the factory image).
   function persistHddSnapshot() {
     if (!machine) return hddPersistChain;
     if (machine.hddDirty()) return persistHddIfDirty();
-    if (savedHdd && savedHdd.length === kHddImageBytes && hddIdbCurrent) {
-      hddLabel = "saved (this session)";
-      refreshHddControls();
-      return hddPersistChain;
-    }
-    if (!savedHdd || savedHdd.length !== kHddImageBytes) {
-      savedHdd = machine.hddImage();
-      hddSaveKind = hddSaveKind || "full";
-    }
-    hddIdbCurrent = false;
-    return queueHddSave(savedHdd);
+    return queueHddSave(machine, []);
   }
 
   async function powerOff() {
@@ -3286,29 +3025,17 @@
     try {
       await paintLoadOverlay();
       await loadEmulatorModule();
-      const [Module, savedRecord, bios, vga] = await Promise.all([
+      const [Module, saved, bios, vga] = await Promise.all([
         Pc486({}),
-        loadSavedHddRecord(),
+        loadSavedHdd(),
         fetch("roms/BIOS-bochs-legacy").then((r) => r.arrayBuffer()),
         fetch("roms/VGABIOS-lgpl-latest.bin").then((r) => r.arrayBuffer()),
       ]);
       firmware = { Module, bios, vga, hdd: null };
-      if (isFactoryDeltaRecord(savedRecord)) {
-        // Reconstruct C: from the cached factory image + the small dirty
-        // patch list. Cache API hit → no network fetch of freedos-hdd.img.
-        await ensureFactoryHdd();
-        // A delta written by an older build. Replay it once against the shipped
-        // image and keep the result whole, so this record shape disappears.
-        savedHdd = applyFactoryPatches(new Uint8Array(firmware.hdd), savedRecord.patches);
-        hddSaveKind = "full";
-        hddLabel = "saved (previous visit)";
-        hddIdbCurrent = false;
-        void queueHddSave(savedHdd);
-      } else if (savedRecord) {
-        savedHdd = savedRecord instanceof Uint8Array ? savedRecord : new Uint8Array(savedRecord);
-        hddSaveKind = "full";
-        hddLabel = "saved (previous visit)";
-        hddIdbCurrent = true;
+      if (saved) {
+        pendingHdd = saved.bytes;
+        hddLabel = saved.status === "converted" ? "converted from 504MB"
+          : saved.modified ? "saved (previous visit)" : "FreeDOS (default)";
       } else {
         await ensureFactoryHdd();
       }

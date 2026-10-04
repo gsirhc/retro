@@ -6,7 +6,7 @@ import { boot, bootLive, resetLivePage, resetPromptPage } from "./helpers";
 // Every spec imports { test, expect } from here instead of @playwright/test so
 // that V8 coverage for app.js is collected automatically when COVERAGE=1.
 //
-// Worker-scoped pages (livePage / perfPage / promptPage) mount the 504MB HDD
+// Worker-scoped pages (livePage / perfPage / promptPage) mount the 256MB HDD
 // once per worker and reset between tests. Prefer those over boot()/bootLive()
 // whenever the test does not need a fresh navigation (first-visit localStorage,
 // reload persistence, route.abort, addInitScript, realtime smoke, etc.).

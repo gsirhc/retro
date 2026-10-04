@@ -25,9 +25,9 @@ if ! command -v mcopy >/dev/null 2>&1; then
     exit 1
 fi
 
-# The FreeDOS image's single partition starts at LBA 63 (see its MBR); mtools
-# addresses a partition inside an image with the @@<byte offset> suffix.
-PART_OFFSET=32256
+# mtools addresses a partition inside an image with the @@<byte offset>
+# suffix; the single partition's start LBA is in the MBR's first entry.
+PART_OFFSET=$(( $(od -An -t u4 -j 454 -N 4 "$HDD" | tr -d ' ') * 512 ))
 
 # mtools refuses a disk image whose geometry it cannot infer; the images here
 # are plain sector dumps, which is exactly the case this skips the check for.

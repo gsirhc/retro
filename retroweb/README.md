@@ -68,10 +68,10 @@ The browser emulators and the landing page that lists them.
 - [`pc486/`](pc486/) — 486 DX2-66 Gaming PC: a 1990s "gamer's dream" 486
   build, not a recreation of a specific historical machine. A real
   protected-mode 80486DX2 CPU (paging, task switching, x87 FPU) + chipset +
-  WD1003 504MB hard disk + ATAPI CD-ROM + NEC 765 3.5" floppy controller +
-  VGA mode 13h with the VESA BIOS Extensions + PC speaker + PS/2 mouse +
-  Sound Blaster 16, C++ core + GoogleTest + WebAssembly front end in
-  `pc486/web/`. Ships pre-loaded with FreeDOS 1.3 on its virtual hard disk
+  256MB WD Caviar AC2250 IDE hard disk + ATAPI CD-ROM + NEC 765 3.5"
+  floppy controller + VGA mode 13h with the VESA BIOS Extensions + PC
+  speaker + PS/2 mouse + Sound Blaster 16, C++ core + GoogleTest +
+  WebAssembly front end in `pc486/web/`. Ships pre-loaded with FreeDOS 1.3 on its virtual hard disk
   (installed by actually running the real, unmodified FreeDOS 1.3 installer
   end to end — see `pc486/disks/build_freedos_hdd.cpp`) — boots straight to
   a `C:\>` prompt, and its `C:\GAMES` directory has BOOM (a real DJGPP/

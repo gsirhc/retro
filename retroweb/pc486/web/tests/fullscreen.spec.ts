@@ -21,7 +21,7 @@ import { waitForScreen, focusScreen, typeStr } from "./helpers";
 //
 // These use the shared livePage: resetLivePage already clears
 // retro8080.fsEscHintSeen, so "first visit" behaviour does not need a
-// fresh 504MB HDD mount per case.
+// fresh 256MB HDD mount per case.
 
 test.describe("fullscreen", () => {
   test("first-ever click shows the hint dialog and does not enter fullscreen yet", async ({ livePage: page }) => {

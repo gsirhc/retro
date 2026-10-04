@@ -13,7 +13,7 @@
 //                                         // previously-saved image; no swap UI while running
 //   m.hddDirty() / m.clearHddDirty() / m.hddImage()  // for persisting C:'s writes across power cycles
 //   m.hddDirtyPatches()                  // [{offset, bytes}, ...] -- only what actually changed,
-//                                         // for periodic persistence without re-copying all 504MB
+//                                         // for periodic persistence without re-copying all of C:
 //   m.mountFloppy(imgBytes);             // this machine's one 3.5" bay (A:)
 //   m.mountCdrom(isoBytes) / m.ejectCdrom()  // swappable, like the floppy
 //   m.mountCdromCue(cueText, binBytes)   // mixed-mode disc: data + CD-DA audio tracks
@@ -147,8 +147,7 @@ public:
 
     // ---- hard disk (wd1003) -- fixed media, no swap-while-running UI -----
     void mountHdd(val bytes) {
-        std::vector<uint8_t> data = emscripten::convertJSArrayToNumberVector<uint8_t>(bytes);
-        m_.chipset.hdd.mount(0, data.data(), data.size());
+        m_.chipset.hdd.mount(0, emscripten::convertJSArrayToNumberVector<uint8_t>(bytes));
     }
     bool hddBusy() {
         bool v = hdd_activity_latch_;
@@ -167,7 +166,7 @@ public:
     // Only the byte ranges dirty_ranges() says actually changed, each as its
     // own small Uint8Array -- see wd1003.h's dirty_ranges() comment. The
     // front end patches these into its own kept copy of C: instead of
-    // pulling the whole 504MB image on every periodic save.
+    // pulling the whole image on every periodic save.
     val hddDirtyPatches() {
         auto ranges = m_.chipset.hdd.dirty_ranges(0);
         const std::vector<uint8_t> &img = m_.chipset.hdd.image(0);

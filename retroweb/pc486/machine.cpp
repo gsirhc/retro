@@ -64,25 +64,24 @@ void Machine::configure_factory_cmos() {
     c.poke(0x3D, 0x21);
 
     // Fixed-disk "Type 47 user-definable" geometry (0x12, 0x19, 0x1B-0x23):
-    // 1024 cylinders / 16 heads / 63 sectors/track -- the genuine pre-EIDE
-    // INT13h CHS addressing ceiling (504MB / 528,482,304 bytes), the
-    // period-correct "maxed out" geometry this machine's HDD uses. See
-    // wd1003.h and PC486_REVIEW.md.
+    // the WD Caviar AC2250's 1010 cylinders / 9 heads / 55 sectors/track,
+    // matching what wd1003.cpp's IDENTIFY reports. See wd1003.h and
+    // PC486_REVIEW.md.
     c.poke(0x12, 0xF0);  // drive C: = extended type; no drive D:
     c.poke(0x19, 47);
-    c.poke(0x1B, 0x00);  // cylinders low  (1024 = 0x400)
-    c.poke(0x1C, 0x04);  // cylinders high
-    c.poke(0x1D, 16);    // heads
+    c.poke(0x1B, uint8_t(Wd1003::kCylinders & 0xFF));  // cylinders low  (1010 = 0x3F2)
+    c.poke(0x1C, uint8_t(Wd1003::kCylinders >> 8));    // cylinders high
+    c.poke(0x1D, Wd1003::kHeads);
     c.poke(0x1E, 0xFF);  // write precomp low  -- 0xFFFF = "none"
     c.poke(0x1F, 0xFF);  // write precomp high
     // Control byte bit3 is the standard Phoenix/AMI CMOS-map "more than 8
-    // heads" flag; this drive's 16 heads needs it set, unlike the AT's
+    // heads" flag; this drive's 9 heads needs it set, unlike the AT's
     // ST-4038 (5 heads, control byte 0x00). NOT yet verified against an
     // actual boot -- same hedge as the extended-memory fields above.
     c.poke(0x20, 0x08);
-    c.poke(0x21, 0x00);  // landing zone low  (1024, same as max cylinder)
-    c.poke(0x22, 0x04);  // landing zone high
-    c.poke(0x23, 63);    // sectors per track
+    c.poke(0x21, uint8_t(Wd1003::kCylinders & 0xFF));  // landing zone low  (same as max cylinder)
+    c.poke(0x22, uint8_t(Wd1003::kCylinders >> 8));    // landing zone high
+    c.poke(0x23, Wd1003::kSectorsPerTrack);
 
     // CMOS checksum over bytes 0x10-0x2D, stored big-endian at 0x2E/0x2F --
     // kept internally consistent even though this BIOS build hasn't been

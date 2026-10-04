@@ -4,14 +4,16 @@
 // reset, post-reset signature), IDENTIFY DEVICE geometry, and paced
 // READ/WRITE SECTORS via the real atomic 16-bit data register path.
 //
-// The geometry here is this machine's 504MB drive -- 1024 cyl / 16 head / 63
-// sec, the exact pre-EIDE INT 13h CHS ceiling (see wd1003.cpp's mount() and
-// PC486_REVIEW.md), not the AT's ST-4038.
+// The geometry here is this machine's WD Caviar AC2250 -- 1010 cyl / 9 head
+// / 55 sec, 256MB (see wd1003.cpp's mount() and PC486_REVIEW.md), not the
+// AT's ST-4038.
 
 #include <gtest/gtest.h>
 
 #include "wd1003.h"
 
+#include <string>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -19,15 +21,15 @@ namespace {
 using pc486::Wd1003;
 
 // This machine's fixed geometry.
-constexpr int kCylinders = 1024;
-constexpr int kHeads = 16;
-constexpr int kSectorsPerTrack = 63;
-constexpr long kCapacitySectors = long(kCylinders) * kHeads * kSectorsPerTrack;  // 1,032,192
+constexpr int kCylinders = 1010;
+constexpr int kHeads = 9;
+constexpr int kSectorsPerTrack = 55;
+constexpr long kCapacitySectors = long(kCylinders) * kHeads * kSectorsPerTrack;  // 499,950
 
-// Deliberately a TRUNCATED prefix of the real 504MB capacity: these tests
+// Deliberately a TRUNCATED prefix of the real 256MB capacity: these tests
 // only ever touch low sectors, the controller bounds-checks requests against
-// the mounted image's actual size, and materializing 528,482,304 real bytes
-// per test case would cost half a gigabyte of test-process memory for
+// the mounted image's actual size, and materializing 255,974,400 real bytes
+// per test case would cost a quarter gigabyte of test-process memory for
 // nothing. IDENTIFY's reported geometry comes from mount()'s fixed constants,
 // not from the image length, so the geometry tests below are unaffected.
 std::vector<uint8_t> MakeImage(long sectors) {
@@ -147,7 +149,7 @@ TEST_F(Wd1003Test, FloatedSignatureIsATwoReadWindowNotAPersistentState) {
     EXPECT_TRUE(hdd.in(0x1F7) & 0x40);
 }
 
-TEST_F(Wd1003Test, IdentifyDeviceReportsTheFiveHundredFourMegabyteChsCeilingGeometry) {
+TEST_F(Wd1003Test, IdentifyDeviceReportsTheCaviarAc2250Geometry) {
     MountDrive0();
     hdd.out(0x1F6, 0xA0);
     hdd.out(0x1F7, 0xEC);  // IDENTIFY DEVICE
@@ -156,17 +158,21 @@ TEST_F(Wd1003Test, IdentifyDeviceReportsTheFiveHundredFourMegabyteChsCeilingGeom
     for (int i = 0; i < 256; ++i) w.push_back(hdd.data_in16());
     EXPECT_FALSE(hdd.in(0x1F7) & 0x08);  // DRQ cleared once fully drained
 
-    // 1024 cyl x 16 head x 63 sec is not a round number picked for looks:
-    // INT 13h packs the cylinder into 10 bits and the sector into 6 (1-based)
-    // while the ATA task file allows 16 heads, so this is the largest
-    // geometry classic CHS addressing can express at all -- the genuine
-    // 504MB barrier that "maxed out" 1993-94 IDE drives ran into and that
-    // EIDE LBA translation was introduced to break. See PC486_REVIEW.md.
+    // WD's documented translated setup geometry for the AC2250.
     EXPECT_EQ(w[1], kCylinders);
     EXPECT_EQ(w[3], kHeads);
     EXPECT_EQ(w[6], kSectorsPerTrack);
-    EXPECT_EQ(w[1], 1024) << "one more cylinder would not fit INT 13h's 10-bit field";
-    EXPECT_EQ(w[6], 63) << "one more sector would not fit INT 13h's 6-bit field";
+    EXPECT_EQ(w[1], Wd1003::kCylinders);
+    EXPECT_EQ(w[3], Wd1003::kHeads);
+    EXPECT_EQ(w[6], Wd1003::kSectorsPerTrack);
+
+    // Model number, words 27-46, byte-swapped within each word.
+    std::string model;
+    for (int i = 27; i < 47; ++i) {
+        model += char(w[i] >> 8);
+        model += char(w[i] & 0xFF);
+    }
+    EXPECT_EQ(model.substr(0, 10), "WDC AC2250");
 
     // Real BIOS code (rombios.c's ata_detect()/ata_cmd_data_io()) actually
     // reads word 5 back to size its own PIO transfer loop's per-chunk word
@@ -176,11 +182,12 @@ TEST_F(Wd1003Test, IdentifyDeviceReportsTheFiveHundredFourMegabyteChsCeilingGeom
     // installer's auto-partition step. See PC486_REVIEW.md.
     EXPECT_EQ(w[5], 512);
 
-    // Words 60/61: total addressable sectors, low word first. 1,032,192
-    // sectors x 512 = 528,482,304 bytes = exactly 504MB.
+    // Words 60/61: total addressable sectors, low word first. 499,950
+    // sectors x 512 = 255,974,400 bytes, WD's "256MB".
     uint32_t total = uint32_t(w[60]) | (uint32_t(w[61]) << 16);
     EXPECT_EQ(total, uint32_t(kCapacitySectors));
-    EXPECT_EQ(uint64_t(total) * 512, 528482304u);
+    EXPECT_EQ(uint64_t(total) * 512, 255974400u);
+    EXPECT_EQ(uint64_t(total) * 512, Wd1003::kImageBytes);
 }
 
 TEST_F(Wd1003Test, ReadSectorsAfterPacingReturnsRealBytes) {
@@ -215,7 +222,7 @@ TEST_F(Wd1003Test, ReadSectorsUsesLbaAddressingWhenDriveHeadBitSixIsSet) {
     MountDrive0();
 
     // LBA sector 100 -- picked so plain CHS(cyl=0,head=0,sector=100) would be
-    // out of range (this geometry has only 63 sectors/track), proving the
+    // out of range (this geometry has only 55 sectors/track), proving the
     // registers really are being read as LBA, not CHS.
     hdd.out(0x1F6, 0xA0 | 0x40);  // drive 0, LBA mode (bit6), LBA[27:24]=0
     hdd.out(0x1F2, 1);            // 1 sector
@@ -265,7 +272,7 @@ TEST_F(Wd1003Test, WriteSectorsAcceptsDataImmediatelyThenCommitsSynchronously) {
 TEST_F(Wd1003Test, DirtyRangesTracksOnlyWhatWasActuallyWrittenAndClearsCleanly) {
     // Real purpose: the browser's periodic autosave (app.js's
     // persistHddIfDirty()) copies and re-persists only these ranges instead
-    // of the whole 504MB image every time -- see wd1003.h's dirty_ranges()
+    // of the whole image every time -- see wd1003.h's dirty_ranges()
     // comment. Two writes far apart in the image must show up as two
     // separate, non-adjacent ranges, not one giant range spanning the gap
     // between them (which would defeat the whole point).
@@ -305,8 +312,8 @@ TEST_F(Wd1003Test, RecalibrateAndInitializeDeviceParametersCompleteImmediately) 
     EXPECT_TRUE(hdd.irq_pending());
     EXPECT_TRUE(hdd.in(0x1F7) & 0x40);  // DRDY
 
-    hdd.out(0x1F2, 63);           // sectors per track
-    hdd.out(0x1F6, 0xA0 | 0x0F);  // heads-1 = 15 (16 heads)
+    hdd.out(0x1F2, 55);           // sectors per track
+    hdd.out(0x1F6, 0xA0 | 0x08);  // heads-1 = 8 (9 heads)
     hdd.out(0x1F7, 0x91);  // INITIALIZE DEVICE PARAMETERS
     EXPECT_TRUE(hdd.irq_pending());
 }
@@ -362,7 +369,7 @@ TEST_F(Wd1003Test, AbsentSlaveDriveOnlyRefusesToExecuteCommands) {
 }
 
 TEST_F(Wd1003Test, ReadPastTheEndOfTheImageReportsIdNotFound) {
-    MountDrive0(64);  // only 64 sectors of image behind a 504MB geometry
+    MountDrive0(64);  // only 64 sectors of image behind a 256MB geometry
     hdd.out(0x1F6, 0xA0 | 0x40);  // LBA mode
     hdd.out(0x1F2, 1);
     hdd.out(0x1F3, 200);          // LBA 200: inside the geometry, past the image
@@ -396,6 +403,30 @@ TEST_F(Wd1003Test, MountedMediaSurvivesControllerReset) {
     EXPECT_EQ(hdd.drives[0].heads, kHeads);
     EXPECT_EQ(hdd.drives[0].sectors_per_track, kSectorsPerTrack);
     EXPECT_EQ(hdd.drives[0].capacity_sectors(), kCapacitySectors);
+}
+
+// The front end's mountHdd() hands its image over with this overload so the
+// wasm heap never holds C: twice.
+TEST_F(Wd1003Test, MountByMoveTakesTheImageWithoutCopying) {
+    auto img = MakeImage(64);
+    const uint8_t* data = img.data();
+    hdd.mount(0, std::move(img));
+    EXPECT_EQ(hdd.drives[0].image.data(), data);
+    EXPECT_EQ(hdd.drives[0].image.size(), std::size_t(64) * 512);
+    EXPECT_TRUE(hdd.drives[0].present);
+    EXPECT_FALSE(hdd.dirty(0));
+    EXPECT_EQ(hdd.drives[0].dirty_page.size(), std::size_t(64) * 512 / Wd1003::Drive::kDirtyPageSize);
+    EXPECT_EQ(hdd.drives[0].cylinders, kCylinders);
+
+    hdd.out(0x1F6, 0xA0 | 0x40);  // LBA mode
+    hdd.out(0x1F2, 1);
+    hdd.out(0x1F3, 5);
+    hdd.out(0x1F4, 0);
+    hdd.out(0x1F5, 0);
+    hdd.out(0x1F7, 0x20);  // READ SECTORS
+    for (uint64_t c = 0; c < 10'000'000 && (hdd.in(0x3F6) & 0x80); c += 100) hdd.tick(c);
+    ASSERT_TRUE(hdd.in(0x3F6) & 0x08);
+    EXPECT_EQ(hdd.data_in16() & 0xFF, 5);
 }
 
 }  // namespace

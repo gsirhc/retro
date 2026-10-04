@@ -442,7 +442,10 @@ separate suite.
   retroweb/pc486/web test-install test` (Playwright). The FreeDOS HDD image
   is a real, slow installer run the first time and cached after that (see
   `PC486_REVIEW.md` §11); the CuteMouse driver floppy the Drivers panel
-  offers is built from that image and needs `mtools` on PATH.
+  offers is built from that image and needs `mtools` on PATH. `make test`
+  also uses mtools to build `legacy-hdd-fixture`, old-format 504MB C:
+  images (git-ignored, under `web/tests/media/`) for the conversion tests in
+  `hdd.spec.ts` (see `PC486_REVIEW.md` §37).
   `make -C retroweb/pc486/web pc486-perf.js` builds a *second* wasm with the
   emulator's own performance counters compiled in (`PC486_PERF`), which
   `?perf` loads for the Performance panel's Tier 2 — the shipped binary

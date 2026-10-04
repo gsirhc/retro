@@ -20,7 +20,7 @@ export default defineConfig({
   retries: process.env.CI ? 1 : 0,
   // The guest is host-bound near real 66 MHz even under `fast=1`
   // (PC486_REVIEW.md §8.6). Worker-scoped livePage/perfPage/promptPage
-  // fixtures mount the 504MB HDD once per worker; extra workers multiply
+  // fixtures mount the 256MB HDD once per worker; extra workers multiply
   // those mounts and split the CPU ceiling. Default: 1 on CI, 2 locally.
   // Override with PW_WORKERS=N when watching a run on a quiet machine.
   workers: process.env.COVERAGE

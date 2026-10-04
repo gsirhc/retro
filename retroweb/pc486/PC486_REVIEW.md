@@ -4,9 +4,8 @@ This machine is not a recreation of a specific historical model, the way
 `ibmpc-at` recreates a genuine IBM 5170. It's a "gamer's dream" 486-class
 PC as a well-appointed enthusiast might have assembled/bought in 1993-94:
 a real Intel 80486 DX2-66 (33MHz bus, clock-doubled to 66MHz internally,
-on-die FPU), 32MB RAM, a 504MB IDE hard disk (the genuine pre-EIDE INT13h
-CHS addressing ceiling -- 1024 cyl x 16 head x 63 sec -- that period
-"maxed out" drives actually ran into), a single 3.5" 1.44MB floppy, a 2x
+on-die FPU), 32MB RAM, a 256MB Western Digital Caviar AC2250 IDE hard disk
+(1010 cyl x 9 head x 55 sec, §3.1), a single 3.5" 1.44MB floppy, a 2x
 ATAPI CD-ROM, VGA mode 13h with VESA BIOS Extensions, a PS/2 mouse, and a
 Sound Blaster 16.
 
@@ -57,7 +56,7 @@ drive. The drive also accepts genuine double-density 720KB 3.5" media (80
 cyl/2 head/9 sec/track, 250 kbit/s), the same real "one physical drive,
 two densities" fact ibmpc-at's A: already modeled for 1.2MB/360KB.
 
-## 3. Storage: a 504MB IDE disk and an ATAPI CD-ROM, on two channels
+## 3. Storage: a 256MB IDE disk and an ATAPI CD-ROM, on two channels
 
 A period-correct 1993-94 gaming PC has two IDE channels: the hard disk on
 the primary (0x1F0-0x1F7 / 0x3F6 / IRQ14) and the CD-ROM on the secondary
@@ -78,38 +77,43 @@ DOS-side consumer, FreeDOS `ATAPICDD.SYS` (`FDOS/cdrom`,
 `driver/atapicdd/atapicdd.asm`), since that driver -- not a spec -- is what
 will actually probe this device at boot.
 
-### 3.1 The 504MB geometry is the CHS ceiling, not a round number
+### 3.1 The drive is a WD Caviar AC2250
 
 `Wd1003::mount()` changed from the AT's ST-4038 (733 cyl / 5 head / 17 sec)
-to **1024 cyl / 16 head / 63 sec = 1,032,192 sectors = 528,482,304 bytes =
-exactly 504MB**. That specific number is a genuine, well-documented period
-artifact worth preserving deliberately rather than picking a tidy capacity:
-INT 13h packs the cylinder into 10 bits (max 1024) and the sector into 6
-bits (max 63, 1-based), while the ATA task file allows 65536 cylinders but
-only 16 heads. Neither limit alone bites; their *intersection* -- 1024 × 16
-× 63 -- is the largest geometry classic CHS translation can express at all,
-which is why "maxed out" pre-EIDE IDE drives of 1993-94 landed on 504MB and
-why EIDE LBA translation was introduced to break it. A drive one cylinder or
-one sector larger is unreachable by this addressing, not merely inefficient.
+first to a 1024 / 16 / 63 drive (504MB, the pre-EIDE INT 13h CHS ceiling),
+and then to the drive it models now: a **Western Digital Caviar AC2250**,
+1993-94, sold as 256MB. Its documented translated setup geometry is
+**1010 cyl / 9 head / 55 sec = 499,950 sectors = 255,974,400 bytes**.
+Physically it's 2233 cylinders and 3 heads with zoned recording; the
+1010/9/55 figure is what WD tells you to type into BIOS setup, and what the
+drive's IDENTIFY reports as its default logical geometry. Sources: WD's
+Caviar drive-parameter table (members.tripod.com/plan_9_inc/wdc.html) and
+the AC-2250 entry in stason.org's hard-drive reference.
 
-Changed with the geometry: `mount()`'s constants and its citation comment,
-the IDENTIFY model string (`RETROWEB IDE 504MB`, since the old string named
-the ST-4038 explicitly), and `wd1003.h`'s header note that
-`Machine::configure_factory_cmos()`'s legacy CMOS "Type 47" geometry bytes
-must describe this same geometry -- the BIOS reads the CMOS table and the
-IDENTIFY response through two separate code paths, and they have to agree or
-they describe two different drives. Everything else about the controller is
-untouched: same register model, same paced-read/synchronous-write
-asymmetry, same device-selection gating. `tests/wd1003_test.cpp` is new here
-(the file did not exist for pc486 yet), mirroring ibmpc-at's structure, with
-its geometry assertions rewritten and one added test pinning the capacity
-arithmetic and both CHS field limits.
+The move off 504MB was for the browser, not the hardware: the whole image
+lives in the wasm heap, and before §37 also in a JS mirror and gzip pass.
+A 256MB drive is also the more typical fit for a 1993 DX2-66 than one at
+the CHS ceiling.
+
+The geometry lives in one place, `Wd1003::kCylinders` / `kHeads` /
+`kSectorsPerTrack` / `kImageBytes`. `mount()`, IDENTIFY (words 1/3/6/60-61,
+model `WDC AC2250`), `Machine::configure_factory_cmos()`'s Type 47 bytes,
+`build_freedos_hdd`, and `hdd_boot_check` all read them. The BIOS reads the
+CMOS table and the IDENTIFY response through two separate code paths, so
+they have to agree or they describe two different drives. CMOS control byte
+bit 3 (more than 8 heads) stays set for the AC2250's 9 heads.
+
+FreeDOS 1.3's own FDISK and FORMAT, run by `make hdd-image` on this
+geometry, lay the disk out as one FAT16 partition at LBA 55 (C/H/S 0/1/1)
+through C/H/S 1009/8/55, 499,895 sectors, 4KB clusters, two 244-sector FATs,
+512 root entries. `apply-dos-config.sh` and `build-ctmouse-floppy.sh` read
+the partition offset from the MBR instead of assuming LBA 63.
 
 One test-hygiene note: the test images are deliberately truncated prefixes
-of the real 504MB capacity (a few MB), because the controller bounds-checks
+of the real capacity (a few MB), because the controller bounds-checks
 requests against the mounted image's actual length while IDENTIFY reports
 `mount()`'s fixed constants -- so geometry coverage is unaffected, and no
-test has to allocate half a gigabyte.
+test has to allocate a quarter gigabyte.
 
 ### 3.2 ATAPI device architecture
 
@@ -6088,3 +6092,61 @@ already running), so this costs nothing on every other click. New case in
 audio is *not* running yet, clicks the screen, confirms it is -- without
 ever touching the checkbox. Both fixes verified against a sabotaged build
 before landing, same as §35's.
+
+## 37. C: in a worker, uncompressed, and converting old 504MB saves
+
+Three costs of the browser-side C: went away with the drive change in §3.1.
+
+**The main thread no longer touches IndexedDB.** `web/hdd-worker.js` owns
+the `pc486-hdd` database and runs every load, save, and conversion as one
+serial job queue, so a load always sees every save queued before it.
+app.js talks to it with `hddWorker.call(op, args, transfer)`. The 5 s
+autosave sends only `machine.hddDirtyPatches()`, with their buffers
+transferred, and the worker does a read-modify-write of each touched chunk
+in one transaction.
+
+**No gzip, and no JS mirror.** C: is stored as raw 64KB chunks (`c2:<n>`)
+plus a `c2-meta` record. A chunk that's all zero has no record, so empty
+space costs nothing; that's sparse storage, not compression. The old
+`savedHdd` 504MB `Uint8Array` that every save patched is gone. Power-on asks
+the worker for the image, mounts it, and drops it. `Wd1003::mount()` gained
+a move overload so `mountHdd` hands the converted vector straight to the
+drive instead of copying it again, which matters because the wasm heap
+never shrinks. On a first visit the factory image is mounted and then
+transferred to the worker as C: (`modified: false`, with the factory
+fingerprint). That replaces the separate factory-base stash: an untouched
+C: from an older freedos-hdd.img is dropped on load (`forget`) so the
+visitor gets the current one, and a modified one is kept.
+
+**Old 504MB saves convert in the browser.** When the worker finds only an
+old-format save (the gzip Blob under `c-drive`, or the older raw, chunked,
+or factory-delta shapes), `web/hdd-convert.js` copies its FAT16 tree file
+by file into the exact layout FreeDOS gave the factory image (§3.1).
+Directory entries are copied verbatim, so long names, attributes,
+timestamps, and the volume label survive; only start clusters change.
+Files are placed breadth-first, files before subdirectories, so root boot
+files keep the first clusters. The MBR and boot-sector code are kept and
+the partition entry and BPB are rewritten, which is all DOS boot code needs
+since it reads geometry from the BPB. The new chunks and the deletion of
+every legacy key commit in one transaction. Progress shows in the screen's
+load overlay. An upload of a 504MB file goes through the same path. If a
+save won't fit or isn't a single FAT16 partition, nothing is written; the
+old record stays, the status line says so, and a "Download old 504MB image"
+button hands it back.
+
+Tests: `web/tests/hdd.spec.ts` seeds old-format saves built by `make
+legacy-hdd-fixture` (`web/tests/make-legacy-hdd.sh`, which recreates the
+504MB layout with mtools from the shipped files plus a marker file) as the
+gzip Blob, 512KB chunks, and a factory delta, then checks the marker after
+conversion. It also covers the too-full path, a 504MB upload, every
+converter refusal reason, chunk-boundary patches, all-zero chunk removal,
+and the whole-image fallback. The raw-bytes shape isn't seeded: Chromium
+refuses a single IndexedDB value over ~133MB, so only another browser could
+have stored one. `wd1003_test.cpp` covers the move overload.
+
+Checked against the real thing: converting the last 504MB factory image
+produced the identical tree (1514 files, 13,215,922 bytes, `diff -r` clean
+via `mcopy -s`), `fsck_msdos` found nothing, the partition table and BPB
+match FreeDOS's own byte for byte, and `hdd_boot_check` boots it to `C:\>`
+with the kernel reporting a 244MB C:.
+

@@ -79,7 +79,7 @@ pc486-perf.js: $(SRC) $(HDRS)
 
 perf-build: pc486-perf.js
 
-.PHONY: shared roms hdd-image cdrom-image driver-images perf-build serve test test-smoke test-install coverage clean
+.PHONY: shared roms hdd-image legacy-hdd-fixture cdrom-image driver-images perf-build serve test test-smoke test-install coverage clean
 
 # Theme system / pagebar chrome / fullscreen / focus-hint -- one canonical
 # copy in retroweb/shared/, copied into this machine's own web/shared/ at
@@ -106,9 +106,9 @@ disks/freedos-hdd.img: $(CORE)/disks/freedos-hdd.img
 	mkdir -p disks
 	cp $(CORE)/disks/freedos-hdd.img disks/
 
-# A freshly-installed 504MB FAT disk is mostly unwritten space (§5 built it
+# A freshly-installed 256MB FAT disk is mostly unwritten space (§5 built it
 # with real packages but nowhere near fills the drive), so it gzips hard
-# (measured: 504MB -> ~6.5MB at -9; older installs were ~119MB) --
+# (a mostly-empty FAT16 disk shrinks to a few MB at -9) --
 # unlike freedos-cd.iso below, which is a densely-packed LiveCD image and
 # barely compresses at all, not worth the same treatment. serve_nocache.py
 # serves this sibling transparently (Content-Encoding: gzip) whenever a
@@ -120,6 +120,19 @@ disks/freedos-hdd.img.gz: disks/freedos-hdd.img
 	gzip -9 -k -f disks/freedos-hdd.img
 
 hdd-image: disks/freedos-hdd.img disks/freedos-hdd.img.gz
+
+# Test-only C: images in the format the 504MB builds saved, for hdd.spec.ts's
+# conversion tests (see tests/make-legacy-hdd.sh). tests/ is never staged.
+tests/media/legacy-504.img: disks/freedos-hdd.img tests/make-legacy-hdd.sh
+	bash tests/make-legacy-hdd.sh disks/freedos-hdd.img $@
+
+tests/media/legacy-504-full.img: disks/freedos-hdd.img tests/make-legacy-hdd.sh
+	bash tests/make-legacy-hdd.sh --full disks/freedos-hdd.img $@
+
+tests/media/%.img.gz: tests/media/%.img
+	gzip -9 -k -f $<
+
+legacy-hdd-fixture: tests/media/legacy-504.img tests/media/legacy-504.img.gz tests/media/legacy-504-full.img.gz
 
 # This machine's default mounted CD-ROM disc -- FreeDOS's own official
 # install/live CD, per the approved plan. See ../disks/fetch-freedos-cd.sh.
@@ -160,7 +173,7 @@ serve: pc486.js pc486-perf.js roms shared cdrom-image driver-images
 # 8400/8410 (this suite's own webServer block in playwright.config.ts) are
 # dedicated to this machine's Playwright run -- 8100 altair8800, 8200
 # assembler6502, 8300/8310 ibmpc-at, so 8400/8410 is the next free pair.
-test: pc486.js pc486-perf.js roms shared cdrom-image driver-images
+test: pc486.js pc486-perf.js roms shared cdrom-image driver-images legacy-hdd-fixture
 	@if [ ! -f disks/freedos-hdd.img ]; then \
 	  echo "disks/freedos-hdd.img not found -- run 'make hdd-image' first"; \
 	  echo "(NOT YET IMPLEMENTED for this machine -- see ../Makefile's MILESTONE 1 STATUS note)."; \
@@ -169,7 +182,7 @@ test: pc486.js pc486-perf.js roms shared cdrom-image driver-images
 	@if [ ! -f disks/freedos-hdd.img.gz ]; then \
 	  echo "disks/freedos-hdd.img.gz not found -- run 'make hdd-image' first"; \
 	  echo "(Playwright's devserve.py serves this sibling as Content-Encoding: gzip;"; \
-	  echo " without it every remount transfers the raw 504MB image.)"; \
+	  echo " without it every remount transfers the raw 256MB image.)"; \
 	  exit 1; \
 	fi
 	npx playwright test
@@ -185,14 +198,14 @@ test-smoke: pc486.js pc486-perf.js roms shared cdrom-image driver-images
 	@if [ ! -f disks/freedos-hdd.img.gz ]; then \
 	  echo "disks/freedos-hdd.img.gz not found -- run 'make hdd-image' first"; \
 	  echo "(Playwright's devserve.py serves this sibling as Content-Encoding: gzip;"; \
-	  echo " without it every remount transfers the raw 504MB image.)"; \
+	  echo " without it every remount transfers the raw 256MB image.)"; \
 	  exit 1; \
 	fi
 	npx playwright test tests/smoke.spec.ts
 
 # same suite, one worker, with V8 line/branch/function coverage for app.js
 # -> coverage/index.html  (+ coverage/lcov.info)
-coverage: pc486.js roms shared cdrom-image
+coverage: pc486.js roms shared cdrom-image legacy-hdd-fixture
 	@if [ ! -f disks/freedos-hdd.img ]; then \
 	  echo "disks/freedos-hdd.img not found -- run 'make hdd-image' first"; \
 	  exit 1; \
@@ -206,4 +219,4 @@ test-install:
 clean:
 	rm -f pc486.js pc486.wasm
 	rm -rf shared
-	rm -rf test-results playwright-report coverage .v8-coverage
+	rm -rf test-results playwright-report coverage .v8-coverage tests/media

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # Local / Playwright server for web/: LAN-reachable, Cache-Control: no-store,
 # and the same transparent .gz sibling serving as retroweb/serve_nocache.py
-# (so disks/freedos-hdd.img ships as ~6MB gzip rather than 504MB raw on every
+# (so disks/freedos-hdd.img ships as ~6MB gzip rather than 256MB raw on every
 # page load — without this, Playwright remounts dominate CI wall clock).
 import http.server, os, sys
 
