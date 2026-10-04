@@ -43,9 +43,9 @@
 // Controller-command scope: self-test, interface test, read/write command
 // byte, enable/disable keyboard, enable/disable/test the AUX interface,
 // write-to-AUX-device, write-to-either-output-buffer, read/write output
-// port, pulse-output-line-0. LED state and typematic rate aren't modeled
-// (any command byte the keyboard itself doesn't specifically need just
-// gets ACKed). Reference: IBM 5170 Technical Reference, "Keyboard System";
+// port, pulse-output-line-0. The keyboard repeats its last-pressed key at
+// the typematic rate set by 0xF3 (default 500 ms delay, 10.9 cps); LED
+// state isn't modeled (those command bytes just get ACKed). Reference: IBM 5170 Technical Reference, "Keyboard System";
 // the 8042 command set is otherwise identical across the whole
 // PC/AT-compatible universe and is documented in any AT-class BIOS's
 // keyboard POST routine.
@@ -111,6 +111,21 @@ public:
     // BIOS/DOS keyboard driver actually reads.
     void inject_scancode(uint8_t code);
 
+    // Typematic repeat, run on the keyboard's own clock against the CPU's
+    // running cycle count (absolute, like Pit8253::tick). A real keyboard
+    // repeats only the most recently pressed key, from the typematic delay
+    // until that key's break (IBM PS/2 Technical Reference, "Keyboard",
+    // Set Typematic Rate/Delay; Chapweske, "The AT-PS/2 Keyboard
+    // Interface"). inject_scancode() tracks which key that is.
+    void tick(uint64_t cpu_cycles, double cpu_hz) {
+        uint64_t d = cpu_cycles - prev_cycles_;
+        prev_cycles_ = cpu_cycles;
+        if (!tm_active_) return;
+        now_s_ += double(d) / cpu_hz;
+        if (now_s_ >= tm_next_) typematic_fire();
+    }
+    uint8_t typematic_byte() const { return typematic_; }
+
     // Button bits, in the order the PS/2 movement packet's first byte
     // carries them (Chapweske, "The PS/2 Mouse Interface", 2001).
     enum MouseButton : uint8_t {
@@ -164,6 +179,23 @@ private:
     bool reset_requested_ = false;
     mutable bool irq1_pending_ = false;
     mutable bool irq12_pending_ = false;
+
+    uint8_t typematic_ = 0x2B;   // 500 ms delay, 10.9 cps: the power-on default
+    uint8_t kbd_arg_cmd_ = 0;    // a keyboard command (0xED/0xF0/0xF3) awaiting its argument
+    bool tm_active_ = false;
+    uint8_t tm_prefix_ = 0;      // 0xE0 for a grey key, else 0
+    uint8_t tm_code_ = 0;
+    bool pending_e0_ = false;
+    int e1_skip_ = 0;            // Pause's E1 sequences never repeat
+    uint64_t prev_cycles_ = 0;
+    double now_s_ = 0.0;
+    double tm_next_ = 0.0;
+    double typematic_delay() const { return 0.25 * double(1 + ((typematic_ >> 5) & 3)); }
+    double typematic_period() const {
+        // (8 + A) * 2^B * 4.17 ms, A = bits 0-2, B = bits 3-4.
+        return double(8 + (typematic_ & 7)) * double(1 << ((typematic_ >> 3) & 3)) * 0.00417;
+    }
+    void typematic_fire();
 
     // The output buffer is one byte wide on the real part, but both devices
     // behind it answer in multi-byte bursts (a keyboard RESET's ACK + BAT,

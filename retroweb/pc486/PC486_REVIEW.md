@@ -2774,7 +2774,7 @@ in `boom_run_check.cpp` behind flags:
   disappear with the fix, so nothing real depends on it -- but a core that
   silently continues past an invalid opcode lets a runaway guest grind on
   where hardware would have stopped it, which is the opposite of helpful.
-  Fixing it wants its own verification pass against the boot path.
+  Fixing it wants its own verification pass against the boot path. (Fixed in §39, with that verification pass.)
 
 ### 9.9 What this says about the test strategy
 
@@ -6181,3 +6181,195 @@ the hard disk panel. It now counts visible panels only.
 2-second window the instant the machine was live, while a slow runner was
 still tiering up the wasm and writing the first C: to IndexedDB. It now
 waits a second first.
+
+## 39. A parity audit: reserved opcodes, AAA/AAS, DSKCHG, and what stays out
+
+An audit of this machine against a real 1993-94 DX2-66 build, and of its
+test coverage. Four things were fixed; three gaps are recorded as staying
+open for now.
+
+### 39.1 Reserved encodings raise #UD
+
+Every encoding the core didn't recognise used to call `on_unimplemented`
+and carry on. Intel SDM Vol. 3, "Undefined Opcodes": "Attempting to execute
+a reserved opcode always results in an invalid-opcode (#UD) exception."
+Software depends on that. A handler around a later instruction (RDTSC,
+CMPXCHG8B, FCMOV, FISTTP) is how a program tells a 486 from what came after
+it. Carrying on ran the next bytes as if the probe had worked.
+
+`Cpu::raise_ud()` now fires the hook and then raises #UD. It covers the
+one-byte map, the unassigned 0F space (including UD2, `0F 31`, `0F C7`, and
+`0F A6`/`A7`, the A-step CMPXCHG slot this part doesn't decode), `FF /7`,
+`FE /2-/7`, `0F BA /0-/3`, and register operands where only memory makes
+sense: LEA, LES/LDS/LSS/LFS/LGS, BOUND, and far CALL/JMP indirect.
+
+Two encodings the SDM names as reserved but never faulting stay that way:
+`F1` (already ICEBP) and `D6`, now SALC (`AL = CF ? FFh : 00h`, flags
+untouched). SALC is undocumented but present from the 8086 on. There's no
+published 486 timing for it, so it's charged as SBB AL,AL.
+
+On the x87 side, the reserved forms fault before the FPU pointers or the
+deferred-error check move. That covers FCMOVcc, FCOMI/FCOMIP/FUCOMI/FUCOMIP,
+FISTTP, and the empty register and memory slots. Before this, `D9 /1`,
+`DD /1`, `DD /5` and `DF /1` silently ran as FNSTCW, FNSTSW or FISTP.
+
+Building the list turned up encodings a real 486 does execute that the
+core didn't:
+
+- **FUCOM / FUCOMP ST(i)** (`DD E0+i`, `DD E8+i`). These are documented 387
+  instructions, and they were missing outright.
+- **The undocumented register aliases**: `DC D0`/`D8` (FCOM/FCOMP), `DE D0`
+  (FCOMP), `DD C8` and `DF C8` (FXCH), `DF D0`/`D8` (FSTP), `DF C0`
+  (FFREEP), and `D9 D8+i`, the FSTP that skips the stack-underflow check.
+  The DC and DE compare aliases used to fall into the arithmetic path and
+  run as divide-reverse. Source: the "List of undocumented x86 instructions"
+  and sandpile.org's FPU map.
+
+`hdd-boot-check` still reaches the same idle `C:\>` at cycle 1,036,029,044.
+`pm-check` and `vbe-check` pass.
+
+### 39.2 AAA and AAS adjust AX, not AL
+
+From the 80286 on, AAA adds 106h to AX and AAS subtracts 6 from AX, so a
+carry or borrow out of AL reaches AH (Intel SDM AAA/AAS; the 8086-vs-286
+difference is noted in Intel's 8086 opcode notes at pcjs.org). The core did
+the 8086 version: `AX = 00FFh` gave 0105h after AAA, where a 486 gives
+0205h.
+
+### 39.3 Ejecting a floppy asserts DSKCHG
+
+`Fdc765::unmount()` dropped the image and left the disk-change line alone,
+and any step cleared it, disk or no disk. A 3.5" drive asserts DSKCHG when
+the disk comes out and resets it only on a step pulse with a disk inserted
+(TEAC FD-235HF spec, "Disk Change"). An empty bay now keeps reporting
+"changed", which is how DOS sees a missing disk.
+
+### 39.4 Coverage
+
+`make coverage` left `opl3_test` out of `UNIT_TESTS` and `mpu401.*` out of
+the report, so the OPL3 read 68% lines when it's 99%. Both are now in. New
+tests cover all sixteen conditions through SETcc and short Jcc, 16-bit
+shifts and rotates (`shiftrot16` had never run), 8-bit rotates, DAS,
+AAA/AAS, word I/O through `Chipset::io_out16`, all eight DMA page ports,
+FDC unmount, and every #UD and alias above. The SB16 volume wheel, the one
+front-panel control with no Playwright test, now has `volume.spec.ts`.
+Native totals went from 89.2% to 93.0% lines and 72.8% to 79.3% branches.
+
+### 39.5 Not implemented for now
+
+These are real departures from period hardware. They're recorded here and
+deliberately left out for the moment.
+
+- **Cache and bus timing.** Every memory and I/O access is charged at the
+  486's published L1-hit cost. There are no L1 misses, no 33 MHz bus cycles
+  for an external access, and no ISA or VGA wait states. Code that hammers
+  memory or video RAM runs faster than a real board would. Fixing it means
+  an L1 model (8KB, 4-way, write-through), an L2 decision for a 1993 board,
+  and a per-region wait-state table (ISA I/O, VGA aperture, ROM). All of it
+  sits on the hottest path, which §14-§16 spent a long time making cheap.
+  It needs its own design pass, with period board numbers to cite.
+- **Game port (0x201).** A real SB16 carries one, and flight sims of the
+  era expect a joystick. It wants a front-end input story (Gamepad API or
+  keys) as much as the 558-timer emulation.
+- **Serial and parallel ports.** No COM1/COM2 (8250/16550) and no LPT1,
+  though every period board had them. That rules out serial mice,
+  null-modem play and printing.
+
+## 40. A second audit: the clock, key repeat, VGA colour, and three CPU gaps
+
+A second pass over the machine, aimed at the devices and CPU edges §39
+didn't look at. Six things were fixed. The rest of what it found is listed
+in §40.7.
+
+### 40.1 The RTC keeps time
+
+`CmosRtc` never ticked. It read 00:00:00 on a zero date at every boot,
+never raised IRQ8, and pinned UIP at 0. It now runs from its own 32.768 kHz
+time base in guest time, so Turbo doesn't change its rate. Once a second it
+runs the MC146818A update cycle: UIP rises 244 us ahead, the registers roll
+over 1984 us later, then the update-ended and alarm flags are checked. The
+periodic flag follows register A's rate select (1024 Hz by default). Any
+enabled flag drives IRQ8, slave line 0, until register C is read. BCD and
+binary, 12- and 24-hour, SET, the divider-reset half-second, the
+every-fourth-year leap rule and the alarm's don't-care bytes all follow the
+data sheet. Registers C and D are read-only, as on the chip.
+
+The part is now 128 bytes, the DS12887 class a 1993 board carries. At 64
+bytes, Bochs BIOS reads of 0x5B-0x5D aliased onto the disk geometry at
+0x1B-0x1D.
+
+A real board's battery has kept the clock running, so each power-on loads
+the visitor's local time (`Machine.setRtc`, from `app.js`). Native
+harnesses that don't set it start at 1994-01-01 00:00:00.
+
+### 40.2 The keyboard repeats
+
+Holding a key sent one make code. The page drops the browser's repeat
+events, and nothing else generated any. The keyboard behind the 8042 now
+repeats its most recently pressed key on its own clock: 500 ms delay and
+10.9 cps at power-on, changed by `F3` (so `MODE CON RATE=` and INT 16h
+AH=03h work), restored by `F6` and `FF`. A grey key repeats with its `E0`
+prefix. Pause never repeats. Releasing the key, or pressing another, ends
+it, including when the controller has the keyboard disabled at that moment.
+Sources: IBM PS/2 Technical Reference, Set Typematic Rate/Delay; Chapweske,
+"The AT-PS/2 Keyboard Interface".
+
+### 40.3 Text and 16-colour modes go through the DAC
+
+The renderer decoded text, CGA-compatible and 16-colour pixels with the
+EGA's fixed 64-colour scheme. That's right for `ibmpc-at`'s EGA and wrong
+here: on a VGA the palette registers address the DAC (IBM VGA Technical
+Reference, "Attribute Controller"). Color Select supplies DAC bits 6-7, and
+bits 4-5 too when AR10 bit 7 is set. Color Plane Enable masks the planes in
+16-colour graphics. Palette fades and custom palettes outside mode 13h now
+show. A real FreeDOS boot renders the same as before, because the VGA BIOS
+loads the EGA-compatible table into DAC 0-63 on every text or 16-colour
+mode set.
+
+### 40.4 Single-step
+
+TF never trapped. Now an instruction that begins with TF set is followed by
+#DB, with the next instruction's address saved and DR6.BS set. A POPF that
+sets TF runs untrapped; one that clears it still traps. INT n, INT3 and
+INTO clear TF and enter their handler untrapped. DEBUG's `T` command works.
+REP string instructions still run every iteration inside one step, so they
+trap after the last iteration rather than after each one.
+
+### 40.5 The STI and MOV SS interrupt shadow
+
+`Machine` delivered INTR on any boundary with IF set. STI (from IF=0), MOV
+SS and POP SS now hold off maskable interrupts and the single-step trap
+for one instruction, so `MOV SS / MOV SP` can't take an interrupt onto a
+half-loaded stack (Intel 80486 PRM, MOV and STI).
+
+### 40.6 Shutdown resets the CPU
+
+A fault while delivering a double fault set `halted`, and the next IRQ woke
+the CPU into the broken IDT that caused it. An AT-class board decodes the
+shutdown cycle and pulses RESET. `Machine` now does the same CPU-only reset
+the 8042's pulse gives, so memory and CMOS survive. Software that leaves
+protected mode this way, or crashes, reboots instead of wandering.
+
+### 40.7 Still open from this audit
+
+- **VGA text layout.** Always 25 rows (43- and 50-line modes break), 8-dot
+  cells where VGA text is 9 dots with the line-graphics column, attribute
+  bit 7 dropped (no blink, no bright backgrounds), and the character map
+  select (SR03) ignored.
+- **VGA scroll effects.** No line compare (split screen) and no pel panning.
+- **Aspect ratio.** The canvas shows each mode at its pixel ratio. A VGA
+  monitor fills 4:3 in every mode, so 320x200 is drawn too short.
+- **Real-mode limits.** No #GP on a word at offset FFFFh or past 64KB; §6.2
+  chose this, though the cached-limit mechanism would keep HimemX working.
+- **CPU details.** FXCH doesn't swap tags or signal underflow. LOCK on a
+  non-lockable instruction doesn't #UD. No 15-byte length limit. EDX and CR0
+  at reset are 0 and 10h where a 486 gives its signature and 60000010h.
+- **PIT.** Every mode is a square wave, so modes 0, 1, 4 and 5 fire
+  periodically. No 8254 read-back command; mode 3 doesn't count by two.
+- **PIC.** No poll command.
+- **IDE.** Only IDENTIFY, INITIALIZE PARAMETERS, READ and WRITE. VERIFY,
+  SEEK, READ/WRITE MULTIPLE, SET FEATURES, diagnostics and power commands
+  abort.
+- **Keyboard commands.** `EE` answers ACK instead of `EE`; `F0 00` returns
+  no scan-code set.
+- **FORMAT TRACK** leaves the old sector data in place.

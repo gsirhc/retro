@@ -199,6 +199,33 @@ TEST_F(Fdc765Test, DiskChangeLineSetByMountAndClearedBySeek) {
     EXPECT_TRUE(fdc.in(0x3F7) & 0x80);
 }
 
+TEST_F(Fdc765Test, EjectingADiskAssertsDiskChangeAndAnEmptyBayKeepsIt) {
+    auto img = MakeImage(80, 2, 18);
+    fdc.mount(0, img.data(), img.size());
+    PowerOnMotorAndSelect(0);
+    fdc.out(0x3F5, 0x07); fdc.out(0x3F5, 0x00);  // RECALIBRATE drive 0
+    ASSERT_FALSE(fdc.in(0x3F7) & 0x80);
+
+    fdc.unmount(0);
+    EXPECT_FALSE(fdc.mounted(0));
+    EXPECT_TRUE(fdc.in(0x3F7) & 0x80) << "ejecting is a media change";
+
+    fdc.out(0x3F5, 0x07); fdc.out(0x3F5, 0x00);
+    EXPECT_TRUE(fdc.in(0x3F7) & 0x80) << "a step with no disk in the drive does not reset DSKCHG";
+
+    fdc.mount(0, img.data(), img.size());
+    fdc.out(0x3F5, 0x07); fdc.out(0x3F5, 0x00);
+    EXPECT_FALSE(fdc.in(0x3F7) & 0x80);
+}
+
+TEST_F(Fdc765Test, UnmountingTheOtherDriveLeavesThisOneAlone) {
+    auto img = MakeImage(80, 2, 18);
+    fdc.mount(0, img.data(), img.size());
+    fdc.unmount(1);
+    EXPECT_TRUE(fdc.mounted(0));
+    EXPECT_FALSE(fdc.mounted(1));
+}
+
 TEST_F(Fdc765Test, MountedMediaSurvivesControllerReset) {
     auto img = MakeImage(80, 2, 18);
     fdc.mount(0, img.data(), img.size());

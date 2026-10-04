@@ -68,6 +68,10 @@ void Fdc765::unmount(int drive) {
     Drive &d = drives[drive & 1];
     d.image.clear();
     d.present = false;
+    // A 3.5" drive asserts DSKCHG when the disk is ejected and resets it
+    // only on a step pulse with a disk inserted (TEAC FD-235HF spec,
+    // "Disk Change"), so an empty bay keeps reporting "changed".
+    d.disk_changed = true;
 }
 
 void Fdc765::set_cpu_hz(double hz) {
@@ -227,7 +231,7 @@ void Fdc765::run_command() {
             // Real hardware: DSKCHG clears once the drive actually steps --
             // this is how software confirms a floppy swap "took" before
             // trusting whatever it reads next. See Drive::disk_changed.
-            drives[drive].disk_changed = false;
+            if (drives[drive].present) drives[drive].disk_changed = false;
             seek_drive_ = drive;
             seeking_ = true;
             seek_credit_ = 0.0;

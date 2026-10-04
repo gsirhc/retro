@@ -106,6 +106,10 @@ void Machine::run_cycles(int64_t cycles) {
         // serviced pass catches the pulse on exactly the instruction boundary
         // a per-instruction check did.
         if (chipset.tick(total_cycles_, cpu_hz_)) service_kbc_reset();
+        // An AT-class board decodes the CPU's shutdown cycle and pulses RESET
+        // (IBM AT Technical Reference, "Shutdown"), the same CPU-only reset
+        // the 8042 gives; memory and CMOS survive.
+        if (cpu.shutdown()) cpu.reset();
         // Real hardware only begins an INTA cycle if the CPU's IF flag
         // permits it to respond to INTR -- see ibmpc-at/machine.cpp's
         // identical comment; unchanged reasoning on this CPU.
@@ -117,7 +121,7 @@ void Machine::run_cycles(int64_t cycles) {
         // lower(2) on an already-clear master IR2 -- if IR2 *were* set, the
         // master would report a pending interrupt and this guard would let
         // the call through. See PC486_REVIEW.md §8.
-        if (cpu.flag(cpu80486::FLAG_IF) && chipset.has_interrupt()) {
+        if (cpu.flag(cpu80486::FLAG_IF) && !cpu.interrupt_shadow() && chipset.has_interrupt()) {
             int vec = chipset.poll_interrupt();
             if (vec >= 0) cpu.interrupt(uint8_t(vec));
         }

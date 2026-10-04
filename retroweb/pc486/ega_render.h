@@ -50,8 +50,8 @@ constexpr int kTextRenderHeight = 350;  // the classic 14-line/row default -- se
 // (the character generator RAM, exactly where a real vgabios's mode-set
 // writes it, at the standard EGA/VGA convention of 32 bytes reserved per
 // character) and colors from the live Attribute Controller palette
-// registers, decoded via the genuine EGA 6-bit color format -- no
-// hardcoded font or color table.
+// registers, which address the DAC as on a real VGA (Ega::attr_dac_index)
+// -- no hardcoded font or color table.
 //
 // Scan lines per character row (and so the overall frame height) comes
 // from the CRTC's own Maximum Scan Line register (ega.crtc_max_scan_line()),

@@ -140,6 +140,51 @@ TEST(MachineTest, KeyboardControllerResetTrickResetsCpuWithoutLosingPacing) {
     EXPECT_GE(m.total_cycles(), before);  // pacing counter kept advancing, not zeroed by the reset
 }
 
+TEST(MachineTest, AnInterruptPendingAtStiWaitsOneInstruction) {
+    Machine m;
+    m.reset();
+    m.chipset.pic_master.out(0x20, 0x11);
+    m.chipset.pic_master.out(0x21, 0x08);
+    m.chipset.pic_master.out(0x21, 0x04);
+    m.chipset.pic_master.out(0x21, 0x01);
+    m.chipset.pic_master.out(0x21, 0xFD);  // unmask IRQ1 only
+    m.chipset.pic_master.raise(1);         // already pending when STI runs
+
+    auto &mem = m.chipset.mem;
+    mem[9 * 4 + 0] = 0x00; mem[9 * 4 + 1] = 0x50;  // IVT[9] -> 0000:5000
+    mem[9 * 4 + 2] = 0x00; mem[9 * 4 + 3] = 0x00;
+    // Handler: MOV AL,[1235h] ; MOV [1236h],AL ; MOV byte [1234h],1 ; IRET
+    const uint8_t handler[] = {0xA0, 0x35, 0x12, 0xA2, 0x36, 0x12, 0xC6, 0x06, 0x34, 0x12, 0x01, 0xCF};
+    for (std::size_t i = 0; i < sizeof handler; ++i) mem[0x5000 + i] = handler[i];
+    // STI ; INC byte [1235h] ; HLT
+    const uint8_t prog[] = {0xFB, 0xFE, 0x06, 0x35, 0x12, 0xF4};
+    for (std::size_t i = 0; i < sizeof prog; ++i) mem[i] = prog[i];
+    mem[0x1234] = mem[0x1235] = mem[0x1236] = 0;
+    m.cpu.cs = m.cpu.ds = 0;
+    m.cpu.eip = 0;
+
+    for (int i = 0; i < 200 && mem[0x1234] == 0; ++i) m.run_cycles(10);
+    ASSERT_EQ(mem[0x1234], 1);
+    EXPECT_EQ(mem[0x1236], 1) << "the instruction after STI ran before the interrupt";
+}
+
+TEST(MachineTest, ShutdownResetsTheCpuAndKeepsMemory) {
+    Machine m;
+    m.reset();
+    auto &mem = m.chipset.mem;
+    // LIDT [0600h] with a zero limit, then INT3: #GP, #DF, shutdown.
+    const uint8_t prog[] = {0x0F, 0x01, 0x1E, 0x00, 0x06, 0xCC};
+    for (std::size_t i = 0; i < sizeof prog; ++i) mem[0x400 + i] = prog[i];
+    for (int i = 0; i < 6; ++i) mem[0x600 + i] = 0;
+    mem[0x1234] = 0x5A;
+    m.cpu.cs = m.cpu.ds = 0;
+    m.cpu.eip = 0x400;
+    m.run_cycles(200);
+    EXPECT_EQ(m.cpu.cs, 0xF000) << "the board turned the shutdown cycle into RESET";
+    EXPECT_FALSE(m.cpu.shutdown());
+    EXPECT_EQ(mem[0x1234], 0x5A) << "a CPU reset, not a power cycle";
+}
+
 // --- the CPU's page-resolution and prefetch fast paths (§15) -------------
 // The CPU now resolves a physical page to a host pointer once and reads and
 // writes every byte of it directly, and fetches a run of instruction bytes

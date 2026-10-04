@@ -235,6 +235,7 @@ private:
     bool cdrom_irq_prev_ = false; // IRQ15 (CD-ROM, slave PIC line 7)
     uint32_t vga_map_prev_ = 0xFFFFFFFFu;
     bool sb_irq_prev_ = false;    // Sound Blaster, line picked by mixer 80h (IRQ5 default)
+    bool rtc_irq_prev_ = false;   // RTC, IRQ8
 
     // Moves one Sound Blaster DMA block (8-bit channel 1 or 16-bit channel
     // 5) once its paced transfer is ready -- the same "one bulk copy per

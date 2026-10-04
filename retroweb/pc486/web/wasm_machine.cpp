@@ -62,6 +62,11 @@ public:
     // same as ibmpc-at's own reset()/comment.
     void reset() { m_.reset(); }
 
+    // Loads the RTC's calendar, as BIOS Setup would. weekday 1-7, 1 = Sunday.
+    void setRtc(int year, int month, int day, int hour, int minute, int second, int weekday) {
+        m_.chipset.cmos.set_time(year, month, day, hour, minute, second, weekday);
+    }
+
     // Front-panel Turbo: on = 66 MHz (DX2 clock-doubled), off = 33 MHz
     // (bus rate). The PIT crystal and device wall-clock pacing stay correct
     // -- only the CPU's internal clock drops. See Machine::set_turbo.
@@ -462,6 +467,7 @@ EMSCRIPTEN_BINDINGS(pc486_machine) {
     emscripten::class_<WasmMachine>("Machine")
         .constructor<>()
         .function("reset", &WasmMachine::reset)
+        .function("setRtc", &WasmMachine::setRtc)
         .function("setTurbo", &WasmMachine::setTurbo)
         .function("turbo", &WasmMachine::turbo)
         .function("cpuHz", &WasmMachine::cpuHz)

@@ -141,13 +141,24 @@ public:
     uint8_t cursor_start_scanline() const { return uint8_t(crtc_[0x0A] & 0x1F); }
     uint8_t cursor_end_scanline() const { return uint8_t(crtc_[0x0B] & 0x1F); }
 
-    // Host/front-end convenience: one Attribute Controller internal
-    // palette register (0-15), the real 6-bit EGA color value (2 bits per
-    // channel -- primary + secondary/intensity, each channel decoding as
-    // primary*0xAA + secondary*0x55) that byte-attribute nibble maps to.
-    // A renderer combines this with the character-generator bits in plane
-    // 2 (also public, via `vram`) to paint an actual screen.
+    // One Attribute Controller internal palette register (0-15): the 6-bit
+    // value a 4-bit attribute nibble or pixel maps to. On this VGA it is a
+    // DAC address, not a colour -- see attr_dac_index().
     uint8_t attr_palette(int index) const { return uint8_t(attr_[index & 0x0F] & 0x3F); }
+
+    // The DAC address a 4-bit text or 16-colour pixel drives on a VGA: the
+    // palette register's 6 bits, with bits 6-7 from Color Select (AR14)
+    // bits 2-3 and, when AR10 bit 7 is set, bits 4-5 from AR14 bits 0-1.
+    // On a VGA the palette registers index the DAC rather than drive the
+    // monitor directly (IBM VGA Technical Reference, "Attribute Controller").
+    uint8_t attr_dac_index(int pixel) const {
+        uint8_t p = attr_palette(pixel);
+        uint8_t cs = attr_[0x14];
+        if (attr_[0x10] & 0x80) p = uint8_t((p & 0x0F) | ((cs & 0x03) << 4));
+        return uint8_t(p | ((cs & 0x0C) << 4));
+    }
+    // Color Plane Enable (AR12): the bit planes that reach the palette.
+    uint8_t attr_plane_enable() const { return uint8_t(attr_[0x12] & 0x0F); }
 
     // --- VGA DAC (ports 0x3C6-0x3C9) --------------------------------------
     // One of the 256 DAC colour registers, as the three RAW 6-bit channel

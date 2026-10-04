@@ -31,6 +31,7 @@ void Chipset::reset() {
     hdd_irq_prev_ = false;
     cdrom_irq_prev_ = false;
     sb_irq_prev_ = false;
+    rtc_irq_prev_ = false;
     pic_master.reset();
     pic_slave.reset();
     pit.reset();
@@ -242,6 +243,7 @@ void Chipset::service(uint64_t cpu_cycles, double cpu_hz) {
     // interrupt outright (a keyboard byte sitting unread forever looks
     // exactly like the browser's reported "keyboard freezes" -- see
     // PC486_REVIEW.md for the trace that pinned it on IRQ1 specifically).
+    kbc.tick(cpu_cycles, cpu_hz);
     if (kbc.irq1_pending()) { pic_master.raise(1); kbc.clear_irq1(); }
     if (kbc.irq12_pending()) { pic_slave.raise(4); kbc.clear_irq12(); }
 
@@ -300,6 +302,13 @@ void Chipset::service(uint64_t cpu_cycles, double cpu_hz) {
     bool cdrom_irq_now = cdrom.irq_pending();
     if (cdrom_irq_now && !cdrom_irq_prev_) pic_slave.raise(7);
     cdrom_irq_prev_ = cdrom_irq_now;
+
+    // IRQ8 (RTC, slave line 0): the chip's active-low IRQ output, inverted
+    // onto the ISA line, so a new flag is a rising edge.
+    cmos.tick(cpu_cycles, cpu_hz);
+    bool rtc_irq_now = cmos.irq_pending();
+    if (rtc_irq_now && !rtc_irq_prev_) pic_slave.raise(0);
+    rtc_irq_prev_ = rtc_irq_now;
 
     next_service_ = cpu_cycles + pit.cycles_to_next_count();
 }

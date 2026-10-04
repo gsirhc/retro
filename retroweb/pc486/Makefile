@@ -63,7 +63,7 @@ CXX      ?= c++
 CXXFLAGS ?= -std=c++17 -O2 -Wall -Wextra
 
 CHIPSET_SRCS = machine.cpp chipset.cpp cpu80486.cpp pic8259.cpp pit8253.cpp i8042.cpp cmos_rtc.cpp dma8237.cpp fdc765.cpp ega.cpp wd1003.cpp atapi_cdrom.cpp pcspeaker.cpp soundblaster.cpp opl3.cpp mpu401.cpp
-UNIT_TESTS = cpu80486_test cpu80486_timing_test pic8259_test pit8253_test i8042_test cmos_rtc_test dma8237_test chipset_test machine_test fdc765_test ega_test ega_render_test wd1003_test atapi_cdrom_test pcspeaker_test soundblaster_test mpu401_test
+UNIT_TESTS = cpu80486_test cpu80486_timing_test pic8259_test pit8253_test i8042_test cmos_rtc_test dma8237_test chipset_test machine_test fdc765_test ega_test ega_render_test wd1003_test atapi_cdrom_test pcspeaker_test soundblaster_test mpu401_test opl3_test
 
 .PHONY: help test test-smoke bios bios-check pm-check vbe-check hdd-image hdd-boot-check wasm serve coverage check clean fm-trace-render
 
@@ -199,6 +199,7 @@ coverage:
 	    $(CURDIR)/pcspeaker.cpp $(CURDIR)/pcspeaker.h \
 	    $(CURDIR)/soundblaster.cpp $(CURDIR)/soundblaster.h \
 	    $(CURDIR)/opl3.cpp $(CURDIR)/opl3.h \
+	    $(CURDIR)/mpu401.cpp $(CURDIR)/mpu401.h \
 	    $(CURDIR)/chipset.cpp $(CURDIR)/chipset.h $(CURDIR)/machine.cpp $(CURDIR)/machine.h"; \
 	  $(LLVM_COV) report $$objs -instr-profile=cov.profdata $$srcs; \
 	  $(LLVM_COV) show $$objs -instr-profile=cov.profdata -format=html -output-dir=../coverage-cpp $$srcs >/dev/null; \

@@ -15,6 +15,8 @@
 
 #include "i8042.h"
 
+#include <vector>
+
 namespace {
 
 using pc486::I8042;
@@ -833,6 +835,101 @@ TEST(I8042Test, BiosPointingDeviceInitSequenceRunsEndToEnd) {
     EXPECT_EQ(p.b0, 0x08 | 0x04 | 0x10);  // bit3, middle button, X negative
     EXPECT_EQ(p.b1, 0xFE);
     EXPECT_EQ(p.b2, 0x03);
+}
+
+// --- typematic repeat ------------------------------------------------------
+
+class TypematicTest : public ::testing::Test {
+protected:
+    static constexpr double kHz = 66000000.0;
+    I8042 kbc;
+    double t = 0.0;
+
+    void SetUp() override { kbc.reset(); Drain(); }
+    std::vector<uint8_t> Drain() {
+        std::vector<uint8_t> out;
+        while (kbc.in(0x64) & 0x01) out.push_back(kbc.in(0x60));
+        return out;
+    }
+    // Advances the keyboard's clock to `seconds` in 1 ms steps and returns
+    // everything it sent on the way.
+    std::vector<uint8_t> RunTo(double seconds) {
+        std::vector<uint8_t> out;
+        for (; t < seconds; t += 0.001) {
+            kbc.tick(uint64_t(t * kHz), kHz);
+            for (uint8_t b : Drain()) out.push_back(b);
+        }
+        return out;
+    }
+};
+
+TEST_F(TypematicTest, AHeldKeyRepeatsAfterHalfASecondAtTenPointNineCps) {
+    kbc.inject_scancode(0x1E);
+    EXPECT_EQ(Drain(), std::vector<uint8_t>{0x1E});
+    EXPECT_TRUE(RunTo(0.49).empty()) << "nothing before the 500 ms delay";
+    auto first = RunTo(0.51);
+    EXPECT_EQ(first, std::vector<uint8_t>{0x1E});
+    auto second = RunTo(1.51);
+    EXPECT_GE(second.size(), 10u);
+    EXPECT_LE(second.size(), 11u) << "one every 91.7 ms";
+    kbc.inject_scancode(0x9E);
+    EXPECT_EQ(Drain(), std::vector<uint8_t>{0x9E});
+    EXPECT_TRUE(RunTo(3.0).empty()) << "the break ends the repeat";
+}
+
+TEST_F(TypematicTest, OnlyTheMostRecentlyPressedKeyRepeats) {
+    kbc.inject_scancode(0x1E);
+    kbc.inject_scancode(0x1F);
+    Drain();
+    auto out = RunTo(0.55);
+    EXPECT_EQ(out, std::vector<uint8_t>{0x1F});
+    kbc.inject_scancode(0x9F);
+    Drain();
+    EXPECT_TRUE(RunTo(2.0).empty()) << "releasing it does not hand the repeat back to A";
+}
+
+TEST_F(TypematicTest, AGreyKeyRepeatsWithItsE0Prefix) {
+    kbc.inject_scancode(0xE0);
+    kbc.inject_scancode(0x48);
+    Drain();
+    auto out = RunTo(0.55);
+    EXPECT_EQ(out, (std::vector<uint8_t>{0xE0, 0x48}));
+    kbc.inject_scancode(0xE0);
+    kbc.inject_scancode(0xC8);
+    Drain();
+    EXPECT_TRUE(RunTo(2.0).empty());
+}
+
+TEST_F(TypematicTest, SetTypematicRateChangesTheDelayAndTheRate) {
+    kbc.out(0x60, 0xF3);
+    kbc.out(0x60, 0x00);  // 250 ms, 30 cps
+    EXPECT_EQ(Drain(), (std::vector<uint8_t>{0xFA, 0xFA})) << "command and argument each ACKed";
+    EXPECT_EQ(kbc.typematic_byte(), 0x00);
+    kbc.inject_scancode(0x1E);
+    Drain();
+    EXPECT_EQ(RunTo(0.26).size(), 1u);
+    auto out = RunTo(1.26);
+    EXPECT_GE(out.size(), 29u);
+    EXPECT_LE(out.size(), 31u);
+
+    kbc.out(0x60, 0xFF);  // reset restores the default
+    Drain();
+    EXPECT_EQ(kbc.typematic_byte(), 0x2B);
+}
+
+TEST_F(TypematicTest, PauseNeverRepeats) {
+    for (uint8_t b : {0xE1, 0x1D, 0x45, 0xE1, 0x9D, 0xC5}) kbc.inject_scancode(b);
+    Drain();
+    EXPECT_TRUE(RunTo(2.0).empty());
+}
+
+TEST_F(TypematicTest, AReleaseWhileTheControllerHoldsTheKeyboardOffStillEndsTheRepeat) {
+    kbc.inject_scancode(0x1E);
+    Drain();
+    kbc.out(0x64, 0xAD);  // disable keyboard
+    kbc.inject_scancode(0x9E);
+    kbc.out(0x64, 0xAE);
+    EXPECT_TRUE(RunTo(2.0).empty());
 }
 
 }  // namespace

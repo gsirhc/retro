@@ -2770,6 +2770,11 @@
         }
         setBayLoaded(cdromBay, pendingCdrom.name);
       }
+      // The board's battery-backed clock has been keeping local time all
+      // along, so a fresh power-on reads the visitor's own clock.
+      const now = new Date();
+      machine.setRtc(now.getFullYear(), now.getMonth() + 1, now.getDate(),
+        now.getHours(), now.getMinutes(), now.getSeconds(), now.getDay() + 1);
     }
     poweredOn = true;
     powerLed.classList.add("power-on");

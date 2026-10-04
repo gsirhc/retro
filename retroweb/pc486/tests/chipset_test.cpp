@@ -132,6 +132,58 @@ TEST(ChipsetTest, DmaPageRegisterRoundTripsThroughPorts) {
     EXPECT_EQ(bus.in(bus.ctx, 0x81), 0x05);
 }
 
+TEST(ChipsetTest, EveryDmaPageRegisterPortReachesItsOwnChannel) {
+    // The AT's scrambled page-register map (IBM AT Technical Reference,
+    // "DMA Page Registers"): 87/83/81/82 for channels 0-3, 8F/8B/89/8A for 4-7.
+    struct Port { uint16_t port; int controller; int channel; };
+    const Port ports[] = {
+        {0x87, 1, 0}, {0x83, 1, 1}, {0x81, 1, 2}, {0x82, 1, 3},
+        {0x8F, 2, 0}, {0x8B, 2, 1}, {0x89, 2, 2}, {0x8A, 2, 3},
+    };
+    Chipset cs;
+    auto bus = cs.make_bus();
+    uint8_t v = 0x10;
+    for (const Port &p : ports) {
+        bus.out(bus.ctx, p.port, v);
+        EXPECT_EQ((p.controller == 1 ? cs.dma1 : cs.dma2).page(p.channel), v) << "port " << p.port;
+        EXPECT_EQ(bus.in(bus.ctx, p.port), v);
+        ++v;
+    }
+}
+
+TEST(ChipsetTest, AWordOutToByteWidePortsSplitsLowByteFirst) {
+    Chipset cs;
+    auto bus = cs.make_bus();
+    bus.out16(bus.ctx, 0x81, 0x0A05);  // page registers for DMA channels 2 and 3
+    EXPECT_EQ(cs.dma1.page(2), 0x05);
+    EXPECT_EQ(cs.dma1.page(3), 0x0A);
+    EXPECT_EQ(bus.in16(bus.ctx, 0x81), 0x0A05);
+}
+
+TEST(ChipsetTest, TheVbeIndexAndDataPortsTakeAWholeWord) {
+    // Splitting these into two byte writes would land the high byte on the
+    // data port; the card's ID register only accepts a real ID.
+    Chipset cs;
+    auto bus = cs.make_bus();
+    bus.out16(bus.ctx, pc486::Ega::kVbeIndexPort, 0);   // VBE_DISPI_INDEX_ID
+    bus.out16(bus.ctx, pc486::Ega::kVbeDataPort, 0xB0C4);
+    EXPECT_EQ(bus.in16(bus.ctx, pc486::Ega::kVbeDataPort), 0xB0C4);
+}
+
+TEST(ChipsetTest, TheRtcPeriodicInterruptArrivesOnIrq8) {
+    Chipset cs;
+    cs.io_out(0x20, 0x11); cs.io_out(0x21, 0x08); cs.io_out(0x21, 0x04); cs.io_out(0x21, 0x01);
+    cs.io_out(0x21, 0xFB);  // master: only the cascade
+    cs.io_out(0xA0, 0x11); cs.io_out(0xA1, 0x70); cs.io_out(0xA1, 0x02); cs.io_out(0xA1, 0x01);
+    cs.io_out(0xA1, 0xFE);  // slave: only IRQ8
+    cs.io_out(0x70, 0x0B);
+    cs.io_out(0x71, 0x42);  // PIE, 24-hour
+    cs.tick(70000, 66000000.0);  // past one 1024 Hz period
+    EXPECT_EQ(cs.poll_interrupt(), 0x70);
+    cs.io_out(0x70, 0x0C);
+    EXPECT_EQ(cs.io_in(0x71) & 0xC0, 0xC0) << "IRQF and PF, cleared by this read";
+}
+
 TEST(ChipsetTest, MasterPicInterruptDeliveredDirectly) {
     Chipset cs;
     cs.pic_master.out(0x20, 0x11);

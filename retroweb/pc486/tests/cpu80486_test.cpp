@@ -820,6 +820,156 @@ TEST_F(Cpu80486Test, JccNearRel16AndRel32) {
     EXPECT_EQ(cpu->eip, 7u + 5u);
 }
 
+TEST_F(Cpu80486Test, AllSixteenConditionsDecodeTheirFlags) {
+    using namespace cpu80486;
+    // Every combination of the five flags the conditions read, against the
+    // Intel 80486 PRM's Jcc table written out independently here.
+    for (int bits = 0; bits < 32; ++bits) {
+        bool of = bits & 1, cf = bits & 2, zf = bits & 4, sf = bits & 8, pf = bits & 16;
+        const bool want[16] = {
+            of, !of, cf, !cf, zf, !zf, cf || zf, !cf && !zf,
+            sf, !sf, pf, !pf, sf != of, sf == of, zf || (sf != of), !zf && (sf == of),
+        };
+        for (int cc = 0; cc < 16; ++cc) {
+            cpu->set_flag(FLAG_OF, of); cpu->set_flag(FLAG_CF, cf); cpu->set_flag(FLAG_ZF, zf);
+            cpu->set_flag(FLAG_SF, sf); cpu->set_flag(FLAG_PF, pf);
+            cpu->ebx = 0xFF;
+            run({0x0F, uint8_t(0x90 + cc), 0xC3});      // SETcc BL
+            EXPECT_EQ(cpu->ebx & 0xFF, want[cc] ? 1u : 0u) << "SETcc " << cc << " flags " << bits;
+            run({uint8_t(0x70 + cc), 0x10});            // Jcc short +10h
+            EXPECT_EQ(cpu->eip, want[cc] ? 0x12u : 0x02u) << "Jcc " << cc << " flags " << bits;
+        }
+    }
+}
+
+TEST_F(Cpu80486Test, SixteenBitShiftsAndRotates) {
+    struct Case { uint8_t modrm; uint16_t in; bool cf_in; uint16_t out; bool cf; bool of; };
+    // D1 /r on BX (count 1), so OF is defined for every row.
+    const Case cases[] = {
+        {0xC3, 0x8001, false, 0x0003, true,  true },   // ROL
+        {0xCB, 0x8001, false, 0xC000, true,  false},   // ROR
+        {0xD3, 0x4000, true,  0x8001, false, true },   // RCL pulls CF in at the bottom
+        {0xDB, 0x0001, true,  0x8000, true,  true },   // RCR pulls CF in at the top
+        {0xE3, 0xC000, false, 0x8000, true,  false},   // SHL
+        {0xEB, 0x8001, false, 0x4000, true,  true },   // SHR: OF is the old top bit
+        {0xF3, 0x4000, false, 0x8000, false, true },   // /6, the undocumented SAL alias
+        {0xFB, 0x8001, false, 0xC000, true,  false},   // SAR keeps the sign
+    };
+    for (const Case &t : cases) {
+        cpu->ebx = 0xABCD0000u | t.in;
+        cpu->set_flag(cpu80486::FLAG_CF, t.cf_in);
+        run({0xD1, t.modrm});
+        EXPECT_EQ(cpu->ebx, 0xABCD0000u | t.out) << "modrm " << int(t.modrm) << ": the upper half is untouched";
+        EXPECT_EQ(CF(), t.cf) << "modrm " << int(t.modrm);
+        EXPECT_EQ(OF(), t.of) << "modrm " << int(t.modrm);
+    }
+
+    cpu->ebx = 0x00F0;
+    cpu->ecx = 4;
+    run({0xD3, 0xE3});                  // SHL BX, CL
+    EXPECT_EQ(cpu->ebx & 0xFFFF, 0x0F00u);
+    run({0xC1, 0xEB, 8});               // SHR BX, 8
+    EXPECT_EQ(cpu->ebx & 0xFFFF, 0x000Fu);
+    EXPECT_FALSE(ZF());
+    run({0xC1, 0xEB, 4});               // SHR BX, 4 -> 0, CF = last bit out
+    EXPECT_TRUE(ZF());
+    EXPECT_TRUE(CF());
+
+    cpu->ebx = 0x1234;
+    cpu->set_flag(cpu80486::FLAG_CF, true);
+    cpu->set_flag(cpu80486::FLAG_ZF, true);
+    run({0xC1, 0xE3, 32});              // SHL BX, 32: the count masks to 0
+    EXPECT_EQ(cpu->ebx & 0xFFFF, 0x1234u);
+    EXPECT_TRUE(CF()) << "a zero count leaves every flag alone";
+    EXPECT_TRUE(ZF());
+
+    cpu->ebx = 0x8000;
+    cpu->set_flag(cpu80486::FLAG_CF, false);
+    run({0xC1, 0xD3, 17});              // RCL BX, 17: a full 17-bit lap
+    EXPECT_EQ(cpu->ebx & 0xFFFF, 0x8000u);
+    EXPECT_FALSE(CF());
+}
+
+TEST_F(Cpu80486Test, EightBitRotatesAndShifts) {
+    cpu->ebx = 0x81;
+    run({0xD0, 0xCB});                  // ROR BL, 1
+    EXPECT_EQ(cpu->ebx & 0xFF, 0xC0u);
+    EXPECT_TRUE(CF());
+    cpu->set_flag(cpu80486::FLAG_CF, false);
+    run({0xD0, 0xD3});                  // RCL BL, 1
+    EXPECT_EQ(cpu->ebx & 0xFF, 0x80u);
+    EXPECT_TRUE(CF());
+    run({0xD0, 0xDB});                  // RCR BL, 1
+    EXPECT_EQ(cpu->ebx & 0xFF, 0xC0u);
+    EXPECT_FALSE(CF());
+    run({0xD0, 0xFB});                  // SAR BL, 1
+    EXPECT_EQ(cpu->ebx & 0xFF, 0xE0u);
+    EXPECT_FALSE(OF());
+}
+
+TEST_F(Cpu80486Test, DasAdjustsAfterBcdSubtraction) {
+    cpu->eax = 0x1E;                    // 23h - 05h in binary, AF set
+    cpu->set_flag(cpu80486::FLAG_AF, true);
+    cpu->set_flag(cpu80486::FLAG_CF, false);
+    run({0x2F});                        // DAS
+    EXPECT_EQ(cpu->eax & 0xFF, 0x18u);
+    EXPECT_TRUE(AF());
+    EXPECT_FALSE(CF());
+
+    cpu->eax = 0xFF;                    // 00h - 01h: borrow out of both digits
+    cpu->set_flag(cpu80486::FLAG_AF, true);
+    cpu->set_flag(cpu80486::FLAG_CF, true);
+    run({0x2F});
+    EXPECT_EQ(cpu->eax & 0xFF, 0x99u);
+    EXPECT_TRUE(CF());
+
+    cpu->eax = 0x42;
+    cpu->set_flag(cpu80486::FLAG_AF, false);
+    cpu->set_flag(cpu80486::FLAG_CF, false);
+    run({0x2F});
+    EXPECT_EQ(cpu->eax & 0xFF, 0x42u) << "a valid BCD byte passes through";
+    EXPECT_FALSE(AF());
+}
+
+TEST_F(Cpu80486Test, AaaAndAasAdjustAllOfAxOnA286OrLater) {
+    cpu->eax = 0x000B;                  // 6 + 5 in binary
+    cpu->set_flag(cpu80486::FLAG_AF, false);
+    run({0x37});                        // AAA
+    EXPECT_EQ(cpu->eax & 0xFFFF, 0x0101u);
+    EXPECT_TRUE(CF());
+    EXPECT_TRUE(AF());
+
+    // AL + 6 carries into AH on a 286 or later, so 00FFh becomes 0205h. An
+    // 8086 adds 6 to AL alone and gets 0105h.
+    cpu->eax = 0x00FF;
+    run({0x37});
+    EXPECT_EQ(cpu->eax & 0xFFFF, 0x0205u);
+
+    cpu->eax = 0x0203;
+    cpu->set_flag(cpu80486::FLAG_AF, false);
+    run({0x37});
+    EXPECT_EQ(cpu->eax & 0xFFFF, 0x0203u);
+    EXPECT_FALSE(CF());
+
+    cpu->eax = 0x02FD;                  // 05h - 08h, AF set
+    cpu->set_flag(cpu80486::FLAG_AF, true);
+    run({0x3F});                        // AAS
+    EXPECT_EQ(cpu->eax & 0xFFFF, 0x0107u);
+    EXPECT_TRUE(CF());
+
+    // AL - 6 borrows from AH as well: 0203h with AF set becomes 00FDh & FF0Fh.
+    cpu->eax = 0x0203;
+    cpu->set_flag(cpu80486::FLAG_AF, true);
+    run({0x3F});
+    EXPECT_EQ(cpu->eax & 0xFFFF, 0x000Du);
+
+    cpu->eax = 0x0305;
+    cpu->set_flag(cpu80486::FLAG_AF, false);
+    run({0x3F});
+    EXPECT_EQ(cpu->eax & 0xFFFF, 0x0305u);
+    EXPECT_FALSE(AF());
+}
+
 // ---------------------------------------------------------------------------
 // AC (Alignment Check), EFLAGS bit 18 -- the pre-CPUID 386-vs-486 probe
 // ---------------------------------------------------------------------------
@@ -1107,10 +1257,144 @@ TEST_F(Cpu80486Test, TheIdFlagRoundTripsSoSoftwareCanDetectCpuid) {
     EXPECT_EQ(memd(0x1FFC) & 0x00200000u, 0x00200000u);
 }
 
-TEST_F(Cpu80486Test, UnknownOpcodeFiresTheDiagnosticHook) {
-    run({0xD6});  // undefined on a 486
-    EXPECT_EQ(unimpl_count, 1);
-    EXPECT_EQ(unimpl_opcode, 0x00D6);
+// ---------------------------------------------------------------------------
+// Single-step (TF), the STI / MOV SS interrupt shadow, and shutdown
+// ---------------------------------------------------------------------------
+
+class Cpu80486StepTest : public Cpu80486Test {
+protected:
+    void SetUp() override {
+        Cpu80486Test::SetUp();
+        poke16(0x0001 * 4 + 0, 0x0400);   // IVT[1] (#DB)  -> 0000:0400
+        poke16(0x0001 * 4 + 2, 0x0000);
+        poke16(0x0021 * 4 + 0, 0x0500);   // IVT[21h]      -> 0000:0500
+        poke16(0x0021 * 4 + 2, 0x0000);
+        mem[0x0400] = 0xF4;
+        mem[0x0500] = 0xF4;
+        cpu->ss = 0;
+        cpu->esp = 0x2000;
+    }
+};
+
+TEST_F(Cpu80486StepTest, TfTrapsAfterTheInstructionWithTheNextIpSaved) {
+    cpu->set_flag(cpu80486::FLAG_TF, true);
+    run({0x90});  // NOP
+    EXPECT_EQ(cpu->eip, 0x0400u) << "vectored through IVT[1]";
+    EXPECT_EQ(memw(0x1FFA), 0x0001) << "a trap saves the address of the next instruction";
+    EXPECT_NE(memw(0x1FFE) & cpu80486::FLAG_TF, 0u) << "the saved FLAGS keep TF for IRET";
+    EXPECT_FALSE(cpu->flag(cpu80486::FLAG_TF)) << "the handler itself runs untrapped";
+    EXPECT_NE(cpu->dr(6) & 0x4000u, 0u) << "DR6.BS reports a single-step";
+}
+
+TEST_F(Cpu80486StepTest, PopfThatSetsTfRunsUntrappedAndTheNextInstructionTraps) {
+    poke16(0x1000, 0x0102);   // FLAGS with TF set
+    cpu->esp = 0x1000;
+    runN({0x9D, 0x90}, 1);    // POPF
+    EXPECT_EQ(cpu->eip, 1u);
+    EXPECT_TRUE(cpu->flag(cpu80486::FLAG_TF));
+    cpu->step();              // NOP
+    EXPECT_EQ(cpu->eip, 0x0400u);
+}
+
+TEST_F(Cpu80486StepTest, PopfThatClearsTfStillTrapsAfterItself) {
+    cpu->set_flag(cpu80486::FLAG_TF, true);
+    poke16(0x1000, 0x0002);
+    cpu->esp = 0x1000;
+    run({0x9D});              // POPF
+    EXPECT_EQ(cpu->eip, 0x0400u);
+}
+
+TEST_F(Cpu80486StepTest, IntNClearsTfAndEntersTheHandlerUntrapped) {
+    cpu->set_flag(cpu80486::FLAG_TF, true);
+    run({0xCD, 0x21});        // INT 21h
+    EXPECT_EQ(cpu->eip, 0x0500u) << "the INT's own handler, not #DB";
+    EXPECT_FALSE(cpu->flag(cpu80486::FLAG_TF));
+}
+
+TEST_F(Cpu80486StepTest, MovSsDefersTheTrapPastTheNextInstruction) {
+    cpu->set_flag(cpu80486::FLAG_TF, true);
+    runN({0x8E, 0xD0, 0x90}, 1);  // MOV SS,AX
+    EXPECT_EQ(cpu->eip, 2u) << "no trap at the SS:SP boundary";
+    EXPECT_TRUE(cpu->interrupt_shadow());
+    cpu->esp = 0x2000;
+    cpu->step();                  // NOP
+    EXPECT_EQ(cpu->eip, 0x0400u);
+    EXPECT_EQ(memw(0x1FFA), 0x0003);
+}
+
+TEST_F(Cpu80486StepTest, StiFromClearIfAndSsLoadsOpenAOneInstructionShadow) {
+    cpu->set_flag(cpu80486::FLAG_IF, false);
+    run({0xFB});              // STI
+    EXPECT_TRUE(cpu->interrupt_shadow());
+    run({0x90});
+    EXPECT_FALSE(cpu->interrupt_shadow()) << "the shadow covers one instruction only";
+    run({0xFB});              // STI with IF already set
+    EXPECT_FALSE(cpu->interrupt_shadow());
+    cpu->esp = 0x2000;
+    run({0x17});              // POP SS
+    EXPECT_TRUE(cpu->interrupt_shadow());
+    run({0x8E, 0xD8});        // MOV DS,AX
+    EXPECT_FALSE(cpu->interrupt_shadow()) << "only SS loads hold interrupts off";
+}
+
+TEST_F(Cpu80486StepTest, AFaultWhileDeliveringADoubleFaultIsShutdown) {
+    poke16(0x0600, 0x0000);   // IDTR limit 0: every vector is out of range
+    poke32(0x0602, 0x00000000u);
+    run({0x0F, 0x01, 0x1E, 0x00, 0x06});  // LIDT [0600h]
+    run({0xCC});              // INT3 -> #GP -> #DF -> shutdown
+    EXPECT_TRUE(cpu->shutdown());
+    EXPECT_TRUE(cpu->halted);
+    cpu->reset();
+    EXPECT_FALSE(cpu->shutdown());
+}
+
+TEST_F(Cpu80486Test, SalcSetsAlFromCarryAndLeavesTheFlagsAlone) {
+    cpu->eax = 0x1234;
+    cpu->set_flag(cpu80486::FLAG_CF, true);
+    run({0xD6});  // SALC
+    EXPECT_EQ(cpu->eax, 0x12FFu);
+    EXPECT_TRUE(cpu->flag(cpu80486::FLAG_CF));
+    cpu->set_flag(cpu80486::FLAG_CF, false);
+    cpu->set_flag(cpu80486::FLAG_ZF, false);
+    run({0xD6});
+    EXPECT_EQ(cpu->eax, 0x1200u);
+    EXPECT_FALSE(cpu->flag(cpu80486::FLAG_ZF)) << "SALC is not SBB AL,AL: no flag changes";
+    EXPECT_EQ(unimpl_count, 0) << "the SDM names D6 as reserved but never faulting";
+}
+
+TEST_F(Cpu80486Test, ReservedEncodingsRaiseInvalidOpcodeAtTheFaultingInstruction) {
+    poke16(0x0006 * 4 + 0, 0x0400);   // IVT[6] -> 0000:0400
+    poke16(0x0006 * 4 + 2, 0x0000);
+    mem[0x0400] = 0xF4;
+    int expected = 0;
+    for (std::initializer_list<uint8_t> code : {
+             std::initializer_list<uint8_t>{0x0F, 0x0B},              // UD2
+             std::initializer_list<uint8_t>{0x0F, 0x31},              // RDTSC, a Pentium instruction
+             std::initializer_list<uint8_t>{0x0F, 0xC7, 0x0E, 0, 2},  // CMPXCHG8B, likewise
+             std::initializer_list<uint8_t>{0x0F, 0xA6, 0xC3},        // the A-step 486's CMPXCHG slot
+             std::initializer_list<uint8_t>{0x0F, 0xBA, 0xC0, 0x01},  // 0F BA /0
+             std::initializer_list<uint8_t>{0xFF, 0xF8},              // FF /7
+             std::initializer_list<uint8_t>{0xFF, 0x3E, 0, 2},        // FF /7, memory form
+             std::initializer_list<uint8_t>{0xFE, 0xD0},              // FE /2
+             std::initializer_list<uint8_t>{0xFF, 0xD8},              // CALL far with a register operand
+             std::initializer_list<uint8_t>{0xFF, 0xE8},              // JMP far with a register operand
+             std::initializer_list<uint8_t>{0x8D, 0xC3},              // LEA from a register
+             std::initializer_list<uint8_t>{0xC4, 0xC3},              // LES from a register
+             std::initializer_list<uint8_t>{0xC5, 0xC3},              // LDS from a register
+             std::initializer_list<uint8_t>{0x0F, 0xB2, 0xC3},        // LSS from a register
+             std::initializer_list<uint8_t>{0x62, 0xC3},              // BOUND against a register
+         }) {
+        cpu->halted = false;
+        cpu->ss = 0;
+        cpu->esp = 0x2000;
+        uint32_t ebx = cpu->ebx;
+        run(code);
+        ++expected;
+        EXPECT_EQ(cpu->eip, 0x0400u) << "opcode " << int(*code.begin()) << " should vector through IVT[6]";
+        EXPECT_EQ(memw(0x1FFA), 0x0000) << "#UD is a fault: the saved IP is the instruction's own";
+        EXPECT_EQ(cpu->ebx, ebx) << "nothing executes before the fault";
+    }
+    EXPECT_EQ(unimpl_count, expected) << "each one still reaches the diagnostic hook";
 }
 
 // ---------------------------------------------------------------------------
@@ -3420,6 +3704,96 @@ TEST_F(Cpu80486FpuTest, AnUnorderedCompareSetsAllThreeAndFcomSignalsInvalidWhile
     EXPECT_TRUE(c3()); EXPECT_TRUE(c2()); EXPECT_TRUE(c0());
     EXPECT_EQ(cpu->fpu_status() & 0x0001u, 0u)
         << "FUCOM is the whole point: an unordered compare that does not signal";
+}
+
+TEST_F(Cpu80486FpuTest, FucomAndFucompTakeARegisterOperand) {
+    poke80(kA, 0xC000000000000000ull, 0x7FFF);   // a quiet NaN
+    poke_double(kB, 1.0);
+    runN({0xDB, 0xE3,
+          0xDD, esc_mem(0), 0x00, 0x03,        // ST0 = 1.0
+          0xDB, esc_mem(5), 0x00, 0x02,        // ST0 = NaN, ST1 = 1.0
+          0xDD, 0xE1}, 4);                     // FUCOM ST(1)
+    EXPECT_TRUE(c3()); EXPECT_TRUE(c2()); EXPECT_TRUE(c0());
+    EXPECT_EQ(cpu->fpu_status() & 0x0001u, 0u) << "unordered, and FUCOM does not signal";
+    EXPECT_EQ(cpu->fpu_top(), 6);
+    runN({0xDB, 0xE3,
+          0xD9, 0xE8,                          // FLD1
+          0xD9, 0xEE,                          // FLDZ: ST0 = 0, ST1 = 1
+          0xDD, 0xE9}, 4);                     // FUCOMP ST(1)
+    EXPECT_TRUE(c0()) << "0 < 1";
+    EXPECT_EQ(cpu->fpu_top(), 7) << "FUCOMP pops once";
+}
+
+TEST_F(Cpu80486FpuTest, UndocumentedRegisterAliasesBehaveLikeTheirDocumentedForms) {
+    // Each sequence starts FNINIT / FLDZ / FLD1: ST0 = 1, ST1 = 0.
+    runN({0xDB, 0xE3, 0xD9, 0xEE, 0xD9, 0xE8, 0xDC, 0xD1}, 4);   // DC D1: FCOM ST(1)
+    EXPECT_FALSE(c0()); EXPECT_FALSE(c3()) << "1 > 0, and nothing was divided";
+    EXPECT_EQ(cpu->fpu_top(), 6);
+    runN({0xDB, 0xE3, 0xD9, 0xEE, 0xD9, 0xE8, 0xDC, 0xD9}, 4);   // DC D9: FCOMP ST(1)
+    EXPECT_EQ(cpu->fpu_top(), 7);
+    runN({0xDB, 0xE3, 0xD9, 0xEE, 0xD9, 0xE8, 0xDE, 0xD1}, 4);   // DE D1: FCOMP ST(1)
+    EXPECT_EQ(cpu->fpu_top(), 7);
+    EXPECT_FALSE(c0());
+
+    for (uint8_t xch : {uint8_t(0xDD), uint8_t(0xDF)}) {         // DD C9 / DF C9: FXCH ST(1)
+        runN({0xDB, 0xE3, 0xD9, 0xEE, 0xD9, 0xE8, xch, 0xC9,
+              0xDD, esc_mem(3), 0x00, 0x03}, 5);                  // FSTP qword [0300h]
+        EXPECT_EQ(mem_double(kB), 0.0) << "ST0 and ST1 swapped";
+    }
+    for (uint8_t st : {uint8_t(0xD1), uint8_t(0xD9)}) {          // DF D1 / DF D9: FSTP ST(1)
+        runN({0xDB, 0xE3, 0xD9, 0xEE, 0xD9, 0xE8, 0xDF, st,
+              0xDD, esc_mem(3), 0x00, 0x03}, 5);
+        EXPECT_EQ(mem_double(kB), 1.0) << "ST0 stored over ST1, then popped";
+        EXPECT_EQ(cpu->fpu_top(), 0);
+    }
+
+    runN({0xDB, 0xE3, 0xD9, 0xEE, 0xD9, 0xE8, 0xDF, 0xC1}, 4);   // DF C1: FFREEP ST(1)
+    EXPECT_EQ(cpu->fpu_top(), 7);
+    EXPECT_EQ(tag_of(0), 3) << "the old ST(1) was freed, and is ST(0) after the pop";
+    EXPECT_EQ(cpu->fpu_status() & 0x0041u, 0u) << "no stack fault";
+
+    runN({0xDB, 0xE3, 0xD9, 0xD9}, 2);                           // D9 D9 on an empty stack
+    EXPECT_EQ(cpu->fpu_status() & 0x0041u, 0u)
+        << "the D9 D8+i FSTP alias skips the stack-underflow check";
+    EXPECT_EQ(cpu->fpu_top(), 1);
+    EXPECT_EQ(unimpl_count, 0);
+}
+
+TEST_F(Cpu80486FpuTest, ReservedEscEncodingsRaiseInvalidOpcode) {
+    poke16(0x0006 * 4 + 0, 0x0400);
+    poke16(0x0006 * 4 + 2, 0x0000);
+    mem[0x0400] = 0xF4;
+    int expected = 0;
+    for (std::initializer_list<uint8_t> code : {
+             std::initializer_list<uint8_t>{0xDA, 0xC1},              // FCMOVB, a P6 instruction
+             std::initializer_list<uint8_t>{0xDB, 0xC1},              // FCMOVNB
+             std::initializer_list<uint8_t>{0xDB, 0xE9},              // FUCOMI
+             std::initializer_list<uint8_t>{0xDF, 0xE9},              // FUCOMIP
+             std::initializer_list<uint8_t>{0xDB, esc_mem(1), 0, 2},  // FISTTP m32, SSE3
+             std::initializer_list<uint8_t>{0xDF, esc_mem(1), 0, 2},  // FISTTP m16
+             std::initializer_list<uint8_t>{0xDD, esc_mem(1), 0, 2},  // FISTTP m64
+             std::initializer_list<uint8_t>{0xD9, esc_mem(1), 0, 2},
+             std::initializer_list<uint8_t>{0xDD, esc_mem(5), 0, 2},
+             std::initializer_list<uint8_t>{0xDB, esc_mem(4), 0, 2},
+             std::initializer_list<uint8_t>{0xD9, 0xD1},
+             std::initializer_list<uint8_t>{0xD9, 0xE2},
+             std::initializer_list<uint8_t>{0xDB, 0xE5},
+             std::initializer_list<uint8_t>{0xDD, 0xF0},
+             std::initializer_list<uint8_t>{0xDE, 0xD8},
+             std::initializer_list<uint8_t>{0xDF, 0xE1},
+         }) {
+        cpu->halted = false;
+        cpu->ss = 0;
+        cpu->esp = 0x2000;
+        uint16_t cw = 0x1234;
+        poke16(kA, cw);
+        run(code);
+        ++expected;
+        EXPECT_EQ(cpu->eip, 0x0400u) << "ESC " << int(*code.begin()) << " should vector through IVT[6]";
+        EXPECT_EQ(memw(kA), cw) << "a reserved memory form must not store anything";
+    }
+    EXPECT_EQ(unimpl_count, expected);
+    EXPECT_EQ(unimpl_opcode, 0xDFE1);
 }
 
 TEST_F(Cpu80486FpuTest, FtstComparesAgainstZeroAndFxamClassifies) {

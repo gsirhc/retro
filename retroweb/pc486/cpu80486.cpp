@@ -159,6 +159,8 @@ void Cpu::reset() {
     fault_pending_ = false;
     pending_fault_ = {};
     fault_jmp_set_ = false;
+    shadow_ = false;
+    shutdown_ = false;
     cycles = 0;
     seg_override_ = -1;
     rep_ = REP_NONE;
@@ -187,6 +189,13 @@ void Cpu::raise_err(int vector, uint32_t error) {
 #endif
     throw pending_fault_;
 }
+void Cpu::raise_ud(uint32_t at, uint16_t opword) {
+    // Intel SDM Vol. 3, "Undefined Opcodes": executing a reserved opcode
+    // always raises #UD, which is what lets software probe for later
+    // instructions (CPUID-less Pentium checks, FCMOV) with a handler.
+    if (on_unimplemented) on_unimplemented(cs, at, opword);
+    raise(EXC_UD);
+}
 void Cpu::raise_sel(int vector, uint16_t selector) {
     // Selector-shaped error code: the selector's index and table bits with
     // RPL cleared, i.e. the selector with its low two bits zeroed (Intel
@@ -203,6 +212,7 @@ void Cpu::raise_sel(int vector, uint16_t selector) {
 
 void Cpu::do_interrupt(uint8_t vector, bool software, bool has_error, uint32_t error) {
     halted = false;
+    vectored_ = true;
     if (protected_mode()) protected_mode_interrupt(vector, software, has_error, error);
     else real_mode_interrupt(vector);
 }
@@ -1974,33 +1984,34 @@ void Cpu::das() {
     set_flag(FLAG_AF, af);
     set_pzs8(al);
 }
+// From the 80286 on, AAA/AAS adjust all of AX, so a carry or borrow out of AL
+// reaches AH; the 8086 adjusted AL alone (Intel SDM AAA/AAS, "AX := AX +
+// 106H" / "AX := AX - 6; AH := AH - 1"; 8086 vs 286 noted in the Intel 8086
+// opcode notes at pcjs.org).
 void Cpu::aaa() {
-    uint8_t al = get_reg8(0), ah = get_reg8(4);
-    if (((al & 0x0F) > 9) || flag(FLAG_AF)) {
-        al = uint8_t(al + 6);
-        ah = uint8_t(ah + 1);
+    uint16_t ax = get_reg16(0);
+    if (((ax & 0x0F) > 9) || flag(FLAG_AF)) {
+        ax = uint16_t(ax + 0x106);
         set_flag(FLAG_AF, true);
         set_flag(FLAG_CF, true);
     } else {
         set_flag(FLAG_AF, false);
         set_flag(FLAG_CF, false);
     }
-    set_reg8(0, uint8_t(al & 0x0F));
-    set_reg8(4, ah);
+    set_reg16(0, uint16_t(ax & 0xFF0F));
 }
 void Cpu::aas() {
-    uint8_t al = get_reg8(0), ah = get_reg8(4);
-    if (((al & 0x0F) > 9) || flag(FLAG_AF)) {
-        al = uint8_t(al - 6);
-        ah = uint8_t(ah - 1);
+    uint16_t ax = get_reg16(0);
+    if (((ax & 0x0F) > 9) || flag(FLAG_AF)) {
+        ax = uint16_t(ax - 6);
+        ax = uint16_t(ax - 0x100);
         set_flag(FLAG_AF, true);
         set_flag(FLAG_CF, true);
     } else {
         set_flag(FLAG_AF, false);
         set_flag(FLAG_CF, false);
     }
-    set_reg8(0, uint8_t(al & 0x0F));
-    set_reg8(4, ah);
+    set_reg16(0, uint16_t(ax & 0xFF0F));
 }
 void Cpu::aam() {
     uint8_t base = fetch8();
@@ -2046,6 +2057,7 @@ void Cpu::popa() {
 }
 void Cpu::bound() {
     RM rm = decode_modrm();
+    if (!rm.is_mem) raise_ud(instr_start_eip_, 0x62);
     if (opsize32_) {
         int32_t idx = int32_t(get_reg32(last_reg_));
         int32_t lo = int32_t(read32(rm.seg, rm.off));
@@ -2498,9 +2510,10 @@ int Cpu::grp5(uint8_t op) {  // 0xFE: INC/DEC r/m8   0xFF: INC/DEC/CALL/JMP/PUSH
     RM rm = decode_modrm();
     int alu = last_reg_;
     if (op == 0xFE) {
+        if (alu > 1) raise_ud(instr_start_eip_, uint16_t(op));   // FE /2-/7 are reserved
         bool cf = flag(FLAG_CF);
         if (alu == 0) { uint8_t r = add8(rm_read8(rm), 1, false); set_flag(FLAG_CF, cf); rm_write8(rm, r); }
-        else if (alu == 1) { uint8_t r = sub8(rm_read8(rm), 1, false); set_flag(FLAG_CF, cf); rm_write8(rm, r); }
+        else { uint8_t r = sub8(rm_read8(rm), 1, false); set_flag(FLAG_CF, cf); rm_write8(rm, r); }
         return rm.is_mem ? 3 : 1;
     }
     switch (alu) {
@@ -2522,6 +2535,7 @@ int Cpu::grp5(uint8_t op) {  // 0xFE: INC/DEC r/m8   0xFF: INC/DEC/CALL/JMP/PUSH
             return 5;
         }
         case 3: {  // CALL far indirect (memory only)
+            if (!rm.is_mem) raise_ud(instr_start_eip_, uint16_t(op));
             uint32_t off;
             uint16_t seg;
             if (opsize32_) { off = read32(rm.seg, rm.off); seg = read16(rm.seg, seg_off(rm.off, 4)); }
@@ -2537,6 +2551,7 @@ int Cpu::grp5(uint8_t op) {  // 0xFE: INC/DEC r/m8   0xFF: INC/DEC/CALL/JMP/PUSH
             set_ip(opsize32_ ? rm_read32(rm) : uint32_t(rm_read16(rm)));
             return 5;
         case 5: {  // JMP far indirect (memory only)
+            if (!rm.is_mem) raise_ud(instr_start_eip_, uint16_t(op));
             uint32_t off;
             uint16_t seg;
             if (opsize32_) { off = read32(rm.seg, rm.off); seg = read16(rm.seg, seg_off(rm.off, 4)); }
@@ -2551,9 +2566,8 @@ int Cpu::grp5(uint8_t op) {  // 0xFE: INC/DEC r/m8   0xFF: INC/DEC/CALL/JMP/PUSH
         case 6:    // PUSH r/m
             if (opsize32_) push32(rm_read32(rm)); else push16(rm_read16(rm));
             return rm.is_mem ? 4 : 1;
-        default:
-            if (on_unimplemented) on_unimplemented(cs, instr_start_eip_, uint16_t(op));
-            return 1;
+        default:   // FF /7
+            raise_ud(instr_start_eip_, uint16_t(op));
     }
 }
 
@@ -2924,10 +2938,7 @@ int Cpu::two_byte() {
             int sub = last_reg_;
             int opsz = opsize32_ ? 32 : 16;
             int bit = fetch8() & (opsz - 1);
-            if (sub < 4) {  // /0-/3 are undefined on a 486
-                if (on_unimplemented) on_unimplemented(cs, instr_start_eip_, uint16_t(0x0F00 | op2));
-                return 1;
-            }
+            if (sub < 4) raise_ud(instr_start_eip_, uint16_t(0x0F00 | op2));   // /0-/3 are reserved
             uint32_t v = opsize32_ ? rm_read32(rm) : rm_read16(rm);
             set_flag(FLAG_CF, ((v >> bit) & 1) != 0);
             if (sub != 4) {
@@ -2993,6 +3004,7 @@ int Cpu::two_byte() {
 
         case 0xB2: case 0xB4: case 0xB5: {  // LSS/LFS/LGS r16/32, m16:16 or m16:32
             RM rm = decode_modrm();
+            if (!rm.is_mem) raise_ud(instr_start_eip_, uint16_t(0x0F00 | op2));
             int dst = last_reg_;
             uint32_t off;
             uint16_t seg;
@@ -3097,8 +3109,7 @@ int Cpu::two_byte() {
                 if (rm.is_mem) return t ? 3 : 4;
                 return t ? 4 : 3;
             }
-            if (on_unimplemented) on_unimplemented(cs, instr_start_eip_, uint16_t(0x0F00 | op2));
-            return 1;
+            raise_ud(instr_start_eip_, uint16_t(0x0F00 | op2));
     }
 }
 
@@ -3264,6 +3275,11 @@ bool Cpu::fpu_is_empty(int i) const {
     return ((fpu_tw_ >> (phys * 2)) & 3u) == 3u;
 }
 
+void Cpu::fpu_xch(int i) {
+    int other = (fpu_top_ + i) & 7;
+    std::swap(fpu_reg_[fpu_top_], fpu_reg_[other]);
+}
+
 void Cpu::fpu_stack_fault(bool overflow) {
     // A stack fault is an invalid-operation exception with SF also set; C1
     // distinguishes overflow (1) from underflow (0), which is the only way a
@@ -3356,6 +3372,28 @@ int Cpu::esc_op(uint8_t op) {
     uint8_t modrm_low = uint8_t(0xC0u | (uint32_t(sub) << 3) | uint32_t(rm.is_mem ? 0 : rm.reg));
 
     fpu_check_available();
+    // The encodings an Intel486 reserves, which raise #UD (Intel SDM Vol. 3,
+    // "Undefined Opcodes"). FCMOVcc, FCOMI and FISTTP live here and arrived
+    // later; the undocumented register-form aliases below do not.
+    bool reserved;
+    if (rm.is_mem) {
+        reserved = (sub == 1 && (op == 0xD9 || op == 0xDB || op == 0xDD || op == 0xDF)) ||
+                   (op == 0xDB && (sub == 4 || sub == 6)) ||
+                   (op == 0xDD && sub == 5);
+    } else {
+        switch (op) {
+            case 0xD9: reserved = (modrm_low >= 0xD1 && modrm_low <= 0xD7) || modrm_low == 0xE2 || modrm_low == 0xE3 ||
+                                  modrm_low == 0xE6 || modrm_low == 0xE7 || modrm_low == 0xEF; break;
+            case 0xDA: reserved = modrm_low != 0xE9; break;
+            case 0xDB: reserved = modrm_low < 0xE0 || modrm_low > 0xE4; break;
+            case 0xDD: reserved = sub >= 6; break;
+            case 0xDE: reserved = sub == 3 && modrm_low != 0xD9; break;
+            case 0xDF: reserved = sub >= 4 && modrm_low != 0xE0; break;
+            default:   reserved = false; break;
+        }
+    }
+    if (reserved) raise_ud(opcode_eip, uint16_t(0xD800u | (uint32_t(op & 7) << 8) | modrm_low));
+
     // A pending unmasked exception is reported on the *next* FPU
     // instruction, not the one that caused it -- the 487/486 "deferred
     // error" behavior. The seven "no-wait" encodings below are specified not
@@ -3472,6 +3510,11 @@ int Cpu::esc_op(uint8_t op) {
             // D8 forms (DC E0+i is FSUBR, DC E8+i is FSUB), a genuine x87
             // encoding quirk that Intel documents and every assembler has to
             // special-case.
+            if (sub == 2 || sub == 3) {  // DC D0+i / D8+i: undocumented FCOM/FCOMP aliases
+                fpu_compare(fpu_get(0), fpu_get(i), false);
+                if (sub == 3) fpu_pop();
+                return kFCom;
+            }
             {
                 int kind = sub;
                 if (sub == 4) kind = 5; else if (sub == 5) kind = 4;
@@ -3491,6 +3534,11 @@ int Cpu::esc_op(uint8_t op) {
                 fpu_pop(); fpu_pop();
                 return kFCom;
             }
+            if (sub == 2) {  // DE D0+i: undocumented FCOMP alias
+                fpu_compare(fpu_get(0), fpu_get(i), false);
+                fpu_pop();
+                return kFCom;
+            }
             {
                 int kind = sub;
                 if (sub == 4) kind = 5; else if (sub == 5) kind = 4;
@@ -3506,13 +3554,10 @@ int Cpu::esc_op(uint8_t op) {
                 fpu_set(0, arith(sub, fpu_get(0), v));
                 return arith_cost(sub) + kFild;
             }
-            if (modrm_low == 0xE9) {  // FUCOMPP -- the 387/486 unordered compare
-                fpu_compare(fpu_get(0), fpu_get(1), true);
-                fpu_pop(); fpu_pop();
-                return kFCom;
-            }
-            if (on_unimplemented) on_unimplemented(cs, opcode_eip, uint16_t(0xD800u | op));
-            return kFsimple;
+            // FUCOMPP, the 387/486 unordered compare, is the only register form.
+            fpu_compare(fpu_get(0), fpu_get(1), true);
+            fpu_pop(); fpu_pop();
+            return kFCom;
         case 0xD9:
             if (rm.is_mem) {
                 switch (sub) {
@@ -3555,7 +3600,7 @@ int Cpu::esc_op(uint8_t op) {
                         fpu_cw_ |= 0x003Fu;
                         return kFstenv;
                     }
-                    default: write16(rm.seg, rm.off, fpu_cw_); return kFstcw;          // FNSTCW
+                    default: write16(rm.seg, rm.off, fpu_cw_); return kFstcw;          // FNSTCW (/1 is reserved, above)
                 }
             }
             switch (modrm_low) {
@@ -3564,14 +3609,23 @@ int Cpu::esc_op(uint8_t op) {
                     fpu_push(fpu_get(modrm_low - 0xC0));                                 // FLD ST(i)
                     return kFldReg;
                 case 0xC8: case 0xC9: case 0xCA: case 0xCB:
-                case 0xCC: case 0xCD: case 0xCE: case 0xCF: {                            // FXCH ST(i)
-                    int j = modrm_low - 0xC8;
-                    Float80 t = fpu_reg_[fpu_top_];
-                    fpu_reg_[fpu_top_] = fpu_reg_[(fpu_top_ + j) & 7];
-                    fpu_reg_[(fpu_top_ + j) & 7] = t;
+                case 0xCC: case 0xCD: case 0xCE: case 0xCF:                              // FXCH ST(i)
+                    fpu_xch(modrm_low - 0xC8);
                     return kFxch;
-                }
                 case 0xD0: return kFsimple;                                              // FNOP
+                case 0xD8: case 0xD9: case 0xDA: case 0xDB:
+                case 0xDC: case 0xDD: case 0xDE: case 0xDF: {
+                    // Undocumented FSTP ST(i) alias that skips the stack
+                    // underflow check on an empty ST(0) (List of undocumented
+                    // x86 instructions, "FSTPNCE"; sandpile.org FPU map).
+                    int src = fpu_top_, dst = (fpu_top_ + i) & 7;
+                    bool empty = fpu_is_empty(0);
+                    fpu_reg_[dst] = fpu_reg_[src];
+                    fpu_set_tag(dst, empty);
+                    fpu_set_tag(src, true);
+                    fpu_top_ = (fpu_top_ + 1) & 7;
+                    return kFstReg;
+                }
                 case 0xE0: fpu_reg_[fpu_top_].sign_exp = uint16_t(fpu_reg_[fpu_top_].sign_exp ^ 0x8000u); return kFchs;   // FCHS
                 case 0xE1: fpu_reg_[fpu_top_].sign_exp = uint16_t(fpu_reg_[fpu_top_].sign_exp & 0x7FFFu); return kFsimple; // FABS
                 case 0xE4: fpu_compare(fpu_get(0), 0.0L, false); return kFCom;           // FTST
@@ -3669,10 +3723,7 @@ int Cpu::esc_op(uint8_t op) {
                     return kFscale;
                 }
                 case 0xFE: fpu_set(0, std::sin(fpu_get(0))); fpu_sw_ &= ~kFswC2; return kFsin;  // FSIN
-                case 0xFF: fpu_set(0, std::cos(fpu_get(0))); fpu_sw_ &= ~kFswC2; return kFsin;  // FCOS
-                default:
-                    if (on_unimplemented) on_unimplemented(cs, opcode_eip, uint16_t(0xD800u | op));
-                    return kFsimple;
+                default: fpu_set(0, std::cos(fpu_get(0))); fpu_sw_ &= ~kFswC2; return kFsin;  // FCOS (FF)
             }
         case 0xDB:
             if (rm.is_mem) {
@@ -3688,15 +3739,12 @@ int Cpu::esc_op(uint8_t op) {
                         fpu_set_tag(fpu_top_, false);
                         return kFldMem80;
                     }
-                    case 7: {  // FSTP m80real
+                    default: {  // FSTP m80real (/7; /1, /4, /6 are reserved, above)
                         store_m80(fpu_reg_[fpu_top_]);
                         fpu_set_tag(fpu_top_, true);
                         fpu_top_ = (fpu_top_ + 1) & 7;
                         return kFstMem80;
                     }
-                    default:
-                        if (on_unimplemented) on_unimplemented(cs, opcode_eip, uint16_t(0xD800u | op));
-                        return kFsimple;
                 }
             }
             switch (modrm_low) {
@@ -3706,10 +3754,7 @@ int Cpu::esc_op(uint8_t op) {
                 // ignore. Genuine no-ops on this part, not gaps.
                 case 0xE0: case 0xE1: case 0xE4: return kFsimple;
                 case 0xE2: fpu_sw_ &= ~(kFswIE | kFswDE | kFswZE | kFswOE | kFswUE | kFswPE | kFswSF | kFswES | kFswB); return kFclex;  // FNCLEX
-                case 0xE3: fpu_init(); return kFinit;                                     // FNINIT
-                default:
-                    if (on_unimplemented) on_unimplemented(cs, opcode_eip, uint16_t(0xD800u | op));
-                    return kFsimple;
+                default: fpu_init(); return kFinit;                                       // FNINIT (E3)
             }
         case 0xDD:
             if (rm.is_mem) {
@@ -3765,16 +3810,16 @@ int Cpu::esc_op(uint8_t op) {
                         fpu_init();   // FSAVE leaves the FPU in its reset state
                         return kFsave;
                     }
-                    default: write16(rm.seg, rm.off, fpu_status()); return kFstsw;         // FNSTSW m16
+                    default: write16(rm.seg, rm.off, fpu_status()); return kFstsw;         // FNSTSW m16 (/1, /5 are reserved, above)
                 }
             }
             switch (sub) {
                 case 0: fpu_set_tag((fpu_top_ + i) & 7, true); return kFsimple;            // FFREE ST(i)
+                case 1: fpu_xch(i); return kFxch;                                          // DD C8+i: undocumented FXCH alias
                 case 2: fpu_set(i, fpu_get(0)); return kFstReg;                            // FST ST(i)
                 case 3: fpu_set(i, fpu_get(0)); fpu_pop(); return kFstReg;                 // FSTP ST(i)
-                default:
-                    if (on_unimplemented) on_unimplemented(cs, opcode_eip, uint16_t(0xD800u | op));
-                    return kFsimple;
+                case 4: fpu_compare(fpu_get(0), fpu_get(i), true); return kFCom;           // FUCOM ST(i)
+                default: fpu_compare(fpu_get(0), fpu_get(i), true); fpu_pop(); return kFCom;  // FUCOMP ST(i)
             }
         default:  // 0xDF
             if (rm.is_mem) {
@@ -3812,12 +3857,19 @@ int Cpu::esc_op(uint8_t op) {
                         fpu_pop();
                         return kFbstp;
                     }
-                    default: store_int(8); fpu_pop(); return kFist;                                 // FISTP m64int
+                    default: store_int(8); fpu_pop(); return kFist;                                 // FISTP m64int (/1 is reserved, above)
                 }
             }
-            if (modrm_low == 0xE0) { set_reg16(0, fpu_status()); return kFstsw; }                    // FNSTSW AX
-            if (on_unimplemented) on_unimplemented(cs, opcode_eip, uint16_t(0xD800u | op));
-            return kFsimple;
+            switch (sub) {
+                case 0:  // DF C0+i: FFREEP, FFREE ST(i) then pop, with no stack fault
+                    fpu_set_tag((fpu_top_ + i) & 7, true);
+                    fpu_set_tag(fpu_top_, true);
+                    fpu_top_ = (fpu_top_ + 1) & 7;
+                    return kFsimple;
+                case 1: fpu_xch(i); return kFxch;                                          // DF C8+i: undocumented FXCH alias
+                case 2: case 3: fpu_set(i, fpu_get(0)); fpu_pop(); return kFstReg;          // DF D0+i / D8+i: undocumented FSTP aliases
+                default: set_reg16(0, fpu_status()); return kFstsw;                        // FNSTSW AX (E0)
+            }
     }
 }
 
@@ -3837,34 +3889,47 @@ int Cpu::step() {
     instr_start_esp_ = esp;
     instr_start_ss_ = ss;
     instr_start_ss_desc_ = sd_[SEG_SS];
+    // Single-step traps after an instruction that *began* with TF set, so a
+    // POPF that sets TF runs untrapped and one that clears it still traps.
+    bool trap = flag(FLAG_TF);
+    shadow_ = false;
+    vectored_ = false;
+    int c;
 #ifdef __EMSCRIPTEN__
     fault_jmp_set_ = true;
     if (setjmp(fault_jmp_) == 0) {
-        int c = step_inner();
+        c = step_inner();
         fault_jmp_set_ = false;
         // Ring>0 HLT arms fault_pending_ without longjmp (see HLT case).
         if (fault_pending_) {
             fault_pending_ = false;
             return deliver_fault(pending_fault_, start_eip);
         }
-        return c;
+    } else {
+        fault_jmp_set_ = false;
+        fault_pending_ = false;
+        return deliver_fault(pending_fault_, start_eip);
     }
-    fault_jmp_set_ = false;
-    fault_pending_ = false;
-    return deliver_fault(pending_fault_, start_eip);
 #else
     try {
-        int c = step_inner();
+        c = step_inner();
         if (fault_pending_) {
             fault_pending_ = false;
             return deliver_fault(pending_fault_, start_eip);
         }
-        return c;
     } catch (const Fault &f) {
         fault_pending_ = false;
         return deliver_fault(f, start_eip);
     }
 #endif
+    // INT n / INT3 / INTO clear TF on the way into the handler, which runs
+    // untrapped (Intel 80486 PRM, "Single-Step Trap"). A shadow this
+    // instruction set holds the trap off until after the next one.
+    if (trap && !vectored_ && !shadow_) {
+        dr_[6] |= 0x4000u;   // DR6.BS
+        c += interrupt(uint8_t(EXC_DB));
+    }
+    return c;
 }
 
 int Cpu::deliver_fault(const Fault &first, uint32_t start_eip) {
@@ -3915,6 +3980,7 @@ int Cpu::deliver_fault(const Fault &first, uint32_t start_eip) {
 #endif
     }
     halted = true;
+    shutdown_ = true;
     cycles += 4;
     return 4;
 }
@@ -4035,7 +4101,7 @@ int Cpu::step_inner() {
         case 0x07: load_seg(SEG_ES, opsize32_ ? uint16_t(pop32()) : pop16()); c += 3; break;
         case 0x0E: if (opsize32_) push32(cs); else push16(cs); c += 3; break;
         case 0x16: if (opsize32_) push32(ss); else push16(ss); c += 3; break;
-        case 0x17: load_seg(SEG_SS, opsize32_ ? uint16_t(pop32()) : pop16()); c += 3; break;
+        case 0x17: load_seg(SEG_SS, opsize32_ ? uint16_t(pop32()) : pop16()); shadow_ = true; c += 3; break;
         case 0x1E: if (opsize32_) push32(ds); else push16(ds); c += 3; break;
         case 0x1F: load_seg(SEG_DS, opsize32_ ? uint16_t(pop32()) : pop16()); c += 3; break;
 
@@ -4170,6 +4236,7 @@ int Cpu::step_inner() {
         }
         case 0x8D: {  // LEA
             RM rm = decode_modrm();
+            if (!rm.is_mem) raise_ud(instr_start_eip_, op);   // a register has no address
             // Reads the full 32-bit effective address, not the
             // 64KB-limited memory offset -- LEA touches no memory, so a
             // 32-bit addressing form here is pure arithmetic (see RM in
@@ -4186,6 +4253,7 @@ int Cpu::step_inner() {
             // 7 name no segment register at all.
             if (si == SEG_CS || si > SEG_GS) raise(EXC_UD);
             load_seg(si, rm_read16(rm));
+            if (si == SEG_SS) shadow_ = true;
             c += 3;
             break;
         }
@@ -4331,6 +4399,7 @@ int Cpu::step_inner() {
         case 0xC3: set_ip(opsize32_ ? pop32() : uint32_t(pop16())); c += 5; break;                                                 // RET
         case 0xC4: case 0xC5: {  // LES / LDS r16/32, m16:16 or m16:32
             RM rm = decode_modrm(); int r = last_reg_;
+            if (!rm.is_mem) raise_ud(instr_start_eip_, op);
             uint32_t off;
             uint16_t seg;
             if (opsize32_) { off = read32(rm.seg, rm.off); seg = read16(rm.seg, seg_off(rm.off, 4)); }
@@ -4471,6 +4540,7 @@ int Cpu::step_inner() {
             break;
         case 0xFB:
             if (protected_mode() && cpl() > iopl()) raise_err(EXC_GP, 0);
+            if (!flag(FLAG_IF)) shadow_ = true;
             set_flag(FLAG_IF, true);
             c += 5;
             break;
@@ -4478,10 +4548,17 @@ int Cpu::step_inner() {
         case 0xFD: set_flag(FLAG_DF, true); c += 2; break;
         case 0xFE: case 0xFF: c += grp5(op); break;
 
-        default:
-            if (on_unimplemented) on_unimplemented(cs, instr_start_eip_, op);
-            c += 1;  // unrecognized opcode -- see PC486_REVIEW.md's coverage notes
+        case 0xD6:
+            // SALC: AL = CF ? FFh : 00h, flags untouched. Undocumented but
+            // present on every Intel part from the 8086 on; the SDM's #UD
+            // entry names D6 as reserved yet never faulting. No published
+            // 486 timing, so it is charged as SBB AL,AL (1 clock).
+            set_reg8(0, flag(FLAG_CF) ? 0xFF : 0x00);
+            c += 1;
             break;
+
+        default:
+            raise_ud(instr_start_eip_, op);
     }
 
     c += extra_cycles_;

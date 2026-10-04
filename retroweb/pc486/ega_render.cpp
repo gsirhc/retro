@@ -4,21 +4,9 @@ namespace pc486 {
 
 namespace {
 
-// Real EGA palette-register decode: 6 significant bits, 2 per channel
-// (primary + secondary/"intensity" bit), each channel = primary*0xAA +
-// secondary*0x55 -- the genuine hardware DAC-independent 64-color EGA
-// scheme (not VGA's programmable DAC). See ega.h's file header.
-void DecodeEgaColor(uint8_t v, uint8_t &r, uint8_t &g, uint8_t &b) {
-    auto chan = [](bool lo, bool hi) -> uint8_t { return uint8_t(lo * 0xAA + hi * 0x55); };
-    b = chan(v & 0x01, v & 0x08);
-    g = chan(v & 0x02, v & 0x10);
-    r = chan(v & 0x04, v & 0x20);
-}
-
 // Real VGA DAC decode: 6 significant bits per channel (0-63) driving a
 // full-scale analog ramp, so 63 is maximum brightness. (v<<2)|(v>>4) maps
-// that range onto 0-255 exactly at both ends -- the same full-scale
-// convention DecodeEgaColor above uses for its 2-bit channels. The PEL
+// that range onto 0-255 exactly at both ends. The PEL
 // Mask (0x3C6) is applied to the pixel value first, exactly where real
 // hardware applies it: between the shift registers and the DAC's address
 // lines, not to the stored colors.
@@ -27,6 +15,12 @@ void DecodeDacColor(const Ega &ega, uint8_t pixel, uint8_t &r, uint8_t &g, uint8
     ega.dac_entry(pixel & ega.dac_mask(), six_r, six_g, six_b);
     auto full_scale = [](uint8_t v) { return uint8_t((v << 2) | (v >> 4)); };
     r = full_scale(six_r); g = full_scale(six_g); b = full_scale(six_b);
+}
+
+// A text or 16-colour pixel through the VGA's real path: attribute palette,
+// then the DAC.
+void DecodeAttrColor(const Ega &ega, uint8_t pixel, uint8_t &r, uint8_t &g, uint8_t &b) {
+    DecodeDacColor(ega, ega.attr_dac_index(pixel), r, g, b);
 }
 
 }  // namespace
@@ -75,8 +69,8 @@ void RenderTextScreen(const Ega &ega, std::vector<uint8_t> &rgba, bool blink_on,
             text_at(row, col, ch, attr);
             uint8_t fg_idx = attr & 0x0F, bg_idx = uint8_t((attr >> 4) & 0x07);  // bit7 = blink, unused here
             uint8_t fr, fg, fb, br, bg, bb;
-            DecodeEgaColor(ega.attr_palette(fg_idx), fr, fg, fb);
-            DecodeEgaColor(ega.attr_palette(bg_idx), br, bg, bb);
+            DecodeAttrColor(ega, fg_idx, fr, fg, fb);
+            DecodeAttrColor(ega, bg_idx, br, bg, bb);
 
             bool is_cursor_cell = cursor_visible && cell_offset(row, col) == cursor_off;
 
@@ -117,7 +111,7 @@ void RenderCgaGraphics4Screen(const Ega &ega, std::vector<uint8_t> &rgba) {
             for (int sub = 0; sub < 4; ++sub) {
                 uint8_t pixel2 = uint8_t((byte >> (6 - 2 * sub)) & 0x3);
                 uint8_t r, g, b;
-                DecodeEgaColor(ega.attr_palette(pixel2), r, g, b);
+                DecodeAttrColor(ega, pixel2, r, g, b);
                 int x = byte_col * 4 + sub;
                 std::size_t i = (std::size_t(y) * W + std::size_t(x)) * 4;
                 rgba[i + 0] = r;
@@ -190,7 +184,7 @@ void RenderEgaNative16Screen(const Ega &ega, std::vector<uint8_t> &rgba, int &wi
                 uint8_t nibble = uint8_t(((p0 >> shift) & 1) | (((p1 >> shift) & 1) << 1) |
                                           (((p2 >> shift) & 1) << 2) | (((p3 >> shift) & 1) << 3));
                 uint8_t r, g, b;
-                DecodeEgaColor(ega.attr_palette(nibble), r, g, b);
+                DecodeAttrColor(ega, uint8_t(nibble & ega.attr_plane_enable()), r, g, b);
                 int x = byte_col * 8 + bit;
                 std::size_t i = (std::size_t(y) * std::size_t(width) + std::size_t(x)) * 4;
                 rgba[i + 0] = r;

@@ -10,6 +10,8 @@
 #include "ega.h"
 #include "ega_render.h"
 
+#include <vector>
+
 namespace {
 
 using pc486::DetectScreenMode;
@@ -46,6 +48,18 @@ std::size_t PixelIndex(int x, int y) { return (std::size_t(y) * kTextRenderWidth
 void SetDac(Ega &ega, int index, uint8_t r, uint8_t g, uint8_t b) {
     ega.out(0x3C8, uint8_t(index));
     ega.out(0x3C9, r); ega.out(0x3C9, g); ega.out(0x3C9, b);
+}
+
+// What a VGA BIOS leaves on a text or 16-colour mode set: DAC 0-63 holding
+// the EGA's 64 colours (each channel primary * 42 + secondary * 21 in 6
+// bits, so EGA-style palette values come out as EGA colours) and all four
+// planes enabled in Color Plane Enable.
+void LoadBiosColourDefaults(Ega &ega) {
+    for (int i = 0; i < 64; ++i) {
+        auto chan = [i](int lo, int hi) { return uint8_t(((i >> lo) & 1) * 42 + ((i >> hi) & 1) * 21); };
+        SetDac(ega, i, chan(2, 5), chan(1, 4), chan(0, 3));
+    }
+    SetPalette(ega, 0x12, 0x0F);
 }
 
 // Exactly the register values this machine's own BIOS was observed to
@@ -97,6 +111,7 @@ void ExpectRgb(const std::vector<uint8_t> &rgba, int width, int x, int y,
 TEST(EgaRenderTest, ProducesTheDocumentedBufferSize) {
     Ega ega;
     ega.reset();
+    LoadBiosColourDefaults(ega);
     std::vector<uint8_t> rgba;
     int w = 0, h = 0;
     RenderTextScreen(ega, rgba, false, w, h);
@@ -115,6 +130,7 @@ TEST(EgaRenderTest, ProducesTheDocumentedBufferSize) {
 TEST(EgaRenderTest, RowHeightAndFrameSizeFollowTheRealMaxScanLineRegister) {
     Ega ega;
     ega.reset();
+    LoadBiosColourDefaults(ega);
     ega.out(0x3D4, 0x09); ega.out(0x3D5, 0x0F);  // Max Scan Line = 15 -> 16 lines/row
     // Character 'g' (0x67), scanline 14 -- part of a real descender, and
     // exactly the row the old hardcoded 14-line renderer never reached.
@@ -149,6 +165,7 @@ TEST(EgaRenderTest, RowHeightAndFrameSizeFollowTheRealMaxScanLineRegister) {
 TEST(EgaRenderTest, ColumnCountAndFrameWidthFollowTheRealHorizontalDisplayedRegister) {
     Ega ega;
     ega.reset();
+    LoadBiosColourDefaults(ega);
     ega.out(0x3D4, 0x01); ega.out(0x3D5, 39);  // Horizontal Displayed = 39 -> 40 cols
     SetPalette(ega, 15, 0x3F);  // white
     // Cell (row=1, col=0) sits at the 40-column offset 40 -- at the
@@ -174,6 +191,7 @@ TEST(EgaRenderTest, ColumnCountAndFrameWidthFollowTheRealHorizontalDisplayedRegi
 TEST(EgaRenderTest, RendersAGlyphInTheLivePaletteColors) {
     Ega ega;
     ega.reset();
+    LoadBiosColourDefaults(ega);
     SetPalette(ega, 15, 0x3F);  // white
     SetPalette(ega, 1, 0x01);   // blue
     // Cell (0,0): character code 0x41, attribute fg=15 (white) / bg=1 (blue).
@@ -198,6 +216,7 @@ TEST(EgaRenderTest, RendersAGlyphInTheLivePaletteColors) {
 TEST(EgaRenderTest, CursorDrawsAsASolidBlockAtItsProgrammedScanlines) {
     Ega ega;
     ega.reset();
+    LoadBiosColourDefaults(ega);
     SetPalette(ega, 15, 0x3F);
     // Cell (0,0) holds a blank character (font row all zero, so without the
     // cursor override every pixel would read as background).
@@ -222,6 +241,7 @@ TEST(EgaRenderTest, CursorDrawsAsASolidBlockAtItsProgrammedScanlines) {
 TEST(EgaRenderTest, CursorIsHiddenWhenBlinkPhaseIsOffOrTheDisableBitIsSet) {
     Ega ega;
     ega.reset();
+    LoadBiosColourDefaults(ega);
     SetPalette(ega, 15, 0x3F);
     ega.vram[(0 << 2) + 0] = 0x00;
     ega.vram[(0 << 2) + 1] = 0x0F;
@@ -243,6 +263,7 @@ TEST(EgaRenderTest, CursorIsHiddenWhenBlinkPhaseIsOffOrTheDisableBitIsSet) {
 TEST(EgaRenderTest, DetectScreenModeReadsTheRealModeRegisters) {
     Ega ega;
     ega.reset();
+    LoadBiosColourDefaults(ega);
     EXPECT_EQ(DetectScreenMode(ega), ScreenMode::kText);  // reset default: alphanumeric
 
     SetGraphicsMode(ega, /*graphics=*/true, /*shift_register_mode=*/1);
@@ -269,6 +290,7 @@ TEST(EgaRenderTest, CgaGraphics4DecodesPlane0ThenPlane1AsFourPixelsEach) {
     // split across planes 0 and 1 by odd/even chaining -- see ega_render.h.
     Ega ega;
     ega.reset();
+    LoadBiosColourDefaults(ega);
     SetPalette(ega, 0, 0x00);  // black
     SetPalette(ega, 1, 0x01);  // blue
     SetPalette(ega, 2, 0x02);  // green
@@ -298,6 +320,7 @@ TEST(EgaRenderTest, CgaGraphics4OddScanlinesUseTheSecondEightKilobyteBank) {
     // even/odd-scanline bank split, distinct from the plane odd/even split.
     Ega ega;
     ega.reset();
+    LoadBiosColourDefaults(ega);
     SetPalette(ega, 3, 0x3F);  // white
     uint32_t linear_offset = 0x2000;  // scanline 1, byte column 0
     uint32_t plane = linear_offset & 1, plane_offset = linear_offset >> 1;
@@ -318,6 +341,7 @@ TEST(EgaRenderTest, EgaNative16ResolutionComesFromCrtcTimingNotATable) {
     // see PC486_REVIEW.md §16.
     Ega ega;
     ega.reset();
+    LoadBiosColourDefaults(ega);
     ega.out(0x3D4, 0x01); ega.out(0x3D5, 79);    // H Display End
     ega.out(0x3D4, 0x12); ega.out(0x3D5, 0x5D);  // V Display End low 8 bits
     ega.out(0x3D4, 0x07); ega.out(0x3D5, 0x02);  // Overflow: bit 1 set
@@ -337,6 +361,7 @@ TEST(EgaRenderTest, EgaNative16DecodesOneBitPerPlanePerPixelMsbFirst) {
     // bytes and CGA-mode's pixel bytes already use).
     Ega ega;
     ega.reset();
+    LoadBiosColourDefaults(ega);
     ega.out(0x3D4, 0x01); ega.out(0x3D5, 9);     // H Display End -> (9+1)*8 = 80 wide (small, for the test)
     ega.out(0x3D4, 0x12); ega.out(0x3D5, 0);     // V Display End -> 0+1 = 1 tall
     SetPalette(ega, 0x0, 0x00);  // black
@@ -357,6 +382,7 @@ TEST(EgaRenderTest, EgaNative16DecodesOneBitPerPlanePerPixelMsbFirst) {
 TEST(EgaRenderTest, RenderScreenDispatchesToTheRightModeAtTheRightResolution) {
     Ega ega;
     ega.reset();
+    LoadBiosColourDefaults(ega);
     RenderedFrame text_frame;
     RenderScreen(ega, text_frame, /*blink_on=*/false);
     EXPECT_EQ(text_frame.width, kTextRenderWidth);
@@ -396,6 +422,47 @@ TEST(EgaRenderTest, RenderScreenDispatchesToTheRightModeAtTheRightResolution) {
 }
 
 // --- VGA 256-color (mode 13h) --------------------------------------------
+
+TEST(EgaRenderTest, TextColoursGoThroughTheDacSoAPaletteFadeShows) {
+    Ega ega;
+    ega.reset();
+    LoadBiosColourDefaults(ega);
+    SetGraphicsMode(ega, false, 0);
+    ega.out(0x3D4, 0x09); ega.out(0x3D5, 0x0F);
+    ega.vram[(0u << 2) + 0] = ' ';
+    ega.vram[(0u << 2) + 1] = 0x10;   // blue background
+    SetPalette(ega, 1, 0x01);
+    std::vector<uint8_t> rgba;
+    int w = 0, h = 0;
+    RenderTextScreen(ega, rgba, false, w, h);
+    EXPECT_EQ(rgba[2], 0xAA) << "EGA blue out of the BIOS's default DAC";
+    SetDac(ega, 1, 0, 0, 21);         // fade DAC entry 1 to half
+    RenderTextScreen(ega, rgba, false, w, h);
+    EXPECT_EQ(rgba[2], 0x55) << "the attribute palette indexes the DAC, it does not bypass it";
+}
+
+TEST(EgaRenderTest, ColorSelectSuppliesTheHighDacAddressBits) {
+    Ega ega;
+    ega.reset();
+    SetDac(ega, 0x41, 63, 0, 0);      // red, at a DAC address only Color Select reaches
+    SetDac(ega, 0x31, 0, 63, 0);      // green, the P5-P4 substitution target
+    SetGraphicsMode(ega, false, 0);
+    ega.out(0x3D4, 0x09); ega.out(0x3D5, 0x0F);
+    ega.vram[(0u << 2) + 0] = ' ';
+    ega.vram[(0u << 2) + 1] = 0x10;
+    SetPalette(ega, 1, 0x01);
+    SetPalette(ega, 0x14, 0x04);      // Color Select bits 2-3 -> DAC bits 6-7
+    std::vector<uint8_t> rgba;
+    int w = 0, h = 0;
+    RenderTextScreen(ega, rgba, false, w, h);
+    EXPECT_EQ(rgba[0], 0xFF);
+    EXPECT_EQ(rgba[1], 0x00);
+    SetPalette(ega, 0x14, 0x03);      // bits 0-1 -> DAC bits 4-5 ...
+    SetPalette(ega, 0x10, 0x80);      // ... once AR10 bit 7 selects them
+    RenderTextScreen(ega, rgba, false, w, h);
+    EXPECT_EQ(rgba[0], 0x00);
+    EXPECT_EQ(rgba[1], 0xFF);
+}
 
 TEST(EgaRenderTest, Vga256ResolutionComesFromCrtcAndAttributeControllerNotATable) {
     // Every number here is what this machine's own BIOS was observed to
@@ -693,6 +760,7 @@ TEST(EgaRenderTest, FourBpp1024x768UsesDispiGeometryAndTheBankedPlanarWindow) {
     // 65536 -- row 512 at a 128-byte stride. See PC486_REVIEW.md §7.5.1.
     Ega ega;
     ega.reset();
+    LoadBiosColourDefaults(ega);
     SetGraphicsMode(ega, true, 0);
     ega.out(0x3C4, 0x02); ega.out(0x3C5, 0x0F);  // Map Mask: all planes
     ega.out(0x3C4, 0x04); ega.out(0x3C5, 0x06);  // odd/even off, chain-4 off

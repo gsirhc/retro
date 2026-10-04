@@ -369,15 +369,27 @@ public:
 #endif
 
     bool     halted = false;
+
+    // True for one instruction boundary after STI (from IF=0), MOV SS or
+    // POP SS: the 486 holds off maskable interrupts and debug traps until
+    // the next instruction completes, so SS:SP can be loaded as a pair
+    // (Intel 80486 PRM, MOV/POP SS and STI). The embedding machine checks
+    // this before delivering INTR.
+    bool interrupt_shadow() const { return shadow_; }
+    // A fault while delivering a double fault: the CPU stops and runs a
+    // shutdown bus cycle, which an AT-class board turns into a CPU reset.
+    // Stays set until reset().
+    bool shutdown() const { return shutdown_; }
     uint64_t cycles = 0;   // total clock cycles executed (66MHz core clocks)
 
-    // Diagnostic hook: called with (CS, EIP-of-opcode, opcode-word)
-    // whenever step() reaches the "unimplemented opcode" path -- a
-    // genuinely unrecognized single-byte opcode (opcode-word = 0x00xx) or
-    // an unrecognized 0x0F sub-opcode (0x0Fxx). Empty by default (costs
-    // nothing); set by a diagnostic harness to find real opcode-coverage
-    // gaps by evidence instead of by guessing, the same way ibmpc-at's
-    // core found its BIOS's 386-baseline assumptions.
+    // Diagnostic hook: called with (CS, EIP-of-opcode, opcode-word) just
+    // before an encoding the 486 reserves raises #UD -- a single-byte
+    // opcode (0x00xx), a 0x0F sub-opcode (0x0Fxx), an undefined group
+    // member, or a reserved x87 encoding (the ESC opcode, then the
+    // ModR/M byte, e.g. 0xDAC0). Empty by default (costs
+    // nothing); set by a diagnostic harness to find opcode-coverage gaps by
+    // evidence instead of by guessing, the same way ibmpc-at's core found
+    // its BIOS's 386-baseline assumptions.
     std::function<void(uint16_t cs, uint32_t eip, uint16_t opcode_word)> on_unimplemented;
 
     // Diagnostic hook for delivered faults: (vector, error code, CS,
@@ -527,6 +539,8 @@ private:
     // selector's index with the table and external bits, or 0 when no
     // specific selector is at fault (Intel 80486 PRM, "Error Code").
     [[noreturn]] void raise_sel(int vector, uint16_t selector);
+    // A reserved encoding: reports it through on_unimplemented, then #UD.
+    [[noreturn]] void raise_ud(uint32_t at, uint16_t opword);
 
     // --- descriptors ------------------------------------------------------
     struct RawDesc { uint32_t lo, hi; };
@@ -1052,6 +1066,9 @@ private:
     // into it under __EMSCRIPTEN__ so a tight V86 #GP loop cannot soft-lock
     // Chromium's wasm C++ EH. Native keeps throw. Cleared after deliver_fault.
     bool     fault_pending_ = false;
+    bool     shadow_ = false;
+    bool     shutdown_ = false;
+    bool     vectored_ = false;   // this step entered a handler through do_interrupt
     Fault    pending_fault_{};
     bool     fault_jmp_set_ = false;
     std::jmp_buf fault_jmp_{};
@@ -1076,6 +1093,7 @@ private:
     void fpu_set(int i, long double v);
     void fpu_set_tag(int phys, bool empty);
     bool fpu_is_empty(int i) const;
+    void fpu_xch(int i);
     void fpu_stack_fault(bool overflow);
     void fpu_compare(long double a, long double b, bool unordered_ok);
     long double fpu_round_to_precision(long double v) const;

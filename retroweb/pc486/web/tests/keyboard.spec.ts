@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures";
-import { screenText, waitForScreen, focusScreen, clickCtrlAltDel, typeStr, setPowerSwitch } from "./helpers";
+import { screenText, waitForScreen, focusScreen, clickCtrlAltDel, typeStr, setPowerSwitch, tap } from "./helpers";
 
 // The real keyboard path (physical DOM key events -> SET1 scan codes -> the
 // emulated 8042), the F-key/extended-key panel (a labelled substitute for
@@ -80,6 +80,19 @@ test.describe("keyboard", () => {
     // the prompt returns once DIR finishes, proving the line was actually
     // submitted and processed, not just echoed
     await waitForScreen(page, /C:\\>\s*$/);
+  });
+
+  // The keyboard itself repeats a held key (500 ms delay, 10.9 cps by
+  // default); the browser's own repeat events are ignored so they can't add
+  // a second, host-rate stream on top.
+  test("holding a key makes the keyboard repeat it", async ({ promptPage: page }) => {
+    await focusScreen(page);
+    await page.keyboard.down("KeyX");
+    await page.waitForTimeout(1500);
+    await page.keyboard.up("KeyX");
+    await expect.poll(async () => (/C:\\>(x+)/.exec(await screenText(page)) || ["", ""])[1].length)
+      .toBeGreaterThan(3);
+    await tap(page, "Escape");
   });
 
   test("Ctrl+Alt+Del performs a real warm reboot", async ({ promptPage: page }) => {

@@ -40,6 +40,11 @@ void I8042::reset() {
     irq12_pending_ = false;
     queue_head_ = 0;
     queue_count_ = 0;
+    typematic_ = 0x2B;
+    kbd_arg_cmd_ = 0;
+    tm_active_ = false;
+    pending_e0_ = false;
+    e1_skip_ = 0;
     mouse_ = Mouse();
     // A real AT keyboard runs its own power-on Basic Assurance Test and
     // reports success by sending 0xAA *unsolicited* -- no command needed --
@@ -215,6 +220,13 @@ void I8042::out(uint16_t port, uint8_t v) {
             // register), wedging it full forever and silently dropping
             // every keystroke typed afterward, Setup included.
             push_kbd(0xFA, true);
+            if (kbd_arg_cmd_ != 0) {
+                if (kbd_arg_cmd_ == 0xF3) typematic_ = uint8_t(v & 0x7F);
+                kbd_arg_cmd_ = 0;
+                break;
+            }
+            if (v == 0xED || v == 0xF0 || v == 0xF3) kbd_arg_cmd_ = v;
+            if (v == 0xF6 || v == 0xFF) { typematic_ = 0x2B; tm_active_ = false; }
             if (v == 0xFF) push_kbd(0xAA, true);
             if (v == 0xF2) { push_kbd(0xAB, true); push_kbd(0x83, true); }
             break;
@@ -222,8 +234,32 @@ void I8042::out(uint16_t port, uint8_t v) {
 }
 
 void I8042::inject_scancode(uint8_t code) {
-    if (!kbd_enabled_) return;
-    push_kbd(code, true);
+    if (kbd_enabled_) push_kbd(code, true);
+    // The physical key state is tracked either way, so a release while the
+    // controller holds the keyboard off still ends the repeat.
+    if (e1_skip_ > 0) { --e1_skip_; return; }
+    if (code == 0xE1) { e1_skip_ = 2; return; }
+    if (code == 0xE0) { pending_e0_ = true; return; }
+    uint8_t prefix = pending_e0_ ? 0xE0 : 0x00;
+    pending_e0_ = false;
+    uint8_t base = uint8_t(code & 0x7F);
+    if (!(code & 0x80)) {
+        tm_active_ = true;
+        tm_prefix_ = prefix;
+        tm_code_ = base;
+        tm_next_ = now_s_ + typematic_delay();
+    } else if (tm_active_ && base == tm_code_ && prefix == tm_prefix_) {
+        tm_active_ = false;
+    }
+}
+
+void I8042::typematic_fire() {
+    if (kbd_enabled_) {
+        if (tm_prefix_) push_kbd(tm_prefix_, true);
+        push_kbd(tm_code_, true);
+    }
+    tm_next_ += typematic_period();
+    if (tm_next_ <= now_s_) tm_next_ = now_s_ + typematic_period();
 }
 
 // ---------------------------------------------------------------------------
