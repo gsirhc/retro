@@ -1,7 +1,8 @@
 // GoogleTest suite for the 8237 DMA register file: reset defaults
 // (everything masked), the address/count low-then-high byte-pointer
-// protocol and its clear command, single/all-channel masking, and DMA2's
-// doubled port stride.
+// protocol and its clear command, single/all-channel masking, DMA2's
+// doubled port stride, and the status register's per-channel
+// terminal-count latch and live/software request bits.
 
 #include <gtest/gtest.h>
 
@@ -155,6 +156,71 @@ TEST(Dma8237Test, MasterClearResetsChipViaPort) {
     ASSERT_FALSE(dma.channel_masked(2));
     dma.out(0x0D, 0);     // master clear
     EXPECT_TRUE(dma.channel_masked(2));
+}
+
+// --- status register (in(8)) ----------------------------------------------
+
+TEST(Dma8237Test, StatusRegisterReadsZeroAfterReset) {
+    Dma8237 dma(0x00, 1);
+    dma.reset();
+    EXPECT_EQ(dma.in(0x08), 0x00);
+}
+
+TEST(Dma8237Test, StatusRegisterTerminalCountBitSetsOnAdvanceAndClearsOnRead) {
+    Dma8237 dma(0x00, 1);
+    dma.reset();
+    dma.out(0x04, 0x00); dma.out(0x04, 0x00);  // ch2 address = 0
+    dma.out(0x05, 0x00); dma.out(0x05, 0x00);  // ch2 count = 0 (1 byte)
+    EXPECT_TRUE(dma.advance(2));                // count was 0 -- TC
+    EXPECT_EQ(dma.in(0x08) & 0x0F, 0x04)        // bit 2 (channel 2)
+        << "TC latch must survive until the status register is read";
+    EXPECT_EQ(dma.in(0x08) & 0x0F, 0x00) << "reading the status register clears TC";
+}
+
+TEST(Dma8237Test, StatusRegisterTerminalCountIsPerChannel) {
+    Dma8237 dma(0x00, 1);
+    dma.reset();
+    // Channel 0: count = 0, TC on first advance.
+    dma.out(0x00, 0x00); dma.out(0x00, 0x00);
+    dma.out(0x01, 0x00); dma.out(0x01, 0x00);
+    // Channel 3: count = 1, not yet TC on first advance.
+    dma.out(0x06, 0x00); dma.out(0x06, 0x00);
+    dma.out(0x07, 0x01); dma.out(0x07, 0x00);
+    EXPECT_TRUE(dma.advance(0));
+    EXPECT_FALSE(dma.advance(3));
+    EXPECT_EQ(dma.in(0x08) & 0x0F, 0x01) << "only channel 0's bit is set";
+}
+
+TEST(Dma8237Test, StatusRegisterRequestBitFollowsLiveDreqUnlatched) {
+    Dma8237 dma(0x00, 1);
+    dma.reset();
+    dma.set_dreq(2, true);
+    EXPECT_EQ(dma.in(0x08) & 0xF0, 0x40);  // bit 6 (channel 2's request bit)
+    // Unlike TC, a request bit is not latched by the read -- it tracks the
+    // live signal, so it drops the instant the device deasserts DREQ.
+    EXPECT_EQ(dma.in(0x08) & 0xF0, 0x40);
+    dma.set_dreq(2, false);
+    EXPECT_EQ(dma.in(0x08) & 0xF0, 0x00);
+}
+
+TEST(Dma8237Test, StatusRegisterRequestBitAlsoFollowsTheSoftwareRequestRegister) {
+    Dma8237 dma(0x00, 1);
+    dma.reset();
+    dma.out(0x09, 0x05);  // Request Register: channel 1 (bits 0-1), set bit (bit 2)
+    EXPECT_EQ(dma.in(0x08) & 0xF0, 0x20);  // bit 5 (channel 1)
+    dma.out(0x09, 0x01);  // same channel, set bit clear -- resets it
+    EXPECT_EQ(dma.in(0x08) & 0xF0, 0x00);
+}
+
+TEST(Dma8237Test, StatusRegisterRequestBitStaysSetWhileMaskedSinceItIsNeverServiced) {
+    // The one case this is actually observable here: every real transfer in
+    // this emulator resolves within the tick that sets DREQ, so a masked
+    // channel left wanting service is what makes the bit visible at all.
+    Dma8237 dma(0x00, 1);
+    dma.reset();
+    dma.set_dreq(2, true);
+    EXPECT_TRUE(dma.channel_masked(2));  // reset() leaves every channel masked
+    EXPECT_EQ(dma.in(0x08) & 0xF0, 0x40);
 }
 
 }  // namespace

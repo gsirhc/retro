@@ -60,6 +60,21 @@ public:
     uint16_t count(int channel) const { return ch_[channel & 3].count; }
     bool advance(int channel);
 
+    // DREQ is a live signal line, not a register a device writes once --
+    // chipset.cpp calls this every tick with whatever each channel's device
+    // currently reports wanting (SoundBlaster::transfer_ready(),
+    // Fdc765::transfer_ready()), independent of that channel's mask bit (a
+    // real device asserts DREQ whether or not the controller is listening).
+    // The status register's request bits (in(8), bits 4-7) OR this together
+    // with the software Request Register (out(9), `soft_request_`)
+    // unlatched, matching the 8237A-5 data sheet's "channel request" bit,
+    // which the chip sets from either source; a channel that stays masked
+    // while its
+    // device wants service is the one case the DREQ half is actually
+    // observable at tick granularity, since everything else here resolves a
+    // transfer within the same tick it goes ready.
+    void set_dreq(int channel, bool asserted) { dreq_[channel & 3] = asserted; }
+
 private:
     struct Channel {
         uint16_t address = 0, count = 0;
@@ -79,7 +94,20 @@ private:
     Channel ch_[4];
     uint8_t page_[4] = {};
     uint8_t command_ = 0;
-    uint8_t request_ = 0;
+    // Software Request Register (out(9)): bits 0-1 select the channel, bit 2
+    // sets (1) or resets (0) that channel's request bit -- same per-channel
+    // set/reset-bit encoding as the single mask register (reg 10) and mode
+    // register (reg 11) elsewhere in this file. Intel 8237A-5 data sheet,
+    // "Request Register". No period floppy or Sound Blaster driver here
+    // uses it (both ride hardware DREQ exclusively); modeled for
+    // completeness alongside the status register it feeds.
+    bool soft_request_[4] = {};
+    bool dreq_[4] = {};        // live hardware DREQ per channel, see set_dreq()
+    // Terminal-count latch per channel (status register bits 0-3): set by
+    // advance() when a channel reaches TC, cleared by reading the status
+    // register -- Intel 8237A-5 data sheet, "Status Register". Real hardware
+    // also clears it on a master reset, which reset() below already covers.
+    bool tc_latch_[4] = {};
     bool flip_flop_ = false;  // false = next address/count byte is the low half
     uint16_t base_;
     int stride_;

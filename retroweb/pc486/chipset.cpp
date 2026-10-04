@@ -208,6 +208,7 @@ void Chipset::service(uint64_t cpu_cycles, double cpu_hz) {
     // using whichever of DMA1's address/count/page registers were
     // programmed for channel 2 (the floppy's fixed DMA channel). DMA
     // addresses bypass the A20 gate, going straight at `mem`.
+    dma1.set_dreq(2, fdc.transfer_ready());
     if (fdc.transfer_ready() && !dma1.channel_masked(2)) {
         uint16_t dma_len16 = uint16_t(dma1.count(2) + 1);  // 8237 count register is programmed as N-1
         std::size_t len = std::min(fdc.transfer_length(), std::size_t(dma_len16));
@@ -249,6 +250,17 @@ void Chipset::service(uint64_t cpu_cycles, double cpu_hz) {
     // not a continuously-re-asserting condition the way the mouse's
     // queued-byte case is.
     sb.tick(cpu_cycles);
+    // DREQ for whichever channel/controller the card is currently jumpered
+    // to -- live every tick, not only while a transfer is actually serviced,
+    // so a channel left masked while the card wants bytes shows a real
+    // pending request on that controller's status register.
+    {
+        bool is16 = sb.transfer_is_16bit();
+        int global_ch = sb.transfer_dma_channel();
+        Dma8237 &dma = is16 ? dma2 : dma1;
+        int idx = is16 ? (global_ch - 4) : global_ch;
+        if (idx >= 0 && idx <= 3) dma.set_dreq(idx, sb.transfer_ready());
+    }
     // Guarded by the device's own inline "is a block waiting" flag so the
     // out-of-line byte mover is not called 66 million times a second just to
     // return -- same shape as run_cycles()'s has_interrupt() guard (§8).

@@ -6,7 +6,9 @@ void Dma8237::reset() {
     for (auto &c : ch_) c = Channel{};
     for (auto &p : page_) p = 0;
     command_ = 0;
-    request_ = 0;
+    for (auto &r : soft_request_) r = false;
+    for (auto &d : dreq_) d = false;
+    for (auto &t : tc_latch_) t = false;
     flip_flop_ = false;
 }
 
@@ -26,7 +28,20 @@ uint8_t Dma8237::in(uint16_t port) {
         return byte;
     }
     switch (reg) {
-        case 8: return command_;  // status register on read -- TC/request bits not modeled, see file header
+        case 8: {
+            // Status register (Intel 8237A-5, "Status Register"): bits 0-3
+            // are per-channel terminal-count, latched by advance() and
+            // cleared by this read; bits 4-7 are per-channel request,
+            // live DREQ ORed with the software Request Register (out(9)),
+            // neither latched nor cleared by reading.
+            uint8_t v = 0;
+            for (int i = 0; i < 4; ++i) {
+                if (tc_latch_[i]) v = uint8_t(v | (1 << i));
+                if (dreq_[i] || soft_request_[i]) v = uint8_t(v | (1 << (4 + i)));
+            }
+            for (auto &t : tc_latch_) t = false;
+            return v;
+        }
         case 15: {
             uint8_t m = 0;
             for (int i = 0; i < 4; ++i)
@@ -51,7 +66,7 @@ void Dma8237::out(uint16_t port, uint8_t v) {
     }
     switch (reg) {
         case 8: command_ = v; break;
-        case 9: request_ = v; break;
+        case 9: soft_request_[v & 3] = (v & 4) != 0; break;  // Request Register: ch select + set/reset bit
         case 10: { int ch = v & 3; ch_[ch].masked = (v & 4) != 0; break; }              // single mask
         case 11: { int ch = v & 3; ch_[ch].mode = v; break; }                            // mode
         case 12: flip_flop_ = false; break;                                             // clear byte pointer
@@ -65,6 +80,7 @@ void Dma8237::out(uint16_t port, uint8_t v) {
 bool Dma8237::advance(int channel) {
     Channel &c = ch_[channel & 3];
     bool tc = (c.count == 0);
+    if (tc) tc_latch_[channel & 3] = true;
     if (tc && (c.mode & 0x10) != 0) {
         // Autoinitialize: reload from the base registers instead of
         // continuing to increment/wrap -- see the Channel comment.
