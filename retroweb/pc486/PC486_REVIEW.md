@@ -6163,7 +6163,11 @@ worklet does what it is built to do -- slow playback up to 4% or hold,
 rather than drop out. That's a deliberate trade, so the test now asks the
 real question. The worklet's capture records the guest cycle each output
 sample played (`__test.sbCaptureCyc`), and every period of the tone is
-checked in guest time: 213,247 cycles, under 5% of periods off. The
+checked in guest time: 213,247 cycles, under 5% of periods off. A period
+that spans a hold or a forward re-anchor is a dropout rather than a
+placement error, so it's left out; with fewer than 50 clean periods the
+host is too starved to judge and the test skips. The next nightly showed
+that: CI skipped whole periods, past anything a 4x throttle produced. The
 as-heard pitch and jitter checks still run, but only when the capture
 shows the host kept real speed with no starved hold. Verified across 1x-4x
 throttles, and against two sabotaged worklets: a per-post placement error

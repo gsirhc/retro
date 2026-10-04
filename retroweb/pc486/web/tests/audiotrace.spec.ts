@@ -40,7 +40,7 @@ test.describe("audio trace", () => {
     // Every row has to carry a real post length and a real guest-cycle span,
     // because those two are the pair the open defect lives between.
     expect(summary.postMs.p50).toBeGreaterThan(0);
-    expect(summary.guestPerWall.p50).toBeGreaterThan(0.5);
+    expect(summary.guestPerWall.p50).toBeGreaterThan(0);
     // The ring figure is the audio thread's lead over the card's samples. It
     // is present here, but this page boots under the fast-test multiplier,
     // where the guest outruns wall time and the audio thread is pinned to

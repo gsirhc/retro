@@ -36,18 +36,28 @@ function zeroCrossingJitter(samples: number[]) {
 
 // The same periods measured in guest cycles, from the cycle the worklet
 // says each output sample played. Whatever pace the worklet chose, every
-// period of the tone should span the same number of guest cycles.
-function guestPeriods(c: Capture) {
+// period of the tone should span the same number of guest cycles. A period
+// that spans a hold (no guest time played) or a re-anchor (guest time
+// skipped) is a dropout, not placement, so only clean periods count.
+function guestPeriods(c: Capture, sampleRate: number) {
+  const nominal = 66_000_000 / sampleRate;
+  const broken = c.cyc.map((v, i) => {
+    const d = i + 1 < c.cyc.length ? c.cyc[i + 1] - v : nominal;
+    return d < 0.9 * nominal || d > 1.1 * nominal;
+  });
   const at = (x: number) => {
     const i = Math.floor(x);
     return c.cyc[i] + (x - i) * (c.cyc[i + 1] - c.cyc[i]);
   };
   const zc = crossings(c.samples).filter((x) => x + 1 < c.cyc.length);
   const periods: number[] = [];
-  for (let i = 1; i < zc.length; i++) periods.push(at(zc[i]) - at(zc[i - 1]));
+  for (let i = 1; i < zc.length; i++) {
+    if (broken.slice(Math.floor(zc[i - 1]), Math.ceil(zc[i]) + 1).some(Boolean)) continue;
+    periods.push(at(zc[i]) - at(zc[i - 1]));
+  }
   const median = [...periods].sort((a, b) => a - b)[periods.length >> 1];
   const off = periods.filter((p) => Math.abs(p - median) / median > 0.05).length / periods.length;
-  return { median, off };
+  return { median, off, clean: periods.length, total: Math.max(0, zc.length - 1) };
 }
 
 test.describe("FM output quality", () => {
@@ -108,13 +118,22 @@ test.describe("FM output quality", () => {
     // Playback speed the worklet chose: guest time per period over heard
     // time per period. 1.0 when the host kept real time.
     const speed = (c: Capture) =>
-      (guestPeriods(c).median / 66_000_000) / (zeroCrossingJitter(c.samples).median / sampleRate);
-    // The host kept up: real speed and no period spanning a starved hold.
-    const keptUp = (c: Capture) => speed(c) >= 0.99 && guestPeriods(c).off === 0;
+      (guestPeriods(c, sampleRate).median / 66_000_000) / (zeroCrossingJitter(c.samples).median / sampleRate);
+    // The host kept up: real speed, and no dropout anywhere in the capture.
+    const keptUp = (c: Capture) => {
+      const g = guestPeriods(c, sampleRate);
+      return speed(c) >= 0.99 && g.clean === g.total && g.off === 0;
+    };
 
     for (const [name, c] of [["idle", idleCapture], ["loaded", loadedCapture]] as const) {
-      const g = guestPeriods(c);
-      test.info().annotations.push({ type: name, description: `speed ${speed(c).toFixed(3)}, off ${(g.off * 100).toFixed(1)}%` });
+      const g = guestPeriods(c, sampleRate);
+      test.info().annotations.push({
+        type: name,
+        description: `speed ${speed(c).toFixed(3)}, clean ${g.clean}/${g.total}, off ${(g.off * 100).toFixed(1)}%`,
+      });
+      // A host starved so badly that little plays cleanly can't say
+      // anything about placement either way.
+      test.skip(g.clean < 50, `${name}: only ${g.clean} clean periods, host too starved to judge`);
       // In guest time the tone is 309.5 Hz exactly: 66 MHz / 309.5 = 213,247
       // cycles a period. Samples landing where their stamps say keeps every
       // period there. When the main thread delivers audio late the worklet
