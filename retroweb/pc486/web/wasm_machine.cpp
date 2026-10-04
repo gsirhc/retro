@@ -16,6 +16,9 @@
 //                                         // for periodic persistence without re-copying all 504MB
 //   m.mountFloppy(imgBytes);             // this machine's one 3.5" bay (A:)
 //   m.mountCdrom(isoBytes) / m.ejectCdrom()  // swappable, like the floppy
+//   m.mountCdromCue(cueText, binBytes)   // mixed-mode disc: data + CD-DA audio tracks
+//   const cd = m.cdromDrainSamples();    // the drive's own audio output, same shape as sbDrainSamples()
+//   m.cdromSampleRateHz(); m.cdGainLeft(); m.cdGainRight();  // CD-DA's fixed rate and SB16 mixer gain
 //   m.runCycles(66000000/60);            // advance one frame at real 66 MHz
 //   const frame = m.renderFrame(blinkOn); // Uint8ClampedArray RGBA -- call
 //                                          // renderWidth()/renderHeight() after (resolution varies by mode)
@@ -185,6 +188,13 @@ public:
         std::vector<uint8_t> data = emscripten::convertJSArrayToNumberVector<uint8_t>(bytes);
         m_.chipset.cdrom.mount(data.data(), data.size());
     }
+    // Mixed-mode disc (data + CD-DA audio tracks): a CUE sheet naming the
+    // one BIN file `binBytes` supplies. Returns false (mounting nothing) if
+    // the sheet doesn't parse -- see atapi_cdrom.h's mount_cue().
+    bool mountCdromCue(std::string cueText, val binBytes) {
+        std::vector<uint8_t> data = emscripten::convertJSArrayToNumberVector<uint8_t>(binBytes);
+        return m_.chipset.cdrom.mount_cue(cueText.c_str(), data.data(), data.size());
+    }
     void ejectCdrom() { m_.chipset.cdrom.eject(); }
     bool cdromPresent() const { return m_.chipset.cdrom.media_present(); }
     bool cdromBusy() {
@@ -192,6 +202,7 @@ public:
         cdrom_activity_latch_ = false;
         return v;
     }
+    bool cdromPlayingAudio() const { return m_.chipset.cdrom.playing_audio(); }
 
     // ---- PC speaker -------------------------------------------------------
     bool speakerLevel() const { return m_.chipset.speaker.level(); }
@@ -269,6 +280,38 @@ public:
         out.set("right", r);
         return out;
     }
+
+    // The CD-ROM's own analog audio leg, same {cycles,left,right} shape as
+    // fmDrainSamples() above -- on real hardware this never crosses the ATA
+    // bus either, it reaches the sound card over a physical cable. The
+    // front end mixes it in alongside FM/digitized audio, gated by
+    // cdGainLeft()/cdGainRight() below.
+    val cdromDrainSamples() {
+        std::vector<pc486::AtapiCdrom::Sample> samples = m_.chipset.cdrom.drain_samples();
+        std::vector<double> cycles(samples.size());
+        std::vector<int16_t> left(samples.size());
+        std::vector<int16_t> right(samples.size());
+        for (std::size_t i = 0; i < samples.size(); ++i) {
+            cycles[i] = double(samples[i].cpu_cycle);
+            left[i] = samples[i].left;
+            right[i] = samples[i].right;
+        }
+        val c = val::global("Float64Array").new_(cycles.size());
+        if (!cycles.empty())
+            c.call<void>("set", val(emscripten::typed_memory_view(cycles.size(), cycles.data())));
+        val l = val::global("Int16Array").new_(left.size());
+        if (!left.empty())
+            l.call<void>("set", val(emscripten::typed_memory_view(left.size(), left.data())));
+        val r = val::global("Int16Array").new_(right.size());
+        if (!right.empty())
+            r.call<void>("set", val(emscripten::typed_memory_view(right.size(), right.data())));
+        val out = val::object();
+        out.set("cycles", c);
+        out.set("left", l);
+        out.set("right", r);
+        return out;
+    }
+    uint32_t cdromSampleRateHz() const { return pc486::AtapiCdrom::kAudioSampleRateHz; }
 
     // Test-only: the machine's real I/O decode, so a test can drive a device
     // through its actual ports rather than reaching past the port block.
@@ -375,6 +418,8 @@ public:
     float fmGainRight() const { return m_.chipset.sb.fm_gain_right(); }
     float sbGainLeft() const { return m_.chipset.sb.output_gain_left(); }
     float sbGainRight() const { return m_.chipset.sb.output_gain_right(); }
+    float cdGainLeft() const { return m_.chipset.sb.cd_gain_left(); }
+    float cdGainRight() const { return m_.chipset.sb.cd_gain_right(); }
     // Raw CT1745 mixer register, for the tone controls (44h-47h) the front
     // end turns into shelving-filter gains -- see app.js's refreshSbTone().
     uint8_t sbMixerRegister(uint8_t index) const { return m_.chipset.sb.mixer_register(index); }
@@ -444,9 +489,13 @@ EMSCRIPTEN_BINDINGS(pc486_machine) {
         .function("hddImage", &WasmMachine::hddImage)
         .function("hddDirtyPatches", &WasmMachine::hddDirtyPatches)
         .function("mountCdrom", &WasmMachine::mountCdrom)
+        .function("mountCdromCue", &WasmMachine::mountCdromCue)
         .function("ejectCdrom", &WasmMachine::ejectCdrom)
         .function("cdromPresent", &WasmMachine::cdromPresent)
         .function("cdromBusy", &WasmMachine::cdromBusy)
+        .function("cdromPlayingAudio", &WasmMachine::cdromPlayingAudio)
+        .function("cdromDrainSamples", &WasmMachine::cdromDrainSamples)
+        .function("cdromSampleRateHz", &WasmMachine::cdromSampleRateHz)
         .function("speakerLevel", &WasmMachine::speakerLevel)
         .function("speakerEdges", &WasmMachine::speakerEdges)
         .function("sbDrainSamples", &WasmMachine::sbDrainSamples)
@@ -470,6 +519,8 @@ EMSCRIPTEN_BINDINGS(pc486_machine) {
         .function("fmGainRight", &WasmMachine::fmGainRight)
         .function("sbGainLeft", &WasmMachine::sbGainLeft)
         .function("sbGainRight", &WasmMachine::sbGainRight)
+        .function("cdGainLeft", &WasmMachine::cdGainLeft)
+        .function("cdGainRight", &WasmMachine::cdGainRight)
         .function("sbMixerRegister", &WasmMachine::sbMixerRegister)
         .function("textScreen", &WasmMachine::textScreen);
 }

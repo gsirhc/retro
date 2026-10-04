@@ -25,6 +25,30 @@ test.describe("PC speaker", () => {
     await page.evaluate(() => localStorage.removeItem("retro8080.pc486.ui"));
   });
 
+  // A checkmark restored from localStorage on page load never fires the
+  // checkbox's own "change" handler (setting .checked programmatically
+  // doesn't), so nothing created or resumed the AudioContext -- the
+  // preference looked honored but stayed silent until the box was toggled.
+  // Clicking the screen (the first gesture every visitor makes, to focus
+  // the machine and start typing) has to be enough on its own.
+  test("a restored Enable Sound checkmark actually starts audio on the first screen click, not just the checkbox", async ({ page }) => {
+    await bootLive(page);
+    await page.evaluate(() => localStorage.removeItem("retro8080.pc486.ui"));
+    await page.locator("#speakerEnabled").check();
+    await page.reload();
+    await page.waitForFunction(() => !!(window as any).__test?.machine, null, {
+      timeout: 15000,
+    });
+    await expect(page.locator("#speakerEnabled")).toBeChecked();
+    expect(await page.evaluate(() => (window as any).__test.audioState)).toBeFalsy();
+
+    await page.locator("#screen").click();
+    await expect
+      .poll(() => page.evaluate(() => (window as any).__test.audioState))
+      .toBe("running");
+    await page.evaluate(() => localStorage.removeItem("retro8080.pc486.ui"));
+  });
+
   test("checking/unchecking it doesn't affect the running machine", async ({
     livePage: page,
   }) => {

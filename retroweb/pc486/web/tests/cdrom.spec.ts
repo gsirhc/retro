@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures";
-import { bootLive, bay, insertCdrom, ejectCdrom, loadFreedosCdrom } from "./helpers";
+import { bootLive, bay, insertCdrom, insertCdromCue, ejectCdrom, loadFreedosCdrom } from "./helpers";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
@@ -8,6 +8,20 @@ function makeBlankIso(bytes: number): string {
   const p = path.join(os.tmpdir(), `pc486-test-${Date.now()}-${Math.random().toString(36).slice(2)}.iso`);
   fs.writeFileSync(p, Buffer.alloc(bytes, 0));
   return p;
+}
+
+// A minimal single-track data disc -- enough to exercise the CUE+BIN mount
+// path through the file picker without needing any audio content.
+function makeDataOnlyCueBin(dataBlocks: number): { cuePath: string; binPath: string } {
+  const tag = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const cuePath = path.join(os.tmpdir(), `pc486-test-${tag}.cue`);
+  const binPath = path.join(os.tmpdir(), `pc486-test-${tag}.bin`);
+  fs.writeFileSync(binPath, Buffer.alloc(dataBlocks * 2048, 0));
+  fs.writeFileSync(
+    cuePath,
+    `FILE "${path.basename(binPath)}" BINARY\n  TRACK 01 MODE1/2048\n    INDEX 01 00:00:00\n`,
+  );
+  return { cuePath, binPath };
 }
 
 test.describe("CD-ROM drive", () => {
@@ -65,6 +79,22 @@ test.describe("CD-ROM drive", () => {
     await expect
       .poll(() => page.evaluate(() => (window as any).__test.machine.cdromPresent()))
       .toBe(false);
+  });
+
+  test("inserting a CUE + BIN pair mounts the mixed-mode disc", async ({ livePage: page }) => {
+    const bayCd = bay(page, "cdrom");
+    const { cuePath, binPath } = makeDataOnlyCueBin(4);
+    const label = bayCd.locator('[data-role="label"]');
+
+    await insertCdromCue(page, cuePath, binPath);
+    await expect(bayCd).toHaveClass(/loaded/);
+    await expect(label).toContainText(path.basename(cuePath));
+    await expect
+      .poll(() => page.evaluate(() => (window as any).__test.machine.cdromPresent()))
+      .toBe(true);
+
+    await ejectCdrom(page);
+    await expect(bayCd).not.toHaveClass(/loaded/);
   });
 
   test("swapping discs is independent of power state -- works while the machine is off", async ({ livePage: page }) => {

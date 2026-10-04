@@ -1043,7 +1043,7 @@
               <div class="cd-door" data-role="slot">
                 <label class="cd-insert" title="Insert disc">
                   <div class="cd-tray" aria-hidden="true"></div>
-                  <input type="file" accept=".iso,.ISO" data-role="file" aria-label="Insert disc">
+                  <input type="file" accept=".iso,.ISO,.cue,.CUE,.bin,.BIN" multiple data-role="file" aria-label="Insert disc (.iso, or a .cue with its .bin)">
                 </label>
                 <span class="cd-pin" aria-hidden="true"></span>
                 <span class="cd-jack" aria-hidden="true"></span>
@@ -1160,11 +1160,11 @@
         <tr><td>RAM</td><td>32 MB</td></tr>
         <tr><td>Modes</td><td>Real mode, 16/32-bit protected mode, paging, virtual-8086</td></tr>
         <tr><td>Graphics</td><td>VGA/EGA + VESA BIOS Extensions, 1 MB video RAM, mode 13h, 256-color up to 1024&times;768</td></tr>
-        <tr><td>Sound</td><td>Sound Blaster 16 (DSP 4.05), 16-bit stereo DMA, OPL3 FM, PC speaker</td></tr>
-        <tr><td>Storage</td><td>504 MB HDD (WD1003), 3.5&Prime; floppy (NEC 765), 2x ATAPI CD-ROM</td></tr>
+        <tr><td>Sound</td><td>Sound Blaster 16 (DSP 4.05), 16-bit stereo DMA, OPL3 FM, MPU-401 UART MIDI, PC speaker</td></tr>
+        <tr><td>Storage</td><td>504 MB HDD (WD1003), 3.5&Prime; floppy (NEC 765), 2x ATAPI CD-ROM with CD-DA audio</td></tr>
         <tr><td>Input</td><td>3-button PS/2 mouse</td></tr>
         <tr><td>OS</td><td>Ships with FreeDOS 1.3, compatible with PC-DOS / MS-DOS 6.x</td></tr>
-        <tr><td>Not included</td><td>Gameport / joystick, MIDI (no MPU-401 or SB-MIDI), CD digital audio, serial / parallel ports</td></tr>
+        <tr><td>Not included</td><td>Gameport / joystick, SB-MIDI (30h/31h), serial / parallel ports</td></tr>
       </table>
     </div>
 
