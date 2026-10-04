@@ -190,7 +190,7 @@ public:
     // Mixed-mode disc (data + CD-DA audio tracks): a CUE sheet naming the
     // one BIN file `binBytes` supplies. Returns false (mounting nothing) if
     // the sheet doesn't parse -- see atapi_cdrom.h's mount_cue().
-    bool mountCdromCue(std::string cueText, val binBytes) {
+    bool mountCdromCue(const std::string &cueText, val binBytes) {
         std::vector<uint8_t> data = emscripten::convertJSArrayToNumberVector<uint8_t>(binBytes);
         return m_.chipset.cdrom.mount_cue(cueText.c_str(), data.data(), data.size());
     }
