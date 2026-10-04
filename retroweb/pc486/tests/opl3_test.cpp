@@ -108,6 +108,79 @@ protected:
     // BLOCK=4, F-number high bits=2, KON set/clear -- channel 0's B0h.
     void KeyOn() { Reg(0, 0xB0, 0x32); }
     void KeyOff() { Reg(0, 0xB0, 0x12); }
+
+    // Pairs channels 0+3 into one four-operator voice with the given
+    // per-channel connection bits (the primary's C0h and the secondary's
+    // C3h), then keys it on with operator `loud_op` (1-4: primary modulator,
+    // primary carrier, secondary modulator, secondary carrier) given a fast
+    // attack held at full volume (EGT hold, SL=0) and the other three
+    // permanently silenced (AR=0, so their envelope never leaves maximum
+    // attenuation and they produce zero output regardless of what phase they
+    // are fed). Returns the peak |left sample| after a few ms -- this
+    // isolates exactly which operators a given (cp,cs) algorithm sums
+    // directly into the channel output, without needing to analyse a
+    // modulated waveform's shape.
+    static int32_t FourOpIsolatedPeak(uint8_t cp_cnt, uint8_t cs_cnt, int loud_op) {
+        Opl3 chip;
+        chip.reset();
+        auto w = [&](int bank, uint8_t r, uint8_t v) { chip.write_address(bank, r); chip.write_data(bank, v); };
+        w(1, 0x05, 0x01);  // NEW
+        w(1, 0x04, 0x01);  // pair channels 0+3
+        static const uint8_t kBases[4] = {0x00, 0x03, 0x08, 0x0B};  // op1,op2,op3,op4 register bases
+        for (int i = 0; i < 4; ++i) {
+            uint8_t base = kBases[i];
+            bool loud = (i + 1) == loud_op;
+            w(0, uint8_t(0x20 + base), loud ? 0x21 : 0x01);   // loud: EGT hold, MULT=1; silent: MULT=1 only
+            w(0, uint8_t(0x40 + base), 0x00);                  // TL: loudest
+            w(0, uint8_t(0x60 + base), loud ? 0xF0 : 0x00);    // loud: AR=15, DR=0; silent: AR=0 (never attacks)
+            w(0, uint8_t(0x80 + base), 0x0F);                  // SL=0, RR=15
+        }
+        // C0h bits 5-4 are the pan bits, which NEW (set above) makes live --
+        // 0x30 sets both so the primary's mixed output actually reaches
+        // left/right, on top of cp_cnt's own connection bit (bit 0).
+        w(0, 0xC0, uint8_t(0x30 | cp_cnt));  // channel 0 (primary) connection
+        w(0, 0xC3, cs_cnt);                   // channel 3 (secondary) connection
+        w(0, 0xA0, 0x59);
+        w(0, 0xB0, uint8_t(0x20 | (4 << 2) | 0x01));  // KON, block=4, fnum hi=1
+        uint64_t cycles = 0;
+        for (int i = 0; i < 10; ++i) { cycles += uint64_t(Opl3::kCpuHz * 0.001); chip.tick(cycles); }
+        int32_t peak = 0;
+        for (const auto &s : chip.drain_samples()) peak = std::max(peak, std::abs(int(s.left)));
+        return peak;
+    }
+
+    // Runs one carrier-only voice (modulator silenced via AR=0) at waveform
+    // `wf`, fnum=64/block=0/MULT=1 so phase advances by exactly 64 units per
+    // frame -- a full 2^20-unit cycle is exactly 16384 frames. Returns every
+    // frame's left sample for one full cycle plus margin. Frame k's phase is
+    // (k+1)*64: key-on's phase reset and that frame's own advance both
+    // happen before it is sampled (see Waveform7MirrorsItsNegativeHalf...'s
+    // derivation below, which this mirrors).
+    static std::vector<int32_t> SampleOneWaveformCycle(uint8_t wf) {
+        Opl3 chip;
+        chip.reset();
+        chip.write_address(1, 0x05); chip.write_data(1, 0x01);  // NEW: waveforms 4-7 need OPL3 mode
+        auto w = [&](uint8_t r, uint8_t v) { chip.write_address(0, r); chip.write_data(0, v); };
+        w(0x20, 0x01); w(0x40, 0x3F);  // modulator: MULT=1, silenced (AR=0 too: never attacks)
+        w(0x23, 0x21);                 // carrier: EGT hold, MULT=1
+        w(0x43, 0x00);                 // carrier TL: loudest
+        w(0x63, 0xF0);                 // carrier AR=15 (fastest attack), DR=0
+        w(0x83, 0x00);                 // carrier SL=0 (loudest sustain), RR=0
+        w(0xC0, 0x30);                  // pan both channels on
+        w(0xE3, wf);                     // carrier waveform
+        w(0xA0, 0x40);                   // fnum = 64
+        w(0xB0, 0x20);                   // KON, block=0, fnum hi=0
+
+        std::vector<int32_t> out;
+        uint64_t cycles = 0;
+        const double cycles_per_frame = Opl3::kCpuHz / Opl3::kSampleHz;
+        for (int i = 0; i < 6; ++i) {
+            cycles += uint64_t(std::llround(4000.0 * cycles_per_frame));
+            chip.tick(cycles);
+            for (const auto &s : chip.drain_samples()) out.push_back(s.left);
+        }
+        return out;
+    }
 };
 
 // Timer periods from opl3.h: clock/1024 and clock/4096, given directly in
@@ -316,6 +389,233 @@ TEST_F(Opl3Test, KeyOnProducesAudibleOutputAndKeyOffReleasesToSilence) {
     EXPECT_LT(late_peak, early_peak) << "release must decay toward silence, not hold at volume";
     EXPECT_EQ(late_peak, 0) << "a fully released envelope is silent";
     EXPECT_FALSE(opl.active());
+}
+
+// --- envelope generator: instant attack, pinned idle, retrigger, rate scaling ---
+//
+// These pin behaviors specific to the real quantised shift/add state machine
+// ("OPLx decapsulated") that replaced the old analytic exponential/linear-dB
+// approximation: none of them would fail against that old curve for the
+// wrong reason, but none of them were actually exercised by it either.
+
+// Effective RATE's top nibble (rate_hi) hits its maximum of 15 whenever
+// AR=15, regardless of key scaling (15*4=60 alone already gives rate_hi=15
+// before any key-scale addition) -- and rate_hi==15 is the one case the
+// decapsulated mechanism short-circuits entirely: attenuation snaps straight
+// to zero on the key-on sample rather than taking even one quantised step.
+TEST_F(Opl3Test, InstantAttackReachesFullVolumeOnTheVeryFirstFewFramesWhenEffectiveRateHiIsFifteen) {
+    auto peak_over_ms = [](Opl3 &chip, uint64_t &cycles, double ms) {
+        const double cycles_per_frame = Opl3::kCpuHz / Opl3::kSampleHz;
+        int32_t peak = 0;
+        uint64_t frames = uint64_t(ms * 1e-3 * Opl3::kSampleHz);
+        for (uint64_t i = 0; i < frames; ++i) {
+            cycles += uint64_t(std::llround(cycles_per_frame));
+            chip.tick(cycles);
+            for (const auto &s : chip.drain_samples()) peak = std::max(peak, std::abs(int(s.left)));
+        }
+        return peak;
+    };
+    int32_t fast_early = 0, fast_settled = 0, slow_early = 0, slow_settled = 0;
+    auto early_vs_settled = [&](uint8_t ar, int32_t &early, int32_t &settled) {
+        Opl3 chip;
+        chip.reset();
+        auto w = [&](uint8_t r, uint8_t v) { chip.write_address(0, r); chip.write_data(0, v); };
+        w(0x20, 0x01);                             // modulator: MULT=1, AR=0 -- stays silent
+        w(0x23, 0x21);                              // carrier: EGT hold, MULT=1
+        w(0x43, 0x00);                               // carrier TL=0 (loudest), KSL=0
+        w(0x63, uint8_t((ar << 4) | 0x00));          // carrier AR=ar, DR=0
+        w(0x83, 0x00);                                // carrier SL=0 (hold at full), RR=0
+        w(0xC0, 0x30);
+        w(0xA0, 0xAE);
+        w(0xB0, uint8_t(0x20 | (4 << 2) | 0x02));     // KON, block=4, fnum hi bits=10b
+        // fnum 0x2AE/block 4 gives a ~1.9 ms waveform cycle at MULT=1; the
+        // "early" window must span at least one full cycle or it risks
+        // landing near the sine's own zero-crossing (heavily attenuated by
+        // the waveform shape alone, regardless of the envelope) rather than
+        // finding the true peak.
+        uint64_t cycles = 0;
+        early = peak_over_ms(chip, cycles, 2.5);
+        settled = peak_over_ms(chip, cycles, 50.0);    // long past even a slow attack
+    };
+    early_vs_settled(15, fast_early, fast_settled);
+    early_vs_settled(6, slow_early, slow_settled);  // rate_hi=6: slow, but not so slow it
+                                                     // needs an impractically long window to settle
+    ASSERT_GT(fast_settled, 0);
+    ASSERT_GT(slow_settled, 0);
+    EXPECT_GE(fast_early, fast_settled * 9 / 10)
+        << "AR=15 (rate_hi=15) must already be at full volume within the first fraction of a "
+           "millisecond, not ramping up -- fast_early=" << fast_early << " fast_settled=" << fast_settled;
+    EXPECT_LT(slow_early, slow_settled / 2)
+        << "AR=6 (rate_hi well under 15) must still be well below its settled volume after the "
+           "same short window, proving the instant case is specific to rate_hi=15 -- slow_early="
+        << slow_early << " slow_settled=" << slow_settled;
+}
+
+// Real silicon has exactly four envelope states; this file no longer stores
+// a separate "off" one (opl3.h's Env enum). "Idle" is derived from an
+// operator sitting in release with its attenuation pinned at maximum, which
+// must still let a later key-on attack normally -- the thing a leftover,
+// never-cleared stored flag could plausibly break.
+TEST_F(Opl3Test, FullyIdleOperatorAttacksNormallyAgainOnASubsequentKeyOn) {
+    SetUpAudibleChannel();
+    auto peak = [&] {
+        int32_t p = 0;
+        for (const auto &s : opl.drain_samples()) p = std::max(p, std::abs(int(s.left)));
+        return p;
+    };
+    KeyOn();
+    AdvanceMicroseconds(2000.0);
+    int32_t peak1 = peak();
+    ASSERT_GT(peak1, 0);
+
+    KeyOff();
+    AdvanceMicroseconds(100000.0);  // far past release -- fully idle
+    opl.drain_samples();
+    ASSERT_FALSE(opl.active());
+
+    KeyOn();  // retrigger from true silence, not mid-release
+    EXPECT_TRUE(opl.active());
+    AdvanceMicroseconds(2000.0);
+    int32_t peak2 = peak();
+    EXPECT_GT(peak2, peak1 / 2)
+        << "a fresh key-on from full idle must attack normally again, not stay silent because "
+           "\"idle\" used to be a separate stored enum value -- peak1=" << peak1 << " peak2=" << peak2;
+}
+
+// The decapsulated mechanism re-triggers attack whenever key-on is live
+// while the envelope is (still) in release -- independent of how far
+// release has progressed -- and resumes from the current attenuation rather
+// than resetting to silence first. A naive re-implementation (reset
+// env_level to maximum attenuation on every key-on edge) would show a dip
+// toward silence right at the retrigger instant before climbing back up.
+TEST_F(Opl3Test, RetriggeringMidReleaseResumesFromThereInsteadOfDippingToSilenceFirst) {
+    Opl3 chip;
+    chip.reset();
+    auto w = [&](uint8_t r, uint8_t v) { chip.write_address(0, r); chip.write_data(0, v); };
+    w(0x20, 0x01);   // modulator: MULT=1, AR=0 -- stays silent
+    w(0x23, 0x21);   // carrier: EGT hold, MULT=1
+    w(0x43, 0x00);   // carrier TL=0, KSL=0
+    w(0x63, 0xF0);   // carrier AR=15 (instant, for a reliable fast start), DR=0
+    w(0x83, 0x08);   // carrier SL=0, RR=8 (moderate release)
+    w(0xC0, 0x30);
+    w(0xA0, 0xAE);
+
+    uint64_t cycles = 0;
+    const double cycles_per_frame = Opl3::kCpuHz / Opl3::kSampleHz;
+    auto advance_ms = [&](double ms) {
+        uint64_t frames = uint64_t(ms * 1e-3 * Opl3::kSampleHz);
+        for (uint64_t i = 0; i < frames; ++i) {
+            cycles += uint64_t(std::llround(cycles_per_frame));
+            chip.tick(cycles);
+        }
+    };
+    auto peak_since_drain = [&] {
+        int32_t p = 0;
+        for (const auto &s : chip.drain_samples()) p = std::max(p, std::abs(int(s.left)));
+        return p;
+    };
+
+    chip.write_address(0, 0xB0); chip.write_data(0, uint8_t(0x20 | (4 << 2) | 0x02));  // KON
+    advance_ms(2.0);  // instant attack, then settle
+    chip.drain_samples();
+
+    // Fnum 0x2AE/block 4 gives a ~1.9 ms waveform cycle (MULT=1): key-on
+    // zeroes phase (real pg_reset behavior), so any window has to span at
+    // least one full cycle or it risks landing near the sine's own
+    // zero-crossing and reading a waveform-shape artifact instead of the
+    // envelope's actual level. Letting release run 30 ms (well into a
+    // substantial, clearly non-zero attenuation -- about 9% of RR=8's ~330ms
+    // full decay) before retriggering also means a buggy "reset to full
+    // silence on every key-on" implementation would need many steps to claw
+    // back up to anywhere near mid_release's level, which a ~2.5ms window
+    // cannot hide -- unlike retriggering near the very start of release,
+    // where even a buggy reset has little ground to make up.
+    chip.write_address(0, 0xB0); chip.write_data(0, uint8_t(0x00 | (4 << 2) | 0x02));  // KOFF
+    advance_ms(27.5);
+    chip.drain_samples();
+    advance_ms(2.5);  // >1 cycle, ending right at the retrigger point
+    int32_t mid_release = peak_since_drain();
+    ASSERT_GT(mid_release, 0) << "release must still be audible, not already silent, at the retrigger point";
+
+    // Switch to a moderate (non-instant) attack rate before retriggering, so
+    // the retrigger's attack is observable over a few frames rather than
+    // snapping instantly either way.
+    chip.write_address(0, 0x63); chip.write_data(0, 0x80);  // AR=8, DR=0
+
+    chip.write_address(0, 0xB0); chip.write_data(0, uint8_t(0x20 | (4 << 2) | 0x02));  // retrigger
+    advance_ms(2.5);  // the first >1-cycle window after retriggering
+    int32_t just_after = peak_since_drain();
+    EXPECT_GE(just_after, mid_release * 7 / 10)
+        << "a key-on while still releasing must resume attack from the current attenuation, not "
+           "reset to silence first -- mid_release=" << mid_release << " just_after=" << just_after;
+
+    advance_ms(30.0);
+    int32_t full_again = peak_since_drain();
+    EXPECT_GT(full_again, mid_release)
+        << "the retriggered attack must still climb back toward full volume -- full_again="
+        << full_again << " mid_release=" << mid_release;
+}
+
+// The chip's one shared envelope clock produces a specific, documented rate
+// relationship regardless of the exact per-sample shift/add mechanism: every
+// +1 step of a rate REGISTER (= +4 of effective RATE, since RATE = register
+// value * 4 + the key-scale offset) halves the time to traverse the
+// envelope's full range (Yamaha YMF715x Register Description Document's
+// "Rate Value - Actual Time Table" -- the same halving this file's old,
+// deleted analytic approximation was calibrated to match, now checked
+// against the real quantised state machine instead of assumed of it). A
+// register delta of N is a RATE delta of 4N, i.e. N halvings (2^N), not N --
+// comparing registers 4 apart (so a 16x change) against a 2.0 expectation
+// was this test's first, wrong draft.
+TEST_F(Opl3Test, DecayAttenuationAtAFixedElapsedTimeRoughlyDoublesForOneStepOfTheRateRegister) {
+    auto make_chip = [](Opl3 &chip, uint8_t dr, uint8_t sl) {
+        chip.reset();
+        auto w = [&](uint8_t r, uint8_t v) { chip.write_address(0, r); chip.write_data(0, v); };
+        w(0x20, 0x01);                             // modulator: MULT=1, AR=0 -- stays silent
+        w(0x23, 0x21);                              // carrier: EGT hold, MULT=1
+        w(0x43, 0x00);                               // carrier TL=0, KSL=0
+        w(0x63, uint8_t(0xF0 | (dr & 0x0F)));        // carrier AR=15 (instant), DR=dr
+        w(0x83, uint8_t((sl & 0x0F) << 4));          // SL=sl, RR=0
+        w(0xC0, 0x30);
+        w(0xA0, 0x59);
+        w(0xB0, 0x31);  // KON, block=4, fnum hi=1 -> fnum=0x159 (a ~1.9 ms waveform cycle)
+    };
+    auto peak_over_ms = [](Opl3 &chip, uint64_t &cycles, double ms) {
+        const double cycles_per_frame = Opl3::kCpuHz / Opl3::kSampleHz;
+        int32_t peak = 0;
+        uint64_t frames = uint64_t(ms * 1e-3 * Opl3::kSampleHz);
+        for (uint64_t i = 0; i < frames; ++i) {
+            cycles += uint64_t(std::llround(cycles_per_frame));
+            chip.tick(cycles);
+            for (const auto &s : chip.drain_samples()) peak = std::max(peak, std::abs(int(s.left)));
+        }
+        return peak;
+    };
+    // A common, undecayed reference: SL=0 (sustain holds at full volume, so
+    // nothing ever decays) isolates "what full scale reads here" from the
+    // DR under test entirely -- unlike measuring an early window on the
+    // SL=15 (decay-to-silence) chip itself, which is confounded by how much
+    // that specific DR has already decayed within that same early window.
+    Opl3 ref;
+    uint64_t ref_cycles = 0;
+    make_chip(ref, 15, 0);
+    peak_over_ms(ref, ref_cycles, 1.0);  // past the instant attack
+    int32_t full = peak_over_ms(ref, ref_cycles, 4.0);
+
+    auto db_down_at = [&](uint8_t dr, double ms) -> double {
+        Opl3 chip;
+        make_chip(chip, dr, 15);  // SL=15 -- decay runs the complete range
+        uint64_t cycles = 0;
+        peak_over_ms(chip, cycles, std::max(0.0, ms - 4.0));  // skip ahead, discarding
+        int32_t at_t = peak_over_ms(chip, cycles, 4.0);       // >1 cycle, ending at t=ms
+        return 20.0 * std::log10(double(full) / double(std::max(at_t, 1)));
+    };
+    double db7 = db_down_at(7, 50.0);
+    double db8 = db_down_at(8, 50.0);
+    ASSERT_GT(db7, 1.0) << "must still be a measurable, non-trivial attenuation at this point";
+    EXPECT_NEAR(db8 / db7, 2.0, 0.5)
+        << "DR=8 is one register step (= 4 RATE units) above DR=7 and must show roughly double "
+           "the attenuation at the same elapsed time -- db7=" << db7 << " db8=" << db8;
 }
 
 // The chip's clock must not slip when it is ticked coarsely. advance() bounds
@@ -698,6 +998,132 @@ TEST_F(Opl3Test, FourOpSecondaryOperatorsRunFromThePrimarysFnumAndBlock) {
         << period_frames << " frames): avg |diff|=" << avg_abs << ", avg period-to-period change=" << avg_abs_diff;
 }
 
+// The four two-bit (cp,cs) combinations select among four real OPL3
+// four-operator connection algorithms (moddingwiki's OPL chip reference,
+// cross-checked against the connection formulas also found in period AdLib
+// programming documentation): FM-FM (0,0) = Op1*Op2*Op3*Op4, output Op4
+// alone; AM-FM (1,0) = Op1 + (Op2*Op3*Op4), output Op1+Op4; FM-AM (0,1) =
+// (Op1*Op2) + (Op3*Op4), output Op2+Op4; AM-AM (1,1) = Op1 + (Op2*Op3) +
+// Op4, output Op1+Op3+Op4 (Op2 feeds Op3 but is never itself summed). The
+// test above already exercises (0,1) via a full waveform/periodicity check;
+// these three cover the remaining combinations via direct isolation instead,
+// since the point here is which operators reach the output bus, not the
+// shape of a modulated waveform.
+TEST_F(Opl3Test, FourOpFmFmAlgorithmOutputsOnlyTheFinalOperator) {
+    // cp=0, cs=0: Op1*Op2*Op3*Op4 -- only Op4 (the last in the chain) sums
+    // into the channel output; Op1-3 are pure modulators.
+    EXPECT_EQ(FourOpIsolatedPeak(0x00, 0x00, 1), 0) << "Op1 alone must not reach the output";
+    EXPECT_EQ(FourOpIsolatedPeak(0x00, 0x00, 2), 0) << "Op2 alone must not reach the output";
+    EXPECT_EQ(FourOpIsolatedPeak(0x00, 0x00, 3), 0) << "Op3 alone must not reach the output";
+    EXPECT_GT(FourOpIsolatedPeak(0x00, 0x00, 4), 1000) << "Op4 alone must reach the output";
+}
+
+TEST_F(Opl3Test, FourOpAmFmAlgorithmSumsTheFirstAndLastOperators) {
+    // cp=1, cs=0: Op1 + (Op2*Op3*Op4) -- Op1 stands alone and sums directly;
+    // Op2 and Op3 are pure modulators in the chain feeding Op4.
+    EXPECT_GT(FourOpIsolatedPeak(0x01, 0x00, 1), 1000) << "Op1 alone must reach the output";
+    EXPECT_EQ(FourOpIsolatedPeak(0x01, 0x00, 2), 0) << "Op2 alone must not reach the output";
+    EXPECT_EQ(FourOpIsolatedPeak(0x01, 0x00, 3), 0) << "Op3 alone must not reach the output";
+    EXPECT_GT(FourOpIsolatedPeak(0x01, 0x00, 4), 1000) << "Op4 alone must reach the output";
+}
+
+TEST_F(Opl3Test, FourOpAmAmAlgorithmSumsThreeOfTheFourOperators) {
+    // cp=1, cs=1: Op1 + (Op2*Op3) + Op4 -- Op1 and Op4 each stand alone and
+    // sum directly; Op3 also sums (it is the end of its own short FM pair
+    // with Op2), but Op2 itself is a pure modulator and never reaches the
+    // output on its own -- the one case here where the "last operator always
+    // sums" intuition from the other three algorithms does not hold, since
+    // Op2 is not the last operator in its pair, Op3 is.
+    EXPECT_GT(FourOpIsolatedPeak(0x01, 0x01, 1), 1000) << "Op1 alone must reach the output";
+    EXPECT_EQ(FourOpIsolatedPeak(0x01, 0x01, 2), 0) << "Op2 alone must not reach the output";
+    EXPECT_GT(FourOpIsolatedPeak(0x01, 0x01, 3), 1000) << "Op3 alone must reach the output";
+    EXPECT_GT(FourOpIsolatedPeak(0x01, 0x01, 4), 1000) << "Op4 alone must reach the output";
+}
+
+// --- key-scale level (KSL) -------------------------------------------------
+
+// KSL attenuates by octave: at BLOCK=7 and an F-number whose top 4 bits index
+// the KSL table at its maximum (15 -> 56 units of 0.375 dB = 21 dB, the
+// table's largest entry, per the Yamaha YMF715x Register Description
+// Document's KSL octave/F-number table), KSL=1 gives that table figure
+// directly (3 dB/octave), KSL=2 gives half of it (1.5 dB/octave), and KSL=3
+// gives double (6 dB/octave) -- opl3.cpp's ksl_env_units(). Isolated by
+// holding the modulator permanently silent (AR=0 never attacks, so mod_out
+// stays exactly 0 and the carrier behaves as an unmodulated oscillator).
+TEST_F(Opl3Test, KeyScaleLevelMatchesDocumentedDbPerOctaveSteps) {
+    auto peak_for = [](uint8_t ksl) -> int32_t {
+        Opl3 chip;
+        chip.reset();
+        auto w = [&](uint8_t r, uint8_t v) { chip.write_address(0, r); chip.write_data(0, v); };
+        w(0x20, 0x01);                          // modulator: MULT=1, AR=0 -- never attacks, stays silent
+        w(0x23, 0x21);                          // carrier: EGT hold, MULT=1
+        w(0x43, uint8_t((ksl << 6) | 0x00));    // carrier KSL + TL=0 (loudest)
+        w(0x63, 0xF0);                           // carrier AR=15 (fastest attack), DR=0
+        w(0x83, 0x00);                           // carrier SL=0, RR=0
+        w(0xC0, 0x30);                            // pan both channels on, CNT=0 (irrelevant: modulator is silent)
+        w(0xA0, 0xFF);                            // fnum low byte all-1s
+        w(0xB0, uint8_t(0x20 | (7 << 2) | 0x03)); // KON, BLOCK=7, fnum hi bits=11b -> fnum=0x3FF (top4=15)
+        uint64_t cycles = 0;
+        for (int i = 0; i < 5; ++i) { cycles += uint64_t(Opl3::kCpuHz * 0.001); chip.tick(cycles); }
+        int32_t peak = 0;
+        for (const auto &s : chip.drain_samples()) peak = std::max(peak, std::abs(int(s.left)));
+        return peak;
+    };
+    const int32_t p0 = peak_for(0);
+    const int32_t p1 = peak_for(1);
+    const int32_t p2 = peak_for(2);
+    const int32_t p3 = peak_for(3);
+    ASSERT_GT(p0, 0);
+    auto db_down = [](int32_t ref, int32_t p) { return 20.0 * std::log10(double(ref) / double(std::max(p, 1))); };
+    EXPECT_NEAR(db_down(p0, p1), 21.0, 1.5)
+        << "KSL=1 at BLOCK=7, fnum top4=15 must attenuate ~21 dB (the 3 dB/octave figure): p0=" << p0 << " p1=" << p1;
+    EXPECT_NEAR(db_down(p0, p2), 10.5, 1.5)
+        << "KSL=2 must attenuate half of KSL=1 (1.5 dB/octave): p0=" << p0 << " p2=" << p2;
+    EXPECT_NEAR(db_down(p0, p3), 42.0, 2.5)
+        << "KSL=3 must attenuate double KSL=1 (6 dB/octave): p0=" << p0 << " p3=" << p3;
+}
+
+// --- key-scale rate (KSR) ----------------------------------------------------
+
+// RATE = (rate register)*4 + Rof, Rof = the key-scale number directly when
+// KSR=1, or (key-scale number >> 2) when KSR=0 -- Yamaha YMF715x Register
+// Description Document's "Rate Key Scale" note. At a fixed, high key-scale
+// number (BLOCK=7, NTS=0 selects F-number bit 9, held at 1 -> ksn=15), KSR=1
+// adds the full 15 to the effective rate while KSR=0 adds only 15>>2=3 --
+// 12 steps apart, an 8x difference in decay speed (every +4 halves the
+// time) -- so the same DR register decays far faster with KSR=1.
+TEST_F(Opl3Test, KeyScaleRateOnVersusOffChangesTheDecayRateAtAFixedNote) {
+    auto peak_after_ms = [](bool ksr, int ms) -> int32_t {
+        Opl3 chip;
+        chip.reset();
+        auto w = [&](uint8_t r, uint8_t v) { chip.write_address(0, r); chip.write_data(0, v); };
+        w(0x20, 0x01);                                 // modulator: MULT=1, AR=0 -- never attacks, stays silent
+        w(0x23, uint8_t(0x21 | (ksr ? 0x10 : 0x00)));  // carrier: EGT hold, MULT=1, KSR
+        w(0x43, 0x00);                                   // carrier TL: loudest, KSL=0
+        w(0x63, 0xF4);                                   // carrier AR=15 (fastest attack), DR=4
+        w(0x83, 0xF0);                                   // carrier SL=15 (decay runs to full silence), RR=0
+        w(0xC0, 0x30);                                    // pan both channels on
+        w(0x08, 0x00);                                    // NTS=0 -- selects fnum bit 9 for key scaling
+        w(0xA0, 0xFF);
+        w(0xB0, uint8_t(0x20 | (7 << 2) | 0x02));  // KON, BLOCK=7, fnum hi bits: bit9=1,bit8=0 -> ksn=15
+        uint64_t cycles = 0;
+        const uint64_t step = uint64_t(Opl3::kCpuHz * 0.001);
+        for (int i = 0; i < ms; ++i) { cycles += step; chip.tick(cycles); chip.drain_samples(); }
+        int32_t peak = 0;
+        for (int i = 0; i < 5; ++i) {
+            cycles += step;
+            chip.tick(cycles);
+            for (const auto &s : chip.drain_samples()) peak = std::max(peak, std::abs(int(s.left)));
+        }
+        return peak;
+    };
+    const int32_t with_ksr = peak_after_ms(true, 700);
+    const int32_t without_ksr = peak_after_ms(false, 700);
+    EXPECT_LT(with_ksr, without_ksr / 4)
+        << "KSR=1 must decay substantially faster than KSR=0 at the same high key-scale number: "
+        << "KSR=1 peak=" << with_ksr << " KSR=0 peak=" << without_ksr;
+}
+
 // --- note-select / key-scale number -------------------------------------------
 
 // NTS=0 selects F-number bit 9 for key scaling, NTS=1 selects bit 8 (Yamaha
@@ -772,6 +1198,85 @@ TEST_F(Opl3Test, RhythmVoiceSumsAtTwiceAMelodicChannelsAmplitude) {
     EXPECT_NEAR(double(rhythm_peak), double(melodic_peak) * 2.0, double(melodic_peak) * 0.1)
         << "a rhythm voice must sum at 2x a melodic channel's amplitude: melodic=" << melodic_peak
         << " rhythm=" << rhythm_peak;
+}
+
+// --- waveforms 1-6 -----------------------------------------------------------
+
+// All six use SampleOneWaveformCycle's fixed fnum=64/block=0 setup, where a
+// full 2^20-unit cycle is exactly 16384 frames split into four 4096-frame
+// quadrants (0: frames 0-4095, 1: 4096-8191, 2: 8192-12287, 3: 12288-16383).
+// Frame 2047 (quadrant 0, qidx=128) and frame 10239 (quadrant 2, qidx=128 by
+// the same quadrant-mirroring arithmetic wave_sample() always applies) sample
+// the same logsin table entry a half-cycle apart, which is what lets these
+// tests check waveform-specific sign/repeat behavior by direct comparison
+// instead of reasoning about the sine shape itself.
+
+TEST_F(Opl3Test, Waveform1IsAHalfSineWithTheNegativeHalfClampedToZero) {
+    auto samples = SampleOneWaveformCycle(1);
+    ASSERT_GT(samples.size(), 16400u);
+    EXPECT_GT(samples[2047], 1000) << "the positive half (quadrants 0-1) must sound like an ordinary sine";
+    EXPECT_EQ(samples[8292], 0) << "the negative half must be clamped to exactly zero, not mirrored";
+    EXPECT_EQ(samples[14000], 0) << "stays clamped to zero across the whole negative half";
+}
+
+TEST_F(Opl3Test, Waveform2IsFullWaveRectifiedAlwaysPositive) {
+    auto samples = SampleOneWaveformCycle(2);
+    ASSERT_GT(samples.size(), 16400u);
+    const int32_t pos_half = samples[2047];
+    const int32_t mirrored = samples[10239];  // same qidx, one half-cycle later
+    EXPECT_GT(pos_half, 1000) << "quadrant 0 must sound like an ordinary sine";
+    EXPECT_GT(mirrored, 1000) << "quadrant 2 must mirror the same magnitude but stay positive, not flip negative";
+    EXPECT_NEAR(pos_half, mirrored, pos_half / 10 + 20)
+        << "full-wave rectification: magnitude at the mirrored position must match: pos=" << pos_half
+        << " mirrored=" << mirrored;
+}
+
+TEST_F(Opl3Test, Waveform3RepeatsItsRisingQuarterTwicePerCycleWithSilenceBetween) {
+    auto samples = SampleOneWaveformCycle(3);
+    ASSERT_GT(samples.size(), 16400u);
+    EXPECT_GT(samples[2047], 1000) << "quadrant 0 plays the rising quarter";
+    EXPECT_EQ(samples[6000], 0) << "quadrant 1 is silent";
+    EXPECT_EQ(samples[14000], 0) << "quadrant 3 is silent";
+    const int32_t q0 = samples[2047];
+    const int32_t q2 = samples[10239];
+    EXPECT_NEAR(q0, q2, std::abs(q0) / 20 + 20)
+        << "quadrant 2 must repeat quadrant 0's exact rising-quarter shape: q0=" << q0 << " q2=" << q2;
+}
+
+TEST_F(Opl3Test, Waveform4IsASilentSecondHalfWithDoubleFrequencySineInTheFirst) {
+    auto samples = SampleOneWaveformCycle(4);
+    ASSERT_GT(samples.size(), 16400u);
+    EXPECT_EQ(samples[9599], 0) << "the second half of the base cycle must be silent";
+    const int32_t a = samples[1023];  // idx1024=64 -> doubled phase qidx=128, sign=+1
+    const int32_t b = samples[5119];  // idx1024=320 (still in the active first half) -> same qidx=128, sign=-1
+    EXPECT_GT(std::abs(a), 500) << "must be clearly audible, not silent, at this point";
+    EXPECT_NEAR(a, -b, std::abs(a) / 10 + 50)
+        << "doubling the phase must repeat the same shape with the sign flipped halfway through the first half: a="
+        << a << " b=" << b;
+}
+
+TEST_F(Opl3Test, Waveform5IsASilentSecondHalfWithRectifiedDoubleFrequencySineInTheFirst) {
+    auto samples = SampleOneWaveformCycle(5);
+    ASSERT_GT(samples.size(), 16400u);
+    EXPECT_EQ(samples[9599], 0) << "the second half of the base cycle must be silent";
+    const int32_t a = samples[1023];
+    const int32_t b = samples[5119];
+    EXPECT_GT(a, 500) << "must be positive and clearly audible at this point";
+    EXPECT_NEAR(a, b, a / 10 + 50)
+        << "rectified: both halves of the doubled phase must agree in sign (always positive) and magnitude: a="
+        << a << " b=" << b;
+}
+
+TEST_F(Opl3Test, Waveform6IsAFullAmplitudeSquareWaveWithNoWaveformShaping) {
+    auto samples = SampleOneWaveformCycle(6);
+    ASSERT_GT(samples.size(), 16400u);
+    const int32_t early_pos = samples[100];   // well within quadrant 0 (positive half)
+    const int32_t early_neg = samples[8292];  // the same early offset into quadrant 2 (negative half)
+    EXPECT_GT(early_pos, 3000) << "a square wave must be near full scale immediately, not ramping up like a sine";
+    EXPECT_LT(early_neg, -3000) << "the negative half must likewise be near full scale immediately";
+    EXPECT_NEAR(early_pos, -early_neg, 200)
+        << "no waveform shaping: magnitude must be identical in both halves, only the sign differs: pos="
+        << early_pos << " neg=" << early_neg;
 }
 
 // --- waveform 7 (exponential-decay sawtooth) ----------------------------------

@@ -231,8 +231,13 @@ private:
 
     // --- operator and channel state --------------------------------------
     // 36 operators and 18 channels, laid out so a register index's operator
-    // slot maps straight onto op_[] -- see the register map above.
-    enum class Env { kOff, kAttack, kDecay, kSustain, kRelease };
+    // slot maps straight onto op_[] -- see the register map above. Real
+    // silicon has only these four states (Niemitalo & Gambrell's "OPLx
+    // decapsulated"): there is no separate "off". A fully released operator
+    // just sits in kRelease forever with its attenuation pinned at maximum
+    // (eg_off, in generate_frame) -- recompute_active() below derives
+    // "idle" from that pinned state rather than tracking a 5th enum value.
+    enum class Env { kAttack, kDecay, kSustain, kRelease };
 
     struct Operator {
         // Register fields, decoded on write.
@@ -240,10 +245,17 @@ private:
         uint8_t ksl = 0, tl = 0;
         uint8_t ar = 0, dr = 0, sl = 0, rr = 0;
         uint8_t waveform = 0;
-        // Running state.
-        Env env = Env::kOff;
+        // Running state. A real operator's attenuation is a plain 9-bit
+        // (0-511) counter, 0.1875 dB/unit, 511 = silent -- no fixed-point
+        // scale, since the real envelope generator has no fractional
+        // precision at all (see envelope_shift() in opl3.cpp). Maximum
+        // attenuation and released, matching a real chip's power-on state:
+        // Opl3::reset() sets every operator this way already, so this
+        // default only matters to code that constructs an Operator/Opl3
+        // without resetting it first.
+        Env env = Env::kRelease;
         uint32_t phase = 0;         // 10.10 fixed point into the 1024-entry table
-        int32_t env_level = 511;    // attenuation in 1/8 dB units; 511 = silent
+        int32_t env_level = 511;
         int16_t out = 0, prev_out = 0;  // feedback history (two samples)
         bool key_on = false;
     };
@@ -270,6 +282,19 @@ private:
     uint8_t vib_pos_ = 0;
     uint32_t vib_frame_ = 0;
     uint32_t noise_ = 1;      // rhythm-section noise LFSR
+
+    // The chip-global envelope clock all 36 operators' shift lookups share
+    // (envelope_shift() in opl3.cpp) -- Niemitalo & Gambrell's "OPLx
+    // decapsulated" state machine, advanced once per output frame by
+    // advance_envelope_clock(). eg_state_ alternates every frame (the clock
+    // only ticks on half of them); eg_add_/eg_timer_lo_ are derived from
+    // eg_timer_ only on the frames it does.
+    uint64_t eg_timer_ = 0;
+    bool eg_timerrem_ = false;
+    bool eg_state_ = false;
+    int eg_add_ = 0;
+    uint8_t eg_timer_lo_ = 0;
+    void advance_envelope_clock();
 
     void write_reg(uint16_t index, uint8_t v);
     void generate_frame(uint64_t cycle);
