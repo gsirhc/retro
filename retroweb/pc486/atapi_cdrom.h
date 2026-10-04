@@ -78,14 +78,24 @@
 //    result is handed over as the DRQ blocks drain -- the same "respect the
 //    real total transfer TIME, not the byte-by-byte bus handshake" tradeoff
 //    wd1003.h and fdc765.h already make, for the same reason.
-//  - Data-OUT packet commands (MODE SELECT, WRITE) are not implemented:
-//    this is a read-only CD-ROM, and none of the implemented CDBs transfer
-//    data to the device. An unimplemented opcode gets a genuine CHECK
-//    CONDITION / ILLEGAL REQUEST / INVALID COMMAND OPERATION CODE rather
-//    than silence.
-//  - Audio playback CDBs (PLAY AUDIO, READ CD-DA) are not implemented, and
-//    the MODE SENSE capabilities page honestly reports no audio support
-//    rather than advertising a feature that would then fail.
+//  - WRITE(10) and other commands that put data on the disc are not
+//    implemented: the modeled drive is a real 2x CD-ROM *reader*, genuinely
+//    incapable of writing media (not even CD-R) -- an unimplemented opcode
+//    gets a genuine CHECK CONDITION / ILLEGAL REQUEST / INVALID COMMAND
+//    OPERATION CODE rather than silence.
+//  - MODE SELECT(10) IS implemented, but only for page 0Eh (CD-ROM Audio
+//    Control Parameters, SFF-8020i §10.8.6.1): a real read-only drive still
+//    accepts this, since it configures drive *behavior* (which Red Book
+//    audio channel reaches which output port, at what attenuation), not
+//    media content. Any other mode page is rejected, matching the "no
+//    general data-out support" scope above -- see cmd_mode_select10().
+//  - CD-DA audio playback (PLAY AUDIO(10)/MSF, PAUSE/RESUME, STOP PLAY/SCAN,
+//    READ SUB-CHANNEL) IS implemented against a mounted CUE+BIN image's
+//    audio tracks -- see mount_cue() and drain_samples(). READ CD (BCh) and
+//    its own CD-DA-via-data-path capability are NOT implemented (MODE SENSE
+//    page 2Ah's byte 5 bit 0 stays honestly clear); real audio playback
+//    output is an analog signal that never goes through that command on
+//    period hardware either.
 #ifndef PC486_ATAPI_CDROM_H
 #define PC486_ATAPI_CDROM_H
 
@@ -125,16 +135,47 @@ public:
             exec_credit_ += double(delta);
             if (exec_credit_ >= exec_target_) finish_execute();
         }
+        // Playback runs independently of the packet/execute state machine
+        // above -- a real drive keeps playing audio across other commands
+        // (MMC Table 74/75), so this is driven by its own credit, not
+        // exec_active_. Early-out keeps an idle drive's tick() as cheap as
+        // before this existed; advance_audio() itself still tracks the
+        // clock while paused, just without accruing playback credit -- see
+        // its own comment.
+        if (playing_audio_) advance_audio(cpu_cycles);
     }
 
     bool irq_pending() const { return irq_pending_; }
 
     // Removable media, like fdc765's drives and unlike wd1003's fixed disk:
     // `data` is a plain 2048-byte-sector ISO 9660 image (MODE1/2048, the
-    // form every DOS-era data CD ships as).
+    // form every DOS-era data CD ships as). Single data track, whole disc.
     void mount(const uint8_t *data, std::size_t len);
+    // Mixed-mode disc: `cue_text` is a CUE sheet (FILE/TRACK/INDEX lines
+    // only -- the subset real single-BIN game CDs use) naming the one BIN
+    // file `bin_data`/`bin_len` supplies. A MODE1/2048 track is read as
+    // cooked 2048-byte user-data sectors (this core's own convention, same
+    // as mount()); an AUDIO track is read as raw 2352-byte CD frames of
+    // interleaved 16-bit/44100Hz stereo PCM (Red Book, no header/ECC -- it
+    // IS the sample data). Returns false and mounts nothing if the sheet
+    // doesn't parse. See mount_cue() in the .cpp for the exact grammar.
+    bool mount_cue(const char *cue_text, const uint8_t *bin_data, std::size_t bin_len);
     void eject();
     bool media_present() const { return media_present_; }
+
+    // CD-DA audio output: the drive's own analog signal, which on real
+    // hardware never crosses the ATA bus at all -- it reaches the sound
+    // card over a physical 4-pin cable (see soundblaster.h's CD gain
+    // accessors, which is where this actually gets mixed in). Same
+    // {cpu_cycle, left, right} log shape as SoundBlaster::Sample and
+    // Opl3's, so the front end drains it the same way.
+    struct Sample {
+        uint64_t cpu_cycle;
+        int16_t left, right;
+    };
+    std::vector<Sample> drain_samples();
+    static constexpr uint32_t kAudioSampleRateHz = 44100;  // Red Book, fixed
+    bool playing_audio() const { return playing_audio_ && !audio_paused_; }
 
     // Host/front-end convenience: true while a command is actually being
     // serviced -- what a real drive's activity LED lights for.
@@ -163,6 +204,7 @@ private:
         kCommandPacket,  // DRQ up, awaiting the 12-byte CDB via the data register
         kExecuting,      // BSY up, paced to real drive timing
         kDataIn,         // DRQ up, host draining one data block
+        kDataOut,        // DRQ up, host sending one data block (MODE SELECT only)
     };
 
     // --- task file ------------------------------------------------------
@@ -229,6 +271,25 @@ private:
     std::vector<uint8_t> image_;
     bool media_present_ = false;
 
+    // One track of a mounted disc's TOC. `start_lba`/`length_lba` are in the
+    // disc's one unified LBA space (2352-byte CD frames; a plain-ISO mount()
+    // is the one-track-all-data special case, track 1 at LBA 0). An audio
+    // track's samples live in audio_pcm_, starting at pcm_base_frame (one
+    // frame = one stereo sample pair, 588 per LBA -- 2352 / 4).
+    struct Track {
+        int number = 1;
+        bool is_audio = false;
+        uint32_t start_lba = 0;
+        uint32_t length_lba = 0;
+        uint64_t pcm_base_frame = 0;
+    };
+    std::vector<Track> tracks_;
+    std::vector<int16_t> audio_pcm_;  // interleaved L/R, all audio tracks concatenated
+    const Track *track_at(uint32_t lba) const;
+    const Track *track_number(int n) const;
+    uint32_t disc_end_lba() const;
+    bool parse_cue(const char *cue_text, std::size_t bin_len);
+
     // --- pacing ---------------------------------------------------------
     bool exec_active_ = false;
     double exec_credit_ = 0.0, exec_target_ = 0.0;
@@ -268,6 +329,44 @@ private:
     // answer even a no-data command like TEST UNIT READY.
     static constexpr double kCommandSec = 0.001;
 
+    // --- CD-DA audio playback --------------------------------------------
+    // Independent of phase_/exec_active_ above -- see tick()'s comment.
+    // audio_status_ is MMC Table 116 (READ SUB-CHANNEL's Audio Status
+    // field): 11h playing, 12h paused, 13h completed, 14h stopped due to
+    // error, 15h no current status (the post-reset/post-STOP value).
+    bool playing_audio_ = false;
+    bool audio_paused_ = false;
+    uint8_t audio_status_ = 0x15;
+    uint32_t play_cur_lba_ = 0;
+    uint32_t play_end_lba_ = 0;  // exclusive
+    uint32_t play_frame_in_lba_ = 0;  // stereo-sample-pair offset within play_cur_lba_'s 588
+    double audio_credit_ = 0.0;
+    uint64_t audio_prev_cycles_ = 0;
+    std::vector<Sample> audio_samples_;
+    // Same bound/reason as SoundBlaster::kMaxSamples: only matters if a
+    // front end stops draining while audio keeps playing.
+    static constexpr std::size_t kMaxAudioSamples = 1u << 16;
+
+    // CD-ROM Audio Control Parameters (mode page 0Eh, SFF-8020i §10.8.6.1):
+    // four logical output ports, each wired to a Red Book audio channel
+    // (Table 61's 4-bit code: 0=mute, 1=channel0/left, 2=channel1/right,
+    // 3=both, 4=channel2, 8=channel3 -- this drive has only two channels)
+    // at an 8-bit attenuation (Table 62: 00h mute to FFh = 0 dB). Ports 0/1
+    // default wired straight through at full volume (every real drive's
+    // factory wiring, so audio is audible with no MODE SELECT at all);
+    // ports 2/3 are optional and default muted, per Table 60.
+    struct AudioPort {
+        uint8_t channel_selection = 0;
+        uint8_t volume = 0;
+    };
+    AudioPort audio_ports_[4];
+    float audio_port_gain(int port, int channel) const;
+
+    void advance_audio(uint64_t cpu_cycles);
+    void start_audio_playback(uint32_t start_lba, uint32_t end_lba);
+    void stop_audio_playback(uint8_t status);
+    bool audio_range_stays_in_type(uint32_t lba, uint32_t end, bool want_audio) const;
+
     // Head-position / read-ahead-buffer model behind the transfer pacing.
     double access_seconds_for(uint32_t lba) const;
     void note_transfer(uint32_t lba, uint32_t blocks);
@@ -287,6 +386,7 @@ private:
 
     uint8_t read_data_byte();
     void write_data_byte(uint8_t v);
+    void mode_select_apply();  // parses the data-out block write_data_byte() collected
 
     // Sense/status helpers. set_check() also loads the Error register's
     // sense-key nibble (ATA/ATAPI-4 §7.6.1).
@@ -307,6 +407,13 @@ private:
     double cmd_seek10();
     void cmd_read_toc();
     void cmd_mode_sense10();
+    void append_audio_control_page(std::vector<uint8_t> *out) const;
+    void cmd_mode_select10();
+    void cmd_play_audio10();
+    void cmd_play_audio_msf();
+    void cmd_pause_resume();
+    void cmd_stop_play_scan();
+    void cmd_read_subchannel();
 };
 
 }  // namespace pc486

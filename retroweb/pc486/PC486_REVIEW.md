@@ -3232,8 +3232,8 @@ keeps playing while no sample block is in flight, and `active_` counts a
 running timer as well as an unreleased envelope. That second point is
 load-bearing rather than incidental: a driver probes the timers with nothing
 keyed on, so keying the early-out off envelope state alone deadlocks
-detection -- the chip never advances, the envelope never leaves its off state,
-and the probe hangs forever.
+detection -- the chip never advances, the envelope never leaves its idle,
+fully-released state, and the probe hangs forever.
 
 ### Known approximations
 
@@ -5491,14 +5491,6 @@ Three things to know before reading it:
 
 ### Open on the OPL3
 
-- **The envelope generator's shape.** It is analytic: an exponential attack
-  calibrated from the datasheet's Attack Time(10-90%) table and a linear-dB
-  decay/release from the Decay/Release Time(0-100%) table. Envelope *times*
-  match the datasheet; the per-sample curve does not match the silicon, which
-  runs a global EG timer with 4-step quantised rate increments and a shift/add
-  attack. Doing it exactly means replacing the floating-point envelope with
-  that state machine, which moves every amplitude assertion in
-  `opl3_test.cpp`. Large change, subtle payoff -- lowest priority here.
 - **Timer mask semantics are unverified.** A masked timer still sets its own
   status flag and the mask gates only bit 7 (the IRQ bit). No primary source
   was found either way, and Nuked-OPL3 models no timers at all. Nothing on
@@ -5509,12 +5501,20 @@ Three things to know before reading it:
   the noise LFSR taps, and C0h's power-on value** all remain as §11.1
   describes them. The master gain is the one that matters most, because it
   alone sets the FM-against-digitized balance the front end mixes at.
-- **Synthesis test coverage is still partial.** There are now cases for the
-  modulation index, four-operator F-number sourcing, note-select, the rhythm
-  section's output level, waveform 7 and the vibrato LFO. KSL/KSR scaling,
-  the four four-operator algorithms individually, and waveforms 1-6 still
-  have no direct assertions -- which is the same shape of gap that let the
-  exponent-ROM bug of §29 ship.
+- **Synthesis test coverage** (§34): KSL/KSR scaling, all four four-operator
+  algorithms individually, and waveforms 1-6 now have direct assertions
+  alongside the existing modulation index, four-operator F-number sourcing,
+  note-select, rhythm section output level, waveform 7 and vibrato LFO cases
+  -- closing the gap shape that let the exponent-ROM bug of §29 ship. All of
+  it passed against the current analytic envelope on the first real run (one
+  test-authoring bug aside, see §34) -- this was a coverage gap, not a sign
+  of an undiscovered synthesis bug.
+- **The envelope generator's shape is now the real state machine** (§35):
+  the analytic exponential-attack/linear-dB-decay curve this section used to
+  describe is gone, replaced with the chip's actual global-EG-timer,
+  quantised-shift-and-add mechanism. §34's tests (written against the old
+  analytic curve specifically so they'd act as a routing/scaling/waveform
+  regression check across this rewrite) all kept passing unmodified.
 
 ### The front end's audio path
 
@@ -5605,22 +5605,34 @@ game's redraw does to this path, which is why `?audiotrace` exists.
 
 ### Open on the SB16
 
-- **Burst DMA timing -- the hardest item here, and deliberately not
-  attempted.** The bytes for a window of samples are fetched from memory at
-  the end of the window they fill, so a program racing its own buffer can be
-  heard a burst later than real hardware would play it, and software polling
-  the DMA count for the play position sees it step rather than slide. Doing
-  it exactly means one DMA cycle per sample: 176 400 servicings a second at
-  44.1 kHz 16-bit stereo, against the per-instruction budget §8 and §14-16
-  were spent buying back. If it ever matters audibly, the cheap middle option
-  is to cap the burst window at about a millisecond, shrinking the race
-  window by an order of magnitude without a redesign.
+- **Burst DMA timing -- the cheap middle option is now in** (§33): bursts
+  are capped at about a millisecond of frames instead of draining whatever
+  `frame_credit_` had accumulated (up to the full 256KB buffer -- a block
+  that big, or a long main-thread stall, used to move and become audible in
+  one step). Doing it exactly still means one DMA cycle per sample -- 176 400
+  servicings a second at 44.1 kHz 16-bit stereo, against the per-instruction
+  budget §8 and §14-16 were spent buying back -- so a program racing its own
+  buffer can still be heard up to that ~1ms cap late, and the DMA count still
+  steps once a burst rather than sliding continuously. An order of magnitude
+  tighter than before, not a redesign.
 - **Two behaviours rest on second-hand sources**, both because the copy of
   SBPG this repo works from is missing its DSP command-reference chapter: the
   ADPCM step/adjust tables and the E2h identification state machine, each
-  transcribed from DOSBox-X and flagged as such where it appears. Obtaining
-  the real chapter would upgrade both to primary sourcing, and is the single
-  highest-value document to go looking for.
+  transcribed from DOSBox-X and flagged as such where it appears. A
+  follow-up search (searching specifically for the missing chapter, then
+  reading a fuller scanned copy than the hardware-overview excerpt already
+  cited elsewhere in this file) turned up a ~10,500-line OCR transcription of
+  the guide with the same chapter present -- but its DSP-command reference
+  section runs D9h/DAh, then E1h ("Get DSP version number"), then straight
+  into Appendix A: E0h, E2h, E3h, E4h and E8h are simply absent from
+  Creative's own document, not merely from this repo's copy of it. The
+  ADPCM section (chapter 3) describes the technique conceptually -- a
+  reference byte, then codes -- without publishing the step or adjust
+  values anywhere. DOSBox-X's own per-command wiki corroborates this from
+  the other direction: it has dedicated pages for E0h, E1h and E3h but none
+  for E2h at all. Both tables stay exactly as they were, with their existing
+  DOSBox-X citation -- this is now a confirmed "undocumented by Creative"
+  rather than an open "go looking for the chapter" item.
 - **The tone controls' corner frequencies are an estimate.** Mixer 44h-47h's
   +-14 dB range in 2 dB steps is documented; the CT1745's actual shelf
   corners are not, so the front end uses a 100 Hz low shelf and a 5 kHz high
@@ -5631,15 +5643,13 @@ game's redraw does to this path, which is why `?audiotrace` exists.
   The MPU-401 UART interface covers what period software actually selects, so
   this is low value. MPU-401 *intelligent* mode is not a gap: a real SB16
   implements only UART mode.
-- **The mixer's CD, line and mic inputs, and the 3Ch output switches, have
-  nothing to switch.** They become live the day `atapi_cdrom` grows CD-DA
-  playback -- it currently reports no audio support, honestly -- at which
-  point CD audio should route through mixer 36h/37h and 3Ch rather than
-  straight to the front end.
-- **8237 leftovers.** The status register still returns the command register
-  rather than per-channel terminal-count and request bits, and the
-  verify/single/block/demand mode distinctions are not modelled. No period
-  Sound Blaster or floppy driver needs either.
+- **The mixer's CD input and its 3Ch output switches are live** (§32): CD-DA
+  playback exists, routed through mixer 36h/37h and 3Ch rather than straight
+  to the front end. The line and mic inputs remain switches with nothing
+  behind them -- this machine has no line-in source or microphone jack.
+- **8237 leftovers.** The status register's terminal-count and request bits
+  are now real (§33); the verify/single/block/demand mode distinctions are
+  still not modelled. No period Sound Blaster or floppy driver needs them.
 - **The card's own CD-ROM interface at base+10h..13h decodes but has no drive
   behind it** (§11.1), so a Panasonic/Matsushita-interface CD driver finds
   nothing there.
@@ -5647,3 +5657,434 @@ game's redraw does to this path, which is why `?audiotrace` exists.
   which Appendix A calls write-only but real cards do answer; and the
   write-buffer status at base+Ch always reports ready, where real hardware is
   briefly busy after each byte. Both stay as they are on purpose.
+
+## 32. CD-DA: the drive plays audio, and the mixer finally has something to switch
+
+§31 listed the CD, line and mic mixer inputs as switches with nothing behind
+them, on the grounds that `atapi_cdrom` reported no audio support at all. This
+closes that gap: CD-DA (Red Book audio) playback is real now, sourced to
+**SFF-8020i** ("ATAPI Packet Interface for CD-ROMs", revision 2.6), the
+primary ATAPI/MMC specification this drive's register interface already
+follows elsewhere in the file.
+
+**Mixed-mode discs.** `mount()`'s flat-ISO path still works unchanged (one
+all-data track), and a new `mount_cue()` adds a CUE+BIN pair alongside it --
+`FILE`/`TRACK`/`INDEX` only, the subset a real single-BIN game rip actually
+uses (pregap `INDEX 00` lines are ignored; only `INDEX 01`, the track's real
+start, is read). Data tracks stay 2048-byte cooked sectors feeding the
+existing flat `image_` `cmd_read10()` already reads; audio tracks are raw
+2352-byte Red Book frames (588 stereo 16-bit sample pairs each) decoded into
+a separate `audio_pcm_` buffer. One bug caught by the tests before it shipped:
+the last track's length was first computed as
+`bin_len / <last track's sector size>`, which silently miscounts whenever an
+earlier track used a different sector size -- a MODE1/2048 track ahead of an
+AUDIO one, i.e. every mixed-mode disc this exists for. Fixed by tracking
+remaining bytes in each track's own sector size as the parse walks forward,
+only falling back to "whatever bytes are left" for the one track with no
+following `INDEX 01` to measure against.
+
+**New commands**, all gated behind the drive actually having media the way
+every other data command already is: `PLAY AUDIO(10)`/`PLAY AUDIO MSF` (45h/
+47h), `PAUSE/RESUME` (4Bh), `STOP PLAY/SCAN` (4Eh), `READ SUB-CHANNEL` (42h,
+format 1 -- current audio status and position; formats 2/3 answer MCVal/TCVal
+clear rather than claiming a UPC/ISRC this drive doesn't have), and
+`MODE SELECT(10)` (55h) for mode page 0Eh (CD-ROM Audio Control Parameters)
+-- the one legitimate use of data-out on a read-only drive, since a real CD
+driver uses it to route and mute the four audio ports before calling PLAY
+AUDIO. That meant adding an actual data-OUT phase (`Phase::kDataOut`):
+`write_data_byte()` previously had nothing to do with a host-to-device byte
+other than refuse it. `TOC` and `MODE SENSE(10)`'s page 2Ah were also
+rewritten to report real per-track CONTROL bits and genuine audio-capability
+flags instead of the previous hardcoded "no audio" answer -- WRITE and every
+other data-out CDB stay exactly as absent as §6.1/the plan called for; this
+is not general write support, just the one audio page.
+
+**One more bug, pre-existing and unrelated to CD-DA, caught while already
+rewriting `cmd_mode_sense10()` for this**: page 2Ah's length byte claimed 22
+bytes (`p[1] = 0x14`) while the code only ever filled 20, so the trailing six
+bytes it actually sent were always zero rather than a (possibly unparsed)
+tail. SFF-8020i Table 68 gives the real page length as 18 more bytes after
+the 2-byte header -- 20 total -- so this was a stale length, not something
+load-bearing; fixed to `0x12`, and the existing test's expected response size
+corrected from 30 to 28 bytes alongside it.
+
+**The playback clock** follows this file's own established pattern
+(`SoundBlaster::advance()`'s CPU-cycle-credit pacing, same back-dated
+per-sample timestamp discipline): `advance_audio()` accrues real CPU cycles
+against 44.1kHz and decodes one more frame per `cycles_per_frame` elapsed,
+stopping on its own at the end of the requested range or at a track-type
+boundary. One real bug surfaced building this, not in the native suite but
+in the test harness driving it: `tick()` only called `advance_audio()` while
+`!audio_paused_`, so the cycle baseline it measures elapsed time from
+(`audio_prev_cycles_`) went stale during a pause -- a resume after a long
+pause then saw one huge `delta` and produced an entire track's worth of
+frames in one burst. Fixed by always updating the baseline every tick and
+gating only credit accrual on the pause flag, so paused time is tracked but
+produces nothing, which is the actual contract PAUSE is supposed to have.
+
+**SB16 side**: `cd_gain_left()`/`cd_gain_right()` read mixer 36h/37h (CD
+volume) through the existing `five_bit_gain()` table, gated by 3Ch's CD.L/
+CD.R output-switch bits -- same shape as `fm_gain_left/right()`, now with a
+real signal behind it. The front end's worklet (`kSbWorkletSrc`) gained a
+third ring alongside the existing FM and digitized-audio ones -- the "sums in
+the analog domain, no new `AudioWorkletNode`" design §31 already used for
+those two extends unchanged, since nothing about placement or mixing is
+specific to how many analog inputs are being summed. The CD-ROM bay's file
+picker now accepts a CUE file and its companion BIN as a two-file selection
+(`<input multiple>`), falling back to the existing single-ISO path when
+exactly one non-CUE file is chosen.
+
+**Tests**: 12 new native cases in `atapi_cdrom_test.cpp` (PLAY AUDIO at the
+real sample rate, pause/resume, stop, the illegal-mode-for-track and
+end-of-user-area rejections, READ SUB-CHANNEL position reporting, TOC control
+bits on a synthetic mixed-mode disc, MODE SELECT page 0Eh round-tripping and
+its rejection of any other page) plus the SB16 gain accessor, and a new
+`web/tests/cdda.spec.ts` that mounts a synthetic CUE+BIN through the real
+secondary-ATA-channel register protocol (`SendPacket`'s browser-side
+equivalent, driven through `portIn`/`portOut` the way a DOS CD driver would)
+and confirms `cdromDrainSamples()` reproduces the mounted track's exact PCM
+-- left/right distinguishable, stopping on its own past the requested range.
+`web/tests/cdrom.spec.ts` gained the UI-level CUE+BIN mount case.
+
+**What is still open**: MODE SELECT's one real-world omission is that only
+page 0Eh is accepted -- every other page (including the two in MODE SENSE's
+page-3Fh "all pages" answer) still reports CHECK CONDITION, which matches
+`require_media()`'s existing all-or-nothing style elsewhere in this file but
+is narrower than a real multi-page-capable drive. Burst-accurate DMA timing
+for the digitized path, the 8237 status register, and the OPL3 items are
+unchanged by this section -- see §31.
+
+## 33. SB16 burst-DMA capping, and the 8237 status register
+
+Two of §31's smaller open items, both closed the way §31 itself suggested.
+
+**Burst DMA timing.** `SoundBlaster::advance()` used to drain however many
+frames `frame_credit_` had accumulated in one step, bounded only by the
+256KB internal buffer -- so a big auto-init block, or several ticks' worth
+piling up behind a main-thread stall, moved (and became audible) in a single
+burst, potentially tens of milliseconds or more late. It now caps each
+burst at `max(1, rate_hz_ / 1000)` frames, about a millisecond's worth;
+whatever credit the cap leaves behind simply is not consumed yet and carries
+to the next `advance()` call, same as before. The existing
+`RunUntilTransfer`/`ServeBurst` test loop pattern already tolerated a block
+arriving as several bursts (most tests already loop until a target byte
+count is reached), so this needed no test rewrites -- only a new case,
+`LongBlocksArriveAsMultipleSubMillisecondBurstsNotOneBigOne`, asserting the
+cap actually bites (a 256-byte block at ~11kHz now needs on the order of
+twenty-odd bursts, each at or under the cap) and that the full block still
+arrives intact across them. This is still the "cheap middle option" §31
+named, not the exact fix (one DMA cycle per sample, 176 400 servicings a
+second at 44.1kHz 16-bit stereo) -- see §31's updated entry for what that
+remaining gap still costs.
+
+**The 8237 status register** (`in(8)`, reg offset 8) returned the command
+register's own value -- whatever was last written to `out(8)` -- rather than
+status at all. Per the Intel 8237A-5 data sheet's "Status Register": bits
+0-3 are per-channel terminal-count, latched when a channel reaches TC and
+cleared by reading the register; bits 4-7 are per-channel request, live and
+unlatched. Both are now real:
+
+- `advance()` sets a per-channel `tc_latch_` bit on terminal count (in
+  addition to its existing return value, which callers already use for
+  autoinit/wrap decisions); `in(8)` reports and clears all four TC bits
+  together, matching the one real status register the chip has.
+- `Dma8237::set_dreq(channel, bool)` is new, called every tick from
+  `chipset.cpp` with whatever each channel's device currently reports
+  wanting (`Fdc765::transfer_ready()` for DMA1 channel 2,
+  `SoundBlaster::transfer_ready()` for whichever channel/controller the
+  card's mixer jumpers currently select) -- independent of that channel's
+  mask bit, since a real device asserts DREQ whether or not the controller
+  is listening. `in(8)`'s request bits OR this together with the existing
+  software Request Register (`out(9)`), which the register file already
+  stored but never decoded correctly: it was treated as a raw per-channel
+  bitmask, when SBPG/the 8237A-5 data sheet's actual encoding is bits 0-1
+  select the channel and bit 2 sets or clears that one channel's bit -- the
+  same shape the single mask register (reg 10) and mode register (reg 11)
+  elsewhere in this file already use. Fixed to match, and exercised by a new
+  test (`StatusRegisterRequestBitAlsoFollowsTheSoftwareRequestRegister`)
+  since nothing had read `out(9)`'s stored value back before this.
+
+**Where this is actually observable**: everything else in this emulator
+resolves a DMA transfer synchronously, within the same tick that sets DREQ
+(`chipset.cpp`'s `service()` checks `transfer_ready()` and moves the bytes
+in the same call), so the request bits read back 0 in the ordinary case --
+there is no real time window where a byte is in flight. The one case they
+are genuinely visible is a channel left masked while its device wants
+service: DREQ stays asserted with nothing to clear it, exactly the state a
+driver's "is the device still asking?" poll would want to observe before
+unmasking. Covered by
+`StatusRegisterRequestBitStaysSetWhileMaskedSinceItIsNeverServiced`.
+
+**Not modelled**: the mode register's verify/single/block/demand
+distinctions -- §31 already noted no period Sound Blaster or floppy driver
+here needs them, and that remains true; this section only closes the
+status-register half of that bullet.
+
+**Tests**: one new `soundblaster_test.cpp` case for the burst cap, five new
+`dma8237_test.cpp` cases for the status register (reads zero after reset,
+the TC latch sets-and-clears, TC is per-channel, the request bit follows
+live DREQ unlatched, the request bit also follows a correctly-decoded
+software Request Register, and the masked-channel visibility case). 641
+native tests pass (up from 634 after §32); the Playwright suite is
+unaffected by this section (no front-end-visible behavior changed).
+
+## 34. OPL3 test coverage: KSL, KSR, the four four-operator algorithms, waveforms 1-6
+
+§31's synthesis-test-coverage gap closed, as a safety net ahead of the
+envelope-generator rewrite (§35) -- these were written against the
+**then-current** analytic envelope specifically so they'd keep passing once
+that rewrite landed, since none of them assert anything about the envelope's
+per-sample shape, only about routing, scaling, and waveform identity. They
+did: every case below still passes unmodified against §35's real state
+machine.
+
+**Four-operator algorithms.** Before writing tests for the three combinations
+the existing `FourOpSecondaryOperatorsRunFromThePrimarysFnumAndBlock` case
+doesn't reach, the connection formulas themselves needed confirming against
+a primary-adjacent source, since this file had no inline citation for which
+operators sum into the output in each of the four (cp,cs) cases.
+moddingwiki's OPL chip reference (cross-checked against the same formulas
+turning up independently in period AdLib programming documentation) gives:
+FM-FM (0,0) = Op1\*Op2\*Op3\*Op4, output Op4 alone; AM-FM (1,0) =
+Op1+(Op2\*Op3\*Op4), output Op1+Op4; FM-AM (0,1) = (Op1\*Op2)+(Op3\*Op4),
+output Op2+Op4; AM-AM (1,1) = Op1+(Op2\*Op3)+Op4, output Op1+Op3+Op4 (Op2
+feeds Op3 but is never itself summed). `opl3.cpp`'s four branches already
+match this exactly -- no bug, just the three untested combinations. New
+tests isolate one operator at a time (fast attack, full volume, EGT hold)
+while silencing the other three (AR=0, so their envelope never leaves
+maximum attenuation regardless of what phase they're fed) and check whether
+the isolated operator's signal reaches the output bus, which is a much
+smaller and faster check than analysing a modulated waveform's shape.
+
+**Two real bugs surfaced writing those tests, both fixed:**
+
+- `Operator::env_level`'s default member initializer (`opl3.h`) was `511`,
+  a stale pre-fixed-point value -- envelope attenuation has carried
+  `kEnvScale` (65536) fixed-point precision since early in this file's
+  history (see opl3.cpp's own comment on `kEnvScale`), so a 511-raw default
+  represents *near-zero* attenuation (full volume), not silence, despite the
+  comment sitting right next to it still saying "511 = silent". Invisible in
+  every real path (`Opl3::reset()` always overwrites it explicitly, and
+  every existing test either calls `reset()` or keys on every operator with
+  a real attack rate, which converges to the right value regardless of
+  where it started) -- but a test that constructs a bare `Opl3`, never
+  resets it, and relies on an **unkeyed** operator (AR=0, so the attack path
+  that would otherwise paper over the bad default never runs) actually
+  staying silent hits it immediately. Fixed to `511 * 65536` (kEnvMax's own
+  value, inlined since `kEnvScale` is private to the .cpp) with a comment
+  pointing at why; `Opl3::reset()`'s behavior is unchanged (it already set
+  this explicitly), so no existing passing path was affected.
+- My own test bug, not a production one: writing a four-operator pair's
+  connection bit straight to C0h (`w(0, 0xC0, cp_cnt)`) also zeroes bits
+  5-4, the pan bits -- harmless with NEW clear (pan is forced on), but NEW
+  is set for four-op mode, so this silenced the whole primary channel
+  regardless of algorithm. Every existing four-op test already ORs in 0x30;
+  mine didn't. Fixed by doing the same.
+
+**KSL** (`ksl_env_units()`) matches the Yamaha YMF715x Register Description
+Document's octave/F-number table exactly: at BLOCK=7 and the table's largest
+F-number-top-4-bits entry (21 dB at KSL=1), KSL=2 measures half that (1.5
+dB/octave) and KSL=3 double (6 dB/octave), both within the dB arithmetic's
+own rounding. **KSR** (`effective_rate()`) likewise: at a fixed, high
+key-scale number, KSR=1 decays an order of magnitude faster than KSR=0 at
+the same DR register, matching `RATE=(rate)*4+Rof`'s documented Rof
+selection (the full key-scale number vs. it shifted right by 2). Both
+measured by isolating the carrier (silencing the modulator via AR=0, so
+`compute_sample()` sees it as an unmodulated oscillator) and comparing peak
+amplitude in dB rather than trying to read the envelope's internal units
+directly.
+
+**Waveforms 1-6**, verified against `wave_sample()`'s own documented shape
+for each (half sine, full-wave-rectified sine, repeated rising quarter,
+double-frequency sine in the first half only, its rectified twin, and a
+no-shaping full-amplitude square) by sampling specific frames of a fixed
+fnum=64/block=0 cycle (phase advances by exactly 64 units/frame, so frame
+indices map onto quadrant boundaries exactly) and checking the
+sign/silence/repetition pattern each waveform's code path implies, rather
+than reconstructing the expected waveform independently.
+
+**Tests**: 2 new four-op-algorithm cases (the third, FM-AM, was already
+covered), 1 KSL case, 1 KSR case, 6 waveform cases (1 each) -- 11 new
+`opl3_test.cpp` cases, all passing against the unmodified envelope. 652
+native tests pass (up from 641 after §33); the Playwright suite is
+unaffected (no front-end-visible behavior changed, and `opl3.h`'s default
+fix changes no path any real caller takes).
+
+## 35. The OPL3 envelope generator is now the real shift/add state machine
+
+§31 flagged the envelope as the one place this file knowingly modeled the
+*effect* of the silicon (documented attack/decay/release times) rather than
+the silicon itself: `attack_tau_seconds()` fit a continuous exponential to
+the datasheet's Attack Time(10-90%) table, and `decay_units_per_sample()` fit
+a continuous linear-dB ramp to the Decay/Release Time(0-100%) table. Times
+matched; the per-sample curve a real YMF262 actually produces -- quantised,
+stepping only on some samples, by amounts that are themselves powers of two
+-- did not. That curve is now implemented directly, as the chip's own
+documented mechanism rather than an analytic fit to its outputs.
+
+**Source.** Niemitalo & Gambrell's "OPLx decapsulated" is the primary
+citation already used throughout this file for other YM3812/YMF262
+die-level mechanisms (the log-sin/exp waveform tables, the KSL constants).
+Its envelope state machine was cross-checked for this rewrite against
+Nuked-OPL3's `OPL3_EnvelopeCalc` and the chip-global timer update in
+`OPL3_Generate4Ch` (nukeykt, LGPL) read directly from source -- as a fact
+check on specific formulas and table values only, per this file's standing
+rule never to copy code from it. Nothing here is ported from Nuked; the
+implementation is original, built from the documented mechanism.
+
+**The mechanism.** Real silicon has one envelope clock shared by all 36
+operators, not 36 independent timers. Each output frame it advances a
+counter (`Opl3::eg_timer_`) by counting the counter's own trailing zero bits
+(a "ruler sequence": 0, 1, 0, 2, 0, 1, 0, 3, ...) into `eg_add_`, and the
+clock only does this on alternating frames (`eg_state_`). Each operator
+combines `eg_add_` with its own effective RATE (register value, key-scaled
+exactly as `effective_rate()` already computed it -- that function needed no
+change) to look up a small quantised `shift` (0-3) via a table from the same
+source (`kEgIncStep`). That shift says two things: whether this operator's
+9-bit attenuation counter (`env_level`, now a plain 0-511 value -- see
+below) moves *at all* this frame, and if so by how much. Attack moves by an
+exponential-via-bitshift trick (`eg_inc = ~env_level >> (4-shift)`, which
+provably reaches exactly 0 in a bounded number of steps, unlike a true
+floating-point exponential); decay, sustain and release move by a plain
+`1 << (shift-1)`. Most frames, for most rates, the shift is 0 and nothing
+moves -- that quantisation, not a slow continuous rate, is what the slow
+end of the Rate tables actually sounds like on real hardware.
+
+**`env_level` lost its fixed-point scale.** The old code stored attenuation
+at 65536x fixed-point precision (`kEnvScale`) because the analytic decay
+formula could need to advance by a fraction of a unit per sample at the
+slowest documented rate. The real mechanism has no such need -- a real
+operator's attenuation *is* a 9-bit (0-511) hardware counter, full stop, and
+the "slowness" of a slow rate comes entirely from how rarely the shared
+clock schedules it to move, not from sub-unit precision on the move itself.
+`kEnvScale`/`kEnvMax` (the fixed-point constants), `kAttack1090Base`,
+`kDecay0to100Base`, `attack_tau_seconds()`, and `decay_units_per_sample()`
+are gone; `kEnvMax` now just names `511`.
+
+**A real hardware subtlety this surfaced and fixed in passing:** `RATE =
+(rate register)*4 + Rof` can reach 75 (register 15, KSR=1, key-scale number
+15), but the chip clamps only the top nibble of that sum (`rate_hi`, capped
+to 15) when it splits RATE into the `rate_hi`/`rate_lo` pair the shift table
+indexes by -- `rate_lo` keeps reading from the *uncapped* sum. The old
+`effective_rate()` capped the whole sum to 63 before any caller could split
+it, which is harmless for the old analytic code (it only ever used the
+combined value) but would have handed the new shift lookup the wrong
+`rate_lo` for any RATE above 63 -- silently landing on a different, also
+legal-looking shift, not a crash. `effective_rate()` now returns the
+uncapped sum (or -1 for "rate register 0, never moves", replacing a 0 return
+that could otherwise have been confused with a legitimately-computed RATE of
+0); `envelope_shift()` does the asymmetric clamp itself, matching the
+decapsulated mechanism exactly.
+
+**The `kOff` enum value is gone.** Real silicon has exactly four envelope
+states (attack/decay/sustain/release) -- "off" was this file's own
+bookkeeping shortcut for `recompute_active()`'s "does the chip need to keep
+running" fast path (`tick()`'s early-out, see §8 and the note above). A
+fully released operator on real hardware just sits in release forever with
+its attenuation pinned at maximum (the same `eg_off` condition -- top 8 of
+512 values -- that freezes its own further movement), so "idle" is now
+*derived* (`env == kRelease && env_level` pinned) rather than stored as a
+fifth state nothing in the silicon actually has.
+
+**Key-on retrigger timing.** The decapsulated mechanism re-triggers attack
+whenever key-on is live while the envelope is in release -- not on an edge
+against a separately latched flag -- and, subtly, dispatches that *same*
+sample's shift computation through the release/off case, not the attack
+case: `eg_gen` only flips to attack at the very end of the sample that
+detected the retrigger. Phase and feedback history (`phase`, `out`,
+`prev_out`) reset immediately, on that same sample -- only the envelope
+shift computation is the one-sample-delayed part. Getting this ordering
+exactly right (rather than flipping state before computing that sample's
+shift, which would start the attack curve one sample early) is what let
+`op.key_on`'s existing edge-tracking stay as the trigger signal without
+restructuring the call site.
+
+**Verification.** All 652 native tests pass unmodified, including every
+§34 case written specifically to act as a routing/KSL/KSR/four-op/waveform
+regression check across this exact rewrite -- confirming the rewrite changed
+only the envelope's per-sample curve, not anything else `generate_frame()`
+does. Both wasm binaries (`pc486.js`, `pc486-perf.js`) rebuilt clean; the
+full Playwright suite passes with no change to any audio-relevant spec
+(`opl3.spec.ts`, `soundblaster.spec.ts`, `fmquality.spec.ts`, `tone.spec.ts`,
+`audiotrace.spec.ts`, `cdda.spec.ts`) -- no front-end-visible behavior needed
+updating, since the `Sample` output contract (`{cpu_cycle, left, right}`)
+never changed.
+
+Four new `opl3_test.cpp` cases pin the rewrite's own specific behaviors,
+beyond what §34's shape-agnostic regression set happens to exercise:
+
+- `InstantAttackReachesFullVolumeOnTheVeryFirstFewFramesWhenEffectiveRateHiIsFifteen`
+  -- AR=15 reaches full volume within a fraction of a millisecond; a clearly
+  slower rate (AR=6) measurably does not, over the identical window.
+- `FullyIdleOperatorAttacksNormallyAgainOnASubsequentKeyOn` -- a fully
+  released, pinned-idle operator (no longer a separate stored `kOff`) still
+  attacks normally on a fresh key-on.
+- `RetriggeringMidReleaseResumesFromThereInsteadOfDippingToSilenceFirst` --
+  a key-on while still releasing resumes from the current attenuation; it
+  must not dip toward silence first.
+- `DecayAttenuationAtAFixedElapsedTimeRoughlyDoublesForOneStepOfTheRateRegister`
+  -- DR=7 vs DR=8 (one rate-register step = 4 RATE units, the datasheet's
+  actual halving unit) shows ~2x the attenuation at a fixed elapsed time.
+  The first draft of this test compared DR=8 vs DR=12 expecting 2x and got
+  ~16x -- a test bug, not a production one: a register delta of N is a RATE
+  delta of 4N (RATE = register*4 + key-scale offset), so N=4 is four
+  halvings (2^4=16), not one. A second draft's "early window" baseline was
+  also wrong for the same underlying reason §34 already names (a growing
+  measurement window reads close to its own start once decay is monotonic);
+  fixed by measuring a short, >1-waveform-cycle window positioned at the
+  end of the elapsed time against a separately-measured, never-decaying
+  (SL=0) reference peak.
+
+All four were verified to actually catch a regression, not just pass
+tautologically: each was checked against a deliberately sabotaged build
+(the instant-attack snap disabled, the retrigger path reverted to the old
+reset-to-silence-on-every-key-on behavior, and the envelope clock's
+trailing-zero-bit count artificially capped) and failed clearly every time,
+then reverted.
+
+## 36. Diagnosing a real "scratchy music" report: ring range, and a checkbox that lied
+
+A live SimCity 2000 session reported FM music turning scratchy specifically
+when laying a road, clearing up on zoom. The Performance panel (§31's
+"front end's audio path") showed no stall and no starvation at the moment
+captured -- clock 100%, host well under one core, `starved 0.0 ms/s` -- but
+the ring was sitting *above* its 80 ms target, not below it, and
+`?audiotrace` (taken moments later, DevTools open) showed `guestPerWall`
+at 0.85: the capture itself was 15% slowed by DevTools' own overhead, a
+reminder that this diagnostic tool is exactly as vulnerable to the
+main-thread-cost problem it exists to find as the thing it measures.
+
+**The panel's one gap.** It already showed ring depth, post cadence
+percentiles and guest/FM pacing ratios live, with no DevTools needed (the
+whole point of putting this in the page rather than the console -- see the
+comment at `startPerfPanel()`). What it did not show was the ring's
+*range* over time -- a brief surplus building and the correction bleeding
+it off again is invisible in a single current reading, which is exactly
+what a transient CPU-load spike (laying a road, triggering pathfinding/
+tile-redraw work) produces. Added `range <min>-<max> ms (60s)` to the audio
+block in `startPerfPanel()`, computed from the same 60-entry `history`
+buffer `drawAudioChart()` already draws from -- no new data collection,
+just a number alongside the chart that was already plotting it. A second
+capture with this in place showed `range 0-111 ms (60s)` and a starved mark
+at the base of the climb: the ring really did drain to empty under a load
+spike, then overcorrected upward, confirming the mechanism without needing
+`?audiotrace` at all. New case in `web/tests/performance.spec.ts` asserts
+the range appears and brackets the current reading (`min <= ring <= max`).
+
+**A second, unrelated bug surfaced along the way.** Enable Sound is
+restored from `localStorage` on load (`speakerCheckbox.checked =
+uiState.sound`), which never fires the checkbox's own `change` handler --
+setting `.checked` from script doesn't dispatch anything -- so nothing
+ever called `ensureAudioStarted()`. The checkbox showed checked but no
+`AudioContext` existed until the box was unchecked and rechecked. The
+comment already sitting above it ("a restored checkmark may need one
+click before audio actually starts") described the *intended* fallback
+correctly; nothing implemented it. Fixed by hooking `screenEl`'s click
+handler -- the first gesture every visitor makes, to focus the machine and
+start typing -- to call `ensureAudioStarted()` when sound is supposed to
+be on; the function is already idempotent (resumes if suspended, no-ops if
+already running), so this costs nothing on every other click. New case in
+`web/tests/speaker.spec.ts` persists the preference, reloads, confirms
+audio is *not* running yet, clicks the screen, confirms it is -- without
+ever touching the checkbox. Both fixes verified against a sabotaged build
+before landing, same as §35's.

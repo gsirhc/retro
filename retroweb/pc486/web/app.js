@@ -687,6 +687,12 @@
   screenEl.addEventListener("click", () => {
     screenEl.focus();
     if (mouseCaptureCheckbox.checked && document.pointerLockElement !== screenEl) screenEl.requestPointerLock();
+    // The natural first gesture a visitor makes, and the one the "restored
+    // checkmark may need one click" comment above the checkbox promises --
+    // a context created (or left suspended by the browser) without this
+    // never resumes on its own, so a sound preference restored from
+    // localStorage would otherwise stay silent until the box is toggled.
+    if (speakerCheckbox.checked) ensureAudioStarted();
   });
   window.addEventListener("blur", releaseAllHeldKeys);
   document.addEventListener("visibilitychange", () => { if (document.hidden) releaseAllHeldKeys(); });
@@ -936,9 +942,30 @@
     const loadFreedosBtn = document.getElementById("freedosCdBtn");
     const freedosStatus = document.getElementById("freedosCdStatus");
     fileInput.addEventListener("change", async () => {
-      const f = fileInput.files[0];
+      const files = Array.from(fileInput.files);
       fileInput.value = "";
-      if (!f) return;
+      if (!files.length) return;
+      // A mixed-mode disc (data + CD-DA audio tracks) is a CUE sheet plus
+      // its companion BIN -- the picker's `multiple` attribute lets both be
+      // selected in one go. Anything else falls back to the plain single-ISO
+      // path, unchanged.
+      const cueFile = files.find((f) => /\.cue$/i.test(f.name));
+      if (cueFile) {
+        const binFile = files.find((f) => f !== cueFile);
+        if (!binFile) {
+          alert("Select the .cue file together with its .bin file.");
+          return;
+        }
+        await withLoad("Loading CD-ROM\u2026", async () => {
+          const cueText = await cueFile.text();
+          const bin = new Uint8Array(await binFile.arrayBuffer());
+          pendingCdrom = { name: cueFile.name, cueText, bin };
+          if (machine) machine.mountCdromCue(cueText, bin);
+          setBayLoaded(cdromBay, cueFile.name);
+        });
+        return;
+      }
+      const f = files[0];
       await withLoad("Loading CD-ROM\u2026", async () => {
         const bytes = new Uint8Array(await f.arrayBuffer());
         pendingCdrom = { name: f.name, bytes };
@@ -1209,17 +1236,19 @@
       constructor() {
         super();
         // Pending stamped samples per stream, as flat rings: a cycle stamp
-        // and the sample it belongs to. Two streams because the card sums FM
-        // and digitized audio in the analog domain, each behind its own
-        // CT1745 attenuator (see soundblaster.h) -- they arrive separately
-        // and mix here.
+        // and the sample it belongs to. Three streams because the card sums
+        // FM, digitized audio, and CD-DA in the analog domain, each behind
+        // its own CT1745 attenuator (see soundblaster.h) -- they arrive
+        // separately and mix here.
         const kCap = 1 << 16;   // ~1.3s of FM at 49.7kHz
         this.cap = kCap;
         this.sb = { cyc: new Float64Array(kCap), l: new Int16Array(kCap), r: new Int16Array(kCap),
                     head: 0, tail: 0, lastL: 0, lastR: 0 };
         this.fm = { cyc: new Float64Array(kCap), l: new Int16Array(kCap), r: new Int16Array(kCap),
                     head: 0, tail: 0, lastL: 0, lastR: 0 };
-        this.gain = { sbL: 1, sbR: 1, fmL: 1, fmR: 1 };
+        this.cd = { cyc: new Float64Array(kCap), l: new Int16Array(kCap), r: new Int16Array(kCap),
+                    head: 0, tail: 0, lastL: 0, lastR: 0 };
+        this.gain = { sbL: 1, sbR: 1, fmL: 1, fmR: 1, cdL: 1, cdR: 1 };
         // Guest cycles per real second. The emulator is paced to this by
         // construction (the pump grants exactly this much credit per real
         // second), so it is exact rather than measured -- which is the whole
@@ -1250,6 +1279,7 @@
           if (d.cpuHz) this.cpuHz = d.cpuHz;
           if (d.sbCyc) this.push(this.sb, d.sbCyc, d.sbL, d.sbR);
           if (d.fmCyc) this.push(this.fm, d.fmCyc, d.fmL, d.fmR);
+          if (d.cdCyc) this.push(this.cd, d.cdCyc, d.cdL, d.cdR);
           // Diagnostic capture of what actually reaches the device, for
           // web/tests/fmquality.spec.ts. Off unless asked for.
           if (d.startCapture) { this.capture = []; this.captureMax = d.startCapture; }
@@ -1282,7 +1312,7 @@
 
       newestCycle() {
         let newest = null;
-        for (const q of [this.sb, this.fm]) {
+        for (const q of [this.sb, this.fm, this.cd]) {
           if (q.tail === q.head) continue;
           const last = (q.head - 1 + this.cap) % this.cap;
           if (newest === null || q.cyc[last] > newest) newest = q.cyc[last];
@@ -1338,8 +1368,11 @@
           }
           this.advance(this.sb, this.playCycle);
           this.advance(this.fm, this.playCycle);
-          outL[i] = (this.sb.lastL * this.gain.sbL + this.fm.lastL * this.gain.fmL) / 32768;
-          outR[i] = (this.sb.lastR * this.gain.sbR + this.fm.lastR * this.gain.fmR) / 32768;
+          this.advance(this.cd, this.playCycle);
+          outL[i] = (this.sb.lastL * this.gain.sbL + this.fm.lastL * this.gain.fmL +
+                     this.cd.lastL * this.gain.cdL) / 32768;
+          outR[i] = (this.sb.lastR * this.gain.sbR + this.fm.lastR * this.gain.fmR +
+                     this.cd.lastR * this.gain.cdR) / 32768;
         }
         if (this.capture) {
           for (let i = 0; i < outL.length && this.capture.length < this.captureMax; i++) {
@@ -1587,9 +1620,10 @@
   }
 
   function pumpSbAudio(frameStartCycle, cyclesThisFrame, dtSeconds) {
-    // Always drain both -- even if muted, so neither log can grow unbounded.
+    // Always drain all three -- even if muted, so no log can grow unbounded.
     const s = machine.sbDrainSamples();
     const fm = machine.fmDrainSamples();
+    const cd = machine.cdromDrainSamples();
     if (!audioCtx || !sbNode || !speakerCheckbox.checked) return;
     refreshSbTone();
     // Hand the worklet the card's samples exactly as the emulator stamped
@@ -1604,6 +1638,8 @@
       sbR: machine.sbGainRight() / kMixerUnityGain,
       fmL: machine.fmGainLeft() / kMixerUnityGain,
       fmR: machine.fmGainRight() / kMixerUnityGain,
+      cdL: machine.cdGainLeft() / kMixerUnityGain,
+      cdR: machine.cdGainRight() / kMixerUnityGain,
     };
     guestCycAcc += cyclesThisFrame;
     guestDtAcc += dtSeconds;
@@ -1622,6 +1658,10 @@
     if (fm.cycles.length) {
       msg.fmCyc = fm.cycles; msg.fmL = fm.left; msg.fmR = fm.right;
       transfer.push(fm.cycles.buffer, fm.left.buffer, fm.right.buffer);
+    }
+    if (cd.cycles.length) {
+      msg.cdCyc = cd.cycles; msg.cdL = cd.left; msg.cdR = cd.right;
+      transfer.push(cd.cycles.buffer, cd.left.buffer, cd.right.buffer);
     }
     if (dbg.on) {
       dbg.posted += s.cycles.length + fm.cycles.length;
@@ -2075,10 +2115,18 @@
         const starvedMs = st && st.secs ? (st.starved / sr) * 1000 / st.secs : 0;
         const trimMs = st && st.secs ? (st.trimmed / sr) * 1000 / st.secs : 0;
         const outLat = audioCtx.outputLatency || audioCtx.baseLatency || 0;
+        // The instant reading above can sit right on target while still
+        // having swung well past it a moment ago -- a brief main-thread
+        // skew builds a surplus, the correction bleeds it off, and the
+        // single current number never shows either happened. Range over
+        // the same 60s window the chart below covers does.
+        const ringHist = history.map((p) => p.ring).concat(depthMs);
+        const ringMin = Math.min(...ringHist), ringMax = Math.max(...ringHist);
         audio =
           "audio   ring " + depthMs.toFixed(0) + " ms of " +
-          (st && st.targetMs ? st.targetMs.toFixed(0) : "--") + " target   " +
-          audioCtx.state + " " + (sr / 1000).toFixed(1) + " kHz\n" +
+          (st && st.targetMs ? st.targetMs.toFixed(0) : "--") + " target" +
+          "   range " + ringMin.toFixed(0) + "-" + ringMax.toFixed(0) + " ms (60s)\n" +
+          "        " + audioCtx.state + " " + (sr / 1000).toFixed(1) + " kHz\n" +
           "        starved " + starvedMs.toFixed(1) + " ms/s   trimmed " +
           trimMs.toFixed(1) + " ms/s   latency " + (outLat * 1000).toFixed(0) + " ms\n" +
           // `fed` is what the main thread hands the audio thread -- the
@@ -2609,7 +2657,8 @@
   // factory FreeDOS bytes downloaded yet.
   const kHddImageBytes = 528482304;
   let pendingFloppy = null;  // {name, bytes} -- "what's physically in the drive" (this system's one bay)
-  let pendingCdrom = null;   // {name, bytes} -- same idea, for the CD-ROM bay
+  let pendingCdrom = null;   // {name, bytes} for a plain ISO, or {name, cueText, bin}
+                             // for a mounted CUE+BIN -- same idea, for the CD-ROM bay
 
   resetBtn.addEventListener("click", () => {
     // A real reset button pulses the RESET line to the CPU/chipset only --
@@ -2946,7 +2995,11 @@
       // converts to an empty vector and the drive comes up with no disc in
       // it, silently. Same wrapping the HDD path above already does.
       if (pendingCdrom) {
-        machine.mountCdrom(pendingCdrom.bytes);
+        if (pendingCdrom.cueText) {
+          machine.mountCdromCue(pendingCdrom.cueText, pendingCdrom.bin);
+        } else {
+          machine.mountCdrom(pendingCdrom.bytes);
+        }
         setBayLoaded(cdromBay, pendingCdrom.name);
       }
     }

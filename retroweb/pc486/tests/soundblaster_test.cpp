@@ -15,6 +15,7 @@
 
 #include "soundblaster.h"
 
+#include <algorithm>
 #include <string>
 #include <vector>
 
@@ -125,6 +126,26 @@ TEST_F(SoundBlasterTest, CdRomInterfacePortsAreOpenBusWithNoDriveAttached) {
         sb.out(p, 0x00);           // must not disturb anything else
         EXPECT_EQ(sb.in(p), 0xFF) << std::hex << p;
     }
+}
+
+TEST_F(SoundBlasterTest, CdGainFollowsMixerVolumeAndIsGatedByTheOutputSwitch) {
+    // Mixer 36h/37h (CD volume L/R) into the same five-bit attenuator as
+    // Voice/Line, gated by 3Ch's CD.L/CD.R output switches (bits 2/1) --
+    // same CT1745 register map atapi_cdrom.h's CD-DA output is meant to
+    // reach once it exists (PC486_REVIEW.md's "Open on the SB16" note).
+    // Default volume (0 -> -62 dB) is near-silent but the switches default
+    // closed (connected), so there is something to gate in the first place.
+    EXPECT_NEAR(sb.cd_gain_left(), 0.0f, 0.01f);
+    EXPECT_NEAR(sb.cd_gain_right(), 0.0f, 0.01f);
+    MixerWrite(0x30, 31 << 3);  // Master L: level 31 -> 0 dB, so only the CD leg is under test
+    MixerWrite(0x31, 31 << 3);  // Master R: ditto
+    MixerWrite(0x36, 31 << 3);  // CD volume L: level 31 -> 0 dB
+    MixerWrite(0x37, 31 << 3);  // CD volume R: ditto
+    EXPECT_NEAR(sb.cd_gain_left(), 1.0f, 0.01f);
+    EXPECT_NEAR(sb.cd_gain_right(), 1.0f, 0.01f);
+    MixerWrite(0x3C, 0x00);  // open every output switch
+    EXPECT_FLOAT_EQ(sb.cd_gain_left(), 0.0f) << "CD.L switch open -- the port is disconnected";
+    EXPECT_FLOAT_EQ(sb.cd_gain_right(), 0.0f) << "CD.R switch open";
 }
 
 // --- DSP reset / identification ------------------------------------------
@@ -352,6 +373,36 @@ TEST_F(SoundBlasterTest, PlaybackIsPacedAtTheRealSampleRateAndNeverFaster) {
     const double expected = 256.0 / double(rate) * kCpuHz;
     EXPECT_GE(elapsed_cycles, expected * 0.99);
     EXPECT_LE(elapsed_cycles, expected * 1.05);
+}
+
+TEST_F(SoundBlasterTest, LongBlocksArriveAsMultipleSubMillisecondBurstsNotOneBigOne) {
+    // PC486_REVIEW.md's DMA-timing item, "cheap middle option": a burst's
+    // bytes move in one step at the end of the window they cover, so capping
+    // that window to about 1ms bounds how far behind real hardware a byte
+    // can be heard -- instead of the whole 256KB internal buffer moving (and
+    // being heard) in a single step, which is what a big block did before
+    // this cap existed.
+    ResetDsp();
+    Cmd({0x40, 166});
+    const uint32_t rate = sb.sample_rate_hz();
+    const std::size_t block = 256;
+    Cmd({0x14, uint8_t((block - 1) & 0xFF), uint8_t((block - 1) >> 8)});
+
+    std::vector<uint8_t> pcm(block, 0x80);
+    std::size_t offset = 0, moved = 0;
+    int bursts = 0;
+    const std::size_t max_burst_bytes = std::max<std::size_t>(1, rate / 1000);
+    while (sb.playing() && bursts < 1000) {
+        ASSERT_TRUE(RunUntilTransfer());
+        const std::size_t len = sb.transfer_length();
+        EXPECT_LE(len, max_burst_bytes) << "burst " << bursts << " exceeded the ~1ms cap";
+        EXPECT_GT(len, 0u);
+        moved += ServeBurst(pcm, offset);
+        ++bursts;
+    }
+    EXPECT_EQ(moved, block);
+    EXPECT_GT(bursts, 4) << "a " << block << "-byte block at ~" << rate
+                          << "Hz should need several sub-ms bursts, not one";
 }
 
 TEST_F(SoundBlasterTest, AutoInitPlaybackRepeatsBlocksUntilTheExitCommand) {

@@ -1,5 +1,6 @@
 #include "opl3.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 
@@ -25,15 +26,6 @@ constexpr uint8_t kMultX2[16] = {
 constexpr uint8_t kKslTable[16] = {
     0, 24, 32, 37, 40, 43, 45, 47, 48, 50, 51, 52, 53, 54, 55, 56,
 };
-
-// Attack rate (Time 10-90%, ms) and decay/release rate (Time 0-100%, ms) at
-// the effective rate index 4-7 -- the Yamaha YMF715x Register Description
-// Document's "Rate Value - Actual Time Table" (section 1-5). Every other
-// rate index halves the time for each +4, a relationship the printed table
-// itself follows exactly (e.g. attack rate 8 is precisely half of rate 4),
-// so the rest of the 0-63 range is derived rather than hand-transcribed.
-constexpr double kAttack1090Base[4] = {1482.75, 1155.07, 991.23, 868.35};
-constexpr double kDecay0to100Base[4] = {39280.64, 31416.32, 26173.44, 22446.08};
 
 // Feedback modulation index in radians, FB=0-7 -- Yamaha YMF715x Register
 // Description Document, "FB 2-0" table (0, pi/16, pi/8, pi/4, pi/2, pi, 2pi,
@@ -99,52 +91,73 @@ int op_index(int bank, int cib, bool carrier) {
 }
 
 // RATE = (rate register)*4 + Rof, Rof the key-scale-adjusted offset (KSR=1:
-// KSN 0-15 directly; KSR=0: KSN>>2). A rate register of 0 always yields
-// RATE 0 (the operator never moves), regardless of key scaling -- both
-// exactly per the YMF715x doc's "Rate Key Scale" / "RATE=(RATE Value)x4+Rof"
-// note.
+// KSN 0-15 directly; KSR=0: KSN>>2) -- YMF715x doc's "Rate Key Scale" /
+// "RATE=(RATE Value)x4+Rof" note. A rate register of 0 always yields "the
+// operator never moves", signalled here as -1 rather than a numeric RATE,
+// since real silicon gates the whole envelope-clock lookup off reg_rate==0
+// directly (envelope_shift() below), not off any particular RATE value.
+// Deliberately NOT clamped to 63: real hardware clamps only the top nibble
+// (rate_hi, inside envelope_shift()) and keeps rate_lo from this same
+// unclamped sum, so a caller that capped the sum first would hand
+// envelope_shift() the wrong rate_lo whenever RATE exceeds 63 (reachable:
+// reg_rate=15, KSR=1, ksn=15 gives 75) -- see "OPLx decapsulated" and
+// PC486_REVIEW.md's envelope-generator section.
 int effective_rate(uint8_t reg_rate, int ksn, bool ksr) {
-    if (reg_rate == 0) return 0;
+    if (reg_rate == 0) return -1;
     int rks = ksr ? ksn : (ksn >> 2);
-    int r = int(reg_rate) * 4 + rks;
-    return r > 63 ? 63 : r;
+    return int(reg_rate) * 4 + rks;
 }
 
-// Envelope attenuation is stored in env_level at kEnvScale fixed-point
-// precision rather than as whole 0.1875 dB units: the slowest documented
-// decay/release rate (~39 s across the 96 dB range) advances by a fraction
-// of a unit per output sample, and the header's Operator struct has no
-// separate fractional-accumulator field, so env_level itself carries the
-// extra bits.
-constexpr int32_t kEnvScale = 65536;
-constexpr int32_t kEnvMax = 511 * kEnvScale;
+// Envelope attenuation (env_level, Operator::env_level) is a plain 9-bit
+// (0-511) counter, 0.1875 dB/unit, 511 = silent -- matching the real
+// chip's own precision exactly. No fractional/fixed-point scale: real
+// silicon has none either (the slow rates look continuous only because the
+// shared envelope clock gates most samples to a zero step, not because the
+// attenuation itself has sub-unit precision).
+constexpr int32_t kEnvMax = 511;
 
-// Linear envelope step per output sample for decay/release at effective
-// rate `rof`, in kEnvScale units, derived from the datasheet's Decay/Release
-// Time(0-100%) table (512 envelope units = the full 96 dB range) via the
-// confirmed halve-every-4-steps relationship.
-double decay_units_per_sample(int rof) {
-    if (rof < 4) return 0.0;  // rates 0-3: held indefinitely
-    int group = (rof - 4) / 4;
-    int sub = (rof - 4) % 4;
-    double t_ms = kDecay0to100Base[sub] / double(1u << group);
-    if (t_ms <= 1000.0 / Opl3::kSampleHz) return double(kEnvMax);
-    double units_per_ms = 512.0 / t_ms;
-    return units_per_ms * (1000.0 / Opl3::kSampleHz) * double(kEnvScale);
-}
+// eg_incstep[rate_lo][eg_timer_lo] -- the small additional shift the four
+// fastest rate groups (rate_hi 12-15) add on top of rate_hi&3, per "OPLx
+// decapsulated"'s documented envelope state machine (cross-checked against
+// Nuked-OPL3's eg_incstep table as a fact only, never copied, per this
+// file's standing citation rule).
+constexpr int kEgIncStep[4][4] = {
+    {0, 0, 0, 0},
+    {1, 0, 0, 0},
+    {1, 0, 1, 0},
+    {1, 1, 1, 0},
+};
 
-// Time constant for the exponential attack at effective rate `rof`,
-// calibrated from the datasheet's Attack Time(10-90%) table: for
-// V(t)=V0*exp(-t/tau), the 10%-of-scale to 90%-of-scale interval is
-// tau*(ln(0.1)-ln(0.9))^-1... i.e. tau = T(10-90) / 2.197225.
-double attack_tau_seconds(int rof) {
-    if (rof < 4) return -1.0;  // never attacks (rate register 0 case)
-    int group = (rof - 4) / 4;
-    int sub = (rof - 4) % 4;
-    double t_ms = kAttack1090Base[sub] / double(1u << group);
-    if (t_ms <= 0.05) return 0.0;  // effectively instantaneous
-    double tau_ms = t_ms / 2.197225;
-    return tau_ms / 1000.0;
+// How many bits (0-3) an operator's attenuation counter should shift by
+// this output frame, for an operator whose effective RATE is `rate`
+// (effective_rate()'s return, or -1 for "rate register 0, never moves").
+// The chip has one shared envelope clock, not a per-operator timer: all 36
+// operators read the SAME eg_add/eg_timer_lo/eg_state this frame
+// (Opl3::eg_add_ etc., advanced once per frame by advance_envelope_clock()
+// below) and each derives its own shift from its own RATE against that
+// shared clock -- "OPLx decapsulated"'s documented mechanism. A shift of 0
+// means this operator's attenuation does not move this frame; most
+// frames, for most rates, it doesn't -- that's what makes the slow rates
+// slow.
+int envelope_shift(int rate, int eg_add, int eg_timer_lo, bool eg_state) {
+    if (rate < 0) return 0;
+    int rate_hi = rate >> 2;
+    int rate_lo = rate & 3;
+    if (rate_hi > 15) rate_hi = 15;
+    int eg_shift = rate_hi + eg_add;
+    if (rate_hi < 12) {
+        if (!eg_state) return 0;
+        switch (eg_shift) {
+            case 12: return 1;
+            case 13: return (rate_lo >> 1) & 1;
+            case 14: return rate_lo & 1;
+            default: return 0;
+        }
+    }
+    int shift = (rate_hi & 3) + kEgIncStep[rate_lo][eg_timer_lo];
+    if (shift & 4) shift = 3;
+    if (shift == 0) shift = eg_state ? 1 : 0;
+    return shift;
 }
 
 // Total-level (0.75 dB/step -> 4 envelope units/step) plus key-scale-level
@@ -278,15 +291,17 @@ void Opl3::reset() {
     samples_.clear();
     trace_.clear();
     trace_max_ = 0;
-    for (auto &op : op_) {
-        op = Operator();
-        op.env_level = kEnvMax;  // env_level is kEnvScale fixed-point -- see kEnvScale
-    }
+    for (auto &op : op_) op = Operator();
     for (auto &ch : ch_) ch = Channel();
     am_phase_ = 0;
     vib_pos_ = 0;
     vib_frame_ = 0;
     noise_ = 1;
+    eg_timer_ = 0;
+    eg_timerrem_ = false;
+    eg_state_ = false;
+    eg_add_ = 0;
+    eg_timer_lo_ = 0;
     // Every register clears to 0. A cleared C0h does not mute the channel:
     // the pan bits are ignored entirely while NEW is clear, which is what
     // keeps an OPL2-era driver audible on both outputs (see generate_frame).
@@ -498,8 +513,13 @@ void Opl3::recompute_active() {
     }
     if (!any && (regs_[0xBD] & 0x20) != 0 && (regs_[0xBD] & 0x1F) != 0) any = true;
     if (!any) {
+        // "Idle" is derived, not stored: a fully released operator sits in
+        // kRelease forever with its attenuation pinned at the eg_off
+        // threshold (generate_frame's shift gate keeps it from moving) --
+        // see the Env enum's comment in opl3.h.
         for (const auto &op : op_) {
-            if (op.env != Env::kOff) { any = true; break; }
+            bool pinned = op.env == Env::kRelease && (op.env_level & 0x1F8) == 0x1F8;
+            if (!pinned) { any = true; break; }
         }
     }
     active_ = any;
@@ -551,12 +571,23 @@ void Opl3::generate_frame(uint64_t cycle) {
     // rhythm-instrument bit for channels 6-8 in rhythm mode).
     auto advance_env_phase = [this, dvb](int opidx, uint16_t fnum, uint8_t block, bool key_on) {
         Operator &op = op_[opidx];
+
+        // Real hardware re-triggers attack whenever key-on is live while the
+        // envelope is (still, or again) in release -- not on an edge against
+        // a separately tracked flag. "OPLx decapsulated"'s `reset`. A fully
+        // released operator sits in kRelease indefinitely (see the Env enum
+        // comment in opl3.h), so this also covers a fresh key-on.
+        bool reset = key_on && op.env == Env::kRelease;
         if (key_on && !op.key_on) {
-            op.env = Env::kAttack;
+            // Phase/feedback history reset exactly on the triggering sample
+            // -- "OPLx decapsulated"'s pg_reset. The envelope shift below is
+            // keyed off op.env, which (by design, see reset above) does not
+            // flip to kAttack until the end of this same call -- so on the
+            // very sample a note starts, the shift computation below still
+            // dispatches through the release/off case, exactly as real
+            // silicon does (it changes eg_gen only after this calculation).
             op.phase = 0;
             op.out = 0; op.prev_out = 0;
-        } else if (!key_on && op.key_on) {
-            op.env = Env::kRelease;
         }
         op.key_on = key_on;
 
@@ -564,42 +595,51 @@ void Opl3::generate_frame(uint64_t cycle) {
         // Yamaha YMF715x Register Description Document's note-select table.
         bool nts = (regs_[0x08] & 0x40) != 0;
         int ksn = (int(block) << 1) | int(nts ? ((fnum >> 8) & 1) : ((fnum >> 9) & 1));
+
+        uint8_t reg_rate = 0;
         switch (op.env) {
-            case Env::kAttack: {
-                if (op.ar != 0) {
-                    int rof = effective_rate(op.ar, ksn, op.ksr != 0);
-                    double tau = attack_tau_seconds(rof);
-                    if (tau <= 0.0) op.env_level = 0;
-                    else op.env_level = int32_t(std::lround(double(op.env_level) * std::exp(-1.0 / (tau * kSampleHz))));
-                    if (op.env_level <= kEnvScale / 2) { op.env_level = 0; op.env = Env::kDecay; }
-                }
-                break;
-            }
-            case Env::kDecay: {
-                int rof = effective_rate(op.dr, ksn, op.ksr != 0);
-                op.env_level += int32_t(std::lround(decay_units_per_sample(rof)));
-                int32_t sl_target = (op.sl == 15) ? kEnvMax : int32_t(op.sl) * 16 * kEnvScale;
-                if (op.env_level >= sl_target) { op.env_level = sl_target; op.env = Env::kSustain; }
-                break;
-            }
-            case Env::kSustain: {
-                if (op.egt == 0) {  // percussive: fall straight through to release
-                    int rof = effective_rate(op.rr, ksn, op.ksr != 0);
-                    op.env_level += int32_t(std::lround(decay_units_per_sample(rof)));
-                    if (op.env_level >= kEnvMax) { op.env_level = kEnvMax; op.env = Env::kOff; }
-                }
-                break;
-            }
-            case Env::kRelease: {
-                int rof = effective_rate(op.rr, ksn, op.ksr != 0);
-                op.env_level += int32_t(std::lround(decay_units_per_sample(rof)));
-                if (op.env_level >= kEnvMax) { op.env_level = kEnvMax; op.env = Env::kOff; }
-                break;
-            }
-            case Env::kOff: break;
+            case Env::kAttack: reg_rate = op.ar; break;
+            case Env::kDecay: reg_rate = op.dr; break;
+            case Env::kSustain: if (op.egt == 0) reg_rate = op.rr; break;  // percussive: falls to release
+            case Env::kRelease: reg_rate = op.rr; break;
         }
-        if (op.env_level < 0) op.env_level = 0;
-        if (op.env_level > kEnvMax) op.env_level = kEnvMax;
+        if (reset) reg_rate = op.ar;
+
+        int rate = effective_rate(reg_rate, ksn, op.ksr != 0);
+        int rate_hi = rate < 0 ? 0 : std::min(rate >> 2, 15);
+        int shift = envelope_shift(rate, eg_add_, eg_timer_lo_, eg_state_);
+
+        bool eg_off = (op.env_level & 0x1F8) == 0x1F8;
+        int32_t rout = op.env_level;
+        if (reset && rate_hi == 15) rout = 0;  // instant attack
+        if (op.env != Env::kAttack && !reset && eg_off) rout = kEnvMax;
+        int32_t inc = 0;
+
+        switch (op.env) {
+            case Env::kAttack:
+                if (op.env_level == 0) {
+                    op.env = Env::kDecay;
+                } else if (key_on && shift > 0 && rate_hi != 15) {
+                    inc = (~rout) >> (4 - shift);
+                }
+                break;
+            case Env::kDecay: {
+                int sl = (op.sl == 15) ? 31 : int(op.sl);
+                if ((op.env_level >> 4) == sl) {
+                    op.env = Env::kSustain;
+                } else if (!eg_off && !reset && shift > 0) {
+                    inc = 1 << (shift - 1);
+                }
+                break;
+            }
+            case Env::kSustain:
+            case Env::kRelease:
+                if (!eg_off && !reset && shift > 0) inc = 1 << (shift - 1);
+                break;
+        }
+        op.env_level = (rout + inc) & 0x1FF;
+        if (reset) op.env = Env::kAttack;
+        if (!key_on) op.env = Env::kRelease;
 
         // One lap of the 20-bit accumulator is one cycle and wave_sample()
         // indexes it as phase>>10, so a frame advances fnum * 2^block for
@@ -629,7 +669,7 @@ void Opl3::generate_frame(uint64_t cycle) {
     // given a phase-modulation offset from a preceding operator (0 if none).
     auto compute_sample = [this, am_units_this_frame](int opidx, uint16_t fnum, uint8_t block, int32_t mod_offset) -> int32_t {
         Operator &op = op_[opidx];
-        double atten = double(op.env_level) / double(kEnvScale) + double(op.tl) * 4.0 +
+        double atten = double(op.env_level) + double(op.tl) * 4.0 +
                        double(ksl_env_units(op.ksl, fnum, block)) +
                        (op.am ? am_units_this_frame : 0.0);
         uint32_t phase20 = uint32_t((uint64_t(op.phase) + uint64_t(uint32_t(mod_offset))) & 0xFFFFF);
@@ -784,7 +824,7 @@ void Opl3::generate_frame(uint64_t cycle) {
         auto noise_percussion = [&](int opidx, uint16_t fnum, uint8_t block, bool key_on, int phase_bit, int c) {
             advance_env_phase(opidx, fnum, block, key_on);
             bool gate = noise_bit ^ (((op_[opidx].phase >> phase_bit) & 1) != 0);
-            double atten = double(op_[opidx].env_level) / double(kEnvScale) + double(op_[opidx].tl) * 4.0 +
+            double atten = double(op_[opidx].env_level) + double(op_[opidx].tl) * 4.0 +
                            double(ksl_env_units(op_[opidx].ksl, fnum, block)) +
                            (op_[opidx].am ? am_units_this_frame : 0.0);
             int32_t mag = wave_sample(6, 0, atten);
@@ -815,6 +855,39 @@ void Opl3::generate_frame(uint64_t cycle) {
     };
     if (samples_.size() >= kMaxSamples) samples_.pop_front();
     samples_.push_back({cycle, clamp16(left * kMasterGain), clamp16(right * kMasterGain)});
+
+    // Every operator above read this frame's eg_add_/eg_timer_lo_/eg_state_
+    // (set by the PREVIOUS call); advance them now so the NEXT frame sees
+    // the clock one tick on -- the same order real silicon updates them in
+    // (OPL3_Generate4Ch processes all 36 slots, then steps the clock).
+    advance_envelope_clock();
+}
+
+// The chip-global envelope clock every operator's envelope_shift() call
+// reads (opl3.h's eg_timer_ etc.) -- "OPLx decapsulated"'s documented
+// mechanism, cross-checked against Nuked-OPL3's chip->eg_timer update as a
+// fact only. eg_state_ alternates every output frame; eg_add_ and
+// eg_timer_lo_ only change on the frames eg_state_ is true, derived from
+// counting eg_timer_'s trailing zero bits (a "ruler sequence") -- which is
+// also why the clock only advances itself on those same frames (gated by
+// eg_timerrem_ for the one-sample-late carry once eg_timer_ wraps).
+void Opl3::advance_envelope_clock() {
+    if (eg_state_) {
+        int shift = 0;
+        while (shift < 13 && ((eg_timer_ >> shift) & 1) == 0) shift++;
+        eg_add_ = shift > 12 ? 0 : shift + 1;
+        eg_timer_lo_ = uint8_t(eg_timer_ & 3);
+    }
+    if (eg_timerrem_ || eg_state_) {
+        if (eg_timer_ == 0xFFFFFFFFFULL) {  // 36-bit counter, per the decap notes
+            eg_timer_ = 0;
+            eg_timerrem_ = true;
+        } else {
+            eg_timer_++;
+            eg_timerrem_ = false;
+        }
+    }
+    eg_state_ = !eg_state_;
 }
 
 }  // namespace pc486

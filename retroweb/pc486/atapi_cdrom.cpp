@@ -1,7 +1,11 @@
 #include "atapi_cdrom.h"
 
 #include <algorithm>
+#include <cctype>
+#include <cstdlib>
 #include <cstring>
+#include <sstream>
+#include <string>
 
 namespace pc486 {
 
@@ -12,6 +16,7 @@ constexpr uint8_t kKeyNoSense = 0x00;
 constexpr uint8_t kKeyNotReady = 0x02;
 constexpr uint8_t kKeyIllegalRequest = 0x05;
 constexpr uint8_t kKeyUnitAttention = 0x06;
+constexpr uint8_t kKeyAbortedCommand = 0x0B;
 
 // Additional sense codes (SPC Annex D / MMC Table 71).
 constexpr uint8_t kAscInvalidOpcode = 0x20;        // INVALID COMMAND OPERATION CODE
@@ -21,6 +26,10 @@ constexpr uint8_t kAscMediumChanged = 0x28;        // NOT READY TO READY CHANGE
 constexpr uint8_t kAscResetOccurred = 0x29;        // POWER ON, RESET, OR BUS DEVICE RESET
 constexpr uint8_t kAscMediumNotPresent = 0x3A;
 constexpr uint8_t kAscRemovalPrevented = 0x53;     // MEDIA REMOVAL PREVENTED (ASCQ 02h)
+// MMC Table 73/77's PLAY AUDIO-specific codes.
+constexpr uint8_t kAscEndOfUserArea = 0x63;        // END OF USER AREA ENCOUNTERED ON THIS TRACK
+constexpr uint8_t kAscIllegalModeForTrack = 0x64;  // ILLEGAL MODE FOR THIS TRACK OR INCOMPATIBLE MEDIUM
+constexpr uint8_t kAscPlayOperationAborted = 0xB9; // PLAY OPERATION ABORTED (sense key 0Bh)
 
 // ATAPI/SCSI multi-byte CDB fields are big-endian (SPC §3.4.2) -- the
 // opposite of every x86-side structure a DOS driver hands the device, which
@@ -70,6 +79,19 @@ void AtapiCdrom::reset() {
     exec_credit_ = exec_target_ = 0.0;
     prev_cycles_ = 0;
     head_lba_ = kHeadUnknown;
+    playing_audio_ = false;
+    audio_paused_ = false;
+    audio_status_ = 0x15;  // MMC Table 116: no current audio status
+    audio_credit_ = 0.0;
+    audio_samples_.clear();
+    // Mode page 0Eh (SFF-8020i Table 60): ports 0/1 wired straight through
+    // (channel 0 -> port 0, channel 1 -> port 1) at full volume by default
+    // -- every real drive's factory wiring, so audio plays with no MODE
+    // SELECT at all. Ports 2/3 are optional and default muted.
+    audio_ports_[0] = AudioPort{0x1, 0xFF};
+    audio_ports_[1] = AudioPort{0x2, 0xFF};
+    audio_ports_[2] = AudioPort{0x0, 0x00};
+    audio_ports_[3] = AudioPort{0x0, 0x00};
     // A reset raises a unit-attention condition (SPC §5.6): the first
     // command after it gets CHECK CONDITION / 06h / 29h 00h. Real drives do
     // this, and a real driver's REQUEST SENSE clears it -- which is exactly
@@ -94,9 +116,56 @@ void AtapiCdrom::mount(const uint8_t *data, std::size_t len) {
     // cannot read a partial one.
     len -= len % kBytesPerSector;
     image_.assign(data, data + len);
+    audio_pcm_.clear();
+    const uint32_t blocks = uint32_t(image_.size() / kBytesPerSector);
+    tracks_.assign(1, Track{1, /*is_audio=*/false, 0, blocks, 0});
     media_present_ = len > 0;
     head_lba_ = kHeadUnknown;
+    stop_audio_playback(0x15);
     set_unit_attention(kAscMediumChanged, 0x00);
+}
+
+bool AtapiCdrom::mount_cue(const char *cue_text, const uint8_t *bin_data, std::size_t bin_len) {
+    image_.clear();
+    audio_pcm_.clear();
+    tracks_.clear();
+    if (!parse_cue(cue_text, bin_len)) {
+        tracks_.clear();
+        media_present_ = false;
+        return false;
+    }
+    // Lay out each track's bytes from the one BIN file. A single-FILE CUE
+    // sheet's tracks are contiguous in the BIN by construction (that's the
+    // whole point of one FILE line), so this walks a running byte cursor
+    // rather than computing offsets from start_lba -- the two disagree
+    // whenever a data and an audio track differ in bytes/sector. MODE1:
+    // cooked 2048-byte user data into image_, concatenated in LBA order so
+    // cmd_read10()'s existing flat addressing keeps working unchanged;
+    // AUDIO: raw 2352-byte frames into audio_pcm_ as interleaved 16-bit
+    // stereo samples, 588 frames/LBA.
+    std::size_t bin_cursor = 0;
+    for (auto &t : tracks_) {
+        const std::size_t sector_bytes = t.is_audio ? 2352 : std::size_t(kBytesPerSector);
+        const std::size_t len = std::size_t(t.length_lba) * sector_bytes;
+        if (bin_cursor + len > bin_len) { tracks_.clear(); media_present_ = false; return false; }
+        if (t.is_audio) {
+            t.pcm_base_frame = audio_pcm_.size() / 2;
+            audio_pcm_.resize(audio_pcm_.size() + std::size_t(t.length_lba) * 588 * 2);
+            int16_t *dst = audio_pcm_.data() + t.pcm_base_frame * 2;
+            for (std::size_t i = 0; i < len / 2; ++i) {
+                dst[i] = int16_t(uint16_t(bin_data[bin_cursor + i * 2]) |
+                                  (uint16_t(bin_data[bin_cursor + i * 2 + 1]) << 8));
+            }
+        } else {
+            image_.insert(image_.end(), bin_data + bin_cursor, bin_data + bin_cursor + len);
+        }
+        bin_cursor += len;
+    }
+    media_present_ = !tracks_.empty();
+    head_lba_ = kHeadUnknown;
+    stop_audio_playback(0x15);
+    set_unit_attention(kAscMediumChanged, 0x00);
+    return true;
 }
 
 void AtapiCdrom::eject() {
@@ -105,8 +174,11 @@ void AtapiCdrom::eject() {
     // emergency-eject equivalent a real user has. The CDB path below honors
     // the lock, as a real drive does.
     image_.clear();
+    audio_pcm_.clear();
+    tracks_.clear();
     media_present_ = false;
     head_lba_ = kHeadUnknown;
+    stop_audio_playback(0x15);
     set_unit_attention(kAscMediumChanged, 0x00);
 }
 
@@ -116,6 +188,112 @@ bool AtapiCdrom::owns(uint16_t port) const {
 
 uint32_t AtapiCdrom::capacity_blocks() const {
     return uint32_t(image_.size() / kBytesPerSector);
+}
+
+namespace {
+// "MM:SS:FF" -> absolute frame count (75 frames/sec, Red Book). Returns
+// false on anything that doesn't parse, so a malformed CUE sheet is
+// rejected rather than silently misread.
+bool parse_msf_field(const std::string &s, uint32_t *out) {
+    if (s.size() != 8 || s[2] != ':' || s[5] != ':') return false;
+    for (int i : {0, 1, 3, 4, 6, 7}) {
+        if (!std::isdigit(static_cast<unsigned char>(s[i]))) return false;
+    }
+    int mm = std::atoi(s.substr(0, 2).c_str());
+    int ss = std::atoi(s.substr(3, 2).c_str());
+    int ff = std::atoi(s.substr(6, 2).c_str());
+    *out = uint32_t(mm) * 60 * 75 + uint32_t(ss) * 75 + uint32_t(ff);
+    return true;
+}
+}  // namespace
+
+// CUE sheet subset: FILE (ignored -- the one BIN is the caller's own
+// bin_data) / TRACK <n> <MODE1/2048|AUDIO> / INDEX <n> <MM:SS:FF>. Only
+// INDEX 01 (the track's actual start, as opposed to INDEX 00's pre-gap) is
+// used, matching real single-BIN game rips. Populates tracks_ with each
+// track's number/type/whole-disc-LBA span; mount_cue() lays out the bytes.
+bool AtapiCdrom::parse_cue(const char *cue_text, std::size_t bin_len) {
+    struct Entry { int number; bool is_audio; uint32_t lba; };
+    std::vector<Entry> entries;
+    int pend_number = 0;
+    bool pend_audio = false;
+    bool have_pending = false;
+    std::istringstream file(cue_text ? cue_text : "");
+    std::string raw;
+    while (std::getline(file, raw)) {
+        std::size_t b = raw.find_first_not_of(" \t\r\n");
+        if (b == std::string::npos) continue;
+        std::istringstream line(raw.substr(b));
+        std::string kw;
+        line >> kw;
+        for (char &c : kw) c = char(std::toupper(static_cast<unsigned char>(c)));
+        if (kw == "TRACK") {
+            std::string mode;
+            if (!(line >> pend_number >> mode)) return false;
+            for (char &c : mode) c = char(std::toupper(static_cast<unsigned char>(c)));
+            pend_audio = (mode == "AUDIO");
+            have_pending = true;
+        } else if (kw == "INDEX" && have_pending) {
+            int idx = 0;
+            std::string ts;
+            if (!(line >> idx >> ts)) return false;
+            if (idx == 1) {
+                uint32_t lba = 0;
+                if (!parse_msf_field(ts, &lba)) return false;
+                entries.push_back({pend_number, pend_audio, lba});
+                have_pending = false;
+            }
+        }
+        // FILE and anything else (REM, CATALOG, PREGAP...): not needed for
+        // the single-BIN case this drive models, so ignored rather than
+        // rejected -- a real-world CUE sheet carries plenty of both.
+    }
+    if (entries.empty()) return false;
+    tracks_.clear();
+    tracks_.reserve(entries.size());
+    // Every track but the last has its length from the next INDEX 01's LBA
+    // (sector-size-agnostic, since LBA is a time-based address). The last
+    // track's length has to come from the BIN's remaining byte count
+    // instead -- there's no next INDEX to subtract -- so this tracks a
+    // running byte total in each track's OWN sector size as it goes,
+    // rather than dividing the WHOLE bin_len by the last track's sector
+    // size (which silently miscounts whenever an earlier track used a
+    // different sector size, e.g. a MODE1/2048 track ahead of an AUDIO one).
+    std::size_t bytes_so_far = 0;
+    for (std::size_t i = 0; i < entries.size(); ++i) {
+        Track t;
+        t.number = entries[i].number;
+        t.is_audio = entries[i].is_audio;
+        t.start_lba = entries[i].lba;
+        const std::size_t sector_bytes = t.is_audio ? 2352u : std::size_t(kBytesPerSector);
+        if (i + 1 < entries.size()) {
+            const uint32_t end_lba = entries[i + 1].lba;
+            if (end_lba <= t.start_lba) return false;
+            t.length_lba = end_lba - t.start_lba;
+        } else {
+            if (bin_len <= bytes_so_far) return false;
+            const uint32_t len_lba = uint32_t((bin_len - bytes_so_far) / sector_bytes);
+            if (len_lba == 0) return false;
+            t.length_lba = len_lba;
+        }
+        bytes_so_far += std::size_t(t.length_lba) * sector_bytes;
+        tracks_.push_back(t);
+    }
+    return true;
+}
+
+const AtapiCdrom::Track *AtapiCdrom::track_at(uint32_t lba) const {
+    for (const auto &t : tracks_) {
+        if (lba >= t.start_lba && lba < t.start_lba + t.length_lba) return &t;
+    }
+    return nullptr;
+}
+
+const AtapiCdrom::Track *AtapiCdrom::track_number(int n) const {
+    for (const auto &t : tracks_) {
+        if (t.number == n) return &t;
+    }
+    return nullptr;
 }
 
 // --- register interface ---------------------------------------------------
@@ -194,6 +372,7 @@ void AtapiCdrom::out(uint16_t port, uint8_t v) {
                 block_end_ = 0;
                 exec_active_ = false;
                 check_pending_ = false;
+                stop_audio_playback(0x15);
                 set_unit_attention(kAscResetOccurred, 0x00);
             }
             srst_prev_ = srst_now;
@@ -283,6 +462,7 @@ void AtapiCdrom::device_reset() {
     data_pos_ = block_end_ = 0;
     exec_active_ = false;
     check_pending_ = false;
+    stop_audio_playback(0x15);
     set_unit_attention(kAscResetOccurred, 0x00);
 }
 
@@ -389,7 +569,19 @@ void AtapiCdrom::begin_packet() {
 }
 
 void AtapiCdrom::write_data_byte(uint8_t v) {
-    if (phase_ != Phase::kCommandPacket) return;  // no data-out CDBs: read-only drive
+    if (phase_ == Phase::kDataOut) {
+        // The one data-out CDB this drive accepts: MODE SELECT(10)'s
+        // parameter list, set up by cmd_mode_select10(). Everything else
+        // stays genuinely data-out-incapable -- see the file header.
+        if (data_pos_ < data_.size()) data_[data_pos_++] = v;
+        if (data_pos_ >= data_.size()) {
+            status_ = ST_BSY;
+            phase_ = Phase::kExecuting;
+            mode_select_apply();
+        }
+        return;
+    }
+    if (phase_ != Phase::kCommandPacket) return;  // no other data-out CDBs: see the file header
     if (cdb_pos_ < int(sizeof(cdb_))) cdb_[cdb_pos_++] = v;
     if (cdb_pos_ >= int(sizeof(cdb_))) {
         // Full 12-byte packet in hand: BSY up, DRQ down, then execute.
@@ -513,6 +705,22 @@ void AtapiCdrom::execute_packet() {
         return;
     }
 
+    // MMC Table 74/75: a PLAY AUDIO/SCAN operation in progress keeps
+    // running across most commands (a real drive's audio output is its own
+    // analog signal, independent of the ATA command stream), but a handful
+    // of opcodes stop it first. This machine doesn't implement SCAN or
+    // MECHANISM STATUS, so their rows don't apply; of the rest, everything
+    // this drive implements other than the ones listed here belongs to
+    // Table 75 ("will not stop a play or scan operation").
+    if (playing_audio_) {
+        switch (op) {
+            case 0x1B: case 0x28: case 0x2B:  // START/STOP UNIT, READ(10), SEEK(10)
+                stop_audio_playback(0x15);
+                break;
+            default: break;
+        }
+    }
+
     switch (op) {
         case 0x00:  // TEST UNIT READY (SPC §7.25) -- status only, no data
             require_media();
@@ -526,7 +734,13 @@ void AtapiCdrom::execute_packet() {
         case 0x25: if (require_media()) cmd_read_capacity(); break;    // MMC §6.1.10
         case 0x28: if (require_media()) seconds += cmd_read10(); break;  // MMC §6.1.7
         case 0x2B: if (require_media()) seconds += cmd_seek10(); break;  // MMC §6.1.15
+        case 0x42: if (require_media()) cmd_read_subchannel(); break;  // MMC §6.1.9 / §10.8.18
         case 0x43: if (require_media()) cmd_read_toc(); break;         // MMC §6.1.12
+        case 0x45: if (require_media()) cmd_play_audio10(); break;     // MMC §10.8.8
+        case 0x47: if (require_media()) cmd_play_audio_msf(); break;   // MMC §10.8.9
+        case 0x4B: cmd_pause_resume(); break;                          // MMC §10.8.7
+        case 0x4E: cmd_stop_play_scan(); break;                        // MMC §10.8.24
+        case 0x55: cmd_mode_select10(); return;                        // Data-OUT -- see below
         case 0x5A: cmd_mode_sense10(); break;                          // MMC §6.1.6 / SPC §7.10
         default:
             // Everything else, including MODE SENSE(6)/MODE SELECT(6) -- the
@@ -672,13 +886,22 @@ void AtapiCdrom::note_transfer(uint32_t lba, uint32_t blocks) {
     head_lba_ = lba + blocks;
 }
 
+// End of the last track -- the lead-out address, and NOT the same thing as
+// capacity_blocks() once a mixed-mode disc has audio tracks after the data
+// track: capacity_blocks() stays the data track's own extent (what READ
+// CAPACITY/READ(10)/SEEK(10) address), while the lead-out covers the whole
+// disc.
+uint32_t AtapiCdrom::disc_end_lba() const {
+    return tracks_.empty() ? 0 : tracks_.back().start_lba + tracks_.back().length_lba;
+}
+
 void AtapiCdrom::cmd_read_toc() {
     // MMC READ TOC/PMA/ATIP, formats 0000b (the TOC) and 0001b (Session
     // Information). Beyond the required command set, but a real-mode CD-ROM
     // driver issues it during its own disc-present/disc-type check, so
-    // leaving it out would leave that path untestable. This image is always a
-    // single-session, single-track MODE1 data disc, so the TOC is track 1
-    // plus the lead-out, and there is exactly one session.
+    // leaving it out would leave that path untestable. Always exactly one
+    // session; mount()'s plain-ISO path is the one-track-all-data case of
+    // the same tracks_ list mount_cue() builds for a mixed-mode disc.
     const bool msf = (cdb_[1] & 0x02) != 0;
     const uint16_t alloc = be16(&cdb_[7]);
     const uint8_t format = uint8_t(cdb_[2] & 0x0F);
@@ -696,6 +919,10 @@ void AtapiCdrom::cmd_read_toc() {
         p[2] = uint8_t((f / 75) % 60);
         p[3] = uint8_t(f % 75);
     };
+    // ADR = 1 (position), CONTROL low bit clear for a data track (CDB_RBK
+    // Q-subchannel control nibble, MMC Table 118): bit 2 of CONTROL is 1 for
+    // data, 0 for two-channel audio -- so 0x14 (data) vs 0x10 (audio).
+    auto control_for = [](bool is_audio) -> uint8_t { return is_audio ? 0x10 : 0x14; };
     if (format == 0x01) {
         // Session Information: a 4-byte header plus exactly one TOC track
         // descriptor, describing the first track of the last complete
@@ -705,72 +932,369 @@ void AtapiCdrom::cmd_read_toc() {
         // precisely `43 00 01 ... 00 0C` as its disc-present check, and
         // refusing it made the whole drive read as "not ready" to DOS. See
         // PC486_REVIEW.md §5.5.
+        const Track first = tracks_.empty() ? Track{} : tracks_.front();
         uint8_t sess[12] = {};
         put_be16(sess + 0, 10);  // TOC data length: total minus this 2-byte field
         sess[2] = 1;             // first complete session
         sess[3] = 1;             // last complete session
         sess[4] = 0x00;          // reserved
-        sess[5] = 0x14;          // ADR = 1 (position), CONTROL = 4 (data track)
-        sess[6] = 1;             // first track number in the last complete session
-        sess[7] = 0x00;          // reserved
-        put_addr(sess + 8, 0);   // that track's start address
+        sess[5] = control_for(first.is_audio);
+        sess[6] = uint8_t(first.number);  // first track number in the last complete session
+        sess[7] = 0x00;                    // reserved
+        put_addr(sess + 8, first.start_lba);
         respond(sess, sizeof(sess), alloc);
         return;
     }
 
-    uint8_t s[20] = {};
-    put_be16(s + 0, 18);  // TOC data length: total minus this 2-byte field
-    s[2] = 1;             // first track
-    s[3] = 1;             // last track
-    s[4] = 0x00;
-    s[5] = 0x14;          // ADR = 1 (position), CONTROL = 4 (data track)
-    s[6] = 1;             // track number
-    put_addr(s + 8, 0);
-    s[12] = 0x00;
-    s[13] = 0x14;
-    s[14] = 0xAA;         // lead-out is reported as pseudo-track AAh
-    put_addr(s + 16, capacity_blocks());
-    respond(s, sizeof(s), alloc);
+    std::vector<uint8_t> s(4 + tracks_.size() * 8 + 8, 0);
+    put_be16(s.data() + 0, uint16_t(s.size() - 2));
+    s[2] = tracks_.empty() ? 0 : uint8_t(tracks_.front().number);
+    s[3] = tracks_.empty() ? 0 : uint8_t(tracks_.back().number);
+    uint8_t *p = s.data() + 4;
+    for (const auto &t : tracks_) {
+        p[0] = 0x00;
+        p[1] = control_for(t.is_audio);
+        p[2] = uint8_t(t.number);
+        put_addr(p + 4, t.start_lba);
+        p += 8;
+    }
+    p[0] = 0x00;
+    p[1] = 0x14;
+    p[2] = 0xAA;  // lead-out is reported as pseudo-track AAh
+    put_addr(p + 4, disc_end_lba());
+    respond(s.data(), s.size(), alloc);
+}
+
+// Appends page 0Eh, CD-ROM Audio Control Parameters (SFF-8020i Table 60):
+// the live mirror of whatever cmd_mode_select10()/mode_select_apply() last
+// set, which is what makes MODE SENSE/MODE SELECT round-trip for a driver
+// that reads back what it wrote.
+void AtapiCdrom::append_audio_control_page(std::vector<uint8_t> *out) const {
+    std::size_t base = out->size();
+    out->resize(base + 16, 0);
+    uint8_t *p = out->data() + base;
+    p[0] = 0x0E;  // page code, PS = 0
+    p[1] = 0x0E;  // page length: 14 more bytes
+    p[2] = 0x04;  // Immed = 1 (mandatory); SOTC = 0 (play to transfer length, not track boundary)
+    put_be16(p + 6, 75);  // logical blocks per second of audio playback -- Red Book's fixed rate
+    for (int port = 0; port < 4; ++port) {
+        p[8 + port * 2] = audio_ports_[port].channel_selection & 0x0F;
+        p[9 + port * 2] = audio_ports_[port].volume;
+    }
 }
 
 void AtapiCdrom::cmd_mode_sense10() {
     const uint8_t page = uint8_t(cdb_[2] & 0x3F);
     const uint16_t alloc = be16(&cdb_[7]);
-    // Page 2Ah, the CD Capabilities and Mechanical Status page (MMC /
-    // SFF-8020i) -- the page a driver probes to learn the drive's speed,
-    // loader type and whether it can eject. Answered with no disc in the
-    // tray, since it describes the drive.
-    if (page != 0x2A && page != 0x3F) {
+    if (page != 0x0E && page != 0x2A && page != 0x3F) {
         set_check(kKeyIllegalRequest, kAscInvalidFieldInCdb, 0x00);
         return;
     }
-    uint8_t s[30] = {};
-    // Mode parameter header (8 bytes for the 10-byte command form).
-    put_be16(s + 0, uint16_t(sizeof(s) - 2));  // mode data length
-    s[2] = media_present_ ? 0x01 : 0x70;       // medium type: 120mm data disc / door open
-    put_be16(s + 6, 0);                        // block descriptor length: none
+    std::vector<uint8_t> s(8, 0);  // mode parameter header, 10-byte command form
+    s[2] = media_present_ ? 0x01 : 0x70;  // medium type: 120mm data disc / door open
+    // bytes 6-7 (block descriptor length) stay 0: no block descriptors.
 
-    uint8_t *p = s + 8;
-    p[0] = 0x2A;  // page code, PS = 0
-    p[1] = 0x14;  // page length: 20 more bytes (the SFF-8020i/MMC-1 length)
-    p[2] = 0x00;  // no CD-R/CD-RW/DVD read capability
-    p[3] = 0x00;  // no write capability
-    // Byte 4 deliberately advertises nothing: no audio play, no mode 2
-    // form 1/2 reads, no multisession. This drive implements READ(10) of
-    // MODE1 user data and nothing else, and claiming a capability whose
-    // CDBs then fail is worse for a driver than claiming none.
-    p[4] = 0x00;
-    p[5] = 0x00;  // no CD-DA commands
-    // Loading mechanism type 001b (tray) in bits 7:5, Eject supported (bit
-    // 3), Lock supported (bit 0) -- the bits that make START STOP UNIT's
-    // eject path legible to a driver.
-    p[6] = 0x29;
-    p[7] = 0x00;
-    put_be16(p + 8, 353);   // maximum read speed, KB/s: 2x = 2 x 176.4
-    put_be16(p + 10, 0);    // number of volume levels (no audio)
-    put_be16(p + 12, 256);  // buffer size, KB -- a period 2x drive's cache
-    put_be16(p + 14, 353);  // current read speed
-    respond(s, sizeof(s), alloc);
+    if (page == 0x0E || page == 0x3F) append_audio_control_page(&s);
+    if (page == 0x2A || page == 0x3F) {
+        // Page 2Ah, the CD Capabilities and Mechanical Status page (MMC /
+        // SFF-8020i §10.8.6.4) -- the page a driver probes to learn the
+        // drive's speed, loader type and whether it can eject. Answered
+        // with no disc in the tray, since it describes the drive.
+        std::size_t base = s.size();
+        s.resize(base + 20, 0);
+        uint8_t *p = s.data() + base;
+        p[0] = 0x2A;  // page code, PS = 0
+        // Page length 12h = 18 more bytes, for a 20-byte page total (SFF-8020i
+        // Table 68: bytes 0-19). The previous value here, 14h, was simply
+        // wrong -- it claimed 22 bytes while only 20 were ever written, which
+        // this fix corrects alongside the CD-DA capability bits below.
+        p[1] = 0x12;
+        p[2] = 0x00;  // no CD-R/CD-RW/DVD read capability
+        p[3] = 0x00;  // no write capability
+        // Byte 4 bit 0 (Audio Play) is the one capability bit this drive
+        // now genuinely has, via PLAY AUDIO(10)/MSF -- everything else
+        // (Composite, Digital Port 1/2, Mode 2 Form 1/2, Multi Session)
+        // stays clear: this drive implements READ(10) of MODE1 user data
+        // and CD-DA playback, and nothing else.
+        p[4] = 0x01;
+        // Byte 5 bit 0 is a DIFFERENT capability -- "Red Book audio can be
+        // read using the READ CD command" (MMC's own CD-DA-via-data-path),
+        // which this drive does not implement (no READ CD/BCh) and so
+        // stays honestly clear, same as the rest of this byte (no UPC,
+        // ISRC, R-W subchannel, C2 pointers).
+        p[5] = 0x00;
+        // Loading mechanism type 001b (tray) in bits 7:5, Eject supported
+        // (bit 3), Lock supported (bit 0).
+        p[6] = 0x29;
+        // Separate Volume (bit 0) and Separate Channel Mute (bit 1): real
+        // now that mode page 0Eh's 4 independent output ports exist.
+        p[7] = 0x03;
+        put_be16(p + 8, 353);   // maximum read speed, KB/s: 2x = 2 x 176.4
+        put_be16(p + 10, 256);  // number of volume levels: one per attenuation byte
+        put_be16(p + 12, 256);  // buffer size, KB -- a period 2x drive's cache
+        put_be16(p + 14, 353);  // current read speed
+    }
+    put_be16(s.data() + 0, uint16_t(s.size() - 2));  // mode data length
+    respond(s.data(), s.size(), alloc);
+}
+
+void AtapiCdrom::cmd_mode_select10() {
+    // SPC MODE SELECT(10): Parameter List Length at cdb_[7..8]. This drive
+    // accepts only page 0Eh's parameter list (16 bytes) in the one block a
+    // real driver sends it in -- see mode_select_apply() for what happens
+    // once the bytes arrive, and the file header for why every OTHER
+    // data-out CDB stays genuinely unimplemented.
+    const uint16_t param_len = be16(&cdb_[7]);
+    if (param_len == 0) { command_complete(); return; }  // not an error, SPC §10.4
+    data_.assign(param_len, 0);
+    data_pos_ = 0;
+    block_end_ = data_.size();
+    byte_count_ = uint16_t(std::min<std::size_t>(data_.size(), limit_));
+    int_reason_ = 0;  // C/D = 0, I/O = 0: "send me data", device to host direction clear
+    status_ = ST_DRDY | ST_DRQ;
+    phase_ = Phase::kDataOut;
+    irq_pending_ = !nien_;
+}
+
+void AtapiCdrom::mode_select_apply() {
+    // The mode parameter list is an 8-byte header (block descriptor length
+    // always 0 on this drive, so nothing to skip beyond the header itself)
+    // followed by the one mode page this drive recognizes for MODE SELECT.
+    check_pending_ = false;
+    error_ = 0;
+    bool ok = data_.size() >= 8 + 16;
+    if (ok) {
+        const uint8_t *p = data_.data() + 8;
+        ok = (p[0] & 0x3F) == 0x0E && p[1] >= 0x0E;
+        if (ok) {
+            for (int port = 0; port < 4; ++port) {
+                audio_ports_[port].channel_selection = p[8 + port * 2] & 0x0F;
+                audio_ports_[port].volume = p[9 + port * 2];
+            }
+        }
+    }
+    if (!ok) set_check(kKeyIllegalRequest, kAscInvalidFieldInCdb, 0x00);
+    data_.clear();
+    data_pos_ = block_end_ = 0;
+    begin_execute(kCommandSec);
+}
+
+void AtapiCdrom::cmd_play_audio10() {
+    uint32_t lba = be32(&cdb_[2]);
+    const uint32_t len = be16(&cdb_[7]);
+    // "FFFF FFFFh shall implement audio play from the current location of
+    // the optics" (MMC §10.8.8).
+    if (lba == 0xFFFFFFFF) lba = play_cur_lba_;
+    if (len == 0) { command_complete(); return; }  // not an error, MMC §10.8.8
+    const Track *start = track_at(lba);
+    if (!start || !start->is_audio) {
+        set_check(kKeyIllegalRequest, kAscIllegalModeForTrack, 0x00);
+        return;
+    }
+    const uint32_t end = lba + len;
+    if (!audio_range_stays_in_type(lba, end, /*is_audio=*/true)) {
+        set_check(kKeyIllegalRequest, kAscEndOfUserArea, 0x00);
+        return;
+    }
+    start_audio_playback(lba, end);
+}
+
+void AtapiCdrom::cmd_play_audio_msf() {
+    // MMC §10.8.9. "FFh FFh FFh shall be taken from the Current Optical
+    // Head location" (play_cur_lba_ serves as that, same as PLAY AUDIO(10)'s
+    // FFFF FFFFh above).
+    auto msf_to_lba = [](const uint8_t *p) -> uint32_t {
+        if (p[0] == 0xFF && p[1] == 0xFF && p[2] == 0xFF) return 0xFFFFFFFF;
+        const uint32_t f = uint32_t(p[0]) * 60 * 75 + uint32_t(p[1]) * 75 + uint32_t(p[2]);
+        return f >= 150 ? f - 150 : 0;  // undo the Red Book 2-second pregap offset
+    };
+    uint32_t start = msf_to_lba(&cdb_[3]);
+    uint32_t end = msf_to_lba(&cdb_[6]);
+    if (start == 0xFFFFFFFF) start = play_cur_lba_;
+    if (end == 0xFFFFFFFF) end = play_cur_lba_;
+    if (start == end) { command_complete(); return; }  // not an error, MMC §10.8.9
+    if (start > end) {
+        set_check(kKeyIllegalRequest, kAscInvalidFieldInCdb, 0x00);
+        return;
+    }
+    const Track *t = track_at(start);
+    if (!t || !t->is_audio) {
+        set_check(kKeyIllegalRequest, kAscIllegalModeForTrack, 0x00);
+        return;
+    }
+    if (!audio_range_stays_in_type(start, end, /*is_audio=*/true)) {
+        set_check(kKeyIllegalRequest, kAscEndOfUserArea, 0x00);
+        return;
+    }
+    start_audio_playback(start, end);
+}
+
+// True if every track overlapping [lba, end) -- and the disc's own extent --
+// agrees with `want_audio`. Used instead of scanning every individual LBA:
+// tracks_ is a short list (a handful of entries at most), so this is the
+// same check MMC's "information type changes within transfer length" rule
+// describes, done per-track rather than per-block.
+bool AtapiCdrom::audio_range_stays_in_type(uint32_t lba, uint32_t end, bool want_audio) const {
+    if (end > disc_end_lba()) return false;
+    for (const auto &t : tracks_) {
+        const uint32_t t_end = t.start_lba + t.length_lba;
+        if (lba < t_end && end > t.start_lba && t.is_audio != want_audio) return false;
+    }
+    return true;
+}
+
+void AtapiCdrom::cmd_pause_resume() {
+    // MMC §10.8.7. Pausing an already-paused play, or resuming a play
+    // that's already running, is explicitly "shall not be considered an
+    // error" -- only pausing/resuming with no play operation active is.
+    const bool resume = (cdb_[8] & 0x01) != 0;
+    if (!playing_audio_) {
+        set_check(kKeyAbortedCommand, kAscPlayOperationAborted, 0x00);
+        return;
+    }
+    if (resume) {
+        audio_paused_ = false;
+        audio_status_ = 0x11;  // playing
+    } else {
+        audio_paused_ = true;
+        audio_status_ = 0x12;  // paused
+    }
+}
+
+void AtapiCdrom::cmd_stop_play_scan() {
+    stop_audio_playback(0x15);  // MMC Table 116: no current audio status
+}
+
+void AtapiCdrom::cmd_read_subchannel() {
+    // MMC §10.8.18. The sub-Q bit (cdb_[2] bit 6) governs whether any
+    // sub-channel data block follows the 4-byte header at all -- SubQ=0
+    // returning just the header is explicitly "not an error".
+    const bool msf = (cdb_[1] & 0x02) != 0;
+    const bool subq = (cdb_[2] & 0x40) != 0;
+    const uint8_t format = cdb_[3];
+    const uint16_t alloc = be16(&cdb_[7]);
+    if (!subq) {
+        uint8_t s[4] = {};
+        s[1] = audio_status_;
+        respond(s, sizeof(s), alloc);
+        return;
+    }
+    auto put_addr = [&](uint8_t *p, uint32_t lba) {
+        if (!msf) { put_be32(p, lba); return; }
+        const uint32_t f = lba + 150;  // Red Book 2-second pregap offset
+        p[0] = 0;
+        p[1] = uint8_t(f / (75 * 60));
+        p[2] = uint8_t((f / 75) % 60);
+        p[3] = uint8_t(f % 75);
+    };
+    if (format == 0x01) {
+        // CD-ROM Current Position Data (Table 115): the only format this
+        // drive tracks live state for.
+        uint8_t s[16] = {};
+        s[1] = audio_status_;
+        put_be16(s + 2, 12);  // sub-channel data length, header excluded
+        s[4] = 0x01;          // sub-channel data format code
+        const Track *t = track_at(play_cur_lba_);
+        const int track_no = t ? t->number : (tracks_.empty() ? 1 : tracks_.back().number);
+        s[5] = uint8_t(0x10 | (t && !t->is_audio ? 0x04 : 0x00));  // ADR=1, CONTROL per track type
+        s[6] = uint8_t(track_no);
+        s[7] = 1;  // index: sub-indices within a track aren't modeled
+        put_addr(s + 8, play_cur_lba_);
+        put_addr(s + 12, t ? (play_cur_lba_ - t->start_lba) : play_cur_lba_);
+        respond(s, sizeof(s), alloc);
+    } else if (format == 0x02 || format == 0x03) {
+        // Media Catalogue Number / Track ISRC (Tables 119/121): neither is
+        // modeled, so MCVal/TCVal stay clear -- an honest "not detected"
+        // rather than fabricated data, same posture as MODE SENSE's
+        // capabilities page.
+        uint8_t s[24] = {};
+        s[1] = audio_status_;
+        put_be16(s + 2, 20);
+        s[4] = format;
+        respond(s, sizeof(s), alloc);
+    } else {
+        set_check(kKeyIllegalRequest, kAscInvalidFieldInCdb, 0x00);
+    }
+}
+
+// --- CD-DA playback engine -------------------------------------------------
+// Independent of the packet-protocol state machine above: a real drive's
+// audio output is its own analog signal that plays in the background while
+// the host is free to issue other commands (MMC Table 74/75; see
+// execute_packet()'s stop-list). Paced the same way SoundBlaster::advance()
+// paces digitized playback -- accumulated CPU-cycle credit against a fixed
+// sample rate -- but one frame at a time rather than in bursts, since CD-DA
+// has no DMA-driven byte-move step to batch.
+
+void AtapiCdrom::start_audio_playback(uint32_t start_lba, uint32_t end_lba) {
+    playing_audio_ = true;
+    audio_paused_ = false;
+    audio_status_ = 0x11;  // playing
+    play_cur_lba_ = start_lba;
+    play_end_lba_ = end_lba;
+    play_frame_in_lba_ = 0;
+    audio_credit_ = 0.0;
+    audio_prev_cycles_ = prev_cycles_;
+}
+
+void AtapiCdrom::stop_audio_playback(uint8_t status) {
+    playing_audio_ = false;
+    audio_paused_ = false;
+    audio_status_ = status;
+}
+
+void AtapiCdrom::advance_audio(uint64_t cpu_cycles) {
+    // The clock baseline always moves forward, whether or not audio is
+    // paused: a pause has to mean "no credit accrues," not "time stops
+    // being tracked," or a long pause would hand back a false burst of
+    // elapsed cycles -- and therefore samples -- the instant playback
+    // resumes.
+    const uint64_t delta = cpu_cycles - audio_prev_cycles_;
+    audio_prev_cycles_ = cpu_cycles;
+    if (audio_paused_) return;
+    audio_credit_ += double(delta);
+    const double cycles_per_frame = cpu_hz_ / double(kAudioSampleRateHz);
+    while (audio_credit_ >= cycles_per_frame) {
+        if (play_cur_lba_ >= play_end_lba_) { stop_audio_playback(0x13); return; }  // completed
+        const Track *t = track_at(play_cur_lba_);
+        if (!t || !t->is_audio) { stop_audio_playback(0x14); return; }  // stopped due to error
+        const uint64_t frame =
+            t->pcm_base_frame + uint64_t(play_cur_lba_ - t->start_lba) * 588 + play_frame_in_lba_;
+        const int16_t raw_l = audio_pcm_[frame * 2];
+        const int16_t raw_r = audio_pcm_[frame * 2 + 1];
+        audio_credit_ -= cycles_per_frame;
+        // Back-dated the same way SoundBlaster's burst DMA is: when several
+        // frames become due in one call (tick() isn't guaranteed to run at
+        // 44.1kHz granularity), each still gets its own, correctly spaced
+        // timestamp rather than all sharing cpu_cycles -- audio_credit_ is
+        // exactly how far "in the future" of this frame's real due time
+        // cpu_cycles is, so subtracting it back-dates correctly.
+        if (audio_samples_.size() < kMaxAudioSamples) {
+            audio_samples_.push_back(Sample{cpu_cycles - uint64_t(audio_credit_), raw_l, raw_r});
+        }
+        if (++play_frame_in_lba_ >= 588) {
+            play_frame_in_lba_ = 0;
+            ++play_cur_lba_;
+        }
+    }
+}
+
+std::vector<AtapiCdrom::Sample> AtapiCdrom::drain_samples() {
+    std::vector<Sample> out;
+    out.swap(audio_samples_);
+    return out;
+}
+
+// Linear gain from an output port's volume byte (SFF-8020i Table 62: FFh =
+// 0 dB/unity, 00h = mute, and the 2 dB/6 dB-step attenuation table in
+// between is exactly byte/255 on a linear amplitude scale -- e.g. 80h =
+// 128/255 = 0.502 versus the table's published -6 dB = 10^(-6/20) = 0.501),
+// gated by whether this port's channel-selection nibble (Table 61) routes
+// the given Red Book channel (0 = left, 1 = right) to it at all.
+float AtapiCdrom::audio_port_gain(int port, int channel) const {
+    const AudioPort &p = audio_ports_[port];
+    if (((p.channel_selection >> channel) & 0x01) == 0) return 0.0f;
+    return float(p.volume) / 255.0f;
 }
 
 }  // namespace pc486

@@ -298,6 +298,12 @@ export async function insertCdrom(page: Page, filePath: string): Promise<void> {
   await bay(page, "cdrom").locator('[data-role="file"]').setInputFiles(filePath);
 }
 
+/** Mounts a mixed-mode disc via its CUE sheet and companion BIN -- the two-file
+ * select the CD-ROM bay's picker accepts alongside a plain ISO. */
+export async function insertCdromCue(page: Page, cuePath: string, binPath: string): Promise<void> {
+  await bay(page, "cdrom").locator('[data-role="file"]').setInputFiles([cuePath, binPath]);
+}
+
 export async function ejectCdrom(page: Page): Promise<void> {
   await bay(page, "cdrom").locator('[data-role="eject"]').click();
 }

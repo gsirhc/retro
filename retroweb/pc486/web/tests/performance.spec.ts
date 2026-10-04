@@ -32,7 +32,7 @@ test.describe("Performance panel", () => {
       .toBeGreaterThan(0);
     const text = (await out.textContent())!;
     for (const want of ["starved", "trimmed", "fed", "p50", "p95", "max",
-                        "guest", "fm", "of real time"]) {
+                        "guest", "fm", "of real time", "range"]) {
       expect(text).toContain(want);
     }
     const p50 = Number(/p50 ([\d.]+) ms/.exec(text)![1]);
@@ -42,6 +42,15 @@ test.describe("Performance panel", () => {
     // per second; the panel is where a shortfall becomes visible.
     const guest = Number(/guest ([\d.]+)x/.exec(text)![1]);
     expect(guest).toBeGreaterThan(0.2);
+    // The range is the one number the instant "ring N ms" reading can't
+    // show: a brief surplus or drain that the correction already bled off
+    // by the time this second's snapshot is read. min <= the current
+    // reading <= max, always, since the current reading is one of the
+    // samples the range is drawn from.
+    const [, rMin, rMax] = /range (\d+)-(\d+) ms \(60s\)/.exec(text)!;
+    const ring = Number(/ring\s+(\d+) ms of/.exec(text)![1]);
+    expect(Number(rMin)).toBeLessThanOrEqual(ring);
+    expect(Number(rMax)).toBeGreaterThanOrEqual(ring);
   });
 
   test("a third chart tracks the audio ring", async ({ perfPage: page }) => {

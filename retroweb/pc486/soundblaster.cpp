@@ -265,6 +265,17 @@ float SoundBlaster::fm_gain_right() const {
            two_bit_boost_gain(mixer_[0x42]);
 }
 
+float SoundBlaster::cd_gain_left() const {
+    if (!(mixer_[0x3C] & 0x04)) return 0.0f;  // CD.L output switch open
+    return five_bit_gain(mixer_[0x30]) * five_bit_gain(mixer_[0x36]) *
+           two_bit_boost_gain(mixer_[0x41]);
+}
+float SoundBlaster::cd_gain_right() const {
+    if (!(mixer_[0x3C] & 0x02)) return 0.0f;  // CD.R output switch open
+    return five_bit_gain(mixer_[0x31]) * five_bit_gain(mixer_[0x37]) *
+           two_bit_boost_gain(mixer_[0x42]);
+}
+
 uint8_t SoundBlaster::mixer_read(uint8_t index) const {
     switch (index) {
         case 0x82: {
@@ -672,8 +683,22 @@ void SoundBlaster::fill_input_buffer(std::size_t len) {
 void SoundBlaster::advance(uint64_t cpu_cycles, uint64_t delta) {
     frame_credit_ += double(delta);
     const double cycles_per_frame = cpu_hz_ / double(rate_hz_ ? rate_hz_ : 1);
-    const uint64_t due = uint64_t(frame_credit_ / cycles_per_frame);
-    if (due == 0) return;
+    const uint64_t due_raw = uint64_t(frame_credit_ / cycles_per_frame);
+    if (due_raw == 0) return;
+    // Cap each burst to about 1ms of frames. The bytes for a burst are
+    // fetched from memory in one step at the end of the window they fill
+    // (see the file header), so without a cap a long-accumulated
+    // frame_credit_ -- a big auto-init block, or a main-thread stall that
+    // let several ticks' worth pile up -- would move the whole span in one
+    // burst, which is audible as the DMA count/the audio itself lagging real
+    // hardware by that whole span instead of by about a millisecond. This is
+    // PC486_REVIEW.md's "cheap middle option": an order of magnitude
+    // tighter without redesigning to one DMA cycle per sample (176400/s at
+    // 44.1kHz 16-bit stereo, well past this interpreter's per-instruction
+    // budget). Credit beyond the cap is simply not consumed yet and carries
+    // to the next advance().
+    const uint64_t kMaxBurstFrames = std::max<uint64_t>(1, uint64_t(rate_hz_) / 1000);
+    const uint64_t due = std::min(due_raw, kMaxBurstFrames);
 
     if (mode_ == Mode::kSilence) {
         uint32_t frames = uint32_t(std::min<uint64_t>(due, block_left_));
