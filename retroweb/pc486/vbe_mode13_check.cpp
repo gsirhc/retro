@@ -516,7 +516,7 @@ int main(int argc, char **argv) {
         if (!phase1 && rd16(S_PHASE1) == kPhase1Magic) {
             phase1 = true;
             phase1_cycles = m.total_cycles();
-            pc486::RenderScreen(m.chipset.vga, svga_frame, /*blink_on=*/true);
+            pc486::RenderScreen(m.chipset.vga, svga_frame);
             m.chipset.mem[S_GO] = 1;
         }
         done = rd16(S_DONE) == kDoneMagic;
@@ -648,7 +648,7 @@ int main(int argc, char **argv) {
 
     std::printf("\n--- rendered mode-13h screen (shared ega_render.cpp) ---\n");
     pc486::RenderedFrame frame;
-    pc486::RenderScreen(m.chipset.vga, frame, /*blink_on=*/true);
+    pc486::RenderScreen(m.chipset.vga, frame);
     CheckFrame(frame, 320, 200, kPattern, int(sizeof kPattern / sizeof kPattern[0]),
                kRunRow, kRunX0, kRunLen, kRunIdx, kDac, kDacFirst);
 

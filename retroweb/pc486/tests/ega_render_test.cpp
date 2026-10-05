@@ -96,6 +96,22 @@ void SetSvgaMode(Ega &ega, uint16_t xres, uint16_t yres) {
     put(Ega::kVbeRegEnable, Ega::kVbeEnabled);
 }
 
+// 8-dot cells (SR01 bit 0) with the cursor off (CRTC 0Ah bit 5), so a
+// case about glyphs or colours isn't painted over by the reset-state
+// cursor at cell 0.
+void EightDotTextNoCursor(Ega &ega) {
+    ega.out(0x3C4, 0x01); ega.out(0x3C5, 0x01);
+    ega.out(0x3D4, 0x0A); ega.out(0x3D5, 0x20);
+}
+
+// Runs the card's frame counter forward `frames` vertical frames at the
+// unprogrammed CRTC's fallback 70 Hz and the default 66 MHz clock. `now`
+// is that card's own cycle count.
+void AdvanceFrames(Ega &ega, uint64_t &now, int frames) {
+    now += uint64_t(double(frames) * 66e6 / 70.0) + 1000;
+    ega.tick(now);
+}
+
 // Asserts one rendered pixel's exact RGB -- no tolerance: a DAC channel
 // that scales wrong by one step is a real bug, not a rounding preference.
 void ExpectRgb(const std::vector<uint8_t> &rgba, int width, int x, int y,
@@ -111,10 +127,11 @@ void ExpectRgb(const std::vector<uint8_t> &rgba, int width, int x, int y,
 TEST(EgaRenderTest, ProducesTheDocumentedBufferSize) {
     Ega ega;
     ega.reset();
+    EightDotTextNoCursor(ega);
     LoadBiosColourDefaults(ega);
     std::vector<uint8_t> rgba;
     int w = 0, h = 0;
-    RenderTextScreen(ega, rgba, false, w, h);
+    RenderTextScreen(ega, rgba, w, h);
     EXPECT_EQ(w, kTextRenderWidth);
     EXPECT_EQ(h, kTextRenderHeight);
     EXPECT_EQ(rgba.size(), std::size_t(kTextRenderWidth * kTextRenderHeight * 4));
@@ -130,6 +147,7 @@ TEST(EgaRenderTest, ProducesTheDocumentedBufferSize) {
 TEST(EgaRenderTest, RowHeightAndFrameSizeFollowTheRealMaxScanLineRegister) {
     Ega ega;
     ega.reset();
+    EightDotTextNoCursor(ega);
     LoadBiosColourDefaults(ega);
     ega.out(0x3D4, 0x09); ega.out(0x3D5, 0x0F);  // Max Scan Line = 15 -> 16 lines/row
     // Character 'g' (0x67), scanline 14 -- part of a real descender, and
@@ -142,7 +160,7 @@ TEST(EgaRenderTest, RowHeightAndFrameSizeFollowTheRealMaxScanLineRegister) {
 
     std::vector<uint8_t> rgba;
     int w = 0, h = 0;
-    RenderTextScreen(ega, rgba, /*blink_on=*/false, w, h);
+    RenderTextScreen(ega, rgba, w, h);
     EXPECT_EQ(w, kTextRenderWidth);
     EXPECT_EQ(h, 16 * 25);  // 400, not the old fixed 350
     ASSERT_EQ(rgba.size(), std::size_t(kTextRenderWidth * 16 * 25 * 4));
@@ -165,6 +183,7 @@ TEST(EgaRenderTest, RowHeightAndFrameSizeFollowTheRealMaxScanLineRegister) {
 TEST(EgaRenderTest, ColumnCountAndFrameWidthFollowTheRealHorizontalDisplayedRegister) {
     Ega ega;
     ega.reset();
+    EightDotTextNoCursor(ega);
     LoadBiosColourDefaults(ega);
     ega.out(0x3D4, 0x01); ega.out(0x3D5, 39);  // Horizontal Displayed = 39 -> 40 cols
     SetPalette(ega, 15, 0x3F);  // white
@@ -178,7 +197,7 @@ TEST(EgaRenderTest, ColumnCountAndFrameWidthFollowTheRealHorizontalDisplayedRegi
 
     std::vector<uint8_t> rgba;
     int w = 0, h = 0;
-    RenderTextScreen(ega, rgba, /*blink_on=*/false, w, h);
+    RenderTextScreen(ega, rgba, w, h);
     EXPECT_EQ(w, 40 * 8);  // 320, not the old fixed 640
     EXPECT_EQ(h, kTextRenderHeight);
     ASSERT_EQ(rgba.size(), std::size_t(w * h * 4));
@@ -191,6 +210,7 @@ TEST(EgaRenderTest, ColumnCountAndFrameWidthFollowTheRealHorizontalDisplayedRegi
 TEST(EgaRenderTest, RendersAGlyphInTheLivePaletteColors) {
     Ega ega;
     ega.reset();
+    EightDotTextNoCursor(ega);
     LoadBiosColourDefaults(ega);
     SetPalette(ega, 15, 0x3F);  // white
     SetPalette(ega, 1, 0x01);   // blue
@@ -203,7 +223,7 @@ TEST(EgaRenderTest, RendersAGlyphInTheLivePaletteColors) {
 
     std::vector<uint8_t> rgba;
     int w = 0, h = 0;
-    RenderTextScreen(ega, rgba, /*blink_on=*/false, w, h);
+    RenderTextScreen(ega, rgba, w, h);
 
     std::size_t i0 = PixelIndex(0, 0);  // set bit -> foreground (white)
     EXPECT_EQ(rgba[i0 + 0], 255); EXPECT_EQ(rgba[i0 + 1], 255); EXPECT_EQ(rgba[i0 + 2], 255);
@@ -216,6 +236,7 @@ TEST(EgaRenderTest, RendersAGlyphInTheLivePaletteColors) {
 TEST(EgaRenderTest, CursorDrawsAsASolidBlockAtItsProgrammedScanlines) {
     Ega ega;
     ega.reset();
+    ega.out(0x3C4, 0x01); ega.out(0x3C5, 0x01);  // 8-dot cells
     LoadBiosColourDefaults(ega);
     SetPalette(ega, 15, 0x3F);
     // Cell (0,0) holds a blank character (font row all zero, so without the
@@ -229,7 +250,7 @@ TEST(EgaRenderTest, CursorDrawsAsASolidBlockAtItsProgrammedScanlines) {
 
     std::vector<uint8_t> rgba;
     int w = 0, h = 0;
-    RenderTextScreen(ega, rgba, /*blink_on=*/true, w, h);
+    RenderTextScreen(ega, rgba, w, h);
     // Scanline 5 (within the cursor's range): forced to foreground (white).
     std::size_t in_range = PixelIndex(0, 5);
     EXPECT_EQ(rgba[in_range + 0], 255); EXPECT_EQ(rgba[in_range + 1], 255); EXPECT_EQ(rgba[in_range + 2], 255);
@@ -241,6 +262,7 @@ TEST(EgaRenderTest, CursorDrawsAsASolidBlockAtItsProgrammedScanlines) {
 TEST(EgaRenderTest, CursorIsHiddenWhenBlinkPhaseIsOffOrTheDisableBitIsSet) {
     Ega ega;
     ega.reset();
+    ega.out(0x3C4, 0x01); ega.out(0x3C5, 0x01);  // 8-dot cells
     LoadBiosColourDefaults(ega);
     SetPalette(ega, 15, 0x3F);
     ega.vram[(0 << 2) + 0] = 0x00;
@@ -250,13 +272,18 @@ TEST(EgaRenderTest, CursorIsHiddenWhenBlinkPhaseIsOffOrTheDisableBitIsSet) {
 
     std::vector<uint8_t> rgba_blink_off;
     int w = 0, h = 0;
-    RenderTextScreen(ega, rgba_blink_off, /*blink_on=*/false, w, h);
+    uint64_t now = 0;
+    AdvanceFrames(ega, now, 8);  // the cursor's off half: frames 8-15
+    ASSERT_FALSE(ega.cursor_blink_phase_on());
+    RenderTextScreen(ega, rgba_blink_off, w, h);
     std::size_t p = PixelIndex(0, 0);
     EXPECT_EQ(rgba_blink_off[p + 0], 0);  // background -- no cursor this phase
 
+    AdvanceFrames(ega, now, 8);  // back to the on half
+    ASSERT_TRUE(ega.cursor_blink_phase_on());
     ega.out(0x3D4, 0x0A); ega.out(0x3D5, 0x20);  // bit 5 -- cursor disabled outright
     std::vector<uint8_t> rgba_disabled;
-    RenderTextScreen(ega, rgba_disabled, /*blink_on=*/true, w, h);
+    RenderTextScreen(ega, rgba_disabled, w, h);
     EXPECT_EQ(rgba_disabled[p + 0], 0);
 }
 
@@ -384,13 +411,13 @@ TEST(EgaRenderTest, RenderScreenDispatchesToTheRightModeAtTheRightResolution) {
     ega.reset();
     LoadBiosColourDefaults(ega);
     RenderedFrame text_frame;
-    RenderScreen(ega, text_frame, /*blink_on=*/false);
-    EXPECT_EQ(text_frame.width, kTextRenderWidth);
+    RenderScreen(ega, text_frame);
+    EXPECT_EQ(text_frame.width, 80 * 9);  // SR01 bit 0 clear: 9-dot cells
     EXPECT_EQ(text_frame.height, kTextRenderHeight);
 
     SetGraphicsMode(ega, true, 1);
     RenderedFrame cga_frame;
-    RenderScreen(ega, cga_frame, false);
+    RenderScreen(ega, cga_frame);
     EXPECT_EQ(cga_frame.width, 320);
     EXPECT_EQ(cga_frame.height, 200);
 
@@ -401,7 +428,7 @@ TEST(EgaRenderTest, RenderScreenDispatchesToTheRightModeAtTheRightResolution) {
     ega.out(0x3D4, 0x12); ega.out(0x3D5, 0x5D);  // V Display End low 8 bits = 93
     ega.out(0x3D4, 0x07); ega.out(0x3D5, 0x02);  // overflow bit1 set -> +256 = 349 -> +1 = 350
     RenderedFrame native16_frame;
-    RenderScreen(ega, native16_frame, false);
+    RenderScreen(ega, native16_frame);
     EXPECT_EQ(native16_frame.width, 640);
     EXPECT_EQ(native16_frame.height, 350);
 
@@ -409,13 +436,13 @@ TEST(EgaRenderTest, RenderScreenDispatchesToTheRightModeAtTheRightResolution) {
     // the Attribute Controller's 8-bit-color bit halves the pixel clock.
     SetupMode13h(ega);
     RenderedFrame vga256_frame;
-    RenderScreen(ega, vga256_frame, false);
+    RenderScreen(ega, vga256_frame);
     EXPECT_EQ(vga256_frame.width, 320);
     EXPECT_EQ(vga256_frame.height, 200);
 
     SetGraphicsMode(ega, true, 3);  // no such shift mode on real VGA -- placeholder frame
     RenderedFrame placeholder;
-    RenderScreen(ega, placeholder, false);
+    RenderScreen(ega, placeholder);
     EXPECT_EQ(placeholder.width, kTextRenderWidth);
     EXPECT_EQ(placeholder.height, kTextRenderHeight);
     EXPECT_EQ(placeholder.rgba[0], 0);  // black, not a garbled misread of graphics VRAM as text
@@ -426,6 +453,7 @@ TEST(EgaRenderTest, RenderScreenDispatchesToTheRightModeAtTheRightResolution) {
 TEST(EgaRenderTest, TextColoursGoThroughTheDacSoAPaletteFadeShows) {
     Ega ega;
     ega.reset();
+    EightDotTextNoCursor(ega);
     LoadBiosColourDefaults(ega);
     SetGraphicsMode(ega, false, 0);
     ega.out(0x3D4, 0x09); ega.out(0x3D5, 0x0F);
@@ -434,16 +462,17 @@ TEST(EgaRenderTest, TextColoursGoThroughTheDacSoAPaletteFadeShows) {
     SetPalette(ega, 1, 0x01);
     std::vector<uint8_t> rgba;
     int w = 0, h = 0;
-    RenderTextScreen(ega, rgba, false, w, h);
+    RenderTextScreen(ega, rgba, w, h);
     EXPECT_EQ(rgba[2], 0xAA) << "EGA blue out of the BIOS's default DAC";
     SetDac(ega, 1, 0, 0, 21);         // fade DAC entry 1 to half
-    RenderTextScreen(ega, rgba, false, w, h);
+    RenderTextScreen(ega, rgba, w, h);
     EXPECT_EQ(rgba[2], 0x55) << "the attribute palette indexes the DAC, it does not bypass it";
 }
 
 TEST(EgaRenderTest, ColorSelectSuppliesTheHighDacAddressBits) {
     Ega ega;
     ega.reset();
+    EightDotTextNoCursor(ega);
     SetDac(ega, 0x41, 63, 0, 0);      // red, at a DAC address only Color Select reaches
     SetDac(ega, 0x31, 0, 63, 0);      // green, the P5-P4 substitution target
     SetGraphicsMode(ega, false, 0);
@@ -451,15 +480,16 @@ TEST(EgaRenderTest, ColorSelectSuppliesTheHighDacAddressBits) {
     ega.vram[(0u << 2) + 0] = ' ';
     ega.vram[(0u << 2) + 1] = 0x10;
     SetPalette(ega, 1, 0x01);
+    SetPalette(ega, 0x12, 0x0F);      // all planes enabled
     SetPalette(ega, 0x14, 0x04);      // Color Select bits 2-3 -> DAC bits 6-7
     std::vector<uint8_t> rgba;
     int w = 0, h = 0;
-    RenderTextScreen(ega, rgba, false, w, h);
+    RenderTextScreen(ega, rgba, w, h);
     EXPECT_EQ(rgba[0], 0xFF);
     EXPECT_EQ(rgba[1], 0x00);
     SetPalette(ega, 0x14, 0x03);      // bits 0-1 -> DAC bits 4-5 ...
     SetPalette(ega, 0x10, 0x80);      // ... once AR10 bit 7 selects them
-    RenderTextScreen(ega, rgba, false, w, h);
+    RenderTextScreen(ega, rgba, w, h);
     EXPECT_EQ(rgba[0], 0x00);
     EXPECT_EQ(rgba[1], 0xFF);
 }
@@ -789,6 +819,487 @@ TEST(EgaRenderTest, FourBpp1024x768UsesDispiGeometryAndTheBankedPlanarWindow) {
     EXPECT_EQ(h, 768);
     ExpectRgb(rgba, w, 0, 512, 255, 255, 255);
     ExpectRgb(rgba, w, 1, 512, 0, 0, 0);  // next pixel in the same byte is background
+}
+
+// ---- VGA text layout, blink, font maps, panning, split screen ----
+
+void Crtc(Ega &ega, uint8_t index, uint8_t v) { ega.out(0x3D4, index); ega.out(0x3D5, v); }
+
+// 80x25 text the way a VGA BIOS leaves mode 03h, for the registers the
+// renderer reads: 400 lines, 16-line rows, Offset 40, Line Compare at its
+// maximum, the cursor off, no underline row, AR13 at 08h. `nine_dot` picks SR01 bit 0.
+void Text80x25(Ega &ega, bool nine_dot) {
+    LoadBiosColourDefaults(ega);
+    ega.out(0x3C4, 0x01); ega.out(0x3C5, nine_dot ? 0x00 : 0x01);
+    Crtc(ega, 0x0A, 0x20);
+    Crtc(ega, 0x01, 79);
+    Crtc(ega, 0x09, 0x4F);  // Max Scan Line 15, Line Compare bit 9
+    Crtc(ega, 0x12, 0x8F);
+    Crtc(ega, 0x07, 0x12);  // VDE bit 8 (399), Line Compare bit 8
+    Crtc(ega, 0x13, 40);
+    Crtc(ega, 0x14, 0x1F);  // underline row past the cell, as colour modes set it
+    SetPalette(ega, 1, 0x01);   // blue
+    SetPalette(ega, 7, 0x07);   // grey
+    SetPalette(ega, 9, 0x39);   // bright blue
+    SetPalette(ega, 15, 0x3F);  // white
+    SetPalette(ega, 0x13, 0x08);  // no pan in 9-dot text, as the BIOS sets it
+}
+
+void PutCell(Ega &ega, uint32_t cell, uint8_t ch, uint8_t attr) {
+    ega.vram[(cell << 2) + 0] = ch;
+    ega.vram[(cell << 2) + 1] = attr;
+}
+
+void PutGlyphRow(Ega &ega, uint32_t map_offset, uint8_t ch, int row, uint8_t bits) {
+    ega.vram[((map_offset + uint32_t(ch) * 32 + uint32_t(row)) << 2) + 2] = bits;
+}
+
+TEST(EgaRenderTest, NineDotCellsLeaveColumnNineBackground) {
+    Ega ega;
+    ega.reset();
+    Text80x25(ega, true);
+    PutCell(ega, 0, 'A', 0x0F);
+    PutGlyphRow(ega, 0, 'A', 0, 0xFF);
+    std::vector<uint8_t> rgba;
+    int w = 0, h = 0;
+    RenderTextScreen(ega, rgba, w, h);
+    EXPECT_EQ(w, 720);
+    EXPECT_EQ(h, 400);
+    ExpectRgb(rgba, w, 7, 0, 255, 255, 255);
+    ExpectRgb(rgba, w, 8, 0, 0, 0, 0);
+}
+
+TEST(EgaRenderTest, LineGraphicsRepeatsColumnEightOnlyForC0ToDF) {
+    Ega ega;
+    ega.reset();
+    Text80x25(ega, true);
+    SetPalette(ega, 0x10, 0x04);  // AR10 bit 2
+    PutCell(ega, 0, 0xC4, 0x0F);
+    PutCell(ega, 1, 'A', 0x0F);
+    PutGlyphRow(ega, 0, 0xC4, 0, 0x01);
+    PutGlyphRow(ega, 0, 'A', 0, 0x01);
+    std::vector<uint8_t> rgba;
+    int w = 0, h = 0;
+    RenderTextScreen(ega, rgba, w, h);
+    ExpectRgb(rgba, w, 8, 0, 255, 255, 255);
+    ExpectRgb(rgba, w, 9 + 8, 0, 0, 0, 0);
+}
+
+TEST(EgaRenderTest, FiftyLineTextShowsEveryRow) {
+    Ega ega;
+    ega.reset();
+    Text80x25(ega, false);
+    Crtc(ega, 0x09, 0x47);  // 8-line rows over the same 400 lines
+    PutCell(ega, 49 * 80, 'A', 0x0F);
+    PutGlyphRow(ega, 0, 'A', 0, 0x80);
+    std::vector<uint8_t> rgba;
+    int w = 0, h = 0;
+    RenderTextScreen(ega, rgba, w, h);
+    EXPECT_EQ(h, 400);
+    ExpectRgb(rgba, w, 0, 49 * 8, 255, 255, 255);
+}
+
+TEST(EgaRenderTest, FortyThreeLineTextDrawsAPartialLastRow) {
+    Ega ega;
+    ega.reset();
+    Text80x25(ega, false);
+    Crtc(ega, 0x09, 0x47);
+    Crtc(ega, 0x12, 0x5D);  // VDE 349: 350 lines, 43 rows and 6 lines of a 44th
+    PutCell(ega, 43 * 80, 'A', 0x0F);
+    PutGlyphRow(ega, 0, 'A', 0, 0x80);
+    std::vector<uint8_t> rgba;
+    int w = 0, h = 0;
+    RenderTextScreen(ega, rgba, w, h);
+    EXPECT_EQ(h, 350);
+    ExpectRgb(rgba, w, 0, 43 * 8, 255, 255, 255);
+}
+
+TEST(EgaRenderTest, BlinkEnabledHidesTheForegroundEverySixteenFrames) {
+    Ega ega;
+    ega.reset();
+    Text80x25(ega, false);
+    SetPalette(ega, 0x10, 0x08);  // AR10 bit 3
+    PutCell(ega, 0, 'A', 0x9F);   // blink, background 1, foreground 15
+    PutGlyphRow(ega, 0, 'A', 0, 0x80);
+    std::vector<uint8_t> rgba;
+    int w = 0, h = 0;
+    RenderTextScreen(ega, rgba, w, h);
+    ExpectRgb(rgba, w, 0, 0, 255, 255, 255);
+    ExpectRgb(rgba, w, 1, 0, 0, 0, 0xAA);
+    uint64_t now = 0;
+    AdvanceFrames(ega, now, 16);
+    ASSERT_FALSE(ega.char_blink_phase_on());
+    RenderTextScreen(ega, rgba, w, h);
+    ExpectRgb(rgba, w, 0, 0, 0, 0, 0xAA);
+}
+
+TEST(EgaRenderTest, BlinkDisabledMakesAttributeBitSevenABrightBackground) {
+    Ega ega;
+    ega.reset();
+    Text80x25(ega, false);
+    SetPalette(ega, 0x10, 0x00);
+    PutCell(ega, 0, 'A', 0x9F);
+    PutGlyphRow(ega, 0, 'A', 0, 0x80);
+    uint64_t now = 0;
+    AdvanceFrames(ega, now, 16);
+    std::vector<uint8_t> rgba;
+    int w = 0, h = 0;
+    RenderTextScreen(ega, rgba, w, h);
+    ExpectRgb(rgba, w, 0, 0, 255, 255, 255);
+    ExpectRgb(rgba, w, 1, 0, 0x55, 0x55, 0xFF);
+}
+
+TEST(EgaRenderTest, CharacterMapSelectPicksTheFontByAttributeBitThree) {
+    Ega ega;
+    ega.reset();
+    Text80x25(ega, false);
+    ega.out(0x3C4, 0x03); ega.out(0x3C5, 0x04);  // map A = 1 (16KB), map B = 0
+    PutCell(ega, 0, 'A', 0x0F);
+    PutCell(ega, 1, 'A', 0x07);
+    PutGlyphRow(ega, 0x4000, 'A', 0, 0x80);
+    PutGlyphRow(ega, 0x0000, 'A', 0, 0x01);
+    std::vector<uint8_t> rgba;
+    int w = 0, h = 0;
+    RenderTextScreen(ega, rgba, w, h);
+    ExpectRgb(rgba, w, 0, 0, 255, 255, 255);
+    ExpectRgb(rgba, w, 7, 0, 0, 0, 0);
+    ExpectRgb(rgba, w, 8, 0, 0, 0, 0);
+    ExpectRgb(rgba, w, 15, 0, 0xAA, 0xAA, 0xAA);
+}
+
+TEST(EgaRenderTest, ColorPlaneEnableMasksTextColours) {
+    // How 512-character software keeps attribute bit 3 from brightening.
+    Ega ega;
+    ega.reset();
+    Text80x25(ega, false);
+    SetPalette(ega, 0x12, 0x07);
+    PutCell(ega, 0, 'A', 0x0F);
+    PutGlyphRow(ega, 0, 'A', 0, 0x80);
+    std::vector<uint8_t> rgba;
+    int w = 0, h = 0;
+    RenderTextScreen(ega, rgba, w, h);
+    ExpectRgb(rgba, w, 0, 0, 0xAA, 0xAA, 0xAA);
+}
+
+TEST(EgaRenderTest, PelPanningShiftsTextLeft) {
+    Ega ega;
+    ega.reset();
+    Text80x25(ega, false);
+    PutCell(ega, 0, 'A', 0x0F);
+    PutGlyphRow(ega, 0, 'A', 0, 0x10);  // dot 3
+    SetPalette(ega, 0x13, 3);
+    std::vector<uint8_t> rgba;
+    int w = 0, h = 0;
+    RenderTextScreen(ega, rgba, w, h);
+    ExpectRgb(rgba, w, 0, 0, 255, 255, 255);
+}
+
+TEST(EgaRenderTest, NineDotPelPanningCountsEightAsZero) {
+    Ega ega;
+    ega.reset();
+    Text80x25(ega, true);
+    PutCell(ega, 0, 'A', 0x0F);
+    PutGlyphRow(ega, 0, 'A', 0, 0x40);  // dot 1
+    std::vector<uint8_t> rgba;
+    int w = 0, h = 0;
+    SetPalette(ega, 0x13, 8);
+    RenderTextScreen(ega, rgba, w, h);
+    ExpectRgb(rgba, w, 1, 0, 255, 255, 255);
+    SetPalette(ega, 0x13, 0);  // one dot
+    RenderTextScreen(ega, rgba, w, h);
+    ExpectRgb(rgba, w, 0, 0, 255, 255, 255);
+}
+
+TEST(EgaRenderTest, PresetRowScanStartsTheFirstRowPartWayDown) {
+    Ega ega;
+    ega.reset();
+    Text80x25(ega, false);
+    Crtc(ega, 0x08, 0x02);
+    PutCell(ega, 0, 'A', 0x0F);
+    PutGlyphRow(ega, 0, 'A', 2, 0x80);
+    std::vector<uint8_t> rgba;
+    int w = 0, h = 0;
+    RenderTextScreen(ega, rgba, w, h);
+    ExpectRgb(rgba, w, 0, 0, 255, 255, 255);
+}
+
+TEST(EgaRenderTest, BytePanningAddsWholeCharactersToTheStartAddress) {
+    Ega ega;
+    ega.reset();
+    Text80x25(ega, false);
+    Crtc(ega, 0x08, 0x20);
+    PutCell(ega, 1, 'A', 0x0F);
+    PutGlyphRow(ega, 0, 'A', 0, 0x80);
+    std::vector<uint8_t> rgba;
+    int w = 0, h = 0;
+    RenderTextScreen(ega, rgba, w, h);
+    ExpectRgb(rgba, w, 0, 0, 255, 255, 255);
+}
+
+TEST(EgaRenderTest, LineCompareSplitsTextAndCanStopPanningBelowIt) {
+    Ega ega;
+    ega.reset();
+    Text80x25(ega, false);
+    Crtc(ega, 0x0C, 0x01);  // start address 0100h for the top part
+    Crtc(ega, 0x0D, 0x00);
+    Crtc(ega, 0x18, 99);    // split after scan line 99
+    Crtc(ega, 0x07, 0x02);
+    Crtc(ega, 0x09, 0x0F);
+    SetPalette(ega, 0x13, 3);
+    SetPalette(ega, 0x10, 0x20);  // AR10 bit 5: the lower part isn't panned
+    PutCell(ega, 0x100, 'A', 0x0F);
+    PutGlyphRow(ega, 0, 'A', 0, 0x10);
+    PutCell(ega, 0, 'B', 0x09);
+    PutGlyphRow(ega, 0, 'B', 0, 0x80);
+    std::vector<uint8_t> rgba;
+    int w = 0, h = 0;
+    RenderTextScreen(ega, rgba, w, h);
+    ExpectRgb(rgba, w, 0, 0, 255, 255, 255);
+    ExpectRgb(rgba, w, 0, 100, 0x55, 0x55, 0xFF);
+}
+
+// 640x350x16 as this BIOS leaves mode 10h, for the registers the renderer reads.
+void Mode10h(Ega &ega) {
+    LoadBiosColourDefaults(ega);
+    SetGraphicsMode(ega, true, 0);
+    Crtc(ega, 0x01, 79);
+    Crtc(ega, 0x12, 0x5D);
+    Crtc(ega, 0x07, 0x12);
+    Crtc(ega, 0x09, 0x40);
+    Crtc(ega, 0x13, 40);
+    SetPalette(ega, 1, 0x01);
+    SetPalette(ega, 15, 0x3F);
+}
+
+void PutPlanes(Ega &ega, uint32_t plane_offset, uint8_t bits, uint8_t planes) {
+    for (int p = 0; p < 4; ++p) ega.vram[(plane_offset << 2) + uint32_t(p)] = (planes >> p) & 1 ? bits : 0;
+}
+
+TEST(EgaRenderTest, EgaNative16FollowsTheStartAddress) {
+    Ega ega;
+    ega.reset();
+    Mode10h(ega);
+    Crtc(ega, 0x0C, 0x00);
+    Crtc(ega, 0x0D, 80);  // one scan line down
+    PutPlanes(ega, 80, 0x80, 0x0F);
+    std::vector<uint8_t> rgba;
+    int w = 0, h = 0;
+    RenderEgaNative16Screen(ega, rgba, w, h);
+    ExpectRgb(rgba, w, 0, 0, 255, 255, 255);
+}
+
+TEST(EgaRenderTest, EgaNative16PelPanningShiftsPixels) {
+    Ega ega;
+    ega.reset();
+    Mode10h(ega);
+    SetPalette(ega, 0x13, 4);
+    PutPlanes(ega, 0, 0x08, 0x0F);  // pixel 4
+    std::vector<uint8_t> rgba;
+    int w = 0, h = 0;
+    RenderEgaNative16Screen(ega, rgba, w, h);
+    ExpectRgb(rgba, w, 0, 0, 255, 255, 255);
+}
+
+TEST(EgaRenderTest, EgaNative16LineCompareRestartsAtAddressZero) {
+    Ega ega;
+    ega.reset();
+    Mode10h(ega);
+    Crtc(ega, 0x0C, 0x03);
+    Crtc(ega, 0x0D, 0x20);  // top part starts at 800
+    Crtc(ega, 0x18, 99);
+    Crtc(ega, 0x07, 0x02);
+    Crtc(ega, 0x09, 0x00);
+    SetPalette(ega, 0x13, 1);
+    SetPalette(ega, 0x10, 0x21);
+    PutPlanes(ega, 800, 0x40, 0x0F);
+    PutPlanes(ega, 0, 0x80, 0x01);
+    std::vector<uint8_t> rgba;
+    int w = 0, h = 0;
+    RenderEgaNative16Screen(ega, rgba, w, h);
+    ExpectRgb(rgba, w, 0, 0, 255, 255, 255);
+    ExpectRgb(rgba, w, 0, 99, 0, 0, 0);
+    ExpectRgb(rgba, w, 0, 100, 0, 0, 0xAA);
+}
+
+TEST(EgaRenderTest, Vga256PelPanningCountsHalfPixels) {
+    Ega ega;
+    ega.reset();
+    SetupMode13h(ega);
+    SetDac(ega, 5, 63, 0, 0);
+    ega.vram[1] = 5;
+    SetPalette(ega, 0x13, 2);  // one 256-colour pixel
+    std::vector<uint8_t> rgba;
+    int w = 0, h = 0;
+    RenderVga256Screen(ega, rgba, w, h);
+    ExpectRgb(rgba, w, 0, 0, 255, 0, 0);
+}
+
+TEST(EgaRenderTest, Vga256LineCompareCountsRasterLines) {
+    // Mode 13h's 200 rows are 400 scan lines, so a split after line 199
+    // lands half-way down the picture.
+    Ega ega;
+    ega.reset();
+    SetupMode13h(ega);
+    SetDac(ega, 5, 63, 0, 0);
+    SetDac(ega, 6, 0, 63, 0);
+    Crtc(ega, 0x0C, 0x00);
+    Crtc(ega, 0x0D, 80);    // 80 doublewords: the top starts one row down
+    Crtc(ega, 0x18, 199);
+    Crtc(ega, 0x07, 0x0F);
+    Crtc(ega, 0x09, 0x01);
+    ega.vram[320] = 5;
+    ega.vram[0] = 6;
+    std::vector<uint8_t> rgba;
+    int w = 0, h = 0;
+    RenderVga256Screen(ega, rgba, w, h);
+    ExpectRgb(rgba, w, 0, 0, 255, 0, 0);
+    ExpectRgb(rgba, w, 0, 99, 0, 0, 0);
+    ExpectRgb(rgba, w, 0, 100, 0, 255, 0);
+}
+
+TEST(EgaRenderTest, FrameCounterAdvancesOncePerVerticalFrame) {
+    Ega ega;
+    ega.reset();
+    uint64_t now = 0;
+    AdvanceFrames(ega, now, 3);
+    EXPECT_EQ(ega.frame_count(), 3u);
+    EXPECT_TRUE(ega.cursor_blink_phase_on());
+    AdvanceFrames(ega, now, 5);
+    EXPECT_FALSE(ega.cursor_blink_phase_on());
+}
+
+TEST(EgaRenderTest, CursorSkewMovesTheCursorRightByCharacterClocks) {
+    Ega ega;
+    ega.reset();
+    Text80x25(ega, false);
+    Crtc(ega, 0x0E, 0x00);
+    Crtc(ega, 0x0F, 0x00);
+    Crtc(ega, 0x0A, 0x00);
+    Crtc(ega, 0x0B, 0x20 | 0x0F);  // skew 1, whole cell
+    PutCell(ega, 0, ' ', 0x0F);
+    PutCell(ega, 1, ' ', 0x0F);
+    std::vector<uint8_t> rgba;
+    int w = 0, h = 0;
+    RenderTextScreen(ega, rgba, w, h);
+    ExpectRgb(rgba, w, 0, 0, 0, 0, 0);
+    ExpectRgb(rgba, w, 8, 0, 255, 255, 255);
+}
+
+TEST(EgaRenderTest, UnderlineDrawsOnItsRowDashedAcrossNineDotCells) {
+    Ega ega;
+    ega.reset();
+    Text80x25(ega, true);
+    SetPalette(ega, 0x10, 0x04);  // line graphics on
+    Crtc(ega, 0x14, 13);
+    PutCell(ega, 0, 'A', 0x01);   // foreground 1, background 0: underlined
+    PutCell(ega, 1, 0xC4, 0x01);
+    PutCell(ega, 2, 'A', 0x11);   // background 1: not underlined
+    std::vector<uint8_t> rgba;
+    int w = 0, h = 0;
+    RenderTextScreen(ega, rgba, w, h);
+    ExpectRgb(rgba, w, 0, 13, 0, 0, 0xAA);
+    ExpectRgb(rgba, w, 7, 13, 0, 0, 0xAA);
+    ExpectRgb(rgba, w, 8, 13, 0, 0, 0);       // dashed: column 9 is background
+    ExpectRgb(rgba, w, 9 + 8, 13, 0, 0, 0xAA);  // solid for C0h-DFh
+    ExpectRgb(rgba, w, 0, 12, 0, 0, 0);
+    ExpectRgb(rgba, w, 18, 13, 0, 0, 0xAA);   // cell 2's background, no line
+}
+
+TEST(EgaRenderTest, GraphicsBlinkForcesBitThreeAndBlinksPixelsThatHaveIt) {
+    Ega ega;
+    ega.reset();
+    Mode10h(ega);
+    SetPalette(ega, 9, 0x39);
+    SetPalette(ega, 0x10, 0x09);  // graphics, blink
+    PutPlanes(ega, 0, 0x80, 0x09);  // pixel 0: colour 9
+    PutPlanes(ega, 1, 0x80, 0x01);  // pixel 8: colour 1
+    std::vector<uint8_t> rgba;
+    int w = 0, h = 0;
+    RenderEgaNative16Screen(ega, rgba, w, h);
+    ExpectRgb(rgba, w, 0, 0, 0x55, 0x55, 0xFF);
+    ExpectRgb(rgba, w, 8, 0, 0x55, 0x55, 0xFF);  // bit 3 forced on
+    uint64_t now = 0;
+    AdvanceFrames(ega, now, 16);
+    RenderEgaNative16Screen(ega, rgba, w, h);
+    ExpectRgb(rgba, w, 0, 0, 0, 0, 0xAA);         // colour 9 blinks to 1
+    ExpectRgb(rgba, w, 8, 0, 0x55, 0x55, 0xFF);
+}
+
+TEST(EgaRenderTest, GraphicsBlinkWithPlaneThreeDisabledBlinksEveryPixel) {
+    Ega ega;
+    ega.reset();
+    Mode10h(ega);
+    SetPalette(ega, 9, 0x39);
+    SetPalette(ega, 0x12, 0x07);
+    SetPalette(ega, 0x10, 0x09);
+    PutPlanes(ega, 0, 0x80, 0x01);
+    std::vector<uint8_t> rgba;
+    int w = 0, h = 0;
+    RenderEgaNative16Screen(ega, rgba, w, h);
+    ExpectRgb(rgba, w, 0, 0, 0x55, 0x55, 0xFF);
+    uint64_t now = 0;
+    AdvanceFrames(ega, now, 16);
+    RenderEgaNative16Screen(ega, rgba, w, h);
+    ExpectRgb(rgba, w, 0, 0, 0, 0, 0xAA);
+}
+
+// Mode 4 as a VGA BIOS leaves it, for the registers the renderer reads:
+// 400 doubled lines, two-line rows, CGA banks, Offset 40, planes 0-1.
+void Mode04h(Ega &ega) {
+    LoadBiosColourDefaults(ega);
+    SetGraphicsMode(ega, true, 1);
+    Crtc(ega, 0x01, 39);
+    Crtc(ega, 0x12, 0x8F);
+    Crtc(ega, 0x07, 0x12);
+    Crtc(ega, 0x09, 0xC1);
+    Crtc(ega, 0x13, 40);
+    Crtc(ega, 0x17, 0xA2);
+    SetPalette(ega, 0x12, 0x03);
+    SetPalette(ega, 3, 0x3F);
+}
+
+// One CGA byte at a flat CGA-style offset, through odd/even chaining.
+void PutCgaByte(Ega &ega, uint32_t offset, uint8_t v) {
+    ega.vram[((offset >> 1) << 2) + (offset & 1)] = v;
+}
+
+TEST(EgaRenderTest, CgaGraphics4FollowsTheStartAddress) {
+    Ega ega;
+    ega.reset();
+    Mode04h(ega);
+    Crtc(ega, 0x0C, 0x00);
+    Crtc(ega, 0x0D, 40);  // 40 words: one 80-byte row down
+    PutCgaByte(ega, 80, 0xC0);
+    std::vector<uint8_t> rgba;
+    RenderCgaGraphics4Screen(ega, rgba);
+    ExpectRgb(rgba, 320, 0, 0, 255, 255, 255);
+}
+
+TEST(EgaRenderTest, CgaGraphics4PelPanningShiftsPixels) {
+    Ega ega;
+    ega.reset();
+    Mode04h(ega);
+    SetPalette(ega, 0x13, 1);
+    PutCgaByte(ega, 0, 0x30);  // pixel 1 is colour 3
+    std::vector<uint8_t> rgba;
+    RenderCgaGraphics4Screen(ega, rgba);
+    ExpectRgb(rgba, 320, 0, 0, 255, 255, 255);
+}
+
+TEST(EgaRenderTest, CgaGraphics4LineCompareRestartsAtAddressZero) {
+    Ega ega;
+    ega.reset();
+    Mode04h(ega);
+    Crtc(ega, 0x0C, 0x02);
+    Crtc(ega, 0x0D, 0x80);  // top part from 1280 bytes
+    Crtc(ega, 0x18, 199);
+    Crtc(ega, 0x07, 0x02);
+    Crtc(ega, 0x09, 0x81);
+    PutCgaByte(ega, 0, 0xC0);
+    std::vector<uint8_t> rgba;
+    RenderCgaGraphics4Screen(ega, rgba);
+    ExpectRgb(rgba, 320, 0, 0, 0, 0, 0);
+    ExpectRgb(rgba, 320, 0, 100, 255, 255, 255);
 }
 
 }  // namespace

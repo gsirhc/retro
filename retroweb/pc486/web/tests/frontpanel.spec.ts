@@ -91,18 +91,19 @@ test.describe("front panel jewelry", () => {
     }
   });
 
-  test("modern tower drops empty covers as the monitor gets shorter", async ({
+  test("modern tower keeps both covers beside the narrowest 4:3 monitor", async ({
     livePage: page,
   }) => {
     const vp = page.viewportSize()!;
     try {
       await page.locator("#pageTheme").selectOption("modern");
-      await page.setViewportSize({ width: 1400, height: 900 });
+      await page.setViewportSize({ width: 1200, height: 900 });
       const visible = page.locator(".at-drives .at-bay:visible");
-      await expect(visible).toHaveCount(3);
+      await expect(visible).toHaveCount(4);
       await expect(visible.nth(0)).toHaveAttribute("data-drive", "cdrom");
       await expect(visible.nth(1)).toHaveClass(/bay-blank/);
-      await expect(visible.nth(2)).toHaveAttribute("data-drive", "0");
+      await expect(visible.nth(2)).toHaveClass(/bay-blank/);
+      await expect(visible.nth(3)).toHaveAttribute("data-drive", "0");
       const faces = await page.evaluate(() => {
         const h = (sel: string) => document.querySelector(sel)!.getBoundingClientRect().height;
         return { cd: h('[data-drive="cdrom"]'), floppy: h('[data-drive="0"]') };

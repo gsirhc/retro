@@ -6453,3 +6453,131 @@ cycles later than §39 because of the load clock. `pm-check` and
 `vbe-check` pass. `pit8253_test` went from 9 cases to 33, one or more per
 mode plus read-back, BCD and the flip-flops. `pic8259_test` has three
 poll cases.
+
+## 42. VGA text layout, panning, split screen, and a 4:3 monitor
+
+Items V1-V7 from [`PC486_PARITY.md`](PC486_PARITY.md). Register meanings
+are from the IBM VGA Technical Reference (CRT Controller, Sequencer,
+Attribute Controller).
+
+### 42.1 One scan-line model for every planar mode
+
+The text, 16-colour and 256-colour renderers each worked out their own
+row addresses, and none of them knew about split screens or panning. The
+16-colour path ignored the start address outright, so EGA page flipping
+showed page 0 whatever was programmed. They now share `LocateRaster`,
+which does what the CRTC's address counter does on each raster line:
+
+- Above Line Compare (CRTC 18h, plus R07 bit 4 and R09 bit 6), the row
+  starts from the start address plus byte panning (CRTC 08h bits 5-6),
+  and Preset Row Scan (CRTC 08h bits 0-4) starts the first row part-way
+  down.
+- Past Line Compare, the address restarts at 0 and the row scan at 0.
+  That's the split screen.
+- Scan doubling and Max Scan Line divide raster lines into rows.
+
+Line Compare counts raster lines, so mode 13h's 200 rows are 400 lines
+to it. The renderers draw one output line per logical row, so a split
+that lands on the second raster line of a doubled row shows from the
+next row. `Ega::reset()` loads Line Compare at its 10-bit maximum, so a
+card nobody has programmed shows no split.
+
+### 42.2 Pel panning
+
+AR13 shifts each line left before display. In 8-dot text and 16-colour
+graphics it's 0-7 pixels. In 9-dot text 8 means none and 0-7 mean 1-8,
+which is why the BIOS loads 08h for text modes. In 256-colour mode it
+counts half pixels. AR10 bit 5 turns panning off below the split, which
+is how a game scrolls the playfield under a fixed status bar. VBE modes
+pan with their own X/Y offset registers and ignore all of this.
+
+### 42.3 Text the way a VGA draws it
+
+- **Rows** come from Vertical Display End over the row height, so 43-
+  and 50-line modes show every row. 43 lines on a 350-line raster leaves
+  six lines of a 44th row, drawn as the monitor shows it.
+- **Cells are 9 dots** unless SR01 bit 0 selects 8. With AR10 bit 2 set,
+  column 9 repeats column 8 for C0h-DFh so box-drawing lines join, and
+  everything else gets background there. FreeDOS's prompt is now
+  720x400, as on a real VGA.
+- **Attribute bit 7** blinks the foreground when AR10 bit 3 is set, and
+  selects a bright background when it's clear.
+- **Blink timing** is the card's own. `Ega` counts vertical frames, the
+  cursor toggles every 8 and blinking characters every 16. The page's
+  1.9 Hz timer is gone, so `renderFrame()` takes no argument.
+- **SR03** picks font map A for attribute bit 3 set and map B for clear,
+  at the eight plane-2 offsets the VGA uses. That's 512-character mode.
+- **Color Plane Enable** (AR12) masks text colours too, which is how
+  512-character software keeps bit 3 from brightening.
+
+### 42.4 A 4:3 screen
+
+The page used to size the screen to each mode's pixel ratio, so 320x200
+was drawn 16:10 and 720x400 nearly 2:1. A VGA monitor fills its 4:3
+tube in every mode. `#screen` is now `aspect-ratio: 4/3`, and `app.js`
+scales the frame by a whole factor on each axis before the browser's
+final smooth scale, so pixels stay even.
+
+The taller monitor makes the modern theme's mini-tower taller too. Both
+blank 5.25" covers now fit at every width where the tower sits beside
+the screen.
+
+### 42.5 Checks
+
+`hdd-boot-check` still reaches `C:\>` at cycle 1,036,029,604, and
+`render_screen` shows the FreeDOS boot at 720x400 with 9-dot cells.
+`vbe-check` and `pm-check` pass. `ega_render_test` has 19 new cases, one
+or more per item, and the older text cases now program SR01 and the
+cursor they assume. `screenscale.spec.ts` checks the 4:3 box and the
+per-axis scale.
+
+### 42.6 Still open
+
+- Blink in 16-colour graphics (AR10 bit 3 there blinks pixel bit 3).
+- The CGA-compatible 4-colour path ignores the start address and panning.
+- Cursor skew (CRTC 0Bh bits 5-6) and the underline row (CRTC 14h).
+
+## 43. Graphics blink, CGA scrolling, cursor skew and underline
+
+Items V8-V10 from [`PC486_PARITY.md`](PC486_PARITY.md), the three left
+open in §42.6.
+
+### 43.1 Blink in graphics modes
+
+With AR10 bit 3 set in a graphics mode, pixel bit 3 reads 1, and a pixel
+that has bit 3 set drops it in the off phase. If Color Plane Enable has
+plane 3 off, every pixel blinks. The IBM VGA/XGA Technical Reference
+(May 1992) doesn't define graphics blink at all, so this follows 86Box
+(`vid_svga_render.c`), which checked it against Lotus 1-2-3's WYSIWYG
+add-on and QBASIC `SCREEN 10`. Bochs agrees except for the plane-3-off
+case, and calls its own version "undocumented feature ???".
+
+### 43.2 CGA-compatible mode scrolls
+
+The 4-colour path read a fixed layout from offset 0. It now goes through
+`LocateRaster` like the other planar modes, so the start address, byte
+and pel panning and Line Compare apply. CRTC 17h bit 0 still swaps row
+scan bit 0 into address bit 13, which is what makes CGA's two 8KB banks.
+A CRTC nobody has programmed keeps mode 4's layout.
+
+### 43.3 Cursor skew and underline
+
+Cursor Skew (CRTC 0Bh bits 5-6) draws the cursor 0-3 character clocks
+right of its address. An attribute of foreground 1 on background 0
+(`attr & 77h == 01h`, DOSBox's decode) draws a line on the Underline
+Location row (CRTC 14h). It fills dots 1-8, so in 9-dot modes the line
+is dashed between cells and solid through C0h-DFh with line graphics on,
+as IBM's "Programming Considerations" describes. Colour modes put the
+row past the cell, so normal text shows none.
+
+### 43.4 Blink rates, checked
+
+Bochs, 86Box, DOSBox and FreeVGA all toggle the cursor every 16 frames,
+the same as blinking characters. IBM's manual gives the VGA cursor
+VSYNC/16 and characters VSYNC/32, both 50% duty: a toggle every 8 frames
+and every 16. §42.3 already did that, and it stays. The same manual has
+line graphics the way §42.3 does (bit 2 set repeats column 8), where
+FreeVGA's register page has it reversed.
+
+`ega_render_test` has seven new cases. `vbe-check` passes, and the
+screen-scale, smoke, boot and keyboard specs pass on the rebuilt wasm.

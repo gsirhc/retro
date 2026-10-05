@@ -20,7 +20,7 @@
 //   const cd = m.cdromDrainSamples();    // the drive's own audio output, same shape as sbDrainSamples()
 //   m.cdromSampleRateHz(); m.cdGainLeft(); m.cdGainRight();  // CD-DA's fixed rate and SB16 mixer gain
 //   m.runCycles(66000000/60);            // advance one frame at real 66 MHz
-//   const frame = m.renderFrame(blinkOn); // Uint8ClampedArray RGBA -- call
+//   const frame = m.renderFrame();        // Uint8ClampedArray RGBA -- call
 //                                          // renderWidth()/renderHeight() after (resolution varies by mode)
 //   m.injectScancode(0x1E);               // real Set 1 scan code (see i8042.h)
 //   m.injectMouseEvent(dx, dy, buttons);   // PS/2 AUX port -- dy is +away-from-user, negate a browser movementY first
@@ -106,8 +106,8 @@ public:
     bool halted() const { return m_.cpu.halted; }
 
     // ---- video (vga, running at its Milestone 1 real-EGA-ceiling modes) --
-    val renderFrame(bool blinkOn) {
-        pc486::RenderScreen(m_.chipset.vga, last_frame_, blinkOn);
+    val renderFrame() {
+        pc486::RenderScreen(m_.chipset.vga, last_frame_);
         const auto &rgba = last_frame_.rgba;
         val out = val::global("Uint8ClampedArray").new_(rgba.size());
         if (!rgba.empty())

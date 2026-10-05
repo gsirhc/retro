@@ -23,72 +23,142 @@ void DecodeAttrColor(const Ega &ega, uint8_t pixel, uint8_t &r, uint8_t &g, uint
     DecodeDacColor(ega, ega.attr_dac_index(pixel), r, g, b);
 }
 
+// Where the CRTC's address counter is on one raster line: the row start
+// address it reloaded from, the character row since then and the scan line
+// within that row. Past Line Compare the counter restarts at 0 and the row
+// scan at 0, which is the split screen; above it the start address and
+// Preset Row Scan apply (IBM VGA Technical Reference, CRT Controller).
+struct ScanPos {
+    uint32_t base;
+    int row;
+    int row_scan;
+    bool lower;
+};
+
+ScanPos LocateRaster(const Ega &ega, int raster, int lines_per_row, uint32_t top_base) {
+    int dbl = ega.crtc_scan_doubling() ? 2 : 1;
+    int lc = ega.crtc_line_compare();
+    ScanPos p;
+    int line;
+    if (raster > lc) {
+        line = (raster - lc - 1) / dbl;
+        p.base = 0;
+        p.lower = true;
+    } else {
+        line = raster / dbl + ega.crtc_preset_row_scan();
+        p.base = top_base;
+        p.lower = false;
+    }
+    p.row = line / lines_per_row;
+    p.row_scan = line % lines_per_row;
+    return p;
+}
+
+// AR13 in 8-dot text and graphics shifts 0-7 pixels; in 9-dot text 8 means
+// 0 and 0-7 mean 1-8; in 256-colour mode it counts half pixels.
+int PelPan(const Ega &ega, int dots_per_char, bool vga256) {
+    int v = ega.attr_pel_pan();
+    if (vga256) return (v >> 1) & 3;
+    if (dots_per_char == 9) return v < 8 ? v + 1 : 0;
+    return v < 8 ? v : 0;
+}
+
+// A graphics pixel through Color Plane Enable and, with AR10 bit 3 set,
+// graphics blink: bit 3 reads 1, except that a pixel with bit 3 set (or
+// any pixel with plane 3 disabled) drops it in the off phase. IBM's
+// manual leaves this undefined; this is 86Box's rule (vid_svga_render.c),
+// checked there against Lotus 1-2-3 WYSIWYG and QBASIC SCREEN 10.
+uint8_t GraphicsAttr(const Ega &ega, uint8_t pixel) {
+    const uint8_t pm = ega.attr_plane_enable();
+    if (!ega.attr_blink_enabled()) return uint8_t(pixel & pm);
+    const bool drops = !ega.char_blink_phase_on() && ((pixel & 8) || !(pm & 8));
+    return uint8_t((pixel & pm & 7) | (drops ? 0 : 8));
+}
+
+void PutPixel(std::vector<uint8_t> &rgba, int width, int x, int y, uint8_t r, uint8_t g, uint8_t b) {
+    std::size_t i = (std::size_t(y) * std::size_t(width) + std::size_t(x)) * 4;
+    rgba[i + 0] = r;
+    rgba[i + 1] = g;
+    rgba[i + 2] = b;
+    rgba[i + 3] = 255;
+}
+
 }  // namespace
 
-void RenderTextScreen(const Ega &ega, std::vector<uint8_t> &rgba, bool blink_on, int &width, int &height) {
-    constexpr int cw = 8, rows = 25;
-    // Register value 0 means "1 scan line/row" -- not a real text mode
-    // (and what a freshly-reset, never-BIOS-programmed Ega reads as) --
-    // so treat it as "not configured yet" and fall back to the classic
-    // 14-line default rather than rendering a nonsensical 25-pixel-tall
-    // frame. Any other value (13 for genuine EGA's own 14-line convention,
-    // 15 for this machine's VGA BIOS substitute's native 16-line text
-    // mode, etc.) is trusted as-is -- see this function's header comment.
+void RenderTextScreen(const Ega &ega, std::vector<uint8_t> &rgba, int &width, int &height) {
+    const int cw = ega.seq_8dot_chars() ? 8 : 9;
+    // Max Scan Line 0 is no real text mode and is what a never-programmed
+    // card reads, so it falls back to 14 lines; the same goes for an
+    // unprogrammed Horizontal Display End (80 columns) and a Vertical
+    // Display End shorter than one row (25 rows).
     int scan_lines = int(ega.crtc_max_scan_line()) + 1;
     const int ch_h = scan_lines <= 1 ? 14 : scan_lines;
-    // Columns/row likewise comes from the CRTC's own Horizontal Displayed
-    // register (crtc_horizontal_display_end(), R01) rather than a hardcoded
-    // 80 -- real text modes 0/1 (and this game's own "look at map" screen)
-    // program 40-column text, and VRAM is laid out row*cols+col same as
-    // 80-column mode, just with cols=40. Hardcoding 80 here read every
-    // 40-column row starting at the wrong VRAM offset, scrambling into
-    // exactly the "glyph noise" this function's header warns about -- the
-    // register is trusted as-is once real BIOS/mode-set code has run, with
-    // the same "reads as 0 before that" fallback as scan_lines above.
     int cols_reg = int(ega.crtc_horizontal_display_end()) + 1;
     const int cols = cols_reg <= 1 ? 80 : cols_reg;
-    const int W = cw * cols, H = ch_h * rows;
+    const int dbl = ega.crtc_scan_doubling() ? 2 : 1;
+    int H = (int(ega.crtc_vertical_display_end()) + 1) / dbl;
+    if (H < ch_h) H = 25 * ch_h;
+    const int W = cw * cols;
     width = W; height = H;
     rgba.assign(std::size_t(W) * std::size_t(H) * 4, 0);
 
-    auto cell_offset = [&](int row, int col) -> uint32_t {
-        return (uint32_t(ega.start_offset()) + uint32_t(row * cols + col)) & 0xFFFF;
-    };
-    auto text_at = [&](int row, int col, uint8_t &ch, uint8_t &attr) {
-        uint32_t plane_off = cell_offset(row, col);
-        ch = ega.vram[(plane_off << 2) + 0];
-        attr = ega.vram[(plane_off << 2) + 1];
-    };
+    const int stride = ega.crtc_scanline_stride() > 0 ? ega.crtc_scanline_stride() : cols;
+    const uint32_t top_base = uint32_t(ega.start_offset()) + uint32_t(ega.crtc_byte_pan());
+    const int pan = PelPan(ega, cw, false);
+    const bool pan_split_reset = ega.attr_pan_split_reset();
+    const bool line_graphics = ega.attr_line_graphics();
+    const bool blink_enabled = ega.attr_blink_enabled();
+    const bool chars_on = ega.char_blink_phase_on();
+    const uint8_t plane_enable = ega.attr_plane_enable();
+    // Font map n sits at these plane-2 offsets (IBM VGA Technical Reference,
+    // Character Map Select).
+    static constexpr uint32_t kMapOffset[8] = {0x0000, 0x4000, 0x8000, 0xC000, 0x2000, 0x6000, 0xA000, 0xE000};
+    const uint32_t map_a = kMapOffset[ega.seq_char_map_a()];
+    const uint32_t map_b = kMapOffset[ega.seq_char_map_b()];
 
-    uint16_t cursor_off = ega.cursor_offset();
-    bool cursor_visible = blink_on && !ega.cursor_disabled();
+    const uint16_t cursor_off = uint16_t(ega.cursor_offset() + ega.cursor_skew());
+    const int underline_row = ega.crtc_underline_row();
+    const bool cursor_visible = ega.cursor_blink_phase_on() && !ega.cursor_disabled();
 
-    for (int row = 0; row < rows; ++row) {
-        for (int col = 0; col < cols; ++col) {
-            uint8_t ch, attr;
-            text_at(row, col, ch, attr);
-            uint8_t fg_idx = attr & 0x0F, bg_idx = uint8_t((attr >> 4) & 0x07);  // bit7 = blink, unused here
-            uint8_t fr, fg, fb, br, bg, bb;
-            DecodeAttrColor(ega, fg_idx, fr, fg, fb);
-            DecodeAttrColor(ega, bg_idx, br, bg, bb);
-
-            bool is_cursor_cell = cursor_visible && cell_offset(row, col) == cursor_off;
-
-            for (int r = 0; r < ch_h; ++r) {
-                uint32_t glyph_plane_off = uint32_t(ch) * 32 + uint32_t(r);
-                uint8_t bits = ega.vram[(glyph_plane_off << 2) + 2];  // plane 2: char generator
-                bool cursor_row = is_cursor_cell &&
-                    r >= ega.cursor_start_scanline() && r <= ega.cursor_end_scanline();
-                for (int c = 0; c < cw; ++c) {
-                    bool set = cursor_row || (bits & (0x80 >> c)) != 0;
-                    int px = col * cw + c, py = row * ch_h + r;
-                    std::size_t i = (std::size_t(py) * W + std::size_t(px)) * 4;
-                    rgba[i + 0] = set ? fr : br;
-                    rgba[i + 1] = set ? fg : bg;
-                    rgba[i + 2] = set ? fb : bb;
-                    rgba[i + 3] = 255;
-                }
+    for (int y = 0; y < H; ++y) {
+        ScanPos pos = LocateRaster(ega, y * dbl, ch_h, top_base);
+        const int line_pan = pos.lower && pan_split_reset ? 0 : pan;
+        const uint32_t row_base = pos.base + uint32_t(pos.row * stride);
+        const bool cursor_row = cursor_visible &&
+            pos.row_scan >= ega.cursor_start_scanline() && pos.row_scan <= ega.cursor_end_scanline();
+        int cached_col = -1;
+        uint8_t ch = 0, bits = 0;
+        bool is_cursor = false, hidden = false;
+        uint8_t fr = 0, fg = 0, fb = 0, br = 0, bg = 0, bb = 0;
+        for (int x = 0; x < W; ++x) {
+            const int sx = x + line_pan;
+            const int col = sx / cw, c = sx % cw;
+            if (col != cached_col) {
+                cached_col = col;
+                const uint32_t cell = (row_base + uint32_t(col)) & 0xFFFF;
+                ch = ega.vram[(cell << 2) + 0];
+                const uint8_t attr = ega.vram[(cell << 2) + 1];
+                const uint32_t map = (attr & 0x08) ? map_a : map_b;
+                bits = ega.vram[((map + uint32_t(ch) * 32 + uint32_t(pos.row_scan)) << 2) + 2];
+                // Underline is attribute x0x1 (foreground 1, background 0) on
+                // the Underline Location row, as DOSBox decodes it. It fills
+                // dots 1-8, so column 9 keeps its own rule: dashed across 9-dot
+                // cells, solid for line-graphics characters (IBM VGA Technical
+                // Reference, "Programming Considerations").
+                if ((attr & 0x77) == 0x01 && pos.row_scan == underline_row) bits = 0xFF;
+                uint8_t bg_idx = blink_enabled ? uint8_t((attr >> 4) & 0x07) : uint8_t(attr >> 4);
+                hidden = blink_enabled && (attr & 0x80) && !chars_on;
+                is_cursor = cursor_row && cell == cursor_off;
+                DecodeAttrColor(ega, uint8_t(attr & 0x0F & plane_enable), fr, fg, fb);
+                DecodeAttrColor(ega, uint8_t(bg_idx & plane_enable), br, bg, bb);
             }
+            bool set;
+            if (c < 8) set = (bits & (0x80 >> c)) != 0;
+            else set = line_graphics && ch >= 0xC0 && ch <= 0xDF && (bits & 0x01);
+            if (hidden) set = false;
+            if (is_cursor) set = true;
+            if (set) PutPixel(rgba, W, x, y, fr, fg, fb);
+            else PutPixel(rgba, W, x, y, br, bg, bb);
         }
     }
 }
@@ -97,28 +167,35 @@ void RenderCgaGraphics4Screen(const Ega &ega, std::vector<uint8_t> &rgba) {
     constexpr int W = 320, H = 200;
     rgba.assign(std::size_t(W) * std::size_t(H) * 4, 0);
 
+    // A CRTC nobody has programmed (Vertical Display End 0) gets mode 4's
+    // own layout: two scan lines per row, 80 bytes per row.
+    const bool unprogrammed = ega.crtc_vertical_display_end() == 0;
+    const int lines_per_row = unprogrammed ? 2 : int(ega.crtc_max_scan_line()) + 1;
+    const int dbl = ega.crtc_scan_doubling() ? 2 : 1;
+    const uint32_t stride = ega.crtc_scanline_stride() > 0 ? uint32_t(ega.crtc_scanline_stride()) : 80u;
+    // Word mode: the start address and byte panning count 2-byte units of
+    // the flat CGA-style offset.
+    const uint32_t top_base = (uint32_t(ega.start_offset()) + uint32_t(ega.crtc_byte_pan())) * 2u;
+    const int pan = PelPan(ega, 8, false);
+    const bool cga_banks = ega.crtc_cga_banks();
+
     for (int y = 0; y < H; ++y) {
-        uint32_t half = uint32_t(y & 1);       // real CGA: even/odd scanlines in separate 8K banks
-        uint32_t row = uint32_t(y >> 1);
-        for (int byte_col = 0; byte_col < 80; ++byte_col) {
+        ScanPos pos = LocateRaster(ega, y * dbl, lines_per_row, top_base);
+        const int line_pan = pos.lower && ega.attr_pan_split_reset() ? 0 : pan;
+        const uint32_t row_base = pos.base + uint32_t(pos.row) * stride;
+        for (int x = 0; x < W; ++x) {
+            const int sx = x + line_pan;
             // The flat CGA-style byte offset a CGA-unaware program would
-            // have written to -- see the header comment for how odd/even
-            // plane chaining (Phase 5) splits this across planes 0/1.
-            uint32_t linear_offset = (half ? 0x2000u : 0u) + row * 80u + uint32_t(byte_col);
-            uint32_t plane = linear_offset & 1;
-            uint32_t plane_offset = linear_offset >> 1;
-            uint8_t byte = ega.vram[(plane_offset << 2) + plane];
-            for (int sub = 0; sub < 4; ++sub) {
-                uint8_t pixel2 = uint8_t((byte >> (6 - 2 * sub)) & 0x3);
-                uint8_t r, g, b;
-                DecodeAttrColor(ega, pixel2, r, g, b);
-                int x = byte_col * 4 + sub;
-                std::size_t i = (std::size_t(y) * W + std::size_t(x)) * 4;
-                rgba[i + 0] = r;
-                rgba[i + 1] = g;
-                rgba[i + 2] = b;
-                rgba[i + 3] = 255;
-            }
+            // have written to; odd/even chaining splits it across planes 0/1.
+            uint32_t linear_offset = row_base + uint32_t(sx >> 2);
+            if (cga_banks) linear_offset = (linear_offset & ~0x2000u) | (uint32_t(pos.row_scan & 1) << 13);
+            const uint32_t plane = linear_offset & 1;
+            const uint32_t plane_offset = (linear_offset >> 1) & 0xFFFF;
+            const uint8_t byte = ega.vram[(plane_offset << 2) + plane];
+            const uint8_t pixel2 = uint8_t((byte >> (6 - 2 * (sx & 3))) & 0x3);
+            uint8_t r, g, b;
+            DecodeAttrColor(ega, GraphicsAttr(ega, pixel2), r, g, b);
+            PutPixel(rgba, W, x, y, r, g, b);
         }
     }
 }
@@ -131,14 +208,14 @@ void RenderEgaNative16Screen(const Ega &ega, std::vector<uint8_t> &rgba, int &wi
     // which cannot express 600 or 768 lines. Trust the DISPI registers the
     // same way RenderVga256Screen does for 8bpp, matching Bochs's bpp=4
     // path taking vbe.xres/yres/line_offset for the tall modes.
-    int displayed_bytes;
+    const bool dispi = ega.vbe_planar_banked();
     int row_stride;
-    if (ega.vbe_planar_banked()) {
+    int dbl = 1;
+    if (dispi) {
         width = ega.vbe_reg(Ega::kVbeRegXres);
         height = ega.vbe_reg(Ega::kVbeRegYres);
         int virt = ega.vbe_reg(Ega::kVbeRegVirtWidth);
         if (virt < width) virt = width;
-        displayed_bytes = width / 8;
         row_stride = virt / 8;  // 1 bit/pixel/plane; Bochs line_offset = xres>>3
     } else {
         width = (ega.crtc_horizontal_display_end() + 1) * 8;
@@ -147,51 +224,46 @@ void RenderEgaNative16Screen(const Ega &ega, std::vector<uint8_t> &rgba, int &wi
         // vertical counters describe the full doubled raster (e.g. 400 lines for
         // a 200-line picture), but VRAM only ever holds one copy of each row --
         // the second physical scanline of every pair is a hardware-side repeat,
-        // not distinct data. Render at the logical (halved) height directly and
-        // address VRAM by that same row count below; that reproduces the
-        // doubled picture exactly (every row would just draw itself twice) with
-        // half the work and no separate duplication pass.
-        if (ega.crtc_scan_doubling()) height /= 2;
-        displayed_bytes = width / 8;  // bytes/scanline actually drawn -- 1 bit/pixel/plane
+        // not distinct data. Render at the logical (halved) height directly.
+        if (ega.crtc_scan_doubling()) { height /= 2; dbl = 2; }
         // The real per-scanline VRAM stride comes from the CRTC's own Offset
         // Register, NOT from the displayed width -- see crtc_scanline_stride()
-        // in ega.h. They're usually equal, but real software that programs a
-        // logical scan-line wider than what it shows (confirmed happening with
-        // a real commercial game's "look at map" screen) relies on the
-        // distinction; walking VRAM by displayed width instead reads every
-        // scanline after the first starting at the wrong offset, scrambling
-        // into unrelated pixel data. A freshly-reset/never-programmed Offset
-        // register reads 0 -- fall back to the displayed width in that case.
+        // in ega.h. A freshly-reset/never-programmed Offset register reads 0
+        // -- fall back to the displayed width in that case.
         int real_stride = ega.crtc_scanline_stride();
-        row_stride = real_stride > 0 ? real_stride : displayed_bytes;
+        row_stride = real_stride > 0 ? real_stride : width / 8;
     }
     if (width <= 0 || height <= 0) { width = height = 0; rgba.clear(); return; }
     rgba.assign(std::size_t(width) * std::size_t(height) * 4, 0);
 
+    const uint32_t top_base = dispi ? 0 : uint32_t(ega.start_offset()) + uint32_t(ega.crtc_byte_pan());
+    const int lines_per_row = int(ega.crtc_max_scan_line()) + 1;
+    const int pan = dispi ? 0 : PelPan(ega, 8, false);
     for (int y = 0; y < height; ++y) {
-        for (int byte_col = 0; byte_col < displayed_bytes; ++byte_col) {
-            uint32_t plane_offset = uint32_t(y) * uint32_t(row_stride) + uint32_t(byte_col);
+        uint32_t row_base;
+        int line_pan = pan;
+        if (dispi) {
+            row_base = uint32_t(y) * uint32_t(row_stride);
+        } else {
+            ScanPos pos = LocateRaster(ega, y * dbl, lines_per_row, top_base);
+            row_base = pos.base + uint32_t(pos.row * row_stride);
+            if (pos.lower && ega.attr_pan_split_reset()) line_pan = 0;
+        }
+        for (int x = 0; x < width; ++x) {
+            const int sx = x + line_pan;
+            uint32_t plane_offset = row_base + uint32_t(sx >> 3);
+            if (!dispi) plane_offset &= 0xFFFF;
             // Past the card's interleaved VRAM there is nothing to show --
             // a banked 4bpp frame can ask for plane_off past 256KB of
             // groups when VirtWidth is oversized; leave those pixels black.
             if ((plane_offset << 2) + 3 >= ega.vram.size()) continue;
-            uint8_t p0 = ega.vram[(plane_offset << 2) + 0];
-            uint8_t p1 = ega.vram[(plane_offset << 2) + 1];
-            uint8_t p2 = ega.vram[(plane_offset << 2) + 2];
-            uint8_t p3 = ega.vram[(plane_offset << 2) + 3];
-            for (int bit = 0; bit < 8; ++bit) {
-                int shift = 7 - bit;
-                uint8_t nibble = uint8_t(((p0 >> shift) & 1) | (((p1 >> shift) & 1) << 1) |
-                                          (((p2 >> shift) & 1) << 2) | (((p3 >> shift) & 1) << 3));
-                uint8_t r, g, b;
-                DecodeAttrColor(ega, uint8_t(nibble & ega.attr_plane_enable()), r, g, b);
-                int x = byte_col * 8 + bit;
-                std::size_t i = (std::size_t(y) * std::size_t(width) + std::size_t(x)) * 4;
-                rgba[i + 0] = r;
-                rgba[i + 1] = g;
-                rgba[i + 2] = b;
-                rgba[i + 3] = 255;
-            }
+            const int shift = 7 - (sx & 7);
+            const uint8_t* p = &ega.vram[plane_offset << 2];
+            uint8_t nibble = uint8_t(((p[0] >> shift) & 1) | (((p[1] >> shift) & 1) << 1) |
+                                      (((p[2] >> shift) & 1) << 2) | (((p[3] >> shift) & 1) << 3));
+            uint8_t r, g, b;
+            DecodeAttrColor(ega, GraphicsAttr(ega, nibble), r, g, b);
+            PutPixel(rgba, width, x, y, r, g, b);
         }
     }
 }
@@ -246,7 +318,7 @@ void RenderVga256Screen(const Ega &ega, std::vector<uint8_t> &rgba, int &width, 
         if (chain4) {
             stride = ega.crtc_row_byte_stride();
             if (stride <= 0) stride = width;  // never programmed yet -- see RenderEgaNative16Screen
-            base = ega.start_byte_offset();
+            base = ega.start_byte_offset() + uint32_t(ega.crtc_byte_pan() * ega.crtc_address_unit_bytes());
         } else {
             // Unchained: the CRTC's byte/word/dword bits no longer scale to
             // a valid flat vram[] stride (they only ever scaled the chain-4
@@ -254,13 +326,27 @@ void RenderVga256Screen(const Ega &ega, std::vector<uint8_t> &rgba, int &width, 
             // -- exactly what mem_write()'s plane_off math consumes.
             stride = ega.crtc_scanline_stride();
             if (stride <= 0) stride = (width + 3) / 4;
-            base = ega.start_offset();
+            base = uint32_t(ega.start_offset()) + uint32_t(ega.crtc_byte_pan());
         }
     }
-    bool flat_addressing = ega.vbe_mode_active() || chain4;
+    const bool vbe = ega.vbe_mode_active();
+    const bool flat_addressing = vbe || chain4;
+    const int lines_per_row = int(ega.crtc_max_scan_line()) + 1;
+    const int raster_per_row = lines_per_row * (ega.crtc_scan_doubling() ? 2 : 1);
+    const int pan = vbe ? 0 : PelPan(ega, 8, true);
 
     for (int y = 0; y < height; ++y) {
+        uint32_t row_base;
+        int line_pan = pan;
+        if (vbe) {
+            row_base = base + uint32_t(y) * uint32_t(stride);
+        } else {
+            ScanPos pos = LocateRaster(ega, y * raster_per_row, lines_per_row, base);
+            row_base = pos.base + uint32_t(pos.row) * uint32_t(stride);
+            if (pos.lower && ega.attr_pan_split_reset()) line_pan = 0;
+        }
         for (int x = 0; x < width; ++x) {
+            const uint32_t sx = uint32_t(x + line_pan);
             uint8_t pixel;
             if (flat_addressing) {
                 // Chain-4 (or an SVGA linear mode) makes the flat frame-
@@ -268,23 +354,17 @@ void RenderVga256Screen(const Ega &ega, std::vector<uint8_t> &rgba, int &width, 
                 // see ega.h's file header. The wrap is the card's own
                 // 256KB, the same way a real VGA's address counter wraps
                 // rather than reading someone else's RAM.
-                uint32_t off = (base + uint32_t(y) * uint32_t(stride) + uint32_t(x)) % uint32_t(ega.vram.size());
-                pixel = ega.vram[off];
+                pixel = ega.vram[(row_base + sx) % uint32_t(ega.vram.size())];
             } else {
                 // Unchained: walk plane_off/plane exactly like mem_write()'s
                 // (plane_off << 2) + plane addressing -- one plane_off group
                 // covers 4 consecutive displayed pixels, one byte per plane.
-                uint32_t plane_off = (base + uint32_t(y) * uint32_t(stride) + uint32_t(x) / 4) % (1u << 16);
-                uint32_t plane = uint32_t(x) & 3u;
-                pixel = ega.vram[(plane_off << 2) + plane];
+                uint32_t plane_off = (row_base + sx / 4) % (1u << 16);
+                pixel = ega.vram[(plane_off << 2) + (sx & 3u)];
             }
             uint8_t r, g, b;
             DecodeDacColor(ega, pixel, r, g, b);
-            std::size_t i = (std::size_t(y) * std::size_t(width) + std::size_t(x)) * 4;
-            rgba[i + 0] = r;
-            rgba[i + 1] = g;
-            rgba[i + 2] = b;
-            rgba[i + 3] = 255;
+            PutPixel(rgba, width, x, y, r, g, b);
         }
     }
 }
@@ -305,7 +385,7 @@ ScreenMode DetectScreenMode(const Ega &ega) {
     return ScreenMode::kUnsupportedGraphics;
 }
 
-void RenderScreen(const Ega &ega, RenderedFrame &out, bool blink_on) {
+void RenderScreen(const Ega &ega, RenderedFrame &out) {
     switch (DetectScreenMode(ega)) {
         case ScreenMode::kCgaGraphics4:
             out.width = 320;
@@ -330,7 +410,7 @@ void RenderScreen(const Ega &ega, RenderedFrame &out, bool blink_on) {
             break;
         case ScreenMode::kText:
         default:
-            RenderTextScreen(ega, out.rgba, blink_on, out.width, out.height);
+            RenderTextScreen(ega, out.rgba, out.width, out.height);
             return;
     }
     // Honest placeholder -- a plain black frame, not a garbled

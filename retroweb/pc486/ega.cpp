@@ -7,6 +7,8 @@ namespace pc486 {
 
 void Ega::reset() {
     crtc_.fill(0); crtc_index_ = 0;
+    // Line Compare at its 10-bit maximum, so an unprogrammed card shows no split.
+    crtc_[0x18] = 0xFF; crtc_[0x07] = 0x10; crtc_[0x09] = 0x40;
     sequencer_.fill(0); sequencer_index_ = 0;
     gfx_.fill(0); gfx_index_ = 0;
     attr_.fill(0); attr_index_ = 0; attr_flip_flop_addr_ = true;
@@ -14,6 +16,7 @@ void Ega::reset() {
     retrace_ = false;
     prev_cycles_ = 0;
     retrace_credit_ = 0.0;
+    frame_count_ = 0;
     recompute_timing_();  // registers are all 0 here -- lands on the implausible-rate fallback below
     dac_.fill(0);
     dac_write_index_ = dac_read_index_ = dac_write_sub_ = dac_read_sub_ = dac_state_ = 0;

@@ -2312,33 +2312,35 @@
   const kTextRenderWidth = 640, kTextRenderHeight = 350;  // matches ega_render.h's text-mode default
 
   // The guest frame lands in frameCanvas at native resolution, then is
-  // blown up by a whole factor into #screen with nearest-neighbour, and the
-  // browser smooth-scales that to the CSS box. Every guest pixel stays the
-  // same width (a plain pixelated stretch to 860px doubles every third
-  // column), and the box can be any size.
+  // blown up by a whole factor per axis into #screen with nearest-neighbour,
+  // and the browser smooth-scales that to the CSS box. Every guest pixel
+  // stays the same size (a plain pixelated stretch to 860px doubles every
+  // third column). The box is always 4:3, because a VGA monitor fills its
+  // tube in every mode: 320x200 and 720x400 are stretched tall, as on the
+  // real screen.
   const frameCanvas = document.createElement("canvas");
   const frameCtx = frameCanvas.getContext("2d");
   const kMaxScreenScale = 4;  // past 4x the final smoothing pass is invisible
-  let screenScale = 0;
+  let screenScaleX = 0, screenScaleY = 0;
 
   function setFrameSize(w, h) {
-    if (frameCanvas.width === w && frameCanvas.height === h && screenScale) return;
+    if (frameCanvas.width === w && frameCanvas.height === h && screenScaleX) return;
     frameCanvas.width = w;
     frameCanvas.height = h;
-    screenEl.style.aspectRatio = w + " / " + h;
-    screenScale = 0;
+    screenScaleX = screenScaleY = 0;
     fitScreen();
   }
 
   function fitScreen() {
     const dpr = window.devicePixelRatio || 1;
-    const scale = Math.min(kMaxScreenScale, Math.max(1,
-      Math.ceil(screenEl.clientWidth * dpr / frameCanvas.width - 0.01),
-      Math.ceil(screenEl.clientHeight * dpr / frameCanvas.height - 0.01)));
-    if (scale === screenScale) return;
-    screenScale = scale;
-    screenEl.width = frameCanvas.width * scale;
-    screenEl.height = frameCanvas.height * scale;
+    const axis = (box, n) => Math.min(kMaxScreenScale, Math.max(1, Math.ceil(box * dpr / n - 0.01)));
+    const sx = axis(screenEl.clientWidth, frameCanvas.width);
+    const sy = axis(screenEl.clientHeight, frameCanvas.height);
+    if (sx === screenScaleX && sy === screenScaleY) return;
+    screenScaleX = sx;
+    screenScaleY = sy;
+    screenEl.width = frameCanvas.width * sx;
+    screenEl.height = frameCanvas.height * sy;
     ctx.imageSmoothingEnabled = false;  // reset by every resize
     presentFrame();
   }
@@ -2409,15 +2411,10 @@
   function frame(t) {
     if (!poweredOn || !machine) return;  // power switched off mid-loop -- stop, don't reschedule
     const frameT0 = dbg.on ? performance.now() : 0;
-    const blinkOn = Math.floor(t / 266) % 2 === 0;  // ~1.9Hz block-cursor blink
-    const rgba = machine.renderFrame(blinkOn);
-    // Resolution varies by mode (640x400 text, 320x200 CGA-compatible and
-    // VGA 256-color graphics, 640x350 native 16-color EGA, up to 640x400
-    // in the card's SVGA modes -- see ega_render.h) -- resize the frame buffer to match
-    // whenever it changes, and let it fill its native
-    // aspect ratio rather than stretching a lower-res mode into the text
-    // mode's box (no real hardware basis to prefer one distortion over
-    // another, so: don't introduce one).
+    const rgba = machine.renderFrame();
+    // Resolution varies by mode (720x400 text, 320x200 CGA-compatible and
+    // VGA 256-color graphics, 640x350 to 640x480 16-color, up to 1024x768
+    // in the card's SVGA modes -- see ega_render.h). The 4:3 box stays put.
     const frameW = machine.renderWidth(), frameH = machine.renderHeight();
     setFrameSize(frameW, frameH);
     const img = frameCtx.createImageData(frameW, frameH);

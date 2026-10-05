@@ -85,7 +85,7 @@ int main(int argc, char **argv) {
     std::fprintf(stderr, "ran %llu cycles\n", (unsigned long long)max_cycles);
 
     pc486::RenderedFrame frame;
-    pc486::RenderScreen(m.chipset.vga, frame, /*blink_on=*/true);
+    pc486::RenderScreen(m.chipset.vga, frame);
     WriteBmp(out_path, frame.width, frame.height, frame.rgba);
     std::fprintf(stderr, "wrote %s (%dx%d)\n", out_path, frame.width, frame.height);
     return 0;

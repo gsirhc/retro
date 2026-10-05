@@ -115,7 +115,10 @@ public:
         uint64_t d = cpu_cycles - prev_cycles_;
         prev_cycles_ = cpu_cycles;
         retrace_credit_ += double(d);
-        while (retrace_credit_ >= frame_period_cycles_) retrace_credit_ -= frame_period_cycles_;
+        while (retrace_credit_ >= frame_period_cycles_) {
+            retrace_credit_ -= frame_period_cycles_;
+            ++frame_count_;
+        }
         retrace_ = retrace_credit_ >= retrace_start_cycles_ &&
                    retrace_credit_ < retrace_start_cycles_ + retrace_window_cycles_;
     }
@@ -126,6 +129,14 @@ public:
     // wall-clock rate at either speed: a real DX2 Turbo button changes the
     // CPU's internal clock, never the video card's crystal.
     void set_cpu_hz(double hz) { cpu_hz_ = hz; recompute_timing_(); }
+
+    // Vertical frames scanned since reset. The CRTC's cursor and character
+    // blink counters divide this down: the cursor toggles every 8 frames
+    // and blinking characters every 16 (IBM VGA Technical Reference, CRT
+    // Controller).
+    uint32_t frame_count() const { return frame_count_; }
+    bool cursor_blink_phase_on() const { return (frame_count_ & 8) == 0; }
+    bool char_blink_phase_on() const { return (frame_count_ & 16) == 0; }
 
     // Host/front-end convenience for a future renderer: current CRTC
     // cursor position and display start address (both are 16-bit CRTC
@@ -140,6 +151,12 @@ public:
     bool cursor_disabled() const { return (crtc_[0x0A] >> 5) & 1; }
     uint8_t cursor_start_scanline() const { return uint8_t(crtc_[0x0A] & 0x1F); }
     uint8_t cursor_end_scanline() const { return uint8_t(crtc_[0x0B] & 0x1F); }
+    // Cursor Skew (CRTC 0Bh bits 5-6): the cursor is drawn this many
+    // character clocks to the right of its address.
+    int cursor_skew() const { return (crtc_[0x0B] >> 5) & 3; }
+    // Underline Location (CRTC 14h bits 0-4): the row scan an underlined
+    // character draws its line on.
+    int crtc_underline_row() const { return crtc_[0x14] & 0x1F; }
 
     // One Attribute Controller internal palette register (0-15): the 6-bit
     // value a 4-bit attribute nibble or pixel maps to. On this VGA it is a
@@ -159,6 +176,13 @@ public:
     }
     // Color Plane Enable (AR12): the bit planes that reach the palette.
     uint8_t attr_plane_enable() const { return uint8_t(attr_[0x12] & 0x0F); }
+    // Attribute Mode Control (AR10) bit 2: line graphics (column 9 repeats
+    // column 8 for C0h-DFh), bit 3: attribute bit 7 blinks instead of
+    // selecting a bright background, bit 5: pel panning stops at the split.
+    bool attr_line_graphics() const { return (attr_[0x10] >> 2) & 1; }
+    bool attr_blink_enabled() const { return (attr_[0x10] >> 3) & 1; }
+    bool attr_pan_split_reset() const { return (attr_[0x10] >> 5) & 1; }
+    uint8_t attr_pel_pan() const { return uint8_t(attr_[0x13] & 0x0F); }
 
     // --- VGA DAC (ports 0x3C6-0x3C9) --------------------------------------
     // One of the 256 DAC colour registers, as the three RAW 6-bit channel
@@ -197,6 +221,9 @@ public:
     // stride genuinely comes from the registers, not from a mode table.
     bool crtc_dword_mode() const { return (crtc_[0x14] >> 6) & 1; }
     bool crtc_byte_mode() const { return (crtc_[0x17] >> 6) & 1; }
+    // CRTC Mode Control (17h) bit 0 clear: row scan bit 0 replaces memory
+    // address bit 13, which gives CGA's two interleaved 8KB banks.
+    bool crtc_cga_banks() const { return (crtc_[0x17] & 1) == 0; }
     int crtc_address_unit_bytes() const {
         if (crtc_dword_mode()) return 4;
         return crtc_byte_mode() ? 1 : 2;
@@ -336,6 +363,12 @@ public:
     // walk plane_off/plane directly, exactly like mem_read()/mem_write()'s
     // own (plane_off << 2) + plane addressing. See PC486_REVIEW.md.
     bool chain4_enabled() const { return seq_chain4(); }
+    // Clocking Mode (SR01) bit 0: 8-dot character clock; clear means 9 dots.
+    bool seq_8dot_chars() const { return sequencer_[1] & 1; }
+    // Character Map Select (SR03): map A (attribute bit 3 set) in bits 5,3,2
+    // and map B in bits 4,1,0, each 0-7.
+    int seq_char_map_a() const { return ((sequencer_[3] >> 3) & 4) | ((sequencer_[3] >> 2) & 3); }
+    int seq_char_map_b() const { return ((sequencer_[3] >> 2) & 4) | (sequencer_[3] & 3); }
 
     // Host/front-end convenience: the CRTC registers that determine a
     // graphics mode's actual resolution -- Horizontal Display End
@@ -391,6 +424,18 @@ public:
     // 400-line canvas and leaving the bottom half black. See
     // RenderEgaNative16Screen() in ega_render.cpp and PC486_REVIEW.md.
     bool crtc_scan_doubling() const { return (crtc_[0x09] >> 7) & 1; }
+
+    // Line Compare (CRTC 18h, bit 8 in R07 bit 4, bit 9 in R09 bit 6): the
+    // scan line after which the address counter restarts at 0, for a split
+    // screen.
+    int crtc_line_compare() const {
+        return int(crtc_[0x18]) | ((crtc_[0x07] >> 4 & 1) << 8) | ((crtc_[0x09] >> 6 & 1) << 9);
+    }
+    // Preset Row Scan (CRTC 08h): bits 0-4 start the first character row
+    // part-way down for smooth vertical scrolling, bits 5-6 add whole
+    // character clocks to the start address.
+    int crtc_preset_row_scan() const { return crtc_[0x08] & 0x1F; }
+    int crtc_byte_pan() const { return (crtc_[0x08] >> 5) & 3; }
 
     // Offset Register (CRTC R13): the real per-scanline memory stride, in
     // WORDS (2 bytes) per plane -- genuinely independent of Horizontal
@@ -520,6 +565,7 @@ private:
     bool retrace_ = false;
     uint64_t prev_cycles_ = 0;
     double retrace_credit_ = 0.0;
+    uint32_t frame_count_ = 0;
 
     // --- Frame-rate / retrace-window cache (see tick(), set_cpu_hz(),
     // recompute_timing_()) -- kept separate from mapping_epoch_ above,

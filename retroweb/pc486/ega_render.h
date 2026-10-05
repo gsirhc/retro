@@ -5,8 +5,8 @@
 // like" rather than the same decode logic duplicated in C++ and JS.
 //
 // Three real hardware layouts are supported:
-//   - Text mode (80x25 or 40x25, 8-pixel-wide cells, row height from the
-//     CRTC): the mode a real BIOS's own POST/boot messages and a plain DOS
+//   - Text mode (columns, rows, cell width and height all from the CRTC
+//     and Sequencer, so 25, 43 and 50 rows and 8- or 9-dot cells): the mode a real BIOS's own POST/boot messages and a plain DOS
 //     prompt use (80x25); 40-column text (mode 0/1) is real too -- some DOS
 //     software uses it for a large-character screen. See RenderTextScreen.
 //   - The EGA/VGA "CGA-compatibility" 4-color 320x200 graphics mode (GR05
@@ -81,13 +81,15 @@ constexpr int kTextRenderHeight = 350;  // the classic 14-line/row default -- se
 // missed graphics-mode detection. Same 0-reads-as-"not configured yet"
 // fallback as scan_lines. See PC486_REVIEW.md.
 //
-// `blink_on` selects whether a non-disabled text cursor is currently drawn
-// as a solid block at its real CRTC-programmed scanlines; the caller paces
-// the actual blink rate (this function just draws the requested phase,
-// matching how a real CRT controller has no opinion of its own about
-// blink timing -- that's a separate counter in the CRTC feeding this same
-// enable bit).
-void RenderTextScreen(const Ega &ega, std::vector<uint8_t> &rgba, bool blink_on, int &width, int &height);
+// Rows come from Vertical Display End over the row height, so a 43- or
+// 50-line mode shows every line, and a partial last row shows as on a
+// monitor. Cells are 9 dots unless SR01 bit 0 selects 8, with the line-
+// graphics column for C0h-DFh. Attribute bit 7 blinks or brightens the
+// background per AR10 bit 3, and attribute bit 3 picks font map A or B
+// from SR03. The cursor and blinking characters follow the card's own
+// frame counter (Ega::frame_count). Start address, byte and pel panning,
+// Preset Row Scan and Line Compare apply as in every planar mode.
+void RenderTextScreen(const Ega &ega, std::vector<uint8_t> &rgba, int &width, int &height);
 
 // Fills `rgba` with 320*200 RGBA8888 pixels reflecting the EGA/VGA CGA-
 // compatibility 4-color graphics mode's current screen. Real hardware
@@ -183,7 +185,7 @@ struct RenderedFrame {
 // needed -- the one entry point render_screen.cpp and the WASM front end
 // both call, so a real, tested single implementation decides what's on
 // screen rather than each caller guessing.
-void RenderScreen(const Ega &ega, RenderedFrame &out, bool blink_on);
+void RenderScreen(const Ega &ega, RenderedFrame &out);
 
 }  // namespace pc486
 
