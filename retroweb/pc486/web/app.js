@@ -2304,13 +2304,61 @@
   }
 
   function clearScreenToBlack() {
-    screenEl.width = kTextRenderWidth;
-    screenEl.height = kTextRenderHeight;
-    screenEl.style.aspectRatio = kTextRenderWidth + " / " + kTextRenderHeight;
-    ctx.fillStyle = "#000";
-    ctx.fillRect(0, 0, screenEl.width, screenEl.height);
+    setFrameSize(kTextRenderWidth, kTextRenderHeight);
+    frameCtx.fillStyle = "#000";
+    frameCtx.fillRect(0, 0, frameCanvas.width, frameCanvas.height);
+    presentFrame();
   }
   const kTextRenderWidth = 640, kTextRenderHeight = 350;  // matches ega_render.h's text-mode default
+
+  // The guest frame lands in frameCanvas at native resolution, then is
+  // blown up by a whole factor into #screen with nearest-neighbour, and the
+  // browser smooth-scales that to the CSS box. Every guest pixel stays the
+  // same width (a plain pixelated stretch to 860px doubles every third
+  // column), and the box can be any size.
+  const frameCanvas = document.createElement("canvas");
+  const frameCtx = frameCanvas.getContext("2d");
+  const kMaxScreenScale = 4;  // past 4x the final smoothing pass is invisible
+  let screenScale = 0;
+
+  function setFrameSize(w, h) {
+    if (frameCanvas.width === w && frameCanvas.height === h && screenScale) return;
+    frameCanvas.width = w;
+    frameCanvas.height = h;
+    screenEl.style.aspectRatio = w + " / " + h;
+    screenScale = 0;
+    fitScreen();
+  }
+
+  function fitScreen() {
+    const dpr = window.devicePixelRatio || 1;
+    const scale = Math.min(kMaxScreenScale, Math.max(1,
+      Math.ceil(screenEl.clientWidth * dpr / frameCanvas.width - 0.01),
+      Math.ceil(screenEl.clientHeight * dpr / frameCanvas.height - 0.01)));
+    if (scale === screenScale) return;
+    screenScale = scale;
+    screenEl.width = frameCanvas.width * scale;
+    screenEl.height = frameCanvas.height * scale;
+    ctx.imageSmoothingEnabled = false;  // reset by every resize
+    presentFrame();
+  }
+
+  function presentFrame() {
+    ctx.drawImage(frameCanvas, 0, 0, screenEl.width, screenEl.height);
+  }
+
+  const screenResizeObserver = new ResizeObserver(fitScreen);
+  try {
+    screenResizeObserver.observe(screenEl, { box: "device-pixel-content-box" });
+  } catch {
+    screenResizeObserver.observe(screenEl);
+    // Without device-pixel-content-box, a move to a monitor with a different
+    // pixel ratio changes no CSS size, so watch the ratio itself.
+    (function watchDpr() {
+      matchMedia("(resolution: " + (window.devicePixelRatio || 1) + "dppx)")
+        .addEventListener("change", () => { fitScreen(); watchDpr(); }, { once: true });
+    })();
+  }
 
   function pump() {
     if (!poweredOn || !machine) return;  // power switched off mid-loop -- stop, don't reschedule
@@ -2365,20 +2413,17 @@
     const rgba = machine.renderFrame(blinkOn);
     // Resolution varies by mode (640x400 text, 320x200 CGA-compatible and
     // VGA 256-color graphics, 640x350 native 16-color EGA, up to 640x400
-    // in the card's SVGA modes -- see ega_render.h) -- resize the canvas's own pixel
-    // buffer to match whenever it changes, and let it fill its native
+    // in the card's SVGA modes -- see ega_render.h) -- resize the frame buffer to match
+    // whenever it changes, and let it fill its native
     // aspect ratio rather than stretching a lower-res mode into the text
     // mode's box (no real hardware basis to prefer one distortion over
     // another, so: don't introduce one).
     const frameW = machine.renderWidth(), frameH = machine.renderHeight();
-    if (screenEl.width !== frameW || screenEl.height !== frameH) {
-      screenEl.width = frameW;
-      screenEl.height = frameH;
-      screenEl.style.aspectRatio = frameW + " / " + frameH;
-    }
-    const img = ctx.createImageData(frameW, frameH);
+    setFrameSize(frameW, frameH);
+    const img = frameCtx.createImageData(frameW, frameH);
     img.data.set(rgba);
-    ctx.putImageData(img, 0, 0);
+    frameCtx.putImageData(img, 0, 0);
+    presentFrame();
 
     floppyBay.querySelector('[data-role="led"]').classList.toggle(
       "on", machine.floppyPresent() && machine.floppyMotorOn());
@@ -2800,7 +2845,7 @@
     if (!noticeDismissed) bootNoticeEl.classList.add("visible");
     if (new URLSearchParams(location.search).get("test") === "1") {
       window.__test = {
-        machine, sendKey, screenEl, mapKey,
+        machine, sendKey, screenEl, mapKey, fitScreen, frameCanvas,
         get keymapRows() { return keymapRows.map((r) => ({ ...r, to: r.to.slice() })); },
         applyWasdPreset: () => applyPresetRows(kWasdPresetRows),
         applyShiftCtrlPreset: () => applyPresetRows(kShiftCtrlPresetRows),
