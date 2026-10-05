@@ -1,6 +1,7 @@
-// GoogleTest suite for the 8253 PIT: control-word channel/access/mode
-// decode, reload programming, the counter-latch readback command, the
-// channel-2 gate (port 0x61 bit 0), and tick()'s edge-rate output.
+// GoogleTest suite for the 8254 PIT: control-word decode, all six counter
+// modes, BCD counting, the counter-latch and read-back commands, the
+// channel-2 gate (port 0x61 bit 0), and tick()'s channel-0 edge output.
+// Reference: Intel 8254 data sheet (231164), "Mode Definitions".
 //
 // Tests that need an exact tick count use cpu_hz == the PIT's own 1.193182
 // MHz clock, so tick()'s internal PIT-clocks-per-CPU-cycle ratio is exactly
@@ -9,6 +10,8 @@
 
 #include <gtest/gtest.h>
 
+#include <string>
+
 #include "pit8253.h"
 
 namespace {
@@ -16,109 +19,413 @@ namespace {
 using pc486::Pit8253;
 constexpr double kPitHz = 1193182.0;
 
-TEST(Pit8253Test, ProgramChannel0Mode3ReloadFour) {
+// Steps the PIT one clock at a time, tracking the absolute clock count.
+struct Clock {
+    Pit8253 &pit;
+    uint64_t now = 0;
+    int step(int n = 1) {
+        int rises = 0;
+        for (int i = 0; i < n; ++i) rises += pit.tick(++now, kPitHz);
+        return rises;
+    }
+    // Channel 2's OUT, one character per clock: H or L.
+    std::string trace2(int n) {
+        std::string s;
+        for (int i = 0; i < n; ++i) {
+            step();
+            s += pit.channel2_output() ? 'H' : 'L';
+        }
+        return s;
+    }
+};
+
+uint16_t ReadCount(Pit8253 &pit, uint16_t port) {
+    uint16_t lo = pit.in(port);
+    return uint16_t(lo | (pit.in(port) << 8));
+}
+
+void Program2(Pit8253 &pit, uint8_t mode, uint16_t count) {
+    pit.out(0x43, uint8_t(0xB0 | (mode << 1)));  // channel 2, LSB then MSB, binary
+    pit.out(0x42, uint8_t(count & 0xFF));
+    pit.out(0x42, uint8_t(count >> 8));
+}
+
+// ---- mode 3 (square wave) ----
+
+TEST(Pit8253Test, Mode3EvenCountRisesEveryNClocksAfterTheLoadClock) {
     Pit8253 pit;
-    pit.out(0x43, 0x36);  // channel 0, access LSB-then-MSB, mode 3
+    Clock c{pit};
+    pit.out(0x43, 0x36);  // channel 0, LSB then MSB, mode 3
     pit.out(0x40, 4);
     pit.out(0x40, 0);
-    // toggle_period = reload/2 = 2, so a rising edge occurs every 4 PIT clocks.
-    EXPECT_EQ(pit.tick(2, kPitHz), 0);
-    EXPECT_EQ(pit.tick(4, kPitHz), 1);
-    EXPECT_EQ(pit.tick(6, kPitHz), 0);
-    EXPECT_EQ(pit.tick(8, kPitHz), 1);
+    // Clock 1 loads the count; low at clock 3, high again at clock 5.
+    EXPECT_EQ(c.step(4), 0);
+    EXPECT_EQ(c.step(), 1);
+    EXPECT_EQ(c.step(3), 0);
+    EXPECT_EQ(c.step(), 1);
 }
 
 TEST(Pit8253Test, Channel0DivisorZeroMeansSixtyFiveThousandFiveThirtySix) {
-    // The real AT BIOS programs channel 0 with a divisor of 0 (meaning
-    // 65536) for the ~18.2 Hz DOS timer tick: 1193182/65536 = 18.2 Hz.
+    // The AT BIOS programs channel 0 with a divisor of 0 (65536) for the
+    // ~18.2 Hz DOS timer tick: 1193182/65536 = 18.2 Hz.
     Pit8253 pit;
     pit.out(0x43, 0x36);
     pit.out(0x40, 0);
     pit.out(0x40, 0);
-    // One full period is 65536 PIT clocks -- not yet elapsed at 65535.
-    EXPECT_EQ(pit.tick(65535, kPitHz), 0);
-    EXPECT_EQ(pit.tick(65536, kPitHz), 1);
+    EXPECT_EQ(pit.tick(65536, kPitHz), 0);  // load clock + 65535
+    EXPECT_EQ(pit.tick(65537, kPitHz), 1);
+    EXPECT_EQ(pit.tick(65537 + 65535, kPitHz), 0);
+    EXPECT_EQ(pit.tick(65537 + 65536, kPitHz), 1);
 }
 
-TEST(Pit8253Test, Gate2FreezesChannelTwoCounter) {
-    // tick()'s return value only ever reports channel 0's edges (that's the
-    // one wired to PIC IRQ0) -- channel 2's state is read directly via
-    // channel2_output(), which is what pcspeaker.h will poll in a later phase.
+TEST(Pit8253Test, Mode3OddCountIsHighOneClockLongerThanLow) {
+    // Data sheet: "OUT will be high for (N+1)/2 counts and low for (N-1)/2".
     Pit8253 pit;
-    pit.out(0x43, 0xB6);  // channel 2 (10), access LSB-then-MSB, mode 3
+    Clock c{pit};
+    Program2(pit, 3, 5);
+    EXPECT_EQ(c.trace2(1 + 15), "H" "HHLL" "HHHLL" "HHHLL" "H");
+}
+
+TEST(Pit8253Test, Mode3CounterDecrementsByTwo) {
+    Pit8253 pit;
+    Clock c{pit};
+    Program2(pit, 3, 10);
+    c.step();  // load
+    EXPECT_EQ(ReadCount(pit, 0x42), 10);
+    c.step();
+    EXPECT_EQ(ReadCount(pit, 0x42), 8);
+    c.step(4);
+    EXPECT_EQ(ReadCount(pit, 0x42), 10);  // expired and reloaded, now low
+    EXPECT_FALSE(pit.channel2_output());
+}
+
+TEST(Pit8253Test, Mode3OddCountReadsBackEvenValues) {
+    // Odd counts load N-1, so the counter only ever shows even values.
+    Pit8253 pit;
+    Clock c{pit};
+    Program2(pit, 3, 7);
+    c.step();
+    EXPECT_EQ(ReadCount(pit, 0x42), 6);
+    c.step();
+    EXPECT_EQ(ReadCount(pit, 0x42), 4);
+}
+
+TEST(Pit8253Test, Mode3NewCountTakesEffectAtTheEndOfTheHalfCycle) {
+    Pit8253 pit;
+    Clock c{pit};
+    Program2(pit, 3, 8);
+    c.step(2);  // loaded, one decrement in: 6 left
     pit.out(0x42, 4);
     pit.out(0x42, 0);
-    ASSERT_TRUE(pit.channel2_output());
+    // The current half-cycle finishes at the old count (3 more clocks),
+    // then the new count of 4 gives 2-clock halves.
+    EXPECT_EQ(c.trace2(7), "HHL" "LHH" "L");
+}
+
+TEST(Pit8253Test, Gate2LowFreezesModeThreeAndRisingEdgeRestartsIt) {
+    Pit8253 pit;
+    Clock c{pit};
     pit.set_gate2(false);
-    pit.tick(100, kPitHz);  // channel 2 must not advance while gated low
+    Program2(pit, 3, 4);
+    c.step(100);
     EXPECT_TRUE(pit.channel2_output());
     pit.set_gate2(true);
-    // toggle_period = 2 -- first toggle (high->low) 2 clocks after the gate reopens.
-    pit.tick(102, kPitHz);
-    EXPECT_FALSE(pit.channel2_output());
-    pit.tick(104, kPitHz);
-    EXPECT_TRUE(pit.channel2_output());
+    // The rising edge reloads on the next clock, then halves of 2.
+    EXPECT_EQ(c.trace2(5), "HHLLH");
 }
 
 TEST(Pit8253Test, Gate2LowForcesOutputHighEvenMidCycle) {
-    // Real Mode 3 hardware forces the output high the instant GATE drops,
-    // regardless of what phase it was in -- not merely whatever it
-    // happened to be. This is what lets pcspeaker.h's direct-toggle
-    // "digitized" playback technique rely on a clean, predictable high
-    // baseline from the PIT side while it drives the speaker itself via
-    // the Speaker Data Enable bit.
+    // Modes 2 and 3 force OUT high the instant GATE drops. pcspeaker.h's
+    // direct-toggle playback relies on that clean high baseline.
     Pit8253 pit;
-    pit.out(0x43, 0xB6);  // channel 2, access LSB-then-MSB, mode 3
-    pit.out(0x42, 4);
-    pit.out(0x42, 0);
-    pit.tick(2, kPitHz);  // one full toggle_period -- output is now low
+    Clock c{pit};
+    Program2(pit, 3, 4);
+    c.step(3);
     ASSERT_FALSE(pit.channel2_output());
     pit.set_gate2(false);
     EXPECT_TRUE(pit.channel2_output());
 }
 
-TEST(Pit8253Test, Gate2RisingEdgeReloadsCounterInsteadOfResumingMidPhase) {
-    // Real Mode 3 hardware: GATE's rising edge reloads the counter, so the
-    // square wave restarts cleanly from the beginning of its period
-    // instead of resuming from wherever it was frozen.
+TEST(Pit8253Test, Gate2RisingEdgeReloadsInsteadOfResumingMidPhase) {
     Pit8253 pit;
-    pit.out(0x43, 0xB6);
+    Clock c{pit};
+    Program2(pit, 3, 4);
+    c.step(2);  // loaded, then counter at 2: one clock from going low
+    pit.set_gate2(false);
+    pit.set_gate2(true);
+    EXPECT_EQ(c.trace2(3), "HHL");  // reload clock, then a full half
+}
+
+TEST(Pit8253Test, LsbOnlyAccessProgramsTheCountFromOneByte) {
+    Pit8253 pit;
+    Clock c{pit};
+    pit.out(0x43, 0x16);  // channel 0, LSB only, mode 3
+    pit.out(0x40, 8);
+    EXPECT_EQ(c.step(8), 0);
+    EXPECT_EQ(c.step(), 1);
+}
+
+// ---- mode 0 (interrupt on terminal count) ----
+
+TEST(Pit8253Test, Mode0OutGoesLowOnControlWordAndHighNPlusOneClocksAfterTheCount) {
+    Pit8253 pit;
+    Clock c{pit};
+    pit.out(0x43, 0x30);  // channel 0, LSB then MSB, mode 0
+    pit.out(0x40, 10);
+    pit.out(0x40, 0);
+    EXPECT_EQ(c.step(10), 0);
+    EXPECT_EQ(c.step(), 1);
+    // One shot: the counter wraps and keeps going, OUT stays high.
+    EXPECT_EQ(c.step(200000), 0);
+}
+
+TEST(Pit8253Test, Mode0WrapsToFFFFAfterTerminalCount) {
+    Pit8253 pit;
+    Clock c{pit};
+    Program2(pit, 0, 3);
+    EXPECT_EQ(c.trace2(5), "LLLHH");
+    EXPECT_EQ(ReadCount(pit, 0x42), 0xFFFF);
+}
+
+TEST(Pit8253Test, Mode0FirstByteStopsCountingAndDropsOut) {
+    Pit8253 pit;
+    Clock c{pit};
+    Program2(pit, 0, 3);
+    c.step(5);
+    ASSERT_TRUE(pit.channel2_output());
+    uint16_t before = ReadCount(pit, 0x42);
+    pit.out(0x42, 5);  // LSB only so far
+    EXPECT_FALSE(pit.channel2_output());
+    c.step(10);
+    EXPECT_EQ(ReadCount(pit, 0x42), before);
+    pit.out(0x42, 0);
+    EXPECT_EQ(c.trace2(6), "LLLLLH");
+}
+
+TEST(Pit8253Test, Mode0GateLowPausesCountingWithoutTouchingOut) {
+    Pit8253 pit;
+    Clock c{pit};
+    Program2(pit, 0, 4);
+    c.step(2);  // loaded, 3 left
+    pit.set_gate2(false);
+    c.step(50);
+    EXPECT_FALSE(pit.channel2_output());
+    EXPECT_EQ(ReadCount(pit, 0x42), 3);
+    pit.set_gate2(true);
+    EXPECT_EQ(c.trace2(3), "LLH");
+}
+
+// ---- mode 1 (hardware retriggerable one-shot) ----
+
+TEST(Pit8253Test, Mode1WaitsForAGateTriggerThenPulsesLowForNClocks) {
+    Pit8253 pit;
+    Clock c{pit};
+    Program2(pit, 1, 3);
+    EXPECT_EQ(c.trace2(10), "HHHHHHHHHH");
+    pit.set_gate2(false);
+    pit.set_gate2(true);
+    EXPECT_EQ(c.trace2(6), "LLLHHH");
+}
+
+TEST(Pit8253Test, Mode1RetriggerRestartsTheShot) {
+    Pit8253 pit;
+    Clock c{pit};
+    Program2(pit, 1, 4);
+    pit.set_gate2(false);
+    pit.set_gate2(true);
+    c.step(2);
+    pit.set_gate2(false);
+    pit.set_gate2(true);
+    EXPECT_EQ(c.trace2(6), "LLLLHH");
+}
+
+TEST(Pit8253Test, Mode1OnChannel0NeverFiresBecauseItsGateIsTiedHigh) {
+    Pit8253 pit;
+    Clock c{pit};
+    pit.out(0x43, 0x32);  // channel 0, mode 1
+    pit.out(0x40, 10);
+    pit.out(0x40, 0);
+    EXPECT_EQ(c.step(1000), 0);
+}
+
+// ---- mode 2 (rate generator) ----
+
+TEST(Pit8253Test, Mode2OutIsLowForOneClockPerPeriod) {
+    Pit8253 pit;
+    Clock c{pit};
+    Program2(pit, 2, 4);
+    EXPECT_EQ(c.trace2(1 + 12), "H" "HHLH" "HHLH" "HHLH");
+}
+
+TEST(Pit8253Test, Mode2Channel0RaisesOneEdgePerPeriod) {
+    Pit8253 pit;
+    Clock c{pit};
+    pit.out(0x43, 0x34);  // channel 0, LSB then MSB, mode 2
+    pit.out(0x40, 100);
+    pit.out(0x40, 0);
+    EXPECT_EQ(c.step(1 + 1000), 10);
+}
+
+TEST(Pit8253Test, Mode2NewCountTakesEffectAtTheNextReload) {
+    Pit8253 pit;
+    Clock c{pit};
+    Program2(pit, 2, 5);
+    c.step(2);  // loaded, 4 left
+    pit.out(0x42, 3);
+    pit.out(0x42, 0);
+    // The old count runs out (low at 1), then periods of 3.
+    EXPECT_EQ(c.trace2(9), "HHL" "HHL" "HHL");
+}
+
+TEST(Pit8253Test, ModeSixAndSevenAliasTwoAndThree) {
+    Pit8253 pit;
+    Clock c{pit};
+    pit.out(0x43, 0xBC);  // channel 2, LSB then MSB, M=110
     pit.out(0x42, 4);
     pit.out(0x42, 0);
-    pit.tick(1, kPitHz);  // one clock into the period (counter now 1 of 2)
-    pit.set_gate2(false);
-    pit.set_gate2(true);  // reloads the counter back to 2
-    pit.tick(2, kPitHz);  // one more clock -- would have toggled already
-    EXPECT_TRUE(pit.channel2_output());  // ...if it had merely resumed at 1
-    pit.tick(3, kPitHz);  // second clock since the reload -- now it toggles
-    EXPECT_FALSE(pit.channel2_output());
+    EXPECT_EQ(c.trace2(5), "HHHLH");
+    pit.out(0x43, 0xE8);  // read-back status, channel 2
+    EXPECT_EQ(pit.in(0x42) & 0x3F, 0x3C);  // status keeps the bits as written
 }
+
+// ---- modes 4 and 5 (strobes) ----
+
+TEST(Pit8253Test, Mode4StrobesLowForOneClockOnce) {
+    Pit8253 pit;
+    Clock c{pit};
+    Program2(pit, 4, 3);
+    EXPECT_EQ(c.trace2(8), "HHHLHHHH");
+    c.step(70000);  // wraps through zero again with no second strobe
+    EXPECT_TRUE(pit.channel2_output());
+    Program2(pit, 4, 2);  // a new count retriggers
+    EXPECT_EQ(c.trace2(4), "HHLH");
+}
+
+TEST(Pit8253Test, Mode5StrobesAfterAGateTrigger) {
+    Pit8253 pit;
+    Clock c{pit};
+    Program2(pit, 5, 3);
+    EXPECT_EQ(c.trace2(10), "HHHHHHHHHH");
+    pit.set_gate2(false);
+    pit.set_gate2(true);
+    EXPECT_EQ(c.trace2(6), "HHHLHH");
+}
+
+// ---- latch, read-back, BCD, flip-flops ----
 
 TEST(Pit8253Test, CounterLatchFreezesAConsistentSnapshot) {
     Pit8253 pit;
-    pit.out(0x43, 0x76);  // channel 1 (01), access LSB-then-MSB, mode 3
+    Clock c{pit};
+    pit.out(0x43, 0x70);  // channel 1, LSB then MSB, mode 0
     pit.out(0x41, 100);
     pit.out(0x41, 0);
-    // toggle_period = 50 -- latch immediately, before any ticking.
-    pit.out(0x43, 0x40);  // latch command, channel 1, rw=00
-    EXPECT_EQ(pit.in(0x41), 50);
-    EXPECT_EQ(pit.in(0x41), 0);
-    // Advance 10 PIT clocks, then latch again -- expect 50-10 = 40.
-    pit.tick(10, kPitHz);
+    c.step();  // load
     pit.out(0x43, 0x40);
-    EXPECT_EQ(pit.in(0x41), 40);
-    EXPECT_EQ(pit.in(0x41), 0);
+    c.step(10);
+    EXPECT_EQ(ReadCount(pit, 0x41), 100);
+    pit.out(0x43, 0x40);
+    EXPECT_EQ(ReadCount(pit, 0x41), 90);
 }
 
-TEST(Pit8253Test, LsbOnlyAccessModeProgramsReloadFromOneByte) {
+TEST(Pit8253Test, SecondLatchBeforeReadIsIgnored) {
     Pit8253 pit;
-    pit.out(0x43, 0x16);  // channel 0, access LSB-only, mode 3
-    pit.out(0x40, 8);     // reload = 8 (single-byte access -- MSB implicitly 0)
-    // toggle_period = 4 -> first toggle (high->low) at clock 4, no rise yet;
-    // rising edge (low->high) at clock 8.
-    EXPECT_EQ(pit.tick(4, kPitHz), 0);
-    EXPECT_EQ(pit.tick(8, kPitHz), 1);
+    Clock c{pit};
+    Program2(pit, 0, 100);
+    c.step();
+    pit.out(0x43, 0x80);  // latch channel 2
+    c.step(5);
+    pit.out(0x43, 0x80);
+    EXPECT_EQ(ReadCount(pit, 0x42), 100);
+    EXPECT_EQ(ReadCount(pit, 0x42), 95);  // live again
 }
+
+TEST(Pit8253Test, ReadBackStatusReportsOutNullCountAndControlBits) {
+    Pit8253 pit;
+    Clock c{pit};
+    pit.out(0x43, 0x30);  // channel 0, LSB then MSB, mode 0, binary
+    pit.out(0x43, 0xE2);  // read-back status, channel 0
+    EXPECT_EQ(pit.in(0x40), 0x40 | 0x30);  // OUT low, null count, RW=11 M=000
+    pit.out(0x40, 2);
+    pit.out(0x40, 0);
+    c.step();  // count reaches the counting element
+    pit.out(0x43, 0xE2);
+    EXPECT_EQ(pit.in(0x40), 0x30);
+    c.step(2);
+    pit.out(0x43, 0xE2);
+    EXPECT_EQ(pit.in(0x40), 0x80 | 0x30);
+}
+
+TEST(Pit8253Test, ReadBackLatchesStatusThenCountForSeveralChannels) {
+    Pit8253 pit;
+    Clock c{pit};
+    pit.out(0x43, 0x30);
+    pit.out(0x40, 50);
+    pit.out(0x40, 0);
+    Program2(pit, 0, 70);
+    c.step(5);
+    pit.out(0x43, 0xC0 | 0x08 | 0x02);  // count and status, channels 0 and 2
+    c.step(5);
+    EXPECT_EQ(pit.in(0x40), 0x30);
+    EXPECT_EQ(ReadCount(pit, 0x40), 46);
+    EXPECT_EQ(pit.in(0x42), 0x30);
+    EXPECT_EQ(ReadCount(pit, 0x42), 66);
+}
+
+TEST(Pit8253Test, ReadBackCountOnlyLeavesStatusUnlatched) {
+    Pit8253 pit;
+    Clock c{pit};
+    Program2(pit, 0, 70);
+    c.step();
+    pit.out(0x43, 0xD8);  // latch count only, channel 2
+    c.step(3);
+    EXPECT_EQ(ReadCount(pit, 0x42), 70);
+}
+
+TEST(Pit8253Test, BcdCountsInDecimalAndWrapsAtNineThousandNineNinetyNine) {
+    Pit8253 pit;
+    Clock c{pit};
+    pit.out(0x43, 0xB1);  // channel 2, LSB then MSB, mode 0, BCD
+    pit.out(0x42, 0x12);
+    pit.out(0x42, 0x00);  // 12 decimal
+    c.step(4);
+    EXPECT_EQ(ReadCount(pit, 0x42), 0x0009);
+    c.step(10);
+    EXPECT_TRUE(pit.channel2_output());
+    EXPECT_EQ(ReadCount(pit, 0x42), 0x9999);
+}
+
+TEST(Pit8253Test, BcdZeroMeansTenThousand) {
+    Pit8253 pit;
+    pit.out(0x43, 0x35);  // channel 0, mode 2, BCD
+    pit.out(0x40, 0);
+    pit.out(0x40, 0);
+    EXPECT_EQ(pit.tick(1 + 9999, kPitHz), 0);
+    EXPECT_EQ(pit.tick(1 + 10000, kPitHz), 1);
+}
+
+TEST(Pit8253Test, ReadAndWriteFlipFlopsAreSeparate) {
+    // Data sheet: read LSB, write LSB, read MSB, write MSB is a legal sequence.
+    Pit8253 pit;
+    Clock c{pit};
+    Program2(pit, 0, 0x1234);
+    c.step();
+    EXPECT_EQ(pit.in(0x42), 0x34);
+    pit.out(0x42, 0x10);
+    EXPECT_EQ(pit.in(0x42), 0x12);
+    pit.out(0x42, 0x00);
+    c.step();
+    EXPECT_EQ(ReadCount(pit, 0x42), 0x0010);
+}
+
+TEST(Pit8253Test, ControlWordThatRaisesChannel0OutCountsAsAnEdge) {
+    Pit8253 pit;
+    Clock c{pit};
+    pit.out(0x43, 0x30);  // mode 0: OUT low
+    pit.out(0x43, 0x34);  // mode 2: OUT high, an edge IRQ0 sees
+    EXPECT_EQ(c.step(), 1);
+}
+
+// ---- tick() pacing ----
 
 TEST(Pit8253Test, CyclesToNextCountIsTheGapToTheNextWholeTimerClock) {
     // The chipset skips its service pass until this many CPU cycles have
@@ -127,9 +434,9 @@ TEST(Pit8253Test, CyclesToNextCountIsTheGapToTheNextWholeTimerClock) {
     // cycles, and the answer is floored so the pass never lands late.
     constexpr double kCpuHz = 66000000.0;
     Pit8253 pit;
-    pit.out(0x43, 0x36);  // channel 0, LSB-then-MSB, mode 3
+    pit.out(0x43, 0x36);
     pit.out(0x40, 0x00);
-    pit.out(0x40, 0x00);  // reload 65536, the BIOS divisor
+    pit.out(0x40, 0x00);
 
     uint64_t cycles = 0;
     pit.tick(cycles, kCpuHz);
@@ -137,17 +444,12 @@ TEST(Pit8253Test, CyclesToNextCountIsTheGapToTheNextWholeTimerClock) {
     EXPECT_GT(gap, 0u);
     EXPECT_LE(gap, 56u);
 
-    // Ticking exactly that far must not have stepped a count yet (floored),
-    // and one more cycle past it must.
     cycles += gap;
     pit.tick(cycles, kCpuHz);
     EXPECT_LE(pit.cycles_to_next_count(), 1u);
 }
 
 TEST(Pit8253Test, CyclesToNextCountIsZeroBeforeTheClockRateIsKnown) {
-    // tick() memoizes the ratio from cpu_hz; before the first tick there is
-    // no rate to answer from, so the gap is zero and the caller services
-    // immediately.
     Pit8253 pit;
     EXPECT_EQ(pit.cycles_to_next_count(), 0u);
 }

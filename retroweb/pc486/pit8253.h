@@ -1,4 +1,4 @@
-// Intel 8253/8254 Programmable Interval Timer.
+// Intel 8254 Programmable Interval Timer.
 //
 // Three independent 16-bit down-counters clocked at a fixed 1.193182 MHz
 // (the 14.31818 MHz crystal divided by 12) -- a rate wired straight into
@@ -9,18 +9,14 @@
 // rate, and is worth preserving exactly). Channel 1 historically paced
 // DRAM refresh requests (not modeled -- this emulator's RAM doesn't need
 // refreshing). Channel 2's output, gated by port 0x61 bit 0, drives the PC
-// speaker (see pcspeaker.h, a later phase).
+// speaker (see pcspeaker.h). Gates 0 and 1 are tied high on an AT board.
 //
 // Ports: 0x40/0x41/0x42 = channel 0/1/2 data, 0x43 = control word.
-// Reference: Intel 8253/8254 data sheet, "Programming the 8253".
-//
-// Scope/simplification: this core models a uniform symmetric-toggle output
-// for every mode (a full high/low period every `reload` PIT clocks, i.e.
-// output frequency = 1193182/reload) rather than each mode's exact
-// waveform shape (real Mode 2's output is a single-clock-wide low pulse
-// per `reload` counts, quite different from a 50% duty square wave). What
-// matters for BIOS/DOS timing is the *edge rate*, which this reproduces
-// correctly; see PC486_REVIEW.md.
+// All six counter modes, BCD counting, the counter-latch command and the
+// 8254 read-back command (count and status) follow Intel's 8254 data sheet
+// (order no. 231164), "Mode Definitions" and "Read-Back Command". A count
+// written to the counter register reaches the counting element on the next
+// CLK pulse, so mode 0's OUT rises N+1 clocks after the write.
 #ifndef PC486_PIT8253_H
 #define PC486_PIT8253_H
 
@@ -74,36 +70,38 @@ public:
         return need > 0.0 ? uint64_t(need) : 0;
     }
 
-    // Port 0x61 bit 0 gates channel 2 (the speaker channel). Real Mode 3
-    // hardware does two things this models explicitly, both load-bearing
-    // for pcspeaker.h's direct-toggle "digitized" playback technique:
-    // gate low freezes the counter *and* forces the output high
-    // immediately (not just whatever phase it happened to be in), so a
-    // program that parks the PIT (gate low) and toggles the Speaker Data
-    // Enable bit directly gets a clean, predictable high baseline to relay
-    // through the speaker's AND gate; gate's rising edge reloads the
-    // counter, restarting the square wave from the beginning of its
-    // period rather than resuming mid-phase.
+    // Port 0x61 bit 0 gates channel 2. Gate low pauses modes 0, 2, 3 and 4
+    // and forces OUT high in modes 2 and 3, which pcspeaker.h's direct-toggle
+    // playback relies on; a rising edge triggers modes 1 and 5 and restarts
+    // modes 2 and 3 from a full count.
     void set_gate2(bool level);
     bool channel2_output() const { return ch_[2].output; }
 
 private:
     struct Channel {
-        uint16_t reload = 0;         // programmed divisor (0 means 65536)
-        uint16_t toggle_period = 0;  // reload/2 (min 1), the actual per-toggle countdown
-        uint16_t counter = 0;
+        uint8_t control = 0;         // last control word's RW/M/BCD bits, for the status byte
+        int mode = 0;                // 0-5 (6 and 7 alias 2 and 3)
         int access = 0;              // 1=LSB only, 2=MSB only, 3=LSB then MSB
-        bool msb_pending = false;    // access==3: true after the LSB half has been written/read
+        bool bcd = false;
+        uint32_t cr = 0;             // count register, decoded: 1..65536 (or 1..10000 BCD)
+        bool cr_written = false;
+        int32_t ce = 0;              // counting element; 65536 (10000) reads back as 0
+        bool write_msb_pending = false;
         uint8_t pending_lsb = 0;
+        bool read_msb_pending = false;
+        bool load_pending = false;   // CR -> CE on the next CLK
+        bool trigger = false;        // gate rising edge, acted on at the next CLK
+        bool counting = false;
+        bool null_count = true;
+        bool fired = false;          // modes 1, 4, 5: terminal count already reached
+        bool strobe = false;         // modes 4, 5: OUT is in its one-clock low pulse
+        bool odd_extra = false;      // mode 3, odd count: one more CLK high
         bool output = true;
         bool gate = true;
-        bool armed = false;
-        bool just_rose = false;
-        // BIOS occasionally reads the counter back (e.g. diagnostics) via
-        // the counter-latch command (control word with access==0).
-        bool latched = false;
+        bool count_latched = false;
         uint16_t latch_value = 0;
-        bool latch_msb_pending = false;
+        bool status_latched = false;
+        uint8_t status = 0;
     };
     Channel ch_[3];
 
@@ -114,7 +112,12 @@ private:
     // cpu_hz tick() was given.
     double ratio_hz_ = 0.0, pit_per_cpu_cycle_ = 0.0, cpu_per_pit_count_ = 0.0;
 
-    void set_reload(int idx, uint16_t v);
+    int ch0_rises_ = 0;  // channel 0 rising edges not yet handed to tick()'s caller
+
+    void set_output(int idx, bool level);
+    void write_count(int idx, uint32_t raw);
+    void latch_count(Channel &ch);
+    void latch_status(Channel &ch);
     void step_channel(int idx);
     // Steps all three channels `count` times, returning channel 0's rising edges.
     int step_counts(int count);

@@ -180,8 +180,13 @@
   :root[data-theme="modern"] #screen { width: 100%; max-width: none; margin: 0; }
   /* Win/web94/ai: wrapper is transparent so panels stack as before.
      Modern: screen left, mini-tower right (CD, floppy, turbo/power),
-     tower height matched to the monitor via subgrid. */
+     tower height matched to the monitor via subgrid. The deck drops the
+     tower under the screen once the row can't hold both. */
   .machine-deck { display: contents; }
+  :root[data-theme="modern"] .inner {
+    container-type: inline-size;
+    container-name: machine;
+  }
   :root[data-theme="modern"] .machine-deck {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
@@ -212,6 +217,8 @@
     box-sizing: border-box;
     overflow: hidden;
     padding: 8px 10px 10px;
+    container-type: size;
+    container-name: tower;
   }
   :root[data-theme="modern"] #frontPanelCard > h2 { display: none; }
   :root[data-theme="modern"] .at-case {
@@ -262,7 +269,10 @@
     flex: 1 1 auto;
     min-height: 16px;
   }
-  @media (max-width: 900px) {
+  /* Stack once a 640px VGA screen and the 340px tower don't both fit
+     (640 + ~70px card/bezel chrome + 18px gap + 340). The panel below
+     the screen is the same horizontal case as win/web94. */
+  @container machine (max-width: 1070px) {
     :root[data-theme="modern"] .machine-deck {
       grid-template-columns: 1fr;
       grid-template-rows: none;
@@ -275,11 +285,53 @@
     :root[data-theme="modern"] #frontPanelCard {
       grid-column: auto;
       grid-row: auto;
+      display: block;
       height: auto;
+      min-height: auto;
+      overflow: visible;
+      align-self: stretch;
+      justify-self: start;
+      /* Same border-box width as win/web94: 920px page, 3px border
+         each side, 22px inner padding each side. Shrinks on a phone. */
+      width: min(100%, 870px);
+      padding: 14px 16px 16px;
+      container-type: normal;
     }
-    :root[data-theme="modern"] .at-case { height: auto; }
-    :root[data-theme="modern"] .at-controls { flex: 0 0 auto; }
-    :root[data-theme="modern"] .tower-grill { flex: 0 0 auto; min-height: 28px; }
+    :root[data-theme="modern"] #frontPanelCard > h2 { display: flex; }
+    :root[data-theme="modern"] .at-case {
+      flex: none;
+      flex-direction: row;
+      flex-wrap: wrap;
+      align-items: stretch;
+      justify-content: flex-start;
+      height: auto;
+      min-height: auto;
+      overflow: visible;
+      padding: 14px 16px 16px;
+      gap: 14px;
+    }
+    :root[data-theme="modern"] .at-drives {
+      order: 0;
+      flex: 1 1 260px;
+      width: auto;
+      min-width: min(100%, 260px);
+      min-height: auto;
+      justify-content: center;
+      gap: 8px;
+    }
+    :root[data-theme="modern"] .at-controls {
+      order: 0;
+      flex: 0 0 auto;
+      width: auto;
+      min-width: 0;
+      min-height: auto;
+    }
+    :root[data-theme="modern"] .tower-panel { width: 348px; max-width: 100%; }
+    :root[data-theme="modern"] .at-bay.bay-525 {
+      flex: 0 0 auto;
+      min-height: auto;
+    }
+    :root[data-theme="modern"] .tower-grill { flex: 1 1 auto; min-height: 28px; }
   }
   .power-led {
     position: absolute; right: 13px; bottom: 7px; width: 6px; height: 6px; border-radius: 50%;
@@ -592,9 +644,23 @@
       inset 0 -1px 2px rgba(0,0,0,.35),
       0 1px 0 rgba(255,255,255,.15);
   }
-  /* Blank 5.25" covers are modern-tower only; win/web94 keep CD + floppy. */
+  /* Blank 5.25" covers are modern-tower only; win/web94 keep CD + floppy.
+     These queries sit after display:contents so they win the cascade.
+     Heights are the tower card's content box against the unsquashed stack
+     (CD 90, each blank 68, floppy 82, rails, turbo island, padding). */
   .tower-blanks { display: none; }
   :root[data-theme="modern"] .tower-blanks { display: contents; }
+  @container machine (max-width: 1070px) {
+    :root[data-theme="modern"] .tower-blanks { display: none; }
+  }
+  @container tower (max-height: 519px) {
+    :root[data-theme="modern"] .tower-blanks .bay-blank:last-child,
+    :root[data-theme="modern"] .tower-blanks > .bay-rail { display: none; }
+  }
+  @container tower (max-height: 437px) {
+    :root[data-theme="modern"] .tower-blanks { display: none; }
+    :root[data-theme="modern"] .at-drives > .bay-rail:nth-child(4) { display: none; }
+  }
   .at-drive-face { display: flex; align-items: center; gap: 8px; }
   .drive-letter { font: 700 13px "Courier New", monospace; color: #55503f; flex: 0 0 auto; }
 

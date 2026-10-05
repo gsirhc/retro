@@ -12,10 +12,20 @@ void Pic8259::reset() {
     icw4_needed_ = false;
     icw_step_ = 0;
     read_isr_next_ = false;
+    poll_next_ = false;
     refresh_pending();
 }
 
-uint8_t Pic8259::in(uint16_t port) const {
+uint8_t Pic8259::in(uint16_t port) {
+    if (poll_next_) {
+        // Intel 8259A data sheet, "The Poll Command": the next RD acts as an
+        // interrupt acknowledge and returns I (bit 7) plus the level in bits 2-0.
+        poll_next_ = false;
+        int line = highest_pending();
+        if (line < 0) return 0x00;
+        acknowledge();
+        return uint8_t(0x80 | line);
+    }
     if (port == uint16_t(base_ + 1)) return imr_;
     return read_isr_next_ ? isr_ : irr_;
 }
@@ -36,7 +46,7 @@ void Pic8259::out_impl(uint16_t port, uint8_t v) {
         }
         if (v & 0x08) {  // OCW3
             if (v & 0x02) read_isr_next_ = (v & 0x01) != 0;
-            // poll command (bit 2) not implemented -- see PC486_REVIEW.md
+            poll_next_ = (v & 0x04) != 0;
             return;
         }
         // OCW2: EOI family. bits 7-5 select the command, bit 6 = specific,

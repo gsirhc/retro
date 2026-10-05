@@ -35,6 +35,9 @@ why it matters -> what it fixed, with citations to source material
 (Intel manuals, ATA/ATAPI/SCSI-3 MMC specs, period drive datasheets)
 wherever a specific quirk is being preserved rather than guessed at.
 
+Open parity gaps and test gaps are tracked as a checklist in
+[`PC486_PARITY.md`](PC486_PARITY.md).
+
 ## 1. ISA-standard chipset devices reused from ibmpc-at
 
 A real 486 gaming PC of this era used the same programming-model ISA
@@ -6362,6 +6365,8 @@ protected mode this way, or crashes, reboots instead of wandering.
 
 ### 40.7 Still open from this audit
 
+Tracked in [`PC486_PARITY.md`](PC486_PARITY.md).
+
 - **VGA text layout.** Always 25 rows (43- and 50-line modes break), 8-dot
   cells where VGA text is 9 dots with the line-graphics column, attribute
   bit 7 dropped (no blink, no bright backgrounds), and the character map
@@ -6383,3 +6388,68 @@ protected mode this way, or crashes, reboots instead of wandering.
 - **Keyboard commands.** `EE` answers ACK instead of `EE`; `F0 00` returns
   no scan-code set.
 - **FORMAT TRACK** leaves the old sector data in place.
+
+## 41. The PIT gets all six modes, and the PIC answers a poll
+
+Items P1-P4 from [`PC486_PARITY.md`](PC486_PARITY.md).
+
+### 41.1 Every counter mode
+
+The PIT ran every mode as a symmetric square wave, toggling every N/2
+clocks. That gets the edge rate right for the BIOS tick and nothing else.
+Mode 0 is a one-shot, and a program that set it up and polled for OUT
+going high saw it fall again N/2 clocks later. `Pit8253` now follows the
+Intel 8254 data sheet (231164), "Mode Definitions", mode by mode:
+
+- **Mode 0.** OUT drops on the control word and on a count write, rises at
+  terminal count and stays up. The first byte of a two-byte count stops
+  the counter. Gate low pauses it.
+- **Mode 1.** Waits for a gate rising edge, then OUT is low for N clocks.
+  Retriggerable.
+- **Mode 2.** OUT is low for one clock in every N. A new count takes effect
+  at the next reload.
+- **Mode 3.** Counts down by two. An odd count loads N-1, and OUT holds
+  high one extra clock, so it's high (N+1)/2 and low (N-1)/2. A new count
+  waits for the end of the half-cycle.
+- **Modes 4 and 5.** One clock low at terminal count, once. Mode 4 starts
+  on the count write, mode 5 on a gate edge.
+- Modes 6 and 7 alias 2 and 3.
+
+A count reaches the counting element on the next CLK after it's written,
+so mode 0's OUT rises N+1 clocks after the write, as the data sheet's
+timing diagrams show. The counter wraps to FFFFh (9999 in BCD) after
+terminal count in the one-shot modes, and keeps counting.
+
+Gates 0 and 1 are tied high on an AT, so modes 1 and 5 never fire on
+those channels. That's the real board. Only channel 2's gate (port 61h
+bit 0) moves. Gate low in modes 2 and 3 still forces OUT high, which the
+speaker's direct-toggle playback depends on.
+
+A control word that raises channel 0's OUT (mode 0 to mode 2, say) is a
+rising edge, and IRQ0 sees it.
+
+### 41.2 Read-back, status, BCD
+
+The 8254 read-back command (control word 11xxxxxx) was dropped. It now
+latches count, status or both for any set of channels. Status is OUT,
+NULL COUNT and the six programmed control bits. A latched status reads
+before a latched count. A second latch before the first is read is
+ignored, for both kinds. BCD counting works, with 0 meaning 10000.
+
+The read and write byte flip-flops are separate, as on the chip, so
+read LSB, write LSB, read MSB, write MSB is legal.
+
+### 41.3 PIC poll
+
+OCW3 with P=1 makes the next read of either port an interrupt
+acknowledge. It returns bit 7 set and the level in bits 2-0, sets ISR and
+clears IRR, or returns 0 when nothing unmasked is pending. Source: Intel
+8259A data sheet, "The Poll Command".
+
+### 41.4 Checks
+
+`hdd-boot-check` reaches the same idle `C:\>` at cycle 1,036,029,604, 560
+cycles later than §39 because of the load clock. `pm-check` and
+`vbe-check` pass. `pit8253_test` went from 9 cases to 33, one or more per
+mode plus read-back, BCD and the flip-flops. `pic8259_test` has three
+poll cases.

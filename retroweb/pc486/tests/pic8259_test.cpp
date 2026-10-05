@@ -163,4 +163,40 @@ TEST(Pic8259Test, ReadIrrVsIsrViaOcw3) {
     EXPECT_EQ(pic.in(0x20), 0x01);
 }
 
+TEST(Pic8259Test, PollReturnsTheHighestRequestAndAcknowledgesIt) {
+    // Intel 8259A data sheet, "The Poll Command": OCW3 with P=1 makes the
+    // next read an acknowledge that returns I (bit 7) and the level.
+    Pic8259 pic(0x20);
+    InitMaster(pic);
+    pic.out(0x21, 0x00);
+    pic.raise(6);
+    pic.raise(3);
+    pic.out(0x20, 0x0C);  // OCW3: poll
+    EXPECT_EQ(pic.in(0x20), 0x83);
+    pic.out(0x20, 0x0B);  // read ISR
+    EXPECT_EQ(pic.in(0x20), 0x08);
+    pic.out(0x20, 0x0A);  // read IRR
+    EXPECT_EQ(pic.in(0x20), 0x40);
+    EXPECT_FALSE(pic.has_interrupt());  // IR6 waits behind IR3 in service
+}
+
+TEST(Pic8259Test, PollWithNothingPendingReturnsZero) {
+    Pic8259 pic(0x20);
+    InitMaster(pic);
+    pic.out(0x21, 0x00);
+    pic.out(0x20, 0x0C);
+    EXPECT_EQ(pic.in(0x20), 0x00);
+}
+
+TEST(Pic8259Test, PollIsOneShotAndHonoursTheMask) {
+    Pic8259 pic(0x20);
+    InitMaster(pic);
+    pic.out(0x21, 0x01);  // IR0 masked
+    pic.raise(0);
+    pic.raise(4);
+    pic.out(0x20, 0x0C);
+    EXPECT_EQ(pic.in(0x21), 0x84);  // the next read on either port is the poll
+    EXPECT_EQ(pic.in(0x21), 0x01);  // then the IMR again
+}
+
 }  // namespace

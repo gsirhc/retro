@@ -10,8 +10,8 @@
 // Scope: fixed-priority mode only (IR0 highest), normal (non-rotating,
 // non-speccial-mask) EOI handling -- real DOS-era BIOS/software never
 // programs the rotating-priority or special-mask modes, so they're not
-// implemented; see PC486_REVIEW.md. ICW/OCW format: Intel 8259A data
-// sheet, "Programming".
+// implemented; see PC486_REVIEW.md. The OCW3 poll command is. ICW/OCW
+// format: Intel 8259A data sheet, "Programming".
 #ifndef PC486_PIC8259_H
 #define PC486_PIC8259_H
 
@@ -27,7 +27,7 @@ public:
     void reset();
 
     bool owns(uint16_t port) const { return port == base_ || port == uint16_t(base_ + 1); }
-    uint8_t in(uint16_t port) const;
+    uint8_t in(uint16_t port);
     void out(uint16_t port, uint8_t v);
 
     // Level/edge input from a peripheral: `irq` is 0-7 (this chip's own
@@ -60,6 +60,7 @@ private:
     bool icw4_needed_ = false;
     int  icw_step_ = 0;       // 0 = idle (OCW-ready), 1/2/3 = expecting that ICW next on the data port
     bool read_isr_next_ = false;  // OCW3 register-read select: false=IRR, true=ISR
+    bool poll_next_ = false;      // OCW3 P bit: the next read is a poll
 
     // Fully nested mode's priority resolver (Intel 8259A data sheet, "Fully
     // Nested Mode": "interrupts are ... allowed only if they are of higher
