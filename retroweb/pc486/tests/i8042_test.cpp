@@ -932,4 +932,28 @@ TEST_F(TypematicTest, AReleaseWhileTheControllerHoldsTheKeyboardOffStillEndsTheR
     EXPECT_TRUE(RunTo(2.0).empty());
 }
 
+TEST_F(TypematicTest, InterleavedGreyKeyBreaksStillEndTheRepeat) {
+    // W and D on the WASD preset are Up and Right. Releasing both together
+    // used to interleave the two E0 sequences, so Right's break arrived
+    // without its prefix and Right repeated forever: a stuck key in Doom.
+    for (uint8_t b : {0xE0, 0x48, 0xE0, 0x4D}) kbc.inject_scancode(b);
+    Drain();
+    for (uint8_t b : {0xE0, 0xE0, 0xC8, 0xCD}) kbc.inject_scancode(b);
+    Drain();
+    EXPECT_TRUE(RunTo(2.0).empty());
+}
+
+TEST_F(TypematicTest, ARepeatNeverLandsInsideAHostSequence) {
+    kbc.inject_scancode(0xE0);
+    kbc.inject_scancode(0x48);
+    Drain();
+    RunTo(0.49);
+    kbc.inject_scancode(0xE0);           // the page's next sequence, mid-flight
+    Drain();
+    auto during = RunTo(0.60);
+    EXPECT_TRUE(during.empty()) << "a real keyboard never splits one scan code's bytes";
+    kbc.inject_scancode(0x4B);           // Left make completes it
+    EXPECT_EQ(Drain(), std::vector<uint8_t>{0x4B});
+}
+
 }  // namespace

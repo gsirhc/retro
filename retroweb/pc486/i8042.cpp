@@ -248,12 +248,16 @@ void I8042::inject_scancode(uint8_t code) {
         tm_prefix_ = prefix;
         tm_code_ = base;
         tm_next_ = now_s_ + typematic_delay();
-    } else if (tm_active_ && base == tm_code_ && prefix == tm_prefix_) {
+    } else if (tm_active_ && base == tm_code_) {
+        // Matched on the code alone: a break whose E0 got separated from it
+        // must still end the repeat, or the key repeats forever.
         tm_active_ = false;
     }
 }
 
 void I8042::typematic_fire() {
+    // Never split a sequence the host is partway through sending.
+    if (pending_e0_ || e1_skip_ > 0) return;
     if (kbd_enabled_) {
         if (tm_prefix_) push_kbd(tm_prefix_, true);
         push_kbd(tm_code_, true);

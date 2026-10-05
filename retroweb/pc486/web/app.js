@@ -215,13 +215,23 @@
   // host. Longer sequences that the BIOS's own multi-key checks depend on
   // (Ctrl-Alt-Del) pass 50 so a contended main thread cannot collapse the
   // makes into the 8042's single-byte buffer.
+  // One queue for every sequence, so two keys' bytes never interleave: a
+  // real keyboard sends one scan code whole before the next, and an E0
+  // separated from its code reaches DOS as a different key.
+  const scancodeQueue = [];
+  let scancodePumping = false;
   function injectScancodeSequence(codes, gapMs = 20) {
-    let i = 0;
-    (function step() {
-      if (!machine || i >= codes.length) return;
-      machine.injectScancode(codes[i++]);
-      if (i < codes.length) setTimeout(step, gapMs);
-    })();
+    for (const code of codes) scancodeQueue.push({ code, gapMs });
+    if (!scancodePumping) pumpScancodes();
+  }
+  function pumpScancodes() {
+    if (!machine) scancodeQueue.length = 0;
+    if (scancodeQueue.length === 0) { scancodePumping = false; return; }
+    scancodePumping = true;
+    const { code, gapMs } = scancodeQueue.shift();
+    machine.injectScancode(code);
+    if (scancodeQueue.length) setTimeout(pumpScancodes, gapMs);
+    else scancodePumping = false;
   }
 
   function sendKey(code, isBreak) {

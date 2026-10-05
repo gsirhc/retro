@@ -6314,6 +6314,16 @@ it, including when the controller has the keyboard disabled at that moment.
 Sources: IBM PS/2 Technical Reference, Set Typematic Rate/Delay; Chapweske,
 "The AT-PS/2 Keyboard Interface".
 
+The first version stuck keys in Doom. The page sent each multi-byte scan
+code with 20 ms gaps, and two keys' sequences could interleave: releasing
+W and D (Up and Right on the WASD preset) together reached the keyboard as
+`E0 E0 C8 CD`. Right's break arrived without its `E0`, didn't match the
+repeating `E0 4D`, and Right repeated forever. Three fixes: the page now
+sends every sequence through one queue, so two scan codes never interleave
+(a real keyboard sends one whole before the next); a break of the repeating
+key's code ends the repeat whatever its prefix; and a repeat waits while
+the host is partway through a sequence.
+
 ### 40.3 Text and 16-colour modes go through the DAC
 
 The renderer decoded text, CGA-compatible and 16-colour pixels with the

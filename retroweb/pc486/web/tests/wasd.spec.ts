@@ -24,6 +24,27 @@ test.describe("WASD to arrow keys", () => {
     await page.evaluate(() => (window as any).__test.clearKeymap());
   });
 
+  // Real bug, reported in Doom: W and D are Up and Right, two-byte E0
+  // sequences. Releasing both at once (a focus loss here) used to
+  // interleave them, so Right's break lost its prefix and the keyboard kept
+  // repeating Right forever.
+  test("releasing two held arrows at once ends the keyboard's repeat", async ({ livePage: page }) => {
+    await page.evaluate(() => (window as any).__test.applyWasdPreset());
+    await page.locator("#screen").click();
+    await page.keyboard.down("w");
+    await page.keyboard.down("d");
+    await expect
+      .poll(() => page.evaluate(() => (window as any).__test.machine.keyboardRepeating()))
+      .toBe(true);
+    await page.evaluate(() => window.dispatchEvent(new Event("blur")));
+    await expect
+      .poll(() => page.evaluate(() => (window as any).__test.machine.keyboardRepeating()))
+      .toBe(false);
+    await page.keyboard.up("d");
+    await page.keyboard.up("w");
+    await page.evaluate(() => (window as any).__test.clearKeymap());
+  });
+
   test("off: W types a literal w at the DOS prompt", async ({ promptPage: page }) => {
     await page.locator("#screen").click();
     await page.keyboard.press("w");

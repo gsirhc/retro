@@ -125,6 +125,7 @@ public:
         if (now_s_ >= tm_next_) typematic_fire();
     }
     uint8_t typematic_byte() const { return typematic_; }
+    bool typematic_active() const { return tm_active_; }
 
     // Button bits, in the order the PS/2 movement packet's first byte
     // carries them (Chapweske, "The PS/2 Mouse Interface", 2001).
