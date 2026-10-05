@@ -900,6 +900,75 @@ TEST(EgaTest, RetraceWindowLengthTracksVerticalRetraceEndRegister) {
     EXPECT_GT(wide_window, narrow_window * 3);
 }
 
+// Mode 13h's CRTC (Horizontal Display End 4Fh -> 80 of 100 char clocks,
+// Vertical Display End 8Fh + Overflow 1Fh -> 400 of 449 lines, VRS 9Ch).
+void ProgramMode13hTiming(Ega &ega) {
+    ProgramCrtcTiming(ega, /*htotal=*/0x5F, /*vtotal=*/0xBF, /*overflow=*/0x1F,
+                       /*vrs=*/0x9C, /*vre_low4=*/0x0E, /*seq clocking=*/0x01,
+                       /*misc=*/0x00);
+    ega.out(0x3D4, 0x01); ega.out(0x3D5, 0x4F);
+    ega.out(0x3D4, 0x12); ega.out(0x3D5, 0x8F);
+}
+
+// Input Status 1 bit 0 (display disabled) goes high in every horizontal
+// blank, not just the vertical one: one pulse per displayed scanline. A
+// palette loader that waits on it before each DAC write (Duke Nukem 3D's
+// does) hangs forever if it never moves.
+TEST(EgaTest, DisplayDisabledBitPulsesOncePerScanline) {
+    Ega ega;
+    ega.reset();
+    ProgramMode13hTiming(ega);
+    uint64_t c = 0;
+    std::vector<uint64_t> onsets = RetraceOnsets(ega, c, 3'000'000);
+    ASSERT_GE(onsets.size(), 2u);
+    uint64_t frame = onsets[1] - onsets[0];
+    int edges = 0, high = 0, samples = 0;
+    bool prev = true;
+    for (uint64_t t = c; t < c + frame; t += 20) {
+        ega.tick(t);
+        bool now = (ega.in(0x3DA) & 0x01) != 0;
+        if (now && !prev) ++edges;
+        prev = now;
+        high += now; ++samples;
+    }
+    EXPECT_NEAR(edges, 400, 2);
+    // 20 of 100 char clocks on 400 lines plus all of the other 49 lines.
+    double expected = (400.0 * 0.2 + 49.0) / 449.0;
+    EXPECT_NEAR(double(high) / samples, expected, 0.02);
+}
+
+// Vertical retrace sits inside vertical blank, so bit 0 is high for the
+// whole of every bit 3 pulse.
+TEST(EgaTest, DisplayDisabledBitHighThroughoutVerticalRetrace) {
+    Ega ega;
+    ega.reset();
+    ProgramMode13hTiming(ega);
+    int retrace_samples = 0;
+    for (uint64_t t = 0; t < 2'000'000; t += 50) {
+        ega.tick(t);
+        uint8_t v = ega.in(0x3DA);
+        if (v & 0x08) {
+            ++retrace_samples;
+            ASSERT_TRUE(v & 0x01) << "at cycle " << t;
+        }
+    }
+    EXPECT_GT(retrace_samples, 0);
+}
+
+// An unprogrammed CRTC still toggles bit 0, so a poll on it cannot hang
+// during a mode set.
+TEST(EgaTest, DisplayDisabledBitTogglesWithUnprogrammedCrtc) {
+    Ega ega;
+    ega.reset();
+    bool saw_high = false, saw_low = false;
+    for (uint64_t t = 0; t < 1'000'000; t += 7) {
+        ega.tick(t);
+        if (ega.in(0x3DA) & 0x01) saw_high = true; else saw_low = true;
+    }
+    EXPECT_TRUE(saw_high);
+    EXPECT_TRUE(saw_low);
+}
+
 // A freshly reset Ega has every CRTC register at 0, which the formula in
 // recompute_timing_() would otherwise turn into a several-hundred-kHz
 // "frame rate" -- nonsense no real monitor could sync to. It must fall

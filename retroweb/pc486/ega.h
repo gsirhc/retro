@@ -467,12 +467,13 @@ private:
     // Rederives frame_period_cycles_/retrace_start_cycles_/
     // retrace_window_cycles_ from the CRTC/Sequencer/Misc Output registers
     // and cpu_hz_. Called only from the specific register-write sites in
-    // ega.cpp that can change the answer (CRTC 00h/06h/07h/10h/11h,
+    // ega.cpp that can change the answer (CRTC 00h/01h/06h/07h/10h-12h,
     // Sequencer 01h, Misc Output), from reset(), and from set_cpu_hz() --
     // never from tick(), which runs every CPU instruction and can only
     // afford the cached numbers. See ega.cpp for the derivation and its
     // register-semantics source.
     void recompute_timing_();
+    bool display_disabled_() const;
 
     std::array<uint8_t, 25> crtc_{};
     uint8_t crtc_index_ = 0;
@@ -527,6 +528,9 @@ private:
     double frame_period_cycles_ = 0.0;    // cached CPU cycles per vertical frame
     double retrace_start_cycles_ = 0.0;   // cached cycles from frame start to retrace onset
     double retrace_window_cycles_ = 0.0;  // cached cycles the retrace bit stays asserted
+    double scanline_cycles_ = 1.0;        // cached CPU cycles per scanline
+    double h_display_cycles_ = 0.0;       // cached cycles into a scanline where display enable drops
+    double v_display_cycles_ = 0.0;       // cached cycles into a frame where display enable drops
 };
 
 }  // namespace pc486

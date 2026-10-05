@@ -1,5 +1,8 @@
 #include "ega.h"
 
+#include <algorithm>
+#include <cmath>
+
 namespace pc486 {
 
 void Ega::reset() {
@@ -120,7 +123,9 @@ uint8_t Ega::in(uint16_t port) {
     switch (port) {
         case 0x3DA: {
             attr_flip_flop_addr_ = true;  // reading Input Status 1 resets the AC address/data flip-flop
-            return retrace_ ? 0x08 : 0x00;
+            uint8_t v = retrace_ ? 0x08 : 0x00;
+            if (retrace_ || display_disabled_()) v |= 0x01;
+            return v;
         }
         case 0x3C0: return attr_flip_flop_addr_ ? attr_index_ : uint8_t(0xFF);
         case 0x3C1: return attr_[attr_index_ % attr_.size()];
@@ -184,11 +189,11 @@ void Ega::out(uint16_t port, uint8_t v) {
         case 0x3D5: {
             uint8_t idx = crtc_index_ % crtc_.size();
             crtc_[idx] = v;
-            // Horizontal Total, Vertical Total (+ its two Overflow bits),
-            // Vertical Retrace Start (+ its two Overflow bits), Vertical
-            // Retrace End -- the only CRTC registers recompute_timing_()
-            // consults.
-            if (idx == 0x00 || idx == 0x06 || idx == 0x07 || idx == 0x10 || idx == 0x11) recompute_timing_();
+            // Horizontal Total/Display End, Vertical Total, Vertical Retrace
+            // Start/End, Vertical Display End and their Overflow bits -- the
+            // only CRTC registers recompute_timing_() consults.
+            if (idx == 0x00 || idx == 0x01 || idx == 0x06 || idx == 0x07 || idx == 0x10 || idx == 0x11 ||
+                idx == 0x12) recompute_timing_();
             break;
         }
         default: break;
@@ -261,6 +266,9 @@ void Ega::recompute_timing_() {
         // frame instead of propagating garbage into the retrace window.
         retrace_start_cycles_ = 0.0;
         retrace_window_cycles_ = frame_period_cycles_ * 0.08;
+        scanline_cycles_ = frame_period_cycles_ / 449.0;
+        h_display_cycles_ = scanline_cycles_ * 0.8;
+        v_display_cycles_ = scanline_cycles_ * 400.0;
         return;
     }
 
@@ -276,6 +284,24 @@ void Ega::recompute_timing_() {
     double per_scanline_cycles = frame_period_cycles_ / double(v_total_lines);
     retrace_start_cycles_ = double(vrs) * per_scanline_cycles;
     retrace_window_cycles_ = double(vre - vrs) * per_scanline_cycles;
+
+    // Horizontal Display End (CRTC 01h) stores displayed chars - 1; Vertical
+    // Display End (CRTC 12h + Overflow bits 1 and 6) stores displayed lines - 1.
+    int h_display_chars = std::min(int(crtc_[0x01]) + 1, h_total_chars);
+    int vde = (int(crtc_[0x12]) |
+               ((int(crtc_[0x07]) & 0x02) << 7) |
+               (((int(crtc_[0x07]) >> 6) & 1) << 9)) + 1;
+    scanline_cycles_ = per_scanline_cycles;
+    h_display_cycles_ = per_scanline_cycles * double(h_display_chars) / double(h_total_chars);
+    v_display_cycles_ = per_scanline_cycles * double(std::min(vde, v_total_lines));
+}
+
+// Input Status 1 bit 0 is the inverted display-enable signal: set during any
+// horizontal or vertical blanking interval (FreeVGA "General Registers";
+// DOSBox vga_other.cpp). Palette loaders poll it before each DAC write.
+bool Ega::display_disabled_() const {
+    if (retrace_credit_ >= v_display_cycles_) return true;
+    return std::fmod(retrace_credit_, scanline_cycles_) >= h_display_cycles_;
 }
 
 uint8_t *Ega::linear_page(uint32_t page_base, bool write) {
