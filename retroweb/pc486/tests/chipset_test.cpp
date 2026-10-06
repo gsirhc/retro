@@ -47,6 +47,22 @@ TEST(ChipsetTest, RomRegionRejectsWrites) {
     EXPECT_EQ(bus.read(bus.ctx, 0xF0000), 0x11);  // unchanged -- ROM ignores writes
 }
 
+TEST(ChipsetTest, TheBiosRomAnswersAgainAtTheTopOfFourGigabytes) {
+    // Where a 486's first fetch after RESET lands (FFFFFFF0h).
+    Chipset cs;
+    uint8_t rom[4] = {0xEA, 0x5B, 0xE0, 0x00};
+    cs.load_rom(0xFFFF0, rom, 4);
+    cs.kbc.out(0x64, 0xD1);
+    cs.kbc.out(0x60, 0x02);  // A20 on, as an OS that reboots leaves it
+    auto bus = cs.make_bus();
+    EXPECT_EQ(bus.read(bus.ctx, 0xFFFFFFF0u), 0xEA);
+    EXPECT_EQ(bus.read(bus.ctx, 0xFFFFFFF3u), 0x00);
+    EXPECT_EQ(cs.page_host(0xFFFFF000u, false), cs.mem.data() + 0xFF000);
+    bus.write(bus.ctx, 0xFFFFFFF0u, 0x90);
+    EXPECT_EQ(bus.read(bus.ctx, 0xFFFF0), 0xEA) << "still ROM through the alias";
+    EXPECT_EQ(bus.read(bus.ctx, 0xFFDFFFF0u), 0xFF) << "nothing answers below the top 2MB";
+}
+
 TEST(ChipsetTest, A20DisabledWrapsAt1MB) {
     Chipset cs;
     auto bus = cs.make_bus();

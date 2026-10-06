@@ -6,6 +6,7 @@ void Machine::set_cpu_hz(double hz) {
     if (!(hz > 0.0) || hz == cpu_hz_) return;
     cpu_hz_ = hz;
     chipset.set_cpu_hz(hz);
+    set_rep_yield();
 }
 
 void Machine::configure_factory_cmos() {
@@ -109,7 +110,7 @@ void Machine::run_cycles(int64_t cycles) {
         // An AT-class board decodes the CPU's shutdown cycle and pulses RESET
         // (IBM AT Technical Reference, "Shutdown"), the same CPU-only reset
         // the 8042 gives; memory and CMOS survive.
-        if (cpu.shutdown()) cpu.reset();
+        if (cpu.shutdown()) reset_cpu();
         // Real hardware only begins an INTA cycle if the CPU's IF flag
         // permits it to respond to INTR -- see ibmpc-at/machine.cpp's
         // identical comment; unchanged reasoning on this CPU.

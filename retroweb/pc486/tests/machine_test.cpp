@@ -314,4 +314,53 @@ TEST(MachineTest, TurboOffHalvesCpuClockButPreservesPitWallTime) {
     EXPECT_DOUBLE_EQ(m.cpu_hz(), Machine::kCpuHz);
 }
 
+// --- cache and bus timing (cache486.h, PC486_REVIEW.md §47) --------------
+
+TEST(MachineTest, TheBoardTurnsTheL1OnAfterEveryReset) {
+    // The CPU leaves RESET with CR0.CD and NW set; a period BIOS clears
+    // them in POST, and the board stands in for that.
+    constexpr uint32_t kCdNw = 0x60000000u;
+    Machine m;
+    EXPECT_EQ(m.cpu.cr(0) & kCdNw, 0u);
+    m.reset();
+    EXPECT_EQ(m.cpu.cr(0) & kCdNw, 0u);
+    // A shutdown reset too: LIDT with a zero limit, then INT3.
+    const uint8_t prog[] = {0x0F, 0x01, 0x1E, 0x00, 0x06, 0xCC};
+    for (std::size_t i = 0; i < sizeof prog; ++i) m.chipset.mem[0x400 + i] = prog[i];
+    for (int i = 0; i < 6; ++i) m.chipset.mem[0x600 + i] = 0;
+    m.cpu.cs = m.cpu.ds = 0;
+    m.cpu.eip = 0x400;
+    m.run_cycles(200);
+    ASSERT_EQ(m.cpu.cs, 0xF000);
+    EXPECT_EQ(m.cpu.cr(0) & kCdNw, 0u);
+}
+
+TEST(MachineTest, ACacheMissAndAnIsaPortCostTheirBusCycles) {
+    Machine m;
+    m.reset();
+    const uint8_t prog[] = {0xA0, 0x00, 0x20,   // mov al,[2000h]
+                            0xA0, 0x00, 0x20,   // mov al,[2000h]
+                            0xE6, 0x80,         // out 80h,al
+                            0xF4};
+    for (std::size_t i = 0; i < sizeof prog; ++i) m.chipset.mem[0x400 + i] = prog[i];
+    m.cpu.cs = m.cpu.ds = 0;
+    m.cpu.eip = 0x400;
+    // Published 1 clock, plus two cold DRAM line fills (code at 400h, data
+    // at 2000h), each a 4-3-3-3 burst after a row miss: 18 bus clocks, 36
+    // core clocks on the DX2.
+    EXPECT_EQ(m.cpu.step(), 1 + 36 + 36);
+    EXPECT_EQ(m.cpu.step(), 1) << "both lines are in the L1 now";
+    // Published 16, plus an 8-bit ISA cycle (26 bus clocks) less the 2 the
+    // published count includes.
+    EXPECT_EQ(m.cpu.step(), 16 + 52 - 2);
+}
+
+TEST(MachineTest, ALongRepYieldsEveryPitCount) {
+    // One 1.193182 MHz count in CPU cycles, at either Turbo setting.
+    pc486::Machine m;
+    EXPECT_EQ(m.cpu.rep_yield_cycles, 55u);
+    m.set_turbo(false);
+    EXPECT_EQ(m.cpu.rep_yield_cycles, 27u);
+}
+
 }  // namespace

@@ -91,6 +91,8 @@
 #ifndef PC486_CPU80486_H
 #define PC486_CPU80486_H
 
+#include "cache486.h"
+
 #include <csetjmp>
 #include <cstdint>
 #include <functional>
@@ -123,7 +125,7 @@ enum Flag : uint32_t {
     FLAG_OF   = 1u << 11,  // overflow
     FLAG_IOPL = 3u << 12,  // I/O privilege level (2 bits)
     FLAG_NT   = 1u << 14,  // nested task -- set by a CALL-driven task switch
-    FLAG_RF   = 1u << 16,  // resume (debug); storage only, no breakpoints here
+    FLAG_RF   = 1u << 16,  // resume: suppresses instruction breakpoints for one instruction
     // Virtual-8086 mode. Loadable only by IRETD from CPL 0 (or a task
     // switch): "The CPL at the time the IRET is executed must be zero, else
     // the processor does not change VM" (Intel 80386 PRM, "Entering and
@@ -185,6 +187,7 @@ enum Exception : int {
     EXC_GP = 13,  // general protection
     EXC_PF = 14,  // page fault
     EXC_MF = 16,  // x87 floating-point error
+    EXC_AC = 17,  // alignment check
 };
 
 // Memory and port I/O callbacks supplied by the embedding chipset. `addr`
@@ -381,6 +384,11 @@ public:
     // Stays set until reset().
     bool shutdown() const { return shutdown_; }
     uint64_t cycles = 0;   // total clock cycles executed (66MHz core clocks)
+    // The board's cache and bus timing (cache486.h). Null on a bare CPU, which
+    // then charges every access at the published L1-hit cost.
+    pc486::Cache486 *timing = nullptr;
+    // A period BIOS clears CR0.CD and NW during POST to turn the L1 on.
+    void enable_cache() { cr_[0] &= ~uint32_t(CR0_CD | CR0_NW); }
 
     // Diagnostic hook: called with (CS, EIP-of-opcode, opcode-word) just
     // before an encoding the 486 reserves raises #UD -- a single-byte
@@ -390,6 +398,11 @@ public:
     // nothing); set by a diagnostic harness to find opcode-coverage gaps by
     // evidence instead of by guessing, the same way ibmpc-at's core found
     // its BIOS's 386-baseline assumptions.
+    // A REP string instruction yields once it has spent this many cycles,
+    // with EIP back on its first prefix, so the embedding machine can run
+    // its devices and take an interrupt between iterations as a 486 does.
+    // The next step carries on with the count. 0 runs every REP to the end.
+    uint32_t rep_yield_cycles = 0;
     std::function<void(uint16_t cs, uint32_t eip, uint16_t opcode_word)> on_unimplemented;
 
     // Diagnostic hook for delivered faults: (vector, error code, CS,
@@ -450,7 +463,7 @@ public:
     // IN/OUT trap to the monitor there.
     int  cpl() const { return protected_mode() ? int(cpl_) : 0; }
     uint32_t cr(int i) const { return cr_[i & 3]; }
-    uint32_t dr(int i) const { return dr_[i & 7]; }
+    uint32_t dr(int i) const { return read_dr(i & 7); }
     const SegDesc &desc(int seg_index) const { return sd_[seg_index & 7]; }
     const DescTableReg &gdtr() const { return gdtr_; }
     const DescTableReg &idtr() const { return idtr_; }
@@ -463,7 +476,7 @@ public:
     const Float80 &st(int i) const { return fpu_reg_[(fpu_top_ + i) & 7]; }
     uint16_t fpu_control() const { return fpu_cw_; }
     uint16_t fpu_status() const { return uint16_t((fpu_sw_ & ~0x3800u) | (uint16_t(fpu_top_) << 11)); }
-    uint16_t fpu_tag() const { return fpu_tw_; }
+    uint16_t fpu_tag() const { return fpu_tag_word(); }
     int fpu_top() const { return fpu_top_; }
     // The value of ST(i) as a host long double -- for tests and
     // diagnostics; the architectural state is always the Float80 above.
@@ -492,10 +505,32 @@ private:
     // proper reads the same as it did when Bus held std::functions.
     uint8_t  bus_read (uint32_t a)              { return bus_.read(bus_.ctx, a); }
     void     bus_write(uint32_t a, uint8_t v)   { bus_.write(bus_.ctx, a, v); }
-    uint8_t  bus_in   (uint16_t p)              { return bus_.in(bus_.ctx, p); }
-    void     bus_out  (uint16_t p, uint8_t v)   { bus_.out(bus_.ctx, p, v); }
-    uint16_t bus_in16 (uint16_t p)              { return bus_.in16(bus_.ctx, p); }
-    void     bus_out16(uint16_t p, uint16_t v)  { bus_.out16(bus_.ctx, p, v); }
+    uint8_t  bus_in   (uint16_t p)              { io_timing(p, 1, false); return bus_.in(bus_.ctx, p); }
+    void     bus_out  (uint16_t p, uint8_t v)   { io_timing(p, 1, true); bus_.out(bus_.ctx, p, v); }
+    uint16_t bus_in16 (uint16_t p)              { io_timing(p, 2, false); return bus_.in16(bus_.ctx, p); }
+    void     bus_out16(uint16_t p, uint16_t v)  { io_timing(p, 2, true); bus_.out16(bus_.ctx, p, v); }
+    // Bus stalls this instruction has run up, charged when it completes.
+    uint32_t stall_ = 0;
+    uint64_t now() const { return cycles + stall_; }
+    void io_timing(uint16_t p, int size, bool write) {
+        if (timing) stall_ += uint32_t(timing->io(p, size, write, now()));
+    }
+    void mem_timing(uint32_t phys, int size, bool write) {
+        if (!timing) return;
+        stall_ += uint32_t(write ? timing->write(phys, size, now())
+                                 : timing->read(phys, size, !(cr_[0] & CR0_CD), now()));
+    }
+    int take_stall() {
+        int s = int(stall_);
+        stall_ = 0;
+        cycles += uint64_t(s);
+        return s;
+    }
+    // Every I/O device on this board is 16-bit, so the 486's dynamic bus
+    // sizing (BS16#) runs a 32-bit I/O as two 16-bit cycles, the second at
+    // port + 2 (Intel486 Microprocessor Data Book, "Dynamic Bus Sizing").
+    uint32_t bus_in32 (uint16_t p)              { return uint32_t(bus_in16(p)) | (uint32_t(bus_in16(uint16_t(p + 2))) << 16); }
+    void     bus_out32(uint16_t p, uint32_t v)  { bus_out16(p, uint16_t(v)); bus_out16(uint16_t(p + 2), uint16_t(v >> 16)); }
 
     void init_state();
 
@@ -525,6 +560,13 @@ private:
     // linear address and CR3 the page-directory base.
     uint32_t cr_[4] = {0, 0, 0, 0};
     uint32_t dr_[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+    uint8_t  dbg_exec_ = 0;   // DR7-enabled instruction breakpoints, bit n = DRn
+    uint8_t  dbg_data_ = 0;   // DR7-enabled data breakpoints
+    // A pending #DB trap: bits 0-3 are data breakpoints this instruction
+    // hit, kDbgTask a task switch into a TSS with its T bit set.
+    static constexpr uint8_t kDbgTask = 0x80;
+    uint8_t  dbg_pending_ = 0;
+    bool     ac_skip_ = false;   // set by ac_check_whole() for one instruction
 
     bool code32() const { return sd_[SEG_CS].big; }
     bool stack32() const { return sd_[SEG_SS].big; }
@@ -653,6 +695,7 @@ private:
     // selector*16 or back -- so a V86 entry or exit already fails the
     // comparison below on pf_cs_ and pf_cpl_.
     const uint8_t *pf_base_ = nullptr;  // host pointer for EIP == pf_lo_
+    uint32_t pf_phys_ = 0;              // physical address for EIP == pf_lo_
     uint32_t pf_lo_ = 0, pf_hi_ = 0;    // the EIP range pf_base_ covers
     SegDesc  pf_cs_{};                  // CS's descriptor when the window was filled
     uint32_t pf_cr0_ = 0, pf_cr3_ = 0, pf_tlb_gen_ = 0, pf_map_epoch_ = 0;
@@ -717,17 +760,21 @@ private:
     // over the monitor's page tables.
     bool real_addressing() const { return !protected_mode() || (eflags & FLAG_VM) != 0; }
     // Checks `off`..`off+size-1` against the segment's limit and access
-    // rights, then returns the linear address. A no-op in real mode, where
-    // there are no descriptors to enforce (see PC486_REVIEW.md §4.3/§5.4).
+    // rights, then returns the linear address. Real mode and V86 check the
+    // cached limit only (PC486_REVIEW.md §44).
     // Same split as translate() above, and for the same reason: the check
     // an ordinary present, expand-up, correctly-typed segment passes is one
     // comparison, and it runs on every guest memory access. Everything else
     // -- real mode, a null or expand-down segment, a wrapped access, any
     // fault -- is seg_linear_slow()'s, which is the complete check and is
-    // entered in exactly the cases this does not answer.
-    uint32_t seg_linear(int si, uint32_t off, int size, bool write) {
+    // entered in exactly the cases this does not answer. Forced inline, as
+    // the compiler stops inlining it once read8/write8 grow.
+    __attribute__((always_inline)) inline uint32_t seg_linear(int si, uint32_t off, int size, bool write) {
         const SegDesc &s = sd_[si & 7];
-        if (real_addressing()) return s.base + off;  // no descriptors to enforce
+        if (real_addressing()) {  // the cached limit is the only check
+            if (uint64_t(off) + uint32_t(size - 1) <= s.limit) return s.base + off;
+            return seg_linear_slow(si, off, size, write);
+        }
         if (!s.null && !acc_expand_down(s.access)) {
             uint32_t last = off + uint32_t(size) - 1u;
             if (last >= off && last <= s.limit &&
@@ -737,6 +784,31 @@ private:
         return seg_linear_slow(si, off, size, write);
     }
     uint32_t seg_linear_slow(int si, uint32_t off, int size, bool write);
+    // Alignment check: a misaligned data access at CPL 3 with CR0.AM and
+    // EFLAGS.AC both set raises #AC(0) (Intel 80486 PRM, "Alignment Check").
+    // Checked after the segment limit and before paging, as Bochs does.
+    void ac_check(uint32_t lin, int size) {
+        if ((cr_[0] & CR0_AM) && (lin & uint32_t(size - 1)) && (eflags & FLAG_AC) &&
+            cpl() == 3 && !ac_skip_)
+            raise_err(EXC_AC, 0);
+    }
+    // Instructions whose operand is checked as a whole (FSAVE, SGDT) check
+    // it once here and skip the per-access checks for the rest of the step.
+    void ac_check_whole(int si, uint32_t off, int align) {
+        ac_check(sd_[si & 7].base + off, align);
+        ac_skip_ = true;
+    }
+    // Nonzero only while CR0.AM is set or a data breakpoint is armed, so
+    // every other access pays one branch for both checks.
+    uint8_t access_hooks_ = 0;
+    void update_access_hooks() { access_hooks_ = uint8_t(((cr_[0] & CR0_AM) ? 1 : 0) | (dbg_data_ ? 2 : 0)); }
+    // Out of line and cold, so the access paths that test the flag stay small.
+    __attribute__((noinline, cold)) void access_hooks(uint32_t lin, int size, bool write);
+    void dbg_data_match(uint32_t lin, int size, bool write);
+    uint8_t dbg_exec_match(uint32_t lin) const;
+    void dr7_decode();
+    void write_dr(int idx, uint32_t v);
+    uint32_t read_dr(int idx) const;
     uint8_t  read8(int si, uint32_t off);
     void     write8(int si, uint32_t off, uint8_t v);
     uint16_t read16(int si, uint32_t off);
@@ -768,16 +840,9 @@ private:
     void     lin_write16(uint32_t linear, uint16_t v);
     void     lin_write32(uint32_t linear, uint32_t v);
 
-    // True when a multi-byte access starting at `off` must wrap back to
-    // offset 0 of the same segment. That is what real mode's (and V86's) fixed
-    // 64KB limit means on real hardware; a protected-mode segment has an
-    // actual descriptor limit instead, and an offset a 32-bit addressing form
-    // produced above 0FFFFh is the "unreal mode" case (PC486_REVIEW.md
-    // §5.4), where there is nothing at 0FFFFh to wrap at.
-    bool wraps_at_64k(uint32_t off) const { return real_addressing() && off <= 0xFFFFu; }
-    uint32_t seg_off(uint32_t base_off, uint32_t delta) const {
-        return wraps_at_64k(base_off) ? uint32_t(uint16_t(base_off + delta)) : base_off + delta;
-    }
+    // The offset of a later part of a multi-byte operand. A 486 doesn't wrap
+    // it at 64KB the way an 8086 did; the limit check faults instead.
+    uint32_t seg_off(uint32_t base_off, uint32_t delta) const { return base_off + delta; }
 
     // Instruction fetch. The window (see pf_base_ below) answers when the
     // bytes are on the code page already resolved for this instruction;
@@ -1053,9 +1118,24 @@ private:
     // escalating a fault-during-delivery to #DF and a fault during *that*
     // to shutdown.
     int  deliver_fault(const Fault &first, uint32_t start_eip);
+    // step()'s instruction-breakpoint and RF work: the cycles of a #DB fault
+    // it delivered, or -1 to run the instruction.
+    __attribute__((noinline, cold)) int step_debug(uint32_t start_eip);
 
     int  extra_cycles_ = 0;  // set during decode (the base+index+disp effective-address penalty) and added to the opcode's cost by step()
     int  last_reg_ = 0;      // ModR/M reg field from the most recent decode_modrm(), read by the opcode-group helpers that use it as an operation selector
+    uint32_t step_start_eip_ = 0;   // EIP of the instruction's first prefix byte
+    bool rep_resume_ = false;   // the last step yielded part-way through a REP
+    bool rep_resumed_ = false;  // this step continues one, so its setup cost is paid
+    // Armed for an instruction with four or more prefixes, the only way past
+    // the 15-byte limit: the prefetch window stops at the limit and the slow
+    // fetch path raises #GP(0) on a byte beyond it.
+    bool len_check_ = false;
+    void arm_length_limit(int prefixes);
+    void check_length(uint32_t bytes);
+    bool lock_allowed(uint8_t op);
+    uint16_t fpu_tag_word() const;
+    void fpu_load_tag_word(uint16_t tw);
     uint32_t instr_start_eip_ = 0;  // CS:EIP at the start of the instruction (post-prefixes), so a fault can restore EIP to the faulting instruction the way real hardware does
     uint32_t instr_start_esp_ = 0;  // ESP likewise: a fault must not leave half-pushed operands behind
     uint16_t instr_start_ss_ = 0;

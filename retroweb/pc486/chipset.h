@@ -219,6 +219,12 @@ private:
     void note_a20() {
         if (kbc.a20_enabled() != a20_prev_) { a20_prev_ = kbc.a20_enabled(); ++map_epoch_; }
     }
+    // The BIOS ROM answers again in the top 2MB of the 4GB space, where a
+    // 486 makes its first fetch after RESET (FFFFFFF0h, or FFEFFFF0h with
+    // A20 masked). The ROM sits at E0000-FFFFF and mirrors every 128KB.
+    static uint32_t rom_alias(uint32_t addr) {
+        return addr >= 0xFFE00000u ? (0xE0000u | (addr & 0x1FFFFu)) : addr;
+    }
     // The cycle count at or after which tick() runs its full service pass
     // again (see tick()). 0 means "on the next call".
     uint64_t next_service_ = 0;

@@ -20,7 +20,7 @@ EMCC_PERF_FLAGS = -DPC486_PERF
 endif
 
 CORE = ..
-SRC = wasm_machine.cpp $(CORE)/machine.cpp $(CORE)/chipset.cpp $(CORE)/cpu80486.cpp \
+SRC = wasm_machine.cpp $(CORE)/machine.cpp $(CORE)/chipset.cpp $(CORE)/cpu80486.cpp $(CORE)/cache486.cpp \
       $(CORE)/pic8259.cpp $(CORE)/pit8253.cpp $(CORE)/i8042.cpp $(CORE)/cmos_rtc.cpp \
       $(CORE)/dma8237.cpp $(CORE)/fdc765.cpp $(CORE)/ega.cpp $(CORE)/ega_render.cpp \
       $(CORE)/wd1003.cpp $(CORE)/atapi_cdrom.cpp $(CORE)/pcspeaker.cpp \

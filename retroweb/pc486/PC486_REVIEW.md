@@ -6207,7 +6207,7 @@ one-byte map, the unassigned 0F space (including UD2, `0F 31`, `0F C7`, and
 sense: LEA, LES/LDS/LSS/LFS/LGS, BOUND, and far CALL/JMP indirect.
 
 Two encodings the SDM names as reserved but never faulting stay that way:
-`F1` (already ICEBP) and `D6`, now SALC (`AL = CF ? FFh : 00h`, flags
+`F1` (ICEBP, a #DB trap since §46.3) and `D6`, now SALC (`AL = CF ? FFh : 00h`, flags
 untouched). SALC is undocumented but present from the 8086 on. There's no
 published 486 timing for it, so it's charged as SBB AL,AL.
 
@@ -6263,7 +6263,7 @@ Native totals went from 89.2% to 93.0% lines and 72.8% to 79.3% branches.
 These are real departures from period hardware. They're recorded here and
 deliberately left out for the moment.
 
-- **Cache and bus timing.** Every memory and I/O access is charged at the
+- **Cache and bus timing** (done in §47). Every memory and I/O access is charged at the
   486's published L1-hit cost. There are no L1 misses, no 33 MHz bus cycles
   for an external access, and no ISA or VGA wait states. Code that hammers
   memory or video RAM runs faster than a real board would. Fixing it means
@@ -6581,3 +6581,341 @@ FreeVGA's register page has it reversed.
 
 `ega_render_test` has seven new cases. `vbe-check` passes, and the
 screen-scale, smoke, boot and keyboard specs pass on the rebuilt wasm.
+
+## 44. CPU edges: reset state, FXCH, LOCK, length, real-mode limits, REP under TF
+
+Items C1-C6 from [`PC486_PARITY.md`](PC486_PARITY.md).
+
+### 44.1 RESET loads the component ID and a cache-off CR0
+
+EDX now comes out of RESET holding 0435h, and CR0 holds 60000010h, CD
+and NW set (Intel486 Microprocessor Data Book, register state after
+RESET). The stepping matters. 0435h is the SL-Enhanced IntelDX2-66
+(aB0/aC0, S-spec SX807 or SX911), the DX2 that has CPUID; 0433h is the
+older B1 step, which doesn't. CPUID already claimed to be the
+SL-Enhanced part but returned 0433h, a signature that part never
+reported. Both now return 0435h. Source for the steppings: the Intel 486
+S-spec table at ardent-tool.com.
+
+`MOV CR0` with NW set and CD clear now raises #GP(0), the other invalid
+combination next to PG without PE (Intel SDM, MOV CR). There's still no
+cache model (T1), so CD and NW change nothing else.
+
+### 44.2 FXCH
+
+FXCH swapped the registers and left the tags where they were, and never
+looked for an empty operand. An empty operand is now a stack underflow:
+IE and SF set, C1 clear. Masked, the empty side reads as the real
+indefinite and the exchange goes ahead with both tags valid. Unmasked,
+nothing moves (Intel 80486 PRM, FXCH).
+
+### 44.3 LOCK raises #UD where a 486 does
+
+LOCK is legal only on a memory-destination ADD, ADC, AND, BTC, BTR, BTS,
+CMPXCHG, DEC, INC, NEG, NOT, OR, SBB, SUB, XOR, XADD or XCHG (Intel
+80486 PRM, LOCK). Everything else, including any register destination,
+CMP, BT and plain MOV, now raises #UD. The decoder peeks the opcode and
+ModR/M without consuming them. A LOCK #UD doesn't fire the
+unimplemented-opcode hook, since the opcode is implemented. One timing
+test used `LOCK ADD AX,BX`, which faults on a 486; it now uses the memory
+form.
+
+### 44.4 The 15-byte limit
+
+An instruction longer than 15 bytes raises #GP(0) (Intel 80486 PRM,
+"Instruction Format"). Without prefixes no 486 instruction passes 12
+bytes, so the check arms only once an instruction has four or more
+prefixes. It caps the prefetch window at byte 15, and the slow fetch
+path faults on anything past it. The common path pays nothing.
+
+### 44.5 Real mode checks the cached limit
+
+§6.2 kept real mode free of limit checks so unreal mode would work. The
+descriptor cache §6.2 also built makes that unnecessary: real mode and
+V86 now check each access against the cached limit, and nothing else.
+A word at FFFFh raises #GP (#SS through SS), a PUSH with SP=1 raises
+#SS, and a V86 task faults the same way, as on a 486 (Intel 80486 PRM,
+"Real-Address Mode Exceptions"). A 4GB limit left behind by a
+protected-mode excursion still passes, so HimemX's unreal-mode copies
+work. `seg_off()` no longer wraps a multi-byte operand at 64KB, which
+was 8086 behaviour.
+
+Three tests had pinned the old behaviour. The two addr32 tests now run
+in a real unreal-mode setup (`enter_unreal()`), and the V86 wrap test now
+expects #GP(0). `hdd-boot-check` reaches `C:\>` at cycle 1,036,029,604,
+the same as before.
+
+### 44.6 REP under single-step
+
+A REP string instruction under TF now runs one iteration per step and
+traps after each, with the saved IP on its first prefix byte until the
+count runs out (Intel 80486 PRM, "Single-Step Trap"). That's what lets
+DEBUG's `T` walk a `REP MOVSB`. INS and OUTS do the same.
+
+### 44.7 Checks
+
+The native suite has 771 cases, 11 new. `hdd-boot-check`, `pm-check`
+and `vbe-check` pass. Four gaps this pass turned up are listed as C7-C10
+in the parity doc.
+
+## 45. FPU tags, 32-bit I/O, interruptible REP, and the code-fetch limit
+
+Items C7-C10 from [`PC486_PARITY.md`](PC486_PARITY.md), plus two gaps
+found on the way: 32-bit IN and OUT, and INS/OUTS skipping the I/O
+permission check.
+
+### 45.1 The tag word classifies each register
+
+The tag register only ever said empty (11) or valid (00). FSTENV and
+FSAVE now store a tag word built from the registers: 00 valid, 01 zero,
+10 special (NaN, infinity, denormal, unnormal), 11 empty (Intel 80486
+PRM, "Tag Word"; Bochs `fpu_tags.cc` packs it the same way). FLDENV and
+FRSTOR keep only which registers are empty, and the rest is worked out
+again from the contents on the next store. Two FPU tests expected
+"valid" for an infinity and for the FXCH indefinite. A 486 tags both
+special, and the tests now say so.
+
+### 45.2 32-bit port I/O
+
+`IN EAX` and `OUT EAX` ignored the 0x66 prefix and moved 16 bits, leaving
+EAX's top half stale. INSD and OUTSD moved words, and INS/OUTS ignored
+0x67. Every I/O device on this board is 16-bit, so the 486's dynamic bus
+sizing (BS16#) runs a 32-bit I/O as two 16-bit cycles, the second at
+port + 2 (Intel486 Microprocessor Data Book, "Dynamic Bus Sizing"). The
+core now does exactly that, and INS/OUTS use ESI, EDI and ECX under
+0x67.
+
+This shifted the FreeDOS boot. The BIOS and UDVD2 probe for PCI with
+`OUT 0CF8h,80000000h` / `IN EAX,0CFCh`. The old core returned EAX with a
+stale top half; an empty ISA bus returns FFFFFFFFh, so the probe now
+reads "no PCI" the way it would on a real VLB/ISA board. `hdd-boot-check`
+reaches `C:\>` about 11 million cycles sooner, at 1,025,005,555.
+
+INS and OUTS also never called the I/O permission check, so a CPL 3 task
+could reach any port through them. They now take the same IOPL and TSS
+bitmap check as IN and OUT, on every transfer (Intel 80486 PRM, INS).
+
+### 45.3 A REP can be interrupted
+
+A REP string instruction ran its whole count in one step, so a long
+`REP MOVSD` held off every IRQ until it finished. A 486 takes a pending
+interrupt between iterations and resumes the REP after IRET. Devices
+here only advance between CPU steps, so the CPU now yields part-way:
+`Cpu::rep_yield_cycles`, which `Machine` sets to one PIT count (55
+cycles at 66 MHz, 27 at 33), is the budget. A REP that reaches it puts
+EIP back on its first prefix and returns. The machine services its
+devices and takes any interrupt, and the next step carries on with the
+count.
+
+A continuation is charged only its own iterations, with no prefix clocks
+and no setup, so an uninterrupted REP still costs exactly its published
+formula. If an interrupt is taken between chunks, the instruction
+restarts after IRET and pays its setup again. The 486 timing tables
+don't publish a cost for a resumed REP, so that's an inference, labelled
+as one.
+
+### 45.4 An instruction can't straddle the CS limit
+
+Data accesses already faulted past the limit (§44.5), but an instruction
+fetched a byte at a time across FFFFh in real mode wrapped its later
+bytes to 0000h. The slow fetch path now checks each byte against CS's
+limit from where the instruction began, so that's a #GP. A one-byte
+instruction at FFFFh still leaves IP at 0000h, because IP itself is 16
+bits.
+
+### 45.5 Checks
+
+784 native cases, 13 new. `pm-check` and `vbe-check` pass. The full
+Playwright suite passed 135 of 136; the Performance panel's audio-ring
+check, which has flaked under load before, passed 4 of 4 on its own, along with
+the real-speed smoke test.
+
+## 46. Alignment check, debug registers, ICEBP, and the reset vector
+
+Items C11-C14 from [`PC486_PARITY.md`](PC486_PARITY.md).
+
+### 46.1 #AC
+
+CR0.AM and EFLAGS.AC could be set but did nothing. A misaligned data
+access at CPL 3 with both set now raises #AC(0), vector 17 (Intel 80486
+PRM, "Alignment Check"). V86 runs at CPL 3, so a DOS program under
+EMM386 or Windows sees it too. The check sits after the segment limit
+check and before paging, the order Bochs uses.
+
+Each word, dword and qword access is checked against its own size,
+which gives the PRM's table for free: an 80-bit real reads 8 bytes then
+2, so it needs 8-byte alignment, and a 16:32 pointer needs 4. Two kinds
+of operand are checked as a whole instead, because their pieces don't
+line up with the table. FSAVE, FRSTOR, FSTENV and FLDENV need only 2 or 4
+(by operand size), even though FSAVE's 10-byte register slots fall on
+odd multiples of 2. SGDT and SIDT need 4 for the whole 6-byte image,
+though its base sits at offset 2.
+
+### 46.2 Hardware breakpoints
+
+DR0-DR3 and DR7 were stored and never fired. Now:
+
+- **Instruction breakpoints** (RW=00) fault before the instruction at
+  that linear address runs, with DR6.Bn set. RF holds them off for one
+  instruction. Every fault pushes EFLAGS with RF set, so the IRET that
+  restarts the instruction doesn't re-take the breakpoint, and RF clears
+  when an instruction completes (Intel 80386 PRM, "Debug Exceptions"). A
+  REP picking up after an internal yield (§45.3) is the same
+  instruction, so it isn't re-checked.
+- **Data breakpoints** (RW=01 writes, RW=11 reads or writes) trap after
+  the instruction, with LEN 1, 2 or 4 and the address aligned to LEN.
+  Any overlap with the access matches. A 486 always reports them on the
+  instruction that caused them; the 386 needed LE or GE for that. A REP
+  stops after the iteration that hit, with IP still on the instruction,
+  the same as single-step.
+- **GD** (DR7 bit 13) turns the next MOV to or from a debug register into
+  a #DB fault with DR6.BD, and clears itself so the handler can get in.
+- **The TSS T bit** traps once a task switch into that TSS completes,
+  with DR6.BT, before the new task's first instruction.
+- **Reset and reserved bits.** DR6 reads FFFF0FF0h and DR7 400h after
+  RESET, and writes keep those bits. DR4 and DR5 alias DR6 and DR7, as
+  they do on any part without CR4.DE.
+
+Single-step, data hits and the T bit arrive as one #DB with every DR6
+bit that applies. DR6 is never cleared by the processor; the handler
+does that (Intel 80386 PRM, "Debug Registers"). Later Intel manuals
+allow a status bit for a breakpoint that isn't enabled; this core
+reports only enabled ones.
+
+### 46.3 ICEBP
+
+`F1` was a one-cycle no-op. It's now a #DB trap through vector 1 with no
+gate-DPL check, unlike `INT 1`, and no DR6 bit (sandpile.org). §39 kept
+it from faulting, and that still holds. It's charged INT3's 26 cycles,
+since nothing publishes a figure for it.
+
+### 46.4 The first fetch is at FFFFFFF0h
+
+The core used to start at physical FFFF0h. A 486 leaves RESET with CS =
+F000h but CS's hidden base at FFFF0000h, so its first fetch is at
+FFFFFFF0h, and the base stays there until the first far jump (Intel486
+Microprocessor Data Book, "RESET"). The core now does that, and the
+chipset maps the top 2MB of the 4GB space back onto the BIOS ROM at
+E0000-FFFFF, mirrored every 128KB. With A20 masked, the real CPU fetches
+from FFEFFFF0h, which still falls in that window. This chipset masks a
+closed A20 down to 20 bits, so that case lands on FFFF0h directly.
+
+The BIOS's first instruction is a far JMP into F000h, so nothing after
+it changes. A CPU reset with A20 open now also goes through the
+top-of-memory alias.
+
+### 46.5 Checks
+
+800 native cases, 16 new: six debug-register cases, ICEBP, the reset
+fetch, the T bit, six #AC cases and the chipset alias.
+`hdd-boot-check` reaches `C:\>` on the same cycle as before,
+1,025,005,555, and `pm-check` and `vbe-check` pass. The full Playwright
+suite passed 134 of 135. The smoke test's main-thread blocking check
+failed once under the full suite's load and passed 3 of 3 on its own.
+
+### 46.6 What C1-C14 cost in speed
+
+All of this adds work to every instruction, and it shows. A FreeDOS
+boot in the wasm build ran host-bound at about 116 MHz before C1-C14
+and 98 MHz after. Profiling put the extra time in the inlined step and
+decode path, not in any one feature; reverting every check together
+brings the old speed back. Three cheap changes recover part of it,
+natively from 12-18% slower to 8-10%: the prefix-count and LOCK checks
+run only after a prefix, the breakpoint and RF work sits behind one
+branch in a cold helper, and the #AC and watchpoint hooks sit behind one
+flag that is set only while CR0.AM is on or a data breakpoint is armed.
+The rest is open as X6 in [`PC486_PARITY.md`](PC486_PARITY.md).
+
+## 47. Cache and bus timing
+
+Item T1 from [`PC486_PARITY.md`](PC486_PARITY.md). Every access used to
+cost the 486's published L1-hit figure, so nothing ever missed a cache
+or waited on a bus. `cache486.h` now times memory and I/O the way a
+1993-94 DX2-66 board did. It holds no data: the chipset still answers
+every read, and the model only decides how many core clocks it cost.
+
+### 47.1 The board
+
+There was never a board or video card behind this machine, and T1 needed
+one. It's now a VL-Bus board with a 256KB L2, the common spec for a
+DX2-66 gaming PC of the time, built around an SiS 85C471-class
+single-chip controller (SiS 85C471 data sheet, Preliminary V6.0, August
+1994). The video card sits on the VL-Bus.
+
+### 47.2 What it models
+
+- **L1** (Embedded Intel486 Processor Hardware Reference Manual,
+  27302501): 8KB, 4-way, 16-byte lines, pseudo-LRU, write-through with no
+  allocate on a write miss. A read miss fills the line with a 4-dword
+  burst. With CR0.CD set the L1 still answers hits but never fills.
+- **Write buffers** (same manual, "Write Buffers"): four entries, one
+  write per clock. A write only waits when all four are still pending. A
+  read miss can go ahead of buffered writes once, and only if they were
+  all L1 hits; otherwise the buffer drains first. Port reads never go
+  ahead, and an OUT waits for the buffer and its own cycle.
+- **L2** (471 data sheet): 256KB direct-mapped write-back, 16-byte lines,
+  2-2-2-2 burst reads and 2T writes, the 471's setting for 20ns SRAM at
+  33 MHz. A write miss goes to DRAM and leaves the L2 alone, and a dirty
+  line is written back before it's replaced. The 8-bit tag covers 64MB,
+  so all 32MB of RAM is cacheable.
+- **DRAM**: the 471's "Faster" setting for 33 MHz, 4-3-3-3 page-hit
+  bursts and 3T writes. Leaving the open row adds its RAS precharge and
+  RAS-to-CAS delay, 3T + 2T. The row is 4KB, the column count of 1Mx4
+  DRAMs across a 32-bit bank.
+- **ISA**: 8.33 MHz (bus clock / 4), 1 wait state for 16-bit and 4 for
+  8-bit cycles, half a clock of command delay on I/O and two clocks of
+  recovery between commands (471 "AT Bus State Machine"). Only the IDE
+  data ports are 16-bit; a 16-bit access to an 8-bit device is two
+  cycles. The published IN and OUT counts already hold one zero-wait bus
+  cycle, so those 2 clocks come off.
+- **VL-Bus video**: memory at A0000-BFFFF is never cached. A cycle takes
+  2 bus clocks, the VL-Bus minimum, plus 1 wait state on a write and 3 on
+  a read; the VGA's ports cost the same. Those wait states are an
+  estimate for a period VLB card, not a cited figure. Writes go through
+  the write buffer, so a `REP STOSD` to video memory streams at bus speed.
+- **ROM**: the BIOS and video BIOS run shadowed in DRAM and cacheable, as
+  a period BIOS sets up, so they cost what RAM costs.
+- **INVD and WBINVD** empty the L1 and, through the flush special cycle,
+  the L2.
+
+All of this is in bus clocks, two core clocks each on the DX2.
+
+### 47.3 A stand-in for the BIOS's cache setup
+
+The 486 leaves RESET with CR0.CD and NW set. A period AMI or Award BIOS
+clears them during POST; the Bochs BIOS stand-in never does, and CR0 was
+still 60000010h at the DOS prompt. Modelled faithfully, the machine
+would have run with its L1 off, about three times slower than a real
+DX2-66. So the board clears CD and NW whenever it releases the CPU from
+reset, standing in for the BIOS's cache setup. That's a labelled
+departure: POST here runs cached from its first instruction, where a
+real BIOS turns the cache on a few milliseconds in. The bare `Cpu` still
+comes out of RESET with them set, and its tests still say so.
+
+### 47.4 Where it hooks in
+
+The CPU holds a pointer to the board's model, null on a bare CPU, so
+`cpu80486_test` and `cpu80486_timing_test` still check the published
+table and nothing else. `Machine` owns the model. Data accesses are
+timed where they're translated, in `read8`, `write8` and `access_phys`.
+Code is timed by its 16-byte line, once when the prefetch window fills
+and once per instruction for the line it starts in. Port I/O is timed in
+the bus helpers. Each instruction's stalls are added to its cost when it
+completes.
+
+Not modelled: the page-level PCD and PWT bits, DMA and bus-master traffic
+on the bus, accesses that straddle a page (they take the byte-at-a-time
+fallback), and descriptor-table and TSS reads.
+
+### 47.5 Checks
+
+823 native cases: 21 for the model in `cache486_test`, worked out from
+the figures above, and two `Machine` cases that run real guest code (a
+cold line fill costs exactly two 18-bus-clock DRAM bursts, an OUT to an
+8-bit port its ISA cycle) and check the board turns the L1 on after
+every kind of reset.
+
+`hdd-boot-check` reaches `C:\>` at cycle 1,055,515,521, 3% later than
+before; a DOS boot spends most of its time waiting rather than missing
+the cache. Natively that boot costs about 3% more host time. `pm-check`
+and `vbe-check` pass, and the full Playwright suite passed 136 of 136.

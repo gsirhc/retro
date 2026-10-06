@@ -573,7 +573,7 @@ TEST_F(Cpu80486TimingTest, EachPrefixByteCostsOneClock) {
     EXPECT_EQ(runCycles({0x66, 0x89, 0xD8}), 2);              // MOV EAX,EBX
     EXPECT_EQ(runCycles({0x26, 0x8A, 0x07}), 2);              // ES: MOV AL,[BX]
     EXPECT_EQ(runCycles({0x64, 0x8A, 0x07}), 2);              // FS: MOV AL,[BX]
-    EXPECT_EQ(runCycles({0xF0, 0x01, 0xD8}), 2);              // LOCK ADD AX,BX
+    EXPECT_EQ(runCycles({0xF0, 0x01, 0x07}), runCycles({0x01, 0x07}) + 1);  // LOCK ADD [BX],AX
     EXPECT_EQ(runCycles({0x66, 0x67, 0x8B, 0x05, 0, 0, 0, 0}), 3);  // two prefixes + MOV
 }
 

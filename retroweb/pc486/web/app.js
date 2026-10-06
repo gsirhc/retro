@@ -2408,7 +2408,7 @@
     schedulePump();
   }
 
-  function frame(t) {
+  function frame() {
     if (!poweredOn || !machine) return;  // power switched off mid-loop -- stop, don't reschedule
     const frameT0 = dbg.on ? performance.now() : 0;
     const rgba = machine.renderFrame();

@@ -4,14 +4,14 @@ The open gaps between this machine and a real 1993-94 DX2-66 board, plus
 the test gaps against the repo rules in `CLAUDE.md`. When an item is
 fixed, write it up in `PC486_REVIEW.md` as usual (fact, why it matters,
 what it fixed, source) and delete it here. Done so far: the PIT and PIC
-(§41) and the VGA (§42, §43).
+(§41), the VGA (§42, §43) and the CPU edges C1-C14 (§44-§46) and cache and bus timing (§47).
 
-Rough parity today: **~86%**.
+Rough parity today: **~89%**.
 
 | Area | Parity | Biggest gap |
 |------|--------|-------------|
-| CPU (ISA, PM, paging, V86, FPU) | 93% | reset state, small decode edges |
-| Timing | 70% | no cache, bus or wait-state model |
+| CPU (ISA, PM, paging, V86, FPU) | 98% | FPU arithmetic depends on the host |
+| Timing | 88% | VLB video wait states are an estimate; no PCD/PWT or DMA contention |
 | VGA | 92% | a split lands on a whole row in doubled modes |
 | Chipset (PIT, PIC, I/O ports) | 78% | no COM, LPT or game port |
 | Storage (IDE, floppy) | 80% | minimal ATA command set |
@@ -52,28 +52,29 @@ page, a Playwright test, in the same commit.
 
 ## 3. CPU
 
-- **C1. Reset state.** EDX should hold the 486 DX2 signature
-  (`043xh`: family 4, model 3; pick and cite a stepping) and CR0 should be
-  `60000010h`. Source: Intel486 Microprocessor Data Book, "Reset".
-- **C2. FXCH doesn't swap tags or signal underflow.** Source: Intel SDM,
-  FXCH.
-- **C3. LOCK on a non-lockable instruction doesn't raise #UD.** Source:
-  Intel SDM, LOCK.
-- **C4. No 15-byte instruction length limit.** Over-long prefix runs
-  should #GP. Source: Intel SDM Vol. 3, instruction length.
-- **C5. No real-mode segment-limit #GP.** A word access at offset FFFFh
-  or past 64KB should fault (#GP, or #SS for stack). §6.2 chose not to;
-  the cached-limit mechanism has to keep unreal mode and HimemX working.
-- **C6. REP under single-step.** TF traps after the last iteration;
-  a real 486 traps after each one. Source: Intel SDM, REP and TF.
+- **C15. FPU arithmetic depends on the host.** Results come from the
+  host's `long double`, whose significand is 53 bits on the Apple arm64
+  dev machine (plain `double`), 64 bits on x86-64 CI (the real x87
+  format), and 113 bits in the shipped wasm (software quad). So the
+  same program can round differently in each, and none of them is
+  checked against a 486. The
+  fix is a software 80-bit FPU for the basic operations (add, subtract,
+  multiply, divide, square root, remainder, round, conversions, precision
+  control, and the PE, UE, OE, DE flags), most likely Berkeley SoftFloat
+  3e's extF80 (BSD-3). Transcendentals (FSIN, FPTAN, F2XM1, FYL2X...)
+  come from 486 microcode, so bit-exact results need reference vectors
+  from real hardware. Deferred: period games mostly use fixed-point
+  math and don't depend on the last bit, so this matters for
+  diagnostics, exact-result checks and native tests that differ between
+  the Mac and CI.
 
 ## 4. Timing
 
-- **T1. Cache and bus timing.** Every access is charged at the L1-hit
-  cost. Needs an 8KB 4-way write-through L1, a decision on L2 for a 1993
-  board, 33 MHz bus cycles on a miss, and wait states for ISA I/O, the VGA
-  aperture and ROM. On the hottest path. Needs its own design pass and
-  period board numbers before any code (§39.5, §14-§16).
+- **T2. Smaller timing gaps.** The VL-Bus card's wait states (1 on a
+  write, 3 on a read) are an estimate; a period card's data sheet would
+  settle them. The page-level PCD and PWT bits are ignored, DMA and
+  bus-master cycles don't hold the bus, and page-straddling accesses and
+  descriptor-table reads aren't timed (§47.4).
 
 ## 5. Storage
 
@@ -100,8 +101,8 @@ page, a Playwright test, in the same commit.
   machine running". `CLAUDE.md` wants the machine to boot plus one real
   interaction or paint proof. Add one case: boot to `C:\>` and echo a
   typed key.
-- **X2. Thin native suites.** pcspeaker 6, fdc 11, machine 12 tests (pit
-  and pic grew to 33 and 14 in §41). S2 grows fdc anyway. Machine
+- **X2. Thin native suites.** pcspeaker 6, fdc 11, machine 13 tests (pit
+  and pic grew to 34 and 14 in §41). S2 grows fdc anyway. Machine
   needs IRQ routing, shutdown reset and the interrupt shadow covered
   through the whole board, not just the CPU.
 - **X3. Review entries missing for two fixes.** 22fafe9 (Duke Nukem 3D:
@@ -111,6 +112,24 @@ page, a Playwright test, in the same commit.
 - **X4. Refresh the coverage numbers.** The last recorded figures are
   93.0% lines and 79.3% branches (§39.4). Re-run `make coverage` and
   `make -C web coverage` once this backlog is under way.
+- **X5. Playwright checks that flake under load.** The front panel's
+  Turbo ratio, the audio-ring checks in `tone.spec.ts` and
+  `performance.spec.ts`, the keyboard boot notice, the smoke file's
+  main-thread blocking check, and `cdda.spec.ts` on the shared live page
+  each fail now and then in a full run and
+  pass on their own (§45.5, §46.5). The smoke one gates deploys. Each
+  needs its timing margin or wait condition fixed, not a retry.
+- **X6. The C1-C14 CPU work costs speed.** The extra per-instruction
+  checks (prefix count and LOCK, the real-mode limit, RF and breakpoint
+  bookkeeping, #AC and watchpoint hooks) left the core about 8-10%
+  slower per guest cycle natively than before them. The wasm measured
+  about 15% slower (116 to 98 MHz host-bound over a FreeDOS boot) before
+  §46.6's partial fix and hasn't been re-measured since. That shrinks the
+  margin over the real 66 MHz, and a heavy game that falls under it lags
+  its audio. Doom's sound effects were reported a little late after
+  these changes; not yet confirmed as the cause (`?audiotrace` in Doom
+  would show it). Reverting all the checks restores the old speed, so
+  the fix is making each one cheaper, not removing it. See §46.6.
 
 Already in line with the rules, for reference: every control in
 `index.html` has a Playwright test; the `?test=1&fast=1` override is

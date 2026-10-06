@@ -69,12 +69,14 @@ void Chipset::load_rom(uint32_t addr, const uint8_t *data, std::size_t len) {
 
 uint8_t Chipset::mem_read(uint32_t addr) {
     if (!kbc.a20_enabled()) addr &= 0xFFFFF;  // gate closed: real 20-bit wraparound, regardless of installed RAM
+    addr = rom_alias(addr);
     if (vga.owns_mem(addr)) return vga.mem_read(addr);
     if (addr >= mem.size()) return 0xFF;      // nothing populated up there
     return mem[addr];
 }
 void Chipset::mem_write(uint32_t addr, uint8_t v) {
     if (!kbc.a20_enabled()) addr &= 0xFFFFF;
+    addr = rom_alias(addr);
     if (vga.owns_mem(addr)) { vga.mem_write(addr, v); return; }
     if (addr >= mem.size()) return;
     if (rom_[addr]) return;  // ROM: writes ignored, matching real hardware
@@ -87,6 +89,7 @@ uint8_t *Chipset::page_host(uint32_t page_base, bool write) {
     // 0xFFFFF+1 is a whole number of pages, so the offset within the page is
     // untouched.
     if (!kbc.a20_enabled()) page_base &= 0xFFFFF;
+    page_base = rom_alias(page_base);
     if (vga.owns_mem(page_base)) {
         // The card answers, not RAM -- but in a mode whose planar stages are
         // all pass-through (mode 13h) the aperture is plain linear bytes, so

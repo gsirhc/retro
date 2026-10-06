@@ -54,16 +54,26 @@ protected:
     uint16_t last_out16_port = 0;
     uint16_t last_out16_val = 0;
     uint16_t next_in16_val = 0xFFFF;
+    // Every 16-bit port cycle, in order, so a test can see how a wider
+    // access was split.
+    std::vector<std::pair<uint16_t, uint16_t>> in16_log, out16_log;
 
     // on_unimplemented capture -- the diagnostic hook must fire for a
     // genuinely unrecognized opcode and must NOT fire for the documented
     // protected-mode/FPU no-ops.
     int      unimpl_count = 0;
     uint16_t unimpl_opcode = 0;
+    bool     log_reads = false;
+    std::vector<uint32_t> reads;
+    // The first fault vector raised since catch_faults(), or -1.
+    int      first_fault = -1;
 
 public:
     // The six operations Bus::For binds (see cpu80486.h).
-    uint8_t mem_read(uint32_t a) { return mem[a & 0xFFFFF]; }
+    uint8_t mem_read(uint32_t a) {
+        if (log_reads) reads.push_back(a);
+        return mem[a & 0xFFFFF];
+    }
     void mem_write(uint32_t a, uint8_t v) { mem[a & 0xFFFFF] = v; }
     uint8_t io_in(uint16_t) { return next_in_val; }
     void io_out(uint16_t p, uint8_t v) { last_out_port = p; last_out_port_val = v; }
@@ -71,8 +81,12 @@ public:
     // can prove IN AX,DX / OUT DX,AX take this path rather than silently
     // decomposing into two 8-bit accesses (wrong for a device like the IDE
     // data register at 0x1F0 -- see wd1003.h).
-    uint16_t io_in16(uint16_t) { return next_in16_val; }
-    void io_out16(uint16_t p, uint16_t v) { last_out16_port = p; last_out16_val = v; }
+    uint16_t io_in16(uint16_t p) {
+        uint16_t v = uint16_t(next_in16_val + in16_log.size());
+        in16_log.push_back({p, v});
+        return v;
+    }
+    void io_out16(uint16_t p, uint16_t v) { last_out16_port = p; last_out16_val = v; out16_log.push_back({p, v}); }
 
 protected:
     void SetUp() override {
@@ -86,6 +100,10 @@ protected:
         };
     }
 
+    void catch_faults() {
+        first_fault = -1;
+        cpu->on_fault = [this](int v, uint32_t, uint16_t, uint32_t) { if (first_fault < 0) first_fault = v; };
+    }
     void load(std::initializer_list<uint8_t> code, uint16_t at = 0) {
         uint16_t addr = at;
         for (uint8_t b : code) mem[addr++] = b;
@@ -403,49 +421,32 @@ TEST_F(Cpu80486Test, Addr32SibSegmentOverrideBeatsTheEspStackDefault) {
     EXPECT_EQ(cpu->eax & 0xFFFF, 0x1111u);
 }
 
-TEST_F(Cpu80486Test, Addr32EffectiveAddressAboveSixtyFourKReachesPastTheSegment) {
-    // "Unreal mode": a 32-bit effective address above 0FFFFh is used as
-    // computed rather than truncated into a 64KB window. Period DOS software
-    // genuinely produces these in real mode -- a memory manager loads a
-    // 4GB-limit descriptor in a brief protected-mode excursion, returns to
-    // real mode (where loading a segment register sets its base but leaves
-    // the cached limit alone, so the big limit survives), and then addresses
-    // extended memory with 32-bit offsets. This core has no descriptors and
-    // therefore no limit to enforce, so letting the offset through is the
-    // faithful answer for the state such a guest believes it is in, and the
-    // absent #GP(0) stays listed with the other protected-mode omissions.
-    // Found by FreeDOS 1.3's HimemX: see PC486_REVIEW.md §5.4.
-    poke16(0x0200, 0x7777);            // the address a truncating core would hit
-    poke16(0x10200, 0x1234);           // the address a real unreal-mode access hits
+TEST_F(Cpu80486Test, Addr32OffsetPastTheRealModeLimitRaisesGp) {
+    // Real mode checks the cached limit, 64KB unless a protected-mode
+    // excursion left a bigger one (Intel 80486 PRM, "Real-Address Mode
+    // Exceptions"). Unreal mode is in Cpu80486PmTest.
+    catch_faults();
+    poke16(0x10200, 0x1234);
     run({0x67, 0x8B, 0x05, 0x00, 0x02, 0x01, 0x00});  // MOV AX, [00010200h]
-    EXPECT_EQ(cpu->eax & 0xFFFF, 0x1234u) << "offset must NOT wrap mod 64K";
-    EXPECT_EQ(cpu->cs, 0) << "no fault is taken -- the #GP is a documented gap";
-    EXPECT_EQ(cpu->eip, 7u);
+    EXPECT_EQ(first_fault, 13);
+    EXPECT_NE(cpu->eax & 0xFFFF, 0x1234u);
 }
 
-TEST_F(Cpu80486Test, Addr32StringOpUsesEsiEdiEcxAndReachesAboveSixtyFourK) {
-    // The 0x67 prefix selects ESI/EDI/ECX over SI/DI/CX for a string op --
-    // genuine 386+/486 behavior, and the same addressing width decode_modrm()
-    // honors. FreeDOS 1.3's HimemX copies XMS blocks with exactly this
-    // encoding (`F3 67 66 A5`, REP MOVSD addr32); advancing only the 16-bit
-    // halves moved every block to a wrapped, wrong address instead, which
-    // silently corrupted memory until the guest ran off into the weeds.
-    // Source and destination are both deliberately above 64KB, and the low
-    // 16 bits of each differ from the full value, so a core that truncates
-    // fails this rather than accidentally passing.
-    poke32(0x00020000, 0xDEADBEEFu);
-    poke32(0x00020004, 0xCAFEBABEu);
-    cpu->ds = 0; cpu->es = 0;
-    cpu->esi = 0x00020000u;
-    cpu->edi = 0x00030000u;
-    cpu->ecx = 2;
-    run({0xF3, 0x67, 0x66, 0xA5});  // REP MOVSD (addr32, opsize32)
-    EXPECT_EQ(memd(0x00030000), 0xDEADBEEFu);
-    EXPECT_EQ(memd(0x00030004), 0xCAFEBABEu);
-    EXPECT_EQ(cpu->esi, 0x00020008u) << "ESI, not SI, advances";
-    EXPECT_EQ(cpu->edi, 0x00030008u) << "EDI, not DI, advances";
-    EXPECT_EQ(cpu->ecx, 0u) << "ECX is the counter under a 0x67 prefix";
+TEST_F(Cpu80486Test, AWordAtOffsetFfffFaultsInsteadOfWrapping) {
+    catch_faults();
+    run({0xA1, 0xFF, 0xFF});  // MOV AX, [0FFFFh]
+    EXPECT_EQ(first_fault, 13) << "an 8086 wrapped to offset 0; a 486 raises #GP";
 }
+
+TEST_F(Cpu80486Test, PushWithSpAtOneRaisesStackFault) {
+    catch_faults();
+    cpu->ss = 0x1000;
+    cpu->esp = 1;
+    run({0x50});  // PUSH AX: the word lands at FFFFh
+    EXPECT_EQ(first_fault, 12);
+}
+
+
 
 TEST_F(Cpu80486Test, StringOpWithoutAddr32KeepsUsingTheSixteenBitPointers) {
     // Without the 0x67 prefix a string op must still advance only SI/DI and
@@ -1237,6 +1238,7 @@ TEST_F(Cpu80486Test, CpuidFunctionOneReportsAnIntelDx2SignatureWithOnlyTheFpuFea
     EXPECT_EQ(unimpl_count, 0);
     EXPECT_EQ((cpu->eax >> 8) & 0xF, 4u) << "family";
     EXPECT_EQ((cpu->eax >> 4) & 0xF, 3u) << "model: IntelDX2";
+    EXPECT_EQ(cpu->eax & 0xF, 5u) << "stepping: SL-Enhanced aB0/aC0, the DX2 with CPUID";
     EXPECT_EQ((cpu->eax >> 12) & 0x3, 0u) << "type: original OEM processor";
     EXPECT_EQ(cpu->edx, 0x00000001u);
     EXPECT_EQ(cpu->ebx, 0u);
@@ -1284,6 +1286,56 @@ TEST_F(Cpu80486StepTest, TfTrapsAfterTheInstructionWithTheNextIpSaved) {
     EXPECT_NE(memw(0x1FFE) & cpu80486::FLAG_TF, 0u) << "the saved FLAGS keep TF for IRET";
     EXPECT_FALSE(cpu->flag(cpu80486::FLAG_TF)) << "the handler itself runs untrapped";
     EXPECT_NE(cpu->dr(6) & 0x4000u, 0u) << "DR6.BS reports a single-step";
+}
+
+TEST_F(Cpu80486StepTest, RepStringTrapsAfterEachIterationWithIpOnThePrefix) {
+    // Intel 80486 PRM, "Single-Step Trap": a REP string instruction traps
+    // after every iteration, and the saved IP points back at it (first
+    // prefix included) until the count runs out.
+    cpu->ds = 0; cpu->es = 0;
+    cpu->esi = 0x0300;
+    cpu->edi = 0x0340;
+    cpu->ecx = 2;
+    mem[0x0300] = 0x11;
+    mem[0x0301] = 0x22;
+    cpu->set_flag(cpu80486::FLAG_TF, true);
+    run({0x26, 0xF3, 0xA4});  // ES: REP MOVSB
+    EXPECT_EQ(cpu->eip, 0x0400u);
+    EXPECT_EQ(memw(0x1FFA), 0x0000) << "back on the first prefix byte";
+    EXPECT_EQ(cpu->ecx & 0xFFFF, 1u);
+    EXPECT_EQ(mem[0x0340], 0x11);
+    EXPECT_EQ(mem[0x0341], 0x00) << "only one iteration ran";
+
+    cpu->esp = 0x2000;
+    cpu->eip = 0;
+    cpu->set_flag(cpu80486::FLAG_TF, true);
+    cpu->step();
+    EXPECT_EQ(memw(0x1FFA), 0x0003) << "the last iteration moves on";
+    EXPECT_EQ(cpu->ecx & 0xFFFF, 0u);
+    EXPECT_EQ(mem[0x0341], 0x22);
+}
+
+TEST_F(Cpu80486StepTest, AnInterruptBetweenRepChunksRestartsItWithItsSetupCost) {
+    // Intel 80486 PRM, REP: an interrupt is taken between iterations and the
+    // instruction resumes after IRET. The restart pays the setup again.
+    mem[0x0500] = 0xCF;          // IRET
+    cpu->rep_yield_cycles = 9;
+    cpu->ds = 0; cpu->es = 0;
+    cpu->esi = 0x0300;
+    cpu->edi = 0x0400;
+    cpu->ecx = 10;
+    load({0xF3, 0xA4});          // REP MOVSB
+    cpu->eip = 0;
+    cpu->step();
+    ASSERT_EQ(cpu->ecx & 0xFFFF, 7u);
+    cpu->set_flag(cpu80486::FLAG_IF, true);
+    cpu->interrupt(0x21);
+    EXPECT_EQ(cpu->eip, 0x0500u);
+    EXPECT_EQ(memw(0x1FFA), 0x0000) << "the saved IP is the REP";
+    cpu->step();                 // IRET
+    EXPECT_EQ(cpu->eip, 0u);
+    EXPECT_EQ(cpu->step(), 1 + 12 + 9) << "a restarted REP pays its prefix and setup again";
+    EXPECT_EQ(cpu->ecx & 0xFFFF, 4u);
 }
 
 TEST_F(Cpu80486StepTest, PopfThatSetsTfRunsUntrappedAndTheNextInstructionTraps) {
@@ -1346,6 +1398,125 @@ TEST_F(Cpu80486StepTest, AFaultWhileDeliveringADoubleFaultIsShutdown) {
     EXPECT_TRUE(cpu->halted);
     cpu->reset();
     EXPECT_FALSE(cpu->shutdown());
+}
+
+// ---------------------------------------------------------------------------
+// Debug registers: breakpoints, watchpoints, GD, ICEBP (Intel 80486 PRM,
+// "Debugging"; Intel 80386 PRM, "Debug Exceptions")
+// ---------------------------------------------------------------------------
+
+class Cpu80486DebugTest : public Cpu80486StepTest {
+protected:
+    // MOV DRn, EAX from a scratch address, leaving EIP where it was.
+    void set_dr(int n, uint32_t v) {
+        uint32_t eip = cpu->eip;
+        uint32_t eax = cpu->eax;
+        load({0x0F, 0x23, uint8_t(0xC0 | (n << 3))}, 0x0700);
+        cpu->eax = v;
+        cpu->eip = 0x0700;
+        cpu->step();
+        cpu->eip = eip;
+        cpu->eax = eax;
+    }
+};
+
+TEST_F(Cpu80486DebugTest, Dr6AndDr7ComeOutOfResetWithTheirReservedBitsAndDr4Dr5AliasThem) {
+    EXPECT_EQ(cpu->dr(6), 0xFFFF0FF0u);
+    EXPECT_EQ(cpu->dr(7), 0x00000400u);
+    set_dr(6, 0);
+    EXPECT_EQ(cpu->dr(6), 0xFFFF0FF0u) << "reserved bits read as ones";
+    set_dr(5, 0x00000100u);   // DR5 is DR7; LE alone arms no breakpoint
+    EXPECT_EQ(cpu->dr(7), 0x00000500u);
+    run({0x0F, 0x21, 0xE0});  // MOV EAX, DR4
+    EXPECT_EQ(cpu->eax, 0xFFFF0FF0u);
+}
+
+TEST_F(Cpu80486DebugTest, AnInstructionBreakpointFaultsBeforeTheInstructionAndRfLetsItRun) {
+    set_dr(0, 0x0010);
+    set_dr(7, 0x00000001u);   // L0, RW0=00 (execute), LEN0=00
+    load({0x90}, 0x0010);
+    cpu->eip = 0x0010;
+    cpu->step();
+    EXPECT_EQ(cpu->eip, 0x0400u) << "vectored through IVT[1]";
+    EXPECT_EQ(memw(0x1FFA), 0x0010) << "a fault saves the breakpoint's own address";
+    EXPECT_EQ(cpu->dr(6) & 0xFu, 0x1u) << "DR6.B0";
+    cpu->esp = 0x2000;
+    cpu->eip = 0x0010;
+    cpu->set_flag(cpu80486::FLAG_RF, true);
+    cpu->step();
+    EXPECT_EQ(cpu->eip, 0x0011u) << "RF holds the breakpoint off for one instruction";
+    EXPECT_FALSE(cpu->flag(cpu80486::FLAG_RF)) << "and clears once it completes";
+}
+
+TEST_F(Cpu80486DebugTest, AWriteWatchpointTrapsAfterTheWriteAndIgnoresReads) {
+    set_dr(1, 0x0302);
+    set_dr(7, 0x00500004u);   // L1, RW1=01 (writes), LEN1=01 (two bytes)
+    run({0xA0, 0x02, 0x03});  // MOV AL, [0302h]
+    EXPECT_EQ(cpu->eip, 0x0003u) << "a read does not match a write watchpoint";
+    cpu->eax = 0x5A;
+    run({0xA2, 0x03, 0x03});  // MOV [0303h], AL
+    EXPECT_EQ(mem[0x0303], 0x5A) << "the write happens";
+    EXPECT_EQ(cpu->eip, 0x0400u);
+    EXPECT_EQ(memw(0x1FFA), 0x0003) << "a trap saves the next instruction";
+    EXPECT_EQ(cpu->dr(6) & 0xFu, 0x2u) << "DR6.B1";
+}
+
+TEST_F(Cpu80486DebugTest, AReadWriteWatchpointMatchesAnAccessThatOverlapsIt) {
+    set_dr(2, 0x0305);        // LEN 4 aligns this down to 0304h-0307h
+    set_dr(7, 0x0F000010u);   // L2, RW2=11 (reads or writes), LEN2=11 (four bytes)
+    run({0xA1, 0x03, 0x03});  // MOV AX, [0303h] -- touches 0303h-0304h
+    EXPECT_EQ(cpu->eip, 0x0400u);
+    EXPECT_EQ(cpu->dr(6) & 0xFu, 0x4u) << "DR6.B2";
+}
+
+TEST_F(Cpu80486DebugTest, AWatchpointStopsARepStringAfterTheIterationThatHitIt) {
+    cpu->ds = 0; cpu->es = 0;
+    cpu->esi = 0x0300;
+    cpu->edi = 0x0340;
+    cpu->ecx = 4;
+    set_dr(1, 0x0341);
+    set_dr(7, 0x00100004u);   // L1, RW1=01, LEN1=00
+    run({0xF3, 0xA4});        // REP MOVSB
+    EXPECT_EQ(cpu->eip, 0x0400u);
+    EXPECT_EQ(cpu->ecx & 0xFFFF, 2u) << "two iterations ran";
+    EXPECT_EQ(memw(0x1FFA), 0x0000) << "IP stays on the REP so it resumes";
+    EXPECT_EQ(cpu->dr(6) & 0xFu, 0x2u);
+}
+
+TEST_F(Cpu80486DebugTest, GeneralDetectFaultsADebugRegisterAccessAndClearsItself) {
+    set_dr(7, 0x00002000u);   // GD
+    run({0x0F, 0x21, 0xC0});  // MOV EAX, DR0
+    EXPECT_EQ(cpu->eip, 0x0400u);
+    EXPECT_EQ(memw(0x1FFA), 0x0000) << "a fault on the MOV itself";
+    EXPECT_NE(cpu->dr(6) & 0x2000u, 0u) << "DR6.BD";
+    EXPECT_EQ(cpu->dr(7) & 0x2000u, 0u) << "GD clears so the handler can use the registers";
+}
+
+TEST_F(Cpu80486DebugTest, IcebpTrapsThroughVectorOneWithNoStatusBit) {
+    run({0xF1});
+    EXPECT_EQ(cpu->eip, 0x0400u);
+    EXPECT_EQ(memw(0x1FFA), 0x0001) << "a trap, past the one-byte instruction";
+    EXPECT_EQ(cpu->dr(6), 0xFFFF0FF0u);
+}
+
+TEST_F(Cpu80486Test, TheFirstFetchAfterResetIsAtTheTopOfFourGigabytes) {
+    // Intel486 Microprocessor Data Book, "RESET": CS:IP is F000:FFF0 but
+    // CS's base is FFFF0000h until the first far jump.
+    cpu->reset();
+    EXPECT_EQ(cpu->desc(Cpu::SEG_CS).base, 0xFFFF0000u);
+    const uint8_t jmp[] = {0xEA, 0x00, 0x01, 0x00, 0xF0};   // JMP F000:0100
+    for (uint32_t i = 0; i < 5; ++i) mem[0xFFFF0 + i] = jmp[i];
+    mem[0xF0100] = 0x90;
+    log_reads = true;
+    cpu->step();
+    ASSERT_FALSE(reads.empty());
+    EXPECT_EQ(reads.front(), 0xFFFFFFF0u);
+    EXPECT_EQ(cpu->desc(Cpu::SEG_CS).base, 0x000F0000u) << "the far jump loads an ordinary base";
+    reads.clear();
+    cpu->step();
+    ASSERT_FALSE(reads.empty());
+    EXPECT_EQ(reads.front(), 0x000F0100u);
+    EXPECT_EQ(cpu->eip, 0x0101u);
 }
 
 TEST_F(Cpu80486Test, SalcSetsAlFromCarryAndLeavesTheFlagsAlone) {
@@ -1449,6 +1620,187 @@ TEST_F(Cpu80486Test, RepneScasbStopsOnMatch) {
     EXPECT_EQ(cpu->edi & 0xFFFF, 0x0603u);
     EXPECT_EQ(cpu->ecx & 0xFFFF, 2u);
     EXPECT_TRUE(ZF());
+}
+
+TEST_F(Cpu80486Test, ResetLoadsTheComponentIdAndCachingOffCr0) {
+    // Intel486 Microprocessor Data Book, state after RESET: EDX holds the
+    // component ID, and CR0 has CD and NW set. 0435h is the SL-Enhanced
+    // IntelDX2-66 (aB0/aC0); 0433h, the B1 step, has no CPUID.
+    cpu->reset();
+    EXPECT_EQ(cpu->edx, 0x00000435u);
+    cpu->cs = 0;
+    run({0x0F, 0x20, 0xC0});  // MOV EAX, CR0
+    EXPECT_EQ(cpu->eax, 0x60000010u);
+}
+
+TEST_F(Cpu80486Test, Cr0WithNwSetAndCdClearRaisesGp) {
+    catch_faults();
+    cpu->eax = 0x20000010u;
+    run({0x0F, 0x22, 0xC0});  // MOV CR0, EAX
+    EXPECT_EQ(first_fault, 13);
+    first_fault = -1;
+    cpu->eax = 0x00000010u;   // the BIOS turning the cache on
+    run({0x0F, 0x22, 0xC0});
+    EXPECT_EQ(first_fault, -1);
+}
+
+TEST_F(Cpu80486Test, LockIsLegalOnlyOnLockableMemoryDestinations) {
+    // Intel 80486 PRM, LOCK: any other use raises #UD.
+    auto fault_of = [&](std::initializer_list<uint8_t> code) {
+        catch_faults();
+        cpu->ds = 0;
+        cpu->ebx = 0x0300;
+        run(code);
+        return first_fault;
+    };
+    EXPECT_EQ(fault_of({0xF0, 0x01, 0x07}), -1) << "LOCK ADD [BX],AX";
+    EXPECT_EQ(fault_of({0xF0, 0x87, 0x07}), -1) << "LOCK XCHG [BX],AX";
+    EXPECT_EQ(fault_of({0xF0, 0x80, 0x37, 0x01}), -1) << "LOCK XOR byte [BX],1";
+    EXPECT_EQ(fault_of({0xF0, 0xF7, 0x17}), -1) << "LOCK NOT word [BX]";
+    EXPECT_EQ(fault_of({0xF0, 0xFF, 0x07}), -1) << "LOCK INC word [BX]";
+    EXPECT_EQ(fault_of({0xF0, 0x0F, 0xAB, 0x07}), -1) << "LOCK BTS [BX],AX";
+    EXPECT_EQ(fault_of({0xF0, 0x0F, 0xBA, 0x2F, 0x01}), -1) << "LOCK BTS word [BX],1";
+    EXPECT_EQ(fault_of({0xF0, 0x0F, 0xC1, 0x07}), -1) << "LOCK XADD [BX],AX";
+    EXPECT_EQ(fault_of({0xF0, 0x0F, 0xB1, 0x0F}), -1) << "LOCK CMPXCHG [BX],CX";
+    EXPECT_EQ(fault_of({0xF0, 0x01, 0xD8}), 6) << "register destination";
+    EXPECT_EQ(fault_of({0xF0, 0x39, 0x07}), 6) << "CMP doesn't write";
+    EXPECT_EQ(fault_of({0xF0, 0x80, 0x3F, 0x01}), 6) << "80 /7 is CMP";
+    EXPECT_EQ(fault_of({0xF0, 0x89, 0x07}), 6) << "MOV";
+    EXPECT_EQ(fault_of({0xF0, 0x0F, 0xA3, 0x07}), 6) << "BT doesn't write";
+    EXPECT_EQ(fault_of({0xF0, 0xFF, 0x17}), 6) << "FF /2 is CALL";
+    EXPECT_EQ(fault_of({0xF0, 0x90}), 6) << "NOP";
+    EXPECT_EQ(unimpl_count, 0) << "a LOCK #UD is not an unimplemented opcode";
+}
+
+TEST_F(Cpu80486Test, AnInstructionLongerThanFifteenBytesRaisesGp) {
+    // Intel 80486 PRM, "Instruction Format": 15 bytes at most, #GP(0) past it.
+    auto fault_of = [&](std::initializer_list<uint8_t> code) {
+        catch_faults();
+        cpu->es = 0;
+        poke32(0x0200, 0);
+        run(code);
+        return first_fault;
+    };
+    // ES: x3, 66, 67, then C7 05 disp32 imm32: exactly 15 bytes.
+    EXPECT_EQ(fault_of({0x26, 0x26, 0x26, 0x66, 0x67, 0xC7, 0x05, 0x00, 0x02, 0, 0,
+                        0x78, 0x56, 0x34, 0x12}), -1);
+    EXPECT_EQ(memd(0x0200), 0x12345678u);
+    // One more ES: makes 16, and the store never happens.
+    EXPECT_EQ(fault_of({0x26, 0x26, 0x26, 0x26, 0x66, 0x67, 0xC7, 0x05, 0x00, 0x02, 0, 0,
+                        0x78, 0x56, 0x34, 0x12}), 13);
+    EXPECT_EQ(memd(0x0200), 0u);
+    EXPECT_EQ(fault_of({0x26, 0x26, 0x26, 0x26, 0x26, 0x26, 0x26, 0x26, 0x26, 0x26, 0x26, 0x26,
+                        0x26, 0x26, 0x90}), -1) << "14 prefixes and NOP is 15 bytes";
+    EXPECT_EQ(fault_of({0x26, 0x26, 0x26, 0x26, 0x26, 0x26, 0x26, 0x26, 0x26, 0x26, 0x26, 0x26,
+                        0x26, 0x26, 0x26, 0x90}), 13) << "15 prefixes and NOP is 16";
+}
+
+TEST_F(Cpu80486Test, In32RunsTwoSixteenBitCyclesAtPortAndPortPlusTwo) {
+    // Every I/O device here is 16-bit, so BS16# splits a 32-bit cycle in
+    // two (Intel486 Microprocessor Data Book, "Dynamic Bus Sizing").
+    next_in16_val = 0x1234;   // the fixture hands out 1234h, then 1235h
+    cpu->edx = 0x0CFC;
+    run({0x66, 0xED});        // IN EAX, DX
+    ASSERT_EQ(in16_log.size(), 2u);
+    EXPECT_EQ(in16_log[0].first, 0x0CFCu);
+    EXPECT_EQ(in16_log[1].first, 0x0CFEu);
+    EXPECT_EQ(cpu->eax, 0x12351234u) << "all 32 bits, not just AX";
+    in16_log.clear();
+    run({0x66, 0xE5, 0x40});  // IN EAX, 40h
+    ASSERT_EQ(in16_log.size(), 2u);
+    EXPECT_EQ(in16_log[1].first, 0x0042u);
+}
+
+TEST_F(Cpu80486Test, Out32RunsTwoSixteenBitCyclesAtPortAndPortPlusTwo) {
+    cpu->eax = 0xAABBCCDDu;
+    cpu->edx = 0x0CF8;
+    run({0x66, 0xEF});        // OUT DX, EAX
+    ASSERT_EQ(out16_log.size(), 2u);
+    EXPECT_EQ(out16_log[0], std::make_pair(uint16_t(0x0CF8), uint16_t(0xCCDD)));
+    EXPECT_EQ(out16_log[1], std::make_pair(uint16_t(0x0CFA), uint16_t(0xAABB)));
+}
+
+TEST_F(Cpu80486Test, RepInsdStoresDwordsAndAdvancesEdiByFour) {
+    next_in16_val = 0x1000;
+    cpu->es = 0;
+    cpu->edi = 0x0300;
+    cpu->edx = 0x01F0;
+    cpu->ecx = 2;
+    run({0xF3, 0x66, 0x6D});  // REP INSD
+    EXPECT_EQ(memd(0x0300), 0x10011000u);
+    EXPECT_EQ(memd(0x0304), 0x10031002u);
+    EXPECT_EQ(cpu->edi & 0xFFFF, 0x0308u);
+    EXPECT_EQ(cpu->ecx & 0xFFFF, 0u);
+}
+
+TEST_F(Cpu80486Test, OutsdSendsADwordFromDsSi) {
+    poke32(0x0300, 0x87654321u);
+    cpu->ds = 0;
+    cpu->esi = 0x0300;
+    cpu->edx = 0x01F0;
+    run({0x66, 0x6F});        // OUTSD
+    ASSERT_EQ(out16_log.size(), 2u);
+    EXPECT_EQ(out16_log[0].second, 0x4321u);
+    EXPECT_EQ(out16_log[1].second, 0x8765u);
+    EXPECT_EQ(cpu->esi & 0xFFFF, 0x0304u);
+}
+
+TEST_F(Cpu80486Test, RepInsUnderAddr32CountsInEcx) {
+    // CX alone is 0, so without 0x67 nothing would move.
+    cpu->es = 0;
+    cpu->edi = 0;
+    cpu->edx = 0x01F0;
+    cpu->ecx = 0x00010000u;
+    run({0xF3, 0x67, 0x6C});  // REP INSB, addr32
+    EXPECT_EQ(cpu->ecx, 0u);
+    EXPECT_EQ(cpu->edi, 0x00010000u);
+}
+
+TEST_F(Cpu80486Test, ACodeFetchPastFfffFaultsInsteadOfWrapping) {
+    // The limit applies to the whole instruction, so a MOV AL,imm8 whose
+    // immediate would sit at 0000h raises #GP.
+    catch_faults();
+    cpu->cs = 0x1000;
+    cpu->eip = 0xFFFF;
+    cpu->eax = 0;
+    mem[0x1FFFF] = 0xB0;
+    mem[0x10000] = 0x42;
+    cpu->step();
+    EXPECT_EQ(first_fault, 13);
+    EXPECT_EQ(cpu->eax & 0xFF, 0u);
+}
+
+TEST_F(Cpu80486Test, AOneByteInstructionAtFfffStillWrapsIpToZero) {
+    // IP itself is 16 bits, so the next instruction starts at 0000h.
+    catch_faults();
+    cpu->cs = 0x1000;
+    cpu->eip = 0xFFFF;
+    mem[0x1FFFF] = 0x90;
+    cpu->step();
+    EXPECT_EQ(first_fault, -1);
+    EXPECT_EQ(cpu->eip, 0u);
+}
+
+TEST_F(Cpu80486Test, ALongRepYieldsAfterItsBudgetAndCarriesOn) {
+    // The machine sets rep_yield_cycles; each continuation pays only its
+    // own iterations, so the total is still the prefixes plus 12 + 3n.
+    cpu->rep_yield_cycles = 9;   // three MOVSB iterations
+    cpu->ds = 0; cpu->es = 0;
+    cpu->esi = 0x0300;
+    cpu->edi = 0x0400;
+    cpu->ecx = 10;
+    for (int i = 0; i < 10; ++i) mem[0x0300 + i] = uint8_t(i + 1);
+    load({0x26, 0xF3, 0xA4});    // ES: REP MOVSB
+    cpu->eip = 0;
+    EXPECT_EQ(cpu->step(), 2 + 12 + 9) << "two prefix clocks, the setup and three iterations";
+    EXPECT_EQ(cpu->eip, 0u) << "back on the first prefix";
+    EXPECT_EQ(cpu->ecx & 0xFFFF, 7u);
+    EXPECT_EQ(cpu->step(), 9);
+    EXPECT_EQ(cpu->step(), 9);
+    EXPECT_EQ(cpu->step(), 3);
+    EXPECT_EQ(cpu->eip, 3u);
+    EXPECT_EQ(cpu->ecx & 0xFFFF, 0u);
+    for (int i = 0; i < 10; ++i) EXPECT_EQ(mem[0x0400 + i], uint8_t(i + 1));
 }
 
 TEST_F(Cpu80486Test, CallNearThenRetReturnsToCaller) {
@@ -1780,6 +2132,19 @@ protected:
     // `halted` is cleared first because a fault with no gate to deliver it
     // escalates to #DF and then to shutdown, which stops the CPU until RESET
     // -- so a test that deliberately faults twice has to bring it back up.
+    // Drops back to real mode with enter_pm32()'s 4GB DS and ES limits still
+    // cached, then reloads both with 0: unreal mode, the way HimemX sets it
+    // up. Leaves EIP on kData + 0x40, free for the caller's code.
+    void enter_unreal() {
+        enter_pm32();
+        put(kData, {0x0F, 0x20, 0xC0, 0x24, 0xFE, 0x0F, 0x22, 0xC0});
+        pm_run({0x66, 0xEA, uint8_t(kData), uint8_t(kData >> 8), uint8_t(kCode16), 0x00}, 4);
+        put(kData + 0x20, {0x31, 0xC0, 0x8E, 0xD8, 0x8E, 0xC0});  // xor ax,ax / mov ds,ax / mov es,ax
+        cpu->eip = kData + 0x20;
+        for (int i = 0; i < 3; ++i) cpu->step();
+        cpu->eip = kData + 0x40;
+    }
+
     void pm_run(std::initializer_list<uint8_t> code, int n = 1) {
         uint32_t a = pm_code_;
         for (uint8_t b : code) w8(a++, b);
@@ -2585,6 +2950,34 @@ TEST_F(Cpu80486PmTest, FarJumpToATssPerformsAHardwareTaskSwitch) {
     EXPECT_NE(cpu->cr(0) & uint32_t(cpu80486::CR0_TS), 0u);
 }
 
+TEST_F(Cpu80486PmTest, ATssWithItsTBitSetTrapsAfterTheSwitch) {
+    // Intel 80386 PRM, "Debug Exceptions": the T bit at TSS offset 64h
+    // raises #DB once the switch completes, with DR6.BT set.
+    enter_pm32();
+    for (uint32_t i = 0; i < 104; i += 4) w32(kTss2 + i, 0);
+    put(kData, {0xF4});
+    put(kData + 0x20, {0xF4});
+    set_gate(1, gate_desc(kCode32, kData + 0x20, 0x8E));
+    w32(kTss2 + 28, kPageDir);
+    w32(kTss2 + 32, kData);
+    w32(kTss2 + 36, 0x00000002u);
+    w32(kTss2 + 56, 0x00007A00u);
+    w32(kTss2 + 72, kData32);
+    w32(kTss2 + 76, kCode32);
+    w32(kTss2 + 80, kData32);
+    w32(kTss2 + 84, kData32);
+    w32(kTss2 + 100, 1u);            // T
+    pm_run({0x66, 0xB8, uint8_t(kTssSel), 0x00, 0x0F, 0x00, 0xD8}, 2);
+    put(pm_code_ + 7, {0xEA, 0x00, 0x00, 0x00, 0x00, uint8_t(kTss2Sel), 0x00});
+    cpu->eip = pm_code_ + 7;
+    cpu->step();
+    ASSERT_TRUE(faults.empty()) << fault_desc();
+    EXPECT_EQ(cpu->tr_selector(), kTss2Sel);
+    EXPECT_EQ(cpu->eip, kData + 0x20) << "in the #DB handler before the task's first instruction";
+    EXPECT_EQ(r32(cpu->esp), kData) << "the trap frame points at the new task's entry";
+    EXPECT_NE(cpu->dr(6) & 0x8000u, 0u) << "DR6.BT";
+}
+
 TEST_F(Cpu80486PmTest, FarCallToATssNestsAndIretdReturnsThroughTheBackLink) {
     enter_pm32();
     for (uint32_t i = 0; i < 104; i += 4) w32(kTss2 + i, 0);
@@ -2697,6 +3090,39 @@ TEST_F(Cpu80486PmTest, PortIoAboveIoplConsultsTheTssPermissionBitmap) {
     expect_fault(cpu80486::EXC_GP, 0, "port 70h's bit is set, so it is denied");
 }
 
+TEST_F(Cpu80486PmTest, InsAndOutsTakeThePortPermissionCheck) {
+    // INS and OUTS are I/O accesses like IN and OUT (Intel 80486 PRM, INS).
+    enter_pm32();
+    put(kData, {0xF4});
+    set_gate(cpu80486::EXC_GP, gate_desc(kCode32, kData, 0x8E));
+    set_desc(kTssSel, seg_desc(kTss, 0x67 + 0x20, 0x89, false, false));
+    w16(kTss + 102, 0x68);
+    for (uint32_t i = 0; i < 0x20; ++i) w8(kTss + 0x68 + i, 0xFF);
+    w8(kTss + 0x68 + (0x60 / 8), 0x00);         // ports 60h-67h permitted
+    pm_run({0x66, 0xB8, uint8_t(kTssSel), 0x00, 0x0F, 0x00, 0xD8}, 2);
+    ASSERT_TRUE(faults.empty());
+    put(kData + 0x400, {0x16, 0x07,                     // push ss / pop es
+                        0xBF, 0x00, 0x70, 0x00, 0x00,   // mov edi,7000h
+                        0xBA, 0x60, 0x00, 0x00, 0x00,   // mov edx,60h
+                        0x6C,                           // insb -- permitted
+                        0xBA, 0x70, 0x00, 0x00, 0x00,   // mov edx,70h
+                        0x6C});                         // insb -- denied
+    put(pm_code_ + 7, {0x68, uint8_t(kStack3 | 3), 0x00, 0x00, 0x00,
+                       0x68, 0x00, 0x7C, 0x00, 0x00,
+                       0x68, 0x02, 0x02, 0x00, 0x00,
+                       0x68, uint8_t(kCode3), 0x00, 0x00, 0x00,
+                       0x68, 0x00, 0x64, 0x00, 0x00,
+                       0xCF});
+    cpu->eip = pm_code_ + 7;
+    for (int i = 0; i < 6; ++i) cpu->step();
+    ASSERT_EQ(cpu->cpl(), 3);
+    for (int i = 0; i < 5; ++i) cpu->step();
+    EXPECT_TRUE(faults.empty()) << fault_desc();
+    cpu->step();
+    cpu->step();
+    expect_fault(cpu80486::EXC_GP, 0, "port 70h's bit is set, so INSB is denied");
+}
+
 TEST_F(Cpu80486PmTest, PopfdCannotChangeIoplOutsideRingZeroOrIfAboveIopl) {
     enter_pm32();
     // At CPL 0 IOPL is writable.
@@ -2796,6 +3222,39 @@ TEST_F(Cpu80486PmTest, ABigLimitLoadedInProtectedModeSurvivesIntoRealModeAsUnrea
     EXPECT_EQ(cpu->desc(Cpu::SEG_ES).limit, 0xFFFFFFFFu)
         << "the limit is not reset by a real-mode load -- that is unreal mode";
     EXPECT_TRUE(faults.empty());
+}
+
+TEST_F(Cpu80486PmTest, UnrealModeAddr32ReachesPastSixtyFourK) {
+    // With a 4GB limit cached, real mode's limit check passes a 32-bit
+    // offset above 0FFFFh. Found by FreeDOS 1.3's HimemX: PC486_REVIEW.md §5.4.
+    enter_unreal();
+    ASSERT_FALSE(cpu->protected_mode());
+    w16(0x0200, 0x7777);
+    w16(0x10200, 0x1234);
+    put(kData + 0x40, {0x67, 0x8B, 0x05, 0x00, 0x02, 0x01, 0x00});  // MOV AX, [00010200h]
+    cpu->step();
+    EXPECT_TRUE(faults.empty()) << fault_desc();
+    EXPECT_EQ(cpu->eax & 0xFFFF, 0x1234u) << "offset must NOT wrap mod 64K";
+}
+
+TEST_F(Cpu80486PmTest, UnrealModeAddr32StringOpUsesEsiEdiEcxAboveSixtyFourK) {
+    // HimemX copies XMS blocks with exactly `F3 67 66 A5` (REP MOVSD,
+    // addr32). Source and destination sit above 64KB with low halves that
+    // differ from the full values, so a truncating core fails.
+    enter_unreal();
+    w32(0x00020000, 0xDEADBEEFu);
+    w32(0x00020004, 0xCAFEBABEu);
+    cpu->esi = 0x00020000u;
+    cpu->edi = 0x00030000u;
+    cpu->ecx = 2;
+    put(kData + 0x40, {0xF3, 0x67, 0x66, 0xA5});
+    cpu->step();
+    EXPECT_TRUE(faults.empty()) << fault_desc();
+    EXPECT_EQ(r32(0x00030000), 0xDEADBEEFu);
+    EXPECT_EQ(r32(0x00030004), 0xCAFEBABEu);
+    EXPECT_EQ(cpu->esi, 0x00020008u) << "ESI, not SI, advances";
+    EXPECT_EQ(cpu->edi, 0x00030008u) << "EDI, not DI, advances";
+    EXPECT_EQ(cpu->ecx, 0u) << "ECX is the counter under a 0x67 prefix";
 }
 
 
@@ -2957,17 +3416,18 @@ TEST_F(Cpu80486V86Test, AV86TaskAddressesMemoryTheWayAnEightyEightySixDoes) {
     EXPECT_EQ(r16(0x5000), 0u) << "and not at the monitor's flat 5000h";
 }
 
-TEST_F(Cpu80486V86Test, AV86SegmentWrapsAtSixtyFourKInsteadOfFaulting) {
+TEST_F(Cpu80486V86Test, AV86WordAtOffsetFfffRaisesGpInsteadOfWrapping) {
     enter_pm32();
     enter_v86();
-    // A word read at offset 0FFFFh takes its high byte from offset 0 of the
-    // same segment, which is what a fixed 64KB segment means on an 8086.
+    // A V86 segment's limit is FFFFh, so a word read there runs past it.
+    // An 8086 wrapped to offset 0; a 486 V86 task raises #GP(0).
     w8(v86_lin(0xFFFF), 0xCD);
     w8(v86_lin(0x0000), 0xAB);
     v86_code({0xA1, 0xFF, 0xFF});   // mov ax,[0FFFFh]
     cpu->step();
-    EXPECT_TRUE(faults.empty()) << fault_desc();
-    EXPECT_EQ(cpu->eax & 0xFFFFu, 0xABCDu);
+    ASSERT_FALSE(faults.empty());
+    EXPECT_EQ(faults[0].vector, 13);
+    EXPECT_EQ(faults[0].error, 0u);
 }
 
 TEST_F(Cpu80486V86Test, AV86TaskRunsItsEightyEightySixAddressesThroughThePageTables) {
@@ -3430,6 +3890,76 @@ TEST_F(Cpu80486V86Test, AMonitorEmulatesThreeTrappedInstructionsAndTheTaskRunsOn
     EXPECT_EQ(cpu->es, kV86Seg);
 }
 
+// --- alignment check (Intel 80486 PRM, "Alignment Check") ----------------
+// V86 runs at CPL 3, so it is where a DOS program meets #AC.
+
+class Cpu80486AlignTest : public Cpu80486V86Test {
+protected:
+    void enter_v86_aligned(bool am, bool ac) {
+        enter_pm32();
+        if (am)
+            pm_run({0x0F, 0x20, 0xC0,                     // mov eax,cr0
+                    0x0D, 0x00, 0x00, 0x04, 0x00,         // or eax,40000h (AM)
+                    0x0F, 0x22, 0xC0}, 3);                // mov cr0,eax
+        enter_v86(ac ? uint32_t(cpu80486::FLAG_AC) : 0u);
+        ASSERT_TRUE(faults.empty()) << fault_desc();
+    }
+};
+
+TEST_F(Cpu80486AlignTest, AMisalignedWordAtCplThreeRaisesAlignmentCheck) {
+    enter_v86_aligned(true, true);
+    v86_code({0xA1, 0x00, 0x50,     // mov ax,[5000h] -- aligned
+              0xA1, 0x01, 0x50});   // mov ax,[5001h]
+    cpu->step();
+    EXPECT_TRUE(faults.empty()) << fault_desc();
+    cpu->step();
+    expect_fault(17, 0, "a word at an odd address");
+}
+
+TEST_F(Cpu80486AlignTest, EitherEnableBitClearLeavesMisalignedAccessesAlone) {
+    enter_v86_aligned(false, true);
+    v86_code({0xA1, 0x01, 0x50});
+    cpu->step();
+    EXPECT_TRUE(faults.empty()) << "CR0.AM clear: " << fault_desc();
+}
+
+TEST_F(Cpu80486AlignTest, EflagsAcClearLeavesMisalignedAccessesAlone) {
+    enter_v86_aligned(true, false);
+    v86_code({0xA1, 0x01, 0x50});
+    cpu->step();
+    EXPECT_TRUE(faults.empty()) << "EFLAGS.AC clear: " << fault_desc();
+}
+
+TEST_F(Cpu80486AlignTest, RingZeroIsNeverAlignmentChecked) {
+    enter_pm32();
+    pm_run({0x0F, 0x20, 0xC0, 0x0D, 0x00, 0x00, 0x04, 0x00, 0x0F, 0x22, 0xC0}, 3);
+    cpu->set_flag(cpu80486::FLAG_AC, true);
+    pm_run({0x8B, 0x05, 0x01, 0x60, 0x00, 0x00});   // mov eax,[6001h]
+    EXPECT_TRUE(faults.empty()) << fault_desc();
+}
+
+TEST_F(Cpu80486AlignTest, FsaveChecksItsWholeAreaNotEachRegisterSlot) {
+    // A 16-bit FSAVE area needs only word alignment, though its 10-byte
+    // register slots are not 8-byte aligned.
+    enter_v86_aligned(true, true);
+    v86_code({0xDD, 0x36, 0x02, 0x50,    // fnsave [5002h]
+              0xDD, 0x36, 0x01, 0x51});  // fnsave [5101h]
+    cpu->step();
+    EXPECT_TRUE(faults.empty()) << fault_desc();
+    cpu->step();
+    expect_fault(17, 0, "an FSAVE area at an odd address");
+}
+
+TEST_F(Cpu80486AlignTest, SgdtNeedsADwordAlignedImage) {
+    enter_v86_aligned(true, true);
+    v86_code({0x0F, 0x01, 0x06, 0x04, 0x50,    // sgdt [5004h]
+              0x0F, 0x01, 0x06, 0x02, 0x51});  // sgdt [5102h]
+    cpu->step();
+    EXPECT_TRUE(faults.empty()) << fault_desc();
+    cpu->step();
+    expect_fault(17, 0, "a GDTR image on a word boundary");
+}
+
 
 // ===========================================================================
 // The on-die x87 FPU.
@@ -3489,6 +4019,69 @@ TEST_F(Cpu80486FpuTest, FninitLeavesTheDocumentedResetState) {
     EXPECT_EQ(cpu->fpu_tag(), 0xFFFFu) << "every register tagged empty";
     EXPECT_EQ(cpu->fpu_top(), 0);
     EXPECT_EQ(unimpl_count, 0);
+}
+
+TEST_F(Cpu80486FpuTest, FxchWithAnEmptyRegisterIsAMaskedStackUnderflow) {
+    // Intel 80486 PRM, FXCH: an empty operand is a stack underflow. Masked,
+    // it reads as the real indefinite and the exchange still happens, tags
+    // and all.
+    runN({0xDB, 0xE3,      // FNINIT
+          0xD9, 0xE8,      // FLD1
+          0xD9, 0xC9}, 3); // FXCH ST(1)
+    EXPECT_EQ(cpu->st_value(1), 1.0L);
+    EXPECT_EQ(cpu->st(0).sign_exp, 0xFFFFu);
+    EXPECT_EQ(cpu->st(0).significand, 0xC000000000000000ull);
+    EXPECT_EQ(tag_of(0), 2) << "the indefinite is a NaN: special";
+    EXPECT_EQ(tag_of(1), 0);
+    EXPECT_EQ(cpu->fpu_status() & 0x41u, 0x41u) << "IE and SF";
+    EXPECT_FALSE(c1()) << "C1 clear: underflow, not overflow";
+}
+
+TEST_F(Cpu80486FpuTest, FxchWithAnEmptyRegisterUnmaskedLeavesBothAlone) {
+    poke16(kA, 0x037E);    // invalid operation unmasked
+    runN({0xDB, 0xE3,                  // FNINIT
+          0xD9, 0x2E, 0x00, 0x02,      // FLDCW [0200h]
+          0xD9, 0xE8,                  // FLD1
+          0xD9, 0xC9}, 4);             // FXCH ST(1)
+    EXPECT_EQ(cpu->st_value(0), 1.0L);
+    EXPECT_EQ(tag_of(1), 3) << "still empty";
+    EXPECT_NE(cpu->fpu_status() & 0x80u, 0u) << "ES: the exception is pending";
+}
+
+TEST_F(Cpu80486FpuTest, TheStoredTagWordClassifiesEachRegister) {
+    // Intel 80486 PRM, "Tag Word": 00 valid, 01 zero, 10 special, 11 empty.
+    poke_double(kA, 1.0);
+    poke_double(kB, 0.0);
+    runN({0xDB, 0xE3,                          // FNINIT
+          0xD9, 0xE8,                          // FLD1        -> ST2 at the end
+          0xD9, 0xEE,                          // FLDZ        -> ST1
+          0xDD, esc_mem(0), 0x00, 0x02,        // FLD 1.0
+          0xDC, esc_mem(6), 0x00, 0x03,        // FDIV 0.0    -> ST0 = +inf
+          0xD9, esc_mem(6), 0x00, 0x04}, 6);   // FNSTENV [0400h]
+    // TOP is 5: ST0 is physical 5, ST1 6, ST2 7; 0-4 are empty.
+    EXPECT_EQ(memw(kC + 4), 0x1BFFu) << "7 valid, 6 zero, 5 special, the rest empty";
+    EXPECT_EQ(cpu->fpu_tag(), 0x1BFFu);
+}
+
+TEST_F(Cpu80486FpuTest, FldenvKeepsOnlyEmptinessAndRecomputesTheRest) {
+    runN({0xDB, 0xE3,                          // FNINIT
+          0xD9, 0xE8,                          // FLD1: physical 7 valid
+          0xD9, esc_mem(6), 0x00, 0x02}, 3);   // FNSTENV [0200h]
+    ASSERT_EQ(memw(kA + 4), 0x3FFFu);
+    poke16(kA + 4, 0x7FFF);                    // claim physical 7 is a zero
+    runN({0xD9, esc_mem(4), 0x00, 0x02,        // FLDENV [0200h]
+          0xD9, esc_mem(6), 0x00, 0x03}, 2);   // FNSTENV [0300h]
+    EXPECT_EQ(memw(kB + 4), 0x3FFFu) << "recomputed from the 1.0 it holds";
+    poke16(kA + 4, 0xFFFF);                    // now claim it's empty
+    runN({0xD9, esc_mem(4), 0x00, 0x02}, 1);
+    EXPECT_EQ(tag_of(0), 3) << "emptiness is taken as loaded";
+}
+
+TEST_F(Cpu80486FpuTest, FxchSwapsTwoValidRegisters) {
+    runN({0xDB, 0xE3, 0xD9, 0xE8, 0xD9, 0xEE, 0xD9, 0xC9}, 4);  // FNINIT, FLD1, FLDZ, FXCH ST(1)
+    EXPECT_EQ(cpu->st_value(0), 1.0L);
+    EXPECT_EQ(cpu->st_value(1), 0.0L);
+    EXPECT_EQ(cpu->fpu_status() & 0x41u, 0u);
 }
 
 TEST_F(Cpu80486FpuTest, TheEightyBitRegisterFileHoldsTheArchitecturalFormat) {
@@ -3952,7 +4545,7 @@ TEST_F(Cpu80486FpuTest, FnclexClearsTheExceptionFlagsButNotTheRegisters) {
     ASSERT_NE(cpu->fpu_status() & 0x0004u, 0u);
     put_and_run({0xDB, 0xE2});                 // FNCLEX
     EXPECT_EQ(cpu->fpu_status() & 0x00FFu, 0u) << "every exception flag and ES cleared";
-    EXPECT_EQ(tag_of(0), 0) << "but the register stack is left alone -- that is FNINIT's job";
+    EXPECT_EQ(tag_of(0), 2) << "but the register stack is left alone (infinity tags special) -- that is FNINIT's job";
 }
 
 TEST_F(Cpu80486FpuTest, FsaveAndFrstorRoundTripTheWholeStackAndEnvironment) {

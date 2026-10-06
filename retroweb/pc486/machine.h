@@ -19,11 +19,16 @@ public:
     // real reset vector immediately, and the factory CMOS configuration is
     // already burned in, matching a real machine as it left the factory
     // (or a BIOS Setup run).
-    Machine() : cpu(chipset.make_bus()) { cpu.reset(); configure_factory_cmos(); }
+    Machine() : cpu(chipset.make_bus()) {
+        cpu.timing = &cache;
+        reset_cpu();
+        set_rep_yield();
+        configure_factory_cmos();
+    }
 
     void reset() {
         chipset.reset();
-        cpu.reset();
+        reset_cpu();
         // CMOS/RTC config is battery-backed and does NOT get erased by a
         // reset -- chipset.reset() already leaves it alone. A real front-
         // panel Reset button pulses exactly this: the RESET line to the
@@ -77,15 +82,26 @@ public:
     // Declared before `cpu` so it's constructed first -- `cpu`'s
     // constructor needs chipset.make_bus() already available.
     Chipset chipset;
+    Cache486 cache;
     cpu80486::Cpu cpu;
 
 private:
     uint64_t total_cycles_ = 0;
+    // One 1.193182 MHz PIT count, the finest step at which a device here can
+    // raise an IRQ, so a long REP yields no later than a 486 would take it.
+    void set_rep_yield() { cpu.rep_yield_cycles = uint32_t(cpu_hz_ / 1193182.0); }
     double cpu_hz_ = kCpuHz;
     void service_kbc_reset() {
         if (!chipset.kbc.reset_requested()) return;
         chipset.kbc.clear_reset_request();
+        reset_cpu();
+    }
+    // The CPU leaves RESET with its L1 off (CR0.CD and NW set). A period
+    // AMI or Award BIOS turns it on during POST; the Bochs BIOS stand-in
+    // never does, so the board does it here, on every reset.
+    void reset_cpu() {
         cpu.reset();
+        cpu.enable_cache();
     }
 };
 

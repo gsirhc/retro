@@ -21,6 +21,7 @@ constexpr double kPitHz = 1193182.0;
 
 // Steps the PIT one clock at a time, tracking the absolute clock count.
 struct Clock {
+    explicit Clock(Pit8253 &p) : pit(p) {}
     Pit8253 &pit;
     uint64_t now = 0;
     int step(int n = 1) {
