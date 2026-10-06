@@ -148,7 +148,7 @@
           <option value="ai">AI Generated</option>
         </select>
       </label>
-      <span class="pb-winbtns"><span aria-hidden="true">_</span><span aria-hidden="true">&#9633;</span><a class="pb-close" href="../" title="back to all machines" aria-label="close — back to all machines">&times;</a></span>
+      <span class="pb-winbtns"><span aria-hidden="true">_</span><span aria-hidden="true">&#9633;</span><a class="pb-close" href="../" title="back to all machines" aria-label="close, back to all machines">&times;</a></span>
     </span>
   </header>
 
@@ -160,7 +160,7 @@
     <div class="panel" id="displayCard">
       <div class="monitor" id="monitor">
         <div class="bezel" id="bezel">
-          <canvas id="screen" width="224" height="288" tabindex="0" aria-label="Arcade monitor — click to play"></canvas>
+          <canvas id="screen" width="224" height="288" tabindex="0" aria-label="Arcade monitor. Click to play"></canvas>
           <div class="crt-overlay"></div>
           <div class="focus-hint" id="focusHint" aria-hidden="true">Click to focus</div>
           <div class="bezel-controls">
@@ -168,7 +168,7 @@
           </div>
         </div>
       </div>
-      <p class="keys">Arrows / AD move &nbsp;·&nbsp; <kbd>Z</kbd>/<kbd>Space</kbd> fire &nbsp;·&nbsp; left slot or <kbd>5</kbd> coin &nbsp;·&nbsp; right slot or <kbd>6</kbd> coin &nbsp;·&nbsp; <kbd>1</kbd> 1P start &nbsp;·&nbsp; <kbd>2</kbd> 2P start. A gamepad uses the same bits (stick, A, Start, Select). Cocktail player 2 stick is not mapped.</p>
+      <p class="keys">Arrows / AD move &nbsp;·&nbsp; <kbd>Z</kbd>/<kbd>Space</kbd> fire &nbsp;·&nbsp; left slot or <kbd>5</kbd> coin &nbsp;·&nbsp; right slot or <kbd>6</kbd> coin &nbsp;·&nbsp; <kbd>1</kbd> 1P start &nbsp;·&nbsp; <kbd>2</kbd> 2P start</p>
       <div class="cab-face">
         <div class="cab-starts" role="group" aria-label="Start buttons">
           <button type="button" class="cab-start" data-start="1" aria-label="1 Player start">
@@ -183,6 +183,14 @@
             <span class="cd-lamp">25¢</span>
             <span class="cd-throat" aria-hidden="true"></span>
           </button>
+          <button type="button" id="mute" class="cd-mute" aria-pressed="false" aria-label="Mute" title="Mute">
+            <svg class="cd-mute-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path class="cd-mute-body" d="M3 9h4l5-4v14l-5-4H3V9z"/>
+              <path class="cd-mute-waves" d="M16.2 8.2a4.5 4.5 0 0 1 0 7.6"/>
+              <path class="cd-mute-waves" d="M18.8 5.5a8 8 0 0 1 0 13"/>
+              <path class="cd-mute-slash" d="M5 5l14 14"/>
+            </svg>
+          </button>
           <button type="button" class="cd-mech" data-coin="2" aria-label="Insert coin, 25 cents">
             <span class="cd-throat" aria-hidden="true"></span>
             <span class="cd-lamp">25¢</span>
@@ -193,17 +201,16 @@
 
     <div class="panel">
       <h2>ROM sockets</h2>
-      <p class="legal" id="romLegal">This page ships a hardware self-test ROM, not Midway Galaga — those ROMs are still under copyright and are <strong>not</strong> included or downloaded. Load a complete original-board set (MAME <code>galagamw</code> zip, or the loose chips). Each chip is identified by its usual name and checked by size, not a particular CRC; extra files are ignored. The set stays in this browser. If <code>51xx.bin</code> or <code>54xx.bin</code> is missing or the wrong size, that chip falls back to HLE and the line above says so.</p>
+      <p class="legal" id="romLegal">This page ships a hardware self-test ROM, not Midway Galaga. Those ROMs are still under copyright and are <strong>not</strong> included or downloaded. Load a complete original-board set (MAME <code>galagamw</code> zip, or the loose chips). Each chip is identified by its usual name and checked by size, not a particular CRC. Extra files are ignored. The set stays in this browser. If <code>51xx.bin</code> or <code>54xx.bin</code> is missing or the wrong size, that chip falls back to HLE and the line above says so.</p>
       <div class="row">
         <button type="button" id="loadRomBtn">Load ROM set…</button>
         <input id="romFile" type="file" accept=".zip,.bin" multiple hidden>
         <button type="button" id="removeRomBtn">Remove ROMs</button>
-        <label><input type="checkbox" id="mute"> Mute</label>
         <button type="button" id="resetHiscore" disabled>Reset HIGH SCORE</button>
         <span id="romStatus">Running test ROM</span>
       </div>
       <p class="legal">
-        HIGH SCORE is kept in this browser after refresh — the real board has no
+        HIGH SCORE is kept in this browser after refresh. The real board has no
         battery and loses it when you pull the plug. Reset clears the saved table
         and restarts the cabinet.
       </p>
@@ -211,7 +218,7 @@
 
     <div class="panel" id="dipPanel">
       <h2>DIP switches</h2>
-      <p class="legal" id="dipLegal">Same operator bank as inside the cabinet (Midway galagamw). Settings survive a refresh the way the physical switches do. SWB is the byte with the 2-credit and difficulty switches; SWA is coinage, bonus, and lives. The game samples these on the next credit. With 5 fighters the bonus labels on the board are the other table; the bits below are the 2/3/4-fighter names.</p>
+      <p class="legal" id="dipLegal">Set board DIP switches just like on the real arcade cabinet.</p>
       <div class="dip-grid">
         <label>2 credits game
           <select id="dipCredits">
@@ -290,11 +297,11 @@
 
 <dialog class="site-dialog" id="romErrorHint">
   <h2>ROM set not loaded</h2>
-  <p id="romErrorCopy">Need a complete original-board set — a MAME <code>galagamw</code>
+  <p id="romErrorCopy">Need a complete original-board set: a MAME <code>galagamw</code>
     zip, or the loose chips (<code>3200a.bin</code> through <code>3500d.bin</code>,
     <code>3600e.bin</code>, <code>3700g.bin</code>, <code>2600j.bin</code>,
     <code>2800l.bin</code> + <code>2700k.bin</code>, and the four PROMs).
-    Each chip is checked by size, not a particular CRC; extra files are ignored.
+    Each chip is checked by size, not a particular CRC. Extra files are ignored.
     <code>51xx.bin</code> and <code>54xx.bin</code> are optional.</p>
   <div class="row">
     <button type="button" id="romErrorOk" autofocus>OK</button>

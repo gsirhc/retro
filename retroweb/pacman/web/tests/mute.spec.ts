@@ -6,14 +6,14 @@ test.describe("Mute", () => {
     await page.waitForFunction(() => (window as any).__test);
   });
 
-  test("is off by default and can be checked", async ({ page }) => {
-    const box = page.locator("#mute");
-    await expect(box).toBeVisible();
-    await expect(box).not.toBeChecked();
+  test("is off by default and can be toggled", async ({ page }) => {
+    const btn = page.locator("#mute");
+    await expect(btn).toBeVisible();
+    await expect(btn).toHaveAttribute("aria-pressed", "false");
     expect(await page.evaluate(() => (window as any).__test.muted)).toBe(false);
 
-    await box.check();
-    await expect(box).toBeChecked();
+    await btn.click();
+    await expect(btn).toHaveAttribute("aria-pressed", "true");
     expect(await page.evaluate(() => (window as any).__test.muted)).toBe(true);
   });
 });

@@ -219,17 +219,13 @@ function applyChrome() {
     if (icon) pb.appendChild(icon);
     pb.appendChild(document.createTextNode(" MSPACMAN"));
   }
-  const dipLegal = document.getElementById("dipLegal");
-  if (dipLegal) {
-    dipLegal.textContent = "Same operator bank as inside the cabinet (Midway service manual). Settings survive a refresh the way the physical switches do. Difficulty is a solder pad on some boards; there is no ghost-names pad. Cabinet type is an edge-connector jumper. The game samples these on the next credit.";
-  }
   const legal = document.getElementById("romLegal");
   if (legal) {
-    legal.innerHTML = "This page ships a hardware self-test ROM, not Namco/Midway Ms. Pac-Man — those ROMs are still under copyright and are <strong>not</strong> included or downloaded. Load a complete original conversion-kit set (MAME <code>mspacman</code> zip, or the loose chips: Pac-Man program 6e/6f/6h/6j, aux board <code>u5</code>/<code>u6</code>/<code>u7</code>, and Ms. Pac-Man 5e/5f graphics). Each chip is identified by its usual name and checked by size, not a particular CRC; extra files are ignored. The set stays in this browser.";
+    legal.innerHTML = "This page ships a hardware self-test ROM, not Namco/Midway Ms. Pac-Man. Those ROMs are still under copyright and are <strong>not</strong> included or downloaded. Load a complete original conversion-kit set (MAME <code>mspacman</code> zip, or the loose chips: Pac-Man program 6e/6f/6h/6j, aux board <code>u5</code>/<code>u6</code>/<code>u7</code>, and Ms. Pac-Man 5e/5f graphics). Each chip is identified by its usual name and checked by size, not a particular CRC. Extra files are ignored. The set stays in this browser.";
   }
   const err = document.getElementById("romErrorCopy");
   if (err) {
-    err.innerHTML = "Need a complete Ms. Pac-Man conversion-kit set — a MAME <code>mspacman</code> zip, or the loose chips (Pac-Man 16K program or four 4K banks, aux board U5 2K + U6/U7 4K, 4K tiles, 4K sprites, color and wave PROMs). Usual names like <code>pacman.6e</code> / <code>u5</code> / <code>5e</code> / <code>82s123.7f</code>. Each chip is checked by size, not a particular CRC; extra files are ignored.";
+    err.innerHTML = "Need a complete Ms. Pac-Man conversion-kit set: a MAME <code>mspacman</code> zip, or the loose chips (Pac-Man 16K program or four 4K banks, aux board U5 2K + U6/U7 4K, 4K tiles, 4K sprites, color and wave PROMs). Usual names like <code>pacman.6e</code> / <code>u5</code> / <code>5e</code> / <code>82s123.7f</code>. Each chip is checked by size, not a particular CRC. Extra files are ignored.";
   }
   const ghosts = document.getElementById("dipGhostsRow");
   if (ghosts) ghosts.hidden = true;
@@ -260,6 +256,13 @@ PacmanArcade().then(async (Module) => {
   const img = ctx.createImageData(224, 288);
   const status = document.getElementById("romStatus");
   const mute = document.getElementById("mute");
+  function isMuted() { return mute.getAttribute("aria-pressed") === "true"; }
+  mute.addEventListener("click", () => {
+    const next = !isMuted();
+    mute.setAttribute("aria-pressed", next ? "true" : "false");
+    mute.title = next ? "Unmute" : "Mute";
+    mute.setAttribute("aria-label", next ? "Unmute" : "Mute");
+  });
   const resetHiscore = document.getElementById("resetHiscore");
   const hiscoreResetHint = document.getElementById("hiscoreResetHint");
 
@@ -342,7 +345,7 @@ PacmanArcade().then(async (Module) => {
 
   let audioCtx = null, audioNode = null;
   async function ensureAudio() {
-    if (mute.checked) return;
+    if (isMuted()) return;
     if (audioCtx) {
       if (audioCtx.state === "suspended") await audioCtx.resume();
       return;
@@ -372,7 +375,7 @@ PacmanArcade().then(async (Module) => {
   document.addEventListener("click", () => { ensureAudio().catch(() => {}); }, { once: true });
 
   function pumpAudio() {
-    if (!audioNode || mute.checked) {
+    if (!audioNode || isMuted()) {
       machine.drainAudio();
       return;
     }
@@ -646,7 +649,7 @@ PacmanArcade().then(async (Module) => {
     try { applySet(stored, "Loaded stored ROM set"); }
     catch (e) {
       loadBuiltInRom();
-      setStatus("Stored ROM unreadable — using test ROM");
+      setStatus("Stored ROM unreadable. Using test ROM");
       showRomError();
     }
   }
@@ -733,7 +736,7 @@ PacmanArcade().then(async (Module) => {
       get status() { return status.textContent; },
       get usingUserRom() { return usingUserRom; },
       mute,
-      get muted() { return !!mute.checked; },
+      get muted() { return isMuted(); },
       encodeDsw1,
       readHiscore,
       writeHiscore,

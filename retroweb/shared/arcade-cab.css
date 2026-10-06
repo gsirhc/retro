@@ -87,10 +87,10 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 56px;
+  gap: 28px;
 }
 
-.coin-door button {
+.coin-door .cd-mech {
   font: inherit;
   color: inherit;
   background: none;
@@ -101,6 +101,93 @@
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+/* Operator-style service pushbutton: mute lives on the coin door. */
+.cd-mute {
+  appearance: none;
+  -webkit-appearance: none;
+  box-sizing: border-box;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  margin: 0 4px;
+  border: 0;
+  border-radius: 50%;
+  cursor: pointer;
+  flex: 0 0 auto;
+  touch-action: manipulation;
+  background:
+    radial-gradient(circle at 35% 28%, #6a6660 0%, #3a3834 42%, #1a1917 100%);
+  box-shadow:
+    0 0 0 2px #0a0a0a,
+    0 0 0 4px #8a8680,
+    0 0 0 5px #2a2824,
+    inset 0 2px 3px rgba(255, 255, 255, .28),
+    inset 0 -3px 5px rgba(0, 0, 0, .65),
+    0 2px 4px rgba(0, 0, 0, .45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: box-shadow .12s ease;
+}
+
+.cd-mute:active {
+  box-shadow:
+    0 0 0 2px #0a0a0a,
+    0 0 0 4px #8a8680,
+    0 0 0 5px #2a2824,
+    inset 0 3px 6px rgba(0, 0, 0, .75),
+    0 1px 2px rgba(0, 0, 0, .35);
+}
+
+.cd-mute-icon {
+  width: 18px;
+  height: 18px;
+  display: block;
+  pointer-events: none;
+}
+
+.cd-mute-icon .cd-mute-body {
+  fill: #c8c4bc;
+}
+
+.cd-mute-icon .cd-mute-waves {
+  fill: none;
+  stroke: #c8c4bc;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+}
+
+.cd-mute-icon .cd-mute-slash {
+  fill: none;
+  stroke: #ff7070;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  opacity: 0;
+}
+
+.cd-mute[aria-pressed="true"] {
+  box-shadow:
+    0 0 0 2px #0a0a0a,
+    0 0 0 4px #8a8680,
+    0 0 0 5px #2a2824,
+    inset 0 2px 3px rgba(255, 255, 255, .2),
+    inset 0 -3px 5px rgba(0, 0, 0, .65),
+    0 0 10px 2px rgba(255, 60, 60, .55),
+    0 2px 4px rgba(0, 0, 0, .45);
+}
+
+.cd-mute[aria-pressed="true"] .cd-mute-body {
+  fill: #ffe0e0;
+}
+
+.cd-mute[aria-pressed="true"] .cd-mute-waves {
+  opacity: 0;
+}
+
+.cd-mute[aria-pressed="true"] .cd-mute-slash {
+  opacity: 1;
 }
 
 .cd-lamp {

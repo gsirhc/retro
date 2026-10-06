@@ -82,8 +82,4 @@ test.describe("keyboard input", () => {
     await page.keyboard.up("Space");
     expect(await in1(page)).toBe(0x00);
   });
-
-  test("the keys legend says cocktail player 2 is not mapped", async ({ page }) => {
-    await expect(page.locator(".keys")).toContainText(/cocktail player 2/i);
-  });
 });

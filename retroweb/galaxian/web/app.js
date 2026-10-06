@@ -175,6 +175,13 @@ GalaxianArcade().then(async (Module) => {
   const img = ctx.createImageData(224, 256);
   const status = document.getElementById("romStatus");
   const mute = document.getElementById("mute");
+  function isMuted() { return mute.getAttribute("aria-pressed") === "true"; }
+  mute.addEventListener("click", () => {
+    const next = !isMuted();
+    mute.setAttribute("aria-pressed", next ? "true" : "false");
+    mute.title = next ? "Unmute" : "Mute";
+    mute.setAttribute("aria-label", next ? "Unmute" : "Mute");
+  });
   const resetHiscore = document.getElementById("resetHiscore");
   const hiscoreResetHint = document.getElementById("hiscoreResetHint");
 
@@ -260,7 +267,7 @@ GalaxianArcade().then(async (Module) => {
 
   let audioCtx = null, audioNode = null;
   async function ensureAudio() {
-    if (mute.checked) return;
+    if (isMuted()) return;
     if (audioCtx) {
       if (audioCtx.state === "suspended") await audioCtx.resume();
       return;
@@ -299,7 +306,7 @@ GalaxianArcade().then(async (Module) => {
   document.addEventListener("click", () => { ensureAudio().catch(() => {}); }, { once: true });
 
   function pumpAudio() {
-    if (!audioNode || mute.checked || !audioCtx || audioCtx.state !== "running") {
+    if (!audioNode || isMuted() || !audioCtx || audioCtx.state !== "running") {
       machine.drainAudio();
       return;
     }
@@ -465,7 +472,7 @@ GalaxianArcade().then(async (Module) => {
     try { applySet(stored, "Loaded stored ROM set"); }
     catch (e) {
       loadBuiltInRom();
-      setStatus("Stored ROM unreadable — using test ROM");
+      setStatus("Stored ROM unreadable. Using test ROM");
       showRomError();
     }
   }
@@ -540,7 +547,7 @@ GalaxianArcade().then(async (Module) => {
       get status() { return status.textContent; },
       get usingUserRom() { return usingUserRom; },
       mute,
-      get muted() { return !!mute.checked; },
+      get muted() { return isMuted(); },
       readHiscore,
       writeHiscore,
       saveHiscoreNow,

@@ -148,7 +148,7 @@
           <option value="ai">AI Generated</option>
         </select>
       </label>
-      <span class="pb-winbtns"><span aria-hidden="true">_</span><span aria-hidden="true">&#9633;</span><a class="pb-close" href="../" title="back to all machines" aria-label="close — back to all machines">&times;</a></span>
+      <span class="pb-winbtns"><span aria-hidden="true">_</span><span aria-hidden="true">&#9633;</span><a class="pb-close" href="../" title="back to all machines" aria-label="close, back to all machines">&times;</a></span>
     </span>
   </header>
 
@@ -160,7 +160,7 @@
     <div class="panel" id="displayCard">
       <div class="monitor" id="monitor">
         <div class="bezel" id="bezel">
-          <canvas id="screen" width="224" height="256" tabindex="0" aria-label="Arcade monitor — click to play"></canvas>
+          <canvas id="screen" width="224" height="256" tabindex="0" aria-label="Arcade monitor. Click to play"></canvas>
           <div class="crt-overlay"></div>
           <div class="focus-hint" id="focusHint" aria-hidden="true">Click to focus</div>
           <div class="bezel-controls">
@@ -183,6 +183,14 @@
             <span class="cd-lamp">25¢</span>
             <span class="cd-throat" aria-hidden="true"></span>
           </button>
+          <button type="button" id="mute" class="cd-mute" aria-pressed="false" aria-label="Mute" title="Mute">
+            <svg class="cd-mute-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path class="cd-mute-body" d="M3 9h4l5-4v14l-5-4H3V9z"/>
+              <path class="cd-mute-waves" d="M16.2 8.2a4.5 4.5 0 0 1 0 7.6"/>
+              <path class="cd-mute-waves" d="M18.8 5.5a8 8 0 0 1 0 13"/>
+              <path class="cd-mute-slash" d="M5 5l14 14"/>
+            </svg>
+          </button>
           <button type="button" class="cd-mech" data-coin aria-label="Insert coin, 25 cents">
             <span class="cd-throat" aria-hidden="true"></span>
             <span class="cd-lamp">25¢</span>
@@ -193,17 +201,16 @@
 
     <div class="panel">
       <h2>ROM sockets</h2>
-      <p class="legal" id="romLegal">This page ships a hardware self-test ROM, not Konami Frogger — those ROMs are still under copyright and are <strong>not</strong> included or downloaded. Load a complete original-board set (MAME <code>frogger</code> zip, or the loose chips). Each chip is identified by its usual name and checked by size, not a particular CRC; extra files are ignored. The set stays in this browser.</p>
+      <p class="legal" id="romLegal">This page ships a hardware self-test ROM, not Konami Frogger. Those ROMs are still under copyright and are <strong>not</strong> included or downloaded. Load a complete original-board set (MAME <code>frogger</code> zip, or the loose chips). Each chip is identified by its usual name and checked by size, not a particular CRC. Extra files are ignored. The set stays in this browser.</p>
       <div class="row">
         <button type="button" id="loadRomBtn">Load ROM set…</button>
         <input id="romFile" type="file" accept=".zip,.bin,.26,.27,.606,.607,.608,.609,.610" multiple hidden>
         <button type="button" id="removeRomBtn">Remove ROMs</button>
-        <label><input type="checkbox" id="mute"> Mute</label>
         <button type="button" id="resetHiscore" disabled>Reset HIGH SCORE</button>
         <span id="romStatus">Running test ROM</span>
       </div>
       <p class="legal">
-        HIGH SCORE is kept in this browser after refresh — the real board has no
+        HIGH SCORE is kept in this browser after refresh. The real board has no
         battery and loses it when you pull the plug. Reset clears the saved table
         and restarts the cabinet.
       </p>
@@ -211,7 +218,7 @@
 
     <div class="panel" id="dipPanel">
       <h2>DIP switches</h2>
-      <p class="legal" id="dipLegal">Same operator bank as inside the cabinet (Konami/Sega service material). Settings survive a refresh the way the physical switches do. Lives sit in IN1 bits 1:0; coinage and cabinet sit in IN2. The game samples these on the next credit.</p>
+      <p class="legal" id="dipLegal">Set board DIP switches just like on the real arcade cabinet.</p>
       <div class="dip-grid">
         <label>Coinage
           <select id="dipCoinage">
@@ -242,11 +249,11 @@
 
 <dialog class="site-dialog" id="romErrorHint">
   <h2>ROM set not loaded</h2>
-  <p id="romErrorCopy">Need a complete original-board set — a MAME <code>frogger</code>
+  <p id="romErrorCopy">Need a complete original-board set: a MAME <code>frogger</code>
     zip, or the loose chips (16K program, 6K sound, 4K graphics, 32-byte
     color PROM). Usual names like <code>frogger.26</code> / <code>frogger.608</code> /
-    <code>pr-91.6l</code>. Each chip is checked by size, not a particular CRC;
-    extra files are ignored.</p>
+    <code>pr-91.6l</code>. Each chip is checked by size, not a particular CRC.
+    Extra files are ignored.</p>
   <div class="row">
     <button type="button" id="romErrorOk" autofocus>OK</button>
   </div>
