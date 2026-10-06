@@ -183,6 +183,78 @@ test.describe("front panel jewelry", () => {
     }
   });
 
+  test("narrow front panel stacks drives above controls with CD capped to the island", async ({
+    livePage: page,
+  }) => {
+    const vp = page.viewportSize()!;
+    try {
+      // Wide enough that the card still has spare room, narrow enough that
+      // the island + drives can't sit side-by-side (frontpanel ≤ 653px).
+      await page.setViewportSize({ width: 640, height: 900 });
+      const layout = await page.evaluate(() => {
+        const panel = document.getElementById("frontPanelCard")!.getBoundingClientRect();
+        const caseEl = document.querySelector("#frontPanelCard .at-case")!.getBoundingClientRect();
+        const cd = document.querySelector('.at-bay[data-drive="cdrom"]')!.getBoundingClientRect();
+        const floppy = document.querySelector('.at-bay[data-drive="0"]')!.getBoundingClientRect();
+        const turbo = document.querySelector(".tower-panel")!.getBoundingClientRect();
+        const caseMid = caseEl.left + caseEl.width / 2;
+        return {
+          drivesAboveControls: cd.bottom <= turbo.top + 4,
+          cdWidth: cd.width,
+          floppyWidth: floppy.width,
+          turboWidth: turbo.width,
+          caseWidth: caseEl.width,
+          panelWidth: panel.width,
+          cdCentered: Math.abs(cd.left + cd.width / 2 - caseMid) < 6,
+          turboCentered: Math.abs(turbo.left + turbo.width / 2 - caseMid) < 6,
+          floppyLeftAligned: Math.abs(floppy.left - cd.left) < 2,
+        };
+      });
+      expect(layout.drivesAboveControls).toBe(true);
+      expect(layout.cdWidth).toBeLessThanOrEqual(348 + 1);
+      expect(layout.cdWidth).toBeGreaterThan(200);
+      // 3.5" face is 1/1.46 of the 5.25" bay.
+      expect(Math.abs(layout.floppyWidth - layout.cdWidth / 1.46)).toBeLessThan(2);
+      expect(Math.abs(layout.cdWidth - layout.turboWidth)).toBeLessThan(2);
+      expect(layout.cdCentered).toBe(true);
+      expect(layout.turboCentered).toBe(true);
+      expect(layout.floppyLeftAligned).toBe(true);
+      // Beige case hug-wraps the island (padding only), not the full card.
+      expect(layout.caseWidth).toBeLessThanOrEqual(layout.cdWidth + 40);
+      expect(layout.caseWidth).toBeLessThan(layout.panelWidth - 8);
+    } finally {
+      await page.setViewportSize(vp);
+    }
+  });
+
+  test("modern narrow stack keeps drives above controls after the tower drops", async ({
+    livePage: page,
+  }) => {
+    const vp = page.viewportSize()!;
+    try {
+      await page.locator("#pageTheme").selectOption("modern");
+      await page.setViewportSize({ width: 420, height: 900 });
+      const layout = await page.evaluate(() => {
+        const screen = document.getElementById("screen")!.getBoundingClientRect();
+        const panel = document.getElementById("frontPanelCard")!.getBoundingClientRect();
+        const cd = document.querySelector('.at-bay[data-drive="cdrom"]')!.getBoundingClientRect();
+        const turbo = document.querySelector(".tower-panel")!.getBoundingClientRect();
+        return {
+          panelBelowScreen: panel.top >= screen.bottom - 2,
+          drivesAboveControls: cd.bottom <= turbo.top + 4,
+          cdWidth: cd.width,
+          turboWidth: turbo.width,
+        };
+      });
+      expect(layout.panelBelowScreen).toBe(true);
+      expect(layout.drivesAboveControls).toBe(true);
+      expect(Math.abs(layout.cdWidth - layout.turboWidth)).toBeLessThan(2);
+      expect(layout.cdWidth).toBeLessThanOrEqual(348 + 1);
+    } finally {
+      await page.setViewportSize(vp);
+    }
+  });
+
   test("Turbo off holds the bus on the SiS 471 and leaves the DX2 at 66 MHz", async ({ livePage: page }) => {
     const btn = page.locator("#turboBtn");
     const led = page.locator("#turboLed");

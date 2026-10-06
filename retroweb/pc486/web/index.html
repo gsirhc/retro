@@ -217,6 +217,8 @@
     box-sizing: border-box;
     overflow: hidden;
     padding: 8px 10px 10px;
+    /* size/tower for blank-bay height queries; not frontpanel, so the
+       phone stack rules below never fire on the mini-tower column. */
     container-type: size;
     container-name: tower;
   }
@@ -238,7 +240,6 @@
     gap: 8px;
   }
   :root[data-theme="modern"] .at-drives {
-    order: 1;
     flex: 0 1 auto;
     min-width: 0;
     min-height: 0;
@@ -247,7 +248,6 @@
     gap: 5px;
   }
   :root[data-theme="modern"] .at-controls {
-    order: 2;
     width: 100%;
     flex: 1 1 auto;
     min-height: 0;
@@ -295,12 +295,14 @@
          each side, 22px inner padding each side. Shrinks on a phone. */
       width: min(100%, 870px);
       padding: 14px 16px 16px;
-      container-type: normal;
+      /* Re-enable the phone stack query used by win/web94/ai. */
+      container-type: inline-size;
+      container-name: frontpanel;
     }
     :root[data-theme="modern"] #frontPanelCard > h2 { display: flex; }
     :root[data-theme="modern"] .at-case {
       flex: none;
-      flex-direction: row;
+      flex-direction: row-reverse;
       flex-wrap: wrap;
       align-items: stretch;
       justify-content: flex-start;
@@ -311,7 +313,6 @@
       gap: 14px;
     }
     :root[data-theme="modern"] .at-drives {
-      order: 0;
       flex: 1 1 260px;
       width: auto;
       min-width: min(100%, 260px);
@@ -320,7 +321,6 @@
       gap: 8px;
     }
     :root[data-theme="modern"] .at-controls {
-      order: 0;
       flex: 0 0 auto;
       width: auto;
       min-width: 0;
@@ -432,8 +432,12 @@
   #keymapAllBtn {
     font-size: 9px; font-weight: 700; letter-spacing: .04em; padding: 0 5px;
   }
+  /* Drives first in the DOM so a wrap stacks CD/floppy above the turbo
+     island. row-reverse keeps the side-by-side reading order (controls
+     left, drives right) that the horizontal case has always used. */
   .at-case {
-    display: flex; gap: 14px; align-items: stretch; flex-wrap: wrap;
+    display: flex; flex-direction: row-reverse; gap: 14px;
+    align-items: stretch; flex-wrap: wrap;
     background: linear-gradient(180deg, #e6dfc9 0%, #d3cab0 45%, #b6ac92 100%);
     border-radius: 6px;
     box-shadow: inset 0 0 0 2px #f2ecd8, inset 0 0 0 3px #8f886f,
@@ -459,6 +463,56 @@
                 0 1px 0 rgba(255,255,255,.25);
     padding: 0;
     width: 348px;
+    max-width: 100%;
+  }
+
+  /* Phone / narrow horizontal case: when the 348px island + 260px drives
+     + gap no longer fit side-by-side (~622px inside the case padding),
+     stack drives above controls, center both, and cap the 5.25" bay at
+     the island width so the CD does not stretch. Floppy stays 1/1.46 of
+     that same cap. Scoped off modern so the mini-tower can keep
+     container-name: tower; modern's under-screen case re-enables
+     frontpanel in the machine max-width: 1070px block above. */
+  :root:not([data-theme="modern"]) #frontPanelCard {
+    container-type: inline-size;
+    container-name: frontpanel;
+  }
+  @container frontpanel (max-width: 653px) {
+    #frontPanelCard .at-case {
+      flex-direction: column;
+      flex-wrap: nowrap;
+      align-items: center;
+      overflow-x: visible;
+      /* Hug the island / CD width instead of stretching full panel. */
+      width: fit-content;
+      max-width: 100%;
+      margin-inline: auto;
+      box-sizing: border-box;
+    }
+    #frontPanelCard .at-drives {
+      flex: 0 0 auto;
+      width: fit-content;
+      max-width: 100%;
+      min-width: 0;
+      align-items: flex-start;
+    }
+    #frontPanelCard .at-controls {
+      flex: 0 0 auto;
+      width: auto;
+      max-width: 100%;
+      align-self: center;
+    }
+    #frontPanelCard .at-bay.bay-525 {
+      width: 348px;
+      max-width: 100%;
+    }
+    #frontPanelCard .at-bay.bay-35 {
+      /* 100% is the drives column, which hug-wraps to the CD bay. */
+      width: calc(100% / 1.46);
+    }
+    #frontPanelCard .bay-rail {
+      width: 100%;
+    }
   }
   .tower-strip {
     display: flex; align-items: flex-end; gap: 10px;
@@ -1055,54 +1109,6 @@
     <div class="panel" id="frontPanelCard">
       <h2>Front panel</h2>
       <div class="at-case">
-        <div class="at-controls">
-          <div class="tower-panel">
-            <div class="tower-strip">
-              <div class="tower-led-item" title="Power">
-                <span class="tower-led" id="powerLed"></span>
-                <span class="tower-led-cap">Power</span>
-              </div>
-              <div class="tower-led-item" title="Turbo">
-                <span class="tower-led" id="turboLed"></span>
-                <span class="tower-led-cap">Turbo</span>
-              </div>
-              <div class="tower-led-item" title="Hard disk activity">
-                <span class="tower-led" id="hddLed"></span>
-                <span class="tower-led-cap">HDD</span>
-              </div>
-            </div>
-            <div class="tower-body">
-              <div class="sevenseg-group" id="clockDisplay">
-                <div class="sevenseg-digits" aria-hidden="true">
-                  <div class="sevenseg" data-digit="tens">
-                    <i class="a"></i><i class="b"></i><i class="c"></i><i class="d"></i><i class="e"></i><i class="f"></i><i class="g"></i>
-                  </div>
-                  <div class="sevenseg" data-digit="ones">
-                    <i class="a"></i><i class="b"></i><i class="c"></i><i class="d"></i><i class="e"></i><i class="f"></i><i class="g"></i>
-                  </div>
-                </div>
-              </div>
-              <div class="tower-btns">
-                <div class="tower-btn-wrap">
-                  <span class="tower-btn-cap">Turbo</span>
-                  <button type="button" class="tower-btn" id="turboBtn"
-                          data-tip="On: 66 MHz. Off: 33 MHz. Real 486 towers had this switch because some software ran too fast or broke at 66 MHz."
-                          aria-label="Turbo" aria-pressed="true"></button>
-                </div>
-                <div class="tower-btn-wrap">
-                  <span class="tower-btn-cap">Reset</span>
-                  <button type="button" class="tower-btn" id="resetBtn" title="Reset" aria-label="Reset"></button>
-                </div>
-              </div>
-              <label class="power-rocker" title="Power">
-                <input type="checkbox" id="powerSwitch">
-                <span class="power-rocker-well"><span class="power-rocker-paddle"></span></span>
-                <span class="power-rocker-cap">Power</span>
-              </label>
-            </div>
-          </div>
-          <div class="tower-grill" aria-hidden="true"></div>
-        </div>
         <div class="at-drives">
           <div class="at-bay bay-525" data-drive="cdrom">
             <div class="at-drive-face">
@@ -1150,6 +1156,54 @@
             </div>
           </div>
           <div class="bay-rail" aria-hidden="true"></div>
+        </div>
+        <div class="at-controls">
+          <div class="tower-panel">
+            <div class="tower-strip">
+              <div class="tower-led-item" title="Power">
+                <span class="tower-led" id="powerLed"></span>
+                <span class="tower-led-cap">Power</span>
+              </div>
+              <div class="tower-led-item" title="Turbo">
+                <span class="tower-led" id="turboLed"></span>
+                <span class="tower-led-cap">Turbo</span>
+              </div>
+              <div class="tower-led-item" title="Hard disk activity">
+                <span class="tower-led" id="hddLed"></span>
+                <span class="tower-led-cap">HDD</span>
+              </div>
+            </div>
+            <div class="tower-body">
+              <div class="sevenseg-group" id="clockDisplay">
+                <div class="sevenseg-digits" aria-hidden="true">
+                  <div class="sevenseg" data-digit="tens">
+                    <i class="a"></i><i class="b"></i><i class="c"></i><i class="d"></i><i class="e"></i><i class="f"></i><i class="g"></i>
+                  </div>
+                  <div class="sevenseg" data-digit="ones">
+                    <i class="a"></i><i class="b"></i><i class="c"></i><i class="d"></i><i class="e"></i><i class="f"></i><i class="g"></i>
+                  </div>
+                </div>
+              </div>
+              <div class="tower-btns">
+                <div class="tower-btn-wrap">
+                  <span class="tower-btn-cap">Turbo</span>
+                  <button type="button" class="tower-btn" id="turboBtn"
+                          data-tip="On: 66 MHz. Off: 33 MHz. Real 486 towers had this switch because some software ran too fast or broke at 66 MHz."
+                          aria-label="Turbo" aria-pressed="true"></button>
+                </div>
+                <div class="tower-btn-wrap">
+                  <span class="tower-btn-cap">Reset</span>
+                  <button type="button" class="tower-btn" id="resetBtn" title="Reset" aria-label="Reset"></button>
+                </div>
+              </div>
+              <label class="power-rocker" title="Power">
+                <input type="checkbox" id="powerSwitch">
+                <span class="power-rocker-well"><span class="power-rocker-paddle"></span></span>
+                <span class="power-rocker-cap">Power</span>
+              </label>
+            </div>
+          </div>
+          <div class="tower-grill" aria-hidden="true"></div>
         </div>
       </div>
     </div>
