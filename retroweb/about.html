@@ -75,33 +75,32 @@
   <div class="inner">
     <h1>Help / About</h1>
 
-    <h3>How the site works</h3>
     <p>
       This site emulates retro computer and game systems running entirely in your browser.
-      The emulators are written from scratch in C++ and compiled to a WebAssembly module.  The 
-      module is downloaded to the browser, allowing the emulator to execute all hardware simulation locally.
-      There are no virtual machines or third-party emulator engines involved.
+      The emulator cores are written from scratch in C++ and compiled to a WebAssembly module.    
+      The module is downloaded to the browser, allowing the emulator to execute all hardware 
+      simulation locally.  There are no virtual machines or third-party emulator engines involved.
     </p>
+    
+    <h3>Removable Media Formats</h3>
     <p>
-      Where applicable, hard drive and 
-      ROM images are automatically saved in the browser's IndexedDB storage so you don't lose your data.  
-      Also, none of your ROMs, floppy disks, hard disks or cassette/paper tapes are uploaded to our servers.
-      So when you load removable media, the images stay local to your browser.
-    </p>
-    <p>
-      <b>Removable Media Formats:</b> Media such as floppy disks, CDs, cassette/paper tapes and ROMs 
+      Media such as floppy disks, CDs, cassette/paper tapes and ROMs 
       must be loaded from raw binary dumps.  Each emulator will have instructions on which types of 
       files are supported.  If you have physical media, you will need to convert them to the expected 
       binary dumps.  This site does not support physical devices connected through USB or other means.
     </p>
+    
+    <h3>Hard Drives</h3>
     <p>
-      <b>Hard Drives:</b> Hard disk images are stored in your browser's IndexedDB and changes are saved every 
-      few second so you don't have to worry about losing your data.  To be sure your hard drive is synced, 
+      Hard disk images are stored in your browser's IndexedDB and changes are saved every 
+      few seconds so you don't have to worry about losing your data.  To be sure your hard drive is synced, 
       power off the machine before navigating away from the page.  It's also recommended that you download 
       your hard drive images periodically as a backup.
     </p>
+    
+    <h3>High-Scores</h3>
     <p>
-      <b>High-Scores:</b> For arcade games with high-scores, the emulators will store your scores in browser storage
+      For arcade games with high-scores, the emulators will store your scores in browser storage
       so they persist across sessions.  You can reset your high-scores at any time.
     </p>
 
@@ -112,50 +111,53 @@
       among the retro community and therefore are included.  If you are an active rights holder of such 
       software and would like it removed, please contact me below.  
     </p>
-    <p>
-      <b>Arcade ROMs:</b> The game ROMs for the arcades are not available on this site.  Instead, each arcade 
-      starts with a hardware test ROM.  It's up to you to obtain the actual ROM and load it into the emulator.
-      As noted earlier, the ROM will be saved locally in your browser's IndexedDB so it will load the game thereafter.
-    </p>
 
     <h3>Browser Support</h3>
     <p>
-      Chrome or Edge are recommended as most testing is done in Chrome, however, the site should run
-      fine in all major browsers.  If you use privacy extensions or privacy-focused browsers, you may 
-      encounter issues with sound, fullscreen or browser storage.
+      Chromium-based browsers are recommended as most testing is done in Chrome.  However, the site 
+      should run fine in all major browsers.  If you use privacy extensions or privacy-focused 
+      browsers, you may encounter issues with sound, fullscreen or browser storage.
+    </p>
+
+    <h3>System Requirements</h3>
+    <p>
+      The emulators should run on any modern desktop, laptop, tablet or even smartphone.  The heavier 
+      emulators, such as the 486, may suffer performance issues on lower-end or older devices.
+      Since the emulators run in the browser, you should ensure you have around 1GB of available RAM 
+      after the browser is loaded.
     </p>
 
     <h3>Found a bug?</h3>
     <p>
-      Even though the systems are relatively simple, they still require extensive testing.  If you
-      run into any bugs or issues, please reach out below.  Also, I could use
-      your help testing!  Contact me if you'd like to get involved.  Any help is much appreciated.
+      Contact me below!  Please provide as much detail as possible to at least get a conversation started.  Any 
+      feedback is welcome so don't hesitate to reach out.
+    </p>
+    <p>I could also use your help testing!  Contact me if you'd like to get involved.  Any help is much appreciated.
     </p>
 
     <h3>About the Creator</h3>
     <p>
       Hello, I'm Chris, the creator of this site.  I've been a professional software engineer for over 
-      25 years and a computer geek for much longer than that. I was lucky enough to experience mid-to-late retro 
-      computing and gaming before it was retro.  
+      25 years and a computer geek for much longer than that.
     </p>
     <p>
-      My Dad bought a Commodore 64 around 1983 or 1984 and I was able to convince him to let me get one game for it.  
-      It was also my first experience with the BASIC programming language, though I was too young to do much with it.
+      My Dad bought a Commodore 64 around 1983 or 1984 which was my first taste of home computing.  I remember it 
+      was connected to a black and white TV and it also introduced me to the BASIC programming language.
     </p>
     <p>
-      The first memorable computer for me, which my Dad also bought, was the IBM PC/AT (emulated here).  I spent hours 
-      and hours programming BASIC on it and he even let me move it to my room at some point.  It was so exciting 
+      The first really memorable computer for me, which my Dad also bought, was the IBM PC/AT (emulated here).  I spent hours 
+      and hours programming BASIC on it and he even let me move it to my bedroom at some point.  It was so exciting 
       to have my "own" computer.
     </p>
     <p>
-      My favorite rig was my 486 (also emulated here) which I sourced from Computer Shopper, the computer bible 
+      My favorite rig was a 486 (also emulated here) which I sourced from Computer Shopper, the computer bible 
       of the 1990s.  With that one I learned C and C++, and played many hours of Doom on it.  My friend and I even 
       learned how to "network" two 486s to play multiplayer Doom.  So much fun.
     </p>
     <p>
       I also love the classic arcades.  I remember the days as a kid in the 1980s getting a handful of quarters and 
-      playing the original games in the arcades.  The sounds alone where so cool. As an adult, I built my own stand-up 
-      MAME cabinet.  Though its been more fun creating the arcade emulators here to learn exactly how they worked.  
+      playing the original games in the arcades.  The sounds alone were so cool. As an adult, I built my own stand-up 
+      MAME cabinet.  
     </p>
     <p>
       By the way, my last name starts with "G" so "RetroCG" is either "Retro Computers & Games" or "Retro computers & games 
@@ -179,8 +181,8 @@
     <h3>Contact Me</h3>
     <p>
       I am open to any questions, ideas or complaints.  If you want me to
-      take you seriously, please use English, spell correctly and provide one obscure
-      fact about retro computing or gaming. <br/><br/>
+      take you seriously, please use English, spell correctly and provide one
+      fact about retro computing or gaming you find interesting. <br/><br/>
       <b>chrisg @ retrocg . io</b>
     </p>
   </div>
