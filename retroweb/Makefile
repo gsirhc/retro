@@ -9,6 +9,9 @@
 #                    terminal closes or on Ctrl-C
 #   make preview-bg  same, but detached: survives the terminal, logs to
 #                    /tmp/retroweb-preview.log; stop it with `make preview-stop`
+#   make watch       like preview, but rebuilds/restages on HTML/CSS/JS/C++
+#                    edits and live-reloads open tabs (optional MACHINE=pc486)
+#   make watch-bg    detached watch; stop with `make preview-stop`
 #   make preview-cert   generate/reuse the local TLS cert the preview server
 #                    uses (auto-run by preview/preview-bg/preview-install) —
 #                    see its own comment for why HTTPS, not just LAN reach
@@ -16,6 +19,7 @@
 #   make preview-install    load a launchd agent (RunAtLoad + KeepAlive) that
 #                    keeps :8000 up across logout, sleep and crashes; after
 #                    editing the source run `make site` to refresh what it serves
+#                    (or use `make watch` / `make watch-bg` instead)
 #   make preview-uninstall  remove that agent
 #   make clean       remove _site/
 #   make lint        ESLint, HTMLHint, and cppcheck on this tree.
@@ -24,7 +28,7 @@
 #                    on PATH and gtest headers (libgtest-dev / googletest,
 #                    or a native test build that already fetched them).
 
-.PHONY: help site _stage preview preview-bg preview-stop preview-status \
+.PHONY: help site _stage preview preview-bg watch watch-bg preview-stop preview-status \
         preview-install preview-uninstall preview-cert clean lint lint-js lint-html lint-cpp
 
 PREVIEW_PORT  ?= 8000
@@ -34,6 +38,8 @@ PREVIEW_LABEL := dev.retroweb.preview
 PLIST         := $(HOME)/Library/LaunchAgents/$(PREVIEW_LABEL).plist
 # system python is always present and new enough for `http.server -d/-b`
 PY            := /usr/bin/python3
+# Optional: MACHINE=pc486 make watch — limit wasm rebuilds to one emulator
+WATCH_ARGS    := --watch $(if $(MACHINE),--machine=$(MACHINE),)
 
 PREVIEW_CERT_DIR := .preview-tls
 PREVIEW_CERT      := $(PREVIEW_CERT_DIR)/cert.pem
@@ -195,6 +201,38 @@ preview-bg: _stage preview-cert
 	if kill -0 $$(cat $(PREVIEW_PID)) 2>/dev/null; then \
 	  echo "  serving _site on https://:$(PREVIEW_PORT) — pid $$(cat $(PREVIEW_PID)), log $(PREVIEW_LOG)"; \
 	  echo "  survives closing this terminal; gone on reboot. stop: make preview-stop"; \
+	else echo "  failed to start — see $(PREVIEW_LOG)"; rm -f $(PREVIEW_PID); exit 1; fi
+
+# Like preview, but polls HTML/CSS/JS/C++ under retroweb/, rebuilds wasm when
+# needed, re-runs `make site`, and live-reloads open tabs. MACHINE=name limits
+# wasm rebuilds to one emulator (root + shared front-end still restage).
+watch: _stage preview-cert
+	@if lsof -nP -iTCP:$(PREVIEW_PORT) -sTCP:LISTEN >/dev/null 2>&1; then \
+	  echo; \
+	  echo "  port $(PREVIEW_PORT) is already in use:"; \
+	  echo "    make preview-stop        (a detached 'make preview-bg' / 'make watch-bg')"; \
+	  echo "    make preview-uninstall   (the launchd agent)"; \
+	  echo; exit 1; \
+	fi
+	@echo
+	@echo "  https://0.0.0.0:$(PREVIEW_PORT)/             landing page (watch + live-reload)"
+	@echo "  edit HTML/CSS/JS/C++ under retroweb/ — restages _site/ and reloads tabs"
+	@if [ -n "$(MACHINE)" ]; then echo "  MACHINE=$(MACHINE) — wasm rebuilds only for that emulator"; fi
+	@echo "  (foreground — leave this terminal open; Ctrl-C to stop)"
+	@echo
+	$(PY) serve_nocache.py $(PREVIEW_PORT) _site 0.0.0.0 $(PREVIEW_CERT) $(PREVIEW_KEY) $(WATCH_ARGS)
+
+watch-bg: _stage preview-cert
+	@if lsof -nP -iTCP:$(PREVIEW_PORT) -sTCP:LISTEN >/dev/null 2>&1; then \
+	  echo "  port $(PREVIEW_PORT) already in use — 'make preview-stop' first"; exit 1; \
+	fi
+	@nohup $(PY) serve_nocache.py $(PREVIEW_PORT) _site 0.0.0.0 $(PREVIEW_CERT) $(PREVIEW_KEY) $(WATCH_ARGS) \
+	  >$(PREVIEW_LOG) 2>&1 & echo $$! >$(PREVIEW_PID)
+	@sleep 1; \
+	if kill -0 $$(cat $(PREVIEW_PID)) 2>/dev/null; then \
+	  echo "  watching + serving _site on https://:$(PREVIEW_PORT) — pid $$(cat $(PREVIEW_PID)), log $(PREVIEW_LOG)"; \
+	  if [ -n "$(MACHINE)" ]; then echo "  MACHINE=$(MACHINE)"; fi; \
+	  echo "  stop: make preview-stop"; \
 	else echo "  failed to start — see $(PREVIEW_LOG)"; rm -f $(PREVIEW_PID); exit 1; fi
 
 preview-stop:

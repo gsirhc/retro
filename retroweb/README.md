@@ -150,6 +150,21 @@ A bare `python3 -m http.server` in `retroweb/` will **not** work — each
 emulator lives at `<machine>/web/` in source, only at `/<machine>/` in the
 staged site.
 
+**Watch + live-reload** — same staged `_site/` on `:8000`, but polls
+HTML/CSS/JS/C++ under `retroweb/`, rebuilds wasm when C++ changes, re-runs
+`make site`, and reloads open tabs:
+
+```sh
+make -C retroweb watch              # foreground
+make -C retroweb watch-bg           # detached (stop with preview-stop)
+MACHINE=pc486 make -C retroweb watch   # wasm rebuilds only for that machine
+```
+
+Static edits restage in under a second; a C++ save waits on emscripten for
+that machine (or every arcade board, if you touched `shared/cpu`). Root
+`index.html` / `about.html` / `assets/` and `shared/` front-end files always
+restage even with `MACHINE=` set.
+
 **If the preview keeps dropping** (terminal closed, laptop slept, a crash),
 install it as a launchd agent — `RunAtLoad` + `KeepAlive` bring it back:
 
@@ -158,6 +173,9 @@ make -C retroweb preview-install     # loads ~/Library/LaunchAgents/dev.retroweb
 make -C retroweb site                # refresh what it serves, after editing source
 make -C retroweb preview-uninstall   # remove it
 ```
+
+(Or use `make watch` / `make watch-bg` when you want automatic restage +
+reload instead of hand-running `make site`.)
 
 ## Lint
 
