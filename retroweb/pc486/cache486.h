@@ -21,9 +21,20 @@
 //   - ISA: 8.33 MHz (bus clock / 4), 1 wait state for 16-bit and 4 for
 //     8-bit cycles, half a clock of command delay for I/O, and two clocks
 //     of command recovery between cycles (471 "AT Bus State Machine").
-//   - VL-Bus VGA: 2 bus clocks per cycle (the VL-Bus minimum) plus 1 wait
-//     state on writes and 3 on reads. An estimate for a period VLB card,
-//     not a cited figure.
+//   - VL-Bus VGA, a Cirrus CL-GD5428 (CL-GD542X Technical Reference Manual,
+//     SR16 "Performance Tuning"): memory writes take 3 bus clocks ADS# to
+//     RDY#, the shortest delay over 3 MCLKs at the default 50.11 MHz MCLK
+//     (SR1F); I/O takes the default 2. A read waits for the 7-MCLK RAS
+//     cycle, about 140ns, so 6 bus clocks with the address phase. The read
+//     figure is derived from the MCLK timing, not printed in the manual.
+//   - A read miss stalls the CPU until its first dword arrives; the rest
+//     of the line fills behind it, and a later access to that line waits
+//     for the fill (Embedded Intel486 Developer's Manual 27302101, 12.3.1).
+//   - Turbo off: the 471 holds the CPU off the bus for 4us of every 12us
+//     (register 58h bit 4, reset default). Code running from the L1 keeps
+//     going at full clock.
+//   - DMA: each single-mode 8237 transfer holds the bus for 6 DMA clocks,
+//     and a transfer into memory invalidates the L1 line it lands in.
 #pragma once
 
 #include <cstdint>
@@ -57,6 +68,10 @@ public:
     }
     int write(uint32_t phys, int size, uint64_t now);
     int io(uint16_t port, int size, bool is_write, uint64_t now);
+    void dma(uint32_t phys, int size, bool to_mem, uint64_t now);
+    // Turbo off on the 471: HOLD for `hold` of every `period` core clocks.
+    // Zero turns it off.
+    void set_deturbo(uint32_t period, uint32_t hold);
     void invalidate_l1();   // INVD / WBINVD
     void invalidate_l2();   // WBINVD's flush special cycle
 
@@ -76,11 +91,12 @@ private:
     int read_line(uint32_t line, bool fills, uint64_t now);
     bool l1_lookup(uint32_t line);
     void l1_fill(uint32_t line);
-    int bus_read(uint32_t line, bool burst);
+    int bus_read(uint32_t line, bool burst, int &first);
     int bus_write_cost(uint32_t phys);
     int dram_row(uint32_t phys);
-    bool wait_for_bus(uint64_t t, uint64_t &start);
-    int bus_read_at(int cost, uint64_t now);
+    uint64_t held(uint64_t t) const;
+    bool settled(uint32_t line, uint64_t t) const;
+    int bus_read_at(int first, int total, uint64_t now);
 
     uint32_t l1_tag_[kSets][kWays];
     uint8_t  l1_plru_[kSets];
@@ -95,6 +111,10 @@ private:
     uint64_t bus_free_ = 0;     // when the bus finishes everything queued
     uint64_t miss_done_ = 0;    // when the last buffered L1-miss write completes
     uint64_t isa_free_ = 0;     // ISA command recovery
+    uint64_t read_end_ = 0;     // when the last bus read finishes
+    uint32_t fill_line_ = ~0u;  // the L1 line still filling, until fill_done_
+    uint64_t fill_done_ = 0;
+    uint64_t hold_period_ = 0, hold_len_ = 0;
 };
 
 }  // namespace pc486

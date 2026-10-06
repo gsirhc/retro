@@ -859,10 +859,9 @@ TEST(EgaTest, SixForty480TimingYieldsFiftyNinePointNineFourHertzFrame) {
     EXPECT_NEAR(double(period), 66e6 / 59.94, 66e6 / 59.94 * 0.01);
 }
 
-// Front-panel Turbo off (33 MHz) must not change the wall-clock refresh
-// rate -- a real DX2's Turbo button changes only the CPU's internal
-// clock, never the video card's own crystal -- so the same mode 03h
-// timing should now take half as many CPU cycles per frame.
+// A slower CPU clock must not change the wall-clock refresh rate: the
+// video card runs from its own crystal, so the same mode 03h timing takes
+// half as many CPU cycles per frame at 33 MHz.
 TEST(EgaTest, SetCpuHzHalvesCyclesPerFrameAtHalfTheClock) {
     Ega ega;
     ega.reset();

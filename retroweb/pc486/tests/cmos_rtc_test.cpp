@@ -87,7 +87,7 @@ TEST(CmosRtcTest, TheClockAdvancesOneSecondPerSecondOfGuestTime) {
 TEST(CmosRtcTest, TheCrystalNotTheCpuClockSetsTheRate) {
     CmosRtc cmos;
     cmos.set_time(1994, 1, 1, 0, 0, 0, 7);
-    cmos.tick(33000000 + 1000, 33000000.0);  // Turbo off: half the cycles per second
+    cmos.tick(33000000 + 1000, 33000000.0);  // a 33 MHz CPU: half the cycles per second
     EXPECT_EQ(Read(cmos, 0x00), 0x01);
 }
 

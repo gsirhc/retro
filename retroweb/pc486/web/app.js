@@ -2370,9 +2370,9 @@
     lastT = t;
     dtSeconds = Math.min(dtSeconds, 0.25);  // clamp a backgrounded-tab gap -- no runaway catch-up burst
 
-    // Real rate for the selected Turbo state -- 66 MHz on / 33 MHz off
-    // (DX2 clock doubling). Never sped above that for a real visitor
-    // (CLAUDE.md). TEST_CPU_MULTIPLIER is 1 outside `?test=1&fast=1`.
+    // The DX2's real 66 MHz, with Turbo on or off. Never sped above that
+    // for a real visitor (CLAUDE.md). TEST_CPU_MULTIPLIER is 1 outside
+    // `?test=1&fast=1`.
     cycleCredit += dtSeconds * cpuHz * TEST_CPU_MULTIPLIER;
     let cyclesThisChunk = Math.floor(cycleCredit);
 
@@ -2491,12 +2491,11 @@
   const resetBtn = document.getElementById("resetBtn");
   const turboBtn = document.getElementById("turboBtn");
   const turboLed = document.getElementById("turboLed");
-  // Turbo models a real DX2 clock-doubling switch: on = 66 MHz internal,
-  // off = 33 MHz bus rate. The PIT crystal and device wall-clock pacing
-  // stay correct (Machine::set_turbo); only CPU instruction throughput
-  // drops. The seven-segment readout tracks the selected rate. Default
-  // on -- matching a tower shipped with Turbo engaged.
-  let cpuHz = 66000000;
+  // Turbo off makes the SiS 471 hold the CPU off the bus 4us of every 12us
+  // (Machine::set_turbo); the clock stays 66 MHz. The seven-segment readout
+  // shows what a tower's jumpers set it to, 66 or 33. Default on, matching
+  // a tower shipped with Turbo engaged.
+  const cpuHz = 66000000;
   // Segment maps for digits this panel shows (3 and 6 only).
   const kSevenSegOn = {
     3: { a: 1, b: 1, c: 1, d: 1, g: 1 },
@@ -2531,7 +2530,6 @@
   }
   function applyTurbo(on) {
     turboBtn.setAttribute("aria-pressed", on ? "true" : "false");
-    cpuHz = on ? 66000000 : 33000000;
     if (machine) machine.setTurbo(on);
     syncTurboChrome();
   }

@@ -132,7 +132,7 @@ export async function resetLivePage(page: Page): Promise<void> {
       await btn.click();
     }
   }
-  // Turbo defaults on (DX2 doubling) -- restore if a prior shared-page test
+  // Turbo defaults on -- restore if a prior shared-page test
   // left it off so rate / cpuHz checks start from the factory setting.
   const turbo = page.locator("#turboBtn");
   if ((await turbo.count()) && (await turbo.getAttribute("aria-pressed")) !== "true") {

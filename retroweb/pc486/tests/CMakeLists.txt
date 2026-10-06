@@ -36,7 +36,7 @@ add_unit_test(i8042_test    i8042_test.cpp    ${CORE}/i8042.cpp)
 add_unit_test(cmos_rtc_test cmos_rtc_test.cpp ${CORE}/cmos_rtc.cpp)
 add_unit_test(dma8237_test  dma8237_test.cpp  ${CORE}/dma8237.cpp)
 add_unit_test(chipset_test  chipset_test.cpp
-  ${CORE}/chipset.cpp ${CORE}/pic8259.cpp ${CORE}/pit8253.cpp
+  ${CORE}/chipset.cpp ${CORE}/cache486.cpp ${CORE}/pic8259.cpp ${CORE}/pit8253.cpp
   ${CORE}/i8042.cpp ${CORE}/cmos_rtc.cpp ${CORE}/dma8237.cpp ${CORE}/fdc765.cpp ${CORE}/ega.cpp
   ${CORE}/wd1003.cpp ${CORE}/atapi_cdrom.cpp ${CORE}/pcspeaker.cpp ${CORE}/soundblaster.cpp ${CORE}/opl3.cpp
   ${CORE}/mpu401.cpp)

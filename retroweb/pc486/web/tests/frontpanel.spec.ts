@@ -1,8 +1,8 @@
 import { test, expect } from "./fixtures";
 
 // The front panel's turbo cluster: seven-segment clock readout tracks
-// Turbo (66 / 33), amber LED matches, and Turbo actually changes the
-// guest clock (DX2 doubling). Power/reset behavior is in boot.spec.ts.
+// Turbo (66 / 33), amber LED matches, and Turbo switches the 471's
+// de-turbo bus hold. Power/reset behavior is in boot.spec.ts.
 
 test.describe("front panel jewelry", () => {
   test("the seven-segment display shows 66 with Turbo on, 33 with Turbo off", async ({ livePage: page }) => {
@@ -183,52 +183,33 @@ test.describe("front panel jewelry", () => {
     }
   });
 
-  test("Turbo toggles DX2 clock doubling: 66 MHz on, 33 MHz off", async ({ livePage: page }) => {
+  test("Turbo off holds the bus on the SiS 471 and leaves the DX2 at 66 MHz", async ({ livePage: page }) => {
     const btn = page.locator("#turboBtn");
     const led = page.locator("#turboLed");
+    const state = () => page.evaluate(() => {
+      const m = (window as any).__test.machine;
+      return { turbo: m.turbo(), hz: m.cpuHz() };
+    });
     // Shared livePage: a prior frontpanel case may have left Turbo off.
     if ((await btn.getAttribute("aria-pressed")) !== "true") await btn.click();
-    await expect(btn).toHaveAttribute("aria-pressed", "true");
     await expect(led).toHaveClass(/turbo-on/);
-    await expect.poll(async () => page.evaluate(() => (window as any).__test.machine.cpuHz())).toBe(66000000);
-
-    // Turbo on: guest should be making progress. Absolute MHz is soft --
-    // under a loaded multi-worker suite the host often sustains well under
-    // the intended 66 (PC486_REVIEW.md §8.6); cpuHz above is the DX2
-    // contract. Measure over a short wall window for the ratio check below.
-    const rateOn = await page.evaluate(async () => {
-      const m = (window as any).__test.machine;
-      const t0 = performance.now();
-      const c0 = m.totalCycles();
-      await new Promise((r) => setTimeout(r, 200));
-      return (m.totalCycles() - c0) / ((performance.now() - t0) / 1000);
-    });
-    expect(rateOn).toBeGreaterThan(5e6);
+    await expect.poll(state).toEqual({ turbo: true, hz: 66000000 });
 
     await btn.click();
     await expect(btn).toHaveAttribute("aria-pressed", "false");
     await expect(led).not.toHaveClass(/turbo-on/);
-    await expect.poll(async () => page.evaluate(() => (window as any).__test.machine.cpuHz())).toBe(33000000);
-
-    const rateOff = await page.evaluate(async () => {
+    await expect.poll(state).toEqual({ turbo: false, hz: 66000000 });
+    // The guest keeps running through the holds.
+    const progress = await page.evaluate(async () => {
       const m = (window as any).__test.machine;
-      const t0 = performance.now();
       const c0 = m.totalCycles();
       await new Promise((r) => setTimeout(r, 200));
-      return (m.totalCycles() - c0) / ((performance.now() - t0) / 1000);
+      return m.totalCycles() - c0;
     });
-    // Under ?fast=1 both rates often sit on the same host ceiling
-    // (PC486_REVIEW.md §8.6), so a half-speed wall-clock ratio is only
-    // meaningful when Turbo-on was clearly below that ceiling. cpuHz
-    // above is the DX2 contract either way.
-    if (rateOff < rateOn * 0.85) {
-      expect(rateOff).toBeLessThan(rateOn * 0.7);
-      expect(rateOff).toBeGreaterThan(3e6);
-    }
+    expect(progress).toBeGreaterThan(0);
 
     await btn.click();
-    await expect(btn).toHaveAttribute("aria-pressed", "true");
     await expect(led).toHaveClass(/turbo-on/);
-    await expect.poll(async () => page.evaluate(() => (window as any).__test.machine.cpuHz())).toBe(66000000);
+    await expect.poll(state).toEqual({ turbo: true, hz: 66000000 });
   });
 });

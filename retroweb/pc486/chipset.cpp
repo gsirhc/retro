@@ -225,6 +225,9 @@ void Chipset::service(uint64_t cpu_cycles, double cpu_hz) {
                 for (std::size_t i = 0; i < len; ++i) mem[(addr + i) & (kRamSize - 1)] = img[i];
             }
         }
+        // The block lands at once, so its bus holds do too.
+        for (std::size_t i = 0; i < len; ++i)
+            dma_timing(uint32_t(addr + i) & (kRamSize - 1), 1, !fdc.transfer_is_write());
         for (std::size_t i = 0; i < len; ++i) dma1.advance(2);
         fdc.finish_transfer(len);
     }
@@ -348,6 +351,7 @@ void Chipset::service_sb_dma() {
         std::size_t len = std::min(want, avail_bytes) & ~std::size_t(1);  // whole words only
         for (std::size_t i = 0; i < len; i += 2) {
             uint32_t phys = (uint32_t(dma.page(idx)) << 16) | (uint32_t(dma.address(idx)) << 1);
+            dma_timing(phys & (kRamSize - 1), 2, sb.transfer_is_input());
             if (sb.transfer_is_input()) {
                 mem[phys & (kRamSize - 1)] = buf[i];
                 mem[(phys + 1) & (kRamSize - 1)] = buf[i + 1];
@@ -363,6 +367,7 @@ void Chipset::service_sb_dma() {
         std::size_t len = std::min(want, avail_bytes);
         for (std::size_t i = 0; i < len; ++i) {
             uint32_t phys = (uint32_t(dma.page(idx)) << 16) | dma.address(idx);
+            dma_timing(phys & (kRamSize - 1), 1, sb.transfer_is_input());
             if (sb.transfer_is_input()) mem[phys & (kRamSize - 1)] = buf[i];
             else buf[i] = mem[phys & (kRamSize - 1)];
             dma.advance(idx);

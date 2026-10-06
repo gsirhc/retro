@@ -4,14 +4,15 @@ The open gaps between this machine and a real 1993-94 DX2-66 board, plus
 the test gaps against the repo rules in `CLAUDE.md`. When an item is
 fixed, write it up in `PC486_REVIEW.md` as usual (fact, why it matters,
 what it fixed, source) and delete it here. Done so far: the PIT and PIC
-(§41), the VGA (§42, §43) and the CPU edges C1-C14 (§44-§46) and cache and bus timing (§47).
+(§41), the VGA (§42, §43), the CPU edges C1-C14 (§44-§46), and cache,
+bus and pipeline timing (§47, §48).
 
-Rough parity today: **~89%**.
+Rough parity today: **~91%**.
 
 | Area | Parity | Biggest gap |
 |------|--------|-------------|
 | CPU (ISA, PM, paging, V86, FPU) | 98% | FPU arithmetic depends on the host |
-| Timing | 88% | VLB video wait states are an estimate; no PCD/PWT or DMA contention |
+| Timing | 98% | snoop contention and a few AGI and code-line edge cases (§48.5) |
 | VGA | 92% | a split lands on a whole row in doubled modes |
 | Chipset (PIT, PIC, I/O ports) | 78% | no COM, LPT or game port |
 | Storage (IDE, floppy) | 80% | minimal ATA command set |
@@ -57,8 +58,7 @@ page, a Playwright test, in the same commit.
   dev machine (plain `double`), 64 bits on x86-64 CI (the real x87
   format), and 113 bits in the shipped wasm (software quad). So the
   same program can round differently in each, and none of them is
-  checked against a 486. The
-  fix is a software 80-bit FPU for the basic operations (add, subtract,
+  checked against a 486. The fix is a software 80-bit FPU for the basic operations (add, subtract,
   multiply, divide, square root, remainder, round, conversions, precision
   control, and the PE, UE, OE, DE flags), most likely Berkeley SoftFloat
   3e's extF80 (BSD-3). Transcendentals (FSIN, FPTAN, F2XM1, FYL2X...)
@@ -68,15 +68,7 @@ page, a Playwright test, in the same commit.
   diagnostics, exact-result checks and native tests that differ between
   the Mac and CI.
 
-## 4. Timing
-
-- **T2. Smaller timing gaps.** The VL-Bus card's wait states (1 on a
-  write, 3 on a read) are an estimate; a period card's data sheet would
-  settle them. The page-level PCD and PWT bits are ignored, DMA and
-  bus-master cycles don't hold the bus, and page-straddling accesses and
-  descriptor-table reads aren't timed (§47.4).
-
-## 5. Storage
+## 4. Storage
 
 - **S1. Minimal ATA command set.** `wd1003.cpp` handles only IDENTIFY,
   INITIALIZE PARAMETERS, READ and WRITE. Add VERIFY, SEEK, READ/WRITE
@@ -87,21 +79,21 @@ page, a Playwright test, in the same commit.
   track's sectors with the format filler byte. Source: NEC uPD765 data
   sheet, FORMAT A TRACK.
 
-## 6. Keyboard
+## 5. Keyboard
 
 - **K1. `EE` (echo) answers ACK.** It should answer `EE`. Source: IBM
   PS/2 Technical Reference, keyboard commands.
 - **K2. `F0 00` returns no scan-code set.** It should ACK and then
   return the current set. Same source.
 
-## 7. Test parity
+## 6. Test parity
 
 - **X1. Smoke doesn't prove a boot.** `web/tests/smoke.spec.ts` checks
   real-speed pacing and main-thread blocking, and says it "only needs the
   machine running". `CLAUDE.md` wants the machine to boot plus one real
   interaction or paint proof. Add one case: boot to `C:\>` and echo a
   typed key.
-- **X2. Thin native suites.** pcspeaker 6, fdc 11, machine 13 tests (pit
+- **X2. Thin native suites.** pcspeaker 6, fdc 11, machine 15 tests (pit
   and pic grew to 34 and 14 in §41). S2 grows fdc anyway. Machine
   needs IRQ routing, shutdown reset and the interrupt shadow covered
   through the whole board, not just the CPU.
@@ -112,12 +104,12 @@ page, a Playwright test, in the same commit.
 - **X4. Refresh the coverage numbers.** The last recorded figures are
   93.0% lines and 79.3% branches (§39.4). Re-run `make coverage` and
   `make -C web coverage` once this backlog is under way.
-- **X5. Playwright checks that flake under load.** The front panel's
-  Turbo ratio, the audio-ring checks in `tone.spec.ts` and
+- **X5. Playwright checks that flake under load.** The audio-ring checks
+  in `tone.spec.ts` and
   `performance.spec.ts`, the keyboard boot notice, the smoke file's
   main-thread blocking check, and `cdda.spec.ts` on the shared live page
-  each fail now and then in a full run and
-  pass on their own (§45.5, §46.5). The smoke one gates deploys. Each
+  each fail now and then in a full run and pass on their own (§45.5,
+  §46.5). The smoke one gates deploys. Each
   needs its timing margin or wait condition fixed, not a retry.
 - **X6. The C1-C14 CPU work costs speed.** The extra per-instruction
   checks (prefix count and LOCK, the real-mode limit, RF and breakpoint
@@ -129,7 +121,11 @@ page, a Playwright test, in the same commit.
   its audio. Doom's sound effects were reported a little late after
   these changes; not yet confirmed as the cause (`?audiotrace` in Doom
   would show it). Reverting all the checks restores the old speed, so
-  the fix is making each one cheaper, not removing it. See §46.6.
+  the fix is making each one cheaper, not removing it. See §46.6. T1's
+  cache model (§47) adds about 3% host time on a native boot, and §48's
+  pipeline rules about 1% more. Both also charge memory-heavy code more
+  guest cycles, which may give some of that margin back in a game; none
+  of it is measured in the browser yet.
 
 Already in line with the rules, for reference: every control in
 `index.html` has a Playwright test; the `?test=1&fast=1` override is

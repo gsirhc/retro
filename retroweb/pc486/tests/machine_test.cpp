@@ -270,48 +270,23 @@ TEST(MachineTest, CodeThatPatchesItselfAheadOfEipExecutesThePatchedByte) {
     EXPECT_EQ(m.cpu.eax & 0xFFFFu, 1u);
 }
 
-TEST(MachineTest, TurboOffHalvesCpuClockButPreservesPitWallTime) {
-    // A real DX2-66 Turbo button disables clock doubling: internal CPU
-    // drops from 66 MHz to the 33 MHz bus rate, while the PIT's 1.193182 MHz
-    // crystal is unchanged. Equal wall-time cycle budgets must therefore
-    // produce the same IRQ0 edge count; equal cycle counts must produce
-    // twice as many edges at the slower rate.
+TEST(MachineTest, TurboOffHoldsTheBusAndLeavesTheClockAlone) {
+    // The 471's de-turbo is a periodic HOLD, 4us of every 12us; the DX2
+    // keeps its 66 MHz clock, so the PIT and device pacing are untouched.
     Machine m;
     EXPECT_TRUE(m.turbo());
-    EXPECT_DOUBLE_EQ(m.cpu_hz(), Machine::kCpuHz);
-
-    auto count_pit_edges = [](double cpu_hz, uint64_t cycles) {
-        pc486::Pit8253 pit;
-        pit.out(0x43, 0x36);  // channel 0, mode 3, LSB/MSB
-        pit.out(0x40, 0);     // divisor 0 = 65536 -> ~18.2 Hz
-        pit.out(0x40, 0);
-        int edges = 0;
-        uint64_t c = 0;
-        const uint64_t chunk = uint64_t(cpu_hz / 100.0);  // ~10 ms
-        while (c < cycles) {
-            uint64_t step = cycles - c < chunk ? cycles - c : chunk;
-            c += step;
-            edges += pit.tick(c, cpu_hz);
-        }
-        return edges;
-    };
-
-    const int edges_1s_66 = count_pit_edges(Machine::kCpuHz, uint64_t(Machine::kCpuHz));
-    const int edges_1s_33 = count_pit_edges(Machine::kCpuHzDeturbo, uint64_t(Machine::kCpuHzDeturbo));
-    EXPECT_NEAR(edges_1s_66, 18, 2);
-    EXPECT_NEAR(edges_1s_33, 18, 2);
-    EXPECT_EQ(edges_1s_66, edges_1s_33);
-
-    const int edges_cyc_66 = count_pit_edges(Machine::kCpuHz, 33'000'000ull);
-    const int edges_cyc_33 = count_pit_edges(Machine::kCpuHzDeturbo, 33'000'000ull);
-    EXPECT_NEAR(double(edges_cyc_33), double(edges_cyc_66) * 2.0, 2.0);
-
     m.set_turbo(false);
     EXPECT_FALSE(m.turbo());
-    EXPECT_DOUBLE_EQ(m.cpu_hz(), Machine::kCpuHzDeturbo);
-    m.set_turbo(true);
-    EXPECT_TRUE(m.turbo());
     EXPECT_DOUBLE_EQ(m.cpu_hz(), Machine::kCpuHz);
+    EXPECT_EQ(m.cpu.rep_yield_cycles, 55u);
+
+    // A cold read at the start of a hold window waits out the 264-clock
+    // (4us) hold before its first dword.
+    m.cache.reset();
+    EXPECT_EQ(m.cache.read(0x40000, 4, true, 792 * 10), 264 + 2 * (4 + 5));
+    m.set_turbo(true);
+    m.cache.reset();
+    EXPECT_EQ(m.cache.read(0x40000, 4, true, 792 * 10), 2 * (4 + 5));
 }
 
 // --- cache and bus timing (cache486.h, PC486_REVIEW.md §47) --------------
@@ -345,21 +320,55 @@ TEST(MachineTest, ACacheMissAndAnIsaPortCostTheirBusCycles) {
     for (std::size_t i = 0; i < sizeof prog; ++i) m.chipset.mem[0x400 + i] = prog[i];
     m.cpu.cs = m.cpu.ds = 0;
     m.cpu.eip = 0x400;
-    // Published 1 clock, plus two cold DRAM line fills (code at 400h, data
-    // at 2000h), each a 4-3-3-3 burst after a row miss: 18 bus clocks, 36
-    // core clocks on the DX2.
-    EXPECT_EQ(m.cpu.step(), 1 + 36 + 36);
-    EXPECT_EQ(m.cpu.step(), 1) << "both lines are in the L1 now";
+    // Published 1 clock. The code fill at 400h (a row miss, then 4-3-3-3)
+    // stalls until its first dword, 9 bus clocks. The data fill at 2000h
+    // waits for the code burst to finish (18 bus clocks), then takes its own
+    // first dword after a row miss (9): 27 bus clocks from the start, 18
+    // after the code stall. Core clocks are twice that on the DX2.
+    EXPECT_EQ(m.cpu.step(), 1 + 18 + 36);
+    // Both lines are in the L1, but the data line's burst ends at core
+    // clock 72 and this read comes at 55.
+    EXPECT_EQ(m.cpu.step(), 1 + 17);
     // Published 16, plus an 8-bit ISA cycle (26 bus clocks) less the 2 the
     // published count includes.
     EXPECT_EQ(m.cpu.step(), 16 + 52 - 2);
 }
 
+// The 486 pipeline penalties the clock tables leave out (Embedded Intel486
+// Developer's Manual 27302101, 12.3.1), on with the board's timing model.
+TEST(MachineTest, ThePipelineChargesAgiMisalignmentAndDisplacementWithImmediate) {
+    Machine m;
+    m.reset();
+    const uint8_t prog[] = {0xBB, 0x00, 0x20,         // mov bx,2000h
+                            0x8A, 0x07,               // mov al,[bx]
+                            0x90,                     // nop
+                            0x8A, 0x07,               // mov al,[bx]
+                            0xA1, 0x01, 0x20,         // mov ax,[2001h]
+                            0xA1, 0x00, 0x20,         // mov ax,[2000h]
+                            0x83, 0x47, 0x02, 0x05,   // add word [bx+2],5
+                            0x83, 0x07, 0x05};        // add word [bx],5
+    for (std::size_t i = 0; i < sizeof prog; ++i) m.chipset.mem[0x400 + i] = prog[i];
+    m.cpu.cs = m.cpu.ds = 0;
+    // Two warm passes: the first leaves its last code line still filling.
+    for (int pass = 0; pass < 2; ++pass) {
+        m.cpu.ebx = 0;
+        m.cpu.eip = 0x400;
+        for (int i = 0; i < 8; ++i) m.cpu.step();
+    }
+    m.cpu.ebx = 0;
+    m.cpu.eip = 0x400;
+    int cost[8];
+    for (int &c : cost) c = m.cpu.step();
+    EXPECT_EQ(cost[1] - cost[3], 1) << "rule 4: BX was written by the instruction before";
+    EXPECT_EQ(cost[4] - cost[5], 3) << "rule 2: a word at an odd address";
+    EXPECT_EQ(cost[6] - cost[7], 1) << "rule 8: a displacement and an immediate";
+}
+
 TEST(MachineTest, ALongRepYieldsEveryPitCount) {
-    // One 1.193182 MHz count in CPU cycles, at either Turbo setting.
+    // One 1.193182 MHz count in CPU cycles.
     pc486::Machine m;
     EXPECT_EQ(m.cpu.rep_yield_cycles, 55u);
-    m.set_turbo(false);
+    m.set_cpu_hz(33000000.0);
     EXPECT_EQ(m.cpu.rep_yield_cycles, 27u);
 }
 

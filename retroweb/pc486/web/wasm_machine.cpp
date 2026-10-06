@@ -67,9 +67,8 @@ public:
         m_.chipset.cmos.set_time(year, month, day, hour, minute, second, weekday);
     }
 
-    // Front-panel Turbo: on = 66 MHz (DX2 clock-doubled), off = 33 MHz
-    // (bus rate). The PIT crystal and device wall-clock pacing stay correct
-    // -- only the CPU's internal clock drops. See Machine::set_turbo.
+    // Front-panel Turbo. Off holds the CPU off the bus part of the time;
+    // the clock stays 66 MHz. See Machine::set_turbo.
     void setTurbo(bool on) { m_.set_turbo(on); }
     bool turbo() const { return m_.turbo(); }
     double cpuHz() const { return m_.cpu_hz(); }

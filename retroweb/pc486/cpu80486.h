@@ -97,6 +97,7 @@
 #include <cstdint>
 #include <functional>
 #include <type_traits>
+#include <vector>
 
 // Debug-build counters for the front end's Performance panel. Compiled out
 // entirely unless the build sets PC486_PERF (web/Makefile's
@@ -515,10 +516,26 @@ private:
     void io_timing(uint16_t p, int size, bool write) {
         if (timing) stall_ += uint32_t(timing->io(p, size, write, now()));
     }
-    void mem_timing(uint32_t phys, int size, bool write) {
+    __attribute__((always_inline)) void mem_timing(uint32_t phys, int size, bool write) {
         if (!timing) return;
         stall_ += uint32_t(write ? timing->write(phys, size, now())
-                                 : timing->read(phys, size, !(cr_[0] & CR0_CD), now()));
+                                 : timing->read(phys, size, fills(phys), now()));
+    }
+    void split_timing(const uint32_t *q, int n);
+    bool split_ = false;   // inside a page-split read: its halves aren't misaligned again
+    // The L1 fills unless CR0.CD is set or the page was mapped with PCD.
+    // Physical frames last mapped with PCD, kept as a bitmap allocated on the
+    // first such mapping.
+    std::vector<uint64_t> pcd_frames_;
+    bool pcd_any_ = false;
+    bool fills(uint32_t phys) const { return !(cr_[0] & CR0_CD) && (!pcd_any_ || !pcd(phys)); }
+    bool pcd(uint32_t phys) const { return (pcd_frames_[phys >> 18] >> ((phys >> 12) & 63u)) & 1u; }
+    void set_pcd(uint32_t frame, bool on) {
+        if (!on && !pcd_any_) return;
+        if (!pcd_any_) { pcd_frames_.assign(1u << 14, 0); pcd_any_ = true; }
+        uint64_t bit = uint64_t(1) << ((frame >> 12) & 63u);
+        if (on) pcd_frames_[frame >> 18] |= bit;
+        else pcd_frames_[frame >> 18] &= ~bit;
     }
     int take_stall() {
         int s = int(stall_);
@@ -922,6 +939,7 @@ private:
         bool     is_mem;
         uint8_t  reg;       // valid when !is_mem
         uint8_t  seg;       // valid when is_mem -- a SEG_* index
+        bool     disp;      // the address carried a displacement
     };
     // Decodes the ModR/M byte, any SIB byte, and any displacement starting
     // at CS:EIP, advancing EIP past all of them. Honors addrsize32_ for
@@ -945,12 +963,14 @@ private:
             out.is_mem = false;
             out.reg = uint8_t(modrm & 7);
             out.seg = SEG_ES;  // unused when !is_mem; 0, as the decoder has always left it
+            out.disp = false;
             return out;
         }
         // rm == 4 is a SIB byte and rm == 5 with mod == 0 is disp32 with no
         // base register; both need the full decoder.
         uint8_t rm = modrm & 7;
         if (addrsize32_ && rm != 4 && (rm != 5 || mod != 0)) {
+            if (agi(rm)) extra_cycles_ += 1;
             uint32_t ea = get_reg32(rm);
             if (mod == 0x40) ea += uint32_t(int32_t(int8_t(fetch8())));
             else if (mod == 0x80) ea += fetch32();
@@ -964,6 +984,7 @@ private:
             // the base+index+disp clock penalty cannot apply.
             out.seg = uint8_t(seg_override_ >= 0 ? seg_override_
                                                  : (rm == 5 ? int(SEG_SS) : int(SEG_DS)));
+            out.disp = mod != 0;
             return out;
         }
         // A SIB byte: how 32-bit compiled code reaches its locals and its
@@ -990,12 +1011,14 @@ private:
             // decode_modrm_slow() charges: base+index+displacement costs one
             // extra clock, every other form nothing.
             if (!no_base && has_index && has_disp) extra_cycles_ += 1;
+            if (!no_base && agi(base)) extra_cycles_ += 1;
             RM out;
             out.off = ea;
             out.is_mem = true;
             out.reg = 0;
             out.seg = uint8_t(seg_override_ >= 0 ? seg_override_
                               : (!no_base && (base == 4 || base == 5) ? int(SEG_SS) : int(SEG_DS)));
+            out.disp = has_disp;
             return out;
         }
         return decode_modrm_slow(modrm);
@@ -1123,6 +1146,17 @@ private:
     __attribute__((noinline, cold)) int step_debug(uint32_t start_eip);
 
     int  extra_cycles_ = 0;  // set during decode (the base+index+disp effective-address penalty) and added to the opcode's cost by step()
+    // Pipeline penalties when a board's timing model is attached (Embedded
+    // Intel486 Developer's Manual 27302101, 12.3.1): a base register the
+    // previous instruction wrote costs a clock (rule 4), and so does a
+    // displacement used with an immediate (rule 8).
+    // The registers at the start of this instruction and of the one before,
+    // alternating; a base register that differs was written in between.
+    uint32_t agi_snap_[2][8] = {};
+    int      agi_cur_ = 0;
+    bool agi(int r) const { return agi_snap_[agi_cur_][r] != agi_snap_[agi_cur_ ^ 1][r]; }
+    void agi_clear() { for (int i = 0; i < 8; ++i) agi_snap_[agi_cur_][i] = get_reg32(i); }
+    void disp_imm(const RM &rm) { if (timing && rm.disp) extra_cycles_ += 1; }
     int  last_reg_ = 0;      // ModR/M reg field from the most recent decode_modrm(), read by the opcode-group helpers that use it as an operation selector
     uint32_t step_start_eip_ = 0;   // EIP of the instruction's first prefix byte
     bool rep_resume_ = false;   // the last step yielded part-way through a REP

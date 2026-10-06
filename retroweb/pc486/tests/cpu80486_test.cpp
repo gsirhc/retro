@@ -2689,6 +2689,54 @@ TEST_F(Cpu80486PagingTest, UserAccessToASupervisorPageFaults) {
     expect_fault(cpu80486::EXC_PF, 0x00000005u, "bit0 present, bit2 user -- a user read of a supervisor page");
 }
 
+// A TLB miss costs 13, 21 or 28 bus clocks as neither, one or both page
+// entries need an A/D bit written back (Embedded Intel486 Developer's
+// Manual 27302101, 12.3.1, rule 10). Charged only with board timing on.
+TEST_F(Cpu80486PagingTest, ATlbMissCostsItsWalkWithBoardTiming) {
+    enter_pm32();
+    build_page_tables();
+    map_region(1, 0xB000, kFrame);
+    enable_paging();
+    pc486::Cache486 cache;
+    cpu->timing = &cache;
+    cpu->enable_cache();
+    const uint32_t at = paged_code_;
+    put(at, {0xA1, 0x00, 0x00, 0x40, 0x00,          // mov eax,[00400000h]
+             0x0F, 0x01, 0x3D, 0x00, 0x00, 0x40, 0x00,   // invlpg [00400000h]
+             0xA3, 0x00, 0x00, 0x40, 0x00});        // mov [00400000h],eax
+    auto step_at = [&](uint32_t eip) { cpu->eip = eip; return cpu->step(); };
+    step_at(at);                                    // walk, and warm every line
+    step_at(at + 12);
+    w32(0xB000, kFrame | 0x27u);                    // A set, D clear again
+    step_at(at + 5);
+    int walked = step_at(at);                       // A bits already set
+    int hit = step_at(at);
+    EXPECT_EQ(walked - hit, 2 * 13);
+    step_at(at + 5);
+    int dirtied = step_at(at + 12);                 // a write: D needs setting
+    int write_hit = step_at(at + 12);
+    EXPECT_EQ(dirtied - write_hit, 2 * 21);
+    EXPECT_TRUE(faults.empty()) << fault_desc();
+}
+
+// The PCD page bit keeps a page out of the L1; the 471 has no PCD input, so
+// the L2 is unaffected.
+TEST_F(Cpu80486PagingTest, APcdPageIsNeverFilledIntoTheL1) {
+    enter_pm32();
+    build_page_tables();
+    map_region(1, 0xB000, kFrame, 0x17);            // present, writable, user, PCD
+    map_region(3, 0xC000, kFrame + 0x1000, 0x07);
+    enable_paging();
+    pc486::Cache486 cache;
+    cpu->timing = &cache;
+    cpu->enable_cache();
+    paged_run({0xA1, 0x00, 0x00, 0x40, 0x00,        // mov eax,[00400000h]
+               0xA1, 0x00, 0x00, 0xC0, 0x00}, 2);   // mov eax,[00C00000h]
+    EXPECT_FALSE(cache.l1_has(kFrame));
+    EXPECT_TRUE(cache.l1_has(kFrame + 0x1000));
+    EXPECT_TRUE(faults.empty()) << fault_desc();
+}
+
 // --- protected-mode interrupts and gates ---------------------------------
 
 TEST_F(Cpu80486PmTest, SoftwareIntGoesThroughAnInterruptGateAndClearsInterruptFlag) {

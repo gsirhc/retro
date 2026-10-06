@@ -16,8 +16,8 @@ constexpr uint64_t kLater = 1'000'000;
 
 TEST(Cache486Test, AColdReadFillsFromDramThenHitsInTheL1) {
     Cache486 c;
-    // DRAM 4-3-3-3 burst plus a row miss (3T + 2T) on the first row touched.
-    EXPECT_EQ(c.read(0x1000, 4, true, 0), T(13 + 5));
+    // The first dword of a 4-3-3-3 burst, after a row miss (3T + 2T).
+    EXPECT_EQ(c.read(0x1000, 4, true, 0), T(4 + 5));
     EXPECT_TRUE(c.l1_has(0x1000));
     EXPECT_TRUE(c.l2_has(0x1000)) << "the L2 fills alongside the L1";
     EXPECT_EQ(c.read(0x100C, 4, true, kLater), 0) << "same 16-byte line";
@@ -27,20 +27,21 @@ TEST(Cache486Test, AnL1MissThatHitsTheL2CostsTheL2Burst) {
     Cache486 c;
     c.read(0x2000, 4, true, 0);
     c.invalidate_l1();
-    EXPECT_EQ(c.read(0x2000, 4, true, kLater), T(2 + 2 + 2 + 2));
+    EXPECT_EQ(c.read(0x2000, 4, true, kLater), T(2)) << "the first dword of a 2-2-2-2 burst";
 }
 
 TEST(Cache486Test, TheSameDramRowSkipsTheRowMiss) {
     Cache486 c;
     c.read(0x3000, 4, true, 0);
-    EXPECT_EQ(c.read(0x3010, 4, true, kLater), T(13)) << "next line, same 4KB row";
-    EXPECT_EQ(c.read(0x5000, 4, true, 2 * kLater), T(13 + 5)) << "another row";
+    EXPECT_EQ(c.read(0x3010, 4, true, kLater), T(4)) << "next line, same 4KB row";
+    EXPECT_EQ(c.read(0x5000, 4, true, 2 * kLater), T(4 + 5)) << "another row";
 }
 
 TEST(Cache486Test, AReadSpanningTwoLinesFillsBoth) {
     Cache486 c;
+    // The second line's burst waits for the first line's to finish.
     int stall = c.read(0x600E, 4, true, 0);
-    EXPECT_EQ(stall, T(13 + 5) + T(13));
+    EXPECT_EQ(stall, T(13 + 5) + T(4));
     EXPECT_TRUE(c.l1_has(0x6000));
     EXPECT_TRUE(c.l1_has(0x6010));
 }
@@ -90,12 +91,12 @@ TEST(Cache486Test, AReadMissGoesAheadOfBufferedWriteHits) {
     uint64_t t = kLater;
     c.write(0x1A000, 4, t);
     c.write(0x1A000, 4, t);
-    // An L2-hit line fill (8T), not delayed by the two buffered writes.
+    // An L2-hit line fill, its first dword not delayed by the buffered write.
     c.read(0x1B000, 4, true, 0);
     c.invalidate_l1();
     c.read(0x1A000, 4, true, 2 * kLater);
     c.write(0x1A000, 4, 3 * kLater);
-    EXPECT_EQ(c.read(0x1B000, 4, true, 3 * kLater), T(8));
+    EXPECT_EQ(c.read(0x1B000, 4, true, 3 * kLater), T(2));
 }
 
 TEST(Cache486Test, AReadMissWaitsBehindABufferedWriteMiss) {
@@ -105,7 +106,7 @@ TEST(Cache486Test, AReadMissWaitsBehindABufferedWriteMiss) {
     uint64_t t = kLater;
     // A write to a line the L1 doesn't hold: DRAM, 3T + row miss.
     c.write(0x30000, 4, t);
-    EXPECT_EQ(c.read(0x1B000, 4, true, t), T(3 + 5) + T(8));
+    EXPECT_EQ(c.read(0x1B000, 4, true, t), T(3 + 5) + T(2));
 }
 
 TEST(Cache486Test, AWriteMissLeavesTheL2Alone) {
@@ -123,16 +124,16 @@ TEST(Cache486Test, AnL2WriteHitMakesTheLineDirtyAndItsEvictionWritesItBack) {
     // 256KB later maps to the same direct-mapped L2 line, in another row.
     uint32_t alias = 0x50000 + 256 * 1024;
     // Victim write-back (4 x 3T, in the row still open from the first
-    // read), then the DRAM burst with a row miss for the new line.
-    EXPECT_EQ(c.read(alias, 4, true, 2 * kLater), T(4 * 3) + T(13 + 5));
+    // read), then the first dword from DRAM with a row miss.
+    EXPECT_EQ(c.read(alias, 4, true, 2 * kLater), T(4 * 3) + T(4 + 5));
     EXPECT_TRUE(c.l2_has(alias));
 }
 
 TEST(Cache486Test, VgaMemoryIsNeverCachedAndCostsVlBusCycles) {
     Cache486 c;
-    EXPECT_EQ(c.read(0xA0000, 1, true, 0), T(2 + 3));
+    EXPECT_EQ(c.read(0xA0000, 1, true, 0), T(6));
     EXPECT_FALSE(c.l1_has(0xA0000));
-    EXPECT_EQ(c.read(0xA0000, 1, true, kLater), T(2 + 3));
+    EXPECT_EQ(c.read(0xA0000, 1, true, kLater), T(6));
     // Writes are buffered: four go out without a stall at 3T each.
     uint64_t t = 2 * kLater;
     for (int i = 0; i < 4; ++i) EXPECT_EQ(c.write(0xA0000 + uint32_t(i), 1, t), 0);
@@ -166,8 +167,8 @@ TEST(Cache486Test, BackToBackIsaCyclesKeepTheirCommandRecovery) {
 
 TEST(Cache486Test, VgaPortsAreVlBusCycles) {
     Cache486 c;
-    EXPECT_EQ(c.io(0x3C8, 1, true, 0), T(3) - 2);
-    EXPECT_EQ(c.io(0x3DA, 1, false, kLater), T(5) - 2);
+    EXPECT_EQ(c.io(0x3C8, 1, true, 0), T(2) - 2);
+    EXPECT_EQ(c.io(0x3DA, 1, false, kLater), T(2) - 2);
 }
 
 TEST(Cache486Test, PortIoWaitsForTheWriteBufferToDrain) {
@@ -175,14 +176,52 @@ TEST(Cache486Test, PortIoWaitsForTheWriteBufferToDrain) {
     c.read(0xC000, 4, true, 0);
     uint64_t t = kLater;
     c.write(0xC000, 4, t);   // 2T on the bus
-    EXPECT_EQ(c.io(0x3C8, 1, true, t), T(2) + T(3) - 2);
+    EXPECT_EQ(c.io(0x3C8, 1, true, t), T(2) + T(2) - 2);
 }
 
 TEST(Cache486Test, CodeFetchFillsTheL1AndHitsAfter) {
     Cache486 c;
-    EXPECT_EQ(c.fetch(0xF0000, true, 0), T(13 + 5));
+    EXPECT_EQ(c.fetch(0xF0000, true, 0), T(4 + 5));
     EXPECT_EQ(c.fetch(0xF0008, true, kLater), 0);
     EXPECT_TRUE(c.l1_has(0xF0000));
+}
+
+TEST(Cache486Test, TheRestOfALineWaitsForItsFillToFinish) {
+    Cache486 c;
+    int first = c.read(0x1000, 4, true, 0);
+    EXPECT_EQ(c.read(0x1004, 4, true, uint64_t(first)), T(13 + 5) - first);
+    EXPECT_EQ(c.read(0x1008, 4, true, uint64_t(T(13 + 5))), 0) << "the burst is done";
+}
+
+TEST(Cache486Test, AWriteToALineStillFillingWaitsForTheFill) {
+    Cache486 c;
+    int first = c.read(0x1000, 4, true, 0);
+    EXPECT_EQ(c.write(0x1004, 4, uint64_t(first)), T(13 + 5) - first);
+}
+
+TEST(Cache486Test, DeturboHoldsTheBusButNotTheL1) {
+    Cache486 c;
+    c.set_deturbo(792, 264);   // 12us and 4us at 66 MHz
+    c.read(0x1000, 4, true, 1000);
+    EXPECT_EQ(c.read(0x1000, 4, true, 1600), 0) << "an L1 hit inside the hold runs";
+    EXPECT_EQ(c.read(0x9000, 4, true, 1600), (1584 + 264 - 1600) + T(4 + 5))
+        << "a miss inside the hold waits for its end";
+    c.set_deturbo(792, 0);
+    EXPECT_EQ(c.read(0x11000, 4, true, 10 * 792), T(4 + 5)) << "Turbo on: no hold";
+}
+
+TEST(Cache486Test, DmaHoldsTheBusAndSnoopsTheL1) {
+    Cache486 c;
+    c.read(0x2000, 4, true, 0);
+    ASSERT_TRUE(c.l1_has(0x2000));
+    c.dma(0x2004, 1, true, kLater);
+    EXPECT_FALSE(c.l1_has(0x2000)) << "EADS# invalidates the line DMA wrote";
+    EXPECT_TRUE(c.l2_has(0x2000)) << "the 471 writes the L2 copy on a hit";
+    // 6 DMA clocks at half the 8.33 MHz ISA clock: 48 bus clocks.
+    EXPECT_EQ(c.read(0x2000, 4, true, kLater), T(48) + T(2));
+    c.read(0x3000, 4, true, 2 * kLater);
+    c.dma(0x3000, 1, false, 3 * kLater);
+    EXPECT_TRUE(c.l1_has(0x3000)) << "a DMA read leaves the L1 alone";
 }
 
 TEST(Cache486Test, ResetEmptiesBothCaches) {

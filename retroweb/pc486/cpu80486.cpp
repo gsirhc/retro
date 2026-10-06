@@ -106,6 +106,7 @@ constexpr uint32_t kPteWritable = 1u << 1;
 constexpr uint32_t kPteUser     = 1u << 2;
 constexpr uint32_t kPteAccessed = 1u << 5;
 constexpr uint32_t kPteDirty    = 1u << 6;
+constexpr uint32_t kPtePcd      = 1u << 4;
 
 }  // namespace
 
@@ -169,6 +170,10 @@ void Cpu::reset() {
     cycles = 0;
     stall_ = 0;
     if (timing) timing->reset();   // RESET empties the L1; the clock restarts
+    for (auto &snap : agi_snap_) for (auto &r : snap) r = 0;
+    split_ = false;
+    pcd_any_ = false;
+    pcd_frames_.clear();
     seg_override_ = -1;
     rep_ = REP_NONE;
     opsize32_ = false;
@@ -391,6 +396,7 @@ void Cpu::protected_mode_interrupt(uint8_t vector, bool software, bool has_error
 }
 
 int Cpu::interrupt(uint8_t vector) {
+    agi_clear();
     // Externally delivered (hardware) interrupt: not a software INT, so
     // the gate-DPL-vs-CPL check does not apply.
     //
@@ -654,8 +660,15 @@ uint32_t Cpu::translate_slow(uint32_t linear, bool write, bool user) {
             raise_err(EXC_PF, 1u | 2u | (user ? 4u : 0u));
         }
     }
-    if (!(pde & kPteAccessed)) phys_write32(pde_addr, pde | kPteAccessed);
     uint32_t new_pte = pte | kPteAccessed | (write ? kPteDirty : 0u);
+    if (timing) {
+        // 13, 21 or 28 bus clocks as neither, one or both entries need an
+        // A/D update written back (27302101 12.3.1, rule 10).
+        int updates = int(!(pde & kPteAccessed)) + int(new_pte != pte);
+        stall_ += uint32_t(pc486::Cache486::kBusRatio * (updates == 0 ? 13 : updates == 1 ? 21 : 28));
+        set_pcd(pte & 0xFFFFF000u, ((pde | pte) & kPtePcd) != 0);
+    }
+    if (!(pde & kPteAccessed)) phys_write32(pde_addr, pde | kPteAccessed);
     if (new_pte != pte) { phys_write32(pte_addr, new_pte); pte = new_pte; }
     e.valid = true;
     e.tag = vpn;
@@ -784,6 +797,9 @@ bool Cpu::access_phys(int si, uint32_t off, int size, bool write, uint32_t &phys
     if (last < off) return false;                                  // wraps past 2^32
     uint32_t lin = seg_linear(si, off, size, write);
     if (access_hooks_) access_hooks(lin, size, write);
+    // A misaligned operand costs 3 clocks (27302101 12.3.1, rule 2), once
+    // for the whole operand, not again for the halves a page split reads.
+    if (timing && (lin & uint32_t(size - 1)) && !split_) stall_ += 3;
     if ((lin & 0xFFFu) > 0x1000u - uint32_t(size)) return false;   // straddles two pages
     phys = translate(lin, write, cpl() == 3);
     mem_timing(phys, size, write);
@@ -808,7 +824,10 @@ uint32_t Cpu::read32(int si, uint32_t off) {
         return uint32_t(bus_read(p)) | (uint32_t(bus_read(p + 1)) << 8) |
                (uint32_t(bus_read(p + 2)) << 16) | (uint32_t(bus_read(p + 3)) << 24);
     }
-    return uint32_t(read16(si, off)) | (uint32_t(read16(si, seg_off(off, 2))) << 16);
+    split_ = true;
+    uint32_t v = uint32_t(read16(si, off)) | (uint32_t(read16(si, seg_off(off, 2))) << 16);
+    split_ = false;
+    return v;
 }
 uint64_t Cpu::read64(int si, uint32_t off) {
     uint32_t p;
@@ -821,7 +840,10 @@ uint64_t Cpu::read64(int si, uint32_t off) {
         for (int i = 0; i < 8; ++i) v |= uint64_t(bus_read(p + uint32_t(i))) << (8 * i);
         return v;
     }
-    return uint64_t(read32(si, off)) | (uint64_t(read32(si, seg_off(off, 4))) << 32);
+    split_ = true;
+    uint64_t v = uint64_t(read32(si, off)) | (uint64_t(read32(si, seg_off(off, 4))) << 32);
+    split_ = false;
+    return v;
 }
 void Cpu::write16(int si, uint32_t off, uint16_t v) {
     // Both halves are limit-checked and translated *before* either byte is
@@ -842,6 +864,8 @@ void Cpu::write16(int si, uint32_t off, uint16_t v) {
     uint32_t o1 = seg_off(off, 1);
     uint32_t p0 = translate(seg_linear(si, off, 1, true), true, cpl() == 3);
     uint32_t p1 = translate(seg_linear(si, o1, 1, true), true, cpl() == 3);
+    uint32_t q[2] = {p0, p1};
+    split_timing(q, 2);
     bus_write(p0, uint8_t(v & 0xFF));
     bus_write(p1, uint8_t(v >> 8));
 }
@@ -858,6 +882,7 @@ void Cpu::write32(int si, uint32_t off, uint32_t v) {
     uint32_t o[4] = {off, seg_off(off, 1), seg_off(off, 2), seg_off(off, 3)};
     uint32_t q[4];
     for (int i = 0; i < 4; ++i) q[i] = translate(seg_linear(si, o[i], 1, true), true, cpl() == 3);
+    split_timing(q, 4);
     for (int i = 0; i < 4; ++i) bus_write(q[i], uint8_t((v >> (8 * i)) & 0xFF));
 }
 void Cpu::write64(int si, uint32_t off, uint64_t v) {
@@ -874,7 +899,20 @@ void Cpu::write64(int si, uint32_t off, uint64_t v) {
     uint32_t q[8];
     for (int i = 0; i < 8; ++i) o[i] = seg_off(off, uint32_t(i));
     for (int i = 0; i < 8; ++i) q[i] = translate(seg_linear(si, o[i], 1, true), true, cpl() == 3);
+    split_timing(q, 8);
     for (int i = 0; i < 8; ++i) bus_write(q[i], uint8_t((v >> (8 * i)) & 0xFF));
+}
+
+// Times a write the CPU assembled byte by byte: one bus write per run of
+// physically contiguous bytes.
+void Cpu::split_timing(const uint32_t *q, int n) {
+    if (!timing) return;
+    int start = 0;
+    for (int i = 1; i <= n; ++i) {
+        if (i < n && q[i] == q[i - 1] + 1) continue;
+        mem_timing(q[start], i - start, true);
+        start = i;
+    }
 }
 
 uint32_t Cpu::phys_read32(uint32_t a) {
@@ -891,9 +929,13 @@ void Cpu::phys_write32(uint32_t a, uint32_t v) {
 // CPU itself, never through a segment -- and always as supervisor accesses,
 // whatever CPL the interrupted program was running at.
 uint16_t Cpu::lin_read16(uint32_t linear, bool write_access) {
-    uint8_t lo = bus_read(translate(linear, write_access, false));
-    uint8_t hi = bus_read(translate(linear + 1, write_access, false));
-    return uint16_t(lo | (uint16_t(hi) << 8));
+    uint32_t p0 = translate(linear, write_access, false);
+    uint32_t p1 = translate(linear + 1, write_access, false);
+    if (timing) {
+        if (p1 == p0 + 1) mem_timing(p0, 2, false);
+        else { mem_timing(p0, 1, false); mem_timing(p1, 1, false); }
+    }
+    return uint16_t(bus_read(p0) | (uint16_t(bus_read(p1)) << 8));
 }
 uint32_t Cpu::lin_read32(uint32_t linear, bool write_access) {
     return uint32_t(lin_read16(linear, write_access)) |
@@ -902,6 +944,8 @@ uint32_t Cpu::lin_read32(uint32_t linear, bool write_access) {
 void Cpu::lin_write16(uint32_t linear, uint16_t v) {
     uint32_t p0 = translate(linear, true, false);
     uint32_t p1 = translate(linear + 1, true, false);
+    uint32_t q[2] = {p0, p1};
+    split_timing(q, 2);
     bus_write(p0, uint8_t(v & 0xFF));
     bus_write(p1, uint8_t(v >> 8));
 }
@@ -938,7 +982,7 @@ void Cpu::prefetch_fill() {
     if (h == nullptr) return;  // code on the VGA window or in open bus
     pf_base_ = h;
     pf_phys_ = phys;
-    if (timing) stall_ += uint32_t(timing->fetch(phys, !(cr_[0] & CR0_CD), now()));
+    if (timing) stall_ += uint32_t(timing->fetch(phys, fills(phys), now()));
     pf_lo_ = eip;
     pf_hi_ = eip + span;
     pf_cs_ = sd_[SEG_CS];
@@ -1664,7 +1708,11 @@ Cpu::RM Cpu::decode_modrm_slow(uint8_t modrm) {
         if (disp_size == 1) disp = uint32_t(int32_t(int8_t(fetch8())));
         else if (disp_size == 4) disp = fetch32();
 
-        if (base_reg >= 0) { ea += get_reg32(base_reg); has_base = true; }
+        if (base_reg >= 0) {
+            ea += get_reg32(base_reg);
+            has_base = true;
+            if (agi(base_reg)) extra_cycles_ += 1;
+        }
         if (index_reg >= 0) { ea += get_reg32(index_reg) << scale; has_index = true; }
         ea += disp;
         has_disp = (disp_size != 0);
@@ -1689,6 +1737,9 @@ Cpu::RM Cpu::decode_modrm_slow(uint8_t modrm) {
                 break;
             default: a16 = uint16_t(ebx); has_base = true; break;  // rm == 7
         }
+        // The register that heads each 16-bit form: BX, BP, SI or DI.
+        static constexpr uint8_t kBase16[8] = {3, 3, 5, 5, 6, 7, 5, 3};
+        if (has_base && agi(kBase16[rm])) extra_cycles_ += 1;
         if (!disp_only) {
             if (mod == 1) { a16 = uint16_t(a16 + int16_t(int8_t(fetch8()))); has_disp = true; }
             else if (mod == 2) { a16 = uint16_t(a16 + fetch16()); has_disp = true; }
@@ -1707,6 +1758,7 @@ Cpu::RM Cpu::decode_modrm_slow(uint8_t modrm) {
     out.seg = uint8_t(seg);
     // The offset reaches the bus as computed, untruncated -- see RM::off.
     out.off = ea;
+    out.disp = has_disp;
     return out;
 }
 
@@ -2503,6 +2555,7 @@ int Cpu::io_string_op(uint8_t op) {
 
 int Cpu::grp1_immed(uint8_t op) {  // 0x80/0x82: r/m8,imm8  0x81: r/m16/32,imm16/32  0x83: r/m16/32,imm8(sx)
     RM rm = decode_modrm();
+    disp_imm(rm);
     int alu = last_reg_;
     bool wide = (op == 0x81 || op == 0x83);
     if (!wide) {
@@ -2527,7 +2580,7 @@ int Cpu::grp2_shift(uint8_t op) {  // 0xC0/0xD0/0xD2: 8-bit  0xC1/0xD1/0xD3: 16/
     bool by_one = (op == 0xD0 || op == 0xD1);
     bool by_imm = (op == 0xC0 || op == 0xC1);
     int count;
-    if (by_imm) count = fetch8();
+    if (by_imm) { count = fetch8(); disp_imm(rm); }
     else if (by_one) count = 1;
     else count = get_reg8(1);  // CL
     if (!wide) {
@@ -2563,7 +2616,7 @@ int Cpu::grp3_unary(uint8_t op) {  // 0xF6: r/m8  0xF7: r/m16/32 -- TEST/NOT/NEG
         uint8_t v = rm_read8(rm);
         multiplier = v;
         switch (alu) {
-            case 0: case 1: { uint8_t imm = fetch8(); and8(v, imm); break; }  // TEST
+            case 0: case 1: { uint8_t imm = fetch8(); and8(v, imm); disp_imm(rm); break; }  // TEST
             case 2: rm_write8(rm, uint8_t(~v)); break;                        // NOT
             case 3: { bool nz = v != 0; rm_write8(rm, sub8(0, v, false)); set_flag(FLAG_CF, nz); break; }  // NEG
             case 4: {  // MUL
@@ -2602,7 +2655,7 @@ int Cpu::grp3_unary(uint8_t op) {  // 0xF6: r/m8  0xF7: r/m16/32 -- TEST/NOT/NEG
         uint32_t v = rm_read32(rm);
         multiplier = v;
         switch (alu) {
-            case 0: case 1: { uint32_t imm = fetch32(); and32(v, imm); break; }
+            case 0: case 1: { uint32_t imm = fetch32(); and32(v, imm); disp_imm(rm); break; }
             case 2: rm_write32(rm, ~v); break;
             case 3: { bool nz = v != 0; rm_write32(rm, sub32(0, v, false)); set_flag(FLAG_CF, nz); break; }
             case 4: {
@@ -2641,7 +2694,7 @@ int Cpu::grp3_unary(uint8_t op) {  // 0xF6: r/m8  0xF7: r/m16/32 -- TEST/NOT/NEG
         uint16_t v = rm_read16(rm);
         multiplier = v;
         switch (alu) {
-            case 0: case 1: { uint16_t imm = fetch16(); and16(v, imm); break; }
+            case 0: case 1: { uint16_t imm = fetch16(); and16(v, imm); disp_imm(rm); break; }
             case 2: rm_write16(rm, uint16_t(~v)); break;
             case 3: { bool nz = v != 0; rm_write16(rm, sub16(0, v, false)); set_flag(FLAG_CF, nz); break; }
             case 4: {
@@ -3098,6 +3151,7 @@ int Cpu::two_byte() {
             RM rm = decode_modrm();
             int src = last_reg_;
             int count = fetch8();
+            disp_imm(rm);
             shld(rm, src, count, op2 == 0xAC);
             return rm.is_mem ? 3 : 2;
         }
@@ -3141,6 +3195,7 @@ int Cpu::two_byte() {
             int sub = last_reg_;
             int opsz = opsize32_ ? 32 : 16;
             int bit = fetch8() & (opsz - 1);
+            disp_imm(rm);
             if (sub < 4) raise_ud(instr_start_eip_, uint16_t(0x0F00 | op2));   // /0-/3 are reserved
             uint32_t v = opsize32_ ? rm_read32(rm) : rm_read16(rm);
             set_flag(FLAG_CF, ((v >> bit) & 1) != 0);
@@ -4152,7 +4207,13 @@ int Cpu::step() {
     // Code fetch: the L1 line the instruction starts in, while it sits in
     // the prefetch window.
     if (timing && eip - pf_lo_ < pf_hi_ - pf_lo_)
-        stall_ += uint32_t(timing->fetch(pf_phys_ + (eip - pf_lo_), !(cr_[0] & CR0_CD), cycles));
+        stall_ += uint32_t(timing->fetch(pf_phys_ + (eip - pf_lo_), fills(pf_phys_), cycles));
+    if (timing) {
+        agi_cur_ ^= 1;
+        uint32_t *r = agi_snap_[agi_cur_];
+        r[0] = eax; r[1] = ecx; r[2] = edx; r[3] = ebx;
+        r[4] = esp; r[5] = ebp; r[6] = esi; r[7] = edi;
+    }
     // Single-step traps after an instruction that *began* with TF set, so a
     // POPF that sets TF runs untrapped and one that clears it still traps.
     bool trap = flag(FLAG_TF);
@@ -4220,6 +4281,8 @@ int Cpu::step_debug(uint32_t start_eip) {
 }
 
 int Cpu::deliver_fault(const Fault &first, uint32_t start_eip) {
+    agi_clear();
+    split_ = false;
     // A *fault* (as opposed to a trap) reports the address of the faulting
     // instruction and is restartable, so the instruction's own starting EIP
     // and stack pointer are put back before the handler sees them -- a
@@ -4478,6 +4541,7 @@ int Cpu::step_inner() {
         case 0x69: {  // IMUL r,r/m,imm16/32
             RM rm = decode_modrm(); int r = last_reg_;
             uint32_t imm = opsize32_ ? fetch32() : fetch16();
+            disp_imm(rm);
             imul_imm(r, rm, imm);
             c += mul_cost(imm, opsize32_ ? 32 : 16);
             break;
@@ -4486,6 +4550,7 @@ int Cpu::step_inner() {
         case 0x6B: {  // IMUL r,r/m,imm8 (sign-extended)
             RM rm = decode_modrm(); int r = last_reg_;
             uint32_t imm = uint32_t(int32_t(int8_t(fetch8())));
+            disp_imm(rm);
             imul_imm(r, rm, imm);
             c += mul_cost(imm, opsize32_ ? 32 : 16);
             break;
@@ -4711,8 +4776,8 @@ int Cpu::step_inner() {
             c += 6;
             break;
         }
-        case 0xC6: { RM rm = decode_modrm(); uint8_t imm = fetch8(); rm_write8(rm, imm); c += 1; break; }
-        case 0xC7: { RM rm = decode_modrm(); if (opsize32_) rm_write32(rm, fetch32()); else rm_write16(rm, fetch16()); c += 1; break; }
+        case 0xC6: { RM rm = decode_modrm(); uint8_t imm = fetch8(); disp_imm(rm); rm_write8(rm, imm); c += 1; break; }
+        case 0xC7: { RM rm = decode_modrm(); disp_imm(rm); if (opsize32_) rm_write32(rm, fetch32()); else rm_write16(rm, fetch16()); c += 1; break; }
         case 0xC8: {
             // Published 486 ENTER: 14 at nesting level 0, 17 at level 1,
             // and 17+3i for a higher level i.

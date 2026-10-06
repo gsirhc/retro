@@ -6905,7 +6905,7 @@ completes.
 
 Not modelled: the page-level PCD and PWT bits, DMA and bus-master traffic
 on the bus, accesses that straddle a page (they take the byte-at-a-time
-fallback), and descriptor-table and TSS reads.
+fallback), and descriptor-table and TSS reads. All done in §48.
 
 ### 47.5 Checks
 
@@ -6919,3 +6919,106 @@ every kind of reset.
 before; a DOS boot spends most of its time waiting rather than missing
 the cache. Natively that boot costs about 3% more host time. `pm-check`
 and `vbe-check` pass, and the full Playwright suite passed 136 of 136.
+
+## 48. The rest of the timing rules, and a real de-turbo
+
+Item T2 from [`PC486_PARITY.md`](PC486_PARITY.md), plus the per-instruction
+rules Intel lists next to its clock table. §47 timed the caches and buses
+but left the core's own pipeline penalties, the DMA controller and the
+page bits out, and the video card's wait states were a guess.
+
+### 48.1 The video card
+
+The VL-Bus card is now a Cirrus CL-GD5428, the usual VLB card of the
+time (CL-GD542X Technical Reference Manual, SR16 "Performance Tuning").
+A memory write takes 3 bus clocks from ADS# to RDY#: SR16 needs the delay
+to exceed 3 MCLK periods plus 2ns, and at the default 50.11 MHz MCLK
+(SR1F) on a 33 MHz bus that's 3. Port I/O takes SR16's default of 2. The
+manual doesn't print a read figure. A read waits for the 7-MCLK RAS
+cycle, about 140ns, so it's 6 bus clocks with the address phase. That
+one is derived, not cited.
+
+### 48.2 The pipeline rules
+
+The Embedded Intel486 Developer's Manual (27302101) lists the assumptions
+behind its clock counts in 12.3.1. With the board's model attached, the
+core now charges the ones the table leaves out:
+
+- **Rule 2, misaligned operands**: 3 clocks for a word at an odd address,
+  a dword off a 4-byte boundary or a qword off an 8-byte boundary (the
+  manual's own definition, under EFLAGS.AC). Charged once per operand,
+  not again for the halves of a page-split read.
+- **Rule 3, line fills**: a read miss stalls until its first dword
+  arrives, not the whole burst. The rest of the line fills behind it, and
+  a later read or write to that line waits for the burst to finish. The
+  next miss waits for the bus.
+- **Rule 4, AGI**: a base register written by the previous instruction
+  costs a clock. The core compares each instruction's registers with
+  the ones the instruction before started with, so a write of the same
+  value doesn't count. PUSH and POP use ESP without an effective address,
+  so the rule's exemption for them falls out.
+- **Rule 8**: a displacement and an immediate in one instruction cost a
+  clock (ALU, MOV, IMUL, shift, TEST, BT and SHLD/SHRD forms).
+- **Rule 10, TLB misses**: a page walk costs 13, 21 or 28 bus clocks as
+  neither, one or both entries need an A/D bit written back. The figures
+  assume the entries aren't in the data cache, which the walk doesn't
+  check here.
+
+Rule 5's index-register clock stays as it was, charged for base, index
+and displacement together (Quantasm's 486 table legend). Rule 6 is covered by the code-line timing: a
+jump target that runs into the next line pays for that line on the next
+instruction.
+
+### 48.3 Page bits, DMA, and the paths §47 skipped
+
+- **PCD**: a page whose directory or table entry has PCD set never fills
+  the L1. The 471 has no PCD or PWT inputs, so the L2 doesn't see either
+  bit, and PWT changes nothing on a write-through L1.
+- **DMA**: each 8237 transfer holds the bus for 6 DMA clocks at half the
+  ISA clock, 48 bus clocks: 5 for the transfer (800KB/s at 4 MHz,
+  National Instruments AN-011, "ISA (PC AT) Extensions to DMA
+  Implementation") and the S0 clock a single-mode transfer spends
+  requesting HOLD again. A transfer into memory invalidates the L1 line,
+  since the 471 drives EADS# in DMA cycles, and the 471 writes its own L2
+  copy on a hit (471 data sheet, "Cache Update Policy"). The floppy's
+  sector still lands as one block copy once its real-time wait is up, so
+  its 512 holds land together instead of one every 16us. This machine
+  has no bus masters: IDE and the CD-ROM are PIO.
+- **Page-split writes** are timed as one bus write per run of
+  contiguous bytes, and **descriptor-table and TSS** reads and writes go
+  through the same model as any other access.
+
+### 48.4 Turbo off
+
+On a SiS 85C471 board, Turbo off doesn't touch the CPU clock. The
+chipset asserts HOLD for 4us of every 12us (register 58h bit 4, reset
+default 4us; 8us is the other choice), so code running from the L1 keeps
+going and anything that needs the bus waits. The machine used to halve
+the clock to 33 MHz instead, which is what other boards of the period
+did, but not this one. Now `Machine::set_turbo` sets the hold and leaves
+the clock at 66 MHz. The front panel's readout still shows 33, as a
+tower's jumpers would set it.
+
+### 48.5 What's left
+
+- A snoop that contends with the core's own cache access costs 1 bus
+  clock (rule 9). It isn't charged.
+- AGI misses a register rewritten with the value it already had.
+- An instruction that runs into the next code line and then jumps away
+  never pays for that second line.
+- The 471's refresh is taken as hidden refresh (register 58h bit 5 set by
+  BIOS setup), so it never holds the CPU.
+
+### 48.6 Checks
+
+831 native cases. New ones: the cache model's first-dword stalls, a fill
+still in progress, the de-turbo hold and DMA hold and snoop; a `Machine`
+case for AGI, misalignment and rule 8 in real guest code; paging cases for
+the three walk costs and PCD; and a chipset case where a floppy transfer
+invalidates the L1 line and holds the bus for 512 x 48 bus clocks.
+
+`hdd-boot-check` reaches `C:\>` at cycle 1,059,517,619, 0.4% later than
+§47. Natively that boot runs at 157 guest MHz on the host, against 158
+for §47. `mem_timing` stopped being inlined once it grew the PCD check,
+which cost about 5% on a memory-heavy loop until it was forced back
+inline.

@@ -187,10 +187,18 @@ public:
     // Propagates the CPU's current internal clock to every device that
     // converts wall-clock seconds into CPU-cycle waits (FDC/HDD/CD-ROM/
     // SB/OPL3). The PIT already takes cpu_hz per tick(); this keeps the
-    // others matching when Turbo drops the DX2 from 66 MHz to 33 MHz.
+    // others matching it.
     void set_cpu_hz(double hz);
 
+    // The board's bus timing, told about each DMA transfer, and the CPU
+    // clock it runs on. Null for a bare chipset.
+    Cache486 *timing = nullptr;
+    const uint64_t *timing_clock = nullptr;
+
 private:
+    void dma_timing(uint32_t phys, int size, bool to_mem) {
+        if (timing) timing->dma(phys, size, to_mem, *timing_clock);
+    }
     // vector<bool> is bit-packed (4MB, not 32MB) -- same stack-overflow
     // reasoning as `mem` above, plus it'd otherwise double the footprint.
     std::vector<bool> rom_ = std::vector<bool>(kRamSize, false);

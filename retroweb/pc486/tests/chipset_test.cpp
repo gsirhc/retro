@@ -243,6 +243,30 @@ TEST(ChipsetTest, FloppyDmaTransferCopiesRealBytesIntoMemory) {
     EXPECT_TRUE(cs.fdc.irq_pending());
 }
 
+TEST(ChipsetTest, FloppyDmaHoldsTheBusAndSnoopsTheL1) {
+    Chipset cs;
+    pc486::Cache486 cache;
+    uint64_t clock = 0;
+    cs.timing = &cache;
+    cs.timing_clock = &clock;
+    cache.read(0x2000, 4, true, 0);
+    ASSERT_TRUE(cache.l1_has(0x2000));
+    std::vector<uint8_t> img(80 * 2 * 18 * 512, 0);
+    img[512] = 0x77;
+    cs.fdc.mount(0, img.data(), img.size());
+    cs.fdc.out(0x3F2, 0x14);
+    cs.dma1.out(0x0A, 0x02);
+    cs.dma1.out(0x04, 0x00); cs.dma1.out(0x04, 0x20);
+    cs.dma1.out(0x05, 0xFF); cs.dma1.out(0x05, 0x01);
+    for (uint8_t b : {0xE6, 0x00, 0x00, 0x00, 0x02, 0x02, 0x02, 0x1B, 0xFF}) cs.fdc.out(0x3F5, b);
+    for (clock = 0; clock < 10'000'000 && cs.mem[0x2000] != 0x77; clock += 100) cs.tick(clock, 66000000.0);
+    ASSERT_EQ(cs.mem[0x2000], 0x77);
+    EXPECT_FALSE(cache.l1_has(0x2000)) << "the transfer into memory invalidated the line";
+    // 512 single transfers of 48 bus clocks each hold the bus from the tick
+    // that ran them, 100 clocks back; an L2 hit then waits for the rest.
+    EXPECT_EQ(cache.read(0x2000, 4, true, clock), 512 * 48 * 2 - 100 + 2 * 2);
+}
+
 TEST(ChipsetTest, Irq6IsEdgeTriggeredNotReRaisedWhileStillPending) {
     Chipset cs;
     cs.pic_master.out(0x20, 0x11);
