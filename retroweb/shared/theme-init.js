@@ -6,10 +6,19 @@
 // flash of the wrong theme on reload. Kept a single tiny file rather than
 // folded into theme-picker.js so it can be inlined at the very top of
 // <head>/<body> with nothing else to block on.
-// "system" is Modern, light or dark with the OS appearance.
+// "system" is Modern, "systemaurora" is Aurora; both follow the OS.
+// Old stored value "ai" maps to systemaurora.
 try {
   var t = localStorage.getItem("retro8080.theme") || "win", r = document.documentElement;
-  var d = t == "moderndark" || (t == "system" && matchMedia("(prefers-color-scheme: dark)").matches);
-  if (d) { r.dataset.theme = "modern"; r.dataset.mode = "dark"; }
-  else { r.dataset.theme = t == "system" ? "modern" : t; }
+  if (t == "ai") t = "systemaurora";
+  var sys = matchMedia("(prefers-color-scheme: dark)").matches;
+  if (t == "moderndark" || t == "system") {
+    r.dataset.theme = "modern";
+    if (t == "moderndark" || sys) r.dataset.mode = "dark";
+  } else if (t == "systemaurora") {
+    r.dataset.theme = "aurora";
+    if (sys) r.dataset.mode = "dark";
+  } else {
+    r.dataset.theme = t;
+  }
 } catch (e) {}

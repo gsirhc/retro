@@ -87,8 +87,8 @@
   outline-offset: 3px;
 }
 
-/* AI Generated: same Help control, this theme's glassy gradient tokens. */
-:root[data-theme="ai"] .site-footer .about-sign {
+/* System Aurora: same Help control, this theme's glassy gradient tokens. */
+:root[data-theme="aurora"] .site-footer .about-sign {
   min-width: 0;
   padding: 7px 16px;
   color: var(--btn-fg);
@@ -98,11 +98,11 @@
   font: 600 13px/1.2 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   box-shadow: 0 0 12px rgba(138, 43, 226, .25);
 }
-:root[data-theme="ai"] .site-footer .about-sign:active {
+:root[data-theme="aurora"] .site-footer .about-sign:active {
   padding: 7px 16px;
   border-style: solid;
 }
-:root[data-theme="ai"] .site-footer .about-sign:focus-visible {
+:root[data-theme="aurora"] .site-footer .about-sign:focus-visible {
   outline: 2px solid var(--link);
   outline-offset: 3px;
 }

@@ -12,12 +12,13 @@ test.describe("page theme", () => {
   });
 
   test("every theme is selectable and sets the expected data-theme/data-mode", async ({ page }) => {
+    await page.emulateMedia({ colorScheme: "light" });
     const cases: [string, string, string | null][] = [
       ["win", "win", null],
       ["web94", "web94", null],
       ["modern", "modern", null],
       ["moderndark", "modern", "dark"],
-      ["ai", "ai", null],
+      ["systemaurora", "aurora", null],
     ];
     for (const [value, theme, mode] of cases) {
       await page.selectOption("#pageTheme", value);
@@ -44,6 +45,20 @@ test.describe("page theme", () => {
     await page.emulateMedia({ colorScheme: "dark" });
     await expect(page.locator("html")).toHaveAttribute("data-theme", "modern");
     await expect(page.locator("html")).not.toHaveAttribute("data-mode");
+  });
+
+
+  test("System Aurora follows the OS appearance on the Aurora palette", async ({ page }) => {
+    await page.emulateMedia({ colorScheme: "light" });
+    await page.selectOption("#pageTheme", "systemaurora");
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "aurora");
+    await expect(page.locator("html")).not.toHaveAttribute("data-mode");
+    expect(await page.evaluate(() => localStorage.getItem("retro8080.theme"))).toBe("systemaurora");
+
+    await page.emulateMedia({ colorScheme: "dark" });
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "aurora");
+    await expect(page.locator("html")).toHaveAttribute("data-mode", "dark");
+    await expect(page.locator("#pageTheme")).toHaveValue("systemaurora");
   });
 
   test("persists across reload via the shared retro8080.theme key", async ({ page }) => {

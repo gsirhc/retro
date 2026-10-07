@@ -46,6 +46,23 @@ test.describe("page theme", () => {
     }
   });
 
+  test("System Aurora follows the OS appearance on the Aurora palette", async ({ livePage: page }) => {
+    try {
+      await page.emulateMedia({ colorScheme: "light" });
+      await page.selectOption("#pageTheme", "systemaurora");
+      await expect(page.locator("html")).toHaveAttribute("data-theme", "aurora");
+      await expect(page.locator("html")).not.toHaveAttribute("data-mode");
+      expect(await page.evaluate(() => localStorage.getItem("retro8080.theme"))).toBe("systemaurora");
+
+      await page.emulateMedia({ colorScheme: "dark" });
+      await expect(page.locator("html")).toHaveAttribute("data-theme", "aurora");
+      await expect(page.locator("html")).toHaveAttribute("data-mode", "dark");
+      await expect(page.locator("#pageTheme")).toHaveValue("systemaurora");
+    } finally {
+      await page.emulateMedia({ colorScheme: "light" });
+    }
+  });
+
   test("persists across reload via the shared retro8080.theme key", async ({ page }) => {
     await bootLive(page);
     await page.selectOption("#pageTheme", "web94");

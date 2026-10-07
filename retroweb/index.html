@@ -24,23 +24,15 @@
   :root { --title-font: 900 30px "Arial Black", Arial, sans-serif; }
   :root[data-theme="web94"] { --title-font: bold 26px "Times New Roman", Times, serif; }
   :root[data-theme="modern"] { --title-font: 700 28px/1.15 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-  /* "AI Generated" -- a for-fun fifth theme: a ChatGPT-generated circuit-board
-     image (assets/ai-theme-bg.jpg, every CPU this repo emulates soldered onto
-     one glossy green board, hallucinated part numbers and all) behind glassy,
-     gradient-bordered panels. Same token set as every other theme here, just
-     leaning all the way into the generic purple/cyan "AI product" gradient
-     look on purpose. */
-  :root[data-theme="ai"] { --title-font: 800 30px/1.15 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-  :root[data-theme="ai"] body {
-    background:
-      linear-gradient(180deg, rgba(8,6,18,.55), rgba(8,6,18,.68)),
-      url("assets/ai-theme-bg.jpg") center/cover fixed;
+  /* "System Aurora" title size; desktop background lives in shared/theme.css. */
+  :root[data-theme="aurora"] { --title-font: 800 30px/1.15 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  :root[data-theme="aurora"] body {
     display: flex; flex-direction: column; align-items: center; justify-content: center;
   }
-  :root[data-theme="ai"] .pagebar { border-bottom: 1px solid rgba(168,140,255,.35); }
-  :root[data-theme="ai"] .section-heading { font: 700 14px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: var(--muted); }
-  :root[data-theme="ai"] .machine-card .shot { border-radius: 6px; }
-  :root[data-theme="ai"] .machine-card:hover {
+  :root[data-theme="aurora"] .pagebar { border-bottom: 1px solid rgba(168,140,255,.35); }
+  :root[data-theme="aurora"] .section-heading { font: 700 14px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: var(--muted); }
+  :root[data-theme="aurora"] .machine-card .shot { border-radius: 6px; }
+  :root[data-theme="aurora"] .machine-card:hover {
     box-shadow: 0 6px 22px rgba(123,47,247,.35);
   }
 
@@ -120,7 +112,7 @@
 </style>
 </head>
 <body>
-<script>try{var t=localStorage.getItem("retro8080.theme")||"win",r=document.documentElement,d=t=="moderndark"||(t=="system"&&matchMedia("(prefers-color-scheme: dark)").matches);if(d){r.dataset.theme="modern";r.dataset.mode="dark";}else{r.dataset.theme=t=="system"?"modern":t;}}catch(e){}</script>
+<script>try{var t=localStorage.getItem("retro8080.theme")||"win",r=document.documentElement;if(t=="ai")t="systemaurora";var sys=matchMedia("(prefers-color-scheme: dark)").matches;if(t=="moderndark"||t=="system"){r.dataset.theme="modern";if(t=="moderndark"||sys)r.dataset.mode="dark";}else if(t=="systemaurora"){r.dataset.theme="aurora";if(sys)r.dataset.mode="dark";}else{r.dataset.theme=t;}}catch(e){}</script>
 
 <div class="page">
   <header class="pagebar">
@@ -133,7 +125,7 @@
           <option value="modern">Light Modern</option>
           <option value="moderndark">Dark Modern</option>
           <option value="system">System Modern</option>
-          <option value="ai">AI Generated</option>
+          <option value="systemaurora">System Aurora</option>
         </select>
       </label>
       <span class="pb-winbtns"><span aria-hidden="true">_</span><span aria-hidden="true">&#9633;</span><span aria-hidden="true">&times;</span></span>
@@ -227,12 +219,16 @@
   (function () {
     var root = document.documentElement;
     var sel = document.getElementById("pageTheme");
-    var VALUES = ["win", "web94", "modern", "moderndark", "system", "ai"];
+    var VALUES = ["win", "web94", "modern", "moderndark", "system", "systemaurora"];
     var systemDark = matchMedia("(prefers-color-scheme: dark)");
     function apply(v) {
+      if (v === "ai") v = "systemaurora";
       if (VALUES.indexOf(v) < 0) v = "win";
-      var dark = v === "moderndark" || (v === "system" && systemDark.matches);
-      root.dataset.theme = (v === "moderndark" || v === "system") ? "modern" : v;
+      var theme = v, dark = false;
+      if (v === "moderndark") { theme = "modern"; dark = true; }
+      else if (v === "system") { theme = "modern"; dark = systemDark.matches; }
+      else if (v === "systemaurora") { theme = "aurora"; dark = systemDark.matches; }
+      root.dataset.theme = theme;
       if (dark) root.dataset.mode = "dark";
       else delete root.dataset.mode;
       return v;
@@ -245,7 +241,7 @@
       try { localStorage.setItem("retro8080.theme", sel.value); } catch (e) {}
     });
     systemDark.addEventListener("change", function () {
-      if (sel.value === "system") apply("system");
+      if (sel.value === "system" || sel.value === "systemaurora") apply(sel.value);
     });
   })();
 </script>
