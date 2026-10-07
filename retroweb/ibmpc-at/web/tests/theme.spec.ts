@@ -27,6 +27,25 @@ test.describe("page theme", () => {
     }
   });
 
+  test("System follows the OS appearance on the Modern palette", async ({ page }) => {
+    await page.emulateMedia({ colorScheme: "light" });
+    await page.selectOption("#pageTheme", "system");
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "modern");
+    await expect(page.locator("html")).not.toHaveAttribute("data-mode");
+    expect(await page.evaluate(() => localStorage.getItem("retro8080.theme"))).toBe("system");
+
+    await page.emulateMedia({ colorScheme: "dark" });
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "modern");
+    await expect(page.locator("html")).toHaveAttribute("data-mode", "dark");
+    await expect(page.locator("#pageTheme")).toHaveValue("system");
+
+    // An explicit Modern choice stays light when the OS goes dark.
+    await page.selectOption("#pageTheme", "modern");
+    await page.emulateMedia({ colorScheme: "dark" });
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "modern");
+    await expect(page.locator("html")).not.toHaveAttribute("data-mode");
+  });
+
   test("persists across reload via the shared retro8080.theme key", async ({ page }) => {
     await page.selectOption("#pageTheme", "web94");
     await page.reload();

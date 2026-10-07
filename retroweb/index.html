@@ -120,7 +120,7 @@
 </style>
 </head>
 <body>
-<script>try{var t=localStorage.getItem("retro8080.theme")||"win",r=document.documentElement;if(t=="moderndark"){r.dataset.theme="modern";r.dataset.mode="dark";}else{r.dataset.theme=t;}}catch(e){}</script>
+<script>try{var t=localStorage.getItem("retro8080.theme")||"win",r=document.documentElement,d=t=="moderndark"||(t=="system"&&matchMedia("(prefers-color-scheme: dark)").matches);if(d){r.dataset.theme="modern";r.dataset.mode="dark";}else{r.dataset.theme=t=="system"?"modern":t;}}catch(e){}</script>
 
 <div class="page">
   <header class="pagebar">
@@ -130,8 +130,9 @@
         <select id="pageTheme">
           <option value="win">Windows 95</option>
           <option value="web94">Mid-1990s Web</option>
-          <option value="modern">Modern</option>
+          <option value="modern">Light Modern</option>
           <option value="moderndark">Dark Modern</option>
+          <option value="system">System Modern</option>
           <option value="ai">AI Generated</option>
         </select>
       </label>
@@ -226,11 +227,14 @@
   (function () {
     var root = document.documentElement;
     var sel = document.getElementById("pageTheme");
-    var VALUES = ["win", "web94", "modern", "moderndark", "ai"];
+    var VALUES = ["win", "web94", "modern", "moderndark", "system", "ai"];
+    var systemDark = matchMedia("(prefers-color-scheme: dark)");
     function apply(v) {
       if (VALUES.indexOf(v) < 0) v = "win";
-      if (v === "moderndark") { root.dataset.theme = "modern"; root.dataset.mode = "dark"; }
-      else { root.dataset.theme = v; delete root.dataset.mode; }
+      var dark = v === "moderndark" || (v === "system" && systemDark.matches);
+      root.dataset.theme = (v === "moderndark" || v === "system") ? "modern" : v;
+      if (dark) root.dataset.mode = "dark";
+      else delete root.dataset.mode;
       return v;
     }
     var saved;
@@ -239,6 +243,9 @@
     sel.addEventListener("change", function () {
       apply(sel.value);
       try { localStorage.setItem("retro8080.theme", sel.value); } catch (e) {}
+    });
+    systemDark.addEventListener("change", function () {
+      if (sel.value === "system") apply("system");
     });
   })();
 </script>

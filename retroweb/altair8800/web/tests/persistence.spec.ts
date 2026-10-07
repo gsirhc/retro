@@ -36,6 +36,26 @@ test.describe("page chrome, persistence, URL params", () => {
     expect(await page.evaluate(() => document.documentElement.hasAttribute("data-mode"))).toBe(false);
   });
 
+  test("System follows the OS appearance on the Modern palette", async ({ page }) => {
+    await boot(page);
+    await page.emulateMedia({ colorScheme: "light" });
+    await page.selectOption("#pageTheme", "system");
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "modern");
+    expect(await page.evaluate(() => document.documentElement.hasAttribute("data-mode"))).toBe(false);
+    expect(await page.evaluate(() => localStorage.getItem("retro8080.theme"))).toBe("system");
+
+    await page.emulateMedia({ colorScheme: "dark" });
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "modern");
+    await expect(page.locator("html")).toHaveAttribute("data-mode", "dark");
+    expect(await page.evaluate(() => getComputedStyle(document.body).backgroundColor)).toBe("rgb(18, 19, 23)");
+    expect(await page.locator("#pageTheme").inputValue()).toBe("system");
+
+    await page.selectOption("#pageTheme", "modern");
+    await page.emulateMedia({ colorScheme: "dark" });
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "modern");
+    expect(await page.evaluate(() => document.documentElement.hasAttribute("data-mode"))).toBe(false);
+  });
+
   test("the theme picker lives in the top bar, not a mid-page toolbar", async ({ page }) => {
     await boot(page);
     await expect(page.locator(".pagebar #pageTheme")).toBeVisible();

@@ -100,9 +100,10 @@
   --accent2:      #0a8f4c;
   --warn:         #d1435b;
 }
-/* Dark Modern: Modern's layout, dark palette (theme scripts set
-   data-theme="modern" + data-mode="dark" so every [data-theme="modern"]
-   layout rule still applies). */
+/* Dark Modern, and System when the OS appearance is dark: Modern's
+   layout, dark palette (theme scripts set data-theme="modern" +
+   data-mode="dark" so every [data-theme="modern"] layout rule still
+   applies). */
 :root[data-theme="modern"][data-mode="dark"] {
   color-scheme: dark;
   --desktop:   #121317;

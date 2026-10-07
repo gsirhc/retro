@@ -117,30 +117,34 @@ and the browser's frame cadence, so no bytes are lost between frames.
   links (`#00f` / `#800080` visited / `#f00` active), and a period footer
   (plain-text "Page last modified", a `mailto:`, pipe-separated links). Chrome
   only — the emulated hardware stays photoreal, like every theme.
-- **Modern** — clean white card, system font, no window chrome. The page title
-  moves into the top bar and the big in-page header / spec line are dropped, to
-  save vertical space (the retro themes keep the centred `ALTAIR 8800` + `~ * ~`
-  banner). On a screen &ge; 1560&nbsp;px wide it goes two-column (terminal left,
-  front panel right) with the paper-tape / disk / cassette devices in a row
-  underneath, and the **TERMINAL** settings fold into the **PRESET** bar. The
-  terminal column keeps a &ge; 680&nbsp;px min so it never squishes; the panel
-  column yields (it scrolls internally) when both don't fit. Narrower, it's a
-  single column like the retro themes.
-- **Dark Modern** — the Modern theme's exact layout with a dark palette. Stored
-  as `moderndark`; the theme scripts set `data-theme="modern"` +
+- **Light Modern** — clean white card, system font, no window chrome. Stored as
+  `modern`. The page title moves into the top bar and the big in-page header /
+  spec line are dropped, to save vertical space (the retro themes keep the
+  centred `ALTAIR 8800` + `~ * ~` banner). On a screen &ge; 1560&nbsp;px wide it
+  goes two-column (terminal left, front panel right) with the paper-tape / disk /
+  cassette devices in a row underneath, and the **TERMINAL** settings fold into
+  the **PRESET** bar. The terminal column keeps a &ge; 680&nbsp;px min so it
+  never squishes; the panel column yields (it scrolls internally) when both
+  don't fit. Narrower, it's a single column like the retro themes.
+- **Dark Modern** — Light Modern's exact layout with a dark palette. Stored as
+  `moderndark`; the theme scripts set `data-theme="modern"` +
   `data-mode="dark"`, so every Modern layout rule still applies and only a
   `[data-mode="dark"]` colour-var block is added.
+- **System Modern** — Light Modern's layout, light or dark with the OS
+  appearance (`prefers-color-scheme`). Stored as `system`. Changing the
+  appearance (macOS System Settings, for example) updates the page without a
+  reload. Light Modern and Dark Modern stay on the palette you picked.
 
 Every theme flows **front panel &rarr; terminal &rarr; devices** now (the reader,
 disk and cassette used to sit above the terminal).
 
-Mid-1990s Web and Modern have no window buttons, so their top bar shows an
-"&larr; All machines" link back to the landing page instead.
+Mid-1990s Web and the Modern themes have no window buttons, so their top bar
+shows an "&larr; All machines" link back to the landing page instead.
 
 Themes are CSS custom properties keyed off `:root[data-theme]` (plus
 `[data-mode="dark"]` for Dark Modern); an inline `<head>` script applies the
 stored choice before first paint (no flash). `?theme=web94` / `?theme=moderndark`
-override.
+/ `?theme=system` override.
 
 ## Terminal profiles
 

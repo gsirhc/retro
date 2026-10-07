@@ -45,6 +45,39 @@ test.describe("retroweb landing page", () => {
     await expect(page.locator("#siteFooter a.about-sign")).toHaveText("Help");
   });
 
+  test("System follows the OS appearance on the landing page and about page", async ({ page }) => {
+    await page.emulateMedia({ colorScheme: "light" });
+    await page.goto(HOME);
+    await page.selectOption("#pageTheme", "system");
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "modern");
+    await expect(page.locator("html")).not.toHaveAttribute("data-mode");
+    expect(await page.evaluate(() => localStorage.getItem("retro8080.theme"))).toBe("system");
+    expect(await page.evaluate(() => getComputedStyle(document.body).backgroundColor)).toBe("rgb(236, 238, 242)");
+
+    await page.emulateMedia({ colorScheme: "dark" });
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "modern");
+    await expect(page.locator("html")).toHaveAttribute("data-mode", "dark");
+    await expect(page.locator("#pageTheme")).toHaveValue("system");
+    expect(await page.evaluate(() => getComputedStyle(document.body).backgroundColor)).toBe("rgb(18, 19, 23)");
+
+    await page.reload();
+    await expect(page.locator("#pageTheme")).toHaveValue("system");
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "modern");
+    await expect(page.locator("html")).toHaveAttribute("data-mode", "dark");
+
+    await page.locator("#siteFooter a.about-sign").click();
+    await expect(page).toHaveURL(/\/about\.html$/);
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "modern");
+    await expect(page.locator("html")).toHaveAttribute("data-mode", "dark");
+    await expect(page.locator("#pageTheme")).toHaveValue("system");
+
+    await page.emulateMedia({ colorScheme: "light" });
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "modern");
+    await expect(page.locator("html")).not.toHaveAttribute("data-mode");
+    await expect(page.locator("#pageTheme")).toHaveValue("system");
+    expect(await page.evaluate(() => getComputedStyle(document.body).backgroundColor)).toBe("rgb(236, 238, 242)");
+  });
+
   test("a stored retro8080.theme is honoured on load", async ({ page }) => {
     await page.goto(HOME);
     await page.evaluate(() => localStorage.setItem("retro8080.theme", "modern"));
