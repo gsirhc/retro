@@ -1,33 +1,8 @@
-// GoogleTest suite for cpu80486.cpp's per-opcode cycle-cost model --
-// separate from cpu80486_test.cpp (which covers instruction *semantics*)
-// for the same reason ibmpc-at splits its two 80286 suites: the cost model
-// is a distinct thing that can regress on its own, silently, and only
-// shows up later as period software measuring the wrong CPU speed. That
-// machine's own investigation is the cautionary tale -- a handful of
-// generic bucket costs made Landmark System Speed Test read ~11.5-14 MHz
-// against a real, wall-clock-paced 8 MHz 286 (IBM_PCAT_REVIEW.md), because
-// MUL/DIV and the REP-prefixed string ops were undercosted by multiples.
-//
-// Reference values are the 486 column of the Quantasm "80x86 Integer
-// Instruction Set (8088 - Pentium)" table, which reproduces Intel's own
-// i486 Programmer's Reference Manual timing appendix -- the same source
-// cited inline at every constant in cpu80486.cpp. Three things this suite
-// exists specifically to pin down, because they are where a 486 differs
-// structurally from the 286 core next door:
-//
-//   - The 486's on-chip cache makes a load or store a one-cycle operation,
-//     so MOV is 1 clock in every direction and the 286's directional 3/5
-//     asymmetry is gone -- but the ALU group is NOT uniform: CMP/TEST read
-//     memory (2) while ADD and friends read-modify-write it (3).
-//   - The barrel shifter makes SHL/SHR/SAR/ROL/ROR count-INDEPENDENT
-//     (the 286 charged 5+n), while RCL/RCR stay iterative.
-//   - There is no "+m" prefetch-refill term in the 486 column at all, so
-//     unlike cpu80286.h's kQueueRefillTax the published control-transfer
-//     numbers are charged directly.
-//
-// Every prefix byte costs 1 clock (cpu80486.cpp's step(): the published
-// LOCK figure, applied uniformly), so any 0x66/0x67/0xF3-prefixed
-// expectation below is the instruction's own cost plus one per prefix.
+// cycle-cost model for cpu80486.cpp, separate from the semantics suite
+// Reference: 486 column of the Quantasm "80x86 Integer Instruction Set" table (Intel i486 Programmer's Reference Manual).
+// MOV is 1 clock in every direction; CMP/TEST read memory (2), ADD and friends read-modify-write (3).
+// Barrel shifter makes SHL/SHR/SAR/ROL/ROR count-independent; RCL/RCR stay iterative.
+// No prefetch-refill term, so control transfers are charged directly. Every prefix byte costs 1 clock.
 
 #include <gtest/gtest.h>
 
@@ -52,8 +27,7 @@ protected:
     std::unique_ptr<Cpu> cpu;
 
 public:
-    // The six operations Bus::For binds (see cpu80486.h). No device is
-    // wired up in this fixture -- port reads float high, writes go nowhere.
+    // the six Bus::For operations; no device wired, reads float high
     uint8_t mem_read(uint32_t a) { return mem[a & 0xFFFFF]; }
     void mem_write(uint32_t a, uint8_t v) { mem[a & 0xFFFFF] = v; }
     uint8_t io_in(uint16_t) { return 0xFF; }
@@ -73,8 +47,7 @@ protected:
         uint16_t addr = at;
         for (uint8_t b : code) mem[addr++] = b;
     }
-    // Assemble `code` at CS:0 and execute exactly one instruction,
-    // returning the cycle count step() reports -- the thing under test.
+    // assemble at CS:0, run one instruction, return step()'s cycle count
     int runCycles(std::initializer_list<uint8_t> code) {
         load(code);
         cpu->eip = 0;
@@ -82,9 +55,7 @@ protected:
     }
 };
 
-// --- MOV and the ALU group ------------------------------------------------
-// The 486's cache makes every MOV 1 clock; the ALU group splits by whether
-// the operation writes memory back.
+// --- MOV and the ALU group ---
 
 TEST_F(Cpu80486TimingTest, MovIsOneCycleInEveryDirection) {
     cpu->ebx = 0x50;
@@ -105,9 +76,7 @@ TEST_F(Cpu80486TimingTest, AluGroupSplitsByWhetherItWritesMemoryBack) {
 }
 
 TEST_F(Cpu80486TimingTest, CmpAgainstMemoryIsCheaperThanAddBecauseItNeverWritesBack) {
-    // The single most common instruction in a compare-and-branch loop.
-    // Charging the whole ALU group one flat number would overcost this by
-    // 50% -- published: CMP mem,reg 2, ADD mem,reg 3.
+    // CMP mem,reg 2 vs ADD mem,reg 3; a flat ALU cost would overcharge it
     cpu->ebx = 0x50;
     EXPECT_EQ(runCycles({0x39, 0x07}), 2);        // CMP [BX],AX
     EXPECT_EQ(runCycles({0x83, 0x3F, 0x00}), 2);  // CMP word [BX],0
@@ -132,8 +101,7 @@ TEST_F(Cpu80486TimingTest, IncDecAndNotNegSplitRegisterFromMemory) {
 }
 
 TEST_F(Cpu80486TimingTest, BaseIndexDisplacementAddressingCostsOneExtraClock) {
-    // The table's legend publishes exactly one effective-address penalty
-    // for the 286-486: "base+index+disp = +1, all others, no penalty".
+    // table legend: base+index+disp = +1, all others none
     cpu->ebx = 0x50;
     cpu->esi = 0x02;
     EXPECT_EQ(runCycles({0x8B, 0x00}), 1);        // MOV AX,[BX+SI]    -- base+index, no disp
@@ -142,10 +110,7 @@ TEST_F(Cpu80486TimingTest, BaseIndexDisplacementAddressingCostsOneExtraClock) {
 }
 
 TEST_F(Cpu80486TimingTest, Addr32SibChargesTheSameEffectiveAddressPenalty) {
-    // The same legend, on the 32-bit SIB forms the decoder resolves inline
-    // (PC486_REVIEW.md §16) rather than in decode_modrm_slow. Each figure is
-    // MOV's 1 clock plus 1 for the 0x67 prefix, plus the penalty where the
-    // form earns it.
+    // same legend on SIB forms the decoder resolves inline: MOV 1 + 1 for 0x67 + penalty
     cpu->eax = 0x50;
     cpu->ebx = 0x02;
     EXPECT_EQ(runCycles({0x67, 0x8B, 0x04, 0x98}), 2);        // MOV AX,[EAX+EBX*4]     -- base+index, no disp
@@ -162,7 +127,7 @@ TEST_F(Cpu80486TimingTest, LeaLandsOnItsPublishedOneToTwoRange) {
     EXPECT_EQ(runCycles({0x8D, 0x40, 0x04}), 2);  // LEA AX,[BX+SI+4]
 }
 
-// --- MUL/IMUL: the early-out model, anchored to the published endpoints ---
+// --- MUL/IMUL: early-out model ---
 
 TEST_F(Cpu80486TimingTest, MultiplyCostsTheFloorWhenTheMultiplierIsTiny) {
     cpu->ebx = 1;
@@ -171,7 +136,7 @@ TEST_F(Cpu80486TimingTest, MultiplyCostsTheFloorWhenTheMultiplierIsTiny) {
 }
 
 TEST_F(Cpu80486TimingTest, MultiplyCostsTheCeilingWhenTheTopBitIsSet) {
-    // Published endpoints: r/m8 13-18, r/m16 13-26, r/m32 13-42.
+    // published endpoints: r/m8 13-18, r/m16 13-26, r/m32 13-42
     cpu->ebx = 0xFFFFFFFFu;
     EXPECT_EQ(runCycles({0xF6, 0xE3}), 18);         // MUL BL, BL=FFh
     EXPECT_EQ(runCycles({0xF7, 0xE3}), 26);         // MUL BX, BX=FFFFh
@@ -184,8 +149,7 @@ TEST_F(Cpu80486TimingTest, MultiplyCostRisesWithTheMultipliersSignificantBits) {
 }
 
 TEST_F(Cpu80486TimingTest, MultiplyCostsTheSameForMemoryAndRegisterOperands) {
-    // A genuine 486 peculiarity worth pinning: unlike almost every other
-    // group, the published MUL figures are identical for both.
+    // published MUL figures are identical for register and memory
     cpu->ebx = 0x50;
     mem[0x50] = 0xFF;
     EXPECT_EQ(runCycles({0xF6, 0x27}), 18);  // MUL byte [BX], value FFh
@@ -198,7 +162,7 @@ TEST_F(Cpu80486TimingTest, TwoAndThreeOperandImulUseTheSameEarlyOutModel) {
     EXPECT_EQ(runCycles({0x66, 0x69, 0xC3, 0x07, 0x00, 0x00, 0x00}), 14);  // IMUL EAX,EBX,7 -- 13 + 1 prefix
 }
 
-// --- DIV/IDIV: single published values, an order of magnitude apart ------
+// --- DIV/IDIV ---
 
 TEST_F(Cpu80486TimingTest, DivideCostsScaleSharplyWithOperandWidth) {
     cpu->eax = 4; cpu->edx = 0; cpu->ebx = 2;
@@ -218,11 +182,10 @@ TEST_F(Cpu80486TimingTest, SignedDivideCostsMoreThanUnsignedAndAddsOneForMemory)
     EXPECT_EQ(runCycles({0xF7, 0x3F}), 28);        // IDIV word [BX]
 }
 
-// --- Shifts: the barrel shifter makes the plain forms count-independent --
+// --- Shifts ---
 
 TEST_F(Cpu80486TimingTest, PlainShiftsAndRotatesDoNotScaleWithTheCount) {
-    // The 286 charged 5+n / 8+n here; the 486 does not, which is exactly
-    // the kind of generational difference a copied cost table would miss.
+    // the 286 charged 5+n; the 486 does not
     cpu->ecx = 0x1F;  // CL = 31
     cpu->ebx = 0x50;
     EXPECT_EQ(runCycles({0xD0, 0xE0}), 3);        // SHL AL,1
@@ -233,7 +196,7 @@ TEST_F(Cpu80486TimingTest, PlainShiftsAndRotatesDoNotScaleWithTheCount) {
 }
 
 TEST_F(Cpu80486TimingTest, RotateThroughCarryStaysIterativeAndSaturates) {
-    // Published RCL/RCR by a count: 8-30 (register), 9-31 (memory).
+    // published RCL/RCR by count: 8-30 (register), 9-31 (memory)
     cpu->ecx = 5;
     EXPECT_EQ(runCycles({0xD0, 0xD0}), 3);   // RCL AL,1 -- the separate by-1 case
     EXPECT_EQ(runCycles({0xD2, 0xD0}), 12);  // RCL AL,CL with CL=5 -> 7+5
@@ -252,7 +215,7 @@ TEST_F(Cpu80486TimingTest, DoublePrecisionShiftsChargeTheirOwnPublishedCosts) {
     EXPECT_EQ(runCycles({0x0F, 0xA5, 0x1F}), 4);        // SHLD [BX],BX,CL
 }
 
-// --- REP-prefixed string ops: cost follows the iterations that ran -------
+// --- REP string ops ---
 
 TEST_F(Cpu80486TimingTest, NonRepStringOpsChargeTheirPublishedSingleIterationCost) {
     EXPECT_EQ(runCycles({0xA4}), 7);  // MOVSB
@@ -270,8 +233,7 @@ TEST_F(Cpu80486TimingTest, RepMovsScalesWithCount) {
 }
 
 TEST_F(Cpu80486TimingTest, RepMovsHonorsThePublishedZeroAndOneCountSpecialCases) {
-    // The table's own footnote on REP MOVS/REP STOS: "5 if n=0, 13 if n=1"
-    // -- neither of which is what the 12+3n formula would give.
+    // table footnote on REP MOVS/STOS: 5 if n=0, 13 if n=1
     cpu->ecx = 0;
     EXPECT_EQ(runCycles({0xF3, 0xA4}), 1 + 5);
     cpu->ecx = 1;
@@ -285,8 +247,7 @@ TEST_F(Cpu80486TimingTest, RepStosScalesWithCount) {
 }
 
 TEST_F(Cpu80486TimingTest, RepeCmpsStopsEarlyAndBillsOnlyTheIterationsThatRan) {
-    // Byte 3 differs, so REPE stops after 3 iterations even though CX asked
-    // for 10 -- the cost must follow the real iteration count.
+    // REPE stops after 3 iterations though CX asked for 10
     cpu->esi = 0x100; cpu->edi = 0x200; cpu->ecx = 10;
     for (int i = 0; i < 10; ++i) { mem[0x100 + i] = 5; mem[0x200 + i] = 5; }
     mem[0x102] = 9;
@@ -308,7 +269,7 @@ TEST_F(Cpu80486TimingTest, RepMovsdCostsTheSameFormulaAtDwordWidth) {
     EXPECT_EQ(runCycles({0xF3, 0x66, 0xA5}), 2 + 24);
 }
 
-// --- LOOP/JCXZ: published per-op, per-outcome ----------------------------
+// --- LOOP/JCXZ ---
 
 TEST_F(Cpu80486TimingTest, LoopAndJcxzChargePublishedTakenAndNotTakenCosts) {
     cpu->ecx = 2;
@@ -326,7 +287,7 @@ TEST_F(Cpu80486TimingTest, LoopAndJcxzChargePublishedTakenAndNotTakenCosts) {
     EXPECT_EQ(runCycles({0xE3, 0xFE}), 5);  // JCXZ not taken
 }
 
-// --- Control transfers: flat published numbers, no prefetch-refill term --
+// --- Control transfers ---
 
 TEST_F(Cpu80486TimingTest, ConditionalBranchesCostOneNotTakenAndThreeTaken) {
     EXPECT_EQ(runCycles({0x74, 0x02}), 1);  // JZ rel8, not taken
@@ -374,18 +335,14 @@ TEST_F(Cpu80486TimingTest, InterruptEntryAndReturnChargeTheirPublishedCosts) {
 }
 
 TEST_F(Cpu80486TimingTest, HardwareInterruptDeliveryIsBilledExactlyOnce) {
-    // interrupt() is the chipset's entry point for a PIC-delivered IRQ. It
-    // charges INT3's published 26 (the closest anchor: same IVT work, no
-    // immediate to fetch) -- and step()'s own INT paths must not add to
-    // that, which is why do_interrupt() does the work without touching the
-    // cycle counter.
+    // interrupt() is the PIC-delivered entry; charges INT3's 26 and step()'s INT paths must not add to it
     cpu->esp = 0x200;
     uint64_t before = cpu->cycles;
     EXPECT_EQ(cpu->interrupt(0x08), 26);
     EXPECT_EQ(cpu->cycles - before, 26u) << "no double billing";
 }
 
-// --- Stack, frame and flag instructions ----------------------------------
+// --- Stack, frame and flag instructions ---
 
 TEST_F(Cpu80486TimingTest, StackInstructionsChargeTheirPublishedCosts) {
     cpu->esp = 0x200;
@@ -430,8 +387,7 @@ TEST_F(Cpu80486TimingTest, EnterFollowsItsPublishedNestingLevelFormula) {
 }
 
 TEST_F(Cpu80486TimingTest, FlagInstructionsAndTheInterruptFlagPairAreNotTheSamePrice) {
-    // CLI/STI are 5 on a 486 against 2 for every other flag instruction --
-    // and against the 286's own 3, so this is a real generational change.
+    // CLI/STI are 5 on a 486, 2 for the other flag ops
     EXPECT_EQ(runCycles({0xF8}), 2);  // CLC
     EXPECT_EQ(runCycles({0xF9}), 2);  // STC
     EXPECT_EQ(runCycles({0xF5}), 2);  // CMC
@@ -443,12 +399,10 @@ TEST_F(Cpu80486TimingTest, FlagInstructionsAndTheInterruptFlagPairAreNotTheSameP
     EXPECT_EQ(runCycles({0x9F}), 3);  // LAHF
 }
 
-// --- Port I/O: far slower than the 286, and asymmetric the other way ----
+// --- Port I/O ---
 
 TEST_F(Cpu80486TimingTest, PortIoIsExpensiveAndOutCostsMoreThanIn) {
-    // Published 486: IN 14, OUT 16 -- against the 286's 5 and 3. Getting
-    // this backwards (or reusing the 286's numbers) would badly misprice
-    // every BIOS polling loop on this machine.
+    // published 486: IN 14, OUT 16 (the 286 is 5 and 3)
     EXPECT_EQ(runCycles({0xE4, 0x60}), 14);  // IN AL,imm8
     EXPECT_EQ(runCycles({0xE6, 0x60}), 16);  // OUT imm8,AL
     EXPECT_EQ(runCycles({0xEC}), 14);        // IN AL,DX
@@ -466,7 +420,7 @@ TEST_F(Cpu80486TimingTest, StringPortIoChargesSeventeenPerIteration) {
     EXPECT_EQ(runCycles({0xF3, 0x6C}), 1 + 5);       // empty rep
 }
 
-// --- 486-native and 386-inherited opcodes --------------------------------
+// --- 486-native and 386-inherited opcodes ---
 
 TEST_F(Cpu80486TimingTest, BswapIsASingleCycle) {
     EXPECT_EQ(runCycles({0x0F, 0xC8}), 1);  // BSWAP EAX
@@ -480,10 +434,7 @@ TEST_F(Cpu80486TimingTest, XaddAndCmpxchgChargeTheirPublishedCosts) {
 }
 
 TEST_F(Cpu80486TimingTest, CmpxchgAgainstMemorySplitsThePublishedSevenToTenRange) {
-    // Published "7-10" for the memory form; this core reads that as
-    // compare-only vs compare-plus-store, which is the only split the
-    // instruction actually has (labelled in cpu80486.cpp -- Intel prints
-    // the range without saying which end is which).
+    // published 7-10 for the memory form; read as compare-only vs compare-plus-store
     cpu->ebx = 0x50;
     cpu->eax = 0x1111;
     mem[0x50] = 0x11; mem[0x51] = 0x11;   // matches AX -> store happens
@@ -506,8 +457,7 @@ TEST_F(Cpu80486TimingTest, MovzxMovsxAndSetccChargeTheirPublishedCosts) {
 }
 
 TEST_F(Cpu80486TimingTest, BitScanCostTracksHowManyBitsWereExamined) {
-    // Published BSF 6-42 / BSR 6-103 for a register source; this core
-    // charges the floor plus one clock per bit examined (cpu80486.cpp).
+    // published BSF 6-42 / BSR 6-103; floor plus one clock per bit examined
     cpu->ebx = 0x0100;
     EXPECT_EQ(runCycles({0x0F, 0xBC, 0xC3}), 6 + 9);   // BSF AX,BX -- bits 0..8 examined
     EXPECT_EQ(runCycles({0x0F, 0xBD, 0xC3}), 6 + 8);   // BSR AX,BX -- bits 15..8 examined
@@ -535,7 +485,7 @@ TEST_F(Cpu80486TimingTest, SegmentRegisterMovesAndFarPointerLoads) {
     EXPECT_EQ(runCycles({0x0F, 0xA0}), 3);        // PUSH FS
 }
 
-// --- Misc single instructions --------------------------------------------
+// --- Misc single instructions ---
 
 TEST_F(Cpu80486TimingTest, MiscInstructionsChargeTheirPublishedCosts) {
     cpu->ebx = 0x50;
@@ -565,10 +515,7 @@ TEST_F(Cpu80486TimingTest, HaltedCpuIdlesAtThePublishedHltCost) {
 }
 
 TEST_F(Cpu80486TimingTest, EachPrefixByteCostsOneClock) {
-    // The 486 column publishes a cost only for LOCK (1); cpu80486.cpp
-    // applies that same figure uniformly to the segment-override,
-    // operand-size and address-size prefixes, which the 486 decodes one
-    // per clock.
+    // the 486 column publishes only LOCK (1); applied to every prefix, decoded one per clock
     EXPECT_EQ(runCycles({0x89, 0xD8}), 1);                    // MOV AX,BX
     EXPECT_EQ(runCycles({0x66, 0x89, 0xD8}), 2);              // MOV EAX,EBX
     EXPECT_EQ(runCycles({0x26, 0x8A, 0x07}), 2);              // ES: MOV AL,[BX]
@@ -577,10 +524,7 @@ TEST_F(Cpu80486TimingTest, EachPrefixByteCostsOneClock) {
     EXPECT_EQ(runCycles({0x66, 0x67, 0x8B, 0x05, 0, 0, 0, 0}), 3);  // two prefixes + MOV
 }
 
-// --- Mode and descriptor-table management, real mode ---------------------
-// These are the members of the group that are legal in real mode, and their
-// published costs are unchanged now that they do real work (Milestone 2)
-// rather than being documented no-ops (Milestone 1).
+// --- Real-mode mode and descriptor-table management ---
 
 TEST_F(Cpu80486TimingTest, ModeAndDescriptorTableInstructionsChargeTheirPublishedCosts) {
     cpu->eax = 0;   // so LMSW/MOV CR0 do not actually leave real mode here
@@ -604,19 +548,13 @@ TEST_F(Cpu80486TimingTest, ModeAndDescriptorTableInstructionsChargeTheirPublishe
 }
 
 TEST_F(Cpu80486TimingTest, AProtectedModeOnlyOpcodeInRealModeCostsItsFaultDelivery) {
-    // LAR/LSL/ARPL are #UD in real mode, and a fault is not free: the
-    // real-mode vectoring work is charged at INT3's published 26, the same
-    // figure interrupt() uses (cpu80486.cpp's deliver_fault).
+    // LAR/LSL/ARPL are #UD in real mode; the fault is charged at INT3's 26
     EXPECT_EQ(runCycles({0x0F, 0x02, 0xC3}), 26);   // LAR
     EXPECT_EQ(runCycles({0x0F, 0x03, 0xC3}), 26);   // LSL
     EXPECT_EQ(runCycles({0x63, 0xC3}), 26);         // ARPL
 }
 
-// --- Protected-mode costs ------------------------------------------------
-// A separate fixture, because the protected-mode-only instructions and the
-// protected-mode rows of the control-transfer entries can only be reached
-// from inside protected mode. Entry is the real instruction sequence, so the
-// cost of the *entry* is covered too.
+// --- Protected-mode costs ---
 
 class Cpu80486PmTimingTest : public Cpu80486TimingTest {
 protected:
@@ -676,7 +614,7 @@ protected:
         cpu->eip = 0x0600;
         for (int i = 0; i < 10; ++i) cpu->step();
     }
-    // Assembles at pm_code_ and returns what step() charged for one instruction.
+    // assemble at pm_code_, return what step() charged
     int pmCycles(std::initializer_list<uint8_t> code) {
         uint32_t a = pm_code_;
         for (uint8_t b : code) w8(a++, b);
@@ -706,21 +644,17 @@ TEST_F(Cpu80486PmTimingTest, ProtectedModeOnlyOpcodesChargeTheirPublishedCosts) 
 
 TEST_F(Cpu80486PmTimingTest, FarControlTransfersChargeTheirProtectedModeRows) {
     enter_pm32();
-    // The 486 column carries separate real-mode and protected-mode rows for
-    // these: JMP far 17 real / 19 protected, CALL far 18 / 20, RET far 13.
-    // A plain segment-load transfer is the cheap case; a call gate and a task
-    // switch are an order of magnitude more.
+    // 486 column has separate real and protected rows: JMP far 17/19, CALL far 18/20, RET far 13
     w8(0x6000, 0xF4);   // HLT at the far-jump target, so nothing runs on
     EXPECT_EQ(pmCycles({0xEA, 0x00, 0x60, 0x00, 0x00, uint8_t(kCode32), 0x00}), 19);
     EXPECT_EQ(pmCycles({0x9A, 0x00, 0x60, 0x00, 0x00, uint8_t(kCode32), 0x00}), 20);
-    // The CALL above left a return frame on the stack, so RETF has one to pop.
+    // the CALL left a frame for RETF to pop
     EXPECT_EQ(pmCycles({0xCB}), 13);
 }
 
 TEST_F(Cpu80486PmTimingTest, ATaskSwitchIsTheMostExpensiveOperationInTheInstructionSet) {
     enter_pm32();
-    // Charged as one labelled figure for every task-switch path rather than
-    // asserting a cited split this core cannot separate (cpu80486.cpp).
+    // one figure for every task-switch path; the table does not split them (cpu80486.cpp)
     w64(kGdt + 0x28, seg_desc(0x2900, 0x67, 0x89, false, false));
     for (uint32_t i = 0; i < 104; i += 4) w32(0x2900 + i, 0);
     w8(0x6000, 0xF4);
@@ -738,24 +672,20 @@ TEST_F(Cpu80486PmTimingTest, ATaskSwitchIsTheMostExpensiveOperationInTheInstruct
 
 TEST_F(Cpu80486PmTimingTest, AProtectedModeFaultDeliveryCostsItsGateWork) {
     enter_pm32();
-    // Published INT through a protected-mode gate at the same privilege level
-    // is 44, against real mode's 26 -- the descriptor work is the difference.
+    // INT through a protected-mode gate is 44 against real mode's 26
     w16(0x0500, 0x07FF);
     w32(0x0502, 0x1100);
     for (uint32_t v = 0; v < 32; ++v) w64(0x1100 + v * 8, 0);
     w8(0x6000, 0xF4);
-    // A 32-bit interrupt gate for #UD.
+    // 32-bit interrupt gate for #UD
     w64(0x1100 + 6 * 8, (uint64_t(0x6000 & 0xFFFFu)) | (uint64_t(kCode32) << 16) |
                         (uint64_t(0x8E) << 40) | (uint64_t(0x6000 >> 16) << 48));
     pmCycles({0x0F, 0x01, 0x1D, 0x00, 0x05, 0x00, 0x00});   // LIDT [0500h]
     EXPECT_EQ(pmCycles({0x8E, 0xC8}), 44);   // MOV CS,AX -> #UD through the gate
 }
 
-// --- x87 FPU costs -------------------------------------------------------
-// The FPU rows of the same timing table. Where the table prints a range the
-// floor is charged and the data-dependence is deliberately not modelled:
-// unlike the integer MUL/BSF/RCL cases, Intel documents no mechanism for
-// these ranges that could be fitted to both endpoints (cpu80486.cpp).
+// --- x87 FPU costs ---
+// Where the table prints a range the floor is charged; Intel documents no mechanism to fit both endpoints.
 
 TEST_F(Cpu80486TimingTest, FpuLoadsAndStoresChargeTheirPublishedCosts) {
     EXPECT_EQ(runCycles({0xDB, 0xE3}), 17);              // FNINIT
@@ -774,18 +704,13 @@ TEST_F(Cpu80486TimingTest, FpuLoadsAndStoresChargeTheirPublishedCosts) {
 }
 
 TEST_F(Cpu80486TimingTest, FpuArithmeticCostsDifferByAnOrderOfMagnitude) {
-    // This is the whole reason the FPU needs its own cost entries: a divide
-    // is nine times an add, and a square root ten times. A flat per-ESC
-    // figure would make period floating-point benchmarks read wildly wrong,
-    // the same failure mode the integer MUL/DIV split exists to avoid.
+    // a divide is nine times an add, a square root ten; a flat per-ESC cost would misprice FP benchmarks
     EXPECT_EQ(runCycles({0xD8, 0xC1}), 8);    // FADD ST,ST(1)
     EXPECT_EQ(runCycles({0xD8, 0xC9}), 16);   // FMUL ST,ST(1)
     EXPECT_EQ(runCycles({0xD8, 0xE1}), 8);    // FSUB ST,ST(1)
     EXPECT_EQ(runCycles({0xD8, 0xF1}), 73);   // FDIV ST,ST(1)
     EXPECT_EQ(runCycles({0xD9, 0xFA}), 83);   // FSQRT
-    // A memory operand costs the same as a register one: the table gives one
-    // figure for "FADD ST(i),ST / m32real / m64real", so the load is already
-    // inside it.
+    // memory operands cost the same as register ones: one table figure covers the load
     EXPECT_EQ(runCycles({0xD8, 0x06, 0x00, 0x02}), 8);   // FADD m32real
     EXPECT_EQ(runCycles({0xDC, 0x06, 0x00, 0x02}), 8);   // FADD m64real
     EXPECT_EQ(runCycles({0xD8, 0x0E, 0x00, 0x02}), 16);  // FMUL m32real

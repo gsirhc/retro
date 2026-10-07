@@ -22,7 +22,6 @@ test:
 	cmake --build tests/build -j
 	ctest --test-dir tests/build --output-on-failure
 
-# Board smoke only (Smoke.*). Full GoogleTest is `make test` / `make check`.
 test-smoke:
 	cmake -S tests -B tests/build
 	cmake --build tests/build -j --target smoke_test

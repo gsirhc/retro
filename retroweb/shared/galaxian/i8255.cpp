@@ -16,8 +16,7 @@ uint8_t I8255::read(int port) {
         case 2: {
             uint8_t lo = cl_in && in_c ? uint8_t(in_c() & 0x0F) : uint8_t(c & 0x0F);
             uint8_t hi = cu_in && in_c ? uint8_t(in_c() & 0xF0) : uint8_t(c & 0xF0);
-            // When only one half is an input, pull the other half from the
-            // last written latch and the input half from the pin callback.
+            // input half from the pin callback, output half from the latch
             if (cl_in && cu_in && in_c) return in_c();
             if (!cl_in) lo = uint8_t(c & 0x0F);
             if (!cu_in) hi = uint8_t(c & 0xF0);

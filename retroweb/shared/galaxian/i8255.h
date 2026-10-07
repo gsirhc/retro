@@ -1,9 +1,6 @@
-// Intel 8255 PPI, mode 0 only — the two chips on Konami Galaxian-family
-// boards (Frogger, Scramble, …).
-//
-// Port direction comes from the mode-set control word the boot ROM writes
-// (bit 7 = 1). BSR (bit 7 = 0) is unused on these PCBs. Reset leaves every
-// port as input, matching the datasheet.
+// Intel 8255 PPI, mode 0 only (two on Konami Galaxian-family boards). Direction
+// comes from the mode-set word the boot ROM writes; BSR is unused. Reset leaves
+// every port as input.
 
 #ifndef GALAXIAN_I8255_H
 #define GALAXIAN_I8255_H

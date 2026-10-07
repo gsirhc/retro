@@ -1,13 +1,8 @@
-// Minimal CP/M host for Frank Cringle's Z80 instruction exerciser
-// (zexdoc.com). Same role TST8080 / Klaus Dormann play for the 8080 and
-// 6502 cores: an independent, documented-opcode functional suite.
-//
+// CP/M host for Frank Cringle's zexdoc Z80 exerciser.
 //   build:  make zexdoc
 //   run:    ./zex/zex_host zex/zexdoc.com
-//
-// A .COM image loads at 0x0100. CALL 0x0005 is BDOS; JMP 0x0000 is warm
-// boot. We plant OUT traps at those addresses, matching
-// retroweb/altair8800/cpm/cpm_host.cpp.
+// A .COM loads at 0x0100. OUT traps at 0x0000 (warm boot) and 0x0005 (BDOS),
+// as in altair8800/cpm/cpm_host.cpp.
 
 #include "../cpu_z80.h"
 
@@ -102,8 +97,7 @@ int main(int argc, char** argv) {
     cpu.reset();
     cpu.pc = 0x0100;
 
-    // zexdoc is a few tens of billions of T-states on a correct core
-    // (each case has CRC/setup overhead; alu8r alone is 753k cases).
+    // zexdoc needs tens of billions of T-states
     const uint64_t kCycleCap = 50'000'000'000;
     while (!g_finished && cpu.cycles < kCycleCap)
         cpu.step();

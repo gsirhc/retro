@@ -45,7 +45,6 @@ TEST(Dvg, JsrFromVectorRomStyle) {
     mem[1] = 0x9000 | 100;
     mem[2] = 0xC000 | 4;
     mem[3] = 0xB000;
-    // Sub at 4: draw + RTS
     mem[4] = 0x0000 | 50;   // VEC local0 dy=+50
     mem[5] = 0xF000 | 0;    // bri 15 dx=0
     mem[6] = 0xD000;

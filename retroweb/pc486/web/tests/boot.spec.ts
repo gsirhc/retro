@@ -1,9 +1,8 @@
 import { test, expect } from "./fixtures";
 import { screenText, setPowerSwitch, clickReset, waitForScreen, focusScreen } from "./helpers";
 
-// Auto-boot-on-load, the power switch, and the front-panel Reset button
-// (a real, later clone-era convention this machine's whole premise calls
-// for -- unlike ibmpc-at's genuine 5170, which never had one).
+// Auto-boot-on-load, the power switch, and the front-panel Reset button (a later clone-era
+// convention; the genuine 5170 had none).
 
 test.describe("boot and power", () => {
   test("boots itself to a live C:\\> prompt with no interaction", async ({ promptPage: page }) => {
@@ -21,14 +20,10 @@ test.describe("boot and power", () => {
 
     await setPowerSwitch(page, false);
     await expect(page.locator("#powerLed")).not.toHaveClass(/power-on/);
-    // Turbo LED and seven-seg clock need power -- they go dark with the
-    // Power LED even though the Turbo button still remembers its latch.
+    // Turbo LED and seven-seg clock go dark with the Power LED.
     await expect(page.locator("#turboLed")).not.toHaveClass(/turbo-on/);
     await expect(page.locator("#clockDisplay .sevenseg i.on")).toHaveCount(0);
-    // Real hardware: RAM is gone the instant power is cut -- see
-    // ibmpc-at/web/tests/boot.spec.ts's identical test for the full
-    // rationale (the observable signal is the cycle count stopping, not
-    // window.__test.machine becoming null).
+    // RAM is gone when power is cut. The observable signal is the cycle count stopping.
     const framesLater = await page.evaluate(() => (window as any).__test.machine.totalCycles());
     await page.waitForTimeout(300);
     const stillFramesLater = await page.evaluate(() => (window as any).__test.machine.totalCycles());
@@ -45,12 +40,10 @@ test.describe("boot and power", () => {
     promptPage: page,
   }) => {
     test.setTimeout(180_000);
-    // A real reset button doesn't cut power -- the power LED and cycle
-    // count both keep going, unlike the power-off case above.
+    // Reset keeps power: the LED and cycle count keep going.
     const cyclesBefore = await page.evaluate(() => (window as any).__test.machine.totalCycles());
     await clickReset(page);
     await expect(page.locator("#powerLed")).toHaveClass(/power-on/);
-    // A fresh boot follows the reset, back to the same live prompt.
     await waitForScreen(page, /C:\\>/);
     const cyclesAfter = await page.evaluate(() => (window as any).__test.machine.totalCycles());
     expect(cyclesAfter).toBeGreaterThan(cyclesBefore);

@@ -58,9 +58,7 @@ test.describe("era presets", () => {
     expect(s.acr).toBe(false);
   });
 
-  // pins the era/hardware claims ALTAIR_REVIEW.md §5.1 flagged, so a future
-  // edit that reintroduces an anachronism (or a fake MITS part number) fails
-  // here instead of just in prose.
+  // pins the era/hardware claims from ALTAIR_REVIEW.md §5.1 so an anachronism fails here
   test("preset eras and card lists match the corrected metadata", async ({ page }) => {
     await boot(page, { params: "preset=baremetal" });
     const presets = await page.evaluate(() => (window as any).__test.PRESETS);
@@ -85,10 +83,7 @@ test.describe("era presets", () => {
     }
   });
 
-  // A real Altair doesn't run anything on its own -- a preset threads the
-  // software into its device (tape in the reader, diskette in the drive) but
-  // never keys it in or presses RUN for you. boot() flips the front panel's
-  // power switch on, which is as far as any preset goes by itself.
+  // a preset threads software into its device but never keys it in or presses RUN; boot() only flips power on
   test("presets configure hardware and thread media, but never load or boot on their own", async ({
     page,
   }) => {
@@ -138,9 +133,7 @@ test.describe("era presets", () => {
   });
 
   test("a preset whose software can't be found sets the hardware and says so", async ({ page }) => {
-    // block the flat load-and-go image AND its ROM-build alternative -- the
-    // catalog falls back to whichever "8K BASIC" entry it can actually fetch,
-    // so simulating "nothing available" means blocking both
+    // block both the flat image and its ROM-build alternative; the catalog falls back to whichever it can fetch
     await page.route(/\/roms\/(8kbas\.bin|8kBas_.*\.bin)$/i, (r) => r.abort());
     await page.goto("/?test=1&preset=cassette");
     await expect(page.locator("#presetNote")).toContainText(/could not be loaded|not.*load/i, {

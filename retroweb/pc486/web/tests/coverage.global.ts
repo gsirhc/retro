@@ -1,8 +1,7 @@
 import { CoverageReport } from "monocart-coverage-reports";
 import { coverageEnabled, coverageOptions } from "./coverage";
 
-// Playwright calls the default export of the globalSetup / globalTeardown files.
-// One module, two entry points -- pick with the COVERAGE_PHASE env the config sets.
+// Playwright calls the default export; COVERAGE_PHASE selects setup or teardown.
 
 export async function coverageSetup() {
   if (!coverageEnabled) return;

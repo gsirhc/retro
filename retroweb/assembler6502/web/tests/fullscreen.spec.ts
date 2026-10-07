@@ -1,23 +1,10 @@
 import { test, expect } from "@playwright/test";
 
-// Fullscreen mode (expands #bezel -- CRT frame + vignette + power LED, not
-// just the bare terminal -- see index.html's #bezel:fullscreen CSS
-// comment), the corner Esc button, and the one-time hint dialog explaining
-// why that button exists at all. Ported from
-// ibmpc-at/web/tests/fullscreen.spec.ts (shared/fullscreen.js is the same
-// mechanism on every machine page).
-//
-// The Esc button matters because browsers reserve the physical Esc key to
-// exit fullscreen and never dispatch it to the page while doing so, so
-// there is no way for page script to claim it back from the Fullscreen
-// API. The button feeds a synthetic Escape straight into the board's own
-// terminal-input path instead (see app.js's handleTermData), bypassing the
-// native key event that problem lives in.
-//
-// FS_ESC_HINT_VERSION in shared/fullscreen.js is "2" as of this writing;
-// the tests below that plant a stored value hardcode that alongside a
-// deliberately stale one, matching how a real visitor's browser would hold
-// whatever version they last saw.
+// Fullscreen expands #bezel (CRT frame, vignette, power LED), plus the corner
+// Esc button and its one-time hint dialog. Browsers keep the physical Esc key
+// to exit fullscreen, so the button feeds a synthetic Escape into the
+// terminal-input path (app.js handleTermData). Tests that plant a stored hint
+// version hardcode FS_ESC_HINT_VERSION ("2" in shared/fullscreen.js).
 
 test.describe("fullscreen", () => {
   test.beforeEach(async ({ page }) => {
@@ -73,13 +60,8 @@ test.describe("fullscreen", () => {
     const before = await page.locator("#screen").boundingBox();
     await page.locator("#fullscreenBtn").click();
     await expect.poll(() => page.evaluate(() => !!document.fullscreenElement)).toBe(true);
-    // #screen is a <div> sized by inline pixel width/height (see
-    // sizeScreen()) -- entering fullscreen grows the terminal's own font
-    // size and resizes #screen to fill the bezel directly, not a CSS
-    // transform (a different machine's mechanism). Poll rather than diff a
-    // single before/after pair so an unrelated few-pixel reflow (e.g. the
-    // page's own scrollbar disappearing once fullscreen hides the
-    // document) can't be mistaken for the real change.
+    // #screen is sized by inline pixel width/height (sizeScreen()). Poll rather
+    // than diff once so a few-pixel reflow can't pass for the change.
     await expect
       .poll(() => page.locator("#screen").boundingBox().then((b) => b!.width))
       .toBeGreaterThan(before!.width * 1.2);

@@ -1,11 +1,8 @@
 import { test, expect } from "@playwright/test";
 import { readFileSync } from "fs";
 
-// HIGH SCORE work RAM ($1d-$51) is always persisted for a user ROM. Reset
-// HIGH SCORE is the labelled way back to a power-cycle empty table. See
-// .claude/arcade.md "High scores". Fixtures are the generated self-test
-// ROM, never Atari Asteroids -- the hwtest ROM never touches this RAM
-// range itself, so these tests poke it directly via the `?test=1` seam.
+// HIGH SCORE work RAM ($1d-$51) persists for a user ROM. Reset HIGH SCORE clears it.
+// Fixtures are the self-test ROM, so tests poke the RAM through the ?test=1 seam.
 
 const HWTEST_FILES = [
   "roms/035145-04e.ef2",
@@ -14,19 +11,14 @@ const HWTEST_FILES = [
   "roms/035127-02.np3",
 ];
 
-// Shared origin IndexedDB (ROM set + hiscores) -- keep the whole file
-// serial so a real-ROM load cannot race the CRC-patched hwtest fixtures.
+// Shared IndexedDB origin, keep this file serial.
 test.describe.configure({ mode: "serial" });
 
 function userSet() {
   return HWTEST_FILES.map((path) => {
     const name = path.split("/").pop()!;
     let buffer = readFileSync(path);
-    // Flip a byte deep in this chip's unused zero-padding (the self-test
-    // program itself is under 200 bytes) -- not byte 0, which is the ROM's
-    // very first opcode: corrupting that breaks the watchdog-kick loop and
-    // the board free-runs resetting (and zeroing work RAM) instead of
-    // staying up for the rest of this test.
+    // Flip a byte in the unused zero padding. Byte 0 would break the watchdog loop.
     if (name === "035145-04e.ef2") {
       buffer = Buffer.from(buffer);
       buffer[1024] ^= 1;

@@ -1,12 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-// Boots the built-in hardware self-test ROM (never Namco Pac-Man) and
-// checks the real, wall-clock-paced 3.072 MHz Z80 core is actually running:
-// the tile/sprite pattern paints, and cycles/real-second lands near the
-// genuine clock rate -- see CLAUDE.md's "Never speed these up". Modeled on
-// retroweb/ibmpc-at/web/tests/smoke.spec.ts's real-speed check. Native ISA
-// coverage is retroweb/shared/cpu (zexdoc); this file only smokes the
-// board in a browser.
+// Boots the self-test ROM and checks the core runs at the real 3.072 MHz.
 
 test("boots the test ROM, paints a non-black frame, no console errors", async ({ page }) => {
   const errors: string[] = [];
@@ -15,8 +9,7 @@ test("boots the test ROM, paints a non-black frame, no console errors", async ({
   await page.goto("/?test=1");
   await expect(page.locator("#romStatus")).toHaveText("Running test ROM");
 
-  // Let a handful of real frames run so the self-test ROM's tile fill,
-  // parked sprite, and RAM signature have had time to execute.
+  // Let a few frames run so the ROM's tile fill, sprite and signature execute.
   await page.waitForTimeout(500);
 
   const nonBlack = await page.evaluate(() => {
@@ -37,9 +30,7 @@ test("the monitor fills about 75% of the viewport height when not fullscreen", a
   await page.goto("/");
   const box = await page.locator("#screen").boundingBox();
   expect(box).toBeTruthy();
-  // 75% of 800px = 600; allow bezel/page chrome and the max-width clamp
-  // to shave a little, but this must be far larger than the old 288px
-  // native-pixel CSS size.
+  // 75% of 800px = 600, minus bezel/chrome and the max-width clamp.
   expect(box!.height).toBeGreaterThan(500);
   expect(box!.height).toBeLessThan(650);
   expect(Math.abs(box!.width / box!.height - 224 / 288)).toBeLessThan(0.02);
@@ -56,8 +47,7 @@ test("the guest CPU runs at real, wall-clock-paced 3.072 MHz -- not sped up", as
   const t1 = Date.now();
 
   const cyclesPerSecond = (c1 - c0) / ((t1 - t0) / 1000);
-  // Generous tolerance for CI scheduling jitter -- checking for genuine
-  // ~3.072 MHz pacing, not tight timing precision.
+  // Loose tolerance for CI jitter.
   expect(cyclesPerSecond).toBeGreaterThan(1_500_000);
   expect(cyclesPerSecond).toBeLessThan(4_500_000);
 });

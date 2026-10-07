@@ -1,18 +1,10 @@
-// MOS Technology NMOS 6502 CPU core.
-//
-// Period MOS 6502 (Asteroids, Lunar Lander, and other Atari vector boards),
-// not the WDC W65C02S used by the CG-OAC assembler board. Host-agnostic
-// Bus callbacks match cpu65c02::Cpu / z80::Cpu.
-//
-// NMOS quirks vs CMOS (MCS6500 Family Hardware Manual; Visual6502 /
-// Nesdev undocumented-opcode tables for the illegal set):
+// MOS NMOS 6502 (Asteroids, Lunar Lander), not the W65C02S on the CG-OAC board.
+// NMOS quirks (MCS6500 Hardware Manual; Visual6502 / Nesdev for illegals):
 //   - JMP ($xxFF) page-wrap bug (5 cycles)
 //   - RMW abs,X takes 7 cycles
-//   - Decimal ADC/SBC leave N/Z/V from the binary path
-//   - Reset and IRQ/NMI leave D unchanged
-//   - Full undocumented/illegal opcode set (stable RMW hybrids +
-//     unstable bus-fight ops with documented MAGIC approximations)
-//
+//   - decimal ADC/SBC leave N/Z/V from the binary path
+//   - reset and IRQ/NMI leave D unchanged
+//   - full undocumented opcode set, unstable ones use MAGIC approximations
 // Validated against Klaus Dormann's 6502_functional_test.bin.
 
 #ifndef SHARED_CPU_MOS6502_H
@@ -56,9 +48,7 @@ public:
     explicit Cpu(Bus bus) : bus_(std::move(bus)) {}
     void rebind_bus(Bus bus) { bus_ = std::move(bus); }
 
-    // Load PC from $FFFC/$FFFD. Three phantom SP decrements land SP at
-    // 0xFD. Unlike the 65C02, D is left alone (MCS6500 Family Hardware
-    // Manual reset sequence).
+    // Load PC from $FFFC. SP lands at $FD; unlike the 65C02, D is left alone.
     void reset();
     int step();
 
@@ -130,8 +120,6 @@ private:
     void branch(bool cond, int &extra);
     void service_irq(bool is_nmi, bool is_brk);
 
-    // Undocumented helpers. Cite: Nesdev "Programming with unofficial
-    // opcodes" / Visual6502 all-256 table.
     void slo(uint16_t ea);
     void rla(uint16_t ea);
     void sre(uint16_t ea);

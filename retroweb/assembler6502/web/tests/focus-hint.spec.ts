@@ -1,9 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-// "Click to focus" banner (shared/focus-hint.js, same mechanism ibmpc-at's
-// own keyboard.spec.ts test and altair8800's own focus-hint.spec.ts test
-// cover) -- purely a web-UI convenience, no hardware equivalent, since a
-// real board's keyboard is just whatever terminal is wired to the ACIA.
+// "Click to focus" banner (shared/focus-hint.js). Web-UI only, no hardware equivalent.
 
 test.describe("focus hint", () => {
   test.beforeEach(async ({ page }) => {

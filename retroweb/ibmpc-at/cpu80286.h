@@ -1,38 +1,17 @@
-// Intel 80286 CPU core, real-address-mode only -- plus a deliberate,
-// labelled 80386 compatibility layer (32-bit registers via the 0x66
-// operand-size prefix, and the 386's most common 0x0F-prefixed additions:
-// Jcc rel16, SETcc, two-operand IMUL, MOVZX/MOVSX). NONE of that is
-// genuine 80286 behavior -- Intel's real 80286 has no EAX, no 0x66 prefix,
-// and none of those 0x0F opcodes. It exists because this machine's actual
-// firmware substitute (BIOS-bochs-legacy, IBM_PCAT_REVIEW.md §6) turned out
-// to assume a 386+ baseline despite its "legacy"/no-PCI branding -- found
-// opcode-by-opcode via the on_unimplemented diagnostic hook against the
-// real fetched binary, not guessed at speculatively. Kept as a clearly
-// commented, evidence-driven concession, the same way CLAUDE.md requires
-// any other realism override to be labelled rather than silent.
+// Intel 80286 CPU core, real mode only, plus an 80386 compatibility layer:
+// 32-bit registers via the 0x66 prefix, Jcc rel16, SETcc, two-operand IMUL,
+// MOVZX/MOVSX. None of that exists on a real 286. BIOS-bochs-legacy assumes
+// a 386+ baseline (IBM_PCAT_REVIEW.md §6), found via on_unimplemented.
 //
-// Scope: PC-DOS/FreeDOS on a genuine 5170 never leave real mode, so this core
-// implements real mode exclusively -- no GDT/LDT/IDT/TSS, no descriptor
-// caches, no privilege checking. See IBM_PCAT_REVIEW.md for the full
-// rationale and the (small) list of protected-mode-only opcodes therefore
-// deliberately unimplemented (LGDT/SGDT/LIDT/SIDT/LLDT/SLDT/LTR/STR/LMSW/
-// SMSW/ARPL/LAR/LSL/VERR/VERW/CLTS).
+// No GDT/LDT/IDT/TSS, descriptor caches or privilege checks. Protected-mode
+// opcodes (LGDT/SGDT/LIDT/SIDT/LLDT/SLDT/LTR/STR/LMSW/SMSW/ARPL/LAR/LSL/
+// VERR/VERW/CLTS) are unimplemented.
 //
-// Like i8080::Cpu, this core is host-agnostic: it talks to the outside world
-// only through the Bus callbacks below. The address bus is 24 bits wide (the
-// real 80286 has 24 physical address lines) -- the CPU always computes the
-// full segment:offset -> physical address itself and never wraps it at 1MB.
-// On real hardware that wraparound (relied on by some 8086-era software) is
-// enforced or not by the A20 gate, which lives on the motherboard (wired
-// through the 8042 keyboard controller's P21 output-port bit on a genuine
-// AT), not in the CPU. So it belongs in the embedding chipset's Bus::read/
-// write, not here -- this core deliberately never masks addr itself.
+// The core talks only through Bus. Addresses are 24 bits and never wrapped at
+// 1MB here, because the A20 gate is motherboard logic (8042 P21) in the chipset.
 //
-// Cycle counts and instruction semantics are drawn from the Intel iAPX 286
-// Programmer's Reference Manual (1987), the 80286 data sheet's timing
-// appendix, and (for the shared 8086-legacy subset) the Intel 8086/8088
-// User's Manual. Cited by section inline where a specific quirk is being
-// preserved rather than guessed at.
+// Timings and semantics: Intel iAPX 286 Programmer's Reference Manual (1987),
+// 80286 data sheet timing appendix, and the 8086/8088 User's Manual.
 
 #ifndef IBMPCAT_CPU80286_H
 #define IBMPCAT_CPU80286_H
@@ -42,9 +21,7 @@
 
 namespace cpu80286 {
 
-// FLAGS register bit positions (real mode: IOPL/NT exist as storage for
-// PUSHF/POPF fidelity but have no privilege-check effect without protected
-// mode). Bit 1 always reads 1; bits 3, 5 are reserved/0 on the 8086 lineage.
+// FLAGS bits. IOPL/NT are storage only in real mode.
 enum Flag : uint16_t {
     FLAG_CF   = 1 << 0,   // carry
     FLAG_R1   = 1 << 1,   // reserved, always 1
@@ -60,20 +37,10 @@ enum Flag : uint16_t {
     FLAG_NT   = 1 << 14,  // nested task -- storage only
 };
 
-// Memory and port I/O callbacks supplied by the embedding chipset. `addr` is
-// a full 24-bit physical address (segment*16 + offset, unmasked); `port` is
-// the 16-bit x86 I/O-space address.
-//
-// in16/out16 exist because a genuine 80286 can do a 16-bit port access as
-// one atomic bus cycle -- and for most ISA devices that's equivalent to
-// two adjacent 8-bit accesses (port, port+1), but it is NOT for a device
-// whose data register is inherently 16-bit at a single port address (the
-// WD1003/ATA data register at 0x1F0 is exactly this: 0x1F1 is a completely
-// different register, the Error/Features register, not "the high byte of
-// 0x1F0"). The chipset's default in16/out16 compose two 8-bit accesses,
-// preserving old behavior for every other port; only the hard disk
-// controller's data register needs the true atomic path. See wd1003.h and
-// IBM_PCAT_REVIEW.md.
+// `addr` is a 24-bit physical address, unmasked. in16/out16 are one atomic
+// 16-bit bus cycle, needed for the WD1003 data register at 0x1F0 (0x1F1 is
+// the Error register, not its high byte). The chipset composes two 8-bit
+// accesses for every other port.
 struct Bus {
     std::function<uint8_t(uint32_t addr)>          read;
     std::function<void(uint32_t addr, uint8_t v)>  write;
@@ -85,20 +52,12 @@ struct Bus {
 
 class Cpu {
 public:
-    // General registers. Stored as full 32-bit values -- a genuine 80286
-    // has no 32-bit registers or EAX/0x66 prefix at all (Intel iAPX 286
-    // PRM), but this core also runs the 386-targeted BIOS substitute this
-    // machine boots (see IBM_PCAT_REVIEW.md's opcode-coverage notes), which
-    // does use them even in 16-bit real-mode code via the 0x66 operand-size
-    // prefix -- a deliberate, labelled compatibility concession, not
-    // genuine 80286 behavior, same as the 0x0F 0x80-0x8F Jcc-rel16 one.
-    // AX/BX/... (and AL/AH etc.) are simply the low 16 (or 8) bits of this
-    // same storage, matching real hardware: writing AX never disturbs
-    // EAX's upper 16 bits.
+    // Stored as 32-bit for the 0x66 386 concession. AX/AL/AH are the low bits;
+    // writing AX leaves EAX's upper 16 bits alone.
     uint32_t ax = 0, bx = 0, cx = 0, dx = 0;
     uint32_t sp = 0, bp = 0, si = 0, di = 0;
 
-    // Segment registers and instruction pointer.
+    // Segment registers and IP.
     uint16_t cs = 0xF000, ds = 0, es = 0, ss = 0;
     uint16_t ip = 0;
 
@@ -107,85 +66,52 @@ public:
     bool     halted = false;
     uint64_t cycles = 0;   // total clock cycles executed (includes wait states)
 
-    // Diagnostic hook: called with (CS, IP-of-opcode, opcode-word) whenever
-    // step() falls through to the "unimplemented opcode" no-op path -- a
-    // genuinely unrecognized single-byte opcode (opcode-word = 0x00xx), or
-    // an 0x0F sub-opcode outside the 0x80-0x8F Jcc-rel16 concession
-    // (opcode-word = 0x0Fxx). Empty by default (costs nothing); set by a
-    // diagnostic harness to find real opcode-coverage gaps by evidence
-    // instead of by guessing. See IBM_PCAT_REVIEW.md.
+    // Called with (CS, IP, opcode-word) on an unimplemented opcode: 0x00xx for
+    // single-byte, 0x0Fxx for 0x0F sub-opcodes outside Jcc rel16.
     std::function<void(uint16_t cs, uint16_t ip, uint16_t opcode_word)> on_unimplemented;
 
     explicit Cpu(Bus bus) : bus_(std::move(bus)) {}
 
-    // Power-on/RESET state: CS:IP = F000:FFF0 (the real 80286 reset vector,
-    // just below the top of the 16MB address space it can address but
-    // aliased so the BIOS's F0000-FFFFF ROM window is reachable even before
-    // any segment load) -- Intel iAPX 286 PRM, "Initialization".
+    // Reset vector F000:FFF0 (Intel iAPX 286 PRM, "Initialization").
     void reset();
 
-    // Decode and execute exactly one instruction at CS:IP. Returns the
-    // number of clock cycles consumed: base 80286 timings (Intel iAPX 286
-    // PRM / 80286 data sheet timing appendix) computed per-opcode directly
-    // in step()'s dispatch (small groups -- shift/rotate, string ops,
-    // MUL/DIV/etc -- compute their own cost in grp2_shift()/grp3_unary()/
-    // string_op()/io_string_op(), since it depends on the operand and, for
-    // REP-prefixed forms, the iteration count). NOT yet included: the
-    // genuine 5170-339's own added memory-access wait state (a real
-    // 8MHz-board DRAM-timing cost, separate from the CPU's own published
-    // timings) -- deferred rather than silently assumed solved; see
-    // IBM_PCAT_REVIEW.md's CPU-timing section.
+    // Executes one instruction at CS:IP and returns its clock cycles (iAPX 286
+    // PRM / 80286 data sheet). Shift, string and MUL/DIV groups compute their
+    // own cost. The 5170-339's extra memory wait state is not modeled.
     int step();
 
-    // Deliver a hardware/software interrupt: real-mode INT n semantics --
-    // push FLAGS, CS, IP; clear IF and TF; fetch the 4-byte real-mode
-    // interrupt vector at physical address vector*4; jump there. `vector` is
-    // the already-resolved interrupt number (0-255), e.g. from the PIC's
-    // INTA cycle. Always serviced (real mode has no gate/privilege check);
-    // it is the caller's job to honor `flags & FLAG_IF` before calling this
-    // for a maskable (as opposed to NMI) source. Wakes HLT. Returns cycles.
+    // Real-mode INT n: push FLAGS, CS, IP, clear IF and TF, jump through the
+    // vector at vector*4. Wakes HLT. The caller checks IF for maskable sources.
     int interrupt(uint8_t vector);
 
     bool flag(Flag f) const { return (flags & f) != 0; }
     void set_flag(Flag f, bool on) { flags = on ? (flags | f) : (flags & ~f); }
 
-    // 8-bit half-register access by the 3-bit ModR/M reg/rm encoding
-    // (0=AL,1=CL,2=DL,3=BL,4=AH,5=CH,6=DH,7=BH).
+    // 8-bit register by ModR/M encoding (0=AL..3=BL, 4=AH..7=BH).
     uint8_t  get_reg8(int idx) const;
     void     set_reg8(int idx, uint8_t v);
-    // 16-bit register access by the 3-bit encoding (0=AX,1=CX,2=DX,3=BX,
-    // 4=SP,5=BP,6=SI,7=DI). Preserves the register's upper 16 bits, per
-    // real hardware.
+    // 16-bit register by encoding (0=AX,1=CX,2=DX,3=BX,4=SP,5=BP,6=SI,7=DI).
+    // Upper 16 bits are preserved.
     uint16_t get_reg16(int idx) const;
     void     set_reg16(int idx, uint16_t v);
-    // Same encoding, full 32-bit width (the 0x66-prefixed form).
+    // 32-bit form (0x66 prefix).
     uint32_t get_reg32(int idx) const;
     void     set_reg32(int idx, uint32_t v);
 
 private:
     Bus bus_;
 
-    // Segment-override prefix in effect for the instruction being decoded
-    // (-1 = none, else one of the seg_* indices below), and the REP/REPNE
-    // prefix in effect for string ops. Reset at the start of each step().
+    // Segment override (-1 = none) and REP/REPNE state; reset each step().
     int  seg_override_ = -1;
     enum { SEG_ES = 0, SEG_CS = 1, SEG_SS = 2, SEG_DS = 3 };
     enum RepMode { REP_NONE, REP_Z, REP_NZ };
     RepMode rep_ = REP_NONE;
-    // 0x66 (operand-size) prefix -- see the register-storage comment above.
-    // 0x67 (address-size) is deliberately NOT supported: nothing this
-    // machine boots has been observed to need 32-bit *addressing* (every
-    // real-mode offset still fits in 16 bits), only 32-bit operands, so
-    // there's no evidence-based reason to add SIB-byte/32-bit-displacement
-    // decoding. See IBM_PCAT_REVIEW.md.
+    // 0x67 address-size is unsupported: only 32-bit operands are observed.
     bool opsize32_ = false;
 
     uint16_t &seg_reg(int idx);   // ES/CS/SS/DS by the indices above
 
-    // memory / immediate fetch helpers -- physical = seg*16 + offset,
-    // 16-bit offset wraps mod 0x10000 (a real 80286 segment really is only
-    // 64K in real mode; this is not the A20 question, which is about the
-    // *linear* seg*16+off sum exceeding 1MB, handled by the chipset).
+    // physical = seg*16 + off; the 16-bit offset wraps at 64K.
     uint32_t phys(uint16_t seg, uint16_t off) const { return (uint32_t(seg) << 4) + off; }
     uint8_t  rb(uint16_t seg, uint16_t off)            { return bus_.read(phys(seg, off)); }
     void     wb(uint16_t seg, uint16_t off, uint8_t v) { bus_.write(phys(seg, off), v); }
@@ -198,33 +124,22 @@ private:
     uint16_t fetch16() { uint16_t v = rw(cs, ip); ip += 2; return v; }
     uint32_t fetch32() { uint32_t v = rd(cs, ip); ip += 4; return v; }
 
-    // stack (always in SS). 32-bit push/pop moves SP by 4, matching the
-    // 0x66-prefixed forms; the real PUSH-SP-decremented-value quirk
-    // (push_reg(), cpu80286.cpp) generalizes the same way at this width.
+    // Stack is always SS. 32-bit push/pop moves SP by 4.
     void     push16(uint16_t v) { sp -= 2; ww(ss, uint16_t(sp), v); }
     uint16_t pop16()            { uint16_t v = rw(ss, uint16_t(sp)); sp += 2; return v; }
-    // sp is kept 16-bit-wrapped even for the 32-bit-operand forms: this
-    // core doesn't support a 32-bit *address* size (no 0x67 prefix, no
-    // "big real mode"), so the stack pointer's own wraparound stays real
-    // mode's normal 64KB regardless of what width of value is being
-    // pushed/popped.
+    // sp wraps at 64KB even for 32-bit operands (no 0x67 / big real mode).
     void     push32(uint32_t v) { sp = (sp - 4) & 0xFFFF; wd(ss, uint16_t(sp), v); }
     uint32_t pop32()            { uint32_t v = rd(ss, uint16_t(sp)); sp = (sp + 4) & 0xFFFF; return v; }
 
-    // --- ModR/M decode ----------------------------------------------------
-    // An operand resolved by ModR/M: either a register (is_mem=false, reg
-    // index in `reg`) or a memory location (is_mem=true, segment+offset
-    // already combining any override / default-segment rule, e.g. BP-based
-    // addressing defaulting to SS -- Intel 8086 manual table 2-19).
+    // --- ModR/M decode ---
+    // Register (is_mem=false) or memory operand with default-segment rules
+    // applied (BP-based defaults to SS, 8086 manual table 2-19).
     struct RM {
         bool     is_mem;
         int      reg;      // valid when !is_mem
         uint16_t seg, off;  // valid when is_mem
     };
-    // Decodes the ModR/M byte (and any displacement) starting at CS:IP,
-    // advancing IP past it. `wide` selects the 16-bit vs 8-bit register
-    // field interpretation for a register-mode RM (does not affect memory
-    // addressing, which is always 16-bit offsets in this mode).
+    // Decodes ModR/M and any displacement at CS:IP, advancing IP.
     RM decode_modrm();
     uint8_t  rm_read8(const RM &rm)              { return rm.is_mem ? rb(rm.seg, rm.off) : get_reg8(rm.reg); }
     void     rm_write8(const RM &rm, uint8_t v)  { if (rm.is_mem) wb(rm.seg, rm.off, v); else set_reg8(rm.reg, v); }
@@ -239,8 +154,7 @@ private:
     void set_pzs32(uint32_t r);
     static bool parity_even(uint8_t v);
 
-    // ALU primitives -- 8/16-bit pairs, all set CF/OF/AF/PF/ZF/SF per the
-    // Intel manual's flag-affected tables and return the result.
+    // ALU primitives set CF/OF/AF/PF/ZF/SF per the Intel flag tables.
     uint8_t  add8(uint8_t a, uint8_t b, bool carry_in);
     uint16_t add16(uint16_t a, uint16_t b, bool carry_in);
     uint8_t  sub8(uint8_t a, uint8_t b, bool borrow_in);
@@ -251,80 +165,54 @@ private:
     uint16_t or16(uint16_t a, uint16_t b);
     uint8_t  xor8(uint8_t a, uint8_t b);
     uint16_t xor16(uint16_t a, uint16_t b);
-    // 32-bit ALU primitives -- the 0x66-prefixed compatibility-concession
-    // width (see the register-storage comment above); same flag semantics.
+    // 32-bit forms (0x66).
     uint32_t add32(uint32_t a, uint32_t b, bool carry_in);
     uint32_t sub32(uint32_t a, uint32_t b, bool borrow_in);
     uint32_t and32(uint32_t a, uint32_t b);
     uint32_t or32(uint32_t a, uint32_t b);
     uint32_t xor32(uint32_t a, uint32_t b);
 
-    uint8_t  alu_apply8(int alu, uint8_t a, uint8_t b);   // alu = ADD/OR/ADC/SBB/AND/SUB/XOR/CMP selector, 0-7
+    uint8_t  alu_apply8(int alu, uint8_t a, uint8_t b);   // alu: ADD/OR/ADC/SBB/AND/SUB/XOR/CMP = 0-7
     uint16_t alu_apply16(int alu, uint16_t a, uint16_t b);
     uint32_t alu_apply32(int alu, uint32_t a, uint32_t b);
 
-    // shift/rotate group (0xD0-D3 by 1/CL, 0xC0/C1 by imm8 -- the 286-new
-    // encoding). `count` already masked mod 32 the way real silicon does.
+    // Shift/rotate group; `count` is already masked mod 32.
     uint8_t  shiftrot8(int op, uint8_t v, int count);
     uint16_t shiftrot16(int op, uint16_t v, int count);
     uint32_t shiftrot32(int op, uint32_t v, int count);
 
-    // BCD adjust and misc single-purpose instructions, one method each --
-    // named directly after the mnemonic since there's no useful grouping.
+    // BCD adjust and single-purpose instructions.
     void daa(); void das(); void aaa(); void aas(); void aam(); void aad();
-    void push_reg(int idx);         // PUSH reg16, with the real PUSH-SP-pushes-decremented-value quirk
+    void push_reg(int idx);         // PUSH SP pushes the decremented value
     void pusha(); void popa();      // 286-native PUSHA/POPA
     void bound();                   // 286-native BOUND r16, m16&16
-    void imul_imm16(int dst_reg, const RM &rm, uint16_t imm);  // 286-native IMUL r16,r/m16,imm
+    void imul_imm16(int dst_reg, const RM &rm, uint16_t imm);  // 286 IMUL r16,r/m16,imm
     void imul_imm32(int dst_reg, const RM &rm, uint32_t imm);  // 0x66-prefixed 32-bit form
-    // 286-native stack-frame instructions. enter() returns the fetched
-    // nesting-level operand -- step()'s real 80286 ENTER cost depends on
-    // it (11 / 15 / 12+4*(lex-1) cycles for level 0 / 1 / >1), and that
-    // level is otherwise only known inside enter() itself.
+    // enter() returns the nesting level; ENTER cost is 11 / 15 / 12+4*(lex-1) for level 0 / 1 / >1.
     int  enter(); void leave();
 
-    int  extra_cycles_ = 0;  // set by helpers (taken branch, rep iteration count, ...) and added to the opcode's base cost by step()
+    int  extra_cycles_ = 0;  // added to the opcode's base cost by step()
 
-    int      last_reg_ = 0;        // ModR/M reg field from the most recent decode_modrm() -- read by the opcode-group helpers below, which use that field to select the operation rather than a register operand
-    uint16_t instr_start_ip_ = 0;  // CS:IP at the start of the instruction (post-prefixes), so DIV/IDIV faults can restore IP to the faulting instruction the way real hardware does
+    int      last_reg_ = 0;        // ModR/M reg field of the last decode_modrm(), used by group opcodes
+    uint16_t instr_start_ip_ = 0;  // restart IP for DIV/IDIV faults
 
-    // control-flow / string-op / misc helpers used by step()'s big switch.
-    // string_op/io_string_op/grp2_shift/grp3_unary return the real,
-    // cited-per-opcode cycle cost themselves (int, not void) rather than
-    // letting step() charge one flat generic constant regardless of which
-    // sub-operation actually ran -- real 80286 timings for this group
-    // diverge sharply by sub-opcode (e.g. DIV r/m16 = 25 cycles vs TEST
-    // r/m16,imm16 = 3-6) and, for the REP-prefixed string/shift-by-count
-    // forms, by the actual iteration/bit count, which only the helper
-    // itself knows. See cpu80286.cpp's kMul/kDiv/... tables and each
-    // helper's own comment for the Intel iAPX 286 PRM / 80286 data sheet
-    // timing-appendix citations.
-    // Labelled approximation, not a simulation: the 80286's 6-byte prefetch
-    // queue is flushed by every taken/unconditional control transfer and
-    // must refill before the next opcode can be decoded, which is exactly
-    // why Intel's own timing appendix publishes a RANGE (not a fixed number)
-    // for every such instruction -- e.g. Jcc-short-taken 7-10, LOOP-taken
-    // 8-11, CALL/JMP near 7-10, CALL/JMP far 11-14/13-16, RET 11-14/15-18,
-    // IRET 17-20 (Intel iAPX 286 PRM / 80286 data sheet timing appendix, via
-    // the "Art of Assembly" Appendix D reference table -- see
-    // IBM_PCAT_REVIEW.md's CPU-timing section). A real, cycle-accurate
-    // model would track actual prefetch-queue fill state and the bus
-    // fetch/execute overlap -- this core is an aggregate-cost-per-step()
-    // interpreter with no such state, so instead every queue-flushing
-    // control transfer below adds this single flat, named tax on top of
-    // its own already-cited floor-of-range cost. Picked so floor+tax lands
-    // inside every one of the ranges above without exceeding any of them
-    // (verified case by case, not just assumed) -- a documented, uniform
-    // approximation of the effect, not a claim of simulating the queue
-    // itself. Not-taken branches are unaffected: no flush occurs, so no tax.
+    // Helpers used by step()'s switch. string_op, io_string_op, grp2_shift and
+    // grp3_unary return their own cycle cost, which varies by sub-opcode and
+    // iteration count.
+    //
+    // The 286 prefetch queue is not modeled. Intel publishes ranges for
+    // queue-flushing transfers (Jcc taken 7-10, LOOP 8-11, CALL/JMP near 7-10,
+    // far 11-14/13-16, RET 11-14/15-18, IRET 17-20; iAPX 286 PRM timing
+    // appendix via Art of Assembly App. D), so each adds a flat tax on its
+    // floor cost. 2 keeps floor+tax inside every range. Not-taken branches pay none.
     static constexpr int kQueueRefillTax = 2;
 
-    bool cond(int cc) const;          // Jcc/LOOPcc condition-code evaluation (cc = opcode low nibble)
+    bool cond(int cc) const;          // Jcc/LOOPcc condition, cc = opcode low nibble
     void jcc(bool taken);
-    int  loop_group(uint8_t op);       // 0xE0-0xE3: LOOP/LOOPE/LOOPNE/JCXZ -- returns its own real cost (taken vs not-taken differ sharply)
+    int  loop_group(uint8_t op);       // 0xE0-0xE3: LOOP/LOOPE/LOOPNE/JCXZ
     int  string_op(uint8_t op);       // 0xA4-0xA7, 0xAA-0xAF: MOVS/CMPS/STOS/LODS/SCAS, honors REP/REPE/REPNE
     int  io_string_op(uint8_t op);    // 0x6C-0x6F: INS/OUTS
-    int  grp1_immed(uint8_t op);      // 0x80/0x81/0x83: ADD/OR/ADC/SBB/AND/SUB/XOR/CMP r/m,imm -- returns its own real cost (reg 3 / mem 7)
+    int  grp1_immed(uint8_t op);      // 0x80/0x81/0x83: ADD/OR/ADC/SBB/AND/SUB/XOR/CMP r/m,imm
     int  grp2_shift(uint8_t op);      // 0xC0/C1/D0-D3: shift/rotate group
     int  grp3_unary(uint8_t op);      // 0xF6/0xF7: TEST/NOT/NEG/MUL/IMUL/DIV/IDIV
     void grp5(uint8_t op);            // 0xFE/0xFF: INC/DEC/CALL/JMP/PUSH r/m

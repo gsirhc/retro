@@ -1,11 +1,4 @@
-// GoogleTest suite for the top-level Machine: factory CMOS seeding for
-// this machine's own geometry (1.44MB floppy, 256MB HDD, 32MB RAM),
-// run_cycles() progress, a full PIT-channel-0 -> PIC IRQ0 -> CPU interrupt
-// -> handler round trip (including waking a HLTed CPU), and the keyboard-
-// controller reset trick resetting the CPU without corrupting the
-// decoupled total_cycles_ pacing counter. Adapted from
-// ibmpc-at/tests/machine_test.cpp for the 80486 core's 32-bit-native
-// register fields (eax/eip, not ax/ip).
+// Machine: factory CMOS, run_cycles, PIT -> PIC -> CPU interrupt round trip, KBC reset
 
 #include <gtest/gtest.h>
 
@@ -22,30 +15,18 @@ TEST(MachineTest, ConstructorSeedsFactoryCmosConfiguration) {
     Machine m;
     EXPECT_EQ(m.chipset.cmos.peek(0x10), 0x40);  // drive A: 1.44MB 3.5", no B:
     EXPECT_EQ(m.chipset.cmos.peek(0x14) & 0x01, 0x01);  // a floppy is installed
-    // Bit 2 of the equipment byte reaches software as bit 2 of the INT 11h
-    // equipment word, the standard "PS/2 mouse installed" flag -- and a
-    // period mouse driver gates its entire PS/2 path on it: CuteMouse 2.1
-    // (FreeDOS's CTMOUSE) opens with INT 11h / TEST AL,4 and gives up with
-    // "device not found" if it is clear. This machine has a mouse on the
-    // 8042's AUX port, so its CMOS says so. See PC486_REVIEW.md §13.
+    // INT 11h equipment bit 2 (PS/2 mouse); CuteMouse gives up if clear
     EXPECT_EQ(m.chipset.cmos.peek(0x14) & 0x04, 0x04);
     EXPECT_EQ(m.chipset.cmos.peek(0x15), 0x80);  // base memory low byte
     EXPECT_EQ(m.chipset.cmos.peek(0x16), 0x02);  // base memory high byte -> 640KB
     EXPECT_EQ(m.chipset.cmos.peek(0x17), 0x00);  // extended memory low byte
     EXPECT_EQ(m.chipset.cmos.peek(0x18), 0x7C);  // extended memory high byte -> 31744KB
-    // 0x30/0x31 is the "POST-verified" copy of the same figure, and is the
-    // ONLY place this BIOS actually looks: rombios.c's INT 15h AH=88h and
-    // AX=E801 both read 0x30/0x31 and never touch 0x17/0x18. Leaving these
-    // zero reported no extended memory at all on a 32MB machine, so HimemX
-    // refused to install and the XMS-dependent CD-ROM driver could not load.
-    // See PC486_REVIEW.md §5.3.
+    // 0x30/0x31 is the only extended-memory figure rombios.c reads (INT 15h AH=88h, E801)
     EXPECT_EQ(m.chipset.cmos.peek(0x30), 0x00);
     EXPECT_EQ(m.chipset.cmos.peek(0x31), 0x7C);
     EXPECT_EQ(m.chipset.cmos.peek(0x17), m.chipset.cmos.peek(0x30)) << "the two copies must agree";
     EXPECT_EQ(m.chipset.cmos.peek(0x18), m.chipset.cmos.peek(0x31));
-    // Memory above the 16MB line, in 64KB units -- the other half of E801's
-    // answer, which caps its 0x30/0x31 figure at 15MB. 32MB total means 16MB
-    // above 16MB = 16384KB / 64 = 256 = 0x0100.
+    // memory above 16MB in 64KB units: 16384KB / 64 = 0x0100
     EXPECT_EQ(m.chipset.cmos.peek(0x34), 0x00);
     EXPECT_EQ(m.chipset.cmos.peek(0x35), 0x01);
     EXPECT_EQ(m.chipset.cmos.peek(0x3D) & 0x0F, 0x01);         // 1st boot device = floppy
@@ -55,8 +36,7 @@ TEST(MachineTest, ConstructorSeedsFactoryCmosConfiguration) {
     EXPECT_EQ(m.chipset.cmos.peek(0x1B) | (m.chipset.cmos.peek(0x1C) << 8), 1010);
     EXPECT_EQ(m.chipset.cmos.peek(0x1D), 9);
     EXPECT_EQ(m.chipset.cmos.peek(0x23), 55);
-    // Checksum (0x2E/0x2F) covers 0x10-0x2D and must stay internally
-    // consistent with whatever's actually in that range.
+    // checksum covers 0x10-0x2D
     uint16_t sum = 0;
     for (uint16_t reg = 0x10; reg <= 0x2D; ++reg) sum = uint16_t(sum + m.chipset.cmos.peek(uint8_t(reg)));
     EXPECT_EQ(m.chipset.cmos.peek(0x2E), uint8_t(sum >> 8));
@@ -64,9 +44,7 @@ TEST(MachineTest, ConstructorSeedsFactoryCmosConfiguration) {
 }
 
 TEST(MachineTest, FactoryCmosSurvivesAnExplicitResetCall) {
-    // Regression test, same as ibmpc-at's: constructing a Machine and
-    // calling reset() must not wipe the factory CMOS configuration -- real
-    // CMOS is battery-backed and survives any reset.
+    // CMOS is battery-backed and survives reset
     Machine m;
     m.reset();
     EXPECT_EQ(m.chipset.cmos.peek(0x3D) & 0x0F, 0x01);
@@ -76,7 +54,7 @@ TEST(MachineTest, FactoryCmosSurvivesAnExplicitResetCall) {
 TEST(MachineTest, RunCyclesAdvancesAtLeastTheRequestedAmount) {
     Machine m;
     m.reset();
-    for (int i = 0; i < 0x2000; ++i) m.chipset.mem[i] = 0x90;  // NOP sled
+    for (int i = 0; i < 0x2000; ++i) m.chipset.mem[i] = 0x90;
     m.cpu.cs = 0;
     m.cpu.eip = 0;
     uint64_t before = m.total_cycles();
@@ -88,20 +66,20 @@ TEST(MachineTest, TimerInterruptWakesHaltedCpuAndRunsHandler) {
     Machine m;
     m.reset();
 
-    // Master PIC: vector base 0x08, cascaded, 8086 mode, unmask IRQ0 only.
+    // master PIC: base 0x08, cascaded, 8086 mode
     m.chipset.pic_master.out(0x20, 0x11);
     m.chipset.pic_master.out(0x21, 0x08);
     m.chipset.pic_master.out(0x21, 0x04);
     m.chipset.pic_master.out(0x21, 0x01);
-    m.chipset.pic_master.out(0x21, 0xFE);  // unmask IRQ0 only
+    m.chipset.pic_master.out(0x21, 0xFE);
 
-    // PIT channel 0, mode 3, a small reload so it fires almost immediately.
+    // PIT ch0, mode 3, small reload
     m.chipset.pit.out(0x43, 0x36);
     m.chipset.pit.out(0x40, 4);
     m.chipset.pit.out(0x40, 0);
 
     auto &mem = m.chipset.mem;
-    mem[8 * 4 + 0] = 0x00; mem[8 * 4 + 1] = 0x50;  // IVT[8] -> 0000:5000 (physical 0x5000)
+    mem[8 * 4 + 0] = 0x00; mem[8 * 4 + 1] = 0x50;
     mem[8 * 4 + 2] = 0x00; mem[8 * 4 + 3] = 0x00;
     // Handler: INC byte ptr [1234h] ; IRET
     mem[0x5000 + 0] = 0xFE; mem[0x5000 + 1] = 0x06;
@@ -132,12 +110,10 @@ TEST(MachineTest, KeyboardControllerResetTrickResetsCpuWithoutLosingPacing) {
     m.chipset.kbc.out(0x64, 0xFE);  // pulse output line 0 -> CPU reset
     m.run_cycles(10);
 
-    // The CPU landed at the real-mode reset vector (F000:FFF0) and only
-    // ran forward from there -- it did NOT keep executing from wherever it
-    // was in the NOP sled before the reset.
+    // CPU restarts at the reset vector F000:FFF0
     EXPECT_EQ(m.cpu.cs, 0xF000);
     EXPECT_GE(m.cpu.eip, 0xFFF0u);
-    EXPECT_GE(m.total_cycles(), before);  // pacing counter kept advancing, not zeroed by the reset
+    EXPECT_GE(m.total_cycles(), before);  // pacing counter not zeroed by reset
 }
 
 TEST(MachineTest, AnInterruptPendingAtStiWaitsOneInstruction) {
@@ -185,15 +161,10 @@ TEST(MachineTest, ShutdownResetsTheCpuAndKeepsMemory) {
     EXPECT_EQ(mem[0x1234], 0x5A) << "a CPU reset, not a power cycle";
 }
 
-// --- the CPU's page-resolution and prefetch fast paths (§15) -------------
-// The CPU now resolves a physical page to a host pointer once and reads and
-// writes every byte of it directly, and fetches a run of instruction bytes
-// out of the code page the same way. These run real guest code through a
-// real Machine to pin the properties that must survive that.
+// --- CPU page-resolution and prefetch fast paths ---
 
 namespace {
-// Loads `code` at 0000:0400 and runs until the guest halts (or the budget
-// runs out). Interrupts are off out of reset, so nothing else executes.
+// loads code at 0000:0400, runs until HLT or budget
 void RunRealMode(Machine &m, const std::vector<uint8_t> &code) {
     m.reset();
     for (std::size_t i = 0; i < code.size(); ++i) m.chipset.mem[0x400 + i] = code[i];
@@ -209,8 +180,7 @@ TEST(MachineTest, CpuWritesStillCannotAlterRomThroughTheResolvedPage) {
     uint8_t rom[2] = {0x11, 0x22};
     m.chipset.load_rom(0xF0000, rom, 2);
     // MOV AX,F000 / MOV DS,AX / MOV BYTE [0],FF / MOV BYTE [1],FE / HLT.
-    // The second store is the one that matters: by then the page has been
-    // resolved once already, so it is the cached answer being trusted.
+    // the second store trusts the cached page resolution
     RunRealMode(m, {0xB8, 0x00, 0xF0, 0x8E, 0xD8,
                     0xC6, 0x06, 0x00, 0x00, 0xFF,
                     0xC6, 0x06, 0x01, 0x00, 0xFE, 0xF4});
@@ -221,10 +191,8 @@ TEST(MachineTest, CpuWritesStillCannotAlterRomThroughTheResolvedPage) {
 TEST(MachineTest, CpuAccessesInTheVgaWindowStillGoToTheCardAndNotRam) {
     Machine m;
     m.reset();
-    m.chipset.mem[0xA0000] = 0x99;  // marker in the RAM sitting behind the window
-    // MOV AX,A000 / MOV DS,AX / MOV BYTE [0],5A / MOV AL,[0] / XOR BX,BX /
-    // MOV ES,BX / MOV ES:[0300],AL / HLT. The store must not reach RAM and
-    // the load must come back from the card, not from the marker.
+    m.chipset.mem[0xA0000] = 0x99;
+    // store must not reach RAM, load must come from the card
     const std::vector<uint8_t> code = {0xB8, 0x00, 0xA0, 0x8E, 0xD8,
                                        0xC6, 0x06, 0x00, 0x00, 0x5A,
                                        0xA0, 0x00, 0x00,
@@ -243,14 +211,11 @@ TEST(MachineTest, CpuAccessesInTheVgaWindowStillGoToTheCardAndNotRam) {
 
 TEST(MachineTest, OpeningA20MidRunRetargetsAnAlreadyResolvedPage) {
     Machine m;
-    // MOV AX,FFFF / MOV DS,AX / MOV BYTE [0110],AA   -- gate closed, so this
-    // aliases down to physical 000100 -- then the 8042 dance that opens A20,
-    // then the same store again, which must now land at 100100.
+    // gate closed: store aliases to 000100; after the 8042 A20 sequence it lands at 100100
     RunRealMode(m, {0xB8, 0xFF, 0xFF, 0x8E, 0xD8,
                     0xC6, 0x06, 0x10, 0x01, 0xAA,
                     0xB0, 0xD1, 0xE6, 0x64,   // MOV AL,D1 / OUT 64,AL
-                    0xB0, 0xDF, 0xE6, 0x60,   // MOV AL,DF / OUT 60,AL -- A20 on,
-                                              // reset line left high (bit 0 low resets the CPU)
+                    0xB0, 0xDF, 0xE6, 0x60,  // A20 on, reset line high
                     0xC6, 0x06, 0x10, 0x01, 0xBB, 0xF4});
     ASSERT_TRUE(m.chipset.kbc.a20_enabled());
     EXPECT_EQ(m.chipset.mem[0x000100], 0xAA);
@@ -259,9 +224,7 @@ TEST(MachineTest, OpeningA20MidRunRetargetsAnAlreadyResolvedPage) {
 
 TEST(MachineTest, CodeThatPatchesItselfAheadOfEipExecutesThePatchedByte) {
     Machine m;
-    // MOV BYTE [040A],40 (patch the NOP at 040A into INC AX) / XOR AX,AX /
-    // three NOPs / the patched byte / HLT. The store and the fetch are on
-    // the same page, so this is the prefetch window reading live memory.
+    // store and fetch share a page: prefetch must see live memory
     RunRealMode(m, {0xC6, 0x06, 0x0A, 0x04, 0x40,
                     0x31, 0xC0,
                     0x90, 0x90, 0x90,
@@ -271,8 +234,7 @@ TEST(MachineTest, CodeThatPatchesItselfAheadOfEipExecutesThePatchedByte) {
 }
 
 TEST(MachineTest, TurboOffHoldsTheBusAndLeavesTheClockAlone) {
-    // The 471's de-turbo is a periodic HOLD, 4us of every 12us; the DX2
-    // keeps its 66 MHz clock, so the PIT and device pacing are untouched.
+    // 471 de-turbo: periodic HOLD, 4us of every 12us; PIT pacing unaffected
     Machine m;
     EXPECT_TRUE(m.turbo());
     m.set_turbo(false);
@@ -280,8 +242,7 @@ TEST(MachineTest, TurboOffHoldsTheBusAndLeavesTheClockAlone) {
     EXPECT_DOUBLE_EQ(m.cpu_hz(), Machine::kCpuHz);
     EXPECT_EQ(m.cpu.rep_yield_cycles, 55u);
 
-    // A cold read at the start of a hold window waits out the 264-clock
-    // (4us) hold before its first dword.
+    // cold read at hold start waits out the 264-clock hold
     m.cache.reset();
     EXPECT_EQ(m.cache.read(0x40000, 4, true, 792 * 10), 264 + 2 * (4 + 5));
     m.set_turbo(true);
@@ -289,17 +250,16 @@ TEST(MachineTest, TurboOffHoldsTheBusAndLeavesTheClockAlone) {
     EXPECT_EQ(m.cache.read(0x40000, 4, true, 792 * 10), 2 * (4 + 5));
 }
 
-// --- cache and bus timing (cache486.h, PC486_REVIEW.md §47) --------------
+// --- cache and bus timing (cache486.h) ---
 
 TEST(MachineTest, TheBoardTurnsTheL1OnAfterEveryReset) {
-    // The CPU leaves RESET with CR0.CD and NW set; a period BIOS clears
-    // them in POST, and the board stands in for that.
+    // CPU leaves RESET with CR0.CD and NW set; the board stands in for POST clearing them
     constexpr uint32_t kCdNw = 0x60000000u;
     Machine m;
     EXPECT_EQ(m.cpu.cr(0) & kCdNw, 0u);
     m.reset();
     EXPECT_EQ(m.cpu.cr(0) & kCdNw, 0u);
-    // A shutdown reset too: LIDT with a zero limit, then INT3.
+    // shutdown reset: LIDT zero limit, INT3
     const uint8_t prog[] = {0x0F, 0x01, 0x1E, 0x00, 0x06, 0xCC};
     for (std::size_t i = 0; i < sizeof prog; ++i) m.chipset.mem[0x400 + i] = prog[i];
     for (int i = 0; i < 6; ++i) m.chipset.mem[0x600 + i] = 0;
@@ -320,22 +280,15 @@ TEST(MachineTest, ACacheMissAndAnIsaPortCostTheirBusCycles) {
     for (std::size_t i = 0; i < sizeof prog; ++i) m.chipset.mem[0x400 + i] = prog[i];
     m.cpu.cs = m.cpu.ds = 0;
     m.cpu.eip = 0x400;
-    // Published 1 clock. The code fill at 400h (a row miss, then 4-3-3-3)
-    // stalls until its first dword, 9 bus clocks. The data fill at 2000h
-    // waits for the code burst to finish (18 bus clocks), then takes its own
-    // first dword after a row miss (9): 27 bus clocks from the start, 18
-    // after the code stall. Core clocks are twice that on the DX2.
+    // code fill 9 bus clocks; data fill waits for the burst (18) then 9 more; core clocks double on the DX2
     EXPECT_EQ(m.cpu.step(), 1 + 18 + 36);
-    // Both lines are in the L1, but the data line's burst ends at core
-    // clock 72 and this read comes at 55.
+    // data burst ends at core clock 72, this read is at 55
     EXPECT_EQ(m.cpu.step(), 1 + 17);
-    // Published 16, plus an 8-bit ISA cycle (26 bus clocks) less the 2 the
-    // published count includes.
+    // published 16 plus an 8-bit ISA cycle (26) less the 2 already counted
     EXPECT_EQ(m.cpu.step(), 16 + 52 - 2);
 }
 
-// The 486 pipeline penalties the clock tables leave out (Embedded Intel486
-// Developer's Manual 27302101, 12.3.1), on with the board's timing model.
+// pipeline penalties missing from the clock tables (Intel486 Developer's Manual 27302101, 12.3.1)
 TEST(MachineTest, ThePipelineChargesAgiMisalignmentAndDisplacementWithImmediate) {
     Machine m;
     m.reset();
@@ -349,7 +302,7 @@ TEST(MachineTest, ThePipelineChargesAgiMisalignmentAndDisplacementWithImmediate)
                             0x83, 0x07, 0x05};        // add word [bx],5
     for (std::size_t i = 0; i < sizeof prog; ++i) m.chipset.mem[0x400 + i] = prog[i];
     m.cpu.cs = m.cpu.ds = 0;
-    // Two warm passes: the first leaves its last code line still filling.
+    // two warm passes: first leaves its last code line filling
     for (int pass = 0; pass < 2; ++pass) {
         m.cpu.ebx = 0;
         m.cpu.eip = 0x400;
@@ -365,7 +318,6 @@ TEST(MachineTest, ThePipelineChargesAgiMisalignmentAndDisplacementWithImmediate)
 }
 
 TEST(MachineTest, ALongRepYieldsEveryPitCount) {
-    // One 1.193182 MHz count in CPU cycles.
     pc486::Machine m;
     EXPECT_EQ(m.cpu.rep_yield_cycles, 55u);
     m.set_cpu_hz(33000000.0);

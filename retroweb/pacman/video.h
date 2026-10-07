@@ -1,9 +1,5 @@
-// Namco Pac-Man video: 8×8 tiles + eight 16×16 sprites, 2bpp, PROM palette.
-//
-// Raster is 384×264 at 6.144 MHz (18.432 MHz / 3). Visible 288×224, then the
-// upright monitor rotates 90° CCW to 224×288. Tilemap scan and sprite X/Y
-// match the Midway Pac-Man schematics; MAME pacman_v.cpp is a cross-check
-// of the decoded VRAM mapper, not a source of behavior.
+// Namco Pac-Man video: 8x8 tiles + eight 16x16 sprites, 2bpp, PROM palette.
+// Raster is 384x264 at 6.144 MHz, visible 288x224, rotated 90 deg CCW upright.
 
 #ifndef PACMAN_VIDEO_H
 #define PACMAN_VIDEO_H

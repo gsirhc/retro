@@ -448,8 +448,7 @@ def main():
         "gfx": gfx_rom(),
         "color_prom": color_prom(),
     }
-    # Chip-order images: sound 608 (first 2K) and gfx 606 (second 2K) have
-    # D0↔D1 swapped on the PCB. 607 is the high plane and is wired straight.
+    # Sound ROM 608 (first 2K) and gfx ROM 606 (second 2K) have D0/D1 swapped; 607 is straight.
     blobs = {
         "program": logical["program"],
         "sound": as_chip(logical["sound"], 0),

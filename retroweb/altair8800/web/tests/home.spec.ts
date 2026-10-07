@@ -9,9 +9,8 @@ async function chooseTheme(page, theme, mode = "light") {
 }
 
 
-// The retroweb/ landing page (served on :8110 by the 2nd webServer in
-// playwright.config.ts). It shares the `retro8080.theme` localStorage key with
-// the emulator, so a theme picked here carries into /altair8800/ and back.
+// The retroweb/ landing page (:8110, second webServer). Shares the retro8080.theme
+// localStorage key with the emulator.
 
 const HOME = "http://localhost:8110/";
 
@@ -20,8 +19,7 @@ test.describe("retroweb landing page", () => {
     await page.goto(HOME);
     await expect(page).toHaveTitle(/Retro Computers & Games/);
 
-    // scoped by href -- assembler6502/ and ibmpc-at/ each have their own
-    // .machine-card on the same page now too
+    // scoped by href; other machines have their own .machine-card
     const card = page.locator('a.machine-card[href="altair8800/"]');
     await expect(card).toHaveAttribute("href", "altair8800/"); // resolves in the deployed _site
     await expect(card.locator(".name")).toHaveText(/MITS Altair 8800/i);

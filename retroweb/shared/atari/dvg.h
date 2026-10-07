@@ -1,14 +1,9 @@
-// Atari Digital Vector Generator (DVG) — Asteroids / Lunar Lander family.
-//
-// Opcode formats and screen geometry from:
-//   http://computerarcheology.com/Arcade/Asteroids/DVG.html
-//   Atari Asteroids schematics (jmargolin vector generator notes)
-// SVEC: Ss bit packing ((op&0x800)>>11)|((op&8)>>2); hardware remaps Ss to
-// VEC local scale 2..5 and puts the 2-bit deltas in bits 9:8 (Asteroids HDL /
-// jmargolin; VectorROM.html LABS0+SVEC ss2 x=3 → dx 24).
-//
-// The DVG reads shared vector memory as little-endian 16-bit words. The
-// 6502 side sees the same bytes at $4000–$5FFF.
+// Atari Digital Vector Generator (Asteroids / Lunar Lander).
+// Opcodes and geometry: computerarcheology.com/Arcade/Asteroids/DVG.html and
+// the Atari Asteroids schematics (jmargolin notes).
+// SVEC: Ss = ((op&0x800)>>11)|((op&8)>>2) remaps to VEC local scale 2..5, with
+// the 2-bit deltas in bits 9:8 (Asteroids HDL; VectorROM LABS0+SVEC ss2 x=3 -> dx 24).
+// Vector memory is little-endian 16-bit words, at $4000-$5FFF on the 6502 side.
 
 #ifndef SHARED_ATARI_DVG_H
 #define SHARED_ATARI_DVG_H
@@ -30,7 +25,6 @@ public:
     static constexpr int kStackDepth = 4;
     static constexpr int kMaxOps = 100000;
 
-    // Word-addressed vector memory callback (0..0x1FFF words = 8K bytes).
     using MemRead = std::function<uint16_t(uint16_t word_addr)>;
 
     bool halt = true;
@@ -39,10 +33,8 @@ public:
     std::vector<VectorSeg> segments;
 
     void reset();
-    // Pulse GO: clear halt and run until HALT (or kMaxOps).
     void go(const MemRead& read_word);
-    // True while a list is in progress (CPU IN0 bit 2, active high HALT
-    // flag inverted on the board — Machine maps polarity).
+    // CPU IN0 bit 2; Machine maps polarity
     bool halted() const { return halt; }
 
 private:

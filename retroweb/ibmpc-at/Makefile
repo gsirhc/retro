@@ -1,5 +1,4 @@
-# Top-level "scripts" for the IBM PC/AT (5170-339) emulator. Each target is
-# a no-arg command:
+# Top-level targets for the IBM PC/AT (5170-339) emulator.
 #
 #   make test        build + run the GoogleTest suite
 #   make bios        fetch + verify the freely-licensed BIOS/video-BIOS images
@@ -15,19 +14,8 @@
 #
 # `make` with no target prints this list.
 #
-# `make hdd-image` is deliberately NOT part of `make check`/`test`: it
-# builds this machine's shipped hard disk image by actually running the
-# real FreeDOS 1.3 installer against the emulator end to end (see
-# disks/build_freedos_hdd.cpp and IBM_PCAT_REVIEW.md §11), which takes
-# real minutes (tens of billions of emulated 8MHz cycles, every floppy
-# read paced to its genuine transfer rate) -- run it explicitly, once,
-# whenever disks/freedos-hdd.img needs (re)building.
-#
-# NOTE: this machine is being built in phases (see IBM_PCAT_REVIEW.md and the
-# approved plan). Phase 7's front end lives in web/ (own Makefile, same
-# `wasm`/`serve`/`clean`-delegates-to-web/ shape as the other two retroweb
-# machines); Phase 8 still owns the Playwright test suite + top-level site
-# integration (retroweb/Makefile, retroweb/index.html, CI).
+# hdd-image runs the real FreeDOS 1.3 installer end to end (disks/build_freedos_hdd.cpp,
+# IBM_PCAT_REVIEW.md §11). It takes minutes, so it stays out of check/test.
 
 CXX      ?= c++
 CXXFLAGS ?= -std=c++17 -O2 -Wall -Wextra
@@ -49,8 +37,7 @@ test:
 	cmake --build tests/build -j
 	ctest --test-dir tests/build --output-on-failure
 
-# --- freely-licensed firmware (substitutes for IBM's still-copyrighted AT
-# BIOS / EGA video BIOS -- see IBM_PCAT_REVIEW.md §6) -------------------
+# --- freely-licensed BIOS (IBM_PCAT_REVIEW.md §6) ---
 bios:
 	bash roms/fetch-bios.sh
 
@@ -60,19 +47,11 @@ bios_host: bios_host.cpp $(CHIPSET_SRCS)
 bios-check: bios bios_host
 	./bios_host roms/BIOS-bochs-legacy
 
-# --- screen-to-BMP diagnostic (see render_screen.cpp) -- boots the real
-# BIOS/vgabios/optional disks for a cycle budget, then renders the current
-# EGA text-mode screen using the real character-generator RAM and palette
-# registers. Not gated by `check`/`test` (it's a dev tool, not a behavior
-# to regress-test -- same reasoning as bios_host.cpp having no test file of
-# its own); usage varies per invocation so there's no fixed "-check" target
-# for it either. -------------------------------------------------------
+# --- screen-to-BMP diagnostic (dev tool, not part of check/test) ---
 render_screen: render_screen.cpp ega_render.cpp $(CHIPSET_SRCS)
 	$(CXX) $(CXXFLAGS) -o $@ render_screen.cpp ega_render.cpp $(CHIPSET_SRCS)
 
-# --- shipped HDD image: install the real FreeDOS 1.3 installer end to end
-# (see disks/build_freedos_hdd.cpp and IBM_PCAT_REVIEW.md §11) -- slow, not
-# part of `check`/`test`. ------------------------------------------------
+# --- shipped HDD image (slow, not part of check/test) ---
 disks/build_freedos_hdd: disks/build_freedos_hdd.cpp $(CHIPSET_SRCS)
 	$(CXX) $(CXXFLAGS) -o $@ disks/build_freedos_hdd.cpp $(CHIPSET_SRCS)
 
@@ -81,7 +60,7 @@ hdd-image: bios disks/build_freedos_hdd
 	bash disks/fetch-freedos-install-set.sh
 	./disks/build_freedos_hdd roms/BIOS-bochs-legacy roms/VGABIOS-lgpl-latest.bin disks disks/freedos-hdd.img
 
-# --- webassembly + browser front end (Phase 7 -- see web/) --------------
+# --- webassembly + browser front end ---
 wasm:
 	$(MAKE) -C web
 

@@ -1,14 +1,5 @@
-// GoogleTest suite for the secondary-channel ATAPI CD-ROM drive: the
-// post-reset ATAPI signature a BIOS/driver detects a packet device by,
-// IDENTIFY PACKET DEVICE, the PACKET command protocol (byte-count-limited
-// PIO data blocks, the Interrupt Reason register's phase encoding), every
-// implemented SCSI-3 MMC CDB, and the eject/re-insert media-change path a
-// DOS CD-ROM driver polls.
-//
-// Register accesses go through in()/out()/data_in16()/data_out16() exactly
-// as the chipset's port decode will, so these tests exercise the real
-// programming model rather than internal helpers -- the same convention
-// wd1003_test.cpp uses.
+// GoogleTest suite for the secondary-channel ATAPI CD-ROM (SFF-8020i / MMC).
+// Register access goes through in()/out()/data_in16()/data_out16() like the chipset decode.
 
 #include <gtest/gtest.h>
 
@@ -28,9 +19,7 @@ using pc486::AtapiCdrom;
 constexpr int kSectorBytes = AtapiCdrom::kBytesPerSector;
 constexpr int kFramesPerLba = 588;  // CD-DA stereo sample pairs per 2352-byte frame
 
-// An ISO image of `blocks` 2048-byte sectors, each stamped with its own LBA
-// in the first two bytes so a test can confirm exactly which sector came
-// back.
+// ISO of `blocks` 2048-byte sectors, each stamped with its LBA in the first two bytes.
 std::vector<uint8_t> MakeIso(uint32_t blocks) {
     std::vector<uint8_t> img(std::size_t(blocks) * kSectorBytes, 0);
     for (uint32_t b = 0; b < blocks; ++b) {
@@ -46,11 +35,8 @@ std::string MsfString(uint32_t lba) {
     return std::string(buf);
 }
 
-// A mixed-mode CUE+BIN: track 1 is `data_blocks` MODE1/2048 sectors stamped
-// the same way MakeIso() does; track 2 is `audio_lbas` CD-DA frames of
-// interleaved 16-bit stereo, each frame's left sample set to its own frame
-// index (so a drained Sample's value identifies exactly which frame it
-// was) and right sample to the bitwise complement.
+// Mixed-mode CUE+BIN: a MakeIso() data track, then `audio_lbas` CD-DA frames.
+// Left sample is the frame index, right is its complement.
 struct CueBin {
     std::string cue;
     std::vector<uint8_t> bin;
@@ -96,8 +82,7 @@ protected:
     uint16_t ByteCount() { return uint16_t(cd.in(0x174) | (uint16_t(cd.in(0x175)) << 8)); }
     uint8_t IntReason() { return uint8_t(cd.in(0x172) & 0x07); }
 
-    // Poll BSY the way an ATAPI driver does (DRDY is never a valid "ready"
-    // signal on a packet device -- see atapi_cdrom.h).
+    // Poll BSY; DRDY is never valid on a packet device.
     void RunToIdle() {
         for (int i = 0; i < 100000 && Busy(); ++i) {
             cycles_ += 100000;
@@ -106,8 +91,7 @@ protected:
         ASSERT_FALSE(Busy()) << "command never completed";
     }
 
-    // Issue one PACKET command: byte-count limit, 0xA0, then the 12-byte CDB
-    // through the 16-bit data register.
+    // One PACKET command: byte-count limit, 0xA0, then the 12-byte CDB via the data register.
     void SendPacket(std::vector<uint8_t> cdb, uint16_t limit = 0xFFFE) {
         cdb.resize(12, 0);
         cd.out(0x174, uint8_t(limit & 0xFF));
@@ -123,8 +107,7 @@ protected:
         RunToIdle();
     }
 
-    // Drain every data block the device offers, honoring the byte count it
-    // publishes for each one.
+    // Drain every data block, honoring each block's byte count.
     std::vector<uint8_t> DrainData() {
         std::vector<uint8_t> out;
         int blocks = 0;
@@ -165,9 +148,7 @@ protected:
         return s;
     }
 
-    // Every real drive reports a unit attention for the reset itself on the
-    // first command after power-on (SPC 5.6). Consume it so a test can look
-    // at the condition it actually cares about.
+    // First command after reset reports a unit attention (SPC 5.6); consume it.
     void ConsumeResetUnitAttention() {
         SendPacket({0x00});  // TEST UNIT READY
         RequestSense();
@@ -182,11 +163,7 @@ protected:
         ASSERT_TRUE(cd.mount_cue(cb.cue.c_str(), cb.bin.data(), cb.bin.size()));
     }
 
-    // Issues a data-OUT PACKET command (MODE SELECT(10) is the only one):
-    // the 12-byte CDB, then `param_list` through the data register the same
-    // way DrainData() reads a data-in block, just in the other direction.
-    // `cdb`'s own Parameter List Length field (bytes 7-8) must already
-    // match param_list.size().
+    // Data-OUT PACKET (MODE SELECT(10)). The CDB's Parameter List Length must match param_list.size().
     void SendPacketOut(std::vector<uint8_t> cdb, std::vector<uint8_t> param_list,
                         uint16_t limit = 0xFFFE) {
         cdb.resize(12, 0);
@@ -209,8 +186,7 @@ protected:
         RunToIdle();
     }
 
-    // SFF-8020i Table 60's 16-byte Audio Control page, built from the 4
-    // ports' {channel_selection, volume} pairs.
+    // SFF-8020i Table 60 Audio Control page.
     static std::vector<uint8_t> AudioControlPage(
         std::initializer_list<std::pair<uint8_t, uint8_t>> ports) {
         std::vector<uint8_t> p(16, 0);
@@ -225,9 +201,7 @@ protected:
         return p;
     }
 
-    // ModeSelectCdb(14): opcode 55h, PF=1 (page-format parameter list), and
-    // the Parameter List Length set to match an 8-byte header + one 16-byte
-    // page.
+    // MODE SELECT(10) CDB: PF=1, length = 8-byte header + 16-byte page.
     static std::vector<uint8_t> ModeSelectCdb(uint16_t param_len) {
         std::vector<uint8_t> cdb(12, 0);
         cdb[0] = 0x55;
@@ -237,9 +211,7 @@ protected:
         return cdb;
     }
 
-    // Runs ticks until the drive's CD-DA engine has produced at least
-    // `want` samples (or gives up after a generous cycle budget), the
-    // audio-playback analog of RunToIdle().
+    // Tick until the CD-DA engine has produced `want` samples.
     std::vector<AtapiCdrom::Sample> RunAudioUntil(std::size_t want) {
         std::vector<AtapiCdrom::Sample> all;
         for (int i = 0; i < 200000 && all.size() < want; ++i) {
@@ -251,10 +223,7 @@ protected:
         return all;
     }
 
-    // Ticks until the drive itself reports playback no longer in progress
-    // (completed, or stopped due to error) -- unlike RunAudioUntil(), which
-    // stops as soon as it has *enough* samples and so can return before a
-    // same-call completion transition has had a chance to fire.
+    // Tick until the drive reports playback is no longer in progress.
     void RunAudioUntilStopped() {
         for (int i = 0; i < 200000 && cd.playing_audio(); ++i) {
             cycles_ += 64;
@@ -267,10 +236,7 @@ protected:
 TEST_F(AtapiCdromTest, OwnsSecondaryChannelPortsOnly) {
     for (uint16_t p = 0x170; p <= 0x177; ++p) EXPECT_TRUE(cd.owns(p)) << std::hex << p;
     EXPECT_TRUE(cd.owns(0x376));
-    // The primary channel (the hard disk, see wd1003.h) and the floppy
-    // controller's 0x377 must stay out of this device's decode -- the whole
-    // point of putting the CD-ROM on the secondary channel is that the two
-    // controllers are independent.
+    // The primary channel and floppy 0x377 stay out of this device's decode.
     EXPECT_FALSE(cd.owns(0x1F0));
     EXPECT_FALSE(cd.owns(0x3F6));
     EXPECT_FALSE(cd.owns(0x377));
@@ -279,34 +245,18 @@ TEST_F(AtapiCdromTest, OwnsSecondaryChannelPortsOnly) {
 }
 
 TEST_F(AtapiCdromTest, AtapiSignatureAfterReset) {
-    // ATA/ATAPI-4 section 9.1 "Signature and persistence": a packet device
-    // reports Sector Count/Number = 01h and Cylinder Low/High = 14h/EBh.
-    // This is the single mechanism a BIOS uses to tell a CD-ROM from a hard
-    // disk on an otherwise identical register block, so it is the most
-    // load-bearing fact in the whole device.
+    // ATA/ATAPI-4 9.1: a packet device signs Sector Count/Number 01h, Cyl Low/High 14h/EBh.
     EXPECT_EQ(cd.in(0x172), 0x01);
     EXPECT_EQ(cd.in(0x173), 0x01);
     EXPECT_EQ(cd.in(0x174), 0x14);
     EXPECT_EQ(cd.in(0x175), 0xEB);
-    // ...and Status reads 00h: DRDY is deliberately NOT set. An ATAPI device
-    // genuinely never reports itself "ready" the way a disk does, which is
-    // why an ATAPI driver polls BSY instead. A host that also checks
-    // Status != 0 (as the legacy BIOS's ATA branch does) therefore cannot
-    // mistake this for an ATA disk even before looking at the cylinder
-    // registers.
+    // Status reads 00h: DRDY is not set on a packet device.
     EXPECT_EQ(cd.in(0x376), 0x00);
     EXPECT_EQ(cd.in(0x171), 0x01);  // post-reset "diagnostics passed" error code
 }
 
 TEST_F(AtapiCdromTest, ScratchRegisterProbeReadsBackThroughTheSharedLatches) {
-    // The legacy-BIOS detection path writes 0x55/0xAA to Sector
-    // Count/Sector Number and requires them to read back before it will even
-    // attempt the reset/signature probe. On a real ATAPI device the register
-    // at offset 2 is one physical latch -- written as Sector Count, read as
-    // the Interrupt Reason register -- which the device only overwrites at a
-    // phase transition, so the read-back works. Modeling offset 2 as a
-    // read-only phase register instead would make this device invisible to
-    // that detection code.
+    // Offset 2 is one latch (Sector Count written, Interrupt Reason read), so the BIOS 0x55/0xAA read-back works.
     SelectDevice0();
     cd.out(0x172, 0x55);
     cd.out(0x173, 0xAA);
@@ -333,20 +283,8 @@ TEST_F(AtapiCdromTest, SoftResetReassertsAtapiSignature) {
 }
 
 TEST_F(AtapiCdromTest, DeviceZeroRespondsForTheAbsentDeviceOneWithZeroes) {
-    // ATA/ATAPI-6 (T13/1410D revision 3a) Table 18, "Device 1 is selected
-    // and Device 0 is responding for Device 1": a device implementing the
-    // PACKET command set places 00h on the bus for Sector Count, LBA
-    // Low/Mid/High and the Device register, and 00h for Status and
-    // Alternate Status. A non-packet device places its own register
-    // contents instead, which is why wd1003 legitimately behaves
-    // differently -- both are correct for their own device type.
-    //
-    // Load-bearing, not pedantry: FreeDOS's real ATAPICDD.SYS probes device
-    // 1 by writing 0x55/0xAA to Sector Count/Number and reading them back,
-    // then by checking Sector Count/Number == 01h/01h after a reset before
-    // testing for the 14h/EBh signature. Answering either probe with this
-    // device's own registers invents a phantom ATAPI slave for the driver
-    // to time out against.
+    // ATA/ATAPI-6 Table 18: with device 1 selected, a packet device returns 00h for the task file and status.
+    // ATAPICDD.SYS probes device 1 by read-back and would otherwise find a phantom slave.
     cd.out(0x176, 0xB0);  // select device 1 -- permanently unpopulated
     cd.out(0x172, 0x55);
     cd.out(0x173, 0xAA);
@@ -362,13 +300,10 @@ TEST_F(AtapiCdromTest, DeviceZeroRespondsForTheAbsentDeviceOneWithZeroes) {
     EXPECT_EQ(cd.in(0x176), 0x00);
     EXPECT_EQ(cd.in(0x177), 0x00) << "Status reads 00h";
     EXPECT_EQ(cd.in(0x376), 0x00) << "Alternate Status too";
-    // The Error register is the one exception in Table 18: it reports
-    // device 0's own contents.
+    // Table 18: Error still reports device 0's contents.
     EXPECT_EQ(cd.in(0x171), 0x01);
 
-    // Selecting the real device 0 brings its genuine signature straight
-    // back -- the 00h answers are a property of who is selected, not a
-    // window that expires or a state that sticks.
+    // Selecting device 0 restores its signature.
     SelectDevice0();
     EXPECT_EQ(cd.in(0x172), 0x01);
     EXPECT_EQ(cd.in(0x173), 0x01);
@@ -377,10 +312,7 @@ TEST_F(AtapiCdromTest, DeviceZeroRespondsForTheAbsentDeviceOneWithZeroes) {
 }
 
 TEST_F(AtapiCdromTest, ExecuteDeviceDiagnosticIsTheOneCommandTheAbsentDeviceOneAnswers) {
-    // Table 18's command-register row: "Place new data into the Command
-    // register of Device 0. Do not respond unless the command is EXECUTE
-    // DEVICE DIAGNOSTICS." That exception is how a host gets a diagnostic
-    // result covering both device positions from a single-device channel.
+    // Table 18 command row: only EXECUTE DEVICE DIAGNOSTIC is answered for device 1.
     cd.out(0x176, 0xB0);
     cd.out(0x177, 0xA1);  // IDENTIFY PACKET DEVICE: ignored
     EXPECT_FALSE(cd.irq_pending());
@@ -394,10 +326,7 @@ TEST_F(AtapiCdromTest, ExecuteDeviceDiagnosticIsTheOneCommandTheAbsentDeviceOneA
 }
 
 TEST_F(AtapiCdromTest, CommandWriteToTheAbsentDeviceOneDoesNothing) {
-    // Only the command register write is gated on device selection -- the
-    // one access that decides which device's command logic responds. There
-    // is no device 1 state machine here, so the command simply never
-    // executes: no DRQ, no interrupt, no status change.
+    // Only command writes are gated on selection; there is no device 1 state machine.
     cd.out(0x176, 0xB0);
     cd.out(0x177, 0xA1);  // IDENTIFY PACKET DEVICE aimed at device 1
     EXPECT_FALSE(Drq());
@@ -417,9 +346,7 @@ TEST_F(AtapiCdromTest, IdentifyPacketDeviceDescribesAPacketCdRomDevice) {
     for (int i = 0; i < 256; ++i) w.push_back(cd.data_in16());
     EXPECT_FALSE(Drq()) << "DRQ clears once the 512-byte block is drained";
 
-    // Word 0's general configuration is where this genuinely differs from an
-    // ATA disk's IDENTIFY DEVICE (wd1003 reports 0x0040, "fixed device") --
-    // ATA/ATAPI-4 section 8.13.8, Table 12.
+    // Word 0 differs from ATA IDENTIFY DEVICE (ATA/ATAPI-4 8.13.8, Table 12).
     EXPECT_EQ(w[0] & 0xC000, 0x8000) << "bits 15:14 = 10b: ATAPI device";
     EXPECT_EQ((w[0] >> 8) & 0x1F, 0x05) << "CD-ROM command set (SCSI-3 MMC)";
     EXPECT_TRUE(w[0] & 0x0080) << "removable media";
@@ -428,9 +355,7 @@ TEST_F(AtapiCdromTest, IdentifyPacketDeviceDescribesAPacketCdRomDevice) {
                                            "begin_packet() not raising an IRQ "
                                            "for the packet-request phase";
 
-    // Word 49: LBA supported, and DMA deliberately NOT advertised -- this
-    // device is PIO-only, and a driver told otherwise would program a
-    // bus-master controller this machine does not have.
+    // Word 49: LBA yes, DMA not advertised (PIO only).
     EXPECT_TRUE(w[49] & 0x0200) << "LBA supported";
     EXPECT_FALSE(w[49] & 0x0100) << "DMA must not be advertised";
     EXPECT_EQ(w[63], 0x0000) << "no multiword DMA modes";
@@ -438,8 +363,7 @@ TEST_F(AtapiCdromTest, IdentifyPacketDeviceDescribesAPacketCdRomDevice) {
     EXPECT_TRUE(w[82] & 0x0200) << "DEVICE RESET supported";
     EXPECT_TRUE(w[83] & 0x4000) << "words 82-84 marked valid";
 
-    // Model number, words 27-46: ATA string fields byte-swap each character
-    // pair within its word (ATA/ATAPI-4 section 8.12.8).
+    // Words 27-46: ATA strings byte-swap each pair (ATA/ATAPI-4 8.12.8).
     std::string model;
     for (int i = 27; i <= 46; ++i) {
         model.push_back(char(w[std::size_t(i)] >> 8));
@@ -449,11 +373,7 @@ TEST_F(AtapiCdromTest, IdentifyPacketDeviceDescribesAPacketCdRomDevice) {
 }
 
 TEST_F(AtapiCdromTest, IdentifyDeviceIsAbortedWithTheAtapiSignature) {
-    // ATA/ATAPI-4 section 8.12.1: a packet device aborts IDENTIFY DEVICE
-    // (0xEC) and places its signature in the task file. That is the second
-    // half of device-type detection -- a host that issues the ATA identify
-    // without checking the reset signature first still learns what it is
-    // talking to instead of hanging or reading a bogus geometry.
+    // ATA/ATAPI-4 8.12.1: a packet device aborts IDENTIFY DEVICE (0xEC) and places its signature.
     SelectDevice0();
     cd.out(0x177, 0xEC);
     EXPECT_FALSE(Drq()) << "no identify data for the ATA form of the command";
@@ -467,9 +387,7 @@ TEST_F(AtapiCdromTest, IdentifyDeviceIsAbortedWithTheAtapiSignature) {
 }
 
 TEST_F(AtapiCdromTest, DeviceResetRestoresTheSignatureAndRaisesNoInterrupt) {
-    // ATA/ATAPI-4 section 8.7: DEVICE RESET is a packet-device-only command
-    // that resets protocol state and reasserts the signature, and
-    // deliberately does NOT assert INTRQ -- a driver polls BSY for it.
+    // ATA/ATAPI-4 8.7: DEVICE RESET reasserts the signature and does not assert INTRQ.
     SelectDevice0();
     cd.out(0x177, 0xA1);  // leave a data-in phase in progress
     ASSERT_TRUE(Drq());
@@ -491,10 +409,7 @@ TEST_F(AtapiCdromTest, UnsupportedAtaCommandIsAborted) {
 }
 
 TEST_F(AtapiCdromTest, PowerOnResetRaisesAUnitAttention) {
-    // SPC section 5.6: a reset creates a unit-attention condition, reported
-    // as CHECK CONDITION on the first command after it and then cleared.
-    // Real drives do exactly this, which is why DOS CD-ROM drivers issue
-    // TEST UNIT READY twice at startup.
+    // SPC 5.6: reset raises a unit attention, reported once as CHECK CONDITION.
     MountDisc(64);
     cd.reset();
     SelectDevice0();
@@ -505,7 +420,6 @@ TEST_F(AtapiCdromTest, PowerOnResetRaisesAUnitAttention) {
     EXPECT_EQ(s.asc, 0x29) << "POWER ON, RESET, OR BUS DEVICE RESET OCCURRED";
     EXPECT_EQ(s.ascq, 0x00);
 
-    // Cleared once reported: the next TEST UNIT READY succeeds outright.
     SendPacket({0x00});
     EXPECT_FALSE(CheckCondition());
     EXPECT_EQ(IntReason(), 0x03) << "I/O=1, C/D=1: command complete";
@@ -523,9 +437,7 @@ TEST_F(AtapiCdromTest, TestUnitReadyReportsMediumNotPresentWithAnEmptyTray) {
 }
 
 TEST_F(AtapiCdromTest, RequestSenseItselfNeverFailsAndClearsTheSenseData) {
-    // REQUEST SENSE is how a driver finds out why something failed, so it
-    // must succeed even with no disc in the tray -- and per SPC section 7.20
-    // reading the sense data clears it, so a second read reports NO SENSE.
+    // REQUEST SENSE works with no disc; reading clears the sense (SPC 7.20).
     SelectDevice0();
     ConsumeResetUnitAttention();
     SendPacket({0x00});  // fails: no media
@@ -538,9 +450,7 @@ TEST_F(AtapiCdromTest, RequestSenseItselfNeverFailsAndClearsTheSenseData) {
 }
 
 TEST_F(AtapiCdromTest, InquiryIdentifiesACdRomWithNoDiscLoaded) {
-    // INQUIRY describes the drive, not the medium, so it succeeds with an
-    // empty tray -- and it is exempt from the unit-attention report (SPC
-    // section 5.6), which is why this test does not consume one first.
+    // INQUIRY works with an empty tray and is exempt from unit attention (SPC 5.6).
     SelectDevice0();
     SendPacket({0x12, 0, 0, 0, 36});
     EXPECT_FALSE(CheckCondition());
@@ -621,10 +531,7 @@ TEST_F(AtapiCdromTest, Read10PastTheEndOfTheDiscIsAnIllegalRequest) {
 }
 
 TEST_F(AtapiCdromTest, ByteCountLimitSplitsTheDataIntoSeparateDrqBlocks) {
-    // Real ATAPI PIO hands data over in blocks no larger than the limit the
-    // host wrote to the byte-count registers, with an interrupt per block
-    // (ATA/ATAPI-4 section 9.6.2). A driver that set a 2048-byte limit and
-    // got 6144 bytes in one burst would overrun its own buffer.
+    // PIO blocks never exceed the host's byte-count limit, one interrupt each (ATA/ATAPI-4 9.6.2).
     MountDisc(16);
     SelectDevice0();
     ConsumeResetUnitAttention();
@@ -654,10 +561,7 @@ TEST_F(AtapiCdromTest, ByteCountLimitSplitsTheDataIntoSeparateDrqBlocks) {
 }
 
 TEST_F(AtapiCdromTest, OddByteCountLimitDropsToTheNextEvenValue) {
-    // ATA/ATAPI-4 section 7.3.2: an odd byte-count limit is unusable, so the
-    // device uses the even value below it -- the classic case being a host
-    // that writes 0xFFFF. Here a 2049-byte limit must behave as 2048 rather
-    // than handing over an odd-length block.
+    // ATA/ATAPI-4 7.3.2: an odd byte-count limit rounds down to even.
     MountDisc(8);
     SelectDevice0();
     ConsumeResetUnitAttention();
@@ -668,10 +572,7 @@ TEST_F(AtapiCdromTest, OddByteCountLimitDropsToTheNextEvenValue) {
 }
 
 TEST_F(AtapiCdromTest, Read10IsPacedToRealTwoSpeedDriveTiming) {
-    // Realism check, per CLAUDE.md: a 2x CD-ROM moves 307,200 bytes/sec and
-    // takes ~250 ms to get its head to a non-sequential request. Reading one
-    // sector cannot possibly complete in less than that -- if it does, the
-    // device is faster than the hardware it claims to be.
+    // 2x CD-ROM: 307,200 B/s and ~250 ms access, so one sector cannot finish sooner.
     MountDisc(64);
     SelectDevice0();
     ConsumeResetUnitAttention();
@@ -686,8 +587,7 @@ TEST_F(AtapiCdromTest, Read10IsPacedToRealTwoSpeedDriveTiming) {
     }
     ASSERT_TRUE(Busy());
 
-    // 0.25 s access + 2048/307200 s transfer is ~0.2567 s, i.e. ~16.9M
-    // cycles of this machine's 66 MHz clock. 100 ms in, nothing may be ready.
+    // 0.25 s + 2048/307200 s is ~16.9M cycles at 66 MHz.
     uint64_t c = cycles_;
     c += 6'600'000;
     cd.tick(c);
@@ -700,26 +600,16 @@ TEST_F(AtapiCdromTest, Read10IsPacedToRealTwoSpeedDriveTiming) {
     EXPECT_EQ(cd.data_in16() & 0xFF, 40);
 }
 
-// Returns how many cycles a READ(10) of one sector at `lba` takes to
-// complete, for comparing the cost of seeks of different lengths.
+// Cycles for a READ(10) of one sector at `lba`.
 TEST_F(AtapiCdromTest, ReadAheadBufferServesAShortBackwardsReReadWithNoSeek) {
-    // The case that dominates real DOS use of a CD, and the one the old
-    // single-position model got badly wrong: re-reading something slightly
-    // BEHIND where the last read ended -- a batch file, a utility the batch
-    // file runs, an ISO directory extent -- all of which sit within a few
-    // tens of KB and are re-read constantly. A real 2x drive holds 64-256KB
-    // of read-ahead, so this needs no head movement at all. Charging the full
-    // published 250 ms average here made the emulated drive markedly SLOWER
-    // than the hardware it models: during a real FreeDOS install 90% of all
-    // charged CD time was these penalties (PC486_REVIEW.md §5.8).
+    // Re-reading just behind the head hits the 64-256KB read-ahead buffer, so no seek (PC486_REVIEW.md §5.8).
     MountDisc(4096);
     SelectDevice0();
     ConsumeResetUnitAttention();
     SendPacket({0x28, 0, 0, 0, 0x02, 0x00, 0, 0, 1, 0});  // LBA 512, cold: pays average
     DrainData();
 
-    // LBA 500 is 13 sectors behind LBA 513 (where the head now is) -- well
-    // inside the 32-sector (64KB) read-ahead buffer.
+    // LBA 500 is 13 sectors behind the head, inside the 32-sector read-ahead.
     std::vector<uint8_t> cdb = {0x28, 0, 0, 0, 0x01, 0xF4, 0, 0, 1, 0, 0, 0};
     cd.out(0x174, 0xFE);
     cd.out(0x175, 0xFF);
@@ -736,17 +626,12 @@ TEST_F(AtapiCdromTest, ReadAheadBufferServesAShortBackwardsReReadWithNoSeek) {
 }
 
 TEST_F(AtapiCdromTest, SeekCostGrowsWithDistanceAndStillRespectsTheShortSeekFloor) {
-    // Access time is distance-dependent on real hardware; a datasheet's
-    // "average access time" is a one-third-stroke figure, not the cost of
-    // every seek. So a short seek must cost meaningfully less than a long
-    // one, and both must cost at least the short-seek floor (a sled step plus
-    // the CLV spindle-speed change is never free).
+    // Seek time scales with distance: short seeks cost less than long ones but never zero.
     auto cost_cycles = [&](uint32_t from, uint32_t to) {
         MountDisc(30000);
         SelectDevice0();
         ConsumeResetUnitAttention();
-        // Park the head via a read at `from` (cold, so this one pays the
-        // average -- it is not what is being measured).
+        // Park the head with a cold read (pays the average, not measured).
         SendPacket({0x28, 0, uint8_t(from >> 24), uint8_t(from >> 16),
                     uint8_t(from >> 8), uint8_t(from), 0, 0, 1, 0});
         DrainData();
@@ -769,8 +654,7 @@ TEST_F(AtapiCdromTest, SeekCostGrowsWithDistanceAndStillRespectsTheShortSeekFloo
     const uint64_t shortish = cost_cycles(1000, 2000);
     const uint64_t longish  = cost_cycles(1000, 29000);
     EXPECT_LT(shortish, longish) << "seek cost must grow with distance";
-    // Short-seek floor: kSeekMinSec = 80 ms = 5.28M cycles at 66 MHz, plus
-    // transfer. Must not be free, and must not reach the 250 ms average.
+    // Short-seek floor kSeekMinSec = 80 ms = 5.28M cycles at 66 MHz, plus transfer.
     EXPECT_GT(shortish, 5'000'000u) << "even a short seek costs the sled-step floor";
     EXPECT_LT(shortish, 16'500'000u) << "a short seek must cost less than the 250 ms average";
     // A near-full-stroke seek costs more than the average, as on real hardware.
@@ -778,13 +662,7 @@ TEST_F(AtapiCdromTest, SeekCostGrowsWithDistanceAndStillRespectsTheShortSeekFloo
 }
 
 TEST_F(AtapiCdromTest, SequentialReadsSkipTheAccessPenalty) {
-    // A read that continues where the last one stopped costs only transfer
-    // time: the head is already there and the read-ahead buffer holds the
-    // data. This is why DOS software that reads a CD sequentially feels an
-    // order of magnitude faster than software that seeks around -- and why
-    // modeling a flat per-command access time would be wrong in a way a user
-    // would actually feel. (The buffer covers rather more than strictly
-    // contiguous reads -- see ReadAheadBufferServesAShortBackwardsReReadWithNoSeek.)
+    // A sequential read costs transfer time only: head in place, read-ahead holds the data.
     MountDisc(64);
     SelectDevice0();
     ConsumeResetUnitAttention();
@@ -809,8 +687,7 @@ TEST_F(AtapiCdromTest, SequentialReadsSkipTheAccessPenalty) {
 }
 
 TEST_F(AtapiCdromTest, Seek10PositionsTheHeadWithoutReturningData) {
-    // MMC SEEK(10). FreeDOS's ATAPICDD.SYS issues this for its own DOS seek
-    // device command, so it is a driver path that genuinely gets exercised.
+    // MMC SEEK(10), used by ATAPICDD.SYS for its seek device command.
     MountDisc(64);
     SelectDevice0();
     ConsumeResetUnitAttention();
@@ -845,13 +722,8 @@ TEST_F(AtapiCdromTest, Seek10PastTheEndOfTheDiscIsAnIllegalRequest) {
 }
 
 TEST_F(AtapiCdromTest, GetEventStatusNotificationIsRefusedAsAnachronistic) {
-    // GET EVENT STATUS NOTIFICATION (4Ah) is an MMC-2 (1997) command: a
-    // 1993-94 2x drive genuinely predates it, so refusing it is the
-    // period-accurate answer rather than a gap. FreeDOS's ATAPICDD.SYS asks
-    // for it first in getMediaStatus() but handles the failure explicitly
-    // (its @@assumeNotSupported path returns STATUS_MEDIA_UNKNOWN), so the
-    // driver degrades to polling TEST UNIT READY -- which is what a real
-    // period drive forced it to do.
+    // GET EVENT STATUS NOTIFICATION is MMC-2 (1997). A 1993-94 2x drive refuses it and
+    // ATAPICDD.SYS falls back to polling TEST UNIT READY.
     MountDisc(16);
     SelectDevice0();
     ConsumeResetUnitAttention();
@@ -863,9 +735,7 @@ TEST_F(AtapiCdromTest, GetEventStatusNotificationIsRefusedAsAnachronistic) {
 }
 
 TEST_F(AtapiCdromTest, ModeSense10ReturnsTheCdCapabilitiesPage) {
-    // Page 2Ah, CD Capabilities and Mechanical Status (MMC / SFF-8020i) --
-    // what a driver probes for the drive's speed, loader type and whether it
-    // can eject. It describes the drive, so it answers with an empty tray.
+    // Page 2Ah CD Capabilities and Mechanical Status (SFF-8020i); works with an empty tray.
     SelectDevice0();
     ConsumeResetUnitAttention();
     SendPacket({0x5A, 0, 0x2A, 0, 0, 0, 0, 0, 30, 0});
@@ -898,10 +768,7 @@ TEST_F(AtapiCdromTest, ModeSense10RejectsAnUnsupportedPage) {
 }
 
 TEST_F(AtapiCdromTest, ModeSenseSixByteFormIsNotPartOfTheAtapiCommandSet) {
-    // A real quirk worth keeping: SFF-8020i defines only the 10-byte MODE
-    // SENSE/MODE SELECT, so a real ATAPI CD-ROM rejects the 6-byte form with
-    // INVALID COMMAND OPERATION CODE and drivers probe with it precisely to
-    // learn they must use the 10-byte form.
+    // SFF-8020i defines only the 10-byte MODE SENSE/SELECT; the 6-byte form gets INVALID COMMAND OPERATION CODE.
     SelectDevice0();
     ConsumeResetUnitAttention();
     SendPacket({0x1A, 0, 0x2A, 0, 30, 0});
@@ -933,9 +800,7 @@ TEST_F(AtapiCdromTest, ReadTocReportsOneDataTrackAndTheLeadOut) {
 }
 
 TEST_F(AtapiCdromTest, ReadTocInMsfFormCarriesTheRedBookTwoSecondPregap) {
-    // MSF addresses are offset by 150 frames: LBA 0 is at 00:02:00, not
-    // 00:00:00. A driver that hands an MSF address straight back as an LBA
-    // without removing the pregap reads 150 sectors past where it meant to.
+    // MSF is offset by 150 frames: LBA 0 is 00:02:00.
     MountDisc(500);
     SelectDevice0();
     ConsumeResetUnitAttention();
@@ -952,13 +817,7 @@ TEST_F(AtapiCdromTest, ReadTocInMsfFormCarriesTheRedBookTwoSecondPregap) {
 }
 
 TEST_F(AtapiCdromTest, ReadTocFormatOneReportsSessionInformation) {
-    // Format 0001b ("Session Information") is what FreeDOS's UDVD2.SYS uses
-    // as its disc-present check -- it issues `43 00 01 00 00 00 00 00 0C 00`
-    // verbatim, i.e. format 1 with a 12-byte allocation length. Refusing it
-    // with INVALID FIELD IN CDB (as this device originally did, having been
-    // written against ATAPICDD.SYS instead) made the entire drive read back
-    // as "drive not ready" to DOS, so nothing on the CD was reachable at all.
-    // See PC486_REVIEW.md §5.5.
+    // Format 0001b (Session Information) is UDVD2.SYS's disc-present check (PC486_REVIEW.md §5.5).
     MountDisc(500);
     SelectDevice0();
     ConsumeResetUnitAttention();
@@ -976,9 +835,7 @@ TEST_F(AtapiCdromTest, ReadTocFormatOneReportsSessionInformation) {
 }
 
 TEST_F(AtapiCdromTest, ReadTocStillRejectsAnUnimplementedFormat) {
-    // Format 1 being accepted must not turn READ TOC into a command that
-    // accepts anything: format 2 (Full TOC) and up are genuinely not
-    // implemented, and a driver probing for them is supposed to learn that.
+    // Full TOC (format 2) and up stay unimplemented.
     MountDisc(500);
     SelectDevice0();
     ConsumeResetUnitAttention();
@@ -990,10 +847,7 @@ TEST_F(AtapiCdromTest, ReadTocStillRejectsAnUnimplementedFormat) {
 }
 
 TEST_F(AtapiCdromTest, StartStopUnitEjectsAndTheMediaChangeIsReported) {
-    // The path a DOS CD-ROM driver's "did the disc change?" poll actually
-    // rides on (SPC section 5.6): the change raises a unit attention that
-    // the next command reports as CHECK CONDITION / 06h / 28h 00h, and it is
-    // cleared once reported.
+    // Disc change raises a unit attention: CHECK CONDITION / 06h / 28h 00h, once (SPC 5.6).
     MountDisc(64);
     SelectDevice0();
     ConsumeResetUnitAttention();
@@ -1010,7 +864,6 @@ TEST_F(AtapiCdromTest, StartStopUnitEjectsAndTheMediaChangeIsReported) {
     EXPECT_EQ(s.key, 0x06) << "UNIT ATTENTION";
     EXPECT_EQ(s.asc, 0x28) << "NOT READY TO READY CHANGE, MEDIUM MAY HAVE CHANGED";
 
-    // With the change reported, the standing condition is simply "no disc".
     SendPacket({0x00});
     EXPECT_TRUE(CheckCondition());
     Sense s2 = RequestSense();
@@ -1032,9 +885,7 @@ TEST_F(AtapiCdromTest, StartStopUnitEjectsAndTheMediaChangeIsReported) {
 }
 
 TEST_F(AtapiCdromTest, PreventMediumRemovalRefusesTheEjectCommand) {
-    // SPC section 7.12: with removal prevented, a drive refuses the eject
-    // rather than obeying it -- what stops a program from ejecting a disc it
-    // is still reading from.
+    // SPC 7.12: with removal prevented, eject is refused.
     MountDisc(16);
     SelectDevice0();
     ConsumeResetUnitAttention();
@@ -1055,10 +906,7 @@ TEST_F(AtapiCdromTest, PreventMediumRemovalRefusesTheEjectCommand) {
 }
 
 TEST_F(AtapiCdromTest, HostEjectOverridesTheDriverLock) {
-    // The front-end eject button is the user physically taking the disc --
-    // the real-world equivalent of the emergency eject hole, which a
-    // software lock cannot stop. The CDB path above honors the lock; this
-    // one deliberately does not.
+    // The front-end eject button bypasses the software lock, like the emergency eject hole.
     MountDisc(16);
     SelectDevice0();
     ConsumeResetUnitAttention();
@@ -1068,8 +916,7 @@ TEST_F(AtapiCdromTest, HostEjectOverridesTheDriverLock) {
 }
 
 TEST_F(AtapiCdromTest, NienMasksTheCompletionInterrupt) {
-    // Device Control bit 1 (nIEN) masks INTRQ to the host, same as the
-    // primary channel's.
+    // nIEN masks INTRQ.
     MountDisc(16);
     SelectDevice0();
     ConsumeResetUnitAttention();
@@ -1237,9 +1084,7 @@ TEST_F(AtapiCdromTest, ReadTocReportsRealControlBitsForAMixedModeDisc) {
 }
 
 TEST_F(AtapiCdromTest, DefaultAudioPortsRouteBothChannelsAtFullVolume) {
-    // SFF-8020i Table 60: ports 0/1 default FFh (mandatory), and every real
-    // drive wires them straight through so audio is audible with no MODE
-    // SELECT at all.
+    // SFF-8020i Table 60: ports 0/1 default to FFh, so audio plays without MODE SELECT.
     MountCueBin(MakeCueBin(4, 2));
     SelectDevice0();
     ConsumeResetUnitAttention();
@@ -1290,9 +1135,7 @@ TEST_F(AtapiCdromTest, ModeSelectRejectsAnythingOtherThanTheAudioControlPage) {
 }
 
 TEST_F(AtapiCdromTest, MountTruncatesAPartialTrailingSector) {
-    // A real drive addresses whole 2048-byte blocks and cannot read a
-    // partial one, so a ragged image is rounded down rather than exposing a
-    // short final sector.
+    // Whole 2048-byte blocks only; a ragged image rounds down.
     std::vector<uint8_t> img(std::size_t(3 * kSectorBytes) + 7, 0xAB);
     cd.mount(img.data(), img.size());
     SelectDevice0();

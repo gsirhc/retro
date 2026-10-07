@@ -1,5 +1,3 @@
-// AT28C256 EEPROM model. See eeprom28c256.h for the interface and citation.
-
 #include "eeprom28c256.h"
 
 #include <algorithm>

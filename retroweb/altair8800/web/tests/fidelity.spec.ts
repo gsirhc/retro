@@ -1,9 +1,7 @@
 import { test, expect } from "./fixtures";
 import { boot, send, screen, regs, waitForScreen } from "./helpers";
 
-// The realism guarantees from CLAUDE.md, as executable checks. ?test lets media
-// LOADS run at Max, but the CPU clock and the terminal baud rate are never sped
-// up -- these tests fail if someone changes that.
+// Executable realism checks. ?test runs media loads at Max, but the CPU clock and terminal baud are never sped up.
 
 test.describe("timing fidelity", () => {
   test("the 8080 runs at ~2 MHz of emulated time per wall-clock second", async ({ page }) => {
@@ -39,8 +37,7 @@ test.describe("timing fidelity", () => {
       .toBeGreaterThanOrEqual(60);
   });
 
-  // ALTAIR_REVIEW.md §6: only tty33/modern had a metering assertion; the other
-  // five profiles' baud rates were completely untested.
+  // ALTAIR_REVIEW.md §6: every profile's baud rate gets a metering assertion
   test.describe("every other CRT profile meters output near its real baud, not instantly", () => {
     const BAUD: Record<string, number> = { vt100g: 9600, vt100a: 9600, vt52: 4800, adm3a: 9600, glasstty: 300 };
     for (const [key, baud] of Object.entries(BAUD)) {
@@ -90,13 +87,9 @@ test.describe("timing fidelity", () => {
     expect(rate).toBeLessThan(30); // definitely not the whole 8 KB
   });
 
-  // ALTAIR_REVIEW.md §3.2d: the 88-DCDD now has a rotation timing model too --
-  // "Realistic" gates IN 0x09's sector advance to ~193/sec (~166 ms/rev over
-  // 32 sectors), the same LOAD SPEED pattern as paper tape/cassette. `?test=1`
-  // forces Max by default; this test opts back into Realistic to prove the
-  // throttle exists. Most of a CP/M cold boot is the CPU itself running at
-  // real 2 MHz regardless of disk speed (measured ~1.8 s), so the floor here
-  // is set well above that -- only the disk-attributable delay pushes it past.
+  // ALTAIR_REVIEW.md §3.2d: Realistic gates IN 0x09's sector advance to ~193/sec (~166 ms/rev).
+  // ?test forces Max; this test selects Realistic to prove the throttle. A CP/M cold boot takes
+  // ~1.8 s of CPU alone, so the floor sits well above that.
   test("disk at 'Realistic' measurably slows a CP/M boot", async ({ page }) => {
     await boot(page, { params: "preset=cpm" });
     await page.evaluate(() => (window as any).__test.disk.setSpeed("realistic"));

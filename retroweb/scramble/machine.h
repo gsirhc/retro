@@ -1,10 +1,7 @@
 // Konami Scramble (1981) board: dual Z80 + Galaxian video + two AY-3-8910s.
 //
-// Memory map is the schematic-derived The End map (Konami parent of this
-// PCB family). MAME galaxian.cpp (machine scramble / theend_map) is a
-// cross-check of decoded chip-selects, not a behavior source.
-// Clocks: main 18.432/6 = 3.072 MHz; sound Z80 and both AYs 14.31818/8 =
-// 1.789772 MHz.
+// Schematic-derived The End map (Konami parent of this PCB family).
+// Clocks: main 3.072 MHz; sound Z80 and both AYs 14.31818/8 = 1.789772 MHz.
 
 #ifndef SCRAMBLE_MACHINE_H
 #define SCRAMBLE_MACHINE_H

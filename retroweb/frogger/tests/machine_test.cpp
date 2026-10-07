@@ -46,7 +46,6 @@ TEST(Machine, WatchdogReadReturnsFfAndPreventsExpiry) {
     EXPECT_EQ(m.mem_read(0x8800), 0xFF);
     for (int i = 0; i < 20; i++) {
         m.video.vblank_edge = true;
-        // Kick each "frame" the way the NMI handler does.
         (void)m.mem_read(0x8800);
         m.watchdog_--;
         if (m.watchdog_ <= 0) {
@@ -157,8 +156,7 @@ TEST(Machine, HwtestStaysSilent) {
 }
 
 TEST(Machine, SoundCpuTracksMainClock) {
-    // Sound is 14.31818/8; main is 18.432/6. A leftover-discarding sync
-    // overshoots every instruction and drifts ~2× fast — catch that here.
+    // A sync that discards instruction overshoot runs the sound CPU ~2x fast.
     frogger::Machine m;
     m.reset();
     const int main_run = frogger::kCpuHz / 10;

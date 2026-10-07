@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Local dev server: serves web/ on the LAN with caching disabled.
+# Dev server: LAN, no caching
 import http.server, os, sys
 
 os.chdir(os.path.dirname(os.path.abspath(__file__)))

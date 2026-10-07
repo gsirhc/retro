@@ -1,10 +1,3 @@
-// GoogleTest suite for the top-level Machine: run_cycles() progress, a full
-// PIT-channel-0 -> PIC IRQ0 -> CPU interrupt -> handler round trip
-// (including waking a HLTed CPU), and the keyboard-controller reset trick
-// resetting the CPU without corrupting the decoupled total_cycles_ pacing
-// counter -- the exact class of bug cg-oac-6502's review doc (§10)
-// documents for its own Machine.
-
 #include <gtest/gtest.h>
 
 #include "machine.h"
@@ -14,10 +7,7 @@ namespace {
 using ibmpcat::Machine;
 
 TEST(MachineTest, ConstructorSeedsFactoryCmosConfiguration) {
-    // See IBM_PCAT_REVIEW.md §8: without these bytes, the real BIOS this
-    // machine boots panics with "No bootable device" regardless of what's
-    // mounted -- it reads the boot sequence from CMOS 0x3D rather than
-    // auto-probing drives.
+    // Without the factory CMOS bytes the BIOS panics "No bootable device" (IBM_PCAT_REVIEW.md §8).
     Machine m;
     EXPECT_EQ(m.chipset.cmos.peek(0x10), 0x21);  // drive A: 1.2MB, B: 360KB
     EXPECT_EQ(m.chipset.cmos.peek(0x14) & 0x01, 0x01);  // a floppy is installed
@@ -25,8 +15,7 @@ TEST(MachineTest, ConstructorSeedsFactoryCmosConfiguration) {
     EXPECT_EQ(m.chipset.cmos.peek(0x16), 0x02);  // base memory high byte -> 640KB
     EXPECT_EQ(m.chipset.cmos.peek(0x3D) & 0x0F, 0x01);         // 1st boot device = floppy
     EXPECT_EQ((m.chipset.cmos.peek(0x3D) >> 4) & 0x0F, 0x02);  // 2nd = hard disk fallback
-    // Checksum (0x2E/0x2F) covers 0x10-0x2D and must stay internally
-    // consistent with whatever's actually in that range.
+    // Checksum 0x2E/0x2F covers 0x10-0x2D.
     uint16_t sum = 0;
     for (uint16_t reg = 0x10; reg <= 0x2D; ++reg) sum = uint16_t(sum + m.chipset.cmos.peek(uint8_t(reg)));
     EXPECT_EQ(m.chipset.cmos.peek(0x2E), uint8_t(sum >> 8));
@@ -34,10 +23,7 @@ TEST(MachineTest, ConstructorSeedsFactoryCmosConfiguration) {
 }
 
 TEST(MachineTest, FactoryCmosSurvivesAnExplicitResetCall) {
-    // Regression test: constructing a Machine and calling reset() must not
-    // wipe the factory CMOS configuration -- real CMOS is battery-backed
-    // and survives any reset, unlike a chipset.reset() that unconditionally
-    // resets CMOS/RTC too. See IBM_PCAT_REVIEW.md §8.
+    // CMOS is battery-backed and must survive reset (IBM_PCAT_REVIEW.md §8).
     Machine m;
     m.reset();
     EXPECT_EQ(m.chipset.cmos.peek(0x3D) & 0x0F, 0x01);
@@ -103,9 +89,7 @@ TEST(MachineTest, KeyboardControllerResetTrickResetsCpuWithoutLosingPacing) {
     m.chipset.kbc.out(0x64, 0xFE);  // pulse output line 0 -> CPU reset
     m.run_cycles(10);
 
-    // The CPU landed at the real-mode reset vector (F000:FFF0) and only
-    // ran forward from there -- it did NOT keep executing from wherever it
-    // was in the NOP sled before the reset.
+    // Lands at the reset vector F000:FFF0, not in the NOP sled.
     EXPECT_EQ(m.cpu.cs, 0xF000);
     EXPECT_GE(m.cpu.ip, 0xFFF0);
     EXPECT_GE(m.total_cycles(), before);  // pacing counter kept advancing, not zeroed by the reset

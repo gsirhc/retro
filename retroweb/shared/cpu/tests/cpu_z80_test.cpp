@@ -1,7 +1,5 @@
-// GoogleTest suite for z80::Cpu. Named regressions for UM0080 groups so a
-// failure shows an opcode, not "trapped somewhere in zexdoc". The
-// independent correctness gate is Frank Cringle's zexdoc exerciser
-// (`make -C .. zexdoc`).
+// GoogleTest suite for z80::Cpu: named UM0080 regressions. zexdoc is the
+// independent correctness gate.
 
 #include <gtest/gtest.h>
 

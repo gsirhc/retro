@@ -142,9 +142,7 @@ TEST(Cache486Test, VgaMemoryIsNeverCachedAndCostsVlBusCycles) {
 
 TEST(Cache486Test, AnEightBitIsaPortCostsSixAndAHalfIsaClocks) {
     Cache486 c;
-    // 4 wait states (6 ISA clocks) plus half a clock of command delay, at 4
-    // bus clocks per 8.33 MHz ISA clock; less the 2 clocks the published
-    // IN count already includes.
+    // 4 wait states (6 ISA clocks) + half a clock command delay at 4 bus clocks per 8.33 MHz ISA clock, less the 2 clocks the IN count includes.
     EXPECT_EQ(c.io(0x60, 1, false, 0), T(26) - 2);
 }
 

@@ -9,12 +9,7 @@ async function chooseTheme(page, theme, mode = "light") {
 }
 
 
-// The retroweb/ landing page (served on :9010 by the 2nd webServer in
-// playwright.config.ts). It shares the retro8080.theme localStorage key
-// with the emulator, so a theme picked here carries into /asteroids/ and
-// back. Needs the Asteroids landing-page card wired into retroweb/index.html
-// -- see "Wiring a machine into the site" in CLAUDE.md; that is a separate
-// step from this machine's own web/ front end.
+// Landing page on :9010. Shares the retro8080.theme key with the emulator.
 
 const HOME = "http://localhost:9010/";
 

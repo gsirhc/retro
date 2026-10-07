@@ -1,15 +1,5 @@
-// Emscripten wrapper: binds the 8080 core + 88-2SIO board into one `Machine`
-// object the browser can drive. Build with `make` in this directory (needs the
-// emsdk toolchain on PATH).
-//
-// JS surface (all via embind):
-//   const m = new Module.Machine();
-//   m.reset();
-//   m.loadBytes(uint8Array, 0x0000);   // drop a ROM / program into memory
-//   m.sendByte(0x41);                   // terminal -> serial channel A
-//   m.runCycles(33333);                 // advance ~1 frame at 2 MHz
-//   const out = m.readOutput();         // Uint8Array the CPU transmitted
-//   const s   = m.state();              // { a,b,c,...,pc,sp,halted,cycles }
+// Emscripten wrapper binding the 8080 core, 88-2SIO, 88-DCDD and 88-ACR into one
+// `Machine` object (embind) for the browser.
 
 #include <emscripten/bind.h>
 #include <emscripten/val.h>
@@ -28,8 +18,7 @@ using emscripten::val;
 
 namespace {
 
-// A tiny built-in program so the page does something before a ROM is loaded:
-// reset ACIA channel A, configure 8N1, then echo every received byte.
+// built-in echo program so the page does something before a ROM is loaded
 const uint8_t kEchoRom[] = {
     0x3E, 0x03, 0xD3, 0x10,                    // MVI A,03 / OUT 10   master reset
     0x3E, 0x11, 0xD3, 0x10,                    // MVI A,11 / OUT 10   8N1, /16, IRQ off
@@ -47,21 +36,12 @@ public:
     Machine() : cpu_(make_bus()) {
         load_default_rom();
         cpu_.reset();
-        // The 88-2SIO's RX/TX-ready conditions jam RST 7 (vector 0x38) onto the
-        // bus when interrupts are enabled -- the conventional Altair 2SIO
-        // vector. Cpu::interrupt() is itself a no-op when disabled or mid-EI-
-        // delay, so firing this on every status change needs no debouncing.
-        // See ALTAIR_REVIEW.md §2.2/§2.3.
+        // 2SIO ready conditions jam RST 7 (0x38); interrupt() ignores it when disabled
         sio_.on_irq = [this] { if (cpu_.interrupt(0xFF)) int_seen_ = true; };
     }
 
-    // Wipe RAM and re-seed the built-in echo program. Zeroed, not garbage: this
-    // is the generic "power on, about to load something" reset every preset
-    // and ROM/tape image is built and tested against -- only bootDisk()'s
-    // turnkey CP/M-style boot (below) gets the realistic garbage fill, since
-    // that's the one path where "what's sitting in memory nobody has claimed
-    // yet" is actually the point (ALTAIR_REVIEW.md follow-up: RAM power-on
-    // content).
+    // Zeroed, not garbage: presets and ROM/tape images are built against a clean
+    // slate. Only bootDisk() gets the garbage fill.
     void reset() {
         mem_.fill(0);
         rom_lo_ = 0x10000; rom_hi_ = 0;
@@ -72,13 +52,9 @@ public:
         cpu_.reset();
     }
 
-    // Clear RAM without seeding anything (call before loadBytes for a real ROM).
     void clearMemory() { mem_.fill(0); rom_lo_ = 0x10000; rom_hi_ = 0; }
 
-    // Copy bytes from a JS Uint8Array (or array) into memory at `addr`. Bytes
-    // that land above the current RAM ceiling become the read-only ROM window
-    // (the 0xE000 BASIC image, a boot PROM) so a small-RAM machine can still
-    // run them.
+    // Bytes above the RAM ceiling become the read-only ROM window (BASIC at 0xE000, boot PROM).
     void loadBytes(val bytes, int addr) {
         const unsigned len = bytes["length"].as<unsigned>();
         for (unsigned i = 0; i < len; ++i) {
@@ -93,7 +69,6 @@ public:
         }
     }
 
-    // Contiguous RAM from 0 (the Altair way). 4..64 KB.
     void setRam(int kb) {
         if (kb < 1) kb = 1;
         if (kb > 64) kb = 64;
@@ -101,20 +76,14 @@ public:
     }
     int ramKb() const { return static_cast<int>(ram_top_ / 1024); }
 
-    // The front panel's RESET/CLR paddle: a bus signal to the CPU and the
-    // S-100 cards' electrical state, nothing more. The cassette deck isn't on
-    // the bus -- a real Altair's RESET line doesn't reach a box plugged into
-    // a completely separate cable, so it stays wherever it was and keeps
-    // playing if PLAY is down (disk_.reset() deselecting the 88-DCDD *is*
-    // correct: that card genuinely is on the bus). See ALTAIR_REVIEW.md §3.4.
+    // Front-panel RESET/CLR reaches the bus cards only. The cassette deck is on a
+    // separate cable and keeps playing through it.
     void reboot() {
         sio_.reset();
         disk_.reset();
         cpu_.reset();
     }
 
-    // ---- 88-DCDD disk drives ------------------------------------------
-    // Insert a diskette image (a flat 337,568-byte sector dump) into a drive.
     void mountDisk(int drive, val bytes) {
         std::vector<uint8_t> data =
             emscripten::convertJSArrayToNumberVector<uint8_t>(bytes);
@@ -125,7 +94,6 @@ public:
     bool diskDirty(int drive)   const { return disk_.dirty(drive); }
     void clearDiskDirty(int drive)    { disk_.clearDirty(drive); }
 
-    // The current (possibly written-to) image, for "save disk to file".
     val diskImage(int drive) {
         const std::vector<uint8_t> &img = disk_.image(drive);
         val out = val::global("Uint8Array").new_(img.size());
@@ -134,7 +102,6 @@ public:
         return out;
     }
 
-    // Small snapshot for the drive-panel UI (polled roughly once per frame).
     val diskStatus() const {
         val o = val::object();
         o.set("selected",   disk_.selectedDrive());
@@ -146,13 +113,7 @@ public:
         return o;
     }
 
-    // Put the 88-DCDD bootstrap PROM at 0xFF00 (read-only) without touching RAM
-    // or the CPU -- so EXAMINE 0FF00h / RUN on the panel finds real boot code,
-    // exactly as it would on a machine with the DCDD controller fitted. RAM
-    // itself is garbage-filled separately, by randomizeMemory() below, at the
-    // point a disk-equipped preset is powered on -- not here, since fitting
-    // (or re-mapping) the boot ROM on an already-running machine must not
-    // retroactively scramble whatever's already in RAM.
+    // Put the boot PROM at 0xFF00 (read-only) without touching RAM or the CPU.
     void mapDiskBoot() {
         for (int i = 0; i < 256; ++i)
             mem_[altair::kDiskBootAddr + i] = altair::kDiskBootRom[i];
@@ -160,27 +121,8 @@ public:
         if (rom_hi_ < altair::kDiskBootAddr + 255) rom_hi_ = altair::kDiskBootAddr + 255;
     }
 
-    // Real S-100 memory boards (88-4MCS static RAM, 88-4MCD/88-16MCD dynamic
-    // RAM) never powered up blank -- an unpowered SRAM flip-flop settles into
-    // whatever its fabrication bias favors, and a DRAM cell starts with
-    // whatever stray charge (or none) happened to be on its capacitor. Either
-    // way it's indeterminate, not a clean 0x00 fill (the same point already
-    // made for register contents in Cpu::reset()). A fixed seed keeps that
-    // garbage byte-for-byte reproducible across runs -- plausible in its own
-    // right (a given board's bias tends to repeat power-on to power-on) and
-    // necessary so tests aren't chasing a moving target.
-    //
-    // Called for disk-equipped presets right after reset() (JS side, once
-    // devices are known), and by bootDisk() below -- reset()/clearMemory()
-    // themselves stay zeroed since every ROM/tape image (echo, hello,
-    // killbits, 4K/8K BASIC) is built and tested against a clean slate.
-    //
-    // Re-seeds the echo ROM at the end: reset() already dropped it at address
-    // 0 so the machine is never just inert before the operator does anything
-    // (every preset relies on that), and this blanket fill would otherwise
-    // paint straight over it -- the CPU is already running from PC=0 by the
-    // time JS calls this, and real garbage there means an immediate, near-
-    // certain HALT on whatever 0x76 byte the fill happens to land on.
+    // Real S-100 RAM powers up indeterminate, not 0x00. Fixed seed keeps it
+    // reproducible. Reseeds the echo ROM afterward, since PC=0 is already running.
     void randomizeMemory() {
         uint32_t x = 0x1975A17A;   // MITS Altair, 1975 -- arbitrary fixed seed
         for (auto &b : mem_) {
@@ -190,8 +132,6 @@ public:
         load_default_rom();
     }
 
-    // Turnkey disk boot: drop the MITS 88-DCDD bootstrap PROM at 0xFF00 and
-    // start there, exactly like flipping EXAMINE 0FF00h / RUN on the panel.
     void bootDisk() {
         randomizeMemory();
         for (int i = 0; i < 256; ++i)
@@ -234,19 +174,13 @@ public:
         return o;
     }
 
-    // Point the program counter at a program's entry (call after loadBytes +
-    // reboot). CP/M .COM images start at 0x0100; most ROM images at 0x0000.
     void setPC(int addr) { cpu_.pc = static_cast<uint16_t>(addr & 0xFFFF); }
 
-    // Front-panel sense switches, read via IN 0FFh. Altair BASIC checks these
-    // at cold start to pick the console device; 0 selects the 2SIO.
+    // read via IN 0FFh; BASIC checks these at cold start to pick the console
     void setSenseSwitches(int v) { sense_ = static_cast<uint8_t>(v & 0xFF); }
 
-    // Terminal -> serial channel A receive FIFO.
     void sendByte(int byte) { sio_.host_send(static_cast<uint8_t>(byte & 0xFF)); }
 
-    // Everything the CPU has transmitted on channel A since the last call,
-    // as a freshly allocated Uint8Array.
     val readOutput() {
         std::vector<uint8_t> bytes = sio_.host_drain();
         val out = val::global("Uint8Array").new_(bytes.size());
@@ -258,22 +192,14 @@ public:
         return out;
     }
 
-    // Run instructions until at least `cycles` T-states have elapsed.
     void runCycles(int cycles) {
         int64_t remaining = cycles;
         while (remaining > 0) remaining -= cpu_.step();
-        disk_.tick(cpu_.cycles);   // advance the disk's rotational credit (§3.2d)
+        disk_.tick(cpu_.cycles);
     }
 
-    // Advance the cassette transport for one rendered frame. Call every frame
-    // regardless of whether the CPU is running -- the deck is a separate box
-    // with its own motor, not on the S-100 bus, so PLAY/FF/REW keep the reels
-    // turning even with the front panel on STOP (or powered off). While the
-    // CPU runs, the transport is paced by its own cycle clock (so 25x/50x
-    // still track CPU-cycle time exactly, turbo included); while it isn't,
-    // `idle_cycles_` advances the same clock by real elapsed time instead, at
-    // the machine's native 2 MHz, so the two paces splice together with no
-    // jump when RUN resumes. See ALTAIR_REVIEW.md §3.4a.
+    // Call every frame. The deck is off the S-100 bus, so it keeps turning while the
+    // CPU is stopped; idle_cycles_ then advances the same 2 MHz clock by wall time.
     void tickCassette(double dtMs, bool running) {
         if (!running) idle_cycles_ += static_cast<uint64_t>(dtMs * 2000.0);
         cassette_.tick(cpu_.cycles + idle_cycles_);
@@ -285,22 +211,16 @@ public:
     // Disk rotation rate: 193 = "Realistic" (~166 ms/rev over 32 sectors), 0 = unlimited.
     void setDiskSpeed(int sectorsPerSec) { disk_.setSpeed(sectorsPerSec); }
 
-    // Execute exactly one instruction (front-panel SINGLE STEP).
     int stepOne() { return cpu_.step(); }
 
-    // Front-panel EXAMINE / DEPOSIT peek and poke.
     int  readByte(int addr)          { return mem_[addr & 0xFFFF]; }
     void writeByte(int addr, int v)  { mem_[addr & 0xFFFF] = static_cast<uint8_t>(v & 0xFF); }
 
     bool   halted()      const { return cpu_.halted; }
     int    lastAddr()    const { return last_addr_; }   // last address on the bus
 
-    // Per-address-bit touch counts since the last call (resets on read). The
-    // real address lamps are incandescent bulbs that integrate brightness over
-    // every bus cycle in a frame: a bit driven on nearly every cycle (Kill the
-    // Bit's `D`, via four LDAX D per loop) glows visibly brighter than one a
-    // slow counter only sweeps through once (`H`). An OR of "did this bit ever
-    // go high" can't reproduce that -- see ALTAIR_REVIEW.md §3.6b.
+    // Per-address-bit touch counts since the last call. Lamp brightness integrates
+    // over every bus cycle in a frame, so an OR of "ever high" would be wrong.
     val busActivityCounts() {
         val out = val::global("Uint16Array").new_(addr_hits_.size());
         out.call<void>("set",
@@ -322,12 +242,7 @@ public:
         o.set("halted", cpu_.halted);
         o.set("intEnabled", cpu_.int_enabled);
         o.set("cycles", static_cast<double>(cpu_.cycles));
-        // front-panel status lamps derived from the last bus access (§3.6a
-        // above); "wo" is already unwrapped to the real active-low sense --
-        // true means the WO line reads asserted (i.e. not a write). We don't
-        // model HALT's own repeated internal fetch-discard cycles, so a
-        // halted CPU reports no bus activity rather than leaving whatever
-        // access preceded HALT stuck "on" forever.
+        // "wo" is the real active-low sense. A halted CPU reports no bus activity.
         o.set("memr", !cpu_.halted && last_bus_op_ == BusOp::kMemRead);
         o.set("wo",   cpu_.halted || last_bus_op_ != BusOp::kMemWrite);
         o.set("inp",  !cpu_.halted && last_bus_op_ == BusOp::kIoIn);
@@ -343,9 +258,7 @@ private:
         bus.read  = [this](uint16_t a) -> uint8_t {
             touch(a);
             last_bus_op_ = BusOp::kMemRead;
-            // the ROM window shadows RAM underneath it (real hardware: the PROM
-            // decoder wins the bus regardless of how much RAM is installed) --
-            // check it first so a 64 KB build doesn't let ram_top_ swallow it
+            // ROM window shadows RAM (the PROM decoder wins the bus)
             if (a >= rom_lo_ && a <= rom_hi_) return mem_[a];
             if (a < ram_top_)                 return mem_[a];
             return 0xFF;                            // unpopulated: floating high
@@ -377,8 +290,7 @@ private:
         for (unsigned i = 0; i < sizeof(kEchoRom); ++i) mem_[i] = kEchoRom[i];
     }
 
-    // Declaration order matters: mem_ and sio_ are built before cpu_, whose
-    // constructor calls make_bus() and captures them.
+    // mem_ and sio_ are built before cpu_, whose constructor captures them
     std::array<uint8_t, 0x10000> mem_{};
     unsigned                      ram_top_ = 0x10000;   // contiguous RAM from 0
     unsigned                      rom_lo_  = 0x10000;    // read-only window above RAM
@@ -387,17 +299,8 @@ private:
     std::array<uint16_t, 16>      addr_hits_{};   // per-bit touch counts since busActivityCounts()
     uint64_t                      idle_cycles_ = 0;   // see tickCassette()
 
-    // MEMR/WO/INP/OUT for the front panel: which kind of bus access happened
-    // most recently, held until the next one (the same "level held between
-    // polls" trick busActivityCounts() uses for the address lamps). Real
-    // hardware asserts these only for the few T-states of the matching
-    // machine cycle; a once-a-frame poll can only ever see the last one.
-    // M1 (opcode fetch, vs. a plain read for an operand byte) and STACK need
-    // the CPU core itself to say what an access is *for*, not just which Bus
-    // callback fired -- deliberately not modelled. HLDA/PROT are already
-    // correct as permanently off: there's no DMA-capable peripheral to ever
-    // assert HOLD, and the front panel's PROTECT paddle is a documented
-    // no-op (see panel.spec.ts). See ALTAIR_REVIEW.md §3.6a.
+    // MEMR/WO/INP/OUT lamps hold the most recent access until the next one. M1 and
+    // STACK need the core to say what an access is for, so they are not modelled.
     enum class BusOp { kNone, kMemRead, kMemWrite, kIoIn, kIoOut };
     BusOp last_bus_op_ = BusOp::kNone;
     bool  int_seen_    = false;   // an interrupt was accepted since the last state() read

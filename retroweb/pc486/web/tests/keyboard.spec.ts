@@ -1,24 +1,14 @@
 import { test, expect } from "./fixtures";
 import { screenText, waitForScreen, focusScreen, clickCtrlAltDel, typeStr, setPowerSwitch, tap } from "./helpers";
 
-// The real keyboard path (physical DOM key events -> SET1 scan codes -> the
-// emulated 8042), the F-key/extended-key panel (a labelled substitute for
-// keys a Mac keyboard has no key for), and the Ctrl+Alt+Del warm-boot combo.
-// See IBM_PCAT_REVIEW.md §31 for the single-byte-8042-output-register bug
-// this panel's real-gap timing exists to avoid.
+// Real keyboard path (DOM key events -> SET1 scan codes -> 8042), the F-key panel (a labelled
+// substitute for keys a Mac lacks), and the Ctrl+Alt+Del combo. The real-gap timing avoids the
+// single-byte 8042 output register clobbering (IBM_PCAT_REVIEW.md §31).
 
 test.describe("keyboard", () => {
-  // Real bug, reported live: holding a movement key in BOOM while the
-  // mouse was captured could leave that key "stuck" pressed forever from
-  // the guest's side -- e.g. Pointer Lock's own mandatory release-on-
-  // Escape can fire without ever dispatching a keyup (or even a keydown)
-  // for Escape to the page at all, so a key held at that moment never got
-  // its break code sent. app.js now tracks held keys and releases all of
-  // them (synthesizes break codes) on blur, tab-hide, or Pointer Lock
-  // release -- this drives that release path directly via a real keydown
-  // with no matching keyup, then blur, and checks the held-key tracking
-  // (not the DOS-side effect, which needs a specific running program to
-  // observe) actually cleared.
+  // Holding a movement key while the mouse is captured could leave it stuck: Pointer Lock's release
+  // on Escape can skip the keyup. app.js releases all held keys on blur, tab-hide and lock release;
+  // this drives that path with a keydown, then blur, and checks the held-key tracking clears.
   test("losing focus while a key is held releases it instead of leaving it stuck", async ({
     livePage: page,
   }) => {
@@ -30,8 +20,7 @@ test.describe("keyboard", () => {
       .poll(() => page.evaluate(() => (window as any).__test.heldKeysSize))
       .toBe(1);
 
-    // No keyup ever fires -- simulates the Pointer-Lock-swallows-Escape
-    // case directly via the same browser event a real focus loss fires.
+    // No keyup ever fires, like Pointer Lock swallowing Escape.
     await page.evaluate(() => window.dispatchEvent(new Event("blur")));
 
     await expect
@@ -42,49 +31,25 @@ test.describe("keyboard", () => {
 
   test("typing through the real focused keyboard reaches COMMAND.COM", async ({ promptPage: page }) => {
     await focusScreen(page);
-    // Lowercase, not "DIR" -- DOS is case-insensitive so this is still a
-    // real, faithful command, and it sidesteps a genuine finding from this
-    // test: page.keyboard.type()'s uppercase-letter path fires Shift's own
-    // keydown and the letter's keydown back to back with no real gap
-    // between them, which hits the exact single-byte-8042-output-register
-    // clobbering bug IBM_PCAT_REVIEW.md §31 documents for the Ctrl+Alt+Del
-    // combo -- Shift's make code loses the race and the guest never sees
-    // it held, so every "uppercase" letter arrives lowercase anyway.
-    //
-    // Per-key down()/up() with a real wait, not page.keyboard.type(): a
-    // second, deeper finding from this test is that type() fires a single
-    // key's own keydown and keyup back to back with no real gap either
-    // (its `delay` option only paces *between* keys, not within one),
-    // which hits the exact same clobbering bug for every letter, not just
-    // Shift -- confirmed by reproducing it with type() at any delay and
-    // fixing it with the explicit per-key gap below instead. A real human
-    // can't physically release a key in 0ms, so this never happens outside
-    // synthetic test events; the gap here just makes the test honest about
-    // that rather than relying on an API that doesn't provide it. DIR
-    // always finds COMMAND.COM in C:'s root (see IBM_PCAT_REVIEW.md's
-    // "genuine FreeDOS 1.3 kernel" boot confirmation).
+    // Lowercase "dir": page.keyboard.type() fires Shift's keydown and the letter's back to back, and
+    // keydown/keyup of one key with no gap, which hits the §31 8042 clobbering bug. So per-key
+    // down()/up() with a real wait. A human can't release a key in 0ms. DIR finds COMMAND.COM in C:'s root.
     for (const key of ["KeyD", "KeyI", "KeyR"]) {
       await page.keyboard.down(key);
       await page.waitForTimeout(60);
       await page.keyboard.up(key);
       await page.waitForTimeout(60);
     }
-    // Enter needs the same real make/break gap, for the same reason -- it
-    // silently dropped Enter's own make code in exactly this test (DIR's
-    // line sat typed but never submitted, even after 2 real minutes)
-    // until this was split into down()/up() with a real wait.
+    // Enter needs the same make/break gap; without it Enter's make code was dropped.
     await page.keyboard.down("Enter");
     await page.waitForTimeout(60);
     await page.keyboard.up("Enter");
     await waitForScreen(page, /COMMAND/);
-    // the prompt returns once DIR finishes, proving the line was actually
-    // submitted and processed, not just echoed
+    // The prompt returning proves the line was submitted, not just echoed.
     await waitForScreen(page, /C:\\>\s*$/);
   });
 
-  // The keyboard itself repeats a held key (500 ms delay, 10.9 cps by
-  // default); the browser's own repeat events are ignored so they can't add
-  // a second, host-rate stream on top.
+  // The keyboard repeats a held key itself (500 ms delay, 10.9 cps); browser repeat events are ignored.
   test("holding a key makes the keyboard repeat it", async ({ promptPage: page }) => {
     await focusScreen(page);
     await page.keyboard.down("KeyX");
@@ -96,13 +61,10 @@ test.describe("keyboard", () => {
   });
 
   test("Ctrl+Alt+Del performs a real warm reboot", async ({ promptPage: page }) => {
-    // Shared prompt page plus a warm reboot -- one FreeDOS wait after CAD.
+    // One FreeDOS wait after CAD on the shared prompt page.
     test.setTimeout(180_000);
-    // Plant a marker on the command line first. Asserting that C:\> merely
-    // vanishes races a fast-test reboot that can return to a fresh prompt
-    // inside one poll tick (same Welcome banner, looks unchanged) -- and
-    // also cannot tell a no-op click from a completed reboot. The marker
-    // is gone only if the BIOS actually took the warm-boot path.
+    // Plant a marker first: asserting C:\> vanishes races a fast reboot and can't tell a no-op click
+    // from a reboot. The marker is gone only if the BIOS took the warm-boot path.
     await focusScreen(page);
     await typeStr(page, "REM CADMARKER", { pressEnterAfter: false });
     await waitForScreen(page, /CADMARKER/i);
@@ -110,8 +72,7 @@ test.describe("keyboard", () => {
     await expect
       .poll(() => screenText(page), { timeout: 15_000 })
       .not.toMatch(/CADMARKER/i);
-    // ...and the machine finishes a genuine full reboot back to the same
-    // live prompt, not just a blanked screen.
+    // A full reboot back to the live prompt, not just a blank screen.
     await waitForScreen(page, /C:\\>/, 90_000);
   });
 
@@ -122,27 +83,24 @@ test.describe("keyboard", () => {
     const cycles1 = await page.evaluate(() => (window as any).__test.machine.totalCycles());
     await page.waitForTimeout(300);
     const cycles2 = await page.evaluate(() => (window as any).__test.machine.totalCycles());
-    expect(cycles2).toBeGreaterThan(cycles1); // still running, not hung
+    expect(cycles2).toBeGreaterThan(cycles1);
 
-    // and ordinary typing still reaches COMMAND.COM afterward
+    // Ordinary typing still reaches COMMAND.COM.
     await focusScreen(page);
     await typeStr(page, "VER");
     await waitForScreen(page, /C:\\>\s*$/);
   });
 
   test("extended-key panel (Insert/Delete/Home/End/PgUp/PgDn/PrintScreen/ScrollLock/Pause/NumLock) stays live", async ({ promptPage: page }) => {
-    // Print Screen and Pause/Break are the two keys with non-standard,
-    // fixed multi-byte sequences (Pause has no break code at all -- a
-    // genuine AT keyboard quirk, see app.js's SET1 table comment) --
-    // exactly the sequences most likely to desync the 8042 if a future
-    // change reintroduces the §31 clobbering bug for them specifically.
+    // Print Screen and Pause/Break have fixed multi-byte sequences (Pause has no break code, an AT
+    // quirk, see app.js SET1 table) and are the likeliest to desync the 8042.
     for (const key of [
       "Insert", "Delete", "Home", "End", "PageUp", "PageDown",
       "PrintScreen", "ScrollLock", "Pause", "NumLock",
     ]) {
       await page.locator(`[data-key="${key}"]`).click();
     }
-    // the keyboard must still be fully responsive after all of them
+    // The keyboard stays responsive after all of them.
     await focusScreen(page);
     await typeStr(page, "VER");
     await waitForScreen(page, /C:\\>\s*$/);
@@ -151,16 +109,14 @@ test.describe("keyboard", () => {
   test("\"Click to focus\" hint shows only while running and unfocused", async ({ livePage: page }) => {
     const hintVisible = () =>
       page.locator("#focusHint").evaluate((el) => el.classList.contains("visible"));
-    // boot() never focuses the screen itself -- neither does app.js's own
-    // auto power-on at a fresh page load -- which is exactly the gap this
-    // hint exists to cover, so it should already be showing.
+    // Neither boot() nor app.js's auto power-on focuses the screen, which is the gap the hint covers.
     expect(await hintVisible()).toBe(true);
     await focusScreen(page);
     expect(await hintVisible()).toBe(false);
-    // clicking any other control blurs the screen -- the hint returns
+    // Clicking another control blurs the screen and the hint returns.
     await page.locator("#fullscreenBtn").focus();
     expect(await hintVisible()).toBe(true);
-    // nothing to type into once powered off -- hidden regardless of focus
+    // Hidden once powered off.
     await setPowerSwitch(page, false);
     expect(await hintVisible()).toBe(false);
   });
@@ -168,8 +124,7 @@ test.describe("keyboard", () => {
   test("\"Barebones FreeDOS\" boot notice shows once, dismisses on focus, and stays dismissed", async ({ livePage: page }) => {
     const noticeVisible = () =>
       page.locator("#bootNotice").evaluate((el) => el.classList.contains("visible"));
-    // Shared livePage clears the dismissed flag; re-arm with a power cycle
-    // so this matches a genuinely new visitor who has never dismissed it.
+    // Re-arm with a power cycle to match a new visitor.
     await setPowerSwitch(page, false);
     await setPowerSwitch(page, true);
     await page.waitForFunction(() => !!(window as any).__test?.machine, null, {
@@ -177,27 +132,20 @@ test.describe("keyboard", () => {
     });
     expect(await noticeVisible()).toBe(true);
 
-    // pointer-events: none, like .focus-hint -- it sits dead center over
-    // the screen, exactly where a real click to focus the screen lands, so
-    // that click has to reach the canvas underneath rather than get eaten
-    // by the banner. focusScreen() is that same real click; it both
-    // focuses the screen and (via app.js's focusin listener) dismisses
-    // the notice in one gesture, remembering that in localStorage.
+    // pointer-events: none like .focus-hint: it sits over the screen where a focusing click lands.
+    // focusScreen() focuses and (via app.js's focusin listener) dismisses the notice in one gesture.
     await focusScreen(page);
     expect(await noticeVisible()).toBe(false);
     expect(
       await page.evaluate(() => localStorage.getItem("retro8080.pc486BootNoticeDismissed")),
     ).toBe("1");
 
-    // Powering off and back on does NOT re-arm it -- once dismissed, it
-    // stays dismissed for the rest of this visitor's localStorage, not
-    // just for the current power cycle.
+    // A power cycle does not re-arm it; it stays dismissed in localStorage.
     await setPowerSwitch(page, false);
     await setPowerSwitch(page, true);
     expect(await noticeVisible()).toBe(false);
 
-    // Clearing localStorage (a genuinely new visitor, or one who's cleared
-    // site data) brings it back on the next power-on.
+    // Clearing localStorage (a new visitor) brings it back on the next power-on.
     await page.evaluate(() => localStorage.clear());
     await setPowerSwitch(page, false);
     await setPowerSwitch(page, true);

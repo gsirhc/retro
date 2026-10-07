@@ -4,10 +4,7 @@ namespace ibmpcat {
 
 namespace {
 
-// Real EGA palette-register decode: 6 significant bits, 2 per channel
-// (primary + secondary/"intensity" bit), each channel = primary*0xAA +
-// secondary*0x55 -- the genuine hardware DAC-independent 64-color EGA
-// scheme (not VGA's programmable DAC). See ega.h's file header.
+// EGA palette decode: 6 bits, 2 per channel; channel = primary*0xAA + secondary*0x55.
 void DecodeEgaColor(uint8_t v, uint8_t &r, uint8_t &g, uint8_t &b) {
     auto chan = [](bool lo, bool hi) -> uint8_t { return uint8_t(lo * 0xAA + hi * 0x55); };
     b = chan(v & 0x01, v & 0x08);
@@ -19,24 +16,10 @@ void DecodeEgaColor(uint8_t v, uint8_t &r, uint8_t &g, uint8_t &b) {
 
 void RenderTextScreen(const Ega &ega, std::vector<uint8_t> &rgba, bool blink_on, int &width, int &height) {
     constexpr int cw = 8, rows = 25;
-    // Register value 0 means "1 scan line/row" -- not a real text mode
-    // (and what a freshly-reset, never-BIOS-programmed Ega reads as) --
-    // so treat it as "not configured yet" and fall back to the classic
-    // 14-line default rather than rendering a nonsensical 25-pixel-tall
-    // frame. Any other value (13 for genuine EGA's own 14-line convention,
-    // 15 for this machine's VGA BIOS substitute's native 16-line text
-    // mode, etc.) is trusted as-is -- see this function's header comment.
+    // Max Scan Line 0 means unconfigured (freshly reset Ega): fall back to 14 lines per row.
     int scan_lines = int(ega.crtc_max_scan_line()) + 1;
     const int ch_h = scan_lines <= 1 ? 14 : scan_lines;
-    // Columns/row likewise comes from the CRTC's own Horizontal Displayed
-    // register (crtc_horizontal_display_end(), R01) rather than a hardcoded
-    // 80 -- real text modes 0/1 (and this game's own "look at map" screen)
-    // program 40-column text, and VRAM is laid out row*cols+col same as
-    // 80-column mode, just with cols=40. Hardcoding 80 here read every
-    // 40-column row starting at the wrong VRAM offset, scrambling into
-    // exactly the "glyph noise" this function's header warns about -- the
-    // register is trusted as-is once real BIOS/mode-set code has run, with
-    // the same "reads as 0 before that" fallback as scan_lines above.
+    // Columns come from R01; 0 before a mode set falls back to 80.
     int cols_reg = int(ega.crtc_horizontal_display_end()) + 1;
     const int cols = cols_reg <= 1 ? 80 : cols_reg;
     const int W = cw * cols, H = ch_h * rows;
@@ -59,7 +42,7 @@ void RenderTextScreen(const Ega &ega, std::vector<uint8_t> &rgba, bool blink_on,
         for (int col = 0; col < cols; ++col) {
             uint8_t ch, attr;
             text_at(row, col, ch, attr);
-            uint8_t fg_idx = attr & 0x0F, bg_idx = uint8_t((attr >> 4) & 0x07);  // bit7 = blink, unused here
+            uint8_t fg_idx = attr & 0x0F, bg_idx = uint8_t((attr >> 4) & 0x07);  // bit7 = blink, unused
             uint8_t fr, fg, fb, br, bg, bb;
             DecodeEgaColor(ega.attr_palette(fg_idx), fr, fg, fb);
             DecodeEgaColor(ega.attr_palette(bg_idx), br, bg, bb);
@@ -93,9 +76,7 @@ void RenderCgaGraphics4Screen(const Ega &ega, std::vector<uint8_t> &rgba) {
         uint32_t half = uint32_t(y & 1);       // real CGA: even/odd scanlines in separate 8K banks
         uint32_t row = uint32_t(y >> 1);
         for (int byte_col = 0; byte_col < 80; ++byte_col) {
-            // The flat CGA-style byte offset a CGA-unaware program would
-            // have written to -- see the header comment for how odd/even
-            // plane chaining (Phase 5) splits this across planes 0/1.
+            // Flat CGA byte offset; odd/even chaining splits it across planes 0/1.
             uint32_t linear_offset = (half ? 0x2000u : 0u) + row * 80u + uint32_t(byte_col);
             uint32_t plane = linear_offset & 1;
             uint32_t plane_offset = linear_offset >> 1;
@@ -118,28 +99,16 @@ void RenderCgaGraphics4Screen(const Ega &ega, std::vector<uint8_t> &rgba) {
 void RenderEgaNative16Screen(const Ega &ega, std::vector<uint8_t> &rgba, int &width, int &height) {
     width = (ega.crtc_horizontal_display_end() + 1) * 8;
     height = ega.crtc_vertical_display_end() + 1;
-    // Scan Doubling (see crtc_scan_doubling() in ega.h): the CRTC's own
-    // vertical counters describe the full doubled raster (e.g. 400 lines for
-    // a 200-line picture), but VRAM only ever holds one copy of each row --
-    // the second physical scanline of every pair is a hardware-side repeat,
-    // not distinct data. Render at the logical (halved) height directly and
-    // address VRAM by that same row count below; that reproduces the
-    // doubled picture exactly (every row would just draw itself twice) with
-    // half the work and no separate duplication pass.
+    // Scan doubling: the CRTC counters describe the doubled raster but VRAM holds
+    // one copy of each row, so render at half height.
     if (ega.crtc_scan_doubling()) height /= 2;
     if (width <= 0 || height <= 0) { width = height = 0; rgba.clear(); return; }
     rgba.assign(std::size_t(width) * std::size_t(height) * 4, 0);
 
-    int displayed_bytes = width / 8;  // bytes/scanline actually drawn -- 1 bit/pixel/plane
-    // The real per-scanline VRAM stride comes from the CRTC's own Offset
-    // Register, NOT from the displayed width -- see crtc_scanline_stride()
-    // in ega.h. They're usually equal, but real software that programs a
-    // logical scan-line wider than what it shows (confirmed happening with
-    // a real commercial game's "look at map" screen) relies on the
-    // distinction; walking VRAM by displayed width instead reads every
-    // scanline after the first starting at the wrong offset, scrambling
-    // into unrelated pixel data. A freshly-reset/never-programmed Offset
-    // register reads 0 -- fall back to the displayed width in that case.
+    int displayed_bytes = width / 8;  // bytes/scanline drawn, 1 bit/pixel/plane
+    // Stride comes from the Offset Register, not the displayed width (see
+    // crtc_scanline_stride() in ega.h). An unprogrammed register reads 0 and
+    // falls back to the displayed width.
     int real_stride = ega.crtc_scanline_stride();
     int row_stride = real_stride > 0 ? real_stride : displayed_bytes;
     for (int y = 0; y < height; ++y) {
@@ -183,16 +152,10 @@ void RenderScreen(const Ega &ega, RenderedFrame &out, bool blink_on) {
         case ScreenMode::kEgaGraphics16:
             RenderEgaNative16Screen(ega, out.rgba, out.width, out.height);
             if (out.width > 0 && out.height > 0) return;
-            // CRTC not programmed to a sane resolution yet (mid mode-set)
-            // -- fall through to the same honest black placeholder below
-            // rather than a zero-size frame.
+            // CRTC not yet at a sane resolution (mid mode-set): fall through to black.
             [[fallthrough]];
         case ScreenMode::kUnsupportedGraphics:
-            // Honest placeholder -- a plain black frame, not a garbled
-            // misinterpretation of graphics VRAM as text glyphs (see the
-            // file header). Same footprint as text mode so a caller's
-            // canvas/window doesn't need special-casing for "nothing to
-            // show yet".
+            // Black placeholder, same footprint as text mode.
             out.width = kTextRenderWidth;
             out.height = kTextRenderHeight;
             out.rgba.assign(std::size_t(out.width) * std::size_t(out.height) * 4, 0);

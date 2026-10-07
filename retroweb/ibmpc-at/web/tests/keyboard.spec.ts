@@ -1,34 +1,15 @@
 import { test, expect } from "./fixtures";
 import { boot, screenText, waitForScreen, focusScreen, clickCtrlAltDel, typeStr, setPowerSwitch } from "./helpers";
 
-// The real keyboard path (physical DOM key events -> SET1 scan codes -> the
-// emulated 8042), the F-key/extended-key panel (a labelled substitute for
-// keys a Mac keyboard has no key for), and the Ctrl+Alt+Del warm-boot combo.
-// See IBM_PCAT_REVIEW.md §31 for the single-byte-8042-output-register bug
-// this panel's real-gap timing exists to avoid.
+// Physical DOM keys -> SET1 scan codes -> 8042, the F-key panel, and Ctrl+Alt+Del.
 
 test.describe("keyboard", () => {
   test("typing through the real focused keyboard reaches COMMAND.COM", async ({ page }) => {
     await boot(page);
     await focusScreen(page);
-    // Lowercase, not "DIR" -- DOS is case-insensitive so this is still a
-    // real, faithful command, and it sidesteps a genuine finding from this
-    // test: page.keyboard.type()'s uppercase-letter path fires Shift's own
-    // keydown and the letter's keydown back to back with no real gap
-    // between them, which hits the exact single-byte-8042-output-register
-    // clobbering bug IBM_PCAT_REVIEW.md §31 documents for the Ctrl+Alt+Del
-    // combo -- Shift's make code loses the race and the guest never sees
-    // it held, so every "uppercase" letter arrives lowercase anyway. A
-    // real, if brisk, typing cadence between letters otherwise -- same
-    // convention as assembler6502/web/tests/smoke.spec.ts's own
-    // keyboard.type delay. DIR always finds COMMAND.COM in C:'s root (see
-    // IBM_PCAT_REVIEW.md's "genuine FreeDOS 1.3 kernel" boot confirmation).
+    // lowercase: page.keyboard.type's uppercase path fires Shift and the letter with no gap, so the 8042 drops Shift
     await page.keyboard.type("dir", { delay: 40 });
-    // Enter needs its own real make/break gap for the same reason -- plain
-    // page.keyboard.press() fires keydown then keyup with no delay at all,
-    // which silently dropped Enter's own make code in exactly this test
-    // (DIR's line sat typed but never submitted, even after 2 real
-    // minutes) until this was split into down()/up() with a real wait.
+    // Enter needs its own make/break gap or the make code is dropped
     await page.keyboard.down("Enter");
     await page.waitForTimeout(60);
     await page.keyboard.up("Enter");
@@ -41,17 +22,11 @@ test.describe("keyboard", () => {
   test("Ctrl+Alt+Del performs a real warm reboot", async ({ page }) => {
     await boot(page);
     await clickCtrlAltDel(page);
-    // POST clears and re-initializes the display almost immediately in
-    // machine time -- the screen should leave the old prompt well within a
-    // few real seconds, proving the combo actually reached the BIOS's
-    // keyboard ISR (the exact thing §31's bug silently failed to do: only
-    // Del ever arrived, with no Ctrl/Alt held, so the BIOS never recognized
-    // it and nothing happened at all).
+    // POST clears the display quickly, proving the combo reached the BIOS
     await expect
       .poll(() => screenText(page), { timeout: 5_000 })
       .not.toMatch(/C:\\>/);
-    // ...and the machine finishes a genuine full reboot back to the same
-    // live prompt, not just a blanked screen.
+    // then a full reboot back to the prompt
     await waitForScreen(page, /C:\\>/, 120_000);
   });
 
@@ -73,11 +48,7 @@ test.describe("keyboard", () => {
 
   test("extended-key panel (Insert/Delete/Home/End/PgUp/PgDn/PrintScreen/ScrollLock/Pause/NumLock) stays live", async ({ page }) => {
     await boot(page);
-    // Print Screen and Pause/Break are the two keys with non-standard,
-    // fixed multi-byte sequences (Pause has no break code at all -- a
-    // genuine AT keyboard quirk, see app.js's SET1 table comment) --
-    // exactly the sequences most likely to desync the 8042 if a future
-    // change reintroduces the §31 clobbering bug for them specifically.
+    // Print Screen and Pause have fixed multi-byte sequences (Pause has no break code)
     for (const key of [
       "Insert", "Delete", "Home", "End", "PageUp", "PageDown",
       "PrintScreen", "ScrollLock", "Pause", "NumLock",
@@ -94,9 +65,7 @@ test.describe("keyboard", () => {
     await boot(page);
     const hintVisible = () =>
       page.locator("#focusHint").evaluate((el) => el.classList.contains("visible"));
-    // boot() never focuses the screen itself -- neither does app.js's own
-    // auto power-on at a fresh page load -- which is exactly the gap this
-    // hint exists to cover, so it should already be showing.
+    // boot() never focuses the screen, so the hint should already show
     expect(await hintVisible()).toBe(true);
     await focusScreen(page);
     expect(await hintVisible()).toBe(false);

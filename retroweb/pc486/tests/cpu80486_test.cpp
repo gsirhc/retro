@@ -1,29 +1,7 @@
-// GoogleTest suite for the 80486 real-mode core's instruction *semantics*
-// (cycle costs live in cpu80486_timing_test.cpp). Coverage is weighted
-// toward what is genuinely new on a 486 relative to ibmpc-at's 80286 core,
-// since the shared 8086-legacy subset is the same code shape in both:
-//
-//   - 32-bit registers as the native register file (EAX/ESP/..., and the
-//     sub-register write rules that come with them),
-//   - FS and GS plus their 0x64/0x65 override prefixes, PUSH/POP FS/GS
-//     and LSS/LFS/LGS,
-//   - the 0x67 address-size prefix, SIB-byte addressing, and the
-//     documented 64KB real-mode segment-limit behavior that goes with it,
-//   - the 486-native opcodes BSWAP / XADD / CMPXCHG, plus the 386
-//     additions a 486 inherits (MOVZX/MOVSX, BSF/BSR, BT group,
-//     SHLD/SHRD, two- and three-operand IMUL, SETcc, Jcc rel16/32),
-//   - the AC flag (EFLAGS bit 18) and its toggle-and-read-back behavior,
-//   - and the deliberately-documented no-ops: every protected-mode entry
-//     and management opcode, and the x87 ESC space, which must consume
-//     their operands without firing the on_unimplemented diagnostic hook,
-//     while a genuinely absent opcode (CPUID on an early IntelDX2) must.
-//
-// Reference values are worked by hand against the Intel 80486 Programmer's
-// Reference Manual (1990/1992) and, for the 8086-legacy subset, the Intel
-// 8086/8088 User's Manual; AP-485 ("Intel Processor Identification and the
-// CPUID Instruction") is the reference for the AC-flag detection sequence.
-// Opcode encodings are cross-checked against the canonical byte sequences
-// for each mnemonic (e.g. "01 D8" = ADD AX,BX, "0F C8" = BSWAP EAX).
+// 80486 real-mode instruction semantics (cycle costs are in cpu80486_timing_test.cpp)
+// Weighted toward what is new on a 486 vs the 286 core: 32-bit registers, FS/GS, 0x67 and SIB addressing,
+// BSWAP/XADD/CMPXCHG, the 386 additions, the AC flag, and the protected-mode and x87 no-ops.
+// References: Intel 80486 Programmer's Reference Manual, 8086/8088 User's Manual, AP-485 for AC and CPUID.
 
 #include <gtest/gtest.h>
 
@@ -54,22 +32,19 @@ protected:
     uint16_t last_out16_port = 0;
     uint16_t last_out16_val = 0;
     uint16_t next_in16_val = 0xFFFF;
-    // Every 16-bit port cycle, in order, so a test can see how a wider
-    // access was split.
+    // every 16-bit port cycle, in order
     std::vector<std::pair<uint16_t, uint16_t>> in16_log, out16_log;
 
-    // on_unimplemented capture -- the diagnostic hook must fire for a
-    // genuinely unrecognized opcode and must NOT fire for the documented
-    // protected-mode/FPU no-ops.
+    // on_unimplemented capture: fires for an unrecognized opcode, never for the documented no-ops
     int      unimpl_count = 0;
     uint16_t unimpl_opcode = 0;
     bool     log_reads = false;
     std::vector<uint32_t> reads;
-    // The first fault vector raised since catch_faults(), or -1.
+    // first fault vector since catch_faults(), or -1
     int      first_fault = -1;
 
 public:
-    // The six operations Bus::For binds (see cpu80486.h).
+    // the six Bus::For operations
     uint8_t mem_read(uint32_t a) {
         if (log_reads) reads.push_back(a);
         return mem[a & 0xFFFFF];
@@ -77,10 +52,7 @@ public:
     void mem_write(uint32_t a, uint8_t v) { mem[a & 0xFFFFF] = v; }
     uint8_t io_in(uint16_t) { return next_in_val; }
     void io_out(uint16_t p, uint8_t v) { last_out_port = p; last_out_port_val = v; }
-    // Genuinely atomic 16-bit port access, distinct from in/out, so a test
-    // can prove IN AX,DX / OUT DX,AX take this path rather than silently
-    // decomposing into two 8-bit accesses (wrong for a device like the IDE
-    // data register at 0x1F0 -- see wd1003.h).
+    // atomic 16-bit port access, so IN AX,DX / OUT DX,AX are not split into two 8-bit accesses (IDE data register 0x1F0)
     uint16_t io_in16(uint16_t p) {
         uint16_t v = uint16_t(next_in16_val + in16_log.size());
         in16_log.push_back({p, v});
@@ -108,21 +80,19 @@ protected:
         uint16_t addr = at;
         for (uint8_t b : code) mem[addr++] = b;
     }
-    // Assemble `code` at CS:0 and execute exactly one instruction.
+    // assemble at CS:0, execute one instruction
     void run(std::initializer_list<uint8_t> code) {
         load(code);
         cpu->eip = 0;
         cpu->step();
     }
-    // Assemble `code` at CS:0 and execute `n` instructions in sequence.
+    // assemble at CS:0, execute n instructions
     void runN(std::initializer_list<uint8_t> code, int n) {
         load(code);
         cpu->eip = 0;
         for (int i = 0; i < n; ++i) cpu->step();
     }
-    // Assembles at CS:0 and runs one instruction, deliberately *without* the
-    // FNINIT most FPU sequences start with, so a test can continue from the
-    // FPU state the previous sequence left.
+    // runs one instruction without the leading FNINIT, so FPU state carries over
     void put_and_run(std::initializer_list<uint8_t> code) {
         load(code);
         cpu->eip = 0;
@@ -194,10 +164,7 @@ TEST_F(Cpu80486Test, ThirtyTwoBitPushPopRoundTrip) {
 }
 
 TEST_F(Cpu80486Test, PushEspPushesThePreDecrementValue) {
-    // Intel 80486 PRM: from the 286 onward PUSH SP/ESP pushes the register's
-    // value as it was *before* the instruction, unlike the 8086, which
-    // pushes the already-decremented value. This is the classic
-    // "push sp / pop ax / cmp ax,sp" runtime check for 8086-vs-286+.
+    // Intel 80486 PRM: PUSH SP/ESP pushes the pre-decrement value (286+, unlike 8086)
     cpu->ss = 0;
     cpu->esp = 0x2000;
     run({0x54});  // PUSH SP
@@ -206,13 +173,7 @@ TEST_F(Cpu80486Test, PushEspPushesThePreDecrementValue) {
 }
 
 TEST_F(Cpu80486Test, PopEspRelativeMemoryResolvesAgainstThePostIncrementEsp) {
-    // The POP-side counterpart of PushEspPushesThePreDecrementValue above:
-    // "If the ESP register is used as a base register for addressing a
-    // destination operand in memory, the POP instruction increments the
-    // ESP register before data is written into the destination operand"
-    // (Intel SDM, POP). So POP [ESP+4] does NOT write to the address ESP+4
-    // held before the pop -- it writes 4 bytes further out, to where ESP+4
-    // points *after* the pop's own increment.
+    // Intel SDM, POP: with ESP as the base of a memory destination, ESP is incremented before the address is computed
     cpu->ss = 0;
     cpu->esp = 0x2000;
     mem[0x2000] = 0xAA; mem[0x2001] = 0xAA; mem[0x2002] = 0xAA; mem[0x2003] = 0xAA;
@@ -325,8 +286,7 @@ TEST_F(Cpu80486Test, LssLoadsStackSegmentAndPointer) {
 // ---------------------------------------------------------------------------
 
 TEST_F(Cpu80486Test, Addr32SibBaseIndexScale) {
-    // MOV AX, [EAX + EBX*4] -- modrm 04 selects the SIB form,
-    // SIB 98 = scale 4, index EBX, base EAX.
+    // SIB 98: scale 4, index EBX, base EAX
     cpu->eax = 0x0100;
     cpu->ebx = 0x0002;
     poke16(0x0108, 0x1234);
@@ -335,16 +295,14 @@ TEST_F(Cpu80486Test, Addr32SibBaseIndexScale) {
 }
 
 TEST_F(Cpu80486Test, Addr32Disp32WithNoBaseRegister) {
-    // modrm 05 in 32-bit addressing is disp32 with no base at all (it is
-    // *not* [EBP], which needs mod=01/10) -- Intel 80486 PRM's 32-bit
-    // ModR/M table.
+    // modrm 05 in 32-bit addressing is disp32 with no base, not [EBP] (Intel 80486 PRM ModR/M table)
     poke16(0x0200, 0xCAFE);
     run({0x67, 0x8B, 0x05, 0x00, 0x02, 0x00, 0x00});  // MOV AX, [00000200h]
     EXPECT_EQ(cpu->eax & 0xFFFF, 0xCAFEu);
 }
 
 TEST_F(Cpu80486Test, Addr32ScaledIndexWithDisp32AndNoBase) {
-    // SIB CD = scale 8, index ECX, base 101 with mod=00 -> disp32, no base.
+    // SIB CD: scale 8, index ECX, base 101 with mod=00 is disp32, no base
     cpu->ecx = 2;
     poke16(0x0310, 0xBEEF);
     run({0x67, 0x8B, 0x04, 0xCD, 0x00, 0x03, 0x00, 0x00});  // MOV AX, [ECX*8 + 300h]
@@ -362,9 +320,7 @@ TEST_F(Cpu80486Test, Addr32EbpBaseDefaultsToStackSegment) {
 }
 
 TEST_F(Cpu80486Test, Addr32PlainBaseRegisterDefaultsToDataSegment) {
-    // modrm 00 = [EAX], the simplest 32-bit memory form and the one the
-    // decoder's fast path handles inline (PC486_REVIEW.md §16): no SIB, no
-    // displacement, DS by default.
+    // modrm 00 = [EAX], the inline fast path (PC486_REVIEW.md §16)
     cpu->ds = 0x2000;
     cpu->ss = 0x3000;  // decoy -- only ESP/EBP bases default to SS
     cpu->eax = 0x40;
@@ -375,8 +331,7 @@ TEST_F(Cpu80486Test, Addr32PlainBaseRegisterDefaultsToDataSegment) {
 }
 
 TEST_F(Cpu80486Test, Addr32SegmentOverrideBeatsTheEbpStackDefault) {
-    // An explicit override wins over the base register's default segment,
-    // on the inline fast path as much as anywhere else.
+    // an override beats the base register's default segment
     cpu->es = 0x5000;
     cpu->ss = 0x3000;  // the default this override must displace
     cpu->ebp = 0x20;
@@ -387,8 +342,7 @@ TEST_F(Cpu80486Test, Addr32SegmentOverrideBeatsTheEbpStackDefault) {
 }
 
 TEST_F(Cpu80486Test, Addr32EspBaseDefaultsToStackSegmentAndIndexFourMeansNoIndex) {
-    // SIB 24 = index field 100, which encodes "no index" (ESP can never be
-    // an index register), base ESP.
+    // SIB index 100 means no index
     cpu->ss = 0x4000;
     cpu->esp = 0x50;
     poke16((0x4000u << 4) + 0x50, 0x5678);
@@ -397,10 +351,7 @@ TEST_F(Cpu80486Test, Addr32EspBaseDefaultsToStackSegmentAndIndexFourMeansNoIndex
 }
 
 TEST_F(Cpu80486Test, Addr32SibEbpBaseWithDisplacementDefaultsToStackSegment) {
-    // modrm 44 = SIB with mod=01 (disp8), SIB 15 = scale 1, index EDX, base
-    // EBP. An EBP base defaults to SS whether it arrives through a SIB byte
-    // or not, and the decoder's inline SIB path has to say so on its own
-    // (PC486_REVIEW.md §16).
+    // an EBP base defaults to SS, including through the inline SIB path
     cpu->ss = 0x3000;
     cpu->ds = 0x1000;  // decoy -- must not be used
     cpu->ebp = 0x20;
@@ -422,9 +373,7 @@ TEST_F(Cpu80486Test, Addr32SibSegmentOverrideBeatsTheEspStackDefault) {
 }
 
 TEST_F(Cpu80486Test, Addr32OffsetPastTheRealModeLimitRaisesGp) {
-    // Real mode checks the cached limit, 64KB unless a protected-mode
-    // excursion left a bigger one (Intel 80486 PRM, "Real-Address Mode
-    // Exceptions"). Unreal mode is in Cpu80486PmTest.
+    // real mode checks the cached limit, 64KB unless a protected-mode excursion left a bigger one (Intel 80486 PRM, Real-Address Mode Exceptions)
     catch_faults();
     poke16(0x10200, 0x1234);
     run({0x67, 0x8B, 0x05, 0x00, 0x02, 0x01, 0x00});  // MOV AX, [00010200h]
@@ -449,9 +398,7 @@ TEST_F(Cpu80486Test, PushWithSpAtOneRaisesStackFault) {
 
 
 TEST_F(Cpu80486Test, StringOpWithoutAddr32KeepsUsingTheSixteenBitPointers) {
-    // Without the 0x67 prefix a string op must still advance only SI/DI and
-    // count in CX, leaving the upper halves of ESI/EDI/ECX alone -- the
-    // ordinary real-mode case, unchanged by the addr32 support above.
+    // without 0x67 a string op advances only SI/DI/CX
     poke16(0x00000100, 0x1234);
     cpu->ds = 0; cpu->es = 0;
     cpu->esi = 0xAAAA0100u;
@@ -465,10 +412,7 @@ TEST_F(Cpu80486Test, StringOpWithoutAddr32KeepsUsingTheSixteenBitPointers) {
 }
 
 TEST_F(Cpu80486Test, LeaKeepsTheFullThirtyTwoBitEffectiveAddress) {
-    // LEA touches no memory, so a 32-bit addressing form here is pure
-    // arithmetic -- truncating it to the 64KB data window would produce a
-    // wrong *number*, not just a wrong address. This is exactly the
-    // "LEA as a three-input adder" idiom 386+ compilers emit.
+    // LEA is pure arithmetic: truncating to the 64KB window gives a wrong number (the 386+ three-input adder idiom)
     cpu->eax = 0x00100000u;
     cpu->ebx = 0x00000100u;
     run({0x66, 0x67, 0x8D, 0x04, 0x98});  // LEA EAX, [EAX + EBX*4]
@@ -476,7 +420,7 @@ TEST_F(Cpu80486Test, LeaKeepsTheFullThirtyTwoBitEffectiveAddress) {
 }
 
 TEST_F(Cpu80486Test, Addr32SelectsEcxAsTheLoopCounter) {
-    // The address-size prefix picks CX vs ECX for LOOP/JCXZ (LOOPD/JECXZ).
+    // the address-size prefix picks CX vs ECX for LOOP/JCXZ
     cpu->ecx = 0x00010000u;  // CX == 0, but ECX != 0
     run({0x67, 0xE3, 0xFE});  // JECXZ $-2
     EXPECT_EQ(cpu->eip, 3u) << "JECXZ must test the full ECX, not CX";
@@ -485,11 +429,7 @@ TEST_F(Cpu80486Test, Addr32SelectsEcxAsTheLoopCounter) {
 }
 
 TEST_F(Cpu80486Test, SixteenBitAddressingStillWrapsModSixtyFourK) {
-    // Unchanged 8086 behavior: each 16-bit addressing sum wraps mod 64K. This
-    // is also what keeps the unreal-mode change above (a 32-bit EA reaching
-    // past the segment) from leaking into the 16-bit path -- decode_modrm()
-    // wraps every intermediate 16-bit sum, so a 16-bit form can never present
-    // an offset above 0FFFFh in the first place.
+    // 16-bit addressing sums wrap mod 64K; decode_modrm() never lets a 16-bit form exceed 0FFFFh
     cpu->ebx = 0xFFF0;
     cpu->esi = 0x0210;
     mem[0x0200] = 0x42;
@@ -597,9 +537,7 @@ TEST_F(Cpu80486Test, BsrFindsTheHighestSetBit) {
 }
 
 TEST_F(Cpu80486Test, BitScanOfZeroSetsZeroFlagAndLeavesDestinationUndisturbed) {
-    // Intel 80486 PRM: with a zero source, ZF is set and the destination
-    // is UNDEFINED -- so this core leaves it alone rather than inventing a
-    // value, and the test pins that choice down.
+    // Intel 80486 PRM: zero source sets ZF and leaves the destination undefined; this core leaves it alone
     cpu->ebx = 0;
     cpu->eax = 0xA5A5A5A5u;
     run({0x0F, 0xBC, 0xC3});  // BSF AX, BX
@@ -675,24 +613,11 @@ TEST_F(Cpu80486Test, ShrdFillsFromTheSourceRegister) {
     EXPECT_EQ(cpu->eax, 0x01234567u);
 }
 
-// A 16-bit SHLD/SHRD whose count exceeds the 16-bit operand size is
-// "undefined" in Intel's text (Intel 80486 PRM, SHLD/SHRD: the count is
-// masked to 5 bits, and a count greater than the operand size leaves the
-// result undefined) -- but the 486 has a single 32-bit shifter, so what it
-// does is entirely determined: it shifts the 32-bit dest:src concatenation
-// and keeps the half the instruction names, which above a count of 15 pulls
-// bits of the source register into the destination.
-//
-// This is not a curiosity. Borland's 16-bit runtime helpers for a 32-bit
-// shift -- shipped inside CWSDPMI, the DPMI host every DJGPP program uses --
-// are `SHLD dx,ax,cl / XOR bx,bx / SHLD ax,bx,cl` and the SHRD mirror, and
-// they are correct across the entire 0-31 count range *only* under this
-// behavior. CWSDPMI calls the left form with cl=24 to convert a physical
-// page number into a real-mode far pointer; a core that answers 0 there puts
-// its page tables at physical address 0, on top of the interrupt vector
-// table. See PC486_REVIEW.md §9.
+// 16-bit SHLD/SHRD with count > 15: the 486's single 32-bit shifter shifts the 32-bit dest:src pair
+// and keeps the named half (Intel calls it undefined). Borland's 32-bit shift helpers in CWSDPMI depend on it
+// (cl=24 converts a physical page to a far pointer). See PC486_REVIEW.md §9.
 TEST_F(Cpu80486Test, SixteenBitShldAboveFifteenShiftsTheThirtyTwoBitConcatenation) {
-    // The case CWSDPMI actually executes: page 0x2B -> far pointer 2B00:0000.
+    // CWSDPMI's case: page 0x2B -> far pointer 2B00:0000
     cpu->edx = 0x00000000u;
     cpu->eax = 0x0000002Bu;
     cpu->ecx = 24;
@@ -700,7 +625,7 @@ TEST_F(Cpu80486Test, SixteenBitShldAboveFifteenShiftsTheThirtyTwoBitConcatenatio
     EXPECT_EQ(cpu->edx & 0xFFFFu, 0x2B00u)
         << "0x0000002B << 24 = 0x2B000000, whose high half is 0x2B00";
 
-    // The whole helper, proving it computes a real 32-bit shift: DX:AX <<= 24.
+    // the whole helper: DX:AX <<= 24
     cpu->edx = 0x0001u;
     cpu->eax = 0x2345u;
     cpu->ebx = 0xFFFFu;   // clobbered by the helper's own XOR BX,BX
@@ -714,7 +639,7 @@ TEST_F(Cpu80486Test, SixteenBitShldAboveFifteenShiftsTheThirtyTwoBitConcatenatio
 }
 
 TEST_F(Cpu80486Test, SixteenBitShrdAboveFifteenShiftsTheThirtyTwoBitConcatenation) {
-    // The SHRD mirror of the same helper: DX:AX >>= 24.
+    // SHRD mirror: DX:AX >>= 24
     cpu->edx = 0x1234u;
     cpu->eax = 0x5678u;
     cpu->ebx = 0xFFFFu;
@@ -727,9 +652,7 @@ TEST_F(Cpu80486Test, SixteenBitShrdAboveFifteenShiftsTheThirtyTwoBitConcatenatio
         << "0x12345678 >> 24 = 0x00000012 in DX:AX";
 }
 
-// The documented (count <= 15) behavior has to be untouched by the above --
-// it is the same 32-bit-concatenation rule, just inside the range Intel
-// specifies, and it is what every ordinary use of these instructions hits.
+// counts <= 15 follow the same rule inside Intel's specified range
 TEST_F(Cpu80486Test, SixteenBitShldAndShrdWithinTheDocumentedRange) {
     cpu->edx = 0x0000u;
     cpu->eax = 0x7B63u;
@@ -750,10 +673,7 @@ TEST_F(Cpu80486Test, SixteenBitShldAndShrdWithinTheDocumentedRange) {
     EXPECT_EQ(cpu->eax & 0xFFFFu, 0xD123u);
 }
 
-// CF is the last bit shifted out of the 32-bit pair. Inside the documented
-// range that is exactly the manual's rule (dest's bit 16-count for SHLD,
-// bit count-1 for SHRD), which is why widening the pair to 64 bits could not
-// change any specified case.
+// CF is the last bit shifted out of the 32-bit pair
 TEST_F(Cpu80486Test, SixteenBitDoubleShiftCarryIsTheLastBitShiftedOut) {
     cpu->edx = 0x8000u;   // bit 15 is the last bit out for a count of 1
     cpu->eax = 0x0000u;
@@ -788,9 +708,7 @@ TEST_F(Cpu80486Test, BitTestGroupReadsAndModifiesTheAddressedBit) {
 }
 
 TEST_F(Cpu80486Test, BitTestOnMemoryIndexesBeyondTheOperandWidth) {
-    // Intel 80486 PRM: with a memory operand and a register bit offset,
-    // the offset selects a bit in a string of operand-size units starting
-    // at the effective address -- it is not masked to the operand width.
+    // Intel 80486 PRM: with a memory operand the register bit offset is not masked to the operand width
     cpu->ebx = 0x0500;
     cpu->ecx = 17;  // bit 17 = bit 1 of the second 16-bit unit
     poke16(0x0500, 0x0000);
@@ -823,8 +741,7 @@ TEST_F(Cpu80486Test, JccNearRel16AndRel32) {
 
 TEST_F(Cpu80486Test, AllSixteenConditionsDecodeTheirFlags) {
     using namespace cpu80486;
-    // Every combination of the five flags the conditions read, against the
-    // Intel 80486 PRM's Jcc table written out independently here.
+    // all flag combinations against the Intel 80486 PRM Jcc table
     for (int bits = 0; bits < 32; ++bits) {
         bool of = bits & 1, cf = bits & 2, zf = bits & 4, sf = bits & 8, pf = bits & 16;
         const bool want[16] = {
@@ -845,7 +762,7 @@ TEST_F(Cpu80486Test, AllSixteenConditionsDecodeTheirFlags) {
 
 TEST_F(Cpu80486Test, SixteenBitShiftsAndRotates) {
     struct Case { uint8_t modrm; uint16_t in; bool cf_in; uint16_t out; bool cf; bool of; };
-    // D1 /r on BX (count 1), so OF is defined for every row.
+    // D1 /r on BX (count 1), so OF is defined
     const Case cases[] = {
         {0xC3, 0x8001, false, 0x0003, true,  true },   // ROL
         {0xCB, 0x8001, false, 0xC000, true,  false},   // ROR
@@ -940,8 +857,7 @@ TEST_F(Cpu80486Test, AaaAndAasAdjustAllOfAxOnA286OrLater) {
     EXPECT_TRUE(CF());
     EXPECT_TRUE(AF());
 
-    // AL + 6 carries into AH on a 286 or later, so 00FFh becomes 0205h. An
-    // 8086 adds 6 to AL alone and gets 0105h.
+    // AL + 6 carries into AH on a 286+: 00FFh becomes 0205h (8086 gives 0105h)
     cpu->eax = 0x00FF;
     run({0x37});
     EXPECT_EQ(cpu->eax & 0xFFFF, 0x0205u);
@@ -958,7 +874,7 @@ TEST_F(Cpu80486Test, AaaAndAasAdjustAllOfAxOnA286OrLater) {
     EXPECT_EQ(cpu->eax & 0xFFFF, 0x0107u);
     EXPECT_TRUE(CF());
 
-    // AL - 6 borrows from AH as well: 0203h with AF set becomes 00FDh & FF0Fh.
+    // AL - 6 borrows from AH too
     cpu->eax = 0x0203;
     cpu->set_flag(cpu80486::FLAG_AF, true);
     run({0x3F});
@@ -987,8 +903,7 @@ TEST_F(Cpu80486Test, PopfdAndPushfdRoundTripTheAcBit) {
 }
 
 TEST_F(Cpu80486Test, SixteenBitPopfLeavesTheAcBitAlone) {
-    // AC lives above bit 15, so a 16-bit POPF cannot clear it -- which is
-    // what makes the AP-485 sequence require the 32-bit forms.
+    // AC is above bit 15, so a 16-bit POPF cannot clear it
     cpu->set_flag(cpu80486::FLAG_AC, true);
     cpu->ss = 0;
     cpu->esp = 0x2000;
@@ -998,9 +913,7 @@ TEST_F(Cpu80486Test, SixteenBitPopfLeavesTheAcBitAlone) {
 }
 
 TEST_F(Cpu80486Test, AcBitTogglesAndReadsBackPerAp485) {
-    // AP-485's "Intel386 processor check": push EFLAGS, flip AC, write it
-    // back, read it again -- "can't toggle AC bit, processor=80386". On a
-    // 486 the flipped bit survives, which is what this asserts.
+    // AP-485 Intel386 check: flip AC and read it back; the bit survives on a 486
     cpu->ss = 0;
     cpu->esp = 0x3000;
     cpu->set_flag(cpu80486::FLAG_AC, false);
@@ -1034,10 +947,7 @@ TEST_F(Cpu80486Test, PopfdDoesNotSetReservedOrVirtualModeBits) {
 }
 
 TEST_F(Cpu80486Test, PopfLoadsIoplAndNtInRealMode) {
-    // Real mode has no CPL to gate the IOPL/NT load, so a real 486 loads
-    // them unconditionally. (ibmpc-at's 286 core deliberately masks these
-    // to zero for an empirical FreeDOS-installer reason documented in
-    // IBM_PCAT_REVIEW.md; this core implements the genuine behavior.)
+    // real mode has no CPL to gate IOPL/NT, so a 486 loads them unconditionally
     cpu->ss = 0;
     cpu->esp = 0x2000;
     poke16(0x2000, uint16_t(cpu80486::FLAG_IOPL | cpu80486::FLAG_NT | cpu80486::FLAG_R1));
@@ -1046,24 +956,16 @@ TEST_F(Cpu80486Test, PopfLoadsIoplAndNtInRealMode) {
     EXPECT_TRUE(cpu->flag(cpu80486::FLAG_NT));
 }
 
-// ---------------------------------------------------------------------------
-// Descriptor-table and mode-control instructions, which Milestone 1 carried
-// as documented no-ops and Milestone 2 makes real. None may fire
-// on_unimplemented, and all must consume their operands so the instruction
-// stream stays in sync -- but now they also have to *work*.
-// ---------------------------------------------------------------------------
+// --- descriptor-table and mode-control instructions ---
 
 TEST_F(Cpu80486Test, LgdtAndLidtLoadTheDescriptorTableRegisters) {
-    // The 6-byte pseudo-descriptor a real DOS extender points LGDT at: a
-    // 16-bit limit followed by a 32-bit base.
+    // 6-byte pseudo-descriptor: 16-bit limit, 32-bit base
     poke16(0x0200, 0x0017);
     poke32(0x0202, 0x00081234u);
     run({0x0F, 0x01, 0x16, 0x00, 0x02});  // LGDT [0200h]
     EXPECT_EQ(cpu->eip, 5u) << "ModR/M and disp16 must be consumed";
     EXPECT_EQ(cpu->gdtr().limit, 0x0017);
-    // A 486 in real mode defaults to 16-bit operands, and the 16-bit form of
-    // LGDT loads only 24 bits of base -- the 286-compatible pseudo-descriptor
-    // (Intel 80486 PRM, LGDT/LIDT).
+    // 16-bit LGDT loads only 24 bits of base (Intel 80486 PRM, LGDT/LIDT)
     EXPECT_EQ(cpu->gdtr().base, 0x00081234u & 0x00FFFFFFu);
 
     poke16(0x0300, 0x07FF);
@@ -1095,9 +997,7 @@ TEST_F(Cpu80486Test, SgdtAndSidtStoreThemBackAgain) {
 TEST_F(Cpu80486Test, SmswReportsTheRealMachineStatusWordIncludingHardwiredEt) {
     cpu->ebx = 0xFFFF;
     run({0x0F, 0x01, 0xE3});  // SMSW BX
-    // CR0.ET is hardwired to 1 on an Intel486 -- the FPU is on-die, so there
-    // is no "is a coprocessor installed" question left to answer. PE is 0
-    // because nothing has entered protected mode yet.
+    // CR0.ET is hardwired to 1 on an Intel486; PE is 0 until protected mode is entered
     EXPECT_EQ(cpu->ebx & 0xFFFF, uint32_t(cpu80486::CR0_ET));
     EXPECT_FALSE(cpu->protected_mode());
     EXPECT_EQ(unimpl_count, 0);
@@ -1107,9 +1007,7 @@ TEST_F(Cpu80486Test, LmswEntersProtectedModeAndCannotLeaveItAgain) {
     cpu->eax = 0x0001;        // PE
     run({0x0F, 0x01, 0xF0});  // LMSW AX
     EXPECT_TRUE(cpu->protected_mode()) << "LMSW is how 286-era code entered protected mode";
-    // Famously, LMSW cannot *clear* PE: a 286 could enter protected mode and
-    // never leave, and the 386/486 kept that asymmetry (Intel 80486 PRM,
-    // LMSW). Leaving needs a MOV to CR0.
+    // LMSW cannot clear PE (Intel 80486 PRM, LMSW); leaving needs MOV to CR0
     cpu->eax = 0x0000;
     run({0x0F, 0x01, 0xF0});  // LMSW AX
     EXPECT_TRUE(cpu->protected_mode()) << "PE survives an LMSW that tries to clear it";
@@ -1124,8 +1022,7 @@ TEST_F(Cpu80486Test, MovToCr0HonorsProtectionEnableBothWays) {
     run({0x0F, 0x20, 0xC0});  // MOV EAX, CR0
     EXPECT_EQ(cpu->eax, uint32_t(cpu80486::CR0_PE | cpu80486::CR0_ET))
         << "PE round-trips for real now, and ET is permanently set";
-    // And back out: unlike LMSW, a MOV to CR0 can return to real mode, which
-    // is exactly how a DOS extender gets back to DOS.
+    // MOV to CR0 can return to real mode, as a DOS extender does
     cpu->eax = uint32_t(cpu80486::CR0_ET);
     run({0x0F, 0x22, 0xC0});
     EXPECT_FALSE(cpu->protected_mode());
@@ -1133,10 +1030,7 @@ TEST_F(Cpu80486Test, MovToCr0HonorsProtectionEnableBothWays) {
 }
 
 TEST_F(Cpu80486Test, EnablingPagingWithoutProtectionIsAGeneralProtectionFault) {
-    // "Paging can be enabled only when protection is enabled" -- setting PG
-    // with PE clear is a #GP(0), not a silently dropped bit (Intel 80486
-    // PRM, CR0). The real-mode IVT is all zeros here, so the fault vectors
-    // to 0000:0000; what this pins down is that CR0.PG did *not* take.
+    // PG with PE clear is #GP(0) (Intel 80486 PRM, CR0); the IVT is zero, so only CR0.PG not taking is checked
     cpu->eax = uint32_t(cpu80486::CR0_PG);
     run({0x0F, 0x22, 0xC0});  // MOV CR0, EAX
     EXPECT_FALSE(cpu->paging_enabled());
@@ -1145,10 +1039,7 @@ TEST_F(Cpu80486Test, EnablingPagingWithoutProtectionIsAGeneralProtectionFault) {
 }
 
 TEST_F(Cpu80486Test, ProtectedModeOnlyOpcodesAreInvalidOpcodesInRealMode) {
-    // LLDT/LTR/SLDT/STR/VERR/VERW/LAR/LSL/ARPL need descriptor tables to mean
-    // anything, and Intel documents all of them as "not recognized in Real
-    // Address Mode" -- #UD, not the no-ops Milestone 1 carried. Vector 6 is
-    // routed to a stub that just sets a flag so the fault is observable.
+    // LLDT/LTR/SLDT/STR/VERR/VERW/LAR/LSL/ARPL are #UD in real mode; vector 6 sets a flag
     poke16(0x0006 * 4 + 0, 0x0400);   // IVT[6] -> 0000:0400
     poke16(0x0006 * 4 + 2, 0x0000);
     mem[0x0400] = 0xF4;               // HLT, so a taken #UD is unmistakable
@@ -1170,9 +1061,7 @@ TEST_F(Cpu80486Test, ProtectedModeOnlyOpcodesAreInvalidOpcodesInRealMode) {
 }
 
 TEST_F(Cpu80486Test, SgdtLgdtAndTheControlRegistersStayLegalInRealMode) {
-    // The other half of the same group *is* legal in real mode, and has to
-    // stay that way: FreeDOS 1.3's HimemX executes LGDT plus MOV CR0 in real
-    // mode on every XMS block move (PC486_REVIEW.md §5.4).
+    // LGDT and MOV CR0 are legal in real mode; FreeDOS HimemX uses them (PC486_REVIEW.md §5.4)
     run({0x0F, 0x01, 0x16, 0x00, 0x02});  // LGDT
     run({0x0F, 0x01, 0x06, 0x00, 0x02});  // SGDT
     run({0x0F, 0x01, 0x1E, 0x00, 0x02});  // LIDT
@@ -1212,11 +1101,7 @@ TEST_F(Cpu80486Test, MovToCr3FlushesTheTlbAndReadsBack) {
 }
 
 TEST_F(Cpu80486Test, CpuidFunctionZeroReportsGenuineIntelAndAMaximumInputOfOne) {
-    // AP-485 gives CPUID to the SL-Enhanced IntelDX2 this machine carries
-    // (the pre-SL parts genuinely fault on 0F A2 instead). Function 0 hands
-    // back the vendor string in EBX:EDX:ECX and the highest function this
-    // processor answers -- 1, because function 2's cache descriptors are
-    // Pentium-era.
+    // AP-485: CPUID exists on the SL-Enhanced IntelDX2 (earlier parts fault on 0F A2); function 0 returns the vendor string and max function 1
     cpu->eax = 0;
     run({0x0F, 0xA2});
     EXPECT_EQ(unimpl_count, 0) << "CPUID must not route to the unimplemented-opcode hook";
@@ -1227,12 +1112,7 @@ TEST_F(Cpu80486Test, CpuidFunctionZeroReportsGenuineIntelAndAMaximumInputOfOne) 
 }
 
 TEST_F(Cpu80486Test, CpuidFunctionOneReportsAnIntelDx2SignatureWithOnlyTheFpuFeature) {
-    // Family 4, model 3 is the IntelDX2 in AP-485's model table, and the
-    // only feature bit an Intel486 asserts is bit 0, the on-die FPU: every
-    // other EDX bit names a Pentium-or-later feature. FreeDOS 1.3's VINFO
-    // reads exactly the family nibble here, and FDAUTO.BAT's whole 386+
-    // branch -- CTMOUSE included -- hangs off the answer
-    // (PC486_REVIEW.md §13).
+    // family 4, model 3 is the IntelDX2 (AP-485); only EDX bit 0 (FPU) is set; FreeDOS VINFO/FDAUTO.BAT branch on it (PC486_REVIEW.md §13)
     cpu->eax = 1;
     run({0x0F, 0xA2});
     EXPECT_EQ(unimpl_count, 0);
@@ -1246,9 +1126,7 @@ TEST_F(Cpu80486Test, CpuidFunctionOneReportsAnIntelDx2SignatureWithOnlyTheFpuFea
 }
 
 TEST_F(Cpu80486Test, TheIdFlagRoundTripsSoSoftwareCanDetectCpuid) {
-    // AP-485's own detection sequence: PUSHFD, flip bit 21, POPFD, PUSHFD
-    // and see whether it stuck. This is the test FreeDOS's VINFO runs before
-    // it will issue CPUID at all.
+    // AP-485 detection: PUSHFD, flip bit 21, POPFD, PUSHFD; FreeDOS VINFO runs it before CPUID
     cpu->ss = 0;
     cpu->esp = 0x2000;
     poke32(0x2000, 0x00200002u);
@@ -1289,9 +1167,7 @@ TEST_F(Cpu80486StepTest, TfTrapsAfterTheInstructionWithTheNextIpSaved) {
 }
 
 TEST_F(Cpu80486StepTest, RepStringTrapsAfterEachIterationWithIpOnThePrefix) {
-    // Intel 80486 PRM, "Single-Step Trap": a REP string instruction traps
-    // after every iteration, and the saved IP points back at it (first
-    // prefix included) until the count runs out.
+    // Intel 80486 PRM, Single-Step Trap: REP traps after every iteration, saved IP points back at the first prefix
     cpu->ds = 0; cpu->es = 0;
     cpu->esi = 0x0300;
     cpu->edi = 0x0340;
@@ -1316,8 +1192,7 @@ TEST_F(Cpu80486StepTest, RepStringTrapsAfterEachIterationWithIpOnThePrefix) {
 }
 
 TEST_F(Cpu80486StepTest, AnInterruptBetweenRepChunksRestartsItWithItsSetupCost) {
-    // Intel 80486 PRM, REP: an interrupt is taken between iterations and the
-    // instruction resumes after IRET. The restart pays the setup again.
+    // Intel 80486 PRM, REP: an interrupt between iterations resumes after IRET and pays setup again
     mem[0x0500] = 0xCF;          // IRET
     cpu->rep_yield_cycles = 9;
     cpu->ds = 0; cpu->es = 0;
@@ -1407,7 +1282,7 @@ TEST_F(Cpu80486StepTest, AFaultWhileDeliveringADoubleFaultIsShutdown) {
 
 class Cpu80486DebugTest : public Cpu80486StepTest {
 protected:
-    // MOV DRn, EAX from a scratch address, leaving EIP where it was.
+    // MOV DRn, EAX from a scratch address, EIP unchanged
     void set_dr(int n, uint32_t v) {
         uint32_t eip = cpu->eip;
         uint32_t eax = cpu->eax;
@@ -1500,8 +1375,7 @@ TEST_F(Cpu80486DebugTest, IcebpTrapsThroughVectorOneWithNoStatusBit) {
 }
 
 TEST_F(Cpu80486Test, TheFirstFetchAfterResetIsAtTheTopOfFourGigabytes) {
-    // Intel486 Microprocessor Data Book, "RESET": CS:IP is F000:FFF0 but
-    // CS's base is FFFF0000h until the first far jump.
+    // Intel486 Data Book, RESET: CS:IP F000:FFF0 with CS base FFFF0000h until the first far jump
     cpu->reset();
     EXPECT_EQ(cpu->desc(Cpu::SEG_CS).base, 0xFFFF0000u);
     const uint8_t jmp[] = {0xEA, 0x00, 0x01, 0x00, 0xF0};   // JMP F000:0100
@@ -1623,9 +1497,7 @@ TEST_F(Cpu80486Test, RepneScasbStopsOnMatch) {
 }
 
 TEST_F(Cpu80486Test, ResetLoadsTheComponentIdAndCachingOffCr0) {
-    // Intel486 Microprocessor Data Book, state after RESET: EDX holds the
-    // component ID, and CR0 has CD and NW set. 0435h is the SL-Enhanced
-    // IntelDX2-66 (aB0/aC0); 0433h, the B1 step, has no CPUID.
+    // Intel486 Data Book, after RESET: EDX is the component ID, CR0 has CD and NW; 0435h is the SL-Enhanced DX2-66, 0433h (B1) has no CPUID
     cpu->reset();
     EXPECT_EQ(cpu->edx, 0x00000435u);
     cpu->cs = 0;
@@ -1645,7 +1517,7 @@ TEST_F(Cpu80486Test, Cr0WithNwSetAndCdClearRaisesGp) {
 }
 
 TEST_F(Cpu80486Test, LockIsLegalOnlyOnLockableMemoryDestinations) {
-    // Intel 80486 PRM, LOCK: any other use raises #UD.
+    // Intel 80486 PRM, LOCK: other uses raise #UD
     auto fault_of = [&](std::initializer_list<uint8_t> code) {
         catch_faults();
         cpu->ds = 0;
@@ -1673,7 +1545,7 @@ TEST_F(Cpu80486Test, LockIsLegalOnlyOnLockableMemoryDestinations) {
 }
 
 TEST_F(Cpu80486Test, AnInstructionLongerThanFifteenBytesRaisesGp) {
-    // Intel 80486 PRM, "Instruction Format": 15 bytes at most, #GP(0) past it.
+    // Intel 80486 PRM, Instruction Format: 15 bytes max, #GP(0) past it
     auto fault_of = [&](std::initializer_list<uint8_t> code) {
         catch_faults();
         cpu->es = 0;
@@ -1681,11 +1553,11 @@ TEST_F(Cpu80486Test, AnInstructionLongerThanFifteenBytesRaisesGp) {
         run(code);
         return first_fault;
     };
-    // ES: x3, 66, 67, then C7 05 disp32 imm32: exactly 15 bytes.
+    // ES x3, 66, 67, C7 05 disp32 imm32: exactly 15 bytes
     EXPECT_EQ(fault_of({0x26, 0x26, 0x26, 0x66, 0x67, 0xC7, 0x05, 0x00, 0x02, 0, 0,
                         0x78, 0x56, 0x34, 0x12}), -1);
     EXPECT_EQ(memd(0x0200), 0x12345678u);
-    // One more ES: makes 16, and the store never happens.
+    // one more ES makes 16; the store never happens
     EXPECT_EQ(fault_of({0x26, 0x26, 0x26, 0x26, 0x66, 0x67, 0xC7, 0x05, 0x00, 0x02, 0, 0,
                         0x78, 0x56, 0x34, 0x12}), 13);
     EXPECT_EQ(memd(0x0200), 0u);
@@ -1696,8 +1568,7 @@ TEST_F(Cpu80486Test, AnInstructionLongerThanFifteenBytesRaisesGp) {
 }
 
 TEST_F(Cpu80486Test, In32RunsTwoSixteenBitCyclesAtPortAndPortPlusTwo) {
-    // Every I/O device here is 16-bit, so BS16# splits a 32-bit cycle in
-    // two (Intel486 Microprocessor Data Book, "Dynamic Bus Sizing").
+    // I/O devices are 16-bit, so BS16# splits a 32-bit cycle (Intel486 Data Book, Dynamic Bus Sizing)
     next_in16_val = 0x1234;   // the fixture hands out 1234h, then 1235h
     cpu->edx = 0x0CFC;
     run({0x66, 0xED});        // IN EAX, DX
@@ -1746,7 +1617,7 @@ TEST_F(Cpu80486Test, OutsdSendsADwordFromDsSi) {
 }
 
 TEST_F(Cpu80486Test, RepInsUnderAddr32CountsInEcx) {
-    // CX alone is 0, so without 0x67 nothing would move.
+    // CX alone is 0, so without 0x67 nothing moves
     cpu->es = 0;
     cpu->edi = 0;
     cpu->edx = 0x01F0;
@@ -1757,8 +1628,7 @@ TEST_F(Cpu80486Test, RepInsUnderAddr32CountsInEcx) {
 }
 
 TEST_F(Cpu80486Test, ACodeFetchPastFfffFaultsInsteadOfWrapping) {
-    // The limit applies to the whole instruction, so a MOV AL,imm8 whose
-    // immediate would sit at 0000h raises #GP.
+    // the limit covers the whole instruction: an imm8 at 0000h raises #GP
     catch_faults();
     cpu->cs = 0x1000;
     cpu->eip = 0xFFFF;
@@ -1771,7 +1641,7 @@ TEST_F(Cpu80486Test, ACodeFetchPastFfffFaultsInsteadOfWrapping) {
 }
 
 TEST_F(Cpu80486Test, AOneByteInstructionAtFfffStillWrapsIpToZero) {
-    // IP itself is 16 bits, so the next instruction starts at 0000h.
+    // IP is 16 bits, so the next instruction starts at 0000h
     catch_faults();
     cpu->cs = 0x1000;
     cpu->eip = 0xFFFF;
@@ -1782,8 +1652,7 @@ TEST_F(Cpu80486Test, AOneByteInstructionAtFfffStillWrapsIpToZero) {
 }
 
 TEST_F(Cpu80486Test, ALongRepYieldsAfterItsBudgetAndCarriesOn) {
-    // The machine sets rep_yield_cycles; each continuation pays only its
-    // own iterations, so the total is still the prefixes plus 12 + 3n.
+    // each continuation pays only its own iterations: prefixes plus 12 + 3n
     cpu->rep_yield_cycles = 9;   // three MOVSB iterations
     cpu->ds = 0; cpu->es = 0;
     cpu->esi = 0x0300;
@@ -1836,9 +1705,7 @@ TEST_F(Cpu80486Test, IntThenIretRestoresFlagsCsAndIp) {
 }
 
 TEST_F(Cpu80486Test, HardwareInterruptEntryPushesTheSixteenBitRealModeFrame) {
-    // The public interrupt() entry point is what the chipset calls for a
-    // PIC-delivered IRQ. Real mode's frame is 6 bytes regardless of CPU
-    // generation, so the handler's IRET must line up with it.
+    // interrupt() is the chipset's PIC entry; real-mode frame is 6 bytes on every CPU
     poke16(0x08 * 4 + 0, 0x0500);
     poke16(0x08 * 4 + 2, 0x0060);
     cpu->ss = 0; cpu->esp = 0x8000;
@@ -1948,20 +1815,9 @@ TEST_F(Cpu80486Test, InswStoresAnAtomicWordAtEsDi) {
 }
 
 
-// ===========================================================================
-// Milestone 2: protected mode, paging, gates, task switching.
-//
-// A separate fixture, because these need a real GDT, IDT, TSS and page
-// tables in memory and a genuine entry into protected mode -- which
-// enter_pm32() performs by executing the actual instruction sequence a DOS
-// extender uses (LGDT, set CR0.PE, far-JMP into a 32-bit flat code segment),
-// not by poking internal state. Everything a test observes is therefore
-// reached the same way real software reaches it.
-//
-// Reference for every rule asserted below is the Intel 80486 Programmer's
-// Reference Manual's protection and paging chapters; the specific section is
-// named at each group.
-// ===========================================================================
+// --- protected mode, paging, gates, task switching ---
+// enter_pm32() reaches PE with the real LGDT, CR0.PE, far-JMP sequence a DOS extender uses.
+// Rules per the Intel 80486 PRM protection and paging chapters.
 
 class Cpu80486PmTest : public ::testing::Test {
 protected:
@@ -1971,8 +1827,7 @@ protected:
     struct FaultRec { int vector; uint32_t error; uint16_t cs; uint32_t eip; uint32_t esp; };
     std::vector<FaultRec> faults;
 
-    // Physical/linear layout. The flat descriptors below have base 0, so a
-    // linear address is also a physical one unless paging is on.
+    // flat descriptors have base 0, so linear equals physical unless paging is on
     static constexpr uint32_t kGdtPtr  = 0x00000500;
     static constexpr uint32_t kIdtPtr  = 0x00000508;
     static constexpr uint32_t kBoot    = 0x00000600;  // the real-mode entry stub
@@ -1989,7 +1844,7 @@ protected:
     static constexpr uint32_t kFrame   = 0x0000A000;  // a page frame to alias onto
     static constexpr uint32_t kFar     = 0x00070000;  // past any 16-bit offset
 
-    // Selector assignments in the default GDT.
+    // selectors in the default GDT
     static constexpr uint16_t kCode32 = 0x08;   // flat code32, DPL 0
     static constexpr uint16_t kData32 = 0x10;   // flat data32, DPL 0
     static constexpr uint16_t kCode16 = 0x18;   // code16, DPL 0, base 0
@@ -2008,8 +1863,7 @@ protected:
     uint32_t pm_code_ = 0;   // where pm_run() assembles the code under test
 
 public:
-    // The six operations Bus::For binds (see cpu80486.h). No device is
-    // wired up in this fixture -- port reads float high, writes go nowhere.
+    // the six Bus::For operations; no device wired, reads float high
     uint8_t mem_read(uint32_t a) { return mem[a & 0xFFFFF]; }
     void mem_write(uint32_t a, uint8_t v) { mem[a & 0xFFFFF] = v; }
     uint8_t io_in(uint16_t) { return 0xFF; }
@@ -2022,9 +1876,7 @@ protected:
         cpu = std::make_unique<Cpu>(Bus::For(this));
         cpu->reset();
         cpu->on_unimplemented = [this](uint16_t, uint32_t, uint16_t) { ++unimpl_count; };
-        // on_fault fires after the restartable state has been put back and
-        // before the handler runs, so the recorded ESP is exactly what a
-        // restarted instruction would see.
+        // on_fault fires after restartable state is restored and before the handler runs
         cpu->on_fault = [this](int v, uint32_t e, uint16_t c, uint32_t ip) {
             if (faults.size() < 8) faults.push_back({v, e, c, ip, cpu->esp});
         };
@@ -2039,9 +1891,7 @@ protected:
                (uint32_t(mem[a + 2]) << 16) | (uint32_t(mem[a + 3]) << 24);
     }
 
-    // Assembles an 8-byte descriptor the way real silicon reads one back:
-    // the base and limit are split across bytes 2-4/7 and 0-1/6 purely for
-    // 286 compatibility (Intel 80486 PRM, "Segment Descriptors").
+    // 8-byte descriptor layout: base and limit split across bytes for 286 compatibility (Intel 80486 PRM, Segment Descriptors)
     static uint64_t seg_desc(uint32_t base, uint32_t limit, uint8_t access,
                              bool big, bool granular) {
         uint32_t lim = granular ? (limit >> 12) : limit;
@@ -2087,16 +1937,14 @@ protected:
         w32(kGdtPtr + 2, kGdt);
         w16(kIdtPtr, 0x07FF);
         w32(kIdtPtr + 2, kIdt);
-        // A minimal TSS with a ring-0 stack, so an inter-privilege gate has
-        // somewhere to switch to.
+        // minimal TSS with a ring-0 stack for inter-privilege gates
         for (uint32_t i = 0; i < 104; i += 4) w32(kTss + i, 0);
         w32(kTss + 4, 0x00007E00u);   // ESP0
         w32(kTss + 8, kData32);       // SS0
         w16(kTss + 102, 0x68);        // I/O map base, past the limit
     }
 
-    // Enters 32-bit protected mode by executing the real sequence, then loads
-    // DS/ES/SS and a stack. Leaves CS:EIP at pm_code_.
+    // enters 32-bit protected mode via the real sequence, loads DS/ES/SS and a stack, CS:EIP at pm_code_
     void enter_pm32() {
         build_default_gdt();
         std::vector<uint8_t> e;
@@ -2128,13 +1976,8 @@ protected:
         for (int i = 0; i < 11; ++i) cpu->step();
     }
 
-    // Assembles `code` at pm_code_ and executes `n` instructions from there.
-    // `halted` is cleared first because a fault with no gate to deliver it
-    // escalates to #DF and then to shutdown, which stops the CPU until RESET
-    // -- so a test that deliberately faults twice has to bring it back up.
-    // Drops back to real mode with enter_pm32()'s 4GB DS and ES limits still
-    // cached, then reloads both with 0: unreal mode, the way HimemX sets it
-    // up. Leaves EIP on kData + 0x40, free for the caller's code.
+    // assembles at pm_code_, runs n instructions; clears halted first since a double fault shuts the CPU down
+    // drops to real mode keeping 4GB DS/ES limits, reloads both with 0: unreal mode as HimemX sets it up
     void enter_unreal() {
         enter_pm32();
         put(kData, {0x0F, 0x20, 0xC0, 0x24, 0xFE, 0x0F, 0x22, 0xC0});
@@ -2152,14 +1995,11 @@ protected:
         cpu->eip = pm_code_;
         for (int i = 0; i < n; ++i) cpu->step();
     }
-    // Assembles `code` at `at`, without moving EIP.
+    // assemble at `at`, EIP unchanged
     void put(uint32_t at, std::initializer_list<uint8_t> code) {
         for (uint8_t b : code) w8(at++, b);
     }
-    // `why` is a parameter rather than a streamed suffix because a void
-    // helper cannot be streamed into.
-    // Renders the first recorded fault, so an "expected no fault" assertion
-    // says which one actually fired instead of just that one did.
+    // renders the first recorded fault so a failed assertion says which one fired
     std::string fault_desc() const {
         if (faults.empty()) return "none";
         char b[96];
@@ -2174,7 +2014,7 @@ protected:
     }
 };
 
-// --- entering protected mode, and what CS.D changes -----------------------
+// --- entering protected mode, and what CS.D changes ---
 
 TEST_F(Cpu80486PmTest, TheRealEntrySequenceActuallyEntersThirtyTwoBitProtectedMode) {
     enter_pm32();
@@ -2182,8 +2022,7 @@ TEST_F(Cpu80486PmTest, TheRealEntrySequenceActuallyEntersThirtyTwoBitProtectedMo
     EXPECT_EQ(cpu->cs, kCode32);
     EXPECT_EQ(cpu->eip, pm_code_);
     EXPECT_EQ(cpu->cpl(), 0);
-    // The descriptor cache behind CS now holds what the GDT said, not
-    // selector*16: base 0, 4GB limit, D=1.
+    // the descriptor cache holds the GDT's values: base 0, 4GB limit, D=1
     EXPECT_EQ(cpu->desc(Cpu::SEG_CS).base, 0u);
     EXPECT_EQ(cpu->desc(Cpu::SEG_CS).limit, 0xFFFFFFFFu);
     EXPECT_TRUE(cpu->desc(Cpu::SEG_CS).big);
@@ -2194,9 +2033,7 @@ TEST_F(Cpu80486PmTest, TheRealEntrySequenceActuallyEntersThirtyTwoBitProtectedMo
 
 TEST_F(Cpu80486PmTest, ThirtyTwoBitCodeSegmentMakesThirtyTwoBitOperandsTheDefault) {
     enter_pm32();
-    // No 0x66 prefix: in a D=1 code segment the 32-bit form is the default,
-    // so B8 takes a full imm32. Getting this backwards would load AX with
-    // 5678h and leave the rest of the instruction stream misaligned.
+    // no 0x66 in a D=1 segment: B8 takes a full imm32
     pm_run({0xB8, 0x78, 0x56, 0x34, 0x12});   // mov eax,12345678h
     EXPECT_EQ(cpu->eax, 0x12345678u);
     EXPECT_EQ(cpu->eip, pm_code_ + 5);
@@ -2225,9 +2062,7 @@ TEST_F(Cpu80486PmTest, ThirtyTwoBitSegmentAddressesFarPastSixtyFourK) {
 
 TEST_F(Cpu80486PmTest, SegmentLimitViolationRaisesGeneralProtection) {
     enter_pm32();
-    // ES gets a 4KB byte-granular data segment; reaching past it must fault
-    // with #GP(0) -- the error code carries no selector, because the fault is
-    // the *access*, not a bad descriptor.
+    // byte-granular 4KB segment; past it is #GP(0) with no selector in the error code
     pm_run({0x66, 0xB8, uint8_t(kSmall), 0x00, 0x8E, 0xC0}, 2);   // mov ax,kSmall / mov es,ax
     EXPECT_TRUE(faults.empty()) << "loading the descriptor itself is legal";
     put(pm_code_ + 6, {0x26, 0xA1, 0x00, 0x10, 0x00, 0x00});      // es: mov eax,[1000h]
@@ -2245,16 +2080,12 @@ TEST_F(Cpu80486PmTest, AnAccessInsideTheLimitIsFine) {
     EXPECT_TRUE(faults.empty()) << "offset 0FFCh..0FFFh is exactly the limit";
 }
 
-// The segmentation unit checks the whole access against the limit before
-// running any bus cycle (PRM, "Protection"), so an access that starts inside
-// the limit and ends past it faults without touching memory at all -- not
-// after transferring the bytes that happened to be in range. See
-// PC486_REVIEW.md §14.3.
+// the limit is checked before any bus cycle, so a straddling access faults without touching memory (PC486_REVIEW.md §14.3)
 TEST_F(Cpu80486PmTest, AnAccessStraddlingTheLimitFaultsBeforeMovingAnyByte) {
     enter_pm32();
     w32(0x0FFC, 0xA5A5A5A5u);
     pm_run({0x66, 0xB8, uint8_t(kSmall), 0x00, 0x8E, 0xC0}, 2);   // mov ax,kSmall / mov es,ax
-    // es: mov [0FFEh],eax -- offsets 0FFEh/0FFFh are inside the limit, 1000h/1001h are not.
+    // es: mov [0FFEh],eax; offsets 0FFEh/0FFFh are in range, 1000h/1001h are not
     put(pm_code_ + 6, {0x26, 0xA3, 0xFE, 0x0F, 0x00, 0x00});
     cpu->eip = pm_code_ + 6;
     cpu->eax = 0x11223344u;
@@ -2275,18 +2106,14 @@ TEST_F(Cpu80486PmTest, WritingAReadOnlyDataSegmentFaults) {
 
 TEST_F(Cpu80486PmTest, ReadingAnExecuteOnlyCodeSegmentFaults) {
     enter_pm32();
-    // An execute-only code segment cannot even be *loaded* into a data
-    // segment register: the check happens at load time (PRM, "Data Segment
-    // Descriptor").
+    // an execute-only code segment cannot be loaded into a data register (PRM, Data Segment Descriptor)
     pm_run({0x66, 0xB8, uint8_t(kExecOnly), 0x00, 0x8E, 0xC0}, 2);
     expect_fault(cpu80486::EXC_GP, kExecOnly & 0xFFFCu);
 }
 
 TEST_F(Cpu80486PmTest, ExpandDownSegmentInvertsTheLimitCheck) {
     enter_pm32();
-    // An expand-down segment's *valid* offsets are limit+1 upward -- the
-    // inverse of the ordinary rule, which is how a stack segment grows down
-    // safely (PRM, "Expand-Down Data Segments").
+    // expand-down segments are valid from limit+1 upward (PRM, Expand-Down Data Segments)
     pm_run({0x66, 0xB8, uint8_t(kDown), 0x00, 0x8E, 0xC0}, 2);
     put(pm_code_ + 6, {0x26, 0xA1, 0x00, 0x20, 0x00, 0x00});   // es: mov eax,[2000h] -- above the limit: valid
     cpu->eip = pm_code_ + 6;
@@ -2317,12 +2144,11 @@ TEST_F(Cpu80486PmTest, StackSegmentCanNeverBeNull) {
 
 TEST_F(Cpu80486PmTest, StackSegmentMustBeWritableAndMatchCplExactly) {
     enter_pm32();
-    // A read-only data segment is not a legal stack.
+    // a read-only data segment is not a legal stack
     pm_run({0x66, 0xB8, uint8_t(kRoData), 0x00, 0x8E, 0xD0}, 2);
     expect_fault(cpu80486::EXC_GP, kRoData & 0xFFFCu);
     faults.clear();
-    // Neither is a DPL-3 segment while running at CPL 0: SS's DPL and RPL
-    // must both *equal* CPL, not merely be reachable from it.
+    // nor is a DPL-3 segment at CPL 0: SS DPL and RPL must equal CPL
     pm_run({0x66, 0xB8, uint8_t(kData3), 0x00, 0x8E, 0xD0}, 2);
     expect_fault(cpu80486::EXC_GP, kData3 & 0xFFFCu);
 }
@@ -2338,7 +2164,7 @@ TEST_F(Cpu80486PmTest, MovToCsIsAnInvalidOpcode) {
 
 TEST_F(Cpu80486PmTest, LoadingADescriptorSetsItsAccessedBit) {
     enter_pm32();
-    // The one write a segment load performs (PRM, "Accessed Bit").
+    // the one write a segment load performs (PRM, Accessed Bit)
     uint32_t hi_addr = kGdt + (kSmall & 0xFFF8u) + 4;
     EXPECT_EQ(r32(hi_addr) & 0x100u, 0u);
     pm_run({0x66, 0xB8, uint8_t(kSmall), 0x00, 0x8E, 0xC0}, 2);
@@ -2349,9 +2175,7 @@ TEST_F(Cpu80486PmTest, LoadingADescriptorSetsItsAccessedBit) {
 
 TEST_F(Cpu80486PmTest, FarJumpToANonConformingSegmentRequiresAnExactCplMatch) {
     enter_pm32();
-    // Jumping from CPL 0 to a DPL-3 non-conforming code segment is a #GP:
-    // privilege can only change through a gate or a return, never a plain
-    // far JMP.
+    // CPL 0 to a DPL-3 non-conforming segment is #GP; privilege changes only via a gate or return
     pm_run({0xEA, 0x00, 0x60, 0x00, 0x00, uint8_t(kCode3), 0x00}, 1);
     expect_fault(cpu80486::EXC_GP, kCode3 & 0xFFFCu);
 }
@@ -2381,10 +2205,7 @@ TEST_F(Cpu80486PmTest, FarCallAndFarReturnRoundTrip) {
 
 TEST_F(Cpu80486PmTest, ConformingCodeSegmentIsReachableFromALessPrivilegedLevel) {
     enter_pm32();
-    // A conforming segment's DPL only has to be at least as privileged as
-    // CPL, and entering it does *not* change CPL -- that is what "conforming"
-    // means, and it is how a shared library at ring 0 can run on a ring-3
-    // caller's privileges.
+    // a conforming segment needs DPL at least as privileged as CPL and does not change CPL
     pm_run({0xEA, uint8_t(kData), uint8_t(kData >> 8), 0x00, 0x00, uint8_t(kConform), 0x00}, 1);
     EXPECT_TRUE(faults.empty());
     EXPECT_EQ(cpu->cpl(), 0);
@@ -2393,8 +2214,7 @@ TEST_F(Cpu80486PmTest, ConformingCodeSegmentIsReachableFromALessPrivilegedLevel)
 
 TEST_F(Cpu80486PmTest, CallGateRaisesPrivilegeAndSwitchesToTheTssStack) {
     enter_pm32();
-    // Get to ring 3 first, with a hand-built IRETD frame -- the standard way
-    // an OS drops into user code.
+    // reach ring 3 with a hand-built IRETD frame
     put(kData, {0xB8, 0x44, 0x33, 0x22, 0x11});    // mov eax,11223344h (runs at CPL 3)
     pm_run({0x66, 0xB8, uint8_t(kTssSel), 0x00, 0x0F, 0x00, 0xD8}, 2);   // ltr kTssSel
     ASSERT_TRUE(faults.empty());
@@ -2407,8 +2227,7 @@ TEST_F(Cpu80486PmTest, CallGateRaisesPrivilegeAndSwitchesToTheTssStack) {
     ASSERT_TRUE(faults.empty()) << "IRETD to ring 3 must succeed";
     EXPECT_EQ(cpu->cpl(), 3);
     EXPECT_EQ(cpu->esp, 0x00007C00u);
-    // A 32-bit call gate at selector 78h, DPL 3 so ring 3 may use it, whose
-    // target is the DPL-0 flat code segment.
+    // 32-bit call gate at 78h, DPL 3, targeting the DPL-0 flat code segment
     put(kData + 0x100, {0xF4});   // hlt: reaching ring 0 again is unmistakable
     set_desc(0x78, gate_desc(kCode32, kData + 0x100, 0xEC));
     put(kData + 0x200, {0x9A, 0x00, 0x00, 0x00, 0x00, 0x78, 0x00});  // call far 78h:0
@@ -2424,7 +2243,7 @@ TEST_F(Cpu80486PmTest, CallGateRaisesPrivilegeAndSwitchesToTheTssStack) {
 
 TEST_F(Cpu80486PmTest, JumpThroughACallGateMayNotChangePrivilege) {
     enter_pm32();
-    // Only a CALL can raise privilege, because only a CALL leaves a way back.
+    // only CALL can raise privilege, since only CALL leaves a way back
     set_desc(0x78, gate_desc(kCode3, kData, 0xEC));
     pm_run({0xEA, 0x00, 0x00, 0x00, 0x00, 0x78, 0x00}, 1);   // jmp far 78h:0
     expect_fault(cpu80486::EXC_GP, kCode3 & 0xFFFCu);
@@ -2434,7 +2253,7 @@ TEST_F(Cpu80486PmTest, JumpThroughACallGateMayNotChangePrivilege) {
 
 TEST_F(Cpu80486PmTest, LldtLoadsTheLdtAndLdtSelectorsResolveThroughIt) {
     enter_pm32();
-    // An LDT selector has bit 2 set. Index 1 in the LDT is selector 0Ch.
+    // an LDT selector has bit 2 set; LDT index 1 is selector 0Ch
     set_ldt_desc(0x08, seg_desc(0, 0xFFFFFFFFu, 0x92, true, true));
     pm_run({0x66, 0xB8, uint8_t(kLdtSel), 0x00, 0x0F, 0x00, 0xD0}, 2);  // mov ax,kLdtSel / lldt ax
     ASSERT_TRUE(faults.empty());
@@ -2448,7 +2267,7 @@ TEST_F(Cpu80486PmTest, LldtLoadsTheLdtAndLdtSelectorsResolveThroughIt) {
     for (int i = 0; i < 3; ++i) cpu->step();
     EXPECT_TRUE(faults.empty());
     EXPECT_EQ(cpu->eax, 0x5A5A5A5Au) << "the selector resolved through the LDT, not the GDT";
-    // SLDT reads it back.
+    // SLDT reads it back
     put(pm_code_ + 19, {0x0F, 0x00, 0xC3});   // sldt bx
     cpu->eip = pm_code_ + 19;
     cpu->step();
@@ -2465,8 +2284,7 @@ TEST_F(Cpu80486PmTest, LldtRejectsADescriptorThatIsNotAnLdt) {
 
 TEST_F(Cpu80486PmTest, VerrAndVerwReportThroughZeroFlagInsteadOfFaulting) {
     enter_pm32();
-    // Their whole purpose is answering "could I load this?" without taking
-    // the fault that loading it would cause.
+    // these answer "could I load this?" without faulting
     pm_run({0x66, 0xB8, uint8_t(kData32), 0x00, 0x0F, 0x00, 0xE0}, 2);  // verr kData32
     EXPECT_TRUE(cpu->flag(cpu80486::FLAG_ZF));
     EXPECT_TRUE(faults.empty());
@@ -2484,20 +2302,19 @@ TEST_F(Cpu80486PmTest, LarReturnsAccessRightsAndLslReturnsTheLimit) {
     enter_pm32();
     pm_run({0x66, 0xB8, uint8_t(kSmall), 0x00, 0x0F, 0x02, 0xD8}, 2);  // mov ax,kSmall / lar ebx,eax
     EXPECT_TRUE(cpu->flag(cpu80486::FLAG_ZF));
-    // The access byte sits in bits 8-15 of the returned dword.
+    // the access byte is in bits 8-15 of the result
     EXPECT_EQ((cpu->ebx >> 8) & 0xFFu, 0x92u);
     pm_run({0x66, 0xB8, uint8_t(kSmall), 0x00, 0x0F, 0x03, 0xD8}, 2);  // lsl ebx,eax
     EXPECT_TRUE(cpu->flag(cpu80486::FLAG_ZF));
     EXPECT_EQ(cpu->ebx, 0x00000FFFu);
-    // And the 4KB-granular flat segment's limit comes back scaled to bytes.
+    // the 4KB-granular limit comes back in bytes
     pm_run({0x66, 0xB8, uint8_t(kData32), 0x00, 0x0F, 0x03, 0xD8}, 2);
     EXPECT_EQ(cpu->ebx, 0xFFFFFFFFu) << "a G=1 limit of FFFFFh is 4GB of bytes";
 }
 
 TEST_F(Cpu80486PmTest, ArplRaisesTheRequestedPrivilegeLevel) {
     enter_pm32();
-    // ARPL is what an OS runs on a selector a less privileged caller handed
-    // in, so the caller cannot smuggle in more privilege than it has.
+    // ARPL stops a caller smuggling in more privilege than it has
     cpu->ebx = 0x0010;   // RPL 0
     cpu->eax = 0x0003;   // RPL 3
     pm_run({0x63, 0xC3}, 1);   // arpl bx,ax
@@ -2514,9 +2331,7 @@ TEST_F(Cpu80486PmTest, ArplRaisesTheRequestedPrivilegeLevel) {
 
 class Cpu80486PagingTest : public Cpu80486PmTest {
 protected:
-    // Identity-maps linear 0-4MB, and maps one extra 4MB region so a test can
-    // prove translation really happens: nothing else would distinguish a page
-    // walk from just using the linear address.
+    // identity-maps 0-4MB plus one extra 4MB region so translation is observable
     void build_page_tables(uint32_t pte_flags = 0x07) {
         w32(kPageDir + 0 * 4, kPageTab | 0x07u);
         for (uint32_t p = 0; p < 1024; ++p) w32(kPageTab + p * 4, (p << 12) | pte_flags);
@@ -2526,7 +2341,7 @@ protected:
         for (uint32_t p = 0; p < 1024; ++p) w32(table_phys + p * 4, 0);
         w32(table_phys + 0 * 4, frame | flags);
     }
-    // Turns paging on from inside protected mode, the real way.
+    // turns paging on from protected mode
     void enable_paging() {
         put(pm_code_, {0xB8, uint8_t(kPageDir), uint8_t(kPageDir >> 8),
                        uint8_t(kPageDir >> 16), uint8_t(kPageDir >> 24),
@@ -2550,14 +2365,9 @@ protected:
 TEST_F(Cpu80486PagingTest, PagingTranslatesThroughTheTwoLevelTable) {
     enter_pm32();
     build_page_tables();
-    // Linear 0x00400000 (page-directory entry 1) is mapped onto kFrame, an
-    // address nowhere near it. A store through the linear address must land
-    // in kFrame -- which is the only thing that distinguishes a real page
-    // walk from ignoring paging altogether.
+    // linear 0x00400000 (PDE 1) maps to kFrame; a store landing there proves a real page walk
     map_region(1, 0xB000, kFrame);
-    // A second linear window onto the *same* physical frame: two different
-    // linear addresses aliasing one page is something only a real translation
-    // can produce, and it needs no out-of-range peek to observe.
+    // a second linear window onto the same frame: aliasing only real translation can produce
     map_region(3, 0xC000, kFrame);
     enable_paging();
     ASSERT_TRUE(cpu->paging_enabled());
@@ -2576,7 +2386,7 @@ TEST_F(Cpu80486PagingTest, NotPresentPageFaultsWithCr2AndAReadErrorCode) {
     enter_pm32();
     build_page_tables();
     enable_paging();
-    // Linear 0x00400000 has no page-directory entry at all.
+    // linear 0x00400000 has no page-directory entry
     paged_run({0xA1, 0x34, 0x02, 0x40, 0x00}, 1);   // mov eax,[00400234h]
     expect_fault(cpu80486::EXC_PF, 0x00000000u, "not present (bit0=0), a read (bit1=0), supervisor (bit2=0)");
     EXPECT_EQ(cpu->cr(2), 0x00400234u) << "CR2 holds the faulting linear address, byte-exact";
@@ -2590,8 +2400,7 @@ TEST_F(Cpu80486PagingTest, PageFaultErrorCodeDistinguishesWritesAndProtectionVio
     expect_fault(cpu80486::EXC_PF, 0x00000002u, "bit1 set: the access was a write");
     faults.clear();
     cpu->halted = false;   // the first fault had no gate, so it shut the CPU down
-    // Now a page that *is* present but read-only, written by a supervisor
-    // with CR0.WP set.
+    // present but read-only page, written by a supervisor with CR0.WP set
     map_region(1, 0xB000, kFrame, 0x05);   // present, user, NOT writable
     put(paged_code_ + 5, {0x0F, 0x20, 0xC0,                      // mov eax,cr0
                           0x0D, 0x00, 0x00, 0x01, 0x00,          // or eax,00010000h (WP)
@@ -2605,9 +2414,7 @@ TEST_F(Cpu80486PagingTest, PageFaultErrorCodeDistinguishesWritesAndProtectionVio
 TEST_F(Cpu80486PagingTest, SupervisorWriteToAReadOnlyPageSucceedsUntilWriteProtectIsSet) {
     enter_pm32();
     build_page_tables();
-    // CR0.WP is a genuine Intel486 addition. With it clear -- the 386's only
-    // behavior -- a supervisor write bypasses the page's R/W bit entirely,
-    // which is exactly why copy-on-write was impossible before WP existed.
+    // CR0.WP is new on the Intel486; clear (386 behavior), a supervisor write ignores R/W
     map_region(1, 0xB000, kFrame, 0x05);   // present, user, read-only
     enable_paging();
     EXPECT_EQ(cpu->cr(0) & uint32_t(cpu80486::CR0_WP), 0u);
@@ -2622,7 +2429,7 @@ TEST_F(Cpu80486PagingTest, AccessedAndDirtyBitsAreSetByTheWalk) {
     build_page_tables();
     map_region(1, 0xB000, kFrame);
     enable_paging();
-    // Clear them so the walk's own writes are unambiguous.
+    // clear them so the walk's own writes are unambiguous
     w32(0xB000, kFrame | 0x07u);
     w32(kPageDir + 4, 0xB000u | 0x07u);
     paged_run({0xA1, 0x00, 0x00, 0x40, 0x00}, 1);   // a read
@@ -2643,7 +2450,7 @@ TEST_F(Cpu80486PagingTest, InvlpgDropsOneTranslationAndACr3WriteDropsThemAll) {
     paged_run({0xB8, 0x01, 0x00, 0x00, 0x00,
                0xA3, 0x00, 0x00, 0x40, 0x00}, 2);   // populate the TLB entry
     ASSERT_EQ(r32(kFrame), 1u);
-    // Repoint the page table at a different frame *behind the TLB's back*.
+    // repoint the page table behind the TLB's back
     w32(0xB000, 0x0000C000u | 0x07u);
     put(paged_code_ + 10, {0xB8, 0x02, 0x00, 0x00, 0x00,
                            0xA3, 0x00, 0x00, 0x40, 0x00});
@@ -2651,7 +2458,7 @@ TEST_F(Cpu80486PagingTest, InvlpgDropsOneTranslationAndACr3WriteDropsThemAll) {
     for (int i = 0; i < 2; ++i) cpu->step();
     EXPECT_EQ(r32(kFrame), 2u) << "the stale TLB entry is still in use, as on real hardware";
     EXPECT_EQ(r32(0x0000C000u), 0u);
-    // INVLPG drops exactly that entry, and the next access re-walks.
+    // INVLPG drops that entry; the next access re-walks
     put(paged_code_ + 20, {0x0F, 0x01, 0x3D, 0x00, 0x00, 0x40, 0x00,   // invlpg [00400000h]
                            0xB8, 0x03, 0x00, 0x00, 0x00,
                            0xA3, 0x00, 0x00, 0x40, 0x00});
@@ -2664,13 +2471,10 @@ TEST_F(Cpu80486PagingTest, InvlpgDropsOneTranslationAndACr3WriteDropsThemAll) {
 TEST_F(Cpu80486PagingTest, UserAccessToASupervisorPageFaults) {
     enter_pm32();
     build_page_tables();
-    // The ring-3 code and stack pages have to stay user-accessible, but the
-    // target page is supervisor-only.
+    // ring-3 code and stack pages stay user-accessible, the target is supervisor-only
     map_region(1, 0xB000, kFrame, 0x03);   // present, writable, NOT user
     enable_paging();
-    // Drop to ring 3, then touch it.
-    // IRETD outward nulls any segment register ring 3 may not use, so the
-    // ring-3 code has to reload DS before it can address anything at all.
+    // IRETD outward nulls segment registers ring 3 may not use, so ring-3 code reloads DS first
     put(kData + 0x300, {0x66, 0xB8, uint8_t(kData3), 0x00,   // mov ax,kData3
                         0x8E, 0xD8,                          // mov ds,ax
                         0xA1, 0x00, 0x00, 0x40, 0x00});      // mov eax,[00400000h]
@@ -2689,9 +2493,7 @@ TEST_F(Cpu80486PagingTest, UserAccessToASupervisorPageFaults) {
     expect_fault(cpu80486::EXC_PF, 0x00000005u, "bit0 present, bit2 user -- a user read of a supervisor page");
 }
 
-// A TLB miss costs 13, 21 or 28 bus clocks as neither, one or both page
-// entries need an A/D bit written back (Embedded Intel486 Developer's
-// Manual 27302101, 12.3.1, rule 10). Charged only with board timing on.
+// TLB miss costs 13, 21 or 28 bus clocks by how many entries need A/D written back (Embedded Intel486 Developer's Manual 27302101, 12.3.1, rule 10); board timing only
 TEST_F(Cpu80486PagingTest, ATlbMissCostsItsWalkWithBoardTiming) {
     enter_pm32();
     build_page_tables();
@@ -2719,8 +2521,7 @@ TEST_F(Cpu80486PagingTest, ATlbMissCostsItsWalkWithBoardTiming) {
     EXPECT_TRUE(faults.empty()) << fault_desc();
 }
 
-// The PCD page bit keeps a page out of the L1; the 471 has no PCD input, so
-// the L2 is unaffected.
+// PCD keeps a page out of the L1; the 471 has no PCD input, so the L2 is unaffected
 TEST_F(Cpu80486PagingTest, APcdPageIsNeverFilledIntoTheL1) {
     enter_pm32();
     build_page_tables();
@@ -2749,7 +2550,7 @@ TEST_F(Cpu80486PmTest, SoftwareIntGoesThroughAnInterruptGateAndClearsInterruptFl
     EXPECT_EQ(cpu->cs, kCode32);
     EXPECT_EQ(cpu->eip, kData);
     EXPECT_FALSE(cpu->flag(cpu80486::FLAG_IF)) << "an interrupt gate clears IF";
-    // The frame is EIP, CS, EFLAGS -- three dwords for a 32-bit gate.
+    // frame: EIP, CS, EFLAGS for a 32-bit gate
     EXPECT_EQ(cpu->esp, kStackTop - 12);
     EXPECT_EQ(r32(cpu->esp), pm_code_ + 2) << "the return EIP is past the INT";
     EXPECT_EQ(r32(cpu->esp + 4), kCode32);
@@ -2779,10 +2580,9 @@ TEST_F(Cpu80486PmTest, ASixteenBitGatePushesASixteenBitFrame) {
 TEST_F(Cpu80486PmTest, SoftwareIntChecksTheGateDplButAHardwareInterruptDoesNot) {
     enter_pm32();
     put(kData, {0xF4});
-    // A DPL-0 gate: ring 3 may not reach it with INT n.
+    // a DPL-0 gate: ring 3 cannot reach it with INT n
     set_gate(0x40, gate_desc(kCode32, kData, 0x8E));
-    // LTR first: the hardware-interrupt half of this test crosses from ring 3
-    // to ring 0, which takes its stack out of the TSS.
+    // LTR first: the hardware-interrupt half crosses ring 3 to ring 0 and takes its stack from the TSS
     pm_run({0x66, 0xB8, uint8_t(kTssSel), 0x00, 0x0F, 0x00, 0xD8}, 2);
     ASSERT_TRUE(faults.empty());
     pm_run({0x68, uint8_t(kStack3 | 3), 0x00, 0x00, 0x00,
@@ -2794,14 +2594,11 @@ TEST_F(Cpu80486PmTest, SoftwareIntChecksTheGateDplButAHardwareInterruptDoesNot) 
     ASSERT_EQ(cpu->cpl(), 3);
     put(kData + 0x400, {0xCD, 0x40});
     cpu->step();
-    // "To prevent user programs from simulating interrupts with the INT
-    // instruction, the DPL of an interrupt or trap gate must be greater than
-    // or equal to CPL" -- error code is the gate's IDT offset plus 2.
+    // INT n needs gate DPL >= CPL; error code is the IDT offset plus 2
     expect_fault(cpu80486::EXC_GP, 0x40u * 8 + 2);
     faults.clear();
     cpu->halted = false;   // the #GP above had no gate, so it shut the CPU down
-    // The same vector delivered as a *hardware* interrupt is not checked --
-    // which is the whole point of the exemption.
+    // hardware interrupts are exempt
     cpu->interrupt(0x40);
     EXPECT_TRUE(faults.empty());
     EXPECT_EQ(cpu->cpl(), 0);
@@ -2810,7 +2607,7 @@ TEST_F(Cpu80486PmTest, SoftwareIntChecksTheGateDplButAHardwareInterruptDoesNot) 
 
 TEST_F(Cpu80486PmTest, InterPrivilegeInterruptSwitchesStackFromTheTssAndIretdReturns) {
     enter_pm32();
-    // LTR so the CPU has a TSS to take SS0/ESP0 from.
+    // LTR so the CPU has a TSS for SS0/ESP0
     pm_run({0x66, 0xB8, uint8_t(kTssSel), 0x00, 0x0F, 0x00, 0xD8}, 2);   // ltr kTssSel
     ASSERT_TRUE(faults.empty());
     set_gate(0x40, gate_desc(kCode32, kData, 0xEE));   // DPL 3, reachable from ring 3
@@ -2830,8 +2627,7 @@ TEST_F(Cpu80486PmTest, InterPrivilegeInterruptSwitchesStackFromTheTssAndIretdRet
     ASSERT_TRUE(faults.empty());
     EXPECT_EQ(cpu->cpl(), 0) << "the gate raised privilege";
     EXPECT_EQ(cpu->ss, kData32) << "SS came from TSS.SS0";
-    // With a privilege change the frame is EIP, CS, EFLAGS, ESP, SS -- five
-    // dwords, so the interrupted ring-3 stack can be restored.
+    // with a privilege change the frame adds ESP and SS
     EXPECT_EQ(cpu->esp, 0x00007E00u - 20);
     EXPECT_EQ(r32(cpu->esp + 12), 0x00007C00u) << "the old ESP is on the new stack";
     EXPECT_EQ(r32(cpu->esp + 16), uint32_t(kStack3 | 3)) << "and the old SS";
@@ -2844,12 +2640,7 @@ TEST_F(Cpu80486PmTest, InterPrivilegeInterruptSwitchesStackFromTheTssAndIretdRet
 }
 
 TEST_F(Cpu80486PmTest, OutwardIretdLoadsIoplFromTheStackImage) {
-    // "IOPL... can be modified only when CPL = 0" (Intel 80486 PRM, IRET) --
-    // that is the CPL *executing* the IRETD, not the ring it returns to. A
-    // ring-0 monitor handing a ring-3 task an elevated IOPL via IRETD is
-    // exactly this case, and it must not be confused with the *inward* rule
-    // (a CPL-3 POPFD/IRETD leaving IOPL alone -- see
-    // PopfdCannotChangeIoplOutsideRingZeroOrIfAboveIopl above).
+    // Intel 80486 PRM, IRET: IOPL changes only when the executing CPL is 0; a ring-0 monitor can hand ring 3 an elevated IOPL
     enter_pm32();
     put(pm_code_ + 7, {0x68, uint8_t(kStack3 | 3), 0x00, 0x00, 0x00,
                        0x68, 0x00, 0x7C, 0x00, 0x00,
@@ -2872,21 +2663,20 @@ TEST_F(Cpu80486PmTest, AnExceptionPushesItsErrorCode) {
     enter_pm32();
     put(kData, {0xF4});
     set_gate(cpu80486::EXC_GP, gate_desc(kCode32, kData, 0x8E));
-    // A #GP from loading a bad SS carries the offending selector.
+    // a #GP from a bad SS carries the selector
     pm_run({0x66, 0xB8, uint8_t(kRoData), 0x00, 0x8E, 0xD0}, 2);
     EXPECT_EQ(cpu->eip, kData);
-    // The frame is EIP, CS, EFLAGS, error code -- the error code is pushed
-    // last, so it is at the top.
+    // frame: EIP, CS, EFLAGS, error code on top
     EXPECT_EQ(r32(cpu->esp), kRoData & 0xFFFCu);
     EXPECT_EQ(cpu->esp, kStackTop - 16);
 }
 
 TEST_F(Cpu80486PmTest, AVectorPastTheIdtLimitIsAGeneralProtectionFault) {
     enter_pm32();
-    // Shrink the IDT to 16 vectors, then ask for vector 40h.
+    // shrink the IDT to 16 vectors, ask for 40h
     w16(kIdtPtr, 0x7F);
     pm_run({0x0F, 0x01, 0x1E, 0x00, 0x00}, 0);   // (assembled but not run -- see below)
-    // LIDT needs a 32-bit operand form to reach kIdtPtr as a disp32.
+    // LIDT needs a 32-bit operand form to reach kIdtPtr as disp32
     put(pm_code_, {0x0F, 0x01, 0x1D, uint8_t(kIdtPtr), uint8_t(kIdtPtr >> 8), 0x00, 0x00,
                    0xCD, 0x40});
     cpu->eip = pm_code_;
@@ -2905,8 +2695,7 @@ TEST_F(Cpu80486PmTest, ANotPresentGateIsASegmentNotPresentFault) {
 
 TEST_F(Cpu80486PmTest, AnUndeliverableFaultEscalatesToDoubleFaultThenShutdown) {
     enter_pm32();
-    // Nothing in the IDT at all: the #GP has no gate, which is a #DF, and the
-    // #DF has no gate either, which is shutdown -- the CPU stops until RESET.
+    // empty IDT: #GP has no gate (#DF), #DF has none (shutdown until RESET)
     for (uint32_t v = 0; v < 32; ++v) set_gate(int(v), 0);
     pm_run({0x66, 0xB8, uint8_t(kRoData), 0x00, 0x8E, 0xD0}, 2);
     ASSERT_GE(faults.size(), 2u);
@@ -2917,10 +2706,7 @@ TEST_F(Cpu80486PmTest, AnUndeliverableFaultEscalatesToDoubleFaultThenShutdown) {
 
 TEST_F(Cpu80486PmTest, AFaultRestoresTheStackPointerSoTheInstructionCanRestart) {
     enter_pm32();
-    // A PUSH that cannot fit inside the stack segment is a #SS, and the
-    // handler must see ESP exactly as it was *before* the PUSH -- otherwise
-    // restarting the instruction (which is the whole point of a fault being
-    // restartable) would decrement ESP twice.
+    // a #SS on PUSH must leave ESP as before the PUSH so the restart does not decrement twice
     pm_run({0x66, 0xB8, uint8_t(kSmall), 0x00,   // mov ax,kSmall (limit 0FFFh)
             0x8E, 0xD0,                          // mov ss,ax
             0xBC, 0x02, 0x00, 0x00, 0x00}, 3);   // mov esp,2
@@ -2942,9 +2728,9 @@ TEST_F(Cpu80486PmTest, LtrLoadsTheTaskRegisterAndMarksTheTaskBusy) {
     ASSERT_TRUE(faults.empty());
     EXPECT_EQ(cpu->tr_selector(), kTssSel);
     EXPECT_EQ(cpu->tr().base, kTss);
-    // Type 9 (available) becomes type B (busy) in the descriptor itself.
+    // type 9 (available) becomes B (busy) in the descriptor
     EXPECT_EQ((r32(kGdt + (kTssSel & 0xFFF8u) + 4) >> 8) & 0x0Fu, 0x0Bu);
-    // STR reads the selector back.
+    // STR reads the selector back
     put(pm_code_ + 7, {0x0F, 0x00, 0xCB});   // str bx
     cpu->eip = pm_code_ + 7;
     cpu->step();
@@ -2963,8 +2749,7 @@ TEST_F(Cpu80486PmTest, LtrRejectsABusyTssAndANonTssDescriptor) {
 
 TEST_F(Cpu80486PmTest, FarJumpToATssPerformsAHardwareTaskSwitch) {
     enter_pm32();
-    // The whole point: the outgoing register file lands in the outgoing TSS
-    // and the incoming one is loaded wholesale from the incoming TSS.
+    // outgoing registers land in the outgoing TSS; the incoming TSS is loaded wholesale
     for (uint32_t i = 0; i < 104; i += 4) w32(kTss2 + i, 0);
     put(kData, {0xF4});
     w32(kTss2 + 28, kPageDir);       // CR3
@@ -2989,18 +2774,16 @@ TEST_F(Cpu80486PmTest, FarJumpToATssPerformsAHardwareTaskSwitch) {
     EXPECT_EQ(cpu->eip, kData);
     EXPECT_EQ(r32(kTss + 40), 0x0BADF00Du) << "the outgoing EAX was saved";
     EXPECT_EQ(r32(kTss + 32), pm_code_ + 14) << "and the outgoing EIP, past the JMP";
-    // A JMP hands over rather than nesting: the outgoing task's busy bit
-    // clears, the incoming one's sets, and NT stays clear.
+    // JMP hands over: old busy bit clears, new one sets, NT stays clear
     EXPECT_EQ((r32(kGdt + (kTssSel & 0xFFF8u) + 4) >> 8) & 0x0Fu, 0x09u);
     EXPECT_EQ((r32(kGdt + (kTss2Sel & 0xFFF8u) + 4) >> 8) & 0x0Fu, 0x0Bu);
     EXPECT_FALSE(cpu->flag(cpu80486::FLAG_NT));
-    // And CR0.TS is set so the first FPU instruction in the new task traps.
+    // CR0.TS is set so the first FPU instruction traps
     EXPECT_NE(cpu->cr(0) & uint32_t(cpu80486::CR0_TS), 0u);
 }
 
 TEST_F(Cpu80486PmTest, ATssWithItsTBitSetTrapsAfterTheSwitch) {
-    // Intel 80386 PRM, "Debug Exceptions": the T bit at TSS offset 64h
-    // raises #DB once the switch completes, with DR6.BT set.
+    // Intel 80386 PRM, Debug Exceptions: TSS T bit (offset 64h) raises #DB after the switch with DR6.BT
     enter_pm32();
     for (uint32_t i = 0; i < 104; i += 4) w32(kTss2 + i, 0);
     put(kData, {0xF4});
@@ -3048,7 +2831,7 @@ TEST_F(Cpu80486PmTest, FarCallToATssNestsAndIretdReturnsThroughTheBackLink) {
     ASSERT_TRUE(faults.empty());
     EXPECT_TRUE(cpu->flag(cpu80486::FLAG_NT)) << "a CALL nests, so NT is set in the new task";
     EXPECT_EQ(r32(kTss2 + 0) & 0xFFFFu, kTssSel) << "and the back link names the caller";
-    // Both tasks are busy while nested.
+    // both tasks are busy while nested
     EXPECT_EQ((r32(kGdt + (kTssSel & 0xFFF8u) + 4) >> 8) & 0x0Fu, 0x0Bu);
     cpu->step();   // mov eax,55h
     cpu->step();   // iretd -> back through the back link
@@ -3074,8 +2857,7 @@ TEST_F(Cpu80486PmTest, ATaskSwitchThroughATaskGateDeliversAnInterrupt) {
     w32(kTss2 + 76, kCode32);
     w32(kTss2 + 80, kData32);
     w32(kTss2 + 84, kData32);
-    // A task gate names a TSS selector rather than a code selector: the
-    // classic way to give #DF a known-good stack of its own.
+    // a task gate names a TSS selector, giving #DF its own stack
     set_gate(0x40, gate_desc(kTss2Sel, 0, 0x85));
     pm_run({0x66, 0xB8, uint8_t(kTssSel), 0x00, 0x0F, 0x00, 0xD8}, 2);
     put(pm_code_ + 7, {0xCD, 0x40});
@@ -3093,10 +2875,10 @@ TEST_F(Cpu80486PmTest, CliAndStiRequireCplAtOrInsideIopl) {
     enter_pm32();
     put(kData, {0xF4});
     set_gate(cpu80486::EXC_GP, gate_desc(kCode32, kData, 0x8E));
-    // At CPL 0 with IOPL 0 they are fine.
+    // CPL 0 with IOPL 0 is fine
     pm_run({0xFA}, 1);
     EXPECT_TRUE(faults.empty());
-    // At CPL 3 with IOPL 0 they are not.
+    // CPL 3 with IOPL 0 is not
     put(kData + 0x400, {0xFA});
     pm_run({0x68, uint8_t(kStack3 | 3), 0x00, 0x00, 0x00,
             0x68, 0x00, 0x7C, 0x00, 0x00,
@@ -3113,8 +2895,7 @@ TEST_F(Cpu80486PmTest, PortIoAboveIoplConsultsTheTssPermissionBitmap) {
     enter_pm32();
     put(kData, {0xF4});
     set_gate(cpu80486::EXC_GP, gate_desc(kCode32, kData, 0x8E));
-    // Give the TSS a real I/O permission bitmap: a *set* bit denies the port,
-    // so a cleared one grants it. Port 60h allowed, port 70h denied.
+    // I/O permission bitmap: a set bit denies. Port 60h allowed, 70h denied.
     set_desc(kTssSel, seg_desc(kTss, 0x67 + 0x20, 0x89, false, false));
     w16(kTss + 102, 0x68);                      // map base
     for (uint32_t i = 0; i < 0x20; ++i) w8(kTss + 0x68 + i, 0xFF);
@@ -3139,7 +2920,7 @@ TEST_F(Cpu80486PmTest, PortIoAboveIoplConsultsTheTssPermissionBitmap) {
 }
 
 TEST_F(Cpu80486PmTest, InsAndOutsTakeThePortPermissionCheck) {
-    // INS and OUTS are I/O accesses like IN and OUT (Intel 80486 PRM, INS).
+    // INS and OUTS are I/O accesses (Intel 80486 PRM, INS)
     enter_pm32();
     put(kData, {0xF4});
     set_gate(cpu80486::EXC_GP, gate_desc(kCode32, kData, 0x8E));
@@ -3173,11 +2954,10 @@ TEST_F(Cpu80486PmTest, InsAndOutsTakeThePortPermissionCheck) {
 
 TEST_F(Cpu80486PmTest, PopfdCannotChangeIoplOutsideRingZeroOrIfAboveIopl) {
     enter_pm32();
-    // At CPL 0 IOPL is writable.
+    // at CPL 0 IOPL is writable
     pm_run({0x68, 0x02, 0x30, 0x00, 0x00, 0x9D}, 2);   // push 3002h / popfd
     EXPECT_EQ((cpu->eflags & uint32_t(cpu80486::FLAG_IOPL)) >> 12, 3u);
-    // At CPL 3 it is not: the attempt is silently ignored rather than
-    // faulting (Intel 80486 PRM, POPF).
+    // at CPL 3 it is silently ignored (Intel 80486 PRM, POPF)
     put(kData + 0x400, {0x68, 0x02, 0x00, 0x00, 0x00,   // push 0002h (IOPL 0)
                         0x9D});                          // popfd
     pm_run({0x68, uint8_t(kStack3 | 3), 0x00, 0x00, 0x00,
@@ -3231,9 +3011,7 @@ TEST_F(Cpu80486PmTest, ControlRegistersAreRingZeroOnly) {
 
 TEST_F(Cpu80486PmTest, ClearingProtectionEnableReturnsToRealModeWithSixteenBitDefaults) {
     enter_pm32();
-    // Drop to a 16-bit code segment first, as real software does, then clear
-    // PE. The 16-bit segment has base 0, so a real-mode CS of 0 lands in the
-    // same place.
+    // drop to a 16-bit code segment, then clear PE; base 0 keeps CS of 0 in place
     put(kData, {0x0F, 0x20, 0xC0,       // mov eax,cr0
                 0x24, 0xFE,             // and al,0FEh
                 0x0F, 0x22, 0xC0,       // mov cr0,eax
@@ -3251,17 +3029,12 @@ TEST_F(Cpu80486PmTest, ClearingProtectionEnableReturnsToRealModeWithSixteenBitDe
 
 TEST_F(Cpu80486PmTest, ABigLimitLoadedInProtectedModeSurvivesIntoRealModeAsUnrealMode) {
     enter_pm32();
-    // This is the mechanism PC486_REVIEW.md §5.4 documents: a memory manager
-    // loads a 4GB-limit descriptor during a brief protected-mode excursion,
-    // drops PE, and the cached limit survives the next real-mode segment load
-    // -- so a 32-bit offset still reaches extended memory. ES already holds
-    // the flat descriptor from enter_pm32().
+    // PC486_REVIEW.md §5.4: a memory manager loads a 4GB descriptor in a brief PM excursion, drops PE, and the cached limit survives
     EXPECT_EQ(cpu->desc(Cpu::SEG_ES).limit, 0xFFFFFFFFu);
     put(kData, {0x0F, 0x20, 0xC0, 0x24, 0xFE, 0x0F, 0x22, 0xC0});
     pm_run({0x66, 0xEA, uint8_t(kData), uint8_t(kData >> 8), uint8_t(kCode16), 0x00}, 4);
     ASSERT_FALSE(cpu->protected_mode());
-    // A real-mode segment load sets the base and leaves the cached limit
-    // alone, which is the entire trick.
+    // a real-mode segment load sets the base and keeps the cached limit
     put(kData + 0x20, {0x31, 0xC0, 0x8E, 0xC0});   // xor ax,ax / mov es,ax
     cpu->eip = kData + 0x20;
     cpu->step();
@@ -3273,8 +3046,7 @@ TEST_F(Cpu80486PmTest, ABigLimitLoadedInProtectedModeSurvivesIntoRealModeAsUnrea
 }
 
 TEST_F(Cpu80486PmTest, UnrealModeAddr32ReachesPastSixtyFourK) {
-    // With a 4GB limit cached, real mode's limit check passes a 32-bit
-    // offset above 0FFFFh. Found by FreeDOS 1.3's HimemX: PC486_REVIEW.md §5.4.
+    // with a 4GB limit cached, a 32-bit offset above 0FFFFh passes (FreeDOS HimemX, PC486_REVIEW.md §5.4)
     enter_unreal();
     ASSERT_FALSE(cpu->protected_mode());
     w16(0x0200, 0x7777);
@@ -3286,9 +3058,7 @@ TEST_F(Cpu80486PmTest, UnrealModeAddr32ReachesPastSixtyFourK) {
 }
 
 TEST_F(Cpu80486PmTest, UnrealModeAddr32StringOpUsesEsiEdiEcxAboveSixtyFourK) {
-    // HimemX copies XMS blocks with exactly `F3 67 66 A5` (REP MOVSD,
-    // addr32). Source and destination sit above 64KB with low halves that
-    // differ from the full values, so a truncating core fails.
+    // HimemX copies XMS with F3 67 66 A5 (REP MOVSD, addr32); a truncating core fails
     enter_unreal();
     w32(0x00020000, 0xDEADBEEFu);
     w32(0x00020004, 0xCAFEBABEu);
@@ -3306,46 +3076,26 @@ TEST_F(Cpu80486PmTest, UnrealModeAddr32StringOpUsesEsiEdiEcxAboveSixtyFourK) {
 }
 
 
-// ===========================================================================
-// Virtual-8086 mode.
-//
-// Built on the paging fixture (which is the protected-mode one plus page
-// tables), because that is how a V86 task starts on real hardware: a CPL-0
-// monitor builds an interrupt-style frame with EFLAGS.VM set in it and IRETDs
-// into that frame. enter_v86() executes exactly that -- LTR, nine pushes and
-// an IRETD -- rather than poking EFLAGS, so everything asserted below is
-// reached the way FreeDOS's JEMMEX reaches it (PC486_REVIEW.md §5.9).
-//
-// Reference: Intel 80386 Programmer's Reference Manual chapter 15, "Virtual
-// 8086 Mode" -- 15.3 "Entering and Leaving Virtual 8086 Mode" for the ring-0
-// frame and the VM rules, 15.4 "Additional Sensitive Instructions" for the
-// IOPL-sensitive set, 15.5 "Virtual I/O" for the I/O permission map -- plus
-// the Intel 80486 PRM's IRET description for the return frame. The 486
-// behaves identically to the 386 here.
-// ===========================================================================
+// --- Virtual-8086 mode ---
+// Built on the paging fixture: enter_v86() runs LTR, nine pushes and an IRETD with EFLAGS.VM set, as JEMMEX does (PC486_REVIEW.md §5.9).
+// References: Intel 80386 PRM chapter 15 (15.3 entering and leaving, 15.4 sensitive instructions, 15.5 virtual I/O); the 486 behaves the same.
 
 class Cpu80486V86Test : public Cpu80486PagingTest {
 protected:
-    // The 8086 world the V86 task runs in: segment 0F00h, so its offsets land
-    // at linear 0F000h + offset, clear of everything the fixture above uses.
+    // V86 segment 0F00h: offsets land at linear 0F000h + offset
     static constexpr uint16_t kV86Seg  = 0x0F00;
     static constexpr uint32_t kV86Base = uint32_t(kV86Seg) << 4;
-    // Deliberately an offset that falls inside the monitor's own instruction
-    // prefetch window (the monitor runs on linear page 3000h and this EIP is
-    // 3100h), so a window left behind across the mode change would execute the
-    // wrong bytes -- see EnteringV86ClearsTheStalePrefetchWindow.
+    // EIP inside the monitor's prefetch window (monitor on linear page 3000h, EIP 3100h); see EnteringV86ClearsTheStalePrefetchWindow
     static constexpr uint32_t kV86Off  = 0x3100;
     static constexpr uint32_t kV86Sp   = 0x0F00;
     static constexpr uint32_t kIopl3   = 3u << 12;
     static constexpr uint32_t kRing0Sp = 0x00007E00;   // TSS ESP0, from build_default_gdt()
 
-    // Where an 8086 offset in the V86 task's own segments lands.
+    // where an 8086 offset lands
     static uint32_t v86_lin(uint32_t off) { return kV86Base + off; }
     uint16_t r16(uint32_t a) const { return uint16_t(mem[a] | (uint16_t(mem[a + 1]) << 8)); }
 
-    // Gives the TSS a real I/O permission bitmap: a *set* bit denies the port,
-    // so port 60h is granted and everything else denied. Must run before the
-    // LTR inside enter_v86(), since LTR is what caches the TSS limit.
+    // I/O permission bitmap with only port 60h granted; must precede LTR, which caches the TSS limit
     void give_tss_io_bitmap() {
         set_desc(kTssSel, seg_desc(kTss, 0x67 + 0x20, 0x89, false, false));
         w16(kTss + 102, 0x68);
@@ -3353,11 +3103,7 @@ protected:
         w8(kTss + 0x68 + (0x60 / 8), 0x00);
     }
 
-    // Assembles and runs the monitor's entry sequence at `at` (pm_code_ when
-    // 0): LTR, then the nine-doubleword frame IRETD's return-to-V86 path pops
-    // -- GS FS DS ES SS ESP EFLAGS CS EIP pushed in that order, so GS ends up
-    // at the highest address -- and the IRETD itself. `flags_image` is ORed
-    // into the task's starting EFLAGS (VM is always set).
+    // runs the monitor's entry sequence at `at`: LTR, the nine-dword frame (GS FS DS ES SS ESP EFLAGS CS EIP pushed in order), IRETD; flags_image is ORed into EFLAGS
     void enter_v86(uint32_t flags_image = 0, uint32_t at = 0) {
         std::vector<uint8_t> c;
         auto b = [&](std::initializer_list<int> v) { for (int x : v) c.push_back(uint8_t(x)); };
@@ -3382,28 +3128,21 @@ protected:
         for (int i = 0; i < 12; ++i) cpu->step();
     }
 
-    // Assembles 8086 code at the V86 task's entry point.
+    // assemble 8086 code at the V86 entry point
     void v86_code(std::initializer_list<uint8_t> code) { put(v86_lin(kV86Off), code); }
 
-    // The ring-0 frame a V86 trap left behind, by its offset from the handler's
-    // ESP. Index 0 is EIP, 8 is EFLAGS, 32 is GS.
+    // ring-0 frame a V86 trap left, by offset from the handler's ESP: 0 EIP, 8 EFLAGS, 32 GS
     uint32_t frame(uint32_t off) const { return r32(cpu->esp + off); }
 
 public:
-    // The optional bulk-access path (cpu80486.h's Bus::page / map_epoch),
-    // which the fixtures above deliberately leave unbound. Binding it here is
-    // what gives the interpreter a live page cache and instruction prefetch
-    // window, so what a V86 transition does to them is observable at all
-    // (PC486_REVIEW.md §15). Every byte of this fixture's 1MB array is plain
-    // RAM; anything above it is open bus, as it is on the real machine.
+    // binds the optional Bus::page / map_epoch path so the page cache and prefetch window are live (PC486_REVIEW.md §15); above 1MB is open bus
     uint8_t *page_host(uint32_t page_base, bool) {
         return page_base < mem.size() ? &mem[page_base] : nullptr;
     }
     const uint32_t *map_epoch() { return &map_epoch_; }
 
 protected:
-    // Rebuilt here rather than inherited so Bus::For() sees this class, and
-    // therefore binds page_host()/map_epoch() above.
+    // rebuilt so Bus::For() sees this class and binds page_host()/map_epoch()
     void SetUp() override {
         Cpu80486PagingTest::SetUp();
         cpu = std::make_unique<Cpu>(Bus::For(this));
@@ -3418,7 +3157,7 @@ private:
     uint32_t map_epoch_ = 1;
 };
 
-// --- entering the mode ----------------------------------------------------
+// --- entering the mode ---
 
 TEST_F(Cpu80486V86Test, IretdFromRingZeroWithVmSetEntersVirtualEightyEightySixMode) {
     enter_pm32();
@@ -3436,10 +3175,7 @@ TEST_F(Cpu80486V86Test, IretdFromRingZeroWithVmSetEntersVirtualEightyEightySixMo
     EXPECT_EQ(cpu->gs, 0);
     EXPECT_EQ(cpu->eip, kV86Off);
     EXPECT_EQ(cpu->esp, kV86Sp);
-    // Every descriptor cache is an 8086 segment again -- base selector*16,
-    // 64KB, 16-bit -- rather than the monitor's flat 32-bit ones. Inheriting
-    // the monitor's D/B bit or 4GB limit here is exactly what "unreal mode"
-    // does in real mode (PC486_REVIEW.md §5.4) and what V86 must not do.
+    // descriptor caches become 8086 segments (base selector*16, 64KB, 16-bit); keeping the flat ones would be unreal mode (PC486_REVIEW.md §5.4)
     for (int si : {int(Cpu::SEG_CS), int(Cpu::SEG_SS), int(Cpu::SEG_DS), int(Cpu::SEG_ES)}) {
         EXPECT_EQ(cpu->desc(si).base, kV86Base) << "segment index " << si;
         EXPECT_EQ(cpu->desc(si).limit, 0xFFFFu) << "segment index " << si;
@@ -3451,8 +3187,7 @@ TEST_F(Cpu80486V86Test, AV86TaskAddressesMemoryTheWayAnEightyEightySixDoes) {
     enter_pm32();
     enter_v86();
     ASSERT_TRUE(faults.empty()) << fault_desc();
-    // Three bytes, not five: a V86 code segment is 16-bit however wide the
-    // monitor's was.
+    // three bytes, not five: V86 code is 16-bit
     v86_code({0xB8, 0x34, 0x12,          // mov ax,1234h
               0xA3, 0x00, 0x50});        // mov [5000h],ax
     cpu->step();
@@ -3467,8 +3202,7 @@ TEST_F(Cpu80486V86Test, AV86TaskAddressesMemoryTheWayAnEightyEightySixDoes) {
 TEST_F(Cpu80486V86Test, AV86WordAtOffsetFfffRaisesGpInsteadOfWrapping) {
     enter_pm32();
     enter_v86();
-    // A V86 segment's limit is FFFFh, so a word read there runs past it.
-    // An 8086 wrapped to offset 0; a 486 V86 task raises #GP(0).
+    // V86 limit is FFFFh: a word read there is #GP(0); an 8086 wrapped to 0
     w8(v86_lin(0xFFFF), 0xCD);
     w8(v86_lin(0x0000), 0xAB);
     v86_code({0xA1, 0xFF, 0xFF});   // mov ax,[0FFFFh]
@@ -3481,10 +3215,7 @@ TEST_F(Cpu80486V86Test, AV86WordAtOffsetFfffRaisesGpInsteadOfWrapping) {
 TEST_F(Cpu80486V86Test, AV86TaskRunsItsEightyEightySixAddressesThroughThePageTables) {
     enter_pm32();
     build_page_tables();
-    // Remap the one page the V86 store lands on (linear 0F000h + 5000h) onto
-    // kFrame. Paging is gated on CR0.PG alone, independent of the mode, so a
-    // V86 task's 8086 addressing sits on top of the monitor's page tables --
-    // which is the entire reason a V86 memory manager can exist.
+    // remap the page the V86 store hits (linear 0F000h + 5000h) onto kFrame; paging depends on CR0.PG alone, so V86 sits on the monitor's page tables
     w32(kPageTab + (v86_lin(0x5000) >> 12) * 4, kFrame | 0x07u);
     enable_paging();
     ASSERT_TRUE(cpu->paging_enabled());
@@ -3503,11 +3234,7 @@ TEST_F(Cpu80486V86Test, AV86TaskRunsItsEightyEightySixAddressesThroughThePageTab
 
 TEST_F(Cpu80486V86Test, EnteringV86ClearsTheStalePrefetchWindow) {
     enter_pm32();
-    // The monitor's prefetch window covers its own code page, 3000h-3FFFh, and
-    // the V86 task's first EIP is 3100h -- inside that range, but a completely
-    // different linear address once CS is an 8086 segment. If the window
-    // survived the transition the CPU would execute the byte at linear 3100h
-    // instead of the one at 0F000h + 3100h.
+    // the monitor's prefetch window covers page 3000h-3FFFh; a surviving window would run linear 3100h instead of 0F000h + 3100h
     put(0x3100, {0xB0, 0xA5});                 // mov al,0A5h -- must NOT run
     put(v86_lin(kV86Off), {0xB0, 0x5A});       // mov al,5Ah  -- the real V86 instruction
     enter_v86();
@@ -3517,12 +3244,11 @@ TEST_F(Cpu80486V86Test, EnteringV86ClearsTheStalePrefetchWindow) {
     EXPECT_EQ(cpu->eax & 0xFFu, 0x5Au) << "the stale window would have executed 0A5h";
 }
 
-// --- leaving the mode: the extended interrupt frame (PRM 15.3) -------------
+// --- leaving the mode: extended interrupt frame (PRM 15.3) ---
 
 TEST_F(Cpu80486V86Test, AnInterruptOutOfV86PushesTheEightyEightySixSegmentsAndClearsVm) {
     enter_pm32();
-    // A DPL-3 32-bit interrupt gate, so the V86 task's own INT n may reach it,
-    // pointing at nonconforming ring-0 code as the PRM requires.
+    // DPL-3 32-bit interrupt gate to nonconforming ring-0 code, as the PRM requires
     set_gate(0x40, gate_desc(kCode32, kData, 0xEE));
     put(kData, {0xF4});                        // the handler just halts
     enter_v86(kIopl3);                         // IOPL 3: INT n is not trapped
@@ -3535,13 +3261,13 @@ TEST_F(Cpu80486V86Test, AnInterruptOutOfV86PushesTheEightyEightySixSegmentsAndCl
     EXPECT_EQ(cpu->cs, kCode32);
     EXPECT_EQ(cpu->eip, kData);
     EXPECT_EQ(cpu->ss, kData32) << "SS:ESP came from TSS.SS0/ESP0";
-    // All four are zeroed: an 8086 segment value is not a usable selector.
+    // all four are zeroed
     EXPECT_EQ(cpu->es, 0);
     EXPECT_EQ(cpu->ds, 0);
     EXPECT_EQ(cpu->fs, 0);
     EXPECT_EQ(cpu->gs, 0);
     EXPECT_TRUE(cpu->desc(Cpu::SEG_DS).null);
-    // Nine doublewords: EIP CS EFLAGS ESP SS ES DS FS GS, GS highest.
+    // nine dwords: EIP CS EFLAGS ESP SS ES DS FS GS, GS highest
     EXPECT_EQ(cpu->esp, kRing0Sp - 36);
     EXPECT_EQ(frame(0), kV86Off + 2) << "EIP, past the INT";
     EXPECT_EQ(frame(4), kV86Seg) << "CS";
@@ -3557,8 +3283,7 @@ TEST_F(Cpu80486V86Test, AnInterruptOutOfV86PushesTheEightyEightySixSegmentsAndCl
 
 TEST_F(Cpu80486V86Test, AHardwareInterruptOutOfV86PushesTheSameExtendedFrame) {
     enter_pm32();
-    // Delivered from outside, so no gate-DPL check applies and IOPL is
-    // irrelevant -- but the frame is the V86 one all the same.
+    // delivered from outside: no gate-DPL check, no IOPL, same V86 frame
     set_gate(0x40, gate_desc(kCode32, kData, 0x8E));
     put(kData, {0xF4});
     enter_v86();
@@ -3577,9 +3302,7 @@ TEST_F(Cpu80486V86Test, AHardwareInterruptOutOfV86PushesTheSameExtendedFrame) {
 
 TEST_F(Cpu80486V86Test, AV86InterruptThroughAConformingOrRingThreeTargetIsRefused) {
     enter_pm32();
-    // The PRM requires "a nonconforming, privilege-level zero, code segment".
-    // A conforming target would leave the handler at CPL 3 with no ring-0
-    // stack, which is exactly the hole the requirement closes.
+    // PRM requires a nonconforming ring-0 target; a conforming one would leave the handler at CPL 3 with no ring-0 stack
     set_gate(0x40, gate_desc(kConform, kData, 0xEE));
     set_gate(cpu80486::EXC_GP, gate_desc(kCode32, kData + 0x100, 0x8E));
     put(kData + 0x100, {0xF4});
@@ -3590,7 +3313,7 @@ TEST_F(Cpu80486V86Test, AV86InterruptThroughAConformingOrRingThreeTargetIsRefuse
     expect_fault(cpu80486::EXC_GP, kConform & 0xFFFCu);
 }
 
-// --- the IOPL-sensitive instructions (PRM 15.4) ---------------------------
+// --- IOPL-sensitive instructions (PRM 15.4) ---
 
 TEST_F(Cpu80486V86Test, CliAndStiTrapToTheMonitorBelowIoplThree) {
     enter_pm32();
@@ -3603,16 +3326,11 @@ TEST_F(Cpu80486V86Test, CliAndStiTrapToTheMonitorBelowIoplThree) {
     expect_fault(cpu80486::EXC_GP, 0, "CLI at IOPL 0 in V86");
 }
 
-// HLT at CPL 3 is #GP(0) — same rule as protected mode — and FreeDOS's
-// EMMQXXX0 strategy stub is literally a HLT in the UMB that JEMMEX catches.
-// The monitor below skips the HLT and IRETs; the 8086 task must resume past
-// it (and the delivery path must not depend on C++ throw, see step()'s
-// pending-fault arm for ring>0 HLT).
+// HLT at CPL 3 is #GP(0); FreeDOS EMMQXXX0 is a HLT in the UMB that JEMMEX catches. The monitor skips it and IRETs.
 TEST_F(Cpu80486V86Test, HltTrapsToTheMonitorWhichCanSkipIt) {
     enter_pm32();
     set_gate(cpu80486::EXC_GP, gate_desc(kCode32, kData, 0x8E));
-    // #GP error code is on the stack; bump the restart EIP past the HLT
-    // (1 byte) then IRETD back into V86.
+    // #GP error code is on the stack; bump the restart EIP past the 1-byte HLT, IRETD
     put(kData, {0x83, 0x44, 0x24, 0x04, 0x01,  // add dword [esp+4],1
                 0x83, 0xC4, 0x04,              // add esp,4
                 0xCF});                        // iretd
@@ -3658,8 +3376,7 @@ TEST_F(Cpu80486V86Test, PushfIsIoplSensitiveInV86) {
 }
 
 TEST_F(Cpu80486V86Test, PopfIsIoplSensitiveInV86) {
-    // The same rule as PUSHF, and a real fault -- not the silent IOPL masking
-    // an ordinary CPL-3 POPF performs.
+    // same rule as PUSHF, a real fault rather than silent IOPL masking
     enter_pm32();
     set_gate(cpu80486::EXC_GP, gate_desc(kCode32, kData, 0x8E));
     put(kData, {0xF4});
@@ -3682,9 +3399,7 @@ TEST_F(Cpu80486V86Test, PushfAndPopfAtIoplThreeRunAndCannotChangeIoplOrVm) {
     EXPECT_TRUE(faults.empty()) << fault_desc();
     EXPECT_EQ(cpu->esp, kV86Sp - 2) << "a 16-bit push onto the 8086 stack";
     EXPECT_EQ(r16(v86_lin(kV86Sp - 2)), uint16_t(cpu->eflags & 0xFFFFu));
-    // Poke IOPL 0 into the image the POPF is about to load: the 8086 program
-    // must not be able to lower IOPL, and bit 17 is above the 16-bit image
-    // altogether, so VM cannot move either.
+    // poke IOPL 0 into the popped image; neither IOPL nor VM (bit 17) may change
     w16(v86_lin(kV86Sp - 2), 0x0002);
     cpu->step();
     EXPECT_TRUE(faults.empty()) << fault_desc();
@@ -3694,15 +3409,8 @@ TEST_F(Cpu80486V86Test, PushfAndPopfAtIoplThreeRunAndCannotChangeIoplOrVm) {
 }
 
 TEST_F(Cpu80486V86Test, PopfdAtIoplThreeCannotDropOutOfV86) {
-    // The 32-bit-operand sibling of PushfAndPopfAtIoplThreeRunAndCannotChangeIoplOrVm
-    // above, with PUSHFD/POPFD (66 9C / 66 9D) in place of the 16-bit forms.
-    // "The VM and RF flags... are not affected by the POPF/POPFD instructions"
-    // (Intel 80486 PRM, "POPF/POPFD") -- VM is exactly as untouchable as IOPL
-    // here, in either operand size. But unlike 16-bit POPF, which always
-    // preserves the upper 16 bits of EFLAGS unconditionally and so cannot
-    // disturb VM no matter what `keep` is, the 32-bit POPFD path builds its
-    // whole result from `mask`/`keep`, so VM has to be listed in `keep`
-    // explicitly -- a case 16-bit POPF's test above cannot exercise.
+    // 32-bit sibling with PUSHFD/POPFD (66 9C / 66 9D). Intel 80486 PRM, POPF/POPFD: VM and RF unaffected.
+    // The 32-bit path builds its result from mask/keep, so VM must be in `keep`.
     enter_pm32();
     set_gate(cpu80486::EXC_GP, gate_desc(kCode32, kData, 0x8E));
     put(kData, {0xF4});
@@ -3714,10 +3422,7 @@ TEST_F(Cpu80486V86Test, PopfdAtIoplThreeCannotDropOutOfV86) {
     EXPECT_TRUE(faults.empty()) << fault_desc();
     EXPECT_EQ(cpu->esp, kV86Sp - 4) << "a 32-bit push onto the 8086 stack";
     EXPECT_EQ(r32(v86_lin(kV86Sp - 4)), cpu->eflags);
-    // Poke IOPL 0 and VM 0 into the image the POPFD is about to load: the
-    // 8086 program must not be able to lower IOPL, and it must not be able to
-    // drop VM either, even though this pop -- unlike the 16-bit one -- easily
-    // could reach bit 17.
+    // poke IOPL 0 and VM 0 into the image; neither may change
     w32(v86_lin(kV86Sp - 4), 0x00000002u);
     cpu->step();
     EXPECT_TRUE(faults.empty()) << fault_desc();
@@ -3729,9 +3434,7 @@ TEST_F(Cpu80486V86Test, PopfdAtIoplThreeCannotDropOutOfV86) {
 }
 
 TEST_F(Cpu80486V86Test, OutsideV86ARingThreePushfStillDoesNotFault) {
-    // Regression guard for the fault added above: at CPL 3 with VM clear,
-    // PUSHF is unprivileged and POPF masks IOPL silently (Intel 80486 PRM,
-    // POPF) -- a different rule, which must stay exactly as it was.
+    // at CPL 3 with VM clear, POPF masks IOPL silently (Intel 80486 PRM, POPF), a different rule
     enter_pm32();
     put(kData, {0xF4});
     set_gate(cpu80486::EXC_GP, gate_desc(kCode32, kData, 0x8E));
@@ -3762,8 +3465,7 @@ TEST_F(Cpu80486V86Test, IntNIsIoplSensitiveInV86) {
     ASSERT_TRUE(faults.empty()) << fault_desc();
     v86_code({0xCD, 0x21});
     cpu->step();
-    // The monitor gets a #GP instead of the vector, which is how it intercepts
-    // an 8086 program's calls to the 8086 operating system.
+    // the monitor gets #GP instead of the vector, to intercept 8086 OS calls
     expect_fault(cpu80486::EXC_GP, 0);
     EXPECT_EQ(cpu->eip, kData + 0x100) << "the #GP handler ran, not vector 21h's";
 }
@@ -3780,8 +3482,7 @@ TEST_F(Cpu80486V86Test, IretInV86IsIoplSensitive) {
 }
 
 TEST_F(Cpu80486V86Test, IretAtIoplThreeInV86IsThePlainEightyEightySixIret) {
-    // It pops IP, CS and FLAGS off the 8086 stack and leaves VM and IOPL
-    // exactly where they are.
+    // pops IP, CS and FLAGS from the 8086 stack; VM and IOPL stay
     enter_pm32();
     set_gate(cpu80486::EXC_GP, gate_desc(kCode32, kData, 0x8E));
     put(kData, {0xF4});
@@ -3808,9 +3509,7 @@ TEST_F(Cpu80486V86Test, PortIoInV86AlwaysConsultsTheBitmapEvenAtIoplThree) {
     set_gate(cpu80486::EXC_GP, gate_desc(kCode32, kData, 0x8E));
     put(kData, {0xF4});
     give_tss_io_bitmap();
-    // IOPL 3 would permit any port outright in ordinary protected mode. In V86
-    // "the protection mechanism does not consult IOPL" for IN/OUT at all --
-    // only the map decides (PRM 15.5).
+    // in V86 IN/OUT ignore IOPL; only the map decides (PRM 15.5)
     enter_v86(kIopl3);
     ASSERT_TRUE(faults.empty()) << fault_desc();
     v86_code({0xE4, 0x60,    // in al,60h -- bit clear, granted
@@ -3827,24 +3526,19 @@ TEST_F(Cpu80486V86Test, PrivilegedInstructionsInV86TrapToTheMonitor) {
     put(kData, {0xF4});
     enter_v86(kIopl3);
     ASSERT_TRUE(faults.empty()) << fault_desc();
-    // CPL 3 makes the ring-0-only instructions fault without a V86 rule of
-    // their own -- LGDT here, which is what a memory manager inside a V86 task
-    // would try if it thought it owned the machine.
+    // CPL 3 makes ring-0-only instructions fault; LGDT is what a memory manager in V86 might try
     v86_code({0x0F, 0x01, 0x16, 0x00, 0x05});   // lgdt [0500h]
     cpu->step();
     expect_fault(cpu80486::EXC_GP, 0);
 }
 
-// --- IRETD and the VM bit outside ring 0 ---------------------------------
+// --- IRETD and the VM bit outside ring 0 ---
 
 TEST_F(Cpu80486V86Test, AnIretdOutsideRingZeroCannotSetVm) {
     enter_pm32();
     put(kData, {0xF4});
     set_gate(cpu80486::EXC_GP, gate_desc(kCode32, kData, 0x8E));
-    // A ring-3 IRETD returning to ring 3 with VM set in its flags image: "the
-    // CPL at the time the IRET is executed must be zero, else the processor
-    // does not change VM" (PRM 15.3). The bit is ignored, not honored and not
-    // faulted on.
+    // ring-3 IRETD with VM in its image: CPL must be 0 or VM is unchanged, not faulted (PRM 15.3)
     put(kData + 0x400, {0x68, 0x02, 0x00, 0x02, 0x00,        // push EFLAGS with VM (bit 17)
                         0x68, uint8_t(kCode3), 0x00, 0x00, 0x00,
                         0x68, 0x10, 0x64, 0x00, 0x00,        // push kData+0x410
@@ -3865,7 +3559,7 @@ TEST_F(Cpu80486V86Test, AnIretdOutsideRingZeroCannotSetVm) {
     EXPECT_EQ(cpu->eax, 0x77u) << "and execution continued in ordinary protected mode";
 }
 
-// --- the deliberate gap: no task-gate entry into V86 (cpu80486.h header) --
+// --- no task-gate entry into V86 (cpu80486.h header) ---
 
 TEST_F(Cpu80486V86Test, ATaskSwitchIntoAV86TaskIsRefusedRatherThanCorruptingState) {
     enter_pm32();
@@ -3882,8 +3576,7 @@ TEST_F(Cpu80486V86Test, ATaskSwitchIntoAV86TaskIsRefusedRatherThanCorruptingStat
     put(pm_code_ + 7, {0xEA, 0x00, 0x00, 0x00, 0x00, uint8_t(kTss2Sel), 0x00});
     cpu->eip = pm_code_ + 7;
     cpu->step();
-    // Reported as an invalid TSS with nothing committed: still the old task,
-    // still ring 0, still not in V86.
+    // reported as an invalid TSS with nothing committed
     expect_fault(cpu80486::EXC_TS, kTss2Sel & 0xFFFCu);
     EXPECT_EQ(cpu->tr_selector(), kTssSel) << "the switch did not happen";
     EXPECT_FALSE(cpu->flag(cpu80486::FLAG_VM));
@@ -3893,22 +3586,13 @@ TEST_F(Cpu80486V86Test, ATaskSwitchIntoAV86TaskIsRefusedRatherThanCorruptingStat
 
 // --- the whole cycle, composed -------------------------------------------
 
-// Everything above tests one rule at a time. This runs a small V86 session the
-// way a monitor actually drives one: an 8086 program at IOPL 0 executes three
-// instructions it is not allowed to (CLI, an IN the I/O map denies, and an INT
-// into the 8086 OS), the monitor's single #GP handler emulates each one by
-// stepping the saved EIP past it, and IRETDs back into the mode each time.
-// Each faulting instruction is deliberately two bytes -- the CS: prefix on the
-// CLI is there only to make the skip uniform -- so the handler needs no
-// instruction-length decoding.
+// An 8086 program at IOPL 0 runs CLI, a denied IN, and an INT; one #GP handler skips each and IRETDs back.
+// Each faulting instruction is two bytes (CLI gets a CS: prefix) so the handler needs no length decoding.
 TEST_F(Cpu80486V86Test, AMonitorEmulatesThreeTrappedInstructionsAndTheTaskRunsOn) {
     enter_pm32();
     give_tss_io_bitmap();
     set_gate(cpu80486::EXC_GP, gate_desc(kCode32, kData, 0x8E));
-    // The handler, at ring 0 with every data segment nulled: it touches only
-    // SS (through ESP) and EBX, which survives the round trip and counts the
-    // traps for the test. #GP carries an error code, so the frame's EIP is at
-    // [esp+4] and the code itself has to come off before the IRETD.
+    // handler at ring 0 with data segments nulled: touches only SS and EBX (counts traps); #GP error code puts EIP at [esp+4]
     put(kData, {0x43,                          // inc ebx
                 0x83, 0x44, 0x24, 0x04, 0x02,  // add dword [esp+4],2
                 0x83, 0xC4, 0x04,              // add esp,4
@@ -3938,8 +3622,8 @@ TEST_F(Cpu80486V86Test, AMonitorEmulatesThreeTrappedInstructionsAndTheTaskRunsOn
     EXPECT_EQ(cpu->es, kV86Seg);
 }
 
-// --- alignment check (Intel 80486 PRM, "Alignment Check") ----------------
-// V86 runs at CPL 3, so it is where a DOS program meets #AC.
+// --- alignment check (Intel 80486 PRM) ---
+// V86 runs at CPL 3, where a DOS program meets #AC.
 
 class Cpu80486AlignTest : public Cpu80486V86Test {
 protected:
@@ -3987,8 +3671,7 @@ TEST_F(Cpu80486AlignTest, RingZeroIsNeverAlignmentChecked) {
 }
 
 TEST_F(Cpu80486AlignTest, FsaveChecksItsWholeAreaNotEachRegisterSlot) {
-    // A 16-bit FSAVE area needs only word alignment, though its 10-byte
-    // register slots are not 8-byte aligned.
+    // a 16-bit FSAVE area needs only word alignment
     enter_v86_aligned(true, true);
     v86_code({0xDD, 0x36, 0x02, 0x50,    // fnsave [5002h]
               0xDD, 0x36, 0x01, 0x51});  // fnsave [5101h]
@@ -4009,25 +3692,12 @@ TEST_F(Cpu80486AlignTest, SgdtNeedsADwordAlignedImage) {
 }
 
 
-// ===========================================================================
-// The on-die x87 FPU.
-//
-// Tested through the ordinary real-mode fixture, because the FPU is not a
-// protected-mode feature: an Intel486 DX2 has it on-die and real-mode DOS
-// code uses it freely. Values are chosen to be *exactly* representable
-// wherever a result is asserted, so a passing test means the arithmetic is
-// right rather than close -- and the 80-bit round-trip tests use bit patterns
-// (a NaN with a payload, a denormal) that only survive if the register file
-// really holds the architectural format instead of a host double.
-//
-// Reference: Intel 80486 Programmer's Reference Manual, the floating-point
-// chapters ("Floating-Point Unit", control/status/tag words, and the
-// per-instruction descriptions).
-// ===========================================================================
+// --- on-die x87 FPU ---
+// Tested through the real-mode fixture; DOS code uses the FPU freely. Results are exactly representable, and the 80-bit round trips use a payload NaN and a denormal that only survive in the architectural format.
+// Reference: Intel 80486 PRM floating-point chapters.
 
 namespace {
-// The ModR/M byte for an ESC instruction's `mod=00 rm=110 disp16` memory form,
-// which is how a 16-bit-addressing ESC opcode names an absolute address.
+// ModR/M for ESC mod=00 rm=110 disp16, an absolute address
 constexpr uint8_t esc_mem(int reg) { return uint8_t((reg << 3) | 6); }
 }  // namespace
 
@@ -4045,13 +3715,13 @@ protected:
     float mem_float(uint32_t a) const { uint32_t b = memd(a); float f; std::memcpy(&f, &b, 4); return f; }
     void poke80(uint32_t a, uint64_t sig, uint16_t sign_exp) { poke64(a, sig); poke16(a + 8, sign_exp); }
 
-    // FLD m64 / FSTP m64, the two instructions nearly every other test needs.
+    // FLD m64 / FSTP m64
     static std::initializer_list<uint8_t> fld_m64(uint16_t at);
     bool c0() const { return (cpu->fpu_status() & (1u << 8)) != 0; }
     bool c1() const { return (cpu->fpu_status() & (1u << 9)) != 0; }
     bool c2() const { return (cpu->fpu_status() & (1u << 10)) != 0; }
     bool c3() const { return (cpu->fpu_status() & (1u << 14)) != 0; }
-    // The tag field of ST(i): 3 means empty.
+    // tag of ST(i): 3 means empty
     int tag_of(int i) const {
         int phys = (cpu->fpu_top() + i) & 7;
         return (cpu->fpu_tag() >> (phys * 2)) & 3;
@@ -4060,8 +3730,7 @@ protected:
 
 TEST_F(Cpu80486FpuTest, FninitLeavesTheDocumentedResetState) {
     run({0xDB, 0xE3});   // FNINIT
-    // Control word 037Fh: all six exception masks set, extended precision,
-    // round to nearest (Intel 80486 PRM, "FPU Initialization").
+    // control word 037Fh: all masks set, extended precision, round to nearest (Intel 80486 PRM, FPU Initialization)
     EXPECT_EQ(cpu->fpu_control(), 0x037Fu);
     EXPECT_EQ(cpu->fpu_status(), 0x0000u);
     EXPECT_EQ(cpu->fpu_tag(), 0xFFFFu) << "every register tagged empty";
@@ -4070,9 +3739,7 @@ TEST_F(Cpu80486FpuTest, FninitLeavesTheDocumentedResetState) {
 }
 
 TEST_F(Cpu80486FpuTest, FxchWithAnEmptyRegisterIsAMaskedStackUnderflow) {
-    // Intel 80486 PRM, FXCH: an empty operand is a stack underflow. Masked,
-    // it reads as the real indefinite and the exchange still happens, tags
-    // and all.
+    // Intel 80486 PRM, FXCH: an empty operand is stack underflow; masked, it reads as indefinite and the exchange happens
     runN({0xDB, 0xE3,      // FNINIT
           0xD9, 0xE8,      // FLD1
           0xD9, 0xC9}, 3); // FXCH ST(1)
@@ -4097,7 +3764,7 @@ TEST_F(Cpu80486FpuTest, FxchWithAnEmptyRegisterUnmaskedLeavesBothAlone) {
 }
 
 TEST_F(Cpu80486FpuTest, TheStoredTagWordClassifiesEachRegister) {
-    // Intel 80486 PRM, "Tag Word": 00 valid, 01 zero, 10 special, 11 empty.
+    // Intel 80486 PRM, Tag Word: 00 valid, 01 zero, 10 special, 11 empty
     poke_double(kA, 1.0);
     poke_double(kB, 0.0);
     runN({0xDB, 0xE3,                          // FNINIT
@@ -4106,7 +3773,7 @@ TEST_F(Cpu80486FpuTest, TheStoredTagWordClassifiesEachRegister) {
           0xDD, esc_mem(0), 0x00, 0x02,        // FLD 1.0
           0xDC, esc_mem(6), 0x00, 0x03,        // FDIV 0.0    -> ST0 = +inf
           0xD9, esc_mem(6), 0x00, 0x04}, 6);   // FNSTENV [0400h]
-    // TOP is 5: ST0 is physical 5, ST1 6, ST2 7; 0-4 are empty.
+    // TOP is 5: ST0 is physical 5; 0-4 are empty
     EXPECT_EQ(memw(kC + 4), 0x1BFFu) << "7 valid, 6 zero, 5 special, the rest empty";
     EXPECT_EQ(cpu->fpu_tag(), 0x1BFFu);
 }
@@ -4133,9 +3800,7 @@ TEST_F(Cpu80486FpuTest, FxchSwapsTwoValidRegisters) {
 }
 
 TEST_F(Cpu80486FpuTest, TheEightyBitRegisterFileHoldsTheArchitecturalFormat) {
-    // A quiet NaN with a payload no host double could carry through: if the
-    // register file were a double, the payload and the exact exponent would
-    // not come back.
+    // a payload NaN a host double could not carry
     poke80(kA, 0xC123456789ABCDEFull, 0x7FFF);
     runN({0xDB, 0xE3,                          // FNINIT
           0xDB, esc_mem(5), 0x00, 0x02,        // FLD  tbyte [0200h]
@@ -4146,9 +3811,7 @@ TEST_F(Cpu80486FpuTest, TheEightyBitRegisterFileHoldsTheArchitecturalFormat) {
 }
 
 TEST_F(Cpu80486FpuTest, AnEightyBitDenormalRoundTripsExactly) {
-    // Exponent 0 with a non-zero significand is a denormal, and its integer
-    // bit is explicitly clear -- a shape that only survives if loads and
-    // stores move the raw format.
+    // exponent 0 with non-zero significand is a denormal with integer bit clear
     poke80(kA, 0x0000000000000001ull, 0x0000);
     runN({0xDB, 0xE3,
           0xDB, esc_mem(5), 0x00, 0x02,
@@ -4181,8 +3844,7 @@ TEST_F(Cpu80486FpuTest, ArithmeticOnExactlyRepresentableValues) {
     EXPECT_EQ(mem_double(kC), 10.0);
     EXPECT_EQ(tag_of(0), 3) << "both operands were consumed";
 
-    // FSUB and FDIV, including the reversed-operand forms, on values whose
-    // results are exact.
+    // FSUB and FDIV including reversed forms, exact values
     poke_double(kA, 10.0);
     poke_double(kB, 4.0);
     runN({0xDB, 0xE3,
@@ -4212,9 +3874,7 @@ TEST_F(Cpu80486FpuTest, ArithmeticOnExactlyRepresentableValues) {
 }
 
 TEST_F(Cpu80486FpuTest, TheDcAndDeEncodingsReverseTheSubtractAndDivideForms) {
-    // A genuine x87 encoding quirk Intel documents and every assembler has to
-    // special-case: with ST(i) as the destination, DC E0+i is FSUBR and
-    // DC E8+i is FSUB -- the opposite way round from the D8 forms above.
+    // x87 encoding quirk: with ST(i) as destination, DC E0+i is FSUBR and DC E8+i is FSUB, opposite the D8 forms
     poke_double(kA, 10.0);
     poke_double(kB, 4.0);
     runN({0xDB, 0xE3,
@@ -4252,8 +3912,7 @@ TEST_F(Cpu80486FpuTest, IntegerLoadsAndStoresCoverAllThreeWidths) {
 }
 
 TEST_F(Cpu80486FpuTest, IntegerStoresHonorTheRoundingControlField) {
-    // The one place software genuinely depends on RC: a C compiler's (int)
-    // cast sets RC to truncate, does the FISTP, and puts RC back.
+    // a C (int) cast sets RC to truncate, does FISTP, restores RC
     poke_double(kA, 1.5);
     auto store_with_rc = [&](uint16_t rc_bits) {
         poke16(kC, uint16_t(0x037F | rc_bits));
@@ -4267,15 +3926,14 @@ TEST_F(Cpu80486FpuTest, IntegerStoresHonorTheRoundingControlField) {
     EXPECT_EQ(store_with_rc(0x0400), 1) << "round down (toward -infinity)";
     EXPECT_EQ(store_with_rc(0x0800), 2) << "round up (toward +infinity)";
     EXPECT_EQ(store_with_rc(0x0C00), 1) << "truncate (toward zero)";
-    // 2.5 discriminates nearest-even from round-half-up.
+    // 2.5 separates nearest-even from round-half-up
     poke_double(kA, 2.5);
     EXPECT_EQ(store_with_rc(0x0000), 2) << "2.5 rounds to 2, not 3: ties go to even";
     EXPECT_EQ(store_with_rc(0x0800), 3);
 }
 
 TEST_F(Cpu80486FpuTest, PrecisionControlNarrowsTheResult) {
-    // With PC set to single precision the FPU rounds each result to 24 bits of
-    // significand, which is observable as soon as a value needs more.
+    // PC=single rounds results to 24 bits
     poke16(kC, 0x007F);   // 037Fh with PC = 00 (single)
     poke_double(kA, 1.0);
     poke_double(kB, 3.0);
@@ -4294,9 +3952,7 @@ TEST_F(Cpu80486FpuTest, PrecisionControlNarrowsTheResult) {
 TEST_F(Cpu80486FpuTest, FcomSetsTheThreeConditionCodeBitsThreeWays) {
     poke_double(kA, 5.0);
     poke_double(kB, 7.0);
-    // The double-real compare is DC /2; D8 /2 is the *single*-real form, so
-    // pointing D8 at a qword would silently read the low half as a float.
-    // ST(0) greater: C3 C2 C0 all clear.
+    // double compare is DC /2 (D8 /2 is single). ST(0) greater: C3 C2 C0 clear.
     runN({0xDB, 0xE3,
           0xDD, esc_mem(0), 0x00, 0x03,        // ST0 = 7.0
           0xDC, esc_mem(2), 0x00, 0x02}, 3);   // FCOM qword [5.0]
@@ -4311,7 +3967,7 @@ TEST_F(Cpu80486FpuTest, FcomSetsTheThreeConditionCodeBitsThreeWays) {
           0xDD, esc_mem(0), 0x00, 0x02,
           0xDC, esc_mem(2), 0x00, 0x02}, 3);
     EXPECT_TRUE(c3()); EXPECT_FALSE(c2()); EXPECT_FALSE(c0());
-    // And FCOMP pops, while FCOM does not.
+    // FCOMP pops, FCOM does not
     runN({0xDB, 0xE3,
           0xDD, esc_mem(0), 0x00, 0x02,
           0xDC, esc_mem(3), 0x00, 0x02}, 3);   // FCOMP qword [5.0]
@@ -4366,7 +4022,7 @@ TEST_F(Cpu80486FpuTest, FucomAndFucompTakeARegisterOperand) {
 }
 
 TEST_F(Cpu80486FpuTest, UndocumentedRegisterAliasesBehaveLikeTheirDocumentedForms) {
-    // Each sequence starts FNINIT / FLDZ / FLD1: ST0 = 1, ST1 = 0.
+    // each sequence starts FNINIT / FLDZ / FLD1: ST0 = 1, ST1 = 0
     runN({0xDB, 0xE3, 0xD9, 0xEE, 0xD9, 0xE8, 0xDC, 0xD1}, 4);   // DC D1: FCOM ST(1)
     EXPECT_FALSE(c0()); EXPECT_FALSE(c3()) << "1 > 0, and nothing was divided";
     EXPECT_EQ(cpu->fpu_top(), 6);
@@ -4441,7 +4097,7 @@ TEST_F(Cpu80486FpuTest, FtstComparesAgainstZeroAndFxamClassifies) {
     poke_double(kA, -3.0);
     runN({0xDB, 0xE3, 0xDD, esc_mem(0), 0x00, 0x02, 0xD9, 0xE4}, 3);   // FTST
     EXPECT_TRUE(c0()) << "-3.0 is less than zero";
-    // FXAM reports the *class* in C3/C2/C0 and the sign in C1.
+    // FXAM reports class in C3/C2/C0 and sign in C1
     runN({0xDB, 0xE3, 0xDD, esc_mem(0), 0x00, 0x02, 0xD9, 0xE5}, 3);   // FXAM on -3.0
     EXPECT_TRUE(c1()) << "C1 carries the sign";
     EXPECT_FALSE(c3()); EXPECT_TRUE(c2()); EXPECT_FALSE(c0()) << "normal finite: 010";
@@ -4464,7 +4120,7 @@ TEST_F(Cpu80486FpuTest, DivideByZeroSetsTheZeroDivideFlag) {
           0xDD, esc_mem(0), 0x00, 0x03,        // ST0 = 1.0
           0xDC, esc_mem(6), 0x00, 0x02}, 3);   // FDIV qword [0.0]
     EXPECT_NE(cpu->fpu_status() & 0x0004u, 0u) << "ZE, the zero-divide flag";
-    // Masked (the reset default), so the result is infinity rather than a trap.
+    // masked (reset default): infinity, not a trap
     EXPECT_TRUE(std::isinf(cpu->st_value(0)));
 }
 
@@ -4495,8 +4151,7 @@ TEST_F(Cpu80486FpuTest, SquareRootAndScaleAndRoundIntOnExactValues) {
 }
 
 TEST_F(Cpu80486FpuTest, ChsAndAbsFlipAndClearTheSignBitOnly) {
-    // These touch the sign bit and nothing else, so they work on a NaN just as
-    // well as on a number -- which is why they are bit operations here.
+    // sign-bit operations, so they work on NaNs
     poke80(kA, 0xC123456789ABCDEFull, 0x7FFF);
     runN({0xDB, 0xE3, 0xDB, esc_mem(5), 0x00, 0x02, 0xD9, 0xE0,
           0xDB, esc_mem(7), 0x00, 0x03}, 4);   // FCHS
@@ -4525,9 +4180,7 @@ TEST_F(Cpu80486FpuTest, TheBuiltInConstantsMatchTheirDocumentedValues) {
 }
 
 TEST_F(Cpu80486FpuTest, PushingOntoAFullStackIsAStackFault) {
-    // Nine pushes onto an eight-register stack. The ninth sets IE *and* SF,
-    // with C1 = 1 marking overflow rather than underflow -- the only way a
-    // handler can tell the two apart (Intel 80486 PRM, "Stack Fault").
+    // ninth push sets IE and SF with C1=1 for overflow (Intel 80486 PRM, Stack Fault)
     std::vector<uint8_t> code = {0xDB, 0xE3};
     for (int i = 0; i < 9; ++i) { code.push_back(0xD9); code.push_back(0xE8); }  // FLD1
     uint16_t at = 0;
@@ -4555,13 +4208,13 @@ TEST_F(Cpu80486FpuTest, FxchSwapsAndFfreeTagsAndTheStackPointerMoves) {
           0xD9, 0xC9}, 4);                     // FXCH ST(1)
     EXPECT_EQ(double(cpu->st_value(0)), 1.0);
     EXPECT_EQ(double(cpu->st_value(1)), 2.0);
-    // FFREE marks a register empty without moving TOP.
+    // FFREE empties a register without moving TOP
     int top_before = cpu->fpu_top();
     put_and_run({0xDD, 0xC1});   // FFREE ST(1)
     EXPECT_EQ(cpu->fpu_top(), top_before);
     EXPECT_EQ(tag_of(1), 3);
     EXPECT_EQ(tag_of(0), 0) << "ST(0) is untouched";
-    // FINCSTP / FDECSTP move TOP without touching any tag.
+    // FINCSTP / FDECSTP move TOP, tags untouched
     put_and_run({0xD9, 0xF7});   // FINCSTP
     EXPECT_EQ(cpu->fpu_top(), (top_before + 1) & 7);
     put_and_run({0xD9, 0xF6});   // FDECSTP
@@ -4575,8 +4228,7 @@ TEST_F(Cpu80486FpuTest, ControlAndStatusWordsRoundTripThroughMemoryAndAx) {
           0xD9, esc_mem(7), 0x00, 0x03}, 3);   // FNSTCW [0300h]
     EXPECT_EQ(cpu->fpu_control(), 0x0F3Fu);
     EXPECT_EQ(memw(kB), 0x0F3Fu);
-    // The status word's TOP field is bits 11-13, so FNSTSW is how software
-    // reads the stack pointer at all.
+    // status word TOP is bits 11-13
     runN({0xDB, 0xE3, 0xD9, 0xE8, 0xDF, 0xE0}, 3);   // FNINIT / FLD1 / FNSTSW AX
     EXPECT_EQ((cpu->eax >> 11) & 7u, 7u) << "one push moved TOP from 0 to 7";
     EXPECT_EQ(cpu->eax & 0xFFFFu, cpu->fpu_status());
@@ -4602,8 +4254,7 @@ TEST_F(Cpu80486FpuTest, FsaveAndFrstorRoundTripTheWholeStackAndEnvironment) {
           0xDD, esc_mem(0), 0x00, 0x02,        // ST0 = 7.25
           0xD9, 0xE8,                          // ST0 = 1.0, ST1 = 7.25
           0x66, 0xDD, esc_mem(6), 0x00, 0x05}, 4);   // FNSAVE [0500h], 32-bit environment
-    // FSAVE leaves the FPU reset, which is what makes it usable for a task
-    // switch: the next task starts clean.
+    // FSAVE leaves the FPU reset, so the next task starts clean
     EXPECT_EQ(cpu->fpu_control(), 0x037Fu);
     EXPECT_EQ(cpu->fpu_tag(), 0xFFFFu);
     put_and_run({0x66, 0xDD, esc_mem(4), 0x00, 0x05});   // FRSTOR [0500h]
@@ -4623,8 +4274,7 @@ TEST_F(Cpu80486FpuTest, FstenvStoresTheEnvironmentAndMasksEveryException) {
 }
 
 TEST_F(Cpu80486FpuTest, PackedDecimalLoadAndStoreRoundTrip) {
-    // FBLD/FBSTP move 18 packed decimal digits plus a sign byte -- the format
-    // COBOL-era and BCD-arithmetic code used, and the reason the x87 has them.
+    // FBLD/FBSTP: 18 packed decimal digits plus a sign byte
     runN({0xDB, 0xE3, 0xD9, 0xE8}, 2);         // ST0 = 1.0
     poke_double(kA, -123456789.0);
     runN({0xDB, 0xE3,
@@ -4648,7 +4298,7 @@ TEST_F(Cpu80486FpuTest, TranscendentalsProduceTheDocumentedResults) {
     runN({0xDB, 0xE3, 0xDD, esc_mem(0), 0x00, 0x02, 0xD9, 0xF0,
           0xDD, esc_mem(3), 0x00, 0x03}, 4);   // F2XM1(0) = 2^0 - 1 = 0
     EXPECT_EQ(mem_double(kB), 0.0);
-    // FYL2X: ST(1) * log2(ST(0)), popping. 3.0 * log2(8.0) = 9.0, exact.
+    // FYL2X: ST(1) * log2(ST(0)), popping. 3.0 * log2(8.0) = 9.0
     poke_double(kA, 3.0);
     poke_double(kB, 8.0);
     runN({0xDB, 0xE3,
@@ -4657,7 +4307,7 @@ TEST_F(Cpu80486FpuTest, TranscendentalsProduceTheDocumentedResults) {
           0xD9, 0xF1,                          // FYL2X
           0xDD, esc_mem(3), 0x00, 0x04}, 5);
     EXPECT_DOUBLE_EQ(mem_double(kC), 9.0);
-    // FPATAN of (1,1) is pi/4.
+    // FPATAN(1,1) is pi/4
     poke_double(kA, 1.0);
     runN({0xDB, 0xE3,
           0xDD, esc_mem(0), 0x00, 0x02,
@@ -4677,9 +4327,7 @@ TEST_F(Cpu80486FpuTest, FpremReducesAndClearsTheIncompleteFlag) {
           0xDD, esc_mem(3), 0x00, 0x04}, 5);
     EXPECT_EQ(mem_double(kC), 1.0);
     EXPECT_FALSE(c2()) << "C2 clear means the reduction is complete";
-    // FPREM1 is the IEEE remainder, which differs in sign for this pair:
-    // 10 rem 3 rounds the quotient to nearest (3 -> 3), giving 1; but for
-    // 5 and 3 the IEEE result is -1 where FPREM gives 2.
+    // FPREM1 is the IEEE remainder: 10 rem 3 gives 1; for 5 and 3 it gives -1 where FPREM gives 2
     poke_double(kA, 3.0);
     poke_double(kB, 5.0);
     runN({0xDB, 0xE3,
@@ -4708,9 +4356,7 @@ TEST_F(Cpu80486FpuTest, FxtractSplitsExponentAndSignificand) {
 }
 
 TEST_F(Cpu80486FpuTest, CoprocessorEmulationAndTaskSwitchedBothRaiseDeviceNotAvailable) {
-    // CR0.EM routes every ESC opcode to #NM so a software emulator can pick
-    // it up; CR0.TS does the same for the first FPU instruction after a task
-    // switch, so a handler can swap the register stack between tasks.
+    // CR0.EM sends every ESC to #NM; CR0.TS does so for the first FPU instruction after a task switch
     poke16(0x0007 * 4 + 0, 0x0500);   // IVT[7] -> 0000:0500
     poke16(0x0007 * 4 + 2, 0x0000);
     mem[0x0500] = 0xF4;               // HLT
@@ -4725,7 +4371,7 @@ TEST_F(Cpu80486FpuTest, CoprocessorEmulationAndTaskSwitchedBothRaiseDeviceNotAva
     cpu->halted = false;
     run({0xD9, 0xE8});
     EXPECT_EQ(cpu->eip, 0x0500u);
-    // CLTS clears TS, and the FPU is available again.
+    // CLTS clears TS
     cpu->halted = false;
     runN({0x0F, 0x06, 0xD9, 0xE8}, 2);   // CLTS / FLD1
     EXPECT_EQ(double(cpu->st_value(0)), 1.0);
@@ -4736,8 +4382,7 @@ TEST_F(Cpu80486FpuTest, WaitFaultsOnlyWhenMonitorCoprocessorAndTaskSwitchedAreBo
     poke16(0x0007 * 4 + 0, 0x0500);
     poke16(0x0007 * 4 + 2, 0x0000);
     mem[0x0500] = 0xF4;
-    // TS alone leaves WAIT alone: MP exists precisely so WAIT and the ESC
-    // opcodes can be trapped separately.
+    // TS alone leaves WAIT alone (MP)
     cpu->eax = uint32_t(cpu80486::CR0_TS);
     run({0x0F, 0x22, 0xC0});
     run({0x9B});                      // FWAIT
@@ -4749,14 +4394,11 @@ TEST_F(Cpu80486FpuTest, WaitFaultsOnlyWhenMonitorCoprocessorAndTaskSwitchedAreBo
 }
 
 TEST_F(Cpu80486FpuTest, AnUnmaskedExceptionIsReportedOnTheNextFpuInstruction) {
-    // The 486 defers the report: the instruction that *causes* an unmasked
-    // exception completes, and the error surfaces when the next waiting FPU
-    // instruction runs -- which is why a handler can safely use the no-wait
-    // forms (FNSTSW, FNCLEX) to inspect and clear it.
+    // the 486 defers the report to the next waiting FPU instruction, so a handler uses no-wait forms (FNSTSW, FNCLEX)
     poke16(0x0010 * 4 + 0, 0x0500);   // IVT[16] -> #MF
     poke16(0x0010 * 4 + 2, 0x0000);
     mem[0x0500] = 0xF4;
-    // NE = 1 selects the native #MF report over the external FERR#/IRQ13 path.
+    // NE=1 selects the native #MF report over FERR#/IRQ13
     cpu->eax = uint32_t(cpu80486::CR0_NE);
     run({0x0F, 0x22, 0xC0});
     poke16(kA, 0x0000);               // unmask everything
@@ -4768,10 +4410,10 @@ TEST_F(Cpu80486FpuTest, AnUnmaskedExceptionIsReportedOnTheNextFpuInstruction) {
           0xDC, esc_mem(6), 0x00, 0x03}, 4);   // FDIV by 0.0 -> unmasked ZE
     ASSERT_NE(cpu->fpu_status() & 0x0080u, 0u) << "ES, the error summary, is set";
     EXPECT_NE(cpu->eip, 0x0500u) << "the causing instruction itself does not trap";
-    // A no-wait form still does not check, so a handler can read the status.
+    // a no-wait form does not check
     put_and_run({0xDF, 0xE0});        // FNSTSW AX
     EXPECT_NE(cpu->eip, 0x0500u) << "FNSTSW is a no-wait form";
-    // The next *waiting* FPU instruction is the one that reports.
+    // the next waiting FPU instruction reports
     put_and_run({0xD9, 0xE8});        // FLD1
     EXPECT_EQ(cpu->eip, 0x0500u) << "and now #MF is delivered";
 }

@@ -1,14 +1,7 @@
 #!/usr/bin/env bash
-# Fetch the real FreeDOS 1.3 multi-floppy *installer* set -- x86DSK01.img
-# through x86DSK06.img from the same official "120m" (1.2MB, 5.25" HD)
-# Floppy Edition distribution fetch-freedos.sh already pulls x86BOOT.img
-# from. These five install disks are what build_freedos_hdd.cpp actually
-# installs from: this machine's shipped hard disk image is produced by
-# running the genuine, unmodified FreeDOS 1.3 installer end to end against
-# the emulator (see IBM_PCAT_REVIEW.md §11), not by hand-crafting a
-# filesystem, and the installer needs its real install floppies to do
-# that. SHA-256 verified per file, same pattern as fetch-freedos.sh/
-# fetch-basic.sh.
+# Fetch the FreeDOS 1.3 install floppies x86DSK01.img .. x86DSK06.img from
+# the same "120m" Floppy Edition fetch-freedos.sh uses. build_freedos_hdd.cpp
+# installs from them (IBM_PCAT_REVIEW.md §11). SHA-256 verified per file.
 #
 #   ./fetch-freedos-install-set.sh            # fetch what's missing/wrong
 #   ./fetch-freedos-install-set.sh --force    # re-fetch everything
@@ -19,8 +12,7 @@ FORCE="${1:-}"
 
 URL="https://www.ibiblio.org/pub/micro/pc-stuff/freedos/files/distributions/1.3/official/FD13-FloppyEdition.zip"
 
-# name -> expected SHA-256, one entry per install floppy (x86BOOT.img
-# itself stays fetch-freedos.sh's job).
+# name -> expected SHA-256 (x86BOOT.img is fetch-freedos.sh's job)
 NAMES=(x86DSK01.img x86DSK02.img x86DSK03.img x86DSK04.img x86DSK05.img x86DSK06.img)
 SHAS=(
   64c4d020b380994bbe4a83a595e56948513e5b0c4cede81a0c1e476183b9debf

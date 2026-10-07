@@ -1,9 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-// DIP panel is a labelled stand-in for the cabinet's operator bank.
-// Persistence is authentic: physical switches survive a power cycle.
-// Bit map: PACMAN_REVIEW.md §7 / Inputs in machine.h.
-// Factory DSW1 is 0xC9 (1C/1C, 3 lives, bonus 10k, normal, normal names).
+// Factory DSW1 is 0xC9. Bit map is in Inputs in machine.h.
 
 test.describe("DIP switches", () => {
   test.beforeEach(async ({ page }) => {

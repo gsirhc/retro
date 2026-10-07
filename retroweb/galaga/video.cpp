@@ -12,7 +12,7 @@ constexpr int kStarOffsetX = 16;
 constexpr int kStarLimitX = kStarOffsetX + kStarFieldW;
 
 // SCROLL_X index → extra LFSR clocks in the pre-visible interval.
-// Hildinger's starfield_05xx notes (MAME is the cross-check).
+// Hildinger starfield_05xx notes.
 constexpr int kSpeedXOffset[8] = {0, 1, 2, 3, -4, -3, -2, -1};
 
 }  // namespace
@@ -37,9 +37,7 @@ void Video::advance(int cpu_cycles) {
         h -= kHTotal;
         v++;
         if (v >= kVTotal) v = 0;
-        // Sound-CPU NMI comes from the 07XX vertical chain, twice a frame
-        // (scanlines 64 and 192). MAME's cpu3 timer is a cross-check; the
-        // enable is !NMION on the CPU-board latch.
+        // Sound-CPU NMI twice a frame (scanlines 64 and 192), enabled by !NMION.
         if (v == 64 || v == 192) sound_nmi_edge = true;
         bool vb = v >= kVBlankLine;
         if (vb && !vblank) vblank_edge = true;
@@ -48,8 +46,7 @@ void Video::advance(int cpu_cycles) {
 }
 
 uint8_t Video::tile_pixel(uint8_t code, int x, int y) const {
-    // Same 2bpp nibble packing as the Namco charlayout_2bpp ROMs: high
-    // nibble is plane 0, low nibble is plane 1, four pixels per byte.
+    // Namco charlayout_2bpp: high nibble is plane 0, low is plane 1.
     const uint8_t* t = &tile_rom[(unsigned(code) * 16) & (tile_rom.size() - 1)];
     uint8_t byte = (x < 4) ? t[y + 8] : t[y];
     int xb = x & 3;
@@ -65,8 +62,7 @@ uint32_t Video::prom_rgb(uint8_t idx) const {
 }
 
 uint32_t Video::star_rgb(uint8_t color6) const {
-    // 05XX RGB is a separate 2-bit-per-channel ladder from the PROM
-    // (Hildinger). R and G sit on a 1k pulldown; B does not.
+    // 05XX RGB ladder from the PROM (Hildinger); R and G have a 1k pulldown, B does not.
     int r = ((color6 & 1) ? 0x47 : 0) + ((color6 & 2) ? 0x97 : 0);
     int g = ((color6 & 4) ? 0x47 : 0) + ((color6 & 8) ? 0x97 : 0);
     int b = ((color6 & 16) ? 0x47 : 0) + ((color6 & 32) ? 0x97 : 0);
@@ -82,8 +78,7 @@ uint16_t Video::next_star_lfsr(uint16_t lfsr) {
 }
 
 void Video::draw_stars(uint32_t* native) const {
-    // $A005 low clears the field and reseeds. Galaga SCROLL_Y is tied
-    // low, so only SCROLL_X (latches 0–2) changes the per-frame clocks.
+    // $A005 low clears the field and reseeds. SCROLL_Y is tied low; only SCROLL_X changes clocks.
     if (!star_latch[5]) {
         star_lfsr_ = kStarSeed;
         return;
@@ -118,17 +113,12 @@ void Video::draw_stars(uint32_t* native) const {
 void Video::render(uint32_t* upright, const uint8_t* ram1, const uint8_t* ram2,
                    const uint8_t* ram3) const {
     std::array<uint32_t, kVisW * kVisH> native{};
-    // Stars, then sprites, then tiles. The score strips sit in the tile
-    // plane, so they stay on top of any sprite that wanders into that
-    // band (MAME screen_update_galaga is the cross-check).
+    // Stars, sprites, tiles. Score strips are in the tile plane, so they stay above sprites.
     draw_stars(native.data());
 
     if (ram1 && ram2 && ram3) {
-        // 04XX sprite address. X is 10 bits: the position byte plus two
-        // bits in the next register. Register 0 sits 40 pixels left of the
-        // visible origin. Y counts down from the register, one line late,
-        // then wraps by the chain's 32-pixel offset. A 2× sprite is four
-        // consecutive codes, not one stretched picture.
+        // 04XX sprite address: X is 10 bits, register 0 is 40 px left of the visible origin.
+        // Y counts down one line late, then wraps by 32. A 2x sprite is four consecutive codes.
         for (int i = 0; i < 64; i++) {
             int o = 0x380 + i * 2;
             uint8_t attr = ram3[o];
@@ -146,9 +136,7 @@ void Video::render(uint32_t* upright, const uint8_t* ram1, const uint8_t* ram2,
             sy = (sy & 0xff) - 32;
             int base = ram1[o] & 0x7f;
             uint8_t color = ram1[o + 1];
-            // sphcnt(3 downto 2) selects bytes 0, 8, 16, 24 (greyrogue
-            // galaga.vhd spgraphx_addr). Pac-Man's sprite ROM starts at
-            // byte 8; reading Galaga that way swaps the two ends.
+            // sphcnt(3:2) selects bytes 0, 8, 16, 24 (galaga.vhd spgraphx_addr).
             static constexpr int kOffs[2][2] = {{0, 1}, {2, 3}};
             static constexpr int kCol[4] = {0, 8, 16, 24};
             for (int ty = 0; ty <= sizey; ty++) {
@@ -175,9 +163,7 @@ void Video::render(uint32_t* upright, const uint8_t* ram1, const uint8_t* ram2,
         }
     }
 
-    // hcnt bit 8 selects the side strips (greyrogue galaga.vhd,
-    // flip_h = 0). A credit line stored across row 1 is walked by
-    // vcnt, so it lies on the bottom of the upright screen.
+    // hcnt bit 8 selects the side strips (galaga.vhd). A credit line across row 1 lies on the bottom.
     for (int row = 0; row < 28; row++) {
         for (int col = 0; col < 36; col++) {
             int sr = flip ? (27 - row) : row;
@@ -194,9 +180,7 @@ void Video::render(uint32_t* upright, const uint8_t* ram1, const uint8_t* ram2,
                 for (int px = 0; px < 8; px++) {
                     uint8_t pen = tile_pixel(code, px, py);
                     if (pen == 0) continue;
-                    // Character LUT is 4 bits; the board ORs 0x10 so tiles
-                    // read the upper half of the 32-color PROM. Index 0x1F
-                    // is the transparent group.
+                    // Character LUT is 4 bits; the board ORs 0x10 to use the upper PROM half. 0x1F is transparent.
                     uint8_t li = uint8_t((char_lut[((attr & 0x3F) << 2) | pen] & 0x0F) | 0x10);
                     if (li == 0x1F) continue;
                     int x = ox + px;

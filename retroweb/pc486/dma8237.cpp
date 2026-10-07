@@ -29,11 +29,8 @@ uint8_t Dma8237::in(uint16_t port) {
     }
     switch (reg) {
         case 8: {
-            // Status register (Intel 8237A-5, "Status Register"): bits 0-3
-            // are per-channel terminal-count, latched by advance() and
-            // cleared by this read; bits 4-7 are per-channel request,
-            // live DREQ ORed with the software Request Register (out(9)),
-            // neither latched nor cleared by reading.
+            // Status (8237A-5): bits 0-3 are TC latches set by advance() and cleared
+            // by this read; bits 4-7 are live DREQ ORed with the software request, not latched
             uint8_t v = 0;
             for (int i = 0; i < 4; ++i) {
                 if (tc_latch_[i]) v = uint8_t(v | (1 << i));
@@ -82,16 +79,12 @@ bool Dma8237::advance(int channel) {
     bool tc = (c.count == 0);
     if (tc) tc_latch_[channel & 3] = true;
     if (tc && (c.mode & 0x10) != 0) {
-        // Autoinitialize: reload from the base registers instead of
-        // continuing to increment/wrap -- see the Channel comment.
+        // Autoinitialize reloads from the base registers
         c.address = c.base_address;
         c.count = c.base_count;
     } else {
-        // Intel 8237A-5 data sheet, "Mode Register": bit 5 selects address
-        // decrement instead of increment. Either way the address is a plain
-        // uint16_t, so it wraps within the 64KB page on its own -- a real,
-        // documented 8237 quirk (a transfer never carries across a page-
-        // register boundary).
+        // 8237A-5 "Mode Register": bit 5 selects decrement. The uint16_t address
+        // wraps within the 64KB page, as on the real chip.
         if ((c.mode & 0x20) != 0) c.address = uint16_t(c.address - 1);
         else c.address = uint16_t(c.address + 1);
         c.count = uint16_t(c.count - 1);

@@ -1,8 +1,4 @@
-// GoogleTest suite for the NEC uPD765 floppy controller: command/parameter
-// sequencing, the Main Status Register's phase bits, SEEK/RECALIBRATE
-// paced completion via SENSE INTERRUPT STATUS, and the transfer_ready()/
-// transfer_image_ptr()/finish_transfer() handoff chipset.cpp uses to
-// perform the actual memory<->image copy.
+// uPD765 floppy controller: command sequencing, MSR phases, SEEK/RECALIBRATE, transfer handoff
 
 #include <gtest/gtest.h>
 
@@ -17,8 +13,6 @@ using pc486::Fdc765;
 
 std::vector<uint8_t> MakeImage(std::size_t cyl, int heads, int spt) {
     std::vector<uint8_t> img(cyl * heads * spt * 512, 0);
-    // Stamp each sector's first byte with a recognizable, distinct pattern
-    // so a test can confirm exactly which bytes landed where.
     for (std::size_t i = 0; i < img.size(); i += 512) img[i] = uint8_t((i / 512) & 0xFF);
     return img;
 }
@@ -29,14 +23,7 @@ protected:
     void SetUp() override { fdc.reset(); }
 
     void PowerOnMotorAndSelect(int drive) {
-        // DOR: motor for the selected drive on, ~RESET high (normal op),
-        // DMA/IRQ enable on (real BIOS always sets this for normal
-        // operation -- without it, completed commands never raise IRQ6),
-        // drive select. Leaving the held-reset state itself raises an
-        // interrupt on real hardware (a real driver clears it via SENSE
-        // INTERRUPT STATUS before doing anything else) -- acknowledge it
-        // here the same way so tests can look at irq_pending() for the
-        // condition they actually care about afterward.
+        // DOR: motor on, ~RESET high, DMA/IRQ enable, drive select. Ack the reset interrupt like a real driver.
         uint8_t bit = drive == 0 ? 0x10 : 0x20;
         fdc.out(0x3F2, uint8_t(0x04 | 0x08 | bit | drive));
         fdc.clear_irq();
@@ -44,13 +31,7 @@ protected:
 };
 
 TEST_F(Fdc765Test, DoesNotOwnPortThreeF6) {
-    // 0x3F6, in the middle of the FDC's otherwise-contiguous port block, is
-    // genuinely NOT decoded by a real AT's floppy controller -- it belongs
-    // to the hard disk controller's Device Control / Alternate Status
-    // register (see wd1003.h). Chipset::io_in/io_out check fdc.owns()
-    // before hdd.owns(), so a too-wide range here would silently steal the
-    // port from the HDD before it was ever reached -- a real bug WD1003
-    // integration testing caught. See PC486_REVIEW.md.
+    // port 0x3F6 belongs to the HDD (wd1003.h); fdc.owns() is checked first
     EXPECT_FALSE(fdc.owns(0x3F6));
     EXPECT_TRUE(fdc.owns(0x3F5));
     EXPECT_TRUE(fdc.owns(0x3F7));
@@ -61,8 +42,8 @@ TEST_F(Fdc765Test, SpecifyIsAcceptedWithoutResult) {
     fdc.out(0x3F5, 0x03);  // SPECIFY
     fdc.out(0x3F5, 0xDF);  // SRT/HUT
     fdc.out(0x3F5, 0x02);  // HLT/ND
-    EXPECT_EQ(fdc.in(0x3F4) & 0x10, 0x00);  // FDC busy cleared -- command completed immediately
-    EXPECT_EQ(fdc.in(0x3F4) & 0x80, 0x80);  // RQM: ready for the next command
+    EXPECT_EQ(fdc.in(0x3F4) & 0x10, 0x00);  // command done
+    EXPECT_EQ(fdc.in(0x3F4) & 0x80, 0x80);  // RQM
 }
 
 TEST_F(Fdc765Test, RecalibrateCompletesAfterPacedDelayAndReportsViaSenseInterrupt) {
@@ -77,11 +58,11 @@ TEST_F(Fdc765Test, RecalibrateCompletesAfterPacedDelayAndReportsViaSenseInterrup
     EXPECT_TRUE(fdc.irq_pending());
 
     fdc.out(0x3F5, 0x08);  // SENSE INTERRUPT STATUS
-    EXPECT_EQ(fdc.in(0x3F4) & 0xC0, 0xC0);  // RQM+DIO both set: result phase, a byte is ready to read
+    EXPECT_EQ(fdc.in(0x3F4) & 0xC0, 0xC0);  // RQM+DIO: result byte ready
     uint8_t st0 = fdc.in(0x3F5);
     uint8_t pcn = fdc.in(0x3F5);
     EXPECT_EQ(st0 & 0x20, 0x20);  // seek-end
-    EXPECT_EQ(pcn, 0);            // recalibrated to cylinder 0
+    EXPECT_EQ(pcn, 0);  // recalibrated to cylinder 0
 }
 
 TEST_F(Fdc765Test, SenseInterruptWithNothingPendingReportsInvalidCommand) {
@@ -113,19 +94,17 @@ TEST_F(Fdc765Test, ReadDataTransfersTheRequestedSectorAfterPacing) {
 
     uint8_t *ptr = fdc.transfer_image_ptr();
     ASSERT_NE(ptr, nullptr);
-    // Sector 3 (1-based) is the 3rd 512-byte block -> stamped with index 2.
+    // sector 3 is the 3rd 512-byte block, stamped index 2
     EXPECT_EQ(ptr[0], 2);
 
     fdc.finish_transfer(512);
-    EXPECT_EQ(fdc.in(0x3F4) & 0xC0, 0xC0);  // result phase, byte ready
+    EXPECT_EQ(fdc.in(0x3F4) & 0xC0, 0xC0);  // result phase
     uint8_t st0 = fdc.in(0x3F5);
     EXPECT_EQ(st0, 0x00);  // normal termination
 }
 
 TEST_F(Fdc765Test, WriteDataMarksDriveDirty) {
-    // Exercises the drive's other period-legal density (720KB double-
-    // density media in the same 1.44MB bay -- see mount()'s comment) on
-    // drive 0, since this machine has no B: connector at all.
+    // 720KB media in the 1.44MB bay, drive 0
     auto img = MakeImage(80, 2, 9);
     fdc.mount(0, img.data(), img.size());
     PowerOnMotorAndSelect(0);
@@ -146,19 +125,13 @@ TEST_F(Fdc765Test, WriteDataMarksDriveDirty) {
     EXPECT_TRUE(fdc.transfer_is_write());
     uint8_t *ptr = fdc.transfer_image_ptr();
     ASSERT_NE(ptr, nullptr);
-    ptr[0] = 0xAB;  // simulate chipset having copied a byte in from RAM
+    ptr[0] = 0xAB;
     fdc.finish_transfer(512);
     EXPECT_TRUE(fdc.dirty(0));
 }
 
 TEST_F(Fdc765Test, InterruptClearsOnFirstResultByteNotTheWholePhase) {
-    // Real uPD765/8272 hardware drops IRQ6 as soon as the CPU reads the
-    // first result byte (ST0 in a 7-byte READ/WRITE DATA result phase) --
-    // not after every result byte is drained. Some real driver code reads
-    // only ST0 before moving on to other work; modeling "IRQ clears on
-    // full drain" left the interrupt permanently pending and re-triggered
-    // its ISR forever, an infinite-IRQ-storm bug this session actually
-    // hit trying to boot real BIOS + FreeDOS. See PC486_REVIEW.md §8.
+    // IRQ6 drops on the first result byte read, not on full drain
     auto img = MakeImage(80, 2, 18);
     fdc.mount(0, img.data(), img.size());
     PowerOnMotorAndSelect(0);
@@ -172,28 +145,22 @@ TEST_F(Fdc765Test, InterruptClearsOnFirstResultByteNotTheWholePhase) {
     fdc.finish_transfer(512);
     ASSERT_TRUE(fdc.irq_pending());
 
-    fdc.in(0x3F5);  // read only ST0 -- 6 more result bytes are still unread
+    fdc.in(0x3F5);  // only ST0 read
     EXPECT_FALSE(fdc.irq_pending());
-    EXPECT_TRUE(fdc.in(0x3F4) & 0x10);  // controller still busy -- result phase isn't fully drained yet
+    EXPECT_TRUE(fdc.in(0x3F4) & 0x10);  // still busy
 }
 
 TEST_F(Fdc765Test, DiskChangeLineSetByMountAndClearedBySeek) {
-    // Real hardware: DSKCHG asserts whenever media is swapped and only
-    // clears once the drive actually steps (RECALIBRATE/SEEK) afterward --
-    // software that copies files across floppy swaps (a multi-disk
-    // installer, say) polls this specifically to confirm the user really
-    // swapped media before trusting a re-read. A controller that always
-    // reports "unchanged" leaves that software waiting forever. See
-    // PC486_REVIEW.md.
+    // DSKCHG stays set until the drive steps after a media swap
     auto img = MakeImage(80, 2, 18);
     fdc.mount(0, img.data(), img.size());
     PowerOnMotorAndSelect(0);
-    EXPECT_TRUE(fdc.in(0x3F7) & 0x80);  // just mounted -- changed
+    EXPECT_TRUE(fdc.in(0x3F7) & 0x80);
 
     fdc.out(0x3F5, 0x07); fdc.out(0x3F5, 0x00);  // RECALIBRATE drive 0
-    EXPECT_FALSE(fdc.in(0x3F7) & 0x80);  // stepped -- change acknowledged
+    EXPECT_FALSE(fdc.in(0x3F7) & 0x80);
 
-    // Swapping media again re-asserts it, independent of the prior seek.
+    // swapping again re-asserts it
     auto img2 = MakeImage(80, 2, 15);
     fdc.mount(0, img2.data(), img2.size());
     EXPECT_TRUE(fdc.in(0x3F7) & 0x80);

@@ -12,14 +12,11 @@ uint16_t mirror(uint16_t addr) {
     return addr & 0x7FFF;
 }
 
-// LS251-style panel reads return $80 or $7F on D7 (MAME asteroid_IN0_r /
-// asteroid_IN1_r). BIT only cares about N; LDA paths see the full byte.
+// Panel reads return $80 or $7F (MAME asteroid_IN0_r / asteroid_IN1_r).
 uint8_t bit7(bool v) { return v ? 0x80 : 0x7F; }
 
-// DP-143 thump 555, constant-current into the cap (MAME asteroid_thump_dac1
-// + DISCRETE_555_CC with CC_TO_CAP). A higher nibble raises the DAC voltage,
-// which cuts the charge current, so the pitch falls. Gameplay alternates
-// nibbles 0 and 4 (ThisVolFreq $04 EOR $14). Hz and high-time from that model.
+// DP-143 thump 555 (MAME asteroid_thump_dac1 + DISCRETE_555_CC). A higher
+// nibble cuts the charge current, so the pitch falls.
 constexpr float kThumpHz[16] = {
     81.6f, 83.9f, 85.8f, 86.9f, 87.5f, 87.3f, 86.6f, 85.5f,
     81.9f, 79.5f, 76.3f, 73.1f, 67.8f, 63.7f, 58.4f, 53.5f
@@ -29,8 +26,7 @@ constexpr float kThumpDuty[16] = {
     0.642f, 0.664f, 0.692f, 0.714f, 0.748f, 0.770f, 0.797f, 0.819f
 };
 
-// Ship-fire / saucer-fire 555 duty, percent. Past 100 the pulse is DC.
-// Cite: MAME asteroid_a.cpp "01/2+" on 4500 / freq + 67.
+// Fire 555 duty in percent, past 100 the pulse is DC (MAME asteroid_a.cpp).
 float fire_duty(float hz) { return 4500.0f / hz + 67.0f; }
 
 }  // namespace
@@ -93,8 +89,7 @@ void Machine::tick_watchdog(int cycles) {
 }
 
 void Machine::service_nmi() {
-    // Self-test (IN0 bit 7) blocks the MMI/NMI on upright Asteroids.
-    // Cite: MAME machine/asteroid.c interrupt gate.
+    // Self-test (IN0 bit 7) blocks the NMI (MAME asteroid.c).
     if ((inputs.in0 & 0x80) == 0)
         cpu.nmi();
     frames++;
@@ -125,9 +120,7 @@ void Machine::write_banked(uint16_t addr, uint8_t v) {
 
 void Machine::dvg_go() {
     auto read_word = [this](uint16_t word_addr) -> uint16_t {
-        // DVG 8K byte window: words 0000–07FF = vector RAM ($4000),
-        // words 0800–0FFF = vector ROM ($5000). Cite: computerarcheology
-        // Asteroids DVG.html / Hardware.html.
+        // Words 0000-07FF = vector RAM ($4000), 0800-0FFF = vector ROM ($5000).
         word_addr &= 0x0FFF;
         if (word_addr < 0x0800) {
             uint16_t off = uint16_t(word_addr * 2);
@@ -147,8 +140,7 @@ uint8_t Machine::mem_read(uint16_t addr) const {
     addr = mirror(addr);
     if (addr < 0x0400) return read_banked(addr);
 
-    // $2000+n / $2400+n: selected switch on D7.
-    // Halt at $2002: 1 = DVG busy, 0 = idle — 6502disassembly.com Asteroids.
+    // Halt at $2002: 1 = DVG busy (6502disassembly.com Asteroids).
     if (addr >= 0x2000 && addr <= 0x2007) {
         int bit = addr & 7;
         bool v = false;
@@ -164,7 +156,6 @@ uint8_t Machine::mem_read(uint16_t addr) const {
         int bit = addr & 7;
         return bit7((inputs.in1 & (1u << bit)) != 0);
     }
-    // $2800+n returns a DIP pair in D1:D0 (LDA + AND #$03 in the ROM).
     if (addr >= 0x2800 && addr <= 0x2803) {
         int pair = addr & 3;
         return uint8_t((inputs.dsw1 >> (2 * pair)) & 0x03);
@@ -195,8 +186,7 @@ void Machine::mem_write(uint16_t addr, uint8_t v) {
     }
     if (addr == 0x3400) { kick_watchdog(); return; }
     if (addr == 0x3600) {
-        // Explosion: bits 5:2 volume, bits 7:6 pitch divider select.
-        // Cite: MAME asteroid_explode_w / asteroid_a.cpp.
+        // Bits 5:2 volume, 7:6 pitch divider (MAME asteroid_explode_w).
         explosion = (v >> 2) & 0x0F;
         explode_vol_ = explosion;
         switch (v & 0xC0) {
@@ -208,14 +198,12 @@ void Machine::mem_write(uint16_t addr, uint8_t v) {
         return;
     }
     if (addr == 0x3A00) {
-        // Thump: bit 4 enables the 555 VCO, bits 3:0 set its control voltage.
-        // Cite: MAME asteroid_thump_w — a pitched square, not noise.
+        // Bit 4 enables the 555 VCO, bits 3:0 set its control voltage.
         thump = v & 0x1F;
         thump_en_ = (thump & 0x10) != 0;
         return;
     }
-    // $3C00–$3C05: LS259 — address selects latch, D7 is the enable.
-    // Cite: MAME asteroid_sounds_w / DP-143 discrete board.
+    // LS259: address selects the latch, D7 is the data (MAME asteroid_sounds_w).
     if (addr >= 0x3C00 && addr <= 0x3C05) {
         bool on = (v & 0x80) != 0;
         switch (addr & 7) {
@@ -237,8 +225,6 @@ void Machine::mem_write(uint16_t addr, uint8_t v) {
                 ship_fire = on;
                 break;
             case 5:
-                // Extra life and the coin-door slam. The 3 kHz clock is
-                // gated by this latch; the NMI handler rewrites it.
                 bonus = on;
                 break;
         }
@@ -255,9 +241,7 @@ void Machine::mem_write(uint16_t addr, uint8_t v) {
 }
 
 void Machine::mix_audio(int cycles) {
-    // Browser-side stand-in for the DP-143 discrete board. Oscillator
-    // rates follow MAME asteroid_a.cpp (555 thump, fire ramps, saucer
-    // warble). Filters are a single-pole mix, not a SPICE model.
+    // Approximates the DP-143 discrete board; rates follow MAME asteroid_a.cpp.
     int samples = int((int64_t(cycles) * audio_hz) / kCpuHz);
     if (samples <= 0) return;
     const float dt = 1.0f / float(audio_hz);
@@ -276,8 +260,7 @@ void Machine::mix_audio(int cycles) {
             thump_phase_ += thump_hz * dt;
             if (thump_phase_ >= 1.0f) thump_phase_ -= 1.0f;
             float sq = thump_phase_ < thump_duty ? 1.0f : -1.0f;
-            // 3.3k / 0.1 uF after the 555 (MAME NODE_32). 0.2/sample at
-            // 48 kHz is a bit brighter than that pole; pitch is unchanged.
+            // Pole is a bit brighter than the 3.3k / 0.1uF after the 555 (MAME NODE_32).
             thump_lp_ += (sq - thump_lp_) * 0.2f;
             s += thump_lp_ * 0.22f;
         }
@@ -289,7 +272,7 @@ void Machine::mix_audio(int cycles) {
         }
 
         if (explode_vol_ > 0) {
-            // Sample-and-hold noise at pitch clock (12 kHz / divider).
+            // Sample-and-hold noise at 12 kHz / divider.
             int period = std::max(1, int(float(audio_hz) / (12000.0f / float(explode_pitch_div_))));
             if (++explode_clk_ >= period) {
                 explode_clk_ = 0;
@@ -301,9 +284,7 @@ void Machine::mix_audio(int cycles) {
         }
 
         if (ship_fire && fire_remain_ > 0) {
-            // 820 → 110 Hz in 0.28 s. The loud part is the high attack:
-            // amplitude is an RC discharge (τ = 81 ms) and the duty
-            // hits 100% near 136 Hz, so the 110 Hz floor is silent.
+            // 820 to 110 Hz in 0.28 s. RC discharge (tau 81 ms), duty hits 100% near 136 Hz.
             fire_freq_ = std::max(110.0f, fire_freq_ - (820.0f - 110.0f) * dt / 0.28f);
             fire_phase_ += fire_freq_ * dt;
             if (fire_phase_ >= 1.0f) fire_phase_ -= 1.0f;
@@ -320,8 +301,7 @@ void Machine::mix_audio(int cycles) {
         }
 
         if (saucer) {
-            // Large saucer warbles at 5.75 Hz and sits 250 Hz lower.
-            // Triangle is ±460 Hz around 460, then +750 (MAME NODE_41/42).
+            // Large saucer warbles at 5.75 Hz, 250 Hz lower (MAME NODE_41/42).
             const float warble_hz = saucer_sel ? 5.75f : 8.25f;
             saucer_warble_ += warble_hz * dt;
             if (saucer_warble_ >= 1.0f) saucer_warble_ -= 1.0f;
@@ -338,7 +318,7 @@ void Machine::mix_audio(int cycles) {
         }
 
         if (saucer_fire && saucer_fire_remain_ > 0) {
-            // 830 → 630 Hz in 0.28 s, same duty law as the ship shot.
+            // 830 to 630 Hz in 0.28 s.
             saucer_fire_freq_ = std::max(630.0f,
                 saucer_fire_freq_ - (830.0f - 630.0f) * dt / 0.28f);
             saucer_fire_phase_ += saucer_fire_freq_ * dt;
@@ -356,8 +336,7 @@ void Machine::mix_audio(int cycles) {
         }
 
         if (bonus) {
-            // 3 kHz square from the clock chain, gated by the latch.
-            // Cite: MAME asteroid_a.cpp ASTEROID_LIFE_SND.
+            // 3 kHz square (MAME asteroid_a.cpp ASTEROID_LIFE_SND).
             bonus_phase_ += 3000.0f * dt;
             if (bonus_phase_ >= 1.0f) bonus_phase_ -= 1.0f;
             s += bonus_phase_ < 0.5f ? 0.12f : -0.12f;
@@ -398,8 +377,7 @@ void Machine::render(uint32_t* rgba) const {
         int cur = int(dst & 0xFF);
         if (bri > cur) dst = 0xFF000000u | (uint32_t(bri) * 0x010101u);
     };
-    // Soft 1px beam with a dim neighbour glow so downscaled CSS still
-    // keeps digit strokes visible (XY monitors bloom; 1-bit Bresenham does not).
+    // Dim neighbour glow keeps strokes visible when downscaled.
     auto plot_beam = [&](int px, int py, int bri) {
         plot(px, py, bri);
         int dim = bri / 3;
@@ -416,7 +394,6 @@ void Machine::render(uint32_t* rgba) const {
         int bri = 40 + seg.intensity * 14;
         if (bri > 255) bri = 255;
         if (x0 == x1 && y0 == y1) {
-            // Photon shot / bright spot.
             plot_beam(x0, y0, bri);
             plot_beam(x0 - 1, y0, bri / 2);
             plot_beam(x0 + 1, y0, bri / 2);

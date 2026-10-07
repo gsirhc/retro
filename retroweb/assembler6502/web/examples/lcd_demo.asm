@@ -1,12 +1,7 @@
-; LCD DEMO -- the real 16x2 HD44780 on the board, not just the
-; terminal. Each message is a .BYTE string, walked by its own
-; small indexed loop instead of one LDA #imm / JSR pair per
-; character -- three loops, not one, since this assembler has no
-; indirect addressing to share a single loop across LCD_PUTC and
-; PRINT_CHAR (see the Help panel's v1 scope). JMP START skips past
-; the raw data. LCD_CLEAR ($800F), LCD_LINE2 ($8015) moves to the
-; second row -- see the Help panel's OS calls table. ASM, then
-; RUN; watch the LCD, not just the terminal.
+; LCD DEMO. Writes to the 16x2 HD44780 as well as the terminal. Three
+; loops, since the assembler has no indirect addressing to share one.
+; JMP START skips the data. LCD_CLEAR is $800F, LCD_LINE2 is $8015
+; (Help panel, OS calls). ASM, then RUN.
 JMP START
 MSG1: .BYTE "6502 ASSEMBLER",$00
 MSG2: .BYTE "IT WORKS!",$00

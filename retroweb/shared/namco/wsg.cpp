@@ -15,15 +15,11 @@ void Wsg::write(int offset, uint8_t nibble) {
     regs[unsigned(offset) & 31] = uint8_t(nibble & 0x0F);
 }
 
-// Real register map (MAME src/devices/sound/namco.cpp,
-// namco_wsg_device::pacman_sound_w's "pacman register map" comment, cross-
-// checked against the Midway pacman disassembly's waveform writes to
-// $5045/$504a/$504f and its 16-byte $4e8c->$5050 LDIR):
+// Register map (MAME namco.cpp pacman_sound_w; Midway pacman writes to
+// $5045/$504a/$504f and the $4e8c->$5050 LDIR):
 //   0x05/0x0a/0x0f:   ch0/1/2 waveform select
-//   0x10:             ch0's low frequency nibble only -- voices 1 and 2 have
-//                     no wire to this bit position, so their bottom nibble
-//                     is hardwired 0 (coarser pitch resolution, genuine
-//                     hardware quirk, not an emulation shortcut).
+//   0x10:             ch0 low frequency nibble only; voices 1 and 2 have no
+//                     wire there, so their bottom nibble is hardwired 0
 //   0x11-0x14/0x15:   ch0 frequency (4 more nibbles) / ch0 volume
 //   0x16-0x19/0x1a:   ch1 frequency / ch1 volume
 //   0x1b-0x1e/0x1f:   ch2 frequency / ch2 volume
@@ -47,8 +43,8 @@ float Wsg::mix_at(uint64_t sample_clock) const {
         uint32_t f = voice_freq(v);
         uint8_t vol = voice_vol(v);
         if (f == 0 || vol == 0) continue;
-        // 20-bit phase at 96 kHz, waveform 32 samples. Absolute form for
-        // register-map unit tests only — see mix_counters() for playback.
+        // 20-bit phase at 96 kHz, 32-sample wave; absolute form is for register-map
+        // tests, see mix_counters() for playback
         uint32_t phase = uint32_t((sample_clock * uint64_t(f)) >> (20 - 5));
         uint8_t idx = uint8_t((voice_wave(v) << 5) | (phase & 31));
         int s = int(wave_prom[idx] & 0x0F) - 8;
@@ -67,13 +63,11 @@ float Wsg::mix_counters() const {
         // Top 5 of the 20-bit accumulator index the 32-sample wave.
         uint8_t phase = uint8_t((counter_[v] >> (20 - 5)) & 31);
         uint8_t idx = uint8_t((voice_wave(v) << 5) | phase);
-        // Real WSG PROM samples are unsigned 4-bit values biased by 8 (MAME's
-        // waveform_r: `(nibble & 0xf) - 8`), not a symmetric -7.5..7.5 range.
+        // PROM samples are unsigned 4-bit biased by 8 (MAME waveform_r)
         int s = int(wave_prom[idx] & 0x0F) - 8;
         acc += float(s) * float(vol);
     }
-    // Normalize the resistor-summed 3-voice mix (each voice contributes at
-    // most |sample|*vol = 8*15) to a unit float range.
+    // resistor-summed mix is at most 8*15 per voice; normalize to unit float
     return acc / (8.0f * 15.0f * 3.0f);
 }
 

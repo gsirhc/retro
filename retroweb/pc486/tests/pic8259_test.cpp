@@ -1,6 +1,4 @@
-// GoogleTest suite for the 8259A PIC: ICW1-4 initialization, OCW1 masking,
-// OCW2 EOI, and the acknowledge()/raise()/priority behavior the chipset
-// relies on. Reference: Intel 8259A data sheet, "Programming" section.
+// GoogleTest suite for the 8259A PIC (Intel 8259A data sheet, Programming).
 
 #include <gtest/gtest.h>
 
@@ -10,10 +8,7 @@ namespace {
 
 using pc486::Pic8259;
 
-// A genuine AT BIOS's real init sequence for the master (vector base 0x08,
-// cascaded, edge-triggered, 8086 mode): ICW1=0x11 (edge, cascade, ICW4
-// needed), ICW2=0x08 (vector base), ICW3=0x04 (slave on IR2), ICW4=0x01
-// (8086 mode, normal EOI).
+// AT BIOS master init: ICW1=0x11, ICW2=0x08, ICW3=0x04 (slave on IR2), ICW4=0x01.
 void InitMaster(Pic8259 &pic) {
     pic.out(0x20, 0x11);
     pic.out(0x21, 0x08);
@@ -61,12 +56,9 @@ TEST(Pic8259Test, AcknowledgeClearsIrrAndSetsIsrUntilEoi) {
     pic.raise(2);
     pic.raise(4);
     EXPECT_EQ(pic.acknowledge(), 0x08 + 2);
-    // Fully nested mode: IR2 is in service, so the lower-priority IR4 waits
-    // -- the chip does not even assert INT for it (Intel 8259A data sheet,
-    // "Fully Nested Mode").
+    // Fully nested mode (8259A data sheet): IR4 waits behind IR2 in service.
     EXPECT_FALSE(pic.has_interrupt());
-    // Non-specific EOI clears the highest-priority in-service bit (IR2), and
-    // IR4 is granted immediately after.
+    // Non-specific EOI clears IR2, then IR4 is granted.
     pic.out(0x20, 0x20);
     EXPECT_TRUE(pic.has_interrupt());
     EXPECT_EQ(pic.acknowledge(), 0x08 + 4);
@@ -75,12 +67,8 @@ TEST(Pic8259Test, AcknowledgeClearsIrrAndSetsIsrUntilEoi) {
 }
 
 TEST(Pic8259Test, ALineInServiceCannotInterruptItselfUntilEoi) {
-    // The case a device that re-asserts its own line inside its own handler
-    // depends on: the AUX port raises IRQ12 again for byte 2 of a mouse
-    // packet while the firmware's INT 74h handler -- which runs with
-    // interrupts enabled -- is still assembling byte 1. Without the
-    // in-service block the handler re-enters itself and the packet comes out
-    // scrambled (PC486_REVIEW.md §13).
+    // A device re-asserting its line inside its handler (AUX IRQ12 mid-packet)
+    // must not re-enter it while in service (PC486_REVIEW.md §13).
     Pic8259 pic(0x20);
     InitMaster(pic);
     pic.out(0x21, 0x00);
@@ -94,9 +82,7 @@ TEST(Pic8259Test, ALineInServiceCannotInterruptItselfUntilEoi) {
 }
 
 TEST(Pic8259Test, HigherPriorityLinePreemptsOneInService) {
-    // The other half of fully nested mode: a *higher* priority request is
-    // granted while a lower one is still in service, which is what makes the
-    // timer tick through a slow device handler.
+    // Fully nested: a higher-priority request preempts a lower one in service.
     Pic8259 pic(0x20);
     InitMaster(pic);
     pic.out(0x21, 0x00);
@@ -164,8 +150,7 @@ TEST(Pic8259Test, ReadIrrVsIsrViaOcw3) {
 }
 
 TEST(Pic8259Test, PollReturnsTheHighestRequestAndAcknowledgesIt) {
-    // Intel 8259A data sheet, "The Poll Command": OCW3 with P=1 makes the
-    // next read an acknowledge that returns I (bit 7) and the level.
+    // 8259A data sheet, The Poll Command: OCW3 P=1 makes the next read return I (bit 7) and the level.
     Pic8259 pic(0x20);
     InitMaster(pic);
     pic.out(0x21, 0x00);

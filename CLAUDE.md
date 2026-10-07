@@ -312,15 +312,33 @@ footers, button help) is Chris's voice, not generic "AI speak".
 
 ## Code comments
 
-- **Present tense.** Describe what the code does now, not what it used to do
-  or will do later — no "previously...", no "TODO: will...".
-- **Short.** 1-2 sentences. If it needs more, the code is probably the wrong
-  place for that explanation (put it in a README or commit message instead).
-- **Only when non-obvious.** Comment the *why*, not the *what* — skip anything
-  a reader gets from the code itself. The one standing exception is the
-  "Realism is the default" section above: source citations for ported
-  hardware quirks (SIMH, a manual, a ROM disassembly) stay, trimmed to the
-  rules above, never deleted outright.
+Comments should read like a terse human engineer wrote them. Most code gets
+none. The default is to write no comment at all.
+
+- **Only for the weird stuff.** A hardware quirk, a magic number, an ordering
+  constraint, a browser workaround, a surprising branch. If the code says it,
+  don't. Never comment a constant block, a getter, a loop, or a test whose
+  name already says what it checks.
+- **One line.** Two is the ceiling. Fragments are fine:
+  `// active-low (SIMH altairz80_dsk.c)`. Longer explanations go in the
+  machine's `*_REVIEW.md` or the commit message, not the code.
+- **Citations stay, compressed.** Source citations for ported hardware quirks
+  (SIMH, a manual, a ROM disassembly) are the one thing never deleted. Keep
+  the source name and the single fact, drop the essay.
+- **Present tense, present state.** A comment describes what the code does
+  right now. Never what it used to do, what changed, or what it might do
+  later. No "previously", "now", "used to", "we changed", "fixed a bug
+  where", "the old version", "TODO: will", "eventually", "for now",
+  milestone numbers, or how the code came to be. History goes in the commit
+  message; plans go in the review doc.
+- **No AI tells.** No "Note:", "Importantly", "worth stating plainly",
+  "deliberate, not a bug", "documented, not a gap", no defending the design,
+  no em-dash or `--` asides, no parenthetical stacks, no "see X's own
+  comment" cross-references. Never mention CLAUDE.md, the realism rules,
+  agents, or sessions in a comment.
+- **Docstrings too.** Python docstrings and file header banners follow the
+  same rules. A file banner, if any, is one line naming the chip/board and
+  its reference.
 - **No HTML comments.** Do not add `<!-- -->` in HTML, including inline
   SVG. If a constraint would be lost without the comment, write it in
   this file.

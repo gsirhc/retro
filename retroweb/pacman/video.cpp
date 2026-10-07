@@ -27,21 +27,8 @@ void Video::advance(int cpu_cycles) {
     }
 }
 
-// Real pacman.5e/5f ROMs pack 4 pixels per byte, not 8 rows of 1bpp per
-// plane: high nibble = plane 0 (pixel's low bit), low nibble = plane 1
-// (pixel's high bit), one byte per 4-pixel-wide column slice. Ported from
-// MAME's `tilelayout`/`spritelayout` gfx_layout (src/mame/pacman/pacman.cpp,
-// pengo.cpp): planeoffset {0,4}, xoffset/yoffset resolve to this same
-// byte-and-nibble addressing. The byte/nibble *position* was verified by
-// decoding the "NAMCO" tiles ($28-$2C, named in that same source) and the
-// Pac-Man/ghost sprites into recognizable glyphs -- the naive row-major
-// layout a typical PROM dump might suggest instead decodes to unrecognizable
-// noise. The plane-to-bit assignment below (which nibble is pen bit 0 vs.
-// bit 1) was separately verified against the real ROM's color/lookup PROMs:
-// the maze dot tile's "on" pixel resolves to a lookup index that is only a
-// valid (non-black) color for pen 1, not pen 2 -- the reverse assignment
-// silently rendered every dot invisible while leaving monochrome glyphs
-// (which set both planes identically) looking fine.
+// ROM packs 4 pixels per byte: high nibble = plane 0 (pixel low bit), low
+// nibble = plane 1 (pixel high bit). Layout from MAME pacman.cpp tilelayout/spritelayout.
 uint8_t Video::tile_pixel(uint8_t code, int x, int y) const {
     const uint8_t* t = &tile_rom[unsigned(code) * 16];
     uint8_t byte = (x < 4) ? t[y + 8] : t[y];
@@ -50,8 +37,7 @@ uint8_t Video::tile_pixel(uint8_t code, int x, int y) const {
 }
 
 uint8_t Video::sprite_pixel(uint8_t code, int x, int y) const {
-    // 16×16 sprite: same nibble packing, in 4-pixel-wide column slices;
-    // y 0-7 use bytes 0-7 (per column slice), y 8-15 use bytes 32-39.
+    // Same nibble packing in 4-pixel column slices; y 0-7 use bytes 0-7, y 8-15 bytes 32-39.
     static constexpr int kColByte[4] = {8, 16, 24, 0};
     int base_y = (y < 8) ? y : (32 + (y - 8));
     const uint8_t* t = &sprite_rom[unsigned(code) * 64];
@@ -70,10 +56,7 @@ uint32_t Video::lookup_rgb(uint8_t attr, uint8_t pix) const {
 }
 
 int Video::vram_offset(int col, int row) const {
-    // 36×28 tilemap. col 0–35, row 0–27 in unrotated space.
-    // MAME pacman_scan_rows (cross-check of the schematic decode):
-    //   row += 2; col -= 2; if (col & 0x20) offs = row + ((col & 0x1f) << 5)
-    //   else offs = col + (row << 5);
+    // 36x28 tilemap, MAME pacman_scan_rows.
     int c = col - 2;
     int r = row + 2;
     if (c & 0x20)
@@ -101,47 +84,22 @@ void Video::render(uint32_t* out) const {
         }
     }
 
-    // Sprites: 8 objects, drawn in unrotated space. Pen 0 is always
-    // transparent, plus any other pen that resolves to the same RGB as pen 0
-    // for this sprite's color (see the per-sprite transpen_mask comment
-    // below) -- not a fixed "pen index 0 only" rule.
-    // Coordinate transform: Midway sprite shifters; MAME draw_sprites is the
-    // cross-check -- ram2[i] (the $5060/$5062/... register) feeds *sy*, and
-    // ram2[i+1] (the $5061/$5063/... register) feeds *sx*: sy = ram2[i] - 31,
-    // sx = 272 - ram2[i+1] before flipscreen (cocktail mode swaps to
-    // sx = ram2[i+1], sy = 240 - ram2[i]). Getting this backwards still
-    // produces sprites, just at the wrong place on screen -- e.g. bunched up
-    // against the ghost house instead of at each character's real start spot.
+    // Sprites: 8 objects in unrotated space. Pen 0 is always transparent, plus
+    // any pen with the same RGB as pen 0 (see transpen_mask below).
+    // ram2[i] feeds sy = ram2[i] - 31, ram2[i+1] feeds sx = 272 - ram2[i+1];
+    // cocktail mode swaps to sx = ram2[i+1], sy = 240 - ram2[i] (MAME draw_sprites).
     for (int i = 7; i >= 0; i--) {
         uint8_t b0 = spriteram[unsigned(i * 2)];
         uint8_t b1 = spriteram[unsigned(i * 2 + 1)];
         uint8_t code = uint8_t(b0 >> 2);
-        // Bit 0 = X flip, bit 1 = Y flip -- MAME's own `fx = spriteram[offs]
-        // & 1` / `fy = spriteram[offs] & 2` (src/mame/pacman/pacman_v.cpp).
-        // Both bits are applied in *native* (pre-rotation, landscape) space,
-        // before the ROT90 (FLIP_X | SWAP_XY) transform below swaps the axes:
-        // native Y-flip ends up moving the sprite along the upright screen's
-        // horizontal axis (dx depends on native y) and native X-flip along
-        // its vertical axis (dy = native x). Verified against real gameplay
-        // in all four joystick directions plus the ghosts (whose bits are
-        // always 0 -- any wrong pairing here either mirrors Pac-Man's mouth
-        // away from his direction of travel, or leaves the ghosts upside
-        // down, depending on which bit is misassigned).
+        // Bit 0 = X flip, bit 1 = Y flip (MAME pacman_v.cpp), applied in native
+        // space before the ROT90 swaps the axes.
         bool flipx = (b0 & 1) != 0;
         bool flipy = (b0 & 2) != 0;
         uint8_t color = uint8_t(b1 & 0x1F);
-        // Real hardware's transparency isn't "pen index 0 is transparent" --
-        // MAME's draw_sprites resolves this per color group via
-        // device_palette_interface::transpen_mask(gfx, color, 0), which
-        // marks *any* pen whose looked-up RGB matches pen 0's RGB (for this
-        // color) as transparent too, not just pen 0 itself. Most colors
-        // never trigger this (their pens are all distinct), but the ROM
-        // relies on it to hide Pac-Man during the "you ate a ghost" pause:
-        // it points his sprite at a color group whose whole row maps to
-        // black, making every one of his (otherwise opaque) circle pixels
-        // vanish instead of painting an opaque black silhouette over the
-        // score digits it's drawn on top of. Skipping only literal pen 0
-        // leaves that silhouette blotting out part of the score.
+        // MAME draw_sprites uses transpen_mask(gfx, color, 0): any pen whose
+        // RGB matches pen 0 is transparent. The ROM hides Pac-Man during the
+        // ghost-eaten pause with an all-black color group.
         uint32_t transparent_rgb = lookup_rgb(color, 0);
         bool pen_transparent[4];
         for (int p = 0; p < 4; p++) pen_transparent[p] = lookup_rgb(color, uint8_t(p)) == transparent_rgb;
@@ -167,9 +125,7 @@ void Video::render(uint32_t* out) const {
         }
     }
 
-    // MAME's GAME() macro tags every pacman.cpp driver ROT90, defined as
-    // FLIP_X | SWAP_XY (src/emu/gamedrv.h): swap the axes, then mirror the
-    // result's X. dst(x = (H-1) - native_y, y = native_x) = native(x, y).
+    // MAME ROT90 = FLIP_X | SWAP_XY: dst(x = (H-1) - native_y, y = native_x).
     for (int ny = 0; ny < kVisH; ny++) {
         for (int nx = 0; nx < kVisW; nx++) {
             int dx = (kVisH - 1) - ny;

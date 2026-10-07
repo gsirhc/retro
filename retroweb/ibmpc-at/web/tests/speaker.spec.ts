@@ -1,11 +1,8 @@
 import { test, expect } from "./fixtures";
 import { boot, waitForScreen } from "./helpers";
 
-// PC speaker checkbox is muted (unchecked) by default on every page load
-// and deliberately never restored from saved preference — browser audio
-// requires fresh user gesture anyway, and the default-off policy persists
-// across visits. The C++ device tracks its own speaker state independent
-// of the front end's mute checkbox.
+// Speaker checkbox is muted on every page load and never restored from a saved preference.
+// The C++ device tracks its own state independent of the checkbox.
 test.describe("PC speaker", () => {
   test("is unchecked (muted) by default", async ({ page }) => {
     await boot(page);

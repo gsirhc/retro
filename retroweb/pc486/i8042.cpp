@@ -3,11 +3,8 @@
 namespace pc486 {
 namespace {
 
-// 2:1 scaling, applied by the mouse to its movement counters before it
-// reports them. Table verbatim from Chapweske, "The PS/2 Mouse Interface"
-// (2001), "Inputs, Resolution, and Scaling": 0->0, 1->1, 2->1, 3->3, 4->6,
-// 5->9, N>5 -> 2N. The table is stated for magnitudes; the sign rides
-// through unchanged.
+// 2:1 mouse scaling table, Chapweske "The PS/2 Mouse Interface" (2001),
+// "Inputs, Resolution, and Scaling": 0,1,1,3,6,9, N>5 -> 2N. Sign passes through.
 int scale_2to1(int v) {
     int m = v < 0 ? -v : v;
     int s;
@@ -46,23 +43,12 @@ void I8042::reset() {
     pending_e0_ = false;
     e1_skip_ = 0;
     mouse_ = Mouse();
-    // A real AT keyboard runs its own power-on Basic Assurance Test and
-    // reports success by sending 0xAA *unsolicited* -- no command needed --
-    // as soon as it finishes, independent of the controller's own 0xAA
-    // self-test command. BIOS's keyboard POST waits for exactly this byte;
-    // without it, POST hangs forever at the keyboard-presence check. Real
-    // hardware has a short delay before this arrives; modeled here as
-    // already sitting in the output buffer immediately after reset, since
-    // nothing currently depends on the delay itself.
+    // The keyboard sends an unsolicited 0xAA after its power-on BAT, and BIOS
+    // keyboard POST hangs without it. Queued immediately (the delay isn't modeled).
     push_kbd(0xAA, true);
-    // The mouse runs the same power-on BAT (~500ms on real hardware) and
-    // answers with 0xAA then its device ID 0x00 -- Chapweske, "Reset Mode".
-    // Those bytes are not queued here: with the AUX clock in its power-on
-    // state and no driver yet, a byte pair sitting in the shared buffer
-    // ahead of the keyboard's own BAT would be read by BIOS's keyboard
-    // POST as a keyboard answer. Real firmware never sees them either --
-    // the Bochs BIOS this machine ships resets the mouse explicitly (INT
-    // 15h AH=C2h AL=01h) and reads the pair from there.
+    // The mouse's power-on BAT (0xAA, ID 0x00; Chapweske "Reset Mode") isn't queued:
+    // it would sit ahead of the keyboard's BAT and POST would read it as a keyboard
+    // answer. The Bochs BIOS resets the mouse itself (INT 15h AH=C2h AL=01h).
 }
 
 void I8042::enqueue(uint8_t v, bool aux, bool irq) const {
@@ -81,9 +67,7 @@ void I8042::pump_output() const {
     output_buf_ = q.value;
     output_full_ = true;
     output_is_aux_ = q.aux;
-    // The command byte's own enables gate the two lines: bit 0 for IRQ1,
-    // bit 1 for IRQ12. Which line a device byte drives is decided by the
-    // port it came in on, not by its value.
+    // Command byte bit 0 enables IRQ1, bit 1 IRQ12. The source port picks the line.
     if (q.irq) {
         if (q.aux) {
             if (command_byte_ & 0x02) irq12_pending_ = true;
@@ -101,24 +85,19 @@ void I8042::push_ctrl(uint8_t v) const {
 
 void I8042::push_kbd(uint8_t v, bool irq) { enqueue(v, false, irq); }
 
-// Every byte the mouse itself sends raises IRQ12 -- command ACKs included,
-// which is exactly why the Bochs BIOS clears command-byte bit 1 before it
-// talks to the device and restores it afterwards (rombios.c,
-// inhibit_mouse_int_and_events / enable_mouse_int_and_events).
+// Every mouse byte raises IRQ12, ACKs included. The Bochs BIOS clears
+// command-byte bit 1 around mouse commands (rombios.c inhibit_mouse_int_and_events).
 void I8042::push_aux(uint8_t v) const { enqueue(v, true, true); }
 
 uint8_t I8042::in(uint16_t port) const {
     if (port == 0x60) {
         output_full_ = false;
-        // Real hardware: the interrupt lines follow "output buffer full" --
-        // reading the buffer clears both simultaneously. If another byte is
-        // waiting behind it, the line re-asserts as that byte lands.
+        // Interrupt lines follow OBF: a read clears both, a queued byte re-asserts as it lands
         irq1_pending_ = false;
         irq12_pending_ = false;
         uint8_t v = output_buf_;
         pump_output();
-        // The line is free again: a stream-mode mouse with movement banked
-        // in its counters starts its next packet right here.
+        // Line free: a stream-mode mouse with banked movement starts its next packet here
         if (queue_count_ == 0 && !output_full_) mouse_maybe_report();
         return v;
     }
@@ -128,12 +107,9 @@ uint8_t I8042::in(uint16_t port) const {
     if (system_flag_) status |= 0x04;
     if (last_was_command_) status |= 0x08;
     if (!kbd_enabled_) status |= 0x10;   // inhibit/enable flag (clone convention)
-    // Bit 5 is AUXB on a PS/2-superset controller: the byte in the output
-    // buffer came from the mouse, not the keyboard. Not optional -- the
-    // Bochs BIOS's get_mouse_data() and its INT 74h handler both spin on
-    // `(inb(0x64) & 0x21) == 0x21`, so a mouse byte without this bit is a
-    // byte they never read. (On the original AT this bit meant a
-    // transmit timeout instead; that machine had no AUX port.)
+    // Bit 5 is AUXB on PS/2-superset controllers (byte came from the mouse). The
+    // Bochs BIOS get_mouse_data() and INT 74h spin on (inb(0x64) & 0x21) == 0x21.
+    // On the original AT it meant transmit timeout.
     if (output_full_ && output_is_aux_) status |= 0x20;
     return status;
 }
@@ -141,12 +117,9 @@ uint8_t I8042::in(uint16_t port) const {
 void I8042::out(uint16_t port, uint8_t v) {
     if (port == 0x64) {
         last_was_command_ = true;
-        // The 8042 tells commands from data by the A2 address line, so a
-        // write to 0x64 always starts a new command and abandons any
-        // argument byte an earlier one was still waiting for. The Bochs
-        // BIOS depends on this: set_kbd_command_byte() writes 0xD4 to 0x64
-        // and then immediately 0x60 to 0x64, leaving that "write to mouse"
-        // permanently unfinished.
+        // A2 selects command vs data, so a write to 0x64 abandons a pending argument.
+        // The Bochs set_kbd_command_byte() relies on it: 0xD4 then 0x64 write leaves
+        // "write to mouse" unfinished.
         next_write_ = NextWrite::kNone;
         switch (v) {
             case 0x20: push_ctrl(command_byte_); break;                 // read command byte
@@ -175,9 +148,8 @@ void I8042::out(uint16_t port, uint8_t v) {
     switch (target) {
         case NextWrite::kCommandByte:
             command_byte_ = v;
-            // Bits 0/1 are the IRQ1/IRQ12 enables and bit 5 releases the
-            // AUX clock; a driver turning any of them on wants whatever is
-            // already banked to come out.
+            // Bits 0/1 enable IRQ1/IRQ12 and bit 5 releases the AUX clock; enabling any
+            // flushes whatever is banked
             pump_output();
             mouse_maybe_report();
             break;
@@ -195,30 +167,11 @@ void I8042::out(uint16_t port, uint8_t v) {
             aux_write(v);
             break;
         default:
-            // A byte meant for the keyboard itself (set-LEDs, set typematic
-            // rate, enable scanning, reset, ...). LED/typematic state isn't
-            // modeled; every accepted command just gets ACKed like a real
-            // keyboard would -- except 0xFF (RESET), where a real keyboard
-            // follows its ACK with a second, separate self-test-passed
-            // byte (0xAA), which real BIOS keyboard POST explicitly checks
-            // for (see PC486_REVIEW.md), and 0xF2 (Read ID), whose ACK is
-            // followed by a genuine two-byte device ID, 0xAB then 0x83 --
-            // "the keyboard responds by sending a two-byte device ID of
-            // 0xAB, 0x83" (Chapweske, "The AT-PS/2 Keyboard Interface",
-            // command 0xF2). Every one of these is real keyboard-device
-            // output, not the controller answering for itself (push_ctrl,
-            // above), so it takes irq=true, not the false this file used to
-            // pass here -- see push_kbd's own comment in i8042.h for the
-            // citation that caught it. That was a real, live bug: MS-DOS
-            // 6.22's SETUP.EXE sends 0xF2 during its own keyboard probe,
-            // gets an ACK it correctly interprets as "arrived" via the
-            // (missing) IRQ1 rather than by polling, and -- seeing no
-            // interrupt -- retries 0xF2 three times over. Every one of
-            // those four unacknowledged ACKs (and, before this fix, the
-            // missing ID bytes too) piled up unread behind the single-byte
-            // output register (see chipset.cpp's IRQ1 comment on that
-            // register), wedging it full forever and silently dropping
-            // every keystroke typed afterward, Setup included.
+            // Keyboard-bound byte: every accepted command is ACKed (LEDs/typematic aren't
+            // modeled). 0xFF (RESET) adds a second 0xAA BAT byte that keyboard POST checks.
+            // 0xF2 (Read ID) adds 0xAB, 0x83 (Chapweske "The AT-PS/2 Keyboard Interface").
+            // These are device output so irq=true. With false, MS-DOS 6.22 SETUP sent 0xF2,
+            // saw no IRQ1, retried, and the unread ACKs wedged the output register.
             push_kbd(0xFA, true);
             if (kbd_arg_cmd_ != 0) {
                 if (kbd_arg_cmd_ == 0xF3) typematic_ = uint8_t(v & 0x7F);
@@ -235,8 +188,7 @@ void I8042::out(uint16_t port, uint8_t v) {
 
 void I8042::inject_scancode(uint8_t code) {
     if (kbd_enabled_) push_kbd(code, true);
-    // The physical key state is tracked either way, so a release while the
-    // controller holds the keyboard off still ends the repeat.
+    // Key state is tracked even while the keyboard is held off, so a release still ends repeat
     if (e1_skip_ > 0) { --e1_skip_; return; }
     if (code == 0xE1) { e1_skip_ = 2; return; }
     if (code == 0xE0) { pending_e0_ = true; return; }
@@ -249,14 +201,13 @@ void I8042::inject_scancode(uint8_t code) {
         tm_code_ = base;
         tm_next_ = now_s_ + typematic_delay();
     } else if (tm_active_ && base == tm_code_) {
-        // Matched on the code alone: a break whose E0 got separated from it
-        // must still end the repeat, or the key repeats forever.
+        // Matched on the code alone so a break with a detached E0 still ends the repeat
         tm_active_ = false;
     }
 }
 
 void I8042::typematic_fire() {
-    // Never split a sequence the host is partway through sending.
+    // Never split a sequence the host is partway through sending
     if (pending_e0_ || e1_skip_ > 0) return;
     if (kbd_enabled_) {
         if (tm_prefix_) push_kbd(tm_prefix_, true);
@@ -266,24 +217,11 @@ void I8042::typematic_fire() {
     if (tm_next_ <= now_s_) tm_next_ = now_s_ + typematic_period();
 }
 
-// ---------------------------------------------------------------------------
-// The PS/2 mouse on the AUX port.
-//
-// Command set, responses, defaults, packet layout and scaling: Adam
-// Chapweske, "The PS/2 Mouse Interface" (2001) -- the reference every later
-// description of this protocol descends from, itself derived from IBM's
-// PS/2 technical reference. Cross-checked against what this machine's own
-// firmware actually does: the Bochs BIOS's INT 15h AH=C2h implementation
-// (`rombios.c`, int15_function_mouse) and its INT 74h packet handler.
-//
-// This is a plain 3-button PS/2 mouse: device ID 0x00, 3-byte packets. The
-// Microsoft IntelliMouse's 4-byte wheel packet is deliberately absent --
-// that part shipped in 1996, two years after this machine's build date,
-// and no DOS software of the era asks for it. Its "knock" (set sample rate
-// 200, 100, 80, then read device ID) is answered the way a standard mouse
-// answers it: the rates are accepted and the ID stays 0x00, which is
-// exactly how a driver probing for a wheel learns there isn't one.
-// ---------------------------------------------------------------------------
+// ---- PS/2 mouse on the AUX port ----
+// Chapweske, "The PS/2 Mouse Interface" (2001), cross-checked against the Bochs
+// BIOS INT 15h AH=C2h (rombios.c int15_function_mouse) and INT 74h handler.
+// Plain 3-button mouse, ID 0x00, 3-byte packets. No IntelliMouse (1996); its
+// knock (rates 200, 100, 80 then read ID) is accepted and the ID stays 0x00.
 
 void I8042::aux_respond(const uint8_t* bytes, int n) const {
     for (int i = 0; i < n && i < 4; ++i) mouse_.last_packet[i] = bytes[i];
@@ -309,25 +247,22 @@ void I8042::mouse_clear_counters() const {
 void I8042::mouse_queue_packet(bool apply_scaling) const {
     int dx = mouse_.dx;
     int dy = mouse_.dy;
-    // "2:1 scaling only applies to the automatic data reporting in Stream
-    // mode. It does not effect the reported data sent in response to the
-    // Read Data (0xEB) command." -- Chapweske, footnote 1.
+    // 2:1 scaling applies only to stream mode reporting, not Read Data (0xEB)
+    // (Chapweske footnote 1)
     if (apply_scaling && mouse_.scaling_2to1) {
         dx = scale_2to1(dx);
         dy = scale_2to1(dy);
     }
     bool x_over = mouse_.x_overflow;
     bool y_over = mouse_.y_overflow;
-    // The reported field is 9 bits wide whatever the counters hold, so a
-    // doubled scaled value that no longer fits reports as an overflow too.
+    // The reported field is 9 bits, so a scaled value that no longer fits also overflows
     if (dx > 255) { dx = 255; x_over = true; }
     if (dx < -255) { dx = -255; x_over = true; }
     if (dy > 255) { dy = 255; y_over = true; }
     if (dy < -255) { dy = -255; y_over = true; }
 
-    // Byte 1: [Y overflow][X overflow][Y sign][X sign][always 1][middle][right][left]
-    // Bit 3 is not decoration -- drivers that check it discard packets
-    // without it (Chapweske, footnote 4).
+    // Byte 1: [Y ovf][X ovf][Y sign][X sign][1][middle][right][left]. Drivers
+    // discard packets without bit 3 (Chapweske footnote 4).
     uint8_t b0 = 0x08 | (mouse_.buttons & 0x07);
     if (dx < 0) b0 |= 0x10;
     if (dy < 0) b0 |= 0x20;
@@ -336,7 +271,7 @@ void I8042::mouse_queue_packet(bool apply_scaling) const {
     const uint8_t packet[3] = {b0, static_cast<uint8_t>(dx & 0xFF),
                                static_cast<uint8_t>(dy & 0xFF)};
     aux_respond(packet, 3);
-    // "after a packet is sent to the host, the movement counters are reset"
+    // Counters reset after a packet is sent (Chapweske)
     mouse_clear_counters();
 }
 
@@ -347,10 +282,8 @@ bool I8042::mouse_reporting_enabled() const {
 
 void I8042::mouse_maybe_report() const {
     if (!mouse_reporting_enabled() || !mouse_.sample_pending) return;
-    // A real mouse cannot begin a transmission while its previous packet is
-    // still going out, and the controller holds its clock low the whole
-    // time OBF is set. It keeps sampling into its counters meanwhile, and
-    // sends as soon as the line frees up (see in(), port 0x60).
+    // The mouse can't transmit while the previous packet is going out (clock
+    // held low while OBF is set). It keeps sampling and sends when the line frees.
     if (queue_count_ != 0) return;
     if (output_full_ && output_is_aux_) return;
     mouse_queue_packet(true);
@@ -358,26 +291,21 @@ void I8042::mouse_maybe_report() const {
 
 void I8042::inject_mouse_event(int dx, int dy, uint8_t buttons) {
     mouse_.buttons = buttons & 0x07;
-    // "The range of values that can be expressed by the movement counters
-    // is -255 to +255. If this range is exceeded, the appropriate overflow
-    // bit is set and the counter is not incremented/decremented until it is
-    // reset." -- Chapweske. The excess is genuinely lost on real hardware.
+    // Counters range -255..+255; past that the overflow bit sets and the counter
+    // stops (Chapweske). The excess is lost on real hardware.
     mouse_.dx += dx;
     if (mouse_.dx > 255) { mouse_.dx = 255; mouse_.x_overflow = true; }
     if (mouse_.dx < -255) { mouse_.dx = -255; mouse_.x_overflow = true; }
     mouse_.dy += dy;
     if (mouse_.dy > 255) { mouse_.dy = 255; mouse_.y_overflow = true; }
     if (mouse_.dy < -255) { mouse_.dy = -255; mouse_.y_overflow = true; }
-    // Stream mode reports on movement *or* a button change; the mouse
-    // latches its inputs on every sample either way, so any injected event
-    // is something to report.
+    // Stream mode reports on movement or button change
     mouse_.sample_pending = true;
     mouse_maybe_report();
 }
 
 void I8042::aux_write(uint8_t v) {
-    // Wrap mode echoes every byte back untouched, valid commands included;
-    // only 0xFF (Reset) and 0xEC (Reset Wrap Mode) are still obeyed.
+    // Wrap mode echoes every byte; only 0xFF and 0xEC are still obeyed
     if (mouse_.mode == MouseMode::kWrap && v != 0xFF && v != 0xEC) {
         push_aux(v);
         return;
@@ -388,7 +316,7 @@ void I8042::aux_write(uint8_t v) {
         mouse_.expect_param = 0;
         const uint8_t ack[1] = {0xFA};
         if (cmd == 0xF3) {
-            // Valid rates are 10, 20, 40, 60, 80, 100 and 200 samples/sec.
+            // Valid rates: 10, 20, 40, 60, 80, 100, 200 samples/sec
             mouse_.sample_rate = v;
         } else if (cmd == 0xE8) {
             mouse_.resolution = v & 0x03;  // 0..3 => 1/2/4/8 counts/mm
@@ -401,10 +329,7 @@ void I8042::aux_write(uint8_t v) {
     const uint8_t ack[1] = {0xFA};
     switch (v) {
         case 0xFF: {  // Reset
-            // ACK, then the BAT result, then the device ID -- three
-            // separate bytes, which is exactly what the Bochs BIOS's INT
-            // 15h AH=C2h AL=01h reads back (rombios.c: one get_mouse_data()
-            // for the 0xFA, then two more for 0xAA and 0x00).
+            // ACK, BAT result, device ID: three bytes, as the Bochs BIOS reads them (rombios.c)
             const uint8_t resp[3] = {0xFA, 0xAA, 0x00};
             mouse_.mode = MouseMode::kStream;
             mouse_.mode_before_wrap = MouseMode::kStream;
@@ -416,9 +341,8 @@ void I8042::aux_write(uint8_t v) {
         }
         case 0xFE:  // Resend -- repeat the last thing the mouse sent
             if (mouse_.last_packet_len > 0) {
-                // Deliberately not through aux_respond(): a resend must not
-                // become the thing a further resend repeats, and it is the
-                // one command that does not clear the movement counters.
+                // Not through aux_respond(): a resend must not become the thing a further
+                // resend repeats, and it doesn't clear the counters
                 for (int i = 0; i < mouse_.last_packet_len; ++i) push_aux(mouse_.last_packet[i]);
             }
             return;
@@ -467,11 +391,9 @@ void I8042::aux_write(uint8_t v) {
             aux_respond(ack, 1);
             break;
         case 0xE9: {  // Status request
-            // Byte 1: [0][mode][enable][scaling][0][left][middle][right] --
-            // note the button order is the reverse of the movement
-            // packet's. Byte 2 is the resolution *code* (0..3), byte 3 the
-            // sample rate: Chapweske's own worked example answers this
-            // command with FA 00 02 64 at defaults.
+            // Byte 1: [0][mode][enable][scaling][0][left][middle][right], button order
+            // reversed from the movement packet. Byte 2 is the resolution code, byte 3 the
+            // sample rate (Chapweske's example: FA 00 02 64).
             uint8_t b0 = 0;
             if (mouse_.mode == MouseMode::kRemote) b0 |= 0x40;
             if (mouse_.reporting) b0 |= 0x20;
@@ -492,16 +414,14 @@ void I8042::aux_write(uint8_t v) {
             aux_respond(ack, 1);
             break;
         default: {
-            // A real device answers a command it does not recognise with
-            // 0xFE (Resend/error) rather than a bare ACK, which is how a
-            // driver probing for an extension finds out it is absent.
+            // Unknown commands answer 0xFE (Resend/error), which is how a driver
+            // probing for an extension learns it's absent
             const uint8_t resend[1] = {0xFE};
             aux_respond(resend, 1);
             return;
         }
     }
-    // "the movement counters are reset ... after the mouse receives any
-    // command from the host other than the Resend (0xFE) command."
+    // Counters reset after any host command except Resend (0xFE) (Chapweske)
     mouse_clear_counters();
 }
 

@@ -9,16 +9,15 @@ async function chooseTheme(page, theme, mode = "light") {
 }
 
 
-// The front panel's turbo cluster: seven-segment clock readout tracks
-// Turbo (66 / 33), amber LED matches, and Turbo switches the 471's
-// de-turbo bus hold. Power/reset behavior is in boot.spec.ts.
+// Turbo cluster: seven-segment readout tracks Turbo (66 / 33), the amber LED matches, and Turbo
+// switches the de-turbo bus hold. Power/reset is in boot.spec.ts.
 
 test.describe("front panel jewelry", () => {
   test("the seven-segment display shows 66 with Turbo on, 33 with Turbo off", async ({ livePage: page }) => {
     const digits = page.locator(".sevenseg");
     await expect(digits).toHaveCount(2);
 
-    // Turbo on (default): both digits are "6" (everything but b).
+    // Turbo on: both digits are "6" (everything but b).
     for (let i = 0; i < 2; i++) {
       const digit = digits.nth(i);
       for (const seg of ["a", "c", "d", "e", "f", "g"]) {
@@ -28,7 +27,7 @@ test.describe("front panel jewelry", () => {
     }
 
     await page.locator("#turboBtn").click();
-    // Turbo off: both digits are "3" (a/b/c/d/g; not e/f).
+    // Turbo off: both digits are "3" (a/b/c/d/g).
     for (let i = 0; i < 2; i++) {
       const digit = digits.nth(i);
       for (const seg of ["a", "b", "c", "d", "g"]) {
@@ -39,13 +38,12 @@ test.describe("front panel jewelry", () => {
     }
 
     await page.locator("#turboBtn").click();
-    await expect(digits.nth(0).locator(".e")).toHaveClass(/on/);  // back to "6"
+    await expect(digits.nth(0).locator(".e")).toHaveClass(/on/);
   });
 
   test("reads as a tower turbo cluster with 5.25\" CD above 3.5\" floppy", async ({ livePage: page }) => {
     await expect(page.locator(".tower-panel")).toBeVisible();
     await expect(page.locator("#turboBtn")).toBeVisible();
-    // No explainer on the panel: the buttons are as bare as a real tower's.
     await expect(page.locator("#turboBtn")).not.toHaveAttribute("data-tip");
     await expect(page.locator("#turboBtn")).not.toHaveAttribute("title");
     await expect(page.locator("#resetBtn")).toBeVisible();
@@ -53,7 +51,7 @@ test.describe("front panel jewelry", () => {
     await expect(page.locator(".power-rocker")).toBeVisible();
     await expect(page.locator(".tower-keylock")).toHaveCount(0);
 
-    // Default (win) stack: CD above floppy. Blank covers are modern-only.
+    // Default stack: CD above floppy. Blank covers are modern-only.
     const drives = page.locator(".at-drives .at-bay:visible");
     await expect(drives).toHaveCount(2);
     await expect(drives.nth(0)).toHaveAttribute("data-drive", "cdrom");
@@ -64,7 +62,6 @@ test.describe("front panel jewelry", () => {
     await expect(drives.nth(1).locator(".floppy-door")).toBeVisible();
     await expect(page.locator(".tower-blanks")).toBeHidden();
 
-    // Grill fills the leftover height beside the drive stack.
     const grillStretch = await page.evaluate(() => {
       const grill = document.querySelector(".tower-grill")!.getBoundingClientRect();
       const drivesCol = document.querySelector(".at-drives")!.getBoundingClientRect();
@@ -141,7 +138,6 @@ test.describe("front panel jewelry", () => {
         towerRightOfScreen: cd.left >= screen.right - 4,
         cdAboveFloppy: cd.bottom <= floppy.top + 4,
         floppyAboveTower: floppy.bottom <= tower.top + 4,
-        // Tower case should land near the monitor height (not a short stub).
         heightRatio: caseEl.height / screen.height,
       };
     });
@@ -158,8 +154,7 @@ test.describe("front panel jewelry", () => {
     const vp = page.viewportSize()!;
     try {
       await chooseTheme(page, "modern");
-      // Wide enough for a roomy window, too narrow for a 640px screen
-      // beside the 340px tower.
+      // Wide enough for a roomy window, too narrow for a 640px screen beside the 340px tower.
       await page.setViewportSize({ width: 1000, height: 900 });
       const layout = await page.evaluate(() => {
         const screen = document.getElementById("screen")!.getBoundingClientRect();
@@ -174,7 +169,7 @@ test.describe("front panel jewelry", () => {
         }).length;
         return {
           panelBelowScreen: panel.top >= screen.bottom - 2,
-          // 920px win/web94 page, minus its 3px border and 22px inner pad.
+          // 920px page minus its 3px border and 22px inner pad.
           winWidth: Math.abs(panel.width - 870) < 2,
           heading: getComputedStyle(heading).display !== "none",
           controlsLeftOfCd: turbo.right <= cd.left + 4,
@@ -200,8 +195,7 @@ test.describe("front panel jewelry", () => {
   }) => {
     const vp = page.viewportSize()!;
     try {
-      // Wide enough that the card still has spare room, narrow enough that
-      // the island + drives can't sit side-by-side (frontpanel ≤ 653px).
+      // Wide enough for spare room, too narrow for island + drives side by side (frontpanel ≤ 653px).
       await page.setViewportSize({ width: 640, height: 900 });
       const layout = await page.evaluate(() => {
         const panel = document.getElementById("frontPanelCard")!.getBoundingClientRect();
@@ -231,7 +225,7 @@ test.describe("front panel jewelry", () => {
       expect(layout.cdCentered).toBe(true);
       expect(layout.turboCentered).toBe(true);
       expect(layout.floppyLeftAligned).toBe(true);
-      // Beige case hug-wraps the island (padding only), not the full card.
+      // Beige case wraps the island (padding only), not the full card.
       expect(layout.caseWidth).toBeLessThanOrEqual(layout.cdWidth + 40);
       expect(layout.caseWidth).toBeLessThan(layout.panelWidth - 8);
     } finally {
@@ -274,7 +268,7 @@ test.describe("front panel jewelry", () => {
       const m = (window as any).__test.machine;
       return { turbo: m.turbo(), hz: m.cpuHz() };
     });
-    // Shared livePage: a prior frontpanel case may have left Turbo off.
+    // A prior case may have left Turbo off.
     if ((await btn.getAttribute("aria-pressed")) !== "true") await btn.click();
     await expect(led).toHaveClass(/turbo-on/);
     await expect.poll(state).toEqual({ turbo: true, hz: 66000000 });
@@ -283,7 +277,6 @@ test.describe("front panel jewelry", () => {
     await expect(btn).toHaveAttribute("aria-pressed", "false");
     await expect(led).not.toHaveClass(/turbo-on/);
     await expect.poll(state).toEqual({ turbo: false, hz: 66000000 });
-    // The guest keeps running through the holds.
     const progress = await page.evaluate(async () => {
       const m = (window as any).__test.machine;
       const c0 = m.totalCycles();

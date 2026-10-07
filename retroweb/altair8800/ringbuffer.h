@@ -1,8 +1,5 @@
-// Fixed-capacity single-producer / single-consumer byte ring buffer.
-//
-// One side (the CPU, or the host) pushes; the other pops. It never grows and
-// never throws: a push into a full buffer reports failure so the caller can
-// raise an overrun; a pop from an empty buffer reports failure.
+// Fixed-capacity single-producer / single-consumer byte ring buffer. Never grows
+// or throws; push into a full buffer and pop from an empty one return false.
 
 #ifndef EMULATOR8080_RINGBUFFER_H
 #define EMULATOR8080_RINGBUFFER_H
@@ -23,7 +20,6 @@ public:
     std::size_t size()  const { return (head_ + N - tail_) % N; }
     std::size_t capacity() const { return N - 1; }   // one slot kept free
 
-    // Push one byte. Returns false (and drops the byte) if full.
     bool push(uint8_t v) {
         if (full()) return false;
         buf_[head_] = v;
@@ -31,7 +27,6 @@ public:
         return true;
     }
 
-    // Pop one byte into `out`. Returns false if empty.
     bool pop(uint8_t &out) {
         if (empty()) return false;
         out = buf_[tail_];
@@ -39,7 +34,6 @@ public:
         return true;
     }
 
-    // Look at the next byte without removing it.
     bool peek(uint8_t &out) const {
         if (empty()) return false;
         out = buf_[tail_];

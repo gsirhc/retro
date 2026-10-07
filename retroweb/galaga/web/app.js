@@ -255,8 +255,7 @@ GalagaArcade().then(async (Module) => {
   }
 
   function applyKeys() {
-    // Active-high contacts. The 51XX sees them inverted. Cocktail player 2
-    // (IN0 bits 5 and 7, IN1 bit 1) stays unmapped.
+    // Active-high contacts; the 51XX sees them inverted. Cocktail player 2 is unmapped.
     const down = (k) => keys[k];
     const pad = padBits();
     let n0 = 0;
@@ -270,8 +269,7 @@ GalagaArcade().then(async (Module) => {
     if (down("Digit2") || down("Numpad2")) n1 |= 0x08;
     machine.setIn0(n0);
     machine.setIn1(n1);
-    // SWB bit 6 is the unused switch, open, so it reads 1. galagamw's
-    // sub CPU resets at $0ECA when $6806 bit 1 is clear.
+    // SWB bit 6 is open, reads 1. galagamw's sub CPU resets at $0ECA when $6806 bit 1 is clear.
     const a = (Number(dipCredits.value) & 0x01) |
             (Number(dipDifficulty.value) & 0x06) |
             (Number(dipDemo.value) & 0x08) |
@@ -426,9 +424,7 @@ GalagaArcade().then(async (Module) => {
     return FACTORY_PREFIX.every((x, i) => b[i] === x);
   }
 
-  // Midway POST leaves junk at $8A20 until it writes the 20000 table.
-  // irq1 turns on ~100+ frames before that — do not treat non-factory as
-  // "already restored" or the IndexedDB poke is skipped forever.
+  // POST leaves junk at $8A20 until it writes the 20000 table, so wait for that before poking IndexedDB.
   function factoryTableReady() {
     for (let i = 0; i < FACTORY_PREFIX.length; i++) {
       if ((machine.ramByte(0x8A20 + i) & 0xff) !== FACTORY_PREFIX[i]) return false;
@@ -590,8 +586,7 @@ GalagaArcade().then(async (Module) => {
     const files = {};
     for (const f of items) {
       const name = f.name.toLowerCase();
-      // File/Blob.bytes is a method on current Chromium; Drive items carry
-      // a Uint8Array on .bytes. Only treat the latter as payload.
+      // File/Blob.bytes is a method on current Chromium; only a Uint8Array is payload.
       const bytes = f.bytes instanceof Uint8Array
         ? f.bytes
         : new Uint8Array(await f.arrayBuffer());

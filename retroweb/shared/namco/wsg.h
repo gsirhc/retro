@@ -1,10 +1,7 @@
-// Namco 3-voice wavetable sound generator.
-//
-// Sample clock is CPU clock / 32 = 96 kHz (3.072 MHz / 32). Each voice has a
-// 20-bit frequency, 4-bit volume, and 3-bit waveform select into a 256×4
-// PROM (8 waves × 32 samples). Pac-Man writes the 32 nibbles at $5040;
-// Galaga writes the same map at $6800. Register map cross-checked against
-// MAME namco.cpp; resistor mixing is a linear 4-bit scale.
+// Namco 3-voice wavetable sound generator. Sample clock is CPU/32 = 96 kHz
+// (3.072 MHz / 32). Each voice: 20-bit frequency, 4-bit volume, 3-bit waveform
+// select into a 256x4 PROM (8 waves x 32 samples). Pac-Man loads it at $5040,
+// Galaga at $6800. Register map per MAME namco.cpp.
 
 #ifndef SHARED_NAMCO_WSG_H
 #define SHARED_NAMCO_WSG_H
@@ -26,17 +23,15 @@ public:
     // Advance `cpu_cycles` at 3.072 MHz; append mono samples at `host_hz`.
     void advance(int cpu_cycles, int host_hz, std::vector<float>& out);
 
-    // Mix using absolute sample_clock·freq (unit tests of the register map).
-    // Live playback uses per-voice counters in advance() so a frequency
-    // write does not jump the waveform phase.
+    // Absolute sample_clock*freq mix for register-map tests. Live playback uses
+    // per-voice counters so a frequency write doesn't jump the phase.
     float mix_at(uint64_t sample_clock) const;
 
 private:
     uint64_t cpu_cycle_ = 0;
     double sample_hold_ = 0;
     double host_acc_ = 0;
-    // 20-bit phase accumulators, same model as MAME namco_wsg_device
-    // (counter += frequency each 96 kHz tick; top 5 bits index the wave).
+    // 20-bit phase accumulators, as in MAME namco_wsg_device
     uint32_t counter_[3] = {};
     uint32_t voice_freq(int v) const;
     uint8_t voice_wave(int v) const;

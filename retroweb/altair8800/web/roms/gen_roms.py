@@ -1,9 +1,5 @@
 #!/usr/bin/env python3
-"""Emit the small built-in ROM images the browser front end serves from roms/.
-
-These are hand-assembled 8080 programs for the 88-2SIO console at ports
-0x10 (control/status) and 0x11 (data). Run by `make -C web roms`.
-"""
+"""Emit the built-in ROM images served from roms/ (8080 programs for the 2SIO at 0x10/0x11)."""
 
 import os
 

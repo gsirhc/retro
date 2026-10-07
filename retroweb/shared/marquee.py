@@ -1,9 +1,7 @@
-"""Original landing-page arcade tiles.
+"""Landing-page arcade tiles: generated starfield plus Courier New Bold lettering.
 
-Not scans or redraws of Namco/Midway/Konami/Sega art — no official logotype,
-character sprites, or manufacturer mark. Background is a generated starfield;
-lettering is Courier New Bold (a generic system typeface, not a cabinet
-logotype). Glyphs are a raster atlas of that face so CI does not need the TTF.
+No scans or redraws of cabinet art or manufacturer marks. Glyphs come from a
+raster atlas of the face so CI does not need the TTF.
 """
 from __future__ import annotations
 
@@ -245,8 +243,7 @@ def _blit_mask(pix, mask, mw, mh, dx, dy, dw, dh, rgb, alpha_scale=1.0):
 
 
 def _char_advance(ch, em):
-    # Period and space keep Courier's glyph, not its full em box — otherwise
-    # "MS. PAC-MAN" reads as three words.
+    # period and space use a narrow advance, else "MS. PAC-MAN" reads as three words
     if ch == ".":
         return em * 0.40
     if ch == " ":

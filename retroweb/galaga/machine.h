@@ -1,11 +1,8 @@
 // Midway Galaga (1981) board: three Z80s, Namco 06XX/51XX/54XX, WSG.
 //
-// Memory map is the CPU-board decode shared by all three CPUs (private ROM
-// at $0000–$3FFF). coinop.org GalagaMap and the MAME galaga.cpp header are
-// cross-checks. Clocks: 18.432 MHz master, each Z80 at 18.432/6 = 3.072 MHz.
-// 51XX (MB8843) and 54XX (MB8844) run their mask ROM when the user supplied
-// a 1024-byte image; otherwise the external command protocol is answered
-// on the 06XX bus (a labelled departure, reported by the page).
+// CPU-board decode shared by all three Z80s (coinop.org GalagaMap), 3.072 MHz each.
+// 51XX/54XX run their mask ROM if the user supplies a 1024-byte image; otherwise the
+// 06XX bus answers the command protocol directly (a labelled departure).
 
 #ifndef GALAGA_MACHINE_H
 #define GALAGA_MACHINE_H
@@ -28,8 +25,7 @@ struct Inputs {
     // 1 = pressed. The 51XX R ports see the contacts active-low.
     uint8_t in0 = 0;  // bit1 right, bit3 left (cocktail bits 5 and 7 unmapped)
     uint8_t in1 = 0;  // fire, starts, coins, service
-    // Midway factory defaults. MAME galagamw INPUT_PORTS is a cross-check
-    // of the switch bits; the labels are the Midway manual's.
+    // Midway factory defaults; labels from the Midway manual.
     uint8_t dsw_a = 0xF7;  // physical SWB. Bit 6 is unused and open.
     uint8_t dsw_b = 0x97;  // physical SWA: 1C/1C, 20k/70k, 3 lives
 };

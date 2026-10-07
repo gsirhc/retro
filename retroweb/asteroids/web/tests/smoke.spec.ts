@@ -1,11 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-// Boots the built-in hardware self-test ROM (never Atari Asteroids) and
-// checks the real, wall-clock-paced 1.512 MHz 6502 core is actually running:
-// the RAM signature lands, the DVG paints a non-black frame, and
-// cycles/real-second lands near the genuine clock rate -- see CLAUDE.md's
-// "Never speed these up". Native board coverage is this machine's own
-// tests/smoke_test.cpp; this file only smokes the board in a browser.
+// Boots the self-test ROM and checks the core runs at the real 1.512 MHz.
 
 test("boots the test ROM, writes the AST1 RAM signature, paints a non-black frame", async ({ page }) => {
   const errors: string[] = [];
@@ -14,8 +9,7 @@ test("boots the test ROM, writes the AST1 RAM signature, paints a non-black fram
   await page.goto("/?test=1");
   await expect(page.locator("#romStatus")).toHaveText("Running test ROM");
 
-  // The self-test ROM writes its signature in its first few opcodes after
-  // reset -- give it a couple of real frames, then check RAM directly.
+  // The ROM writes its signature in its first opcodes after reset.
   await page.waitForFunction(() => {
     const m = (window as any).__test?.machine;
     if (!m) return false;
@@ -41,8 +35,7 @@ test("the monitor is 4:3 and fills about 75% of the viewport height when not ful
   await page.goto("/");
   const box = await page.locator("#screen").boundingBox();
   expect(box).toBeTruthy();
-  // 75% of 800px = 600; allow bezel/page chrome and the max-width clamp
-  // to shave a little.
+  // 75% of 800px = 600, minus bezel/chrome and the max-width clamp.
   expect(box!.height).toBeGreaterThan(500);
   expect(box!.height).toBeLessThan(650);
   expect(Math.abs(box!.width / box!.height - 4 / 3)).toBeLessThan(0.02);
@@ -59,8 +52,7 @@ test("the guest CPU runs at real, wall-clock-paced 1.512 MHz -- not sped up", as
   const t1 = Date.now();
 
   const cyclesPerSecond = (c1 - c0) / ((t1 - t0) / 1000);
-  // Generous tolerance for CI scheduling jitter -- checking for genuine
-  // ~1.512 MHz pacing, not tight timing precision.
+  // Loose tolerance for CI jitter.
   expect(cyclesPerSecond).toBeGreaterThan(750_000);
   expect(cyclesPerSecond).toBeLessThan(2_300_000);
 });

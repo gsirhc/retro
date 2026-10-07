@@ -169,7 +169,6 @@ def screen_color_bars():
     video = bytearray(0x400)
     colors = bytearray(32)
     bar_w = max(1, U_ROWS // 6)
-    # Bars run along upright x (native columns = urow), six colours.
     bar_attrs = (1, 2, 4, 5, 6, 7)
     for ur in range(U_ROWS):
         attr = bar_attrs[min(ur // bar_w, 5)]

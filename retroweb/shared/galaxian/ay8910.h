@@ -1,11 +1,6 @@
-// General Instrument AY-3-8910 PSG — the sound chip on Konami Galaxian-family
-// boards (Frogger, Scramble, …).
-//
-// Clocked at 1.789772 MHz (14.31818 / 8), same as the sound Z80. Three square
-// tones, a 17-bit noise LFSR, and a 16-step envelope. I/O ports A/B are
-// general-purpose. Volume is the documented 16-level logarithmic DAC.
-// Envelope and mixer follow the AY-3-8910 datasheet; MAME ay8910.cpp is a
-// cross-check of the envelope shapes, not a behavior source.
+// General Instrument AY-3-8910 PSG, the sound chip on Konami Galaxian-family
+// boards. Clocked at 1.789772 MHz (14.31818 / 8). Three square tones, 17-bit
+// noise LFSR, 16-step envelope, 16-level logarithmic DAC per the datasheet.
 
 #ifndef GALAXIAN_AY8910_H
 #define GALAXIAN_AY8910_H

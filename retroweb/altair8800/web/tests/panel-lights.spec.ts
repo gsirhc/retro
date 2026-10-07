@@ -77,10 +77,7 @@ test.describe("front-panel lamps", () => {
     page,
   }) => {
     await boot(page);
-    // MEMR now reflects the real last bus access (§3.6a), which can
-    // momentarily be an IN/OUT rather than a fetch/read -- poll rather than
-    // sample a single instant, unlike M1 (still an approximation that holds
-    // steady for as long as the CPU is running).
+    // MEMR follows the real last bus access (§3.6a), which can briefly be an IN/OUT; poll, don't sample
     await expect.poll(() => status(page).then((s) => s.MEMR)).toBe(true); // the echo ROM is fetching
     expect((await status(page)).M1).toBe(true);
 
@@ -101,9 +98,7 @@ test.describe("front-panel lamps", () => {
     expect(st.WAIT).toBe(true); // halted counts as waiting
   });
 
-  // ALTAIR_REVIEW.md §3.6a: WO/MEMR now reflect the real last bus access
-  // (Machine::state()) instead of a decorative "CPU is running" guess -- so a
-  // write should visibly flip WO, not just leave it hardwired true.
+  // ALTAIR_REVIEW.md §3.6a: WO/MEMR follow the real last bus access, so a write flips WO
   test("WO drops (and MEMR goes dark) on an actual memory write", async ({ page }) => {
     await boot(page);
     await panelStop(page);
@@ -118,9 +113,7 @@ test.describe("front-panel lamps", () => {
     await setSwitches(page, 0x0000);
     await clickPaddle(page, /EXAMINE/, "up");
 
-    // status() reads DOM classes updatePanel() sets once a rendered frame --
-    // poll rather than read immediately, same as the other lamp assertions
-    // in this file (INTE, HLTA, ...) have to.
+    // status() reads DOM classes set once per rendered frame; poll
     await clickPaddle(page, /SINGLE STEP/); // MVI A,42h -- reads only
     await expect.poll(() => status(page).then((s) => s.WO)).toBe(true);
     await expect.poll(() => status(page).then((s) => s.MEMR)).toBe(true);
@@ -177,15 +170,9 @@ test.describe("front-panel lamps", () => {
     }
     expect(seen.size).toBeGreaterThan(2); // marching, not frozen
 
-    // brightness, not just on/off: D's target bit is hammered by four LDAX D
-    // every ~48 T-states (thousands of touches a frame); the moment D rotates
-    // to a new bit (every ~112 ms of real time -- 4681 delay-loop passes) one
-    // frame briefly shows the outgoing and incoming bit together, and the
-    // outgoing one -- touched for only a sliver of that frame -- must read
-    // dimmer. An OR of "touched at all" can't tell these apart, only a
-    // per-bit hit count can (ALTAIR_REVIEW.md §3.6b). Sample every rendered
-    // frame in-page (not through Playwright's poll, whose round-trip is too
-    // slow to reliably catch a ~16 ms window) until a transition frame lands.
+    // brightness, not just on/off: D's bit takes four LDAX D every ~48 T-states, so when D rotates the
+    // outgoing bit (touched for a sliver of one frame) must read dimmer. Needs per-bit hit counts
+    // (ALTAIR_REVIEW.md §3.6b). Sampled per frame in-page since a Playwright poll is too slow.
     const sawDifferingBrightness = await page.evaluate(() => new Promise((resolve) => {
       const t0 = performance.now();
       (function tick() {

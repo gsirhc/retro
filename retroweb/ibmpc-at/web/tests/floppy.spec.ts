@@ -87,8 +87,7 @@ test.describe("floppy drives", () => {
   });
 
   test("ejecting is independent of power state -- works while the machine is off", async ({ page }) => {
-    // Physical floppy slots work with or without power, just like the real hardware.
-    // A user can insert/eject a diskette whether the PC is on or off (see app.js pendingFloppy).
+    // slots work with or without power (app.js pendingFloppy)
     await boot(page);
 
     await page.locator("#powerSwitch").click({ force: true });
@@ -113,8 +112,7 @@ test.describe("floppy drives", () => {
     await boot(page);
     await expect(page.locator("#loadOverlay")).not.toHaveClass(/visible/);
 
-    // Delay File.arrayBuffer so the overlay is observable -- a 4KB test
-    // image otherwise finishes in the same turn as setInputFiles.
+    // delay arrayBuffer so the overlay is observable
     await page.evaluate(() => {
       const orig = File.prototype.arrayBuffer;
       File.prototype.arrayBuffer = function () {

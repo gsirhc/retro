@@ -1,7 +1,6 @@
 import { test, expect } from "./fixtures";
 
-// Shared site footer (shared/footer.js). Injected on every machine page;
-// the Help control points one level up at about.html on the staged site.
+// Shared site footer (shared/footer.js).
 
 test("site footer is present and the Help control points at ../about.html", async ({ page }) => {
   await page.goto("/?test=1");

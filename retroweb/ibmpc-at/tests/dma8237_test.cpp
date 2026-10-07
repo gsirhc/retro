@@ -1,8 +1,3 @@
-// GoogleTest suite for the 8237 DMA register file: reset defaults
-// (everything masked), the address/count low-then-high byte-pointer
-// protocol and its clear command, single/all-channel masking, and DMA2's
-// doubled port stride.
-
 #include <gtest/gtest.h>
 
 #include "dma8237.h"

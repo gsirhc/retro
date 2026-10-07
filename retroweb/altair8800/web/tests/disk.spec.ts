@@ -118,14 +118,8 @@ test.describe("88-DCDD disk cabinet", () => {
     await waitForScreen(page, /A>/, 30_000);
   });
 
-  // A real S-100 memory board never powered up blank (wasm_machine.cpp's
-  // randomizeMemory) -- an address nobody has claimed holds real garbage, not
-  // a clean 0x00. That matters here specifically: with clean zeros, EXAMINE-ing
-  // anywhere in unclaimed RAM and hitting RUN free-runs pure NOPs, wraps PC
-  // through 0xFFFF back to 0x0000, and lands on CP/M's own page-zero
-  // JMP-WBOOT vector every single time -- a deterministic "poke the panel,
-  // get a free reboot" that isn't real 8080/CP/M behavior, just an artifact
-  // of the emulator's own zero-fill.
+  // RAM never powers up blank (randomizeMemory). With clean zeros, RUN from unclaimed RAM would
+  // free-run NOPs through 0xFFFF into CP/M's page-zero JMP WBOOT, a free reboot real hardware wouldn't give.
   test("front-panel hand boot: examining into blank RAM and RUN doesn't reboot CP/M", async ({
     page,
   }) => {
@@ -169,8 +163,7 @@ test.describe("88-DCDD disk cabinet", () => {
     expect(await page.evaluate(() => (window as any).__test.machine.readByte(0xff00))).toBe(0x21);
   });
 
-  // ALTAIR_REVIEW.md §3.2b: RESET carries no STEP pulses, so a real drive's
-  // head just stays put; it's only the controller that's a bus signal away.
+  // ALTAIR_REVIEW.md §3.2b: RESET carries no STEP pulses, so the head stays put
   test("the front-panel RESET paddle does not move the disk head", async ({ page }) => {
     await boot(page, { params: "preset=cpm" });
     await page.click("#dcdd .dcdd-boot");
@@ -334,8 +327,7 @@ test.describe("88-DCDD disk cabinet", () => {
       await expect(page.locator("#diskDialog")).toBeVisible();
       const present = await hasCatalogItem(page, "#diskList", re);
       if (!present) {
-        // fetch-disks.sh wasn't run (e.g. a from-scratch checkout that
-        // skipped `make media`) -- the option is there but disabled
+        // fetch-disks.sh wasn't run: the option is present but disabled
         const disabled = await page.evaluate(
           ({ src, flags }) => {
             const r = new RegExp(src, flags);

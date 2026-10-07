@@ -1,9 +1,4 @@
-// GoogleTest suite for the SB16's MPU-401 MIDI interface: port ownership at
-// its jumper-selected base, the documented Reset detection handshake and
-// its status-bit polling order, entering UART mode and its acknowledge,
-// unrecognized commands producing no acknowledge, Reset exiting UART mode,
-// UART-mode data writes being accepted and discarded, and the data port
-// never fabricating an acknowledge nobody asked for.
+// GoogleTest suite for the SB16's MPU-401 MIDI interface (UART mode only).
 
 #include <gtest/gtest.h>
 
@@ -29,10 +24,7 @@ TEST(Mpu401Test, OwnsItsTwoPortsAtAnAlternateJumperedBase) {
 }
 
 TEST(Mpu401Test, ResetDetectionHandshakePollsStatusThenReadsAck) {
-    // SBPG ch.5's own detection sequence: write 0FFh (Reset), poll the
-    // status port's output-not-ready bit (40h) until it clears, then poll
-    // the input-not-available bit (80h) until it clears, then read the
-    // data port and expect 0FEh back.
+    // SBPG ch.5 detection: write 0FFh, poll status 40h clear then 80h clear, read 0FEh.
     Mpu401 mpu;
     mpu.reset();
     mpu.out(0x331, 0xFF);
@@ -78,8 +70,7 @@ TEST(Mpu401Test, UartModeDataWritesAreAcceptedAndInputNeverArrives) {
     mpu.out(0x330, 0x90);  // MIDI Note On, status byte -- goes nowhere, nothing attached
     mpu.out(0x330, 0x40);
     mpu.out(0x330, 0x7F);
-    // Input-not-available never clears -- no MIDI device is attached to this
-    // card's MIDI port, so nothing ever arrives (see file header).
+    // No MIDI device is attached, so input never becomes available.
     EXPECT_EQ(mpu.in(0x331) & 0x80, 0x80);
 }
 

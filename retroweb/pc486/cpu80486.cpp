@@ -1,59 +1,8 @@
-// Intel 80486 DX2-66 CPU core -- implementation. Real address mode,
-// protected mode, paging, and the on-die x87 FPU.
-//
-// Semantics are cited from the Intel 80486 Programmer's Reference Manual
-// (1990/1992); where the 486 behaves identically to the 8086 the Intel
-// 8086/8088 User's Manual is the reference instead, and AP-485 ("Intel
-// Processor Identification and the CPUID Instruction") is cited for the
-// 386-vs-486 detection behavior the AC flag exists to support.
-//
-// Cycle costs are the 486 column of the Quantasm "80x86 Integer
-// Instruction Set (8088 - Pentium)" table, which reproduces Intel's own
-// i486 PRM instruction-timing appendix. Three things about that column are
-// worth stating plainly rather than implying a precision this core does
-// not have:
-//
-//  1. Most 486 figures are single values, not ranges -- unlike the 286's
-//     timing appendix, whose taken-branch entries are all ranges because
-//     of prefetch-queue refill. The 486's own published control-transfer
-//     costs (Jcc taken 3, JMP near 3, CALL near 3, RET 5, IRET 15) are
-//     flat numbers with no "+m" term in the 486 column at all -- the +m
-//     appears only in the 286 and 386 columns. So this core needs no
-//     equivalent of cpu80286.h's kQueueRefillTax: the published 486
-//     numbers are charged directly.
-//  2. The one published per-addressing-mode adjustment is real and is
-//     implemented: the table's legend says for the 286-486, an effective
-//     address of the form base+index+displacement costs "+1" and all other
-//     modes cost nothing extra. decode_modrm() adds exactly that, which is
-//     also what makes LEA land on its published "1-2" range.
-//  3. Four instruction families publish a data-dependent *range* instead
-//     of a value, because the silicon's own work is data-dependent:
-//     MUL/IMUL (early-out multiply), BSF/BSR (bit-at-a-time scan),
-//     RCL/RCR by a count, and CMPXCHG with a memory operand. Each is
-//     modelled by a named helper below, fitted to both published endpoints
-//     and to the mechanism Intel documents -- labelled approximations of a
-//     published range, not invented figures and not a claim of
-//     cycle-accurate pipeline simulation. Everything else in this file is
-//     a directly cited number.
-//
-// Deliberately preserved real-silicon behavior (documented, not bugs):
-//   - PUSH SP/ESP pushes the value from *before* the decrement on the 286
-//     and every later part, including the 486 -- the opposite of the 8086,
-//     which pushes the already-decremented value. This is the classic
-//     "push sp / pop ax / cmp ax,sp" 8086-vs-286+ runtime CPU check, so
-//     getting the direction right matters. (Note for anyone comparing:
-//     ibmpc-at's cpu80286.cpp implements this inverted, pushing the
-//     decremented value.)
-//   - Shift/rotate counts are masked mod 32.
-//   - OF after a multi-bit shift/rotate (count != 1) is left *undefined*
-//     by Intel's own documentation; this core leaves the flag untouched in
-//     that case rather than guessing, which is itself the documented
-//     contract rather than a gap.
-//   - INC/DEC never affect CF.
-//
-// Protected mode, paging, task switching and the FPU are Milestone 2; see
-// cpu80486.h's header for the scope, and PC486_REVIEW.md §6 for the design
-// and the bugs building it turned up.
+// Intel 80486 DX2-66. Intel 80486 PRM; AP-485 for CPUID/AC detection.
+// Cycles: 486 column of Quantasm's 80x86 timing table (i486 PRM appendix).
+// base+index+disp costs +1. MUL/IMUL, BSF/BSR, RCL/RCR, CMPXCHG mem are
+// fitted to their published ranges.
+// PUSH SP pushes the pre-decrement value (286+, unlike the 8086).
 #include "cpu80486.h"
 
 #include <array>
@@ -66,33 +15,26 @@ namespace cpu80486 {
 
 namespace {
 
-// Writable-bit masks for the flag-load instructions (Intel 80486 PRM,
-// EFLAGS layout + POPF/POPFD description). Bits 0-11 hold the arithmetic
-// and control flags; IOPL (12-13) and NT (14) are real in protected mode
-// and storage-only in real mode; bit 15 and bits 19-31 are reserved and
-// read 0 on a 486, except ID (21) on the parts that carry CPUID; AC (18) is
-// the genuine 486 addition. RF (16) and VM (17) are not affected by
-// POPF/POPFD on real hardware.
+// Writable-bit masks for POPF/POPFD (Intel 80486 PRM). IOPL and NT are
+// storage-only in real mode; RF and VM are untouched by POPF.
 constexpr uint32_t kPopfMask  = 0x00007FD5u;  // 16-bit POPF: CF PF AF ZF SF TF IF DF OF IOPL NT
-// 32-bit POPFD: the above plus AC (18) and ID (21) -- ID is writable exactly
-// because this part has CPUID, which is what AP-485 has software test for.
+// POPFD adds AC (18) and ID (21); ID is writable because this part has CPUID
+// (AP-485).
 constexpr uint32_t kPopfdMask = 0x00247FD5u;
-constexpr uint32_t kSahfMask  = 0x000000D5u;
+constexpr uint32_t kSahfMask  = 0x000000D5u;  // SAHF loads only the low byte's defined flags
 // Family 4, model 3, stepping 5: see Cpu::reset().
-constexpr uint32_t kComponentId = 0x00000435u;  // SAHF loads only the low byte's defined flags
+constexpr uint32_t kComponentId = 0x00000435u;
 // IRETD additionally restores RF and VM from the stack image.
 constexpr uint32_t kIretdMask = 0x00277FD5u;
 
-// Descriptor access-byte (descriptor byte 5) decoding: P DPL S TYPE.
-// Intel 80486 PRM, "Segment Descriptors".
+// Remaining access-byte decoders; acc_code() and friends are in the header.
 inline bool acc_present(uint8_t a)     { return (a & 0x80) != 0; }
 inline int  acc_dpl(uint8_t a)         { return (a >> 5) & 3; }
 inline bool acc_system(uint8_t a)      { return (a & 0x10) == 0; }
 inline bool acc_conforming(uint8_t a)  { return acc_code(a) && (a & 0x04) != 0; }
 inline int  sys_type(uint8_t a)        { return a & 0x0F; }
 
-// System-descriptor / gate type codes (Intel 80486 PRM, table
-// "System Segment and Gate Descriptor Types").
+// System descriptor and gate type codes (Intel 80486 PRM).
 enum SysType {
     SYS_TSS16_AVAIL = 1, SYS_LDT = 2, SYS_TSS16_BUSY = 3, SYS_CALL_GATE16 = 4,
     SYS_TASK_GATE = 5, SYS_INT_GATE16 = 6, SYS_TRAP_GATE16 = 7,
@@ -100,7 +42,6 @@ enum SysType {
     SYS_INT_GATE32 = 14, SYS_TRAP_GATE32 = 15,
 };
 
-// Page-table entry bits.
 constexpr uint32_t kPtePresent  = 1u << 0;
 constexpr uint32_t kPteWritable = 1u << 1;
 constexpr uint32_t kPteUser     = 1u << 2;
@@ -122,20 +63,13 @@ void Cpu::init_state() {
     dbg_exec_ = dbg_data_ = dbg_pending_ = 0;
     ac_skip_ = false;
     for (int i = 0; i < 4; ++i) cr_[i] = 0;
-    // CR0.ET is hardwired to 1 on an Intel486: the FPU is on-die, so the
-    // "what kind of coprocessor is installed" question the 386 asked has
-    // one permanent answer here (Intel 80486 PRM, "Control Registers").
-    // SMSW and MOV EAX,CR0 therefore report ET=1 on this machine, unlike
-    // Milestone 1's FPU-less core, which correctly reported 0.
-    // CD and NW come out of RESET set, caching off until the BIOS clears them
-    // (Intel486 Microprocessor Data Book, register state after RESET).
+    // ET is hardwired to 1 (FPU on-die). CD and NW come out of RESET set until
+    // the BIOS clears them (Intel486 Data Book, register state after RESET).
     cr_[0] = CR0_CD | CR0_NW | CR0_ET;
     access_hooks_ = 0;
     gdtr_ = DescTableReg{0, 0};
-    // A 486 comes out of RESET with IDTR base 0 and limit 03FFh -- exactly
-    // the 8086 interrupt-vector table, which is what makes real mode work
-    // before any software has touched IDTR (Intel 80486 PRM, "Processor
-    // Initialization", table of initial register values).
+    // RESET leaves IDTR base 0, limit 03FFh: the 8086 IVT (Intel 80486 PRM,
+    // "Processor Initialization").
     idtr_ = DescTableReg{0, 0x03FF};
     ldtr_ = DescTableReg{0, 0};
     tr_ = DescTableReg{0, 0};
@@ -145,8 +79,8 @@ void Cpu::init_state() {
     tlb_flush();
     page_map_flush();
     fpu_init();
-    // CS is a code segment, not data: fetching reads it and a write through
-    // a CS: override must fault once protection is on.
+    // CS is a code segment, so a write through a CS: override faults once
+    // protection is on.
     sd_[SEG_CS].access = 0x9B;   // present, DPL 0, code, readable, accessed
     instr_start_ss_desc_ = sd_[SEG_SS];
 }
@@ -154,9 +88,9 @@ void Cpu::init_state() {
 void Cpu::reset() {
     eax = ebx = ecx = edx = esp = ebp = esi = edi = 0;
     ds = es = ss = fs = gs = 0;
-    // CS:IP = F000:FFF0, but CS's hidden base is FFFF0000h until the first
-    // far jump, so the first fetch is at FFFFFFF0h, which the board aliases
-    // to the BIOS ROM (Intel486 Microprocessor Data Book, "RESET").
+    // CS's hidden base is FFFF0000h until the first far jump, so the first
+    // fetch is at FFFFFFF0h, aliased to the BIOS ROM (Intel486 Data Book,
+    // "RESET").
     cs = 0xF000;
     eip = 0xFFF0;
     eflags = FLAG_R1;
@@ -180,9 +114,9 @@ void Cpu::reset() {
     addrsize32_ = false;
     extra_cycles_ = 0;
     init_state();
-    // EDX holds the component ID after RESET: family 4, model 3 (IntelDX2),
-    // stepping 5, the SL-Enhanced aB0/aC0 part (S-spec SX807/SX911) that
-    // also has CPUID. 0433h is the older B1 step, which has no CPUID.
+    // EDX holds the component ID after RESET: family 4, model 3, stepping 5
+    // (SL-Enhanced aB0/aC0, S-spec SX807/SX911, has CPUID; the B1 step, 0433h,
+    // does not).
     edx = kComponentId;
     refresh_real_bases();
     sd_[SEG_CS].base = 0xFFFF0000u;
@@ -193,8 +127,8 @@ void Cpu::reset() {
 void Cpu::raise(int vector) {
     pending_fault_ = Fault{vector, 0, false};
 #ifdef __EMSCRIPTEN__
-    // Wasm C++ EH soft-locks under a tight V86 #GP storm (JEMMEX / EMMQXXX0);
-    // longjmp matches Bochs's BX_CPU_C::exception and stays off that path.
+    // Wasm C++ EH soft-locks under a V86 #GP storm (JEMMEX / EMMQXXX0); longjmp
+    // matches Bochs.
     if (fault_jmp_set_) longjmp(fault_jmp_, 1);
 #endif
     throw pending_fault_;
@@ -207,17 +141,13 @@ void Cpu::raise_err(int vector, uint32_t error) {
     throw pending_fault_;
 }
 void Cpu::raise_ud(uint32_t at, uint16_t opword) {
-    // Intel SDM Vol. 3, "Undefined Opcodes": executing a reserved opcode
-    // always raises #UD, which is what lets software probe for later
-    // instructions (CPUID-less Pentium checks, FCMOV) with a handler.
+    // Intel SDM Vol. 3, "Undefined Opcodes": reserved opcodes raise #UD.
     if (on_unimplemented) on_unimplemented(cs, at, opword);
     raise(EXC_UD);
 }
 void Cpu::raise_sel(int vector, uint16_t selector) {
-    // Selector-shaped error code: the selector's index and table bits with
-    // RPL cleared, i.e. the selector with its low two bits zeroed (Intel
-    // 80486 PRM, "Error Code"). The EXT bit is left clear here -- every
-    // caller in this core is reporting a selector the *instruction* named.
+    // Selector with RPL cleared (Intel 80486 PRM, "Error Code"). EXT stays
+    // clear since callers report a selector the instruction named.
     pending_fault_ = Fault{vector, uint32_t(selector & 0xFFFCu), true};
 #ifdef __EMSCRIPTEN__
     if (fault_jmp_set_) longjmp(fault_jmp_, 1);
@@ -235,18 +165,10 @@ void Cpu::do_interrupt(uint8_t vector, bool software, bool has_error, uint32_t e
 }
 
 void Cpu::real_mode_interrupt(uint8_t vector) {
-    // Real-mode interrupt frame: 16-bit FLAGS, CS, IP. The frame width
-    // follows the *mode*, not the CPU generation -- a 486 in real mode
-    // pushes the same 6 bytes an 8086 does. (A 0x66-prefixed INT in real
-    // mode would push a 32-bit frame on real hardware; that form is a
-    // labelled gap here, since nothing in real-mode DOS uses it and the
-    // matching IRETD would then have to agree.)
-    //
-    // The vector is bounds-checked against IDTR, not against a hardcoded
-    // 1KB: a 386+ has a real IDTR in real mode too (base 0, limit 03FFh
-    // out of RESET, so the default is exactly the 8086 IVT), and LIDT can
-    // shrink it -- which is precisely how a DOS extender arms itself to
-    // catch a stray real-mode interrupt.
+    // Real-mode frame is 16-bit FLAGS, CS, IP, as on an 8086. A 0x66-prefixed
+    // INT would push a 32-bit frame on real hardware; not implemented.
+    // The vector is checked against IDTR (limit 03FFh from RESET), not a fixed
+    // 1KB, since LIDT can shrink it.
     uint32_t off = uint32_t(vector) * 4;
     if (off + 3 > idtr_.limit) raise_err(EXC_GP, uint32_t(vector) * 8 + 2);
     push16(uint16_t(eflags));
@@ -262,14 +184,11 @@ void Cpu::real_mode_interrupt(uint8_t vector) {
 }
 
 void Cpu::protected_mode_interrupt(uint8_t vector, bool software, bool has_error, uint32_t error) {
-    // Intel 80486 PRM, "Interrupts and Exceptions" / "Protected-Mode
-    // Interrupt Table". The IDT holds gates, not vectors: each entry is an
-    // 8-byte task, interrupt or trap gate.
+    // Intel 80486 PRM, "Interrupts and Exceptions": the IDT holds 8-byte task,
+    // interrupt or trap gates.
     uint32_t idx = uint32_t(vector) * 8;
-    // The EXT ("external event") bit of a selector error code marks a
-    // fault that was not caused by the instruction itself. A software INT
-    // is the instruction's own doing; a hardware interrupt or a processor
-    // exception is not.
+    // EXT marks a fault not caused by the instruction itself: set for hardware
+    // interrupts and exceptions, clear for software INT.
     uint32_t ext = software ? 0u : 1u;
     if (idx + 7 > idtr_.limit) raise_err(EXC_GP, idx + 2 + ext);
     uint32_t glo = lin_read32(idtr_.base + idx, false);
@@ -278,10 +197,7 @@ void Cpu::protected_mode_interrupt(uint8_t vector, bool software, bool has_error
     if (!acc_present(gate_access)) raise_err(EXC_NP, idx + 2 + ext);
     if (!acc_system(gate_access)) raise_err(EXC_GP, idx + 2 + ext);
     int gtype = sys_type(gate_access);
-    // "To prevent user programs from simulating interrupts with the INT
-    // instruction, the DPL of an interrupt or trap gate must be greater
-    // than or equal to CPL... This check is not made for exceptions or
-    // external interrupts" (Intel 80486 PRM).
+    // Gate DPL must be >= CPL for software INT only (Intel 80486 PRM).
     if (software && acc_dpl(gate_access) < cpl()) raise_err(EXC_GP, idx + 2);
 
     if (gtype == SYS_TASK_GATE) {
@@ -308,27 +224,21 @@ void Cpu::protected_mode_interrupt(uint8_t vector, bool software, bool has_error
     uint16_t old_es = es, old_ds = ds, old_fs = fs, old_gs = gs;
     int target_dpl = acc_dpl(ca);
 
-    // Leaving V86. The gate must be a 32-bit trap or interrupt gate pointing
-    // at "a nonconforming, privilege-level zero, code segment" (Intel 80386
-    // PRM, "Entering and Leaving Virtual 8086 Mode"), so the handler always
-    // runs as ordinary protected-mode ring 0 on the TSS's ring-0 stack.
+    // Leaving V86: the gate must be a 32-bit trap or interrupt gate to a
+    // nonconforming DPL 0 code segment (Intel 80386 PRM, "Entering and Leaving
+    // Virtual 8086 Mode").
     bool from_v86 = v86_mode();
     if (from_v86) {
         if (!gate32 || acc_conforming(ca) || target_dpl != 0) raise_sel(EXC_GP, target_sel);
-        // VM is cleared in the *live* flags -- "the processor stores the
-        // current setting of EFLAGS on the stack, then clears the VM bit"
-        // (same section). old_eflags, captured above, keeps VM = 1 so the
-        // frame pushed below still says the interrupted code was an 8086
-        // program and the matching IRETD can restore V86. Done here, before
-        // any stack work, so every push below goes through the ordinary
-        // protected-mode segmentation path.
+        // VM clears in the live flags only; old_eflags keeps VM = 1 so the
+        // pushed frame lets IRETD restore V86. Done before any push so they use
+        // protected-mode segmentation.
         set_flag(FLAG_VM, false);
     }
 
     if (!acc_conforming(ca) && target_dpl < cpl()) {
-        // Inter-privilege interrupt: the new stack comes from the current
-        // TSS's SS/ESP slot for the target ring, and the old SS:ESP is
-        // pushed onto it so IRET can restore the interrupted stack.
+        // Inter-privilege: new stack from the TSS slot for the target ring; the
+        // old SS:ESP is pushed on it.
         uint16_t new_ss;
         uint32_t new_esp;
         if (tr_access_ == 0) raise_sel(EXC_TS, tr_sel_);
@@ -350,19 +260,15 @@ void Cpu::protected_mode_interrupt(uint8_t vector, bool software, bool has_error
         sd_[SEG_SS] = decode_desc(sdsc);
         sd_[SEG_SS].sel = new_ss;
         esp = new_esp;
-        // CPL changes with CS, which is loaded below; the pushes here are
-        // already on the new, more-privileged stack.
+        // CS loads below; the pushes land on the new stack.
         cs = uint16_t((target_sel & 0xFFFCu) | uint16_t(target_dpl));
         sd_[SEG_CS] = decode_desc(cd);
         sd_[SEG_CS].sel = cs;
         cpl_ = uint8_t(target_dpl);
-        // "The contents of all the 8086 segment registers are stored on the
-        // PL 0 stack" (Intel 80386 PRM, "Entering and Leaving Virtual 8086
-        // Mode"), below the SS:ESP pair, so the ring-0 frame reads
-        // GS FS DS ES SS ESP EFLAGS CS EIP from high address to low -- the
-        // nine doublewords IRETD's own return-to-V86 path pops back (Intel
-        // 80486 PRM, IRET; the 386 PRM checks "the top 36 bytes" of the
-        // stack for exactly this frame).
+        // V86 frame: the 8086 segment registers go on the PL 0 stack below
+        // SS:ESP, giving GS FS DS ES SS ESP EFLAGS CS EIP from high to low
+        // (Intel 80386 PRM, "Entering and Leaving Virtual 8086 Mode"). IRETD
+        // pops the same nine dwords.
         if (from_v86) { push32(old_gs); push32(old_fs); push32(old_ds); push32(old_es); }
         if (gate32) { push32(old_ss); push32(old_esp); }
         else        { push16(old_ss); push16(uint16_t(old_esp)); }
@@ -376,18 +282,12 @@ void Cpu::protected_mode_interrupt(uint8_t vector, bool software, bool has_error
     if (has_error) { if (gate32) push32(error); else push16(uint16_t(error)); }
 
     if (from_v86) {
-        // "After the processor stores all the 8086 segment registers on the
-        // PL 0 stack, it loads all the segment registers with zeros before
-        // starting to execute the handler procedure" (Intel 80386 PRM,
-        // "Entering and Leaving Virtual 8086 Mode"). Unconditional, unlike
-        // far_return()'s DPL-conditional sweep: there the four registers hold
-        // real descriptors and only the over-privileged ones are unsafe,
-        // while an 8086 segment value is not a usable selector at all.
+        // Zeroed before the handler runs (Intel 80386 PRM, same section); an
+        // 8086 segment value isn't a usable selector.
         for (int si : {SEG_ES, SEG_DS, SEG_FS, SEG_GS}) load_seg(si, 0);
     }
 
-    // An interrupt gate clears IF (the handler runs with interrupts off);
-    // a trap gate leaves it alone. Both clear TF, NT and RF.
+    // Interrupt gates clear IF, trap gates don't. Both clear TF, NT and RF.
     if (is_interrupt_gate) set_flag(FLAG_IF, false);
     set_flag(FLAG_TF, false);
     set_flag(FLAG_NT, false);
@@ -397,17 +297,11 @@ void Cpu::protected_mode_interrupt(uint8_t vector, bool software, bool has_error
 
 int Cpu::interrupt(uint8_t vector) {
     agi_clear();
-    // Externally delivered (hardware) interrupt: not a software INT, so
-    // the gate-DPL-vs-CPL check does not apply.
-    //
-    // Delivery can itself fault -- a missing or malformed IDT gate, or a
-    // stack that cannot take the frame -- and that fault must turn into a
-    // #GP/#DF like any other, never escape to the embedding chipset, which
-    // calls this from its instruction loop and has no idea what a
-    // cpu80486::Fault is.
+    // Hardware interrupt: no gate-DPL check. A fault during delivery becomes
+    // #GP/#DF here and never escapes to the chipset.
     uint32_t start_eip = eip;
-    // An interrupt between REP iterations means the instruction restarts
-    // from its prefixes after IRET, setup cost and all.
+    // An interrupt between REP iterations restarts the instruction from its
+    // prefixes after IRET.
     rep_resume_ = false;
     instr_start_esp_ = esp;
     instr_start_ss_ = ss;
@@ -428,12 +322,8 @@ int Cpu::interrupt(uint8_t vector) {
         return deliver_fault(f, start_eip);
     }
 #endif
-    // A hardware-delivered interrupt does the same vectoring work INT3
-    // does, without an immediate operand to fetch, so INT3's published 26
-    // is the best-anchored figure for it (INT imm8 is 30). Charged here
-    // and only here -- step()'s own INT/INT3/INTO paths call
-    // do_interrupt() instead and charge their own published cost, so no
-    // path is billed twice.
+    // Costed like INT3 (26), the best-anchored figure; INT imm8 is 30. Charged
+    // only here, since step()'s INT paths charge their own cost.
     cycles += 26;
     int c = 26 + take_stall();
     // A task gate into a TSS with its T bit set traps before the new task's
@@ -449,16 +339,15 @@ int Cpu::interrupt(uint8_t vector) {
 // --- descriptors ----------------------------------------------------------
 
 uint32_t Cpu::desc_base(const RawDesc &d) {
-    // Descriptor bytes 2-4 and 7 hold the base, split the way they are
-    // purely for 286 compatibility (Intel 80486 PRM, "Segment Descriptors").
+    // Base is split across bytes 2-4 and 7 for 286 compatibility (Intel 80486
+    // PRM, "Segment Descriptors").
     return ((d.lo >> 16) & 0x0000FFFFu) | ((d.hi & 0x000000FFu) << 16) | (d.hi & 0xFF000000u);
 }
 
 uint32_t Cpu::desc_limit(const RawDesc &d) {
     uint32_t lim = (d.lo & 0x0000FFFFu) | (d.hi & 0x000F0000u);
-    // G (granularity, byte 6 bit 7): a 4KB-granular limit counts *pages*,
-    // and the low 12 bits of the byte limit are then all ones -- which is
-    // why a G=1 limit of 0 is a 4KB segment, not an empty one.
+    // G=1: the limit counts 4KB pages and the low 12 bits are ones, so limit 0
+    // is a 4KB segment.
     if (d.hi & 0x00800000u) lim = (lim << 12) | 0x00000FFFu;
     return lim;
 }
@@ -474,16 +363,14 @@ SegDesc Cpu::decode_desc(const RawDesc &d) {
 }
 
 Cpu::RawDesc Cpu::read_desc(uint16_t selector, int fault_vector) {
-    // Selector bit 2 (TI) picks the LDT over the GDT; bits 3-15 are the
-    // index, bits 0-1 the RPL (Intel 80486 PRM, "Selectors").
+    // TI (bit 2) selects the LDT; bits 3-15 are the index, bits 0-1 the RPL
+    // (Intel 80486 PRM, "Selectors").
     bool use_ldt = (selector & 0x0004u) != 0;
     uint32_t base  = use_ldt ? ldtr_.base : gdtr_.base;
     uint32_t limit = use_ldt ? ldtr_.limit : gdtr_.limit;
     if (use_ldt && (ldt_sel_ & 0xFFFCu) == 0) raise_sel(fault_vector, selector);
     uint32_t index = selector & 0xFFF8u;
-    // The descriptor's last byte must be inside the table; a table limit is
-    // the offset of its last valid byte, so a table holding N descriptors
-    // has limit N*8-1.
+    // A limit is the offset of the last valid byte (N descriptors: N*8-1).
     if (index + 7u > limit) raise_sel(fault_vector, selector);
     RawDesc d;
     d.lo = lin_read32(base + index, false);
@@ -492,9 +379,8 @@ Cpu::RawDesc Cpu::read_desc(uint16_t selector, int fault_vector) {
 }
 
 void Cpu::set_accessed(uint16_t selector) {
-    // A successful segment load sets the descriptor's A bit in the table
-    // itself -- the one write a segment load performs (Intel 80486 PRM,
-    // "Accessed Bit").
+    // A successful load sets the descriptor's A bit in the table (Intel 80486
+    // PRM, "Accessed Bit").
     bool use_ldt = (selector & 0x0004u) != 0;
     uint32_t base = use_ldt ? ldtr_.base : gdtr_.base;
     uint32_t addr = base + (selector & 0xFFF8u) + 4;
@@ -505,34 +391,22 @@ void Cpu::set_accessed(uint16_t selector) {
 // --- segment register loading ---------------------------------------------
 
 void Cpu::load_seg_real(int si, uint16_t selector) {
-    // Real-mode segment load: the base becomes selector*16 and the cached
-    // limit and access rights are left exactly as they were. That is
-    // genuine hardware behavior, and it is the entire mechanism behind
-    // "unreal mode" -- a memory manager loads a 4GB-limit descriptor during
-    // a brief protected-mode excursion, drops back to real mode, and the
-    // big limit survives the next segment load (PC486_REVIEW.md §5.4).
+    // Base becomes selector*16; limit and access rights stay, which is how
+    // unreal mode works (PC486_REVIEW.md §5.4).
     seg_reg(si) = selector;
     sd_[si].sel = selector;
     sd_[si].base = uint32_t(selector) << 4;
     sd_[si].null = false;
-    // A real-mode CS load leaves the internal CPL register at 0 regardless of
-    // the segment value's low two bits. This is what lets a memory manager
-    // set CR0.PE while running from an arbitrary real-mode CS -- FreeDOS's
-    // HimemX does it from CS=0291h -- and then immediately load a DPL-0 data
-    // selector without faulting (PC486_REVIEW.md §6.5). The same load in V86
-    // lands at CPL 3 instead, which is what makes the IOPL-sensitive and
-    // privileged instructions there trap to the monitor.
+    // A real-mode CS load sets CPL to 0 whatever the low bits, so HimemX can
+    // set CR0.PE from CS=0291h and load a DPL-0 selector (PC486_REVIEW.md
+    // §6.5). In V86 it sets CPL 3.
     if (si == SEG_CS) cpl_ = v86_mode() ? 3 : 0;
 }
 
 void Cpu::refresh_real_bases() {
-    // The selector fields are public, so an embedding host or a test can
-    // assign one directly -- and in real mode that is exactly a segment
-    // load, so it must re-derive the base. Comparing against the selector
-    // the cache was last loaded from is what distinguishes "software wrote
-    // DS" (re-derive) from "DS still holds the selector a protected-mode
-    // descriptor load put there" (keep the base, which is what lets a
-    // protected-mode base as well as a limit survive into real mode).
+    // A host or test may assign a public selector field directly. A changed
+    // selector is a real-mode segment load, so the base is re-derived; an
+    // unchanged one keeps a protected-mode base for unreal mode.
     for (int i = 0; i < 6; ++i) {
         uint16_t cur = seg_sel(i);
         if (sd_[i].sel != cur) {
@@ -547,11 +421,8 @@ void Cpu::refresh_real_bases() {
 void Cpu::load_seg(int si, uint16_t selector) {
     if (real_addressing()) { load_seg_real(si, selector); return; }
     if ((selector & 0xFFFCu) == 0) {
-        // A null selector may be loaded into DS/ES/FS/GS: the register
-        // becomes unusable and only an actual *access* through it faults,
-        // which is how a protected-mode OS parks a segment register it is
-        // not using. SS can never be null (Intel 80486 PRM, "Null
-        // Selector").
+        // A null selector is legal for DS/ES/FS/GS and faults only on access;
+        // SS can't be null (Intel 80486 PRM, "Null Selector").
         if (si == SEG_SS) raise_err(EXC_GP, 0);
         sd_[si] = SegDesc{};
         sd_[si].access = 0;
@@ -564,19 +435,14 @@ void Cpu::load_seg(int si, uint16_t selector) {
     uint8_t a = uint8_t((d.hi >> 8) & 0xFF);
     int rpl = selector & 3;
     if (si == SEG_SS) {
-        // The stack segment is the strictest load in the architecture: it
-        // must be a writable data segment, its RPL must *equal* CPL, and
-        // its DPL must equal CPL too -- a stack at the wrong privilege
-        // level is exactly the hole inter-ring transfers exist to close.
+        // SS must be a writable data segment with RPL and DPL both equal to
+        // CPL.
         if (acc_system(a) || !acc_writable(a) || rpl != cpl() || acc_dpl(a) != cpl())
             raise_sel(EXC_GP, selector);
         if (!acc_present(a)) raise_sel(EXC_SS, selector);
     } else {
-        // DS/ES/FS/GS take a data segment or a *readable* code segment.
         if (acc_system(a) || (acc_code(a) && !acc_readable(a))) raise_sel(EXC_GP, selector);
-        // Privilege: for anything but a conforming code segment, the less
-        // privileged of CPL and the selector's own RPL must still be at
-        // least as privileged as the descriptor's DPL.
+        // Non-conforming: max(CPL, RPL) must be <= DPL.
         if (!acc_conforming(a)) {
             int eff = (cpl() > rpl) ? cpl() : rpl;
             if (eff > acc_dpl(a)) raise_sel(EXC_GP, selector);
@@ -608,17 +474,13 @@ uint32_t Cpu::translate_slow(uint32_t linear, bool write, bool user) {
     uint32_t vpn = linear >> 12;
     TlbEntry &e = tlb_[vpn & (kTlbEntries - 1)];
     if (e.valid && e.tag == vpn) {
-        // The cached rights are the page's own U/S and R/W bits, so the same
-        // rule the walk below applies has to be applied here too -- including
-        // CR0.WP's supervisor exemption. Leaving it out made a multi-byte
-        // supervisor write to a read-only page succeed on its first byte
-        // (which walks) and fault on its second (which hits the TLB); see
-        // PC486_REVIEW.md §6.5.
+        // Same rule as the walk below, including CR0.WP's supervisor exemption;
+        // otherwise a multi-byte supervisor write to a read-only page succeeds
+        // on its first byte and faults on its second (PC486_REVIEW.md §6.5).
         bool denied = (user && !(e.rights & 2)) ||
                       (write && !(e.rights & 1) && (user || (cr_[0] & CR0_WP)));
-        // A cached entry answers a read outright, and a write only once the
-        // PTE's D bit is already set -- otherwise the walk has to run again
-        // to set it, because software genuinely watches that bit.
+        // A cached entry answers a write only once D is set; otherwise the walk
+        // reruns to set it, since software watches that bit.
         if (!denied && (!write || e.dirty)) return e.frame | (linear & 0x00000FFFu);
         if (denied) {
             cr_[2] = linear;
@@ -626,9 +488,7 @@ uint32_t Cpu::translate_slow(uint32_t linear, bool write, bool user) {
         }
     }
     // Two-level walk: CR3 -> page directory -> page table (Intel 80486 PRM,
-    // "Page Translation"). Both levels are indexed 10 bits at a time and
-    // both tables are themselves page-aligned physical addresses, so no
-    // recursion into segment translation happens here.
+    // "Page Translation").
     uint32_t pde_addr = (cr_[3] & 0xFFFFF000u) + ((linear >> 22) << 2);
     uint32_t pde = phys_read32(pde_addr);
     if (!(pde & kPtePresent)) {
@@ -641,9 +501,7 @@ uint32_t Cpu::translate_slow(uint32_t linear, bool write, bool user) {
         cr_[2] = linear;
         raise_err(EXC_PF, (write ? 2u : 0u) | (user ? 4u : 0u));
     }
-    // U/S and R/W are the AND of the two levels: a directory entry's rights
-    // bound every page under it, which is what makes a whole 4MB region
-    // protectable with one write.
+    // U/S and R/W are the AND of both levels.
     bool user_ok  = (pde & kPteUser) && (pte & kPteUser);
     bool writable = (pde & kPteWritable) && (pte & kPteWritable);
     if (user && !user_ok) {
@@ -651,10 +509,8 @@ uint32_t Cpu::translate_slow(uint32_t linear, bool write, bool user) {
         raise_err(EXC_PF, 1u | (write ? 2u : 0u) | 4u);
     }
     if (write && !writable) {
-        // A *supervisor* write to a read-only page succeeds unless CR0.WP
-        // is set. WP is a genuine Intel486 addition: on a 386 a supervisor
-        // write always bypassed the R/W bit, which is precisely why
-        // copy-on-write could not be implemented without it.
+        // A supervisor write to a read-only page succeeds unless CR0.WP is set;
+        // WP is new on the 486.
         if (user || (cr_[0] & CR0_WP)) {
             cr_[2] = linear;
             raise_err(EXC_PF, 1u | 2u | (user ? 4u : 0u));
@@ -694,9 +550,8 @@ void Cpu::write_dr(int idx, uint32_t v) {
     if (idx == 7) dr7_decode();
 }
 
-// RW 00 is an instruction breakpoint, 01 a data write, 11 a data read or
-// write; 10 is undefined on a 486 (Intel 80486 PRM, "Debug Control
-// Register").
+// RW 00 is an instruction breakpoint, 01 a data write, 11 a data read or write;
+// 10 is undefined (Intel 80486 PRM, "Debug Control Register").
 void Cpu::dr7_decode() {
     dbg_exec_ = dbg_data_ = 0;
     for (int n = 0; n < 4; ++n) {
@@ -720,8 +575,8 @@ uint8_t Cpu::dbg_exec_match(uint32_t lin) const {
     return hit;
 }
 
-// LEN 00 is one byte, 01 two, 11 four, and the address is taken as aligned
-// to that length. Any overlap with the access matches.
+// LEN 00 is one byte, 01 two, 11 four, address aligned to that length; any
+// overlap matches.
 void Cpu::dbg_data_match(uint32_t lin, int size, bool write) {
     uint32_t last = lin + uint32_t(size) - 1u;
     for (int n = 0; n < 4; ++n) {
@@ -741,9 +596,9 @@ uint32_t Cpu::seg_linear_slow(int si, uint32_t off, int size, bool write) {
     const SegDesc &s = sd_[si & 7];
     int fault = (si == SEG_SS) ? EXC_SS : EXC_GP;
     uint32_t last = off + uint32_t(size) - 1u;
-    // Real mode and V86 check the cached limit and nothing else, so a word
-    // at FFFFh faults while an unreal-mode 4GB limit reaches past 64KB
-    // (Intel 80486 PRM, "Real-Address Mode Exceptions"; PC486_REVIEW.md §44).
+    // Real mode and V86 check only the cached limit, so a word at FFFFh faults
+    // while an unreal-mode 4GB limit reaches past 64KB (Intel 80486 PRM,
+    // "Real-Address Mode Exceptions"; PC486_REVIEW.md §44).
     if (real_addressing()) {
         if (last < off || last > s.limit) raise_err(fault, 0);
         return s.base + off;
@@ -754,11 +609,10 @@ uint32_t Cpu::seg_linear_slow(int si, uint32_t off, int size, bool write) {
     } else if (!acc_readable(s.access)) {
         raise_err(fault, 0);
     }
-    if (last < off) raise_err(fault, 0);   // the access wrapped past 2^32
+    if (last < off) raise_err(fault, 0);
     if (acc_expand_down(s.access)) {
-        // Expand-down segment (a stack meant to grow downward): the valid
-        // offsets are limit+1 up to the segment's maximum, the inverse of
-        // the ordinary rule (Intel 80486 PRM, "Expand-Down Data Segments").
+        // Expand-down: valid offsets are limit+1 to the maximum (Intel 80486
+        // PRM, "Expand-Down Data Segments").
         uint32_t top = s.big ? 0xFFFFFFFFu : 0x0000FFFFu;
         if (off <= s.limit || last > top) raise_err(fault, 0);
     } else if (last > s.limit) {
@@ -846,10 +700,8 @@ uint64_t Cpu::read64(int si, uint32_t off) {
     return v;
 }
 void Cpu::write16(int si, uint32_t off, uint16_t v) {
-    // Both halves are limit-checked and translated *before* either byte is
-    // stored, so a 16-bit write straddling a page or segment boundary
-    // cannot leave one byte written and then fault -- which is what real
-    // hardware guarantees, and what makes a #PF restartable.
+    // Both halves are checked and translated before either byte is stored, so a
+    // straddling write can't half-complete and #PF stays restartable.
     uint32_t p;
     if (access_phys(si, off, 2, true, p)) {
         if (uint8_t *h = host_ptr(p, true)) {
@@ -903,8 +755,8 @@ void Cpu::write64(int si, uint32_t off, uint64_t v) {
     for (int i = 0; i < 8; ++i) bus_write(q[i], uint8_t((v >> (8 * i)) & 0xFF));
 }
 
-// Times a write the CPU assembled byte by byte: one bus write per run of
-// physically contiguous bytes.
+// Times a write assembled byte by byte: one bus write per physically contiguous
+// run.
 void Cpu::split_timing(const uint32_t *q, int n) {
     if (!timing) return;
     int start = 0;
@@ -925,9 +777,8 @@ void Cpu::phys_write32(uint32_t a, uint32_t v) {
     bus_write(a + 2, uint8_t((v >> 16) & 0xFF));
     bus_write(a + 3, uint8_t((v >> 24) & 0xFF));
 }
-// The descriptor tables, page tables and TSS are addressed linearly by the
-// CPU itself, never through a segment -- and always as supervisor accesses,
-// whatever CPL the interrupted program was running at.
+// Descriptor tables, page tables and the TSS are addressed linearly, always as
+// supervisor accesses.
 uint16_t Cpu::lin_read16(uint32_t linear, bool write_access) {
     uint32_t p0 = translate(linear, write_access, false);
     uint32_t p1 = translate(linear + 1, write_access, false);
@@ -954,16 +805,13 @@ void Cpu::lin_write32(uint32_t linear, uint32_t v) {
     lin_write16(linear + 2, uint16_t(v >> 16));
 }
 
-// Resolves the run of EIPs that share the current code page, so the rest of
-// the instruction's bytes come out of a host pointer instead of repeating
-// the limit check and the page walk per byte. Declines (leaving an empty
-// window, so every fetch takes the full path) whenever the run is not a
-// plain forward run inside one page of an ordinary readable code segment.
+// Resolves the run of EIPs sharing the current code page so later bytes come
+// from a host pointer. Leaves the window empty (full path per fetch) unless it
+// is a plain forward run in one page of a readable code segment.
 void Cpu::prefetch_fill() {
     prefetch_clear();
-    // Both halves of the optional bulk-access path or neither: the window's
-    // revalidation reads *bus_.map_epoch unconditionally, so a Bus without it
-    // never gets a window.
+    // The window's revalidation reads *bus_.map_epoch unconditionally, so a Bus
+    // without both bulk-path members gets no window.
     if (bus_.page == nullptr || bus_.map_epoch == nullptr) return;
     uint32_t lin = seg_linear(SEG_CS, eip, 1, false);  // still faults past the limit
     uint32_t span = 0x1000u - (lin & 0xFFFu);
@@ -1094,16 +942,12 @@ uint32_t Cpu::pop32() {
 // --- I/O privilege --------------------------------------------------------
 
 void Cpu::check_io_permission(uint16_t port, int size) {
-    // IN/OUT/INS/OUTS are unrestricted at CPL <= IOPL. Above that the TSS's
-    // I/O permission bitmap decides, one bit per port, and a bit that is
-    // *set* denies access (Intel 80486 PRM, "I/O Permission Bit Map").
-    // Real mode has no privilege at all, so nothing to check.
+    // At CPL > IOPL the TSS I/O permission bitmap decides, one bit per port; a
+    // set bit denies (Intel 80486 PRM, "I/O Permission Bit Map"). Real mode has
+    // no privilege.
     if (!protected_mode()) return;
-    // V86 is the exception to the IOPL shortcut: "the protection mechanism
-    // does not consult IOPL when executing the I/O instructions IN, INS, OUT,
-    // OUTS. Only the I/O permission bit map controls the right for V86 tasks
-    // to execute these I/O instructions" (Intel 80386 PRM, "Virtual I/O"), so
-    // even at IOPL 3 a V86 task's ports go through the map below.
+    // V86 ignores IOPL for I/O; only the permission bitmap applies (Intel 80386
+    // PRM, "Virtual I/O").
     if (!v86_mode() && cpl() <= iopl()) return;
     if (tr_access_ == 0) raise_err(EXC_GP, 0);
     bool tss32 = (sys_type(tr_access_) == SYS_TSS32_AVAIL || sys_type(tr_access_) == SYS_TSS32_BUSY);
@@ -1120,24 +964,15 @@ void Cpu::check_io_permission(uint16_t port, int size) {
 }
 
 // --- far transfers --------------------------------------------------------
-//
-// Published 486 costs (Quantasm 486 column, which carries separate real-
-// mode and protected-mode rows for the far control transfers): JMP far 17
-// real / 19 protected, CALL far 18 real / 20 protected, RET far 13 and 17
-// when the privilege level changes, IRET 15 real / 36 protected. The
-// call-gate and task-switch paths are an order of magnitude more expensive
-// because of the descriptor and TSS work; the single figures charged for
-// them below are this core's labelled readings covering every sub-case,
-// not separately cited numbers per sub-case.
+// Published costs (Quantasm 486 column): JMP far 17 real / 19 protected, CALL
+// far 18 / 20, RET far 13 (17 across privilege), IRET 15 / 36. The call-gate
+// and task-switch figures below are single labelled values covering every
+// sub-case.
 namespace {
 constexpr int kCallGateCost   = 35;
 constexpr int kJmpGateCost    = 32;
-// A task switch saves and reloads the entire register file plus six
-// segment descriptors and (with paging on) CR3, which makes it the single
-// most expensive operation in the instruction set. Charged as one labelled
-// figure for every task-switch path -- JMP, CALL, interrupt through a task
-// gate, and IRET's return -- rather than asserting a cited number this
-// core cannot separate into its published sub-cases.
+// One figure for every task-switch path (JMP, CALL, task gate, IRET); not
+// separately cited.
 constexpr int kTaskSwitchCost = 199;
 }  // namespace
 
@@ -1156,10 +991,9 @@ int Cpu::far_transfer(uint16_t selector, uint32_t offset, bool is_call) {
         if (!acc_code(a)) raise_sel(EXC_GP, selector);   // a data segment is not executable
         int dpl = acc_dpl(a);
         int rpl = selector & 3;
-        // A conforming code segment may be entered from any less privileged
-        // level and keeps the caller's CPL; a non-conforming one demands an
-        // exact CPL match (Intel 80486 PRM, "Direct Calls or Jumps to Code
-        // Segments").
+        // Conforming: entered from any less privileged level, CPL kept.
+        // Non-conforming: exact CPL match (Intel 80486 PRM, "Direct Calls or
+        // Jumps to Code Segments").
         if (acc_conforming(a)) {
             if (dpl > cpl()) raise_sel(EXC_GP, selector);
         } else {
@@ -1171,14 +1005,11 @@ int Cpu::far_transfer(uint16_t selector, uint32_t offset, bool is_call) {
             else { push16(cs); push16(uint16_t(eip)); }
         }
         set_accessed(selector);
-        // CS's RPL field *is* CPL, so a same-privilege transfer keeps the
-        // current CPL rather than whatever RPL the selector carried.
+        // CS's RPL field is CPL, so a same-privilege transfer keeps the current
+        // CPL.
         cs = uint16_t((selector & 0xFFFCu) | uint16_t(cpl()));
         sd_[SEG_CS] = decode_desc(d);
         sd_[SEG_CS].sel = cs;
-        // CPL is unchanged by a same-privilege transfer, but re-stating it
-        // keeps the internal register and CS's RPL field in agreement, which
-        // is the invariant every later check relies on.
         cpl_ = uint8_t(cs & 3);
         set_ip(offset);
         return is_call ? 20 : 19;
@@ -1197,14 +1028,12 @@ int Cpu::far_transfer(uint16_t selector, uint32_t offset, bool is_call) {
     }
     if (t == SYS_CALL_GATE16 || t == SYS_CALL_GATE32) {
         bool gate32 = (t == SYS_CALL_GATE32);
-        // The gate itself is the access-controlled object: its DPL must
-        // admit both the caller's CPL and the selector's RPL.
+        // The gate's DPL must admit both CPL and the selector's RPL.
         if (acc_dpl(a) < cpl() || acc_dpl(a) < (selector & 3)) raise_sel(EXC_GP, selector);
         if (!acc_present(a)) raise_sel(EXC_NP, selector);
         uint16_t target_sel = uint16_t(d.lo >> 16);
         uint32_t target_off = (d.lo & 0xFFFFu) | (gate32 ? (d.hi & 0xFFFF0000u) : 0u);
-        // Descriptor byte 4 (the low byte of the high dword) holds the
-        // gate's dword/word parameter count in its low 5 bits.
+        // Low 5 bits of byte 4 are the parameter count.
         int param_count = int(d.hi & 0x1Fu);
         if ((target_sel & 0xFFFCu) == 0) raise_err(EXC_GP, 0);
         RawDesc cd = read_desc(target_sel, EXC_GP);
@@ -1215,8 +1044,8 @@ int Cpu::far_transfer(uint16_t selector, uint32_t offset, bool is_call) {
         if (!acc_present(ca)) raise_sel(EXC_NP, target_sel);
         bool to_inner = is_call && !acc_conforming(ca) && target_dpl < cpl();
         if (!is_call && !acc_conforming(ca) && target_dpl != cpl()) {
-            // A JMP through a call gate may not change privilege -- only a
-            // CALL can, because only a CALL leaves a return path behind.
+            // A JMP through a call gate can't change privilege; only a CALL
+            // leaves a return path.
             raise_sel(EXC_GP, target_sel);
         }
         uint16_t old_cs = cs, old_ss = ss;
@@ -1239,9 +1068,7 @@ int Cpu::far_transfer(uint16_t selector, uint32_t offset, bool is_call) {
             if ((new_ss & 3) != target_dpl || acc_dpl(sa) != target_dpl || !acc_writable(sa))
                 raise_sel(EXC_TS, new_ss);
             if (!acc_present(sa)) raise_sel(EXC_SS, new_ss);
-            // Read the parameters off the *old* stack before switching, then
-            // copy them onto the new one -- the whole point of a call gate's
-            // parameter count.
+            // Parameters are read off the old stack before the switch.
             uint32_t params[31];
             for (int i = 0; i < param_count; ++i) {
                 params[i] = gate32 ? read32(SEG_SS, old_esp + uint32_t(i) * 4)
@@ -1280,17 +1107,11 @@ int Cpu::far_transfer(uint16_t selector, uint32_t offset, bool is_call) {
 
 int Cpu::far_return(uint32_t stack_adjust, bool is_iret) {
     if (real_addressing()) {
-        // Real mode, and V86, where a far return is an 8086 far return. IRET
-        // itself is IOPL-sensitive in V86 -- "CPL is always three in V86 mode;
-        // therefore, if IOPL < 3, these instructions will trigger a
-        // general-protection exception" -- specifically so the monitor can
-        // control the interrupted routine's interrupt-enable flag (Intel 80386
-        // PRM, "Additional Sensitive Instructions" / "Virtualizing the
-        // Interrupt-Enable Flag").
+        // Real mode and V86: an 8086 far return. IRET is IOPL-sensitive in V86
+        // (CPL is always 3) so the monitor can virtualize IF (Intel 80386 PRM,
+        // "Additional Sensitive Instructions").
         if (is_iret && v86_mode() && iopl() != 3) raise_err(EXC_GP, 0);
-        // A V86 task cannot change VM or IOPL: the 8086 flags image it pops
-        // has neither, and honoring bit 17 out of one would drop the task out
-        // of the mode it is running in.
+        // A V86 task can't change VM or IOPL through its 8086 flags image.
         uint32_t keep = v86_mode() ? uint32_t(FLAG_VM | FLAG_IOPL) : 0u;
         if (is_iret) {
             if (opsize32_) {
@@ -1313,10 +1134,8 @@ int Cpu::far_return(uint32_t stack_adjust, bool is_iret) {
         // Published real-mode 486: IRET 15, RET far 13, RET far imm16 14.
         return is_iret ? 15 : (stack_adjust ? 14 : 13);
     }
-    // IRET with NT set does not return from a procedure at all -- it
-    // returns from a *task*, through the back-link the switch that got here
-    // wrote into the current TSS (Intel 80486 PRM, "Returning from a Nested
-    // Task").
+    // IRET with NT set returns from a task through the TSS back-link (Intel
+    // 80486 PRM, "Returning from a Nested Task").
     if (is_iret && flag(FLAG_NT)) {
         uint16_t back_link = read_tss_word(tr_.base, 0);
         task_switch(back_link, TaskLink::Iret, false, 0);
@@ -1325,7 +1144,7 @@ int Cpu::far_return(uint32_t stack_adjust, bool is_iret) {
     uint32_t new_eip;
     uint16_t new_cs;
     uint32_t new_flags = eflags;
-    const int entry_cpl = cpl();   // the level that executed the return; see the flag load below
+    const int entry_cpl = cpl();  // the level that executed the return
     if (opsize32_) {
         new_eip = pop32();
         new_cs = uint16_t(pop32());
@@ -1335,33 +1154,26 @@ int Cpu::far_return(uint32_t stack_adjust, bool is_iret) {
         new_cs = pop16();
         if (is_iret) new_flags = (eflags & 0xFFFF0000u) | pop16();
     }
-    // IRETD from CPL 0 with VM set in the popped flags image returns to a
-    // virtual-8086 task: "a value of one in VM in this case indicates that the
-    // procedure to which control is being returned is an 8086 procedure. The
-    // CPL at the time the IRET is executed must be zero, else the processor
-    // does not change VM" (Intel 80386 PRM, "Entering and Leaving Virtual 8086
-    // Mode"). A separate path from the returns below, because new_cs is an
-    // 8086 segment value rather than a selector, so none of their descriptor
-    // checks can run on it. Pops ESP, SS, ES, DS, FS, GS -- the mirror of the
-    // frame protected_mode_interrupt() pushed (Intel 80486 PRM, IRET).
+    // IRETD from CPL 0 with VM set returns to V86 (Intel 80386 PRM, "Entering
+    // and Leaving Virtual 8086 Mode"). Separate path since new_cs is an 8086
+    // segment value, not a selector. Pops ESP, SS, ES, DS, FS, GS, mirroring
+    // protected_mode_interrupt()'s frame.
     if (is_iret && opsize32_ && (new_flags & FLAG_VM) && entry_cpl == 0) {
         uint32_t new_esp = pop32();
         uint16_t n_ss = uint16_t(pop32());
         uint16_t n_es = uint16_t(pop32()), n_ds = uint16_t(pop32());
         uint16_t n_fs = uint16_t(pop32()), n_gs = uint16_t(pop32());
-        // VM goes live before the segment loads, so each one takes the 8086
-        // path and CS's load lands at CPL 3.
+        // VM goes live first so each load takes the 8086 path and CS lands at
+        // CPL 3.
         eflags = (new_flags & kIretdMask) | FLAG_R1;
         const int order[6] = {SEG_CS, SEG_SS, SEG_ES, SEG_DS, SEG_FS, SEG_GS};
         const uint16_t sel[6] = {new_cs, n_ss, n_es, n_ds, n_fs, n_gs};
         for (int i = 0; i < 6; ++i) {
             load_seg_real(order[i], sel[i]);
             SegDesc &s = sd_[order[i]];
-            // load_seg_real() keeps the cached limit and D/B bit, which is the
-            // "unreal mode" quirk real mode depends on (PC486_REVIEW.md §5.4)
-            // and exactly what a V86 task must not inherit from the monitor:
-            // it is an 8086, so every segment is a 16-bit 64KB one at
-            // privilege level 3.
+            // load_seg_real() keeps the cached limit and D/B (unreal mode); a
+            // V86 task must not inherit them, so force 16-bit 64KB segments at
+            // privilege 3.
             s.limit = 0xFFFFu;
             s.big = false;
             s.access = uint8_t(order[i] == SEG_CS ? 0xFB : 0xF3);
@@ -1380,9 +1192,7 @@ int Cpu::far_return(uint32_t stack_adjust, bool is_iret) {
 
     bool outward = (rpl > cpl());
     if (outward) {
-        // Returning outward: the caller's own SS:ESP is further up this
-        // stack, past the parameters the gate copied, and must be popped
-        // too.
+        // Outward: the caller's SS:ESP sits above the gate's copied parameters.
         if (stack_adjust) add_sp(int32_t(stack_adjust));
         uint32_t new_esp;
         uint16_t new_ss;
@@ -1397,16 +1207,14 @@ int Cpu::far_return(uint32_t stack_adjust, bool is_iret) {
         cs = new_cs;
         sd_[SEG_CS] = decode_desc(d);
         sd_[SEG_CS].sel = new_cs;
-        cpl_ = uint8_t(rpl);   // before the segment-nulling sweep below, which reads cpl()
+        cpl_ = uint8_t(rpl);  // before the sweep below, which reads cpl()
         ss = new_ss;
         sd_[SEG_SS] = decode_desc(sdsc);
         sd_[SEG_SS].sel = new_ss;
         esp = new_esp;
         set_ip(new_eip);
-        // Any segment register still holding a segment the *inner*, more
-        // privileged code could reach but this outer level cannot must be
-        // nulled, or the return would silently hand out privilege (Intel
-        // 80486 PRM, "Returning from a Procedure").
+        // Null any segment register the inner level could reach but this one
+        // can't (Intel 80486 PRM, "Returning from a Procedure").
         for (int si : {SEG_ES, SEG_DS, SEG_FS, SEG_GS}) {
             const SegDesc &s = sd_[si];
             if (s.null || (s.access == 0)) continue;
@@ -1428,17 +1236,10 @@ int Cpu::far_return(uint32_t stack_adjust, bool is_iret) {
         if (stack_adjust) add_sp(int32_t(stack_adjust));
     }
     if (is_iret) {
-        // IOPL is only writable at CPL 0, and IF only when CPL <= IOPL --
-        // an IRET from a less privileged level silently keeps the old
-        // values rather than faulting (Intel 80486 PRM, "IRET"). VM goes with
-        // IOPL: outside CPL 0 the processor leaves it alone, which is why the
-        // V86-entry path above is the only way into the mode.
-        //
-        // Both rules test the CPL that *executed* the IRET, not the one being
-        // returned to, so an outward return from ring 0 does load IOPL out of
-        // the stack image -- which is how a monitor hands a ring-3 task an
-        // IOPL in the first place. (Same as Bochs' iret_protected, which
-        // builds its flag change mask from `prev_cpl`.)
+        // IOPL is writable only at CPL 0 and IF only when CPL <= IOPL;
+        // otherwise IRET keeps the old values (Intel 80486 PRM, "IRET"). VM
+        // follows IOPL. Both test the CPL that executed the IRET, as Bochs
+        // iret_protected does with prev_cpl.
         uint32_t mask = opsize32_ ? kIretdMask : kPopfMask;
         uint32_t keep = 0;
         if (entry_cpl > 0) keep |= FLAG_IOPL | FLAG_VM;
@@ -1459,12 +1260,9 @@ uint32_t Cpu::read_tss_dword(uint32_t tss_base, uint32_t off) { return lin_read3
 uint16_t Cpu::read_tss_word(uint32_t tss_base, uint32_t off) { return lin_read16(tss_base + off, false); }
 
 void Cpu::task_switch(uint16_t tss_selector, TaskLink link, bool has_error, uint32_t error) {
-    // Intel 80486 PRM, "Task Switching". A task switch is one indivisible
-    // operation: it saves the whole outgoing register file into the
-    // outgoing TSS, marks the descriptors' busy bits, loads the incoming
-    // TSS, and only then reloads the segment registers with full
-    // protection checks.
-    if (tss_selector & 0x0004u) raise_sel(EXC_GP, tss_selector);  // a TSS lives in the GDT, never the LDT
+    // Intel 80486 PRM, "Task Switching": save the outgoing state, update busy
+    // bits, load the incoming TSS, then reload segments with full checks.
+    if (tss_selector & 0x0004u) raise_sel(EXC_GP, tss_selector);  // a TSS lives in the GDT
     if ((tss_selector & 0xFFFCu) == 0) raise_sel(EXC_GP, tss_selector);
     RawDesc nd = read_desc(tss_selector, EXC_GP);
     uint8_t na = uint8_t((nd.hi >> 8) & 0xFF);
@@ -1473,7 +1271,7 @@ void Cpu::task_switch(uint16_t tss_selector, TaskLink link, bool has_error, uint
     bool new_is32;
     bool task_trap = false;
     if (link == TaskLink::Iret) {
-        // The task being returned to is by definition still marked busy.
+        // The task being returned to is still marked busy.
         if (nt == SYS_TSS32_BUSY) new_is32 = true;
         else if (nt == SYS_TSS16_BUSY) new_is32 = false;
         else { raise_sel(EXC_TS, tss_selector); }
@@ -1485,29 +1283,20 @@ void Cpu::task_switch(uint16_t tss_selector, TaskLink link, bool has_error, uint
     if (!acc_present(na)) raise_sel(EXC_NP, tss_selector);
     uint32_t new_base = desc_base(nd);
     uint32_t new_limit = desc_limit(nd);
-    // A 32-bit TSS is 104 bytes of architectural state, a 16-bit one 44;
-    // anything smaller cannot hold a task (Intel 80486 PRM: "#TS if TSS
-    // segment limit less than 67h" for the 32-bit form).
+    // Minimum TSS limit: 67h for 32-bit, 2Bh for 16-bit (Intel 80486 PRM, #TS).
     if (new_limit < (new_is32 ? 0x67u : 0x2Bu)) raise_sel(EXC_TS, tss_selector);
-    // A TSS whose saved EFLAGS has VM set describes a virtual-8086 task, and
-    // entering V86 through a task gate is a deliberate, documented gap (see
-    // cpu80486.h's header): the CS load below is a bespoke descriptor lookup
-    // that would read an 8086 segment value as a selector and take CPL from
-    // its low two bits. Reporting the TSS as invalid stops here instead, with
-    // nothing yet committed -- a period V86 memory manager enters the mode
-    // with an IRETD inside one task, which far_return() implements. (A 16-bit
-    // TSS has no room for EFLAGS' upper half, so it cannot ask for this.)
+    // A TSS with VM set in its saved EFLAGS needs V86 entry through a task
+    // gate, which is not implemented: the CS load below would read an 8086
+    // segment value as a selector. Fails before anything is committed. Period
+    // V86 managers use IRETD instead.
     if (new_is32 && (read_tss_dword(new_base, 36) & FLAG_VM)) raise_sel(EXC_TS, tss_selector);
 
-    // 1. Save the outgoing task's state. TR must already be valid -- a task
-    // switch out of "no task at all" is a software error, not a bootstrap
-    // case: LTR is what makes the CPU consider itself inside a task.
+    // 1. Save the outgoing state. LTR is what puts the CPU in a task, so TR
+    // must be valid.
     if (tr_access_ == 0) raise_sel(EXC_TS, tr_sel_);
     bool old_is32 = (sys_type(tr_access_) == SYS_TSS32_AVAIL || sys_type(tr_access_) == SYS_TSS32_BUSY);
     uint32_t ob = tr_.base;
-    // The NT flag saved into the outgoing TSS is cleared on an IRET-driven
-    // return, because the nesting that flag recorded is exactly what is
-    // being unwound.
+    // An IRET-driven return clears the saved NT, unwinding the nesting.
     uint32_t save_flags = eflags;
     if (link == TaskLink::Iret) save_flags &= ~uint32_t(FLAG_NT);
     if (old_is32) {
@@ -1531,11 +1320,8 @@ void Cpu::task_switch(uint16_t tss_selector, TaskLink link, bool has_error, uint
         lin_write16(ob + 38, ss); lin_write16(ob + 40, ds);
     }
 
-    // 2. Busy bits and the back link. A JMP hands the CPU over and clears
-    // the outgoing task's busy bit; a CALL (or an interrupt through a task
-    // gate) nests, leaving the outgoing task busy and recording it in the
-    // incoming TSS's back link plus EFLAGS.NT; an IRET unwinds, clearing
-    // the outgoing task's busy bit as it leaves.
+    // 2. Busy bits and back link. JMP clears the outgoing busy bit; CALL nests
+    // (outgoing stays busy, back link and NT recorded); IRET unwinds.
     auto set_busy = [&](uint16_t sel, bool busy) {
         uint32_t addr = gdtr_.base + (sel & 0xFFF8u) + 4;
         uint32_t hi = lin_read32(addr, true);
@@ -1547,8 +1333,8 @@ void Cpu::task_switch(uint16_t tss_selector, TaskLink link, bool has_error, uint
     if (link == TaskLink::Call) lin_write16(new_base + 0, tr_sel_);
     if (link != TaskLink::Iret) set_busy(tss_selector, true);
 
-    // 3. TR now points at the incoming task, and CR0.TS is set so the first
-    // FPU instruction in it traps #NM and the handler can swap FPU state.
+    // 3. TR points at the incoming task; CR0.TS makes its first FPU op trap #NM
+    // so the handler can swap FPU state.
     tr_sel_ = tss_selector;
     tr_.base = new_base;
     tr_.limit = uint16_t(new_limit > 0xFFFFu ? 0xFFFFu : new_limit);
@@ -1571,13 +1357,11 @@ void Cpu::task_switch(uint16_t tss_selector, TaskLink link, bool has_error, uint
         n_ss = read_tss_word(new_base, 80); n_ds = read_tss_word(new_base, 84);
         n_fs = read_tss_word(new_base, 88); n_gs = read_tss_word(new_base, 92);
         new_ldt = read_tss_word(new_base, 96);
-        // CR3 is per-task: each task can have its own page tables, which is
-        // the whole reason CR3 lives in the TSS. Only reloaded with paging
-        // actually enabled.
+        // CR3 is per-task, reloaded only with paging on.
         if (paging_enabled()) { cr_[3] = new_cr3; tlb_flush(); }
         esp = new_esp;
-        // The T bit traps once the switch completes, with DR6.BT set
-        // (Intel 80386 PRM, "Debug Exceptions").
+        // The T bit traps after the switch with DR6.BT set (Intel 80386 PRM,
+        // "Debug Exceptions").
         task_trap = (read_tss_word(new_base, 100) & 1u) != 0;
     } else {
         new_eip   = read_tss_word(new_base, 14);
@@ -1595,8 +1379,7 @@ void Cpu::task_switch(uint16_t tss_selector, TaskLink link, bool has_error, uint
     if (link == TaskLink::Call) new_flags |= FLAG_NT;
     eflags = (new_flags & 0x003F7FD5u) | FLAG_R1;
 
-    // 5. LDTR first: the incoming task's segment selectors may well be LDT
-    // selectors, so the LDT has to be in place before any of them load.
+    // 5. LDTR first: the incoming selectors may be LDT selectors.
     ldt_sel_ = new_ldt;
     if ((new_ldt & 0xFFFCu) != 0) {
         RawDesc ld = read_desc(new_ldt, EXC_TS);
@@ -1610,8 +1393,7 @@ void Cpu::task_switch(uint16_t tss_selector, TaskLink link, bool has_error, uint
         ldtr_.limit = 0;
     }
 
-    // 6. CS before the data segments, because CPL comes from CS and every
-    // data-segment privilege check reads it.
+    // 6. CS before the data segments; CPL comes from CS.
     if ((n_cs & 0xFFFCu) == 0) raise_sel(EXC_TS, n_cs);
     RawDesc cd = read_desc(n_cs, EXC_TS);
     uint8_t ca = uint8_t((cd.hi >> 8) & 0xFF);
@@ -1630,8 +1412,8 @@ void Cpu::task_switch(uint16_t tss_selector, TaskLink link, bool has_error, uint
     load_seg(SEG_ES, n_es);
     if (new_is32) { load_seg(SEG_FS, n_fs); load_seg(SEG_GS, n_gs); }
 
-    // 7. An exception delivered through a task gate still owes its handler
-    // the error code, pushed on the *new* task's stack.
+    // 7. An exception through a task gate pushes its error code on the new
+    // task's stack.
     if (has_error) {
         if (new_is32) push32(error); else push16(uint16_t(error));
     }
@@ -1639,9 +1421,6 @@ void Cpu::task_switch(uint16_t tss_selector, TaskLink link, bool has_error, uint
 }
 
 // --- register file ----------------------------------------------------
-
-// get_reg8/16/32 and set_reg8/16/32 are defined at the bottom of
-// cpu80486.h -- see the general-register file table there.
 
 uint16_t &Cpu::seg_reg(int idx) {
     switch (idx) {
@@ -1678,12 +1457,8 @@ Cpu::RM Cpu::decode_modrm_slow(uint8_t modrm) {
     bool has_base = false, has_index = false, has_disp = false;
 
     if (addrsize32_) {
-        // 32-bit addressing (Intel 80486 PRM, "Addressing Modes" / the
-        // 32-bit ModR/M and SIB tables). Reached via the 0x67 prefix,
-        // which a 486 honors in real mode exactly as in protected mode --
-        // the prefix selects the *addressing form*, and has nothing to do
-        // with what mode the CPU is in. cpu80286.h deliberately omitted
-        // all of this; here it is native behavior.
+        // 32-bit addressing (Intel 80486 PRM, ModR/M and SIB tables). The 0x67
+        // prefix selects the form in any mode, real mode included.
         int base_reg = -1, index_reg = -1, scale = 0;
         int disp_size = 0;  // 0, 1 or 4 bytes
         if (rm == 4) {
@@ -1691,8 +1466,7 @@ Cpu::RM Cpu::decode_modrm_slow(uint8_t modrm) {
             scale = (sib >> 6) & 3;
             int idx = (sib >> 3) & 7;
             int b = sib & 7;
-            // index == 4 (ESP) encodes "no index register" -- ESP can
-            // never be an index on real hardware.
+            // index == 4 means no index; ESP can't be an index.
             if (idx != 4) index_reg = idx;
             if (b == 5 && mod == 0) disp_size = 4;  // no base register, disp32 only
             else base_reg = b;
@@ -1716,12 +1490,12 @@ Cpu::RM Cpu::decode_modrm_slow(uint8_t modrm) {
         if (index_reg >= 0) { ea += get_reg32(index_reg) << scale; has_index = true; }
         ea += disp;
         has_disp = (disp_size != 0);
-        // ESP- or EBP-based addressing defaults to SS, everything else to
-        // DS (Intel 80486 PRM, "Default Segment Attribute").
+        // ESP or EBP base defaults to SS (Intel 80486 PRM, "Default Segment
+        // Attribute").
         default_ss = has_base && (base_reg == 4 || base_reg == 5);
     } else {
-        // 16-bit addressing (Intel 8086 manual table 2-19, unchanged
-        // through the 486). Each intermediate sum wraps mod 64KB.
+        // 16-bit addressing (Intel 8086 manual table 2-19); intermediate sums
+        // wrap mod 64KB.
         uint16_t a16 = 0;
         bool disp_only = false;
         switch (rm) {
@@ -1737,7 +1511,6 @@ Cpu::RM Cpu::decode_modrm_slow(uint8_t modrm) {
                 break;
             default: a16 = uint16_t(ebx); has_base = true; break;  // rm == 7
         }
-        // The register that heads each 16-bit form: BX, BP, SI or DI.
         static constexpr uint8_t kBase16[8] = {3, 3, 5, 5, 6, 7, 5, 3};
         if (has_base && agi(kBase16[rm])) extra_cycles_ += 1;
         if (!disp_only) {
@@ -1747,16 +1520,13 @@ Cpu::RM Cpu::decode_modrm_slow(uint8_t modrm) {
         ea = a16;
     }
 
-    // Published 486 effective-address penalty: the base+index+displacement
-    // form costs one extra clock, every other form costs nothing extra
-    // (Quantasm table legend, "286 - 486: base+index+disp = +1, all
-    // others, no penalty"). Charged once per decoded memory operand.
+    // Quantasm legend: base+index+disp costs +1 on 286-486, all other forms
+    // nothing.
     if (has_base && has_index && has_disp) extra_cycles_ += 1;
 
     int seg = default_ss ? int(SEG_SS) : int(SEG_DS);
     if (seg_override_ >= 0) seg = seg_override_;
     out.seg = uint8_t(seg);
-    // The offset reaches the bus as computed, untruncated -- see RM::off.
     out.off = ea;
     out.disp = has_disp;
     return out;
@@ -1926,13 +1696,9 @@ uint32_t Cpu::alu_apply32(int alu, uint32_t a, uint32_t b) {
 }
 
 int Cpu::alu_cost(int alu, bool dst_is_mem, bool any_mem) {
-    // Published 486 costs (Quantasm 486 column, ADD/ADC/SUB/SBB/AND/OR/XOR
-    // vs CMP): reg,reg and reg,imm and acc,imm = 1; reg,mem = 2;
-    // mem,reg and mem,imm = 3 -- except for CMP, which only *reads* memory
-    // and so costs 2 in every memory form. Charging one flat number for
-    // the whole group would either overcost every CMP against memory (the
-    // single most common instruction in a compare-and-branch loop) or
-    // undercost every read-modify-write.
+    // Published costs (Quantasm 486 column): reg,reg / reg,imm / acc,imm 1;
+    // reg,mem 2; mem,reg / mem,imm 3. CMP only reads memory, so it costs 2 in
+    // every memory form.
     if (!any_mem) return 1;
     if (alu == 7) return 2;         // CMP: no write-back
     return dst_is_mem ? 3 : 2;
@@ -1941,17 +1707,10 @@ int Cpu::alu_cost(int alu, bool dst_is_mem, bool any_mem) {
 // --- data-dependent cost models -------------------------------------------
 
 int Cpu::mul_cost(uint32_t multiplier, int width_bits) {
-    // Published 486 MUL/IMUL: r/m8 13-18, r/m16 13-26, r/m32 13-42, with
-    // register and memory operands costing the same. The range exists
-    // because the 486 uses an early-out multiply whose clock count depends
-    // on the position of the most significant bit of the multiplier.
-    // Intel publishes the mechanism and both endpoints but not a per-bit
-    // formula, so this is a model fitted to exactly those endpoints: the
-    // floor is 13, the ceiling is 13 + (width - 3) -- which reproduces
-    // 18/26/42 for widths 8/16/32 -- and the cost rises one clock per
-    // significant bit past the third. A multiplier of 0-3 costs the floor;
-    // one with its top bit set costs the ceiling. Labelled approximation
-    // of a published range, not an invented constant.
+    // Published MUL/IMUL: r/m8 13-18, r/m16 13-26, r/m32 13-42, same for
+    // register and memory. Early-out multiply, so the cost tracks the
+    // multiplier's top bit. Modelled as floor 13 plus one clock per significant
+    // bit past the third, reaching 18/26/42 at the ceiling for widths 8/16/32.
     const int floor_cost = 13;
     const int ceil_cost = 13 + (width_bits - 3);
     int msb = 0;
@@ -1963,23 +1722,17 @@ int Cpu::mul_cost(uint32_t multiplier, int width_bits) {
 }
 
 int Cpu::bitscan_cost(int bits_examined, bool is_mem) {
-    // Published 486: BSF 6-42 (register source) / 7-43 (memory source);
-    // BSR 6-103 / 7-104. Both scan one bit position at a time, so the cost
-    // charged is the published floor plus one clock per bit actually
-    // examined -- which stays inside BSF's range for every operand width
-    // and at the low end of BSR's (wider) one. Labelled model of a
-    // published range; Intel gives the endpoints, not a per-bit figure.
+    // Published BSF 6-42 (register) / 7-43 (memory), BSR 6-103 / 7-104. One
+    // clock per bit examined on top of the floor, inside BSF's range for every
+    // width.
     return (is_mem ? 7 : 6) + bits_examined;
 }
 
 int Cpu::rotate_carry_cost(int count, bool is_mem) {
-    // Published 486 RCL/RCR by CL or by imm8: 8-30 (register operand),
-    // 9-31 (memory operand) -- unlike the plain shifts and rotates, which
-    // the 486's barrel shifter makes count-independent, rotate-through-
-    // carry is iterative. Linear in the count and anchored to both
-    // published endpoints: count 1 costs the floor, and the cost saturates
-    // at the ceiling. (The fixed by-1 encodings D0/D1 are a separate,
-    // cheaper published case -- 3/4 -- handled in grp2_shift().)
+    // Published RCL/RCR by CL or imm8: 8-30 (register), 9-31 (memory);
+    // rotate-through-carry is iterative. Linear in count from the floor at
+    // count 1, saturating at the ceiling. The by-1 encodings D0/D1 are a
+    // separate case (3/4).
     int c = (is_mem ? 8 : 7) + count;
     int cap = is_mem ? 31 : 30;
     return c > cap ? cap : c;
@@ -2083,10 +1836,8 @@ uint32_t Cpu::shiftrot32(int op, uint32_t v, int count) {
 }
 
 void Cpu::shld(const RM &rm, int src_reg, int count, bool right) {
-    // SHLD/SHRD r/m, r, count (386+, Intel 80486 PRM): shifts the
-    // destination by `count`, filling the vacated bits from the *source
-    // register* rather than with zeros or sign. A count of 0 changes
-    // nothing and leaves every flag alone; counts are masked mod 32.
+    // SHLD/SHRD r/m, r, count (386+): fills the vacated bits from the source
+    // register. Count 0 leaves flags alone; counts are masked mod 32.
     count &= 0x1F;
     if (count == 0) return;
     if (opsize32_) {
@@ -2104,26 +1855,18 @@ void Cpu::shld(const RM &rm, int src_reg, int count, bool right) {
         set_pzs32(res);
         rm_write32(rm, res);
     } else {
-        // Intel calls a 16-bit double shift with a count above 15
-        // "undefined" (Intel 80486 PRM, SHLD/SHRD), but the 486 has one
-        // 32-bit shifter and Borland's runtime `unsigned long` shift
-        // helpers -- shipped inside CWSDPMI, called with cl=24 -- are only
-        // correct across the full 0-31 range because of what it actually
-        // does: shift the 32-bit dest:src concatenation and keep the named
-        // half, so above 15 the source register's bits reach the
-        // destination. See PC486_REVIEW.md §9.
-        //
-        // 64-bit because a 32-bit `pair << count` would overflow; narrowed
-        // back to 32, the real shifter's width, so bits shifted off the top
-        // are lost exactly as hardware loses them.
+        // Intel calls a 16-bit double shift with count above 15 undefined, but
+        // the 486 shifts the 32-bit dest:src pair and keeps the named half, and
+        // Borland's runtime shift helpers in CWSDPMI (cl=24) depend on that
+        // (PC486_REVIEW.md §9).
+        // 64-bit pair so the shift can't overflow; narrowed to 32 so bits
+        // shifted off the top are lost.
         uint16_t dst = rm_read16(rm), src = get_reg16(src_reg);
         uint64_t pair = right ? ((uint64_t(src) << 16) | dst) : ((uint64_t(dst) << 16) | src);
         uint16_t res;
         bool cf;
         if (!right) {
-            // CF is the last bit shifted out of the 32-bit pair. For a
-            // documented count (1-16) that bit is dest's bit 16-count,
-            // exactly as the manual specifies.
+            // CF is dest's bit 16-count for documented counts (1-16).
             cf = ((pair >> (32 - count)) & 1) != 0;
             res = uint16_t(uint32_t(pair << count) >> 16);
         } else {
@@ -2182,10 +1925,8 @@ void Cpu::das() {
     set_flag(FLAG_AF, af);
     set_pzs8(al);
 }
-// From the 80286 on, AAA/AAS adjust all of AX, so a carry or borrow out of AL
-// reaches AH; the 8086 adjusted AL alone (Intel SDM AAA/AAS, "AX := AX +
-// 106H" / "AX := AX - 6; AH := AH - 1"; 8086 vs 286 noted in the Intel 8086
-// opcode notes at pcjs.org).
+// From the 286 on, AAA/AAS adjust all of AX so a carry or borrow out of AL
+// reaches AH; the 8086 adjusted AL alone (Intel SDM AAA/AAS).
 void Cpu::aaa() {
     uint16_t ax = get_reg16(0);
     if (((ax & 0x0F) > 9) || flag(FLAG_AF)) {
@@ -2245,7 +1986,7 @@ void Cpu::pusha() {
 void Cpu::popa() {
     if (opsize32_) {
         edi = pop32(); esi = pop32(); ebp = pop32();
-        pop32();  // the saved SP slot is discarded -- SP is already correct from the pops themselves
+        pop32();  // saved SP slot is discarded
         ebx = pop32(); edx = pop32(); ecx = pop32(); eax = pop32();
     } else {
         set_reg16(7, pop16()); set_reg16(6, pop16()); set_reg16(5, pop16());
@@ -2335,14 +2076,12 @@ bool Cpu::cond(int cc) const {
 }
 void Cpu::jcc_rel8(bool taken) {
     int8_t rel = int8_t(fetch8());
-    // A relative branch's target wraps inside the code segment's own width:
-    // mod 64KB in a 16-bit segment, mod 4GB in a 32-bit one.
+    // The target wraps in the segment's own width.
     if (taken) set_ip(uint32_t(eip + uint32_t(int32_t(rel))));
 }
 int Cpu::loop_group(uint8_t op) {
     int8_t rel = int8_t(fetch8());
-    // The 0x67 address-size prefix selects CX vs ECX as the loop counter
-    // (LOOPW/LOOPD, JCXZ/JECXZ) -- genuine 386+/486 behavior.
+    // 0x67 selects CX vs ECX as the loop counter.
     bool use_ecx = addrsize32_;
     bool take;
     if (op == 0xE3) {  // JCXZ / JECXZ
@@ -2355,12 +2094,9 @@ int Cpu::loop_group(uint8_t op) {
         else take = counter_nz;                                  // LOOP
     }
     if (take) set_ip(uint32_t(eip + uint32_t(int32_t(rel))));
-    // Published 486 costs (Quantasm 486 column, "no jump/jump"):
-    // LOOP 6/7, LOOPE and LOOPNE 6/9, JCXZ 5/8. Charged per-op and
-    // per-outcome rather than one flat number, because a decrement-and-
-    // branch counting loop is exactly what a CPU-speed benchmark's inner
-    // loop is built from -- ibmpc-at's own Landmark Speed Test
-    // investigation (IBM_PCAT_REVIEW.md) turned on precisely this opcode.
+    // Published costs (Quantasm 486 column, no jump/jump): LOOP 6/7, LOOPE and
+    // LOOPNE 6/9, JCXZ 5/8. Charged per op and outcome since counting loops are
+    // what speed benchmarks run.
     if (op == 0xE3) return take ? 8 : 5;
     if (op == 0xE2) return take ? 7 : 6;
     return take ? 9 : 6;
@@ -2371,30 +2107,20 @@ int Cpu::loop_group(uint8_t op) {
 int Cpu::string_op(uint8_t op) {
     bool wide = (op & 1) != 0;
     bool is_rep = (rep_ != REP_NONE);
-    // The source segment honors an override prefix; the destination is
-    // always ES and never can be overridden (Intel 8086 manual onward).
+    // The source honors an override; the destination is always ES.
     int src_seg = (seg_override_ >= 0) ? seg_override_ : int(SEG_DS);
     bool is_cmp_scan = (op == 0xA6 || op == 0xA7 || op == 0xAE || op == 0xAF);
-    // A 0x66 prefix widens a word string op to a dword one (MOVSD, STOSD,
-    // ...); byte forms are never affected. A 0x67 prefix selects
-    // ESI/EDI/ECX over SI/DI/CX as the pointers and counter -- genuine
-    // 386+/486 behavior, and the same addressing width decode_modrm()
-    // honors, so the pointers can legitimately run past 0FFFFh in the
-    // "unreal mode" a period DOS memory manager sets up (see cpu80486.h's
-    // flat 32-bit accessors and PC486_REVIEW.md §5.4). FreeDOS 1.3's
-    // HimemX copies XMS blocks with exactly `F3 67 66 A5` (REP MOVSD,
-    // addr32), so advancing only the 16-bit halves here silently moved
-    // every block to a wrapped, wrong address.
+    // 0x66 widens word string ops to dword; 0x67 selects ESI/EDI/ECX. Pointers
+    // can pass 0FFFFh in unreal mode (PC486_REVIEW.md §5.4): HimemX copies XMS
+    // blocks with F3 67 66 A5 (REP MOVSD, addr32).
     bool dword = wide && opsize32_;
     bool addr32 = addrsize32_;
     auto counter = [&]() -> uint32_t { return addr32 ? ecx : uint32_t(uint16_t(ecx)); };
     auto dec_counter = [&]() { if (addr32) ecx = ecx - 1; else set_reg16(1, uint16_t(ecx - 1)); };
-    int iterations = 0;  // actually executed -- REPE/REPNE can stop short of the original CX
-    // Under TF a REP runs one iteration per step and traps between them,
-    // with EIP left on the instruction until the last (Intel 80486 PRM,
-    // "Single-Step Trap").
+    int iterations = 0;  // executed; REPE/REPNE can stop short of CX
+    // Under TF a REP runs one iteration per step, EIP staying on the
+    // instruction until the last (Intel 80486 PRM, "Single-Step Trap").
     const bool step_each = is_rep && flag(FLAG_TF);
-    // The per-iteration term of each REP formula below.
     const int per_iteration = (op == 0xA4 || op == 0xA5) ? 3 : (op == 0xA6 || op == 0xA7) ? 7
                             : (op == 0xAA || op == 0xAB) ? 4 : 5;
     do {
@@ -2449,8 +2175,8 @@ int Cpu::string_op(uint8_t op) {
             if (rep_ == REP_Z && !z) break;   // REPE/REPZ: stop once not-equal
             if (rep_ == REP_NZ && z) break;   // REPNE/REPNZ: stop once equal
         }
-        // A watchpoint hit ends the REP after this iteration, so the trap
-        // reports it with EIP still on the instruction.
+        // A watchpoint hit ends the REP after this iteration, with EIP still on
+        // the instruction.
         if (step_each || (dbg_pending_ & 0x0F)) {
             if (counter() != 0) eip = step_start_eip_;
             break;
@@ -2462,17 +2188,12 @@ int Cpu::string_op(uint8_t op) {
             break;
         }
     } while (is_rep && counter() != 0);
-    // A continuation pays only for its own iterations; the setup cost in
-    // the formulas below was paid by the step that started the REP.
+    // A continuation pays only for its own iterations; the first step paid
+    // setup.
     if (is_rep && rep_resumed_) return iterations * per_iteration;
-    // Published 486 string costs (Quantasm 486 column). The REP forms are
-    // formulas in n, the number of iterations that actually ran (which for
-    // REPE/REPNE can be fewer than the original CX), plus two documented
-    // special cases carried verbatim from the table's footnote: "5 if n=0,
-    // 13 if n=1" for REP MOVS and REP STOS, and "5 if n=0" for the
-    // compare/scan forms. Charging a flat per-instruction number instead
-    // would bill a REP MOVSD copying a 512-byte sector the same as copying
-    // one byte -- the bulk-copy undercount ibmpc-at hit.
+    // Published string costs (Quantasm 486 column). REP forms are formulas in
+    // n, the iterations actually run, with the footnote's "5 if n=0, 13 if n=1"
+    // for REP MOVS/STOS and "5 if n=0" for compare/scan forms.
     const int n = iterations;
     switch (op) {
         case 0xA4: case 0xA5:  // MOVS 7; REP MOVS 12+3n
@@ -2485,10 +2206,8 @@ int Cpu::string_op(uint8_t op) {
             if (!is_rep) return 5;
             return n == 0 ? 5 : (n == 1 ? 13 : 7 + 4 * n);
         case 0xAC: case 0xAD:
-            // LODS 5. The 486 table publishes no REP LODS formula, because
-            // real software never REPs it -- every iteration but the last
-            // just clobbers AL/EAX -- so the single-iteration cost stands
-            // even for the degenerate REP-prefixed form.
+            // LODS 5. No REP LODS formula is published since software never
+            // REPs it.
             return 5;
         default:               // SCAS 6; REP(N)E SCAS 7+5n
             if (!is_rep) return 6;
@@ -2497,20 +2216,19 @@ int Cpu::string_op(uint8_t op) {
 }
 int Cpu::io_string_op(uint8_t op) {
     bool wide = (op & 1) != 0;
-    bool is_rep = (rep_ != REP_NONE);  // only a plain REP is meaningful here on real hardware
+    bool is_rep = (rep_ != REP_NONE);  // plain REP only
     int src_seg = (seg_override_ >= 0) ? seg_override_ : int(SEG_DS);
-    // 0x66 makes INSD/OUTSD and 0x67 selects ESI/EDI/ECX, as for the other
-    // string instructions (Intel 80486 PRM, INS and OUTS).
+    // As for the other string ops: 0x66 makes INSD/OUTSD, 0x67 selects
+    // ESI/EDI/ECX (Intel 80486 PRM, INS and OUTS).
     bool dword = wide && opsize32_;
     bool addr32 = addrsize32_;
     int size = dword ? 4 : (wide ? 2 : 1);
     auto counter = [&]() -> uint32_t { return addr32 ? ecx : uint32_t(uint16_t(ecx)); };
     int iterations = 0;
-    const bool step_each = is_rep && flag(FLAG_TF);  // see string_op()
+    const bool step_each = is_rep && flag(FLAG_TF);
     do {
         if (is_rep && counter() == 0) break;
-        // Each transfer is an I/O access, so it takes the same IOPL and
-        // permission-bitmap check IN and OUT do.
+        // Each transfer takes the IOPL and permission-bitmap check.
         check_io_permission(uint16_t(edx), size);
         int dir = flag(FLAG_DF) ? -size : size;
         if (op == 0x6C || op == 0x6D) {  // INS: port DX -> ES:DI
@@ -2529,8 +2247,8 @@ int Cpu::io_string_op(uint8_t op) {
         ++iterations;
         if (!is_rep) break;
         if (addr32) ecx = ecx - 1; else set_reg16(1, uint16_t(ecx - 1));
-        // A watchpoint hit ends the REP after this iteration, so the trap
-        // reports it with EIP still on the instruction.
+        // A watchpoint hit ends the REP after this iteration, with EIP still on
+        // the instruction.
         if (step_each || (dbg_pending_ & 0x0F)) {
             if (counter() != 0) eip = step_start_eip_;
             break;
@@ -2541,12 +2259,9 @@ int Cpu::io_string_op(uint8_t op) {
             break;
         }
     } while (is_rep && counter() != 0);
-    // Published 486: INS and OUTS both cost 17 in real mode. The table
-    // publishes no separate REP INS/REP OUTS formula for the 486 column,
-    // so this core charges the published single-iteration cost once per
-    // iteration actually run, and the same documented "5 if n=0" empty-rep
-    // cost the other string forms use. Labelled inference from the
-    // published per-iteration figure, not a cited REP formula.
+    // Published INS and OUTS cost 17 in real mode. No REP formula is published,
+    // so one iteration's cost is charged per iteration run, with the same "5 if
+    // n=0" as the other string forms.
     if (!is_rep) return 17;
     return iterations == 0 ? 5 : 17 * iterations;
 }
@@ -2593,12 +2308,9 @@ int Cpu::grp2_shift(uint8_t op) {  // 0xC0/0xD0/0xD2: 8-bit  0xC1/0xD1/0xD3: 16/
         uint16_t res = shiftrot16(alu, rm_read16(rm), count);
         if ((count & 0x1F) != 0) rm_write16(rm, res);
     }
-    // Published 486 costs (Quantasm 486 column). The 486's barrel shifter
-    // makes SHL/SHR/SAR/ROL/ROR count-INDEPENDENT -- a real departure from
-    // the 286, whose cost was 5+n/8+n. Only RCL/RCR remain iterative (see
-    // rotate_carry_cost). The by-1 encodings (D0/D1) and the by-imm8 ones
-    // (C0/C1) are separately published cases, not the same number: a
-    // register shift by an immediate is 2, by 1 or by CL it is 3.
+    // Published costs (Quantasm 486 column). The barrel shifter makes
+    // SHL/SHR/SAR/ROL/ROR count-independent, unlike the 286; only RCL/RCR
+    // iterate. A register shift is 2 by imm8 and 3 by 1 or CL.
     bool rc = (alu == 2 || alu == 3);  // RCL/RCR
     if (by_one) return rm.is_mem ? 4 : 3;
     if (rc) return rotate_carry_cost(count & 0x1F, rm.is_mem);
@@ -2731,14 +2443,10 @@ int Cpu::grp3_unary(uint8_t op) {  // 0xF6: r/m8  0xF7: r/m16/32 -- TEST/NOT/NEG
         }
     }
     (void)faulted;
-    // Published 486 costs (Quantasm 486 column). TEST is read-only (1 reg /
-    // 2 mem) and NOT/NEG read-modify-write (1 / 3), while MUL and the
-    // divides are an order of magnitude more expensive -- DIV r/m32 is 40
-    // clocks, IDIV r/m32 43/44. A single flat group cost would undercost
-    // exactly the DIV/MUL-heavy loop a period CPU-speed benchmark uses,
-    // which is the concrete regression ibmpc-at's timing work chased down
-    // (IBM_PCAT_REVIEW.md). Note the 486 charges the *same* cost for a
-    // memory and a register MUL operand, and only +1 for IDIV's.
+    // Published costs (Quantasm 486 column). TEST is 1 reg / 2 mem, NOT/NEG 1 /
+    // 3, DIV r/m32 40, IDIV r/m32 43/44. MUL costs the same for memory and
+    // register operands; IDIV adds 1 for memory. A flat group cost would
+    // undercost the DIV/MUL-heavy loops speed benchmarks use.
     switch (alu) {
         case 0: case 1: return rm.is_mem ? 2 : 1;                                 // TEST
         case 2: case 3: return rm.is_mem ? 3 : 1;                                 // NOT, NEG
@@ -2784,9 +2492,8 @@ int Cpu::grp5(uint8_t op) {  // 0xFE: INC/DEC r/m8   0xFF: INC/DEC/CALL/JMP/PUSH
             if (opsize32_) { off = read32(rm.seg, rm.off); seg = read16(rm.seg, seg_off(rm.off, 4)); }
             else { off = read16(rm.seg, rm.off); seg = read16(rm.seg, seg_off(rm.off, 2)); }
             int c = far_transfer(seg, off, true);
-            // Published 486: CALL far *indirect* costs 17 in real mode,
-            // where the direct form costs 18; the protected-mode row is 20
-            // for both, so only the real-mode figure needs correcting.
+            // Published CALL far indirect is 17 in real mode (direct is 18);
+            // protected is 20 for both.
             if (!protected_mode()) c = 17;
             return c;
         }
@@ -2800,8 +2507,8 @@ int Cpu::grp5(uint8_t op) {  // 0xFE: INC/DEC r/m8   0xFF: INC/DEC/CALL/JMP/PUSH
             if (opsize32_) { off = read32(rm.seg, rm.off); seg = read16(rm.seg, seg_off(rm.off, 4)); }
             else { off = read16(rm.seg, rm.off); seg = read16(rm.seg, seg_off(rm.off, 2)); }
             int c = far_transfer(seg, off, false);
-            // Published 486: JMP far indirect is 13 in real mode against
-            // the direct form's 17; protected mode publishes 18 and 19.
+            // Published JMP far indirect is 13 in real mode (direct is 17);
+            // protected is 18 and 19.
             if (!protected_mode()) c = 13;
             else if (c == 19) c = 18;
             return c;
@@ -2832,11 +2539,7 @@ bool Cpu::probe_desc(uint16_t selector, RawDesc &out) {
 int Cpu::grp0f00() {  // SLDT/STR/LLDT/LTR/VERR/VERW r/m16
     RM rm = decode_modrm();
     int sub = last_reg_;
-    // Every member of this group needs descriptor tables to mean anything,
-    // and Intel documents all six as "not recognized in Real Address Mode"
-    // -- they are invalid-opcode faults there, not no-ops. (Milestone 1
-    // made them documented no-ops because this core had no protected mode
-    // at all; now that it does, the real behavior is available.)
+    // Not recognized in real address mode (Intel 80486 PRM): #UD, not a no-op.
     if (!protected_mode()) raise(EXC_UD);
     switch (sub) {
         case 0: rm_write16(rm, ldt_sel_); return rm.is_mem ? 3 : 2;   // SLDT
@@ -2845,14 +2548,14 @@ int Cpu::grp0f00() {  // SLDT/STR/LLDT/LTR/VERR/VERW r/m16
             if (cpl() != 0) raise_err(EXC_GP, 0);
             uint16_t sel = rm_read16(rm);
             if ((sel & 0xFFFCu) == 0) {
-                // A null LDT selector is legal: it marks the task as having
-                // no LDT, and only a later LDT-selector reference faults.
+                // A null LDT selector means no LDT; only a later LDT reference
+                // faults.
                 ldt_sel_ = sel;
                 ldtr_.base = 0;
                 ldtr_.limit = 0;
                 return 11;
             }
-            if (sel & 0x0004u) raise_sel(EXC_GP, sel);  // an LDT's own descriptor lives in the GDT
+            if (sel & 0x0004u) raise_sel(EXC_GP, sel);  // an LDT's descriptor lives in the GDT
             RawDesc d = read_desc(sel, EXC_GP);
             uint8_t a = uint8_t((d.hi >> 8) & 0xFF);
             if (!acc_system(a) || sys_type(a) != SYS_LDT) raise_sel(EXC_GP, sel);
@@ -2873,9 +2576,8 @@ int Cpu::grp0f00() {  // SLDT/STR/LLDT/LTR/VERR/VERW r/m16
             if (!acc_system(a) || (t != SYS_TSS16_AVAIL && t != SYS_TSS32_AVAIL))
                 raise_sel(EXC_GP, sel);
             if (!acc_present(a)) raise_sel(EXC_NP, sel);
-            // LTR marks the task busy in its descriptor. From here on the
-            // CPU considers itself executing that task, which is exactly
-            // what lets a later task switch save state into it.
+            // LTR marks the task busy; from here the CPU is executing it, so a
+            // task switch can save into it.
             uint32_t addr = gdtr_.base + (sel & 0xFFF8u) + 4;
             uint32_t hi = lin_read32(addr, true);
             lin_write32(addr, hi | 0x00000200u);
@@ -2887,8 +2589,7 @@ int Cpu::grp0f00() {  // SLDT/STR/LLDT/LTR/VERR/VERW r/m16
             return 20;
         }
         default: {  // VERR (/4) and VERW (/5)
-            // These report through ZF and never fault on a bad selector --
-            // that is their entire purpose: "can I safely load this?"
+            // Reports through ZF; never faults on a bad selector.
             uint16_t sel = rm_read16(rm);
             bool want_write = (sub == 5);
             RawDesc d;
@@ -2900,8 +2601,8 @@ int Cpu::grp0f00() {  // SLDT/STR/LLDT/LTR/VERR/VERW r/m16
                 if (acc_system(a)) ok = false;
                 else if (want_write) ok = acc_writable(a);
                 else ok = acc_readable(a);
-                // A conforming code segment is readable from any level; for
-                // everything else the effective privilege must reach it.
+                // Conforming is readable from any level; otherwise the
+                // effective privilege must reach it.
                 if (ok && !acc_conforming(a) && eff > acc_dpl(a)) ok = false;
                 if (ok && !acc_present(a)) ok = false;
             }
@@ -2928,12 +2629,9 @@ int Cpu::grp0f01() {  // SGDT/SIDT/LGDT/LIDT/SMSW/LMSW/INVLPG
             if (protected_mode() && cpl() != 0) raise_err(EXC_GP, 0);
             uint16_t limit = read16(rm.seg, rm.off);
             uint32_t base = read32(rm.seg, seg_off(rm.off, 2));
-            // With a 16-bit operand size only 24 bits of base are loaded --
-            // the 286-compatible form of the 6-byte pseudo-descriptor
-            // (Intel 80486 PRM, LGDT/LIDT). A 486 in real mode defaults to
-            // 16-bit operands, so the classic real-mode `LGDT [x]` a DOS
-            // extender emits loads a 24-bit base, which is all it needs for
-            // a GDT below 16MB.
+            // A 16-bit operand loads only 24 bits of base (286-compatible form,
+            // Intel 80486 PRM, LGDT/LIDT), so a real-mode DOS extender's LGDT
+            // gets a 24-bit base.
             if (!opsize32_) base &= 0x00FFFFFFu;
             DescTableReg &t = (last_reg_ == 2) ? gdtr_ : idtr_;
             t.limit = limit;
@@ -2946,10 +2644,8 @@ int Cpu::grp0f01() {  // SGDT/SIDT/LGDT/LIDT/SMSW/LMSW/INVLPG
         case 6: {  // LMSW r/m16
             if (protected_mode() && cpl() != 0) raise_err(EXC_GP, 0);
             uint16_t v = rm_read16(rm);
-            // LMSW writes only CR0's low four bits (PE MP EM TS) and,
-            // famously, cannot *clear* PE -- leaving protected mode needs a
-            // MOV to CR0, which is why 286 code could enter protected mode
-            // but never leave it (Intel 80486 PRM, LMSW).
+            // LMSW writes only CR0's low four bits and cannot clear PE; leaving
+            // protected mode needs MOV CR0 (Intel 80486 PRM, LMSW).
             uint32_t nv = (cr_[0] & 0xFFFFFFF0u) | uint32_t(v & 0x0Fu);
             if (cr_[0] & CR0_PE) nv |= CR0_PE;
             write_cr0(nv);
@@ -2958,11 +2654,8 @@ int Cpu::grp0f01() {  // SGDT/SIDT/LGDT/LIDT/SMSW/LMSW/INVLPG
         case 7:  // INVLPG m
             if (!rm.is_mem) raise(EXC_UD);
             if (protected_mode() && cpl() != 0) raise_err(EXC_GP, 0);
-            // The operand names a *linear* address whose TLB entry is
-            // dropped. Composed straight from the segment base rather than
-            // through seg_linear(), because invalidating an entry outside
-            // the segment's limit is harmless and INVLPG is not documented
-            // to raise a limit fault.
+            // Takes a linear address, built from the segment base without
+            // seg_linear(): INVLPG raises no limit fault.
             tlb_invalidate(seg_base(rm.seg) + rm.off);
             return 12;
         default:
@@ -2971,12 +2664,9 @@ int Cpu::grp0f01() {  // SGDT/SIDT/LGDT/LIDT/SMSW/LMSW/INVLPG
 }
 
 void Cpu::write_cr0(uint32_t v) {
-    // ET is hardwired to 1 on an Intel486 -- the FPU is on-die, so there is
-    // nothing for software to tell the CPU about it.
+    // ET is hardwired to 1.
     v |= CR0_ET;
-    // "Paging can be enabled only when protection is enabled" -- setting PG
-    // with PE clear is a #GP(0), not a silently dropped bit (Intel 80486
-    // PRM, CR0 description).
+    // PG without PE is #GP(0) (Intel 80486 PRM, CR0).
     if ((v & CR0_PG) && !(v & CR0_PE)) raise_err(EXC_GP, 0);
     // NW set with CD clear is the other invalid combination (Intel SDM, MOV CR).
     if ((v & CR0_NW) && !(v & CR0_CD)) raise_err(EXC_GP, 0);
@@ -2984,23 +2674,17 @@ void Cpu::write_cr0(uint32_t v) {
     cr_[0] = v;
     update_access_hooks();
     if ((old ^ v) & (CR0_PG | CR0_WP)) tlb_flush();
-    // Switching either direction deliberately reloads *nothing*: the
-    // descriptor caches keep exactly what they held. That is what makes the
-    // standard "set PE, then far-JMP to load a real CS" entry sequence work
-    // -- the instructions between the two run out of the old cached CS --
-    // and equally what makes the "unreal mode" exit trick work, where the
-    // big limit loaded in protected mode survives back into real mode
-    // (PC486_REVIEW.md §5.4).
+    // Neither direction reloads the descriptor caches. That is what makes
+    // set-PE-then-far-JMP work and what lets a big limit survive into real mode
+    // (unreal mode, PC486_REVIEW.md §5.4).
 }
 
 int Cpu::mov_control_reg(uint8_t op2) {
     RM rm = decode_modrm();
     int idx = last_reg_ & 7;
-    // These forms have no memory encoding: the other operand is always a
-    // general register, so a mod != 11 ModR/M is an invalid opcode.
+    // No memory encoding: mod != 11 is #UD.
     if (rm.is_mem) raise(EXC_UD);
     int gpr = rm.reg;
-    // Only ring 0 may touch the control or debug registers.
     if (protected_mode() && cpl() != 0) raise_err(EXC_GP, 0);
     switch (op2) {
         case 0x20:  // MOV r32, CRn
@@ -3012,8 +2696,6 @@ int Cpu::mov_control_reg(uint8_t op2) {
             uint32_t v = get_reg32(gpr);
             if (idx == 0) { write_cr0(v); return 16; }
             if (idx == 3) {
-                // Writing CR3 is the architectural "flush the whole TLB"
-                // operation -- how an OS switches address spaces.
                 cr_[3] = v;
                 tlb_flush();
                 return 4;
@@ -3022,16 +2704,15 @@ int Cpu::mov_control_reg(uint8_t op2) {
             return 4;
         }
         case 0x21: case 0x23:
-            // DR7.GD turns any debug-register access into a #DB fault with
-            // DR6.BD set, and clears itself so the handler can use them
-            // (Intel 80486 PRM, "Debug Control Register").
+            // DR7.GD turns a debug-register access into #DB with DR6.BD set and
+            // clears itself (Intel 80486 PRM, "Debug Control Register").
             if (dr_[7] & 0x2000u) {
                 dr_[6] |= 0x2000u;
                 dr_[7] &= ~0x2000u;
                 raise(EXC_DB);
             }
-            if (op2 == 0x21) { set_reg32(gpr, read_dr(idx)); return 10; }  // MOV r32, DRn
-            write_dr(idx, get_reg32(gpr));                                   // MOV DRn, r32
+            if (op2 == 0x21) { set_reg32(gpr, read_dr(idx)); return 10; }
+            write_dr(idx, get_reg32(gpr));
             return 11;
         case 0x24: set_reg32(gpr, 0); return 4;           // MOV r32, TRn -- no cache/TLB test interface
         default: return 6;                                // MOV TRn, r32
@@ -3047,9 +2728,8 @@ int Cpu::two_byte() {
         case 0x00: return grp0f00();   // SLDT/STR/LLDT/LTR/VERR/VERW
         case 0x01: return grp0f01();   // SGDT/SIDT/LGDT/LIDT/SMSW/LMSW/INVLPG
         case 0x02: case 0x03: {
-            // LAR r16/32, r/m16 and LSL (LSDT's "load segment limit"),
-            // both protected-mode only and both reporting success in ZF
-            // rather than faulting on a bad selector.
+            // LAR/LSL: protected mode only, report success in ZF instead of
+            // faulting.
             RM rm = decode_modrm();
             int dst = last_reg_;
             if (!protected_mode()) raise(EXC_UD);
@@ -3060,12 +2740,10 @@ int Cpu::two_byte() {
                 uint8_t a = uint8_t((d.hi >> 8) & 0xFF);
                 int rpl = sel & 3;
                 int eff = (cpl() > rpl) ? cpl() : rpl;
-                // A conforming code segment is visible from anywhere; for
-                // everything else the effective privilege must reach the
-                // descriptor's DPL.
+                // Conforming is visible from anywhere; otherwise the effective
+                // privilege must reach the DPL.
                 if (!acc_conforming(a) && eff > acc_dpl(a)) ok = false;
-                // LSL refuses system descriptors that have no meaningful
-                // limit to report -- a gate is not a segment.
+                // LSL refuses gates, which have no limit.
                 if (ok && op2 == 0x03 && acc_system(a)) {
                     int t = sys_type(a);
                     if (t != SYS_TSS16_AVAIL && t != SYS_TSS16_BUSY && t != SYS_LDT &&
@@ -3074,9 +2752,8 @@ int Cpu::two_byte() {
             }
             if (ok) {
                 if (op2 == 0x02) {
-                    // LAR returns the descriptor's *access rights*: the
-                    // whole high dword with the base and limit fields
-                    // masked out (Intel 80486 PRM, LAR).
+                    // LAR returns the access rights: the high dword with base
+                    // and limit masked out (Intel 80486 PRM, LAR).
                     uint32_t rights = d.hi & 0x00F0FF00u;
                     if (opsize32_) set_reg32(dst, rights);
                     else set_reg16(dst, uint16_t(rights & 0xFFFFu));
@@ -3090,46 +2767,31 @@ int Cpu::two_byte() {
             return (op2 == 0x02) ? 11 : 10;
         }
         case 0x06:
-            // CLTS clears CR0.TS, which is how an FPU-state-swapping #NM
-            // handler says "the coprocessor now belongs to this task".
+            // CLTS clears CR0.TS, handing the FPU to this task.
             if (protected_mode() && cpl() != 0) raise_err(EXC_GP, 0);
             cr_[0] &= ~uint32_t(CR0_TS);
             return 7;
         case 0x08: case 0x09:
-            // INVD / WBINVD empty the L1 and run the flush special cycle,
-            // which empties the board's L2 too. Timing only: the model holds
-            // no data, so there is nothing to write back.
+            // INVD/WBINVD empty the L1 and run the flush cycle, which empties
+            // the board's L2. Timing only; the model holds no data.
             if (protected_mode() && cpl() != 0) raise_err(EXC_GP, 0);
             if (timing) { timing->invalidate_l1(); timing->invalidate_l2(); }
             return op2 == 0x08 ? 4 : 5;
         case 0x20: case 0x21: case 0x22: case 0x23: case 0x24: case 0x26:
             return mov_control_reg(op2);
-        // PUSH/POP FS and GS (386 additions; genuine 486 instructions,
-        // legal in real mode).
         case 0xA0: if (opsize32_) push32(fs); else push16(fs); return 3;
         case 0xA1: load_seg(SEG_FS, opsize32_ ? uint16_t(pop32()) : pop16()); return 3;
         case 0xA8: if (opsize32_) push32(gs); else push16(gs); return 3;
         case 0xA9: load_seg(SEG_GS, opsize32_ ? uint16_t(pop32()) : pop16()); return 3;
 
         case 0xA2:
-            // CPUID. The part this machine carries is an SL-Enhanced
-            // IntelDX2-66, one of the Intel486 revisions that has this
-            // instruction: AP-485's processor list gives CPUID to IntelDX4
-            // and to the SL-Enhanced IntelDX2 / Intel486 SX / Intel486 DX,
-            // while "older versions of Intel486 SX, Intel486 DX and
-            // IntelDX2 processors do not support" it and fault instead.
-            //
-            // Function 0 returns the maximum input value and "GenuineIntel"
-            // in EBX:EDX:ECX; 1 is the maximum because function 2's cache
-            // descriptors are Pentium-era, not 486. Function 1's signature
-            // is type 0 / family 4 / model 3 -- AP-485's model table gives
-            // model 3 to the IntelDX2 -- and the only feature bit an
-            // Intel486 asserts is bit 0, the on-die FPU (every other EDX
-            // bit names a Pentium-or-later feature: VME, TSC, MSR,
-            // CMPXCHG8B, APIC...).
-            // An input above the maximum returns function 1's data, the
-            // convention AP-485 documents; the 486 has nothing to say about
-            // it, and nothing in this machine's software asks.
+            // CPUID exists on the SL-Enhanced IntelDX2, Intel486 SX and DX;
+            // older steppings fault (AP-485 processor list).
+            // Function 0: max input 1 and "GenuineIntel" in EBX:EDX:ECX
+            // (function 2's cache descriptors are Pentium-era). Function 1:
+            // type 0, family 4, model 3 (AP-485); the only feature bit is 0,
+            // the on-die FPU. Inputs above the maximum return function 1's data
+            // (AP-485).
             if (eax == 0) {
                 eax = 1;
                 ebx = 0x756E6547u;  // "Genu"
@@ -3141,9 +2803,8 @@ int Cpu::two_byte() {
                 ecx = 0;
                 edx = 0x00000001u;  // FPU on die
             }
-            // The Quantasm table this file's cycle counts come from lists no
-            // 486 figure for CPUID (it labels the instruction Pentium+); 14
-            // is the published Pentium timing, used here for want of a 486 one.
+            // The Quantasm table lists no 486 CPUID figure; 14 is the Pentium
+            // timing.
             return 14;
 
         // SHLD/SHRD r/m, r, imm8 | CL
@@ -3162,16 +2823,15 @@ int Cpu::two_byte() {
             return rm.is_mem ? 4 : 3;
         }
 
-        // Bit test group. BT only reads; BTS/BTR/BTC read-modify-write.
         case 0xA3: case 0xAB: case 0xB3: case 0xBB: {  // BT/BTS/BTR/BTC r/m, r
             RM rm = decode_modrm();
             int32_t bit = opsize32_ ? int32_t(get_reg32(last_reg_)) : int32_t(int16_t(get_reg16(last_reg_)));
             int opsz = opsize32_ ? 32 : 16;
             RM target = rm;
             if (rm.is_mem) {
-                // For a memory operand the bit offset is not masked: it
-                // selects a bit in a string of operand-size units starting
-                // at the effective address (Intel 80486 PRM, BT/BTS/BTR/BTC).
+                // A memory operand's bit offset is unmasked; it indexes a
+                // string of operand-size units from the effective address
+                // (Intel 80486 PRM, BT/BTS/BTR/BTC).
                 int32_t unit = bit / opsz - ((bit % opsz < 0) ? 1 : 0);
                 target.off = uint16_t(rm.off + unit * (opsz / 8));
                 bit = bit - unit * opsz;
@@ -3251,11 +2911,9 @@ int Cpu::two_byte() {
                 if (equal) rm_write16(rm, get_reg16(last_reg_));
                 else set_reg16(0, dst);
             }
-            // Published: 6 for a register destination, "7-10" for a memory
-            // one. The natural reading of that range is the compare-only
-            // case against the compare-plus-store case, which is what this
-            // charges; Intel prints the range without saying which end is
-            // which, so this is a labelled reading, not a cited split.
+            // Published 6 for a register destination, "7-10" for memory. Read
+            // as compare-only vs compare-plus-store; Intel doesn't say which
+            // end is which.
             if (!rm.is_mem) return 6;
             return equal ? 10 : 7;
         }
@@ -3268,8 +2926,8 @@ int Cpu::two_byte() {
             uint16_t seg;
             if (opsize32_) { off = read32(rm.seg, rm.off); seg = read16(rm.seg, seg_off(rm.off, 4)); }
             else { off = read16(rm.seg, rm.off); seg = read16(rm.seg, seg_off(rm.off, 2)); }
-            // The segment register loads first, with every protected-mode
-            // check; a fault there must leave the offset register untouched.
+            // Load the segment first; a fault must leave the offset register
+            // untouched.
             load_seg((op2 == 0xB2) ? int(SEG_SS) : (op2 == 0xB4 ? int(SEG_FS) : int(SEG_GS)), seg);
             if (opsize32_) set_reg32(dst, off); else set_reg16(dst, uint16_t(off));
             return 6;
@@ -3292,10 +2950,8 @@ int Cpu::two_byte() {
             RM rm = decode_modrm();
             uint32_t v = opsize32_ ? rm_read32(rm) : rm_read16(rm);
             int width = opsize32_ ? 32 : 16;
-            // ZF is the only defined flag; the destination is left
-            // UNDEFINED when the source is zero (Intel 80486 PRM), so this
-            // core leaves the destination register untouched in that case
-            // rather than inventing a value.
+            // ZF is the only defined flag; the destination is undefined for a
+            // zero source (Intel 80486 PRM), so it is left untouched.
             if (v == 0) {
                 set_flag(FLAG_ZF, true);
                 return bitscan_cost(width, rm.is_mem);
@@ -3334,9 +2990,7 @@ int Cpu::two_byte() {
 
         case 0xC8: case 0xC9: case 0xCA: case 0xCB:
         case 0xCC: case 0xCD: case 0xCE: case 0xCF: {
-            // BSWAP r32 (486-native): reverses the byte order of a 32-bit
-            // register. Intel leaves the 16-bit-operand form undefined, so
-            // this always operates on the full 32 bits.
+            // BSWAP r32 (486). The 16-bit form is undefined, so always 32 bits.
             int r = op2 - 0xC8;
             uint32_t v = get_reg32(r);
             set_reg32(r, ((v & 0x000000FFu) << 24) | ((v & 0x0000FF00u) << 8) |
@@ -3360,10 +3014,8 @@ int Cpu::two_byte() {
                 RM rm = decode_modrm();
                 bool t = cond(op2 & 0xF);
                 rm_write8(rm, t ? 1 : 0);
-                // Published 486 SETcc, "cycles are for: true/false":
-                // r8 4/3, mem8 3/4 -- printed with the register and memory
-                // cases inverted relative to each other, carried as
-                // printed rather than smoothed out.
+                // Published SETcc: r8 4/3, mem8 3/4 (true/false), inverted
+                // between the two as printed.
                 if (rm.is_mem) return t ? 3 : 4;
                 return t ? 4 : 3;
             }
@@ -3372,26 +3024,12 @@ int Cpu::two_byte() {
 }
 
 // --- x87 FPU --------------------------------------------------------------
-//
-// The Intel486 DX2 has the FPU on-die, so this is not an optional 387: it is
-// part of the CPU, and CR0.ET reads 1 permanently. Architectural state is
-// held in the real 80-bit extended format (Float80), not a host float, so
-// FLD m80 / FSTP m80 round-trips are bit-exact for denormals, infinities and
-// NaN payloads. Arithmetic is performed by converting to the host's
-// `long double` and back.
-//
-// One labelled departure, stated plainly rather than implied: the host's
-// `long double` is the genuine 80-bit extended format on x86-64 (where this
-// is bit-exact) but a wider IEEE binary128 on arm64 and in a wasm build.
-// There, computing in binary128 and then storing to 80-bit extended
-// double-rounds, which can differ from the hardware's single rounding in the
-// last bit of the significand for a small fraction of operands. Precision
-// control (control-word bits 8-9) is applied on top, so a program that
-// selects single or double precision gets exactly the width it asked for.
-// Rounding control (bits 10-11) is honored where software actually depends
-// on it -- the integer conversions FIST/FISTP/FRNDINT round explicitly per
-// RC -- while arithmetic always rounds to nearest, the reset default; that
-// last part is a documented gap, not a claim.
+// State is held in the 80-bit Float80 format so FLD m80 / FSTP m80 round-trips
+// are bit-exact; arithmetic converts to the host's `long double` and back.
+// On arm64 and in wasm `long double` is binary128, so results double-round and
+// can differ from hardware in the last significand bit for a few operands.
+// Precision control (bits 8-9) is applied on top. Rounding control (bits 10-11)
+// is honored for FIST/FISTP/FRNDINT only; arithmetic always rounds to nearest.
 
 namespace {
 // Status-word bits (Intel 80486 PRM, "Status Word").
@@ -3413,22 +3051,15 @@ constexpr uint16_t kFswB  = 1u << 15;  // busy; on a 486 it simply mirrors ES
 constexpr uint64_t kIndefiniteSig = 0xC000000000000000ull;
 constexpr uint16_t kIndefiniteExp = 0xFFFFu;
 
-// Published i486 x87 cycle counts (the FPU rows of the same timing table
-// used throughout this file). Where the table prints a range the floor is
-// charged and the data-dependence is deliberately not modelled: unlike the
-// integer MUL/BSF/RCL cases, Intel documents no mechanism for these ranges
-// that could be fitted to both endpoints, so inventing a curve would be
-// less honest than charging the published minimum and saying so.
+// Published i486 x87 cycle counts. Where a range is printed the floor is
+// charged; Intel documents no mechanism that could be fitted to both endpoints.
 constexpr int kFldMem32 = 3, kFldMem64 = 3, kFldMem80 = 6, kFldReg = 4;
 constexpr int kFstMem32 = 7, kFstMem64 = 8, kFstMem80 = 6, kFstReg = 3;
 constexpr int kFAdd = 8, kFMul = 16, kFDiv = 73, kFSqrt = 83, kFCom = 4;
 constexpr int kFild = 13, kFist = 29, kFbld = 75, kFbstp = 175;
-// The integer-operand arithmetic forms (FIADD/FISUB/FIMUL/FIDIV/FICOM) are
-// published as their own, larger rows, because the operand has to be
-// converted before the operation runs. This core charges the operation's
-// published figure plus FILD's -- a stated composition of two published
-// numbers rather than a citation of the combined row, since the combined
-// rows are ranges whose mechanism Intel does not break down.
+// Integer-operand arithmetic (FIADD etc.) is published as larger rows; this
+// charges the operation's figure plus FILD's, a composition rather than the
+// combined range.
 constexpr int kFldcw = 4, kFstcw = 3, kFstsw = 3, kFinit = 17, kFclex = 7;
 constexpr int kFstenv = 67, kFldenv = 44, kFsave = 154, kFrstor = 131;
 constexpr int kFsimple = 3, kFchs = 6, kFxam = 8, kFxch = 4, kFldconst = 8;
@@ -3458,9 +3089,8 @@ Float80 Cpu::to_float80(long double v) {
     long double a = neg ? -v : v;
     int exp2 = 0;
     long double m = std::frexp(a, &exp2);          // a = m * 2^exp2, 0.5 <= m < 1
-    // The 80-bit format's value is M * 2^(E - 16383 - 63) with M carrying an
-    // *explicit* integer bit, so scaling the [0.5,1) mantissa by 2^64 lands
-    // M in [2^63, 2^64) and E = exp2 + 16382.
+    // M carries an explicit integer bit: scaling the [0.5,1) mantissa by 2^64
+    // puts M in [2^63, 2^64) with E = exp2 + 16382.
     long double scaled = std::ldexp(m, 64);
     uint64_t sig = uint64_t(scaled);
     int e = exp2 + 16382;
@@ -3470,9 +3100,7 @@ Float80 Cpu::to_float80(long double v) {
         return f;
     }
     if (e <= 0) {
-        // Denormal: shift the significand right until the exponent reaches
-        // the format's floor, which is exactly what losing the implicit
-        // normalization means here.
+        // Denormal: shift right until the exponent reaches the format's floor.
         int shift = 1 - e;
         sig = (shift >= 64) ? 0ull : (sig >> shift);
         e = 0;
@@ -3493,8 +3121,8 @@ long double Cpu::from_float80(const Float80 &f) {
     } else if (m == 0) {
         v = 0.0L;
     } else {
-        // Normals and denormals share one formula, because the explicit
-        // integer bit means the significand is not scaled differently.
+        // Normals and denormals share a formula because the integer bit is
+        // explicit.
         v = std::ldexp(static_cast<long double>(m), (e == 0 ? 1 : e) - 16383 - 63);
     }
     return neg ? -v : v;
@@ -3503,9 +3131,8 @@ long double Cpu::from_float80(const Float80 &f) {
 long double Cpu::st_value(int i) const { return from_float80(fpu_reg_[(fpu_top_ + i) & 7]); }
 
 void Cpu::fpu_init() {
-    // FINIT/RESET state (Intel 80486 PRM, "FPU Initialization"): control
-    // word 037Fh -- all six exceptions masked, extended precision, round to
-    // nearest -- status word 0, and every register tagged empty.
+    // FINIT/RESET state (Intel 80486 PRM, "FPU Initialization"): control word
+    // 037Fh, status 0, all registers empty.
     fpu_cw_ = 0x037F;
     fpu_sw_ = 0;
     fpu_tw_ = 0xFFFF;
@@ -3516,11 +3143,8 @@ void Cpu::fpu_init() {
 }
 
 void Cpu::fpu_check_available() {
-    // CR0.EM routes every ESC opcode to #NM so a software emulator can pick
-    // it up; CR0.TS does the same for the first FPU instruction after a task
-    // switch, so a handler can swap the FPU's register stack between tasks.
-    // On this machine EM is the interesting one only in principle -- the FPU
-    // is on-die -- but both are real bits software sets.
+    // CR0.EM traps every ESC opcode to #NM for a software emulator; CR0.TS
+    // traps the first one after a task switch so a handler can swap FPU state.
     if (cr_[0] & (CR0_EM | CR0_TS)) raise(EXC_NM);
 }
 
@@ -3528,10 +3152,9 @@ void Cpu::fpu_set_tag(int phys, bool empty) {
     int shift = (phys & 7) * 2;
     fpu_tw_ = uint16_t((fpu_tw_ & ~(0x3u << shift)) | (uint32_t(empty ? 3u : 0u) << shift));
 }
-// The tag register only tracks empty or not. The tag word a 486 stores
-// classifies each full register from its contents: 00 valid, 01 zero, 10
-// special (NaN, infinity, denormal, unnormal), 11 empty (Intel 80486 PRM,
-// "Tag Word"; Bochs fpu_tags.cc packs it the same way on FSTENV/FSAVE).
+// The tag register only tracks empty or not; the stored tag word classifies
+// each full register: 00 valid, 01 zero, 10 special, 11 empty (Intel 80486 PRM,
+// "Tag Word"; Bochs fpu_tags.cc packs it the same way).
 uint16_t Cpu::fpu_tag_word() const {
     uint16_t tw = 0;
     for (int phys = 0; phys < 8; ++phys) {
@@ -3562,9 +3185,9 @@ bool Cpu::fpu_is_empty(int i) const {
 }
 
 void Cpu::fpu_xch(int i) {
-    // An empty operand is a stack underflow. Masked, it reads as the real
-    // indefinite and the exchange goes ahead; unmasked, nothing moves
-    // (Intel 80486 PRM, FXCH). The tags travel with the registers.
+    // An empty operand is a stack underflow: masked, it reads as the real
+    // indefinite and the exchange goes ahead; unmasked, nothing moves (Intel
+    // 80486 PRM, FXCH).
     int other = (fpu_top_ + i) & 7;
     bool empty_top = fpu_is_empty(0), empty_other = fpu_is_empty(i);
     if (empty_top || empty_other) {
@@ -3579,9 +3202,8 @@ void Cpu::fpu_xch(int i) {
 }
 
 void Cpu::fpu_stack_fault(bool overflow) {
-    // A stack fault is an invalid-operation exception with SF also set; C1
-    // distinguishes overflow (1) from underflow (0), which is the only way a
-    // handler can tell which happened (Intel 80486 PRM, "Stack Fault").
+    // Stack fault is IE with SF set; C1 gives overflow (1) vs underflow (0)
+    // (Intel 80486 PRM, "Stack Fault").
     fpu_sw_ |= kFswIE | kFswSF;
     if (overflow) fpu_sw_ |= kFswC1; else fpu_sw_ &= ~kFswC1;
     if (!(fpu_cw_ & kFswIE)) fpu_sw_ |= kFswES | kFswB;
@@ -3590,9 +3212,7 @@ void Cpu::fpu_stack_fault(bool overflow) {
 void Cpu::fpu_push(long double v) {
     int next = (fpu_top_ - 1) & 7;
     if (((fpu_tw_ >> (next * 2)) & 3u) != 3u) {
-        // Pushing onto a full stack: the destination gets the indefinite
-        // QNaN and the exception is flagged, rather than silently losing a
-        // register's contents.
+        // Push onto a full stack: the destination gets the indefinite QNaN.
         fpu_stack_fault(true);
         fpu_top_ = next;
         fpu_reg_[next].sign_exp = kIndefiniteExp;
@@ -3628,10 +3248,8 @@ void Cpu::fpu_set(int i, long double v) {
 }
 
 long double Cpu::fpu_round_to_precision(long double v) const {
-    // Precision control (control word bits 8-9): 00 = 24-bit single,
-    // 10 = 53-bit double, 11 = 64-bit extended, which is the reset default
-    // and what a Watcom-compiled program normally leaves it at. 01 is
-    // reserved and treated as extended.
+    // Precision control (bits 8-9): 00 single, 10 double, 11 extended (reset
+    // default); 01 is reserved, treated as extended.
     switch ((fpu_cw_ >> 8) & 3u) {
         case 0: return static_cast<long double>(static_cast<float>(v));
         case 2: return static_cast<long double>(static_cast<double>(v));
@@ -3640,10 +3258,8 @@ long double Cpu::fpu_round_to_precision(long double v) const {
 }
 
 void Cpu::fpu_compare(long double a, long double b, bool unordered_ok) {
-    // FCOM sets C3/C2/C0 as a three-way result, and an unordered comparison
-    // (either operand a NaN) sets all three. FCOM signals #IA on an
-    // unordered compare; FUCOM does not, which is the only difference
-    // between them (Intel 80486 PRM, FCOM/FUCOM).
+    // FCOM sets C3/C2/C0 as a three-way result, all three for unordered. FCOM
+    // signals #IA on unordered; FUCOM does not (Intel 80486 PRM, FCOM/FUCOM).
     fpu_sw_ &= ~(kFswC0 | kFswC2 | kFswC3);
     if (std::isnan(a) || std::isnan(b)) {
         fpu_sw_ |= kFswC0 | kFswC2 | kFswC3;
@@ -3659,20 +3275,20 @@ void Cpu::fpu_compare(long double a, long double b, bool unordered_ok) {
 }
 
 int Cpu::esc_op(uint8_t op) {
-    // Decode the ModR/M first so instruction length is right on every path,
-    // including the ones that fault.
+    // Decode ModR/M first so instruction length is right on every path,
+    // faulting ones included.
     uint32_t opcode_eip = instr_start_eip_;
     RM rm = decode_modrm();
     int sub = last_reg_;
     int i = rm.is_mem ? 0 : rm.reg;      // ST(i) index for the register forms
-    // The register-form encodings are conventionally written as whole
-    // ModR/M bytes (D9 E0 = FCHS, DB E3 = FNINIT), so reassemble one.
+    // Register forms are conventionally whole ModR/M bytes (D9 E0 = FCHS), so
+    // reassemble one.
     uint8_t modrm_low = uint8_t(0xC0u | (uint32_t(sub) << 3) | uint32_t(rm.is_mem ? 0 : rm.reg));
 
     fpu_check_available();
-    // The encodings an Intel486 reserves, which raise #UD (Intel SDM Vol. 3,
-    // "Undefined Opcodes"). FCMOVcc, FCOMI and FISTTP live here and arrived
-    // later; the undocumented register-form aliases below do not.
+    // Encodings the Intel486 reserves raise #UD (Intel SDM Vol. 3, "Undefined
+    // Opcodes"). FCMOVcc, FCOMI and FISTTP arrived later; the undocumented
+    // aliases below did not.
     bool reserved;
     if (rm.is_mem) {
         reserved = (sub == 1 && (op == 0xD9 || op == 0xDB || op == 0xDD || op == 0xDF)) ||
@@ -3692,11 +3308,9 @@ int Cpu::esc_op(uint8_t op) {
     }
     if (reserved) raise_ud(opcode_eip, uint16_t(0xD800u | (uint32_t(op & 7) << 8) | modrm_low));
 
-    // A pending unmasked exception is reported on the *next* FPU
-    // instruction, not the one that caused it -- the 487/486 "deferred
-    // error" behavior. The seven "no-wait" encodings below are specified not
-    // to check, which is exactly why a handler can use FNSTSW and FNCLEX to
-    // inspect and clear the very error it was called for.
+    // A pending unmasked exception is reported on the next FPU instruction
+    // (487/486 deferred error). The seven no-wait encodings don't check, so a
+    // handler can use FNSTSW and FNCLEX on the error it was called for.
     bool no_wait =
         (op == 0xDB && !rm.is_mem && (modrm_low == 0xE2 || modrm_low == 0xE3)) ||  // FNCLEX, FNINIT
         (op == 0xDF && !rm.is_mem && modrm_low == 0xE0) ||                         // FNSTSW AX
@@ -3704,8 +3318,8 @@ int Cpu::esc_op(uint8_t op) {
         (op == 0xD9 && rm.is_mem && (sub == 6 || sub == 7));                       // FNSTENV, FNSTCW
     if (!no_wait && (fpu_sw_ & kFswES) && (cr_[0] & CR0_NE)) raise(EXC_MF);
 
-    // The operand pointers FSTENV/FSAVE hand a handler so it can find what
-    // faulted. Recorded for every ESC instruction, as real hardware does.
+    // Operand pointers FSTENV/FSAVE hand a handler, recorded for every ESC
+    // instruction.
     fpu_last_ip_ = opcode_eip;
     fpu_last_cs_ = cs;
     fpu_last_opcode_ = uint16_t(((op & 0x07u) << 8) | modrm_low);
@@ -3716,8 +3330,8 @@ int Cpu::esc_op(uint8_t op) {
         if (!(fpu_cw_ & kFswZE)) fpu_sw_ |= kFswES | kFswB;
     };
     auto arith = [&](int kind, long double a, long double b) -> long double {
-        // kind: 0 ADD, 1 MUL, 4 SUB, 5 SUBR, 6 DIV, 7 DIVR -- the same
-        // encoding order the ESC reg field uses.
+        // kind: 0 ADD, 1 MUL, 4 SUB, 5 SUBR, 6 DIV, 7 DIVR, the ESC reg-field
+        // order.
         switch (kind) {
             case 0: return a + b;
             case 1: return a * b;
@@ -3742,9 +3356,8 @@ int Cpu::esc_op(uint8_t op) {
         write64(rm.seg, rm.off, f.significand);
         write16(rm.seg, seg_off(rm.off, 8), f.sign_exp);
     };
-    // Integer conversion honors the control word's rounding-control field,
-    // which is the one place software genuinely depends on RC: a compiler's
-    // (int) cast sets RC to truncate, does the FISTP, and restores it.
+    // Integer conversion honors the rounding-control field; a compiler's (int)
+    // cast sets RC to truncate around FISTP.
     auto round_per_rc = [&](long double v) -> long double {
         switch ((fpu_cw_ >> 10) & 3u) {
             case 0: return std::nearbyint(v);   // round to nearest, ties to even
@@ -3756,9 +3369,8 @@ int Cpu::esc_op(uint8_t op) {
     auto store_int = [&](int bytes) {
         long double v = fpu_get(0);
         long double r = round_per_rc(v);
-        // An out-of-range or NaN source is an invalid operation, and the
-        // masked response is the format's "integer indefinite" -- the most
-        // negative value it can hold, not a saturated maximum.
+        // Out-of-range or NaN is invalid; masked, it returns the integer
+        // indefinite (the most negative value).
         int64_t lim_lo, lim_hi, indef;
         if (bytes == 2) { lim_lo = -32768; lim_hi = 32767; indef = -32768; }
         else if (bytes == 4) { lim_lo = -2147483648ll; lim_hi = 2147483647ll; indef = -2147483648ll; }
@@ -3784,10 +3396,8 @@ int Cpu::esc_op(uint8_t op) {
     switch (op) {
         case 0xD8:
             if (rm.is_mem) {
-                // The published figure for an arithmetic ESC opcode is the
-                // same whether the operand is ST(i) or memory -- the table
-                // gives one number for "FADD ST(i),ST / m32real / m64real" --
-                // so the load is already inside it and must not be added.
+                // One published figure covers ST(i) and memory operands, so the
+                // load is not added.
                 long double v = load_m32();
                 if (sub == 2 || sub == 3) { fpu_compare(fpu_get(0), v, false); if (sub == 3) fpu_pop(); return kFCom; }
                 fpu_set(0, arith(sub, fpu_get(0), v));
@@ -3803,11 +3413,9 @@ int Cpu::esc_op(uint8_t op) {
                 fpu_set(0, arith(sub, fpu_get(0), v));
                 return arith_cost(sub);
             }
-            // Register form: the destination is ST(i), not ST(0) -- and the
-            // subtract/divide pairs are encoded *reversed* relative to the
-            // D8 forms (DC E0+i is FSUBR, DC E8+i is FSUB), a genuine x87
-            // encoding quirk that Intel documents and every assembler has to
-            // special-case.
+            // Register form: destination is ST(i), and the subtract/divide
+            // pairs are encoded reversed relative to D8 (DC E0+i is FSUBR, DC
+            // E8+i is FSUB).
             if (sub == 2 || sub == 3) {  // DC D0+i / D8+i: undocumented FCOM/FCOMP aliases
                 fpu_compare(fpu_get(0), fpu_get(i), false);
                 if (sub == 3) fpu_pop();
@@ -3896,8 +3504,8 @@ int Cpu::esc_op(uint8_t op) {
                             write16(rm.seg, seg_off(o, 10), uint16_t(fpu_last_op_));
                             write16(rm.seg, seg_off(o, 12), uint16_t((fpu_last_op_ >> 16) << 12));
                         }
-                        // FSTENV masks every exception afterwards, so the
-                        // handler it is part of cannot immediately re-fault.
+                        // FSTENV masks every exception afterwards so its
+                        // handler can't re-fault.
                         fpu_cw_ |= 0x003Fu;
                         ac_skip_ = false;
                         return kFstenv;
@@ -3917,9 +3525,9 @@ int Cpu::esc_op(uint8_t op) {
                 case 0xD0: return kFsimple;                                              // FNOP
                 case 0xD8: case 0xD9: case 0xDA: case 0xDB:
                 case 0xDC: case 0xDD: case 0xDE: case 0xDF: {
-                    // Undocumented FSTP ST(i) alias that skips the stack
-                    // underflow check on an empty ST(0) (List of undocumented
-                    // x86 instructions, "FSTPNCE"; sandpile.org FPU map).
+                    // Undocumented FSTP ST(i) alias that skips the underflow
+                    // check on an empty ST(0) (undocumented x86 list,
+                    // "FSTPNCE"; sandpile.org FPU map).
                     int src = fpu_top_, dst = (fpu_top_ + i) & 7;
                     bool empty = fpu_is_empty(0);
                     fpu_reg_[dst] = fpu_reg_[src];
@@ -3983,13 +3591,10 @@ int Cpu::esc_op(uint8_t op) {
                     long double a = fpu_get(0), b = fpu_get(1);
                     long double r = (modrm_low == 0xF5) ? std::remainder(a, b) : std::fmod(a, b);
                     fpu_set(0, r);
-                    // C2 = 0 says the reduction is complete. Real hardware
-                    // can leave it set after a partial reduction of a huge
-                    // argument and expects the loop to run again; computing
-                    // the exact remainder in one step means it is always
-                    // complete here -- a labelled simplification, and the
-                    // observable contract (C2 clear, correct remainder) is
-                    // the one software tests.
+                    // C2 = 0 means the reduction is complete. Hardware can
+                    // leave it set after a partial reduction of a huge
+                    // argument; the exact remainder here is always complete,
+                    // which is the contract software tests.
                     fpu_sw_ &= ~kFswC2;
                     return kFprem;
                 }
@@ -4050,10 +3655,8 @@ int Cpu::esc_op(uint8_t op) {
                 }
             }
             switch (modrm_low) {
-                // FENI/FDISI were 8087 interrupt-enable controls; the 287
-                // onward implements them as no-ops, and FSETPM was the 287's
-                // "enter protected mode" hint that the 387 and 486 likewise
-                // ignore. Genuine no-ops on this part, not gaps.
+                // FENI/FDISI are no-ops from the 287 on; FSETPM is ignored by
+                // the 387 and 486.
                 case 0xE0: case 0xE1: case 0xE4: return kFsimple;
                 case 0xE2: fpu_sw_ &= ~(kFswIE | kFswDE | kFswZE | kFswOE | kFswUE | kFswPE | kFswSF | kFswES | kFswB); return kFclex;  // FNCLEX
                 default: fpu_init(); return kFinit;                                       // FNINIT (E3)
@@ -4134,9 +3737,8 @@ int Cpu::esc_op(uint8_t op) {
                     case 2: store_int(2); return kFist;                                            // FIST m16int
                     case 3: store_int(2); fpu_pop(); return kFist;                                 // FISTP m16int
                     case 4: {  // FBLD m80bcd
-                        // Bytes 0-8 carry 18 packed decimal digits, two per
-                        // byte and least significant byte first; byte 9's
-                        // top bit is the sign and the rest is ignored.
+                        // Bytes 0-8 hold 18 packed decimal digits, low byte
+                        // first; byte 9's top bit is the sign.
                         long double v = 0.0L;
                         for (int b = 8; b >= 0; --b) {
                             uint8_t byte = read8(rm.seg, seg_off(rm.off, uint32_t(b)));
@@ -4182,14 +3784,11 @@ int Cpu::esc_op(uint8_t op) {
 // --- main decode loop ------------------------------------------------------
 
 int Cpu::step() {
-    // HLT idles until an interrupt arrives. Charged the published 486 HLT
-    // cost per idle step so the embedding machine's wall-clock pacing keeps
-    // advancing at a sane rate while halted.
+    // HLT idles until an interrupt; the published cost per idle step keeps
+    // wall-clock pacing advancing.
     if (halted) { cycles += 4; halt_cycles += 4; return 4; }
-    // In real mode a segment register's base simply tracks selector*16, so
-    // a host or test assigning one of the public selector fields directly
-    // is a segment load and must re-derive the base (see
-    // refresh_real_bases()).
+    // In real mode the base tracks selector*16, so a directly assigned selector
+    // field is a segment load.
     if (!protected_mode()) refresh_real_bases();
     uint32_t start_eip = eip;
     step_start_eip_ = eip;
@@ -4198,14 +3797,13 @@ int Cpu::step() {
     instr_start_esp_ = esp;
     instr_start_ss_ = ss;
     instr_start_ss_desc_ = sd_[SEG_SS];
-    // One branch covers the rare per-step debug work, since it sits on the
-    // hottest path there is.
+    // One branch covers the rare debug work on the hottest path.
     if ((eflags & FLAG_RF) || dbg_exec_) {
         int f = step_debug(start_eip);
         if (f >= 0) return f;
     }
-    // Code fetch: the L1 line the instruction starts in, while it sits in
-    // the prefetch window.
+    // Code fetch: the L1 line the instruction starts in, while it sits in the
+    // prefetch window.
     if (timing && eip - pf_lo_ < pf_hi_ - pf_lo_)
         stall_ += uint32_t(timing->fetch(pf_phys_ + (eip - pf_lo_), fills(pf_phys_), cycles));
     if (timing) {
@@ -4214,8 +3812,8 @@ int Cpu::step() {
         r[0] = eax; r[1] = ecx; r[2] = edx; r[3] = ebx;
         r[4] = esp; r[5] = ebp; r[6] = esi; r[7] = edi;
     }
-    // Single-step traps after an instruction that *began* with TF set, so a
-    // POPF that sets TF runs untrapped and one that clears it still traps.
+    // Single-step traps after an instruction that began with TF set, so a POPF
+    // that sets TF runs untrapped and one that clears it still traps.
     bool trap = flag(FLAG_TF);
     shadow_ = false;
     vectored_ = false;
@@ -4225,7 +3823,7 @@ int Cpu::step() {
     if (setjmp(fault_jmp_) == 0) {
         c = step_inner();
         fault_jmp_set_ = false;
-        // Ring>0 HLT arms fault_pending_ without longjmp (see HLT case).
+        // Ring>0 HLT arms fault_pending_ without longjmp.
         if (fault_pending_) {
             fault_pending_ = false;
             return deliver_fault(pending_fault_, start_eip);
@@ -4248,11 +3846,10 @@ int Cpu::step() {
     }
 #endif
     c += take_stall();
-    // INT n / INT3 / INTO clear TF on the way into the handler, which runs
-    // untrapped (Intel 80486 PRM, "Single-Step Trap"). A shadow this
-    // instruction set holds the trap off until after the next one.
-    // Data breakpoints and the TSS T bit trap the same way, in one #DB
-    // with every status bit that applies.
+    // INT n / INT3 / INTO clear TF going into the handler, which runs untrapped
+    // (Intel 80486 PRM, "Single-Step Trap"). A shadow holds the trap off until
+    // after the next instruction. Data breakpoints and the TSS T bit trap in
+    // the same #DB with every applicable status bit.
     bool step_trap = trap && !vectored_;
     if ((step_trap || dbg_pending_) && !shadow_) {
         if (step_trap) dr_[6] |= 0x4000u;                      // DR6.BS
@@ -4265,17 +3862,17 @@ int Cpu::step() {
 }
 
 int Cpu::step_debug(uint32_t start_eip) {
-    // An instruction breakpoint is a fault on the instruction's first byte,
-    // held off for one instruction by RF. A REP continuing after an
-    // internal yield is the same instruction, not a new fetch.
+    // An instruction breakpoint faults on the first byte, held off one
+    // instruction by RF. A REP continuing after an internal yield isn't a new
+    // fetch.
     if (dbg_exec_ && !(eflags & FLAG_RF) && !rep_resumed_) {
         if (uint8_t hit = dbg_exec_match(sd_[SEG_CS].base + eip)) {
             dr_[6] |= hit;
             return deliver_fault(Fault{EXC_DB, 0, false}, start_eip);
         }
     }
-    // RF clears when an instruction completes; IRET and a task switch can
-    // load it again (Intel 80386 PRM, "Debug Exceptions").
+    // RF clears when an instruction completes; IRET and a task switch can load
+    // it again (Intel 80386 PRM, "Debug Exceptions").
     eflags &= ~FLAG_RF;
     return -1;
 }
@@ -4283,19 +3880,17 @@ int Cpu::step_debug(uint32_t start_eip) {
 int Cpu::deliver_fault(const Fault &first, uint32_t start_eip) {
     agi_clear();
     split_ = false;
-    // A *fault* (as opposed to a trap) reports the address of the faulting
-    // instruction and is restartable, so the instruction's own starting EIP
-    // and stack pointer are put back before the handler sees them -- a
-    // half-pushed operand left behind would make the restart write it twice
-    // (Intel 80486 PRM, "Exception Classes").
+    // A fault restores the instruction's starting EIP and stack pointer before
+    // the handler runs, so a restart doesn't repeat half-pushed operands (Intel
+    // 80486 PRM, "Exception Classes").
     eip = start_eip;
     esp = instr_start_esp_;
     ss = instr_start_ss_;
     sd_[SEG_SS] = instr_start_ss_desc_;
     Fault f = first;
-    // Every fault pushes EFLAGS with RF set, so the IRET that restarts the
-    // instruction does not re-take an instruction breakpoint on it (Intel
-    // 80386 PRM, "Debug Exceptions"). Real mode's 16-bit FLAGS has no RF.
+    // Every fault pushes EFLAGS with RF set so the restarting IRET doesn't
+    // re-take an instruction breakpoint (Intel 80386 PRM, "Debug Exceptions").
+    // Real mode's 16-bit FLAGS has no RF.
     dbg_pending_ = 0;
     ac_skip_ = false;
     if (protected_mode()) eflags |= FLAG_RF;
@@ -4317,18 +3912,16 @@ int Cpu::deliver_fault(const Fault &first, uint32_t start_eip) {
 #else
         try {
             do_interrupt(uint8_t(f.vector), false, f.has_error, f.error);
-            // Published 486 INT cost: 26 for the real-mode vectoring work
-            // (INT3's figure, the closest anchored one -- see interrupt()),
-            // 44 for a protected-mode gate at the same privilege level. The
-            // inter-privilege figure is higher again; charged as the same 44
-            // here rather than asserting a split this core cannot cite.
+            // Published INT: 26 for real-mode vectoring (INT3's figure), 44 for
+            // a protected-mode gate. The inter-privilege figure is higher;
+            // charged as 44 here.
             int c = protected_mode() ? 44 : 26;
             cycles += c;
             return c + take_stall();
         } catch (const Fault &) {
-            // A fault taken while *delivering* a fault is a double fault,
-            // and a fault while delivering that is shutdown -- the CPU
-            // stops until RESET or NMI (Intel 80486 PRM, "Double Fault").
+            // A fault while delivering a fault is a double fault; one while
+            // delivering that is shutdown until RESET or NMI (Intel 80486 PRM,
+            // "Double Fault").
             if (f.vector == EXC_DF) break;
             f = Fault{EXC_DF, 0, true};
             if (on_fault) on_fault(EXC_DF, 0, cs, eip);
@@ -4342,8 +3935,7 @@ int Cpu::deliver_fault(const Fault &first, uint32_t start_eip) {
 }
 
 namespace {
-// The eleven x86 prefix bytes, by opcode. Same set the prefix loop below used
-// to switch over; 0 means "not a prefix".
+// The eleven x86 prefix bytes by opcode; 0 means not a prefix.
 enum : uint8_t {
     kPfxLock = 1, kPfxSegEs, kPfxSegCs, kPfxSegSs, kPfxSegDs, kPfxSegFs, kPfxSegGs,
     kPfxOpsize, kPfxAddrsize, kPfxRepNz, kPfxRepZ,
@@ -4366,12 +3958,8 @@ int Cpu::step_inner() {
     seg_override_ = -1;
     rep_ = REP_NONE;
     len_check_ = false;
-    // The default operand and address size is the code segment's D bit --
-    // 16 bits in real mode always, and whatever the descriptor says in
-    // protected mode. The 0x66/0x67 prefixes *toggle* that default rather
-    // than selecting 32 bits outright, which is why the same prefix byte
-    // means "use 32-bit operands" in a 16-bit segment and "use 16-bit
-    // operands" in a 32-bit one.
+    // The default operand and address size is CS.D (16-bit in real mode).
+    // 0x66/0x67 toggle it rather than selecting 32 bits.
     bool dflt32 = code32();
     opsize32_ = dflt32;
     addrsize32_ = dflt32;
@@ -4383,11 +3971,8 @@ int Cpu::step_inner() {
     uint8_t op;
     for (;;) {
         op = fetch8();
-        // One table lookup decides prefix-or-not. Most instructions carry no
-        // prefix at all, and dispatching the question through a switch cost
-        // 4.5% of a BOOM run for an answer that is "no" nearly every time
-        // (PC486_REVIEW.md §16). kPrefix is the same eleven bytes the switch
-        // listed: 0 = not a prefix.
+        // One table lookup decides prefix-or-not; a switch cost 4.5% of a BOOM
+        // run (PC486_REVIEW.md §16).
         uint8_t kind = kPrefix[op];
         if (kind == 0) break;
         PC486_PERF_BUMP(perf.opcode[op]);   // prefix bytes, counted in their own right
@@ -4405,18 +3990,12 @@ int Cpu::step_inner() {
             default: lock = true; break;                    // LOCK
         }
         ++prefixes;
-        // The 486 column publishes a cost only for the LOCK prefix (1
-        // clock); it gives no separate figure for the segment-override,
-        // operand-size or address-size prefixes, which the 486 decodes one
-        // per clock. Charging that same published 1 clock per prefix byte
-        // is therefore the cited figure for LOCK and a labelled, uniform
-        // extension of it for the others. A REP continuation already paid
-        // for its prefixes in the step that started it.
+        // The 486 column publishes only LOCK (1 clock). The segment,
+        // operand-size and address-size prefixes are charged the same 1 clock,
+        // a uniform extension. A REP continuation already paid.
         if (!rep_resumed_) c += 1;
     }
-    // 0Fh is an escape, not an instruction: two_byte() counts the opcode it
-    // actually runs, and counting the escape as well would report every
-    // two-byte instruction twice and deflate every share.
+    // 0Fh is an escape; two_byte() counts the opcode it runs.
     if (op != 0x0F) PC486_PERF_BUMP(perf.opcode[op]);
     instr_start_eip_ = (eip - 1) & ip_mask();  // eip has already advanced past `op`
     if (prefixes) {
@@ -4424,10 +4003,8 @@ int Cpu::step_inner() {
         if (lock && !lock_allowed(op)) raise(EXC_UD);
     }
 
-    // Fast path: the dense ALU block 0x00-0x3D, laid out as 8 groups of 6
-    // opcodes (formats rm8,r8 / rm,r / r8,rm8 / r,rm / AL,imm8 / eAX,imm --
-    // the +6/+7 slots in each group are segment push/pop or BCD adjust and
-    // are excluded here, since (op & 7) > 5 for all of them).
+    // Fast path: the dense ALU block 0x00-0x3D, 8 groups of 6 opcodes; the
+    // +6/+7 slots (segment push/pop, BCD adjust) are excluded by (op & 7) > 5.
     if (op < 0x40 && (op & 7) <= 5) {
         int alu = op >> 3;
         switch (op & 7) {
@@ -4498,9 +4075,8 @@ int Cpu::step_inner() {
         // --- PUSH/POP reg (published 486: 1 each) ---
         case 0x50: case 0x51: case 0x52: case 0x53:
         case 0x54: case 0x55: case 0x56: case 0x57:
-            // PUSH SP/ESP pushes the value from before the decrement on
-            // the 286 and every later part -- so no special case is
-            // needed, unlike the 8086 (see this file's header comment).
+            // PUSH SP/ESP pushes the pre-decrement value (286+), so no special
+            // case.
             if (opsize32_) push32(get_reg32(op - 0x50)); else push16(get_reg16(op - 0x50));
             c += 1;
             break;
@@ -4516,13 +4092,9 @@ int Cpu::step_inner() {
         case 0x61: popa(); c += 9; break;    // POPA/POPAD
         case 0x62: bound(); c += 7; break;
         case 0x63: {
-            // ARPL r/m16, r16 -- "adjust requested privilege level": raises
-            // the destination selector's RPL to the source's if it is more
-            // privileged, setting ZF when it had to change anything. An
-            // operating system uses it on a selector a less privileged
-            // caller handed in, so the caller cannot smuggle in a selector
-            // more privileged than itself. Protected-mode only: a real 486
-            // raises #UD for this opcode in real mode.
+            // ARPL raises the destination selector's RPL to the source's,
+            // setting ZF if it changed anything. Protected mode only; #UD in
+            // real mode.
             RM rm = decode_modrm();
             int src = last_reg_;
             if (!protected_mode()) raise(EXC_UD);
@@ -4586,10 +4158,7 @@ int Cpu::step_inner() {
             break;
         }
 
-        // --- MOV r/m,r and r,r/m. Published 486: 1 clock in every
-        // --- direction and for both operand locations, thanks to the
-        // --- on-chip cache making a load or store a one-cycle operation.
-        // --- (The 286's own directional 3/5 asymmetry is gone.)
+        // --- MOV r/m,r and r,r/m (published 486: 1 clock either way) ---
         case 0x88: { RM rm = decode_modrm(); rm_write8(rm, get_reg8(last_reg_)); c += 1; break; }
         case 0x89: { RM rm = decode_modrm(); if (opsize32_) rm_write32(rm, get_reg32(last_reg_)); else rm_write16(rm, get_reg16(last_reg_)); c += 1; break; }
         case 0x8A: { RM rm = decode_modrm(); set_reg8(last_reg_, rm_read8(rm)); c += 1; break; }
@@ -4604,10 +4173,8 @@ int Cpu::step_inner() {
         case 0x8D: {  // LEA
             RM rm = decode_modrm();
             if (!rm.is_mem) raise_ud(instr_start_eip_, op);   // a register has no address
-            // Reads the full 32-bit effective address, not the
-            // 64KB-limited memory offset -- LEA touches no memory, so a
-            // 32-bit addressing form here is pure arithmetic (see RM in
-            // cpu80486.h).
+            // Uses the full 32-bit effective address: LEA touches no memory, so
+            // a 32-bit form is arithmetic.
             if (opsize32_) set_reg32(last_reg_, rm.off); else set_reg16(last_reg_, uint16_t(rm.off));
             c += 1;  // published 1-2; the 2 case is the base+index+disp penalty decode_modrm() already added
             break;
@@ -4615,9 +4182,8 @@ int Cpu::step_inner() {
         case 0x8E: {  // MOV sreg, r/m16
             RM rm = decode_modrm();
             int si = last_reg_ & 7;
-            // CS is not loadable this way -- changing the code segment needs
-            // a control transfer, which is the whole point. Reg fields 6 and
-            // 7 name no segment register at all.
+            // CS isn't loadable this way; reg fields 6 and 7 name no segment
+            // register.
             if (si == SEG_CS || si > SEG_GS) raise(EXC_UD);
             load_seg(si, rm_read16(rm));
             if (si == SEG_SS) shadow_ = true;
@@ -4625,16 +4191,8 @@ int Cpu::step_inner() {
             break;
         }
         case 0x8F: {  // POP r/m
-            // "If the ESP register is used as a base register for addressing
-            // a destination operand in memory, the POP instruction computes
-            // the effective address of the operand after it increments the
-            // ESP register" (Intel SDM, POP) -- so POP [ESP+n] resolves
-            // against the *post*-pop ESP, not the value ESP held when the
-            // instruction started. Popping before decoding the ModRM/SIB --
-            // rather than decoding it up front, as every other rm_write user
-            // does -- is what gets that ordering right; decode_modrm() only
-            // ever reads EIP for the encoding bytes, never ESP, so moving it
-            // after the pop changes nothing else.
+            // POP [ESP+n] resolves against the post-pop ESP (Intel SDM, POP),
+            // so the pop happens before decoding the ModRM/SIB.
             if (opsize32_) { uint32_t v = pop32(); RM rm = decode_modrm(); rm_write32(rm, v); c += rm.is_mem ? 6 : 1; }
             else            { uint16_t v = pop16(); RM rm = decode_modrm(); rm_write16(rm, v); c += rm.is_mem ? 6 : 1; }
             break;
@@ -4665,55 +4223,35 @@ int Cpu::step_inner() {
             break;
         }
         case 0x9B:
-            // WAIT/FWAIT. With CR0.MP and CR0.TS both set it reports #NM so
-            // a task-switching handler can save the FPU state the *previous*
-            // task left behind -- MP exists precisely so WAIT and the ESC
-            // opcodes can be trapped separately.
+            // WAIT/FWAIT reports #NM when CR0.MP and CR0.TS are both set, so a
+            // task-switch handler can save the previous task's FPU state.
             if ((cr_[0] & CR0_MP) && (cr_[0] & CR0_TS)) raise(EXC_NM);
             c += 1;  // published 1-3
             break;
         case 0x9C:  // PUSHF / PUSHFD
-            // PUSHFD is half of the AP-485 486-detection sequence (PUSHFD,
-            // POP EAX, flip bit 18, PUSH EAX, POPFD, PUSHFD, POP EAX), so
-            // the AC bit has to survive a round trip through here.
-            //
-            // In V86 it is IOPL-sensitive: "PUSHF, POPF, and IRET are
-            // sensitive to IOPL so that the V86 monitor can control changes to
-            // the interrupt-enable flag", and "CPL is always three in V86 mode;
-            // therefore, if IOPL < 3, these instructions will trigger a
-            // general-protection exception" (Intel 80386 PRM, "Additional
-            // Sensitive Instructions"). A real fault to the monitor, not
-            // POPF's silent masking below, which is a different rule for
-            // ordinary protected-mode CPL > 0.
+            // PUSHFD is half of the AP-485 486-detection sequence, so AC must
+            // survive a round trip.
+            // In V86, PUSHF, POPF and IRET are IOPL-sensitive: at IOPL < 3 they
+            // #GP to the monitor (Intel 80386 PRM, "Additional Sensitive
+            // Instructions").
             if (v86_mode() && iopl() != 3) raise_err(EXC_GP, 0);
             if (opsize32_) push32(eflags); else push16(uint16_t(eflags));
             c += 4;
             break;
         case 0x9D:  // POPF / POPFD
-            // Real mode has no CPL to gate the IOPL/IF load, so a real 486
-            // loads IOPL and NT unconditionally -- and AC too, for the
-            // 32-bit form. (Note for integration: ibmpc-at's 286 core
-            // deliberately masks IOPL/NT to 0 here because letting them
-            // round-trip broke FreeDOS 1.3's installer on that machine,
-            // root cause unconfirmed -- see IBM_PCAT_REVIEW.md. This core
-            // implements the genuine behavior, which is what every other
-            // 486 emulator does; if a FreeDOS oddity ever shows up here,
-            // this line is the first thing to bisect.)
-            // In protected mode IOPL is writable only at CPL 0 and IF only
-            // when CPL <= IOPL; a POPF that tries otherwise silently keeps
-            // the old value rather than faulting (Intel 80486 PRM, POPF).
-            // And in V86 it faults outright instead, at IOPL < 3 -- see PUSHF
-            // above for the citation.
+            // Real mode loads IOPL and NT unconditionally, and AC for the
+            // 32-bit form. ibmpc-at's 286 core masks IOPL/NT here for a FreeDOS
+            // 1.3 installer problem (root cause unconfirmed,
+            // IBM_PCAT_REVIEW.md).
+            // In protected mode IOPL is writable only at CPL 0 and IF only when
+            // CPL <= IOPL; otherwise the old value is silently kept (Intel
+            // 80486 PRM, POPF). V86 faults at IOPL < 3, as for PUSHF.
             if (v86_mode() && iopl() != 3) raise_err(EXC_GP, 0);
             {
-                // VM (like RF) is never affected by POPF/POPFD, in any mode --
-                // "the VM and RF flags... are not affected by the POPF/POPFD
-                // instructions" (Intel 80486 PRM, "POPF/POPFD"); only IRETD
-                // from CPL 0, or a task switch, can change it. kPopfMask and
-                // kPopfdMask already keep the *popped* value from supplying a
-                // VM bit, but without also keeping it here, the OR below would
-                // silently zero whatever VM already was -- dropping a running
-                // V86 task out of virtual-8086 mode on its own POPF/POPFD.
+                // POPF/POPFD never affect VM or RF (Intel 80486 PRM,
+                // "POPF/POPFD"). The masks keep the popped value from supplying
+                // VM; this keeps the OR below from zeroing a running V86 task's
+                // VM.
                 uint32_t keep = FLAG_VM;
                 if (protected_mode()) {
                     if (cpl() > 0) keep |= FLAG_IOPL;
@@ -4736,10 +4274,8 @@ int Cpu::step_inner() {
         // --- MOV acc,[disp] / [disp],acc (published 486: 1 either way) ---
         case 0xA0: case 0xA1: case 0xA2: case 0xA3: {
             int seg = (seg_override_ >= 0) ? seg_override_ : int(SEG_DS);
-            // The displacement's own width follows the *address* size, and
-            // a 32-bit one is a full 32-bit offset -- not truncated to the
-            // real-mode window, for the same reason decode_modrm() does not
-            // truncate (PC486_REVIEW.md §5.4).
+            // The displacement width follows the address size and isn't
+            // truncated (PC486_REVIEW.md §5.4).
             uint32_t off = addrsize32_ ? fetch32() : uint32_t(fetch16());
             if (op == 0xA0) set_reg8(0, read8(seg, off));
             else if (op == 0xA1) { if (opsize32_) eax = read32(seg, off); else set_reg16(0, read16(seg, off)); }
@@ -4791,14 +4327,10 @@ int Cpu::step_inner() {
         case 0xCC: do_interrupt(3, true); c += 26; break;
         case 0xCD: {  // INT imm8
             uint8_t n = fetch8();
-            // Idle detection. Two calls mean "I have nothing to do": INT 16h
-            // AH=01h/11h, the peek-keystroke every DOS prompt and text-mode
-            // program spins on, and INT 2Fh AX=1680h, the release-time-slice
-            // call a well-behaved app makes under a multitasker. Time BETWEEN
-            // consecutive polls is what is actually idle -- the spin loop
-            // around the call -- so the gap is credited, and only when it is
-            // short enough to be a tight loop rather than a program that
-            // happens to check the keyboard once a frame while working.
+            // Idle detection: INT 16h AH=01h/11h (peek keystroke) and INT 2Fh
+            // AX=1680h (release time slice) mean "nothing to do". The gap
+            // between consecutive polls is credited as idle, but only when
+            // short enough to be a tight loop.
             {
                 const uint8_t ah = get_reg8(4);
                 const bool key_poll = (n == 0x16 && (ah == 0x01 || ah == 0x11));
@@ -4809,12 +4341,9 @@ int Cpu::step_inner() {
                     last_poll_cycle_ = cycles;
                 }
             }
-            // The fourth IOPL-sensitive instruction in V86: "INT n is
-            // sensitive so that the V86 monitor can intercept calls to the
-            // 8086 OS" (Intel 80386 PRM, "Emulating 8086 Operating System
-            // Calls"), so at IOPL < 3 the monitor gets a #GP instead of the
-            // vector. INT3 and INTO are exceptions rather than software
-            // interrupts and are not in that list.
+            // INT n is IOPL-sensitive in V86 so the monitor can intercept 8086
+            // OS calls (Intel 80386 PRM, "Emulating 8086 Operating System
+            // Calls"). INT3 and INTO are exceptions and are exempt.
             if (v86_mode() && iopl() != 3) raise_err(EXC_GP, 0);
             do_interrupt(n, true);
             c += 30;
@@ -4828,8 +4357,7 @@ int Cpu::step_inner() {
         case 0xD5: aad(); c += 14; break;
         case 0xD7: {  // XLAT
             int seg = (seg_override_ >= 0) ? seg_override_ : int(SEG_DS);
-            // XLAT indexes a table at (E)BX by AL; the 0x67 prefix selects
-            // EBX over BX as the table base.
+            // XLAT indexes (E)BX by AL; 0x67 selects EBX as the base.
             uint32_t tbl = addrsize32_ ? ebx : uint32_t(get_reg16(3));
             set_reg8(0, read8(seg, addrsize32_ ? (tbl + get_reg8(0)) : uint32_t(uint16_t(tbl + get_reg8(0)))));
             c += 4;
@@ -4842,8 +4370,7 @@ int Cpu::step_inner() {
 
         case 0xE0: case 0xE1: case 0xE2: case 0xE3: c += loop_group(op); break;
 
-        // --- Port I/O. Published 486: IN 14, OUT 16 -- both far slower
-        // --- than the 286's 5/3, and asymmetric the other way round.
+        // --- Port I/O (published 486: IN 14, OUT 16) ---
         case 0xE4: { uint8_t p = fetch8(); check_io_permission(p, 1); set_reg8(0, bus_in(p)); c += 14; break; }
         case 0xE5: { uint8_t p = fetch8(); if (opsize32_) { check_io_permission(p, 4); eax = bus_in32(p); } else { check_io_permission(p, 2); set_reg16(0, bus_in16(p)); } c += 14; break; }
         case 0xE6: { uint8_t p = fetch8(); check_io_permission(p, 1); bus_out(p, get_reg8(0)); c += 16; break; }
@@ -4881,20 +4408,14 @@ int Cpu::step_inner() {
             c += 16;
             break;
 
-        // ICEBP: a #DB trap with no gate-DPL check, unlike INT 1, and no
-        // DR6 status bit (sandpile.org, "ICEBP").
+        // ICEBP: #DB trap with no gate-DPL check, unlike INT 1, and no DR6
+        // status bit (sandpile.org, "ICEBP").
         case 0xF1: do_interrupt(uint8_t(EXC_DB), false); c += 26; break;
         case 0xF4:
-            // HLT stops the CPU until an interrupt arrives, so only ring 0
-            // may issue it -- a user program halting the machine would be
-            // a denial of service. Architecturally #GP(0) at CPL > 0
-            // (including all of V86). Deliver that without throw: FreeDOS's
-            // EMMQXXX0 strategy/interrupt entries are a HLT pad in the UMB
-            // (C800:001A), and JEMMEX's monitor catches each #GP then IRETs
-            // -- a tight throw/catch loop that soft-locks Chromium's wasm
-            // exception handling on CI (cycles freeze, runCycles never
-            // returns). Pending-fault delivery is the same #GP; only the
-            // host unwinding changes.
+            // HLT is ring 0 only: #GP(0) at CPL > 0, V86 included. Delivered
+            // without throw: JEMMEX catches EMMQXXX0's HLT pad (C800:001A) #GP
+            // in a tight loop that soft-locks Chromium's wasm exception
+            // handling.
             if (protected_mode() && cpl() != 0) {
                 pending_fault_ = Fault{EXC_GP, 0, true};
                 fault_pending_ = true;
@@ -4907,9 +4428,8 @@ int Cpu::step_inner() {
         case 0xF6: case 0xF7: c += grp3_unary(op); break;
         case 0xF8: set_flag(FLAG_CF, false); c += 2; break;
         case 0xF9: set_flag(FLAG_CF, true); c += 2; break;
-        // CLI/STI are I/O-privileged: masking interrupts is only permitted
-        // when CPL <= IOPL (Intel 80486 PRM, CLI/STI). Published 5 on the
-        // 486, up from the 286's 3.
+        // CLI/STI need CPL <= IOPL (Intel 80486 PRM, CLI/STI). Published 5 on
+        // the 486.
         case 0xFA:
             if (protected_mode() && cpl() > iopl()) raise_err(EXC_GP, 0);
             set_flag(FLAG_IF, false);
@@ -4926,10 +4446,9 @@ int Cpu::step_inner() {
         case 0xFE: case 0xFF: c += grp5(op); break;
 
         case 0xD6:
-            // SALC: AL = CF ? FFh : 00h, flags untouched. Undocumented but
-            // present on every Intel part from the 8086 on; the SDM's #UD
-            // entry names D6 as reserved yet never faulting. No published
-            // 486 timing, so it is charged as SBB AL,AL (1 clock).
+            // SALC: AL = CF ? FFh : 00h, flags untouched. Undocumented, present
+            // on every Intel part from the 8086; no published 486 timing, so
+            // charged as SBB AL,AL (1 clock).
             set_reg8(0, flag(FLAG_CF) ? 0xFF : 0x00);
             c += 1;
             break;

@@ -1,9 +1,6 @@
-; PRIMES -- lists every prime below 300 by plain trial division
-; (no sqrt bound, no early exit -- the honestly slow way), real
-; work for a 1MHz clock. 16-bit candidate/divisor/remainder so
-; the range goes past 255 -- one shared 16-bit decimal printer
-; (PR16) handles both each found candidate and the final count,
-; instead of two separate printers. ASM, then RUN -- real time.
+; PRIMES. Lists every prime below 300 by plain trial division, no sqrt
+; bound, so it takes real time at 1MHz. 16-bit candidate/divisor/remainder.
+; PR16 prints both each prime and the final count. ASM, then RUN.
 LDA #$02
 STA $10
 STZ $11
@@ -93,10 +90,8 @@ JSR $8003
 LDA #$0A
 JSR $8003
 JMP DONE2
-; PR16 -- prints the 16-bit value in $19/$1A as decimal (no leading
-; zeros, no trailing space/CR -- callers add those), shared by ISPRIM
-; (each found candidate) and CNTD (the final count, hi byte always 0
-; since it never exceeds 255) instead of two near-duplicate printers.
+; PR16 prints the 16-bit value in $19/$1A as decimal, no leading zeros
+; and no trailing space/CR. Shared by ISPRIM and CNTD (hi byte always 0).
 PR16: STZ $1B
 STZ $1D
 PR16H: LDA $1A

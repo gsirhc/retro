@@ -1,14 +1,10 @@
 // Atari Asteroids (1979) board: MOS 6502 @ 1.5 MHz + DVG + discrete sound.
 //
-// Memory map and I/O from:
-//   http://computerarcheology.com/Arcade/Asteroids/Hardware.html
-//   https://6502disassembly.com/va-asteroids/Asteroids.html
-//   Atari TM-143 / DP-143 schematics
-// A15 is ignored — vectors at $FFFA mirror into ROM at $7FFA.
-//
-// Clocks (12.096 MHz master): CPU ÷8 = 1.512 MHz; 3 kHz = master÷4096;
-// NMI (MMI) every 12× 3 kHz ≈ 246 Hz. Cite: MAME asteroid.cpp MASTER_CLOCK
-// plumbing cross-checked against Computer Archeology's 250 Hz rounding.
+// Memory map and I/O: computerarcheology.com/Arcade/Asteroids/Hardware.html,
+// 6502disassembly.com/va-asteroids, Atari TM-143 / DP-143 schematics.
+// A15 is ignored, so vectors at $FFFA mirror into ROM at $7FFA.
+// Clocks from the 12.096 MHz master: CPU /8, 3 kHz = /4096, NMI every 12
+// 3 kHz edges (MAME asteroid.cpp).
 
 #ifndef ASTEROIDS_MACHINE_H
 #define ASTEROIDS_MACHINE_H
@@ -30,13 +26,11 @@ constexpr int kFbW = 1024;
 constexpr int kFbH = 1024;
 
 struct Inputs {
-    // Active-high switch bits (1 = pressed). Self-test / slam / diag
-    // default released (0).
-    uint8_t in0 = 0x00;  // $2000 — see Hardware.html IN0
-    uint8_t in1 = 0x00;  // $2400 — coins, start, thrust, rotate
-    // DSW1 packed as four 2-bit fields at $2800..$2803 (coinage, right
-    // mult, center/lives, language). Default: 1C/1C, 3 lives, English.
-    // $2802 pair: 0=1x&4 lives, 1=1x&3, 2=2x&4, 3=2x&3.
+    // Active-high switch bits (1 = pressed).
+    uint8_t in0 = 0x00;  // $2000
+    uint8_t in1 = 0x00;  // $2400 coins, start, thrust, rotate
+    // DSW1: four 2-bit fields at $2800..$2803 (coinage, right mult,
+    // center/lives, language). $2802: 0=1x&4 lives, 1=1x&3, 2=2x&4, 3=2x&3.
     uint8_t dsw1 = 0x12;
 };
 

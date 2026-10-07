@@ -47,8 +47,7 @@ serve: galaxian.js roms shared
 test: galaxian.js roms shared
 	npx playwright test
 
-# Smoke: tests/smoke.spec.ts only -- what deploy CI runs. Full suite
-# is `make test` (nightly + local). See CLAUDE.md "Smoke vs full".
+# Smoke: tests/smoke.spec.ts only (deploy CI). Full suite is `make test`.
 test-smoke: galaxian.js roms shared
 	npx playwright test tests/smoke.spec.ts
 

@@ -1,11 +1,7 @@
 import { test, expect } from "@playwright/test";
 
-// Boots the built-in hardware self-test ROM (never Namco Galaxian) and
-// checks the real, wall-clock-paced 3.072 MHz Z80 core is actually running:
-// the tile pattern paints, and cycles/real-second lands near the genuine
-// clock rate -- see CLAUDE.md's "Never speed these up". Native ISA coverage
-// is retroweb/shared/cpu (zexdoc); this file only smokes the board in a
-// browser.
+// Boots the built-in self-test ROM (never Namco Galaxian). Checks the tile pattern paints
+// and cycles per real second land near the genuine clock rate.
 
 test("boots the test ROM, paints a non-black frame, no console errors", async ({ page }) => {
   const errors: string[] = [];

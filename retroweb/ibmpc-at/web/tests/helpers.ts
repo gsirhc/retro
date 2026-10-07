@@ -1,37 +1,16 @@
 import { Page, expect } from "@playwright/test";
 
-// Shared helpers for the IBM PC/AT integration suite. Everything drives the
-// real page; `window.__test = { machine, sendKey, screenEl }` (present only
-// under `?test=1`, see app.js) is the inspection seam. Unlike altair8800/
-// assembler6502 there is no serial-terminal text buffer -- this machine's
-// output is an EGA-rendered canvas -- so `screenText()` reads back the
-// current text-mode screen via `Machine::textScreen()`, a test-only
-// convenience added to wasm_machine.cpp for exactly this purpose (see its
-// own comment there: it mirrors ega_render.cpp's RenderTextScreen character
-// addressing, returns "" outside text mode, and has no real-hardware
-// counterpart -- a person just looks at the CRT).
+// Helpers for the PC/AT suite. window.__test (only under ?test=1) is the inspection seam;
+// screenText() reads the EGA text screen via the test-only Machine::textScreen().
 
 export const TEST_QS = "test=1";
 
-/**
- * Navigate to the emulator with `?test=1` and wait for the machine to be
- * live. app.js auto-boots the instant firmware finishes fetching (no power
- * switch click needed -- see the firmware-fetch block's comment), so
- * `window.__test` appearing at all already confirms that fired; by default
- * this also waits for a fresh factory boot to reach its genuine, interactive
- * `C:\>` FreeDOS prompt (see IBM_PCAT_REVIEW.md §32's verification note).
- * Pass `expectScreen: null` to skip that wait for scenarios that
- * deliberately don't reach a normal prompt (e.g. a blank/unformatted C:).
- */
+/** Open ?test=1 and wait for the auto-boot; by default also waits for the C:\> prompt. expectScreen: null skips that. */
 export async function boot(
   page: Page,
   opts: { params?: string; expectScreen?: RegExp | null; timeout?: number; realtime?: boolean } = {},
 ): Promise<void> {
-  // Every test in this suite runs the guest CPU sped up by default
-  // (`fast=1` -- see app.js's TEST_CPU_MULTIPLIER) so it doesn't pay a real
-  // ~45s 8 MHz POST + FreeDOS boot on every test. Pass `realtime: true` to
-  // opt a specific (smoke) test back into genuine real-speed pacing -- see
-  // tests/smoke.spec.ts and CLAUDE.md "Current sanctioned overrides".
+  // fast=1 by default to skip the real ~45s POST + boot; realtime: true opts out (smoke.spec.ts)
   const speed = opts.realtime ? "" : "&fast=1";
   const qs = TEST_QS + speed + (opts.params ? `&${opts.params}` : "");
   await page.goto(`/?${qs}`);
@@ -48,32 +27,14 @@ export function screenText(page: Page): Promise<string> {
   return page.evaluate(() => (window as any).__test.machine.textScreen());
 }
 
-/**
- * Poll the text-mode screen until it matches. Generous default timeout: a
- * real POST + FreeDOS boot at genuine, never-sped-up 8 MHz is tens of real
- * seconds (see CLAUDE.md's "Never speed these up"), more under contention.
- */
+/** Poll the text screen until it matches. Long default timeout for the real-speed boot. */
 export async function waitForScreen(page: Page, re: RegExp, timeout = 120_000): Promise<void> {
   await expect
     .poll(() => screenText(page), { timeout, message: `screen never matched ${re}` })
     .toMatch(re);
 }
 
-/**
- * Send one physical key's full make-then-break, each byte on its own real
- * wait. The emulated 8042 (i8042.h) has exactly one single-byte output
- * register, exactly like real hardware -- a second byte written before the
- * guest's IRQ1 handler has read the first just overwrites it, silently
- * dropping it. A real keyboard can't outrun that (it clocks one bit at a
- * time over a slow serial line); a test calling sendKey() twice with no
- * real elapsed time between them can, since nothing runs the machine's
- * real-time run loop (rAF-paced) in between. This is exactly the bug behind
- * IBM_PCAT_REVIEW.md §31 (Ctrl+Alt+Del) -- mirrors app.js's own F-key
- * button handler's 50ms make/break gap, and its injectScancodeSequence()'s
- * spacing for multi-byte extended-key sequences (Print Screen, Pause,
- * arrows, etc. -- see app.js). Never send two scancode bytes back to back
- * from a test without a real wait in between.
- */
+/** One key's make then break, each byte with a real wait (the 8042 has a single output byte). */
 export async function tap(page: Page, code: string, gapMs = 40): Promise<void> {
   await page.evaluate((c) => (window as any).__test.sendKey(c, false), code);
   await page.waitForTimeout(gapMs);
@@ -97,21 +58,12 @@ for (let c = 0; c < 26; c++) {
   CHAR_TO_KEY[letter] = "Key" + letter;
 }
 for (let d = 0; d < 10; d++) CHAR_TO_KEY[String(d)] = "Digit" + d;
-// Characters that need Shift held on a real US keyboard layout -- add here
-// as tests need more of them, rather than guessing a full US layout table.
+// characters that need Shift on a US layout
 const SHIFTED_CHAR_TO_KEY: Record<string, string> = {
   ":": "Semicolon",
 };
 
-/**
- * Type a DOS command line one real key at a time, each with its own real
- * make/break gap (see tap()'s comment -- typing several keys back to back
- * from a test hits the exact same single-byte-8042-register bug). DOS's
- * command interpreter is case-insensitive, so letters always go through
- * their bare, unshifted key -- there's no need to model CapsLock/Shift for
- * case, only for the handful of symbols (":" etc.) that need it regardless
- * of case. Ends with Enter unless `pressEnterAfter` is false.
- */
+/** Type a DOS command one key at a time, then Enter unless pressEnterAfter is false. Letters go unshifted since DOS is case-insensitive. */
 export async function typeStr(
   page: Page,
   str: string,
@@ -140,22 +92,13 @@ export async function focusScreen(page: Page): Promise<void> {
   await page.locator("#screen").click();
 }
 
-/**
- * Flip the power rocker to the given state (no-op if already there). The
- * real `<input>` is shrunk to 1x1px and hidden -- the visible switch is a
- * styled sibling `<span>` (see index.html's .at-switch-group CSS) -- which
- * Playwright's actionability check treats as unclickable without `force`.
- */
+/** Flip the power rocker. Needs force: the real input is hidden behind a styled span. */
 export async function setPowerSwitch(page: Page, on: boolean): Promise<void> {
   const sw = page.locator("#powerSwitch");
   if ((await sw.isChecked()) !== on) await sw.click({ force: true });
 }
 
-/**
- * The classic warm-boot combo via the on-page button (see app.js's
- * ctrlAltDelBtn handler and IBM_PCAT_REVIEW.md §31). Needs `force` for the
- * same reason as the power switch -- an overlaying styled element.
- */
+/** Ctrl-Alt-Del via the on-page button. Needs force like the power switch. */
 export async function clickCtrlAltDel(page: Page): Promise<void> {
   await page.locator("#ctrlAltDelBtn").click({ force: true });
 }
@@ -166,8 +109,7 @@ export function bay(page: Page, drive: 0 | 1) {
 
 export async function insertFloppy(page: Page, drive: 0 | 1, filePath: string): Promise<void> {
   const b = bay(page, drive);
-  // withLoad is async (paint + arrayBuffer + mount) -- wait for the bay
-  // to actually show loaded, not just for setInputFiles to return.
+  // withLoad is async, so wait for the bay to show loaded
   await b.locator('[data-role="file"]').setInputFiles(filePath);
   await expect(b).toHaveClass(/loaded/);
   await expect(page.locator("#loadOverlay")).not.toHaveClass(/visible/);

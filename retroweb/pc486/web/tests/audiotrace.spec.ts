@@ -1,11 +1,8 @@
 import { test, expect } from "./fixtures";
 import { bootLive } from "./helpers";
 
-// `?audiotrace` records one row per audio post so a real game session's
-// pacing can be replayed in the harness -- a synthetic main-thread load does
-// not reproduce what a DOS game's redraw does to the audio path, which is
-// why PC486_REVIEW.md section 31's open defect has outlasted four attempts.
-// Opt-in and absent otherwise, like `?fmtrace`.
+// `?audiotrace` records one row per audio post so a real game session's pacing can be replayed.
+// Opt-in, like `?fmtrace`. See PC486_REVIEW.md section 31.
 test.describe("audio trace", () => {
   test("is absent without the parameter", async ({ livePage: page }) => {
     expect(await page.evaluate(() => (window as any).__audio === undefined)).toBe(true);
@@ -19,9 +16,7 @@ test.describe("audio trace", () => {
       .poll(() => page.evaluate(() => (window as any).__test.audioState))
       .toBe("running");
 
-    // Capture with the card actually playing, which is the case this exists
-    // for -- and the only one where the ring figure means anything, since it
-    // is the audio thread's lead over the card's own samples.
+    // Capture with the card playing; the ring figure is the audio thread's lead over the card's samples.
     await page.evaluate(() => {
       const m = (window as any).__test.machine;
       const w = (r: number, v: number) => { m.portOut(0x388, r); m.portOut(0x389, v); };
@@ -37,15 +32,9 @@ test.describe("audio trace", () => {
 
     const summary = await page.evaluate(() => (window as any).__audio.summary());
     expect(summary.rows).toBe(rows);
-    // Every row has to carry a real post length and a real guest-cycle span,
-    // because those two are the pair the open defect lives between.
     expect(summary.postMs.p50).toBeGreaterThan(0);
     expect(summary.guestPerWall.p50).toBeGreaterThan(0);
-    // The ring figure is the audio thread's lead over the card's samples. It
-    // is present here, but this page boots under the fast-test multiplier,
-    // where the guest outruns wall time and the audio thread is pinned to
-    // whatever has actually been produced -- so the lead legitimately reads
-    // zero. tone.spec.ts asserts a real cushion at real speed instead.
+    // The ring lead reads zero under the fast-test multiplier. tone.spec.ts asserts a real cushion at real speed.
     expect(summary.ringMs).not.toBeNull();
     expect(summary.ringMs.p50).toBeGreaterThanOrEqual(0);
   });

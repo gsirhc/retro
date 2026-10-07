@@ -1,17 +1,11 @@
 "use strict";
-// ---- page theme (Win95 / mid-90s web / Modern / Atmosphere × light/dark/system) -
-// Shared by every machine page and by retroweb/index.html / about.html via
-// retro8080.theme + retro8080.mode. A choice on any page carries across the
-// whole site. data-theme is the family; data-mode="dark" when the resolved
-// appearance is dark (omitted when light). Old single-key composites
-// (moderndark, system, systemaurora, ai) migrate into the two keys on first
-// interactive load.
-//
-// initThemePicker(onChange) wires #pageThemeBtn, builds #themeDialog once,
-// resolves the start from (in priority order) ?theme=/&mode=, stored prefs,
-// whatever theme-init.js stamped onto <html>, or win+light, and returns the
-// resolved family. onChange (optional) runs after every later interactive
-// change, including System mode following an OS appearance switch.
+// ---- page theme ----
+// retro8080.theme + retro8080.mode, shared site-wide. data-theme is the family;
+// data-mode="dark" when the resolved appearance is dark. Legacy composite keys
+// (moderndark, system, systemaurora, ai) migrate on first interactive load.
+// initThemePicker(onChange) wires #pageThemeBtn, builds #themeDialog, resolves
+// ?theme=/&mode=, then storage, then theme-init.js's stamp, then win+light.
+// Returns the family; onChange runs after later interactive changes.
 
 function initThemePicker(onChange) {
   const THEMES = ["win", "web94", "modern", "aurora"];
@@ -54,7 +48,6 @@ function initThemePicker(onChange) {
   };
 
   let current = readStored();
-  // Rewrite legacy composites so later FOUC loads see clean keys.
   writeStored(current.theme, current.mode);
 
   const params = new URLSearchParams(location.search);
@@ -63,7 +56,6 @@ function initThemePicker(onChange) {
   if (qTheme || qMode) {
     current = migrateLegacy(qTheme || current.theme, qMode || current.mode);
   } else if (root.dataset.theme && THEMES.includes(root.dataset.theme)) {
-    // Prefer storage (already migrated) over a stale dataset from FOUC.
     current = { theme: current.theme, mode: current.mode };
   }
 

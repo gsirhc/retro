@@ -1,8 +1,4 @@
-// GoogleTest suite for the 8237 DMA register file: reset defaults
-// (everything masked), the address/count low-then-high byte-pointer
-// protocol and its clear command, single/all-channel masking, DMA2's
-// doubled port stride, and the status register's per-channel
-// terminal-count latch and live/software request bits.
+// GoogleTest suite for the 8237 DMA register file.
 
 #include <gtest/gtest.h>
 
@@ -69,7 +65,7 @@ TEST(Dma8237Test, Dma2UsesDoubledPortStride) {
     dma2.reset();
     dma2.out(0xC4, 0x78);  // channel 2 address low byte, at base+4*stride
     dma2.out(0xC4, 0x56);
-    dma2.out(0xD8, 0);     // clear byte pointer -- reg 12 at base+12*stride = 0xC0+24=0xD8
+    dma2.out(0xD8, 0);     // clear byte pointer, reg 12 at 0xC0+12*2
     EXPECT_EQ(dma2.in(0xC4), 0x78);
     EXPECT_EQ(dma2.in(0xC4), 0x56);
 }
@@ -113,8 +109,7 @@ TEST(Dma8237Test, WithoutAutoinitializeAddressWrapsInsteadOfReloading) {
 }
 
 TEST(Dma8237Test, AdvanceDecrementsAddressWhenModeBitFiveIsSet) {
-    // Intel 8237A-5 data sheet, "Mode Register": bit 5 selects address
-    // decrement instead of increment.
+    // Intel 8237A-5 data sheet, Mode Register: bit 5 selects address decrement.
     Dma8237 dma(0x00, 1);
     dma.reset();
     dma.out(0x04, 0x05); dma.out(0x04, 0x00);  // ch2 address = 5
@@ -138,8 +133,7 @@ TEST(Dma8237Test, AddressWrapsWithinThe64KPageInDecrementMode) {
 }
 
 TEST(Dma8237Test, AddressWrapsWithinThe64KPageInIncrementMode) {
-    // Same quirk the other direction -- 0xFFFF + 1 wraps to 0, not into the
-    // next page.
+    // 0xFFFF + 1 wraps to 0, not into the next page.
     Dma8237 dma(0x00, 1);
     dma.reset();
     dma.out(0x04, 0xFF); dma.out(0x04, 0xFF);  // ch2 address = 0xFFFF
@@ -180,10 +174,8 @@ TEST(Dma8237Test, StatusRegisterTerminalCountBitSetsOnAdvanceAndClearsOnRead) {
 TEST(Dma8237Test, StatusRegisterTerminalCountIsPerChannel) {
     Dma8237 dma(0x00, 1);
     dma.reset();
-    // Channel 0: count = 0, TC on first advance.
     dma.out(0x00, 0x00); dma.out(0x00, 0x00);
     dma.out(0x01, 0x00); dma.out(0x01, 0x00);
-    // Channel 3: count = 1, not yet TC on first advance.
     dma.out(0x06, 0x00); dma.out(0x06, 0x00);
     dma.out(0x07, 0x01); dma.out(0x07, 0x00);
     EXPECT_TRUE(dma.advance(0));
@@ -196,8 +188,7 @@ TEST(Dma8237Test, StatusRegisterRequestBitFollowsLiveDreqUnlatched) {
     dma.reset();
     dma.set_dreq(2, true);
     EXPECT_EQ(dma.in(0x08) & 0xF0, 0x40);  // bit 6 (channel 2's request bit)
-    // Unlike TC, a request bit is not latched by the read -- it tracks the
-    // live signal, so it drops the instant the device deasserts DREQ.
+    // Unlike TC, a request bit tracks the live signal and is not latched by the read.
     EXPECT_EQ(dma.in(0x08) & 0xF0, 0x40);
     dma.set_dreq(2, false);
     EXPECT_EQ(dma.in(0x08) & 0xF0, 0x00);
@@ -213,9 +204,7 @@ TEST(Dma8237Test, StatusRegisterRequestBitAlsoFollowsTheSoftwareRequestRegister)
 }
 
 TEST(Dma8237Test, StatusRegisterRequestBitStaysSetWhileMaskedSinceItIsNeverServiced) {
-    // The one case this is actually observable here: every real transfer in
-    // this emulator resolves within the tick that sets DREQ, so a masked
-    // channel left wanting service is what makes the bit visible at all.
+    // Every transfer here resolves within the tick that sets DREQ, so a masked channel is the only way to see the bit.
     Dma8237 dma(0x00, 1);
     dma.reset();
     dma.set_dreq(2, true);

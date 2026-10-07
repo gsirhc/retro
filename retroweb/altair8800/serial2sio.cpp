@@ -18,7 +18,7 @@ uint8_t Serial2SIO::status(const Channel &c) const {
     if (!c.rx.empty()) s |= ACIA_RDRF;
     if (!c.tx.full())  s |= ACIA_TDRE;       // buffered: room means "ready"
     if (c.overrun)     s |= ACIA_OVRN;
-    // DCD / CTS are active-low on the 6850; a ready line reads 0, so leave them.
+    // DCD / CTS are active-low; a ready line reads 0
     bool irq = (c.rx_irq_enabled && (s & ACIA_RDRF)) ||
                (c.tx_irq_enabled && (s & ACIA_TDRE));
     if (irq) s |= ACIA_IRQ;
@@ -28,7 +28,7 @@ uint8_t Serial2SIO::status(const Channel &c) const {
 void Serial2SIO::write_control(Channel &c, uint8_t value) {
     c.control = value;
 
-    // Counter-divide field = 0b11 is the ACIA master reset.
+    // counter-divide 0b11 is the ACIA master reset
     if ((value & 0x03) == 0x03) {
         c.overrun = false;
         c.rx_irq_enabled = false;
@@ -74,8 +74,7 @@ void Serial2SIO::out(uint8_t port, uint8_t value) {
         return;
     }
 
-    // Transmit: hand the byte to the front end. If the FIFO is somehow full
-    // we drop it, mirroring a real overrun on the wire.
+    // a full FIFO drops the byte, like an overrun on the wire
     c.tx.push(value);
     refresh_irq();
 }

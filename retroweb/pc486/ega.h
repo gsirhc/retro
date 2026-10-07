@@ -1,62 +1,11 @@
-// IBM Enhanced Graphics Adapter.
-//
-// Owns the 256KB video RAM window (0xA0000-0xBFFFF... the card itself only
-// decodes 0xA0000-0xAFFFF for graphics and 0xB8000-0xBFFFF for text/CGA
-// compatibility; 0xB0000-0xB7FFF is the MDA-compatible mono text window,
-// unused by this color-display machine but still decoded so a write there
-// doesn't fall through to conventional RAM) and the standard EGA register
-// set: CRTC (0x3D4/0x3D5), Sequencer (0x3C4/0x3C5), Graphics Controller
-// (0x3CE/0x3CF), Attribute Controller (0x3C0, address/data toggled by
-// writes and reset by reading Input Status 1), Input Status 1 (0x3DA),
-// and the Miscellaneous Output Register (0x3C2 write / 0x3CC read).
-//
-// Phase 5: real planar memory. VRAM is 4 bitplanes of 64KB each, byte-
-// interleaved as vram[(plane_offset << 2) + plane] -- the genuine EGA/VGA
-// hardware layout, not an approximation of it. mem_read/mem_write implement
-// the real latch-and-ALU engine: every read loads all 4 planes' bytes into
-// a 4-byte latch (Read Mode 0 then returns one plane, substituted by the
-// CPU address's own odd/even-ness when the Sequencer's odd/even chain is
-// active, exactly like text mode's character/attribute split; Read Mode 1
-// does a 4-plane colour-compare instead); every write runs the CPU byte (or
-// the latch, or bit-per-plane selection, depending on Write Mode) through
-// Set/Reset, the data-rotate ALU function, and the Bit Mask before storing,
-// gated per-plane by the Sequencer's Map Mask and -- when odd/even chaining
-// is active -- by the CPU address's own parity, which is what lets a flat
-// CPU address transparently reach alternating planes without the CPU or
-// BIOS ever needing to think in terms of planes at all (used by text mode
-// for character/attribute, and by the BIOS's own character-generator/font-
-// loading code targeting planes 2/3 the same way, just with Map Mask
-// pointed at a different pair of bits).
-//
-// Milestone 3 adds the three pieces of genuine VGA (not EGA) silicon this
-// machine's card actually has, which Milestone 1 stopped short of:
-//
-//   - Chain 4 (Sequencer Memory Mode, SR04 bit 3): mode 13h's addressing.
-//     CPU address bits 0-1 select the plane and the per-plane offset is
-//     addr>>2, so four consecutive CPU bytes land at the same offset in
-//     planes 0,1,2,3 -- one byte per pixel from software's point of view.
-//     Because this file's VRAM is stored byte-interleaved as
-//     vram[(plane_offset << 2) + plane], chain-4's decode collapses to
-//     vram[offset] exactly: ((off>>2)<<2) + (off&3) == off. That identity
-//     is not a shortcut, it IS why real VGA's interleaved planes make mode
-//     13h look linear.
-//   - The 256-entry RGB DAC (ports 0x3C6-0x3C9): 6 significant bits per
-//     channel, a PEL mask, separate read/write index registers each with
-//     their own R->G->B sub-counter that auto-advances to the next entry
-//     on the third access, and the DAC State register (0x3C7 read).
-//   - This card's SVGA extension registers, which its own ROM BIOS drives
-//     to implement the VESA BIOS Extensions -- see the VBE/DISPI block
-//     near the bottom of this class and PC486_REVIEW.md §7.
-//
-// Register semantics are the IBM EGA/VGA standard, reproduced identically
-// by every compatible BIOS (including this machine's Bochs vgabios) since
-// software that pokes these registers directly depends on exact IBM
-// compatibility; the memory-access algorithm additionally matches Bochs's
-// own reference implementation (bx_vgacore_c::mem_read/mem_write in
-// vgacore.cc, pinned commit ff17a0c2bbabccf96d33af4e08ba8061889b079d --
-// the same source tree this machine's own BIOS/VGABIOS images are built
-// from). See ibmpc-at/IBM_PCAT_REVIEW.md §12 (the planar engine this class was
-// adapted from) and PC486_REVIEW.md §7.
+// VGA-class adapter (named Ega for historical reasons). 1MB VRAM, standard
+// CRTC/Sequencer/Graphics Controller/Attribute Controller/DAC register sets.
+// VRAM is 4 byte-interleaved planes, vram[(plane_offset << 2) + plane]. The
+// planar latch/ALU engine follows Bochs bx_vgacore_c::mem_read/mem_write
+// (vgacore.cc, commit ff17a0c2bbabccf96d33af4e08ba8061889b079d). Chain-4
+// decodes to vram[offset] because ((off>>2)<<2) + (off&3) == off, which is why
+// mode 13h looks linear. SVGA extension registers back the VBE; see
+// PC486_REVIEW.md §7.
 #ifndef PC486_EGA_H
 #define PC486_EGA_H
 
@@ -74,11 +23,8 @@ public:
     uint8_t in(uint16_t port);
     void out(uint16_t port, uint8_t v);
 
-    // The SVGA extension index/data ports are inherently 16-bit registers
-    // at a single address -- the card's own ROM drives them with `out dx,
-    // ax` / `in ax, dx` -- so they need the same single-bus-cycle handling
-    // the IDE data registers get, not two composed byte accesses. See
-    // chipset.cpp's io_in16/io_out16 and cpu80486.h's Bus::in16 comment.
+    // The SVGA index/data ports are 16-bit registers at a single address, so they
+    // get one bus cycle like the IDE data registers.
     static bool owns_port16(uint16_t port) { return port == kVbeIndexPort || port == kVbeDataPort; }
     uint16_t in16(uint16_t port);
     void out16(uint16_t port, uint16_t v);
@@ -87,30 +33,18 @@ public:
     uint8_t mem_read(uint32_t addr) const;
     void mem_write(uint32_t addr, uint8_t v);
 
-    // A 4KB page of the aperture that the CPU may touch as plain linear
-    // bytes, or nullptr. Chain-4 already decodes to vram[off] exactly (see
-    // the file header's ((off>>2)<<2) + (off&3) == off identity), so when
-    // every planar stage is in its pass-through state -- which is precisely
-    // how a mode-13h driver leaves them -- a byte access needs none of
-    // mem_read/mem_write's per-byte decode. The CPU's page map caches this
-    // pointer, so mapping_epoch() below must change whenever the answer
-    // could.
+    // A 4KB aperture page the CPU may touch as linear bytes, or nullptr. Valid
+    // when every planar stage is pass-through (mode 13h). mapping_epoch() changes
+    // whenever the answer could.
     uint8_t *linear_page(uint32_t page_base, bool write);
-    // Bumped whenever a register that could change linear_page()'s answer is
-    // written. The chipset watches it to invalidate cached page pointers.
+    // Bumped when a register that could change linear_page() is written.
     uint32_t mapping_epoch() const { return mapping_epoch_; }
-    // Recomputes the signature of every register linear_page() consults and
-    // bumps mapping_epoch() if it moved. Called after any register write, so
-    // a palette or CRTC write -- neither of which changes the answer -- costs
-    // no page-map flush.
+    // Bumps mapping_epoch() if any register linear_page() consults changed.
     void note_mapping_change();
 
 
-    // Advances the Input Status 1 vertical-retrace toggle against the CPU's
-    // cycle count. The frame period and retrace window come from the CRTC's
-    // own programmed timing, cached by recompute_timing_() -- so this stays a
-    // credit counter with no division, cheap enough for Machine::run_cycles()
-    // to call after every instruction (same reason Fdc765::tick is inline).
+    // Advances the Input Status 1 retrace toggle. Cached timing keeps this cheap
+    // enough to call after every instruction.
     void tick(uint64_t cpu_cycles) {
         uint64_t d = cpu_cycles - prev_cycles_;
         prev_cycles_ = cpu_cycles;
@@ -123,51 +57,32 @@ public:
                    retrace_credit_ < retrace_start_cycles_ + retrace_window_cycles_;
     }
 
-    // tick() counts CPU cycles, not wall-clock time, so the frame period has
-    // to be expressed in them. Front-panel Turbo calls this via
-    // Chipset::set_cpu_hz, which keeps vertical refresh at the same
-    // wall-clock rate at either speed: a real DX2 Turbo button changes the
-    // CPU's internal clock, never the video card's crystal.
+    // Frame period is in CPU cycles; the Turbo button changes the CPU clock, not the video crystal.
     void set_cpu_hz(double hz) { cpu_hz_ = hz; recompute_timing_(); }
 
-    // Vertical frames scanned since reset. The CRTC's cursor and character
-    // blink counters divide this down: the cursor toggles every 8 frames
-    // and blinking characters every 16 (IBM VGA Technical Reference, CRT
-    // Controller).
+    // Cursor toggles every 8 frames, blinking characters every 16 (IBM VGA Technical Reference).
     uint32_t frame_count() const { return frame_count_; }
     bool cursor_blink_phase_on() const { return (frame_count_ & 8) == 0; }
     bool char_blink_phase_on() const { return (frame_count_ & 16) == 0; }
 
-    // Host/front-end convenience for a future renderer: current CRTC
-    // cursor position and display start address (both are 16-bit CRTC
-    // register pairs, offsets into the text-mode VRAM window).
+    // CRTC cursor position and display start address.
     uint16_t cursor_offset() const { return uint16_t((crtc_[0x0E] << 8) | crtc_[0x0F]); }
     uint16_t start_offset() const { return uint16_t((crtc_[0x0C] << 8) | crtc_[0x0D]); }
 
-    // Cursor shape, CRTC registers 0x0A (Cursor Start: bit 5 = disable,
-    // bits 0-4 = start scanline) / 0x0B (Cursor End: bits 0-4 = end
-    // scanline) -- what a renderer needs to draw the real block cursor at
-    // the right scanlines within a character cell, or not draw it at all.
+    // Cursor Start (0Ah: bit 5 disable, bits 0-4 start) and End (0Bh: bits 0-4).
     bool cursor_disabled() const { return (crtc_[0x0A] >> 5) & 1; }
     uint8_t cursor_start_scanline() const { return uint8_t(crtc_[0x0A] & 0x1F); }
     uint8_t cursor_end_scanline() const { return uint8_t(crtc_[0x0B] & 0x1F); }
-    // Cursor Skew (CRTC 0Bh bits 5-6): the cursor is drawn this many
-    // character clocks to the right of its address.
+    // Cursor Skew (CRTC 0Bh bits 5-6): character clocks right of the address.
     int cursor_skew() const { return (crtc_[0x0B] >> 5) & 3; }
-    // Underline Location (CRTC 14h bits 0-4): the row scan an underlined
-    // character draws its line on.
+    // Underline Location (CRTC 14h bits 0-4).
     int crtc_underline_row() const { return crtc_[0x14] & 0x1F; }
 
-    // One Attribute Controller internal palette register (0-15): the 6-bit
-    // value a 4-bit attribute nibble or pixel maps to. On this VGA it is a
-    // DAC address, not a colour -- see attr_dac_index().
+    // Attribute palette register (0-15): a DAC address on VGA, see attr_dac_index().
     uint8_t attr_palette(int index) const { return uint8_t(attr_[index & 0x0F] & 0x3F); }
 
-    // The DAC address a 4-bit text or 16-colour pixel drives on a VGA: the
-    // palette register's 6 bits, with bits 6-7 from Color Select (AR14)
-    // bits 2-3 and, when AR10 bit 7 is set, bits 4-5 from AR14 bits 0-1.
-    // On a VGA the palette registers index the DAC rather than drive the
-    // monitor directly (IBM VGA Technical Reference, "Attribute Controller").
+    // DAC address for a 4-bit pixel: palette bits 0-5, bits 6-7 from Color Select
+    // (AR14) bits 2-3, and bits 4-5 from AR14 bits 0-1 when AR10 bit 7 is set (IBM VGA TRM).
     uint8_t attr_dac_index(int pixel) const {
         uint8_t p = attr_palette(pixel);
         uint8_t cs = attr_[0x14];
@@ -176,82 +91,46 @@ public:
     }
     // Color Plane Enable (AR12): the bit planes that reach the palette.
     uint8_t attr_plane_enable() const { return uint8_t(attr_[0x12] & 0x0F); }
-    // Attribute Mode Control (AR10) bit 2: line graphics (column 9 repeats
-    // column 8 for C0h-DFh), bit 3: attribute bit 7 blinks instead of
-    // selecting a bright background, bit 5: pel panning stops at the split.
+    // AR10 bit 2: line graphics, bit 3: blink, bit 5: pel panning stops at the split.
     bool attr_line_graphics() const { return (attr_[0x10] >> 2) & 1; }
     bool attr_blink_enabled() const { return (attr_[0x10] >> 3) & 1; }
     bool attr_pan_split_reset() const { return (attr_[0x10] >> 5) & 1; }
     uint8_t attr_pel_pan() const { return uint8_t(attr_[0x13] & 0x0F); }
 
-    // --- VGA DAC (ports 0x3C6-0x3C9) --------------------------------------
-    // One of the 256 DAC colour registers, as the three RAW 6-bit channel
-    // values the hardware actually stores (0-63 each). A renderer scales
-    // them to whatever its output wants; nothing here presumes 8-bit RGB,
-    // because the real part doesn't -- 6 bits per channel drive three
-    // analog ramps, and 63 is full scale.
+    // --- VGA DAC (ports 0x3C6-0x3C9) ---
+    // Raw 6-bit channel values (0-63).
     void dac_entry(int index, uint8_t &r, uint8_t &g, uint8_t &b) const {
         std::size_t i = std::size_t(index & 0xFF) * 3;
         r = dac_[i + 0]; g = dac_[i + 1]; b = dac_[i + 2];
     }
-    // PEL Mask (0x3C6): ANDed with every pixel value on its way from the
-    // shift registers into the DAC's address lines, so it can blank or
-    // fold the palette without touching a single colour register. Real
-    // period software uses it for fades and for 16-colour-in-256-mode
-    // tricks; a renderer must apply it, not just store it.
+    // PEL Mask (0x3C6): ANDed with each pixel value before the DAC lookup.
     uint8_t dac_mask() const { return dac_mask_; }
 
-    // Attribute Controller Mode Control (AR10) bit 6, "8-bit colour": in
-    // 256-colour modes the VGA clocks two dot-clocks per pixel, so a CRTC
-    // programmed for 640 dots displays 320 pixels. This bit is how a real
-    // CRT controller knows that, and how the renderer derives mode 13h's
-    // 320 from the same Horizontal Display End=79 a 640-wide mode uses.
+    // AR10 bit 6, 8-bit colour: two dot clocks per pixel in 256-colour modes.
     bool attr_8bit_color() const { return (attr_[0x10] >> 6) & 1; }
 
-    // --- CRTC address-unit selection --------------------------------------
-    // The CRTC's memory address counter is not always a byte counter. Two
-    // register bits scale it, and every VGA mode relies on the result:
-    //   Underline Location (R14) bit 6 = Doubleword Mode -> 4 bytes/unit
-    //   Mode Control (R17) bit 6 = Byte Mode (1) -> 1 byte/unit,
-    //                              cleared means Word Mode -> 2 bytes/unit
-    // Doubleword mode wins when both are set, matching the IBM VGA
-    // hardware description. This is what makes mode 13h's Offset Register
-    // value of 40 mean a 320-byte scan line (40 * 2 * 4) while mode 10h's
-    // identical 40 means an 80-byte one (40 * 2 * 1, byte mode) -- the
-    // stride genuinely comes from the registers, not from a mode table.
+    // --- CRTC address-unit selection ---
+    // Underline Location (R14) bit 6 = doubleword mode (4 bytes/unit); Mode
+    // Control (R17) bit 6 = byte mode (1), clear = word mode (2). Doubleword wins.
+    // So Offset 40 is 320 bytes in mode 13h but 80 in mode 10h.
     bool crtc_dword_mode() const { return (crtc_[0x14] >> 6) & 1; }
     bool crtc_byte_mode() const { return (crtc_[0x17] >> 6) & 1; }
-    // CRTC Mode Control (17h) bit 0 clear: row scan bit 0 replaces memory
-    // address bit 13, which gives CGA's two interleaved 8KB banks.
+    // CRTC Mode Control (17h) bit 0 clear: CGA's two interleaved 8KB banks.
     bool crtc_cga_banks() const { return (crtc_[0x17] & 1) == 0; }
     int crtc_address_unit_bytes() const {
         if (crtc_dword_mode()) return 4;
         return crtc_byte_mode() ? 1 : 2;
     }
-    // Bytes between the start of one scan line and the next, with the
-    // address-unit scaling above applied -- the figure a byte-per-pixel
-    // renderer walks VRAM by. crtc_scanline_stride() above stays the
-    // per-plane (unscaled) figure the planar renderer wants.
+    // Bytes between scan lines with address-unit scaling; crtc_scanline_stride() is per-plane.
     int crtc_row_byte_stride() const { return int(crtc_[0x13]) * 2 * crtc_address_unit_bytes(); }
-    // Byte offset of the first displayed pixel, same scaling applied to
-    // the CRTC Start Address register pair.
+    // Byte offset of the first displayed pixel.
     uint32_t start_byte_offset() const { return uint32_t(start_offset()) * uint32_t(crtc_address_unit_bytes()); }
 
-    // --- VESA BIOS Extensions -------------------------------------------
-    // This card's SVGA extension registers: an index port (0x1CE) and a
-    // data port (0x1CF) exposing a small bank of 16-bit registers, which
-    // the card's own ROM BIOS drives to implement VBE (INT 10h AX=4Fxx).
-    //
-    // DEPARTURE, CLEARLY LABELLED (CLAUDE.md's substitution rule): every
-    // real SVGA card of this era implemented VBE in exactly this shape --
-    // vendor-specific extension registers that only the card's own ROM
-    // knew about (Tseng's ET4000 extended CRTC set, Cirrus's, S3's) -- but
-    // the *specific* register numbers below are not any of those. They are
-    // the interface expected by the freely-licensed VGA BIOS this machine
-    // substitutes for IBM's still-copyrighted one (see roms/fetch-bios.sh),
-    // and they only exist here because that firmware is the card's ROM.
-    // The card is a compatible stand-in, not a clone of a named 1993 part.
-    // See PC486_REVIEW.md §7.
+    // --- VESA BIOS Extensions ---
+    // SVGA extension registers on index port 0x1CE / data port 0x1CF, driven by
+    // the card's ROM BIOS to implement VBE. The register numbers are the interface
+    // of the freely-licensed VGA BIOS this machine substitutes for IBM's
+    // (roms/fetch-bios.sh), not any real 1993 SVGA chip. See PC486_REVIEW.md §7.
     static constexpr uint16_t kVbeIndexPort = 0x01CE;
     static constexpr uint16_t kVbeDataPort  = 0x01CF;
     enum VbeReg : uint16_t {
@@ -260,236 +139,116 @@ public:
         kVbeRegVirtHeight = 0x7, kVbeRegXOffset = 0x8, kVbeRegYOffset = 0x9,
         kVbeRegVideoMemory64K = 0xA, kVbeRegCount = 0xB,
     };
-    // Enable-register bits. GETCAPS is a query mode, not a display mode:
-    // while it is set, reading the XRES/YRES/BPP registers reports the
-    // card's MAXIMA instead of the current mode's values, which is how the
-    // card's ROM discovers which VESA modes this board can actually do
-    // before it will list them (vgabios's dispi_get_max_xres/yres/bpp,
-    // called from mode_info_check_mode -- see PC486_REVIEW.md §7).
+    // Enable-register bits. With GETCAPS set, XRES/YRES/BPP report the card's
+    // maxima, which the ROM uses to decide which VESA modes to list.
     static constexpr uint16_t kVbeEnabled    = 0x01;
     static constexpr uint16_t kVbeGetCaps    = 0x02;
-    // Enable-register / GETCAPS-on-BANK: the card can slide the window in
-    // 32KB steps. The pinned VGABIOS always enables this on mode set when
-    // GETCAPS reports it (dispi_support_bank_granularity_32k), and its 4F05
-    // path then writes bank*2 so a guest's 64KB WinGranularity unit still
-    // maps one-to-one. Without advertising it, 4F05 still doubles the bank
-    // but the hardware stays at 64KB steps -- every write lands twice as
-    // far as the guest intended (SimCity 2000's banded title screen).
-    // Bochs vga.cc advertises and honours the same bit.
+    // 32KB bank granularity. The VGABIOS enables it when GETCAPS reports it and
+    // then writes bank*2; without it every write lands twice as far (SimCity 2000
+    // banded title screen). Bochs vga.cc does the same.
     static constexpr uint16_t kVbeBankGranularity32K = 0x10;
     static constexpr uint16_t kVbeNoClearMem = 0x80;
-    // What this board can actually do in a linear 8-bit-per-pixel mode:
-    // 1024x768 is the largest such frame that fits in its 1MB of VRAM
-    // (1024*768 = 786,432 <= 1,048,576), and 8bpp is the only depth its DAC
-    // path handles. Reporting anything larger would have the ROM advertise
-    // modes the card cannot display.
+    // Largest 8bpp frame that fits the 1MB VRAM.
     static constexpr uint16_t kVbeMaxXres = 1024;
     static constexpr uint16_t kVbeMaxYres = 768;
     static constexpr uint16_t kVbeMaxBpp  = 8;
-    // Only these IDs are accepted into the ID register, so a probe that
-    // writes an unknown value and reads it back correctly concludes this
-    // card does not speak that revision -- the whole point of the probe.
+    // Only these IDs are accepted, so a probe sees an unknown revision rejected.
     static constexpr uint16_t kVbeIdLowest  = 0xB0C0;
     static constexpr uint16_t kVbeIdHighest = 0xB0C5;
 
     uint16_t vbe_reg(int index) const {
         return index >= 0 && index < kVbeRegCount ? vbe_[std::size_t(index)] : uint16_t(0);
     }
-    // Whether an SVGA (VBE-programmed, linear byte-per-pixel) mode is
-    // currently switched on, as opposed to one of the legacy VGA modes the
-    // CRTC/Sequencer/Graphics-Controller registers describe.
+    // True when an SVGA linear byte-per-pixel mode is on.
     bool vbe_mode_active() const {
         return (vbe_[kVbeRegEnable] & kVbeEnabled) != 0 && vbe_[kVbeRegBpp] == 8;
     }
-    // DISPI on with bpp=4: the planar engine stays in charge (latches, Map
-    // Mask, Graphics Controller ALU -- matching Bochs vga.cc, which routes
-    // bpp!=4 to its flat VBE window and leaves bpp=4 on the VGA core), but
-    // the Bank register slides the 64KB aperture over the larger per-plane
-    // frame. Needed for 104h (1024x768x4): 98,304 bytes/plane will not fit
-    // in one 64KB window. See PC486_REVIEW.md §7.5.1.
+    // DISPI on with bpp=4: the planar engine stays in charge (as in Bochs vga.cc)
+    // and the Bank register slides the 64KB aperture. Needed for 104h
+    // (1024x768x4). See PC486_REVIEW.md §7.5.1.
     bool vbe_planar_banked() const {
         return (vbe_[kVbeRegEnable] & kVbeEnabled) != 0 && vbe_[kVbeRegBpp] == 4;
     }
-    // Size of the CPU-visible window at 0xA0000 -- what the ROM reports as
-    // both WinGranularity and WinSize in every ModeInfoBlock. The Bank
-    // register's step can be 64KB or 32KB (see kVbeBankGranularity32K);
-    // vbe_bank_bytes() is the live step.
+    // CPU-visible window size at 0xA0000, reported as WinGranularity and WinSize.
     static constexpr uint32_t kVbeBankSize = 65536;
-    // Bank register low bits are the bank number; bits 14/15 are the
-    // optional RD/WR window selects the firmware's 4F05 path ORs in
-    // (VBE_DISPI_BANK_RD/WR in the pinned VGABIOS). The number itself is
-    // what slides the window -- Bochs masks the same way in vga.cc.
+    // Bank register low bits are the bank number; bits 14/15 are the RD/WR window
+    // selects the VGABIOS 4F05 path ORs in. Bochs masks the same way.
     static constexpr uint16_t kVbeBankNumberMask = 0x1FF;
-    // Live Bank-register step in bytes -- 32KB when the Enable bit is on,
-    // otherwise the classic 64KB window size.
+    // Live Bank step: 32KB when the Enable bit is on, else 64KB.
     uint32_t vbe_bank_bytes() const {
         return (vbe_[kVbeRegEnable] & kVbeBankGranularity32K) ? 32768u : kVbeBankSize;
     }
 
-    // Host/front-end convenience: whether the Graphics Controller's own
-    // Miscellaneous register currently selects graphics addressing over
-    // alphanumeric (GR06 bit 0) -- a renderer's first branch, deciding
-    // between a text-mode and a graphics-mode screen, exactly like a real
-    // CRT controller's own mode logic.
+    // Graphics Controller Miscellaneous (GR06) bit 0: graphics vs alphanumeric.
     bool graphics_mode_active() const { return (gfx_[6] & 0x01) != 0; }
 
-    // Host/front-end convenience: the Graphics Controller Mode register's
-    // Shift Register field (GR05 bits 5-6) -- 0 selects normal 16-color
-    // planar shift-out (real, native EGA graphics: verified by directly
-    // invoking this machine's own BIOS INT 10h AL=0x10 mode-set and
-    // reading back exactly what it programs -- see
-    // ibmpc-at/IBM_PCAT_REVIEW.md §16), 1 selects "Shift 2 4-color" (the
-    // CGA-compatibility mode: each
-    // memory cycle's plane-0 byte then plane-1 byte, each read as four
-    // 2-bit CGA-style pixels in turn), and 2 selects VGA's 256-color
-    // shift-out -- mode 13h, one byte per pixel straight into the DAC.
-    // Genuine 1984 EGA silicon has no hardware for value 2, but this
-    // machine's card is a VGA (see this file's header and PC486_REVIEW.md
-    // §7), so it does. Value 3 is not a mode real VGA silicon defines.
+    // Shift Register field (GR05 bits 5-6): 0 = 16-colour planar, 1 = CGA 4-colour
+    // (plane-0 then plane-1 byte as 2-bit pixels), 2 = VGA 256-colour (mode 13h).
+    // Value 2 does not exist on 1984 EGA silicon.
     uint8_t gc_shift_register_mode() const { return uint8_t((gfx_[5] >> 5) & 0x03); }
 
-    // Host/front-end convenience: Sequencer Memory Mode's Chain-4 bit (SR04
-    // bit 3). mem_read()/mem_write() already consult this (see the file
-    // header) to fold the CPU address's low two bits into plane selection;
-    // a 256-color renderer needs the same answer for the opposite reason.
-    // With chain-4 on, the flat CPU-visible byte offset IS the interleaved
-    // vram[] index, so walking vram[] by crtc_row_byte_stride() (scaled by
-    // the CRTC address unit) is correct. Real DOS software commonly turns
-    // chain-4 off while keeping 256-color shift-out selected -- the classic
-    // "unchained mode 13h" trick (id's DOOM engine's column renderer and
-    // page-flip among them) -- to write one plane at a time via Map Mask.
-    // Once chain-4 is off, the CPU's write address no longer aligns with
-    // the interleaved vram[] layout, so RenderVga256Screen must instead
-    // walk plane_off/plane directly, exactly like mem_read()/mem_write()'s
-    // own (plane_off << 2) + plane addressing. See PC486_REVIEW.md.
+    // Sequencer Chain-4 (SR04 bit 3). With it on, the CPU byte offset is the
+    // interleaved vram[] index. Unchained mode 13h (DOOM-style) walks plane_off and
+    // plane directly instead. See PC486_REVIEW.md.
     bool chain4_enabled() const { return seq_chain4(); }
-    // Clocking Mode (SR01) bit 0: 8-dot character clock; clear means 9 dots.
+    // Clocking Mode (SR01) bit 0: 8-dot character clock, clear = 9.
     bool seq_8dot_chars() const { return sequencer_[1] & 1; }
-    // Character Map Select (SR03): map A (attribute bit 3 set) in bits 5,3,2
-    // and map B in bits 4,1,0, each 0-7.
+    // Character Map Select (SR03): map A in bits 5,3,2, map B in bits 4,1,0.
     int seq_char_map_a() const { return ((sequencer_[3] >> 3) & 4) | ((sequencer_[3] >> 2) & 3); }
     int seq_char_map_b() const { return ((sequencer_[3] >> 2) & 4) | (sequencer_[3] & 3); }
 
-    // Host/front-end convenience: the CRTC registers that determine a
-    // graphics mode's actual resolution -- Horizontal Display End
-    // (register 0x01, in character clocks; genuine EGA graphics modes
-    // always use an 8-dot character clock) and Vertical Display End
-    // (register 0x12, plus its one overflow bit in register 0x07 bit 1) --
-    // what a real CRT controller's own scanout timing is built from, not a
-    // BIOS video-mode-number guess. Verified against this machine's own
-    // BIOS's real mode-0x10 (640x350x16) register programming -- see
-    // ibmpc-at/IBM_PCAT_REVIEW.md §16.
-    //
-    // Deliberately only ONE overflow bit: on genuine 1984 EGA silicon, CRTC
-    // Overflow (R07) defines exactly one bit per counter that can exceed 8
-    // bits (bit 0 = Vertical Total, bit 1 = Vertical Display End, bit 2 =
-    // Vertical Retrace Start, bit 3 = Start Vertical Blanking, bit 4 = Line
-    // Compare) -- 9 bits tops, plenty for EGA's max 350 lines. Bits 5-7 are
-    // unimplemented on real EGA hardware; VGA later reused them as a second
-    // overflow bit per counter (a 10-bit extension, for its taller modes).
-    // Deliberately excludes register 0x07 bit 6, which VGA (not real EGA)
-    // reuses as a "Vertical Display End bit 9" -- this machine's BIOS
-    // substitute is a full VGA BIOS (see gc_shift_register_mode() above), so
-    // VGA-aware software can legitimately set that bit, but a real EGA CRTC
-    // has no wire to read it back on. Folding it in made the vertical range
-    // jump 512 lines on real-hardware-targeted software (confirmed live:
-    // Prince of Persia's playfield rendering correctly, then black canvas).
-    // See PC486_REVIEW.md.
+    // CRTC registers that set graphics resolution: Horizontal Display End (01h)
+    // and Vertical Display End (12h plus R07 bit 1). Only one overflow bit is
+    // used, as on 1984 EGA. R07 bit 6, VGA's bit 9, is left out because folding
+    // it in made the range jump 512 lines (Prince of Persia black canvas).
     uint16_t crtc_horizontal_display_end() const { return crtc_[0x01]; }
     uint16_t crtc_vertical_display_end() const {
         return uint16_t(crtc_[0x12] | ((crtc_[0x07] >> 1 & 1) << 8));
     }
-    // Maximum Scan Line (CRTC R09, bits 0-4): scan lines per character row
-    // minus 1 -- what a real CRT controller's own text-mode row pitch is
-    // built from, not a hardcoded per-mode constant. See
-    // PC486_REVIEW.md's font-descender investigation.
+    // Maximum Scan Line (CRTC R09 bits 0-4): scan lines per character row minus 1.
     uint8_t crtc_max_scan_line() const { return uint8_t(crtc_[0x09] & 0x1F); }
 
-    // Scan Doubling (CRTC R09 bit 7): another VGA-only addition riding on a
-    // bit genuine EGA silicon never wired up (same story as the R07
-    // overflow bits above, and gc_shift_register_mode()'s Chain-4 note) --
-    // when set, a VGA CRTC draws every logical scanline twice in a row so a
-    // "200-line" mode fills the same ~400-scanline raster its 350-line
-    // modes use. This substitute firmware is VGA-heritage, so its mode-0Dh
-    // (320x200x16) setup programs Vertical Total/Display End for the full
-    // ~400-line doubled raster AND sets this bit, exactly like a real VGA
-    // card -- but genuine EGA hardware has no doubling circuit, so a real
-    // EGA BIOS's own 320x200 mode-set programs the CRTC for 200 real
-    // scanlines directly, no doubling, nothing to detect here. Confirmed
-    // live: Prince of Persia's EGA mode left Vertical Display End at 399
-    // (carried over verbatim from the prior 640x400 text mode) with this
-    // bit set, expecting the doubling hardware to fold it back down to a
-    // 200-line picture -- without this accessor the renderer took 399+1
-    // literally, drawing the real 200-line playfield in the top half of a
-    // 400-line canvas and leaving the bottom half black. See
-    // RenderEgaNative16Screen() in ega_render.cpp and PC486_REVIEW.md.
+    // Scan Doubling (CRTC R09 bit 7): VGA draws each scanline twice, so a 200-line
+    // mode fills a ~400-line raster. Prince of Persia's EGA mode leaves Vertical
+    // Display End at 399 with this set. See RenderEgaNative16Screen().
     bool crtc_scan_doubling() const { return (crtc_[0x09] >> 7) & 1; }
 
-    // Line Compare (CRTC 18h, bit 8 in R07 bit 4, bit 9 in R09 bit 6): the
-    // scan line after which the address counter restarts at 0, for a split
-    // screen.
+    // Line Compare (CRTC 18h, bit 8 in R07 bit 4, bit 9 in R09 bit 6): split-screen restart line.
     int crtc_line_compare() const {
         return int(crtc_[0x18]) | ((crtc_[0x07] >> 4 & 1) << 8) | ((crtc_[0x09] >> 6 & 1) << 9);
     }
-    // Preset Row Scan (CRTC 08h): bits 0-4 start the first character row
-    // part-way down for smooth vertical scrolling, bits 5-6 add whole
-    // character clocks to the start address.
+    // Preset Row Scan (CRTC 08h): bits 0-4 smooth vertical scroll, bits 5-6 byte pan.
     int crtc_preset_row_scan() const { return crtc_[0x08] & 0x1F; }
     int crtc_byte_pan() const { return (crtc_[0x08] >> 5) & 3; }
 
-    // Offset Register (CRTC R13): the real per-scanline memory stride, in
-    // WORDS (2 bytes) per plane -- genuinely independent of Horizontal
-    // Display End. A real CRT controller advances exactly this many bytes
-    // between scanlines regardless of how much of that row is actually
-    // displayed; software that programs a logical scan-line width wider
-    // than what it shows (panning, or a sub-window blit into a larger
-    // off-screen buffer) relies on this distinction. See
-    // crtc_scanline_stride() below and PC486_REVIEW.md.
+    // Offset Register (CRTC R13): per-scanline stride in words per plane,
+    // independent of Horizontal Display End. Panning and sub-window blits rely on it.
     uint8_t crtc_offset() const { return crtc_[0x13]; }
-    // Convenience: the real per-plane byte stride between scanlines
-    // (crtc_offset() * 2), with the same "0 means not programmed yet"
-    // fallback the other CRTC accessors use -- a renderer should walk
-    // VRAM by this, not by (displayed width / 8), whenever it differs.
+    // Per-plane byte stride between scanlines (crtc_offset() * 2).
     int crtc_scanline_stride() const { return int(crtc_[0x13]) * 2; }
 
-    // 1MB VRAM, byte-interleaved as vram[(plane_offset << 2) + plane].
-    // Without banking, legacy planar/chain-4 addressing only reaches the
-    // first 256KB (4 planes x 64KB). The rest is reachable through the Bank
-    // register: as a flat linear window in 8bpp DISPI modes
-    // (vbe_linear_offset), and as a plane-offset slide in 4bpp DISPI modes
-    // (vbe_planar_banked) -- see kVbeMaxXres/Yres and §7.5.1.
+    // 1MB VRAM, interleaved as above. Legacy addressing reaches the first 256KB;
+    // the rest is reached through the Bank register (vbe_linear_offset,
+    // vbe_planar_banked).
     std::array<uint8_t, 1024 * 1024> vram{};
     uint32_t mapping_epoch_ = 0;
     uint32_t mapping_sig_ = 0xFFFFFFFFu;
 
 private:
-    // Decodes a CPU address (already known to be within 0xA0000-0xBFFFF)
-    // against the Graphics Controller's Memory Mapping field (GR06 bits
-    // 2-3) into an offset local to whichever legacy window is currently
-    // selected -- 128K@A0000, 64K@A0000, 32K@B0000 (mono), or 32K@B8000
-    // (color). Real hardware only ever decodes ONE of these windows at a
-    // time; an address outside the currently-selected window isn't this
-    // device's to answer. Returns kOutOfWindow for such an address.
+    // Decodes a CPU address in 0xA0000-0xBFFFF against GR06 bits 2-3 (128K@A0000,
+    // 64K@A0000, 32K@B0000, 32K@B8000) to a window-local offset, or kOutOfWindow.
     static constexpr uint32_t kOutOfWindow = 0xFFFFFFFF;
     uint32_t window_offset(uint32_t addr) const;
-    // In an SVGA mode the planar engine is bypassed entirely: the 0xA0000
-    // aperture is a plain 64KB window onto a linear byte-per-pixel frame
-    // buffer, positioned by the Bank register. Returns the linear VRAM
-    // offset, or kOutOfWindow.
+    // SVGA mode: 0xA0000 is a 64KB window onto a linear frame, positioned by the
+    // Bank register. Returns the VRAM offset or kOutOfWindow.
     uint32_t vbe_linear_offset(uint32_t addr) const;
-    // In a 4bpp DISPI mode the Bank register slides plane_off the same way
-    // Bochs's ext_offset does -- see vbe_planar_banked().
+    // 4bpp DISPI mode: the Bank register slides plane_off (Bochs ext_offset).
     uint32_t vbe_planar_plane_off(uint32_t plane_off) const;
 
-    // Register field accessors -- decode straight from the raw indexed
-    // register arrays below (the single source of truth, also what in()/
-    // out() read and write directly), so there's no duplicated state to
-    // fall out of sync.
+    // Decode straight from the raw register arrays, the single source of truth.
     uint8_t seq_map_mask() const { return uint8_t(sequencer_[2] & 0x0F); }
     bool seq_odd_even_disabled() const { return (sequencer_[4] >> 2) & 1; }
-    // Sequencer Memory Mode (SR04) bit 3, Chain 4 -- see the file header.
-    // Overrides odd/even chaining when both are somehow set, matching the
-    // real part's addressing priority.
+    // Chain 4 (SR04 bit 3) overrides odd/even chaining.
     bool seq_chain4() const { return (sequencer_[4] >> 3) & 1; }
 
     uint8_t gc_set_reset() const { return uint8_t(gfx_[0] & 0x0F); }
@@ -509,14 +268,8 @@ private:
         return uint8_t((v >> count) | (v << ((8 - count) & 7)));
     }
 
-    // Rederives frame_period_cycles_/retrace_start_cycles_/
-    // retrace_window_cycles_ from the CRTC/Sequencer/Misc Output registers
-    // and cpu_hz_. Called only from the specific register-write sites in
-    // ega.cpp that can change the answer (CRTC 00h/01h/06h/07h/10h-12h,
-    // Sequencer 01h, Misc Output), from reset(), and from set_cpu_hz() --
-    // never from tick(), which runs every CPU instruction and can only
-    // afford the cached numbers. See ega.cpp for the derivation and its
-    // register-semantics source.
+    // Rederives the cached retrace timing. Called from the register writes that
+    // can change it, reset() and set_cpu_hz(), never from tick().
     void recompute_timing_();
     bool display_disabled_() const;
 
@@ -535,18 +288,14 @@ private:
 
     uint8_t misc_output_ = 0;
 
-    // DAC colour RAM: 256 entries x {R,G,B}, 6 significant bits each.
-    // Separate read and write index registers, each with its own R->G->B
-    // sub-counter -- real hardware keeps the two sides independent, so a
-    // driver reading one entry mid-way through writing another doesn't
-    // corrupt either.
+    // DAC colour RAM, 256 x {R,G,B}, 6 bits each. Read and write sides keep
+    // independent index and R->G->B sub-counters.
     std::array<uint8_t, 256 * 3> dac_{};
     uint8_t dac_write_index_ = 0;
     uint8_t dac_read_index_ = 0;
     uint8_t dac_write_sub_ = 0;
     uint8_t dac_read_sub_ = 0;
-    // DAC State (0x3C7 read): 3 = the last index write was to the read
-    // register (0x3C7), 0 = to the write register (0x3C8).
+    // DAC State (0x3C7 read): 3 = last index write was the read register, 0 = write register.
     uint8_t dac_state_ = 0;
     uint8_t dac_mask_ = 0xFF;
 
@@ -555,11 +304,8 @@ private:
     uint16_t vbe_read_(int index) const;
     void vbe_write_(int index, uint16_t v);
 
-    // Read latch: real hardware loads all 4 planes' bytes on every memory
-    // read, regardless of read mode, and every write mode except direct-
-    // CPU-passthrough draws on this latch rather than the CPU's byte. It's
-    // a genuine hardware side effect of reading, hence mutable on an
-    // otherwise-const mem_read.
+    // Read latch: loaded with all 4 planes on every read; mutable because that is
+    // a side effect of reading.
     mutable std::array<uint8_t, 4> latch_{};
 
     bool retrace_ = false;
@@ -567,9 +313,7 @@ private:
     double retrace_credit_ = 0.0;
     uint32_t frame_count_ = 0;
 
-    // --- Frame-rate / retrace-window cache (see tick(), set_cpu_hz(),
-    // recompute_timing_()) -- kept separate from mapping_epoch_ above,
-    // which is about VRAM page mapping, not video timing.
+    // --- Retrace timing cache ---
     double cpu_hz_ = 66e6;                // this machine's CPU clock; see set_cpu_hz()
     double frame_period_cycles_ = 0.0;    // cached CPU cycles per vertical frame
     double retrace_start_cycles_ = 0.0;   // cached cycles from frame start to retrace onset

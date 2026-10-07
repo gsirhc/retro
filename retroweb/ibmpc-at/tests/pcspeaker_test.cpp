@@ -1,9 +1,3 @@
-// GoogleTest suite for the PC speaker's AND-gate signal and edge log: the
-// standard tone-generation combination, the direct-toggle "digitized"
-// playback technique (Speaker Data Enable relayed straight through while
-// the PIT side is pinned high), edge deduplication, draining, and the
-// bounded log's oldest-drops-first overflow behavior.
-
 #include <gtest/gtest.h>
 
 #include "pcspeaker.h"
@@ -47,10 +41,7 @@ TEST(PcSpeakerTest, DrainEdgesReturnsAndClearsTheLog) {
 }
 
 TEST(PcSpeakerTest, DigitizedPlaybackRelaysSpeakerDataEnableWhenPitIsParked) {
-    // The direct-toggle technique: gate the PIT off (its output is pinned
-    // high the whole time, per pit8253.h's real Mode-3 gate-low behavior)
-    // and drive the speaker purely through the Speaker Data Enable bit --
-    // the AND gate then just relays that bit's own transitions verbatim.
+    // PIT parked (output pinned high), speaker driven only through Speaker Data Enable.
     PcSpeaker sp;
     sp.reset();
     bool pit_parked_high = true;
@@ -76,9 +67,7 @@ TEST(PcSpeakerTest, ResetClearsLevelAndPendingEdges) {
 }
 
 TEST(PcSpeakerTest, OverflowDropsTheOldestEdgeNotTheNewest) {
-    // Real hardware has no such limit -- this just bounds memory for a
-    // speaker that's actively playing with nobody draining it (see
-    // pcspeaker.h). Prove it drops the oldest transition, not the newest.
+    // The overflow cap drops the oldest edge, not the newest.
     PcSpeaker sp;
     sp.reset();
     constexpr int kMaxEdges = 1 << 16;

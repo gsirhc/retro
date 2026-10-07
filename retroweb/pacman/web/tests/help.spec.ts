@@ -1,14 +1,12 @@
 import { test, expect } from "@playwright/test";
 
-// After the generated self-test ROM's crosshatch + color-bar patterns
-// (~1.5 s each), it holds a help screen in its own 8×8 font explaining
-// that Namco Pac-Man is not included. Never the copyrighted ROM.
+// After the test patterns the ROM holds a help screen saying Namco Pac-Man is not included.
 
 test("self-test ROM ends on a copyright / load-it-yourself help screen", async ({ page }) => {
   await page.goto("/?test=1");
   await expect(page.locator("#romStatus")).toHaveText("Running test ROM");
 
-  // 90+90 frames at ~60.6 Hz is ~3 s, plus a little for the copies.
+  // 90+90 frames at ~60.6 Hz is ~3 s.
   await page.waitForTimeout(4500);
 
   const stats = await page.evaluate(() => {
@@ -23,9 +21,9 @@ test("self-test ROM ends on a copyright / load-it-yourself help screen", async (
     }
     return { yellow, white, lit };
   });
-  // Title is yellow, body is white — both must actually paint.
+  // Title is yellow, body is white.
   expect(stats.yellow).toBeGreaterThan(80);
   expect(stats.white).toBeGreaterThan(200);
-  // Sparse text, not a full-screen color-bar fill.
+  // Sparse text, not a full-screen fill.
   expect(stats.lit).toBeLessThan(224 * 288 * 0.35);
 });

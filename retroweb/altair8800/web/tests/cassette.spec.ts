@@ -105,8 +105,7 @@ test.describe("88-ACR cassette deck", () => {
     expect(await page.evaluate(() => (window as any).__test.screen())).not.toMatch(/SYNTAX ERROR/i);
   });
 
-  // ALTAIR_REVIEW.md §3.4: the deck is a separate box on its own cable, not on
-  // the S-100 bus -- neither the front-panel RUN/STOP paddle nor RESET reach it.
+  // ALTAIR_REVIEW.md §3.4: the deck is off the S-100 bus; neither RUN/STOP nor RESET reaches it
   test("PLAY keeps the tape rolling while the CPU is on STOP", async ({ page }) => {
     await boot(page, { params: "preset=cassette" });
     await autoloadBasic(page);

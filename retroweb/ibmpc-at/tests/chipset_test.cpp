@@ -1,8 +1,3 @@
-// GoogleTest suite for the AT glue-logic layer: memory read/write and ROM
-// write-protection, the A20 gate's effect on wraparound vs. open-bus
-// behavior, port I/O dispatch to the owned devices, and the master/slave
-// PIC cascade through poll_interrupt().
-
 #include <gtest/gtest.h>
 
 #include "chipset.h"
@@ -114,13 +109,7 @@ TEST(ChipsetTest, FloppyDmaTransferCopiesRealBytesIntoMemory) {
 }
 
 TEST(ChipsetTest, Irq6IsEdgeTriggeredNotReRaisedWhileStillPending) {
-    // Real ISA IRQ6 is edge-triggered: it fires once, on the transition,
-    // not continuously for as long as the underlying condition holds.
-    // Modeling it as level-triggered (re-raising every tick while
-    // fdc.irq_pending() stays true) turned a real BIOS interrupt handler
-    // that legitimately returns without draining FDC result bytes itself
-    // into an infinite interrupt storm -- an actual bug this session hit
-    // trying to boot real BIOS + FreeDOS. See IBM_PCAT_REVIEW.md §8.
+    // IRQ6 is edge-triggered; level-triggering stormed a real BIOS ISR (IBM_PCAT_REVIEW.md §8).
     Chipset cs;
     cs.pic_master.out(0x20, 0x11);
     cs.pic_master.out(0x21, 0x08);
@@ -145,11 +134,7 @@ TEST(ChipsetTest, Irq6IsEdgeTriggeredNotReRaisedWhileStillPending) {
     }
     ASSERT_TRUE(cs.fdc.irq_pending());
 
-    // Service the interrupt exactly once, as the CPU would, WITHOUT
-    // draining any FDC result bytes -- modeling the real BIOS ISR path
-    // that just EOIs and returns. fdc.irq_pending() stays true throughout
-    // (nothing drained it), but IRQ6 must NOT still be pending at the PIC
-    // afterward, since real hardware only latched the one edge.
+    // Service once without draining FDC result bytes. No new edge may re-pend.
     int vec1 = cs.poll_interrupt();
     ASSERT_GE(vec1, 0);
     cs.pic_master.out(0x20, 0x20);  // non-specific EOI, as the ISR would issue
@@ -161,11 +146,7 @@ TEST(ChipsetTest, Irq6IsEdgeTriggeredNotReRaisedWhileStillPending) {
 }
 
 TEST(ChipsetTest, KeyboardIrq1ReachesThePic) {
-    // IRQ1 (keyboard) was never wired to the PIC at all until an actual
-    // end-to-end FreeDOS boot test caught it: a keypress sat in i8042's
-    // output buffer forever because nothing ever told the PIC about it,
-    // so software waiting on the vectored keyboard interrupt (rather than
-    // polling port 0x60 directly) never woke up. See IBM_PCAT_REVIEW.md §9.
+    // IRQ1 must reach the PIC (IBM_PCAT_REVIEW.md §9).
     Chipset cs;
     cs.pic_master.out(0x20, 0x11);
     cs.pic_master.out(0x21, 0x08);
@@ -182,12 +163,7 @@ TEST(ChipsetTest, KeyboardIrq1ReachesThePic) {
 }
 
 TEST(ChipsetTest, HddIdentifyAndReadGoesThroughAtomicSixteenBitBusPath) {
-    // End-to-end through the chipset's own bus (not Wd1003 directly): proves
-    // the CPU-facing IN AX,DX / OUT DX,AX path (bus.in16/out16) reaches the
-    // real hard disk data register at 0x1F0 rather than being decomposed
-    // into two 8-bit accesses, which would read the unrelated Error
-    // register as the "high byte". See cpu80286.h/chipset.h's in16/out16
-    // comments and IBM_PCAT_REVIEW.md.
+    // bus.in16 must reach the HDD data register, not split into two 8-bit accesses.
     Chipset cs;
     auto bus = cs.make_bus();
     std::vector<uint8_t> img(733 * 5 * 17 * 512, 0);
@@ -217,8 +193,7 @@ TEST(ChipsetTest, HddIdentifyAndReadGoesThroughAtomicSixteenBitBusPath) {
 }
 
 TEST(ChipsetTest, Irq14IsEdgeTriggeredNotReRaisedWhilePending) {
-    // Same edge-triggering discipline as IRQ6/IRQ1 (see those tests above),
-    // for IRQ14 (hard disk), which lives on the slave PIC's line 6.
+    // Edge-triggered like IRQ6/IRQ1, for IRQ14 (slave line 6).
     Chipset cs;
     cs.pic_master.out(0x20, 0x11);
     cs.pic_master.out(0x21, 0x08);
@@ -244,8 +219,7 @@ TEST(ChipsetTest, Irq14IsEdgeTriggeredNotReRaisedWhilePending) {
     }
     ASSERT_TRUE(cs.hdd.irq_pending());
 
-    // Service exactly once WITHOUT reading the HDC's status register (which
-    // would itself acknowledge the interrupt) -- e.g. an ISR that only EOIs.
+    // Service once without reading status (an ISR that only EOIs).
     int vec1 = cs.poll_interrupt();
     ASSERT_GE(vec1, 0);
     cs.pic_slave.out(0xA0, 0x20);   // non-specific EOI on the slave

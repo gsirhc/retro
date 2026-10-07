@@ -1,36 +1,17 @@
-// Build-time tool: types one Example program into the board's own real
-// resident editor (the same ROM every visitor gets), headlessly, once --
-// then dumps the resulting source buffer to a small binary the browser
-// pokes straight into RAM (Machine::pokeRam, wasm_machine.cpp) via
-// app.js's pokeExample(). This exists to sidestep the still-not-fully-
-// understood Examples-load wedging bug (CGOAC6502_REVIEW.md, "Examples-
-// load wedging the CPU") by never running the real-visitor ACIA/NMI
-// serial-reception simulation for Example programs at all. Also runs the
-// board's real ASM over the typed source (build-time only, output
-// discarded) purely as a fail-loud correctness check -- a broken example
-// should never reach a visitor's browser. The result the browser actually
-// gets is source-only: the visitor still types ASM themselves, watches it
-// really compile, same as any hand-typed program. Run by web/Makefile's
-// `examples-bin` target; never shipped as source, never run by a
-// visitor's browser.
+// Build-time tool: types one Example program into the ROM's resident editor
+// headlessly, then dumps the source buffer for app.js's pokeExample() to
+// poke into RAM. This sidesteps the Examples-load wedging bug
+// (CGOAC6502_REVIEW.md, "Examples-load wedging the CPU"). It also runs the
+// ROM's ASM over the source so a broken example fails the build.
 //
 // Usage: gen_example_bin <firmware.bin> <firmware.lbl> <source.asm> <output.bin>
 //
-// Output format: [2] srcLen (little-endian) [srcLen] source buffer bytes
-// (from SRC_START, up to and including the 2-byte 0,0 end-of-buffer
-// sentinel).
+// Output: [2] srcLen (little-endian), then the source buffer from SRC_START
+// through the 2-byte 0,0 end sentinel.
 //
-// Appends "JMP $<SHELL_PROMPT>" as the program's real last line before
-// assembling -- the same resume convention a live LOAD has always
-// appended (see app.js's pokeExample()). This is about the *typed
-// program itself* being well-formed, not about pre-assembling: whenever
-// the visitor eventually RUNs it, it still needs somewhere sane to land
-// on completion rather than falling off its own end into zero-filled RAM
-// (a BRK/IRQ cascade -- see CGOAC6502_REVIEW.md for a case where that
-// merely *looked* like a clean return, purely by stack-corruption luck).
-// SHELL_PROMPT is read from firmware.lbl (gen_entrypoints.py's own
-// technique) rather than hardcoded, since it's a linker-placed address
-// that drifts as editor.s's source size changes.
+// Appends "JMP $<SHELL_PROMPT>" as the last line so the program returns to
+// the shell instead of running off into zeroed RAM. SHELL_PROMPT comes from
+// firmware.lbl since the linker moves it.
 #include "../machine.h"
 
 #include <cstdio>
@@ -44,16 +25,11 @@ using namespace machine;
 
 namespace {
 
-// SRC_START is an editor.s compile-time constant (`=`, not a linker-
-// placed label), so it doesn't appear in firmware.lbl -- hardcode it here
-// the same way tests/assembler_test.cpp's kObjStart already does, citing
-// editor.s as the source of truth. Stable across ROM rebuilds unless
-// editor.s's own memory-split header changes.
+// SRC_START is an editor.s constant, not a label, so firmware.lbl lacks it
 constexpr uint16_t kShellEntry = 0x8000;
 constexpr uint16_t kSrcStart = 0x3000;
 
-// Reads one "al <hex> .<NAME>" line's address out of firmware.lbl --
-// same format/technique as gen_entrypoints.py.
+// Reads an "al <hex> .<NAME>" address from firmware.lbl, as gen_entrypoints.py does
 uint16_t readLabel(const std::string& lblPath, const std::string& name) {
     std::ifstream f(lblPath);
     if (!f) { std::fprintf(stderr, "%s: cannot open\n", lblPath.c_str()); std::exit(1); }
@@ -107,9 +83,7 @@ int main(int argc, char** argv) {
     m.run_cycles(200000);
     out.clear();
 
-    // Enter the shell, exactly like a real visitor -- SHELL_ENTRY is the
-    // one fixed, memorable address (bios.s). Nothing after this point is
-    // paced for realism; this is offline tooling, not a live page.
+    // enter the shell at its fixed address (bios.s)
     char runBuf[8];
     std::snprintf(runBuf, sizeof(runBuf), "%XR", kShellEntry);
     type(m, runBuf);
@@ -128,16 +102,12 @@ int main(int argc, char** argv) {
         typeLine(m, line);
         lineNo++;
     }
-    // The program's real last line -- see this file's header.
     char jmpBuf[24];
     std::snprintf(jmpBuf, sizeof(jmpBuf), "JMP $%04X", shellPrompt);
     typeLine(m, jmpBuf);
     lineNo++;
 
-    // Build-time-only correctness check: this exact typed program must
-    // really assemble on the real ROM, or the build fails loudly here
-    // instead of shipping a broken Example nobody notices until they
-    // click ASM themselves.
+    // the typed program must assemble on the real ROM or the build fails
     out.clear();
     type(m, "ASM\r");
     m.run_cycles(3000000);
@@ -146,9 +116,7 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    // Find the source buffer's real length: scan from SRC_START for the
-    // 2-byte 0,0 end-of-buffer sentinel (editor.s's STORE_LINE convention
-    // -- see CGOAC6502_REVIEW.md's line-numbered-program-store writeup).
+    // scan for the 0,0 end sentinel (editor.s STORE_LINE)
     int srcLen = 0;
     for (int i = 0; i + 1 < 0x1000; i++) {
         if (m.bus.ram[kSrcStart + i] == 0 && m.bus.ram[kSrcStart + i + 1] == 0) {

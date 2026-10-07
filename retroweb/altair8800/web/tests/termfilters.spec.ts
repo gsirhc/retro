@@ -1,10 +1,7 @@
 import { test, expect } from "./fixtures";
 import { boot } from "./helpers";
 
-// ALTAIR_REVIEW.md §4: every profile ran through xterm.js's full VT100/xterm
-// parser regardless of what the real hardware could do. These test the pure
-// filter functions directly (via __test.TERM_PROFILES) rather than through
-// the rendered terminal, so they're fast and don't depend on paint timing.
+// ALTAIR_REVIEW.md §4: per-profile terminal filters, tested directly via __test.TERM_PROFILES.
 const bytes = (s: string) => [...s].map((c) => c.charCodeAt(0));
 const str = (arr: number[]) => arr.map((b) => String.fromCharCode(b)).join("");
 

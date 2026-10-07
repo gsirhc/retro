@@ -1,41 +1,20 @@
-// Native end-to-end proof that this machine's VGA Mode 13h and its VESA
-// BIOS Extensions actually work -- Milestone 3's equivalent of Milestone
-// 1's "boots the real FreeDOS installer to a live C:\>" and Milestone 2's
-// pm_stub_check.
-//
-// Nothing here is asserted by the emulator about itself. A hand-assembled
-// 512-byte boot sector is mounted on drive A: and booted by the real,
-// freely-licensed BIOS the shipped machine uses, off the real floppy
-// controller, exactly like any other DOS boot disk. That guest program:
-//
-//   1. calls INT 10h AX=4F00 (VBE Return Controller Information) with a
-//      "VBE2"-tagged buffer, so the answer comes back as a real VBE 2.0
-//      VbeInfoBlock,
-//   2. calls AX=4F01 (Return Mode Information) for mode 13h and captures
-//      the ModeInfoBlock,
-//   3. calls AX=4F02 (Set VBE Mode) with BX=13h -- the actual mode set,
-//      done through the VESA interface rather than the legacy AH=00h one,
-//   4. calls AX=4F03 (Return Current VBE Mode) and cross-checks it against
-//      legacy INT 10h AH=0Fh,
-//   5. programs six DAC palette entries (indices 32-37) through the real
-//      PEL Address Write / PEL Data ports (0x3C8/0x3C9) and reads one of
-//      them straight back through the read side (0x3C7/0x3C9),
-//   6. writes an exact pixel pattern into A000:0000 -- corners, centre and
-//      a 10-pixel horizontal run on row 50, chosen so a wrong chain-4
-//      address decode or a wrong scan-line stride cannot possibly land
-//      them all in the right places,
-//   7. reads two of those pixels back through the same window (proving the
-//      chain-4 read path, not just the write path), and halts.
-//
-// main() then checks every captured value AND renders the screen through
-// the same shared ega_render.cpp the WASM front end uses, asserting the
-// exact RGB of each pattern pixel -- the DAC's real 6-bit-per-channel
-// values scaled to 8 bits, not a hardcoded palette table.
+// Native end-to-end proof that VGA Mode 13h and the VESA BIOS Extensions work.
+// A hand-assembled 512-byte boot sector on drive A: is booted by the shipped
+// BIOS through the real floppy controller. The guest:
+//   1. INT 10h AX=4F00 with a "VBE2"-tagged buffer, returning a VBE 2.0 VbeInfoBlock
+//   2. AX=4F01 for mode 13h, capturing the ModeInfoBlock
+//   3. AX=4F02 BX=13h, the mode set through VESA rather than AH=00h
+//   4. AX=4F03, cross-checked against legacy AH=0Fh
+//   5. programs DAC entries 32-37 via 0x3C8/0x3C9 and reads one back via 0x3C7/0x3C9
+//   6. writes a pixel pattern to A000:0000 (corners, centre, a 10-pixel run on row
+//      50) so a wrong chain-4 decode or scan-line stride can't land them all
+//   7. reads two pixels back (the chain-4 read path) and halts
+// main() checks every captured value and renders through the shared ega_render.cpp
+// the WASM front end uses, asserting each pattern pixel's exact RGB from the DAC's
+// 6-bit values scaled to 8.
+// Exits non-zero on any failure.
 //
 // Usage: vbe_mode13_check <bios> <vgabios> [max_cycles] [out.bmp]
-//
-// Exits non-zero if any check fails, so it works as a regression test as
-// well as a demonstration.
 
 #include "ega_render.h"
 #include "machine.h"
@@ -55,23 +34,21 @@ std::vector<uint8_t> ReadFile(const char *path) {
     return std::vector<uint8_t>((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
 }
 
-// --- guest memory layout the boot sector is built around -----------------
+// --- guest memory layout ---
 constexpr uint16_t kResults  = 0x0500;  // free low RAM, just above the BDA
 constexpr uint16_t kVbeInfo  = 0x1000;  // VbeInfoBlock  (512 bytes) for 4F00
 constexpr uint16_t kModeInfo = 0x1200;  // ModeInfoBlock (256 bytes) for 4F01, mode 13h
 constexpr uint16_t kSvgaInfo = 0x1400;  // ModeInfoBlock for the VESA-defined mode below
-// The lowest VESA-defined 256-color mode, and the only one that fits in
-// this card's real 256KB of VRAM (640*400 = 256,000 bytes). See §7.
+// Lowest VESA-defined 256-color mode, the only one fitting this card's 256KB VRAM (640*400). See §7.
 constexpr uint16_t kSvgaMode = 0x0100;
 constexpr uint16_t kSvga2Info = 0x1600;  // ModeInfoBlock for the higher-res VESA mode below
-// The largest 8bpp mode the ROM advertises once ega.h's SVGA maxima and
-// VRAM are raised to admit it -- see PC486_REVIEW.md §7.5's
-// mode_info_check_mode gate and ega.h's kVbeMaxXres/kVbeMaxYres.
+// Largest 8bpp mode the ROM advertises once ega.h's SVGA maxima and VRAM admit
+// it (PC486_REVIEW.md §7.5 mode_info_check_mode, ega.h kVbeMaxXres/kVbeMaxYres)
 constexpr uint16_t kSvga2Mode = 0x0105;
 constexpr int kSvga2Width = 1024, kSvga2Height = 768;
 constexpr uint16_t kBootSeg  = 0x7C00;  // where the BIOS loads us, and our stack top
 
-// Result slots (absolute addresses; DS is 0 throughout the guest).
+// Result slots (absolute addresses; DS is 0 in the guest)
 enum Slot {
     S_VBE_INFO   = kResults + 0x00,  // AX from 4F00
     S_SET_MODE   = kResults + 0x02,  // AX from 4F02
@@ -100,10 +77,9 @@ enum Slot {
 constexpr uint16_t kDoneMagic = 0xC0DE;
 constexpr uint16_t kPhase1Magic = 0xBEEF;
 
-// --- the pattern the guest paints ----------------------------------------
-// Each entry is {x, y, palette index}. The corners pin down both ends of
-// the first and last scan line; (160,100) pins the centre; the run on row
-// 50 pins the scan-line stride (a wrong stride slides it off row 50).
+// --- guest pattern ---
+// {x, y, palette index}. Corners pin both ends of the first and last scan line,
+// (160,100) the centre, the run on row 50 the stride.
 struct Pixel { int x, y, idx; };
 const Pixel kPattern[] = {
     {0,   0,   32}, {319, 0,   33},
@@ -112,10 +88,8 @@ const Pixel kPattern[] = {
 };
 constexpr int kRunRow = 50, kRunX0 = 10, kRunLen = 10, kRunIdx = 37;
 
-// The same idea in the SVGA mode, at 640x400. Every offset here stays
-// inside the first 64KB bank (row 102 and below at a 640-byte stride), so
-// this is a pure linear-window test with no bank switching -- banking is
-// covered in ega_test.cpp instead.
+// Same idea at 640x400. Offsets stay in the first 64KB bank (row 102 and below
+// at a 640-byte stride): a linear-window test; banking is in ega_test.cpp.
 const Pixel kSvgaPattern[] = {
     {0,   0,   64}, {639, 0,   65},
     {0,   100, 66}, {639, 100, 64},
@@ -124,10 +98,8 @@ const Pixel kSvgaPattern[] = {
 constexpr int kSvgaRunRow = 20, kSvgaRunX0 = 100, kSvgaRunLen = 10, kSvgaRunIdx = 66;
 constexpr int kSvgaWidth = 640, kSvgaHeight = 400;
 
-// The 6-bit-per-channel DAC values the guest programs into entries 32-37,
-// in the order the PEL Data register consumes them (R, G, B, auto-
-// incrementing to the next entry every third write -- real VGA DAC
-// behavior, see ega.h).
+// 6-bit DAC values for entries 32-37 in PEL Data order (R, G, B, advancing
+// every third write; see ega.h)
 constexpr uint8_t kDac[6][3] = {
     {63, 21, 0},   // 32
     {0,  63, 0},   // 33
@@ -138,7 +110,7 @@ constexpr uint8_t kDac[6][3] = {
 };
 constexpr int kDacFirst = 32;
 
-// Entries 64-66, programmed the same way during the SVGA phase.
+// Entries 64-66, same way in the SVGA phase
 constexpr uint8_t kSvgaDac[3][3] = {
     {63, 0,  31},  // 64
     {12, 34, 56},  // 65
@@ -146,13 +118,11 @@ constexpr uint8_t kSvgaDac[3][3] = {
 };
 constexpr int kSvgaDacFirst = 64;
 
-// Real VGA DAC: 6 significant bits per channel driving a full-scale analog
-// ramp, so 63 is full brightness. Scaling to 8 bits keeps that full scale
-// -- (v<<2)|(v>>4) maps 0->0 and 63->255 exactly. Must match
-// ega_render.cpp's DecodeDacColor.
+// 6-bit DAC channels drive a full-scale ramp, so 63 is full brightness.
+// (v<<2)|(v>>4) maps 0->0 and 63->255. Must match ega_render.cpp DecodeDacColor.
 uint8_t Dac8(uint8_t six) { return uint8_t((six << 2) | (six >> 4)); }
 
-// --- a tiny 16-bit real-mode assembler -----------------------------------
+// --- 16-bit real-mode assembler ---
 struct Asm16 {
     std::vector<uint8_t> b;
     void db(int v) { b.push_back(uint8_t(v)); }
@@ -190,14 +160,11 @@ struct Asm16 {
     void mov_m16_imm(uint16_t a, uint16_t v) { db({0xC7, 0x06}); dw(a); dw(v); }
     void jmp_self()      { db({0xEB, 0xFE}); }
 
-    // INT 10h can legitimately return with DS pointing anywhere; restore it
-    // to 0 without disturbing the returned AX (and BX, for 4F03) so the
-    // stores below land in the results block.
+    // INT 10h can return with DS anywhere; restore 0 without disturbing AX (and BX for 4F03)
     void restore_ds_keep_ax() { push_ax(); xor_ax_ax(); mov_ds_ax(); pop_ax(); }
     void restore_ds_keep_ax_bx() { push_ax(); push_bx(); xor_ax_ax(); mov_ds_ax(); pop_bx(); pop_ax(); }
     void out_port(uint16_t port, uint8_t v) { mov_dx(port); mov_al(v); out_dx_al(); }
-    // do { al = [addr] } while (al == 0) -- 7 bytes, so the backwards
-    // branch displacement is a fixed -7.
+    // do { al = [addr] } while (al == 0): 7 bytes, so the branch displacement is -7
     void poll_until_nonzero(uint16_t addr) {
         db(0xA0); dw(addr);   // mov al, [addr]
         db({0x08, 0xC0});     // or al, al
@@ -216,8 +183,7 @@ std::vector<uint8_t> BuildBootSector() {
     a.cld_();
 
     // --- 1. VBE 4F00: Return Controller Information -----------------------
-    // Tagging the buffer "VBE2" before the call is what the VBE 2.0 spec
-    // requires to get the VBE-2-extended block back rather than the 1.x one.
+    // The VBE 2.0 spec needs the buffer tagged "VBE2" to return the extended block
     a.mov_ax(0x4256); a.mov_m16_ax(kVbeInfo + 0);  // 'V','B'
     a.mov_ax(0x3245); a.mov_m16_ax(kVbeInfo + 2);  // 'E','2'
     a.xor_ax_ax(); a.mov_es_ax();
@@ -236,10 +202,8 @@ std::vector<uint8_t> BuildBootSector() {
     a.restore_ds_keep_ax();
     a.mov_m16_ax(S_MODE_INFO);
 
-    // ... and again for a VESA-*defined* mode number. The VBE spec only
-    // defines function 01h over its own >= 100h mode numbers; asking about
-    // a plain VGA mode number like 13h is outside that, so the two answers
-    // are worth capturing separately. See PC486_REVIEW.md §7.
+    // Again for a VESA-defined mode number: function 01h is defined only over >= 100h
+    // modes, so the two answers are captured separately (PC486_REVIEW.md §7)
     a.xor_ax_ax(); a.mov_es_ax();
     a.mov_di(kSvgaInfo);
     a.mov_cx(kSvgaMode);
@@ -249,9 +213,7 @@ std::vector<uint8_t> BuildBootSector() {
     a.mov_m16_ax(S_SVGA_INFO);
 
     // --- 2b. Actually enter that VESA mode and paint it --------------------
-    // The card advertises this mode, so it has to be able to show it. Same
-    // proof shape as the mode-13h phase below, just through the card's
-    // linear SVGA window instead of chain-4.
+    // The card advertises this mode, so it must show it. Same proof as mode 13h, via the linear SVGA window.
     a.mov_bx(kSvgaMode);
     a.mov_ax(0x4F02);
     a.int_(0x10);
@@ -283,24 +245,17 @@ std::vector<uint8_t> BuildBootSector() {
     a.mov_al_es_di();
     a.mov_m8_al(S_SVGA_PIX);
 
-    // Hand the screen to the host to inspect, then wait to be released --
-    // the host has to render this frame before the mode-13h set below wipes
-    // it. A plain poll, not a HLT, so this can't depend on interrupts.
+    // Hand the screen to the host to render before the mode-13h set wipes it. A
+    // plain poll, not HLT, so it needs no interrupts.
     a.mov_m16_imm(S_PHASE1, kPhase1Magic);
     a.poll_until_nonzero(S_GO);
 
     // --- 2d. A second VESA-defined mode, at the new higher resolution -----
-    // Proves the same 4F01/4F02 path the 640x400 phase above exercises also
-    // reaches the larger 8bpp modes the ROM only started advertising once
-    // ega.h's SVGA maxima and VRAM grew to admit them (§7.5's
-    // mode_info_check_mode gate). Deliberately minimal -- no DAC
-    // reprogramming, no host-rendered frame capture -- because the boot
-    // sector is a single 512-byte disk sector with little room left, and
-    // per-pixel/geometry correctness at this resolution is already
-    // exhaustively covered by ega_render_test.cpp's direct-register tests.
-    // This phase's job is narrower: proving the real ROM's
-    // dispi_set_mode/vga_compat_setup actually runs for this mode too, so a
-    // raw write-then-read-back through the chain-4 window is enough.
+    // Proves 4F01/4F02 also reach the larger 8bpp modes the ROM advertises since
+    // ega.h's maxima grew (§7.5). Minimal (no DAC or frame capture): the boot sector
+    // is full and ega_render_test.cpp covers geometry. This checks the ROM's
+    // dispi_set_mode/vga_compat_setup runs for this mode, so a write and read-back
+    // through the chain-4 window suffices.
     a.xor_ax_ax(); a.mov_es_ax();
     a.mov_di(kSvga2Info);
     a.mov_cx(kSvga2Mode);
@@ -344,14 +299,12 @@ std::vector<uint8_t> BuildBootSector() {
     a.mov_m16_ax(S_LEGACY_AX);
 
     // --- 5. DAC: program entries 32-37 through 0x3C8/0x3C9 ----------------
-    // One index write, then 18 data writes -- the real PEL Data register
-    // auto-advances R->G->B and on to the next entry, which is exactly how
-    // period code loads a whole palette.
+    // One index write, then 18 data writes; PEL Data auto-advances R->G->B and to the next entry
     a.out_port(0x3C8, kDacFirst);
     a.mov_dx(0x3C9);
     for (const auto &e : kDac) for (uint8_t c : e) { a.mov_al(c); a.out_dx_al(); }
 
-    // ... and read entry 32 straight back through the read side.
+    // Read entry 32 back through the read side
     a.out_port(0x3C7, kDacFirst);
     a.in_al_dx();                    // DX is still 0x3C7: the DAC State register
     a.mov_m8_al(S_DAC_STATE);
@@ -403,11 +356,9 @@ void Check(bool ok, const char *what, long long got, long long want) {
 }
 void CheckEq(long long got, long long want, const char *what) { Check(got == want, what, got, want); }
 
-// Checks a rendered frame against the pattern the guest painted into it:
-// every pattern pixel must be the exact RGB its DAC entry decodes to, and
-// the pixels immediately around the horizontal run must be background. An
-// off-by-one scan-line stride, a wrong chain-4 decode or a mis-scaled DAC
-// channel all fail here rather than looking "close enough".
+// Every pattern pixel must be the exact RGB its DAC entry decodes to, and the
+// pixels around the run must be background, so a stride, chain-4 or DAC scaling
+// error fails here
 void CheckFrame(const pc486::RenderedFrame &f, int w, int h,
                 const Pixel *pat, int npat,
                 int run_row, int run_x0, int run_len, int run_idx,
@@ -453,7 +404,7 @@ void CheckFrame(const pc486::RenderedFrame &f, int w, int h,
     black_ok(run_x0, run_row + 1, "pixel one row below the run is background");
 }
 
-// Hand-written 24-bit BMP, same helper render_screen.cpp uses.
+// 24-bit BMP, as render_screen.cpp
 void WriteBmp(const char *path, int w, int h, const std::vector<uint8_t> &rgba) {
     int row_bytes = w * 3;
     int pad = (4 - (row_bytes % 4)) % 4;
@@ -489,8 +440,7 @@ int main(int argc, char **argv) {
 
     auto sector = BuildBootSector();
 
-    // A real 1.44MB floppy, our sector first -- the BIOS reads it exactly as
-    // it would any DOS boot disk.
+    // A real 1.44MB floppy with our sector first
     std::vector<uint8_t> floppy(1474560, 0);
     std::memcpy(floppy.data(), sector.data(), sector.size());
 
@@ -504,9 +454,7 @@ int main(int argc, char **argv) {
     auto rd16 = [&](uint32_t a) { return uint16_t(m.chipset.mem[a] | (m.chipset.mem[a + 1] << 8)); };
     auto rd32 = [&](uint32_t a) { return uint32_t(rd16(a) | (uint32_t(rd16(a + 2)) << 16)); };
 
-    // The guest paints the SVGA screen, parks on a poll, and waits to be
-    // released -- so the frame can be captured before the mode-13h set
-    // below wipes it.
+    // The guest paints the SVGA screen, parks on a poll, and waits so the frame can be captured
     constexpr uint64_t kChunk = 1'000'000;
     bool phase1 = false, done = false;
     pc486::RenderedFrame svga_frame;
@@ -548,9 +496,7 @@ int main(int argc, char **argv) {
     }
 
     {
-        // The mode list function 00h hands back, walked to the 0xFFFF
-        // terminator -- these are the modes the card's ROM believes fit in
-        // the VRAM the SVGA VideoMemory register reports.
+        // The mode list from function 00h up to the 0xFFFF terminator: modes the ROM believes fit the reported VRAM
         uint32_t p = rd32(kVbeInfo + 14);
         uint32_t lin = ((p >> 16) << 4) + (p & 0xFFFF);
         std::string modes;
@@ -583,11 +529,9 @@ int main(int argc, char **argv) {
               rd16(base + 0) & 0x11, 0x11);
     };
 
-    // Function 01h is defined by the VBE spec over its own >= 100h mode
-    // numbers. This firmware answers exactly that set and declines a plain
-    // VGA mode number -- observed, documented, and asserted here so a
-    // future firmware bump that changes it does not slip by unnoticed.
-    // See PC486_REVIEW.md §7.
+    // Function 01h is defined over >= 100h modes. This firmware answers those and
+    // declines plain VGA mode numbers; asserted so a firmware bump can't change it
+    // unnoticed (PC486_REVIEW.md §7).
     std::printf("      4F01 for VGA mode number 13h -> AX=0x%04X (firmware answers VESA mode numbers only)\n",
                 rd16(S_MODE_INFO));
     CheckEq(rd16(S_MODE_INFO), 0x014F, "4F01 (mode 13h, a VGA mode number) -> AX");
@@ -616,8 +560,7 @@ int main(int argc, char **argv) {
     CheckEq(rd8(S_LEGACY_AX), 0x13, "legacy INT 10h AH=0Fh cross-check -> AL");
 
     std::printf("\n--- DAC (ports 0x3C7-0x3C9) ---\n");
-    // Writing the PEL Address Read Mode register puts the DAC in read mode;
-    // the DAC State register reports that as 3 (11b). See ega.h.
+    // Writing PEL Address Read Mode puts the DAC in read mode; DAC State reads 3 (11b). See ega.h.
     CheckEq(rd8(S_DAC_STATE) & 0x03, 0x03, "DAC State register reads \"read mode\"");
     CheckEq(rd8(S_DAC_R), kDac[0][0], "entry 32 red read back through 0x3C9");
     CheckEq(rd8(S_DAC_G), kDac[0][1], "entry 32 green read back through 0x3C9");
@@ -627,9 +570,8 @@ int main(int argc, char **argv) {
     CheckEq(rd8(S_PIX_0), 32, "guest read back A000:0000");
     CheckEq(rd8(S_PIX_319), 33, "guest read back A000:013F");
 
-    // What the card's own ROM actually programmed for mode 13h, read back
-    // off the live device -- the same "don't guess, read the register"
-    // evidence ibmpc-at/IBM_PCAT_REVIEW.md §16 collected for mode 10h.
+    // What the ROM programmed for mode 13h, read back off the live device (cf.
+    // ibmpc-at/IBM_PCAT_REVIEW.md §16 for mode 10h)
     {
         pc486::Ega &v = m.chipset.vga;
         std::printf("\n--- what the BIOS programmed (read back off the live card) ---\n");

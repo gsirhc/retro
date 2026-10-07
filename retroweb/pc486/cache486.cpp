@@ -21,11 +21,10 @@ constexpr int kIsaClock = 4;            // bus clocks per 8.33 MHz ISA clock
 constexpr int kIsa16 = 7 * kIsaClock / 2;   // 3 clocks + 1/2 command delay
 constexpr int kIsa8 = 13 * kIsaClock / 2;   // 6 clocks + 1/2 command delay
 constexpr int kIsaRecovery = 2 * kIsaClock;
-// The 8237 runs at half the ISA clock: 5 DMA clocks a transfer (800KB/s at
-// 4 MHz, National Instruments AN-011) plus the S0 clock that requests HOLD
-// again before each single-mode transfer.
+// 8237 runs at half the ISA clock: 5 DMA clocks a transfer (NI AN-011)
+// plus the S0 clock that requests HOLD before each single-mode transfer
 constexpr int kDmaTransfer = 6 * 2 * kIsaClock;
-// The published IN and OUT counts already include one zero-wait bus cycle.
+// Published IN/OUT counts already include one zero-wait bus cycle
 constexpr int kIoIncluded = 2;
 // The 8-bit tag field of a 256KB L2 covers 64MB (471 "Cache Size Options").
 constexpr uint32_t kCacheableTop = 64u * 1024u * 1024u;
@@ -64,9 +63,8 @@ void Cache486::set_deturbo(uint32_t period, uint32_t hold) {
     hold_len_ = hold;
 }
 
-// One DMA transfer. The 8237 runs single-transfer mode, so each byte or word
-// takes the bus from the CPU on its own; a write into memory is snooped and
-// invalidates the L1 line (the 471 drives EADS# in DMA cycles).
+// Single-mode DMA transfer. Memory writes are snooped and invalidate
+// the L1 line (the 471 drives EADS#).
 void Cache486::dma(uint32_t phys, int size, bool to_mem, uint64_t now) {
     if (to_mem) {
         uint32_t last = (phys + uint32_t(size) - 1u) >> 4;
@@ -101,8 +99,8 @@ bool Cache486::l2_has(uint32_t phys) const {
     return l2_tag_[line & (kL2Lines - 1)] == line + 1;
 }
 
-// Pseudo-LRU over three bits per set: b0 picks a pair, b1 and b2 a way in
-// it (Intel486 "Cache Replacement").
+// Pseudo-LRU, three bits per set: b0 picks a pair, b1/b2 a way in it
+// (Intel486 "Cache Replacement")
 bool Cache486::l1_lookup(uint32_t line) {
     uint32_t set = line & (kSets - 1);
     for (int w = 0; w < kWays; ++w) {
@@ -140,17 +138,15 @@ int Cache486::dram_row(uint32_t phys) {
     return kRowMiss;
 }
 
-// Moves a bus start out of the de-turbo HOLD window, if one is set.
 uint64_t Cache486::held(uint64_t t) const {
     if (hold_period_ == 0) return t;
     uint64_t phase = t % hold_period_;
     return phase < hold_len_ ? t - phase + hold_len_ : t;
 }
 
-// Runs a read on the bus and returns the stall from `now` until its first
-// transfer, which carries the operand the CPU asked for. A read waits for the
-// write buffer unless every buffered write was an L1 hit, in which case it
-// goes first and those writes queue behind it, flagged as misses.
+// Returns the stall until the first transfer. A read waits for the write
+// buffer unless every buffered write was an L1 hit; then it goes first and
+// those writes queue behind it as misses.
 int Cache486::bus_read_at(int first, int total, uint64_t now) {
     uint64_t start = std::max(now, read_end_);
     if (bus_free_ > start) {
@@ -168,8 +164,7 @@ int Cache486::bus_read_at(int first, int total, uint64_t now) {
     return int(start + uint64_t(first) - now);
 }
 
-// Bus clocks for a read of `line` from L2 or DRAM, updating the L2. `first`
-// is the clocks until the first transfer.
+// Bus clocks for a line read from L2 or DRAM; `first` is clocks to the first transfer
 int Cache486::bus_read(uint32_t line, bool burst, int &first) {
     uint32_t phys = line << 4;
     int rest = burst ? kDramBurst - kDramSingle : 0;
@@ -192,9 +187,8 @@ int Cache486::bus_read(uint32_t line, bool burst, int &first) {
     return first + rest;
 }
 
-// A miss stalls the CPU only until the first dword, but the rest of the line
-// is still arriving: an access to it waits for the fill to finish (27302101
-// 12.3.1, rule 3).
+// A miss stalls only until the first dword; an access to the rest of the
+// line waits for the fill (27302101 12.3.1, rule 3)
 int Cache486::read_line(uint32_t line, bool fills, uint64_t now) {
     if (l1_lookup(line)) return line == fill_line_ && fill_done_ > now ? int(fill_done_ - now) : 0;
     int first;
@@ -236,9 +230,8 @@ int Cache486::bus_write_cost(uint32_t phys) {
     return kDramWrite + dram_row(phys);
 }
 
-// Every write goes out through the buffer (the L1 is write-through and
-// does not allocate on a write miss). The writer only waits when all four
-// entries are still pending.
+// Writes go through the buffer (L1 is write-through, no allocate on
+// miss). The writer stalls only when all four entries are pending.
 int Cache486::write(uint32_t phys, int size, uint64_t now) {
     bool hit = !is_vga(phys) && l1_lookup(phys >> 4);
     int cycles = int(((phys & 3u) + uint32_t(size) + 3u) >> 2);
@@ -261,9 +254,8 @@ int Cache486::write(uint32_t phys, int size, uint64_t now) {
     return stall;
 }
 
-// Port I/O is never reordered and never buffered: it waits for the write
-// buffer, runs its cycle, and the CPU waits for the end. An access wider
-// than the device takes one cycle per device width.
+// Port I/O is unbuffered and in order: waits for the write buffer, and
+// the CPU waits for the cycle. Wide accesses take one cycle per device width.
 int Cache486::io(uint16_t port, int size, bool is_write, uint64_t now) {
     uint64_t start = held(std::max(now, bus_free_));
     uint64_t end;

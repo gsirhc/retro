@@ -20,7 +20,6 @@ namespace {
 
 namespace fs = std::filesystem;
 
-// MAME frogger chip names / sizes. CRC is not a whitelist.
 constexpr size_t kProgChip = 0x1000;
 constexpr size_t kSndChip = 0x0800;
 constexpr size_t kGfxChip = 0x0800;
@@ -90,7 +89,6 @@ bool extract_zip(const fs::path& zip, const fs::path& dest) {
     std::error_code ec;
     fs::create_directories(dest, ec);
     if (ec) return false;
-    // python3 is already a test dependency (gen_hwtest.py).
     const std::string cmd =
         "python3 -c 'import zipfile,sys; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])' " +
         sh_quote(zip.string()) + " " + sh_quote(dest.string());
@@ -284,9 +282,7 @@ TEST(Machine, UserRomPlayfieldUsesKonamiPalette) {
     EXPECT_LT(white, brown) << "log lanes should not be dominated by white";
 }
 
-// Optional: CI never has a Konami dump, so this skips. Locally, drop a MAME
-// frogger zip (or the loose chips) in roms/user/, set FROGGER_ROM, or leave
-// frogger.zip in ~/Downloads. See FROGGER_REVIEW.md §8.
+// Skips in CI. Locally, put a MAME frogger zip in roms/user/, set FROGGER_ROM, or leave frogger.zip in ~/Downloads.
 TEST(Machine, UserRomInsertsCoinStartsAndHops) {
     std::optional<frogger::RomSet> set;
     if (const char* env = std::getenv("FROGGER_ROM"); env && *env) {
@@ -349,8 +345,7 @@ TEST(Machine, UserRomInsertsCoinStartsAndHops) {
     }
     ASSERT_NE(m.mem_read(kPlayFlag), 0) << "play flag at $83FE stayed attract";
 
-    // Spawn sidewalk. Hold UP (IN2 bit 4) through the start jingle so the
-    // first hop fires as soon as input is live.
+    // Hold UP through the start jingle so the first hop fires as soon as input is live.
     const uint8_t x0 = m.mem_read(kFrogX);
     const uint8_t y0 = m.mem_read(kFrogY);
     const uint16_t s0 = score_p1(m);

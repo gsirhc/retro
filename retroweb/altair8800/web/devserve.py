@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# Local dev server: serves web/ on the LAN with caching disabled.
 import http.server, os, sys
 
 os.chdir(os.path.dirname(os.path.abspath(__file__)))

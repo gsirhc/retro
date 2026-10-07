@@ -1,8 +1,5 @@
-// 6502 Assembler front end (real CG-OAC-6502 W65C02S hardware). Structure
-// mirrors retroweb/altair8800/web/app.js
-// (terminal profile system, per-frame CPU/serial pump) but this board has
-// no front panel -- the left column is the board's actual controls
-// (reset, LEDs, LCD, jumpers) instead.
+// 6502 Assembler front end. Terminal profiles and the per-frame CPU/serial
+// pump follow altair8800/web/app.js; the left column holds the board's controls.
 
 function fail(msg) {
   console.error(msg);
@@ -27,40 +24,25 @@ async function boot() {
   if (typeof CgOac6502 !== "function") return fail("cgoac6502.js did not load. Run `make wasm` in web/.");
   if (typeof CGOAC_ENTRYPOINTS === "undefined") return fail("roms/entrypoints.js did not load. Run `make roms` in web/.");
 
-  // ---- terminal ---------------------------------------------------------
+  // ---- terminal ----
   const term = new Terminal({ cursorBlink: true });
   const fit = new FitAddon.FitAddon();
   term.loadAddon(fit);
   const screenEl = document.getElementById("screen");
   const bezelEl = document.getElementById("bezel");
   const monitorEl = document.getElementById("monitor");
-  // Declared here (not down by the power toggle below, where it
-  // conceptually belongs) so it's initialized before the isRunning
-  // predicate just below can possibly be called -- term.focus() a little
-  // further down synchronously fires a focusin event, which would
-  // otherwise read `poweredOn` while it's still in its let-declaration's
-  // temporal dead zone and throw.
+  // declared early: term.focus() fires focusin synchronously and isRunning reads poweredOn
   let poweredOn = true;
   const REF_W = 760, REF_H = 420;
   term.open(screenEl);
   fit.fit();
 
-  // "Click to type" banner and fullscreen mechanism: both purely web-UI
-  // conveniences (real board hardware has no such state), not something
-  // CLAUDE.md's realism rules govern -- see shared/focus-hint.js and
-  // shared/fullscreen.js. poweredOn is declared further down; passing it
-  // as a predicate (not a captured value) lets these read its live value
-  // from event handlers that run after the whole script has executed and
-  // poweredOn actually exists.
+  // Web-UI only (no hardware state): focus hint and fullscreen. poweredOn is
+  // passed as a predicate so it's read live.
   const isRunning = () => poweredOn;
   const updateFocusHint = initFocusHint(screenEl, isRunning);
-  // #screen is a <div> sized by inline pixel width/height (see sizeScreen()
-  // below), not CSS -- an inline style always beats fullscreen.css's own
-  // `#bezel:fullscreen #screen` rule, so left alone the terminal would just
-  // sit at its normal, page-layout-constrained pixel size in the middle of
-  // an otherwise-empty fullscreen bezel. sizeScreen() itself grows the font
-  // size to fill the bezel instead (see its step 4, below), run via this
-  // callback on every fullscreen transition.
+  // #screen has inline pixel sizes that beat fullscreen.css, so sizeScreen()
+  // grows the font to fill the bezel on each fullscreen transition
   initFullscreen({
     bezelEl,
     screenEl,
@@ -68,9 +50,7 @@ async function boot() {
     fsEscHint: document.getElementById("fsEscHint"),
     fsEscHintOkBtn: document.getElementById("fsEscHintOk"),
     escBtn: document.getElementById("escBtn"),
-    // No scancode keyboard here -- typed input is just bytes on the serial
-    // line (see term.onData below), so "send Escape to the guest" is the
-    // same handleTermData() path a real Escape keypress already takes.
+    // no scancode keyboard: Escape takes the same handleTermData() path as a keypress
     sendEscape: () => handleTermData("\x1b"),
     isRunning,
     onFullscreenChange: () => requestAnimationFrame(sizeScreen),
@@ -80,17 +60,11 @@ async function boot() {
     if (!monitorEl.classList.contains("scrolls")) e.stopImmediatePropagation();
   }, { capture: true });
 
-  // Set only while fullscreen is active -- the profile's real font size,
-  // saved once so fullscreen's own enlargement (step 4 below) always scales
-  // up from the true base size instead of compounding on top of a previous
-  // enlargement if sizeScreen() runs again mid-fullscreen (a window resize
-  // while fullscreen, etc).
+  // base font size while fullscreen, so enlargement doesn't compound on resize
   let fsBaseFontSize = null;
   function sizeScreen() {
     try {
-      // Undo any fullscreen font-size enlargement before measuring -- the
-      // "natural" (non-fullscreen) box below has to reflect the profile's
-      // real font size, not whatever fullscreen last scaled it to.
+      // undo fullscreen enlargement before measuring the natural box
       if (fsBaseFontSize != null) term.options.fontSize = fsBaseFontSize;
 
       screenEl.style.width = REF_W + "px";
@@ -106,14 +80,8 @@ async function boot() {
       term.resize(cols, 24);
       term.refresh(0, term.rows - 1);
 
-      // 4. fullscreen: grow the *font itself* (not a CSS transform of the
-      // same small raster -- that just blurs the already-rendered pixels)
-      // to fill the fullscreened bezel, then let FitAddon re-fit cols/rows
-      // to that larger, still-crisp size. .panel above lives outside the
-      // fullscreened subtree (the Fullscreen API repaints #bezel in its own
-      // top layer without resizing the window), so it never reflects the
-      // fullscreen viewport -- #bezel's own box, sized 100vw/100vh by
-      // fullscreen.css, is what's actually available here instead.
+      // 4. fullscreen: grow the font (a CSS transform would blur), then refit.
+      // #bezel's box is the available size, since .panel sits outside the fullscreen subtree.
       const fs = (document.fullscreenElement || document.webkitFullscreenElement) === bezelEl;
       if (fs) {
         if (fsBaseFontSize == null) fsBaseFontSize = term.options.fontSize;
@@ -136,7 +104,7 @@ async function boot() {
   }
   addEventListener("resize", sizeScreen);
 
-  // ---- terminal profiles (ported from retroweb/altair8800/web/app.js) --
+  // ---- terminal profiles ----
   function dumbFilter() {
     let state = "ground";
     const KEEP_C0 = new Set([0x07, 0x08, 0x09, 0x0a, 0x0d]);
@@ -253,11 +221,7 @@ async function boot() {
     monitorEl.classList.toggle("scrolls", !!p.scrollback);
     screenEl.style.setProperty("--glow", (noCrt ? 0 : p.glow) + "px");
     try { localStorage.setItem("cgoac6502.term", key); } catch {}
-    // Returns a promise resolving once the resize this triggers has
-    // actually run -- the initial boot call below awaits it so the
-    // machine never starts writing real ROM output at a stale, wrong
-    // column/row count from before the real font/size took effect (see
-    // that call site's own comment for the race this prevents).
+    // resolves after the resize, so boot() can await it before the ROM writes output
     return (document.fonts ? document.fonts.ready : Promise.resolve())
       .then(() => new Promise((resolve) => setTimeout(() => { sizeScreen(); resolve(); }, 30)));
   }
@@ -272,33 +236,18 @@ async function boot() {
   try { savedTerm = localStorage.getItem("cgoac6502.term") || "modern"; } catch {}
   termSelect.value = savedTerm in TERM_PROFILES ? savedTerm : "modern";
 
-  // CAPS LOCK: vintage terminals were commonly uppercase-only, and this
-  // board's own firmware (rom/bios.s's FORCE_UPPER) already expects it --
-  // default on, like the Altair front end's identical control. The ASR-33
-  // profile is mechanically incapable of lowercase, so it forces this on
-  // and disables the checkbox rather than merely defaulting it. Declared
-  // before the first applyProfile() call below (which reads `caps`) --
-  // that call is now awaited at top level (see its own comment), which
-  // pauses boot() right there until fonts settle, so anything applyProfile
-  // touches has to already exist textually above this point, not below.
+  // CAPS LOCK defaults on since bios.s FORCE_UPPER expects uppercase; the
+  // ASR-33 forces it. Declared before the first applyProfile(), which reads `caps`.
   const caps = document.getElementById("caps");
   try { caps.checked = localStorage.getItem("cgoac6502.caps") !== "0"; } catch {}
   caps.addEventListener("change", () => {
     try { localStorage.setItem("cgoac6502.caps", caps.checked ? "1" : "0"); } catch {}
   });
 
-  // the period profiles' VT323/Courier Prime faces are @font-face'd locally
-  // (vendor/fonts/) -- load them before the first paint of a retro profile
-  // so it doesn't flash in the browser's fallback monospace first. Awaited
-  // (not fire-and-forget) -- boot() below must not create the machine and
-  // pressReset() until the terminal is sized against its real, final font,
-  // or a slow font/network fetch can lose the race: the ROM's first output
-  // (Wozmon's own "\" banner) would get written using column/row counts
-  // measured against the browser's fallback font, then get corrupted when
-  // the real font swap resizes/refreshes the terminal underneath already-
-  // written content -- exactly the "have to refresh a few times before the
-  // prompt shows up" symptom this fixes, since a warm font cache on repeat
-  // loads wins the race by accident, masking it as intermittent.
+  // Load the local VT323/Courier Prime faces before first paint and await it:
+  // boot() must not start the ROM until the terminal is sized against the final
+  // font, or Wozmon's banner is written at stale cols/rows and corrupted by the
+  // font swap.
   await Promise.all([
     document.fonts?.load('20px "VT323"'),
     document.fonts?.load('15px "Courier Prime"'),
@@ -307,13 +256,9 @@ async function boot() {
   await applyProfile(termSelect.value);
   termSelect.addEventListener("change", () => applyProfile(termSelect.value));
 
-  // ---- floating popups (Save/Load, Help) ---------------------------------
-  // Same draggable-by-title-bar / remembered-position mechanism as
-  // retroweb/altair8800/web/app.js's front-panel bootstrap guide (pgDrag/
-  // pgFloat) -- unlike that guide's dynamically-rebuilt content, these two
-  // are static markup (index.html), so this is just show/hide/drag wiring,
-  // generalized over any number of trigger buttons per popup (Save and
-  // Load both open the one shared Save/Load popup).
+  // ---- floating popups (Save/Load, Help) ----
+  // Draggable like altair8800's pgDrag/pgFloat, over static markup (index.html)
+  // with any number of trigger buttons per popup.
   function wireFloatPopup(popupId, posKey, triggerIds) {
     const popup = document.getElementById(popupId);
     const drag = popup.querySelector(".fp-drag");
@@ -357,11 +302,8 @@ async function boot() {
   wireFloatPopup("savePopup", "cgoac6502.savepos", ["saveBtn", "loadBtn"]);
   wireFloatPopup("helpPopup", "cgoac6502.helppos", ["helpBtn"]);
 
-  // Save and Load share one popup (wireFloatPopup above) -- pgmMode tracks
-  // which of the two toolbar buttons most recently opened it, so the
-  // "Saved programs" shelf's chips (rendered below) know whether clicking
-  // a name should load it into the machine or overwrite it with whatever's
-  // in the machine right now. See renderPgmLib().
+  // Save and Load share one popup; pgmMode records which button opened it so
+  // shelf chips load or overwrite (renderPgmLib())
   let pgmMode = "save";
   function setPgmMode(mode) {
     pgmMode = mode;
@@ -372,55 +314,29 @@ async function boot() {
   document.getElementById("loadBtn").addEventListener("click", () => setPgmMode("load"));
   setPgmMode("save");
 
-  // ---- page theme (Win95 / mid-90s Mosaic web / Modern / Dark Modern) ---
-  // See shared/theme-picker.js for the actual mechanism.
+  // ---- page theme ----
   initThemePicker(() => setTimeout(sizeScreen, 60));   // page width may have changed
 
-  // ---- wasm machine -----------------------------------------------------
+  // ---- wasm machine ----
   const Module = await CgOac6502({});
   const m = new Module.Machine();
   window.__machine = m;    // exposed for the Playwright suite / manual debugging
-  window.__term = term;    // ditto -- lets tests read xterm's own line buffer directly
+  window.__term = term;    // ditto
   term.focus();
 
-  // default ROM: built from cpu6502/rom/ source at build time (make -C .. rom),
-  // not fetched -- see Makefile. Already seated in the socket, exactly as
-  // the real board would arrive. The one-time ROM-programmer UI (ZIF
-  // socket, burn/verify, chip library) is retired -- m.burnRom() here is
-  // all that's left of it, seating the compiled firmware at boot.
+  // default ROM, built from cpu6502/rom/ (make -C .. rom) and seated at boot
   try {
     const res = await fetch("roms/firmware.bin");
     if (res.ok) m.burnRom(new Uint8Array(await res.arrayBuffer()));
   } catch {}
 
-  // Example programs (Save/Load popup, further down) -- fetched here, up
-  // front and *awaited* before the machine ever starts running below, not
-  // lazily on click. A fetch() resolving concurrently with the per-frame
-  // CPU loop (driveFrame/pullSerial, running continuously via
-  // requestAnimationFrame once the machine's ticking) was found to wedge
-  // the emulated CPU -- it ends up spinning in bios.s's IRQ_HANDLER stub
-  // and never recovers, reproducible whether the fetch was kicked off from
-  // a click handler or fired early and simply happened to resolve while
-  // the machine was running. Root cause not fully chased down (some real
-  // browser task-scheduling interaction between an in-flight fetch and
-  // rAF), but these are four small, static, read-only files -- finishing
-  // all four fetches before m.pressReset() below (so before the frame()
-  // loop, further down, ever starts) sidesteps the trigger entirely rather
-  // than timing around it.
+  // Fetch the Example .bin files before the machine runs. A fetch resolving
+  // during the rAF CPU loop wedged the CPU in bios.s's IRQ_HANDLER stub (cause
+  // not found), so all fetches finish before m.pressReset().
   //
-  // Each fetch is a .bin, not the .asm source -- web/gen_example_bin.cpp
-  // (a build-time-only native tool, see web/Makefile's `examples-bin`)
-  // already typed that same source into the board's own real resident
-  // editor once, headlessly, and validated it really assembles (output
-  // discarded -- see that file's own header). Poking its captured source
-  // buffer straight into RAM (pokeExample, below) means an Example never
-  // goes through the character-by-character simulated-serial LOAD path
-  // at all -- sidestepping the still-not-fully-understood Examples-load
-  // wedging bug (CGOAC6502_REVIEW.md) rather than racing it. Nothing is
-  // pre-assembled into this page, though: a visitor still types ASM
-  // themselves and watches the board's own assembler really compile it,
-  // exactly like hand-typing a program -- only the *typing itself* is
-  // skipped.
+  // Each .bin holds source captured by gen_example_bin.cpp, poked into RAM by
+  // pokeExample() instead of the serial LOAD path (CGOAC6502_REVIEW.md). The
+  // visitor still types ASM.
   const EXAMPLE_PROGRAMS = [
     { name: "hello.asm", label: "Hello, World!", file: "hello.bin" },
     { name: "primes.asm", label: "Prime numbers (perf demo)", file: "primes.bin" },
@@ -434,37 +350,17 @@ async function boot() {
       if (res.ok) EXAMPLE_BIN[ex.file] = new Uint8Array(await res.arrayBuffer());
     } catch {}
   }));
-  // gen_example_bin.cpp's output: [2] srcLen (little-endian) [srcLen]
-  // source buffer bytes.
+  // gen_example_bin.cpp output: [2] srcLen (little-endian), then the source buffer
   function parseExampleBin(bytes) {
     const srcLen = bytes[0] | (bytes[1] << 8);
     return bytes.subarray(2, 2 + srcLen);
   }
-  // SRC_START is an editor.s compile-time constant (`=`, not a linker-
-  // placed label, so it never appears in firmware.lbl / entrypoints.js)
-  // -- hardcoded here the same way gen_example_bin.cpp and
-  // tests/assembler_test.cpp's own kObjStart already do, citing editor.s's
-  // ZEROPAGE/memory-split header as the source of truth.
+  // editor.s constant, not in entrypoints.js (see gen_example_bin.cpp)
   const SRC_START = 0x3000;
-  // Pokes an Example's real source straight into the editor's source
-  // buffer, then prints a "LOAD"/"Ok" confirmation on the terminal --
-  // standing in for what a real typed LOAD's own echo would show, since
-  // this bypasses the ACIA entirely (injectOutput, wasm_machine.cpp) and
-  // never actually runs DO_LOAD. Assumes the shell is already entered,
-  // same as Save/Load generally (see runSave's own comment) -- a raw
-  // memory poke doesn't care what the shell's own prompt/dispatcher is
-  // doing, but the source only *means* anything once LIST/ASM/etc. can
-  // see it from a real shell session.
-  //
-  // The trailing ">" mirrors shell_loop's own bare "lda #'>' / jsr CHROUT"
-  // (editor.s) -- without it, the *real* CPU is still sitting wherever it
-  // was before this fake text was injected (nothing about a raw RAM poke
-  // advances it), so the terminal shows "LOAD"/"Ok" but never a fresh
-  // prompt of its own, and the shell looks inert until the visitor
-  // presses Enter on a blank line to force a reprompt. Injecting the same
-  // bare ">" a real completed command would have printed next makes the
-  // terminal's appearance match the real CPU state that's actually
-  // sitting there (idle, mid-READLINE_ECHO, ready for the next line).
+  // Pokes an Example's source into the editor buffer and prints a LOAD/Ok echo
+  // via injectOutput, since DO_LOAD never runs. The shell must already be entered.
+  // The trailing ">" mirrors shell_loop (editor.s): the CPU is still idle at the
+  // old prompt, so without it the shell looks inert until Enter.
   function pokeExample(bin) {
     m.pokeRam(SRC_START, parseExampleBin(bin));
     m.injectOutput(encoder.encode("LOAD\r\nOk\r\n>"));
@@ -472,60 +368,39 @@ async function boot() {
 
   m.pressReset();
 
-  // ---- terminal -> ACIA, paced like a real transfer ----------------------
-  // Every typed/pasted/loaded byte is queued here and drained by
-  // driveFrame() in the main loop below -- realistic-by-default (paced to
-  // the ACIA's live baud), not the previous unmetered "push every byte
-  // instantly" (see driveFrame's own header for the full writeup).
+  // ---- terminal -> ACIA, paced by the live baud ----
+  // Typed, pasted and loaded bytes queue here and driveFrame() drains them.
   const encoder = new TextEncoder();
   const inQ = [];
   function queueInput(bytes) { for (const b of bytes) inQ.push(b); }
-  // Named (not inline in term.onData below) so the fullscreen escBtn's
-  // sendEscape() can feed a synthetic "\x1b" through this exact same path
-  // -- the browser eats a real Escape keydown while fullscreen before even
-  // xterm's own hidden textarea sees it (see shared/fullscreen.js).
+  // named so the fullscreen escBtn can feed a synthetic "\x1b" through the same
+  // path (the browser eats Escape in fullscreen)
   function handleTermData(data) {
-    if (!poweredOn) return;   // Power toggle (below) -- an unplugged board doesn't hear you type
+    if (!poweredOn) return;   // unpowered board ignores input
     if (caps.checked) data = data.toUpperCase();
     queueInput(encoder.encode(data));
   }
   term.onData(handleTermData);
 
-  // ---- ACIA -> terminal, metered at the ACIA's live configured baud ----
-  // (a fidelity improvement over a fixed per-profile rate -- the real chip's
-  // baud is a genuine register, see acia65c51.h)
+  // ---- ACIA -> terminal, metered at the live baud ----
   const outQ = [];
   let baudBudget = 0;
   const baudLabel = document.getElementById("baudLabel");
   let lastBaud = -1;
 
-  // SAVE_ENTRY frames the source buffer in real STX ($02)/ETX ($03) control
-  // bytes (see load.s) -- the Save panel below watches this same raw output
-  // stream for that frame, independent of (and not consumed by) the terminal
-  // display's own outQ, since SAVE's output is meant to be visible on screen
-  // too, exactly like a human running SAVE_ENTRY by hand would see.
+  // SAVE frames the source in STX ($02)/ETX ($03) (load.s). This taps the raw
+  // output without consuming it, so SAVE still shows on screen.
   let saveCapture = null;   // null, or { started, buf: number[], resolve }
-  let pendingLf = false;    // display-only CR->CRLF state, carried across frames -- see pullSerial()
+  let pendingLf = false;    // display-only CR->CRLF state across frames
 
   function pullSerial() {
     if (outQ.length > 256) return;
     const out = m.readOutput();
     for (let i = 0; i < out.length; i++) {
       const b = out[i];
-      // SAVE's wire format is deliberately bare-CR-separated between lines
-      // (see load.s) -- correct for the actual transfer (round-trips with
-      // LOAD, and is exactly what a real external listener should see, so
-      // saveCapture below taps the real, untouched `b`), but a bare CR with
-      // no LF behind it just returns a real terminal's cursor to column 0
-      // without advancing a row, so each displayed line would overwrite
-      // the previous one in place -- the same overwrite artifact DO_LOAD's
-      // own incoming-echo already works around on the ROM side (its header
-      // comment). This is the display-only fix for the outgoing direction:
-      // outQ (this on-page terminal's own draw queue) gets a synthetic LF
-      // appended whenever a CR isn't immediately followed by a real one,
-      // so SAVE's dump reads one line per row and a following "Ok" doesn't
-      // land on top of the last line -- nothing else here (saveCapture,
-      // the banner check) ever sees this synthetic byte.
+      // SAVE's wire format is bare-CR separated (load.s). saveCapture taps the
+      // untouched byte, but the display queue gets a synthetic LF after a lone CR so
+      // lines don't overwrite each other.
       if (pendingLf) {
         pendingLf = false;
         if (b !== 0x0a) outQ.push(0x0a);
@@ -549,56 +424,34 @@ async function boot() {
     baudBudget += cps ? (dtMs / 1000) * cps : outQ.length;
     let n = Math.max(0, Math.floor(baudBudget));
     baudBudget -= n;
-    if (n === 0 && outQ.length && !cps) n = outQ.length;   // idle ACIA: drain immediately, nothing to meter against
+    if (n === 0 && outQ.length && !cps) n = outQ.length;   // idle ACIA: drain immediately
     if (n > 0 && outQ.length) writeFiltered(outQ.splice(0, Math.min(n, outQ.length)));
   }
 
-  // ---- ACIA <- terminal/paste/load, paced at the same live baud ---------
-  // A human's own keystrokes are naturally paced by typing speed, but a
-  // paste or a Save/Load transfer needs its bytes metered onto term.onData
-  // deliberately. Mirrors the Altair's LOAD SPEED convention (see
-  // retro/CLAUDE.md): realistic-by-default (paced to m.aciaBaud(), same
-  // cps math as pumpTerminal above), plus the standard ?test=1 carve-out.
-  // Save/Load-from-file and the saved-programs shelf go through this real
-  // paced path; pokeExample() above is the one loader that doesn't need it.
+  // ---- ACIA <- terminal/paste/load, paced at the live baud ----
+  // Pastes and Save/Load transfers are metered by m.aciaBaud() (?test=1 skips it).
+  // pokeExample() bypasses this.
   //
-  // Critically, this can't just be "call m.typeChar() N times, then let
-  // the frame's usual m.runCycles() catch up" -- the ACIA has only a
-  // one-byte RX register (acia65c51.h), so N>1 typeChar() calls with zero
-  // CPU cycles between them is a real overrun: byte 2 overwrites byte 1
-  // before the NMI handler ever drains it, silently dropping data. Nor can
-  // driveFrame() just inject extra m.runCycles() of its own -- that would
-  // speed up the emulated CPU beyond real 1MHz, which retro/CLAUDE.md
-  // never allows (real-hardware overrides may change *throughput*, never
-  // the clock itself -- see the Altair's own LOAD SPEED, which stays at
-  // real 2MHz under every multiplier). So driveFrame() below slices THIS
-  // frame's own real, dtMs-derived cycle budget across however many
-  // characters are due out this frame, running a fair share of real
-  // cycles between each -- the same total CPU time as an ordinary frame,
-  // just distributed so the NMI handler gets a genuine chance to drain
-  // each byte before the next one arrives.
+  // Bytes can't go in back to back: the one-byte ACIA RX register (acia65c51.h)
+  // would drop all but the last. The CPU clock can't be sped up either, so
+  // driveFrame() slices this frame's real cycle budget across the due characters,
+  // letting the NMI handler drain each one.
   const TEST_MODE = new URLSearchParams(location.search).get("test") === "1";
   const MIN_CYCLES_PER_CHAR = 200;   // generous margin over the NMI handler's real drain cost
   let inBudget = 0;
 
-  // Runs exactly `totalCycles` of real CPU time (same as a plain
-  // m.runCycles(totalCycles) call) for this frame, but interleaves up to
-  // `n` due characters from inQ across that budget instead of dumping
-  // them all in before/after it.
+  // Runs `totalCycles` of real CPU time, interleaving up to `n` due characters from inQ
   function driveFrame(totalCycles, dtMs) {
     if (!inQ.length) { m.runCycles(totalCycles); return; }
 
     const instant = TEST_MODE;
     let n;
     if (instant) {
-      // Not throttled to the ACIA's baud -- but still capped to what this
-      // frame's own real cycle budget can safely interleave, so it's
-      // faster than realistic pacing without ever dropping a byte or
-      // running the CPU a single cycle ahead of real time.
+      // unthrottled, but capped by what the frame's cycle budget can interleave
       n = Math.floor(totalCycles / MIN_CYCLES_PER_CHAR);
     } else {
       const baud = m.aciaBaud();
-      const cps = baud ? baud / 10 : 10;   // idle ACIA: a slow, non-stalling default
+      const cps = baud ? baud / 10 : 10;   // idle ACIA: slow default
       inBudget += (dtMs / 1000) * cps;
       n = Math.floor(inBudget);
     }
@@ -609,24 +462,10 @@ async function boot() {
     const slice = Math.floor(totalCycles / n);
     let consumed = 0;
     for (let i = 0; i < n; i++) {
-      // Backpressure: bios.s's SERIAL_BUFFER RX ring is 256 bytes: a bulk
-      // multi-line LOAD (or a burst of instant-mode test input) can inject
-      // characters faster than STORE_LINE's own O(n) buffer scan drains
-      // them -- pacing purely off a fixed per-character cycle cost can't
-      // account for that, since STORE_LINE's real cost grows with the
-      // program already stored. Stop injecting new characters for the
-      // rest of this frame once the ring holds more than a handful of
-      // unconsumed bytes (the extra cycles below still run, giving the ROM
-      // more real time to drain it) rather than risk overrunning it and
-      // corrupting the transfer. A looser threshold like 200 (~80% of the
-      // ring) isn't safe either: real-browser testing of the Examples
-      // feature (loading a multi-hundred-byte file) showed the ROM can
-      // wedge well before the ring is anywhere near full if the gap
-      // between "close to full" and "actually drained" stays wide for
-      // long -- a small constant keeps the ring close to empty at all
-      // times instead, which reliably fixes every example file except the
-      // largest (Rock-Paper-Scissors, ~3.2K) -- see CGOAC6502_REVIEW.md
-      // for what's still open there.
+      // Backpressure: stop injecting once the 256-byte SERIAL_BUFFER ring holds more
+      // than a few bytes, since STORE_LINE's scan slows as the program grows. A looser
+      // threshold (200) still wedged the ROM; Rock-Paper-Scissors (~3.2K) is still
+      // open (CGOAC6502_REVIEW.md).
       if (m.serialPending() > 8) break;
       m.typeChar(inQ.shift());
       const c = i === n - 1 ? totalCycles - slice * (n - 1) : slice;
@@ -636,8 +475,7 @@ async function boot() {
     if (consumed < totalCycles) m.runCycles(totalCycles - consumed);
   }
 
-  // ---- LEDs / LCD ---------------------------------------------------
-  // D1/D4/D7 render on the board graphic itself now, not a separate panel.
+  // ---- LEDs / LCD ----
   const pcbLedD1 = document.getElementById("pcbLedD1");
   const pcbLedD4 = document.getElementById("pcbLedD4"), pcbLedD7 = document.getElementById("pcbLedD7");
   function flashLed(el) {
@@ -645,10 +483,7 @@ async function boot() {
     clearTimeout(el._t);
     el._t = setTimeout(() => el.classList.remove("on"), 90);
   }
-  // ---- J3 LCD accessory: an actual HD44780-style 5x7 dot-matrix render,
-  // not plain text -- see lcdfont.js. Each character cell shows its full
-  // dot grid (lit and unlit dots both visible, like the real thing), drawn
-  // to a <canvas> rather than 32 * 35 individual DOM nodes.
+  // ---- J3 LCD: 5x7 dot-matrix render on a <canvas> (lcdfont.js) ----
   const lcdCanvas = document.getElementById("lcdCanvas");
   const lcdCtx = lcdCanvas.getContext("2d");
   const LCD_COLS = 16, LCD_ROWS = 2;
@@ -690,26 +525,15 @@ async function boot() {
     lcdCanvas.classList.toggle("detached", !lcdAttachedBox.checked);
   });
 
-  // ---- reset / jumpers -------------------------------------------------
-  // the PCB graphic's own SW1 (labelled RST) doubles as a real control,
-  // same as the board panel. J7 (interrupt routing), J5 (BOOT select) and
-  // J8 (RTS->CTS) aren't exposed as controls on this page, so there's no
-  // listener to wire up for any of them; bus.h's JumperState defaults
-  // already match the shipped ROM's wiring (CGOAC6502_REVIEW.md).
+  // ---- reset / jumpers ----
+  // SW1 on the PCB graphic is the reset control. J7, J5 and J8 have no page
+  // controls; bus.h defaults match the shipped ROM.
   document.querySelector('#pcbSvg [data-ref="SW1"]').addEventListener("click", () => { m.pressReset(); });
 
-  // ---- power (J1) ---------------------------------------------------
-  // The real board has no power switch -- J1 is just a barrel jack, live
-  // whenever plugged in -- so this is a labelled UI convenience layered
-  // onto that graphic, not a claim about real hardware. "Off" pauses the
-  // main loop in place (frame() below skips CPU/serial/LCD work) rather
-  // than resetting anything, so a typed-in-progress program survives a
-  // power cycle -- closer to "the monitor's unplugged" than "the machine
-  // lost its memory". D1 (real: hardwired straight to +5V, always lit
-  // whenever the page is open -- see machine.h) gets its own dim/off look
-  // here purely for this toggle's visual feedback. (poweredOn itself is
-  // declared up by screenEl/bezelEl instead of here, where it conceptually
-  // belongs -- see that comment for why.)
+  // ---- power (J1) ----
+  // UI convenience: the real board has no power switch. Off pauses the main loop
+  // in place (no reset), so a program mid-edit survives. D1 is hardwired to +5V
+  // on the real board; its dimming here is feedback only.
   document.querySelector('#pcbSvg [data-ref="J1"]').addEventListener("click", () => {
     poweredOn = !poweredOn;
     pcbLedD1.classList.toggle("led-power", poweredOn);
@@ -717,18 +541,12 @@ async function boot() {
     updateFocusHint();   // nothing to type into once powered off -- hide it
   });
 
-  // ---- Help panel: fill in this build's real, generated shell address --
-  // (see gen_entrypoints.py/roms/entrypoints.js -- never hand-copied, so
-  // this can't go stale the way a hardcoded address in this file would).
-  // Only one real address to show now -- NEW/LIST/EDIT/ASM/RUN/LOAD/SAVE
-  // are typed command words at the shell's own prompt, not separate
-  // addresses, so the rest of the Help panel's command grammar is static
-  // prose (index.html) rather than filled in here.
+  // ---- Help panel: shell address from roms/entrypoints.js (generated) ----
   const E = CGOAC_ENTRYPOINTS;
   function hex(n) { return n.toString(16).toUpperCase(); }
   for (const id of ["hShell", "hShell2", "hShell3"]) document.getElementById(id).textContent = hex(E.SHELL_ENTRY) + "R";
   document.getElementById("hResume").textContent = "JMP $" + hex(E.SHELL_PROMPT);
-  // OS-call jump table (bios.s) -- same "never hand-copied" reasoning.
+  // OS-call jump table (bios.s)
   const OS_CALL_IDS = {
     hPrintChar: "PRINT_CHAR", hPrintStr: "PRINT_STR",
     hLcdPutc: "LCD_PUTC", hLcdPuts: "LCD_PUTS", hLcdClear: "LCD_CLEAR",
@@ -737,13 +555,9 @@ async function boot() {
   };
   for (const [id, name] of Object.entries(OS_CALL_IDS)) document.getElementById(id).textContent = "$" + hex(E[name]);
 
-  // ---- Save / Load (the shell's own LOAD/SAVE commands) -----------------
-  // Filename input, a named localStorage shelf (same pattern the retired
-  // ROM programmer's chip library used, repurposed for saved programs), a
-  // real file <a download>, a plain <input type=file> import. Every
-  // transfer runs entirely over the simulated ACIA -- typing "LOAD"/"SAVE"
-  // at the shell's own prompt, same as a human would by hand; nothing here
-  // is a side channel into the emulated machine.
+  // ---- Save / Load (the shell's LOAD/SAVE commands) ----
+  // Filename input, a localStorage shelf, a download link and a file import.
+  // Every transfer runs over the simulated ACIA.
   const pgmName = document.getElementById("pgmName");
   const pgmSaveBtn = document.getElementById("pgmSave");
   const pgmDownload = document.getElementById("pgmDownload");
@@ -759,18 +573,10 @@ async function boot() {
   }
   function defaultPgmName() { return pgmName.value.trim() || "program.asm"; }
 
-  // Runs the shell's SAVE command, resolving with the captured source text
-  // -- the bytes between STX/ETX (pullSerial()'s saveCapture hook above). A
-  // generous timeout guards against the ROM never responding. Assumes the
-  // terminal is already sitting inside the command shell (editor.s's
-  // SHELL_ENTRY), same precondition as the Help panel documents for typing
-  // SAVE by hand: auto-detecting the shell instead (a heuristic watching
-  // for its own banner in ROM output) risks getting it wrong and silently
-  // resending "<addr>R" into an *already-open* shell prompt, misparsed as
-  // a decimal line number followed by a bad trailing letter (e.g. "8000R"
-  // -> line 8000, text "R"), corrupting whatever's about to be saved or
-  // clobbering an in-flight LOAD. Simpler and more reliable to just
-  // require the real precondition instead of guessing at it.
+  // Runs SAVE and resolves with the text between STX/ETX (pullSerial()'s
+  // saveCapture). Times out if the ROM never answers. The shell must already be
+  // entered: auto-detecting it could resend "<addr>R" into an open prompt and
+  // store a bogus line.
   function runSave() {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -781,17 +587,9 @@ async function boot() {
       queueInput(encoder.encode("SAVE\r"));
     });
   }
-  // Runs the shell's LOAD command, which clears the program itself (DO_LOAD's
-  // own DO_NEW) before streaming `text` in -- queued as one sequence; the
-  // shell processes each typed/received line in turn as driveFrame drains
-  // it, so no explicit wait between commands is needed. DO_LOAD splits the
-  // incoming stream on a bare CR ($0D, the same byte the shell's own line
-  // entry and Wozmon's store syntax use) -- normalize LF/CRLF from a hand-
-  // edited or OS-saved .asm/.txt file so an imported file loads correctly
-  // regardless of which line endings its editor wrote. A numberless line
-  // (a plain unnumbered file, or one hand-typed without line numbers)
-  // auto-numbers on the way in -- see PROCESS_LINE/AUTO_NUMBER, editor.s.
-  // Assumes the shell is already entered -- see runSave's own comment above.
+  // Runs LOAD (DO_LOAD clears the program first) and queues the text. Normalizes
+  // LF/CRLF to the bare CR DO_LOAD splits on; unnumbered lines auto-number
+  // (PROCESS_LINE/AUTO_NUMBER). The shell must already be entered.
   function runLoad(text) {
     text = text.replace(/\r\n|\n/g, "\r");
     queueInput(encoder.encode("LOAD\r" + text));
@@ -811,11 +609,8 @@ async function boot() {
     pgmDownload.hidden = false;
   }
 
-  // Shared by the toolbar's own Save button (defaultPgmName()) and a
-  // "Saved programs" chip clicked in save mode (that chip's own name) --
-  // reads the machine's current source over the ACIA (runSave()) and
-  // writes it into the named browser-storage slot, creating it if it
-  // didn't already exist.
+  // Shared by the Save button and chips clicked in save mode: reads the source
+  // via runSave() and writes it to the named slot
   async function doSaveAs(name) {
     const bytes = await runSave();
     let text = "";
@@ -836,10 +631,7 @@ async function boot() {
     for (const name of Object.keys(lib)) {
       const b = document.createElement("button");
       b.className = "chip"; b.textContent = name;
-      // Save and Load share one popup (see setPgmMode above) -- in load
-      // mode a click loads this saved program into the machine; in save
-      // mode (the default -- this shelf exists to be *written*, not just
-      // read) it overwrites this slot with whatever the machine holds now.
+      // load mode loads this program; save mode (default) overwrites the slot
       b.addEventListener("click", async () => {
         if (pgmMode === "load") {
           runLoad(lib[name]);
@@ -874,14 +666,9 @@ async function boot() {
     }
   });
 
-  // ---- Example programs (fetched from the server, read-only) -----------
-  // EXAMPLE_PROGRAMS/EXAMPLE_BIN are populated way up above, alongside the
-  // ROM fetch (see that comment for why fetching is not done lazily here
-  // on click, and for why these are pre-assembled .bin -- not .asm text
-  // streamed through the real serial LOAD path). Not user data, so an
-  // Example never touches the localStorage shelf above on its own; a
-  // visitor edits one after loading it and explicitly Saves to keep a
-  // copy in their browser, same as typing a program in by hand.
+  // ---- Example programs (read-only) ----
+  // Fetched at boot, see above. They never touch the localStorage shelf; a
+  // visitor Saves a copy to keep edits.
   function renderExamples() {
     pgmExamples.innerHTML = "";
     for (const ex of EXAMPLE_PROGRAMS) {
@@ -912,8 +699,8 @@ async function boot() {
     setPgmStatus(`Loading "${f.name}" (${text.length} byte(s)) -- watch the terminal for the fresh prompt.`);
   });
 
-  // ---- main loop ------------------------------------------------------
-  const CLOCK_HZ = 1_000_000;   // X1, real 1MHz -- never sped up (retro/CLAUDE.md)
+  // ---- main loop ----
+  const CLOCK_HZ = 1_000_000;   // X1
   let last = performance.now();
   function frame(now) {
     const dtMs = Math.min(now - last, 50);

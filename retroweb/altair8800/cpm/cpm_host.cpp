@@ -1,23 +1,6 @@
-// Minimal CP/M host for 8080 diagnostics.
-//
-// Loads a .COM image at 0x0100 and runs it on the i8080 core, emulating just
-// enough of CP/M's BDOS (console functions 2 and 9) to see the messages
-// printed by TST8080.COM, 8080PRE.COM, CPUTEST.COM and 8080EXM.COM.
-//
-//   build:  make cpm                       (from Emulator8080/)
-//   run:    ./cpm/cpm_host cpm/TST8080.COM
-//
-// Two things make a .COM run without a real CP/M:
-//
-//   1. A .COM file is a raw memory image of the Transient Program Area. It
-//      loads at 0x0100 and execution starts there.
-//
-//   2. Programs reach the operating system with `CALL 0x0005` (the BDOS
-//      entry) and exit with `RET` / `JMP 0x0000` (the warm-boot vector).
-//      We have no CP/M, so we plant a one-byte port-I/O instruction at each
-//      of those addresses. Executing it traps into this host; we service the
-//      request straight from the CPU registers, and the real `RET` we also
-//      planted at 0x0007 unwinds the caller's stack for us.
+// Minimal CP/M host for 8080 diagnostics (TST8080, 8080PRE, CPUTEST, 8080EXM).
+// A .COM loads at 0x0100. BDOS functions 2 and 9 are emulated by trapping an OUT
+// planted at the BDOS entry (0x0005) and warm-boot vector (0x0000).
 
 #include "../i8080.h"
 
@@ -41,9 +24,7 @@ void emit(char ch) {
     g_console.push_back(ch);
 }
 
-// CP/M BDOS, cut down to what console diagnostics use.
-//   C = 0x02  C_WRITE     — write the character in E
-//   C = 0x09  C_WRITESTR  — write the '$'-terminated string at DE
+// BDOS subset: C=2 writes E, C=9 writes the '$'-terminated string at DE.
 void bdos_call(const i8080::Cpu &cpu) {
     switch (cpu.c) {
         case 0x02:
@@ -62,9 +43,7 @@ void bdos_call(const i8080::Cpu &cpu) {
     std::fflush(stdout);
 }
 
-// The classic diagnostics all announce a failure in the console text:
-// TST8080 "CPU HAS FAILED" / "ERROR EXIT", CPUTEST prints "ERROR", 8080EXM
-// prints "ERROR" next to the bad CRC. A clean run never contains either word.
+// Diagnostics report failure by printing "ERROR" or "CPU HAS FAILED".
 bool diagnostic_failed() {
     std::string up = g_console;
     for (char &c : up) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
@@ -117,7 +96,6 @@ int main(int argc, char **argv) {
     cpu.pc = 0x0100;  // enter the Transient Program Area
 
     // --- run ----------------------------------------------------
-    // 8080EXM is the long pole: a full pass is ~24 billion cycles.
     const uint64_t kCycleCap = 40'000'000'000;  // safety net for a wedged core
     while (!g_finished && cpu.cycles < kCycleCap)
         cpu.step();

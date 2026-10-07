@@ -1,11 +1,6 @@
 // Fujitsu MB8843 / MB8844 (Namco 51XX / 54XX).
-//
-// 4-bit ALU, 10-bit program counter (1K x 8 ROM), 6-bit data address
-// (64 x 4 RAM). Opcode timing and flag polarity follow the MB8840 series
-// as cross-checked against MAME src/devices/cpu/mb88xx/mb88xx.cpp
-// (Ernesto Corvi). The serial prescaler in that core is marked a guess
-// and is not implemented here; 51XX/54XX Galaga programs talk over K/R/O/P
-// and the external interrupt.
+// Timing and flags follow MB8840 as cross-checked against MAME mb88xx.cpp.
+// The serial prescaler is not implemented.
 
 #ifndef GALAGA_MB88_H
 #define GALAGA_MB88_H

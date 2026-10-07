@@ -1,11 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-// "Click to focus" banner (shared/focus-hint.js) -- a pure web-UI
-// convenience, no arcade-cabinet equivalent. Unlike the xterm-based
-// machines, this page's keyboard listeners are attached to `window` (see
-// app.js's applyKeys), so gameplay input works regardless of DOM focus --
-// the hint is purely a visual nicety, and app.js never calls screen.focus()
-// itself, so the hint starts out visible on a fresh load.
+// Click-to-focus banner. Keys attach to window, so input works without focus.
 
 test.describe("focus hint", () => {
   test.beforeEach(async ({ page }) => {

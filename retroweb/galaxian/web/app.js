@@ -98,7 +98,6 @@ function concat(parts, total) {
   return out;
 }
 
-// MAME galaxian / galaxiana board socket names.
 function roleOf(name) {
   const n = String(name).toLowerCase().split("/").pop();
   if (n === "program.bin" || n === "prg.bin") return "program";
@@ -357,9 +356,7 @@ GalaxianArcade().then(async (Module) => {
     lastSavedHiscore = bytes.join(",");
   }
 
-  // POST can leave non-zero junk at $40A8 before NMI settles. Wait for a
-  // stretch of irq-on frames with a zero HI-SCORE (the factory table), then
-  // always poke IndexedDB — do not treat non-zero as "already restored".
+  // POST leaves junk at $40A8 until NMI settles. Wait for zero HI-SCORE frames, then poke IndexedDB.
   function postDone() {
     const st = machine.state();
     return st.nmiEnable && st.frames >= 60 && hiscoreIsFactory(readHiscore());
@@ -489,8 +486,7 @@ GalaxianArcade().then(async (Module) => {
     const files = {};
     for (const f of items) {
       const name = f.name.toLowerCase();
-      // File/Blob.bytes is a method on current Chromium; Drive items carry
-      // a Uint8Array on .bytes. Only treat the latter as payload.
+      // File/Blob.bytes is a method on current Chromium; only a Uint8Array is payload.
       const bytes = f.bytes instanceof Uint8Array
         ? f.bytes
         : new Uint8Array(await f.arrayBuffer());

@@ -1,10 +1,6 @@
-// GoogleTest suite for the resident command shell (cpu6502/rom/editor.s):
-// the line-numbered program store (insert/replace/delete by number),
-// the shell's own command dispatcher (NEW/LIST/EDIT/ASM/RUN/QUIT), and
-// auto-numbering. Reached from Wozmon via a real typed "<addr>R" into
-// SHELL_ENTRY -- everything after that is typed at the shell's own ">"
-// prompt, exactly as a human would, entirely through the simulated
-// ACIA/terminal.
+// Tests the command shell in editor.s: program store, command dispatcher,
+// auto-numbering. Entered via a typed "<addr>R" into SHELL_ENTRY, then driven
+// at the ">" prompt.
 
 #include <gtest/gtest.h>
 
@@ -18,34 +14,24 @@ using namespace machine;
 
 namespace {
 
-// Real, built addresses -- verified against tmp/firmware.lbl after each
-// `make -C ../../../cpu6502/rom` (see editor.s's header).
+// Addresses from tmp/firmware.lbl
 constexpr uint16_t kShellEntry = 0x8000;
 constexpr uint16_t kObjStart = 0x0400;
 
-// The ACIA has only a one-byte RX register -- pushing a second char before
-// the NMI handler has drained the first (into SERIAL_BUFFER) overwrites
-// it, a real overrun -- see machine_test.cpp's boot test for the same
-// reasoning. Real per-character pacing throughout this file.
+// One-byte ACIA RX register: the NMI handler needs cycles to drain between chars
 void type(Machine& m, const std::string& s) {
     for (char c : s) { m.type_char(uint8_t(c)); m.run_cycles(1000); }
 }
 
-// Post-CR budget: every printed character (including this ROM's own
-// terse status/error/list output) goes through a real per-character ACIA
-// delay (CHLL, bios.s, ~1275 cycles) before the byte even leaves CHROUT,
-// so a multi-line reply needs real headroom, not just "long enough for
-// the logic to run" -- 300000 cycles covers roughly 200+ output chars,
-// comfortable for anything this file types short of the dedicated paged-
-// LIST test (which budgets its own, larger allowance directly).
+// Post-CR budget: output goes through CHLL's per-char delay (~1275 cycles),
+// so 300000 covers ~200 chars
 void typeLine(Machine& m, const std::string& s) {
     type(m, s);
     type(m, "\r");
     m.run_cycles(300000);
 }
 
-// Types "<addr>R\r" -- the real Wozmon run-command sequence SHELL_ENTRY
-// is reached through.
+// Types "<addr>R\r", the Wozmon run command
 void runAt(Machine& m, uint16_t addr) {
     char buf[8];
     std::snprintf(buf, sizeof(buf), "%XR", addr);
@@ -67,8 +53,7 @@ Machine boot(std::string& out) {
     return m;
 }
 
-// Boots and enters the shell -- the common starting point for every test
-// below.
+// Boots and enters the shell
 Machine bootIntoShell(std::string& out) {
     Machine m = boot(out);
     out.clear();
@@ -76,14 +61,8 @@ Machine bootIntoShell(std::string& out) {
     return m;
 }
 
-// Reads one label's real address straight out of the build's own
-// tmp/firmware.lbl (ca65's "al <addr> .<name>" lines) -- unlike kShellEntry
-// above, SHELL_PROMPT isn't a pinned/fixed address (only SHELL_ENTRY and
-// the OS-call jump table are), so it genuinely drifts release to release
-// as editor.s's own code shifts around; hardcoding it here just means
-// re-breaking this test on every unrelated ROM change. This is the same
-// value gen_entrypoints.py extracts for the browser side, read the same
-// way.
+// Reads a label address from tmp/firmware.lbl. SHELL_PROMPT moves whenever
+// editor.s changes, unlike SHELL_ENTRY.
 uint16_t labelAddr(const std::string& name) {
     std::ifstream f("../../../../cpu6502/rom/tmp/firmware.lbl");
     std::string line;
@@ -111,16 +90,8 @@ TEST(Editor, ShellEntryPrintsBannerAndPrompt) {
 }
 
 TEST(Editor, RejectsBadSyntaxImmediatelyAtEntryWithoutCheckingLabels) {
-    // CHECK_SYNTAX (editor.s's STORE_LINE) catches an unrecognized
-    // mnemonic or malformed operand the instant a line is entered --
-    // classic Microsoft BASIC's own immediate "?SYNTAX ERROR" on a bad
-    // line, not a silent accept caught only later at ASM/RUN time. It
-    // deliberately does NOT resolve labels (they aren't defined yet at
-    // entry time, and checking them isn't the point): a forward reference
-    // to a label that won't exist until a later line must be accepted
-    // here exactly as real assemblers accept forward references, with
-    // ASM's own two-pass label resolution the only place that would
-    // ever legitimately reject an undefined one.
+    // CHECK_SYNTAX (STORE_LINE) rejects bad mnemonics/operands at entry but
+    // doesn't resolve labels, so forward references are accepted.
     SKIP_UNLESS_ROM_BUILT();
     std::string out;
     Machine m = bootIntoShell(out);
@@ -142,14 +113,8 @@ TEST(Editor, RejectsBadSyntaxImmediatelyAtEntryWithoutCheckingLabels) {
 }
 
 TEST(Editor, BackspaceErasesTheCharacterNotJustTheCursor) {
-    // READCHAR (bios.s) already echoes the raw backspace byte itself --
-    // a bare cursor move on a real terminal, not an erase -- so without
-    // READLINE_ECHO's own fix, a deleted character's glyph would linger
-    // on screen under whatever gets typed next (visible as leftover
-    // "ghost" text, worst when retyping a shorter line over a longer
-    // one). Checked on the raw echoed byte stream, not rendered text --
-    // this is a terminal-control-sequence claim (what bytes went out),
-    // not a content claim.
+    // READCHAR echoes the raw backspace; READLINE_ECHO adds an erase so ghost
+    // text doesn't linger. Checked on the raw byte stream.
     SKIP_UNLESS_ROM_BUILT();
     std::string out;
     Machine m = bootIntoShell(out);
@@ -159,24 +124,13 @@ TEST(Editor, BackspaceErasesTheCharacterNotJustTheCursor) {
     m.type_char(0x08);   // backspace over the trailing 'A'
     m.run_cycles(50000);
 
-    // READCHAR's own bare BS echo, then READLINE_ECHO's added erase: a
-    // space (overwrites the 'A'), then a second BS (backs over the space
-    // too) -- net cursor position matches a plain non-destructive
-    // backspace, but the glyph is actually gone.
+    // READCHAR's BS echo, then READLINE_ECHO's space and second BS
     EXPECT_NE(out.find("\x08 \x08"), std::string::npos) << "got: " << out;
 }
 
 TEST(Editor, DelAlsoErasesDestructivelyAndDoesNotCorruptTheStoredLine) {
-    // The real, practically important case: xterm.js's Backspace key (the
-    // physical key labeled "Backspace" on any keyboard, browser terminal
-    // via app.js) sends DEL ($7F), not BS ($08) -- confirmed by spying on
-    // Machine.typeChar in the actual browser. Before this fix,
-    // READLINE_ECHO only recognized $08, so every real backspace press in
-    // the browser silently stored the invisible $7F byte straight into
-    // LINE_BUF as an ordinary character instead of erasing anything -- a
-    // real data-corruption bug (an invisible garbage byte embedded
-    // mid-line), not just a cosmetic one, and the actual root cause of
-    // the reported "ghost lines" in the program.
+    // xterm.js Backspace sends DEL ($7F), not BS. READLINE_ECHO must erase on it
+    // instead of storing $7F in LINE_BUF.
     SKIP_UNLESS_ROM_BUILT();
     std::string out;
     Machine m = bootIntoShell(out);
@@ -186,18 +140,12 @@ TEST(Editor, DelAlsoErasesDestructivelyAndDoesNotCorruptTheStoredLine) {
     m.type_char(0x7F);   // DEL -- the real browser Backspace byte
     m.run_cycles(50000);
 
-    // READCHAR's own echo of the raw $7F (a real terminal drops it as a
-    // no-op when rendering, but the byte still goes out over CHROUT),
-    // then READLINE_ECHO supplying the missing leading BS itself (unlike
-    // $08, a bare $7F never moves a real terminal's cursor on its own),
-    // then the shared erase (space, BS).
+    // READCHAR echoes the raw $7F, READLINE_ECHO supplies the leading BS, then
+    // the shared erase
     EXPECT_NE(out.find("\x7F\x08 \x08"), std::string::npos) << "got: " << out;
 
-    // And the corrected line stores and lists cleanly -- no stray $7F
-    // leaked into the program the way it silently did before this fix.
-    // LDX needs a real operand (there's no implied form) -- CHECK_SYNTAX
-    // (editor.s's STORE_LINE) would otherwise correctly reject this as
-    // bad syntax, same as it would for a human's own typo.
+    // the corrected line stores and lists with no stray $7F. LDX needs an
+    // operand to pass CHECK_SYNTAX.
     type(m, "X #$05\r");   // finish the line as "10 LDX #$05"
     m.run_cycles(300000);
     out.clear();
@@ -207,10 +155,8 @@ TEST(Editor, DelAlsoErasesDestructivelyAndDoesNotCorruptTheStoredLine) {
 }
 
 TEST(Editor, BackspaceOnAnEmptyLineIsANoOp) {
-    // Y=0 -- nothing typed yet on this line -- must not touch LINE_BUF or
-    // emit the destructive erase sequence for either backspace byte;
-    // only READCHAR's own automatic echo of the raw byte happens
-    // (pre-existing, unchanged behavior).
+    // Y=0: neither backspace byte touches LINE_BUF or emits the erase, only
+    // READCHAR's echo
     SKIP_UNLESS_ROM_BUILT();
     std::string out;
     Machine m = bootIntoShell(out);
@@ -226,8 +172,7 @@ TEST(Editor, BackspaceOnAnEmptyLineIsANoOp) {
     EXPECT_EQ(out.find(" \x08"), std::string::npos) << "got: " << out;
     EXPECT_EQ(out.find("\x08 "), std::string::npos) << "got: " << out;
 
-    // The shell is still genuinely usable afterward -- a real line still
-    // stores and lists correctly, proving no stray state was left behind.
+    // shell still works afterward
     out.clear();
     typeLine(m, "10 NOP");
     out.clear();
@@ -236,10 +181,7 @@ TEST(Editor, BackspaceOnAnEmptyLineIsANoOp) {
 }
 
 TEST(Editor, ListFormatsLabelMnemonicOperandAndCommentIntoAlignedColumns) {
-    // PRINT_ENTRY reformats the stored (free-form-typed) text on the fly
-    // into fixed columns for LIST/EDIT display -- label field, mnemonic,
-    // operand, and (if the line has one) a trailing ";" comment, all
-    // realigned regardless of how many spaces the user actually typed.
+    // PRINT_ENTRY realigns stored text into fixed columns for LIST/EDIT
     SKIP_UNLESS_ROM_BUILT();
     std::string out;
     Machine m = bootIntoShell(out);
@@ -251,13 +193,11 @@ TEST(Editor, ListFormatsLabelMnemonicOperandAndCommentIntoAlignedColumns) {
 
     out.clear();
     typeLine(m, "LIST");
-    // Label field: "START:" padded out to the same column every unlabeled
-    // line's mnemonic starts at.
+    // label padded to the mnemonic column
     EXPECT_NE(out.find("10 START:  LDA #$2A      ; LOAD THE ANSWER"), std::string::npos) << "got: " << out;
     EXPECT_NE(out.find("20         STA $50"), std::string::npos) << "got: " << out;
     EXPECT_NE(out.find("30         NOP"), std::string::npos) << "got: " << out;
-    // A comment-only line: no mnemonic/operand, just the comment realigned
-    // to the same column as every other line's own comment would be.
+    // comment-only line realigned to the comment column
     EXPECT_NE(out.find("40                       ; A FULL-LINE COMMENT, NO CODE AT ALL"), std::string::npos) << "got: " << out;
 }
 
@@ -266,7 +206,7 @@ TEST(Editor, ExplicitlyNumberedLinesListBackInSortedOrder) {
     std::string out;
     Machine m = bootIntoShell(out);
 
-    // Entered out of order -- LIST must still come back sorted by number.
+    // out-of-order entry; LIST sorts by number
     typeLine(m, "20 STA $50");
     typeLine(m, "10 LDA #$2A");
     typeLine(m, "30 JMP $10");
@@ -380,22 +320,18 @@ TEST(Editor, ListPagesEveryTwentyLinesAndAnyKeyContinues) {
     std::string out;
     Machine m = bootIntoShell(out);
 
-    // 25 unnumbered lines -- auto-numbered 10, 20, ... 250 -- more than
-    // one LIST_PAGE (20).
+    // 25 lines (10..250), more than one LIST_PAGE (20)
     for (int i = 0; i < 25; i++) typeLine(m, "NOP");
 
     out.clear();
     type(m, "LIST\r");
-    // Column-formatted lines run ~17 chars apiece now (vs. the old raw
-    // "N TEXT\r\n" dump), each still paced through CHLL's real per-char
-    // ACIA delay -- budgeted generously for a full 20-line page.
+    // ~17 chars per line at CHLL's per-char delay; generous for a 20-line page
     m.run_cycles(900000);
     EXPECT_NE(out.find("--MORE--"), std::string::npos) << "got tail: " << out.substr(out.size() > 200 ? out.size() - 200 : 0);
-    // Not everything printed yet -- line 250 (the 25th) is still pending
-    // behind the pause.
+    // line 250 still pending behind the pause
     EXPECT_EQ(out.find("250         NOP"), std::string::npos) << "printed past the page break: " << out;
 
-    // Any keypress continues to the rest.
+    // any key continues
     type(m, " ");
     m.run_cycles(300000);
     EXPECT_NE(out.find("250         NOP"), std::string::npos) << "got: " << out;
@@ -467,19 +403,13 @@ TEST(Editor, NewClearsTheProgram) {
 }
 
 TEST(Editor, NewClearsAssembledObjectCodeTooSoAStaleRunFailsCleanly) {
-    // Before this fix, NEW only cleared the source buffer -- a program
-    // ASMed once, then cleared with NEW and RUN again with no fresh ASM in
-    // between, would silently re-execute the *previous* assembly. NEW now
-    // plants the "?NO PROGRAM" RUN trap (PLANT_NOPROG_TRAP, DO_NEW's own
-    // header comment) so that RUN fails loudly and returns to the prompt
-    // instead.
+    // NEW plants the "?NO PROGRAM" RUN trap (PLANT_NOPROG_TRAP) so RUN can't
+    // re-execute a stale assembly.
     SKIP_UNLESS_ROM_BUILT();
     std::string out;
     Machine m = bootIntoShell(out);
 
-    // Ends with the documented "JMP SHELL_PROMPT" resume convention (same
-    // pattern as RunResumeLandsBackInTheShellNotRawWozmon above) so the
-    // shell is genuinely alive again afterward to accept NEW/RUN.
+    // ends with JMP SHELL_PROMPT so the shell is alive afterward
     typeLine(m, "10 LDA #$2A");
     typeLine(m, "20 STA $50");
     char buf[16];
@@ -490,8 +420,7 @@ TEST(Editor, NewClearsAssembledObjectCodeTooSoAStaleRunFailsCleanly) {
     typeLine(m, "ASM");
     ASSERT_NE(out.find("Ok"), std::string::npos) << "got: " << out;
 
-    // Prove the assembly is real first: seed $50 with a sentinel, RUN, and
-    // confirm it actually got overwritten with $2A.
+    // seed $50 with a sentinel; RUN must overwrite it with $2A
     m.bus.ram[0x50] = 0xFF;
     out.clear();
     typeLine(m, "RUN");
@@ -501,14 +430,11 @@ TEST(Editor, NewClearsAssembledObjectCodeTooSoAStaleRunFailsCleanly) {
 
     typeLine(m, "NEW");
 
-    // The object region now holds the "JMP ERR_NOPROG" trap (opcode $4C),
-    // not the old program's bytes and not raw zero.
+    // object region holds the JMP ERR_NOPROG trap ($4C)
     EXPECT_EQ(m.bus.ram[kObjStart], 0x4C) << "expected the JMP-to-error trap, not the old program";
 
-    // Re-seed the sentinel and RUN again with no ASM in between -- the old
-    // program must NOT run (its bytes are gone), and the shell should
-    // report a clean error and return to its own prompt rather than hang
-    // or execute garbage.
+    // re-seed and RUN with no ASM: the old program must not run, the shell
+    // reports an error and reprompts
     m.bus.ram[0x50] = 0xFF;
     out.clear();
     typeLine(m, "RUN");
@@ -519,11 +445,8 @@ TEST(Editor, NewClearsAssembledObjectCodeTooSoAStaleRunFailsCleanly) {
 }
 
 TEST(Editor, RunWithNothingEverAssembledReportsNoProgram) {
-    // Covers the "editor starts" half of the user's request -- a totally
-    // fresh shell entry, nothing typed at all, straight to RUN. Before
-    // this fix the object region was raw zero-filled RAM (a BRK opcode) --
-    // RUN would silently spin in bios.s's bare IRQ_HANDLER stub forever,
-    // looking exactly like a hang. See PLANT_NOPROG_TRAP's own comment.
+    // fresh entry then RUN: the object region would be zeroed RAM (BRK), so the
+    // trap must be planted (PLANT_NOPROG_TRAP)
     SKIP_UNLESS_ROM_BUILT();
     std::string out;
     Machine m = bootIntoShell(out);
@@ -536,11 +459,8 @@ TEST(Editor, RunWithNothingEverAssembledReportsNoProgram) {
 }
 
 TEST(Editor, FailedAsmAlsoTrapsRunEvenAfterAPreviousGoodAssembly) {
-    // A *failed* re-ASM must invalidate whatever was assembled before it,
-    // too -- not just a never-attempted ASM. Otherwise editing a working
-    // program, introducing a typo, and hitting ASM again would leave the
-    // old (now out-of-sync with the visible source) object code silently
-    // RUNnable. See DO_ASM's own header comment (da_err replants the trap).
+    // a failed re-ASM must also invalidate the old object code (DO_ASM da_err
+    // replants the trap)
     SKIP_UNLESS_ROM_BUILT();
     std::string out;
     Machine m = bootIntoShell(out);
@@ -566,10 +486,8 @@ TEST(Editor, FailedAsmAlsoTrapsRunEvenAfterAPreviousGoodAssembly) {
 }
 
 TEST(Editor, QuitAndReenteringTheShellStillPreservesARealAssembledProgram) {
-    // The trap must NOT clobber a genuinely good, unmodified assembly just
-    // because the shell was re-entered -- real RAM persists across a QUIT
-    // then a fresh "8000R", same as real hardware. See SHELL_START's own
-    // comment (HASOBJ gates whether it (re-)plants the trap).
+    // re-entering the shell must not clobber a good assembly (SHELL_START gates
+    // on HASOBJ)
     SKIP_UNLESS_ROM_BUILT();
     std::string out;
     Machine m = bootIntoShell(out);
@@ -592,10 +510,8 @@ TEST(Editor, QuitAndReenteringTheShellStillPreservesARealAssembledProgram) {
 }
 
 TEST(Editor, EndToEndTypeListAssembleAndRun) {
-    // The plan's demo scenario, updated for the shell: type a program,
-    // LIST, ASM (catching an undefined-label error with the *real* line
-    // number), fix it, ASM again, RUN, and confirm RUN's resume JMP lands
-    // back in the shell (SHELL_PROMPT), not raw Wozmon.
+    // type, LIST, ASM (undefined label reports the real line number), fix, ASM,
+    // RUN; the resume JMP lands in the shell
     SKIP_UNLESS_ROM_BUILT();
     std::string out;
     Machine m = bootIntoShell(out);
@@ -630,9 +546,7 @@ TEST(Editor, EndToEndTypeListAssembleAndRun) {
         EXPECT_EQ(m.bus.ram[kObjStart + i], expected[i]) << "byte " << i;
     }
 
-    // RUN it -- the loop (JMP TARGET at $0400) executes real object code;
-    // step it a bit and confirm memory location $50 picked up the STA'd
-    // value, proving RUN actually transferred control there.
+    // RUN, step, and check $50 picked up the STA'd value
     out.clear();
     typeLine(m, "RUN");
     m.run_cycles(20000);
@@ -644,11 +558,8 @@ TEST(Editor, RunResumeLandsBackInTheShellNotRawWozmon) {
     std::string out;
     Machine m = bootIntoShell(out);
 
-    // A program that ends with "JMP SHELL_PROMPT" (the documented resume
-    // convention) instead of trapping on BRK.
-    typeLine(m, "10 JMP 8000");   // placeholder -- overwritten with the real
-                                  // SHELL_PROMPT address below via EDIT, so
-                                  // this test doesn't hardcode it twice.
+    // resume convention: end with JMP SHELL_PROMPT
+    typeLine(m, "10 JMP 8000");   // placeholder, replaced with SHELL_PROMPT via EDIT
     char buf[16];
     std::snprintf(buf, sizeof(buf), "JMP $%X", labelAddr("SHELL_PROMPT"));
     type(m, "EDIT 10\r");
@@ -668,18 +579,13 @@ TEST(Editor, RunResumeLandsBackInTheShellNotRawWozmon) {
 }
 
 TEST(Editor, CtrlCBreaksAGenuinelyInfiniteLoopBackToTheShell) {
-    // bios.s's NMI_HANDLER: Ctrl-C (ASCII ETX, $03) is recognized in the
-    // receive-interrupt handler itself and redirected straight to
-    // SHELL_PROMPT instead of RTI-ing back to the interrupted code -- the
-    // only way to break a program that never polls READCHAR of its own
-    // accord, since NMI fires regardless of what the CPU is doing.
+    // NMI_HANDLER redirects Ctrl-C ($03) to SHELL_PROMPT, the only way to break
+    // a program that never polls READCHAR
     SKIP_UNLESS_ROM_BUILT();
     std::string out;
     Machine m = bootIntoShell(out);
 
-    // A tight, genuinely infinite loop -- JMP to its own address, nothing
-    // else. No cooperative check of any kind would ever get a chance to
-    // run here; only a real interrupt can break it.
+    // tight infinite loop, JMP to itself
     typeLine(m, "10 START: JMP START");
 
     out.clear();
@@ -688,36 +594,25 @@ TEST(Editor, CtrlCBreaksAGenuinelyInfiniteLoopBackToTheShell) {
 
     out.clear();
     typeLine(m, "RUN");
-    // typeLine's own post-CR budget (300000 cycles, ~100000 loop
-    // iterations at 3 cycles each) already ran without ever reaching a
-    // shell reprompt -- proof this is genuinely spinning, not just slow
-    // to answer.
+    // typeLine's budget passed with no reprompt, so it's spinning
     EXPECT_EQ(out.find(">"), std::string::npos) << "shell reprompted without a break: got: " << out;
-    // JMP START always resets pc to the same address every 3 cycles, so
-    // at any instruction boundary the CPU is parked exactly here -- direct
-    // proof it's mid-loop, not off in the weeds somewhere.
+    // JMP START parks pc here at every instruction boundary
     EXPECT_EQ(m.cpu.pc, kObjStart) << "expected the CPU parked at the JMP, mid-loop";
 
-    // Ctrl-C: NMI fires immediately even though the looping code never
-    // once polls the ACIA.
+    // Ctrl-C: NMI fires though the loop never polls the ACIA
     m.type_char(0x03);
     m.run_cycles(50000);
 
     EXPECT_NE(out.find(">"), std::string::npos) << "expected the shell prompt back after Ctrl-C: got: " << out;
 
-    // And the shell is genuinely usable afterward, not just printing a
-    // prompt over a stack left in a bad state -- a real command still
-    // works.
+    // shell still works afterward
     out.clear();
     typeLine(m, "LIST");
     EXPECT_NE(out.find("10 START:  JMP START"), std::string::npos) << "got: " << out;
 }
 
 TEST(Editor, CtrlCAtTheShellPromptDiscardsAnyPartialLineAndReprompts) {
-    // Ctrl-C mid-typing, before Enter is ever pressed -- exercises the same
-    // break path while idle in READLINE_ECHO's own poll loop, not a running
-    // program. NMI_HANDLER doesn't distinguish the two cases; it always
-    // abandons whatever was interrupted and lands back at a fresh prompt.
+    // Ctrl-C mid-typing breaks the same way while idle in READLINE_ECHO's poll loop
     SKIP_UNLESS_ROM_BUILT();
     std::string out;
     Machine m = bootIntoShell(out);
@@ -728,13 +623,11 @@ TEST(Editor, CtrlCAtTheShellPromptDiscardsAnyPartialLineAndReprompts) {
     m.run_cycles(50000);
     EXPECT_NE(out.find(">"), std::string::npos) << "expected a fresh prompt after Ctrl-C: got: " << out;
 
-    // The abandoned partial line never got stored -- LIST comes back with
-    // no trace of it, not corrupted by half of what was mid-typing.
+    // abandoned partial line was not stored
     out.clear();
     typeLine(m, "LIST");
     EXPECT_EQ(out.find("GARBAGE"), std::string::npos) << "the aborted partial line leaked into the program: got: " << out;
 
-    // And the shell still works normally afterward.
     typeLine(m, "10 LDA #$2A");
     out.clear();
     typeLine(m, "LIST");
@@ -756,13 +649,9 @@ TEST(Editor, StoringManyLinesEventuallyReportsFull) {
     std::string out;
     Machine m = bootIntoShell(out);
 
-    // Many distinct, explicitly-numbered short lines, well under any
-    // single-line cap, until their combined total exhausts the 4K source
-    // region -- the real scenario STORE_LINE's SRC_END guard protects
-    // against. A comment-only line (CHECK_SYNTAX skips everything from
-    // ';' on, same as ASM itself) is filler here -- any real mnemonic
-    // repeated this many times would hit STORE_LINE's own line-number
-    // ceiling long before the buffer itself filled up.
+    // Short numbered lines until the 4K source region fills (STORE_LINE's SRC_END
+    // guard). Comment-only filler, since a real mnemonic would hit the line-number
+    // ceiling first.
     bool sawFull = false;
     for (int i = 1; i <= 150 && !sawFull; i++) {
         out.clear();
@@ -779,31 +668,26 @@ TEST(Editor, FreeReportsSourceAndObjectUsageSeparately) {
     std::string out;
     Machine m = bootIntoShell(out);
 
-    // Fresh shell entry: nothing typed, nothing assembled yet -- SHELL_START
-    // seeds ASMPC to OBJ_START for exactly this case (see editor.s).
+    // fresh entry: SHELL_START seeds ASMPC to OBJ_START
     out.clear();
     typeLine(m, "FREE");
     EXPECT_NE(out.find("PROGRAM: 0 USED, 4094 FREE"), std::string::npos) << "got: " << out;
     EXPECT_NE(out.find("EXEC:    0 USED, 10240 FREE"), std::string::npos) << "got: " << out;
 
-    // A stored-but-not-yet-assembled line moves PROGRAM only. Stored form is
-    // [2-byte binary line number]["LDA #$2A"]CR = 2 + 8 + 1 = 11 bytes (the
-    // "10 " typed prefix isn't part of the stored text -- see STORE_LINE).
+    // storing a line moves PROGRAM only: 2-byte number + "LDA #$2A" + CR = 11 bytes
     typeLine(m, "10 LDA #$2A");
     out.clear();
     typeLine(m, "FREE");
     EXPECT_NE(out.find("PROGRAM: 11 USED, 4083 FREE"), std::string::npos) << "got: " << out;
     EXPECT_NE(out.find("EXEC:    0 USED, 10240 FREE"), std::string::npos) << "got: " << out;
 
-    // ASM moves EXEC to the real object size (LDA #$2A -> 2 bytes).
+    // ASM moves EXEC to the object size
     typeLine(m, "ASM");
     out.clear();
     typeLine(m, "FREE");
     EXPECT_NE(out.find("EXEC:    2 USED, 10238 FREE"), std::string::npos) << "got: " << out;
 
-    // NEW clears the object code too now, not just source -- so a stale
-    // RUN typed before the next ASM can't execute the previous program.
-    // See DO_NEW's own header comment.
+    // NEW clears object code too, so a stale RUN can't execute the old program
     typeLine(m, "NEW");
     out.clear();
     typeLine(m, "FREE");

@@ -111,9 +111,7 @@ function concat4(parts) {
 
 function hexCrc(bytes) { return crc32(bytes).toString(16).padStart(8, "0"); }
 
-// Board locations on the original Midway PCB, as they appear in MAME names
-// (pacman.6e, puckman.6e, 82s123.7f, …). 82s126.3m is a timing PROM the
-// hardware never reads — ignore it.
+// Board locations as named in MAME. 82s126.3m is a timing PROM, ignore it.
 const CHIP_RE = /(?:^|[._-])(6e|6f|6h|6j|5e|5f|7f|4a|1m|u5|u6|u7)(?:[^a-z0-9]|$)/i;
 const IGNORE_RE = /(?:^|[._-])3m(?:[^a-z0-9]|$)/i;
 const SIZE = {
@@ -240,11 +238,7 @@ initFullscreen({
   fullscreenBtn: document.getElementById("fullscreenBtn"),
   isRunning: () => true,
 });
-// initFocusHint only updates the banner on later focusin/focusout events --
-// call it once now too, since nothing here calls screen.focus() on load the
-// way altair8800/assembler6502's terminal-focusing boot flow does, so the
-// hint needs an explicit nudge to reflect "nothing is focused yet" from the
-// very first frame (same reasoning as ibmpc-at's own post-power-on call).
+// Nothing focuses the screen on load, so nudge the hint once up front.
 const updateFocusHint = initFocusHint(document.getElementById("screen"), () => true);
 updateFocusHint();
 
@@ -351,8 +345,7 @@ PacmanArcade().then(async (Module) => {
       return;
     }
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    // The WSG's real 96 kHz clock resamples to whatever the actual output
-    // device rate is -- don't assume 48 kHz, some devices differ.
+    // Output device rate varies, don't assume 48 kHz.
     machine.setAudioHz(audioCtx.sampleRate);
     if (!audioCtx.audioWorklet) return;
     const src = `registerProcessor("wsg", class extends AudioWorkletProcessor {
@@ -410,10 +403,8 @@ PacmanArcade().then(async (Module) => {
     paintHiscoreTiles(bytes);
   }
 
-  // Midway #2A9B/#2ABE (cubeman.org mspac.asm): HIGH SCORE digits are only
-  // copied to tilemap $43F2 when a player's score beats TOP — attract never
-  // redraws them from $4E88. Paint the same 6 tiles (and color RAM at +$400)
-  // so boot restore is visible. Palette comes from the ROM-drawn "00".
+  // Midway #2A9B/#2ABE (cubeman.org mspac.asm): HIGH SCORE digits are only copied
+  // to tilemap $43F2 when a score beats TOP. Paint the 6 tiles and color RAM at +$400.
   function paintHiscoreTiles(bytes) {
     if (!machine.setMemByte) return;
     let color = machine.memRead(0x47F2) & 0x3f;
@@ -437,8 +428,7 @@ PacmanArcade().then(async (Module) => {
 
   function hiscoreIsZero(b) { return !b[0] && !b[1] && !b[2]; }
 
-  // Pac-Man TOP is BCD, multiples of 10 (ones nibble always 0). Attract
-  // leftover at $4E88 often looks like a counter, not a score.
+  // TOP is BCD in multiples of 10. Attract leftovers at $4E88 look like a counter.
   function isPlausibleTop(b) {
     if (!b || b.length < HISCORE_LEN || hiscoreIsZero(b)) return false;
     for (const x of b) {
@@ -469,17 +459,13 @@ PacmanArcade().then(async (Module) => {
     restoredBytes = [bytes[0] & 0xff, bytes[1] & 0xff, bytes[2] & 0xff];
   }
 
-  // POST's RAM test walks patterns through work RAM, including $4E00==1.
-  // That is not attract (Midway #03CE). Wait ~8 s of irq-on frames so POST
-  // is finished, then restore — do not also require still being in attract,
-  // or a fast coin+start skips the poke forever.
+  // POST's RAM test walks $4E00==1 (Midway #03CE), so wait ~8 s of irq-on frames. Don't require attract.
   function postDone() {
     const st = machine.state();
     return st.irqEnable && st.frames >= 480;
   }
 
-  // Attract is stable enough to re-assert TOP into $4E88 every frame.
-  // Mid-game we only paint tiles so we do not fight the player's score path.
+  // Attract re-asserts TOP every frame, mid-game only paint tiles.
   let attractStreak = 0;
   function attractReady() {
     if (!postDone()) {
@@ -562,7 +548,7 @@ PacmanArcade().then(async (Module) => {
   function encodeDsw1() {
     let v = (Number(dipCoinage.value) | Number(dipLives.value) | Number(dipBonus.value) |
             Number(dipDifficulty.value) | Number(dipGhosts.value)) & 0xff;
-    // Ms. Pac-Man has no ghost-names pad; DSW1 bit 7 is unused and reads 1.
+    // Ms. Pac-Man has no ghost-names pad, DSW1 bit 7 reads 1.
     if (MSPAC) v |= 0x80;
     return v;
   }
@@ -666,8 +652,7 @@ PacmanArcade().then(async (Module) => {
     const files = {};
     for (const f of items) {
       const name = f.name.toLowerCase();
-      // File/Blob.bytes is a method on current Chromium; Drive items carry
-      // a Uint8Array on .bytes. Only treat the latter as payload.
+      // File/Blob.bytes is a method on current Chromium, Drive items carry a Uint8Array.
       const bytes = f.bytes instanceof Uint8Array
         ? f.bytes
         : new Uint8Array(await f.arrayBuffer());
@@ -753,9 +738,7 @@ PacmanArcade().then(async (Module) => {
       get mode() { return machine.ramByte(0x4E00); },
       get hiscoreKey() { return hiscoreKey(); },
       restoreHiscoreNow: async () => {
-        // Same poke as maybeRestoreHiscore, but skip the post-boot wait —
-        // the generated self-test ROM (even CRC-patched as a "user" set)
-        // may not keep irq on long enough for the live path.
+        // Same poke as maybeRestoreHiscore without the post-boot wait; the self-test ROM may not keep irq on.
         if (!usingUserRom) return false;
         const all = await loadSavedHiscores();
         const saved = all[hiscoreKey()];

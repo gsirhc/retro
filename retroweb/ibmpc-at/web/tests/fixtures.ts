@@ -2,8 +2,7 @@ import { test as base, expect } from "@playwright/test";
 import { CoverageReport } from "monocart-coverage-reports";
 import { coverageEnabled, coverageOptions } from "./coverage";
 
-// Every spec imports { test, expect } from here instead of @playwright/test so
-// that V8 coverage for app.js is collected automatically when COVERAGE=1.
+// Specs import test/expect from here so COVERAGE=1 collects app.js coverage.
 
 export const test = base.extend<{ _coverage: void }>({
   _coverage: [

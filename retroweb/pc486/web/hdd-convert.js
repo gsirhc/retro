@@ -1,18 +1,12 @@
 "use strict";
-// Converts a C: saved by the old 504MB build (1024 cyl / 16 head / 63 sec)
-// into an image for this machine's WD Caviar AC2250 (1010 / 9 / 55, 256MB).
-// It copies the FAT16 file tree file by file into the same layout FreeDOS's
-// own FDISK and FORMAT gave the shipped factory image, so a converted C:
-// looks like one the installer made. Directory entries are copied verbatim
-// (long names, attributes, timestamps, volume label); only the start
-// cluster changes. The boot code in the MBR and boot sector is kept and the
-// BPB is rewritten, since DOS boot code reads its geometry from the BPB.
+// Converts a C: saved by the old 504MB build (1024/16/63) into an image for the WD Caviar
+// AC2250 (1010/9/55, 256MB). Files are copied into the layout FreeDOS FDISK/FORMAT gave the
+// factory image; the boot code is kept and the BPB rewritten since boot code reads geometry from it.
 
 const kLegacyHddBytes = 528482304;
 const kHddBytes = 255974400;
 
-// The factory image's own partition and FAT16 layout, read back with minfo
-// after `make hdd-image` ran the real FreeDOS 1.3 installer on this drive.
+// Factory partition and FAT16 layout, read back with minfo after `make hdd-image`.
 const kTarget = {
   mbrEntry: [0x80, 0x01, 0x01, 0x00, 0x06, 0x08, 0xF7, 0xF2, 0x37, 0x00, 0x00, 0x00, 0xB7, 0xA0, 0x07, 0x00],
   partStartLba: 55,
@@ -90,8 +84,7 @@ function oldClusterView(vol, c, len) {
   return vol.src.subarray(off, off + len);
 }
 
-// Length of a directory's live entries, up to its first end-of-directory
-// marker, in whole 32-byte entries.
+// Live entries up to the first end-of-directory marker, in 32-byte units.
 function usedDirBytes(bytes) {
   for (let o = 0; o < bytes.length; o += 32) if (bytes[o] === 0) return o;
   return bytes.length;
@@ -203,8 +196,7 @@ function convertLegacyHdd(src, onProgress) {
     return start;
   }
 
-  // Breadth-first, files before subdirectories, so root files such as the
-  // kernel land in the first clusters just as they did on the old drive.
+  // Breadth-first, files before subdirectories, so kernel files land in the first clusters.
   const queue = [{ node: root, start: 0, parent: 0 }];
   while (queue.length) {
     const { node, start, parent } = queue.shift();

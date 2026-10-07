@@ -1,4 +1,4 @@
-// Pac-Man uses the shared Namco 3-voice WSG (same silicon as Galaga).
+// Shared Namco 3-voice WSG.
 
 #ifndef PACMAN_WSG_H
 #define PACMAN_WSG_H

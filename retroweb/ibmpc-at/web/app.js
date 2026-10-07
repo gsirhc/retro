@@ -1,13 +1,10 @@
 "use strict";
 (() => {
-  // ---- page theme (Win95 / mid-90s Mosaic web / Modern / Dark Modern) ---
-  // Shared with every other page on the site via the retro8080.theme
-  // localStorage key -- a theme picked here or on the landing page carries
-  // across. See shared/theme-picker.js for the actual mechanism.
+  // ---- page theme ----
+  // shared retro8080.theme localStorage key
   initThemePicker();
 
-  // "Last built" = the wasm's own mtime on the server -- same mechanism as
-  // altair8800's and assembler6502's own footers.
+  // "Last built" is the wasm's mtime from the server
   (async () => {
     const el = document.getElementById("buildDate");
     for (const url of ["ibmpcat.wasm", "ibmpcat.js", "app.js"]) {
@@ -25,30 +22,13 @@
     el.textContent = "unknown";
   })();
 
-  // Automated-test-only CPU speed multiplier: `?test=1&fast=1`. A real visitor
-  // has no control that reaches this -- it exists solely so the Playwright
-  // suite (whose real cost is a genuine ~45s 8 MHz POST + FreeDOS boot, not
-  // just a device-transfer wait) doesn't pay that in full on every test.
-  // `?test=1` alone still runs the real, wall-clock-paced 8 MHz clock -- the
-  // suite's shared boot() helper opts most tests into `fast=1` explicitly,
-  // and a couple of smoke tests deliberately don't, to verify the real-speed
-  // contract itself still holds. See CLAUDE.md "Current sanctioned
-  // overrides" (automated-test CPU clock multiplier).
+  // Test-only CPU multiplier (?test=1&fast=1). Bare ?test=1 stays real speed.
   const testParams = new URLSearchParams(location.search);
   const TEST_CPU_MULTIPLIER =
     testParams.get("test") === "1" && testParams.get("fast") === "1" ? 20 : 1;
 
-  // ---- keyboard: physical key -> real IBM AT Set 1 scan code -----------
-  // i8042.h's inject_scancode() is a verbatim Set-1 pass-through (see its
-  // header) -- this table supplies exactly what a real AT keyboard's own
-  // Set-2-to-Set-1 translation would hand the host. A plain number is a
-  // one-byte code; a two-entry array is an 0xE0-prefixed "extended" key
-  // (real hardware fact: the second AT keyboard block -- right Ctrl/Alt,
-  // the arrow/Insert/Delete/Home/End/PageUp/PageDown cluster, numpad
-  // Enter/Divide -- all send this prefix precisely because they were
-  // added after the original 84-key layout already claimed every
-  // unprefixed code). Break code = make code with bit 7 set, on whichever
-  // byte carries the actual key (never the 0xE0 prefix itself).
+  // ---- keyboard: key -> AT Set 1 scan code ----
+  // number = one byte, array = 0xE0-prefixed. Break = make | 0x80 on the last byte.
   const SET1 = {
     Escape: 0x01,
     Digit1: 0x02, Digit2: 0x03, Digit3: 0x04, Digit4: 0x05, Digit5: 0x06,
@@ -77,32 +57,15 @@
     Home: [0xE0, 0x47], End: [0xE0, 0x4F], PageUp: [0xE0, 0x49], PageDown: [0xE0, 0x51],
     ArrowUp: [0xE0, 0x48], ArrowLeft: [0xE0, 0x4B], ArrowRight: [0xE0, 0x4D], ArrowDown: [0xE0, 0x50],
     NumpadEnter: [0xE0, 0x1C], NumpadDivide: [0xE0, 0x35],
-    // Print Screen and Pause/Break don't fit the simple prefix+break-bit
-    // convention above -- real AT hardware sends each as its own fixed byte
-    // sequence. Print Screen: a real 4-byte E0-prefixed make and a distinct
-    // 4-byte break. Pause/Break: one fixed 6-byte sequence sent entirely on
-    // press, with NO break code at all -- genuine, well-documented AT
-    // keyboard controller behavior (Scan Code Set 1), not an emulator
-    // simplification.
+    // Fixed sequences, no simple break-bit form. Pause has no break code (Set 1).
     PrintScreen: { make: [0xE0, 0x2A, 0xE0, 0x37], break: [0xE0, 0xB7, 0xE0, 0xAA] },
     Pause: { make: [0xE1, 0x1D, 0x45, 0xE1, 0x9D, 0xC5], break: [] },
   };
 
   let machine = null;
 
-  // The 8042 model has one single-byte output register, exactly like real
-  // hardware -- a second byte written before the guest's IRQ1 handler has
-  // read the first just overwrites it, the byte never delivered. A real
-  // keyboard can't outrun that (it clocks one bit at a time over a slow
-  // serial line), but a JS loop calling injectScancode() twice in the same
-  // synchronous turn can: nothing runs the emulator's real-time run loop
-  // (rAF-paced) in between, so the CPU never gets a chance to read byte one
-  // before byte two clobbers it. Any multi-byte Set 1 sequence -- every
-  // E0-prefixed extended key (arrows, Home/End/PgUp/PgDn, Insert/Delete,
-  // NumpadEnter/Divide, CtrlRight/AltRight), Print Screen's 4-byte
-  // sequences, Pause's 6-byte sequence, and the Ctrl-Alt-Del combo below --
-  // needs real spacing between EVERY byte, not just between make and
-  // break. See IBM_PCAT_REVIEW.md.
+  // The 8042 has a single output byte, so each byte of a multi-byte sequence
+  // needs a gap or the guest never reads the previous one.
   function injectScancodeSequence(codes) {
     let i = 0;
     (function step() {
@@ -116,13 +79,7 @@
     const entry = SET1[code];
     if (entry === undefined || !machine) return;
     if (entry && typeof entry === "object" && !Array.isArray(entry)) {
-      // Fixed, non-standard scancode sequences that don't fit the simple
-      // "prefix bytes + break-bit-on-the-last-byte" convention every other
-      // key uses -- Print Screen's real make/break are each their own
-      // 4-byte E0-prefixed sequences, and Pause/Break sends one fixed
-      // 6-byte sequence on press and has no real break code at all (a
-      // genuine, well-documented AT keyboard quirk -- see the comment you
-      // add at the SET1 entry).
+      // Print Screen / Pause: fixed sequences
       injectScancodeSequence(isBreak ? entry.break : entry.make);
       return;
     }
@@ -136,18 +93,10 @@
   screenEl.addEventListener("keyup", (e) => { sendKey(e.code, true); e.preventDefault(); });
   screenEl.addEventListener("click", () => screenEl.focus());
 
-  // "Click to type" banner and fullscreen mechanism: both purely web-UI
-  // conveniences (a real AT keyboard/monitor has no such state), not
-  // something CLAUDE.md's realism rules govern -- see shared/focus-hint.js
-  // and shared/fullscreen.js. poweredOn is declared further down; passing
-  // it as a predicate (not a captured value) lets these read its live
-  // value from event handlers that all run after the whole script has
-  // executed and poweredOn actually exists.
+  // poweredOn is declared later, so pass it as a predicate
   const isRunning = () => poweredOn;
   const updateFocusHint = initFocusHint(screenEl, isRunning);
-  // escBtn/sendEscape omitted: #escBtn already rides the same [data-key]
-  // scancode-injection handling as the F-key row below (see its own
-  // comment), so fullscreen.js only needs to show/hide it via CSS.
+  // escBtn rides the [data-key] handling below
   initFullscreen({
     bezelEl: document.getElementById("bezel"),
     screenEl,
@@ -157,10 +106,7 @@
     isRunning,
   });
 
-  // Screen overlay while a large image is downloaded or read into memory.
-  // Nestable: overlapping HDD + floppy loads keep it up until the last one
-  // finishes. Two rAFs after show give the spinner a chance to paint before
-  // a sync wasm mount freezes the main thread.
+  // Nestable load overlay. Two rAFs let the spinner paint before a sync mount.
   const loadOverlayEl = document.getElementById("loadOverlay");
   const loadOverlayLabel = document.getElementById("loadOverlayLabel");
   let loadBusyDepth = 0;
@@ -192,10 +138,8 @@
     }
   }
 
-  // ---- floppy drives ------------------------------------------------
-  // A real floppy is a mechanical slot: you can insert or eject one
-  // whether the machine is powered on or off (pendingFloppy, populated
-  // here, is what a power-on remounts -- see the power section below).
+  // ---- floppy drives ----
+  // insert/eject works powered off too; pendingFloppy is remounted on power-on
   const bays = Array.from(document.querySelectorAll(".at-bay"));
   const driveDefaultLabel = (d) => (d === 0 ? "empty (1.2MB, 5.25″)" : "empty (360KB, 5.25″)");
   function setBayLoaded(bay, name) {
@@ -229,10 +173,7 @@
       });
     });
     ejectBtn.addEventListener("click", () => {
-      // A real 88-DCDD-style swappable drive: if the session actually
-      // wrote to this diskette, hand the modified image back before
-      // ejecting it -- otherwise those writes only ever existed in this
-      // browser tab's memory.
+      // hand back modified images before ejecting
       if (machine && machine.floppyDirty(drive)) {
         const img = machine.floppyImage(drive);
         const blob = new Blob([img], { type: "application/octet-stream" });
@@ -250,43 +191,19 @@
     });
   }
 
-  // ---- PC speaker -- muted by default, every page load -----------------
-  // Never restored from a saved preference: browsers block audio until a
-  // fresh user gesture anyway, and the point of "off by default" is that
-  // it stays that way until the visitor explicitly opts back in, not just
-  // on first visit.
-  //
-  // Output is a single, persistent AudioWorkletNode fed by a ring buffer,
-  // not a chain of one-shot AudioBufferSourceNodes scheduled back-to-back
-  // per animation frame -- that shape is fundamentally fragile: even with
-  // perfectly gapless scheduling math, it depends on every rAF frame
-  // handing the audio thread its own freshly start()ed node exactly on
-  // time, and any main-thread hiccup (a GC pause, a big array copy) leaves
-  // the currently-scheduled node's audio running out with nothing queued
-  // behind it -- dead silence until the next node starts, which then jumps
-  // straight to a nonzero level. That gap-then-jump is an audible click,
-  // and enough of them in a row is exactly the "scratchy" artifact
-  // reported live (see IBM_PCAT_REVIEW.md). A worklet's process() callback
-  // runs continuously on the real-time audio thread regardless of what the
-  // main thread is doing; feeding it through a ring buffer means a brief
-  // stall just holds the last sample level (silent, no discontinuity)
-  // until the main thread catches up and posts more data, rather than
-  // clicking. It also needs no nextPlayTime/resync bookkeeping, since
-  // there's no scheduling clock to keep in sync.
+  // ---- PC speaker (muted every page load) ----
+  // AudioWorklet ring buffer: a main-thread stall holds the last sample instead of
+  // leaving a gap that clicks.
   const speakerCheckbox = document.getElementById("speakerEnabled");
   speakerCheckbox.checked = false;
   let audioCtx = null, speakerNode = null, lastLevel = false;
 
-  // The worklet module's source, registered from a Blob URL rather than a
-  // separate fetched file -- keeps the whole speaker path in this one
-  // script with nothing extra for the Makefile to stage.
+  // worklet source loaded from a Blob URL to keep it in this script
   const kSpeakerWorkletSrc = `
     class PcSpeakerProcessor extends AudioWorkletProcessor {
       constructor() {
         super();
-        // ~350ms at 48kHz -- generous headroom against main-thread jank
-        // (GC pauses, the periodic HDD autosave's array copy) without
-        // making genuine underrun-driven latency noticeable.
+        // ~350ms at 48kHz of jank headroom
         this.ring = new Float32Array(16384);
         this.writeIdx = 0;
         this.readIdx = 0;
@@ -300,10 +217,7 @@
             if (this.available < this.ring.length) {
               this.available++;
             } else {
-              // Ring overflowed (main thread fed it faster than real time,
-              // e.g. right after a stall's worth of catch-up cycles) --
-              // drop the oldest sample rather than the newest, same as an
-              // unread hardware FIFO would.
+              // overflow: drop oldest, like an unread FIFO
               this.readIdx = (this.readIdx + 1) % this.ring.length;
             }
           }
@@ -317,9 +231,7 @@
             this.readIdx = (this.readIdx + 1) % this.ring.length;
             this.available--;
           }
-          // Underrun: hold the last real sample instead of snapping to 0 --
-          // a real speaker cone doesn't teleport to rest either, and
-          // holding avoids adding its own click on top of the stall.
+          // underrun: hold last sample to avoid a click
           out[i] = this.lastSample;
         }
         return true;
@@ -344,28 +256,18 @@
     if (speakerCheckbox.checked) ensureAudioStarted();
   });
 
-  // Converts this frame's real (cpu_cycle, level) edge trace --
-  // PcSpeaker::drain_edges() via speakerEdges() -- into a sample array and
-  // posts it to the worklet's ring buffer. No scheduling clock to maintain
-  // here: the worklet plays whatever it's been sent, in order, at its own
-  // pace, entirely decoupled from this function's own timing.
+  // Turns this frame's (cpu_cycle, level) edges into samples for the worklet ring.
   function pumpAudio(frameStartCycle, cyclesThisFrame, dtSeconds) {
-    const edges = machine.speakerEdges();  // always drain -- even if muted, so the log can't grow unbounded
+    const edges = machine.speakerEdges();  // always drain, even if muted
     if (!audioCtx || !speakerNode || !speakerCheckbox.checked || cyclesThisFrame <= 0) return;
     const sampleRate = audioCtx.sampleRate;
-    // Real elapsed wall-clock time for this frame, not cyclesThisFrame/8MHz --
-    // those two only match when TEST_CPU_MULTIPLIER is 1. Deriving duration
-    // from the cycle count instead would generate `multiplier`x too many
-    // samples for one real frame under a fast-test multiplier. Using real
-    // dtSeconds keeps this correct (and harmless -- just pitch-shifted,
-    // which nothing here asserts on) at any multiplier.
+    // real dtSeconds, not cycles/8MHz, so the fast-test multiplier doesn't overproduce samples
     const sampleCount = Math.max(1, Math.round(dtSeconds * sampleRate));
     const data = new Float32Array(sampleCount);
 
     let level = lastLevel, sampleIdx = 0;
     const cycles = edges.cycles, levels = edges.levels;
-    // Effective this-frame rate: real 8 MHz normally, `multiplier`x that
-    // under the fast-test multiplier -- see sampleCount above.
+    // effective cycles/sec this frame
     const cyclesPerRealSecond = cyclesThisFrame / dtSeconds;
     for (let i = 0; i < cycles.length; i++) {
       let edgeSample = Math.round(((cycles[i] - frameStartCycle) / cyclesPerRealSecond) * sampleRate);
@@ -382,7 +284,7 @@
     speakerNode.port.postMessage(data, [data.buffer]);
   }
 
-  // ---- main loop ---------------------------------------------------
+  // ---- main loop ----
   const ctx = screenEl.getContext("2d");
   const hddLed = document.getElementById("hddLed");
   let cycleCredit = 0, lastT = null;
@@ -394,17 +296,16 @@
     ctx.fillStyle = "#000";
     ctx.fillRect(0, 0, screenEl.width, screenEl.height);
   }
-  const kTextRenderWidth = 640, kTextRenderHeight = 350;  // matches ega_render.h's text-mode default
+  const kTextRenderWidth = 640, kTextRenderHeight = 350;  // ega_render.h text-mode default
 
   function frame(t) {
-    if (!poweredOn || !machine) return;  // power switched off mid-loop -- stop, don't reschedule
+    if (!poweredOn || !machine) return;  // powered off mid-loop, stop rescheduling
     if (lastT === null) lastT = t;
     let dtSeconds = (t - lastT) / 1000;
     lastT = t;
-    dtSeconds = Math.min(dtSeconds, 0.25);  // clamp a backgrounded-tab gap -- no runaway catch-up burst
+    dtSeconds = Math.min(dtSeconds, 0.25);  // clamp backgrounded-tab gap
 
-    // Real, fixed 8 MHz -- never sped up for a real visitor, per CLAUDE.md.
-    // TEST_CPU_MULTIPLIER is 1 outside `?test=1&fast=1`; see its own comment.
+    // real 8 MHz; TEST_CPU_MULTIPLIER is 1 outside ?test=1&fast=1
     cycleCredit += dtSeconds * 8000000 * TEST_CPU_MULTIPLIER;
     const cyclesThisFrame = Math.floor(cycleCredit);
     cycleCredit -= cyclesThisFrame;
@@ -413,14 +314,9 @@
 
     pumpAudio(frameStartCycle, cyclesThisFrame, dtSeconds);
 
-    const blinkOn = Math.floor(t / 266) % 2 === 0;  // ~1.9Hz block-cursor blink
+    const blinkOn = Math.floor(t / 266) % 2 === 0;  // ~1.9Hz cursor blink
     const rgba = machine.renderFrame(blinkOn);
-    // Resolution varies by mode (640x350 text, 320x200 CGA-compatible
-    // graphics -- see ega_render.h) -- resize the canvas's own pixel
-    // buffer to match whenever it changes, and let it fill its native
-    // aspect ratio rather than stretching a lower-res mode into the text
-    // mode's box (no real hardware basis to prefer one distortion over
-    // another, so: don't introduce one).
+    // canvas follows the mode's native resolution (640x350 text, 320x200 CGA graphics)
     const frameW = machine.renderWidth(), frameH = machine.renderHeight();
     if (screenEl.width !== frameW || screenEl.height !== frameH) {
       screenEl.width = frameW;
@@ -441,12 +337,8 @@
     requestAnimationFrame(frame);
   }
 
-  // ---- hard disk persistence (IndexedDB) ---------------------------------
-  // A real fixed disk keeps its contents when the machine is off; this
-  // emulator's own Machine is fully discarded on power-off (see the power
-  // switch section below), so without this C: would silently revert to
-  // whatever it was mount()ed with every single power-on. One record in
-  // one object store -- there's only ever one C: drive to remember.
+  // ---- hard disk persistence (IndexedDB) ----
+  // the Machine is discarded on power-off, so C: is stored here (one record)
   const HDD_DB_NAME = "ibmpcat-hdd", HDD_STORE = "hdd", HDD_KEY = "c-drive";
   function openHddDb() {
     return new Promise((resolve, reject) => {
@@ -497,29 +389,16 @@
     }
   }
 
-  // ---- power switch (off by default) -------------------------------------
-  // A real AT: flipping power off cuts power to everything -- RAM (and so
-  // every bit of running state) is gone, exactly like unplugging it, while
-  // a diskette physically stays seated in its drive regardless. Modeled
-  // the same way here: powering off discards the whole Machine instance;
-  // powering back on builds a fresh one and re-mounts whatever floppy
-  // images were still "in the drive" (remembered in JS, not the discarded
-  // Machine) when power was cut. No reset button -- the genuine 5170 never
-  // had a front-panel one (a later clone-era convention); the real
-  // machine's only user-facing control here is this power switch (in
-  // reality mounted on the case's side/rear, not the front bezel, but kept
-  // here as a labelled web-UI concession).
+  // ---- power switch ----
+  // power-off discards the Machine; power-on remounts floppies from pendingFloppy.
+  // No reset button on the 5170.
   const powerSwitch = document.getElementById("powerSwitch");
   const powerLed = document.getElementById("powerLed");
   let poweredOn = false;
-  let firmware = null;  // {Module, bios, vga, hdd} once fetched -- fetched once, reused every power-on
-  const pendingFloppy = [null, null];  // {name, bytes} per drive -- "what's physically in the drive"
+  let firmware = null;  // {Module, bios, vga, hdd}, fetched once
+  const pendingFloppy = [null, null];  // {name, bytes} per drive
 
-  // What C: actually mounts next power-on: a saved image from IndexedDB
-  // (whatever it last held -- factory FreeDOS with changes, a blank drive
-  // mid-install, or a real OS the visitor installed themselves) if one
-  // exists, otherwise the pristine fetched factory image. `hddLabel`
-  // exists purely to describe that choice in the status line below.
+  // next power-on mounts the saved IndexedDB image if any, else the factory image
   let savedHdd = null;   // Uint8Array | null
   let hddLabel = "factory FreeDOS (default)";
   const hddStatus = document.getElementById("hddStatus");
@@ -529,11 +408,10 @@
   const hddUploadInput = document.getElementById("hddUploadInput");
   function refreshHddControls() {
     hddStatus.textContent = "Using: " + hddLabel;
-    // A real fixed disk can't be swapped while the machine is running --
-    // every one of these actions only ever affects the *next* power-on.
+    // C: only changes at the next power-on
     hddResetBtn.disabled = !firmware || poweredOn;
     hddBlankBtn.disabled = !firmware || poweredOn;
-    hddDownloadBtn.disabled = !firmware;  // download works even while running -- it's read-only
+    hddDownloadBtn.disabled = !firmware;  // read-only, works while running
     hddUploadInput.disabled = !firmware || poweredOn;
     document.getElementById("hddUploadBtn").disabled = !firmware || poweredOn;
   }
@@ -545,20 +423,15 @@
   });
   hddBlankBtn.addEventListener("click", () => {
     if (!firmware) return;
-    savedHdd = new Uint8Array(firmware.hdd.byteLength);  // all zero -- unformatted, like a drive fresh from the factory floor
+    savedHdd = new Uint8Array(firmware.hdd.byteLength);  // all zero, unformatted
     hddLabel = "blank drive, unformatted (FDISK/FORMAT and install your own OS) -- takes effect next power-on";
     refreshHddControls();
     saveHdd(savedHdd);
   });
-  // A real file on the visitor's own disk, independent of this browser's
-  // storage -- the same "save modified media" idea the floppy eject flow
-  // already offers, just for C: (which isn't ejectable, so it needs its
-  // own explicit control instead of piggybacking on a drive-swap gesture).
+  // download C: as a file
   hddDownloadBtn.addEventListener("click", () => {
     if (!firmware) return;
-    // Whatever is *actually* current: the live, possibly-just-written
-    // image if the machine is running, else whatever's staged for the
-    // next power-on, else the pristine factory image.
+    // live image if running, else staged, else factory
     const bytes = (poweredOn && machine) ? machine.hddImage() : (savedHdd || new Uint8Array(firmware.hdd));
     const blob = new Blob([bytes], { type: "application/octet-stream" });
     const a = document.createElement("a");
@@ -575,15 +448,7 @@
     if (!f || !firmware) return;
     await withLoad("Loading hard disk\u2026", async () => {
       const bytes = new Uint8Array(await f.arrayBuffer());
-      // This system's WD1003 geometry (733 cyl/5 head/17 sec, see wd1003.cpp)
-      // is fixed in CMOS, not derived from the image the way the floppy
-      // controller now derives its own geometry from media size (see
-      // IBM_PCAT_REVIEW.md §27) -- a real fixed disk doesn't change shape
-      // depending on what's written to it. An image of the wrong size would
-      // still fail safely (wd1003.cpp's own bounds check reports a genuine
-      // IDNF error rather than silently doing nothing), but refusing it
-      // up front gives a clearer reason than a mysterious disk error deep
-      // into a boot.
+      // WD1003 geometry (733/5/17) is fixed in CMOS, so reject wrong-size images
       if (bytes.byteLength !== firmware.hdd.byteLength) {
         alert("That file is " + bytes.byteLength + " bytes; this machine's hard disk " +
               "must be exactly " + firmware.hdd.byteLength + " bytes (733 cyl / 5 head / " +
@@ -621,7 +486,7 @@
     requestAnimationFrame(frame);
     refreshHddControls();
     refreshFkeyControls();
-    updateFocusHint();  // e.g. the auto power-on at boot never focuses the screen itself
+    updateFocusHint();
     if (new URLSearchParams(location.search).get("test") === "1") {
       window.__test = {
         machine, sendKey, screenEl,
@@ -632,17 +497,7 @@
     }
   }
 
-  // Mirrors C: to IndexedDB if (and only if) it's actually been written to
-  // since the last mirror -- called both periodically while running (see
-  // the setInterval below) and once more, unconditionally safe to call
-  // again, at powerOff(). A real fixed disk never needs this at all: a
-  // sector write is durable the instant it hits the platter, no separate
-  // "save" step exists on real hardware. This only exists because this
-  // emulator's own C: lives in a JS Uint8Array that's gone the moment the
-  // tab is (mountHdd()'d fresh from IndexedDB/the factory image on every
-  // powerOn() -- see there) -- so it has to be copied out to the one
-  // place that actually survives that, on some real cadence, not just
-  // once at a clean power-off nobody reliably triggers by hand.
+  // Mirrors C: to IndexedDB if written since the last mirror.
   function persistHddIfDirty() {
     if (!machine || !machine.hddDirty()) return;
     savedHdd = machine.hddImage();
@@ -655,8 +510,8 @@
   function powerOff() {
     if (!poweredOn) return;
     persistHddIfDirty();
-    poweredOn = false;  // frame() sees this on its next tick and stops rescheduling itself
-    machine = null;      // real hardware: RAM is gone the instant power is cut
+    poweredOn = false;
+    machine = null;      // RAM is gone on power cut
     powerLed.classList.remove("power-on");
     for (const bay of bays) bay.querySelector('[data-role="led"]').classList.remove("on");
     hddLed.classList.remove("on");
@@ -664,22 +519,11 @@
     if (audioCtx) { audioCtx.suspend().catch(() => {}); }
     refreshHddControls();
     refreshFkeyControls();
-    updateFocusHint();  // nothing to type into once powered off -- hide it
+    updateFocusHint();
   }
 
-  // ---- function/extended-key panel -- a real AT keyboard's F-keys and
-  // extended block, for anyone without a physical key to press (a Mac
-  // keyboard has no Insert/PrintScreen/ScrollLock/Pause key at all, and no
-  // discrete forward-Delete on laptops). A real keyboard sends nothing to a
-  // powered-off machine, so these only work while running.
-  //
-  // #bezel's own [data-key] (escBtn) rides the same click-tap logic below
-  // for a different reason: it's not a key a Mac keyboard lacks, it's a key
-  // the *browser* lacks a way to deliver at all while fullscreen -- the
-  // Fullscreen API treats Esc as its own reserved exit gesture and never
-  // dispatches it to the page (confirmed live), so a physical Esc press
-  // can't reach the guest no matter what keyboard you have. Injecting the
-  // scancode straight from a click sidesteps the native key event entirely.
+  // ---- function/extended-key panel ----
+  // For keys a Mac keyboard lacks. escBtn is here because fullscreen swallows Esc.
   const fkeyButtons = Array.from(document.querySelectorAll('#fkeyRow [data-key], #extraKeyRow [data-key], #bezel [data-key]'));
   const ctrlAltDelBtn = document.getElementById('ctrlAltDelBtn');
   function refreshFkeyControls() {
@@ -691,30 +535,14 @@
     btn.addEventListener('click', () => {
       const key = btn.dataset.key;
       sendKey(key, false);
-      // A real key tap has a real make-then-release gap; a synchronous
-      // back-to-back make+break can land inside the same JS turn as the
-      // machine's own real-time-paced instruction loop (requestAnimationFrame),
-      // which never gets a chance to run between them since JS is single-
-      // threaded -- the guest can end up never seeing the make code before
-      // the break overwrites it. 50ms mirrors a real, if fast, keystroke.
+      // make and break need a gap or the guest misses the make
       setTimeout(() => sendKey(key, true), 50);
     });
   }
   ctrlAltDelBtn.addEventListener('click', () => {
     if (!machine) return;
-    // The classic warm-boot combo: Ctrl make, Alt make, then Del make --
-    // using the ORIGINAL non-extended Delete scancode (0x53, the numpad
-    // Del/period key from the 84-key keyboard that predates the 101-key
-    // extended block), which is what the historical Ctrl-Alt-Del check
-    // (present in this machine's real Bochs-legacy BIOS, matching genuine
-    // x86 BIOS convention) looks for -- NOT SET1.Delete, which is the
-    // newer extended [0xE0, 0x53] forward-Delete key. No new C++ needed:
-    // the real BIOS's own keyboard ISR already implements the warm-boot
-    // check, exactly like genuine hardware. All 6 bytes go through
-    // injectScancodeSequence() so each one gets its own real gap -- sending
-    // even the 3 makes back to back clobbered everything but the last
-    // (Del), so the BIOS only ever saw a lone Del with no Ctrl/Alt held
-    // and never recognized the combo. See IBM_PCAT_REVIEW.md.
+    // Ctrl-Alt-Del warm boot: BIOS checks the non-extended Del (0x53), not SET1.Delete.
+    // Each byte is spaced or only the last survives.
     injectScancodeSequence([
       0x1D,          // Ctrl make
       0x38,          // Alt make
@@ -725,33 +553,16 @@
     ]);
   });
 
-  powerSwitch.checked = false;  // starts unchecked -- switched on programmatically the instant
-                                 // firmware finishes loading (see below), not by the user's own click
-  powerSwitch.disabled = true;  // enabled once firmware has actually finished fetching -- its own
-                                 // disabled state is the "still loading" signal, no status text needed
+  powerSwitch.checked = false;
+  powerSwitch.disabled = true;
   clearScreenToBlack();
   refreshFkeyControls();  // start disabled while machine is off
   powerSwitch.addEventListener("change", () => { if (powerSwitch.checked) powerOn(); else powerOff(); });
 
-  // Autosave C: every few seconds while running, not only at an explicit
-  // power-off -- the machine now boots itself on page load (see the
-  // firmware-fetch block below) and most visitors never think to flip the
-  // switch off before just closing the tab or hitting reload, which used
-  // to silently discard every write since the last clean power-off (this
-  // was a real bug: a whole game install lost because nothing ever called
-  // powerOff()). 5s is arbitrary -- frequent enough that a mid-session
-  // close loses at most a few seconds of writes, infrequent enough that
-  // idle sessions (hddDirty() false) do nothing.
+  // autosave so closing the tab doesn't lose writes
   setInterval(persistHddIfDirty, 5000);
 
-  // Even with the autosave above, navigating away (closing the tab,
-  // following a link, a browser-gesture back/forward navigation) can still
-  // land in the few-seconds gap since the last tick. Ask first, the same
-  // way a real "unsaved changes" prompt would, as a last defense.
-  // (Known limitation, not fixable from here: some browsers' gesture-based
-  // navigation -- e.g. a trackpad swipe -- can bypass beforeunload
-  // entirely, which is exactly the scenario "Download image" above exists
-  // for as a durable, browser-independent backup.)
+  // last-ditch prompt; gesture navigation can bypass beforeunload
   window.addEventListener("beforeunload", (e) => {
     if (poweredOn && machine && machine.hddDirty()) {
       e.preventDefault();
@@ -759,10 +570,8 @@
     }
   });
 
-  // ---- fetch firmware + the shipped HDD image once, up front ------------
-  // Not modeling anything physical -- purely the web delivery mechanism --
-  // so there's no reason to gate it behind the power switch: fetch starts
-  // immediately, and flipping power on is instant once it's done.
+  // ---- fetch firmware + HDD image ----
+  // web delivery only, not gated by the power switch
   (async () => {
     beginLoad("Loading\u2026");
     try {
@@ -782,16 +591,14 @@
 
       powerSwitch.disabled = false;
       refreshHddControls();
-      // Boot straight to a running machine once firmware is ready, rather
-      // than making the visitor find and click the power switch themselves.
+      // boot once firmware is ready
       powerSwitch.checked = true;
       powerOn();
     } finally {
       endLoad();
     }
   })().catch((err) => {
-    // no on-page error surface -- the power switch simply never enables;
-    // the real failure detail goes to the console for diagnosis.
+    // no on-page error; the power switch never enables
     console.error(err);
   });
 })();

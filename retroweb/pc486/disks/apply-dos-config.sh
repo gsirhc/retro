@@ -1,13 +1,9 @@
 #!/usr/bin/env bash
-# Replace the FreeDOS installer's own FDCONFIG.SYS/FDAUTO.BAT with a single,
-# plain MS-DOS-style boot config: no menu, and no V86 memory manager. HIMEMX
-# alone gives the plain XMS that DOS/16M and DOS/4GW extenders ask for, with
-# nothing virtualising memory underneath them -- the installer's default
-# JEMMEX NOEMS provides no VCPI, and PC486_REVIEW.md §19.4 records a second
-# extender faulting under that manager too. DOS=HIGH still leaves ~620KB
-# conventional free, which is room enough for a game and its sound driver.
-# The CD-ROM and mouse drivers are what a period game needs to install and
-# run, and nothing else is loaded. See PC486_REVIEW.md.
+# Replace the installer's FDCONFIG.SYS/FDAUTO.BAT with a plain MS-DOS-style boot
+# config: no menu, no V86 memory manager. HIMEMX alone gives the XMS that DOS/16M
+# and DOS/4GW ask for. The default JEMMEX NOEMS provides no VCPI, and a second
+# extender faulted under it (PC486_REVIEW.md §19.4). DOS=HIGH leaves ~620KB
+# conventional. Only the CD-ROM and mouse drivers load.
 set -euo pipefail
 
 if [ $# -ne 1 ]; then
@@ -25,12 +21,10 @@ if ! command -v mcopy >/dev/null 2>&1; then
     exit 1
 fi
 
-# mtools addresses a partition inside an image with the @@<byte offset>
-# suffix; the single partition's start LBA is in the MBR's first entry.
+# mtools addresses a partition with @@<byte offset>; the start LBA is in the MBR's first entry
 PART_OFFSET=$(( $(od -An -t u4 -j 454 -N 4 "$HDD" | tr -d ' ') * 512 ))
 
-# mtools refuses a disk image whose geometry it cannot infer; the images here
-# are plain sector dumps, which is exactly the case this skips the check for.
+# mtools can't infer geometry for plain sector dumps; this skips the check
 export MTOOLS_SKIP_CHECK=1
 
 tmp=$(mktemp -d)

@@ -11,9 +11,7 @@ void Ega::reset() {
     retrace_ = false;
     prev_cycles_ = 0;
     retrace_credit_ = 0.0;
-    // vram deliberately NOT cleared -- matches real hardware (contents
-    // survive a controller reset; software clears it explicitly if it
-    // wants a blank screen, typically as part of a mode set).
+    // vram survives reset, like real hardware.
 }
 
 bool Ega::owns_port(uint16_t port) const {
@@ -28,12 +26,12 @@ bool Ega::owns_port(uint16_t port) const {
 uint8_t Ega::in(uint16_t port) {
     switch (port) {
         case 0x3DA: {
-            attr_flip_flop_addr_ = true;  // reading Input Status 1 resets the AC address/data flip-flop
+            attr_flip_flop_addr_ = true;  // reading Input Status 1 resets the AC flip-flop
             return retrace_ ? 0x08 : 0x00;
         }
         case 0x3C0: return attr_flip_flop_addr_ ? attr_index_ : uint8_t(0xFF);
         case 0x3C1: return attr_[attr_index_ % attr_.size()];
-        case 0x3C2: return 0x00;  // Input Status 0 -- not modeled meaningfully
+        case 0x3C2: return 0x00;  // Input Status 0 not modeled
         case 0x3C4: return sequencer_index_;
         case 0x3C5: return sequencer_[sequencer_index_ % sequencer_.size()];
         case 0x3CC: return misc_output_;
@@ -81,26 +79,18 @@ uint32_t Ega::window_offset(uint32_t addr) const {
 
 uint8_t Ega::mem_read(uint32_t addr) const {
     uint32_t off = window_offset(addr);
-    if (off == kOutOfWindow) return 0xFF;  // not decoded by the active window -- open bus
+    if (off == kOutOfWindow) return 0xFF;  // not decoded by the active window
 
-    // Odd/even chaining folds the CPU's own address parity into the plane
-    // selection (see the file header), so the per-plane storage offset
-    // drops that low bit -- consecutive CPU bytes of the same parity land
-    // at consecutive per-plane offsets, exactly how text mode's character/
-    // attribute pairs end up adjacent within each of planes 0 and 1.
+    // Odd/even chaining drops the CPU address parity bit from the per-plane offset.
     bool oe = !seq_odd_even_disabled();
     uint32_t plane_off = oe ? (off >> 1) : off;
 
-    // Real hardware: every memory read loads all 4 planes into the latch,
-    // regardless of which read mode (or even which write mode a later
+    // Every read loads all 4 planes into the latch, whatever the read mode.
     // write will use) is selected.
     for (int p = 0; p < 4; ++p) latch_[p] = vram[(plane_off << 2) + p];
 
     if (gc_read_mode1()) {
-        // Read Mode 1: colour-compare. A result bit is set where every
-        // plane the Color Don't Care register marks as "care about" (bit
-        // set = participates) matches the corresponding bit of Color
-        // Compare.
+        // Read Mode 1: colour compare against planes marked in Color Don't Care.
         uint8_t result = 0xFF;
         uint8_t care = gc_color_dont_care();
         uint8_t want = gc_color_compare();
@@ -112,12 +102,8 @@ uint8_t Ega::mem_read(uint32_t addr) const {
         return result;
     }
 
-    // Read Mode 0: one plane, selected by Read Map Select -- except that
-    // when odd/even chaining is active, the CPU address's own parity
-    // substitutes for Read Map Select's low bit (this is what makes flat
-    // sequential reads of text-mode VRAM alternate between the character
-    // plane and the attribute plane without software ever touching this
-    // register).
+    // Read Mode 0: Read Map Select picks the plane, with odd/even chaining the CPU
+    // address parity replaces its low bit.
     uint8_t plane = gc_read_map_select();
     if (oe) plane = uint8_t((plane & 0xFE) | (off & 1));
     return latch_[plane & 3];
@@ -134,41 +120,32 @@ void Ega::mem_write(uint32_t addr, uint8_t v) {
     uint8_t bit_mask = gc_bit_mask();
     uint8_t rotated = rotate_right8(v, gc_rotate_count());
     if (write_mode == 3) {
-        // Write Mode 3: the rotated CPU byte becomes an *additional* bit
-        // mask (ANDed with GR08), and Set/Reset supplies every plane's
-        // value outright -- Enable Set/Reset is not consulted in this
-        // mode, a real, documented EGA/VGA quirk.
+        // Write Mode 3: the rotated CPU byte is ANDed into the bit mask and Set/Reset
+        // supplies every plane (Enable Set/Reset is ignored), an EGA/VGA quirk.
         bit_mask = uint8_t(bit_mask & rotated);
     }
 
     for (int p = 0; p < 4; ++p) {
         if (!(map_mask & (1 << p))) continue;
-        // Odd/even chaining also gates *which* plane of a same-parity pair
-        // the CPU's address is even allowed to reach -- see mem_read.
+        // Odd/even chaining limits the CPU to one plane of each pair.
         if (oe && (p & 1) != int(off & 1)) continue;
 
         uint32_t idx = (plane_off << 2) + uint32_t(p);
         if (write_mode == 1) {
-            // Write Mode 1: direct latch-to-VRAM copy, CPU byte ignored --
-            // this is the real hardware's VRAM-to-VRAM block-copy trick
-            // (read a source address to load the latch, then write the
-            // destination address).
+            // Write Mode 1: latch copy, CPU byte ignored (VRAM-to-VRAM block copy).
             vram[idx] = latch_[p];
             continue;
         }
 
         uint8_t val;
         if (write_mode == 2) {
-            // Write Mode 2: the CPU byte's bit p selects this plane's
-            // value outright (all-1s or all-0s), one CPU bit per plane.
+            // Write Mode 2: CPU bit p selects plane p's value.
             val = (v & (1 << p)) ? uint8_t(0xFF) : uint8_t(0x00);
         } else if (write_mode == 3 || (gc_enable_set_reset() & (1 << p))) {
-            // Set/Reset supplies this plane's value: mode 3 always (see
-            // above), or mode 0 when Enable Set/Reset says so per-plane.
+            // Set/Reset supplies the value: always in mode 3, per-plane via Enable Set/Reset in mode 0.
             val = (gc_set_reset() & (1 << p)) ? uint8_t(0xFF) : uint8_t(0x00);
         } else {
-            // Write Mode 0's CPU-data path: rotate, then optionally
-            // combine with the latch via the Data Rotate ALU function.
+            // Write Mode 0: rotate, then combine with the latch per the Data Rotate function.
             val = rotated;
             switch (gc_raster_op()) {
                 case 1: val = uint8_t(val & latch_[p]); break;   // AND
@@ -185,8 +162,8 @@ void Ega::tick(uint64_t cpu_cycles) {
     uint64_t d = cpu_cycles - prev_cycles_;
     prev_cycles_ = cpu_cycles;
     retrace_credit_ += double(d);
-    constexpr double kFramePeriod = 8000000.0 / 60.0;    // ~60Hz frame, this machine's fixed 8MHz clock
-    constexpr double kRetraceWindow = kFramePeriod * 0.08;  // a plausible vertical-retrace duty cycle
+    constexpr double kFramePeriod = 8000000.0 / 60.0;    // ~60Hz frame at the fixed 8MHz clock
+    constexpr double kRetraceWindow = kFramePeriod * 0.08;  // approximate retrace duty cycle
     while (retrace_credit_ >= kFramePeriod) retrace_credit_ -= kFramePeriod;
     retrace_ = retrace_credit_ < kRetraceWindow;
 }

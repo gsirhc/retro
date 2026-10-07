@@ -24,18 +24,13 @@ test.describe("terminal", () => {
   });
 
   test("baud label reflects the ACIA's live configured rate", async ({ page }) => {
-    // rom/bios.s's RESET programs 19200 baud (ACIA_CTRL = $1F).
+    // bios.s RESET programs 19200 baud (ACIA_CTRL = $1F)
     await expect(page.locator("#baudLabel")).toHaveText("19200 baud");
   });
 
   test.describe("CAPS LOCK", () => {
-    // Spy on Machine.typeChar to see exactly what byte the terminal sent,
-    // independent of anything the ROM's own FORCE_UPPER might also do --
-    // that's what actually proves the *terminal* is uppercasing, not the
-    // firmware coincidentally doing it too. Typed bytes land here
-    // asynchronously now (app.js's input-pacing queue, Phase 5) rather
-    // than synchronously inside term.onData, so this polls for them
-    // rather than reading __typed immediately after page.keyboard.type().
+    // Spy on Machine.typeChar to prove the terminal itself uppercases, not the
+    // firmware's FORCE_UPPER. Bytes arrive via app.js's input-pacing queue, so poll.
     async function typedBytes(page: import("@playwright/test").Page, text: string) {
       await page.evaluate(() => {
         (window as any).__typed = [];

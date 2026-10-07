@@ -23,9 +23,7 @@ export async function boot(
       return false;
     }
   });
-  // a preset applies ~200 ms after load; applyPreset writes retro8080.preset to
-  // localStorage only after it has set RAM / terminal / backplane / devices, so
-  // that's the "hardware is configured" signal.
+  // a preset applies ~200 ms after load; retro8080.preset is written once hardware is configured
   const wantPreset = /(?:^|&)preset=([a-z]+)/.exec(opts.params || "")?.[1];
   if (wantPreset !== undefined) {
     await page.waitForFunction(
@@ -44,9 +42,7 @@ export async function boot(
       timeout: 10_000,
     });
   }
-  // A real Altair doesn't arrive already running -- the front panel starts
-  // powered off (CLAUDE.md realism), so flip it ON and RUN here rather than
-  // in every single test that wants a live machine.
+  // the panel starts powered off; flip ON and RUN here instead of in every test
   await page.evaluate(() => {
     const cell = document.querySelector<HTMLElement>("#altair .fp-power.paddle");
     const bat = cell?.querySelector(".bat");

@@ -1,9 +1,3 @@
-// GoogleTest suite for the NEC uPD765 floppy controller: command/parameter
-// sequencing, the Main Status Register's phase bits, SEEK/RECALIBRATE
-// paced completion via SENSE INTERRUPT STATUS, and the transfer_ready()/
-// transfer_image_ptr()/finish_transfer() handoff chipset.cpp uses to
-// perform the actual memory<->image copy.
-
 #include <gtest/gtest.h>
 
 #include "fdc765.h"
@@ -17,8 +11,7 @@ using ibmpcat::Fdc765;
 
 std::vector<uint8_t> MakeImage(std::size_t cyl, int heads, int spt) {
     std::vector<uint8_t> img(cyl * heads * spt * 512, 0);
-    // Stamp each sector's first byte with a recognizable, distinct pattern
-    // so a test can confirm exactly which bytes landed where.
+    // Stamp each sector's first byte with its index.
     for (std::size_t i = 0; i < img.size(); i += 512) img[i] = uint8_t((i / 512) & 0xFF);
     return img;
 }
@@ -29,14 +22,8 @@ protected:
     void SetUp() override { fdc.reset(); }
 
     void PowerOnMotorAndSelect(int drive) {
-        // DOR: motor for the selected drive on, ~RESET high (normal op),
-        // DMA/IRQ enable on (real BIOS always sets this for normal
-        // operation -- without it, completed commands never raise IRQ6),
-        // drive select. Leaving the held-reset state itself raises an
-        // interrupt on real hardware (a real driver clears it via SENSE
-        // INTERRUPT STATUS before doing anything else) -- acknowledge it
-        // here the same way so tests can look at irq_pending() for the
-        // condition they actually care about afterward.
+        // Motor on, ~RESET high, DMA/IRQ enable, drive select. Leaving reset raises
+        // an interrupt, so acknowledge it with SENSE INTERRUPT STATUS first.
         uint8_t bit = drive == 0 ? 0x10 : 0x20;
         fdc.out(0x3F2, uint8_t(0x04 | 0x08 | bit | drive));
         fdc.clear_irq();
@@ -44,13 +31,7 @@ protected:
 };
 
 TEST_F(Fdc765Test, DoesNotOwnPortThreeF6) {
-    // 0x3F6, in the middle of the FDC's otherwise-contiguous port block, is
-    // genuinely NOT decoded by a real AT's floppy controller -- it belongs
-    // to the hard disk controller's Device Control / Alternate Status
-    // register (see wd1003.h). Chipset::io_in/io_out check fdc.owns()
-    // before hdd.owns(), so a too-wide range here would silently steal the
-    // port from the HDD before it was ever reached -- a real bug WD1003
-    // integration testing caught. See IBM_PCAT_REVIEW.md.
+    // 0x3F6 belongs to the HDD (wd1003.h). A too-wide FDC range would steal it.
     EXPECT_FALSE(fdc.owns(0x3F6));
     EXPECT_TRUE(fdc.owns(0x3F5));
     EXPECT_TRUE(fdc.owns(0x3F7));
@@ -149,13 +130,7 @@ TEST_F(Fdc765Test, WriteDataMarksDriveDirty) {
 }
 
 TEST_F(Fdc765Test, InterruptClearsOnFirstResultByteNotTheWholePhase) {
-    // Real uPD765/8272 hardware drops IRQ6 as soon as the CPU reads the
-    // first result byte (ST0 in a 7-byte READ/WRITE DATA result phase) --
-    // not after every result byte is drained. Some real driver code reads
-    // only ST0 before moving on to other work; modeling "IRQ clears on
-    // full drain" left the interrupt permanently pending and re-triggered
-    // its ISR forever, an infinite-IRQ-storm bug this session actually
-    // hit trying to boot real BIOS + FreeDOS. See IBM_PCAT_REVIEW.md §8.
+    // IRQ6 drops on the first result byte (ST0), not after the full drain (IBM_PCAT_REVIEW.md §8).
     auto img = MakeImage(80, 2, 15);
     fdc.mount(0, img.data(), img.size());
     PowerOnMotorAndSelect(0);
@@ -175,13 +150,7 @@ TEST_F(Fdc765Test, InterruptClearsOnFirstResultByteNotTheWholePhase) {
 }
 
 TEST_F(Fdc765Test, DiskChangeLineSetByMountAndClearedBySeek) {
-    // Real hardware: DSKCHG asserts whenever media is swapped and only
-    // clears once the drive actually steps (RECALIBRATE/SEEK) afterward --
-    // software that copies files across floppy swaps (a multi-disk
-    // installer, say) polls this specifically to confirm the user really
-    // swapped media before trusting a re-read. A controller that always
-    // reports "unchanged" leaves that software waiting forever. See
-    // IBM_PCAT_REVIEW.md.
+    // DSKCHG asserts on mount and clears on the next step. Swap-aware software polls it.
     auto img = MakeImage(80, 2, 15);
     fdc.mount(0, img.data(), img.size());
     PowerOnMotorAndSelect(0);

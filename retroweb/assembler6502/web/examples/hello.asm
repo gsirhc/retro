@@ -1,10 +1,6 @@
-; HELLO, WORLD -- .BYTE stores the message; a small indexed loop
-; (LDA MSG,X / JSR PRINT_CHAR / INX) prints it, instead of one
-; LDA #imm / JSR pair per character. JMP START skips past the raw
-; data (falling into it would run the string bytes as instructions).
-; No <// >> operators yet (see the Help panel), so PRINT_STR's A/Y
-; calling convention isn't reachable directly -- this loop is the
-; workaround. ASM, then RUN.
+; HELLO, WORLD. An indexed loop prints the .BYTE message. JMP START
+; skips the data. No <// >> operators yet, so PRINT_STR's A/Y
+; convention isn't reachable and the loop stands in. ASM, then RUN.
 JMP START
 MSG: .BYTE "HELLO, WORLD!",$0D,$0A,$00
 START: LDX #$00

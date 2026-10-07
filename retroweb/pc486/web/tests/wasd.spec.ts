@@ -1,10 +1,9 @@
 import { test, expect } from "./fixtures";
 import { screenText } from "./helpers";
 
-// Doom 1.2 and its contemporaries predate WASD -- they default to the arrow
-// cluster. The mapping happens at the browser edge via the Key Mapper panel,
-// so the guest receives genuine arrow-key scancodes. Off by default; the
-// WASD → Arrows preset (and the bezel shortcut) turn it on.
+// Doom 1.2 and its contemporaries default to the arrow cluster. The Key Mapper maps at the
+// browser edge, so the guest gets genuine arrow scancodes. Off by default; the WASD -> Arrows
+// preset (and the bezel shortcut) turn it on.
 test.describe("WASD to arrow keys", () => {
   test("preset persists across reload", async ({ page }) => {
     await page.goto("/?test=1&fast=1");
@@ -24,10 +23,8 @@ test.describe("WASD to arrow keys", () => {
     await page.evaluate(() => (window as any).__test.clearKeymap());
   });
 
-  // Real bug, reported in Doom: W and D are Up and Right, two-byte E0
-  // sequences. Releasing both at once (a focus loss here) used to
-  // interleave them, so Right's break lost its prefix and the keyboard kept
-  // repeating Right forever.
+  // W and D are two-byte E0 sequences; releasing both at once (focus loss) interleaved them, so
+  // Right's break lost its prefix and Right repeated forever.
   test("releasing two held arrows at once ends the keyboard's repeat", async ({ livePage: page }) => {
     await page.evaluate(() => (window as any).__test.applyWasdPreset());
     await page.locator("#screen").click();
@@ -53,9 +50,7 @@ test.describe("WASD to arrow keys", () => {
 
   test("on: W no longer types a w -- it becomes the up arrow", async ({ promptPage: page }) => {
     await page.locator("#screen").click();
-    // FreeCom treats ArrowUp as command-history recall, not a no-op -- so
-    // seed a distinctive entry, then map W→Up and expect that recall (not
-    // the letter "w" typed onto a bare prompt).
+    // FreeCom treats ArrowUp as history recall, so seed an entry and expect that recall, not a typed "w".
     await page.keyboard.type("xyzzy");
     await page.keyboard.press("Enter");
     await expect.poll(() => screenText(page), { timeout: 10_000 }).toMatch(/xyzzy/i);
@@ -75,14 +70,12 @@ test.describe("WASD to arrow keys", () => {
     await page.keyboard.down("w");
     await page.locator("#keymapPresetWasd").click();
     await page.keyboard.up("w");
-    // Whatever was held must have been broken; typing still works normally.
     await page.locator("#screen").click();
     await page.keyboard.press("x");
     await expect.poll(() => screenText(page), { timeout: 10_000 }).toMatch(/x/);
   });
 
-  // A and D strafe rather than turn: Doom's strafe modifier is Alt
-  // (key_strafe), so they send Alt with the arrow.
+  // A and D strafe: Doom's strafe modifier is Alt (key_strafe), so they send Alt with the arrow.
   test("A and D map to Alt+arrow so they strafe, W and S stay plain arrows", async ({
     promptPage: page,
   }) => {

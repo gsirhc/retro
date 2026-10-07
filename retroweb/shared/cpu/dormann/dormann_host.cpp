@@ -1,6 +1,5 @@
 // Runs mos6502::Cpu against Klaus Dormann's 6502 functional test
-// (https://github.com/Klaus2m5/6502_65C02_functional_tests) — same role
-// zexdoc plays for the shared Z80 and dormann_host for the W65C02S.
+// (github.com/Klaus2m5/6502_65C02_functional_tests).
 
 #include "../cpu_mos6502.h"
 

@@ -1,14 +1,7 @@
-// Runs cpu65c02::Cpu against Klaus Dormann's 6502/65C02 functional test
-// suite (https://github.com/Klaus2m5/6502_65C02_functional_tests) -- the
-// same validation role TST8080/CPUTEST/8080EXM play for the Altair's i8080
-// core (see retroweb/altair8800/cpm/cpm_host.cpp).
-//
-// The image is a full 64K flat memory snapshot; the test drives itself by
-// self-modifying/branching through every opcode and addressing mode and
-// traps into an infinite `jmp *` self-loop -- at a documented "success"
-// address if every check passed, at the failing test's own address
-// otherwise. `make -C .. dormann` fetches+checksums the two prebuilt
-// binaries this program is pointed at and knows their success addresses.
+// Runs cpu65c02::Cpu against Klaus Dormann's 6502/65C02 functional tests
+// (https://github.com/Klaus2m5/6502_65C02_functional_tests). The image is a
+// 64K flat snapshot that ends in a `jmp *` trap: at the success address if
+// every check passed, at the failing test's address otherwise.
 
 #include "../cpu65c02.h"
 
@@ -38,13 +31,13 @@ int main(int argc, char **argv) {
     bus.write = [&](uint16_t addr, uint8_t v) { mem[addr] = v; };
     cpu65c02::Cpu cpu(bus);
     cpu.reset();
-    cpu.pc = 0x0400;   // documented entry point for both test images
+    cpu.pc = 0x0400;   // entry point for both images
 
     constexpr uint64_t kMaxInstructions = 200'000'000;
     for (uint64_t i = 0; i < kMaxInstructions; i++) {
         uint16_t pc_before = cpu.pc;
         cpu.step();
-        if (cpu.pc != pc_before) continue;   // only a self-jump traps
+        if (cpu.pc != pc_before) continue;
         if (cpu.pc == success_pc) {
             std::printf("PASS  %s: trapped at success address $%04X after %llu instructions\n",
                         argv[1], cpu.pc, static_cast<unsigned long long>(i));

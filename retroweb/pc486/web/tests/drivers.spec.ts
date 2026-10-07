@@ -1,11 +1,7 @@
 import { test, expect } from "./fixtures";
 
-// Opt-in freeware media (CuteMouse floppy, FreeDOS CD) lives under
-// Removable media: a DOS program reaches the mouse through INT 33h, which
-// is a driver rather than firmware, so the machine ships the CuteMouse
-// diskette rather than pretending the bare hardware is enough
-// (PC486_REVIEW.md §10). The FreeDOS install/live CD is freely
-// redistributable and fetched on demand, not at page load.
+// Freeware media (CuteMouse floppy, FreeDOS CD) sits under Removable media. INT 33h is a
+// driver, not firmware, so the machine ships the diskette (PC486_REVIEW.md §10).
 test.describe("Freeware Disks & Drivers", () => {
   test("sits in Removable media, after the hard disk panel", async ({ page }) => {
     await page.goto("/?test=1");
@@ -13,7 +9,7 @@ test.describe("Freeware Disks & Drivers", () => {
       const ids = ["frontPanelCard", "hddCard", "floppyInfoCard"];
       return ids.map((id) => {
         const el = document.getElementById(id);
-        // Hidden panels (the Performance panel without ?perf) aren't on the page.
+
         return el ? Array.from(document.querySelectorAll(".panel:not([hidden])")).indexOf(el) : -1;
       });
     });
@@ -34,7 +30,6 @@ test.describe("Freeware Disks & Drivers", () => {
     );
     await expect(page.locator("#ctmouseBtn")).toBeVisible();
     await expect(page.locator("#freedosCdBtn")).toHaveText(/Insert FreeDOS CD/);
-    // The FreeDOS CD shortcut is not on the CD-ROM bay -- Insert/Eject stay there.
     await expect(
       page.locator('.at-bay[data-drive="cdrom"] #freedosCdBtn')
     ).toHaveCount(0);
@@ -48,23 +43,18 @@ test.describe("Freeware Disks & Drivers", () => {
 
     const btn = page.locator("#ctmouseBtn");
     const status = page.locator("#ctmouseStatus");
-    // The panel carries no standing commentary -- the how-to appears on use.
     await expect(status).toHaveText("");
 
     await btn.click();
     await expect(bay).toHaveClass(/loaded/, { timeout: 20_000 });
     await expect(bay.locator('[data-role="label"]')).toHaveText("ctmouse.img");
-    // Ejecting must be possible, exactly as for a user-supplied diskette.
     await expect(bay.locator('[data-role="eject"]')).toBeEnabled();
 
-    // The usage note has to cover loading it now AND making it stick, since a
-    // TSR is gone at the next reboot.
+    // The usage note covers loading now and making it stick, since a TSR is gone at reboot.
     await expect(status).toContainText("CTMOUSE /P");
     await expect(status).toContainText("AUTOEXEC.BAT");
     await expect(status).toContainText("COPY CTMOUSE.EXE");
 
-    // A real drive takes a diskette whenever you hand it one: the button never
-    // latches off, and re-inserting over a loaded disk works.
     await expect(btn).toBeEnabled();
     await btn.click();
     await expect(bay).toHaveClass(/loaded/);
@@ -78,8 +68,7 @@ test.describe("Freeware Disks & Drivers", () => {
     const info = await page.evaluate(async () => {
       const res = await fetch("disks/ctmouse.img");
       const buf = new Uint8Array(await res.arrayBuffer());
-      // 8.3 names sit in the root directory, which for this geometry starts
-      // after the boot sector and both FAT copies: 1 + 2*9 sectors.
+      // 8.3 names sit in the root directory, after the boot sector and both FATs: 1 + 2*9 sectors.
       const root = new TextDecoder("latin1").decode(buf.subarray(19 * 512, 19 * 512 + 512));
       return { ok: res.ok, len: buf.length, root };
     });

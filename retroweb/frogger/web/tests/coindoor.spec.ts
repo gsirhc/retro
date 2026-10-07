@@ -14,7 +14,7 @@ test.describe("coin door", () => {
     const face = page.locator(".cab-face");
     await expect(face).toBeVisible();
     const bg = await face.evaluate((el) => getComputedStyle(el).backgroundImage);
-    expect(bg).not.toMatch(/243,\s*225,\s*74/);  // Pac-Man yellow
+    expect(bg).not.toMatch(/243,\s*225,\s*74/);
     expect(bg).toMatch(/61,\s*163,\s*58|42,\s*122,\s*40|26,\s*90,\s*24/);
     await expect(page.locator("#coinDoor [data-coin]")).toHaveCount(2);
     await expect(page.locator(".cd-lamp")).toHaveCount(2);

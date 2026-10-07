@@ -1,23 +1,11 @@
 #!/usr/bin/env python3
-# Preview server for _site/: same as `python3 -m http.server`, but with
-# caching disabled -- matches every machine's own web/devserve.py. Without
-# this, a browser can keep serving a stale wasm module/app.js/index.html
-# after `make site` re-stages fresh ones underneath it, which looks
-# exactly like a regression that isn't actually there.
+# Preview server for _site/: http.server with caching disabled, so a restaged
+# wasm/app.js is never served stale.
 #
-# Optional TLS (5th/6th args: cert, key): the deployed site is always
-# https://, but a LAN preview served plain http:// from anything other than
-# localhost itself is a browser "insecure context" -- Chrome disables
-# AudioWorklet entirely there (see pc486/PC486_REVIEW.md, no sound over a
-# plain-http LAN preview), and other secure-context-gated APIs could hit the
-# same wall later. `make preview-cert` generates a locally-trusted cert via
-# mkcert covering localhost/this Mac's LAN name+IP; Makefile's preview
-# targets pass it here automatically when present.
-#
-# Optional --watch: poll source files, rebuild/restage into _site/, and
-# live-reload open tabs via Server-Sent Events at /__livereload. Optional
-# --machine=NAME limits wasm rebuilds to one emulator (root + shared still
-# restage). See watch_site.py.
+# Optional TLS (5th/6th args: cert, key) from `make preview-cert`; plain http on
+# a LAN address is an insecure context and disables AudioWorklet.
+# --watch: rebuild/restage on source changes and live-reload tabs via SSE at
+# /__livereload. --machine=NAME limits wasm rebuilds. See watch_site.py.
 import http.server
 import io
 import os
@@ -35,8 +23,7 @@ WATCH_MACHINE = None
 
 
 def livereload_script(generation):
-    # Bake the current generation into the URL so a fresh tab does not
-    # immediately reload against an already-bumped counter.
+    # fresh tab must not reload against an already-bumped counter
     return (
         "<script>(function(){"
         "if(window.__retroLivereload)return;window.__retroLivereload=1;"
@@ -119,7 +106,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         super().__init__(*args, directory=DIR, **kwargs)
 
     def log_message(self, fmt, *args):
-        # Keep /__livereload long-poll noise out of the preview log
+        # keep long-poll noise out of the log
         if self.path.startswith("/__livereload"):
             return
         super().log_message(fmt, *args)
@@ -135,8 +122,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         super().do_GET()
 
     def _sse_livereload(self):
-        # Long-poll SSE: hold until generation > g, or send a comment
-        # keepalive on timeout so EventSource reconnects without reloading.
+        # hold until generation > g; comment keepalive on timeout
         after = 0
         q = self.path.split("?", 1)
         if len(q) == 2:
@@ -160,14 +146,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.wfile.write(body)
 
     def send_head(self):
-        # Transparently serve `<path>` from a precompressed `<path>.gz`
-        # sibling (Content-Encoding: gzip) when one exists and the client
-        # accepts gzip -- virtually every browser always does. A browser's
-        # fetch().arrayBuffer() hands back the body already decompressed
-        # regardless of what Content-Encoding moved it over the wire, so
-        # this needs no front-end code changes; see pc486/web/Makefile's
-        # `disks/freedos-hdd.img.gz` rule for what generates the sibling
-        # and why (a mostly-unwritten FAT image gzips down to ~1/4 size).
+        # serve <path>.gz with Content-Encoding: gzip when it exists and the client
+        # accepts gzip; fetch() decompresses transparently (see pc486/web/Makefile)
         if "gzip" in self.headers.get("Accept-Encoding", ""):
             path = self.translate_path(self.path)
             gz_path = path + ".gz"
@@ -211,7 +191,6 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 data = f.read()
         except OSError:
             return None
-        # Only inject into text HTML we can decode
         try:
             text = data.decode("utf-8")
         except UnicodeDecodeError:
@@ -242,16 +221,8 @@ class Server(http.server.ThreadingHTTPServer):
     tls_context = None
 
     def process_request_thread(self, request, client_address):
-        # The naive approach -- wrapping the *listening* socket so accept()
-        # itself does the TLS handshake -- runs that handshake on the single
-        # accept loop shared by every client. One slow or stalled handshake
-        # (flaky WiFi, a browser retry, anything short of a clean connect)
-        # then blocks accept() outright, so no other request -- even a
-        # brand new one from localhost -- can get in until it clears: every
-        # tab looks hung at once. Accepting the plain socket instead (fast,
-        # no handshake) and only wrapping it here, inside this request's own
-        # worker thread ThreadingMixIn already spawned per-connection, means
-        # a stuck handshake ties up just that one thread.
+        # handshake here in the per-connection thread, not on the listening
+        # socket, so one stalled handshake can't block accept() for everyone
         if self.tls_context is not None:
             try:
                 request = self.tls_context.wrap_socket(request, server_side=True)

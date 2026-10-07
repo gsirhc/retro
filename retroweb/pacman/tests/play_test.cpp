@@ -17,9 +17,8 @@ namespace {
 
 namespace fs = std::filesystem;
 
-// Same board-socket names and sizes as web/app.js identifySet. CRC is not
-// a whitelist — a complete original-board dump is enough. 82s126.3m is the
-// unused timing PROM and is ignored.
+// Same chip names and sizes as web/app.js identifySet. CRC is not a whitelist.
+// 82s126.3m is the unused timing PROM.
 const std::regex kChipRe{R"((?:^|[._-])(6e|6f|6h|6j|5e|5f|7f|4a|1m|u5|u6|u7)(?:[^a-z0-9]|$))",
                          std::regex::icase};
 const std::regex kIgnoreRe{R"((?:^|[._-])3m(?:[^a-z0-9]|$))", std::regex::icase};
@@ -32,10 +31,8 @@ constexpr size_t kColor = 0x20;
 constexpr size_t kLookup = 0x100;
 constexpr size_t kWave = 0x100;
 
-// Work-RAM cells the original Pac-Man program keeps (Data Crystal
-// "Pac-Man (Arcade)/RAM map"; same labels in the Midway disassembly
-// comments at cubeman.org/arcade-source/mspac.asm). $4D08/$4D09 is the
-// player sprite Y/X word — collision uses `ld ix,$4D08`.
+// Work-RAM cells the Pac-Man program keeps (Data Crystal RAM map, cubeman.org
+// mspac.asm). $4D08/$4D09 is the player sprite Y/X word.
 constexpr uint16_t kPacY = 0x4D08;
 constexpr uint16_t kPacX = 0x4D09;
 constexpr uint16_t kLives = 0x4E14;
@@ -172,8 +169,7 @@ std::optional<pacman::RomSet> load_zip(const fs::path& zip) {
     std::error_code ec;
     fs::create_directories(tmp.p, ec);
     if (ec) return std::nullopt;
-    // python3 is already a test dependency (gen_hwtest.py). MAME zips are
-    // deflate; this avoids a zlib CMake dependency just for one optional test.
+    // MAME zips are deflate, python3 avoids a zlib dependency.
     const std::string cmd = "python3 -c 'import zipfile,sys; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])' " +
                             sh_quote(zip.string()) + " " + sh_quote(tmp.p.string());
     if (std::system(cmd.c_str()) != 0) return std::nullopt;
@@ -203,7 +199,7 @@ std::optional<pacman::RomSet> pick_set(const std::vector<pacman::RomSet>& sets, 
     for (const auto& s : sets) {
         if (s.aux_board == want_aux) return s;
     }
-    // Pac-Man can still run the 6e–6j banks out of an mspacman zip.
+    // Pac-Man can run the 6e-6j banks out of an mspacman zip.
     if (!want_aux && !sets.empty()) return sets.front();
     return std::nullopt;
 }
@@ -232,9 +228,8 @@ bool score_nonzero(pacman::Machine& m) {
 
 }  // namespace
 
-// Optional: CI never has a Namco dump, so this skips. Locally, drop a MAME
-// pacman/puckman zip (or the loose chips) in roms/user/ or set PACMAN_ROM.
-// See PACMAN_REVIEW.md §8.
+// Optional, skips without a dump. Drop a MAME pacman/puckman zip in roms/user/
+// or set PACMAN_ROM.
 TEST(Machine, UserRomInsertsCoinStartsAndEatsAPellet) {
     std::optional<pacman::RomSet> set;
     if (const char* env = std::getenv("PACMAN_ROM"); env && *env) {
@@ -252,13 +247,13 @@ TEST(Machine, UserRomInsertsCoinStartsAndEatsAPellet) {
     }
 
     pacman::Machine m;
-    set->aux_board = false;  // stock PCB even if the folder also has U5/U6/U7
+    set->aux_board = false;  // stock PCB
     m.load_roms(*set);
     m.watchdog_reset = false;
     m.reset();
     ASSERT_EQ(m.program[0], 0xF3) << "loaded program does not start with Pac-Man's DI";
 
-    // POST checksum plus attract; 8 s of emulated time is plenty.
+    // POST checksum plus attract.
     ASSERT_TRUE(run_frames(m, 480)) << "watchdog tripped during POST/attract";
     if (m.ram[0x4C00 - 0x4800] == 'T' && m.ram[0x4C01 - 0x4800] == 'S' &&
         m.ram[0x4C02 - 0x4800] == 'T' && m.ram[0x4C03 - 0x4800] == '1') {
@@ -266,9 +261,7 @@ TEST(Machine, UserRomInsertsCoinStartsAndEatsAPellet) {
     }
 
     const uint8_t cred0 = m.mem_read(kCredits);
-    // Debounce wants a released→pressed edge held 2 frames (history $0C);
-    // hold well past that, then settle so the pending-coin path can DAA
-    // into $4E6E.
+    // Debounce wants a released-to-pressed edge held 2 frames, then settle for the coin path.
     m.inputs.in0 = static_cast<uint8_t>(0xFF & ~0x20);
     ASSERT_TRUE(run_frames(m, 30));
     m.inputs.in0 = 0xFF;
@@ -281,8 +274,7 @@ TEST(Machine, UserRomInsertsCoinStartsAndEatsAPellet) {
     ASSERT_LE(cred1, 9) << "credits at $4E6E look like garbage, not a coin count: "
                         << int(cred1);
 
-    // Hold 1P start until lives appear or the credit is spent. A short pulse
-    // is easy to miss during attract-demo; a real cabinet button stays down.
+    // A short pulse is easy to miss during attract.
     m.inputs.in1 = static_cast<uint8_t>(0xFF & ~0x20);
     bool started = false;
     for (int i = 0; i < 600; i++) {
@@ -301,8 +293,7 @@ TEST(Machine, UserRomInsertsCoinStartsAndEatsAPellet) {
                          << " mode=" << int(m.mem_read(0x4E00)) << ")";
     EXPECT_LT(m.mem_read(kCredits), cred1) << "start should spend the credit";
 
-    // Pac-Man faces left at spawn. Hold LEFT through the jingle + READY so
-    // the first pellets are eaten as soon as the maze is live.
+    // Pac-Man faces left at spawn.
     m.inputs.in0 = static_cast<uint8_t>(0xFF & ~0x02);
     const uint8_t x0 = m.mem_read(kPacX);
     const uint8_t y0 = m.mem_read(kPacY);
@@ -318,9 +309,7 @@ TEST(Machine, UserRomInsertsCoinStartsAndEatsAPellet) {
     EXPECT_TRUE(score_nonzero(m)) << "P1 score at $4E80 stayed 0 — no pellet eaten";
 }
 
-// Same skippable local playthrough against a MAME mspacman zip (6e–6j +
-// U5/U6/U7). The GCC aux board has to sit in the Z80 socket — a Pac-Man-only
-// dump is not enough. CI never has those chips. PACMAN_REVIEW.md §8.
+// Same playthrough against a MAME mspacman zip. Needs the aux board chips.
 TEST(Machine, UserMsPacmanRomInsertsCoinStartsAndEatsAPellet) {
     std::optional<pacman::RomSet> set;
     if (const char* env = std::getenv("MSPACMAN_ROM"); env && *env) {
@@ -381,7 +370,7 @@ TEST(Machine, UserMsPacmanRomInsertsCoinStartsAndEatsAPellet) {
                          << " mode=" << int(m.mem_read(0x4E00)) << ")";
     EXPECT_LT(m.mem_read(kCredits), cred1) << "start should spend the credit";
 
-    // Maze 1 spawn still faces left. Hold LEFT through READY.
+    // Hold LEFT through READY.
     m.inputs.in0 = static_cast<uint8_t>(0xFF & ~0x02);
     const uint8_t x0 = m.mem_read(kPacX);
     const uint8_t y0 = m.mem_read(kPacY);

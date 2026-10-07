@@ -10,8 +10,7 @@ function makeBlankIso(bytes: number): string {
   return p;
 }
 
-// A minimal single-track data disc -- enough to exercise the CUE+BIN mount
-// path through the file picker without needing any audio content.
+// Minimal single-track data disc for the CUE+BIN mount path.
 function makeDataOnlyCueBin(dataBlocks: number): { cuePath: string; binPath: string } {
   const tag = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const cuePath = path.join(os.tmpdir(), `pc486-test-${tag}.cue`);
@@ -63,7 +62,7 @@ test.describe("CD-ROM drive", () => {
   test("ejecting empties the bay; inserting a new ISO loads it", async ({ livePage: page }) => {
     const bayCd = bay(page, "cdrom");
 
-    const isoPath = makeBlankIso(2048 * 16);  // a handful of 2048-byte CD-ROM sectors
+    const isoPath = makeBlankIso(2048 * 16);
     const label = bayCd.locator('[data-role="label"]');
     await insertCdrom(page, isoPath);
     await expect(bayCd).toHaveClass(/loaded/);
@@ -98,8 +97,7 @@ test.describe("CD-ROM drive", () => {
   });
 
   test("swapping discs is independent of power state -- works while the machine is off", async ({ livePage: page }) => {
-    // A real CD-ROM tray opens/closes with or without power, just like the
-    // floppy bay -- see app.js's pendingCdrom.
+    // The CD-ROM tray works with or without power, like the floppy bay (app.js pendingCdrom).
 
     await page.locator("#powerSwitch").click({ force: true });
     await expect(page.locator("#powerLed")).not.toHaveClass(/power-on/);

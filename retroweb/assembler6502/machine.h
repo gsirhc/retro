@@ -1,30 +1,17 @@
-// Ties the CPU, bus, VIA, ACIA, and ROM together into the whole board --
-// the cg-oac-6502 analog of i8080::Cpu's role in a full Altair Machine.
+// The whole board: CPU, bus, VIA, ACIA and ROM.
 //
-// Clocking: X1 is a canned 1 MHz oscillator driving Phi2 directly (see
-// bus.h) -- real 1 MHz, no turbo, per retro/CLAUDE.md. run_cycles() is
-// meant to be called with a budget derived from wall-clock time at
-// 1,000,000 Hz, the same shape as the Altair's wasm_machine.cpp
-// runCycles().
+// X1 is a 1 MHz oscillator driving Phi2. run_cycles() takes a budget derived
+// from wall-clock time at 1,000,000 Hz.
 //
-// Reset supervisor: DS1813 (U9) holds reset for its documented power-on
-// delay (Dallas/Maxim DS1813 datasheet: ~150-200ms, modeled here as a
-// cycle count at 1MHz) before the CPU's first fetch -- SW1 and J4 both
-// just short the same open-drain RST node, so a manual reset re-arms the
-// same hold.
+// Reset: the DS1813 (U9) holds reset ~150-200ms (Dallas/Maxim datasheet)
+// before the first fetch. SW1 and J4 short the same open-drain RST node, so
+// a manual reset re-arms the hold.
 //
-// LED wiring, confirmed from pcb6502full.net: despite the netlist's
-// confusingly-similar-looking net names (RNPA0/1/2 vs. VIA's own PA0/1/2),
-// these are two entirely separate, unconnected nets -- an early read of
-// this schematic mistook them for the same node and concluded the LEDs
-// were VIA-driven; they are not. All three LEDs are simple, always-passive
-// circuits with no CPU/VIA involvement whatsoever:
-//   D1 "Power": +5V -> LED -> R8 -> GND. Genuinely just a power indicator,
-//   lit whenever the board has power. (VIA PA0 itself only reaches J3's
-//   header and J8's RS232-CTS jumper -- unrelated to any LED.)
-//   D4 "Rx" / D7 "Tx": sit directly across the RS232-*level* RX/TX lines
-//   (pre-MAX232 for RX, post-MAX232 for TX) through a resistor to GND --
-//   they light on real line activity, independent of the VIA entirely.
+// LEDs (pcb6502full.net): the RNPA0/1/2 nets are not VIA PA0/1/2, so no LED
+// is VIA-driven.
+//   D1 "Power": +5V -> LED -> R8 -> GND, lit whenever the board has power.
+//   D4 "Rx" / D7 "Tx": across the RS232-level RX (pre-MAX232) and TX
+//   (post-MAX232) lines, lighting on line activity.
 
 #ifndef CG_OAC_6502_MACHINE_H
 #define CG_OAC_6502_MACHINE_H
@@ -38,34 +25,27 @@
 
 namespace machine {
 
-constexpr int kClockHz = 1'000'000;                 // X1, real -- never sped up
-constexpr int kResetHoldCycles = kClockHz * 175 / 1000;   // DS1813, ~175ms mid-range of datasheet's 150-200ms
+constexpr int kClockHz = 1'000'000;
+constexpr int kResetHoldCycles = kClockHz * 175 / 1000;   // DS1813, ~175ms (datasheet 150-200ms)
 
 class Machine {
 public:
     cpu65c02::Cpu cpu;
     bus::Bus bus;
 
-    // Optional J3 accessory (see hd44780.h) -- attached by default, since
-    // the stock ROM's reset_via_irq never gets past its LCD busy-poll
-    // without one (confirmed by running the real ROM; see the review doc).
-    // set_lcd_attached(false) reproduces the genuine bare-FullBoard hang.
+    // Optional J3 LCD, attached by default because reset_via_irq hangs on its
+    // busy-poll without one. set_lcd_attached(false) reproduces the hang.
     hd44780::Lcd lcd;
     void set_lcd_attached(bool attached);
     bool lcd_attached() const { return lcd_attached_; }
 
-    // Live line state for the front-panel LED UI -- see the wiring note
-    // above. D1 is simply "board powered", asserted once at construction.
-    // D4/D7 pulse for each received/transmitted byte: a real diode sitting
-    // directly on the RS232 line would flicker per bit transition, not per
-    // byte, but per-byte is what's observable without modeling literal
-    // line voltage -- a labelled simplification, not a claim of exactness.
+    // LED state for the front panel. D1 asserts once at construction. D4/D7
+    // pulse per byte, not per bit as the real line would.
     std::function<void(bool)> on_power_led;
     std::function<void(bool)> on_rx_led;
     std::function<void(bool)> on_tx_led;
 
-    // Terminal <-> ACIA bridge. Host calls type_char() as the user types;
-    // Machine wires acia.on_tx to relay bytes out to the host's terminal.
+    // Terminal <-> ACIA bridge
     std::function<void(uint8_t)> on_serial_out;
     void type_char(uint8_t c) {
         bus.acia.rx_push(c);
@@ -74,34 +54,20 @@ public:
 
     Machine();
 
-    // Machine wires several `this`-capturing lambdas into its own members
-    // at construction (cpu's bus read/write, the VIA/LCD strobe hooks) --
-    // a plain compiler-generated copy or move would leave those pointing
-    // at the old object, which segfaults the instant anything runs against
-    // the new one (bitten by exactly this in CI: GCC 13 didn't apply NRVO
-    // to a test helper's `Machine boot(...) { ...; return m; }` the way
-    // clang happened to locally, so the by-value return actually moved and
-    // promptly crashed). Move is made safe by re-wiring in wire() after
-    // the move; copy is deleted outright since two Machines legitimately
-    // sharing one on_serial_out/on_*_led callback set makes no sense.
+    // The `this`-capturing lambdas set up in wire() would dangle after a
+    // default move, so move re-wires them. Copy is deleted.
     Machine(const Machine&) = delete;
     Machine& operator=(const Machine&) = delete;
     Machine(Machine&& other) noexcept;
     Machine& operator=(Machine&& other) noexcept;
 
-    void power_on_reset();     // starts the DS1813 hold; press_reset() re-arms it mid-run too
+    void power_on_reset();
     void press_reset() { power_on_reset(); }
 
-    // Runs whole instructions until at least `cycles` have elapsed (may
-    // slightly overshoot by the last instruction's length, same contract
-    // as the Altair's Machine::runCycles()).
+    // Runs whole instructions until at least `cycles` have elapsed (may overshoot)
     void run_cycles(int cycles);
 
-    // Wall-clock-derived, monotonic across resets -- unlike cpu.cycles,
-    // which cpu65c02::Cpu::reset() zeroes (a real 65C02 doesn't remember
-    // T-states across a reset either; that's correct for the CPU's own
-    // bookkeeping). Machine tracks its own so a reset landing mid-budget
-    // inside run_cycles() can't make its target regress -- see machine.cpp.
+    // Monotonic across resets, unlike cpu.cycles, so a mid-budget reset can't regress run_cycles()'s target
     uint64_t cycles() const { return total_cycles_; }
 
 private:
@@ -112,11 +78,7 @@ private:
 
     void step_one(int budget);
 
-    // (Re-)establishes every `this`-capturing callback: cpu's bus
-    // read/write, and the VIA/ACIA hooks. Safe to call repeatedly --
-    // called once from the constructor, again from the move constructor
-    // and move-assignment after the moved-from wiring comes along for the
-    // ride still pointing at the old object.
+    // (Re)binds every `this`-capturing callback; called from the constructor and moves
     void wire();
 };
 

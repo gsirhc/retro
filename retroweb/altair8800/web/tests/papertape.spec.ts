@@ -170,8 +170,7 @@ test.describe("the reader's START button (authentic hand-load path)", () => {
     await page.evaluate(() => (window as any).__test.setRunning(false));
 
     await page.click("#ptr .ptr-start");
-    // nothing is draining the FIFO, so the reader overruns it (bytes lost) and
-    // runs the tape out — it must NOT freeze part-way.
+    // nothing drains the FIFO, so the reader overruns it (bytes lost) and runs the tape out; it must not freeze
     await expect
       .poll(() => page.evaluate(() => (window as any).__test.tape.phase), { timeout: 15_000 })
       .toBe("idle");

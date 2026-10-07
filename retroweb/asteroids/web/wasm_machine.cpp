@@ -57,25 +57,18 @@ public:
     int runCycles(int n) { return m_.run_cycles(n); }
 
     val frameBuffer() {
-        // static: 1024*1024 uint32_t is 4MB, far past the 1MB wasm stack
-        // this module is built with (see ../Makefile's STACK_SIZE) -- a
-        // stack-local array here faults with "memory access out of bounds".
+        // static: 4MB is far past the wasm stack.
         static std::array<uint32_t, asteroids::kFbW * asteroids::kFbH> rgb{};
         m_.render(rgb.data());
         const int n = asteroids::kFbW * asteroids::kFbH * 4;
         val out = val::global("Uint8ClampedArray").new_(n);
         auto* p = reinterpret_cast<uint8_t*>(rgb.data());
-        // One bulk copy, not a per-byte val::set() loop -- at 1024x1024
-        // (4x Pac-Man's framebuffer) a byte-at-a-time embind call here
-        // starves the real-time cycle budget every frame (see pacman's
-        // wasm_machine.cpp Machine::frameBuffer for the same pattern).
+        // One bulk copy, a per-byte val::set() loop starves the cycle budget.
         out.call<void>("set", val(emscripten::typed_memory_view(size_t(n), p)));
         return out;
     }
 
-    // Packed [x0,y0,x1,y1,intensity, ...] in DVG space (y up). Front end
-    // strokes these at the canvas's device-pixel size so lines stay crisp
-    // under CSS/fullscreen scaling.
+    // Packed [x0,y0,x1,y1,intensity, ...] in DVG space (y up).
     val vectorSegments() {
         const auto& segs = m_.dvg.segments;
         std::vector<float> packed;
@@ -127,7 +120,7 @@ public:
         m_.mem_write(uint16_t(addr), v);
     }
 
-    // Test seam: force IN0/IN1 bits including those the board synthesizes.
+    // Test seam.
     void __testSetHaltBusy(bool busy) { m_.dvg.halt = !busy; }
 
 private:

@@ -1,13 +1,10 @@
 import { test, expect } from "./fixtures";
 import { bootLive } from "./helpers";
 
-// The CT1745 mixer's tone controls (Creative's Sound Blaster Series Hardware
-// Programming Guide, chapter 4): registers 44h/45h (Treble L/R) and 46h/47h
-// (Bass L/R), 4 bits in the value's high nibble, default 8<<4 -- 0 to 7 is
-// -14 dB to 0 dB and 8 to 15 is 0 dB to +14 dB, both in 2 dB steps. These sit
-// in the mixer, upstream of the card's own output amp, so app.js models them
-// as shelving filters ahead of the backplate-wheel gain node rather than as
-// another gain multiplier on the sample stream.
+// CT1745 mixer tone controls (Creative's SB Series Hardware Programming Guide, ch. 4): 44h/45h
+// Treble L/R, 46h/47h Bass L/R, 4 bits in the high nibble, default 8<<4. 0-7 is -14 to 0 dB,
+// 8-15 is 0 to +14 dB, 2 dB steps. They sit upstream of the output amp, so app.js models them as
+// shelving filters ahead of the wheel gain node.
 test.describe("Sound Blaster 16 tone controls", () => {
   async function startAudio(page: any) {
     await page.locator("#speakerEnabled").check();
@@ -87,23 +84,16 @@ test.describe("Sound Blaster 16 tone controls", () => {
   });
 });
 
-// The ring buffer's own depth. The worklet's 50ms target is a ceiling it
-// trims down to, never a floor anything builds up to, so the depth that
-// actually holds is whatever the pump's posting cadence leaves standing --
-// and that cushion is what absorbs a main-thread hitch before the worklet
-// runs dry and holds its last sample. Idle, it sits in the thirties.
+// Ring depth. The worklet's 50ms target is a ceiling it trims to, so the depth that holds is what
+// the pump's cadence leaves; that cushion absorbs a main-thread hitch. Idle, it sits in the thirties.
 test.describe("Sound Blaster 16 audio ring", () => {
-  // At real speed, deliberately: the lead the audio thread holds is a
-  // real-time property, and the fast-test multiplier runs the guest faster
-  // than wall time on purpose, so there the audio thread is pinned to
-  // whatever the machine has produced and the figure means nothing.
+  // Real speed on purpose: the audio lead is a real-time property, and under the fast multiplier the
+  // audio thread is pinned to what the machine produced.
   test("holds a working cushion while audio is flowing", async ({ page }) => {
     test.setTimeout(60000);
     await bootLive(page, { realtime: true });
     await page.locator("#speakerEnabled").check();
-    // Depth is the lead the audio thread holds over the card's own samples,
-    // so it only exists while the card is producing any: with the machine
-    // silent there is nothing to be ahead of. Key a note on first.
+    // Depth is the audio thread's lead over the card's samples, so key a note on first.
     await page.evaluate(() => {
       const m = (window as any).__test.machine;
       const w = (r: number, v: number) => { m.portOut(0x388, r); m.portOut(0x389, v); };
@@ -114,13 +104,12 @@ test.describe("Sound Blaster 16 audio ring", () => {
     await expect
       .poll(() => page.evaluate(() => (window as any).__test.audioState))
       .toBe("running");
-    // The worklet reports twice a second, so the first figure takes a moment.
+    // The worklet reports twice a second.
     await expect
       .poll(() => page.evaluate(() => (window as any).__test.sbRingMs), { timeout: 15000 })
       .not.toBeNull();
-    // The worklet reports twice a second and zeroes its counters each time,
-    // so the first report covers the ring filling from empty and legitimately
-    // shows starvation. What matters is that it settles and stays settled.
+    // It zeroes its counters each report, so the first covers the ring filling and shows starvation.
+    // What matters is that it settles and stays settled.
     await page.waitForTimeout(1500);
     const ringMs = await page.evaluate(() => (window as any).__test.sbRingMs);
     expect(ringMs).toBeGreaterThan(50);

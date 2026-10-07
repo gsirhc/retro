@@ -1,10 +1,9 @@
 import { test, expect } from "./fixtures";
 import { bootLive } from "./helpers";
 
-// The Sound Blaster 16's backplate volume wheel (PC486_REVIEW.md section 30):
-// an analog pot after the card's output amp, so DOS can't see it. app.js
-// gives it a square-law taper up to kWheelMaxGain (4.0) and remembers the
-// position in retro8080.pc486SbVolume.
+// The SB16 backplate volume wheel (PC486_REVIEW.md section 30) is an analog pot after the output
+// amp, invisible to DOS. app.js gives it a square-law taper up to kWheelMaxGain (4.0) and
+// remembers it in retro8080.pc486SbVolume.
 const kKey = "retro8080.pc486SbVolume";
 
 async function wheelGain(page: any) {

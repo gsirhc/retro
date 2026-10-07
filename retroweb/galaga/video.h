@@ -1,11 +1,8 @@
 // Midway/Namco Galaga video board: 8×8 tiles, 64 sprites, 05XX starfield.
 //
-// Raster is 384×264 at 6.144 MHz (18.432 MHz / 3), same master clock as
-// Pac-Man. Visible 288×224, upright monitor rotated 90° to 224×288.
-// Tile fetch follows greyrogue's galaga.vhd (a cross-check). The center
-// 32 columns are row-major into the 1K code / 1K color RAM. The two
-// columns on each side are the hcnt bit 8 clear score strips.
-// Sprite bytes sit at the top of the three work-RAM banks ($8B80/$9380/$9B80).
+// 384×264 raster at 6.144 MHz, visible 288×224, rotated to 224×288.
+// Tile fetch follows greyrogue's galaga.vhd. Sprite bytes sit at the top of the
+// three work-RAM banks ($8B80/$9380/$9B80).
 
 #ifndef GALAGA_VIDEO_H
 #define GALAGA_VIDEO_H

@@ -1,12 +1,4 @@
-// GoogleTest suite for cpu65c02::Cpu. This is a light sanity/regression
-// suite -- the real correctness gate is Klaus Dormann's 6502/65C02
-// functional test suites, run via `make -C .. dormann` (see
-// dormann/dormann_host.cpp): both the base 6502 opcode/addressing-mode
-// suite and the 65C02-extended-opcode suite (which includes a decimal-mode
-// ADC/SBC self-check) pass in full. These tests pin specific, easy-to-read
-// behaviors -- especially the 65C02-only additions and the documented CMOS
-// fixes over NMOS -- so a regression shows up with a clear opcode name
-// instead of "trapped somewhere in a 20-million-instruction suite".
+// Quick regression checks; the real gate is Dormann's suite (`make -C .. dormann`).
 
 #include <gtest/gtest.h>
 
@@ -72,8 +64,7 @@ TEST_F(Cpu65C02, IndirectZpNoIndex) {
 }
 
 TEST_F(Cpu65C02, JmpIndirectFixesNmosPageWrapBug) {
-    // NMOS reads the high byte from $xx00 instead of wrapping to the next
-    // page; the 65C02 fixes this and costs an extra cycle to do it.
+    // NMOS reads the high byte from $xx00 instead of the next page
     mem[0x30FF] = 0x00; mem[0x3100] = 0x40;   // correct (65C02) target: $4000
     mem[0x3200] = 0xFF;                        // NMOS bug would read this instead -> $FF00
     load(0x1000, {0x6C, 0xFF, 0x30});           // JMP ($30FF)
@@ -85,9 +76,9 @@ TEST_F(Cpu65C02, JmpIndirectFixesNmosPageWrapBug) {
 TEST_F(Cpu65C02, PhxPlxRoundTrip) {
     cpu->x = 0x99;
     load(0x1000, {0xDA, 0xA2, 0x00, 0xFA});   // PHX; LDX #0; PLX
-    run_at(0x1000);   // PHX (1 byte)
-    run_at(0x1001);   // LDX #0 (2 bytes)
-    run_at(0x1003);   // PLX
+    run_at(0x1000);
+    run_at(0x1001);
+    run_at(0x1003);
     EXPECT_EQ(cpu->x, 0x99);
 }
 
@@ -106,8 +97,7 @@ TEST_F(Cpu65C02, RmbClearsOneBitOnly) {
 }
 
 TEST_F(Cpu65C02, DecimalAdcSetsFlagsFromDecimalResult) {
-    // 65C02 fix: N/Z/V reflect the decimal (BCD) result, not the raw
-    // pre-adjustment binary sum -- see cpu65c02.cpp's Cpu::adc().
+    // N/Z/V reflect the BCD result, not the binary sum
     cpu->p = uint8_t(cpu->p | FLAG_D);
     cpu->a = 0x99;   // decimal 99
     load(0x1000, {0x69, 0x01});   // ADC #$01 (decimal 1) -> 100, so BCD wraps to 00 with carry

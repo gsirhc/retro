@@ -1,17 +1,5 @@
-// MITS Altair 88-2SIO serial board.
-//
-// The 2SIO carries two Motorola 6850 ACIA channels. The Altair monitor / CP/M
-// almost always uses channel A at ports 0x10 (control|status) and 0x11 (data);
-// channel B sits at 0x12 / 0x13. Each channel is:
-//
-//   IN  base+0  -> status register   (RDRF, TDRE, overrun, ...)
-//   OUT base+0  -> control register   (clock divide, word fmt, irq enable)
-//   IN  base+1  -> receive data       (pops a byte the host sent us)
-//   OUT base+1  -> transmit data      (pushes a byte toward the host)
-//
-// Both data directions pass through ring buffers so a front end (a websocket
-// bridge, a PTY, a test driver) can fill the receive side and drain the
-// transmit side asynchronously.
+// MITS Altair 88-2SIO: two Motorola 6850 ACIA channels, A at 0x10 (control|status)
+// / 0x11 (data), B at 0x12 / 0x13. Ring buffers decouple the host from the CPU.
 
 #ifndef EMULATOR8080_SERIAL2SIO_H
 #define EMULATOR8080_SERIAL2SIO_H
@@ -25,7 +13,6 @@
 
 namespace altair {
 
-// 6850 status-register bits (read at control|status port).
 enum AciaStatus : uint8_t {
     ACIA_RDRF = 1 << 0,   // receive data register full  -> CPU has a byte to read
     ACIA_TDRE = 1 << 1,   // transmit data register empty -> CPU may write a byte
@@ -39,8 +26,7 @@ enum AciaStatus : uint8_t {
 
 class Serial2SIO {
 public:
-    // Depth of each direction's FIFO. 6850 hardware is single-byte; the extra
-    // buffering just decouples the emulated CPU from the host I/O rate.
+    // 6850 hardware is single-byte; the extra depth decouples the CPU from host I/O
     static constexpr std::size_t kFifoDepth = 512;
 
     struct Channel {
@@ -52,29 +38,22 @@ public:
         bool    tx_irq_enabled = false;
     };
 
-    // `base_a` is channel A's control|status port; data is base_a+1.
-    // Channel B follows at base_a+2 / base_a+3 (the physical 2SIO layout).
+    // base_a is channel A's control|status port; B follows at base_a+2
     explicit Serial2SIO(uint8_t base_a = 0x10) : base_(base_a) {}
 
-    // Fires when the board asserts its interrupt line (needs wiring to
-    // Cpu::interrupt with the machine's RST vector, typically RST 7).
+    // fires when the board asserts IRQ; wire to Cpu::interrupt (typically RST 7)
     std::function<void()> on_irq;
 
     bool owns(uint8_t port) const { return (port & 0xFC) == (base_ & 0xFC); }
 
-    // 8080 bus hooks — wire these to i8080::Bus::in / ::out.
     uint8_t in(uint8_t port);
     void    out(uint8_t port, uint8_t value);
 
     // ---- host / front-end side ------------------------------------------
-    // Feed a byte the terminal typed toward the CPU. Returns false if the
-    // receive FIFO is full (the channel latches an overrun).
     bool host_send(uint8_t byte, int channel = 0);
     std::size_t host_send(const std::string &s, int channel = 0);
 
-    // Pull one byte the CPU transmitted. Returns false when nothing is queued.
     bool host_recv(uint8_t &out, int channel = 0);
-    // Drain everything the CPU has transmitted since the last call.
     std::vector<uint8_t> host_drain(int channel = 0);
 
     std::size_t rx_pending(int channel = 0) const { return ch_[idx(channel)].rx.size(); }

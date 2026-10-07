@@ -1,9 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-// Photoreal 25¢ lamps + coin slots (index.html's #coinDoor). A labelled
-// web-UI stand-in for dropping a quarter: clicking a slot pulses the
-// same active-low IN0 bit 0x20 as the 5 key. Not a model of the cabinet's
-// coin-counter / lockout solenoids.
+// Clicking a coin slot pulses active-low IN0 bit 0x20, same as the 5 key.
 
 test.describe("coin door", () => {
   test.beforeEach(async ({ page }) => {

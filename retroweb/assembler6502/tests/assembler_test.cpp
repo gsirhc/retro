@@ -1,8 +1,5 @@
-// GoogleTest suite for the resident two-pass assembler (cpu6502/rom/editor.s),
-// driven through the real shell (SHELL_ENTRY -> ">" prompt) exactly as a
-// human typing a program in would. A direct poke into the source buffer
-// can't substitute: its real format is line-numbered (a 2-byte binary
-// prefix per line, editor.s's STORE_LINE), not flat unnumbered text.
+// Tests the ROM's two-pass assembler (editor.s) through the shell, since the
+// source buffer is line-numbered (STORE_LINE) and can't be poked flat.
 
 #include <gtest/gtest.h>
 
@@ -16,24 +13,16 @@ using namespace machine;
 
 namespace {
 
-// SHELL_ENTRY's real, built address -- verified against tmp/firmware.lbl
-// after each `make -C ../../../cpu6502/rom` (see editor.s's header).
+// SHELL_ENTRY address from tmp/firmware.lbl
 constexpr uint16_t kShellEntry = 0x8000;
 constexpr uint16_t kObjStart = 0x0400;
 
-// Types `s` at real per-character pacing. The ACIA has only a one-byte RX
-// register -- pushing a second char before the NMI handler has drained the
-// first (into SERIAL_BUFFER) overwrites it, a real overrun -- see
-// BootsTheRealFirmwareStraightToWozmon in machine_test.cpp for the same
-// reasoning.
+// One-byte ACIA RX register: the NMI handler needs cycles to drain between chars
 void type(Machine& m, const std::string& s) {
     for (char c : s) { m.type_char(uint8_t(c)); m.run_cycles(1000); }
 }
 
-// Post-CR budget: generous not just for output (this ROM's terse replies)
-// but for STORE_LINE's own O(n) buffer scan, which this file's larger
-// (100+ line) test programs exercise for real -- each new auto-numbered
-// line re-scans every prior one to find the true append point.
+// Post-CR budget covers STORE_LINE's O(n) scan to find the append point
 void typeLine(Machine& m, const std::string& s) {
     type(m, s);
     type(m, "\r");
@@ -48,8 +37,7 @@ void runAt(Machine& m, uint16_t addr) {
     m.run_cycles(200000);
 }
 
-// Boots the real firmware and enters the shell, with `out` accumulating
-// everything the ROM sends back from that point on.
+// Boots the firmware into the shell; `out` collects ROM output
 Machine bootIntoShell(std::string& out) {
     std::ifstream f("../../../../cpu6502/rom/tmp/firmware.bin", std::ios::binary);
     if (!f) { ADD_FAILURE() << "firmware.bin not built -- run `make -C .. rom` first"; return Machine(); }
@@ -65,10 +53,7 @@ Machine bootIntoShell(std::string& out) {
     return m;
 }
 
-// Types each line unnumbered (auto-numbering, editor.s's AUTO_NUMBER,
-// preserves entry order via steps of 10) then "ASM". Budgets generously
-// (real 1MHz cycles) so even a few-hundred-line program has room for both
-// passes to finish within one call.
+// Types each line unnumbered (AUTO_NUMBER steps by 10) then "ASM"
 void assemble(Machine& m, const std::vector<std::string>& lines) {
     for (const auto& l : lines) typeLine(m, l);
     type(m, "ASM\r");
@@ -151,19 +136,14 @@ TEST(Assembler, ReportsAnUndefinedLabelAsAnErrorWithTheRealLineNumber) {
     std::string out;
     Machine m = bootIntoShell(out);
 
-    // An explicit, deliberately non-sequential number -- proves the error
-    // report echoes the real program-line number (DO_ASM/CURNUM), not a
-    // 1-based physical line count.
+    // non-sequential number: the error echoes the program-line number (DO_ASM/CURNUM)
     out.clear();
     assemble(m, { "70 JMP NOWHERE" });
     EXPECT_NE(out.find("ERR LINE 70"), std::string::npos) << "got: " << out;
 }
 
 TEST(Assembler, RejectsAnUnknownMnemonicImmediatelyAtEntryNotJustAtAsm) {
-    // CHECK_SYNTAX (editor.s's STORE_LINE) now catches an unrecognized
-    // mnemonic the instant the line is typed, via the same MNEM_LOOKUP
-    // PARSE_LINE itself uses for real assembly -- it's never even stored,
-    // so ASM's own "ERR LINE n" never gets a chance to see it at all.
+    // CHECK_SYNTAX (STORE_LINE) rejects an unknown mnemonic at entry, so it's never stored
     SKIP_UNLESS_ROM_BUILT();
     std::string out;
     Machine m = bootIntoShell(out);
@@ -182,8 +162,7 @@ TEST(Assembler, RejectsABranchTargetOutOfTheSignedByteRange) {
     std::string out;
     Machine m = bootIntoShell(out);
 
-    // 200 NOPs put FAR well past a signed 8-bit branch's +/-128 reach from
-    // the BEQ that follows.
+    // 200 NOPs put FAR past a branch's +/-128 reach
     std::vector<std::string> lines = { "FAR: NOP" };
     for (int i = 0; i < 200; i++) lines.push_back("NOP");
     lines.push_back("BEQ FAR");
@@ -199,9 +178,7 @@ TEST(Assembler, PromotesAZeroPageLiteralToAbsoluteWhenOnlyAbsoluteIsSupported) {
     std::string out;
     Machine m = bootIntoShell(out);
 
-    // JSR has no zero-page encoding on real 6502/65C02 -- it always takes
-    // a full 16-bit target. A 2-hex-digit ("$10") literal operand must
-    // still assemble, widened to JSR's only real form (absolute, $20).
+    // JSR has no zero-page form, so "$10" must widen to absolute
     out.clear();
     assemble(m, { "JSR $10" });
     EXPECT_NE(out.find("Ok"), std::string::npos) << "got: " << out;
@@ -211,10 +188,7 @@ TEST(Assembler, PromotesAZeroPageLiteralToAbsoluteWhenOnlyAbsoluteIsSupported) {
 }
 
 TEST(Assembler, InlineCommentsAreIgnoredByTheAssembler) {
-    // editor.s's own header has always documented "LABEL: MNEMONIC OPERAND
-    // ; comment" as the real grammar, and ASM_READLINE already strips
-    // everything from a ';' to end-of-line before PARSE_LINE ever sees it
-    // -- this was simply never covered by a test until now.
+    // ASM_READLINE strips from ';' to end of line
     SKIP_UNLESS_ROM_BUILT();
     std::string out;
     Machine m = bootIntoShell(out);
@@ -236,8 +210,7 @@ TEST(Assembler, AFullLineCommentAssemblesAsANoOp) {
     out.clear();
     assemble(m, { "LDA #$2A", "; just a comment, no code at all", "STA $50" });
     ASSERT_NE(out.find("Ok"), std::string::npos) << "got: " << out;
-    // No bytes emitted for the comment line -- STA lands right after LDA,
-    // exactly as if the comment line weren't there.
+    // a comment line emits no bytes
     EXPECT_EQ(m.bus.ram[kObjStart + 0], 0xA9);
     EXPECT_EQ(m.bus.ram[kObjStart + 1], 0x2A);
     EXPECT_EQ(m.bus.ram[kObjStart + 2], 0x85);
@@ -245,10 +218,7 @@ TEST(Assembler, AFullLineCommentAssemblesAsANoOp) {
 }
 
 TEST(Assembler, JsrPrintCharReachesTheTerminal) {
-    // PRINT_CHAR ($8003) is one of bios.s's fixed, pinned OS-call jump-
-    // table entries -- callable by JSR from a user program exactly like
-    // any other fixed address (RUN's own resume convention already relies
-    // on this same "hand-typed hex address" idiom).
+    // PRINT_CHAR ($8003) is a fixed bios.s jump-table entry
     SKIP_UNLESS_ROM_BUILT();
     std::string out;
     Machine m = bootIntoShell(out);
@@ -264,19 +234,14 @@ TEST(Assembler, JsrPrintCharReachesTheTerminal) {
 }
 
 TEST(Assembler, JsrPrintStrReachesTheTerminal) {
-    // PRINT_STR ($8006) takes A/Y = lo/hi of a NUL-terminated string. This
-    // v1 assembler has no data directive to embed one directly (hex-
-    // literal operands only -- see the Help panel's "v1 assembler scope"),
-    // so a real program has to build one byte-by-byte via LDA/STA first;
-    // this test does the same poke a real typed-in program's own STA
-    // sequence would produce, then assembles just the JSR against it.
+    // PRINT_STR ($8006) takes A/Y = lo/hi of a NUL-terminated string; poke one into RAM and assemble just the JSR
     SKIP_UNLESS_ROM_BUILT();
     std::string out;
     Machine m = bootIntoShell(out);
 
     const uint16_t strAddr = 0x0600;
     const char msg[] = "HI";
-    for (size_t i = 0; i <= sizeof(msg) - 1; i++) m.bus.ram[strAddr + i] = uint8_t(msg[i]);   // includes the NUL
+    for (size_t i = 0; i <= sizeof(msg) - 1; i++) m.bus.ram[strAddr + i] = uint8_t(msg[i]);
 
     out.clear();
     char buf[32];
@@ -294,10 +259,7 @@ TEST(Assembler, JsrPrintStrReachesTheTerminal) {
 }
 
 TEST(Assembler, JsrLcdPutcAndPutsReachTheLcd) {
-    // LCD_PUTC ($8009) and LCD_PUTS ($800C) -- same fixed jump-table
-    // pattern, out the HD44780 instead of the ACIA. LCD_CLEAR ($800F)
-    // first, so this doesn't depend on whatever RESET's own boot banner
-    // already left on the display.
+    // LCD_PUTC ($8009) and LCD_PUTS ($800C); LCD_CLEAR ($800F) first to drop the boot banner
     SKIP_UNLESS_ROM_BUILT();
     std::string out;
     Machine m = bootIntoShell(out);
@@ -318,8 +280,8 @@ TEST(Assembler, JsrLcdPutcAndPutsReachTheLcd) {
     out.clear();
     type(m, "RUN\r");
     m.run_cycles(30000);
-    EXPECT_EQ(m.lcd.text[0][0], 'X');    // LCD_PUTC wrote 'X' ($58) at the cursor's start position
-    EXPECT_EQ(m.lcd.text[0][1], 'O');    // then LCD_PUTS continued from there
+    EXPECT_EQ(m.lcd.text[0][0], 'X');
+    EXPECT_EQ(m.lcd.text[0][1], 'O');
     EXPECT_EQ(m.lcd.text[0][2], 'K');
 }
 
@@ -350,10 +312,7 @@ TEST(Assembler, ByteDirectiveEmitsHexLiteralsAndMixesWithAString) {
 }
 
 TEST(Assembler, ByteDirectiveAdvancesThePcSoALaterLabelResolvesPastIt) {
-    // A real correctness bar for a data directive: it has to participate
-    // in ADVANCE_PC exactly like an instruction's own ASIZE does, or every
-    // label after it (and every branch across it) resolves to the wrong
-    // address.
+    // .BYTE must advance PC like an instruction's ASIZE, or later labels shift
     SKIP_UNLESS_ROM_BUILT();
     std::string out;
     Machine m = bootIntoShell(out);
@@ -364,18 +323,14 @@ TEST(Assembler, ByteDirectiveAdvancesThePcSoALaterLabelResolvesPastIt) {
     out.clear();
     assemble(m, { "MSG: .BYTE \"HI\",$00", "NEXT: NOP", "JMP NEXT" });
     EXPECT_NE(out.find("Ok"), std::string::npos) << "got: " << out;
-    EXPECT_EQ(m.bus.ram[kObjStart + 3], 0xEA);  // NOP
-    EXPECT_EQ(m.bus.ram[kObjStart + 4], 0x4C);  // JMP
+    EXPECT_EQ(m.bus.ram[kObjStart + 3], 0xEA);
+    EXPECT_EQ(m.bus.ram[kObjStart + 4], 0x4C);
     EXPECT_EQ(m.bus.ram[kObjStart + 5], 0x03);
     EXPECT_EQ(m.bus.ram[kObjStart + 6], 0x04);
 }
 
 TEST(Assembler, ByteDirectiveStringIsPrintableViaAnIndexedLoop) {
-    // The actual point of .BYTE per its header comment: no <// >> operators
-    // means a stored string can't feed PRINT_STR's A/Y calling convention
-    // directly, but LDA MSG,X (absolute,X -- already-supported addressing)
-    // walks it fine. End-to-end: assemble, RUN, check the real terminal
-    // output, not just the object bytes.
+    // no <// >> operators, so LDA MSG,X walks the string; assemble, RUN, check terminal output
     SKIP_UNLESS_ROM_BUILT();
     std::string out;
     Machine m = bootIntoShell(out);
@@ -420,11 +375,7 @@ TEST(Assembler, ByteDirectiveRejectsAnUnterminatedString) {
 }
 
 TEST(Assembler, ByteDirectiveListsAsOneUnbrokenKeywordNotSplitAtTheThirdChar) {
-    // PRINT_ENTRY (LIST's formatter) hardcodes a 3-char mnemonic field,
-    // the same fixed-width assumption PARSE_LINE's own MATCH_BYTE_KEYWORD
-    // exists to work around -- without the matching fix there, LIST chops
-    // ".BYTE" into ".BY" + a padding space + "TE ..." (a real bug this
-    // shipped with once already).
+    // LIST's PRINT_ENTRY assumes a 3-char mnemonic field; ".BYTE" must not split into ".BY" + "TE"
     SKIP_UNLESS_ROM_BUILT();
     std::string out;
     Machine m = bootIntoShell(out);
@@ -438,8 +389,7 @@ TEST(Assembler, ByteDirectiveListsAsOneUnbrokenKeywordNotSplitAtTheThirdChar) {
 }
 
 TEST(Assembler, ByteDirectiveRejectsAnOversizedHexLiteral) {
-    // $xx is a *byte* literal here -- 3+ hex digits can't fit, unlike a
-    // real operand position where $-prefixed 4-digit forms mean absolute.
+    // $xx is a byte literal; 3+ hex digits can't fit
     SKIP_UNLESS_ROM_BUILT();
     std::string out;
     Machine m = bootIntoShell(out);

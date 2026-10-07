@@ -1,12 +1,6 @@
-// MITS 88-ACR — see cassette.h.
-//
-// Status polarity, read straight out of our 8K BASIC 4.0 ROM:
-//   CLOAD byte:  IN 06 / ANI 01 / JNZ <back>   -> wait while bit 0 is SET,
-//                                                 proceed (IN 07) when it CLEARS
-//   CSAVE byte:  IN 06 / ANI 80 / JNZ <back>   -> wait while bit 7 is SET,
-//                                                 proceed (OUT 07) when it CLEARS
-// So both "ready" conditions are active-low: bit 0 low = a byte is available to
-// read, bit 7 low = the recorder will take another byte.
+// MITS 88-ACR, see cassette.h.
+// Status is active-low, per our 8K BASIC 4.0 ROM: CLOAD waits while bit 0 is set
+// (IN 06 / ANI 01), CSAVE waits while bit 7 is set (IN 06 / ANI 80).
 
 #include "cassette.h"
 
@@ -15,14 +9,11 @@ namespace altair {
 namespace {
 constexpr uint8_t     ST_RDA = 0x01;   // receive data available   (0 = a byte waits)
 constexpr uint8_t     ST_TBE = 0x80;   // transmit buffer empty    (0 = ready to record)
-constexpr std::size_t kGapBytes = 12;  // blank run between programs, so CLOAD can
-                                       // resync onto the next one (the tape gap
-                                       // you get pressing STOP then REC again)
+constexpr std::size_t kGapBytes = 12;  // blank run so CLOAD can resync onto the next program
 }  // namespace
 
 void CassetteACR::reset() {
-    // a mounted tape survives a CPU reset — you don't lose the cassette — but the
-    // transport stops and the head returns to the start
+    // a mounted tape survives reset; the transport stops and the head rewinds
     pos_ = 0;
     head_frac_ = 0;
     credit_ = 0;
@@ -65,16 +56,8 @@ void CassetteACR::setWind(int dir) {
 }
 
 void CassetteACR::tick(uint64_t cpuCycles) {
-    // The front-panel RESET paddle zeroes the CPU's own cycle counter
-    // (i8080::reset()) even though the deck isn't on the S-100 bus and must
-    // keep rolling right through a reset (ALTAIR_REVIEW.md §3.4) -- wasm_
-    // machine.cpp's tickCassette() still feeds this call cpu_.cycles as its
-    // clock source, so a reset makes cpuCycles go backward from this call's
-    // point of view. Guard against that: an unsigned d = cpuCycles -
-    // prev_tick_cy_ would otherwise underflow into a huge spurious "elapsed
-    // time" and yank the tape forward (in practice, straight to capacity()
-    // in one tick). Treat a backward jump as "no time passed this tick" and
-    // resync to the new baseline; the next real tick picks up cleanly.
+    // Front-panel RESET zeroes cpu_.cycles, which feeds this clock; the deck is
+    // not on the bus and keeps rolling. Treat a backward jump as no time passed.
     if (cpuCycles < prev_tick_cy_) {
         prev_tick_cy_ = cpuCycles;
         cpu_cycles_ = cpuCycles;
@@ -101,20 +84,16 @@ void CassetteACR::tick(uint64_t cpuCycles) {
 
     if (!motor_) return;
 
-    // the tape rolls forward at the selected rate; credit_ is how many byte-times
-    // have gone by that the CPU hasn't read (or written) yet -- BASIC drains it
-    // as fast as its CLOAD / CSAVE loop runs, so 25x / 50x really are that fast
+    // credit_ counts byte-times gone by that the CPU hasn't read or written yet
     const double cap = std::max(8.0, byteRate() * 0.25);
     credit_ += static_cast<double>(d) / cycles_per_byte_;
 
-    // while recording, the head advances on each OUT 0x07, not on its own
     if (mode_ == kRecording) {
         if (credit_ > cap) credit_ = cap;
         return;
     }
 
-    // playback: any credit past the cap means nothing is keeping up (PLAY with
-    // no CLOAD, or a slow reader) -- the surplus bytes roll past the head unread
+    // playback: credit past the cap means nothing is reading; surplus rolls past the head
     if (credit_ > cap) {
         head_frac_ += credit_ - cap;      // carry the sub-byte remainder
         credit_ = cap;
@@ -162,9 +141,7 @@ void CassetteACR::out(uint8_t port, uint8_t value) {
         }
         mode_ = kRecording;
         if (credit_ >= 1) credit_ -= 1;
-        // record AT THE HEAD: overwrite in place, or extend the tape. The old
-        // tail past the new bytes stays on the tape, as it would physically --
-        // CLOAD stops at the new program's end.
+        // record at the head; the old tail stays on tape, so CLOAD stops at the new end
         if (pos_ < tape_.size()) {
             tape_[pos_] = value;
         } else {
@@ -176,7 +153,7 @@ void CassetteACR::out(uint8_t port, uint8_t value) {
         ++io_ticks_;
         return;
     }
-    // OUT 0x06 is ACIA / motor-relay control; the motor isn't modelled.
+    // OUT 0x06 (motor relay) is not modelled.
 }
 
 }  // namespace altair

@@ -98,7 +98,6 @@ function concat(parts, total) {
   return out;
 }
 
-// MAME frogger / board socket names.
 function roleOf(name) {
   const n = String(name).toLowerCase().split("/").pop();
   if (n === "program.bin" || n === "prg.bin") return "program";
@@ -307,8 +306,7 @@ FroggerArcade().then(async (Module) => {
     const url = URL.createObjectURL(new Blob([src], { type: "text/javascript" }));
     await audioCtx.audioWorklet.addModule(url);
     audioNode = new AudioWorkletNode(audioCtx, "ay");
-    // Dry mix keeps headroom for three full voices. The tune and hop sit
-    // on one mid log step (often 0x0A–0x0D), so 4× matches the other cabinets.
+    // Dry mix leaves headroom for three voices; 4x matches the other cabinets.
     const speaker = audioCtx.createGain();
     speaker.gain.value = 4;
     audioNode.connect(speaker);
@@ -372,8 +370,7 @@ FroggerArcade().then(async (Module) => {
     lastSavedHiscore = bytes.join(",");
   }
 
-  // Factory sentinel at $83F1/$83FA — wait for POST to write the table, then
-  // always poke IndexedDB (never treat non-factory as already restored).
+  // Wait for POST to write the factory table ($83F1/$83FA), then poke IndexedDB.
   let restoreInFlight = false;
   async function maybeRestoreHiscore() {
     if (!usingUserRom || restoreInFlight || hiscoreRestored) return;
@@ -496,8 +493,7 @@ FroggerArcade().then(async (Module) => {
     const files = {};
     for (const f of items) {
       const name = f.name.toLowerCase();
-      // File/Blob.bytes is a method on current Chromium; Drive items carry
-      // a Uint8Array on .bytes. Only treat the latter as payload.
+      // File/Blob.bytes is a method on current Chromium; only a Uint8Array is payload.
       const bytes = f.bytes instanceof Uint8Array
         ? f.bytes
         : new Uint8Array(await f.arrayBuffer());

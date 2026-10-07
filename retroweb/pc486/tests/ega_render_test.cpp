@@ -1,9 +1,5 @@
-// GoogleTest suite for the shared EGA/VGA renderer: glyph decode from VRAM
-// plane 2, palette decode via the live Attribute Controller registers, the
-// block cursor's visibility/shape/scanline range, the CGA-compatibility and
-// native 16-color planar graphics decodes, and (Milestone 3) the VGA
-// 256-color path -- mode 13h's chain-4 byte-per-pixel frame buffer through
-// the real DAC, and the card's SVGA linear modes. See PC486_REVIEW.md §7.
+// GoogleTest suite for the shared EGA/VGA renderer: text, cursor, CGA and planar
+// graphics, VGA 256-color and SVGA linear modes. See PC486_REVIEW.md §7.
 
 #include <gtest/gtest.h>
 
@@ -26,16 +22,13 @@ using pc486::RenderTextScreen;
 using pc486::RenderVga256Screen;
 using pc486::ScreenMode;
 
-// Programs the two real Graphics Controller registers that select mode:
-// GR06 bit 0 (graphics vs. alphanumeric) and GR05 bits 5-6 (Shift
-// Register field).
+// GR06 bit 0 (graphics vs. alphanumeric) and GR05 bits 5-6 (Shift Register field).
 void SetGraphicsMode(Ega &ega, bool graphics, uint8_t shift_register_mode) {
     ega.out(0x3CE, 0x06); ega.out(0x3CF, graphics ? 0x01 : 0x00);
     ega.out(0x3CE, 0x05); ega.out(0x3CF, uint8_t((shift_register_mode & 0x03) << 5));
 }
 
-// Programs Attribute Controller palette register `index` to raw EGA color
-// `value` (the same address/data flip-flop port real software uses).
+// Attribute Controller palette register `index` = raw EGA color `value`.
 void SetPalette(Ega &ega, int index, uint8_t value) {
     ega.out(0x3C0, uint8_t(index));
     ega.out(0x3C0, value);
@@ -43,17 +36,14 @@ void SetPalette(Ega &ega, int index, uint8_t value) {
 
 std::size_t PixelIndex(int x, int y) { return (std::size_t(y) * kTextRenderWidth + std::size_t(x)) * 4; }
 
-// Programs one of the 256 DAC color registers through the real PEL Address
-// Write / PEL Data ports, in raw 6-bit-per-channel values.
+// One of the 256 DAC registers via PEL Address Write / PEL Data, 6 bits per channel.
 void SetDac(Ega &ega, int index, uint8_t r, uint8_t g, uint8_t b) {
     ega.out(0x3C8, uint8_t(index));
     ega.out(0x3C9, r); ega.out(0x3C9, g); ega.out(0x3C9, b);
 }
 
-// What a VGA BIOS leaves on a text or 16-colour mode set: DAC 0-63 holding
-// the EGA's 64 colours (each channel primary * 42 + secondary * 21 in 6
-// bits, so EGA-style palette values come out as EGA colours) and all four
-// planes enabled in Color Plane Enable.
+// What a VGA BIOS leaves on a text or 16-color mode set: DAC 0-63 holds the EGA's 64 colors
+// (primary * 42 + secondary * 21) and all four planes are enabled.
 void LoadBiosColourDefaults(Ega &ega) {
     for (int i = 0; i < 64; ++i) {
         auto chan = [i](int lo, int hi) { return uint8_t(((i >> lo) & 1) * 42 + ((i >> hi) & 1) * 21); };
@@ -62,10 +52,7 @@ void LoadBiosColourDefaults(Ega &ega) {
     SetPalette(ega, 0x12, 0x0F);
 }
 
-// Exactly the register values this machine's own BIOS was observed to
-// program for mode 13h, read back off the live card by vbe_mode13_check --
-// see PC486_REVIEW.md §7. Nothing here is a guess at "what mode 13h ought
-// to look like"; it is what the firmware actually wrote.
+// Register values this machine's BIOS programs for mode 13h, read off the live card by vbe_mode13_check (PC486_REVIEW.md §7).
 void SetupMode13h(Ega &ega) {
     ega.out(0x3C4, 0x02); ega.out(0x3C5, 0x0F);  // Sequencer Map Mask: all 4 planes
     ega.out(0x3C4, 0x04); ega.out(0x3C5, 0x0E);  // Memory Mode: Chain 4 on, odd/even off
@@ -83,8 +70,7 @@ void SetupMode13h(Ega &ega) {
     ega.out(0x3C0, 0x10); ega.out(0x3C0, 0x41);  // AC Mode Control: graphics + 8-bit color
 }
 
-// Switches the card into an SVGA (VBE-programmed) linear mode through its
-// extension registers, the way the card's own ROM does on a 4F02.
+// Switch to an SVGA (VBE) linear mode through the extension registers, as the ROM does on 4F02.
 void SetSvgaMode(Ega &ega, uint16_t xres, uint16_t yres) {
     auto put = [&](uint16_t reg, uint16_t v) {
         ega.out16(Ega::kVbeIndexPort, reg);
@@ -96,24 +82,19 @@ void SetSvgaMode(Ega &ega, uint16_t xres, uint16_t yres) {
     put(Ega::kVbeRegEnable, Ega::kVbeEnabled);
 }
 
-// 8-dot cells (SR01 bit 0) with the cursor off (CRTC 0Ah bit 5), so a
-// case about glyphs or colours isn't painted over by the reset-state
-// cursor at cell 0.
+// 8-dot cells (SR01 bit 0) with the cursor off (CRTC 0Ah bit 5).
 void EightDotTextNoCursor(Ega &ega) {
     ega.out(0x3C4, 0x01); ega.out(0x3C5, 0x01);
     ega.out(0x3D4, 0x0A); ega.out(0x3D5, 0x20);
 }
 
-// Runs the card's frame counter forward `frames` vertical frames at the
-// unprogrammed CRTC's fallback 70 Hz and the default 66 MHz clock. `now`
-// is that card's own cycle count.
+// Run the card's frame counter forward `frames` frames at the fallback 70 Hz and 66 MHz clock.
 void AdvanceFrames(Ega &ega, uint64_t &now, int frames) {
     now += uint64_t(double(frames) * 66e6 / 70.0) + 1000;
     ega.tick(now);
 }
 
-// Asserts one rendered pixel's exact RGB -- no tolerance: a DAC channel
-// that scales wrong by one step is a real bug, not a rounding preference.
+// Exact RGB, no tolerance.
 void ExpectRgb(const std::vector<uint8_t> &rgba, int width, int x, int y,
                uint8_t r, uint8_t g, uint8_t b) {
     std::size_t i = (std::size_t(y) * std::size_t(width) + std::size_t(x)) * 4;
@@ -137,21 +118,15 @@ TEST(EgaRenderTest, ProducesTheDocumentedBufferSize) {
     EXPECT_EQ(rgba.size(), std::size_t(kTextRenderWidth * kTextRenderHeight * 4));
 }
 
-// Real hardware fact this covers: this machine's freely-licensed BIOS
-// substitute is a full VGA BIOS and programs VGA's native 16-line-per-row
-// text mode (Max Scan Line = 15) rather than genuine EGA's own 14-line
-// convention (see ega_render.h's RenderTextScreen comment). The renderer
-// must follow that real register, not a hardcoded row height -- otherwise
-// every glyph's last two scanlines (exactly where the VGA 8x16 font draws
-// descenders on g/y/p/q/j) get silently discarded.
+// The VGA BIOS programs 16-line text rows (Max Scan Line = 15), not EGA's 14, so the
+// renderer must follow the register (see ega_render.h RenderTextScreen).
 TEST(EgaRenderTest, RowHeightAndFrameSizeFollowTheRealMaxScanLineRegister) {
     Ega ega;
     ega.reset();
     EightDotTextNoCursor(ega);
     LoadBiosColourDefaults(ega);
     ega.out(0x3D4, 0x09); ega.out(0x3D5, 0x0F);  // Max Scan Line = 15 -> 16 lines/row
-    // Character 'g' (0x67), scanline 14 -- part of a real descender, and
-    // exactly the row the old hardcoded 14-line renderer never reached.
+    // Character 'g' (0x67), scanline 14: part of a descender.
     uint32_t glyph_off = uint32_t('g') * 32 + 14;
     ega.vram[(glyph_off << 2) + 2] = 0xFF;  // every pixel in this row set
     ega.vram[(0 << 2) + 0] = 'g';
@@ -169,17 +144,8 @@ TEST(EgaRenderTest, RowHeightAndFrameSizeFollowTheRealMaxScanLineRegister) {
     EXPECT_EQ(rgba[p + 0], 255); EXPECT_EQ(rgba[p + 1], 255); EXPECT_EQ(rgba[p + 2], 255);
 }
 
-// Real hardware fact this covers: 40-column text (BIOS mode 0/1) is a
-// genuine CRTC configuration -- Horizontal Displayed (R01) = 39, not 79 --
-// that period DOS software legitimately uses for a large-character screen
-// (confirmed live against MECC's The Oregon Trail's "Look at map" screen,
-// which renders exactly this way). VRAM stays laid out row*cols+col with
-// cols=40 in this mode, so a renderer that hardcodes 80 columns starts
-// every row after the first at the wrong offset -- reading half of row 1
-// from the tail of row 0 and the other half from row 1's own first bytes
-// -- which is exactly the scrambled-glyph-noise failure mode the file
-// header warns about, just reached through a missed CRTC register instead
-// of a missed graphics-mode bit. See PC486_REVIEW.md.
+// 40-column text (BIOS mode 0/1) sets Horizontal Displayed (R01) = 39. VRAM stays
+// row*cols+col with cols=40, so a renderer hardcoding 80 columns scrambles rows after the first.
 TEST(EgaRenderTest, ColumnCountAndFrameWidthFollowTheRealHorizontalDisplayedRegister) {
     Ega ega;
     ega.reset();
@@ -187,8 +153,7 @@ TEST(EgaRenderTest, ColumnCountAndFrameWidthFollowTheRealHorizontalDisplayedRegi
     LoadBiosColourDefaults(ega);
     ega.out(0x3D4, 0x01); ega.out(0x3D5, 39);  // Horizontal Displayed = 39 -> 40 cols
     SetPalette(ega, 15, 0x3F);  // white
-    // Cell (row=1, col=0) sits at the 40-column offset 40 -- at the
-    // hardcoded-80 offset that same VRAM slot would instead land mid-row 0.
+    // Cell (row=1, col=0) sits at 40-column offset 40.
     uint32_t cell = 40;
     ega.vram[(cell << 2) + 0] = 0x41;
     ega.vram[(cell << 2) + 1] = 0x0F;  // fg=white, bg=black
@@ -239,8 +204,7 @@ TEST(EgaRenderTest, CursorDrawsAsASolidBlockAtItsProgrammedScanlines) {
     ega.out(0x3C4, 0x01); ega.out(0x3C5, 0x01);  // 8-dot cells
     LoadBiosColourDefaults(ega);
     SetPalette(ega, 15, 0x3F);
-    // Cell (0,0) holds a blank character (font row all zero, so without the
-    // cursor override every pixel would read as background).
+    // Cell (0,0) holds a blank glyph.
     ega.vram[(0 << 2) + 0] = 0x00;
     ega.vram[(0 << 2) + 1] = 0x0F;  // fg=white, bg=black(0)
     ega.out(0x3D4, 0x0E); ega.out(0x3D5, 0x00);  // cursor location high
@@ -302,8 +266,7 @@ TEST(EgaRenderTest, DetectScreenModeReadsTheRealModeRegisters) {
     SetGraphicsMode(ega, /*graphics=*/true, /*shift_register_mode=*/2);
     EXPECT_EQ(DetectScreenMode(ega), ScreenMode::kVga256);  // VGA 256-color (mode 13h)
 
-    // Shift Register field 3 is not a mode real VGA silicon defines -- an
-    // honest black frame, not a guess at which decode was meant.
+    // Shift Register field 3 is undefined on VGA; expect a black frame.
     SetGraphicsMode(ega, /*graphics=*/true, /*shift_register_mode=*/3);
     EXPECT_EQ(DetectScreenMode(ega), ScreenMode::kUnsupportedGraphics);
 
@@ -312,9 +275,8 @@ TEST(EgaRenderTest, DetectScreenModeReadsTheRealModeRegisters) {
 }
 
 TEST(EgaRenderTest, CgaGraphics4DecodesPlane0ThenPlane1AsFourPixelsEach) {
-    // Real hardware: a CGA-unaware program's two consecutive flat bytes for
-    // scanline 0 (pixels 0-3, then 4-7) land at the same plane offset (0),
-    // split across planes 0 and 1 by odd/even chaining -- see ega_render.h.
+    // A CGA-unaware program's two flat bytes for scanline 0 land at plane offset 0,
+    // split across planes 0 and 1 by odd/even chaining (ega_render.h).
     Ega ega;
     ega.reset();
     LoadBiosColourDefaults(ega);
@@ -343,8 +305,7 @@ TEST(EgaRenderTest, CgaGraphics4DecodesPlane0ThenPlane1AsFourPixelsEach) {
 }
 
 TEST(EgaRenderTest, CgaGraphics4OddScanlinesUseTheSecondEightKilobyteBank) {
-    // Scanline 1 (odd) starts at flat offset 0x2000, not 1 -- real CGA's
-    // even/odd-scanline bank split, distinct from the plane odd/even split.
+    // Odd scanlines start at flat offset 0x2000 (CGA even/odd bank split).
     Ega ega;
     ega.reset();
     LoadBiosColourDefaults(ega);
@@ -362,10 +323,7 @@ TEST(EgaRenderTest, CgaGraphics4OddScanlinesUseTheSecondEightKilobyteBank) {
 }
 
 TEST(EgaRenderTest, EgaNative16ResolutionComesFromCrtcTimingNotATable) {
-    // Verified against this machine's own real BIOS: directly invoking its
-    // INT 10h AL=0x10 handler and reading back what it programs gives
-    // exactly these register values for genuine mode 0x10 (640x350x16) --
-    // see PC486_REVIEW.md §16.
+    // Register values from this machine's BIOS INT 10h AL=0x10 handler for mode 0x10 (PC486_REVIEW.md §16).
     Ega ega;
     ega.reset();
     LoadBiosColourDefaults(ega);
@@ -382,10 +340,7 @@ TEST(EgaRenderTest, EgaNative16ResolutionComesFromCrtcTimingNotATable) {
 }
 
 TEST(EgaRenderTest, EgaNative16DecodesOneBitPerPlanePerPixelMsbFirst) {
-    // Real EGA/VGA convention: plane 0 = bit 0 (LSB) of the 4-bit color
-    // index, through plane 3 = bit 3 (MSB); within a byte, bit 7 is the
-    // leftmost pixel (MSB-first, the same convention text mode's glyph
-    // bytes and CGA-mode's pixel bytes already use).
+    // Plane 0 is bit 0 of the color index, plane 3 bit 3; bit 7 of a byte is the leftmost pixel.
     Ega ega;
     ega.reset();
     LoadBiosColourDefaults(ega);
@@ -393,8 +348,7 @@ TEST(EgaRenderTest, EgaNative16DecodesOneBitPerPlanePerPixelMsbFirst) {
     ega.out(0x3D4, 0x12); ega.out(0x3D5, 0);     // V Display End -> 0+1 = 1 tall
     SetPalette(ega, 0x0, 0x00);  // black
     SetPalette(ega, 0x5, 0x02);  // index 5 = green (planes 0 and 2 set: bits 0+2 = 0b0101 = 5)
-    // Plane 0 byte and plane 2 byte both have their MSB set (leftmost
-    // pixel); planes 1 and 3 are 0 -- leftmost pixel's index = 0b0101 = 5.
+    // Planes 0 and 2 MSB set, so the leftmost index is 0b0101 = 5.
     ega.vram[(0 << 2) + 0] = 0x80;
     ega.vram[(0 << 2) + 2] = 0x80;
 
@@ -421,8 +375,7 @@ TEST(EgaRenderTest, RenderScreenDispatchesToTheRightModeAtTheRightResolution) {
     EXPECT_EQ(cga_frame.width, 320);
     EXPECT_EQ(cga_frame.height, 200);
 
-    // Native 16-color EGA: resolution comes from the CRTC, not a table --
-    // program real mode-0x10 Horizontal/Vertical Display End values.
+    // Native EGA: resolution comes from the CRTC, not a table.
     SetGraphicsMode(ega, true, 0);
     ega.out(0x3D4, 0x01); ega.out(0x3D5, 79);    // H Display End -> (79+1)*8 = 640
     ega.out(0x3D4, 0x12); ega.out(0x3D5, 0x5D);  // V Display End low 8 bits = 93
@@ -432,8 +385,7 @@ TEST(EgaRenderTest, RenderScreenDispatchesToTheRightModeAtTheRightResolution) {
     EXPECT_EQ(native16_frame.width, 640);
     EXPECT_EQ(native16_frame.height, 350);
 
-    // VGA 256-color: 320x200 out of the same 640-dot CRTC timing, because
-    // the Attribute Controller's 8-bit-color bit halves the pixel clock.
+    // 320x200 from 640-dot CRTC timing: the AC 8-bit-color bit halves the pixel clock.
     SetupMode13h(ega);
     RenderedFrame vga256_frame;
     RenderScreen(ega, vga256_frame);
@@ -495,11 +447,8 @@ TEST(EgaRenderTest, ColorSelectSuppliesTheHighDacAddressBits) {
 }
 
 TEST(EgaRenderTest, Vga256ResolutionComesFromCrtcAndAttributeControllerNotATable) {
-    // Every number here is what this machine's own BIOS was observed to
-    // program for mode 13h, read back off the live card by
-    // vbe_mode13_check (see PC486_REVIEW.md §7). The CRTC alone describes a
-    // 640x400 raster; only the Attribute Controller's 8-bit-color bit and
-    // the Maximum Scan Line register fold it to the real 320x200.
+    // Register values this machine's BIOS programs for mode 13h (vbe_mode13_check, PC486_REVIEW.md §7).
+    // The CRTC describes 640x400; the AC 8-bit-color bit and Max Scan Line fold it to 320x200.
     Ega ega;
     ega.reset();
     SetupMode13h(ega);
@@ -510,8 +459,7 @@ TEST(EgaRenderTest, Vga256ResolutionComesFromCrtcAndAttributeControllerNotATable
     EXPECT_EQ(h, 200);
     EXPECT_EQ(rgba.size(), std::size_t(320 * 200 * 4));
 
-    // Drop the 8-bit-color bit and the same CRTC now genuinely describes a
-    // 640-wide picture -- proof the 320 is derived, not hardcoded.
+    // Without the 8-bit-color bit the CRTC describes 640 wide, so 320 is derived.
     ega.out(0x3C0, 0x10); ega.out(0x3C0, 0x01);
     RenderVga256Screen(ega, rgba, w, h);
     EXPECT_EQ(w, 640);
@@ -523,8 +471,7 @@ TEST(EgaRenderTest, Vga256DecodesOneBytePerPixelThroughTheLiveDac) {
     SetupMode13h(ega);
     SetDac(ega, 7, 63, 0, 21);
     SetDac(ega, 200, 0, 32, 63);
-    // Chain-4 makes the flat frame-buffer offset the VRAM index -- write
-    // through the real memory interface, not straight into the array.
+    // Chain-4: flat offset is the VRAM index. Write through mem_write.
     ega.mem_write(0xA0000 + 0, 7);          // (0,0)
     ega.mem_write(0xA0000 + 319, 200);      // (319,0)
     ega.mem_write(0xA0000 + 320, 200);      // (0,1) -- one scan line down
@@ -532,8 +479,7 @@ TEST(EgaRenderTest, Vga256DecodesOneBytePerPixelThroughTheLiveDac) {
     std::vector<uint8_t> rgba;
     int w = 0, h = 0;
     RenderVga256Screen(ega, rgba, w, h);
-    // 6-bit DAC channels scaled to full-scale 8-bit: 63 -> 255, 21 -> 85,
-    // 32 -> 130, 0 -> 0.
+    // 6-bit DAC scaled to 8-bit: 63 -> 255, 21 -> 85, 32 -> 130.
     ExpectRgb(rgba, w, 0, 0, 255, 0, 85);
     ExpectRgb(rgba, w, 319, 0, 0, 130, 255);
     ExpectRgb(rgba, w, 0, 1, 0, 130, 255);
@@ -541,10 +487,7 @@ TEST(EgaRenderTest, Vga256DecodesOneBytePerPixelThroughTheLiveDac) {
 }
 
 TEST(EgaRenderTest, Vga256ScanLineStrideUsesTheDoublewordAddressUnit) {
-    // The Offset Register reads 40 in both mode 10h and mode 13h, and means
-    // 80 bytes/line in one and 320 in the other -- the difference is the
-    // CRTC's Underline Location doubleword bit. Clearing it here must move
-    // the second scan line's source data, or the stride was hardcoded.
+    // Offset 40 means 80 bytes/line in mode 10h and 320 in 13h; the CRTC Doubleword bit decides.
     Ega ega;
     ega.reset();
     SetupMode13h(ega);
@@ -565,9 +508,7 @@ TEST(EgaRenderTest, Vga256ScanLineStrideUsesTheDoublewordAddressUnit) {
 }
 
 TEST(EgaRenderTest, Vga256AppliesThePelMaskBetweenPixelAndDac) {
-    // Real hardware ANDs the pixel value with the PEL Mask on its way to
-    // the DAC's address lines -- it does not alter a single stored color,
-    // which is exactly why period code uses it for palette tricks.
+    // The PEL Mask ANDs the pixel value on its way to the DAC; stored colors are unchanged.
     Ega ega;
     ega.reset();
     SetupMode13h(ega);
@@ -586,9 +527,7 @@ TEST(EgaRenderTest, Vga256AppliesThePelMaskBetweenPixelAndDac) {
 }
 
 TEST(EgaRenderTest, Vga256StartAddressScrollsByWholeAddressUnits) {
-    // The CRTC Start Address is in the same doubleword units as the Offset
-    // Register here, so a start of 80 moves the picture forward by 320
-    // bytes -- exactly one scan line, the real hardware scroll.
+    // Start Address counts doublewords like Offset, so 80 scrolls by 320 bytes, one scan line.
     Ega ega;
     ega.reset();
     SetupMode13h(ega);
@@ -605,16 +544,8 @@ TEST(EgaRenderTest, Vga256StartAddressScrollsByWholeAddressUnits) {
     ExpectRgb(rgba, w, 0, 0, 255, 255, 0);  // that pixel is now the top-left one
 }
 
-// Real DOS software commonly disables chain-4 while keeping 256-color
-// shift-out selected ("unchained mode 13h") to write one plane at a time
-// through Map Mask -- id's DOOM engine does this for its column renderer
-// and for page-flipping among up to four 64KB-aligned buffers in the
-// card's 256KB of VRAM. Once chain-4 is off, the CPU's write address no
-// longer equals the interleaved vram[] index the way it does under
-// chain-4, so the renderer must walk plane_off/plane directly instead of
-// a flat byte offset -- this reproduces the corrupted, tiled/banded
-// screen a real DOOM install produced on this emulator before the fix.
-// See PC486_REVIEW.md.
+// Unchained mode 13h (chain-4 off, 256-color on), as DOOM uses for column rendering and page flips:
+// the renderer must walk plane_off/plane, not a flat byte offset. See PC486_REVIEW.md.
 TEST(EgaRenderTest, Vga256UnchainedWalksPlaneOffDirectlyNotAFlatOffset) {
     Ega ega;
     ega.reset();
@@ -629,10 +560,7 @@ TEST(EgaRenderTest, Vga256UnchainedWalksPlaneOffDirectlyNotAFlatOffset) {
     SetDac(ega, 33, 0, 0, 63);
     SetDac(ega, 44, 63, 63, 0);
 
-    // Four consecutive displayed pixels (x=0..3) are one byte from each of
-    // the four planes at the same plane_off=0 -- select each plane through
-    // Map Mask and write it individually, exactly like the real unchained
-    // write path (and Doom's own per-plane column blit) does.
+    // Pixels x=0..3 are one byte from each plane at plane_off=0; write each via Map Mask.
     auto write_plane = [&](int plane, uint8_t value) {
         ega.out(0x3C4, 0x02); ega.out(0x3C5, uint8_t(1 << plane));
         ega.mem_write(0xA0000 + 0, value);
@@ -651,11 +579,8 @@ TEST(EgaRenderTest, Vga256UnchainedWalksPlaneOffDirectlyNotAFlatOffset) {
     ExpectRgb(rgba, w, 3, 0, 255, 255, 0);
 }
 
-// The CRTC Start Address register still counts in the same per-plane-group
-// units mem_write()'s plane_off does, regardless of chain-4 -- unaffected
-// by the byte/word/dword bits, which only ever scaled the flat address
-// chain-4 exposes to the CPU. This is exactly Doom's page-flip mechanism:
-// up to four 64KB-aligned buffers selected by Start Address alone.
+// Start Address counts in plane_off units regardless of chain-4. DOOM page-flips among
+// four 64KB buffers with it.
 TEST(EgaRenderTest, Vga256UnchainedStartAddressSelectsA64KAlignedBuffer) {
     Ega ega;
     ega.reset();
@@ -665,12 +590,11 @@ TEST(EgaRenderTest, Vga256UnchainedStartAddressSelectsA64KAlignedBuffer) {
     ega.out(0x3D4, 0x17); ega.out(0x3D5, 0xE3);
 
     SetDac(ega, 55, 10, 20, 30);
-    // Start Address = 0x4000 (16384) plane_off units -> the second of the
-    // four 64KB-aligned unchained buffers.
+    // Start Address 0x4000 selects the second 64KB buffer.
     ega.out(0x3D4, 0x0C); ega.out(0x3D5, 0x40);
     ega.out(0x3D4, 0x0D); ega.out(0x3D5, 0x00);
     ega.out(0x3C4, 0x02); ega.out(0x3C5, 0x01);  // Map Mask: plane 0
-    // With chain-4 and odd/even both off, plane_off == the raw CPU offset.
+    // With chain-4 and odd/even off, plane_off is the raw CPU offset.
     ega.mem_write(0xA0000 + 0x4000, 55);         // plane_off 0x4000, plane 0
 
     std::vector<uint8_t> rgba;
@@ -682,10 +606,7 @@ TEST(EgaRenderTest, Vga256UnchainedStartAddressSelectsA64KAlignedBuffer) {
 // --- SVGA (VBE-programmed) linear modes ----------------------------------
 
 TEST(EgaRenderTest, SvgaLinearGeometryComesFromTheExtensionRegistersNotTheCrtc) {
-    // In an SVGA mode the card's own extension registers describe the
-    // picture and the legacy CRTC keeps whatever the previous mode left --
-    // so this test deliberately leaves mode 13h's CRTC values in place and
-    // still expects 640x400.
+    // In an SVGA mode the extension registers describe the picture; mode 13h's CRTC values are left in place.
     Ega ega;
     ega.reset();
     SetupMode13h(ega);
@@ -705,9 +626,7 @@ TEST(EgaRenderTest, SvgaLinearGeometryComesFromTheExtensionRegistersNotTheCrtc) 
 }
 
 TEST(EgaRenderTest, SvgaVirtualWidthAndOffsetsPanTheVisibleWindow) {
-    // A logical line wider than the displayed one, panned by the X/Y
-    // offset registers -- the SVGA equivalent of the CRTC Start Address,
-    // and how period software double-buffers in a VBE mode.
+    // Logical line wider than displayed, panned by the X/Y offset registers (VBE double buffering).
     Ega ega;
     ega.reset();
     SetSvgaMode(ega, 320, 200);
@@ -715,8 +634,7 @@ TEST(EgaRenderTest, SvgaVirtualWidthAndOffsetsPanTheVisibleWindow) {
     ega.out16(Ega::kVbeDataPort, 512);  // wider logical line than the 320 shown
 
     SetDac(ega, 21, 0, 63, 63);
-    // With Y offset 2 and X offset 3, the top-left pixel comes from linear
-    // offset 2*512 + 3.
+    // Y offset 2, X offset 3: linear offset 2*512 + 3.
     ega.mem_write(0xA0000 + 2 * 512 + 3, 21);
     ega.out16(Ega::kVbeIndexPort, Ega::kVbeRegXOffset); ega.out16(Ega::kVbeDataPort, 3);
     ega.out16(Ega::kVbeIndexPort, Ega::kVbeRegYOffset); ega.out16(Ega::kVbeDataPort, 2);
@@ -729,12 +647,8 @@ TEST(EgaRenderTest, SvgaVirtualWidthAndOffsetsPanTheVisibleWindow) {
     ExpectRgb(rgba, w, 0, 0, 0, 255, 255);
 }
 
-// The three larger 8bpp SVGA geometries the ROM newly advertises (0x0101,
-// 0x0103, 0x0105) once ega.h's kVbeMaxXres/Yres and vram grow to admit them
-// -- see PC486_REVIEW.md §7.5's mode_info_check_mode gate. Each mirrors
-// SvgaLinearGeometryComesFromTheExtensionRegistersNotTheCrtc: a corner pixel
-// at linear offset `width` (row 1, column 0) proves the stride, not just the
-// reported width/height, is right.
+// 8bpp SVGA geometries 0x0101, 0x0103, 0x0105 (PC486_REVIEW.md §7.5). A pixel at linear
+// offset `width` proves the stride.
 TEST(EgaRenderTest, Svga640x480EntersVbeModeAndRendersAtTheRightSize) {
     Ega ega;
     ega.reset();
@@ -784,10 +698,8 @@ TEST(EgaRenderTest, Svga1024x768EntersVbeModeAndRendersAtTheRightSize) {
 }
 
 TEST(EgaRenderTest, FourBpp1024x768UsesDispiGeometryAndTheBankedPlanarWindow) {
-    // Mode 104h: planar 16-colour at a size that will not fit in one 64KB
-    // plane window. Geometry comes from the DISPI registers (this card's
-    // 9-bit VDE cannot express 768 lines), and bank 1 reaches plane_off
-    // 65536 -- row 512 at a 128-byte stride. See PC486_REVIEW.md §7.5.1.
+    // Mode 104h: planar 16-color too big for one 64KB window. Geometry comes from DISPI
+    // (9-bit VDE can't express 768 lines); bank 1 reaches plane_off 65536 (PC486_REVIEW.md §7.5.1).
     Ega ega;
     ega.reset();
     LoadBiosColourDefaults(ega);
@@ -825,9 +737,8 @@ TEST(EgaRenderTest, FourBpp1024x768UsesDispiGeometryAndTheBankedPlanarWindow) {
 
 void Crtc(Ega &ega, uint8_t index, uint8_t v) { ega.out(0x3D4, index); ega.out(0x3D5, v); }
 
-// 80x25 text the way a VGA BIOS leaves mode 03h, for the registers the
-// renderer reads: 400 lines, 16-line rows, Offset 40, Line Compare at its
-// maximum, the cursor off, no underline row, AR13 at 08h. `nine_dot` picks SR01 bit 0.
+// 80x25 text as a VGA BIOS leaves mode 03h: 400 lines, 16-line rows, Offset 40, Line Compare max,
+// cursor off, no underline row, AR13 08h. `nine_dot` picks SR01 bit 0.
 void Text80x25(Ega &ega, bool nine_dot) {
     LoadBiosColourDefaults(ega);
     ega.out(0x3C4, 0x01); ega.out(0x3C5, nine_dot ? 0x00 : 0x01);
@@ -968,7 +879,7 @@ TEST(EgaRenderTest, CharacterMapSelectPicksTheFontByAttributeBitThree) {
 }
 
 TEST(EgaRenderTest, ColorPlaneEnableMasksTextColours) {
-    // How 512-character software keeps attribute bit 3 from brightening.
+    // 512-character software keeps attribute bit 3 from brightening.
     Ega ega;
     ega.reset();
     Text80x25(ega, false);
@@ -1135,8 +1046,7 @@ TEST(EgaRenderTest, Vga256PelPanningCountsHalfPixels) {
 }
 
 TEST(EgaRenderTest, Vga256LineCompareCountsRasterLines) {
-    // Mode 13h's 200 rows are 400 scan lines, so a split after line 199
-    // lands half-way down the picture.
+    // Mode 13h's 200 rows are 400 scan lines, so a split after 199 is half-way down.
     Ega ega;
     ega.reset();
     SetupMode13h(ega);

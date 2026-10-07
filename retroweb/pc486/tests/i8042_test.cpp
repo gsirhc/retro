@@ -1,15 +1,5 @@
-// GoogleTest suite for the AT keyboard controller: self-test, command-byte
-// read/write, the A20 gate (Output Port bit 1), the CPU-reset trick (bit 0
-// / command 0xFE), keyboard scan-code delivery with IRQ1 gating, and the
-// PS/2 auxiliary (mouse) port -- AUX routing and status bit 5, IRQ12, the
-// controller's AUX commands, and the mouse's own command set and movement
-// packets.
-//
-// Mouse protocol expectations are cited against Adam Chapweske, "The PS/2
-// Mouse Interface" (2001) -- byte values below are that document's own,
-// including its worked "Emulated Action" table -- and against what this
-// machine's shipped firmware does with them (Bochs BIOS `rombios.c`, INT
-// 15h AH=C2h and the INT 74h handler). See PC486_REVIEW.md §10.
+// 8042 keyboard controller: self-test, command byte, A20 gate, CPU reset, scan codes, PS/2 aux (mouse) port
+// Mouse protocol per Chapweske, "The PS/2 Mouse Interface" (2001), and Bochs rombios.c (INT 15h AH=C2h, INT 74h).
 
 #include <gtest/gtest.h>
 
@@ -21,24 +11,19 @@ namespace {
 
 using pc486::I8042;
 
-// Send one byte to the mouse itself: controller command 0xD4, then the byte
-// at the data port -- exactly what rombios.c's send_to_mouse_ctrl() does.
+// send to the mouse: command 0xD4, then the byte (rombios.c send_to_mouse_ctrl())
 void SendAux(I8042& kbc, uint8_t byte) {
     kbc.out(0x64, 0xD4);
     kbc.out(0x60, byte);
 }
 
-// Read one byte from the mouse the way rombios.c's get_mouse_data() does:
-// it spins until status reads OBF *and* AUXB -- `(inb(0x64) & 0x21) == 0x21`
-// -- so a byte that fails this assertion is one the real BIOS never reads.
+// rombios.c get_mouse_data() waits for (inb(0x64) & 0x21) == 0x21
 uint8_t ReadAux(I8042& kbc) {
     EXPECT_EQ(kbc.in(0x64) & 0x21, 0x21);
     return kbc.in(0x60);
 }
 
-// Bring the mouse up the way a driver does: release the AUX clock and
-// enable both interrupts in the command byte, reset the device, drain its
-// three-byte answer, then enable data reporting.
+// driver-style bring-up: release AUX clock, enable both IRQs, reset, drain the answer, enable reporting
 void InitMouse(I8042& kbc) {
     kbc.reset();
     kbc.in(0x60);         // power-on keyboard BAT byte
@@ -53,7 +38,6 @@ void InitMouse(I8042& kbc) {
     kbc.clear_irq12();
 }
 
-// One whole 3-byte movement packet, read back byte by byte.
 struct Packet { uint8_t b0, b1, b2; };
 Packet ReadPacket(I8042& kbc) {
     Packet p;
@@ -64,9 +48,7 @@ Packet ReadPacket(I8042& kbc) {
 }
 
 TEST(I8042Test, ResetDeliversUnsolicitedKeyboardBatByte) {
-    // A real AT keyboard sends 0xAA unsolicited after its own power-on
-    // self-test, independent of the controller's 0xAA self-test command --
-    // BIOS's keyboard-presence POST check waits for exactly this.
+    // the keyboard sends 0xAA unsolicited after its own power-on self-test; BIOS POST waits for it
     I8042 kbc;
     kbc.reset();
     EXPECT_TRUE(kbc.in(0x64) & 0x01);
@@ -83,23 +65,18 @@ TEST(I8042Test, WriteOutputPortEnablesA20) {
     I8042 kbc;
     kbc.reset();
     kbc.out(0x64, 0xD1);  // write output port
-    kbc.out(0x60, 0x03);  // bit1 set -> A20 enabled; bit0 set -> reset line held high (inactive)
+    kbc.out(0x60, 0x03);  // A20 on, reset line high
     EXPECT_TRUE(kbc.a20_enabled());
     EXPECT_FALSE(kbc.reset_requested());
 }
 
-// Port 0x92, the "Fast A20 Gate" / System Control Port A almost every
-// 386+ chipset carries alongside the 8042 -- real, MS-DOS-era software
-// (Microsoft's own HIMEM.SYS included) commonly tries this first, since
-// toggling A20 through the keyboard controller's command protocol is much
-// slower (OSDev Wiki, "A20 Line"). This is the same physical A20 line the
-// 8042's own output port drives, not a second, independent latch.
+// port 0x92 Fast A20 Gate; HIMEM.SYS tries it first (OSDev Wiki, "A20 Line"). Same A20 line as the 8042.
 TEST(I8042Test, FastA20PortEnablesA20) {
     I8042 kbc;
     kbc.reset();
     EXPECT_TRUE(kbc.owns_fast_a20(0x92));
     EXPECT_FALSE(kbc.a20_enabled());
-    kbc.fast_a20_out(0x02);  // bit1 set -> A20 enabled; bit0 clear -> no reset
+    kbc.fast_a20_out(0x02);  // A20 on, no reset
     EXPECT_TRUE(kbc.a20_enabled());
     EXPECT_FALSE(kbc.reset_requested());
     EXPECT_EQ(kbc.fast_a20_in(), 0x02);
@@ -108,12 +85,11 @@ TEST(I8042Test, FastA20PortEnablesA20) {
 TEST(I8042Test, FastA20PortAndOutputPortShareTheSameA20State) {
     I8042 kbc;
     kbc.reset();
-    // Enabled via the slow (keyboard-controller) path...
     kbc.out(0x64, 0xD1);
     kbc.out(0x60, 0x02);
     EXPECT_TRUE(kbc.a20_enabled());
-    EXPECT_EQ(kbc.fast_a20_in(), 0x02);  // ...reads back the same state via port 0x92
-    // ...and disabled via the fast path is visible to the slow path's own read-back.
+    EXPECT_EQ(kbc.fast_a20_in(), 0x02);  // same state via port 0x92
+    // fast-path disable is visible to the slow read-back
     kbc.fast_a20_out(0x00);
     EXPECT_FALSE(kbc.a20_enabled());
 }
@@ -121,7 +97,7 @@ TEST(I8042Test, FastA20PortAndOutputPortShareTheSameA20State) {
 TEST(I8042Test, FastA20PortBitZeroTriggersReset) {
     I8042 kbc;
     kbc.reset();
-    kbc.fast_a20_out(0x03);  // bit1 (A20) and bit0 (reset) both set
+    kbc.fast_a20_out(0x03);  // A20 and reset set
     EXPECT_TRUE(kbc.a20_enabled());
     EXPECT_TRUE(kbc.reset_requested());
 }
@@ -130,7 +106,7 @@ TEST(I8042Test, OutputPortBitZeroLowTriggersReset) {
     I8042 kbc;
     kbc.reset();
     kbc.out(0x64, 0xD1);
-    kbc.out(0x60, 0x00);  // bit0 clear -> reset line pulsed low
+    kbc.out(0x60, 0x00);  // reset line pulsed low
     EXPECT_TRUE(kbc.reset_requested());
     kbc.clear_reset_request();
     EXPECT_FALSE(kbc.reset_requested());
@@ -156,7 +132,7 @@ TEST(I8042Test, CommandByteReadWriteRoundTrip) {
     I8042 kbc;
     kbc.reset();
     kbc.out(0x64, 0x60);  // write command byte
-    kbc.out(0x60, 0x45);  // IRQ1 enabled, translation on (bit examples)
+    kbc.out(0x60, 0x45);
     kbc.out(0x64, 0x20);  // read command byte back
     EXPECT_EQ(kbc.in(0x60), 0x45);
 }
@@ -164,10 +140,10 @@ TEST(I8042Test, CommandByteReadWriteRoundTrip) {
 TEST(I8042Test, ScancodeSetsIrq1OnlyWhenEnabledInCommandByte) {
     I8042 kbc;
     kbc.reset();
-    kbc.in(0x60);  // drain the power-on BAT byte: a scan code queues behind it, it is not overwritten
-    kbc.inject_scancode(0x1E);  // command byte's IRQ1-enable bit not yet set
+    kbc.in(0x60);  // drain power-on BAT; a scan code queues behind it
+    kbc.inject_scancode(0x1E);  // IRQ1 not yet enabled
     EXPECT_FALSE(kbc.irq1_pending());
-    EXPECT_EQ(kbc.in(0x60), 0x1E);  // byte still delivered to the data port
+    EXPECT_EQ(kbc.in(0x60), 0x1E);  // still delivered
 
     kbc.out(0x64, 0x60);
     kbc.out(0x60, 0x01);  // bit0 = enable IRQ1
@@ -179,10 +155,7 @@ TEST(I8042Test, ScancodeSetsIrq1OnlyWhenEnabledInCommandByte) {
 }
 
 TEST(I8042Test, ResetCommandGetsAckThenBatByteOnSeparateReads) {
-    // Real BIOS keyboard POST (confirmed against the Bochs rombios.c
-    // source, see PC486_REVIEW.md) sends 0xFF, expects 0xFA back
-    // immediately, THEN polls again and expects 0xAA as a second, distinct
-    // byte -- not both at once, and not just the unsolicited power-on BAT.
+    // rombios.c keyboard POST: send 0xFF, expect 0xFA, then 0xAA as a distinct second byte
     I8042 kbc;
     kbc.reset();
     kbc.in(0x60);  // drain the power-on BAT byte first
@@ -194,11 +167,7 @@ TEST(I8042Test, ResetCommandGetsAckThenBatByteOnSeparateReads) {
 }
 
 TEST(I8042Test, ReadIdRespondsWithAckThenTwoIdBytes) {
-    // "0xF2 (Read ID) - The keyboard responds by sending a two-byte device
-    // ID of 0xAB, 0x83" (Chapweske, "The AT-PS/2 Keyboard Interface") --
-    // on top of the ACK every keyboard command gets, per the same
-    // document's command-set list ("Every byte sent to the keyboard gets a
-    // response of 0xFA").
+    // Chapweske: 0xF2 returns 0xAB 0x83 after the ACK every command gets
     I8042 kbc;
     kbc.reset();
     kbc.in(0x60);  // drain the power-on BAT byte
@@ -209,25 +178,14 @@ TEST(I8042Test, ReadIdRespondsWithAckThenTwoIdBytes) {
     EXPECT_FALSE(kbc.in(0x64) & 0x01);  // nothing left queued
 }
 
-// Real, live bug: MS-DOS 6.22's SETUP.EXE sends 0xF2 during its own
-// keyboard probe and relies on IRQ1 (not polling) to learn the response
-// arrived. Before this fix every keyboard-command response -- the ACK
-// included -- was pushed with irq=false, so Setup never saw an interrupt,
-// retried 0xF2 three times over, and each retry's unread response piled up
-// behind the single-byte output register, wedging it full forever and
-// silently dropping every keystroke typed afterward.
+// MS-DOS 6.22 SETUP.EXE relies on IRQ1 for the 0xF2 response; the ACK must raise IRQ1 too
 TEST(I8042Test, KeyboardCommandAckRaisesIrq1WhenEnabled) {
-    // "If no errors occur, the response byte is placed in the input
-    // buffer, the IBF flag is set, and IRQ1 is activated, signaling the
-    // keyboard driver" (Chapweske, "The AT-PS/2 Keyboard Interface",
-    // "Writing to keyboard") -- true of every response the keyboard itself
-    // sends back, an ACK included, with no special case for command
-    // replies vs. scan codes.
+    // Chapweske, "Writing to keyboard": every keyboard response, ACK included, activates IRQ1
     I8042 kbc;
     kbc.reset();
     kbc.in(0x60);  // drain the power-on BAT byte
 
-    kbc.out(0x60, 0xF4);  // enable scanning -- IRQ1 not yet enabled in the command byte
+    kbc.out(0x60, 0xF4);  // IRQ1 not yet enabled
     EXPECT_FALSE(kbc.irq1_pending());
     EXPECT_EQ(kbc.in(0x60), 0xFA);  // ACK still delivered
 
@@ -243,16 +201,14 @@ TEST(I8042Test, KeyboardCommandAckRaisesIrq1WhenEnabled) {
 TEST(I8042Test, DisabledKeyboardDropsScancodes) {
     I8042 kbc;
     kbc.reset();
-    kbc.in(0x60);  // drain the keyboard's own unsolicited post-reset BAT byte first
+    kbc.in(0x60);  // drain BAT
     kbc.out(0x64, 0xAD);  // disable keyboard
     kbc.inject_scancode(0x1E);
     EXPECT_FALSE(kbc.in(0x64) & 0x01);  // nothing delivered
 }
 
 TEST(I8042Test, KeyboardBytesQueueInsteadOfOverwritingOneAnother) {
-    // The 8042 holds a device's clock line low while its output buffer is
-    // still full, and the device keeps its bytes until released -- so a
-    // second scan code cannot destroy an unread first one.
+    // the 8042 holds the device clock low while the output buffer is full; a second scan code cannot overwrite the first
     I8042 kbc;
     kbc.reset();
     kbc.in(0x60);  // power-on BAT
@@ -268,8 +224,7 @@ TEST(I8042Test, KeyboardBytesQueueInsteadOfOverwritingOneAnother) {
 // --------------------------------------------------------------------------
 
 TEST(I8042Test, AuxBytesCarryStatusBitFiveAndKeyboardBytesDoNot) {
-    // Status bit 5 (AUXB) is how software tells a mouse byte from a key --
-    // rombios.c's INT 74h handler returns immediately unless it reads 0x21.
+    // AUXB (status bit 5) separates mouse bytes from keys; rombios.c INT 74h wants 0x21
     I8042 kbc;
     kbc.reset();
     kbc.in(0x60);
@@ -278,7 +233,7 @@ TEST(I8042Test, AuxBytesCarryStatusBitFiveAndKeyboardBytesDoNot) {
     kbc.in(0x60);
 
     kbc.out(0x64, 0xD3);  // write to the AUX side of the output buffer
-    kbc.out(0x60, 0x5A);  // "...and act as if this was mouse data"
+    kbc.out(0x60, 0x5A);
     EXPECT_EQ(kbc.in(0x64) & 0x21, 0x21);
     EXPECT_EQ(kbc.in(0x60), 0x5A);
 }
@@ -298,8 +253,7 @@ TEST(I8042Test, WriteKeyboardOutputBufferActsLikeKeyboardData) {
 }
 
 TEST(I8042Test, AuxInterfaceTestReportsNoError) {
-    // 0xA9 tests the link to the mouse; 0x00 means no error. It is the
-    // *controller* answering, so the byte is not AUX-tagged.
+    // 0xA9 answers 0x00 from the controller, so not AUX-tagged
     I8042 kbc;
     kbc.reset();
     kbc.in(0x60);
@@ -309,11 +263,7 @@ TEST(I8042Test, AuxInterfaceTestReportsNoError) {
 }
 
 TEST(I8042Test, EnableDisableAuxTrackCommandByteBitFive) {
-    // On a PS/2-superset controller 0xA7 sets command-byte bit 5 (AUX clock
-    // driven low) and 0xA8 clears it, so the command byte and the two
-    // commands are two views of one piece of state -- BIOS drives bit 5
-    // directly (rombios.c inhibit_mouse_int_and_events), a driver may use
-    // the commands, and they must agree.
+    // 0xA7/0xA8 and command-byte bit 5 are one piece of state; rombios.c drives the bit directly
     I8042 kbc;
     kbc.reset();
     kbc.in(0x60);
@@ -326,12 +276,7 @@ TEST(I8042Test, EnableDisableAuxTrackCommandByteBitFive) {
 }
 
 TEST(I8042Test, ControllerCommandCancelsAPendingWriteToMouse) {
-    // rombios.c's set_kbd_command_byte() writes 0xD4 to port 0x64 and then
-    // immediately 0x60 to port 0x64, abandoning that "write to mouse"
-    // without ever supplying its data byte. The 8042 tells commands from
-    // data by the A2 line, so the second command simply replaces the first
-    // -- if the stale 0xD4 survived, the command byte would be delivered to
-    // the mouse instead and the machine would lose its interrupts.
+    // rombios.c set_kbd_command_byte() abandons a 0xD4 by writing 0x60 to port 0x64; the new command replaces it
     I8042 kbc;
     kbc.reset();
     kbc.in(0x60);
@@ -344,7 +289,7 @@ TEST(I8042Test, ControllerCommandCancelsAPendingWriteToMouse) {
 }
 
 TEST(I8042Test, Irq12OnlyWhenEnabledInCommandByte) {
-    // Command-byte bit 1 is the IRQ12 enable, independent of bit 0's IRQ1.
+    // command-byte bit 1 enables IRQ12, independent of IRQ1
     I8042 kbc;
     kbc.reset();
     kbc.in(0x60);
@@ -365,10 +310,7 @@ TEST(I8042Test, Irq12OnlyWhenEnabledInCommandByte) {
 }
 
 TEST(I8042Test, Irq12ReassertsForEveryByteOfAPacket) {
-    // IRQ12 follows the output buffer, so a 3-byte packet is three
-    // interrupts -- which is exactly how the BIOS's INT 74h handler
-    // assembles one (it stores one byte per interrupt and only calls the
-    // driver on the last).
+    // IRQ12 follows the output buffer: one interrupt per packet byte, as INT 74h expects
     I8042 kbc;
     InitMouse(kbc);
     kbc.inject_mouse_event(1, 0, 0);
@@ -386,10 +328,7 @@ TEST(I8042Test, Irq12ReassertsForEveryByteOfAPacket) {
 // --------------------------------------------------------------------------
 
 TEST(I8042Test, MouseResetAnswersAckThenBatThenDeviceId) {
-    // "Following the BAT completion code (0xAA or 0xFC), the mouse sends its
-    // device ID of 0x00." rombios.c's INT 15h AH=C2h AL=01h reads exactly
-    // these three bytes with three separate get_mouse_data() calls, and
-    // panics if the first is not 0xFA.
+    // Chapweske: BAT then device ID 0x00; rombios.c INT 15h AH=C2h AL=01h reads three bytes and panics unless the first is 0xFA
     I8042 kbc;
     kbc.reset();
     kbc.in(0x60);
@@ -403,8 +342,7 @@ TEST(I8042Test, MouseResetAnswersAckThenBatThenDeviceId) {
 }
 
 TEST(I8042Test, NoPacketsUntilReportingIsEnabled) {
-    // Reset leaves "Data Reporting Disabled": the mouse samples but sends
-    // nothing until 0xF4.
+    // reset leaves data reporting disabled until 0xF4
     I8042 kbc;
     kbc.reset();
     kbc.in(0x60);
@@ -425,10 +363,7 @@ TEST(I8042Test, NoPacketsUntilReportingIsEnabled) {
 }
 
 TEST(I8042Test, MovementPacketMatchesTheReferenceByteSequences) {
-    // Chapweske's own "Emulated Action" table, verbatim: the four unit
-    // moves and their exact 3-byte packets. Note bit 3 of byte 1 is always
-    // set (drivers that check it discard packets without it), and +Y is
-    // *away* from the user, so "move down one" carries the Y sign bit.
+    // Chapweske "Emulated Action" table. Bit 3 of byte 1 is always set; +Y is away from the user.
     struct Case { int dx, dy; uint8_t b0, b1, b2; };
     const Case cases[] = {
         {0, 1, 0x08, 0x00, 0x01},    // move up one
@@ -448,7 +383,7 @@ TEST(I8042Test, MovementPacketMatchesTheReferenceByteSequences) {
 }
 
 TEST(I8042Test, ButtonBitsMatchTheReferenceByteSequences) {
-    // Same table: press/release of each button with no movement.
+    // same table, buttons only
     struct Case { uint8_t buttons; uint8_t b0; };
     const Case cases[] = {
         {I8042::kMouseLeft, 0x09},
@@ -468,9 +403,7 @@ TEST(I8042Test, ButtonBitsMatchTheReferenceByteSequences) {
 }
 
 TEST(I8042Test, MovementAccumulatesWhileAPacketIsStillGoingOut) {
-    // A real mouse cannot start a second transmission on top of the first;
-    // it keeps counting into its movement counters and sends the total once
-    // the line frees up. Nothing is dropped, and no half-packet interleaves.
+    // a busy line banks movement counts and sends the total after
     I8042 kbc;
     InitMouse(kbc);
     kbc.inject_mouse_event(3, 0, 0);
@@ -487,10 +420,7 @@ TEST(I8042Test, MovementAccumulatesWhileAPacketIsStillGoingOut) {
 }
 
 TEST(I8042Test, CountersSaturateAtNineBitsAndSetTheOverflowFlag) {
-    // "The range of values that can be expressed by the movement counters
-    // is -255 to +255. If this range is exceeded, the appropriate overflow
-    // bit is set and the counter is not incremented/decremented until it is
-    // reset." The excess is genuinely lost, not carried.
+    // Chapweske: counters saturate at +/-255 with overflow bits set; the excess is lost
     I8042 kbc;
     InitMouse(kbc);
     kbc.inject_mouse_event(400, -400, 0);
@@ -508,11 +438,7 @@ TEST(I8042Test, CountersSaturateAtNineBitsAndSetTheOverflowFlag) {
 }
 
 TEST(I8042Test, DisabledAuxClockHoldsPacketsButStillAnswersCommands) {
-    // Command-byte bit 5 drives the AUX clock line low, which stops the
-    // mouse reporting -- but the controller still raises the line to carry
-    // a host command, and rombios.c depends on exactly that: every INT 15h
-    // AH=C2h path calls inhibit_mouse_int_and_events() (which *sets* bit 5)
-    // and then talks to the device and waits for its ACKs.
+    // AUX clock inhibit stops reporting but host commands still work; rombios.c INT 15h AH=C2h sets bit 5 first
     I8042 kbc;
     InitMouse(kbc);
     kbc.out(0x64, 0xA7);  // disable AUX interface
@@ -530,9 +456,7 @@ TEST(I8042Test, DisabledAuxClockHoldsPacketsButStillAnswersCommands) {
 }
 
 TEST(I8042Test, RemoteModeReportsOnlyWhenPolled) {
-    // "In this mode, the mouse reads its inputs and updates its
-    // counters/flags at the current sampling rate, but it only notifies the
-    // host of movement ... when that information is requested" -- 0xEB.
+    // Chapweske: remote mode reports only on 0xEB
     I8042 kbc;
     InitMouse(kbc);
     SendAux(kbc, 0xF0);  // set remote mode
@@ -554,10 +478,7 @@ TEST(I8042Test, RemoteModeReportsOnlyWhenPolled) {
 }
 
 TEST(I8042Test, TwoToOneScalingAppliesToStreamReportsButNotToReadData) {
-    // The 2:1 table (0,1,1,3,6,9,2N) is applied to the counters before they
-    // are reported -- but only for automatic stream-mode reporting.
-    // Chapweske's footnote 1: "It does not effect the reported data sent in
-    // response to the Read Data (0xEB) command."
+    // 2:1 scaling applies only to stream reports, not 0xEB (Chapweske, footnote 1)
     I8042 kbc;
     InitMouse(kbc);
     SendAux(kbc, 0xE7);  // set scaling 2:1
@@ -578,9 +499,7 @@ TEST(I8042Test, TwoToOneScalingAppliesToStreamReportsButNotToReadData) {
 }
 
 TEST(I8042Test, StatusRequestReportsDefaultsThenTheProgrammedState) {
-    // Chapweske's emulation notes give the answer at defaults outright:
-    // "Respond to the Status Request (0xE9) command with 0xFA, 0x00, 0x02,
-    // 0x64" -- ACK, flags, resolution *code* 2 (4 counts/mm), 100 samples.
+    // Chapweske: status at defaults is 0xFA, 0x00, 0x02, 0x64
     I8042 kbc;
     InitMouse(kbc);
     SendAux(kbc, 0xF5);  // disable reporting so the flags start clear
@@ -609,16 +528,14 @@ TEST(I8042Test, StatusRequestReportsDefaultsThenTheProgrammedState) {
 
     SendAux(kbc, 0xE9);
     EXPECT_EQ(ReadAux(kbc), 0xFA);
-    // [0][mode=remote][enable][scaling 2:1][0][left][middle][right] -- the
-    // button order here is the reverse of the movement packet's.
+    // status flags byte; button order is reversed from the movement packet
     EXPECT_EQ(ReadAux(kbc), 0x40 | 0x20 | 0x10 | 0x04 | 0x01);
     EXPECT_EQ(ReadAux(kbc), 0x03);
     EXPECT_EQ(ReadAux(kbc), 200);
 }
 
 TEST(I8042Test, SetDefaultsRestoresTheResetState) {
-    // 0xF6 loads the same values the BAT does: 100 samples/sec, 4 counts/mm,
-    // 1:1 scaling, reporting disabled, stream mode.
+    // 0xF6 loads the BAT defaults
     I8042 kbc;
     InitMouse(kbc);
     SendAux(kbc, 0xE7);  // 2:1 scaling
@@ -637,11 +554,7 @@ TEST(I8042Test, SetDefaultsRestoresTheResetState) {
 }
 
 TEST(I8042Test, DeviceIdStaysZeroThroughTheIntelliMouseKnock) {
-    // A driver probing for a scrolling wheel sends "set sample rate 200,
-    // 100, 80" and then reads the device ID. This machine's mouse is a
-    // period 3-button PS/2 mouse, not a 1996 IntelliMouse, so it answers
-    // that probe the way a standard mouse does -- every rate accepted, ID
-    // still 0x00 -- and the driver correctly concludes there is no wheel.
+    // the 200/100/80 wheel probe: a standard 3-button mouse accepts every rate and keeps ID 0x00
     I8042 kbc;
     InitMouse(kbc);
     const uint8_t knock[] = {0xF3, 200, 0xF3, 100, 0xF3, 80};
@@ -659,9 +572,7 @@ TEST(I8042Test, DeviceIdStaysZeroThroughTheIntelliMouseKnock) {
 }
 
 TEST(I8042Test, WrapModeEchoesEverythingExceptResetAndResetWrap) {
-    // "every byte received by the mouse is sent back to the host. Even if
-    // the byte represents a valid command... There are two exceptions to
-    // this: the Reset (0xFF) command and Reset Wrap Mode (0xEC) command."
+    // Chapweske: wrap mode echoes everything except Reset (0xFF) and Reset Wrap Mode (0xEC)
     I8042 kbc;
     InitMouse(kbc);
     SendAux(kbc, 0xEE);  // set wrap mode
@@ -694,8 +605,7 @@ TEST(I8042Test, WrapModeIsLeftByResetToo) {
 }
 
 TEST(I8042Test, ResendRepeatsTheLastPacketAndLeavesCountersAlone) {
-    // 0xFE is what a host sends when it decides a packet was garbled. It is
-    // also the one command that does *not* reset the movement counters.
+    // 0xFE resend is the one command that does not reset the movement counters
     I8042 kbc;
     InitMouse(kbc);
     kbc.inject_mouse_event(6, 0, I8042::kMouseLeft);
@@ -707,8 +617,7 @@ TEST(I8042Test, ResendRepeatsTheLastPacketAndLeavesCountersAlone) {
     EXPECT_EQ(again.b2, first.b2);
     EXPECT_FALSE(kbc.in(0x64) & 0x01);  // a repeat, not a second report
 
-    // In remote mode nothing is sent unasked, so the counters can be
-    // watched across a resend: the counts banked before it survive it.
+    // remote mode lets counters be watched across a resend
     SendAux(kbc, 0xF0);
     ReadAux(kbc);
     kbc.inject_mouse_event(5, 0, 0);
@@ -726,8 +635,7 @@ TEST(I8042Test, ResendRepeatsTheLastPacketAndLeavesCountersAlone) {
 }
 
 TEST(I8042Test, UnknownMouseCommandAnswersResendNotAck) {
-    // A device that does not recognise a command answers 0xFE, which is how
-    // a driver probing for an extension learns it is absent.
+    // an unrecognised command answers 0xFE
     I8042 kbc;
     InitMouse(kbc);
     SendAux(kbc, 0x9C);
@@ -735,8 +643,7 @@ TEST(I8042Test, UnknownMouseCommandAnswersResendNotAck) {
 }
 
 TEST(I8042Test, MouseCommandsClearTheMovementCounters) {
-    // "the movement counters are reset ... after the mouse receives any
-    // command from the host other than the Resend (0xFE) command."
+    // Chapweske: counters reset on any command except Resend
     I8042 kbc;
     InitMouse(kbc);
     SendAux(kbc, 0xF5);  // reporting off, so counts just accumulate
@@ -752,9 +659,7 @@ TEST(I8042Test, MouseCommandsClearTheMovementCounters) {
 }
 
 TEST(I8042Test, KeyboardAndMouseBytesInterleaveWithoutLosingEither) {
-    // A player moving the mouse while typing produces both streams at once.
-    // Every byte must survive, and each must keep its own AUXB tag -- that
-    // tag is the only thing letting INT 09h and INT 74h sort them out.
+    // keyboard and mouse bytes interleave; each keeps its own AUXB tag
     I8042 kbc;
     InitMouse(kbc);
     kbc.inject_mouse_event(1, 0, 0);
@@ -773,22 +678,16 @@ TEST(I8042Test, KeyboardAndMouseBytesInterleaveWithoutLosingEither) {
 }
 
 TEST(I8042Test, AKeyboardByteSurvivesABurstOfMousePacketsBiggerThanTheOldQueue) {
-    // Real, reported bug: a movement key's break code landing mid-burst of
-    // mouse-look packets got silently dropped once the queue (previously
-    // 16 entries) filled up, leaving the key stuck "held" forever from the
-    // guest's side. Floods the queue with far more than the old capacity
-    // of mouse bytes first, then confirms a keyboard byte queued after
-    // still comes through rather than vanishing -- see i8042.h's
-    // kQueueSize comment.
+    // a key break mid mouse-look burst was dropped when the queue filled; see i8042.h kQueueSize
     I8042 kbc;
     InitMouse(kbc);
-    for (int i = 0; i < 200; ++i) kbc.inject_mouse_event(1, 0, 0);  // 600 bytes queued
-    kbc.inject_scancode(0xD1);  // W's break code, arriving after the flood
+    for (int i = 0; i < 200; ++i) kbc.inject_mouse_event(1, 0, 0);
+    kbc.inject_scancode(0xD1);
 
     bool found_break_code = false;
     for (int i = 0; i < 700; ++i) {
         uint8_t status = kbc.in(0x64);
-        if ((status & 0x01) == 0) break;  // OBF clear -- queue drained
+        if ((status & 0x01) == 0) break;
         bool aux = (status & 0x20) != 0;
         uint8_t byte = kbc.in(0x60);
         if (!aux && byte == 0xD1) found_break_code = true;
@@ -797,18 +696,15 @@ TEST(I8042Test, AKeyboardByteSurvivesABurstOfMousePacketsBiggerThanTheOldQueue) 
 }
 
 TEST(I8042Test, BiosPointingDeviceInitSequenceRunsEndToEnd) {
-    // The exact shape of rombios.c's INT 15h AH=C2h AL=01h (reset) and
-    // AL=00h BH=01h (enable): read the command byte, clear IRQ12 and drive
-    // the AUX clock low, talk to the device, then restore both. A mouse
-    // that answers this sequence is one the BIOS will report as present.
+    // rombios.c INT 15h AH=C2h reset/enable sequence: inhibit IRQ12 and the AUX clock, talk to the device, restore
     I8042 kbc;
     kbc.reset();
     kbc.in(0x60);
 
     kbc.out(0x64, 0x20);
     uint8_t comm = kbc.in(0x60);
-    comm &= ~0x02;  // turn off IRQ12 generation
-    comm |= 0x20;   // disable the mouse serial clock line
+    comm &= ~0x02;
+    comm |= 0x20;
     kbc.out(0x64, 0x60);
     kbc.out(0x60, comm);
 
@@ -823,8 +719,8 @@ TEST(I8042Test, BiosPointingDeviceInitSequenceRunsEndToEnd) {
 
     kbc.out(0x64, 0x20);
     comm = kbc.in(0x60);
-    comm |= 0x02;   // turn on IRQ12 generation
-    comm &= ~0x20;  // enable the mouse serial clock line
+    comm |= 0x02;
+    comm &= ~0x20;
     kbc.out(0x64, 0x60);
     kbc.out(0x60, comm);
 
@@ -851,8 +747,7 @@ protected:
         while (kbc.in(0x64) & 0x01) out.push_back(kbc.in(0x60));
         return out;
     }
-    // Advances the keyboard's clock to `seconds` in 1 ms steps and returns
-    // everything it sent on the way.
+    // advances the clock in 1 ms steps, returns everything sent
     std::vector<uint8_t> RunTo(double seconds) {
         std::vector<uint8_t> out;
         for (; t < seconds; t += 0.001) {
@@ -933,9 +828,7 @@ TEST_F(TypematicTest, AReleaseWhileTheControllerHoldsTheKeyboardOffStillEndsTheR
 }
 
 TEST_F(TypematicTest, InterleavedGreyKeyBreaksStillEndTheRepeat) {
-    // W and D on the WASD preset are Up and Right. Releasing both together
-    // used to interleave the two E0 sequences, so Right's break arrived
-    // without its prefix and Right repeated forever: a stuck key in Doom.
+    // W and D on the WASD preset are Up and Right; their E0 sequences must not interleave
     for (uint8_t b : {0xE0, 0x48, 0xE0, 0x4D}) kbc.inject_scancode(b);
     Drain();
     for (uint8_t b : {0xE0, 0xE0, 0xC8, 0xCD}) kbc.inject_scancode(b);

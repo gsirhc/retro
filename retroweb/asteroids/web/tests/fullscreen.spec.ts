@@ -1,9 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-// Fullscreen mode (expands #bezel -- CRT frame + vignette, not just the
-// bare canvas -- see shared/fullscreen.css's #bezel:fullscreen comment). A
-// pure web-UI convenience with no real arcade-cabinet precedent, same as
-// every other machine's copy of this mechanism (shared/fullscreen.js).
+// Fullscreen expands #bezel, not just the canvas.
 
 test.describe("fullscreen", () => {
   test.beforeEach(async ({ page }) => {

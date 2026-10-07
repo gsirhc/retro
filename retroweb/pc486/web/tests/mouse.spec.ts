@@ -1,9 +1,8 @@
 import { test, expect } from "./fixtures";
 import { bootLive } from "./helpers";
 
-// Mouse capture is unchecked by default for a first visit. Once chosen,
-// Enable Mouse is remembered in retro8080.pc486.ui -- Pointer Lock still
-// needs an explicit canvas click to engage.
+// Mouse capture is off for a first visit. Enable Mouse is remembered in retro8080.pc486.ui;
+// Pointer Lock still needs a canvas click.
 test.describe("PS/2 mouse", () => {
   test("capture checkbox is unchecked by default", async ({ livePage: page }) => {
     await expect(page.locator("#mouseCaptureEnabled")).not.toBeChecked();
@@ -44,11 +43,8 @@ test.describe("PS/2 mouse", () => {
     livePage: page,
   }) => {
 
-    // A relative move plus a left-button-down/up round trip -- doesn't
-    // assert on any DOS-side effect (no mouse driver is loaded at a bare
-    // FreeDOS prompt), just that the chipset-level plumbing (chipset.h's
-    // inject_mouse_event -> i8042's AUX port) is reachable from JS and
-    // doesn't throw.
+    // Relative move plus left-button down/up. No mouse driver runs at a bare FreeDOS prompt, so this
+    // only checks inject_mouse_event -> i8042 AUX is reachable and doesn't throw.
     await page.evaluate(() => {
       const m = (window as any).__test.machine;
       m.injectMouseEvent(5, -3, 0);

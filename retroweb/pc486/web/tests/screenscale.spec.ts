@@ -11,10 +11,9 @@ async function chooseTheme(page, theme, mode = "light") {
 }
 
 
-// The guest frame is blown up by a whole factor per axis (nearest-
-// neighbour) into #screen, then smooth-scaled to the CSS box. A plain
-// pixelated stretch to 860px doubles every third column and garbles text on
-// a 1x display. The box is 4:3 in every mode, like a VGA monitor.
+// The guest frame is scaled by a whole factor per axis (nearest) into #screen, then smooth-scaled
+// to the CSS box. A plain pixelated stretch to 860px doubles every third column on a 1x display.
+// The box is 4:3 in every mode, like a VGA monitor.
 
 async function measure(page: Page) {
   return page.evaluate(() => {

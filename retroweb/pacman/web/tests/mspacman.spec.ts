@@ -2,9 +2,8 @@ import { test, expect } from "@playwright/test";
 import { existsSync, readFileSync } from "fs";
 import path from "path";
 
-// Ms. Pac-Man is the same /pacman/ page with ?game=mspacman: GCC aux board
-// in the Z80 socket, not a second machine. Self-test ROM still boots until
-// the visitor loads U5/U6/U7. See PACMAN_REVIEW.md §1.
+// Ms. Pac-Man is /pacman/?game=mspacman: the aux board in the Z80 socket.
+// The self-test ROM boots until U5/U6/U7 are loaded.
 
 const HWTEST_FILES = [
   "roms/program.bin",

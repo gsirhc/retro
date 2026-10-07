@@ -1,9 +1,6 @@
-// Zilog Z80 CPU core.
-//
-// Host-agnostic: memory and I/O go through Bus callbacks. Instruction timing
-// follows the Zilog Z80 CPU User's Manual (UM0080) T-state tables. Flag
-// polarity and ALU rules are Z80, not 8080 (P/V is overflow on add/sub,
-// parity on logic; N distinguishes add vs subtract for DAA).
+// Zilog Z80 core. Timing from the Z80 CPU User's Manual (UM0080). Flags are Z80,
+// not 8080: P/V is overflow on add/sub, parity on logic; N distinguishes
+// add vs subtract for DAA.
 
 #ifndef SHARED_CPU_Z80_H
 #define SHARED_CPU_Z80_H

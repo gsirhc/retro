@@ -1,12 +1,5 @@
-// MITS Altair 88-DCDD disk bootstrap PROM (the "DBL"), 256 bytes at 0xFF00.
-//
-// This is the standard MITS turnkey disk boot: point the program counter at
-// 0xFF00 and run. The first 19 bytes relocate the loader body (from 0xFF18) to
-// 0x4C00 and jump in; that code selects drive 0, loads the CP/M cold-start
-// loader from track 0 and hands control to it.
-//
-// Byte-identical to the bootrom[] table in SIMH's altair_cpu.c
-// (Charles E. Owen, 1997-2005; permissive license).
+// MITS 88-DCDD disk bootstrap PROM (the "DBL"), 256 bytes at 0xFF00.
+// Byte-identical to bootrom[] in SIMH altair_cpu.c (Charles E. Owen).
 
 #ifndef EMULATOR8080_DISK_BOOTROM_H
 #define EMULATOR8080_DISK_BOOTROM_H

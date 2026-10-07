@@ -5,25 +5,21 @@ const clearScreen = (page) => page.evaluate(() => (window as any).__test.term.cl
 const tapeStatus = (page) => page.evaluate(() => (window as any).__test.machine.tapeStatus());
 const screen = (page) => page.evaluate(() => (window as any).__test.screen());
 
-// Stock CP/M 2.2 has no console type-ahead: a command sent before the last one
-// finished is lost. So type it, let the echo land, then wait for the next bare
-// prompt (A> from the CCP, Ok from MBASIC) before moving on.
+// Stock CP/M 2.2 has no type-ahead: send a command, let the echo land, then wait for the next
+// bare prompt (A> from the CCP, Ok from MBASIC).
 async function runCpm(page, cmd: string) {
   await send(page, cmd + "\r");
   await page.waitForTimeout(1200); // let the echo push past the previous prompt
   await waitForScreen(page, /(A>|Ok)[ \t]*$/m, 45_000);
 }
 
-// End-to-end "does the preset actually work" smoke tests, driven the way someone
-// who knows the Altair would drive it: load the media off the real devices
-// (AUTO-LOAD / PLAY / BOOT), then use the machine. The CPU still runs at 2 MHz;
-// `?test=1` only maxes the paper-tape / cassette load rate.
+// End-to-end preset smoke tests: load media off the real devices (AUTO-LOAD / PLAY / BOOT), then
+// use the machine. The CPU still runs at 2 MHz; ?test=1 only maxes the paper-tape / cassette rate.
 
 const leds = (page) => page.evaluate(() => (window as any).__test.leds());
 
 test.describe("preset workflows — an expert session, end to end", () => {
-  // these drive real BASIC / CP/M programs at a true 2 MHz, so give them room
-  // when the box is busy running other specs in parallel
+  // real BASIC / CP/M at 2 MHz; leave room for parallel specs
   test.slow();
 
   test("Bare-Metal Toggle: load Kill the Bit and it plays", async ({ page }) => {

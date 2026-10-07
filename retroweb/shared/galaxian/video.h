@@ -1,16 +1,10 @@
-// Galaxian-family video: Namco Galaxian (1979), Konami Frogger and
-// Scramble (1981).
-//
-// Raster is 384×264 at 6.144 MHz (18.432 MHz / 3). Visible 256×224 native,
-// then the upright monitor rotates 90° (MAME ROT90 = FLIP_X | SWAP_XY) to
-// 224×256. Tilemap is 32×32 of 8×8, 2bpp (first gfx chip high plane, second
-// low). Object RAM holds per-column scroll+colour and eight 16×16 sprites.
-// Board::Frogger adds nibble-swap, river split, PROM blue bit 0 open, and
-// attribute remap. Board::Scramble adds star blink, scramble background,
-// and two-pixel shells. Board::Galaxian is the parent: stars with no 555
-// blink, four-pixel yellow bullets, no scramble backdrop. Tile bytes are
-// MSB-left (bit 7 = native left). MAME galaxian.cpp / galaxian_v.cpp is a
-// cross-check of the decode, not a source.
+// Galaxian-family video: Namco Galaxian (1979), Konami Frogger and Scramble (1981).
+// Raster 384x264 at 6.144 MHz (18.432 / 3), visible 256x224 native, rotated 90
+// (MAME ROT90 = FLIP_X | SWAP_XY) to 224x256. 32x32 tilemap of 8x8 2bpp tiles,
+// MSB-left. Object RAM: per-column scroll+colour and eight 16x16 sprites.
+// Frogger adds nibble-swap, river split, open PROM blue bit 0, attribute remap.
+// Scramble adds star blink, background, two-pixel shells. Galaxian: stars with
+// no 555 blink, four-pixel yellow bullets.
 
 #ifndef GALAXIAN_VIDEO_H
 #define GALAXIAN_VIDEO_H

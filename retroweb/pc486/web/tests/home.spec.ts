@@ -9,9 +9,8 @@ async function chooseTheme(page, theme, mode = "light") {
 }
 
 
-// The retroweb/ landing page (served on :8410 by the 2nd webServer in
-// playwright.config.ts). It shares the `retro8080.theme` localStorage key
-// with the emulator, so a theme picked here carries into /pc486/ and back.
+// The retroweb/ landing page (:8410). It shares the `retro8080.theme` localStorage key with the
+// emulator, so a theme picked here carries into /pc486/.
 
 const HOME = "http://localhost:8410/";
 

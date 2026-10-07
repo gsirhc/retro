@@ -1,8 +1,4 @@
-// Intel 8080 CPU core.
-//
-// The core is host-agnostic: it talks to the outside world only through the
-// Bus callbacks below, so the same core drives a raw RAM test harness, a
-// Space Invaders machine, a CP/M box, etc.
+// Intel 8080 CPU core, host-agnostic: all I/O goes through the Bus callbacks.
 
 #ifndef EMULATOR8080_I8080_H
 #define EMULATOR8080_I8080_H
@@ -12,8 +8,7 @@
 
 namespace i8080 {
 
-// Flag bit positions inside the F register (the "PSW" low byte).
-// Bits 5 and 3 always read 0, bit 1 always reads 1 on real hardware.
+// Flag bits in F (the PSW low byte). Bits 5 and 3 read 0, bit 1 reads 1.
 enum Flag : uint8_t {
     FLAG_C  = 1 << 0,  // carry / borrow
     FLAG_N1 = 1 << 1,  // unused, always 1
@@ -35,7 +30,6 @@ struct Bus {
 
 class Cpu {
 public:
-    // 8-bit registers. The 8080 pairs them as BC, DE, HL for 16-bit ops.
     uint8_t a = 0, b = 0, c = 0, d = 0, e = 0, h = 0, l = 0;
     uint8_t f = FLAG_N1;   // flags register
 
@@ -48,11 +42,9 @@ public:
 
     explicit Cpu(Bus bus) : bus_(std::move(bus)) {}
 
-    // Restore power-on state (PC = 0, everything else cleared).
     void reset();
 
-    // Decode and execute exactly one instruction at PC.
-    // Returns the number of clock cycles (T-states) it consumed.
+    // Decode and execute one instruction at PC; returns T-states consumed.
     int step();
 
     // Request a hardware interrupt. `opcode` is the byte the interrupting
@@ -74,13 +66,10 @@ public:
 private:
     Bus bus_;
 
-    // A real 8080 doesn't recognize an interrupt until after the instruction
-    // *following* EI has retired -- load-bearing for the classic EI/RET
-    // interrupt-handler idiom. >0 while that one instruction is still
-    // outstanding; interrupt() checks it, step() counts it down.
+    // 8080 recognizes an interrupt only after the instruction following EI retires
+    // (the EI/RET idiom).
     int ei_delay_ = 0;
 
-    // memory / immediate fetch helpers
     uint8_t  rb(uint16_t addr)             { return bus_.read(addr); }
     void     wb(uint16_t addr, uint8_t v)  { bus_.write(addr, v); }
     uint16_t rw(uint16_t addr)             { return rb(addr) | (uint16_t(rb(addr + 1)) << 8); }
@@ -88,16 +77,13 @@ private:
     uint8_t  fetch8()                      { return rb(pc++); }
     uint16_t fetch16()                     { uint16_t v = rw(pc); pc += 2; return v; }
 
-    // stack
     void     push(uint16_t v) { sp -= 2; ww(sp, v); }
     uint16_t pop()            { uint16_t v = rw(sp); sp += 2; return v; }
 
-    // flag helpers
     void set_flag(Flag fl, bool on) { f = on ? (f | fl) : (f & ~fl); }
     void set_szp(uint8_t v);                 // sign, zero, parity from a result
     static bool parity_even(uint8_t v);
 
-    // ALU primitives (all write A and flags unless noted)
     void add(uint8_t v, bool carry_in);
     void sub(uint8_t v, bool borrow_in);
     void ana(uint8_t v);
@@ -110,7 +96,6 @@ private:
     void daa();
     void rlc(); void rrc(); void ral(); void rar();
 
-    // control-flow helpers
     void jump_if(bool cond);
     void call_if(bool cond, int &extra_cycles);
     void ret_if(bool cond, int &extra_cycles);

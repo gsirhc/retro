@@ -1,17 +1,6 @@
-// Native diagnostic tool: boots the real BIOS (+ optional vgabios, floppy,
-// hard disk) against this machine's chipset for a fixed cycle budget, then
-// renders the current EGA screen (text or the CGA-compatible 4-color
-// graphics mode -- see ega_render.h) to an actual BMP image -- not an
-// ASCII reconstruction. Analogous in spirit to bios_host.cpp (a headless
-// way to observe real firmware/OS progress), but for *looking at the
-// screen* rather than reading POST codes off port 0x80.
-//
-// The actual pixel decode lives in ega_render.h/.cpp, shared with the WASM
-// front end's canvas renderer -- see that file's header for what it does
-// and why (real character-generator RAM, real palette registers, no
-// hardcoded font/color table) and its scope (IBM_PCAT_REVIEW.md §14/§15).
-// This file is just the native harness: boot, call the shared renderer,
-// write a BMP at whatever resolution that mode actually is.
+// Native tool: boots the real BIOS (+ optional vgabios, floppy, hard disk)
+// for a fixed cycle budget, then writes the current EGA screen to a BMP using
+// the shared renderer in ega_render.h.
 //
 // Usage: render_screen <bios> <vgabios> <out.bmp> [max_cycles] [hdd-image] [floppy-image]
 
@@ -34,10 +23,7 @@ std::vector<uint8_t> ReadFile(const char *path) {
     return std::vector<uint8_t>((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
 }
 
-// Hand-written 24-bit uncompressed BMP -- a real, self-contained image
-// format needing no external library or dependency. Takes RGBA input (the
-// shared renderer's native format) and drops the alpha byte, since BMP has
-// no alpha channel to put it in.
+// 24-bit uncompressed BMP; drops the alpha byte.
 void WriteBmp(const char *path, int w, int h, const std::vector<uint8_t> &rgba) {
     int row_bytes = w * 3;
     int pad = (4 - (row_bytes % 4)) % 4;

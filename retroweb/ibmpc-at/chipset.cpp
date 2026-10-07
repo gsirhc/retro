@@ -5,12 +5,7 @@
 namespace ibmpcat {
 
 namespace {
-// Standard AT DMA page-register port assignments (separate 74-series glue
-// logic, not part of the 8237 itself). 0x8F is conventionally wired to
-// DMA1 channel 0 / the refresh cascade rather than anything DMA2's channel
-// 4 (the inter-chip cascade line) meaningfully uses -- nothing in this
-// emulator depends on that value, so the exact real-hardware rationale for
-// 0x8F isn't load-bearing here.
+// AT DMA page-register ports (74-series glue, not part of the 8237).
 bool page_port_map(uint16_t port, int &controller, int &channel) {
     switch (port) {
         case 0x87: controller = 1; channel = 0; return true;
@@ -42,16 +37,7 @@ void Chipset::reset() {
     ega.reset();
     hdd.reset();
     speaker.reset();
-    // mem/rom_ contents deliberately survive reset() (a CPU/warm reset
-    // doesn't erase RAM or reflash the BIOS on real hardware, and doesn't
-    // un-write-protect ROM either); only load_rom() and the constructor's
-    // zero-init touch them. `cmos` likewise deliberately survives reset()
-    // here -- it's genuine battery-backed non-volatile RAM on real
-    // hardware, unaffected by anything short of the battery itself dying
-    // (not modeled). Calling reset() after seeding the factory CMOS
-    // configuration must not silently wipe it back to zero -- exactly the
-    // bug that bit a diagnostic harness during Phase 3. See
-    // IBM_PCAT_REVIEW.md §8.
+    // mem, rom_ and cmos survive reset: RAM and CMOS are not cleared by a warm reset.
 }
 
 void Chipset::load_rom(uint32_t addr, const uint8_t *data, std::size_t len) {
@@ -60,16 +46,16 @@ void Chipset::load_rom(uint32_t addr, const uint8_t *data, std::size_t len) {
 }
 
 uint8_t Chipset::mem_read(uint32_t addr) {
-    if (!kbc.a20_enabled()) addr &= 0xFFFFF;  // gate closed: real 20-bit wraparound
+    if (!kbc.a20_enabled()) addr &= 0xFFFFF;  // A20 closed wraps at 1MB
     if (ega.owns_mem(addr)) return ega.mem_read(addr);
-    if (addr >= mem.size()) return 0xFF;      // nothing populated up there on this system
+    if (addr >= mem.size()) return 0xFF;      // unpopulated
     return mem[addr];
 }
 void Chipset::mem_write(uint32_t addr, uint8_t v) {
     if (!kbc.a20_enabled()) addr &= 0xFFFFF;
     if (ega.owns_mem(addr)) { ega.mem_write(addr, v); return; }
     if (addr >= mem.size()) return;
-    if (rom_[addr]) return;  // ROM: writes ignored, matching real hardware
+    if (rom_[addr]) return;
     mem[addr] = v;
 }
 
@@ -116,14 +102,11 @@ void Chipset::io_out(uint16_t port, uint8_t v) {
     if (port == 0xE9) { debug_console_.push_back(char(v)); return; }
     int controller, channel;
     if (page_port_map(port, controller, channel)) { (controller == 1 ? dma1 : dma2).set_page(channel, v); return; }
-    // unmapped port -- real hardware: write vanishes (open bus)
+    // unmapped port: write vanishes
 }
 
 uint16_t Chipset::io_in16(uint16_t port) {
-    // The hard disk data register is inherently 16-bit at a single port
-    // address -- 0x1F1 is a completely different register (Error), not
-    // "the high byte of 0x1F0". Every other port composes from two 8-bit
-    // accesses, which is what real software actually does for them.
+    // The HDD data register is 16-bit at 0x1F0 alone; 0x1F1 is the Error register.
     if (port == 0x1F0) return hdd.data_in16();
     return uint16_t(io_in(port)) | (uint16_t(io_in(uint16_t(port + 1))) << 8);
 }
@@ -152,15 +135,8 @@ void Chipset::tick(uint64_t cpu_cycles, double cpu_hz) {
 
     fdc.tick(cpu_cycles);
     ega.tick(cpu_cycles);
-    // The FDC/DMA handoff: once a paced READ/WRITE DATA transfer's real-time
-    // wait has elapsed, perform the whole block copy in one step (see
-    // fdc765.h's file header for why this is a bulk copy rather than a
-    // byte-by-byte DMA dance) using whichever of DMA1's address/count/page
-    // registers were programmed for channel 2 (the floppy's fixed DMA
-    // channel on a genuine AT). DMA addresses bypass the A20 gate --  a
-    // real AT's A20 gate sits specifically in the CPU's own address path,
-    // not the DMA controller's -- so this goes straight at `mem`, not
-    // through mem_read/mem_write.
+    // Paced FDC transfers copy the whole block at once using DMA1 channel 2's
+    // programmed address/count/page. DMA bypasses the A20 gate, so this indexes mem directly.
     if (fdc.transfer_ready() && !dma1.channel_masked(2)) {
         uint16_t dma_len16 = uint16_t(dma1.count(2) + 1);  // 8237 count register is programmed as N-1
         std::size_t len = std::min(fdc.transfer_length(), std::size_t(dma_len16));
@@ -176,21 +152,17 @@ void Chipset::tick(uint64_t cpu_cycles, double cpu_hz) {
         for (std::size_t i = 0; i < len; ++i) dma1.advance(2);
         fdc.finish_transfer(len);
     }
-    // Edge-triggered: raise IRQ6 only on the 0->1 transition, matching
-    // genuine ISA wiring -- see the fdc_irq_prev_ comment in chipset.h.
+    // IRQ6 is edge-triggered.
     bool fdc_irq_now = fdc.irq_pending();
     if (fdc_irq_now && !fdc_irq_prev_) pic_master.raise(6);
     fdc_irq_prev_ = fdc_irq_now;
 
-    // IRQ1 (keyboard) was never wired to the PIC at all until this was
-    // found via a real end-to-end boot test: a keypress sat in i8042's
-    // output buffer forever, since nothing ever told the PIC about it.
-    // Same edge-triggering discipline as IRQ6. See IBM_PCAT_REVIEW.md §9.
+    // IRQ1, edge-triggered.
     bool kbc_irq_now = kbc.irq1_pending();
     if (kbc_irq_now && !kbc_irq_prev_) pic_master.raise(1);
     kbc_irq_prev_ = kbc_irq_now;
 
-    // IRQ14 (hard disk), on the slave PIC (global IRQ14 = slave line 6).
+    // IRQ14 is slave line 6.
     hdd.tick(cpu_cycles);
     bool hdd_irq_now = hdd.irq_pending();
     if (hdd_irq_now && !hdd_irq_prev_) pic_slave.raise(6);
@@ -202,7 +174,7 @@ int Chipset::poll_interrupt() {
     else pic_master.lower(2);
     if (!pic_master.has_interrupt()) return -1;
     if (pic_master.peek_highest_pending() == 2) {
-        pic_master.acknowledge();  // completes the master's own INTA side effects; vector discarded
+        pic_master.acknowledge();  // master INTA side effects; vector discarded
         return pic_slave.acknowledge();
     }
     return pic_master.acknowledge();

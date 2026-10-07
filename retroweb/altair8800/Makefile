@@ -21,7 +21,7 @@ HDR = i8080.h serial2sio.h ringbuffer.h
 
 .PHONY: help demo test test-smoke coverage cpm cpmdisk serve wasm check clean
 
-# llvm tools: Apple ships them behind xcrun; on Linux they're on PATH
+# llvm tools: xcrun on macOS, PATH on Linux
 LLVM_PROFDATA ?= xcrun llvm-profdata
 LLVM_COV      ?= xcrun llvm-cov
 
@@ -42,10 +42,7 @@ test:
 	ctest --test-dir tests/build --output-on-failure
 
 # --- C++ coverage (source-based, llvm-cov) --------------------------
-# Instruments our sources only (not googletest) and runs everything that
-# exercises them: the GoogleTest unit suites + the 8080 diagnostic COMs
-# (8080PRE/TST8080/CPUTEST/8080EXM) through the CP/M host, so i8080.cpp gets
-# its real coverage, not just what arithmetic_test touches.
+# Unit suites plus the 8080 diagnostic COMs through the CP/M host (covers i8080.cpp)
 COVFLAGS = -O0 -g -fprofile-instr-generate -fcoverage-mapping
 coverage:
 	cmake -S tests -B tests/build-cov -DCOVERAGE=ON >/dev/null
@@ -68,8 +65,7 @@ coverage:
 cpm/cpm_host: cpm/cpm_host.cpp i8080.cpp i8080.h
 	$(CXX) $(CXXFLAGS) -o $@ cpm/cpm_host.cpp i8080.cpp
 
-# run each diagnostic image present in cpm/, 8080PRE first (smoke test) and
-# 8080EXM last (exhaustive, ~15 s); stops at the first failure so CI fails loudly
+# 8080PRE first (smoke), 8080EXM last (~15 s); stops at the first failure
 cpm: cpm/cpm_host
 	@ran=0; \
 	for f in 8080PRE.COM TST8080.COM CPUTEST.COM 8080EXM.COM; do \
@@ -84,8 +80,7 @@ cpm/cpm_disk: cpm/cpm_disk.cpp i8080.cpp serial2sio.cpp disk88.cpp \
               i8080.h serial2sio.h ringbuffer.h disk88.h disk_bootrom.h
 	$(CXX) $(CXXFLAGS) -o $@ cpm/cpm_disk.cpp i8080.cpp serial2sio.cpp disk88.cpp
 
-# `make cpmdisk` builds the harness; `make cpmdisk DISK=path/to/CPM.dsk` boots it.
-# With no DISK it falls back to any cpm/*.dsk present, else just reports success.
+# DISK=path/to/CPM.dsk boots it; with none, falls back to cpm/*.dsk, else reports success
 cpmdisk: cpm/cpm_disk
 	@if [ -n "$(DISK)" ]; then \
 	  echo "=== boot $(DISK) ==="; ./cpm/cpm_disk "$(DISK)" DIR STAT || exit $$?; \
@@ -106,8 +101,7 @@ serve:
 	$(MAKE) -C web serve
 
 # --- aggregate --------------------------------------------------
-# cpm is included so a broken ALU/flag/cycle model fails a local `make check`,
-# not just CI; harmless if cpm/*.COM aren't fetched locally (it just no-ops)
+# includes cpm so ALU/flag/cycle regressions fail locally; no-ops if cpm/*.COM aren't fetched
 test-smoke: demo test
 
 check: demo test cpm

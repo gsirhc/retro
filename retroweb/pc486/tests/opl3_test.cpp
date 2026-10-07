@@ -1,13 +1,5 @@
-// GoogleTest suite for the Yamaha YMF262 (OPL3) FM synthesizer: the AdLib
-// detection sequence every period driver runs before it will touch the FM
-// chip at all, timer 1/timer 2 periods and masking, the status byte's exact
-// bit layout (an OPL3 tell versus an OPL2), the NEW bit that gates OPL3-only
-// registers and bank 1, and audible key-on/key-off behavior including
-// stereo panning.
-//
-// Register/timing details are checked against opl3.h's own contract (which
-// cites the YMF262-M datasheet and the Sound Blaster Series Hardware
-// Programming Guide Appendix B) rather than against another emulator.
+// GoogleTest suite for the Yamaha YMF262 (OPL3). Checked against opl3.h's contract
+// (YMF262-M datasheet, SB Hardware Programming Guide Appendix B).
 
 #include <gtest/gtest.h>
 
@@ -30,35 +22,25 @@ protected:
 
     void SetUp() override { opl.reset(); }
 
-    // Every register write goes through the address/data pair for the given
-    // bank, exactly as chipset.cpp's port decode would drive it.
+    // Register write through the bank's address/data pair, as chipset.cpp's port decode does.
     void Reg(int bank, uint8_t index, uint8_t v) {
         opl.write_address(bank, index);
         opl.write_data(bank, v);
     }
 
-    // Advances the chip by a raw CPU-cycle delta, accumulating a running
-    // cycle count the way Machine::run_cycles() feeds tick() -- never reset
-    // mid-test, since tick() computes its own delta from the previous call.
+    // Advance the chip by a CPU-cycle delta; the running count is never reset since tick() takes deltas.
     void AdvanceCycles(uint64_t delta) {
         cycles_ += delta;
         opl.tick(cycles_);
     }
 
-    // Converts a real elapsed time to CPU cycles at this machine's 66 MHz
-    // clock (Opl3::kCpuHz) so tests express intent in microseconds instead
-    // of hand-computed cycle counts.
+    // Microseconds to CPU cycles at 66 MHz (Opl3::kCpuHz).
     void AdvanceMicroseconds(double us) {
         AdvanceCycles(uint64_t(us * 1e-6 * Opl3::kCpuHz));
     }
 
-    // Programs channel 0 as a plain 2-op FM voice: operator slots 0
-    // (modulator) and 3 (carrier), a non-zero F-number/BLOCK, full total
-    // level, the fastest attack, EGT held sustain at full volume, and the
-    // fastest release. None of these values are load-bearing for pitch or
-    // timbre -- the point is only that key-on must produce something
-    // non-zero and key-off must decay to nothing within a short, bounded
-    // time.
+    // Channel 0 as a plain 2-op FM voice: slots 0 (modulator) and 3 (carrier), fastest attack and
+    // release. Values only need key-on to sound and key-off to decay to nothing quickly.
     void SetUpAudibleChannel(uint8_t pan = 0x30) {
         Reg(0, 0x20, 0x21);  // modulator: EGT hold, MULT=1
         Reg(0, 0x23, 0x21);  // carrier: EGT hold, MULT=1
@@ -71,16 +53,13 @@ protected:
         Reg(0, 0xC0, pan);
         Reg(0, 0xA0, 0xAE);  // F-number low byte; value itself is arbitrary
     }
-    // Operator slot offsets for channels 0-8 within one bank: the OPL's
-    // operator numbering is not contiguous across channels.
+    // Operator slot offsets for channels 0-8 in one bank (not contiguous).
     static uint8_t OpOffset(int ch, bool carrier) {
         static const uint8_t kBase[9] = {0x00, 0x01, 0x02, 0x08, 0x09, 0x0A, 0x10, 0x11, 0x12};
         return uint8_t(kBase[ch] + (carrier ? 3 : 0));
     }
 
-    // Programs one 2-op FM voice on an arbitrary bank/channel at the given
-    // total levels and keys it on, so a test can build real polyphony instead
-    // of the single channel 0 SetUpAudibleChannel() covers.
+    // One 2-op voice on any bank/channel at the given total levels, keyed on, for polyphony.
     void SetUpVoiceAndKeyOn(int bank, int ch, uint8_t mod_tl, uint8_t car_tl) {
         uint8_t m = OpOffset(ch, false), c = OpOffset(ch, true);
         Reg(bank, uint8_t(0x20 + m), 0x21);
@@ -96,7 +75,7 @@ protected:
         Reg(bank, uint8_t(0xB0 + ch), 0x32);
     }
 
-    // Fraction of drained samples sitting against either clamp bound.
+    // Fraction of drained samples sitting at either clamp bound.
     static double ClippedFraction(const std::vector<Opl3::Sample> &samples) {
         std::size_t clipped = 0;
         for (const auto &s : samples) {
@@ -105,21 +84,13 @@ protected:
         return samples.empty() ? 0.0 : double(clipped) / double(samples.size());
     }
 
-    // BLOCK=4, F-number high bits=2, KON set/clear -- channel 0's B0h.
+    // BLOCK=4, F-number high bits=2, KON set/clear: channel 0's B0h.
     void KeyOn() { Reg(0, 0xB0, 0x32); }
     void KeyOff() { Reg(0, 0xB0, 0x12); }
 
-    // Pairs channels 0+3 into one four-operator voice with the given
-    // per-channel connection bits (the primary's C0h and the secondary's
-    // C3h), then keys it on with operator `loud_op` (1-4: primary modulator,
-    // primary carrier, secondary modulator, secondary carrier) given a fast
-    // attack held at full volume (EGT hold, SL=0) and the other three
-    // permanently silenced (AR=0, so their envelope never leaves maximum
-    // attenuation and they produce zero output regardless of what phase they
-    // are fed). Returns the peak |left sample| after a few ms -- this
-    // isolates exactly which operators a given (cp,cs) algorithm sums
-    // directly into the channel output, without needing to analyse a
-    // modulated waveform's shape.
+    // Pair channels 0+3 into a 4-op voice with the given connection bits, key on with operator
+    // `loud_op` (1-4) at full volume and the other three silenced (AR=0). Returns the peak |left|
+    // after a few ms, isolating which operators a (cp,cs) algorithm sums into the output.
     static int32_t FourOpIsolatedPeak(uint8_t cp_cnt, uint8_t cs_cnt, int loud_op) {
         Opl3 chip;
         chip.reset();
@@ -135,9 +106,7 @@ protected:
             w(0, uint8_t(0x60 + base), loud ? 0xF0 : 0x00);    // loud: AR=15, DR=0; silent: AR=0 (never attacks)
             w(0, uint8_t(0x80 + base), 0x0F);                  // SL=0, RR=15
         }
-        // C0h bits 5-4 are the pan bits, which NEW (set above) makes live --
-        // 0x30 sets both so the primary's mixed output actually reaches
-        // left/right, on top of cp_cnt's own connection bit (bit 0).
+        // C0h bits 5-4 are pan bits, live once NEW is set; 0x30 sends the primary to both sides.
         w(0, 0xC0, uint8_t(0x30 | cp_cnt));  // channel 0 (primary) connection
         w(0, 0xC3, cs_cnt);                   // channel 3 (secondary) connection
         w(0, 0xA0, 0x59);
@@ -149,13 +118,9 @@ protected:
         return peak;
     }
 
-    // Runs one carrier-only voice (modulator silenced via AR=0) at waveform
-    // `wf`, fnum=64/block=0/MULT=1 so phase advances by exactly 64 units per
-    // frame -- a full 2^20-unit cycle is exactly 16384 frames. Returns every
-    // frame's left sample for one full cycle plus margin. Frame k's phase is
-    // (k+1)*64: key-on's phase reset and that frame's own advance both
-    // happen before it is sampled (see Waveform7MirrorsItsNegativeHalf...'s
-    // derivation below, which this mirrors).
+    // Carrier-only voice (modulator silenced via AR=0) at waveform `wf`, fnum=64/block=0/MULT=1:
+    // 64 phase units per frame, a 2^20 cycle is 16384 frames. Returns one cycle of left samples plus
+    // margin. Frame k's phase is (k+1)*64.
     static std::vector<int32_t> SampleOneWaveformCycle(uint8_t wf) {
         Opl3 chip;
         chip.reset();
@@ -183,16 +148,14 @@ protected:
     }
 };
 
-// Timer periods from opl3.h: clock/1024 and clock/4096, given directly in
-// microseconds since that is how the header (and every driver) states them.
+// Timer periods from opl3.h: clock/1024 and clock/4096, in microseconds.
 constexpr double kTimer1PeriodUs = 80.8;
 constexpr double kTimer2PeriodUs = 323.1;
 
 // --- AdLib detection ------------------------------------------------------
 
 TEST_F(Opl3Test, AdLibDetectionSequenceReturnsZeroThenC0) {
-    // opl3.h's own worked example, step for step. A regression here means
-    // period software concludes there is no OPL at all.
+    // opl3.h's worked example, step for step.
     Reg(0, 0x04, 0x60);  // 1. mask/reset both timers
     Reg(0, 0x04, 0x80);  // 2. reset the IRQ flags
     EXPECT_EQ(opl.status(), 0x00) << "step 3: status must read 00h";
@@ -200,9 +163,7 @@ TEST_F(Opl3Test, AdLibDetectionSequenceReturnsZeroThenC0) {
     Reg(0, 0x02, 0xFF);  // 4. timer 1 preset
     Reg(0, 0x04, 0x21);  // 4. start timer 1 (also masks timer 2, per the header text)
 
-    // 5. wait at least 80.8 us (clock/1024) for timer 1 to expire. At this
-    // machine's 66 MHz CPU clock that is 80.8e-6 * 66e6 ~= 5332.8 cycles;
-    // add 10% margin so the test isn't sensitive to truncation.
+    // 5. wait at least 80.8 us (clock/1024) for timer 1: ~5332.8 cycles at 66 MHz, plus 10% margin.
     AdvanceMicroseconds(kTimer1PeriodUs * 1.1);
     EXPECT_EQ(opl.status(), 0xC0) << "step 5: status must read C0h once timer 1 has fired";
 
@@ -232,9 +193,7 @@ TEST_F(Opl3Test, Timer2PeriodIsThreeHundredTwentyThreePointOneMicroseconds) {
 }
 
 TEST_F(Opl3Test, PresetZeroRequiresTheFullTwoFiftySixTicks) {
-    // Preset 0 counts up from 0 to 256, the maximum span, versus the single
-    // final tick a preset of 255 needs (tested above) -- this is what "the
-    // preset shortens the count" means on real hardware.
+    // Preset 0 counts 0 to 256, the maximum span, versus one final tick for 255.
     Reg(0, 0x02, 0x00);
     Reg(0, 0x04, 0x01);
     AdvanceMicroseconds(kTimer1PeriodUs * 256.0 * 0.97);
@@ -244,10 +203,7 @@ TEST_F(Opl3Test, PresetZeroRequiresTheFullTwoFiftySixTicks) {
 }
 
 TEST_F(Opl3Test, MaskBitsGateOnlyTheIrqBitNotTheTimersOwnStatusBit) {
-    // 04h bits 6/5 mask a timer's contribution to bit 7 (the actual IRQ
-    // line) but the timer's own status bit and flag still latch -- exactly
-    // what lets a driver poll one timer without the other timer's mask
-    // hiding whether it fired.
+    // 04h bits 6/5 mask a timer's contribution to bit 7 but its own status bit still latches.
     Reg(0, 0x02, 0xFF);  // timer 1 preset: one tick to expire
     Reg(0, 0x04, 0x41);  // bit6 mask timer 1, bit0 start timer 1
     AdvanceMicroseconds(kTimer1PeriodUs * 1.5);
@@ -265,7 +221,7 @@ TEST_F(Opl3Test, IrqResetBitClearsBothFlagsButReadingStatusDoesNot) {
     ASSERT_TRUE(opl.timer1_expired());
     ASSERT_TRUE(opl.timer2_expired());
 
-    // Reading the status port is a pure read on real hardware.
+    // Reading status is a pure read.
     opl.status();
     opl.status();
     EXPECT_TRUE(opl.timer1_expired());
@@ -278,8 +234,7 @@ TEST_F(Opl3Test, IrqResetBitClearsBothFlagsButReadingStatusDoesNot) {
 }
 
 TEST_F(Opl3Test, StatusBitsFourThroughZeroAlwaysReadZero) {
-    // An OPL2 returns 6 (bits 2-1) here, which is one way software tells the
-    // two chips apart -- an OPL3 returning stray bits would look like one.
+    // An OPL2 returns 6 (bits 2-1) here; that is how software tells the chips apart.
     EXPECT_EQ(opl.status() & 0x1F, 0x00);
     Reg(0, 0x02, 0xFF);
     Reg(0, 0x04, 0x01);
@@ -309,9 +264,7 @@ TEST_F(Opl3Test, Bank1WritesAreInertUntilNewIsSet) {
 // --- reset ------------------------------------------------------------------
 
 TEST_F(Opl3Test, ResetClearsEveryRegisterTimersAndOperatorState) {
-    // Write something into a representative register from each area, then
-    // confirm a cold reset ("every register 0, ... all 36 operators
-    // released and silent", opl3.h) really wipes it all.
+    // Cold reset wipes a register from each area and releases all 36 operators (opl3.h).
     Reg(0, 0x20, 0xFF);
     Reg(0, 0xB0, 0x35);  // key on channel 0
     Reg(1, 0x05, 0x01);  // NEW
@@ -353,9 +306,7 @@ TEST_F(Opl3Test, KeyOnProducesAudibleOutputAndKeyOffReleasesToSilence) {
 
     AdvanceMicroseconds(5000.0);  // 5 ms of sustained tone
     auto held = opl.drain_samples();
-    // 5 ms at the chip's ~49716 Hz frame rate is roughly 249 frames; allow
-    // generous slack since tick() only emits whole frames as CPU cycles
-    // cross a frame boundary, and the attack phase covers the first slice.
+    // 5 ms is ~249 frames at ~49716 Hz; allow slack since tick() emits whole frames.
     double expected_held = 5000e-6 * Opl3::kSampleHz;
     EXPECT_GE(held.size(), std::size_t(expected_held * 0.8));
     EXPECT_LE(held.size(), std::size_t(expected_held * 1.2));
@@ -370,9 +321,7 @@ TEST_F(Opl3Test, KeyOnProducesAudibleOutputAndKeyOffReleasesToSilence) {
     auto released = opl.drain_samples();
     ASSERT_GT(released.size(), 10u);
 
-    // Peak absolute amplitude over the first and last quarter of the release
-    // -- decay direction and eventual silence, without pinning any exact
-    // sample value the operator tables (written independently) would set.
+    // Peak over the first and last quarter of release: direction and eventual silence, no exact values.
     auto peak = [](const std::vector<Opl3::Sample> &v, std::size_t lo, std::size_t hi) {
         int32_t m = 0;
         for (std::size_t i = lo; i < hi; ++i) {
@@ -392,17 +341,9 @@ TEST_F(Opl3Test, KeyOnProducesAudibleOutputAndKeyOffReleasesToSilence) {
 }
 
 // --- envelope generator: instant attack, pinned idle, retrigger, rate scaling ---
-//
-// These pin behaviors specific to the real quantised shift/add state machine
-// ("OPLx decapsulated") that replaced the old analytic exponential/linear-dB
-// approximation: none of them would fail against that old curve for the
-// wrong reason, but none of them were actually exercised by it either.
 
-// Effective RATE's top nibble (rate_hi) hits its maximum of 15 whenever
-// AR=15, regardless of key scaling (15*4=60 alone already gives rate_hi=15
-// before any key-scale addition) -- and rate_hi==15 is the one case the
-// decapsulated mechanism short-circuits entirely: attenuation snaps straight
-// to zero on the key-on sample rather than taking even one quantised step.
+// rate_hi hits 15 whenever AR=15 (15*4=60 before key scaling), and the real mechanism snaps
+// attenuation to zero on the key-on sample.
 TEST_F(Opl3Test, InstantAttackReachesFullVolumeOnTheVeryFirstFewFramesWhenEffectiveRateHiIsFifteen) {
     auto peak_over_ms = [](Opl3 &chip, uint64_t &cycles, double ms) {
         const double cycles_per_frame = Opl3::kCpuHz / Opl3::kSampleHz;
@@ -428,11 +369,7 @@ TEST_F(Opl3Test, InstantAttackReachesFullVolumeOnTheVeryFirstFewFramesWhenEffect
         w(0xC0, 0x30);
         w(0xA0, 0xAE);
         w(0xB0, uint8_t(0x20 | (4 << 2) | 0x02));     // KON, block=4, fnum hi bits=10b
-        // fnum 0x2AE/block 4 gives a ~1.9 ms waveform cycle at MULT=1; the
-        // "early" window must span at least one full cycle or it risks
-        // landing near the sine's own zero-crossing (heavily attenuated by
-        // the waveform shape alone, regardless of the envelope) rather than
-        // finding the true peak.
+        // fnum 0x2AE/block 4 gives a ~1.9 ms cycle at MULT=1; the window must span a full cycle to avoid a zero-crossing.
         uint64_t cycles = 0;
         early = peak_over_ms(chip, cycles, 2.5);
         settled = peak_over_ms(chip, cycles, 50.0);    // long past even a slow attack
@@ -451,11 +388,8 @@ TEST_F(Opl3Test, InstantAttackReachesFullVolumeOnTheVeryFirstFewFramesWhenEffect
         << slow_early << " slow_settled=" << slow_settled;
 }
 
-// Real silicon has exactly four envelope states; this file no longer stores
-// a separate "off" one (opl3.h's Env enum). "Idle" is derived from an
-// operator sitting in release with its attenuation pinned at maximum, which
-// must still let a later key-on attack normally -- the thing a leftover,
-// never-cleared stored flag could plausibly break.
+// Idle is derived from release with attenuation pinned at maximum (no stored off state, opl3.h Env);
+// a later key-on must still attack normally.
 TEST_F(Opl3Test, FullyIdleOperatorAttacksNormallyAgainOnASubsequentKeyOn) {
     SetUpAudibleChannel();
     auto peak = [&] {
@@ -482,12 +416,8 @@ TEST_F(Opl3Test, FullyIdleOperatorAttacksNormallyAgainOnASubsequentKeyOn) {
            "\"idle\" used to be a separate stored enum value -- peak1=" << peak1 << " peak2=" << peak2;
 }
 
-// The decapsulated mechanism re-triggers attack whenever key-on is live
-// while the envelope is (still) in release -- independent of how far
-// release has progressed -- and resumes from the current attenuation rather
-// than resetting to silence first. A naive re-implementation (reset
-// env_level to maximum attenuation on every key-on edge) would show a dip
-// toward silence right at the retrigger instant before climbing back up.
+// Key-on while still in release re-triggers attack from the current attenuation, with no dip
+// toward silence.
 TEST_F(Opl3Test, RetriggeringMidReleaseResumesFromThereInsteadOfDippingToSilenceFirst) {
     Opl3 chip;
     chip.reset();
@@ -519,17 +449,8 @@ TEST_F(Opl3Test, RetriggeringMidReleaseResumesFromThereInsteadOfDippingToSilence
     advance_ms(2.0);  // instant attack, then settle
     chip.drain_samples();
 
-    // Fnum 0x2AE/block 4 gives a ~1.9 ms waveform cycle (MULT=1): key-on
-    // zeroes phase (real pg_reset behavior), so any window has to span at
-    // least one full cycle or it risks landing near the sine's own
-    // zero-crossing and reading a waveform-shape artifact instead of the
-    // envelope's actual level. Letting release run 30 ms (well into a
-    // substantial, clearly non-zero attenuation -- about 9% of RR=8's ~330ms
-    // full decay) before retriggering also means a buggy "reset to full
-    // silence on every key-on" implementation would need many steps to claw
-    // back up to anywhere near mid_release's level, which a ~2.5ms window
-    // cannot hide -- unlike retriggering near the very start of release,
-    // where even a buggy reset has little ground to make up.
+    // Fnum 0x2AE/block 4 gives a ~1.9 ms cycle (MULT=1) and key-on zeroes phase, so windows span a
+    // full cycle. Release runs 30 ms (about 9% of RR=8's ~330 ms) so a reset-to-silence bug can't hide.
     chip.write_address(0, 0xB0); chip.write_data(0, uint8_t(0x00 | (4 << 2) | 0x02));  // KOFF
     advance_ms(27.5);
     chip.drain_samples();
@@ -537,9 +458,7 @@ TEST_F(Opl3Test, RetriggeringMidReleaseResumesFromThereInsteadOfDippingToSilence
     int32_t mid_release = peak_since_drain();
     ASSERT_GT(mid_release, 0) << "release must still be audible, not already silent, at the retrigger point";
 
-    // Switch to a moderate (non-instant) attack rate before retriggering, so
-    // the retrigger's attack is observable over a few frames rather than
-    // snapping instantly either way.
+    // Moderate attack rate before retriggering so the attack is observable.
     chip.write_address(0, 0x63); chip.write_data(0, 0x80);  // AR=8, DR=0
 
     chip.write_address(0, 0xB0); chip.write_data(0, uint8_t(0x20 | (4 << 2) | 0x02));  // retrigger
@@ -556,17 +475,8 @@ TEST_F(Opl3Test, RetriggeringMidReleaseResumesFromThereInsteadOfDippingToSilence
         << full_again << " mid_release=" << mid_release;
 }
 
-// The chip's one shared envelope clock produces a specific, documented rate
-// relationship regardless of the exact per-sample shift/add mechanism: every
-// +1 step of a rate REGISTER (= +4 of effective RATE, since RATE = register
-// value * 4 + the key-scale offset) halves the time to traverse the
-// envelope's full range (Yamaha YMF715x Register Description Document's
-// "Rate Value - Actual Time Table" -- the same halving this file's old,
-// deleted analytic approximation was calibrated to match, now checked
-// against the real quantised state machine instead of assumed of it). A
-// register delta of N is a RATE delta of 4N, i.e. N halvings (2^N), not N --
-// comparing registers 4 apart (so a 16x change) against a 2.0 expectation
-// was this test's first, wrong draft.
+// Each +1 step of a rate register (+4 effective RATE) halves the full-range traverse time
+// (YMF715x Register Description Document, Rate Value - Actual Time Table), so N steps is 2^N.
 TEST_F(Opl3Test, DecayAttenuationAtAFixedElapsedTimeRoughlyDoublesForOneStepOfTheRateRegister) {
     auto make_chip = [](Opl3 &chip, uint8_t dr, uint8_t sl) {
         chip.reset();
@@ -591,11 +501,7 @@ TEST_F(Opl3Test, DecayAttenuationAtAFixedElapsedTimeRoughlyDoublesForOneStepOfTh
         }
         return peak;
     };
-    // A common, undecayed reference: SL=0 (sustain holds at full volume, so
-    // nothing ever decays) isolates "what full scale reads here" from the
-    // DR under test entirely -- unlike measuring an early window on the
-    // SL=15 (decay-to-silence) chip itself, which is confounded by how much
-    // that specific DR has already decayed within that same early window.
+    // SL=0 reference: nothing decays, so full scale is isolated from the DR under test.
     Opl3 ref;
     uint64_t ref_cycles = 0;
     make_chip(ref, 15, 0);
@@ -618,20 +524,14 @@ TEST_F(Opl3Test, DecayAttenuationAtAFixedElapsedTimeRoughlyDoublesForOneStepOfTh
            "the attenuation at the same elapsed time -- db7=" << db7 << " db8=" << db8;
 }
 
-// The chip's clock must not slip when it is ticked coarsely. advance() bounds
-// how many frames one call will generate, but it consumes the credit for every
-// frame that came due -- so a long gap between ticks drops a slice of audio
-// instead of leaving the chip permanently behind. Capping the credit instead
-// made the shortfall accumulate call after call, heard as music that starts at
-// the right speed and then slows down and keeps slowing.
+// A coarse tick must not slip the clock. advance() bounds frames per call but consumes credit for
+// every frame due, so a long gap drops audio instead of leaving the chip behind.
 TEST_F(Opl3Test, CoarseTicksDoNotMakeTheChipsClockFallBehind) {
-    // A timer alone keeps the chip active, so this measures pacing without
-    // depending on any envelope.
+    // A timer alone keeps the chip active.
     Reg(0, 0x02, 0x00);
     Reg(0, 0x04, 0x01);
 
-    // 250ms per tick is far past advance()'s per-call frame bound, which is
-    // exactly the case that used to leak time.
+    // 250 ms per tick is far past advance()'s per-call frame bound.
     const uint64_t step = uint64_t(Opl3::kCpuHz * 0.25);
     uint64_t cycles = 0;
     uint64_t emitted = 0;
@@ -640,14 +540,11 @@ TEST_F(Opl3Test, CoarseTicksDoNotMakeTheChipsClockFallBehind) {
         opl.tick(cycles);
         emitted += opl.drain_samples().size();
     }
-    // The chip's own clock is what must stay honest: after 2s of guest time it
-    // must have accounted for ~2s of frames, even though the per-call bound
-    // means not all of them were handed over.
+    // After 2s of guest time the chip must have accounted for ~2s of frames.
     const double elapsed = double(cycles) / Opl3::kCpuHz;
     EXPECT_LE(emitted, std::size_t(elapsed * Opl3::kSampleHz * 1.01));
 
-    // Now tick finely and confirm the rate is immediately correct rather than
-    // catching up on a backlog -- proof no deficit was carried forward.
+    // Fine ticks must be immediately correct, with no backlog carried forward.
     opl.drain_samples();
     const uint64_t fine = uint64_t(Opl3::kCpuHz * 0.01);
     uint64_t fine_total = 0;
@@ -663,11 +560,7 @@ TEST_F(Opl3Test, CoarseTicksDoNotMakeTheChipsClockFallBehind) {
 
 // --- pitch -------------------------------------------------------------------
 
-// The output frequency is F = fnum * kSampleHz / 2^(20-Block) -- the formula
-// the classic AdLib note table is built on, where fnum 159h at block 4 is
-// middle C. Nothing else in this suite pins the phase increment, and an error
-// here is an error in octaves: the first implementation ran two octaves sharp,
-// which is audible as music with no bass at all rather than as a wrong note.
+// F = fnum * kSampleHz / 2^(20-Block); fnum 159h at block 4 is middle C. An error here is in octaves.
 TEST_F(Opl3Test, OutputFrequencyMatchesTheFnumAndBlockFormula) {
     for (int block = 2; block <= 5; ++block) {
         Opl3 chip;
@@ -688,7 +581,7 @@ TEST_F(Opl3Test, OutputFrequencyMatchesTheFnumAndBlockFormula) {
         auto s = chip.drain_samples();
         ASSERT_GT(s.size(), 1000u);
 
-        // Count zero crossings over the sustained tail, past the attack.
+        // Zero crossings over the sustained tail, past the attack.
         const std::size_t start = s.size() / 2;
         int crossings = 0;
         int32_t prev = s[start].left;
@@ -705,8 +598,7 @@ TEST_F(Opl3Test, OutputFrequencyMatchesTheFnumAndBlockFormula) {
     }
 }
 
-// MULT is a half-integer multiplier, so MULT=0 is x0.5 and MULT=2 is x2 --
-// an octave below and above MULT=1's pitch.
+// MULT is a half-integer multiplier: MULT=0 is x0.5, MULT=2 is x2.
 TEST_F(Opl3Test, MultFieldScalesPitchAsAHalfIntegerMultiplier) {
     auto tone_hz = [this](uint8_t mult) {
         Opl3 chip;
@@ -738,8 +630,7 @@ TEST_F(Opl3Test, MultFieldScalesPitchAsAHalfIntegerMultiplier) {
 
 TEST_F(Opl3Test, C0RegisterPansHardLeftOrRightOnceNewIsSet) {
     Reg(1, 0x05, 0x01);  // NEW: OPL3 stereo mode
-    // C0h bit 4 is CHA and bit 5 is CHB; CHA drives the left output and CHB
-    // the right. Clearing the other pans hard to one side.
+    // C0h bit 4 is CHA (left), bit 5 is CHB (right).
     SetUpAudibleChannel(0x10);  // CHA only: left
     KeyOn();
     AdvanceMicroseconds(5000.0);
@@ -755,8 +646,7 @@ TEST_F(Opl3Test, C0RegisterPansHardLeftOrRightOnceNewIsSet) {
 }
 
 TEST_F(Opl3Test, BothChannelsStayAudibleWhileNewIsClearRegardlessOfC0) {
-    // NEW is clear out of reset. A mono-era driver that never touches 105h
-    // or C0h must still hear sound out of both speakers (opl3.h).
+    // NEW is clear out of reset; a mono-era driver must still hear both speakers (opl3.h).
     ASSERT_FALSE(opl.opl3_mode());
     SetUpAudibleChannel(0x00);  // no pan bits set at all
     KeyOn();
@@ -775,10 +665,7 @@ TEST_F(Opl3Test, BothChannelsStayAudibleWhileNewIsClearRegardlessOfC0) {
 // --- sample cadence and bookkeeping -----------------------------------------
 
 TEST_F(Opl3Test, SampleCadenceMatchesTheRealFourNineSevenOneSixHertzRate) {
-    // Realism contract (CLAUDE.md): the frame rate is fixed silicon
-    // behavior, 14.31818 MHz / 288 = 49715.9 Hz, and drain_samples() must
-    // report frames at that real cadence for a given span of CPU cycles --
-    // never sped up.
+    // Frame rate is fixed silicon: 14.31818 MHz / 288 = 49715.9 Hz.
     SetUpAudibleChannel();
     KeyOn();
     AdvanceMicroseconds(20000.0);  // 20 ms
@@ -798,12 +685,8 @@ TEST_F(Opl3Test, DrainSamplesReturnsAndClearsTheLog) {
 
 // --- output headroom ------------------------------------------------------
 
-// The output stage's master gain has no hardware citation (see opl3.cpp), so
-// what pins it is the clamp: real FM music runs many voices at once, and a
-// gain that clips them is audible as distortion. Nothing used to sum more
-// than one channel, which is exactly how a gain that clipped at three voices
-// shipped. 18 moderately-attenuated voices is full OPL3 polyphony voiced the
-// way period music actually is.
+// The master gain has no hardware citation (opl3.cpp), so the clamp pins it: 18 moderately
+// attenuated voices is full OPL3 polyphony as period music voices it.
 TEST_F(Opl3Test, FullPolyphonyAtModerateLevelsDoesNotClip) {
     Reg(1, 0x05, 0x01);  // NEW: OPL3 mode, so bank 1's nine channels sound
     for (int ch = 0; ch < 9; ++ch) {
@@ -818,9 +701,7 @@ TEST_F(Opl3Test, FullPolyphonyAtModerateLevelsDoesNotClip) {
     EXPECT_DOUBLE_EQ(0.0, ClippedFraction(samples));
 }
 
-// A single unattenuated voice must leave room for the rest of them: if one
-// channel alone eats a large share of full scale, any real arrangement
-// clips. The bound is what opl3.cpp's gain comment claims (~18%).
+// One unattenuated voice must leave headroom for the rest (~18%, opl3.cpp gain comment).
 TEST_F(Opl3Test, OneFullVolumeVoiceLeavesHeadroomForEighteen) {
     SetUpAudibleChannel();
     KeyOn();
@@ -840,28 +721,13 @@ TEST_F(Opl3Test, OneFullVolumeVoiceLeavesHeadroomForEighteen) {
 
 // --- modulation index --------------------------------------------------------
 
-// kModulationIndexRadians (opl3.cpp) was recalibrated to 8*pi, exactly double
-// kFeedbackRadians[7] (4*pi) -- both pinned by the same decap fact: a full-
-// scale operator output is 4084 units against a phase adder scaled at 1024
-// units/cycle, and cross-operator modulation injects that output unshifted
-// while self-feedback shifts it by (9-FB). The raw phase-offset arithmetic
-// isn't reachable from a test, so this checks the audible consequence against
-// a specific numeric prediction (not just "more modulation than before"),
-// which is what actually catches a regression back to the old, wrong value:
-// attenuate the modulator by a known amount (TL steps are 0.75dB each) so the
-// realized index is a known fraction of kModulationIndexRadians, then verify
-// the carrier's instantaneous frequency shift near key-on (where the
-// modulator's own phase derivative, and so the carrier's frequency deviation,
-// is at its peak -- classic FM: x(t)=sin(wc t + beta*sin(wm t)) has
-// instantaneous frequency wc + beta*wm*cos(wm t), maximal at t=0) matches
-// beta*fm for beta computed from the CURRENT kModulationIndexRadians. If the
-// constant regressed to pi, the predicted shift here would be 8x too large
-// and this test would fail.
+// kModulationIndexRadians (opl3.cpp) is 8*pi, double kFeedbackRadians[7] (4*pi): a full-scale
+// operator output is 4084 units against a 1024 units/cycle phase adder, and cross-operator
+// modulation injects it unshifted while feedback shifts by (9-FB). This checks the audible
+// consequence: attenuate the modulator by a known TL, then compare the carrier's frequency
+// shift near key-on (peak beta*wm*cos(wm t) at t=0) with beta*fm.
 TEST_F(Opl3Test, FullScaleModulationMatchesAnEightPiModulationIndex) {
-    // Interpolated zero-crossing frequency over [lo,hi): using only the
-    // first and last crossing's position averages out individual-sample
-    // jitter, needed since the measurement window is short (a handful of
-    // carrier cycles, to stay close to the keyon-instant peak deviation).
+    // Interpolated zero-crossing frequency over [lo,hi) from the first and last crossing.
     auto measured_hz = [](const std::vector<int32_t> &v, std::size_t lo, std::size_t hi) -> double {
         std::vector<double> crossings;
         for (std::size_t i = lo + 1; i < hi; ++i) {
@@ -904,10 +770,7 @@ TEST_F(Opl3Test, FullScaleModulationMatchesAnEightPiModulationIndex) {
     const double carrier_hz = 0x159 * Opl3::kSampleHz / 1048576.0 * double(1u << 2) * 15.0;
     const double modulator_amplitude = std::pow(10.0, -(double(kModulatorTl) * 0.75) / 20.0);
     const double predicted_index = 8.0 * kPi2 * modulator_amplitude;
-    // The window isn't infinitesimal, so the measured (zero-crossing-derived,
-    // effectively averaged) deviation is attenuated from the keyon-instant
-    // peak by the classic sinc-shaped FM average: sin(wm*T)/(wm*T) over a
-    // window of length T starting at keyon (t=0), wm = 2*pi*modulator_hz.
+    // The short window attenuates the peak deviation by sin(wm*T)/(wm*T), wm = 2*pi*modulator_hz.
     const double window_seconds = double(left.size()) / Opl3::kSampleHz;
     const double wm_t = 2.0 * kPi2 * modulator_hz * window_seconds;
     const double correction = wm_t > 1e-9 ? std::sin(wm_t) / wm_t : 1.0;
@@ -923,14 +786,9 @@ TEST_F(Opl3Test, FullScaleModulationMatchesAnEightPiModulationIndex) {
 
 // --- four-operator mode ------------------------------------------------------
 
-// While a channel pair is in 4-op mode, the secondary channel's A0h/B0h are
-// latched but not live: the primary's fnum/block drive all four operators
-// (opl3.cpp's generate_frame comment cites Nuked-OPL3's OPL3_ChannelSync4Op as
-// the decap cross-check). Isolate operators 3/4's own contribution by diffing
-// against an identical plain 2-op channel that never sees them: before the
-// fix, ops 3/4 ran from channel 3's untouched (zero) fnum/block, so in this
-// connection pattern they sat at a frozen phase=0 receiving no modulation --
-// an exact, provable zero contribution, not merely a quiet one.
+// In 4-op mode the secondary channel's A0h/B0h are latched but not live; the primary's fnum/block
+// drive all four operators (opl3.cpp generate_frame, Nuked-OPL3 OPL3_ChannelSync4Op). Isolate ops 3/4
+// by diffing against an identical 2-op channel.
 TEST_F(Opl3Test, FourOpSecondaryOperatorsRunFromThePrimarysFnumAndBlock) {
     Opl3 four_op;
     auto w4 = [&](int bank, uint8_t r, uint8_t v) { four_op.write_address(bank, r); four_op.write_data(bank, v); };
@@ -944,8 +802,7 @@ TEST_F(Opl3Test, FourOpSecondaryOperatorsRunFromThePrimarysFnumAndBlock) {
     }
     w4(0, 0xC0, 0x30);  // channel 0: CNT=0 (mod0 -> car0)
     w4(0, 0xC3, 0x01);  // channel 3: CNT=1 (op3 unmodulated, op3 -> op4)
-    // Channel 0 (the primary) is the only channel given a pitch; channel 3's
-    // A0h/B0h are deliberately left at their post-reset zero.
+    // Only channel 0 gets a pitch; channel 3's A0h/B0h stay at zero.
     w4(0, 0xA0, 0x59);
     w4(0, 0xB0, uint8_t(0x20 | (4 << 2) | 0x01));  // KON, block=4, fnum hi=1 (0x159)
 
@@ -972,12 +829,8 @@ TEST_F(Opl3Test, FourOpSecondaryOperatorsRunFromThePrimarysFnumAndBlock) {
     }
     ASSERT_GT(diff.size(), 1000u);
 
-    // op3/op4's own output is heavily phase-modulated (kModulationIndexRadians
-    // is large), so its zero-crossing rate doesn't simply track the primary's
-    // frequency -- but it must still be EXACTLY periodic at the primary's
-    // cycle length (op3's phase increments at that same rate, and op4 is a
-    // deterministic function of op3), so check period-to-period repetition
-    // directly instead of counting crossings.
+    // op3/op4 are heavily phase-modulated, but must repeat exactly at the primary's cycle length,
+    // so check periodicity instead of counting crossings.
     const std::size_t period_frames = std::size_t(std::lround(1048576.0 / double(0x159 << 4)));
     const std::size_t start = diff.size() / 2;
     double sum_abs = 0.0, sum_abs_diff = 0.0;
@@ -998,20 +851,11 @@ TEST_F(Opl3Test, FourOpSecondaryOperatorsRunFromThePrimarysFnumAndBlock) {
         << period_frames << " frames): avg |diff|=" << avg_abs << ", avg period-to-period change=" << avg_abs_diff;
 }
 
-// The four two-bit (cp,cs) combinations select among four real OPL3
-// four-operator connection algorithms (moddingwiki's OPL chip reference,
-// cross-checked against the connection formulas also found in period AdLib
-// programming documentation): FM-FM (0,0) = Op1*Op2*Op3*Op4, output Op4
-// alone; AM-FM (1,0) = Op1 + (Op2*Op3*Op4), output Op1+Op4; FM-AM (0,1) =
-// (Op1*Op2) + (Op3*Op4), output Op2+Op4; AM-AM (1,1) = Op1 + (Op2*Op3) +
-// Op4, output Op1+Op3+Op4 (Op2 feeds Op3 but is never itself summed). The
-// test above already exercises (0,1) via a full waveform/periodicity check;
-// these three cover the remaining combinations via direct isolation instead,
-// since the point here is which operators reach the output bus, not the
-// shape of a modulated waveform.
+// The (cp,cs) combinations select the four OPL3 4-op algorithms (moddingwiki OPL chip reference):
+// FM-FM (0,0) outputs Op4; AM-FM (1,0) Op1+Op4; FM-AM (0,1) Op2+Op4; AM-AM (1,1) Op1+Op3+Op4.
+// (0,1) is covered by the waveform test above; these isolate which operators reach the output.
 TEST_F(Opl3Test, FourOpFmFmAlgorithmOutputsOnlyTheFinalOperator) {
-    // cp=0, cs=0: Op1*Op2*Op3*Op4 -- only Op4 (the last in the chain) sums
-    // into the channel output; Op1-3 are pure modulators.
+    // cp=0, cs=0: only Op4 sums into the output.
     EXPECT_EQ(FourOpIsolatedPeak(0x00, 0x00, 1), 0) << "Op1 alone must not reach the output";
     EXPECT_EQ(FourOpIsolatedPeak(0x00, 0x00, 2), 0) << "Op2 alone must not reach the output";
     EXPECT_EQ(FourOpIsolatedPeak(0x00, 0x00, 3), 0) << "Op3 alone must not reach the output";
@@ -1019,8 +863,7 @@ TEST_F(Opl3Test, FourOpFmFmAlgorithmOutputsOnlyTheFinalOperator) {
 }
 
 TEST_F(Opl3Test, FourOpAmFmAlgorithmSumsTheFirstAndLastOperators) {
-    // cp=1, cs=0: Op1 + (Op2*Op3*Op4) -- Op1 stands alone and sums directly;
-    // Op2 and Op3 are pure modulators in the chain feeding Op4.
+    // cp=1, cs=0: Op1 sums directly; Op2 and Op3 only modulate Op4.
     EXPECT_GT(FourOpIsolatedPeak(0x01, 0x00, 1), 1000) << "Op1 alone must reach the output";
     EXPECT_EQ(FourOpIsolatedPeak(0x01, 0x00, 2), 0) << "Op2 alone must not reach the output";
     EXPECT_EQ(FourOpIsolatedPeak(0x01, 0x00, 3), 0) << "Op3 alone must not reach the output";
@@ -1028,12 +871,7 @@ TEST_F(Opl3Test, FourOpAmFmAlgorithmSumsTheFirstAndLastOperators) {
 }
 
 TEST_F(Opl3Test, FourOpAmAmAlgorithmSumsThreeOfTheFourOperators) {
-    // cp=1, cs=1: Op1 + (Op2*Op3) + Op4 -- Op1 and Op4 each stand alone and
-    // sum directly; Op3 also sums (it is the end of its own short FM pair
-    // with Op2), but Op2 itself is a pure modulator and never reaches the
-    // output on its own -- the one case here where the "last operator always
-    // sums" intuition from the other three algorithms does not hold, since
-    // Op2 is not the last operator in its pair, Op3 is.
+    // cp=1, cs=1: Op1, Op3 and Op4 sum; Op2 is a pure modulator.
     EXPECT_GT(FourOpIsolatedPeak(0x01, 0x01, 1), 1000) << "Op1 alone must reach the output";
     EXPECT_EQ(FourOpIsolatedPeak(0x01, 0x01, 2), 0) << "Op2 alone must not reach the output";
     EXPECT_GT(FourOpIsolatedPeak(0x01, 0x01, 3), 1000) << "Op3 alone must reach the output";
@@ -1042,14 +880,9 @@ TEST_F(Opl3Test, FourOpAmAmAlgorithmSumsThreeOfTheFourOperators) {
 
 // --- key-scale level (KSL) -------------------------------------------------
 
-// KSL attenuates by octave: at BLOCK=7 and an F-number whose top 4 bits index
-// the KSL table at its maximum (15 -> 56 units of 0.375 dB = 21 dB, the
-// table's largest entry, per the Yamaha YMF715x Register Description
-// Document's KSL octave/F-number table), KSL=1 gives that table figure
-// directly (3 dB/octave), KSL=2 gives half of it (1.5 dB/octave), and KSL=3
-// gives double (6 dB/octave) -- opl3.cpp's ksl_env_units(). Isolated by
-// holding the modulator permanently silent (AR=0 never attacks, so mod_out
-// stays exactly 0 and the carrier behaves as an unmodulated oscillator).
+// KSL attenuates by octave: at BLOCK=7 and F-number top bits 15 the table gives 56 units of
+// 0.375 dB = 21 dB (YMF715x Register Description Document). KSL=1 is that figure, 2 half, 3 double
+// (opl3.cpp ksl_env_units()). The modulator is silenced (AR=0) so the carrier is unmodulated.
 TEST_F(Opl3Test, KeyScaleLevelMatchesDocumentedDbPerOctaveSteps) {
     auto peak_for = [](uint8_t ksl) -> int32_t {
         Opl3 chip;
@@ -1085,13 +918,9 @@ TEST_F(Opl3Test, KeyScaleLevelMatchesDocumentedDbPerOctaveSteps) {
 
 // --- key-scale rate (KSR) ----------------------------------------------------
 
-// RATE = (rate register)*4 + Rof, Rof = the key-scale number directly when
-// KSR=1, or (key-scale number >> 2) when KSR=0 -- Yamaha YMF715x Register
-// Description Document's "Rate Key Scale" note. At a fixed, high key-scale
-// number (BLOCK=7, NTS=0 selects F-number bit 9, held at 1 -> ksn=15), KSR=1
-// adds the full 15 to the effective rate while KSR=0 adds only 15>>2=3 --
-// 12 steps apart, an 8x difference in decay speed (every +4 halves the
-// time) -- so the same DR register decays far faster with KSR=1.
+// RATE = register*4 + Rof; Rof is the key-scale number when KSR=1, or ksn>>2 when KSR=0
+// (YMF715x Rate Key Scale). At BLOCK=7, NTS=0, ksn=15: KSR=1 adds 15, KSR=0 adds 3, 12 steps
+// apart, an 8x difference in decay speed.
 TEST_F(Opl3Test, KeyScaleRateOnVersusOffChangesTheDecayRateAtAFixedNote) {
     auto peak_after_ms = [](bool ksr, int ms) -> int32_t {
         Opl3 chip;
@@ -1126,10 +955,8 @@ TEST_F(Opl3Test, KeyScaleRateOnVersusOffChangesTheDecayRateAtAFixedNote) {
 
 // --- note-select / key-scale number -------------------------------------------
 
-// NTS=0 selects F-number bit 9 for key scaling, NTS=1 selects bit 8 (Yamaha
-// YMF715x Register Description Document). Observed through KSR: with KSR=1
-// the key-scale number feeds the rate formula directly, so flipping which
-// fnum bit NTS reads measurably changes a fixed decay rate's speed.
+// NTS=0 selects F-number bit 9 for key scaling, NTS=1 bit 8 (YMF715x Register Description Document).
+// Observed through KSR=1, where ksn feeds the rate directly.
 TEST_F(Opl3Test, NoteSelectPicksFnumBitNineWhenClearAndBitEightWhenSet) {
     auto decayed_peak = [](bool nts) -> int32_t {
         Opl3 chip;
@@ -1140,8 +967,7 @@ TEST_F(Opl3Test, NoteSelectPicksFnumBitNineWhenClearAndBitEightWhenSet) {
         w(0x40, 0x3F); w(0x43, 0x00);   // modulator TL: silent, carrier TL: loudest
         w(0x60, 0xF0); w(0x63, 0xF4);   // modulator fastest attack; carrier AR=15, DR=4
         w(0x80, 0x00); w(0x83, 0xF0);   // carrier SL=15 (decays toward full attenuation, held by EGT), RR=0
-        // fnum = 0x200: bit 9 set, bit 8 clear -- NTS picks a different bit
-        // of this same value depending on its setting.
+        // fnum = 0x200: bit 9 set, bit 8 clear.
         w(0xA0, 0x00);
         w(0xB0, 0x22);  // KON, block=0, fnum hi bits = 10b
         uint64_t cycles = 0;
@@ -1164,12 +990,9 @@ TEST_F(Opl3Test, NoteSelectPicksFnumBitNineWhenClearAndBitEightWhenSet) {
 
 // --- rhythm output doubling ---------------------------------------------------
 
-// Each rhythm voice is wired into two of the channel's four output buses on
-// real silicon, so it sums at twice a melodic channel's amplitude -- decap-
-// corroborated (Nuked-OPL3 wires out[0]/out[1] and out[2]/out[3] to the same
-// slot in rhythm mode), not stated in a Yamaha document. The bass drum is the
-// one rhythm voice that is an ordinary 2-op FM channel, which makes it the
-// clean comparison point against the same patch played as a melodic voice.
+// Each rhythm voice is wired to two of four output buses, so it sums at twice a melodic channel
+// (decap-corroborated: Nuked-OPL3 ties out[0]/out[1] and out[2]/out[3] to one slot).
+// The bass drum is an ordinary 2-op channel, so it compares cleanly against a melodic voice.
 TEST_F(Opl3Test, RhythmVoiceSumsAtTwiceAMelodicChannelsAmplitude) {
     auto peak_of = [](bool rhythm) -> int32_t {
         Opl3 chip;
@@ -1202,14 +1025,8 @@ TEST_F(Opl3Test, RhythmVoiceSumsAtTwiceAMelodicChannelsAmplitude) {
 
 // --- waveforms 1-6 -----------------------------------------------------------
 
-// All six use SampleOneWaveformCycle's fixed fnum=64/block=0 setup, where a
-// full 2^20-unit cycle is exactly 16384 frames split into four 4096-frame
-// quadrants (0: frames 0-4095, 1: 4096-8191, 2: 8192-12287, 3: 12288-16383).
-// Frame 2047 (quadrant 0, qidx=128) and frame 10239 (quadrant 2, qidx=128 by
-// the same quadrant-mirroring arithmetic wave_sample() always applies) sample
-// the same logsin table entry a half-cycle apart, which is what lets these
-// tests check waveform-specific sign/repeat behavior by direct comparison
-// instead of reasoning about the sine shape itself.
+// SampleOneWaveformCycle's fnum=64/block=0 gives four 4096-frame quadrants. Frames 2047 and 10239
+// hit the same logsin entry (qidx=128) a half-cycle apart, so waveform sign/repeat is a direct comparison.
 
 TEST_F(Opl3Test, Waveform1IsAHalfSineWithTheNegativeHalfClampedToZero) {
     auto samples = SampleOneWaveformCycle(1);
@@ -1281,11 +1098,8 @@ TEST_F(Opl3Test, Waveform6IsAFullAmplitudeSquareWaveWithNoWaveformShaping) {
 
 // --- waveform 7 (exponential-decay sawtooth) ----------------------------------
 
-// The negative half's phase is mirrored and its ramp covers the full ~96 dB
-// range (<<3, not <<2): the positive half starts near full scale and decays
-// toward silence, and the negative half must start near silence (a
-// continuous, mirrored continuation of the positive half, not a jump to full
-// amplitude) and rise to full amplitude only at the very end of the cycle.
+// The negative half is a mirrored continuation: it starts near silence and rises to full
+// amplitude only at the end of the cycle (<<3, not <<2).
 TEST_F(Opl3Test, Waveform7MirrorsItsNegativeHalfAndRampsAcrossTheFullRange) {
     Opl3 chip;
     auto w = [&](uint8_t r, uint8_t v) { chip.write_address(0, r); chip.write_data(0, v); };
@@ -1299,14 +1113,8 @@ TEST_F(Opl3Test, Waveform7MirrorsItsNegativeHalfAndRampsAcrossTheFullRange) {
     w(0xA0, 0x40);                 // fnum = 64
     w(0xB0, 0x20);                 // KON, block=0, fnum hi=0
 
-    // Phase accumulates by exactly fnum=64 units/frame (block=0, MULT=1), and
-    // the first generated frame already reflects one increment (key-on's
-    // phase reset and that frame's own advance both happen before it is
-    // sampled), so sample k uses phase=(k+1)*64. A full 2^20-unit cycle is
-    // exactly 16384 frames: frame 100 sits early in the positive half (near
-    // peak), frame 8192 is the very first frame of the negative half, and
-    // frame 16382 is the last frame before the cycle wraps (frame 16383 has
-    // already wrapped back to phase 0).
+    // Sample k uses phase=(k+1)*64 (key-on reset and that frame's advance precede sampling). Frame 100
+    // is near peak, 8192 the first negative frame, 16382 the last before the wrap.
     std::vector<Opl3::Sample> all;
     uint64_t cycles = 0;
     const double cycles_per_frame = Opl3::kCpuHz / Opl3::kSampleHz;
@@ -1332,17 +1140,10 @@ TEST_F(Opl3Test, Waveform7MirrorsItsNegativeHalfAndRampsAcrossTheFullRange) {
 
 // --- vibrato -------------------------------------------------------------------
 
-// Real hardware steps a vibrato position 0-7 once every 1024 output frames,
-// applying an F-number delta (not a continuous cents ratio) -- see opl3.cpp's
-// advance_env_phase. vib_pos_/vib_frame_ start at 0 at construction/reset, so
-// a fresh chip's step-2 window (frames 2048-3071 after key-on at frame 0) is
-// reachable deterministically. Step 2 (range=base, before the DVB halving) is
-// the pattern's largest deviation for a given fnum.
+// Vibrato steps position 0-7 every 1024 frames, applying an F-number delta (opl3.cpp
+// advance_env_phase). Step 2 (frames 2048-3071) has the largest deviation.
 TEST_F(Opl3Test, VibratoAppliesTheQuantisedEightStepFnumDeltaAndDvbDoublesIt) {
-    // Interpolated zero-crossing frequency over [lo,hi): using only the
-    // first and last crossing's position averages out individual-sample
-    // jitter, which matters here since the expected shift (under 1% of the
-    // carrier's frequency) is far smaller than one sample period.
+    // Interpolated zero-crossing frequency over [lo,hi); the expected shift is under 1% of the carrier.
     auto measured_hz = [](const std::vector<int32_t> &v, std::size_t lo, std::size_t hi) -> double {
         std::vector<double> crossings;
         for (std::size_t i = lo + 1; i < hi; ++i) {
@@ -1375,7 +1176,7 @@ TEST_F(Opl3Test, VibratoAppliesTheQuantisedEightStepFnumDeltaAndDvbDoublesIt) {
             chip.tick(cycles);
             for (const auto &s : chip.drain_samples()) left.push_back(s.left);
         }
-        // Step 2 spans frames 2048-3071 since key-on (frame 0); stay clear of its edges.
+        // Step 2 spans frames 2048-3071; stay clear of its edges.
         return measured_hz(left, 2200, 3000);
     };
 

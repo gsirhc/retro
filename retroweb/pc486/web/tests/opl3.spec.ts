@@ -1,14 +1,8 @@
 import { test, expect } from "./fixtures";
 
-// The OPL3 behind the card's FM ports (see opl3.h). These drive the real
-// front end in a browser: the point is that a program running on the guest
-// can find the chip through the port block and get audio out of it, which is
-// what the machine could not do before the OPL3 existed.
-//
-// Writing FM registers from the page rather than from DOS is deliberate --
-// exercising the guest side would need a music driver and a song loaded, and
-// these tests are about the hardware surface, the same scope soundblaster.spec.ts
-// keeps to.
+// The OPL3 behind the card's FM ports (opl3.h). A guest program can find the chip through the
+// port block and get audio out of it. FM registers are written from the page, not DOS, since these
+// tests cover the hardware surface like soundblaster.spec.ts.
 test.describe("OPL3 FM synthesizer", () => {
   test("the canonical AdLib detection sequence succeeds through base+8h/9h", async ({
     livePage: page,
@@ -16,7 +10,7 @@ test.describe("OPL3 FM synthesizer", () => {
 
     const result = await page.evaluate(() => {
       const m = (window as any).__test.machine;
-      // Address to base+8h, data to base+9h -- the AdLib-compatible pair.
+      // Address to base+8h, data to base+9h, the AdLib-compatible pair.
       const fmWrite = (reg: number, val: number) => { m.portOut(0x228, reg); m.portOut(0x229, val); };
       fmWrite(0x04, 0x60);  // mask and reset both timers
       fmWrite(0x04, 0x80);  // reset the IRQ flags
@@ -39,9 +33,8 @@ test.describe("OPL3 FM synthesizer", () => {
     livePage: page,
   }) => {
 
-    // This is the pair an AdLib-era music driver actually uses -- it never
-    // touches the card's own block, so decoding only base+0h..3h would let a
-    // game detect an OPL and then play silence.
+    // An AdLib-era driver uses this pair and never the card's own block; decoding only base+0h..3h
+    // would let a game detect an OPL and then play silence.
     const result = await page.evaluate(() => {
       const m = (window as any).__test.machine;
       const fmWrite = (reg: number, val: number) => { m.portOut(0x388, reg); m.portOut(0x389, val); };
@@ -52,7 +45,7 @@ test.describe("OPL3 FM synthesizer", () => {
       fmWrite(0x04, 0x21);
       m.runCycles(20000);
       const fired = m.portIn(0x388);
-      // Same chip as the card's own block, not a second one.
+      // Same chip as the card's own block.
       fmWrite(0x04, 0x80);
       fmWrite(0x20, 0x0a);
       return { quiet, fired, shared: m.fmReg(0x20) };
@@ -76,10 +69,9 @@ test.describe("OPL3 FM synthesizer", () => {
       fmWrite(0x80, 0x00); fmWrite(0x83, 0x00);
       fmWrite(0xc0, 0x30);                          // both outputs enabled
       fmWrite(0xa0, 0x98); fmWrite(0xb0, 0x2e);  // key on, mid octave
-      m.fmDrainSamples();                              // discard anything already queued
+      m.fmDrainSamples();
 
-      // 10ms at 66MHz. Loop in case a future wall-cap yields early mid-call
-      // (a host-side soft-lock guard must not shrink this sample count).
+      // 10ms at 66MHz. Loop in case runCycles() yields early.
       let left = 660000;
       while (left > 0) {
         const before = m.totalCycles();
@@ -114,8 +106,7 @@ test.describe("OPL3 FM synthesizer", () => {
         hasCycles: fm.cycles instanceof Float64Array,
         hasLeft: fm.left instanceof Int16Array,
         hasRight: fm.right instanceof Int16Array,
-        // The FM leg reads mixer 34h/35h and the voice leg 32h/33h, both
-        // through Master -- four independent gains, not one shared number.
+        // FM reads mixer 34h/35h and voice 32h/33h, both through Master: four independent gains.
         fmL: m.fmGainLeft(), fmR: m.fmGainRight(),
         sbL: m.sbGainLeft(), sbR: m.sbGainRight(),
       };

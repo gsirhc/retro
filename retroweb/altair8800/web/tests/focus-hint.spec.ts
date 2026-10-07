@@ -1,18 +1,14 @@
 import { test, expect } from "./fixtures";
 import { boot } from "./helpers";
 
-// "Click to focus" banner (shared/focus-hint.js, same mechanism ibmpc-at's
-// own keyboard.spec.ts test covers) -- purely a web-UI convenience, no
-// hardware equivalent, since a real Altair keyboard is just whatever
-// terminal is wired to the serial port.
+// "Click to focus" banner (shared/focus-hint.js). Web-UI convenience only.
 
 test.describe("focus hint", () => {
   test('"Click to focus" hint shows only while running and unfocused', async ({ page }) => {
     await boot(page);
     const hintVisible = () =>
       page.locator("#focusHint").evaluate((el) => el.classList.contains("visible"));
-    // unlike ibmpc-at, this page's own boot() calls term.focus() right
-    // away (see app.js), so the hint starts out hidden.
+    // boot() calls term.focus() right away, so the hint starts hidden
     expect(await hintVisible()).toBe(false);
     // clicking any other control blurs the terminal -- the hint appears
     await page.locator("#fullscreenBtn").focus();

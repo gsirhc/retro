@@ -1,11 +1,6 @@
-// Native OPL3 trace player: replays a `?fmtrace` register-write capture
-// (see web/app.js's window.__fm) through the real pc486::Opl3 straight to a
-// WAV file, with no browser, no resampling-in-JS, and no wasm build in the
-// loop. Exists to answer one question in isolation: if a captured DOS
-// game's FM music sounds wrong (wrong tempo, wrong pitch) in the browser,
-// does the *chip emulation* already produce that when driven from the exact
-// same register writes at the exact same cycle stamps, or does the problem
-// live in the front end's audio path instead?
+// Native OPL3 trace player: replays a `?fmtrace` capture (web/app.js
+// window.__fm) through pc486::Opl3 to a WAV, with no browser. Answers whether
+// bad FM music comes from the chip emulation or the front end's audio path.
 //
 // Usage: fm_trace_render <trace.json> <out.wav> [--rate N]
 
@@ -30,11 +25,8 @@ std::string ReadFile(const char *path) {
     return std::string((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
 }
 
-// --- hand-written scanner for the fixed `[{"cycle":N,"reg":N,"value":N}, ...]`
-// shape window.__fm.save() produces -- no JSON library, since the shape
-// never varies. Stops cleanly (without consuming the partial record) on
-// anything it doesn't recognize, which is what lets a trace file truncated
-// mid-write still load everything before the cut.
+// Scanner for the fixed `[{"cycle":N,"reg":N,"value":N}, ...]` shape. No JSON
+// library. Stops at anything unrecognized, so a truncated trace loads up to the cut.
 
 std::size_t SkipWs(const std::string &s, std::size_t i) {
     while (i < s.size() && std::isspace(static_cast<unsigned char>(s[i]))) ++i;
@@ -58,8 +50,7 @@ bool ParseUint(const std::string &s, std::size_t &i, uint64_t &out) {
     return i != start;
 }
 
-// One `{"cycle":N,"reg":N,"value":N}` record. `i` advances past it only on
-// success; on failure it is left where the caller can rewind from.
+// One record. `i` advances only on success.
 bool ParseRecord(const std::string &s, std::size_t &i, Opl3::TraceEvent &ev) {
     std::size_t p = SkipWs(s, i);
     uint64_t cycle, reg, value;
@@ -95,9 +86,8 @@ bool ParseRecord(const std::string &s, std::size_t &i, Opl3::TraceEvent &ev) {
     return true;
 }
 
-// Returns true if the array closed cleanly with `]`; false if it stopped on
-// an unparseable (e.g. truncated) trailing record. Either way `out` holds
-// every record read before the stopping point.
+// True if the array closed with `]`; false on an unparseable trailing record.
+// `out` holds every record read either way.
 bool ParseTrace(const std::string &json, std::vector<Opl3::TraceEvent> &out) {
     std::size_t i = SkipWs(json, 0);
     if (i >= json.size() || json[i] != '[') return false;
@@ -113,8 +103,7 @@ bool ParseTrace(const std::string &json, std::vector<Opl3::TraceEvent> &out) {
 }
 
 // --- WAV output ------------------------------------------------------
-// Hand-written 44-byte PCM header -- see render_screen.cpp's WriteBmp for
-// the same little-endian-by-hand idiom this repo uses for binary output.
+// 44-byte PCM header written by hand (cf. render_screen.cpp WriteBmp)
 void WriteWav(const char *path, uint32_t sample_rate, const std::vector<int16_t> &interleaved) {
     uint32_t data_size = uint32_t(interleaved.size() * sizeof(int16_t));
     uint32_t byte_rate = sample_rate * 2 /* channels */ * 2 /* bytes/sample */;
@@ -128,9 +117,7 @@ void WriteWav(const char *path, uint32_t sample_rate, const std::vector<int16_t>
     f.write(reinterpret_cast<const char *>(interleaved.data()), std::streamsize(data_size));
 }
 
-// Linear interpolation at exact fractional source positions -- `src` is
-// assumed uniformly spaced at src_hz (true of Opl3's own output: every
-// drained Sample is one more chip frame at kSampleHz).
+// Linear interpolation at fractional source positions; `src` is uniform at src_hz
 std::vector<int16_t> Resample(const std::vector<Opl3::Sample> &src, double src_hz, double dst_hz) {
     std::vector<int16_t> out;
     if (src.empty()) return out;
@@ -157,13 +144,9 @@ std::vector<int16_t> Interleave(const std::vector<Opl3::Sample> &src) {
     return out;
 }
 
-// Advances the chip from *cur_cycle to target_cycle in small steps, draining
-// after each. Necessary, not just tidy: Opl3::advance() bounds how many
-// frames a single tick() call will generate (it drops the rest rather than
-// let the clock slip -- see opl3.h's kMaxCatchUpFrames comment), so one big
-// jump across a multi-second gap between sparse trace writes would silently
-// lose audio instead of generating it. Small steps keep every call well
-// under that cap regardless of the gap.
+// Advances the chip to target_cycle in small steps, draining after each.
+// Opl3::advance() caps frames per tick() (kMaxCatchUpFrames), so one big jump
+// across a long gap would drop audio.
 void TickTo(Opl3 &chip, std::vector<Opl3::Sample> &samples, uint64_t &cur_cycle, uint64_t target_cycle,
             uint64_t chunk_cycles) {
     while (cur_cycle < target_cycle) {
@@ -210,16 +193,11 @@ int main(int argc, char **argv) {
     std::vector<bool> reg_seen(0x200, false);
     bool bank1_seen = false, new_bit_seen = false;
 
-    // 10ms steps: comfortably under Opl3's per-call catch-up cap (~495
-    // frames at kSampleHz vs. its several-thousand-frame bound) while still
-    // being a no-op loop for the common case of closely-spaced writes.
+    // 10ms steps, well under the per-call catch-up cap
     const uint64_t kChunkCycles = uint64_t(0.01 * Opl3::kCpuHz);
     uint64_t cur_cycle = 0;
-    // Walk the chip's own clock up to the trace's first cycle before any
-    // register write, in case the very first write makes it active: without
-    // this, the first real tick() afterward would see a bogus multi-billion-
-    // cycle delta (prev_cycles_ starts at 0 from reset()) instead of one
-    // measured from the trace's actual start.
+    // Walk the chip's clock to the trace's first cycle before any write; otherwise
+    // the first tick() sees a bogus multi-billion-cycle delta (prev_cycles_ starts at 0)
     TickTo(chip, samples, cur_cycle, first_cycle, kChunkCycles);
 
     for (const auto &ev : events) {
@@ -236,14 +214,9 @@ int main(int argc, char **argv) {
     }
     const std::size_t trace_frame_count = samples.size();
 
-    // The chip only generates frames while tick()'s active_ early-out passes
-    // (opl3.h: "a chip with nothing keyed on must cost almost nothing") -- a
-    // stretch with no operator running and both timers stopped produces zero
-    // frames, not frames of silence. That's invisible in trace_frame_count
-    // above, so surface it directly: a gap between two consecutively
-    // generated frames much wider than one frame period means the chip went
-    // idle for that long, and naive playback of the concatenated samples
-    // compresses that real time away rather than leaving it silent.
+    // An idle chip (nothing keyed, timers stopped) generates no frames, not silent
+    // frames. Report gaps much wider than one frame period, since playback of the
+    // concatenated samples compresses that time away.
     std::size_t gap_count = 0;
     double gap_seconds = 0.0;
     const double cycles_per_frame = Opl3::kCpuHz / Opl3::kSampleHz;
@@ -252,11 +225,11 @@ int main(int argc, char **argv) {
         if (delta > 1.5 * cycles_per_frame) { ++gap_count; gap_seconds += delta / Opl3::kCpuHz; }
     }
 
-    // 2s of trailing release tail so decaying notes finish in the WAV.
+    // 2s of trailing release tail
     const uint64_t kTailCycles = uint64_t(2.0 * Opl3::kCpuHz);
     TickTo(chip, samples, cur_cycle, last_cycle + kTailCycles, kChunkCycles);
 
-    // --- report ------------------------------------------------------
+    // --- report ---
     const double trace_audio_sec = double(trace_frame_count) / Opl3::kSampleHz;
     std::printf("records read:        %zu%s\n", events.size(), clean ? "" : " (truncated capture)");
     std::printf("first/last cycle:    %llu / %llu\n", (unsigned long long)first_cycle, (unsigned long long)last_cycle);
@@ -310,7 +283,7 @@ int main(int argc, char **argv) {
     }
     std::printf("\n");
 
-    // --- WAV -----------------------------------------------------------
+    // --- WAV ---
     uint32_t rate = has_rate ? out_rate : uint32_t(std::lround(Opl3::kSampleHz));
     std::vector<int16_t> interleaved =
         has_rate ? Resample(samples, Opl3::kSampleHz, double(rate)) : Interleave(samples);

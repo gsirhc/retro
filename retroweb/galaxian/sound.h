@@ -1,12 +1,8 @@
 // Namco Galaxian (1979) discrete analog sound.
 //
-// 74LS259 at $6800–$6807 (FS1/FS2/FS3, HIT, FIRE, VOL1/VOL2), 4-bit LFO
-// DAC at $6004–$6007, 8-bit pitch at $7800. Pitch is two LS164s clocked
-// at SOUND_CLOCK/(256−pitch) into a 74393 (QA/QC/QD mixed always, not
-// gated by FIRE). FIRE is a decaying 555 shot (R41·C25). HIT is LFSR
-// noise through RCDISC (R35+R36)·C21. Labelled RC-time-constant model of
-// the Midway/Namco schematic, not a SPICE netlist. MAME galaxian_a.cpp is
-// a cross-check of the latch map and the RC values.
+// 74LS259 latch at $6800–$6807, 4-bit LFO DAC at $6004–$6007, 8-bit pitch at $7800.
+// RC-time-constant model of the Midway/Namco schematic; MAME galaxian_a.cpp
+// cross-checks the latch map and RC values.
 
 #ifndef GALAXIAN_SOUND_H
 #define GALAXIAN_SOUND_H

@@ -1,6 +1,4 @@
-# Top-level "scripts" for the 486 DX2-66 Gaming PC emulator -- a 1990s
-# "gamer's dream" 486 build, not a recreation of a specific historical
-# machine (see PC486_REVIEW.md). Each target is a no-arg command:
+# Targets for the 486 DX2-66 Gaming PC emulator (PC486_REVIEW.md).
 #
 #   make test        build + run the GoogleTest suite
 #   make bios        fetch + verify the freely-licensed BIOS/video-BIOS images
@@ -20,44 +18,6 @@
 #
 # `make` with no target prints this list.
 #
-# MILESTONE 1 STATUS: the CPU core, chipset, floppy, ATAPI CD-ROM/HDD, and
-# basic VGA text/graphics are implemented and unit-tested (`make test`), and
-# `hdd-image` is real: it drives the genuine, unmodified FreeDOS 1.3
-# installer end to end against this emulator -- booted off FreeDOS's own
-# companion boot floppy with the LiveCD ISO mounted on the ATAPI CD-ROM,
-# which is how the install actually sources every package (not ibmpc-at's
-# multi-floppy swap flow). `hdd-boot-check` then cold-boots the finished
-# image standalone to a live C:\> prompt. See PC486_REVIEW.md §5 for the
-# boot-path decision and the emulator bugs this process found.
-#
-# MILESTONE 2 STATUS: the CPU core now implements protected mode,
-# segmentation with a real GDT/LDT, paging with a TLB, protected-mode
-# interrupts and gates, hardware task switching, and the on-die x87 FPU.
-# `pm-check` is the end-to-end bar for that work -- a hand-assembled
-# DOS4GW-style protected-mode stub run against this core -- and
-# `hdd-boot-check` still reaches the same idle C:\> at the same cycle
-# count, so real mode is unchanged. Virtual-8086 mode is still absent, so
-# §5.9's FreeDOS boot-menu workaround stays. See PC486_REVIEW.md §6.
-#
-# MILESTONE 3 STATUS: the video card now does its genuinely-VGA modes --
-# chain-4 mode 13h (320x200x256), the real 256-entry 6-bit DAC with its PEL
-# mask, and the SVGA extension registers its own ROM drives to implement the
-# VESA BIOS Extensions (INT 10h AX=4F00-4F03), including the 640x400x256 and
-# 320x240x256 modes that fit in its 256KB. `vbe-check` is the end-to-end bar:
-# a hand-assembled boot sector, booted off the real floppy controller by the
-# real BIOS, whose pixels are then checked one by one. `hdd-boot-check` still
-# reaches the same idle C:\>, so the text/real-mode path is unchanged. See
-# PC486_REVIEW.md §7.
-#
-# MILESTONE 4 STATUS: a PS/2 mouse on the 8042's AUX port and a Sound
-# Blaster 16 at 0x220/IRQ5/DMA1+5 are wired into the chipset and exposed to
-# the browser front end (injectMouseEvent/sbDrainSamples in
-# web/wasm_machine.cpp). Both were proved end to end against BOOM, a real
-# DJGPP/CWSDPMI DOS Doom source port (PC486_REVIEW.md §9-§13); `boom-check`
-# is gone now that the shipped HDD image installs FreeDOS's Base package
-# set (no games -- see §19.5), so that proof is historical record, not a
-# standing target. Ongoing coverage is the unit tests (i8042_test,
-# soundblaster_test).
 
 CXX      ?= c++
 CXXFLAGS ?= -std=c++17 -O2 -Wall -Wextra
@@ -79,9 +39,8 @@ test:
 	cmake --build tests/build -j
 	ctest --test-dir tests/build --output-on-failure
 
-# --- freely-licensed firmware (substitutes for still-copyrighted original
-# PC BIOS / VGA BIOS -- reuses the same generic Bochs-legacy substitute
-# ibmpc-at pins, since it's a generic PC BIOS, not 80286-specific) --------
+# --- freely-licensed firmware ---
+# Generic Bochs-legacy BIOS substitute, same one ibmpc-at pins.
 bios:
 	bash roms/fetch-bios.sh
 
@@ -91,27 +50,18 @@ bios_host: bios_host.cpp $(CHIPSET_SRCS)
 bios-check: bios bios_host
 	./bios_host roms/BIOS-bochs-legacy
 
-# --- protected-mode end-to-end proof (see pm_stub_check.cpp) -------------
-# Assembles and runs a minimal DOS4GW-style protected-mode stub against this
-# core: LGDT/PE/far-JMP into a 32-bit flat segment, paging with a virtual
-# alias, a deliberate #PF the handler repairs so the instruction restarts, a
-# hardware task switch, a ring-3 excursion through a DPL-3 gate, the x87
-# FPU, and the trip back to real mode. Exits non-zero if any of its own
-# checks fail, so it works as a regression test as well as a demonstration.
-# Fast (no images, no BIOS), so unlike hdd-boot-check it is part of `check`.
+# --- protected-mode end-to-end proof (pm_stub_check.cpp) ---
+# Runs a DOS4GW-style stub: flat 32-bit entry, paging, #PF restart, task switch,
+# ring 3, x87, return to real mode. Fast and image-free, so part of `check`.
 pm_stub_check: pm_stub_check.cpp $(CHIPSET_SRCS)
 	$(CXX) $(CXXFLAGS) -o $@ pm_stub_check.cpp $(CHIPSET_SRCS)
 
 pm-check: pm_stub_check
 	./pm_stub_check
 
-# --- VGA mode 13h / DAC / VESA end-to-end proof (see vbe_mode13_check.cpp) -
-# Boots a hand-assembled 512-byte boot sector off the real floppy controller
-# with the real BIOS + video BIOS, and checks the resulting screen pixel by
-# pixel: VBE 4F00-4F03, the DAC read/write ports, chain-4 addressing, and
-# both the 320x200x256 and 640x400x256 pictures the card can actually show.
-# Exits non-zero if any check fails, so like pm-check it doubles as a
-# regression test. Needs the firmware images, so it depends on `bios`.
+# --- VGA mode 13h / DAC / VESA proof (vbe_mode13_check.cpp) ---
+# Boots a hand-assembled boot sector and checks the 320x200 and 640x400 pictures
+# pixel by pixel. Needs the firmware images, so it depends on `bios`.
 vbe_mode13_check: vbe_mode13_check.cpp ega_render.cpp $(CHIPSET_SRCS)
 	$(CXX) $(CXXFLAGS) -o $@ vbe_mode13_check.cpp ega_render.cpp $(CHIPSET_SRCS)
 
@@ -122,34 +72,24 @@ vbe-check: bios vbe_mode13_check
 render_screen: render_screen.cpp ega_render.cpp $(CHIPSET_SRCS)
 	$(CXX) $(CXXFLAGS) -o $@ render_screen.cpp ega_render.cpp $(CHIPSET_SRCS)
 
-# --- OPL3 trace-to-WAV dev tool (see fm_trace_render.cpp) ----------------
-# Replays a `?fmtrace` register-write capture through the real Opl3 in
-# isolation, to tell a chip-emulation tempo/quality bug apart from a
-# browser-audio-path one. Only needs opl3.cpp/.h, not the whole chipset.
+# --- OPL3 trace-to-WAV dev tool (fm_trace_render.cpp) ---
+# Replays a `?fmtrace` capture through Opl3 alone. Needs only opl3.cpp/.h.
 fm_trace_render: fm_trace_render.cpp opl3.cpp opl3.h
 	$(CXX) $(CXXFLAGS) -o $@ fm_trace_render.cpp opl3.cpp
 
 fm-trace-render: fm_trace_render
 
-# --- FreeDOS LiveCD ISO + its companion boot floppy: this machine's
-# default mounted CD-ROM disc, and the traditional "boot from floppy,
-# install from CD" path FreeDOS itself ships FD13BOOT.img for. That's the
-# path this machine uses, and not merely out of caution: the ISO's El Torito
-# boot image is ISOLINUX chaining to MEMDISK, which needs protected mode
-# this Milestone 1 real-mode-only core does not have (PC486_REVIEW.md §5.1).
-# Both files come out of the one verified zip, see fetch-freedos-cd.sh.
+# --- FreeDOS LiveCD ISO + companion boot floppy ---
+# The default CD-ROM disc. Install boots from floppy because the ISO's El Torito
+# image is ISOLINUX + MEMDISK, which needs protected mode (PC486_REVIEW.md §5.1).
+# Both files come from one verified zip (fetch-freedos-cd.sh).
 disks/freedos-cd.iso disks/freedos-boot.img:
 	bash disks/fetch-freedos-cd.sh
 
-# --- shipped HDD image ---------------------------------------------------
-# Deliberately NOT part of `check`/`test`: this runs the real FreeDOS 1.3
-# installer end to end against this emulator, which takes real minutes (see
-# disks/build_freedos_hdd.cpp's header and PC486_REVIEW.md §5). The tool
-# boots disks/freedos-boot.img on the floppy with disks/freedos-cd.iso
-# mounted on the ATAPI CD-ROM -- FreeDOS's own "boot from floppy, install
-# from CD" path -- and exits non-zero without writing anything if the
-# installer doesn't reach its own completion screen, so a partial image can
-# never be silently accepted.
+# --- shipped HDD image ---
+# Not part of `check`/`test`: it runs the real FreeDOS 1.3 installer (real minutes;
+# build_freedos_hdd.cpp, PC486_REVIEW.md §5). Exits non-zero without writing if
+# the installer doesn't finish, so a partial image is never accepted.
 disks/build_freedos_hdd: disks/build_freedos_hdd.cpp $(CHIPSET_SRCS)
 	$(CXX) $(CXXFLAGS) -o $@ disks/build_freedos_hdd.cpp $(CHIPSET_SRCS)
 
@@ -158,16 +98,14 @@ hdd-image: bios disks/build_freedos_hdd disks/freedos-cd.iso disks/freedos-boot.
 	  disks/freedos-boot.img disks/freedos-cd.iso disks/freedos-hdd.img
 	bash disks/apply-dos-config.sh disks/freedos-hdd.img
 
-# The CuteMouse driver floppy the Freeware Disks & Drivers panel offers. Built from the files
-# already on the FreeDOS HDD image rather than fetched separately -- see
-# disks/build-ctmouse-floppy.sh for why, and for the checksum it enforces.
+# CuteMouse driver floppy for the Drivers panel, built from files already on
+# the HDD image (see disks/build-ctmouse-floppy.sh for the checksum it enforces)
 disks/ctmouse.img: disks/build-ctmouse-floppy.sh disks/freedos-hdd.img
 	bash disks/build-ctmouse-floppy.sh
 
 ctmouse-image: disks/ctmouse.img
 
-# --- boot the finished HDD image standalone (no floppy), the actual
-# "does this image work?" check -- see hdd_boot_check.cpp.
+# --- boot the finished HDD image standalone (hdd_boot_check.cpp) ---
 hdd-boot-check: bios disks/hdd_boot_check
 	./disks/hdd_boot_check roms/BIOS-bochs-legacy roms/VGABIOS-lgpl-latest.bin disks/freedos-hdd.img
 

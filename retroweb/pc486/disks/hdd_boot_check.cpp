@@ -1,16 +1,8 @@
-// Verifies that the shipped hard disk image actually boots -- the real bar
-// for `make hdd-image` being done, rather than trusting the installer's own
-// "complete" message. Cold-boots this machine with NOTHING but the finished
-// HDD image mounted (no floppy, no CD, matching a real machine falling
-// through to drive C: when drive A: is empty) and requires a genuine,
-// interactive `C:\>` prompt on screen before reporting success.
+// Cold-boots with only the finished HDD image mounted (no floppy or CD) and
+// requires an idle `C:\>` prompt. Exits 0 on success, else prints the last screen.
+// Build-time check, so wall-clock time is expected.
 //
-// Usage:
-//   hdd_boot_check <bios> <vgabios> <hdd.img> [max_cycles]
-//
-// Exits 0 only if the prompt appears; otherwise prints the last screen and
-// exits non-zero. Like build_freedos_hdd.cpp this is a build-time check, not
-// the shipped emulator, so taking real wall-clock time here is expected.
+// Usage: hdd_boot_check <bios> <vgabios> <hdd.img> [max_cycles]
 
 #include "../machine.h"
 
@@ -29,9 +21,7 @@ std::vector<uint8_t> ReadFile(const std::string &path) {
     return std::vector<uint8_t>((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
 }
 
-// Same planar-VRAM reconstruction build_freedos_hdd.cpp uses -- see that
-// file; plane 0 is the character plane, and the CRTC's start address is
-// followed so a scroll-by-start-offset stays correct.
+// Planar-VRAM text read as in build_freedos_hdd.cpp: plane 0, following the CRTC start address
 std::string ScreenText(Machine &m) {
     const auto &vga = m.chipset.vga;
     std::string out;
@@ -76,9 +66,7 @@ int main(int argc, char **argv) {
                                  "(1010 cyl / 9 head / 55 sec)\n", argv[3], hdd.size(), kExpected);
             return 1;
         }
-        // Boot sector must carry the 55 AA signature or the BIOS will not
-        // even attempt it -- checked up front so a bad image fails loudly
-        // rather than after a full cycle budget of nothing happening.
+        // The BIOS won't attempt a boot sector without 55 AA; fail up front
         if (hdd[510] != 0x55 || hdd[511] != 0xAA) {
             std::fprintf(stderr, "FAILED: no 55 AA boot signature at offset 510 (got %02X %02X)\n",
                          hdd[510], hdd[511]);
@@ -86,9 +74,7 @@ int main(int argc, char **argv) {
         }
         m.chipset.hdd.mount(0, hdd.data(), hdd.size());
     }
-    // Deliberately no floppy and no CD mounted: this proves the image boots
-    // on its own, with the BIOS falling through drive A: to drive C: via the
-    // CMOS boot sequence configure_factory_cmos() seeds.
+    // No floppy or CD, so the BIOS falls through A: to C: via the CMOS boot sequence
 
     std::string last, prev;
     uint64_t still_since = 0;
@@ -98,9 +84,7 @@ int main(int argc, char **argv) {
         std::string s = ScreenText(m);
         if (s != prev) { still_since = m.total_cycles(); prev = s; }
         last = s;
-        // A prompt that has been sitting there unchanged for a while is an
-        // idle shell waiting for input -- not a prompt string that merely
-        // flashed past mid-boot.
+        // An unchanged prompt is an idle shell, not one that flashed past mid-boot
         if (s.find("C:\\>") != std::string::npos &&
             m.total_cycles() - still_since > 330'000'000) {  // ~5s of emulated time
             std::fprintf(stderr, "OK: reached an idle C:\\> prompt at cycle %llu\n=== screen ===\n%s",

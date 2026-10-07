@@ -1,5 +1,4 @@
-# Top-level "scripts" for the 6502 Assembler emulator. Each target is a
-# no-arg command:
+# Top-level targets for the 6502 Assembler emulator:
 #
 #   make rom       build the real ROM from cpu6502/rom source (cc65)
 #   make test      build + run the GoogleTest suite
@@ -26,21 +25,18 @@ LLVM_COV      ?= xcrun llvm-cov
 help:
 	@sed -n 's/^#   //p' $(MAKEFILE_LIST)
 
-# --- the real firmware, built from source (not fetched -- it's already
-# your own source in cpu6502/rom/) ------------------------------------
+# --- firmware, built from cpu6502/rom source ---
 rom:
 	cd $(CPU6502_ROM_DIR) && bash make.sh
 	@echo "  -> $(CPU6502_ROM_DIR)/tmp/firmware.bin"
 
-# --- unit tests ---------------------------------------------------------
+# --- unit tests ---
 test:
 	cmake -S tests -B tests/build
 	cmake --build tests/build -j
 	ctest --test-dir tests/build --output-on-failure
 
-# --- Klaus Dormann's independent 6502/65C02 functional test suites -----
-# (public domain test ROMs, kept out of the repo like the Altair's 8080
-# diagnostics -- pinned + checksummed)
+# --- Klaus Dormann 6502/65C02 functional tests (fetched, checksummed) ---
 DORMANN_BASE = https://raw.githubusercontent.com/Klaus2m5/6502_65C02_functional_tests/master/bin_files
 dormann/6502_functional_test.bin:
 	mkdir -p dormann
@@ -57,7 +53,7 @@ dormann: dormann/dormann_host dormann/6502_functional_test.bin dormann/65C02_ext
 	./dormann/dormann_host dormann/6502_functional_test.bin 3469
 	./dormann/dormann_host dormann/65C02_extended_opcodes_test.bin 24f1
 
-# --- C++ coverage (source-based, llvm-cov) ------------------------------
+# --- C++ coverage (llvm-cov) ---
 COVFLAGS = -O0 -g -fprofile-instr-generate -fcoverage-mapping
 coverage:
 	cmake -S tests -B tests/build-cov -DCOVERAGE=ON >/dev/null
@@ -72,14 +68,14 @@ coverage:
 	  $(LLVM_COV) show $$objs -instr-profile=cov.profdata -format=html -output-dir=../coverage-cpp $$srcs >/dev/null; \
 	  echo "  html: retroweb/assembler6502/tests/coverage-cpp/index.html"
 
-# --- webassembly + browser front end ------------------------------------
+# --- wasm + browser front end ---
 wasm:
 	$(MAKE) -C web
 
 serve:
 	$(MAKE) -C web serve
 
-# --- aggregate ------------------------------------------------------
+# --- aggregate ---
 test-smoke: rom test
 
 check: rom test dormann

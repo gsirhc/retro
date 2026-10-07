@@ -1,8 +1,7 @@
 import js from "@eslint/js";
 import globals from "globals";
 
-// Browser scripts loaded with <script src>, plus the emscripten factory and
-// xterm globals those pages pull in the same way. Generated glue
+// Browser scripts, emscripten factories and xterm globals. Generated glue
 // (wasm .js, copied web/shared/, vendored xterm) is not source.
 export default [
   {
@@ -56,7 +55,6 @@ export default [
     },
     rules: {
       ...js.configs.recommended.rules,
-      // localStorage and a few boot paths swallow failures on purpose.
       "no-empty": ["error", { allowEmptyCatch: true }],
       "no-unused-vars": ["error", {
         argsIgnorePattern: "^_",
@@ -76,7 +74,6 @@ export default [
     },
   },
   {
-    // These files define the shared entry points. Other pages call them.
     files: ["shared/theme-picker.js", "shared/fullscreen.js", "shared/focus-hint.js"],
     languageOptions: {
       globals: {

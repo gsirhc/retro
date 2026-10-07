@@ -1,11 +1,9 @@
 import { test, expect } from "./fixtures";
 import { boot, bootLive, waitForScreen, setPowerSwitch, typeStr, focusScreen, expectDownload } from "./helpers";
 
-// Hard disk (C: fixed drive) controls: reset/blank/download/upload operations
-// take effect only on next power-on since a real drive can't be swapped live.
-// Buttons disabled while running, upload/reset/blank also disabled until firmware
-// loads. C: state persists across reloads via IndexedDB, written by
-// hdd-worker.js; a C: saved by the old 504MB builds converts on load.
+// C: controls. Reset/blank/download/upload take effect on next power-on; buttons are disabled
+// while running and upload/reset/blank until firmware loads. State persists in IndexedDB via
+// hdd-worker.js, and a C: saved by the 504MB builds converts on load.
 
 type Page = import("@playwright/test").Page;
 
@@ -20,8 +18,7 @@ async function forcePersistHdd(page: Page): Promise<void> {
   await expect(page.locator("#hddStatus")).toHaveText(/saved \(this session\)/);
 }
 
-// Mirrors hdd-worker.js's database -- there's no other seam to inspect or
-// seed what it stores.
+// Mirrors hdd-worker.js's database; the only seam to inspect or seed it.
 const HDD_DB_NAME = "pc486-hdd";
 const HDD_STORE = "hdd";
 const META_KEY = "c2-meta";
@@ -72,9 +69,7 @@ async function idbPutMeta(page: Page, patch: Record<string, unknown>): Promise<v
   );
 }
 
-/** Replace whatever C: is stored with an old 504MB build's save: the gzip
- * Blob under "c-drive" that build wrote. The fixture is fetched as its .gz
- * file directly, so the bytes stay gzipped exactly as that build stored them. */
+// Replaces the stored C: with a 504MB build's save: the gzip Blob under "c-drive", kept gzipped.
 async function seedLegacySave(page: Page, fixture: string): Promise<void> {
   await page.evaluate(
     async ({ dbName, store, url }) => {
@@ -125,12 +120,9 @@ async function expectMarker(page: Page, text = /CONVERTED FROM 504MB/): Promise<
   await waitForScreen(page, text);
 }
 
-/** Stores legacy-504.img in one of the older shapes earlier builds wrote:
- * 512KB chunks under "hdd-meta" + "c-drive:<n>", or a factory-delta record
- * patched onto a "factory-base:<n>" stash. The delta rewrites the marker
- * file to PATCHED, proving the patches are applied. The raw-bytes shape
- * isn't seeded: Chromium refuses any single IndexedDB value over ~133MB, so
- * only another browser could have stored one. */
+// Stores legacy-504.img in an older shape: 512KB chunks under "hdd-meta" + "c-drive:<n>", or a
+// factory-delta patched onto a "factory-base:<n>" stash (the delta rewrites the marker file to
+// PATCHED). The raw-bytes shape isn't seeded: Chromium refuses IndexedDB values over ~133MB.
 async function seedOlderLegacySave(page: Page, shape: "chunks" | "delta"): Promise<void> {
   await page.evaluate(
     async ({ dbName, store, shape }) => {
@@ -193,8 +185,7 @@ async function idbKeys(page: Page): Promise<string[]> {
 
 const chunkKeys = async (page: Page) => (await idbKeys(page)).filter((k) => k.startsWith("c2:"));
 
-/** Gives the page `__hddCall(op, args, transfer)`: one hdd-worker.js op, in
- * a worker of its own, speaking the same protocol app.js does. */
+// Gives the page `__hddCall(op, args, transfer)`: one hdd-worker.js op in its own worker.
 async function installHddCall(page: Page): Promise<void> {
   await page.evaluate(() => {
     (window as any).__hddCall = (op: string, args: unknown, transfer: Transferable[] = []) => {
@@ -217,12 +208,8 @@ test.describe("hard disk", () => {
   test("shows the factory-default label and correct button states on first load", async ({
     page,
   }) => {
-    // expectScreen: null -- assert on first load, before the machine has
-    // finished booting, which is what this test is actually about. Waiting
-    // for the C:\> prompt would defeat it: FreeDOS genuinely writes to C:
-    // while running FDAUTO.BAT, ~2s of real time BEFORE the prompt appears,
-    // so by then persistHddIfDirty()'s 5s tick has correctly relabelled the
-    // drive "saved (this session)". See PC486_REVIEW.md §8.
+    // expectScreen: null asserts before boot finishes. FreeDOS writes C: during FDAUTO.BAT ~2s before
+    // the prompt, so persistHddIfDirty()'s 5s tick relabels the drive "saved (this session)". PC486_REVIEW.md §8.
     await bootLive(page);
     await expect(page.locator("#hddStatus")).toHaveText(
       /Using: FreeDOS \(default\)/
@@ -275,9 +262,7 @@ test.describe("hard disk", () => {
       await page.evaluate(() => (window as any).__test.machine.textScreen())
     ).not.toMatch(/C:\\>/);
 
-    // Put factory FreeDOS back so the shared livePage isn't left on a blank
-    // image (status becomes "saved (this session)" after mount, which resetLivePage
-    // cannot distinguish from a normal dirty factory disk).
+    // Restore factory FreeDOS so the shared livePage isn't left on a blank image.
     await setPowerSwitch(page, false);
     await page.locator("#hddResetBtn").click();
     await setPowerSwitch(page, true);
@@ -304,7 +289,7 @@ test.describe("hard disk", () => {
     await forcePersistHdd(page);
     const meta = await idbGet(page, META_KEY);
     expect(meta).toMatchObject({ v: 2, length: kHddImageBytes, chunkSize: 65536, model: "AC2250", modified: true });
-    // Chunk 0 holds the MBR, so it can't be all zero and is always stored.
+    // Chunk 0 holds the MBR, so it is always stored.
     expect(await idbGet(page, "c2:00000")).toEqual({ arrayBuffer: 65536 });
     expect(await idbGet(page, LEGACY_KEY)).toBeUndefined();
   });
@@ -324,18 +309,14 @@ test.describe("hard disk", () => {
     await waitForScreen(page, /C:\\>/);
   });
 
-  // Mirrors the CD-ROM "never fetches unasked" case: once C: lives in
-  // IndexedDB, a reload mounts it from there -- no second download of
-  // freedos-hdd.img.
+  // Once C: lives in IndexedDB, a reload mounts it from there with no second image download.
   test("a reload with saved C: does not re-fetch the factory FreeDOS image", async ({
     page,
   }) => {
     await bootLive(page);
     await settle(page);
 
-    // A HEAD to confirm the shipped image's identity hasn't changed (see
-    // loadSavedHdd's fingerprint check) is expected and cheap -- only a
-    // GET would mean the image was actually re-downloaded.
+    // A HEAD for the image fingerprint (loadSavedHdd) is expected; only a GET means a re-download.
     const requests: { url: string; method: string }[] = [];
     page.on("request", (req) => requests.push({ url: req.url(), method: req.method() }));
     await page.reload();
@@ -347,8 +328,7 @@ test.describe("hard disk", () => {
     ).toBe(false);
   });
 
-  // A C: the visitor changed is theirs, whatever happened to the shipped
-  // image since. One nobody touched follows the current factory image.
+  // A visitor-changed C: is theirs; an untouched one follows the current factory image.
   test("a stale factory fingerprint replaces an untouched C: but keeps a changed one", async ({
     page,
   }) => {
@@ -374,8 +354,7 @@ test.describe("hard disk", () => {
     await expect(page.locator("#hddStatus")).toHaveText(/saved \(previous visit\)/);
   });
 
-  // "Reset to factory" has to mean the image the server has right now, not
-  // whatever was downloaded first.
+  // Reset to factory means the image the server has now.
   test("Reset to factory re-fetches the image from the server, ignoring every local copy", async ({
     livePage: page,
   }) => {

@@ -1,10 +1,3 @@
-// GoogleTest suite for the EGA device: the real planar-memory read/write
-// engine (latch, Set/Reset, Data Rotate/ALU, all 4 write modes, both read
-// modes, Map Mask and odd/even plane gating, the legacy-window Memory
-// Mapping select), CRTC cursor/start-address register programming, the
-// Attribute Controller's address/data flip-flop and its reset-on-reading-
-// 0x3DA quirk, and the Input Status 1 retrace toggle.
-
 #include <gtest/gtest.h>
 
 #include "ega.h"
@@ -13,19 +6,9 @@ namespace {
 
 using ibmpcat::Ega;
 
-// Real hardware requires a BIOS/driver mode-set to program these registers
-// before video memory behaves predictably -- a freshly reset card has no
-// planes enabled and an all-zero Bit Mask, so even a trivial byte write is
-// a no-op until something programs it, exactly as on genuine hardware.
-// These helpers reproduce the IBM EGA/VGA standard register values for the
-// two mode families this suite exercises, matching what every compatible
-// BIOS (including this machine's Bochs vgabios) programs for them.
+// A fresh card ignores writes until a mode set. These helpers program standard EGA/VGA values.
 
-// Standard mode 3 (80x25 16-color text): odd/even chaining OFF-the-CPU's-
-// mind (Sequencer Memory Mode enables it), Map Mask enables planes 0+1
-// (character/attribute), Graphics Controller Mode enables odd/even on the
-// read side too, Miscellaneous selects the 32K color-text window @ B8000,
-// Bit Mask passes every CPU bit through untouched.
+// Mode 3 (80x25 text): odd/even on, Map Mask planes 0+1, B8000 32K window, Bit Mask pass-through.
 void SetupTextMode80x25(Ega &ega) {
     ega.out(0x3C4, 0x02); ega.out(0x3C5, 0x03);  // Sequencer Map Mask: planes 0+1
     ega.out(0x3C4, 0x04); ega.out(0x3C5, 0x02);  // Sequencer Memory Mode: odd/even enabled
@@ -34,10 +17,7 @@ void SetupTextMode80x25(Ega &ega) {
     ega.out(0x3CE, 0x08); ega.out(0x3CF, 0xFF);  // Bit Mask: all bits pass through
 }
 
-// Standard 16-color graphics mode shape (e.g. mode 0x10, 640x350x16): all 4
-// planes enabled, odd/even chaining OFF (linear addressing), 64K@A0000,
-// write mode 0, Set/Reset disabled so the CPU byte passes straight through,
-// Bit Mask all-pass.
+// Linear 16-color graphics (e.g. mode 0x10): all planes, odd/even off, 64K@A0000, Set/Reset off.
 void SetupLinearGraphics(Ega &ega) {
     ega.out(0x3C4, 0x02); ega.out(0x3C5, 0x0F);  // Map Mask: all 4 planes
     ega.out(0x3C4, 0x04); ega.out(0x3C5, 0x06);  // Memory Mode: odd/even disabled (linear)
@@ -58,9 +38,7 @@ TEST(EgaTest, TextModeMemoryReadWriteRoundTrip) {
 }
 
 TEST(EgaTest, MemoryMappingSelectsWhichLegacyWindowIsDecoded) {
-    // Real EGA/VGA hardware decodes only ONE of the three legacy windows
-    // (64K@A0000, 32K@B0000 mono, 32K@B8000 color) at a time, per the
-    // Graphics Controller's Memory Mapping field -- not all three at once.
+    // Only one legacy window is decoded at a time (Memory Mapping field).
     Ega ega;
     ega.reset();
     SetupLinearGraphics(ega);  // starts mapped 64K @ A0000
@@ -73,8 +51,7 @@ TEST(EgaTest, MemoryMappingSelectsWhichLegacyWindowIsDecoded) {
     ega.out(0x3CE, 0x06); ega.out(0x3CF, 0x0F);  // Misc: graphics mode, 32K @ B8000 color
     ega.mem_write(0xB8000, 0x33);
     EXPECT_EQ(ega.mem_read(0xB8000), 0x33);
-    // Switching windows didn't touch A0000's storage, but it's no longer
-    // decoded from this address either -- independent, not aliased.
+    // A0000 keeps its storage but is no longer decoded here.
     EXPECT_EQ(ega.mem_read(0xA0000), 0xFF);
 }
 
@@ -84,8 +61,7 @@ TEST(EgaTest, WriteMode0AppliesDataRotateAluFunction) {
     SetupLinearGraphics(ega);
     ega.mem_write(0xA0000, 0xF0);  // seed all 4 planes with 0xF0
 
-    // Data Rotate: rotate count 0, function 2 = OR the CPU byte with the
-    // latch (which a preceding read loads from the current VRAM content).
+    // Data Rotate function 2 ORs the CPU byte with the latch.
     ega.out(0x3CE, 0x03); ega.out(0x3CF, 0x10);  // rotate=0, function=OR
     ega.mem_read(0xA0000);                       // load the latch from the seeded byte
     ega.mem_write(0xA0000, 0x0F);
@@ -161,9 +137,7 @@ TEST(EgaTest, ReadMode1ColorCompareMatchesOnlyCaredAboutPlanes) {
     Ega ega;
     ega.reset();
     SetupLinearGraphics(ega);
-    // Plane 0 = 0xFF (all set), plane 1 = 0x00 (all clear), via two mode-2
-    // writes (mode 2 already exercised above, reused here as the setup
-    // mechanism -- one CPU bit per plane).
+    // Plane 0 = 0xFF, planes 1-3 = 0x00, set up via write mode 2.
     ega.out(0x3CE, 0x05); ega.out(0x3CF, 0x02);  // write mode 2
     ega.mem_write(0xA0000, 0x01);                 // plane0=0xFF, planes1-3=0x00
 
@@ -177,13 +151,7 @@ TEST(EgaTest, ReadMode1ColorCompareMatchesOnlyCaredAboutPlanes) {
 }
 
 TEST(EgaTest, OddEvenChainingRoutesCharacterGeneratorWritesToPlanes2And3) {
-    // The BIOS's character-generator/font-load routine reaches plane 2 the
-    // same way text mode splits character/attribute across planes 0/1:
-    // odd/even chaining stays on, Map Mask just points at a different bit
-    // -- but it does so through the 64K@A0000 graphics-style window (the
-    // character generator RAM isn't visible through the B8000 text window),
-    // a real, documented EGA/VGA BIOS technique. An even CPU address
-    // reaches plane 2; an odd address would reach plane 3 (unused here).
+    // Font loads reach plane 2 through the A0000 window with odd/even on and Map Mask on plane 2. An even address hits plane 2.
     Ega ega;
     ega.reset();
     ega.out(0x3C4, 0x02); ega.out(0x3C5, 0x04);  // Map Mask: plane 2 only
@@ -195,8 +163,7 @@ TEST(EgaTest, OddEvenChainingRoutesCharacterGeneratorWritesToPlanes2And3) {
 
     ega.out(0x3CE, 0x04); ega.out(0x3CF, 0x02);  // Read Map Select: plane 2
     EXPECT_EQ(ega.mem_read(0xA0000), 0x7E);
-    // Plane 0/1 (text mode's normal char/attr planes) are untouched by a
-    // write that Map Mask routed to plane 2 only.
+    // Planes 0/1 are untouched.
     ega.out(0x3CE, 0x04); ega.out(0x3CF, 0x00);
     EXPECT_EQ(ega.mem_read(0xA0000), 0x00);
 }

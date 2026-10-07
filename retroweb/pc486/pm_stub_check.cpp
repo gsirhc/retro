@@ -1,38 +1,20 @@
-// Native end-to-end proof that this core's protected mode, paging, gates,
-// task switching and FPU actually work together -- Milestone 2's equivalent
-// of Milestone 1's "boots the real FreeDOS installer to a live C:\>".
-//
-// It assembles, byte by byte, the smallest program that does what a
-// DOS4GW-class extender does at startup, and runs it against the real
-// pc486::Chipset (32MB of RAM, the same bus the browser build uses):
-//
-//   1. real mode: LGDT / LIDT, set CR0.PE, far-JMP into a 32-bit flat code
-//      segment -- the canonical protected-mode entry sequence,
-//   2. 32-bit protected mode: load the flat data selector, do 32-bit
-//      arithmetic, and store to linear 7MB, which no real-mode addressing
-//      form can reach,
-//   3. x87: exact-value arithmetic (2.5 * 4.0, sqrt(16)) plus an integer
-//      conversion, stored back to memory,
-//   4. paging: load CR3, set CR0.PG, and write through a *virtual alias* --
-//      linear 8MB mapped onto a physical frame at a completely different
-//      address, so the value only lands correctly if the page walk is real,
-//   5. #PF: touch an unmapped linear address on purpose. The handler reads
-//      CR2 and the error code, installs a page table for it, INVLPGs, and
-//      IRETDs -- so the faulting instruction *restarts* and succeeds. That
-//      is demand paging, and it only works if faults are restartable.
-//   6. task switching: LTR, then a far CALL to a TSS selector. The second
-//      task runs on its own stack, clobbers EAX, and IRETDs back through
-//      the back-link; EAX must come back intact from the first task's TSS.
-//   7. privilege: build an IRETD frame by hand and return *outward* to ring
-//      3, run there, come back through a DPL-3 interrupt gate (which
-//      switches to the ring-0 stack out of the TSS), and go back out again.
-//   8. exit: clear CR0.PG, drop to a 16-bit code segment, clear CR0.PE,
-//      far-JMP back to a real-mode CS, and store one last marker -- the
-//      round trip a DOS extender performs on every DOS call.
-//
-// Every step leaves an observable value in a results block at physical
-// 0x7000, and main() checks all of them. Nothing here is asserted by the
-// emulator about itself: the values are what the *guest program* computed.
+// Native end-to-end proof that protected mode, paging, gates, task switching and
+// the FPU work together. Assembles the smallest program doing what a DOS4GW-class
+// extender does at startup and runs it on the real pc486::Chipset (32MB RAM):
+//   1. real mode: LGDT / LIDT, set CR0.PE, far-JMP into a 32-bit flat code segment
+//   2. 32-bit arithmetic, store to linear 7MB (beyond real-mode reach)
+//   3. x87: 2.5 * 4.0, sqrt(16), integer conversion
+//   4. paging: CR3, CR0.PG, write through a virtual alias (linear 8MB onto another
+//      physical frame), so it lands only if the page walk is real
+//   5. #PF: touch an unmapped address; the handler reads CR2 and the error code,
+//      installs a page table, INVLPGs, IRETDs, and the instruction restarts
+//   6. task switch: LTR, far CALL to a TSS. Task 2 clobbers EAX and IRETDs back via
+//      the back-link; EAX must return intact.
+//   7. privilege: hand-built IRETD frame to ring 3, back through a DPL-3 interrupt
+//      gate (switching to the ring-0 stack from the TSS), and out again
+//   8. exit: clear PG, drop to a 16-bit segment, clear PE, far-JMP to a real-mode CS
+// Each step leaves a value in a results block at physical 0x7000 that main()
+// checks; the values are what the guest computed.
 //
 // Usage: pm_stub_check [max_steps]
 
@@ -48,7 +30,7 @@
 
 namespace {
 
-// --- physical memory layout the stub is built around ---------------------
+// --- physical memory layout ---
 constexpr uint32_t kGdtPtr    = 0x00000500;  // 6-byte LGDT operand
 constexpr uint32_t kIdtPtr    = 0x00000506;  // 6-byte LIDT operand
 constexpr uint32_t kGdt       = 0x00001000;
@@ -65,12 +47,12 @@ constexpr uint32_t kPfFrame    = 0x0000B000; // what linear 12MB ends up mapping
 constexpr uint32_t kCode16Base = 0x00010000; // real-mode CS 1000h, and GDT selector 18h
 constexpr uint32_t kCode32     = 0x00020000; // the 32-bit protected-mode code
 
-// Linear addresses the stub deliberately touches.
+// Linear addresses the stub touches
 constexpr uint32_t kFarStore   = 0x00700000;  // 7MB -- beyond any real-mode reach
 constexpr uint32_t kAliasLin   = 0x00800000;  // 8MB -- mapped onto kAliasFrame
 constexpr uint32_t kFaultLin   = 0x00C00000;  // 12MB -- unmapped until the #PF handler acts
 
-// Result slots (offsets from kResults).
+// Result slot offsets from kResults
 enum Result {
     R_ADD        = 0x00,  // 32-bit add result
     R_FMUL       = 0x08,  // 2.5 * 4.0 as a double
@@ -89,7 +71,7 @@ enum Result {
     R_FARSTORE   = 0x48,  // copy of what was stored at linear 7MB
 };
 
-// Expected values, all chosen to be exact.
+// Expected values, all exact
 constexpr uint32_t kAddResult   = 0x23456789u;  // 0x12345678 + 0x11111111
 constexpr uint32_t kAliasMagic  = 0xCAFEBABEu;
 constexpr uint32_t kPfMagic     = 0x600D600Du;
@@ -98,10 +80,9 @@ constexpr uint32_t kTask2Magic  = 0x7A5C0DE5u;
 constexpr uint32_t kRing3Magic  = 0x33334444u;
 constexpr uint32_t kRealMagic   = 0x0000DEADu;
 
-// --- a tiny two-pass assembler -------------------------------------------
-// Labels resolve to *linear* addresses, which for the flat 32-bit segment
-// are also physical ones. Two passes: the first computes label addresses
-// with placeholder values, the second emits the real bytes.
+// --- two-pass assembler ---
+// Labels resolve to linear addresses (also physical in the flat segment). The first
+// pass computes addresses with placeholders, the second emits bytes.
 struct Asm {
     std::vector<uint8_t> bytes;
     uint32_t origin = 0;
@@ -118,7 +99,7 @@ struct Asm {
     void dw(uint32_t v) { db(int(v & 0xFF)); db(int((v >> 8) & 0xFF)); }
     void dd(uint32_t v) { dw(v & 0xFFFF); dw(v >> 16); }
     void dq(uint64_t v) { dd(uint32_t(v & 0xFFFFFFFFu)); dd(uint32_t(v >> 32)); }
-    // The IEEE-754 bit pattern of a double, so the guest loads an exact value.
+    // IEEE-754 bit pattern of a double, so the guest loads an exact value
     void dq_double(double d) { uint64_t b; std::memcpy(&b, &d, 8); dq(b); }
 };
 
@@ -167,10 +148,9 @@ void emit_pm32(Asm &a) {
     const uint32_t res = kResults;
 
     a.label("pm_entry");
-    // Load the flat 32-bit data selector into DS/ES/SS and set up a stack.
-    // No 0x66 prefixes anywhere below: in a D=1 code segment 32-bit
-    // operands are the *default*, which is itself a live check on the
-    // CS.D-driven operand-size decode.
+    // Load the flat data selector into DS/ES/SS and set a stack. No 0x66 prefixes
+    // below: in a D=1 segment 32-bit operands are the default, which checks the
+    // CS.D operand-size decode.
     a.db({0x66, 0xB8}); a.dw(0x0010);            // mov ax,0x10
     a.db({0x8E, 0xD8});                          // mov ds,ax
     a.db({0x8E, 0xC0});                          // mov es,ax
@@ -227,8 +207,7 @@ void emit_pm32(Asm &a) {
     a.db({0xCF});                                // iretd -> CPL 3
 
     a.label("ring3_entry");
-    // An outward return nulls any segment register the outer level may not
-    // use, so DS/ES have to be reloaded here -- which is itself the check.
+    // An outward return nulls segment registers the outer level can't use, so DS/ES are reloaded here
     a.db({0x66, 0xB8}); a.dw(0x003B);            // mov ax,0x3B
     a.db({0x8E, 0xD8});                          // mov ds,ax
     a.db({0x8E, 0xC0});                          // mov es,ax
@@ -242,11 +221,8 @@ void emit_pm32(Asm &a) {
     a.db({0x0F, 0x20, 0xC0});                    // mov eax,cr0
     a.db({0x25}); a.dd(0x7FFFFFFFu);             // and eax,0x7FFFFFFF  -- PG off first
     a.db({0x0F, 0x22, 0xC0});                    // mov cr0,eax
-    // Drop into a 16-bit code segment *before* clearing PE, so CS.D is
-    // already 0 when real mode resumes.
-    // The 0x66 prefix here *narrows* the offset to 16 bits, because in a
-    // D=1 segment 32 bits is the default -- the same toggle, read the other
-    // way round.
+    // Drop into a 16-bit code segment before clearing PE so CS.D is 0 when real
+    // mode resumes. The 0x66 prefix narrows the offset to 16 bits, since 32 is the D=1 default.
     a.db({0x66, 0xEA}); a.dw(a.addr("back16") - kCode16Base); a.dw(0x0018);  // jmp far 0x18:back16
 
     // --- the #PF handler --------------------------------------------------
@@ -255,7 +231,7 @@ void emit_pm32(Asm &a) {
     a.db({0xA3}); a.dd(res + R_CR2);             // mov [res+CR2],eax
     a.db({0x8B, 0x04, 0x24});                    // mov eax,[esp]   (error code)
     a.db({0xA3}); a.dd(res + R_PFERR);           // mov [res+PFERR],eax
-    // Install a page directory entry and page table for linear 12MB.
+    // Install a page directory entry and page table for linear 12MB
     a.db({0xC7, 0x05}); a.dd(kPageDir + 3 * 4); a.dd(kPfPageTab | 3u);  // mov dword [pd+12],tab|RW|P
     a.db({0xC7, 0x05}); a.dd(kPfPageTab); a.dd(kPfFrame | 3u);          // mov dword [tab],frame|RW|P
     a.db({0x0F, 0x01, 0x3D}); a.dd(kFaultLin);   // invlpg [12MB]
@@ -267,8 +243,7 @@ void emit_pm32(Asm &a) {
     a.db({0x31, 0xC0});                          // xor eax,eax
     a.db({0xA3}); a.dd(res + R_HANDLERCS);       // mov [res+HANDLERCS],eax  (zero it)
     a.db({0x8C, 0x0D}); a.dd(res + R_HANDLERCS); // mov [res+HANDLERCS],cs   (must be ring 0)
-    // With a privilege change the gate pushed SS:ESP too, so the frame is
-    // EIP, CS, EFLAGS, ESP, SS -- [esp+4] is the interrupted CS.
+    // With a privilege change the gate pushed SS:ESP too: EIP, CS, EFLAGS, ESP, SS, so [esp+4] is the interrupted CS
     a.db({0x8B, 0x44, 0x24, 0x04});              // mov eax,[esp+4]
     a.db({0xA3}); a.dd(res + R_FRAMECS);         // mov [res+FRAMECS],eax
     a.db({0xCF});                                // iretd -> back out to ring 3
@@ -295,21 +270,15 @@ void emit_pm32(Asm &a) {
     a.label("tss2_far"); a.dw(0x0000); a.dw(0x0028);  // CALL FAR m16:16 -> TSS 2
 }
 
-// Emits the 16-bit code that lives at physical kCode16Base: the real-mode
-// entry sequence, and the 16-bit protected-mode stub that drops PE.
+// 16-bit code at physical kCode16Base: the real-mode entry, and the 16-bit stub that drops PE
 void emit_code16(Asm &a) {
     a.label("real_entry");
     a.db({0xFA});                                // cli
     a.db({0x31, 0xC0});                          // xor ax,ax
     a.db({0x8E, 0xD8});                          // mov ds,ax
-    // Open the A20 gate through the 8042, exactly as period software must:
-    // the gate is closed at power-on, and with it closed the motherboard
-    // masks every address to 20 bits, so extended memory is unreachable no
-    // matter what the CPU computes. Command D1h then DFh to the keyboard
-    // controller's output port is the canonical sequence. (This is chipset
-    // behavior, not CPU behavior -- cpu80486.h's header says so -- and
-    // leaving it out is how this stub first "passed" a store to linear 7MB
-    // that had actually landed at 0.)
+    // Open A20 through the 8042 (D1h then DFh to the output port). It is closed at
+    // power-on and masks addresses to 20 bits; without it a store to linear 7MB
+    // landed at 0. Chipset behavior, not CPU (cpu80486.h).
     a.db({0xB0, 0xD1});                          // mov al,0xD1
     a.db({0xE6, 0x64});                          // out 0x64,al
     a.db({0xB0, 0xDF});                          // mov al,0xDF
@@ -319,8 +288,7 @@ void emit_code16(Asm &a) {
     a.db({0x0F, 0x20, 0xC0});                    // mov eax,cr0
     a.db({0x0C, 0x01});                          // or al,1        -- set PE
     a.db({0x0F, 0x22, 0xC0});                    // mov cr0,eax
-    // A 32-bit far jump: the 0x66 prefix makes the offset 32 bits wide,
-    // which is the only way a 16-bit segment can reach a 32-bit entry point.
+    // 32-bit far jump: the 0x66 prefix widens the offset, the only way a 16-bit segment reaches a 32-bit entry
     a.db({0x66, 0xEA}); a.dd(kCode32); a.dw(0x0008);  // jmp far 0x08:pm_entry
 
     a.label("back16");                           // entered as 0x18:offset
@@ -356,10 +324,8 @@ int main(int argc, char **argv) {
     pc486::Chipset chipset;
     Mem m(chipset);
 
-    // The 16-bit and 32-bit halves share one label table, because the
-    // 16-bit half's far jump names a 32-bit entry point and vice versa.
-    // Assembling 32-bit first gives the 16-bit pass the labels it needs;
-    // a second 32-bit pass then picks up "back16".
+    // The halves share one label table since each far-jumps into the other. Assemble
+    // 32-bit first, then 16-bit, then 32-bit again for "back16".
     std::map<std::string, uint32_t> labels;
     assemble(kCode32, emit_pm32, labels);
     std::vector<uint8_t> c16 = assemble(kCode16Base, emit_code16, labels);
@@ -393,8 +359,7 @@ int main(int argc, char **argv) {
     m.w32(kIdtPtr + 2, kIdt);
 
     // --- page tables: linear 0-4MB identity, linear 8MB -> kAliasFrame ----
-    // Deliberately *not* mapping linear 12MB: step 5's fault handler installs
-    // that itself, which is the point of the exercise.
+    // Linear 12MB is deliberately unmapped; step 5's handler installs it
     m.w32(kPageDir + 0 * 4, kPageTab0 | 0x07u);   // present, writable, user
     m.w32(kPageDir + 2 * 4, kPageTab2 | 0x07u);
     for (uint32_t p = 0; p < 1024; ++p) m.w32(kPageTab0 + p * 4, (p << 12) | 0x07u);
@@ -408,7 +373,7 @@ int main(int argc, char **argv) {
     m.w32(kTss1 + 8, 0x00000010u);   // SS0
     m.w32(kTss1 + 28, kPageDir);     // CR3
     m.w16(kTss1 + 102, 0x68);        // I/O map base: past the limit, so all ports denied
-    // TSS 2 is a complete task image: the CPU loads every one of these.
+    // TSS 2 is a complete task image; the CPU loads all of these
     m.w32(kTss2 + 4, 0x0000F400u);   // ESP0
     m.w32(kTss2 + 8, 0x00000010u);   // SS0
     m.w32(kTss2 + 28, kPageDir);     // CR3
@@ -438,8 +403,7 @@ int main(int argc, char **argv) {
         ++unimpl;
     };
 
-    // Milestone markers, so a failure says *where* the stub stopped rather
-    // than only that it did.
+    // Milestone markers, so a failure says where the stub stopped
     bool saw_pm = false, saw_paging = false, saw_ring3 = false, saw_realmode_again = false;
     uint64_t steps = 0;
     for (; steps < max_steps && !cpu.halted; ++steps) {
@@ -470,10 +434,8 @@ int main(int argc, char **argv) {
         checks.push_back({what, got == want, dec(got), dec(want)});
     };
 
-    // The stub takes exactly one fault on purpose (the #PF in step 5).
-    // Anything else means something went wrong -- and because an
-    // undeliverable fault escalates to #DF and then to shutdown, which also
-    // sets `halted`, "halted" on its own is not evidence of success.
+    // The stub takes exactly one fault (step 5). An undeliverable fault escalates to
+    // #DF then shutdown, which also sets `halted`, so halted alone isn't success.
     int unexpected = 0;
     for (const Trace &t : faults) if (t.vector != 14) ++unexpected;
     checks.push_back({"CPU halted (the stub ran to its end)", cpu.halted, cpu.halted ? "yes" : "no", "yes"});

@@ -1,7 +1,4 @@
-// GoogleTest suite for the MC146818-compatible RTC + CMOS: the address/data
-// port protocol, the NMI-mask bit, the 128-byte map, the running calendar
-// (BCD/binary, 12/24-hour, rollover, leap years), the UIP window, and the
-// periodic / update-ended / alarm interrupts behind register C.
+// GoogleTest suite for the MC146818-compatible RTC + CMOS.
 
 #include <gtest/gtest.h>
 

@@ -1,50 +1,29 @@
-// Boots the shipped FreeDOS HDD image and runs BOOM (a DOS Doom source port
-// built with DJGPP, loaded by the GO32-V2 stub through the CWSDPMI DPMI host)
-// off C:\GAMES\BOOM, then holds the machine to the whole Milestone 4 bar --
-// in the same shape as hdd_boot_check's "reaches a live C:\>" and
-// vbe_mode13_check's per-pixel proof: real third-party protected-mode
-// software exercising this hardware, not a test written to its expectations.
-// Three phases, all of which must pass:
+// Boots the shipped FreeDOS HDD image and runs BOOM (DJGPP Doom port, GO32-V2 stub,
+// CWSDPMI) from C:\GAMES\BOOM: real third-party protected-mode software exercising
+// this hardware. Three phases must pass:
+//   1. Renderer: a run of genuinely different 320x200x256 frames.
+//   2. PS/2 mouse: AUX packets reach BOOM. A click in the attract demo opens the
+//      menu; in a live game horizontal motion turns the view and the same
+//      distance back restores it. Chain: i8042 AUX -> IRQ12 -> INT 74h -> CTMOUSE
+//      INT 33h -> Allegro -> BOOM (PC486_REVIEW.md §13).
+//   3. Digitized sound: the SB DAC clocked out a waveform at the programmed rate,
+//      with IRQ5 firing per block.
+// Phase 1 needs a changing picture: the title screen is one static frame. A
+// CWSDPMI crash screen, DPMI error or DOS abort fails the run.
+// Exit codes: 1 no renderer, 3 runaway, 4 watchpoint, 5 sound, 6 mouse.
 //
-//   1. The renderer runs: a run of genuinely *different* 320x200x256 frames.
-//   2. The PS/2 mouse: synthetic AUX-port packets reach BOOM. A left click
-//      during the attract demo brings up its menu, and in a live game
-//      injected horizontal motion turns the player's view and turning the
-//      same distance back restores the frame it started from. The whole
-//      chain is real: i8042 AUX -> IRQ12 -> the firmware's INT 74h ->
-//      CTMOUSE's INT 33h driver -> Allegro -> BOOM (PC486_REVIEW.md §13).
-//   3. Digitized sound: the Sound Blaster's DAC has to have clocked out real
-//      audio -- a waveform, at the rate the driver programmed, with IRQ5
-//      firing per block.
-//
-// Usage:
-//   boom_run_check <bios> <vgabios> <hdd.img> [options]
-//     --bmp PREFIX      write PREFIX-NNN.bmp screenshots as frames arrive,
-//                       plus one per step of the mouse phase
-//     --budget CYCLES   cycle budget for the BOOM run itself
-//     --sb-trace        log every Sound Blaster DSP state change (rate,
-//                       width, channels, speaker gate) as it happens
-//
-//   Diagnostics (all imply --trace, which keeps an instruction ring buffer
-//   and costs real time; §9 of PC486_REVIEW.md is the worked example of
-//   using them together):
-//     --trace           ring-buffer every instruction and dump it at the
-//                       first #PF/#GP/#DF
-//     --trace-cr2 HEX   narrow that dump to a #PF at this CR2
-//     --catch-runaway   dump the ring the moment the guest starts executing
-//                       zeroed memory -- i.e. the moment control flow left
-//                       real code, while its history is still in the buffer
-//     --watch LINEAR    dump the ring when this linear dword changes; the
-//                       instruction that changed it is the newest entry
-//     --dump-at CYCLES  dump the ring at a chosen point in the run, for a
-//                       guest that is stuck rather than crashed
-//     --ring N          how many ring entries a dump prints (default 600)
-//
-// Phase 1's bar is a *changing* picture, not a picture: BOOM's title screen
-// is one static frame a working bitmap loader alone would produce. Any
-// CWSDPMI crash-handler screen, DPMI error or DOS-level abort fails the run
-// and prints the captured evidence. Exit codes: 1 no renderer, 3 runaway,
-// 4 watchpoint, 5 sound, 6 mouse.
+// Usage: boom_run_check <bios> <vgabios> <hdd.img> [options]
+//   --bmp PREFIX      write PREFIX-NNN.bmp screenshots as frames arrive and per mouse step
+//   --budget CYCLES   cycle budget for the BOOM run
+//   --sb-trace        log every Sound Blaster DSP state change
+//   Diagnostics (imply --trace, an instruction ring buffer that costs real time;
+//   PC486_REVIEW.md §9):
+//   --trace           dump the ring at the first #PF/#GP/#DF
+//   --trace-cr2 HEX   narrow the dump to a #PF at this CR2
+//   --catch-runaway   dump when the guest starts executing zeroed memory
+//   --watch LINEAR    dump when this linear dword changes (newest entry changed it)
+//   --dump-at CYCLES  dump at a chosen point, for a stuck guest
+//   --ring N          entries per dump (default 600)
 
 #include "../machine.h"
 #include "../ega_render.h"
@@ -68,9 +47,7 @@ std::vector<uint8_t> ReadFile(const std::string &path) {
     return std::vector<uint8_t>((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
 }
 
-// Same planar-VRAM text reconstruction hdd_boot_check.cpp uses; plane 0 is
-// the character plane and the CRTC's start address is honored so a scrolled
-// screen still reads correctly.
+// Planar-VRAM text as in hdd_boot_check.cpp: plane 0, honoring the CRTC start address
 std::string ScreenText(Machine &m) {
     const auto &vga = m.chipset.vga;
     std::string out;
@@ -89,9 +66,7 @@ std::string ScreenText(Machine &m) {
 }
 
 // --- keyboard -------------------------------------------------------------
-// Set 1 (XT) make codes, break code = make | 0x80, exactly as a real
-// keyboard reports them to the 8042 (same table as build_freedos_hdd.cpp,
-// extended with the punctuation a path needs).
+// Set 1 (XT) make codes, break = make | 0x80 (table from build_freedos_hdd.cpp, plus path punctuation)
 uint8_t Set1MakeCode(char c) {
     static const std::map<char, uint8_t> table = {
         {'1', 0x02}, {'2', 0x03}, {'3', 0x04}, {'4', 0x05}, {'5', 0x06},
@@ -128,9 +103,7 @@ void SendString(Machine &m, const std::string &s) {
 constexpr uint8_t kScanEnter = 0x1C;
 
 // --- guest memory, read the way the CPU would ----------------------------
-// Walks the live page tables so a harness can read guest *linear* memory
-// (for instruction bytes at a faulting EIP). Returns false if the walk
-// cannot resolve the address -- which is itself information.
+// Walks the live page tables to read guest linear memory; false if unresolvable
 bool ReadLinearByte(Machine &m, uint32_t linear, uint8_t &out) {
     if (!m.cpu.paging_enabled()) { out = m.chipset.mem_read(linear); return true; }
     uint32_t pde_addr = (m.cpu.cr(3) & 0xFFFFF000u) + ((linear >> 22) << 2);
@@ -189,41 +162,31 @@ struct Diag {
     bool trace_on = false;
     std::vector<FaultRecord> faults;
     std::map<int, uint64_t> fault_counts;
-    // Faults grouped by (vector, cr2) so a recurring, never-repaired fault
-    // is visible as a count rather than a wall of identical lines.
+    // Faults grouped by (vector, cr2) so a recurring unrepaired fault shows as a count
     std::map<std::pair<int, uint32_t>, uint64_t> pf_by_cr2;
-    // Sampled CS:EIP histogram -- the §5.9 technique for "where is it
-    // spinning?", at one sample per kSampleEvery instructions so it costs
-    // nothing measurable.
+    // Sampled CS:EIP histogram (PC486_REVIEW.md §5.9), one per kSampleEvery instructions
     static constexpr uint64_t kSampleEvery = 4096;
     uint64_t instr = 0;
     std::map<uint64_t, uint64_t> hot;   // (cs<<32)|eip -> samples
-    // Unimplemented opcodes, by (cs:eip, opcode word): a guest dying on an
-    // opcode this core does not have looks identical to a logic bug from the
-    // outside, so it is worth separating by evidence.
+    // Unimplemented opcodes by (cs:eip, opcode word); looks like a logic bug otherwise
     std::map<std::pair<uint64_t, uint16_t>, uint64_t> unimpl;
     bool catch_runaway = false;
     bool runaway_dumped = false;
     int  zero_run = 0;
     std::size_t runaway_dump_count = 600;
-    // The IVT as it stood when BOOM was launched, so a corrupted vector can
-    // be told apart from a wiped handler.
+    // IVT at BOOM launch, to tell a corrupted vector from a wiped handler
     std::vector<uint8_t> ivt_at_start = std::vector<uint8_t>(1024, 0);
-    // Memory watchpoint: the linear dword to watch, and its last observed
-    // value. Checked at each instruction boundary, so a change is attributed
-    // to the instruction that just retired -- the newest ring entry.
+    // Watchpoint: linear dword and its last value, checked per instruction, so a
+    // change is attributed to the newest ring entry
     bool     watch_on = false;
     uint32_t watch_lin = 0;
     uint32_t watch_val = 0;
     bool     watch_primed = false;
     bool     watch_fired = false;
-    // IRQ5 (Sound Blaster) rising edges, counted exactly rather than sampled:
-    // this is the same 0->1 transition chipset.cpp raises the line on.
+    // IRQ5 (Sound Blaster) rising edges, counted exactly (the 0->1 chipset.cpp raises on)
     bool     sb_irq_prev = false;
     uint64_t sb_irq_edges = 0;
-    // Entries to the real-mode INT 74h handler -- i.e. mouse packets the
-    // firmware actually serviced, which separates "the AUX port queued a
-    // packet" from "IRQ12 reached a handler" (§13).
+    // Entries to the real-mode INT 74h handler: separates "AUX queued a packet" from "IRQ12 reached a handler" (§13)
     bool     irq12_watch = false;
     uint32_t irq12_handler_lin = 0;
     uint64_t irq12_entries = 0;
@@ -232,9 +195,7 @@ struct Diag {
 Diag g_diag;
 
 // --- digitized audio the Sound Blaster's DAC actually latched -------------
-// Accumulated from SoundBlaster::drain_samples() exactly as the browser
-// front end drains it, so this harness sees precisely the sample stream a
-// real listener would hear.
+// Accumulated from SoundBlaster::drain_samples() as the browser front end drains it
 struct SoundLog {
     uint64_t samples = 0;
     uint64_t nonsilent = 0;            // away from digital silence (0 after normalization)
@@ -242,10 +203,9 @@ struct SoundLog {
     uint64_t first_sample_cycle = 0;
     uint64_t first_nonsilent_cycle = 0;
     uint64_t last_sample_cycle = 0;
-    // Distinct sample values, capped: enough to tell a waveform from a
-    // constant without holding the whole stream.
+    // Distinct sample values, capped: enough to tell a waveform from a constant
     std::set<int16_t> distinct;
-    // DSP state, logged on change: rate, width, channels, speaker gate.
+    // DSP state, logged on change
     bool     playing = false;
     uint32_t rate = 0;
     bool     bits16 = false, stereo = false, speaker = false;
@@ -299,11 +259,9 @@ void RecordInstruction(void *, Machine &m) {
         m.cpu.desc(cpu80486::Cpu::SEG_CS).base + m.cpu.eip == g_diag.irq12_handler_lin)
         ++g_diag.irq12_entries;
     if (!g_diag.trace_on) return;
-    // Runaway detector. A guest whose control flow has left real code grinds
-    // through zeroed memory executing 00 00 (ADD [BX+SI],AL) two bytes at a
-    // time -- the §5.9 signature. Catching the *first* few of those, rather
-    // than noticing the spin billions of cycles later, is what keeps the
-    // preceding real instructions in the ring buffer where they can be read.
+    // Runaway detector: a guest off real code grinds through zeroed memory executing
+    // 00 00 (ADD [BX+SI],AL) (§5.9). Catching the first few keeps the real
+    // instructions in the ring.
     if (g_diag.watch_on && !g_diag.watch_fired) {
         uint32_t v = 0;
         for (int i = 0; i < 4; ++i)
@@ -328,10 +286,7 @@ void RecordInstruction(void *, Machine &m) {
                              "\n=== RUNAWAY: executing zeroed memory at %04X:%08X (lin=%08X), "
                              "cycle %llu ===\n",
                              m.cpu.cs, m.cpu.eip, lin, (unsigned long long)m.total_cycles());
-                // Which is it: a corrupted interrupt vector, or a vector
-                // that still points where it always did at memory that has
-                // since been wiped? Comparing the live IVT against the
-                // snapshot taken when BOOM started answers that outright.
+                // Corrupted vector, or one that still points at wiped memory? Compare the live IVT to the launch snapshot.
                 std::fprintf(stderr, "=== IVT entries changed since BOOM started ===\n");
                 int changes = 0;
                 for (int v = 0; v < 256; ++v) {
@@ -395,7 +350,7 @@ void DumpRing(Machine &m, std::size_t count) {
     }
 }
 
-// --- BMP output (same 24-bit bottom-up layout render_screen.cpp writes) ---
+// --- BMP output (24-bit bottom-up, as render_screen.cpp) ---
 void WriteBmp(const std::string &path, const RenderedFrame &f) {
     if (f.width <= 0 || f.height <= 0) return;
     const int row_bytes = ((f.width * 3) + 3) & ~3;
@@ -431,9 +386,7 @@ uint64_t HashFrame(const RenderedFrame &f) {
     return h ^ (uint64_t(f.width) << 32) ^ uint64_t(f.height);
 }
 
-// How many pixels of the frame are not the background index -- a static
-// black screen and a live 3D view are trivially distinguishable, and this
-// keeps "the renderer ran" from being satisfied by a cleared screen.
+// Pixels not at the background index, so a cleared screen can't pass as "the renderer ran"
 std::size_t DistinctColors(const RenderedFrame &f) {
     std::set<uint32_t> seen;
     for (std::size_t i = 0; i + 3 < f.rgba.size(); i += 4) {
@@ -447,9 +400,7 @@ bool Contains(const std::string &hay, const char *needle) {
     return hay.find(needle) != std::string::npos;
 }
 
-// Text the DPMI host, the go32 stub or DOS itself prints when the run has
-// already failed -- checked so the harness reports the real message instead
-// of timing out with a screen nobody looks at.
+// Text the DPMI host, go32 stub or DOS prints when the run has failed, to report the real message
 const char *kFailureMarkers[] = {
     "Page fault", "Page Fault", "PAGE FAULT",
     "General Protection Fault", "Exiting due to signal",
@@ -464,8 +415,7 @@ struct FrameProbe {
     int distinct = 0;
 };
 
-// Runs the guest while keeping the audio log drained (the front end's own
-// job) and counting distinct mode-13h frames.
+// Runs the guest keeping the audio log drained and counting distinct mode-13h frames
 void RunAndPoll(Machine &m, uint64_t cycles, FrameProbe *probe = nullptr) {
     const uint64_t kStep = 2'000'000;
     for (uint64_t used = 0; used < cycles; used += kStep) {
@@ -480,11 +430,9 @@ void RunAndPoll(Machine &m, uint64_t cycles, FrameProbe *probe = nullptr) {
 }
 
 // --- phase 3: digitized sound --------------------------------------------
-// Allegro's sb.c programs the DSP straight through port I/O -- no DOS driver
-// or TSR in the path -- so whether BOOM's sound effects reach the DAC is a
-// question about this machine's own hardware wiring and nothing else. Run
-// last, because it judges the whole run: the sample log has been draining
-// since BOOM started, phase 2's menu included.
+// Allegro's sb.c programs the DSP via port I/O with no driver or TSR, so this tests
+// the machine's hardware wiring alone. Runs last since the sample log has been
+// draining since BOOM started.
 bool CheckSound(Machine &m) {
     std::fprintf(stderr, "\n=== phase 3: digitized sound through the Sound Blaster ===\n");
     std::fprintf(stderr,
@@ -513,11 +461,9 @@ bool CheckSound(Machine &m) {
                              "digital silence\n");
         ok = false;
     }
-    // A constant is not audio. This is the bar that a DC level would fail:
-    // §13's inverted-DMA bug played the card's own zeroed buffer, which is a
-    // full-scale negative constant in the unsigned format Allegro programs --
-    // "not silent" by any amplitude test, and inaudible as anything but a
-    // click. Real mixed game audio moves through thousands of values.
+    // A constant is not audio. §13's inverted-DMA bug played the card's zeroed buffer,
+    // a full-scale negative constant in Allegro's unsigned format: "not silent" by
+    // amplitude, inaudible but for a click. Real audio moves through thousands of values.
     if (g_sound.distinct.size() < 256) {
         std::fprintf(stderr, "FAILED: the sample stream is a constant, not a waveform\n");
         ok = false;
@@ -531,11 +477,8 @@ bool CheckSound(Machine &m) {
                              "finished\n");
         ok = false;
     }
-    // Pacing: the sample timestamps are the DAC's own clock, so the count
-    // across the run has to match the programmed rate. This is the same
-    // "never faster than real hardware" bar PlaybackIsPacedAtTheRealSampleRate
-    // holds the device to, measured here against real third-party software's
-    // own rate rather than a test's.
+    // Sample timestamps are the DAC's clock, so the count must match the programmed
+    // rate (cf. PlaybackIsPacedAtTheRealSampleRate), measured against BOOM's own rate.
     if (g_sound.samples > 1 && g_sound.rate != 0) {
         double span = double(g_sound.last_sample_cycle - g_sound.first_sample_cycle);
         double expect = span / (Machine::kCpuHz / double(g_sound.rate));
@@ -555,7 +498,7 @@ bool CheckSound(Machine &m) {
     return ok;
 }
 
-// --- phase 2: the PS/2 mouse ---------------------------------------------
+// --- phase 2: the PS/2 mouse ---
 void Snap(Machine &m, RenderedFrame &f) { RenderScreen(m.chipset.vga, f, true); }
 
 void DumpFrame(const std::string &prefix, const char *tag, const RenderedFrame &f) {
@@ -563,11 +506,9 @@ void DumpFrame(const std::string &prefix, const char *tag, const RenderedFrame &
     WriteBmp(prefix + "-mouse-" + tag + ".bmp", f);
 }
 
-// How many pixels of the 3D view hold the same color across every frame in a
-// short burst. The attract demo repaints that whole view every frame, so a
-// static overlay -- a menu -- shows up as a large jump in this number,
-// without the harness knowing where BOOM happens to draw its menu. The
-// status bar is left out for the reason ViewDiff gives below.
+// Pixels of the 3D view with the same color across a burst. The attract demo
+// repaints the view every frame, so a static overlay (a menu) shows as a big jump.
+// The status bar is excluded (see ViewDiff).
 long StablePixels(Machine &m, FrameProbe *probe, int frames, uint64_t gap_cycles) {
     std::vector<RenderedFrame> shots;
     shots.resize(std::size_t(frames));
@@ -592,9 +533,7 @@ long StablePixels(Machine &m, FrameProbe *probe, int frames, uint64_t gap_cycles
     return same;
 }
 
-// Differing pixels in the 3D view only (rows 0..167 of mode 13h): the status
-// bar's face sprite animates on its own timer, so counting it would put a
-// floor under every "nothing moved" measurement.
+// Differing pixels in the 3D view only (rows 0..167): the status-bar face animates on its own timer
 long ViewDiff(const RenderedFrame &a, const RenderedFrame &b) {
     if (a.width != b.width || a.height != b.height) return -1;
     long n = 0;
@@ -611,10 +550,8 @@ long ViewDiff(const RenderedFrame &a, const RenderedFrame &b) {
 
 bool CheckMouse(Machine &m, const std::string &bmp_prefix) {
     std::fprintf(stderr, "\n=== phase 2: the PS/2 mouse ===\n");
-    // Vector 0x74 is IRQ12's, and its handler is the firmware's; counting
-    // entries to it separates "the AUX port queued a packet" from "the
-    // interrupt reached a handler", which is the distinction §13's PIC bug
-    // turned on.
+    // Vector 0x74 is IRQ12's firmware handler; counting entries separates "AUX queued
+    // a packet" from "interrupt reached a handler" (§13's PIC bug)
     uint32_t v74 = 0;
     for (int i = 0; i < 4; ++i) v74 |= uint32_t(m.chipset.mem_read(0x74 * 4 + uint32_t(i))) << (8 * i);
     g_diag.irq12_handler_lin = ((v74 >> 16) << 4) + (v74 & 0xFFFF);
@@ -634,11 +571,9 @@ bool CheckMouse(Machine &m, const std::string &bmp_prefix) {
     FrameProbe probe;
     RenderedFrame rest, moved_frame, back_frame, shot;
 
-    // A click first, with no keyboard anywhere in the path: DOOM's own
-    // G_Responder treats any mouse button during demo playback exactly like a
-    // keypress and calls M_StartControlPanel, so this is what brings the menu
-    // up. It is captured as evidence; the pass/fail measurements are the ones
-    // below, taken in a live game where a still screen makes them decisive.
+    // A click with no keyboard in the path: DOOM's G_Responder treats any mouse button
+    // during a demo like a keypress and calls M_StartControlPanel. Captured as evidence;
+    // the pass/fail measurements come from a live game.
     long stable_demo = StablePixels(m, &probe, 4, 20'000'000);
     uint64_t irq12_before = g_diag.irq12_entries;
     m.chipset.inject_mouse_event(0, 0, I8042::kMouseLeft);
@@ -658,11 +593,9 @@ bool CheckMouse(Machine &m, const std::string &bmp_prefix) {
         return false;
     }
 
-    // Walking that menu down into a live game is keyboard, deliberately: the
-    // mouse is the thing under test, and a standing player in a freshly
-    // started level is the still screen that makes a turn measurable. Four
-    // ENTERs cover both menu shapes (an episode picker or straight to skill);
-    // a spare ENTER does nothing in play.
+    // Walking the menu into a game uses the keyboard, since the mouse is under test
+    // and a standing player gives a still screen. Four ENTERs cover both menu shapes
+    // (episode picker or straight to skill); a spare ENTER does nothing in play.
     for (int i = 0; i < 4; ++i) {
         SendKey(m, kScanEnter);
         RunAndPoll(m, 200'000'000, &probe);
@@ -671,9 +604,8 @@ bool CheckMouse(Machine &m, const std::string &bmp_prefix) {
     Snap(m, rest);
     DumpFrame(bmp_prefix, "1-ingame", rest);
 
-    // What the view does on its own over the span a turn will take: animated
-    // textures, a monster in sight, the status bar's own face sprite. Every
-    // measurement below is judged against this, not against zero.
+    // What the view does on its own over a turn's span (textures, monsters, status
+    // face). Measurements are judged against this, not zero.
     RunAndPoll(m, 300'000'000, &probe);
     Snap(m, moved_frame);
     long idle = ViewDiff(rest, moved_frame);
@@ -688,10 +620,8 @@ bool CheckMouse(Machine &m, const std::string &bmp_prefix) {
     long moved = ViewDiff(rest, moved_frame);
     DumpFrame(bmp_prefix, "2-turned", moved_frame);
 
-    // The same count of counts back the other way. A view that turns and then
-    // returns to the frame it started from is the mouse driving the player's
-    // angle -- and it is the arithmetic, not just the delivery: BOOM has to
-    // have seen the same total movement in both directions.
+    // The same counts back the other way. Returning to the starting frame shows
+    // the mouse drives the angle and BOOM saw equal movement both ways.
     for (int i = 0; i < 6; ++i) {
         m.chipset.inject_mouse_event(-80, 0, 0);
         RunAndPoll(m, 20'000'000, &probe);
@@ -705,9 +635,8 @@ bool CheckMouse(Machine &m, const std::string &bmp_prefix) {
                          "dx=+80, %ld after turning the same distance back (of %d)\n",
                  idle, moved, back, 320 * 168);
 
-    // Button 1 in play is the fire key (BOOM.CFG's mouseb_fire 0). A shot
-    // lights the room and draws the firing frame of the weapon, so it lands
-    // as a large transient against a standing player's still view.
+    // Button 1 in play is fire (BOOM.CFG mouseb_fire 0). A shot lights the room
+    // and draws the firing frame, a large transient against a still view.
     Snap(m, rest);
     m.chipset.inject_mouse_event(0, 0, I8042::kMouseLeft);
     long fired = 0;
@@ -725,9 +654,7 @@ bool CheckMouse(Machine &m, const std::string &bmp_prefix) {
 
     bool ok = true;
     const long kView = 320L * 168;
-    // Every comparison below is against a view that is supposed to be
-    // standing still; if it isn't, BOOM never left its attract demo and none
-    // of the numbers mean anything.
+    // Comparisons assume a standing view; if not, BOOM never left its attract demo
     if (idle > kView / 10) {
         std::fprintf(stderr, "FAILED: never reached a standing-still view -- the menu walk did not "
                              "start a game\n");
@@ -801,9 +728,7 @@ int main(int argc, char **argv) {
         ++g_diag.unimpl[{(uint64_t(cs) << 32) | eip, opword}];
     };
 
-    // Fault log. Every fault is counted; the ones that matter are the ones
-    // CWSDPMI does not repair, which show up as the same (vector, CR2)
-    // firing over and over.
+    // Fault log: the ones that matter are faults CWSDPMI doesn't repair, the same (vector, CR2) repeating
     bool dump_armed = want_trace;
     bool dumped = false;
     m.cpu.on_fault = [&](int vec, uint32_t err, uint16_t cs, uint32_t eip) {
@@ -829,7 +754,7 @@ int main(int argc, char **argv) {
         }
     };
 
-    // --- boot to an idle C:\> --------------------------------------------
+    // --- boot to an idle C:\> ---
     std::string screen, prev;
     uint64_t still_since = 0;
     const uint64_t kChunk = 500'000;
@@ -846,7 +771,7 @@ int main(int argc, char **argv) {
     }
     std::fprintf(stderr, "booted to C:\\> at cycle %llu\n", (unsigned long long)m.total_cycles());
 
-    // --- cd \games\boom --------------------------------------------------
+    // --- cd \games\boom ---
     SendString(m, "cd \\games\\boom");
     SendKey(m, kScanEnter);
     m.run_cycles(200'000'000);
@@ -857,7 +782,7 @@ int main(int argc, char **argv) {
     }
     std::fprintf(stderr, "at C:\\GAMES\\BOOM> (cycle %llu)\n", (unsigned long long)m.total_cycles());
 
-    // --- run BOOM --------------------------------------------------------
+    // --- run BOOM ---
     g_diag.trace_on = want_trace;
     for (uint32_t i = 0; i < 1024; ++i) g_diag.ivt_at_start[i] = m.chipset.mem_read(i);
     uint64_t start = m.total_cycles();
@@ -872,9 +797,7 @@ int main(int argc, char **argv) {
     int best_distinct_run = 0;
     bool saw_graphics = false;
     std::string worst_screen;
-    // Report the guest's own output as a transcript, plus a periodic
-    // CS:EIP hot-address histogram -- "where is it spinning?" answered by
-    // sampling rather than by guessing (PC486_REVIEW.md §5.9).
+    // Guest output as a transcript plus a periodic CS:EIP hot-address histogram (§5.9)
     std::string last_logged;
     uint64_t next_report = 1'000'000'000;
     const uint64_t kSample = 2'000'000;  // ~30ms of emulated time
@@ -893,9 +816,7 @@ int main(int argc, char **argv) {
             return 3;
         }
         if (dump_at && used >= dump_at) {
-            // One-shot instruction dump at a chosen point in the run: what a
-            // guest that is stuck rather than crashed needs, since there is
-            // no fault to hang the ring dump off.
+            // One-shot instruction dump at a chosen point, for a stuck guest with no fault to hang the dump on
             dump_at = 0;
             std::fprintf(stderr, "\n=== ring dump at %llu cycles into BOOM ===\n",
                          (unsigned long long)used);
@@ -925,8 +846,7 @@ int main(int argc, char **argv) {
             screen = ScreenText(m);
             if (screen != last_logged) {
                 last_logged = screen;
-                // Only the tail matters for a scrolling transcript, and
-                // printing the whole screen every change is unreadable.
+                // Only the tail matters for a scrolling transcript
                 std::size_t nl = screen.find_last_not_of('\n');
                 std::string trimmed = nl == std::string::npos ? screen : screen.substr(0, nl + 1);
                 std::size_t cut = trimmed.rfind('\n');
@@ -986,8 +906,7 @@ int main(int argc, char **argv) {
                 WriteBmp(name, frame);
             }
         }
-        // 24 successive *different* multi-color 320x200x256 frames is the
-        // renderer running, not a loaded title bitmap sitting still.
+        // 24 successive different multi-color frames is the renderer running, not a static title bitmap
         if (best_distinct_run >= 24) {
             std::fprintf(stderr,
                          "\nOK: BOOM is rendering -- %d consecutive differing 320x200x256 frames, "

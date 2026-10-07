@@ -1,12 +1,5 @@
-// GoogleTest suite for the 8254 PIT: control-word decode, all six counter
-// modes, BCD counting, the counter-latch and read-back commands, the
-// channel-2 gate (port 0x61 bit 0), and tick()'s channel-0 edge output.
-// Reference: Intel 8254 data sheet (231164), "Mode Definitions".
-//
-// Tests that need an exact tick count use cpu_hz == the PIT's own 1.193182
-// MHz clock, so tick()'s internal PIT-clocks-per-CPU-cycle ratio is exactly
-// 1.0 and elapsed-clock counts are integer-exact -- avoids floating-point
-// rounding noise in the assertions.
+// GoogleTest suite for the 8254 PIT (Intel 8254 data sheet 231164, Mode Definitions).
+// Exact-count tests use cpu_hz == the PIT's 1.193182 MHz so the clock ratio is 1.0.
 
 #include <gtest/gtest.h>
 
@@ -67,8 +60,7 @@ TEST(Pit8253Test, Mode3EvenCountRisesEveryNClocksAfterTheLoadClock) {
 }
 
 TEST(Pit8253Test, Channel0DivisorZeroMeansSixtyFiveThousandFiveThirtySix) {
-    // The AT BIOS programs channel 0 with a divisor of 0 (65536) for the
-    // ~18.2 Hz DOS timer tick: 1193182/65536 = 18.2 Hz.
+    // The AT BIOS programs channel 0 with divisor 0 (65536): 1193182/65536 = 18.2 Hz.
     Pit8253 pit;
     pit.out(0x43, 0x36);
     pit.out(0x40, 0);
@@ -118,8 +110,7 @@ TEST(Pit8253Test, Mode3NewCountTakesEffectAtTheEndOfTheHalfCycle) {
     c.step(2);  // loaded, one decrement in: 6 left
     pit.out(0x42, 4);
     pit.out(0x42, 0);
-    // The current half-cycle finishes at the old count (3 more clocks),
-    // then the new count of 4 gives 2-clock halves.
+    // The current half-cycle finishes at the old count, then halves of 2.
     EXPECT_EQ(c.trace2(7), "HHL" "LHH" "L");
 }
 
@@ -136,8 +127,7 @@ TEST(Pit8253Test, Gate2LowFreezesModeThreeAndRisingEdgeRestartsIt) {
 }
 
 TEST(Pit8253Test, Gate2LowForcesOutputHighEvenMidCycle) {
-    // Modes 2 and 3 force OUT high the instant GATE drops. pcspeaker.h's
-    // direct-toggle playback relies on that clean high baseline.
+    // Modes 2 and 3 force OUT high when GATE drops; pcspeaker.h direct-toggle playback relies on it.
     Pit8253 pit;
     Clock c{pit};
     Program2(pit, 3, 4);
@@ -429,10 +419,8 @@ TEST(Pit8253Test, ControlWordThatRaisesChannel0OutCountsAsAnEdge) {
 // ---- tick() pacing ----
 
 TEST(Pit8253Test, CyclesToNextCountIsTheGapToTheNextWholeTimerClock) {
-    // The chipset skips its service pass until this many CPU cycles have
-    // gone by, because the 1.193182 MHz timer clock is the fastest thing on
-    // the board (PC486_REVIEW.md §16). At 66 MHz one count is ~55.3 CPU
-    // cycles, and the answer is floored so the pass never lands late.
+    // The chipset skips its service pass until this many CPU cycles pass (PC486_REVIEW.md §16).
+    // At 66 MHz one count is ~55.3 CPU cycles, floored.
     constexpr double kCpuHz = 66000000.0;
     Pit8253 pit;
     pit.out(0x43, 0x36);

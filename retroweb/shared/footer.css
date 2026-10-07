@@ -1,6 +1,4 @@
-/* Site-wide copyright footer + theme-matched Help control.
-   Markup is injected by footer.js; this file is only the look.
-   Colors come from theme.css (--dim / --rule / --link / --btn-*). */
+/* Site footer + theme-matched Help control. Markup injected by footer.js. */
 
 .site-footer {
   margin: 0;

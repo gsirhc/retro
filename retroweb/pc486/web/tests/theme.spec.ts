@@ -1,4 +1,4 @@
-// EGA canvas; boot detection via window.__test.machine.textScreen() instead of terminal text
+// EGA canvas; boot detection via window.__test.machine.textScreen()
 import { type Page } from "@playwright/test";
 import { test, expect } from "./fixtures";
 import { bootLive } from "./helpers";

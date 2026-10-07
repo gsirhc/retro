@@ -1,6 +1,5 @@
-/* Injects the shared site footer. Machine pages' "back to all machines"
-   link (a.pb-close[href=../]) is the cue that about.html lives one level
-   up; the landing page and about.html themselves use a same-directory href. */
+/* Injects the shared site footer. a.pb-close[href=../] marks a machine page,
+   so about.html is one level up; landing/about use a same-directory href. */
 (function () {
   function aboutHref() {
     var close = document.querySelector("a.pb-close");

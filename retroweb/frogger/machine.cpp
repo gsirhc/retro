@@ -62,15 +62,12 @@ void Machine::sound_out(uint8_t port, uint8_t v) {
 }
 
 void Machine::on_sound_control(uint8_t v) {
-    // Falling edge of bit 3 raises the sound Z80 /INT. Bit 4 mutes the AY.
-    // Computer Archaeology Frogger hardware notes; MAME frogger_sh_irqtrigger_w
-    // is a cross-check of the edge, not a source.
+    // Falling edge of bit 3 raises the sound Z80 /INT. Bit 4 mutes the AY (Computer Archaeology).
     bool prev3 = (sound_control & 0x08) != 0;
     bool now3 = (v & 0x08) != 0;
     sound_control = v;
     ay.mute = (v & 0x10) != 0;
     if (prev3 && !now3) {
-        // Hold /INT until the sound Z80 accepts it (it may be in DI).
         if (sound.interrupt() <= 0) sound_irq_ = true;
     }
 }
@@ -90,9 +87,7 @@ void Machine::reset() {
     ay.reset();
     ppi0.reset();
     ppi1.reset();
-    // Boot ROM writes the 8255 mode words; after reset both chips are inputs
-    // until those writes land. PPI1 must be outputs for the latch to stick,
-    // so the program's first control write is what enables it.
+    // Both 8255s power up as inputs; PPI1 must be set to outputs for the latch to stick.
     main.reset();
     sound.reset();
 }
@@ -100,9 +95,7 @@ void Machine::reset() {
 void Machine::load_roms(const RomSet& set) {
     program = set.program;
     sound_rom = set.sound;
-    // First sound ROM (608) and the second gfx ROM (606, mapped at $800):
-    // D0↔D1 swapped on the PCB. Computer Archaeology Frogger hardware notes;
-    // MAME decode_frogger_sound / decode_frogger_gfx is a cross-check.
+    // Sound ROM 608 and gfx ROM 606 (at $800) have D0/D1 swapped on the PCB (Computer Archaeology).
     for (int i = 0; i < 0x800; i++)
         sound_rom[unsigned(i)] = swap_d0d1(set.sound[unsigned(i)]);
     video.gfx = set.gfx;
@@ -135,8 +128,7 @@ void Machine::mem_write(uint16_t addr, uint8_t v) {
         return;
     }
     if (addr >= 0xB000 && addr < 0xC000) {
-        // Standalone D0 latches at $B808 / $B80C / $B810. More specific
-        // than the $B000–$B7FF objram mirror, matching the board decode.
+        // Standalone D0 latches, decoded ahead of the $B000 objram mirror.
         switch (addr & 0xFF1F) {
             case 0xB808: nmi_enable = (v & 1) != 0; return;
             case 0xB80C: video.flip_y = (v & 1) != 0; return;
@@ -175,10 +167,7 @@ int Machine::run_cycles(int n) {
         int t = main.step();
         done += t;
         video.advance(t);
-        // Sound Z80 + AY share 1.789772 MHz. Credit is in sound-cycle units
-        // scaled by kCpuHz so a single sound instruction that overshoots the
-        // budget is paid back on later main steps (a target/done loop that
-        // discarded the overshoot ran the sound CPU ~1.7–2.5× fast).
+        // Credit in sound-cycle units so an overshooting sound instruction is repaid later.
         sound_credit_ += t * kSoundHz;
         while (sound_credit_ >= kCpuHz) {
             int st;

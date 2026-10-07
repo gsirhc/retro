@@ -1,11 +1,8 @@
 import { test, expect } from "./fixtures";
 
-// The Sound Blaster 16's digitized output rides the same "Enable sound"
-// checkbox as the PC speaker (see speaker.spec.ts) -- one opt-in gate for
-// both, since both are blocked by the same browser autoplay policy until
-// the user acts. These tests cover the embind surface soundblaster.h's
-// device exposes to the front end; DOS-side playback needs a loaded driver
-// (SET BLASTER=...), out of scope for a bare FreeDOS-prompt test.
+// The Sound Blaster 16's digitized output shares the "Enable sound" checkbox with the PC speaker
+// (speaker.spec.ts); one gate for the autoplay policy. Covers the embind surface of soundblaster.h.
+// DOS-side playback needs a driver (SET BLASTER=...).
 test.describe("Sound Blaster 16", () => {
   test("sbDrainSamples and sbSampleRateHz are queryable via the embind API regardless of the UI mute state", async ({
     livePage: page,
@@ -38,9 +35,8 @@ test.describe("Sound Blaster 16", () => {
       const second = m.sbDrainSamples();
       return second.left.length;
     });
-    // No DOS-side driver has programmed the DSP at a bare prompt, so the
-    // device produces nothing to drain either time -- this only confirms
-    // the call is safe to make repeatedly without accumulating state.
+    // No driver has programmed the DSP at a bare prompt, so there is nothing to drain; this checks
+    // repeated calls are safe.
     expect(secondLen).toBe(0);
   });
 });

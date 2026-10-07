@@ -26,7 +26,7 @@ uint8_t Dma8237::in(uint16_t port) {
         return byte;
     }
     switch (reg) {
-        case 8: return command_;  // status register on read -- TC/request bits not modeled, see file header
+        case 8: return command_;  // status on read; TC/request bits not modeled
         case 15: {
             uint8_t m = 0;
             for (int i = 0; i < 4; ++i)

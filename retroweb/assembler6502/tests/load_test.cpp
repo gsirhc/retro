@@ -1,8 +1,5 @@
-// GoogleTest suite for serial LOAD/SAVE (cpu6502/rom/load.s) as shell
-// commands (cpu6502/rom/editor.s's DISPATCH_CMD) -- moving the numbered
-// program across the real ACIA link as decimal-ASCII text. Driven
-// entirely through the simulated ACIA/terminal, exactly as a human typing
-// "LOAD"/"SAVE" at the shell's own prompt would.
+// Tests serial LOAD/SAVE (load.s) as shell commands (editor.s DISPATCH_CMD),
+// moving the numbered program over the ACIA as decimal-ASCII text.
 
 #include <gtest/gtest.h>
 
@@ -16,8 +13,7 @@ using namespace machine;
 
 namespace {
 
-// Real, built address -- verified against tmp/firmware.lbl after each
-// `make -C ../../../cpu6502/rom` (see editor.s's header).
+// Address from tmp/firmware.lbl
 constexpr uint16_t kShellEntry = 0x8000;
 
 constexpr char kFrameStx = 0x02;
@@ -90,9 +86,8 @@ TEST(Load, SaveEmitsDecimalNumberedLinesFramedInStxEtx) {
 }
 
 TEST(Load, LoadReplacesTheProgramAndRoundTripsWithSave) {
-    // The end-to-end scenario: SAVE a program out over the ACIA, then LOAD
-    // the exact bytes SAVE emitted (minus the STX/ETX frame, same as the
-    // browser's capture would strip) back in, and confirm LIST matches.
+    // SAVE a program over the ACIA, LOAD the bytes back (minus the STX/ETX frame),
+    // and confirm LIST matches
     SKIP_UNLESS_ROM_BUILT();
     std::string out;
     Machine m = bootIntoShell(out);
@@ -110,16 +105,14 @@ TEST(Load, LoadReplacesTheProgramAndRoundTripsWithSave) {
     ASSERT_NE(etxPos, std::string::npos);
     std::string saved = out.substr(stxPos + 1, etxPos - stxPos - 1);
 
-    // Overwrite the buffer with something else first, so LOAD's own NEW
-    // (not leftover coincidence) is what actually clears it.
+    // overwrite the buffer first so LOAD's NEW is what clears it
     typeLine(m, "NEW");
     typeLine(m, "1 DECOY");
 
     type(m, "LOAD\r");
     m.run_cycles(20000);
     type(m, saved);
-    // Let the idle timeout (256 * CHLL's ~1275-cycle delay, load.s) elapse
-    // with no further bytes -- generous margin over the real threshold.
+    // let the idle timeout (256 * CHLL's ~1275 cycles, load.s) elapse with margin
     m.run_cycles(600000);
 
     out.clear();
@@ -131,17 +124,9 @@ TEST(Load, LoadReplacesTheProgramAndRoundTripsWithSave) {
 }
 
 TEST(Load, LoadEchoesEachIncomingLineOnItsOwnTerminalRowNotOverwritingThePrevious) {
-    // The wire format SAVE emits (and LOAD reads back) is deliberately
-    // bare-CR-separated (load.s's own header) -- but READCHAR (bios.s)
-    // unconditionally echoes every raw byte it reads, for every caller,
-    // including DO_LOAD's ingestion loop. A lone CR on a real terminal
-    // returns the cursor to column 0 *without* advancing to the next row,
-    // so without DO_LOAD adding its own LF after each received CR (the
-    // same fix READLINE_ECHO already applies for the interactive prompt),
-    // each loaded line's echoed text would visually overwrite the
-    // previous one in place instead of appearing on its own line -- a
-    // real bug a flat byte-content check alone would never catch, since
-    // it's about terminal cursor positioning, not the bytes' presence.
+    // SAVE's wire format is bare-CR separated (load.s), but READCHAR echoes raw
+    // bytes and a lone CR doesn't advance the row. DO_LOAD adds an LF after each
+    // CR (as READLINE_ECHO does), or loaded lines would overwrite each other.
     SKIP_UNLESS_ROM_BUILT();
     std::string out;
     Machine m = bootIntoShell(out);
@@ -152,9 +137,7 @@ TEST(Load, LoadEchoesEachIncomingLineOnItsOwnTerminalRowNotOverwritingThePreviou
     type(m, "10 LDA #$2A\r20 STA $50\r");
     m.run_cycles(600000);
 
-    // Every CR this transfer echoed back must be immediately followed by
-    // an LF -- proves each line actually advanced the terminal to its own
-    // row rather than returning to column 0 and colliding with the next.
+    // every echoed CR must be followed by an LF
     size_t pos = 0;
     int crCount = 0;
     while ((pos = out.find('\r', pos)) != std::string::npos) {
@@ -167,9 +150,7 @@ TEST(Load, LoadEchoesEachIncomingLineOnItsOwnTerminalRowNotOverwritingThePreviou
 }
 
 TEST(Load, LoadAutoNumbersAPlainUnnumberedTextImport) {
-    // A human-typed .asm file with no line numbers at all -- LOAD must
-    // still accept it, auto-numbering each line exactly like typing it
-    // unnumbered at the shell prompt would (PROCESS_LINE's shared path).
+    // an unnumbered .asm file auto-numbers as at the prompt (PROCESS_LINE)
     SKIP_UNLESS_ROM_BUILT();
     std::string out;
     Machine m = bootIntoShell(out);
@@ -186,14 +167,9 @@ TEST(Load, LoadAutoNumbersAPlainUnnumberedTextImport) {
 }
 
 TEST(Load, LoadDoesNotLetAnUnnumberedLineThatReadsLikeACommandHijackTheTransfer) {
-    // A plain unnumbered import whose content happens to read "RUN" must
-    // never be misread as the shell's RUN command mid-transfer -- exactly
-    // the failure PROCESS_LINE's LOADMODE gate exists to prevent (see its
-    // header comment in editor.s). "RUN" also isn't a valid 6502 mnemonic,
-    // so CHECK_SYNTAX (STORE_LINE) rejects it as a program line too, rather
-    // than letting unchecked entry store it as garbage. Either way, the
-    // transfer itself must not derail: the two real, valid lines around it
-    // still land, in order.
+    // an imported line reading "RUN" must not run as a command mid-transfer
+    // (PROCESS_LINE's LOADMODE gate). CHECK_SYNTAX also rejects it as a mnemonic.
+    // The valid lines around it still land in order.
     SKIP_UNLESS_ROM_BUILT();
     std::string out;
     Machine m = bootIntoShell(out);
@@ -203,17 +179,14 @@ TEST(Load, LoadDoesNotLetAnUnnumberedLineThatReadsLikeACommandHijackTheTransfer)
     type(m, "LDA #$2A\rRUN\rSTA $50\r");
     m.run_cycles(600000);
 
-    // Never hijacked into actually running anything -- still sitting in
-    // the shell, not off executing raw object code.
+    // still in the shell, not running raw object code
     EXPECT_NE(out.find(">"), std::string::npos) << "got: " << out;
-    // The bad "RUN" line was rejected, not silently stored.
+    // the "RUN" line was rejected, not stored
     EXPECT_NE(out.find("?SYNTAX"), std::string::npos) << "got: " << out;
 
     out.clear();
     typeLine(m, "LIST");
-    // The two real lines made it in, in order, auto-numbered 10/20 (not
-    // 10/30) since the rejected middle line never actually consumed a
-    // number -- proof the transfer continued normally around it.
+    // numbered 10/20, since the rejected line consumed no number
     EXPECT_NE(out.find("10         LDA #$2A"), std::string::npos) << "got: " << out;
     EXPECT_NE(out.find("20         STA $50"), std::string::npos) << "got: " << out;
     EXPECT_EQ(out.find("RUN"), std::string::npos) << "the invalid line got stored anyway: got: " << out;
@@ -227,16 +200,10 @@ TEST(Load, LoadReportsFullOnAnOverlongTransfer) {
     type(m, "LOAD\r");
     m.run_cycles(20000);
 
-    // Many distinct numbered lines, long enough combined to exhaust the
-    // whole 4K source region -- a real overlong transfer would hit the
-    // same STORE_LINE guard. A comment-only line (CHECK_SYNTAX skips
-    // everything from ';' on, same as ASM itself) is filler here -- a
-    // real mnemonic repeated this many times would hit STORE_LINE's own
-    // line-number ceiling long before the buffer itself filled up. Every
-    // received character is still echoed via READCHAR before any bounds
-    // check runs, and that echo goes through a real per-character ACIA
-    // delay (CHLL, bios.s) -- generous cycles per chunk, same reasoning
-    // as editor_test.cpp's equivalent case.
+    // Numbered lines until the 4K source region fills, hitting STORE_LINE's guard.
+    // Comment-only filler (CHECK_SYNTAX skips from ';' on), since a real mnemonic
+    // would hit the line-number ceiling first. Echo goes through CHLL's per-char
+    // delay, so chunks get generous cycles.
     for (int i = 1; i <= 150 && out.find("FULL") == std::string::npos; i++) {
         char buf[40];
         std::snprintf(buf, sizeof(buf), "%d ; AAAAAAAAAAAAAAAAAAAAAAAAAAAAA\r", i);

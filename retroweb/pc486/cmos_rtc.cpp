@@ -72,8 +72,7 @@ void CmosRtc::out(uint16_t port, uint8_t v) {
     if (reg == kRegA) {
         bool was = running();
         ram_[kRegA] = uint8_t(v & 0x7F);  // UIP is read-only
-        // Releasing the divider chain starts the first update half a
-        // second later (MC146818A, "Divider Control").
+        // First update comes half a second after release (MC146818A "Divider Control")
         if (!was && running()) second_start_ = credit_ - kSecond / 2;
         next_periodic_ = credit_ + periodic_ticks();
         next_event_ = credit_;
@@ -94,8 +93,8 @@ void CmosRtc::out(uint16_t port, uint8_t v) {
 }
 
 double CmosRtc::periodic_ticks() const {
-    // MC146818A Table 3 at a 32.768 kHz time base: RS=1 and 2 give 256 and
-    // 128 Hz, RS=3-15 give 8192 Hz halving each step, RS=0 is off.
+    // MC146818A Table 3 at 32.768 kHz: RS=1,2 give 256,128 Hz; RS=3-15 give
+    // 8192 Hz halving each step; RS=0 off
     int rs = ram_[kRegA] & 0x0F;
     if (rs == 0) return 0.0;
     if (rs == 1) return 128.0;
@@ -105,7 +104,6 @@ double CmosRtc::periodic_ticks() const {
 
 void CmosRtc::raise_flag(uint8_t flag) {
     ram_[kRegC] |= flag;
-    // PIE/AIE/UIE in B sit at the same bit positions as PF/AF/UF in C.
     if (ram_[kRegB] & flag) ram_[kRegC] |= kIRQF;
 }
 
@@ -140,8 +138,6 @@ void CmosRtc::advance() {
             next = std::min(next, uip_at);
         }
     } else {
-        // A stopped clock holds its registers; the second restarts when it
-        // runs again.
         second_start_ = credit_;
         uip_ = false;
     }
@@ -170,8 +166,7 @@ void CmosRtc::run_update() {
             if (++hour >= 24) {
                 hour = 0;
                 wday = wday >= 7 ? 1 : wday + 1;
-                // The chip's leap rule is every fourth year, with no century
-                // exception (MC146818A, "Time, Calendar and Alarm").
+                // Every fourth year, no century exception (MC146818A "Time, Calendar and Alarm")
                 static const int kDays[12] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
                 int dim = (mon >= 1 && mon <= 12) ? kDays[mon - 1] : 31;
                 if (mon == 2 && year % 4 == 0) dim = 29;
@@ -200,7 +195,7 @@ void CmosRtc::run_update() {
     ram_[0x09] = enc(year);
 
     raise_flag(kUF);
-    // An alarm byte with its top two bits set matches anything.
+    // Alarm byte with top two bits set matches anything
     auto match = [](uint8_t alarm, uint8_t now) { return (alarm & 0xC0) == 0xC0 || alarm == now; };
     if (match(ram_[0x01], ram_[0x00]) && match(ram_[0x03], ram_[0x02]) && match(ram_[0x05], ram_[0x04])) {
         raise_flag(kAF);

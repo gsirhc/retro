@@ -2,8 +2,7 @@
 
 namespace i8080 {
 
-// Base T-state count per opcode. Conditional CALL/RET that are *taken* cost
-// more; those deltas are added in the decoder.
+// Base T-states per opcode; taken conditional CALL/RET add their delta in the decoder.
 static const uint8_t kCycles[256] = {
 //   0   1   2   3   4   5   6   7   8   9   A   B   C   D   E   F
      4, 10,  7,  5,  5,  5,  7,  4,  4, 10,  7,  5,  5,  5,  7,  4, // 00
@@ -24,10 +23,7 @@ static const uint8_t kCycles[256] = {
      5, 10, 10,  4, 11, 11,  7, 11,  5,  5, 10,  4, 11, 17,  7, 11, // F0
 };
 
-// A real 8080 RESET forces only PC = 0; A/F/BC/DE/HL/SP are left indeterminate
-// (why period software always sets SP explicitly before touching the stack).
-// Zeroing everything here is a deliberate simplification, not a claim that a
-// real machine powers up this clean.
+// A real 8080 RESET forces only PC = 0; the other registers are indeterminate.
 void Cpu::reset() {
     a = b = c = d = e = h = l = 0;
     f = FLAG_N1;
@@ -68,8 +64,7 @@ void Cpu::sub(uint8_t v, bool borrow_in) {
     uint16_t bin = borrow_in ? 1 : 0;
     uint16_t r = uint16_t(a) - v - bin;
     set_flag(FLAG_C, r > 0xFF);                     // set on borrow
-    // The 8080 subtracts via A + ~v + 1, so AC is the half-carry of that
-    // internal add — the complement of the plain add-style expression.
+    // 8080 subtracts as A + ~v + 1, so AC is the complement of the add-style half-carry
     set_flag(FLAG_AC, (~(a ^ v ^ uint8_t(r)) & 0x10) != 0);
     a = uint8_t(r);
     set_szp(a);
@@ -130,7 +125,6 @@ void Cpu::daa() {
     uint8_t lo = a & 0x0F;
     if (lo > 9 || flag(FLAG_AC)) add_val += 0x06;
     if (a > 0x99 || carry) { add_val += 0x60; carry = true; }
-    // AC out of the low-nibble adjustment:
     set_flag(FLAG_AC, ((a & 0xF) + (add_val & 0xF)) > 0xF);
     a += add_val;
     set_flag(FLAG_C, carry);
@@ -219,9 +213,6 @@ int Cpu::interrupt(uint8_t opcode) {
     if (!int_enabled || ei_delay_ > 0) return 0;
     int_enabled = false;
     halted = false;
-    // Feed the jammed opcode straight through the executor. RST n pushes PC
-    // and vectors to n*8; a CALL supplies its own address bytes, which a real
-    // device would also jam — not modelled here beyond the single opcode.
     push(pc);
     pc = (opcode & 0x38);
     cycles += 11;
@@ -230,19 +221,18 @@ int Cpu::interrupt(uint8_t opcode) {
 
 int Cpu::step() {
     if (halted) {
-        // A halted 8080 still burns cycles until an interrupt arrives.
         cycles += 4;
         return 4;
     }
 
-    if (ei_delay_ > 0) --ei_delay_;   // this retiring instruction counts toward EI's one-instruction delay
+    if (ei_delay_ > 0) --ei_delay_;
 
     uint16_t op_pc = pc;
     (void)op_pc;
     uint8_t op = fetch8();
     int extra = 0;
 
-    // MOV r,r  (0x40..0x7F) — 0x76 is HALT, handled below.
+    // MOV r,r (0x40..0x7F); 0x76 is HALT
     if (op >= 0x40 && op <= 0x7F && op != 0x76) {
         int dst = (op >> 3) & 7;
         int src = op & 7;
@@ -415,12 +405,11 @@ int Cpu::step() {
                      a = bus_.in ? bus_.in(port) : 0xFF; } break;             // IN
         case 0xD3: { uint8_t port = fetch8();
                      if (bus_.out) bus_.out(port, a); } break;                // OUT
-        case 0xFB: int_enabled = true; ei_delay_ = 1; break;   // EI -- see ei_delay_
+        case 0xFB: int_enabled = true; ei_delay_ = 1; break;   // EI
         case 0xF3: int_enabled = false; break;         // DI
 
         default:
-            // Every 8080 opcode is accounted for above; nothing should reach
-            // here. Treat as NOP so a stray byte can't wedge the core.
+            // unreachable; treat a stray byte as NOP
             break;
     }
 

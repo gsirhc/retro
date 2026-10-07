@@ -21,21 +21,17 @@ test:
 	cmake --build tests/build -j
 	ctest --test-dir tests/build --output-on-failure
 
-# Deploy CI: Z80 ISA only (arcade cabinets that need: z80-test).
 test-smoke:
 	cmake -S tests -B tests/build
 	cmake --build tests/build -j
 	ctest --test-dir tests/build -R '^Z80\.' --output-on-failure
 
-# Deploy CI: NMOS 6502 ISA only (Asteroids needs: mos6502-test).
 test-smoke-mos6502:
 	cmake -S tests -B tests/build
 	cmake --build tests/build -j
 	ctest --test-dir tests/build -R '^Mos6502\.' --output-on-failure
 
-# Frank Cringle's zexdoc — documented Z80 opcodes only (not zexall's
-# undocumented flags). Pinned + checksummed, kept out of the repo like
-# the Altair's 8080 diagnostics and Klaus Dormann's 6502 suite.
+# Frank Cringle's zexdoc, documented Z80 opcodes only. Pinned + checksummed.
 ZEXDOC_COMMIT = 1c418fa0d719abab9273131113defbe276101d95
 ZEXDOC_URL = https://raw.githubusercontent.com/anotherlin/z80emu/$(ZEXDOC_COMMIT)/testfiles/zexdoc.com
 ZEXDOC_SHA = 34923a7ed82285d3038b2d54bd64899e12173eebb61f9d07b4fc72e78af2ae8f
@@ -51,8 +47,7 @@ zex/zex_host: zex/zex_host.cpp cpu_z80.cpp cpu_z80.h
 zexdoc: zex/zex_host zex/zexdoc.com
 	./zex/zex_host zex/zexdoc.com
 
-# Klaus Dormann 6502 functional test — NMOS documented opcodes.
-# Same pinned image the W65C02S board suite uses; success PC $3469.
+# Klaus Dormann 6502 functional test (NMOS); success PC $3469
 DORMANN_BASE = https://raw.githubusercontent.com/Klaus2m5/6502_65C02_functional_tests/master/bin_files
 DORMANN_SHA = fa12bfc761e6f9057e4cc01a665a7b800ff01ae91f598af1e39a1201d01953fd
 

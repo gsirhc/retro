@@ -12,9 +12,8 @@
 #   make watch       like preview, but rebuilds/restages on HTML/CSS/JS/C++
 #                    edits and live-reloads open tabs (optional MACHINE=pc486)
 #   make watch-bg    detached watch; stop with `make preview-stop`
-#   make preview-cert   generate/reuse the local TLS cert the preview server
-#                    uses (auto-run by preview/preview-bg/preview-install) —
-#                    see its own comment for why HTTPS, not just LAN reach
+#   make preview-cert   generate/reuse the local TLS cert for the preview
+#                    server (auto-run by preview/preview-bg/preview-install)
 #   make preview-stop / preview-status   control / inspect the :8000 server
 #   make preview-install    load a launchd agent (RunAtLoad + KeepAlive) that
 #                    keeps :8000 up across logout, sleep and crashes; after
@@ -135,21 +134,9 @@ _stage:
 	$(MAKE) -C pc486/web pc486.js pc486-perf.js roms hdd-image cdrom-image driver-images shared
 	$(MAKE) site
 
-# Locally-trusted TLS cert for the preview server, covering localhost, this
-# Mac's LAN mDNS name, and its current LAN IP. The deployed site is always
-# https://, but a browser only treats plain http:// as a "secure context"
-# on localhost itself -- not a LAN address, even on your own network -- and
-# disables secure-context-gated APIs there (e.g. Chrome's AudioWorklet;
-# see pc486/PC486_REVIEW.md, no sound over a plain-http LAN preview).
-# Serving the preview over https:// fixes that for every machine at once.
-# Uses mkcert (https://github.com/FiloSottile/mkcert) if installed, so a
-# Mac that's run `mkcert -install` trusts it with no browser warning at
-# all -- to get that same no-warning trust on another device (e.g. a
-# MacBook previewing this Mac's LAN address), copy `mkcert -CAROOT`'s
-# rootCA.pem over and run `mkcert -install` there too. Falls back to a
-# plain openssl self-signed cert if mkcert isn't installed, which still
-# satisfies "secure context" but needs a one-time per-browser "proceed
-# anyway" click through its warning. Regenerate after a LAN IP change with
+# Local TLS cert (localhost, LAN name, LAN IP). Plain http:// on a LAN address
+# is an insecure context and Chrome disables AudioWorklet there. Uses mkcert if
+# installed, else self-signed openssl. Regenerate after a LAN IP change with
 # `rm -rf $(PREVIEW_CERT_DIR) && make preview-cert`.
 preview-cert:
 	@mkdir -p $(PREVIEW_CERT_DIR); \
@@ -254,9 +241,7 @@ preview-status:
 	@lsof -nP -iTCP:$(PREVIEW_PORT) -sTCP:LISTEN 2>/dev/null \
 	  || echo "  nothing listening on :$(PREVIEW_PORT)"
 
-# launchd LaunchAgent: RunAtLoad + KeepAlive, so :8000 comes back after logout,
-# sleep, a crash, or a bad request. Serves $(CURDIR)/_site — rebuild it with
-# `make site` after changing the source.
+# launchd agent: RunAtLoad + KeepAlive. Serves $(CURDIR)/_site.
 preview-install: site preview-cert
 	@mkdir -p $(dir $(PLIST))
 	@printf '%s\n' \

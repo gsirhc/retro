@@ -70,8 +70,7 @@ test.describe("floppy drive", () => {
   });
 
   test("ejecting is independent of power state -- works while the machine is off", async ({ livePage: page }) => {
-    // Physical floppy slots work with or without power, just like the real
-    // hardware -- see app.js's pendingFloppy.
+    // Floppy slots work with or without power (app.js pendingFloppy).
 
     await page.locator("#powerSwitch").click({ force: true });
     await expect(page.locator("#powerLed")).not.toHaveClass(/power-on/);
@@ -94,8 +93,7 @@ test.describe("floppy drive", () => {
   test("load overlay shows while a floppy image is being read", async ({ livePage: page }) => {
     await expect(page.locator("#loadOverlay")).not.toHaveClass(/visible/);
 
-    // Delay File.arrayBuffer so the overlay is observable -- a 4KB test
-    // image otherwise finishes in the same turn as setInputFiles.
+    // Delay File.arrayBuffer so the overlay is observable; a 4KB image finishes in one turn.
     await page.evaluate(() => {
       const orig = File.prototype.arrayBuffer;
       File.prototype.arrayBuffer = function () {

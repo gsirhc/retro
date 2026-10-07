@@ -1,34 +1,17 @@
-// Builds this machine's shipped hard disk image by actually running the
-// real, unmodified FreeDOS 1.3 installer against this emulator end to end
-// -- not by hand-crafting a FAT filesystem. Boots FreeDOS's own companion
-// boot floppy (FD13BOOT.img) with the real FreeDOS 1.3 LiveCD ISO mounted
-// on the ATAPI CD-ROM, and drives the installer's full-screen dialogs via
-// injected keystrokes and screen-text matching, exactly as a person
-// installing FreeDOS onto a real 486 would, then saves the controller's
-// own final in-memory disk image. See PC486_REVIEW.md §5 for the account
-// of what this took and why this file looks the way it does.
+// Builds the shipped HDD image by running the real FreeDOS 1.3 installer on this
+// emulator: boots the FD13BOOT.img floppy with the LiveCD ISO on the ATAPI CD-ROM
+// and drives the installer's dialogs with injected keys and screen-text matching.
+// See PC486_REVIEW.md §5.
+// Boot path is floppy, not El Torito: the ISO's image is ISOLINUX + MEMDISK, which
+// needs protected mode (PC486_REVIEW.md §5.1).
 //
-// Boot path: floppy, not El Torito. See PC486_REVIEW.md §5.1 -- this ISO's
-// El Torito image is ISOLINUX + MEMDISK, which needs protected mode this
-// Milestone 1 real-mode-only core does not have. The floppy is what
-// FreeDOS ships FD13BOOT.img for.
+// Usage: build_freedos_hdd <bios> <vgabios> <boot.img> <cd.iso> <out.img> [max_cycles]
 //
-// Usage:
-//   build_freedos_hdd <bios> <vgabios> <boot.img> <cd.iso> <out.img> [max_cycles]
-//
-// <out.img> receives the finished 1010/9/55, 255,974,400-byte raw HDD
-// image once the installer reports completion (or the cycle budget runs
-// out first, in which case this prints a clear failure and exits non-zero
-// -- callers must not silently accept a partial image). Running the real
-// installer this way is legitimately slow, on the order of tens of
-// billions of emulated 66MHz cycles, since every floppy/CD read is paced
-// to its real transfer rate -- this is a build-time asset-generation tool,
-// not the shipped emulator itself, so unlike everything under CLAUDE.md's
-// "never speed these up" rule, taking real minutes here is expected and
-// fine.
-//
-// PC486_TRACE=1 in the environment dumps every screen change to stderr,
-// which is how the step sequence below was discovered in the first place.
+// <out.img> receives the finished 1010/9/55, 255,974,400-byte raw image. If the cycle
+// budget runs out first it prints a failure and exits non-zero. Slow by design
+// (tens of billions of cycles, floppy/CD reads paced at real rates); this is a
+// build-time tool, not the shipped emulator.
+// PC486_TRACE=1 dumps every screen change to stderr.
 
 #include "../machine.h"
 
@@ -48,11 +31,8 @@ std::vector<uint8_t> ReadFile(const std::string &path) {
     return std::vector<uint8_t>((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
 }
 
-// Reconstructs the 80x25 text-mode screen as plain ASCII, following the
-// CRTC's current start-address register (so this stays correct even if the
-// BIOS/DOS scrolls by moving the start offset instead of the bytes).
-// Follows the real planar VRAM layout ega.h documents and ega_render.cpp
-// uses -- vram[(plane_offset << 2) + plane], plane 0 = character.
+// 80x25 text screen as ASCII, following the CRTC start address so scrolling by
+// start offset works. Planar VRAM per ega.h: vram[(plane_offset << 2) + plane], plane 0 = character.
 std::string ScreenText(Machine &m) {
     const auto &vga = m.chipset.vga;
     std::string out;
@@ -70,9 +50,7 @@ std::string ScreenText(Machine &m) {
     return out;
 }
 
-// Set 1 (XT) keyboard scancodes -- the standard make-code table; break
-// code = make code | 0x80. inject_scancode() delivers exactly what's
-// passed, matching how a real keyboard's scan codes reach the 8042.
+// Set 1 (XT) make codes; break = make | 0x80
 uint8_t Set1MakeCode(char c) {
     static const std::map<char, uint8_t> table = {
         {'1', 0x02}, {'2', 0x03}, {'3', 0x04}, {'4', 0x05}, {'5', 0x06},
@@ -96,16 +74,10 @@ void SendKey(Machine &m, uint8_t make) {
     m.run_cycles(150000);
 }
 
-// Extended (grey) keys -- arrows and friends -- arrive as an 0xE0 prefix
-// byte followed by the base make code, and the break as 0xE0 + (code|0x80).
-// This is how a real 101-key keyboard reports them in scan code set 1.
-// Every byte needs its own gap, not just each make/break pair: the 8042 has
-// one output register, and a byte queued behind an unread one is not
-// announced again until the guest's handler drains the first -- so two bytes
-// sent in the same instant wedge the controller with an undelivered byte. A
-// real keyboard cannot outrun that (it clocks one bit at a time), and the
-// browser front end spaces every byte of a multi-byte sequence for the same
-// reason (web/app.js's injectScancodeSequence).
+// Extended keys are an 0xE0 prefix then the make code; break is 0xE0 + (code|0x80).
+// Every byte needs its own gap: the 8042 has one output register, and a byte queued
+// behind an unread one wedges it. The browser front end spaces them too
+// (web/app.js injectScancodeSequence).
 void SendExtendedKey(Machine &m, uint8_t make) {
     m.chipset.kbc.inject_scancode(0xE0);
     m.run_cycles(150000);
@@ -126,12 +98,9 @@ void SendString(Machine &m, const std::string &s) {
     }
 }
 
-// One dialog rule. Matching is edge-triggered on `wait_for` appearing on
-// screen, and NOT position-ordered: the installer genuinely runs its early
-// stages twice (it reboots itself after partitioning, then comes back
-// through the language/welcome screens with drive C: now partitioned), so
-// `uses` says how many times a given prompt is expected rather than
-// pinning it to one slot in a fixed sequence.
+// One dialog rule, matched edge-triggered on `wait_for` appearing, not in order:
+// the installer runs its early stages twice (it reboots after partitioning), so
+// `uses` says how many times a prompt is expected.
 struct Step {
     std::string wait_for;  // substring to watch for on screen
     std::string send;      // key action tokens ("@ENTER @UP"), or literal keys
@@ -169,70 +138,43 @@ int main(int argc, char **argv) {
         m.chipset.fdc.mount(0, boot.data(), boot.size());
     }
     {
-        // Scoped so the 400MB source buffer is released as soon as the
-        // device has its own copy -- this tool already holds two
-        // half-gigabyte HDD buffers.
+        // Scoped so the 400MB source buffer is freed once the device has its copy
         auto iso = ReadFile(iso_path);
         if (iso.empty()) { std::fprintf(stderr, "cannot open %s\n", iso_path.c_str()); return 2; }
         m.chipset.cdrom.mount(iso.data(), iso.size());
     }
 
-    // A genuinely blank, factory-fresh fixed disk -- no partition table, no
-    // filesystem. The WD Caviar AC2250's 1010 cyl / 9 head / 55 sec, which
-    // Wd1003::mount() and configure_factory_cmos() both describe. Everything
-    // from here on is what the real installer itself writes.
+    // Blank factory-fresh disk: WD Caviar AC2250, 1010 cyl / 9 head / 55 sec. No
+    // partition table or filesystem; the installer writes everything.
     {
         std::vector<uint8_t> blank_hdd(pc486::Wd1003::kImageBytes, 0);
         m.chipset.hdd.mount(0, blank_hdd.data(), blank_hdd.size());
     }
 
-    // The FreeDOS 1.3 installer's dialog sequence, as observed by actually
-    // running it (PC486_TRACE=1) rather than assumed -- see
-    // PC486_REVIEW.md §5.2. Unlike ibmpc-at's FloppyEdition flow there is
-    // no multi-disk swapping at all: FDAUTO.BAT loads the CD driver
-    // (UDVD2.SYS) + SHSUCDX, then SETUP.BAT hands off to the copy on the
-    // CD, which is the sole source for every package.
-    // Every dialog is a V8Power `vchoice` option box: arrow keys move the
-    // highlight, Enter accepts it, and the batch file's own `/d N` switch
-    // says which entry starts highlighted. That switch is why the three
-    // destructive prompts below need "@UP @ENTER" rather than a bare Enter
-    // -- stage400/stage500/stage800 all pass `/d 2`, i.e. they deliberately
-    // start on "No - Return to DOS", so answering with Enter alone aborts
-    // the install (observed: "The installation of FreeDOS 1.3 has been
-    // aborted"). Defaults read directly out of the installer's own
-    // stage*.bat / fdask*.bat on the CD, not guessed.
+    // FreeDOS 1.3 installer dialog sequence as observed with PC486_TRACE=1
+    // (PC486_REVIEW.md §5.2). No disk swapping: FDAUTO.BAT loads UDVD2.SYS + SHSUCDX
+    // and SETUP.BAT hands off to the copy on the CD.
+    // Every dialog is a V8Power `vchoice` box: arrows move, Enter accepts, `/d N` sets
+    // the initial highlight. stage400/500/800 pass `/d 2` ("No - Return to DOS"), so
+    // those prompts need "@UP @ENTER"; bare Enter aborts the install.
     std::vector<Step> steps = {
-        // stage300: language list (`/p`, English already highlighted) and the
-        // welcome/proceed box (no `/d`, so "Yes - Continue" is default).
-        // Both appear twice -- once per pass over the installer.
+        // stage300: language list (English highlighted) and welcome box. Both appear twice.
         {"What is your preferred language?", "@ENTER", 2},
         {"Do you want to proceed?",          "@ENTER", 2},
-        // stage400: partition drive C:. `/d 2` -> starts on No.
+        // stage400: partition drive C:
         {"Do you want to partition your drive?", "@UP @ENTER", 1},
-        // stage400: the reboot that makes the new partition table take
-        // effect (no `/d`, so "Yes - Please reboot now" is default). This is
-        // a genuine machine reboot back through the same boot floppy.
+        // stage400: reboot so the partition table takes effect, back through the boot floppy
         {"scheme to take effect",            "@ENTER", 1},
-        // stage500: format drive C:. `/d 2` -> starts on No.
+        // stage500: format drive C:
         {"Do you want to format your drive?", "@UP @ENTER", 1},
-        // stage700's FDASK000-FDASK700 questions (keyboard layout, target
-        // directory, config-file handling, package set, ...). Every one of
-        // them passes `/d 1` or a preselect, i.e. the highlighted entry is
-        // already the wanted answer, so each just needs Enter -- except the
-        // package-set question below, which this machine deliberately
-        // overrides.
+        // stage700 FDASK000-FDASK700 questions: the highlighted entry is already the
+        // wanted answer, so Enter, except the package-set question below.
         {"Please select your keyboard layout", "@ENTER", 4},
-        // The installer's own default here is "Full installation including
-        // applications and games" (option 3 of 4, confirmed with
-        // PC486_TRACE=1: "Plain DOS system" / "...with sources" / "Full
-        // installation including applications and games" / "Full
-        // installation with sources", top to bottom). This machine ships
-        // the trimmed-down Base set instead -- 65 packages, no games/apps/
-        // dev tools/networking (FreeDOS 1.3 report,
-        // https://www.ibiblio.org/pub/micro/pc-stuff/freedos/files/distributions/1.3/official/report.html)
-        // -- so two Ups move the highlight off "Full" onto "Plain DOS
-        // system" before accepting. `make boom-check` no longer applies:
-        // BOOM/FreeDoom is a Games-category package, absent from Base.
+        // The installer defaults to "Full installation including applications and
+        // games" (option 3 of 4). This ships the Base set instead: 65 packages, no
+        // games/apps/networking (FreeDOS 1.3 report, ibiblio distributions/1.3/official/
+        // report.html), so two Ups select "Plain DOS system". BOOM/FreeDoom is a Games
+        // package and absent from Base.
         {"packages do you want to install",    "@UP @UP @ENTER", 4},
         {"Change installation target directory", "@ENTER", 4},
         {"Replace the system configuration files", "@ENTER", 4},
@@ -240,17 +182,13 @@ int main(int argc, char **argv) {
         {"Force new boot sector code on drive", "@ENTER", 4},
         {"backup the old files before installing", "@ENTER", 4},
         {"Remove all old files from",          "@ENTER", 4},
-        // stage800: the final go/no-go. `/d 2` -> starts on No.
+        // stage800: final go/no-go
         {"Do you want to install now?",        "@UP @ENTER", 1},
-        // stage900: the installer's own completion message. Reaching this is
-        // the whole point -- the image is saved, and the reboot it offers is
-        // deliberately NOT taken (nothing more needs to be written).
+        // stage900: completion message. The image is saved here; the offered reboot is not taken.
         {"is now complete",                    "@DONE", 1},
     };
 
-    // A genuinely unrecognized opcode is the first thing worth knowing if a
-    // future run stops making progress, so this hook stays wired up rather
-    // than being scaffolding that gets removed.
+    // An unrecognized opcode is the first sign of a stuck run, so this hook stays wired up
     std::map<uint32_t, uint64_t> unimpl;
     m.cpu.on_unimplemented = [&](uint16_t cs, uint32_t ip, uint16_t op) {
         uint32_t key = (uint32_t(cs) << 16) | uint16_t(ip);
@@ -261,23 +199,15 @@ int main(int argc, char **argv) {
     std::string last_screen, prev_screen;
     std::size_t step_idx = 0;
     bool done = false;
-    // The rule currently being answered, how long the screen has been still,
-    // and when a re-press is allowed. kSettle is how quiet the screen must go
-    // before a key is sent; kRetryGap is how long to wait before concluding
-    // the key never landed. Both are in 66MHz cycles (~1.2s and ~3s of
-    // emulated time) -- generous, because this tool's wall-clock cost is
-    // dominated by the install itself, not by these waits.
+    // Rule being answered, how long the screen has been still, and when a re-press
+    // is allowed. Both waits are in 66MHz cycles, generous since the install dominates.
     Step *armed = nullptr;
     uint64_t sent_at = 0;
     int retries = 0;
     uint64_t still_since = 0;
-    const uint64_t kSettle = 80'000'000;    // ~1.2s of emulated time before the
-                                            // first press, so it can't land in
-                                            // the dialog's keyboard-flush window
+    const uint64_t kSettle = 80'000'000;    // ~1.2s emulated, past the keyboard-flush window
     const uint64_t kRetryGap = 200'000'000; // ~3s between nag presses
-    const int kMaxRetries = 30;             // bounded, so a genuinely stuck
-                                            // prompt fails the run rather than
-                                            // hammering keys forever
+    const int kMaxRetries = 30;             // a stuck prompt fails the run
 
     const uint64_t kChunk = 500'000;
     for (uint64_t used = 0; used < budget; used += kChunk) {
@@ -290,41 +220,26 @@ int main(int argc, char **argv) {
                          (unsigned long long)m.total_cycles(), s.c_str());
         }
 
-        // Edge-triggered, not level-triggered: a prompt's text can linger in
-        // on-screen scrollback long after it was answered (everything printed
-        // before a reboot stays visible on the same 25-line screen alongside
-        // the post-reboot reprint of the same prompt).
-        // Track how long the screen has been still. A dialog's text appears
-        // well before `vchoice` actually starts reading the keyboard -- the
-        // batch file is still drawing the frame and the option box -- and a
-        // key pressed inside that window is simply discarded (the same
-        // keyboard-flush race ibmpc-at hit, IBM_PCAT_REVIEW.md §11). Waiting
-        // for the screen to go quiet is what a real person does anyway.
+        // Edge-triggered: a prompt's text lingers in scrollback after it is answered,
+        // and reprints after a reboot
+        // Track how long the screen has been still. Dialog text appears before `vchoice`
+        // reads the keyboard, and a key in that window is discarded (the ibmpc-at
+        // keyboard-flush race, IBM_PCAT_REVIEW.md §11).
         if (s != prev_screen) still_since = m.total_cycles();
 
         for (auto &st : steps) {
-            // `uses` gates taking a *new* match, not re-pressing one already
-            // in progress -- otherwise a rule's final use consumes its budget
-            // and the nag below can never fire for it.
+            // `uses` gates taking a new match, not re-pressing one in progress
             if (st.uses <= 0 && armed != &st) continue;
             if (s.find(st.wait_for) == std::string::npos) continue;
             if (prev_screen.find(st.wait_for) != std::string::npos && armed != &st) continue;
-            // Matched: arm it, then hold off until the screen settles.
+            // Matched: arm it and wait for the screen to settle
             if (armed != &st) { armed = &st; retries = 0; sent_at = 0; }
             if (m.total_cycles() - still_since < kSettle) break;
-            // Keep pressing on a cadence for as long as the prompt is still
-            // on screen, rather than pressing once and hoping. This is the
-            // same "nag" mechanism ibmpc-at needed (IBM_PCAT_REVIEW.md §11)
-            // and it is genuinely required here too: stage300 calls `vchoice`
-            // from inside a redraw loop, so a single Enter is routinely
-            // consumed by the wrong iteration and the installer sits there.
-            // Re-pressing is safe because each rule's key sequence is
-            // idempotent against a `vchoice` option box -- Up clamps at the
-            // top entry instead of wrapping, so an extra "Up Enter" keeps
-            // selecting the same "Yes" rather than walking onto "No"
-            // (verified: all three destructive prompts took 3-4 presses in a
-            // full run and every one of them still partitioned/formatted/
-            // installed instead of aborting).
+            // Re-press on a cadence while the prompt is on screen (the ibmpc-at "nag",
+            // IBM_PCAT_REVIEW.md §11): stage300 calls `vchoice` inside a redraw loop, so a
+            // single Enter is often eaten. Safe because Up clamps at the top entry, so an
+            // extra "Up Enter" keeps selecting "Yes" (all three destructive prompts took
+            // 3-4 presses and still proceeded).
             if (sent_at != 0) {
                 if (m.total_cycles() - sent_at < kRetryGap) break;
                 if (retries >= kMaxRetries) break;
@@ -336,8 +251,7 @@ int main(int argc, char **argv) {
                          (unsigned long long)m.total_cycles(), st.wait_for.c_str(), st.send.c_str(),
                          retries ? "  (nag -- prompt still on screen)" : "");
             if (st.send == "@DONE") { done = true; break; }
-            // A rule's `send` is a space-separated list of key tokens, so a
-            // dialog needing "move the highlight, then accept" is one rule.
+            // `send` is a space-separated token list, so "move, then accept" is one rule
             std::size_t pos = 0;
             while (pos < st.send.size()) {
                 std::size_t sp = st.send.find(' ', pos);
@@ -361,10 +275,8 @@ int main(int argc, char **argv) {
         if (done) break;
     }
 
-    // The Bochs-legacy BIOS writes its own BX_INFO/BX_PANIC progress and
-    // failure text to port 0xE9 (the Bochs debug-console convention), which
-    // the chipset captures -- the most direct evidence available about what
-    // the firmware itself thinks is happening.
+    // The Bochs-legacy BIOS writes BX_INFO/BX_PANIC text to port 0xE9 (debug-console
+    // convention), which the chipset captures
     if (trace) {
         const std::string &dbg = m.chipset.debug_console();
         std::fprintf(stderr, "=== BIOS debug console (%zu bytes) ===\n%s\n=== end ===\n",
@@ -378,11 +290,8 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    // NOT the buffer passed to hdd.mount() above -- that only reflects the
-    // *starting* (blank) state. Every byte the install actually wrote landed
-    // in the controller's own internal image, which is where the real final
-    // disk contents live (matching real hardware: the drive owns its
-    // storage; mount() is just how it was loaded once).
+    // Not the buffer passed to hdd.mount() (the blank starting state): installed bytes
+    // land in the controller's own internal image
     std::vector<uint8_t> final_image = m.chipset.hdd.image(0);
     std::ofstream out(out_path, std::ios::binary);
     out.write(reinterpret_cast<const char *>(final_image.data()), std::streamsize(final_image.size()));

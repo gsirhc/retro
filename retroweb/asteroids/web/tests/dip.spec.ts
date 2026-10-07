@@ -1,11 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-// DIP panel is a labelled stand-in for the cabinet's operator bank.
-// Persistence is authentic: physical switches survive a power cycle.
-// Bit map: DSW1 packs four 2-bit fields at $2800..$2803 (coinage bits1:0,
-// right coin mech bits3:2, lives bit4 / center coin mech bit5, language
-// bits7:6) -- see Inputs in machine.h. Factory DSW1 is 0x12 (1C/1C, x1/x1
-// mech, 3 lives = bit4 set, English). $2802 pair 1 = 1x&3 lives.
+// DSW1 packs four 2-bit fields at $2800..$2803. Factory value is 0x12.
 
 test.describe("DIP switches", () => {
   test.beforeEach(async ({ page }) => {

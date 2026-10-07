@@ -1,26 +1,10 @@
 #!/usr/bin/env bash
-# Fetch FreeDOS 1.3's own official LiveCD ISO -- this machine's default
-# mounted CD-ROM disc, per the approved plan's "bundle FreeDOS's own
-# official install/live CD ISO ... as the mounted disc: legally clean,
-# period-correct, and doubles as a real functional test of the CD-ROM
-# path." FreeDOS is freely redistributable (GPL + various permissive
-# licenses per-component); this is the official ibiblio.org distribution
-# point, same source as fetch-freedos.sh/fetch-freedos-install-set.sh use
-# for the HDD image's floppy install set.
-#
-# The FD13-LiveCD.zip archive is BOTH the FreeDOS 1.3 installer ("most
-# users should use" it) and a bootable live/demo environment -- it
-# contains three files: FD13LIVE.iso (lowercase extension inside the
-# archive, confirmed via `unzip -l` -- easy to mistranscribe as .ISO by
-# analogy with the zip's own all-caps naming), meant to be burned/mounted
-# directly as a CD-ROM; FD13BOOT.img, a 1.44MB floppy image FreeDOS ships
-# alongside it specifically for booting a machine that can't do El
-# Torito CD boot straight into an installer that then reads the rest from
-# the CD drive (see readme.txt inside the zip); and readme.txt itself
-# (not extracted here). Verified against the outer zip's own published
-# SHA-256 (verify.txt at the distribution root) rather than either inner
-# file's, since ibiblio doesn't publish per-file checksums -- a verified
-# zip guarantees its extracted contents regardless.
+# Fetch FreeDOS 1.3's official LiveCD ISO, this machine's default CD-ROM disc,
+# from ibiblio.org (same source as fetch-freedos.sh). FD13-LiveCD.zip holds
+# FD13LIVE.iso (lowercase extension inside the zip), FD13BOOT.img (a 1.44MB
+# floppy to boot machines that can't El Torito, which then installs from the CD)
+# and readme.txt (not extracted). Verified against the zip's published SHA-256
+# (verify.txt), since ibiblio has no per-file checksums.
 #
 #   ./fetch-freedos-cd.sh            # fetch what's missing / wrong
 #   ./fetch-freedos-cd.sh --force    # re-fetch

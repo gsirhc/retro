@@ -1,12 +1,8 @@
-/* Shared arcade cabinet fascia: painted-metal plate, 1P/2P start
-   buttons (original photoreal assets of generic US convex start
-   buttons — not vendor catalog photography), and the inner dark
-   coin door. Each machine sets color tokens on `.cab-face`. */
+/* Shared arcade cabinet fascia: metal plate, 1P/2P start buttons, coin door.
+   Each machine sets color tokens on `.cab-face`. */
 
-/* Fullscreen drops the plastic frame (3vh pad + 8px border) so the
-   portrait picture uses the full viewport height. Side letterbox stays
-   via aspect-ratio + auto margins in fullscreen.css. Terminals keep
-   the shared frame; this file is arcade-only. */
+/* Fullscreen drops the plastic frame so the portrait picture uses the full
+   viewport height. Arcade only; terminals keep the shared frame. */
 #bezel:fullscreen, #bezel:-webkit-full-screen {
   padding: 0;
   border: none;

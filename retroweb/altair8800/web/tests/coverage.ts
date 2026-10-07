@@ -1,6 +1,4 @@
-// Shared monocart-coverage-reports config. Coverage is opt-in: it only runs
-// when COVERAGE=1 is set (see `make coverage`). We only care about app.js --
-// the hand-written front-end logic -- not xterm, the wasm glue, or the specs.
+// Shared monocart-coverage-reports config. Opt-in via COVERAGE=1 (`make coverage`); app.js only.
 
 export const coverageEnabled = !!process.env.COVERAGE;
 

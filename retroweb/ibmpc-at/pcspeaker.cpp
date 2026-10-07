@@ -11,7 +11,7 @@ void PcSpeaker::update(uint64_t cpu_cycle, bool speaker_data_enable, bool pit_ch
     bool new_level = speaker_data_enable && pit_channel2_output;
     if (new_level == level_) return;
     level_ = new_level;
-    if (edges_.size() >= kMaxEdges) edges_.pop_front();  // drop oldest -- see header
+    if (edges_.size() >= kMaxEdges) edges_.pop_front();  // drop oldest
     edges_.push_back({cpu_cycle, level_});
 }
 

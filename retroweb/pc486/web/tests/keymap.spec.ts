@@ -1,8 +1,6 @@
 import { test, expect } from "./fixtures";
 
-// Key Mapper panel: custom rows, presets, enable/disable, delete, collapse,
-// and persistence. Mapping itself is covered in wasd.spec.ts; this file is
-// the panel chrome and Left Shift → Ctrl preset.
+// Key Mapper panel chrome and the Left Shift -> Ctrl preset. Mapping itself is in wasd.spec.ts.
 test.describe("Key Mapper panel", () => {
   test("Function keys and Key Mapper panels start expanded", async ({ livePage: page }) => {
     await expect(page.locator("#fkeysToggle")).toHaveAttribute("aria-expanded", "true");

@@ -13,28 +13,19 @@ void I8042::reset() {
     last_was_command_ = false;
     reset_requested_ = false;
     irq1_pending_ = false;
-    // A real AT keyboard runs its own power-on Basic Assurance Test and
-    // reports success by sending 0xAA *unsolicited* -- no command needed --
-    // as soon as it finishes, independent of the controller's own 0xAA
-    // self-test command. BIOS's keyboard POST waits for exactly this byte;
-    // without it, POST hangs forever at the keyboard-presence check. Real
-    // hardware has a short delay before this arrives; modeled here as
-    // already sitting in the output buffer immediately after reset, since
-    // nothing currently depends on the delay itself.
+    // The keyboard sends 0xAA unsolicited after its power-on self-test. BIOS POST
+    // hangs at the keyboard check without it. The real delay is not modeled.
     push_output(0xAA);
 }
 
 uint8_t I8042::in(uint16_t port) const {
     if (port == 0x60) {
         output_full_ = false;
-        // Real hardware: IRQ1 is driven directly by "output buffer full" --
-        // reading the buffer clears both simultaneously.
+        // IRQ1 follows output-buffer-full; reading clears both.
         irq1_pending_ = false;
         uint8_t v = output_buf_;
         if (pending_bat_after_ack_) {
-            // The ACK for a keyboard RESET command was just read -- queue
-            // the follow-up Basic Assurance Test byte real hardware sends
-            // as a second, separate response.
+            // ACK of a keyboard RESET was read: queue the 0xAA self-test byte.
             pending_bat_after_ack_ = false;
             output_buf_ = 0xAA;
             output_full_ = true;
@@ -63,7 +54,7 @@ void I8042::out(uint16_t port, uint8_t v) {
             case 0xD0: push_output(output_port_); break;                // read output port
             case 0xD1: next_write_ = NextWrite::kOutputPort; break;     // write output port (next byte at 0x60)
             case 0xFE: reset_requested_ = true; break;                  // pulse output line 0 -> CPU reset
-            default: break;  // other controller commands: no-op, see IBM_PCAT_REVIEW.md
+            default: break;  // other controller commands: no-op
         }
         return;
     }
@@ -80,13 +71,8 @@ void I8042::out(uint16_t port, uint8_t v) {
             next_write_ = NextWrite::kNone;
             break;
         default:
-            // A byte meant for the keyboard itself (set-LEDs, set typematic
-            // rate, enable scanning, reset, ...). LED/typematic state isn't
-            // modeled; every accepted command just gets ACKed like a real
-            // keyboard would -- except 0xFF (RESET), where a real keyboard
-            // follows its ACK with a second, separate self-test-passed
-            // byte (0xAA), which real BIOS keyboard POST explicitly checks
-            // for (see IBM_PCAT_REVIEW.md).
+            // Byte for the keyboard itself: ACK it. RESET (0xFF) also queues a 0xAA
+            // self-test byte, which BIOS POST checks for.
             push_output(0xFA);
             if (v == 0xFF) pending_bat_after_ack_ = true;
             break;

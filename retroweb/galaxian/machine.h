@@ -1,10 +1,7 @@
 // Namco Galaxian (1979) board: single Z80 + Galaxian video + discrete sound.
 //
-// Memory map is the schematic-derived Namco parent map. MAME galaxian.cpp
-// (galaxian_map_base + galaxian_map_discrete) is a cross-check of decoded
-// chip-selects, not a behavior source.
-// Clocks: Z80 18.432/6 = 3.072 MHz. Discrete analog (555/LFSR) is a
-// labelled simplification — see sound.h.
+// Schematic-derived Namco parent map. Z80 at 18.432/6 = 3.072 MHz.
+// Discrete analog sound is a labelled simplification (see sound.h).
 
 #ifndef GALAXIAN_MACHINE_H
 #define GALAXIAN_MACHINE_H

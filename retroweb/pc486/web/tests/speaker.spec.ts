@@ -1,10 +1,8 @@
 import { test, expect } from "./fixtures";
 import { bootLive } from "./helpers";
 
-// PC speaker checkbox is muted (unchecked) by default for a first visit.
-// Once chosen, Enable Sound is remembered in retro8080.pc486.ui -- browsers
-// still need a gesture before audio actually plays. The C++ device tracks
-// its own speaker state independent of the front end's mute checkbox.
+// The speaker checkbox is muted by default. Enable Sound is remembered in retro8080.pc486.ui;
+// browsers still need a gesture. The C++ device tracks speaker state independent of the checkbox.
 test.describe("PC speaker", () => {
   test("is unchecked (muted) by default", async ({ livePage: page }) => {
     await expect(page.locator("#speakerEnabled")).not.toBeChecked();
@@ -25,12 +23,8 @@ test.describe("PC speaker", () => {
     await page.evaluate(() => localStorage.removeItem("retro8080.pc486.ui"));
   });
 
-  // A checkmark restored from localStorage on page load never fires the
-  // checkbox's own "change" handler (setting .checked programmatically
-  // doesn't), so nothing created or resumed the AudioContext -- the
-  // preference looked honored but stayed silent until the box was toggled.
-  // Clicking the screen (the first gesture every visitor makes, to focus
-  // the machine and start typing) has to be enough on its own.
+  // A checkbox restored from localStorage never fires "change", so nothing created the AudioContext.
+  // Clicking the screen, the first gesture every visitor makes, has to be enough.
   test("a restored Enable Sound checkmark actually starts audio on the first screen click, not just the checkbox", async ({ page }) => {
     await bootLive(page);
     await page.evaluate(() => localStorage.removeItem("retro8080.pc486.ui"));
@@ -75,12 +69,8 @@ test.describe("PC speaker", () => {
     expect(typeof level).toBe("boolean");
   });
 
-  // A created AudioContext can still be "suspended" rather than actually
-  // producing sound -- some browsers don't auto-resume it on the very
-  // gesture that constructed it, and any browser may suspend an idle one
-  // later on its own. Either way this fails silently (no error, no audio),
-  // which is why ensureAudioStarted() explicitly resumes a suspended
-  // context both on creation and every time the box is re-checked.
+  // A created AudioContext can still be suspended, silently. ensureAudioStarted() resumes it on
+  // creation and on every re-check.
   test("checking the box leaves the audio context actually running, not merely created", async ({
     livePage: page,
   }) => {
@@ -90,9 +80,7 @@ test.describe("PC speaker", () => {
       .toBe("running");
   });
 
-  // Unchecking must suspend the context, not just stop feeding it -- a
-  // still-running AudioContext keeps the browser's tab speaker icon lit
-  // even when the page is silent.
+  // Unchecking must suspend the context, or the tab's speaker icon stays lit.
   test("unchecking the box suspends the audio context", async ({ livePage: page }) => {
     await page.locator("#speakerEnabled").check();
     await expect
@@ -104,16 +92,9 @@ test.describe("PC speaker", () => {
       .toBe("suspended");
   });
 
-  // AudioWorklet doesn't exist at all outside a "secure context" (https://,
-  // or http://localhost specifically -- a LAN IP/hostname on your own
-  // network does not count, even though nothing about that setup is
-  // actually insecure). The deployed site is always https:// so a real
-  // visitor never hits this, but a locally-served LAN preview can -- and
-  // did, live: audioCtx.audioWorklet was undefined, and calling
-  // .addModule() on it threw an uncaught TypeError from the checkbox's own
-  // change handler. Simulates that exact shape by constructing a real
-  // AudioContext and then hiding its audioWorklet, the same as Chrome
-  // itself does outside a secure context.
+  // AudioWorklet doesn't exist outside a secure context (https, or localhost but not a LAN IP).
+  // A LAN preview hit this: addModule() threw from the checkbox's change handler. Simulated by
+  // hiding audioWorklet on a real AudioContext, as Chrome does.
   test("missing AudioWorklet (e.g. an insecure-context LAN preview) degrades to silent instead of throwing", async ({
     page,
   }) => {
@@ -132,13 +113,11 @@ test.describe("PC speaker", () => {
 
     await bootLive(page);
     await page.locator("#speakerEnabled").check();
-    // Give ensureAudioStarted's async work a moment to run (and, if the
-    // guard were missing, to throw) before asserting nothing did.
+    // Give ensureAudioStarted's async work a moment to throw if the guard were missing.
     await page.waitForTimeout(300);
 
     expect(pageErrors).toEqual([]);
-    // machine keeps running regardless -- audio being unavailable never
-    // affects emulation itself
+    // Emulation keeps running regardless.
     const cycles1 = await page.evaluate(() => (window as any).__test.machine.totalCycles());
     await page.waitForTimeout(200);
     const cycles2 = await page.evaluate(() => (window as any).__test.machine.totalCycles());

@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
-# Fetch the Microsoft Altair BASIC images the emulator loads (4K and 8K, the
-# flat load-and-go tapes plus the 8K EPROM build). Verified by SHA-256. Run
-# from anywhere; files land next to this script. Used by CI and locally.
+# Fetch the Microsoft Altair BASIC images (4K, 8K, 8K EPROM build), verified by SHA-256.
 #
 #   ./fetch-basic.sh            # fetch what's missing / wrong
 #   ./fetch-basic.sh --force    # re-fetch everything

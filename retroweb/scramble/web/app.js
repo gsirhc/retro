@@ -97,7 +97,6 @@ function concat(parts, total) {
   return out;
 }
 
-// MAME scramble / board socket names.
 function roleOf(name) {
   const n = String(name).toLowerCase().split("/").pop();
   if (n === "program.bin" || n === "prg.bin") return "program";
@@ -363,8 +362,7 @@ ScrambleArcade().then(async (Module) => {
     lastSavedHiscore = bytes.join(",");
   }
 
-  // Factory sentinel at $4200/$421D — wait for POST to write the table, then
-  // always poke IndexedDB (never treat non-factory as already restored).
+  // Wait for POST to write the factory table ($4200/$421D), then poke IndexedDB.
   let restoreInFlight = false;
   async function maybeRestoreHiscore() {
     if (!usingUserRom || restoreInFlight || hiscoreRestored) return;
@@ -487,8 +485,7 @@ ScrambleArcade().then(async (Module) => {
     const files = {};
     for (const f of items) {
       const name = f.name.toLowerCase();
-      // File/Blob.bytes is a method on current Chromium; Drive items carry
-      // a Uint8Array on .bytes. Only treat the latter as payload.
+      // File/Blob.bytes is a method on current Chromium; only a Uint8Array is payload.
       const bytes = f.bytes instanceof Uint8Array
         ? f.bytes
         : new Uint8Array(await f.arrayBuffer());

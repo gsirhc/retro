@@ -1,10 +1,4 @@
 // Emscripten wrapper for the Pac-Man arcade board.
-//
-//   const m = new Module.Machine();
-//   m.runCycles(50688);
-//   const rgba = m.frameBuffer();  // Uint8ClampedArray 224*288*4
-//   m.setIn0(0xFE);
-//   m.loadRomSet(prog, tiles, sprites, color, lookup, wave);
 
 #include <emscripten/bind.h>
 #include <emscripten/val.h>
@@ -113,10 +107,7 @@ public:
     void setIn0(int v) { m_.inputs.in0 = uint8_t(v); }
     void setIn1(int v) { m_.inputs.in1 = uint8_t(v); }
     void setDsw1(int v) { m_.inputs.dsw1 = uint8_t(v); }
-    // The host AudioContext's actual sample rate varies by device (commonly
-    // but not always 48 kHz); Wsg::advance resamples its 96 kHz WSG clock to
-    // whatever rate this is set to, so playback pitch/speed always matches
-    // the real output device instead of assuming a fixed rate.
+    // Output device rate varies, Wsg::advance resamples its 96 kHz clock to it.
     void setAudioHz(int hz) { m_.audio_hz = hz; }
     int in0() const { return m_.inputs.in0; }
     int in1() const { return m_.inputs.in1; }
@@ -150,7 +141,7 @@ public:
         return m_.ram[unsigned(addr - 0x4800)];
     }
 
-    // Work RAM only — sprite RAM is $4FF0–$4FFF.
+    // Work RAM only, sprite RAM is $4FF0-$4FFF.
     void setRamByte(int addr, int v) {
         if (addr < 0x4800 || addr >= 0x4FF0) return;
         m_.ram[unsigned(addr - 0x4800)] = uint8_t(v);

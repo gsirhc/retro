@@ -1,10 +1,6 @@
 "use strict";
-// Owns C:'s IndexedDB storage so no read, write, or conversion runs on the
-// page's main thread next to the emulator. Jobs run one at a time in
-// arrival order, so a load always sees every save queued before it.
-//
-// C: is stored uncompressed as 64KB chunks keyed "c2:<index>". A chunk that
-// is all zero has no record at all, so unwritten space costs nothing.
+// Owns C:'s IndexedDB storage off the main thread. Jobs run in arrival order, so a load sees
+// every earlier save. C: is stored as 64KB chunks keyed "c2:<index>"; all-zero chunks have no record.
 importScripts("hdd-convert.js");
 
 const DB_NAME = "pc486-hdd", STORE = "hdd";
@@ -15,7 +11,7 @@ const chunkKey = (i) => "c2:" + String(i).padStart(5, "0");
 const chunkIndex = (key) => parseInt(key.slice(3), 10);
 const CHUNK_RANGE = IDBKeyRange.bound("c2:", "c2:￿");
 
-// Keys written by the builds that stored a 504MB C:.
+// Keys from the 504MB builds.
 const LEGACY_KEY = "c-drive";
 const LEGACY_CHUNK_META = "hdd-meta";
 const LEGACY_FACTORY_KEY = "factory-base";
@@ -84,7 +80,7 @@ async function readLegacy() {
     for (const p of rec.patches) base.set(new Uint8Array(p.bytes.buffer || p.bytes), p.offset | 0);
     return base;
   }
-  // Raw bytes: Chromium refuses a 504MB value, so only another browser has these.
+  // Chromium refuses a 504MB value, so only other browsers have raw bytes.
   if (rec) return rec instanceof Uint8Array ? rec : new Uint8Array(rec);
   const meta = await get(LEGACY_CHUNK_META);
   if (meta && meta.v === 1 && meta.chunks > 0) {
@@ -133,7 +129,6 @@ async function readImage(meta) {
 }
 
 const ops = {
-  // What's stored, without reading the image itself.
   async info() {
     const meta = await get(META_KEY);
     const legacy = await hasLegacy();
@@ -141,8 +136,7 @@ const ops = {
     return { result: { kind: legacy ? "legacy" : "none", legacy } };
   },
 
-  // The stored C:, converting a 504MB save on the way when that's all
-  // there is. A save that can't be converted stays where it is.
+  // Converts a 504MB save on the way when that's all there is.
   async load() {
     const meta = await get(META_KEY);
     if (meta && meta.v === 2) {
@@ -166,7 +160,6 @@ const ops = {
     return { result: { status: "converted", modified: true, buffer: img.buffer }, transfer: [img.buffer] };
   },
 
-  // An uploaded 504MB file, converted and stored.
   async convert({ buffer }) {
     let img;
     try {
@@ -194,8 +187,7 @@ const ops = {
     return { result: true };
   },
 
-  // Sector writes since the last save, as {offset, bytes}. Each touched
-  // chunk is read, patched and written back in one transaction.
+  // Sector writes since the last save as {offset, bytes}; touched chunks are patched in one transaction.
   async patch({ patches }) {
     const db = await openDb();
     const tx = db.transaction(STORE, "readwrite");
@@ -231,7 +223,6 @@ const ops = {
     return { result: { needFull: false } };
   },
 
-  // An untouched factory C: from an older factory image.
   async forget() {
     const db = await openDb();
     const tx = db.transaction(STORE, "readwrite");
@@ -242,7 +233,6 @@ const ops = {
     return { result: true };
   },
 
-  // Reset to factory: forget C: and any old 504MB save.
   async clear() {
     const db = await openDb();
     const tx = db.transaction(STORE, "readwrite");
@@ -254,7 +244,6 @@ const ops = {
     return { result: true };
   },
 
-  // The raw 504MB save a failed conversion left behind, for download.
   async loadLegacy() {
     const img = await readLegacy();
     if (!img) return { result: null };

@@ -94,8 +94,7 @@ test.describe("HIGH SCORE persist", () => {
     await page.locator("#resetHiscore").click();
     await page.locator("#hiscoreResetOk").click();
     await expect(page.locator("#hiscoreResetHint")).toBeHidden();
-    // Confirm resets the board asynchronously. The saved 0x76 byte goes
-    // back to 0, then a couple of frames let the self-test fill finish.
+    // Confirm resets the board asynchronously; wait for the self-test fill to finish.
     await expect.poll(() => page.evaluate(() => (window as any).__test.readHiscore()[4])).toBe(0);
     const frames = await page.evaluate(() => (window as any).__test.machine.state().frames);
     await expect.poll(() => page.evaluate(() => (window as any).__test.machine.state().frames)).toBeGreaterThan(frames + 2);
@@ -111,9 +110,7 @@ test.describe("HIGH SCORE persist", () => {
     expect(bytes.afterPoke).toEqual(SENTINEL);
   });
 
-  // Old path restored on irq1+60 frames. Midway still has POST junk at
-  // $8A20 then, so it marked restored without poking IndexedDB. Live path
-  // waits for the factory 20000 prefix — plant it so the tick path runs.
+  // POST junk at $8A20 must not count as restored; plant the factory 20000 prefix.
   test("HI-SCORE restores once the factory table is present", async ({ page }) => {
     await page.locator("#romFile").setInputFiles(userSet());
     await expect(page.locator("#romStatus")).toHaveText("Loaded ROM set");

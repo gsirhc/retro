@@ -1,33 +1,14 @@
-// Intel 8042 keyboard controller, AT wiring.
+// Intel 8042 keyboard controller, AT wiring. Ports 0x60 (data) and 0x64
+// (status read / command write). IBM 5170 Technical Reference, "Keyboard System".
 //
-// Ports 0x60 (data) / 0x64 (status on read, command on write). Beyond
-// talking to the keyboard itself, the AT's 8042 firmware carries two
-// motherboard-level jobs software depends on constantly:
+//   - Output Port bit 1 gates A20. It starts disabled so the AT wraps at 1MB
+//     like an 8086; BIOS enables it via command 0xD1. chipset.h reads a20_enabled().
+//   - Output Port bit 0 driven low, or command 0xFE, pulses CPU RESET (the 286's
+//     only way back to real mode). reset_requested() surfaces it to Machine.
 //
-//   - Output Port bit 1 gates the A20 address line. It defaults DISABLED
-//     at power-on/reset (an AT starts out wrapping at 1MB exactly like an
-//     8086, for backward compatibility with real-mode software that
-//     depends on the wraparound) -- BIOS enables it early in POST via the
-//     "write output port" command (0xD1 then a data byte with bit1 set)
-//     before doing anything above 1MB. `chipset.h`'s memory decode reads
-//     a20_enabled() to mask/pass address bit 20 accordingly.
-//   - Output Port bit 0, driven low (or the 0xFE "pulse output line 0"
-//     command), pulses the CPU's RESET line. Early 286es have no
-//     instruction to leave protected mode other than a full reset, so
-//     real-mode-return sequences of the era use exactly this trick.
-//     reset_requested() surfaces that to the embedding Machine, which
-//     calls cpu.reset() -- this device has no direct reach into the CPU
-//     object, matching every other device in this codebase.
-//
-// Scope: enough controller-command coverage (self-test, interface-test,
-// read/write command byte, enable/disable keyboard, read/write output
-// port, pulse-output-line-0) for BIOS POST to complete and for a keyboard
-// driver to program the controller; LED state and typematic rate aren't
-// modeled (any command byte the keyboard itself doesn't specifically need
-// just gets ACKed). Reference: IBM 5170 Technical Reference, "Keyboard
-// System"; the 8042 command set is otherwise identical across the whole
-// PC/AT-compatible universe and is documented in any AT-class BIOS's
-// keyboard POST routine.
+// Covered commands: self-test, interface test, read/write command byte,
+// enable/disable keyboard, read/write output port, pulse line 0. LED and
+// typematic state are not modeled; other keyboard bytes are just ACKed.
 #ifndef IBMPCAT_I8042_H
 #define IBMPCAT_I8042_H
 
@@ -51,20 +32,9 @@ public:
     bool reset_requested() const { return reset_requested_; }
     void clear_reset_request() { reset_requested_ = false; }
 
-    // Host/front-end side: deliver one Set 1 scan code, as if a key event
-    // just happened -- pushed straight to port 0x60 with no translation.
-    // No-op while the controller has the keyboard disabled (0xAD).
-    //
-    // Real hardware: an AT keyboard is physically Set-2-native, and the
-    // 8042's own firmware translates Set 2 -> Set 1 before software ever
-    // sees a code at port 0x60 (translation is the default/overwhelmingly
-    // common mode; genuine Set-2 passthrough exists but essentially no
-    // real software selects it). This device models the visible result of
-    // that translation directly rather than a Set-2 stage nothing above
-    // the 8042 can ever observe in that default mode -- callers (a browser
-    // front end's own physical-key -> Set-1 table, disks/build_freedos_hdd.cpp's
-    // Set1MakeCode()) supply Set 1 codes already, matching what a real
-    // BIOS/DOS keyboard driver actually reads.
+    // Delivers one Set 1 scan code straight to port 0x60. No-op while the
+    // keyboard is disabled (0xAD). A real AT keyboard is Set 2 and the 8042
+    // translates to Set 1, so callers supply Set 1 codes directly.
     void inject_scancode(uint8_t code);
 
 private:
@@ -74,18 +44,14 @@ private:
     mutable uint8_t output_buf_ = 0;
     mutable bool output_full_ = false;
     uint8_t command_byte_ = 0x00;
-    uint8_t output_port_ = 0x00;  // bit1 (A20) starts disabled -- see file header
+    uint8_t output_port_ = 0x00;  // bit1 (A20) starts disabled
     bool kbd_enabled_ = true;
     bool system_flag_ = false;
     bool last_was_command_ = false;
     bool reset_requested_ = false;
     mutable bool irq1_pending_ = false;
-    // A real keyboard responds to an explicit reset command (0xFF) with an
-    // immediate ACK (0xFA), then performs its own self-test and reports
-    // 0xAA (Basic Assurance Test passed) as a second, separate byte --
-    // this flags that the next read of the data port should queue that
-    // follow-up byte. See IBM_PCAT_REVIEW.md for the real BIOS source that
-    // pinned this sequence down.
+    // Keyboard RESET (0xFF) is ACKed (0xFA), then a separate 0xAA self-test byte
+    // follows. This flags that the next data-port read queues it.
     mutable bool pending_bat_after_ack_ = false;
 
     void push_output(uint8_t v) { output_buf_ = v; output_full_ = true; }

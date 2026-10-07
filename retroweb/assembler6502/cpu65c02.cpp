@@ -1,28 +1,13 @@
-// WDC W65C02S CPU core implementation. See cpu65c02.h for the interface
-// contract and citation.
-//
-// CMOS-specific behavior implemented here that differs from NMOS 6502 (all
-// per the WDC W65C02S datasheet — this board populates the real CMOS part,
-// confirmed from pcb6502full.net's `libsource`, so these are not optional):
-//   - New instructions: BRA, PHX/PLX/PHY/PLY, STZ, TRB, TSB, INC A/DEC A,
-//     BBR0-7/BBS0-7/RMB0-7/SMB0-7, STP, WAI, BIT #imm/zp,X/abs,X.
-//   - New addressing mode: (zp) with no index, filling the $x2 column for
-//     ORA/AND/EOR/ADC/STA/LDA/CMP/SBC; and JMP (abs,X).
-//   - JMP (abs) no longer has the NMOS page-wrap bug (costs 6 cycles
-//     instead of NMOS's 5 to do it correctly).
-//   - Decimal-mode ADC/SBC set N/Z/V from the actual decimal result (NMOS
-//     leaves them reflecting the pre-adjustment binary sum) and cost one
-//     extra cycle.
-//   - Read-modify-write abs,X instructions (ASL/LSR/ROL/ROR/INC/DEC) take
-//     6 cycles instead of NMOS's 7 (no spurious extra read cycle).
-//   - Reset clears the D flag (NMOS leaves it in whatever state it held).
-//   - All formerly-undefined/illegal NMOS opcodes execute as well-defined
-//     NOPs of documented length (1, 2, or 3 bytes) instead of NMOS's
-//     unstable/undocumented behavior.
-//
-// Validated against Klaus Dormann's 6502/65C02 functional test suite (see
-// tests/cpu65c02_test.cpp) — the same role TST8080/CPUTEST/8080EXM play for
-// the Altair's i8080 core.
+// W65C02S differences from NMOS (WDC datasheet):
+//   - new instructions: BRA, PHX/PLX/PHY/PLY, STZ, TRB, TSB, INC A/DEC A,
+//     BBR/BBS/RMB/SMB, STP, WAI, BIT #imm/zp,X/abs,X
+//   - (zp) addressing and JMP (abs,X)
+//   - JMP (abs) has no page-wrap bug (6 cycles, not 5)
+//   - decimal ADC/SBC set N/Z/V from the decimal result, +1 cycle
+//   - RMW abs,X takes 6 cycles, not 7
+//   - reset clears D
+//   - undefined opcodes are fixed-length NOPs
+// Validated by Klaus Dormann's functional tests (tests/cpu65c02_test.cpp).
 
 #include "cpu65c02.h"
 
@@ -30,8 +15,8 @@ namespace cpu65c02 {
 
 void Cpu::reset() {
     a = x = y = 0;
-    sp = 0xFD;                          // see header: equivalent to 3 phantom pushes from SP=0
-    p = FLAG_U | FLAG_I;                // I set, D explicitly clear (CMOS fix — see file header)
+    sp = 0xFD;
+    p = FLAG_U | FLAG_I;
     waiting = stopped = false;
     nmi_pending_ = false;
     irq_line = false;
@@ -42,16 +27,16 @@ void Cpu::reset() {
 void Cpu::nmi() { nmi_pending_ = true; }
 
 void Cpu::service_irq(bool is_nmi, bool is_brk) {
-    if (is_brk) pc++;                   // BRK's second byte is a padding/signature byte, skipped on return
+    if (is_brk) pc++;                   // BRK's signature byte is skipped
     push16(pc);
     push8(is_brk ? uint8_t(p | FLAG_B) : uint8_t(p & ~FLAG_B));
     set_flag(FLAG_I, true);
-    set_flag(FLAG_D, false);            // 65C02-only: interrupts also clear D (WDC datasheet)
+    set_flag(FLAG_D, false);            // 65C02 clears D on interrupt
     uint16_t vec = is_nmi ? 0xFFFA : 0xFFFE;
     pc = uint16_t(rb(vec)) | (uint16_t(rb(vec + 1)) << 8);
 }
 
-// ---- ALU / RMW primitives -------------------------------------------
+// ---- ALU / RMW ----
 
 void Cpu::adc(uint8_t v) {
     uint8_t cin = flag(FLAG_C) ? 1 : 0;
@@ -63,7 +48,7 @@ void Cpu::adc(uint8_t v) {
         set_nz(a);
         return;
     }
-    // BCD add — 65C02 sets N/Z/V from the adjusted decimal result.
+    // BCD add: N/Z/V from the decimal result
     unsigned lo = (a & 0x0F) + (v & 0x0F) + cin;
     if (lo > 9) lo += 6;
     unsigned hi = (a >> 4) + (v >> 4) + (lo > 0x0F ? 1 : 0);
@@ -88,8 +73,7 @@ void Cpu::sbc(uint8_t v) {
         set_nz(a);
         return;
     }
-    // BCD subtract — 65C02 sets N/Z from the adjusted decimal result
-    // (C/V above already reflect the binary-mode subtraction, per WDC).
+    // BCD subtract: N/Z from the decimal result, C/V from the binary one (WDC)
     int lo = int(a & 0x0F) - int(v & 0x0F) - (1 - cin);
     int hi = int(a >> 4) - int(v >> 4);
     if (lo < 0) { lo -= 6; hi -= 1; }
@@ -107,7 +91,7 @@ void Cpu::cmp_(uint8_t reg, uint8_t v) {
 
 void Cpu::bit(uint8_t v, bool immediate) {
     set_flag(FLAG_Z, (a & v) == 0);
-    if (!immediate) {                   // #imm BIT (65C02-new) only touches Z
+    if (!immediate) {                   // BIT #imm only touches Z
         set_flag(FLAG_N, (v & 0x80) != 0);
         set_flag(FLAG_V, (v & 0x40) != 0);
     }
@@ -132,14 +116,14 @@ void Cpu::branch(bool cond, int &extra) {
     int8_t off = rel();
     if (!cond) return;
     uint16_t target = uint16_t(pc + off);
-    extra += (target & 0xFF00) != (pc & 0xFF00) ? 2 : 1;   // +1 taken, +1 more if page crossed
+    extra += (target & 0xFF00) != (pc & 0xFF00) ? 2 : 1;
     pc = target;
 }
 
-// ---- fetch/decode/execute --------------------------------------------
+// ---- fetch/decode/execute ----
 
 int Cpu::step() {
-    // NMI is edge-triggered and always serviced (7 cycles), regardless of I.
+    // NMI ignores I
     if (nmi_pending_) {
         nmi_pending_ = false;
         waiting = stopped = false;
@@ -147,24 +131,22 @@ int Cpu::step() {
         cycles += 7;
         return 7;
     }
-    // IRQ is level-sensitive and masked by I; a WAI-suspended CPU wakes on
-    // either line even if masked, per the WDC datasheet, but only actually
-    // *services* the IRQ once I=0.
+    // WAI wakes on a masked IRQ too (WDC datasheet) but only services it when I=0
     if (irq_line && !flag(FLAG_I)) {
         waiting = false;
         service_irq(/*is_nmi=*/false, /*is_brk=*/false);
         cycles += 7;
         return 7;
     }
-    if (stopped) { cycles += 1; return 1; }         // STP: dead until reset
-    if (waiting) {                                   // WAI: idles until IRQ/NMI pending
+    if (stopped) { cycles += 1; return 1; }
+    if (waiting) {
         if (irq_line || nmi_pending_) waiting = false;
         cycles += 1; return 1;
     }
 
     uint8_t op = fetch8();
-    int c = 0;          // base cycles, filled in per-case
-    int extra = 0;       // page-cross / branch-taken penalties
+    int c = 0;
+    int extra = 0;
     bool crossed = false;
 
     switch (op) {
@@ -429,12 +411,7 @@ int Cpu::step() {
         case 0xDB: stopped = true; c = 3; break;                // STP [65C02]
 
         // ---- Reserved opcodes: documented no-op behavior [65C02] --------
-        // WDC W65C02S datasheet: every opcode NMOS left undefined executes
-        // as a NOP of fixed length here (1, 2, or 3 bytes) rather than the
-        // unstable NMOS "illegal opcode" behavior. Real software (BASIC,
-        // Wozmon, the board's own ROM) never emits these; the exact byte
-        // lengths below are the well-published WDC table, spot-checked
-        // against Klaus Dormann's 65C02 extended-opcode test.
+        // WDC datasheet byte lengths, checked against Dormann's 65C02 extended-opcode test
         case 0x02: case 0x22: case 0x42: case 0x62:            // 2-byte NOPs (immediate-shaped)
         case 0x82: case 0xC2: case 0xE2:
             fetch8(); c = 2; break;
@@ -457,8 +434,7 @@ int Cpu::step() {
             c = 1; break;
 
         default:
-            // Every opcode 0x00-0xFF is handled above; unreachable in
-            // practice, but fail safe rather than mis-executing silently.
+            // unreachable: every opcode is handled above
             c = 2; break;
     }
 

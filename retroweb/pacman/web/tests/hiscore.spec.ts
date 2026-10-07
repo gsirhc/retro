@@ -2,9 +2,8 @@ import { test, expect } from "@playwright/test";
 import { existsSync, readFileSync } from "fs";
 import path from "path";
 
-// HIGH SCORE is always persisted for a user ROM. Reset HIGH SCORE is the
-// labelled way back to a power-cycle empty table. See PACMAN_REVIEW.md §9.
-// Fixtures are the generated self-test ROM, never Namco Pac-Man.
+// HIGH SCORE persists for a user ROM. Reset HIGH SCORE clears it.
+// Fixtures are the self-test ROM.
 
 const HWTEST_FILES = [
   "roms/program.bin",
@@ -15,8 +14,7 @@ const HWTEST_FILES = [
   "roms/82s126.1m",
 ];
 
-// Shared origin IndexedDB (ROM set + hiscores) — keep the whole file
-// serial so a real-ROM load cannot race the CRC-patched hwtest fixtures.
+// Shared IndexedDB origin, keep this file serial.
 test.describe.configure({ mode: "serial" });
 
 function userSet() {
@@ -107,8 +105,7 @@ test.describe("HIGH SCORE persist", () => {
     expect(bytes).toEqual([0x99, 0x99, 0x99]);
   });
 
-  // Old path also required $4E00==1 (attract). A coin+start before the
-  // ~8 s POST wait left attract and skipped the IndexedDB poke forever.
+  // A coin+start before the ~8 s POST wait must not skip the IndexedDB poke.
   test("TOP restores after POST even when not in attract", async ({ page }) => {
     await page.locator("#romFile").setInputFiles(userSet());
     await expect(page.locator("#romStatus")).toHaveText("Loaded ROM set");
@@ -124,8 +121,7 @@ test.describe("HIGH SCORE persist", () => {
     await page.waitForFunction(() => {
       const t = (window as any).__test;
       if (!t || !t.usingUserRom) return false;
-      // Stay out of attract for the whole wait — the bug was hinging restore
-      // on $4E00==1, which a fast start clears.
+      // Stay out of attract for the whole wait.
       t.machine.setRamByte(0x4E00, 3);
       const ram = t.readHiscore();
       return t.hiscoreRestored && ram[0] === 0x00 && ram[1] === 0x80 && ram[2] === 0x00;
@@ -139,8 +135,7 @@ function firstExisting(...candidates: (string | undefined)[]) {
   }
 }
 
-// Real Namco dumps are opt-in and local-only (roms/user/ or PACMAN_ROM /
-// MSPACMAN_ROM). CI has none, so this describe skips there.
+// Real Namco dumps are opt-in and local-only (roms/user/, PACMAN_ROM, MSPACMAN_ROM).
 function localUserRom(): { zip: string; url: string } | undefined {
   const pac = firstExisting(
     process.env.PACMAN_ROM,

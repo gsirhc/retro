@@ -1,30 +1,17 @@
 #!/usr/bin/env bash
-# Build the CuteMouse driver floppy this machine offers from its Drivers
-# panel: a 1.44MB FAT12 image carrying CTMOUSE.EXE and its two diagnostics.
-#
-# The files are extracted from the FreeDOS hard-disk image this machine
-# already builds (disks/freedos-hdd.img, itself assembled by a real installer
-# run from the verified FD13-LiveCD zip -- see fetch-freedos-cd.sh), NOT
-# downloaded separately. That matters for three reasons:
-#
-#   - No second external dependency to rot. CuteMouse's own SourceForge
-#     download serves an HTML interstitial to anything without a browser
-#     session, and the FreeDOS ibiblio paths for it 404, so a pinned URL
-#     here would be a build that breaks on someone else's machine.
-#   - The bytes are already verified. Whatever CTMOUSE.EXE the FreeDOS image
-#     carries came through that zip's published SHA-256, so it inherits the
-#     same provenance as everything else on the image.
-#   - No new licensing question. CuteMouse is GPL and FreeDOS redistributes
-#     it as a standard package; taking it from the distribution this machine
-#     already ships keeps that story unchanged.
-#
-# The extracted CTMOUSE.EXE is checked against the SHA-256 of the official
-# CuteMouse 2.1b4 release binary, so a FreeDOS image that ever carried a
-# different build fails the build loudly instead of shipping silently.
-#
-# Why a floppy rather than putting it on the hard disk: the HDD image is the
-# machine "as it left the factory" and a driver disk is what period software
-# actually arrived on -- and it leaves the user's own saved hard disk alone.
+# Build the CuteMouse driver floppy for the Drivers panel: a 1.44MB FAT12 image
+# with CTMOUSE.EXE and its two diagnostics.
+# The files come from the FreeDOS HDD image this machine already builds
+# (disks/freedos-hdd.img, from the verified FD13-LiveCD zip; see
+# fetch-freedos-cd.sh), not a separate download:
+#   - no second external dependency: CuteMouse's SourceForge download serves an
+#     HTML interstitial and the ibiblio paths 404
+#   - the bytes inherit the zip's published SHA-256
+#   - no new licensing question (GPL, redistributed by FreeDOS)
+# CTMOUSE.EXE is checked against the SHA-256 of the official CuteMouse 2.1b4
+# release binary, so a different build fails loudly. A floppy because the HDD image
+# is the machine as it left the factory and drivers arrived on disks, and it
+# leaves the user's saved hard disk alone.
 set -euo pipefail
 
 cd "$(dirname "$0")"
@@ -33,8 +20,7 @@ HDD=freedos-hdd.img
 OUT=ctmouse.img
 # CuteMouse 2.1b4's ctmouse.exe, the build FreeDOS 1.3 packages.
 CTMOUSE_SHA=822cf550c9e19a22785722d2306aa08ede10ff20bfe931d5a81a15f77c5f363e
-# CTMOUSE.EXE sits in BIN itself; its two diagnostics in the BIN/CTMOUSE
-# subdirectory alongside the localized builds.
+# CTMOUSE.EXE sits in BIN; its two diagnostics in the BIN/CTMOUSE subdirectory
 BIN_DIR="::/FREEDOS/BIN"
 TOOL_DIR="::/FREEDOS/BIN/CTMOUSE"
 
@@ -47,12 +33,10 @@ if ! command -v mformat >/dev/null 2>&1; then
     exit 1
 fi
 
-# mtools refuses a disk image whose geometry it cannot infer; the images here
-# are plain sector dumps, which is exactly the case this skips the check for.
+# mtools can't infer geometry for plain sector dumps; this skips the check
 export MTOOLS_SKIP_CHECK=1
 
-# mtools addresses a partition inside an image with the @@<byte offset>
-# suffix; the single partition's start LBA is in the MBR's first entry.
+# mtools addresses a partition with @@<byte offset>; the start LBA is in the MBR's first entry
 PART_OFFSET=$(( $(od -An -t u4 -j 454 -N 4 "$HDD" | tr -d ' ') * 512 ))
 
 tmp=$(mktemp -d)

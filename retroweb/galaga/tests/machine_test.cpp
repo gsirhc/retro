@@ -58,8 +58,7 @@ TEST(Io, MissingMcuImageStaysHleWrongSizeToo) {
     RomSet set;
     set.has51 = true;
     set.mcu51[0] = 0x00;
-    // has51 with a full image is the real core. A 1024-byte buffer is the
-    // only size RomSet carries; the page rejects any other length first.
+    // has51 with a full 1024-byte image runs the real core.
     m.load_roms(set);
     EXPECT_FALSE(m.mcu51_hle);
     set.has51 = false;
@@ -86,8 +85,7 @@ TEST(Io, ReadModeClockIrqs51xx) {
     m.run_cycles(500);
     m.mem_write(0x7100, 0x71);
     EXPECT_EQ(m.mem_read(0x7000), 0x00);
-    // First falling edge is one full period in, and it is the read
-    // stretch: /IO only, no host NMI.
+    // First falling edge is a read stretch: /IO only, no host NMI.
     m.run_cycles((64 << 3) + 80);
     EXPECT_EQ(m.mem_read(0x7000), 0x05);
     EXPECT_FALSE(m.watchdog_reset);
@@ -95,8 +93,7 @@ TEST(Io, ReadModeClockIrqs51xx) {
 
 TEST(Io, WriteModeDividerNmisMain) {
     Machine m;
-    // JR $ at reset, and an NMI handler that counts and idles the 06XX
-    // the way galagamw's $0066 handler does when the byte count runs out.
+    // JR $ at reset; NMI handler counts and idles the 06XX like galagamw's $0066.
     m.rom_main[0] = 0x18;
     m.rom_main[1] = 0xFE;
     m.rom_main[0x66] = 0x21;  // LD HL,$8800
@@ -138,8 +135,7 @@ TEST(Video, TileAndSpritePaint) {
     m.video.char_lut[7] = 1;
     m.video.sprite_lut[7] = 1;
     for (int i = 0; i < 16; i++) m.video.tile_rom[16 + i] = 0xFF;
-    // Playfield origin is memory row 2. Row 1 column 10 is the right
-    // score strip, upright y = native x of that strip.
+    // Playfield origin is memory row 2; row 1 column 10 is the right score strip.
     m.video.videoram[2 * 32] = 1;
     m.video.videoram[0x400 + 2 * 32] = 1;
     m.video.videoram[1 * 32 + 10] = 1;
@@ -189,8 +185,7 @@ TEST(Video, StarfieldEnableAndScoreStripStayClear) {
     int stars_on = 0;
     for (uint32_t p : rgb) if (p) stars_on++;
     EXPECT_GT(stars_on, 20);
-    // Score strips are outside the 256-wide star window (native x 0–15
-    // and 272–287 → upright top and bottom 16 rows stay black).
+    // Score strips are outside the 256-wide star window, so those rows stay black.
     int edge = 0;
     for (int y = 0; y < 16; y++)
         for (int x = 0; x < kUprightW; x++)

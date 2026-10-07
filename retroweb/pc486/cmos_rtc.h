@@ -1,25 +1,11 @@
-// Real-time clock + battery-backed CMOS RAM: an MC146818-compatible part
-// with 128 bytes, the DS12887 class a period 486 board carries.
-//
-// Port 0x70 (write-only address latch, bit 7 doubles as the NMI mask) /
-// 0x71 (data). Registers 0x00-0x09 are the time-of-day/alarm/calendar
-// fields, 0x0A-0x0D the chip's control/status registers (A: update-in-
-// progress, divider and rate select; B: mode control; C: interrupt flags,
-// cleared on read; D: valid-RAM flag), and 0x0E-0x7F battery-backed bytes.
-// On an AT-class board 0x10-0x2F hold the BIOS Setup configuration and
-// 0x32 the century.
-//
-// The clock runs from its own 32.768 kHz crystal, so it advances in guest
-// time (CPU cycles over the CPU clock), independent of Turbo. Once a second
-// it runs an update cycle: UIP rises 244 us before it, the registers roll
-// over 1984 us later, then the update-ended and alarm flags are checked.
-// The periodic flag follows register A's rate select. Any enabled flag
-// drives IRQ8 until register C is read. Reference: Motorola MC146818A data
-// sheet ("Update Cycle", "Interrupts", Table 3 periodic rates); Dallas
-// DS12887 data sheet for the 128-byte map.
-//
-// Not modelled: daylight-saving adjustment (register B DSE), and the
-// square-wave output, which an AT board leaves unconnected.
+// MC146818-compatible RTC + 128 bytes battery-backed CMOS RAM (DS12887 class).
+// Port 0x70 is a write-only address latch (bit 7 = NMI mask), 0x71 data.
+// 0x10-0x2F hold BIOS Setup config and 0x32 the century on an AT board.
+// Runs from its own 32.768 kHz crystal, in guest time, independent of Turbo.
+// Each second UIP rises 244 us before the update, registers roll 1984 us
+// later. Any enabled flag drives IRQ8 until register C is read.
+// Motorola MC146818A data sheet ("Update Cycle", "Interrupts", Table 3);
+// Dallas DS12887 for the 128-byte map. No DSE or square-wave output.
 #ifndef PC486_CMOS_RTC_H
 #define PC486_CMOS_RTC_H
 
@@ -31,28 +17,23 @@ class CmosRtc {
 public:
     CmosRtc() { reset(); }
 
-    // Power-on state of a part whose battery has been keeping time: the
-    // calendar is whatever set_time() last loaded (1994-01-01 00:00:00
-    // until a host sets it), the divider running, BCD and 24-hour mode.
+    // Power-on state: calendar as last loaded by set_time() (1994-01-01),
+    // divider running, BCD and 24-hour mode
     void reset();
 
     bool owns(uint16_t port) const { return port == 0x70 || port == 0x71; }
     uint8_t in(uint16_t port);
     void out(uint16_t port, uint8_t v);
 
-    // Host-side: preload a register directly (BIOS-expected config bytes --
-    // memory size, drive types, equipment byte, checksum) without going
-    // through the CPU-facing address/data protocol.
+    // Host-side preload of BIOS config bytes, bypassing the address/data protocol
     void poke(uint8_t reg, uint8_t v) { ram_[reg & 0x7F] = v; }
     uint8_t peek(uint8_t reg) const { return ram_[reg & 0x7F]; }
 
-    // Sets the calendar the way BIOS Setup would, in the register format
-    // register B currently selects. year is the full year (century goes to
-    // 0x32), weekday 1-7 with 1 = Sunday.
+    // Sets the calendar in the format register B selects. year is the full
+    // year (century goes to 0x32), weekday 1-7 with 1 = Sunday.
     void set_time(int year, int month, int day, int hour, int minute, int second, int weekday);
 
-    // Advances the clock against the CPU's running cycle count (absolute,
-    // like Pit8253::tick) at the given CPU clock rate.
+    // Advances against the CPU's absolute cycle count (like Pit8253::tick)
     void tick(uint64_t cpu_cycles, double cpu_hz) {
         uint64_t d = cpu_cycles - prev_cycles_;
         prev_cycles_ = cpu_cycles;
@@ -72,7 +53,7 @@ public:
 
 private:
     static constexpr double kOscHz = 32768.0;
-    // 244 us of UIP warning, then a 1984 us update, in oscillator ticks.
+    // 244 us UIP warning, then 1984 us update, in oscillator ticks
     static constexpr double kUipLead = 8.0;
     static constexpr double kUpdateLen = 65.0;
 

@@ -1,10 +1,8 @@
 import { test, expect } from "./fixtures";
 import { boot, waitForScreen, setPowerSwitch } from "./helpers";
 
-// Hard disk (C: fixed drive) controls: reset/blank/download/upload operations
-// take effect only on next power-on since a real WD1003 can't be swapped live.
-// Buttons disabled while running, upload/reset/blank also disabled until firmware
-// loads. C: state persists across reloads via IndexedDB.
+// C: controls. Changes take effect on next power-on (a WD1003 can't be swapped live),
+// and C: persists across reloads via IndexedDB.
 test.describe("hard disk", () => {
   test("shows the factory-default label and correct button states on first load", async ({
     page,

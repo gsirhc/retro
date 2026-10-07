@@ -1,26 +1,15 @@
-// Intel 8253/8254 Programmable Interval Timer.
+// Intel 8253/8254 Programmable Interval Timer. Three 16-bit down-counters
+// clocked at 1.193182 MHz (14.31818 MHz / 12), independent of the CPU clock.
+// Channel 0 drives IRQ0: the BIOS programs divisor 0 = 65536, giving DOS's
+// 18.206 Hz tick. Channel 1 (DRAM refresh) is not modeled. Channel 2, gated by
+// port 0x61 bit 0, drives the speaker (pcspeaker.h).
 //
-// Three independent 16-bit down-counters clocked at a fixed 1.193182 MHz
-// (the 14.31818 MHz crystal divided by 12) -- a rate wired straight into
-// the AT's motherboard, completely independent of the CPU's own clock.
-// Channel 0's output drives PIC IRQ0 (the classic ~18.2 Hz DOS timer tick,
-// from the BIOS programming it with a divisor of 0 = 65536: 1193182/65536
-// = 18.206 Hz -- this specific fact is why DOS's `TIMER_TICK` runs at that
-// rate, and is worth preserving exactly). Channel 1 historically paced
-// DRAM refresh requests (not modeled -- this emulator's RAM doesn't need
-// refreshing). Channel 2's output, gated by port 0x61 bit 0, drives the PC
-// speaker (see pcspeaker.h, a later phase).
+// Ports 0x40-0x42 are channels 0-2, 0x43 is the control word. Intel 8253/8254
+// data sheet, "Programming the 8253".
 //
-// Ports: 0x40/0x41/0x42 = channel 0/1/2 data, 0x43 = control word.
-// Reference: Intel 8253/8254 data sheet, "Programming the 8253".
-//
-// Scope/simplification: this core models a uniform symmetric-toggle output
-// for every mode (a full high/low period every `reload` PIT clocks, i.e.
-// output frequency = 1193182/reload) rather than each mode's exact
-// waveform shape (real Mode 2's output is a single-clock-wide low pulse
-// per `reload` counts, quite different from a 50% duty square wave). What
-// matters for BIOS/DOS timing is the *edge rate*, which this reproduces
-// correctly; see IBM_PCAT_REVIEW.md.
+// Every mode is modeled as a symmetric toggle with a full period every
+// `reload` clocks (frequency 1193182/reload), not each mode's real waveform
+// (Mode 2 is really a one-clock low pulse). The edge rate is what BIOS/DOS timing uses.
 #ifndef IBMPCAT_PIT8253_H
 #define IBMPCAT_PIT8253_H
 
@@ -38,23 +27,14 @@ public:
     uint8_t in(uint16_t port);
     void out(uint16_t port, uint8_t v);
 
-    // Advance the PIT's own 1.193182 MHz clock against the CPU's running
-    // cycle count (absolute, like CassetteACR::tick -- the delta since the
-    // last call is computed internally) at the given CPU clock rate.
-    // Returns how many times channel 0's output rose during this call, so
-    // the chipset can pulse PIC IRQ0 that many times.
+    // Advances the PIT clock against the absolute CPU cycle count. Returns how
+    // many times channel 0's output rose, for the chipset to pulse IRQ0.
     int tick(uint64_t cpu_cycles, double cpu_hz);
 
-    // Port 0x61 bit 0 gates channel 2 (the speaker channel). Real Mode 3
-    // hardware does two things this models explicitly, both load-bearing
-    // for pcspeaker.h's direct-toggle "digitized" playback technique:
-    // gate low freezes the counter *and* forces the output high
-    // immediately (not just whatever phase it happened to be in), so a
-    // program that parks the PIT (gate low) and toggles the Speaker Data
-    // Enable bit directly gets a clean, predictable high baseline to relay
-    // through the speaker's AND gate; gate's rising edge reloads the
-    // counter, restarting the square wave from the beginning of its
-    // period rather than resuming mid-phase.
+    // Port 0x61 bit 0 gates channel 2. Mode 3 hardware freezes the counter and
+    // forces the output high when the gate goes low, giving the direct-toggle
+    // speaker technique (pcspeaker.h) a high baseline. The gate's rising edge
+    // reloads the counter, restarting the period.
     void set_gate2(bool level);
     bool channel2_output() const { return ch_[2].output; }
 
@@ -70,8 +50,7 @@ private:
         bool gate = true;
         bool armed = false;
         bool just_rose = false;
-        // BIOS occasionally reads the counter back (e.g. diagnostics) via
-        // the counter-latch command (control word with access==0).
+        // Counter-latch command (control word with access==0).
         bool latched = false;
         uint16_t latch_value = 0;
         bool latch_msb_pending = false;

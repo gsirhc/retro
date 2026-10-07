@@ -1,7 +1,3 @@
-// GoogleTest suite for the 8259A PIC: ICW1-4 initialization, OCW1 masking,
-// OCW2 EOI, and the acknowledge()/raise()/priority behavior the chipset
-// relies on. Reference: Intel 8259A data sheet, "Programming" section.
-
 #include <gtest/gtest.h>
 
 #include "pic8259.h"
@@ -10,10 +6,7 @@ namespace {
 
 using ibmpcat::Pic8259;
 
-// A genuine AT BIOS's real init sequence for the master (vector base 0x08,
-// cascaded, edge-triggered, 8086 mode): ICW1=0x11 (edge, cascade, ICW4
-// needed), ICW2=0x08 (vector base), ICW3=0x04 (slave on IR2), ICW4=0x01
-// (8086 mode, normal EOI).
+// AT BIOS master init: ICW1=0x11, ICW2=0x08 (base), ICW3=0x04 (slave on IR2), ICW4=0x01.
 void InitMaster(Pic8259 &pic) {
     pic.out(0x20, 0x11);
     pic.out(0x21, 0x08);
@@ -62,9 +55,7 @@ TEST(Pic8259Test, AcknowledgeClearsIrrAndSetsIsrUntilEoi) {
     pic.raise(4);
     uint8_t v1 = pic.acknowledge();
     EXPECT_EQ(v1, 0x08 + 2);
-    // IR2's ISR bit is set (in-service, no auto-EOI programmed), so the
-    // still-pending IR4 request is visible but IR2 shouldn't be re-served --
-    // has_interrupt() reflects only IRR&~IMR, so IR4 is still reported.
+    // IR2 is in service, IR4 is still pending and reported.
     EXPECT_TRUE(pic.has_interrupt());
     EXPECT_EQ(pic.acknowledge(), 0x08 + 4);
     // Non-specific EOI clears the lowest still-in-service bit (IR2 first).

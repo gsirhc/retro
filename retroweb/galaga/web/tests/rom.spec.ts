@@ -121,8 +121,7 @@ test.describe("ROM set loader", () => {
   test("an accepted set is persisted in IndexedDB and restored on reload", async ({ page }) => {
     await page.locator("#romFile").setInputFiles(PARTS);
     await expect(page.locator("#romStatus")).toHaveText("Running test ROM");
-    // The status line does not change for the self-test, so wait until the
-    // write has committed before reloading.
+    // Wait for the write to commit before reloading.
     await expect.poll(() => page.evaluate(() => new Promise((resolve) => {
       const req = indexedDB.open("retroweb-galaga", 1);
       req.onsuccess = () => {

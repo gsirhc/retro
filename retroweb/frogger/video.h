@@ -1,5 +1,4 @@
-// Frogger board aliases for shared Galaxian-family video. Defaults to
-// Board::Frogger (nibble-swap, river split, PROM blue bit open).
+// Frogger board aliases for shared Galaxian-family video.
 
 #ifndef FROGGER_VIDEO_H
 #define FROGGER_VIDEO_H

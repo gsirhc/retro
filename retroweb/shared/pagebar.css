@@ -1,14 +1,5 @@
-/* Shared page-shell + pagebar/titlebar chrome -- the DOS-prompt-styled
-   Win95 title bar / plain nav bar / Modern app-bar header every machine page
-   (and nothing else -- the CRT/case/front-panel hardware keeps its own
-   photoreal look in every theme, styled locally per machine) uses to host
-   the "back to all machines" link, the page name, and the theme picker.
-   Colors/fonts all come from custom properties each machine's own <style>
-   block still defines in its own :root/[data-theme] rules -- only the
-   *mechanism* (flex layout, which parts show under which theme) lives here,
-   so each machine keeps its own palette while the chrome itself stays one
-   shared, no-longer-hand-copied thing. See CLAUDE.md's shared-front-end
-   convention and each machine's web/Makefile `shared` target. */
+/* Shared page-shell + pagebar/titlebar chrome. Layout and per-theme visibility
+   live here; colors come from each machine's own tokens. */
 
 * { box-sizing: border-box; }
 html, body { margin: 0; }
@@ -47,13 +38,11 @@ h1, h2, h3 { font-weight: 600; }
 }
 .pagebar a { color: inherit; }
 .pb-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* The classic Windows-title-bar app icon -- real Windows 95/period browsers
-   always showed one to the left of the window title. Hidden under Modern,
-   which uses .pb-name/.pb-tag instead. */
+/* Windows title-bar app icon; Modern uses .pb-name/.pb-tag instead. */
 .pb-icon { width: 14px; height: 14px; vertical-align: -2px; margin-right: 3px; }
 :root[data-theme="modern"] .pb-icon { display: none; }
 .pb-home { flex: 0 0 auto; display: none; text-decoration: none; font-weight: bold; }
-.pb-name, .pb-tag { display: none; }   /* Modern folds the page title into this bar instead */
+.pb-name, .pb-tag { display: none; }   /* Modern uses these instead */
 .pb-tools { flex: 0 0 auto; margin-left: auto; display: flex; align-items: center; gap: 10px; }
 .pb-theme { display: inline-flex; align-items: center; gap: 5px; font: inherit; }
 .pb-theme-btn {
@@ -64,15 +53,14 @@ h1, h2, h3 { font-weight: 600; }
 }
 .pb-theme-btn:active { border-style: inset; }
 
-/* Theme picker dialog -- built by theme-picker.js; chrome lives here so
-   landing/about (no fullscreen.css) get the same panel look. */
+/* Theme picker dialog, built by theme-picker.js. Lives here so landing/about
+   get it too. */
 #themeDialog {
   max-width: 320px; padding: 16px 18px 18px;
   background: var(--panel-bg); color: var(--text);
   border: var(--panel-border); border-radius: var(--panel-radius);
 }
-/* Atmosphere (aurora) panels are glassy; the dialog needs to read as a
-   solid sheet over the page cards. */
+/* Aurora panels are glassy; the dialog needs a solid sheet. */
 :root[data-theme="aurora"]:not([data-mode="dark"]) #themeDialog {
   background: rgba(255, 252, 255, .94);
 }
@@ -135,10 +123,6 @@ h1, h2, h3 { font-weight: 600; }
   font: 500 13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   padding: 10px 16px;
 }
-/* --rule is already a full "1px solid <color>" border shorthand in every
-   machine's own dark-modern token block (just a different color per
-   machine) -- reusing it here keeps this override in whatever color each
-   machine's own dark palette actually uses, instead of hardcoding one. */
 :root[data-theme="modern"][data-mode="dark"] .pagebar { border-bottom: var(--rule); }
 :root[data-theme="modern"] .pb-title   { display: none; }
 :root[data-theme="modern"] .pb-winbtns { display: none; }

@@ -1,7 +1,3 @@
-// GoogleTest suite for the AT keyboard controller: self-test, command-byte
-// read/write, the A20 gate (Output Port bit 1), the CPU-reset trick (bit 0
-// / command 0xFE), and keyboard scan-code delivery with IRQ1 gating.
-
 #include <gtest/gtest.h>
 
 #include "i8042.h"
@@ -11,9 +7,7 @@ namespace {
 using ibmpcat::I8042;
 
 TEST(I8042Test, ResetDeliversUnsolicitedKeyboardBatByte) {
-    // A real AT keyboard sends 0xAA unsolicited after its own power-on
-    // self-test, independent of the controller's 0xAA self-test command --
-    // BIOS's keyboard-presence POST check waits for exactly this.
+    // Unsolicited 0xAA after the keyboard's power-on self-test; BIOS POST waits for it.
     I8042 kbc;
     kbc.reset();
     EXPECT_TRUE(kbc.in(0x64) & 0x01);
@@ -87,10 +81,7 @@ TEST(I8042Test, ScancodeSetsIrq1OnlyWhenEnabledInCommandByte) {
 }
 
 TEST(I8042Test, ResetCommandGetsAckThenBatByteOnSeparateReads) {
-    // Real BIOS keyboard POST (confirmed against the Bochs rombios.c
-    // source, see IBM_PCAT_REVIEW.md) sends 0xFF, expects 0xFA back
-    // immediately, THEN polls again and expects 0xAA as a second, distinct
-    // byte -- not both at once, and not just the unsolicited power-on BAT.
+    // BIOS keyboard POST (Bochs rombios.c) sends 0xFF, expects 0xFA, then 0xAA as a separate byte.
     I8042 kbc;
     kbc.reset();
     kbc.in(0x60);  // drain the power-on BAT byte first

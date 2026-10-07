@@ -1,9 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-// Rotate/thrust/fire/hyperspace/coin/start input mapping (app.js's
-// applyKeys). IN0/IN1 are active-high as the board's own open-collector
-// latch presents them -- released reads back 0, a pressed bit reads back 1
-// (see Inputs in machine.h, unlike the active-low Pac-Man/Galaxian family).
+// IN0/IN1 are active-high: released reads 0, pressed reads 1.
 
 test.describe("keyboard input", () => {
   test.beforeEach(async ({ page }) => {

@@ -1,8 +1,4 @@
-// GoogleTest suite for the PC speaker's AND-gate signal and edge log: the
-// standard tone-generation combination, the direct-toggle "digitized"
-// playback technique (Speaker Data Enable relayed straight through while
-// the PIT side is pinned high), edge deduplication, draining, and the
-// bounded log's oldest-drops-first overflow behavior.
+// GoogleTest suite for the PC speaker's AND-gate signal and edge log.
 
 #include <gtest/gtest.h>
 
@@ -47,10 +43,7 @@ TEST(PcSpeakerTest, DrainEdgesReturnsAndClearsTheLog) {
 }
 
 TEST(PcSpeakerTest, DigitizedPlaybackRelaysSpeakerDataEnableWhenPitIsParked) {
-    // The direct-toggle technique: gate the PIT off (its output is pinned
-    // high the whole time, per pit8253.h's real Mode-3 gate-low behavior)
-    // and drive the speaker purely through the Speaker Data Enable bit --
-    // the AND gate then just relays that bit's own transitions verbatim.
+    // Direct toggle: the PIT output is pinned high (pit8253.h Mode-3 gate low), so the AND gate relays Speaker Data Enable.
     PcSpeaker sp;
     sp.reset();
     bool pit_parked_high = true;
@@ -76,9 +69,7 @@ TEST(PcSpeakerTest, ResetClearsLevelAndPendingEdges) {
 }
 
 TEST(PcSpeakerTest, OverflowDropsTheOldestEdgeNotTheNewest) {
-    // Real hardware has no such limit -- this just bounds memory for a
-    // speaker that's actively playing with nobody draining it (see
-    // pcspeaker.h). Prove it drops the oldest transition, not the newest.
+    // Real hardware has no limit; the cap only bounds memory when nothing drains. Oldest edge drops first.
     PcSpeaker sp;
     sp.reset();
     constexpr int kMaxEdges = 1 << 16;
@@ -87,7 +78,6 @@ TEST(PcSpeakerTest, OverflowDropsTheOldestEdgeNotTheNewest) {
     }
     auto edges = sp.drain_edges();
     EXPECT_EQ(edges.size(), std::size_t(kMaxEdges));
-    // The first 5 edges (cycles 0-4) were dropped to stay within the cap.
     EXPECT_EQ(edges.front().cpu_cycle, 5u);
     EXPECT_EQ(edges.back().cpu_cycle, uint64_t(kMaxEdges + 4));
 }

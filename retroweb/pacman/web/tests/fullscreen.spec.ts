@@ -1,16 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-// Fullscreen mode (expands #bezel -- CRT frame + vignette, not just the
-// bare canvas -- see shared/fullscreen.css's #bezel:fullscreen comment). A
-// pure web-UI convenience with no real arcade-cabinet precedent, same as
-// every other machine's copy of this mechanism (shared/fullscreen.js).
-//
-// Unlike altair8800/assembler6502 (xterm.js) and ibmpc-at (a DOS keyboard
-// channel worth injecting a real Escape into), this page's app.js doesn't
-// wire up the one-time "Esc won't reach the guest" hint dialog or its
-// on-screen Esc button (initFullscreen's fsEscHint/escBtn are both
-// optional, and there's no serial-style input here for a physical Esc key
-// to reach anyway -- the joystick keys all still work while fullscreen).
+// Fullscreen expands #bezel. No Esc hint dialog here, keys are not serial input.
 
 test.describe("fullscreen", () => {
   test.beforeEach(async ({ page }) => {

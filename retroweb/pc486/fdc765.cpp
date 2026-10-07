@@ -18,8 +18,7 @@ void Fdc765::reset() {
     transfer_ready_ = false;
     xfer_active_ = false;
     prev_cycles_ = 0;
-    // Mounted media survives a controller reset, matching real hardware --
-    // only the controller's own transient state is cleared here.
+    // Mounted media survives a controller reset.
     for (auto &d : drives) {
         d.current_cylinder = 0;
         d.motor_on = false;
@@ -35,25 +34,12 @@ void Fdc765::mount(int drive, const uint8_t *data, std::size_t len) {
     d.write_protected = false;
     d.current_cylinder = 0;
     d.disk_changed = true;  // real DSKCHG: asserted whenever media is swapped
-    // Geometry follows the actual media, not just which bay it's in -- a
-    // real 3.5" high-density drive (this system's only bay, A:)
-    // mechanically and magnetically CAN read/write a genuine double-density
-    // 720KB diskette (a different data rate, not a different drive), so a
-    // 720KB image is a real, period-legal combination, not an error.
-    // Branching on drive geometry alone, rather than the actual mounted
-    // image, would keep a 720KB image on the drive's 80/2/18 HD geometry
-    // regardless -- CHS math beyond the very first sector (offset 0 under
-    // any geometry) would land on the wrong bytes or run past the image
-    // entirely, which chipset.cpp's DMA path silently treats as "transfer
-    // completed, zero bytes moved" rather than a real disk error -- a
-    // loader would appear to succeed and then jump into garbage, hanging
-    // exactly where a real boot would instead get a real controller error
-    // it could act on.
+    // Geometry follows the mounted image: a 3.5" HD drive also reads 720KB
+    // double-density media. Using the drive's HD geometry for a 720KB image would
+    // put CHS math past the first sector on the wrong bytes, and chipset.cpp's DMA
+    // path would report success with zero bytes moved.
     if (len <= 737280) {
-        // 720KB: 80 cyl / 2 head / 9 sec/track, 250 kbit/s, ~3ms/track step
-        // (same physical drive/step mechanism as the 1.44MB case below --
-        // only the data rate and sector count differ between the two
-        // densities a real 3.5" HD drive supports).
+        // 720KB: 80 cyl / 2 head / 9 sec/track, 250 kbit/s, ~3ms/track step.
         d.cylinders = 80; d.heads = 2; d.sectors_per_track = 9;
         d.bytes_per_sec = 31250.0;
         d.cycles_per_track_step = 0.003 * cpu_hz_;
@@ -101,30 +87,16 @@ uint8_t Fdc765::in(uint16_t port) {
         case 0x3F5:
             if (phase_ == Phase::kResult) {
                 uint8_t v = result_[result_sent_++];
-                // Real uPD765/8272 hardware drops the INT line as soon as
-                // the CPU reads the *first* result byte (ST0) -- not after
-                // the whole result phase is drained. Getting this wrong is
-                // a real bug this session hit: some real driver code reads
-                // only ST0 (or a handful of the 7 result bytes) before
-                // moving on, and modeling "IRQ clears on full drain"
-                // instead left the interrupt permanently pending,
-                // re-triggering the ISR every single tick forever. See
-                // ibmpc-at/IBM_PCAT_REVIEW.md §8.
+                // The INT line drops when the CPU reads the first result byte (ST0), not after
+                // the whole result phase. See ibmpc-at/IBM_PCAT_REVIEW.md §8.
                 if (result_sent_ == 1) irq_pending_ = false;
                 if (result_sent_ >= result_count_) phase_ = Phase::kIdle;
                 return v;
             }
             return 0xFF;
         case 0x3F7: {
-            // Digital Input Register, bit 7: disk-change, for whichever
-            // drive the DOR's select bits currently point at. Genuinely
-            // load-bearing: a multi-floppy installer's file-copy routine
-            // polls this to confirm the user actually swapped media before
-            // trusting a re-read of the drive -- reporting "unchanged"
-            // unconditionally left it waiting forever for a change that
-            // would never come, regardless of how many times the correct
-            // new disk had already been mounted. See Drive::disk_changed
-            // and PC486_REVIEW.md.
+            // Digital Input Register bit 7: disk change for the DOR-selected drive.
+            // Installers poll it to confirm a swap. See Drive::disk_changed.
             int drive = dor_ & 0x01;
             return drives[drive].disk_changed ? 0x80 : 0x00;
         }
@@ -141,8 +113,7 @@ void Fdc765::out(uint16_t port, uint8_t v) {
             drives[1].motor_on = (v & 0x20) != 0;
             bool now_reset = !(v & 0x04);
             if (was_reset && !now_reset) {
-                // Rising edge of ~RESET (leaving the held-reset state) --
-                // real hardware raises an interrupt here.
+                // Rising edge of ~RESET raises an interrupt.
                 phase_ = Phase::kIdle;
                 irq_pending_ = true;
             } else if (now_reset) {
@@ -228,9 +199,7 @@ void Fdc765::run_command() {
             int new_cyl = (base == 0x07) ? 0 : params_[1];
             int steps = std::abs(new_cyl - drives[drive].current_cylinder);
             drives[drive].current_cylinder = new_cyl;
-            // Real hardware: DSKCHG clears once the drive actually steps --
-            // this is how software confirms a floppy swap "took" before
-            // trusting whatever it reads next. See Drive::disk_changed.
+            // DSKCHG clears once the drive actually steps. See Drive::disk_changed.
             if (drives[drive].present) drives[drive].disk_changed = false;
             seek_drive_ = drive;
             seeking_ = true;

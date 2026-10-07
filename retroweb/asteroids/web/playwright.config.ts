@@ -1,12 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
-// Integration suite for the Asteroids arcade emulator front end. Drives the
-// real page in a real browser: asserts control behaviour, machine state
-// (via the `?test=1`-gated window.__test seam app.js exposes), and canvas
-// pixel contents. Modeled on retroweb/pacman/web/playwright.config.ts.
-
-const PORT = 9000;      // the emulator front end (this dir)
-const HOME_PORT = 9010; // the retroweb/ landing page, for home.spec.ts
+const PORT = 9000;
+const HOME_PORT = 9010; // landing page, for home.spec.ts
 
 export default defineConfig({
   testDir: "tests",
@@ -14,9 +9,7 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
-  // A real requestAnimationFrame-paced 1.512 MHz 6502 core per page -- same
-  // "don't starve a real-time-paced tab of wall-clock CPU" reasoning as the
-  // other machines' configs.
+  // Each page runs a real-time-paced core, so don't starve it of CPU.
   workers: process.env.CI ? 2 : 4,
   reporter: process.env.CI ? [["list"], ["html", { open: "never" }]] : [["list"]],
 
@@ -42,7 +35,6 @@ export default defineConfig({
       stderr: "pipe",
     },
     {
-      // retroweb/ (two levels up) for the landing-page spec
       command: `python3 -m http.server ${HOME_PORT} -d ../..`,
       url: `http://localhost:${HOME_PORT}/`,
       reuseExistingServer: !process.env.CI,

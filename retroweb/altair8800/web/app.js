@@ -1,10 +1,5 @@
-// Bridges the WebAssembly 8080 machine to an xterm.js terminal.
-//
-//   xterm keystrokes ──► machine.sendByte()      (serial channel A RX FIFO)
-//   machine.readOutput() ──► xterm.write()       (serial channel A TX FIFO)
-//
-// The CPU is advanced once per animation frame by a fixed slice of cycles;
-// the 2SIO ring buffers absorb the rate mismatch between the two clocks.
+// Bridges the WebAssembly 8080 machine to an xterm.js terminal. The CPU advances once per
+// animation frame; the 2SIO ring buffers absorb the rate mismatch.
 
 const CPU_HZ = 2_000_000;   // Altair 8080A clock; emulation is paced to real time
 
@@ -81,10 +76,8 @@ async function boot() {
                 "Did `make` succeed? Is retro8080.js next to index.html?");
   }
 
-  // `?test=1` gates the sanctioned automated-test overrides (load speeds
-  // forced to Max, the Playwright __test seam, below) plus UI-only pacing
-  // that exists purely so a human can watch it happen (the panel guide's
-  // "key it in for me" animation) -- never anything the CPU/bus itself does.
+  // ?test=1 gates the automated-test overrides (load speeds forced to Max, the __test seam)
+  // and UI-only pacing, never anything the CPU or bus does.
   const TEST_MODE = new URLSearchParams(location.search).get("test") === "1";
 
   // --- terminal --------------------------------------------------------
@@ -99,36 +92,20 @@ async function boot() {
   const screenEl = document.getElementById("screen");
   const bezelEl = screenEl.closest(".bezel");
   const monitorEl = screenEl.closest(".monitor");
-  // Declared here (not down by the main loop below, where these
-  // conceptually belong) so they're initialized before the isRunning
-  // predicate just below can possibly be called -- term.focus() a little
-  // further down synchronously fires a focusin event, which would
-  // otherwise read `powered` while it's still in its let-declaration's
-  // temporal dead zone and throw.
+  // declared early: term.focus() fires focusin synchronously and reads `powered` (TDZ)
   let running = false;   // front-panel STOP/RUN
-  let powered = false;   // front-panel OFF/ON -- a real Altair doesn't arrive
-                          // already running; you walk up and flip it on yourself
+  let powered = false;   // front-panel OFF/ON
   // reference box; sizeScreen() measures the font here then locks to 80x24
   const REF_W = 792, REF_H = 460;
   term.open(screenEl);
   fit.fit();
 
-  // "Click to type" banner and fullscreen mechanism: both purely web-UI
-  // conveniences (a real Altair front panel has no such state), not
-  // something CLAUDE.md's realism rules govern -- see shared/focus-hint.js
-  // and shared/fullscreen.js. powered is declared further down; passing it
-  // as a predicate (not a captured value) lets these read its live value
-  // from event handlers that run after the whole script has executed and
-  // powered actually exists.
+  // web-UI conveniences, not machine behavior; `powered` is passed as a predicate
+  // because it's declared further down
   const isRunning = () => powered;
   const updateFocusHint = initFocusHint(screenEl, isRunning);
-  // #screen is a <div> sized by inline pixel width/height (see sizeScreen()
-  // below), not CSS -- an inline style always beats fullscreen.css's own
-  // `#bezel:fullscreen #screen` rule, so left alone the terminal would just
-  // sit at its normal, page-layout-constrained pixel size in the middle of
-  // an otherwise-empty fullscreen bezel. sizeScreen() itself grows the font
-  // size to fill the bezel instead (see its step 4, below), run via this
-  // callback on every fullscreen transition.
+  // #screen has inline pixel sizes that beat fullscreen.css, so sizeScreen() grows the
+  // font to fill the bezel (step 4), run via this callback on each fullscreen change
   initFullscreen({
     bezelEl,
     screenEl,
@@ -136,40 +113,28 @@ async function boot() {
     fsEscHint: document.getElementById("fsEscHint"),
     fsEscHintOkBtn: document.getElementById("fsEscHintOk"),
     escBtn: document.getElementById("escBtn"),
-    // No scancode keyboard here -- typed input is just bytes on the serial
-    // line (see term.onData below), so "send Escape to the guest" is the
-    // same handleTermData() path a real Escape keypress already takes.
+    // typed input is just bytes on the serial line, same path as a real Escape
     sendEscape: () => handleTermData("\x1b"),
     isRunning,
     onFullscreenChange: () => requestAnimationFrame(sizeScreen),
   });
 
-  // On a CRT (no scrollback) xterm turns wheel events into arrow-key presses
-  // sent to the program. Stop it before xterm sees them so the page just
-  // scrolls; the Teletype (has scrollback) keeps normal wheel scrolling.
+  // On a CRT (no scrollback) xterm turns wheel events into arrow keys; stop that so the
+  // page scrolls. The Teletype keeps normal wheel scrolling.
   /* v8 ignore start -- scroll-lock guard, only runs on a real wheel event */
   screenEl.addEventListener("wheel", (e) => {
     if (!monitorEl.classList.contains("scrolls")) e.stopImmediatePropagation();
   }, { capture: true });
   /* v8 ignore stop */
 
-  // Fill the terminal's column with the monitor: screen as wide as fits (minus
-  // the monitor's own frame), locked to 24 rows; column count floats with the
-  // font. The measured box is .ws-terminal — the full content column in the
-  // single-column layout, or just the left grid track when Modern goes
-  // side-by-side on a wide screen.
+  // Fill the column with the monitor: as wide as fits, locked to 24 rows; columns float
+  // with the font. The measured box is .ws-terminal.
   const termBox = screenEl.closest(".ws-terminal") || screenEl.closest(".inner");
-  // Set only while fullscreen is active -- the profile's real font size,
-  // saved once so fullscreen's own enlargement (below) always scales up
-  // from the true base size instead of compounding on top of a previous
-  // enlargement if sizeScreen() runs again mid-fullscreen (a theme change,
-  // a window resize while fullscreen, etc).
+  // profile's real font size, saved while fullscreen so enlargement doesn't compound
   let fsBaseFontSize = null;
   function sizeScreen() {
     try {
-      // Undo any fullscreen font-size enlargement before measuring -- the
-      // "natural" (non-fullscreen) box below has to reflect the profile's
-      // real font size, not whatever fullscreen last scaled it to.
+      // undo fullscreen enlargement before measuring the natural box
       if (fsBaseFontSize != null) term.options.fontSize = fsBaseFontSize;
 
       // 1. measure the font at a reference size
@@ -179,8 +144,7 @@ async function boot() {
       if (!term.cols || !term.rows) return;
       const cw = REF_W / term.cols, ch = REF_H / term.rows;   // cell size for this font
 
-      // 2. the monitor's own frame, measured with the screen collapsed so a
-      //    max-width clamp on the monitor (narrow column) can't corrupt the delta
+      // 2. monitor frame, measured with the screen collapsed (a max-width clamp would skew it)
       screenEl.style.width = "0px";
       const frame = Math.max(0, monitorEl.offsetWidth - screenEl.offsetWidth);
 
@@ -199,14 +163,8 @@ async function boot() {
       term.resize(cols, 24);
       term.refresh(0, term.rows - 1);
 
-      // 4. fullscreen: grow the *font itself* (not a CSS transform of the
-      // same small raster -- that just blurs the already-rendered pixels)
-      // to fill the fullscreened bezel, then let FitAddon re-fit cols/rows
-      // to that larger, still-crisp size. termBox above lives outside the
-      // fullscreened subtree (the Fullscreen API repaints #bezel in its own
-      // top layer without resizing the window), so it never reflects the
-      // fullscreen viewport -- #bezel's own box, sized 100vw/100vh by
-      // fullscreen.css, is what's actually available here instead.
+      // 4. fullscreen: grow the font itself (a CSS transform would blur), then FitAddon refits.
+      // termBox is outside the fullscreen subtree, so use #bezel's own 100vw/100vh box.
       const fs = (document.fullscreenElement || document.webkitFullscreenElement) === bezelEl;
       if (fs) {
         if (fsBaseFontSize == null) fsBaseFontSize = term.options.fontSize;
@@ -228,8 +186,7 @@ async function boot() {
     } catch {}
   }
   addEventListener("resize", sizeScreen);
-  // the terminal's column can also change width without a window resize — the
-  // Modern side-by-side breakpoint, or the panel column reflowing — so watch it
+  // the column can change width without a window resize (Modern side-by-side, panel reflow)
   /* v8 ignore start -- ResizeObserver callback, layout-driven */
   if (termBox && window.ResizeObserver) {
     let pending = false;
@@ -254,33 +211,19 @@ async function boot() {
   }
   placeTermBar();
   wideLayout.addEventListener("change", () => { placeTermBar(); sizeScreen(); });
-  // A real serial terminal shows nothing at power-on but a cursor — it has no
-  // idea what (if anything) is on the other end of the wire. So no banner.
+  // a real terminal shows only a cursor at power-on, so no banner
 
   // --- serial terminal profiles ----------------------------------
-  // CAPS LOCK (the terminal's ALPHA-LOCK) is a plain manual toggle, default on
-  // — most Altair-era software wants uppercase and many terminals were
-  // uppercase-only anyway. Profiles don't touch it.
+  // CAPS LOCK (ALPHA-LOCK) is a manual toggle, default on; profiles don't touch it
   const caps = document.getElementById("caps");
 
-  // --- per-profile output realism ---------------------------------------
-  // xterm.js is always a full VT100+/xterm parser. A real period terminal
-  // wasn't: an ASR-33 has no video memory to address, a VT52 speaks a
-  // different escape set than ANSI, an ADM-3A addresses the cursor with its
-  // own encoding and no ANSI at all. Each profile's `filter` factory returns
-  // a stateful byte-stream transform (state must survive across metered
-  // chunks -- a slow baud rate can split an escape sequence over many calls)
-  // that runs just before bytes reach xterm; profiles without one (the VT100s,
-  // Modern) are genuinely ANSI/xterm-compatible and pass through unchanged.
-  // See ALTAIR_REVIEW.md §4.
+  // --- per-profile output filters -------------------------------------
+  // xterm is always a full VT100+ parser. Each profile's `filter` is a stateful byte
+  // transform (state spans metered chunks) approximating a period terminal; profiles
+  // without one pass through. See ALTAIR_REVIEW.md §4.
 
-  // ASR-33 / Glass TTY: no cursor addressing, no clear screen, no reverse
-  // video -- these were printing (ASR-33) or minimal glass (early VDT)
-  // terminals with no escape-sequence handling at all. Only CR, LF, BS, BEL
-  // and HT are real controls; anything that looks like ESC or ESC[...final
-  // is swallowed rather than reaching xterm's parser. BS itself needs no
-  // translation: xterm's default backspace already just moves the cursor
-  // left without erasing, exactly like a print head backing up to overstrike.
+  // ASR-33 / Glass TTY: no escape handling. Only CR LF BS BEL HT pass; ESC and ESC[...final
+  // are swallowed. BS needs no translation (xterm moves left, like overstrike).
   function dumbFilter() {
     let state = "ground";                 // ground | esc | csi
     const KEEP_C0 = new Set([0x07, 0x08, 0x09, 0x0a, 0x0d]); // BEL BS HT LF CR
@@ -297,10 +240,8 @@ async function boot() {
     };
   }
 
-  // DEC VT52: cursor moves / home / erase share ANSI's final letter but need
-  // the CSI "[" xterm requires; direct addressing (ESC Y row col, each +32)
-  // becomes an ANSI CUP; keypad-mode and identify sequences have no xterm
-  // equivalent and are dropped rather than mistranslated.
+  // DEC VT52: direct address (ESC Y row col, each +32) becomes an ANSI CUP, cursor moves
+  // gain the CSI "[", keypad-mode and identify sequences are dropped.
   function vt52Filter() {
     let state = "ground";                 // ground | esc | Y1 (row byte pending)
     let row = 0;
@@ -326,11 +267,8 @@ async function boot() {
     };
   }
 
-  // Lear Siegler ADM-3A: cursor moves are bare control codes (no ESC), not
-  // ANSI's CSI letters -- ^H left (needs no translation, same as BS), ^J down
-  // (needs no translation, same as LF), ^K up, ^L right, ^Z clear+home. Direct
-  // addressing is ESC = row col (each +32, matching VT52's Y). This is
-  // exactly the terminal driver WordStar's ADM-3A mode emits.
+  // Lear Siegler ADM-3A: bare control codes (^K up, ^L right, ^Z clear+home; ^H and ^J need
+  // no translation) and ESC = row col (each +32), as WordStar's ADM-3A driver emits.
   function adm3aFilter() {
     let state = "ground";                 // ground | esc | eq1
     let row = 0;
@@ -413,9 +351,7 @@ async function boot() {
       brightBlack: p.dim, brightRed: p.br, brightGreen: p.br, brightYellow: p.br,
       brightBlue: p.br, brightMagenta: p.br, brightCyan: p.br, brightWhite: p.br,
     };
-    // Each terminal profile carries its own fixed, period-appropriate CRT
-    // level (none/scan/scanheavy/paper) -- no user-facing on/off override;
-    // a real CRT doesn't come with a scanline switch either.
+    // each profile has a fixed CRT level; a real CRT has no scanline switch
     const showCrt = p.crt !== "none";
     bezelEl.className = "bezel crt-" + p.crt;
     monitorEl.classList.toggle("amber", key === "vt100a");
@@ -423,8 +359,7 @@ async function boot() {
     monitorEl.classList.toggle("bare", p.crt === "none" || p.crt === "paper");
     monitorEl.classList.toggle("scrolls", !!p.scrollback);
     screenEl.style.setProperty("--glow", (showCrt ? p.glow : 0) + "px");
-    // wait for the bitmap face + let xterm re-measure the new cell size,
-    // then size the screen
+    // wait for the bitmap face and xterm's re-measure, then size the screen
     (document.fonts ? document.fonts.ready : Promise.resolve())
       .then(() => setTimeout(sizeScreen, 30));
     try { localStorage.setItem("retro8080.term", key); } catch {}
@@ -464,10 +399,8 @@ async function boot() {
 
   // --- terminal -> CPU ----------------------------------------------
   const encoder = new TextEncoder();
-  // Named (not inline in term.onData below) so the fullscreen escBtn's
-  // sendEscape() can feed a synthetic "\x1b" through this exact same path
-  // -- the browser eats a real Escape keydown while fullscreen before even
-  // xterm's own hidden textarea sees it (see shared/fullscreen.js).
+  // named so the fullscreen escBtn can feed a synthetic "\x1b" through this path; the
+  // browser eats a real Escape keydown in fullscreen (see shared/fullscreen.js)
   function handleTermData(data) {
     turbo = false;            // the player is here now — back to authentic 2 MHz
     // a keypress skips to the end of a slow how-to printout
@@ -484,33 +417,24 @@ async function boot() {
   term.onData(handleTermData);
 
   // --- CPU -> terminal ------------------------------------------
-  // Bytes the CPU transmits are pulled off the 2SIO into `outQ`, then metered
-  // onto the screen at the selected terminal's baud rate. Keeping outQ short
-  // lets the 2SIO's 512-byte FIFO fill, which drops its TDRE bit, which makes
-  // an output-bound program (BASIC LISTing, say) actually wait for the
-  // terminal — exactly how a 110-baud Teletype throttled the machine.
+  // CPU output goes to `outQ`, metered at the profile's baud. Keeping outQ short lets the
+  // 2SIO FIFO fill and drop TDRE, so an output-bound program waits like a real Teletype.
   const crlf = document.getElementById("crlf");
   const outQ = [];
 
-  // `rxWatch` is a rolling copy of recent CPU output the loaders poll to sync
-  // with BASIC's cold-start prompts; `loaderToken` is bumped on every new load
-  // so a stale async loader can tell it has been superseded and bail.
+  // rxWatch: recent CPU output the loaders poll for BASIC prompts; loaderToken lets a
+  // superseded loader bail
   let rxWatch = "";
   let loaderToken = 0;
-  let turbo = false;       // run the CPU faster than 2 MHz: during a load, and
-                           // briefly after, so a program's one-time setup (the
-                           // galaxy in Star Trek is ~20 s of real 8080 time)
-                           // doesn't look like a hang. Ends on the first keypress.
+  let turbo = false;       // load-time only (Star Trek's setup is ~20 s); ends on first keypress
 
   let baudCps = 0;          // 0 = unthrottled; else characters/second
   let baudBudget = 0;
   let termFilter = null;    // current profile's output filter, or null (pass-through)
   let printingManual = false;   // the how-to is metered at the terminal's baud
   let baudSaved = 0;            // real baud, restored when the how-to finishes
-  let crlfPending = false;      // a CR ended the last readOutput() batch; the LF
-                                // decision waits for the next batch (see below)
-  let coldStartWatch = false;   // capture rxWatch during a cold start, but the output
-                                // still reaches the terminal (4K BASIC's prompts)
+  let crlfPending = false;      // a CR ended the last batch; the LF decision waits for the next
+  let coldStartWatch = false;   // capture rxWatch during cold start (4K BASIC prompts); output still shows
 
   function pullSerial() {
     // stay mostly drained so the 2SIO FIFO does the buffering + TDRE backpressure
@@ -519,11 +443,8 @@ async function boot() {
     const n = out.length;
     if (n === 0) return;
 
-    // "CR -> CR/LF" adds a line feed after a bare carriage return -- but only a
-    // *bare* one. Skip it when an LF already follows, and when another CR follows
-    // (4K BASIC ends lines with "CR CR LF" -- Teletype head-return padding -- and
-    // an injected LF between the two CRs would double-space every line). The
-    // decision can straddle two readOutput() batches, hence crlfPending.
+    // CR -> CR/LF only for a bare CR: not before an LF or another CR (4K BASIC ends lines
+    // CR CR LF as head-return padding). crlfPending spans batch boundaries.
     const notBareCr = (c) => c === 0x0a || c === 0x0d;
     /* v8 ignore next 4 -- a CR landing exactly on a readOutput() batch boundary */
     if (crlfPending) {
@@ -532,10 +453,7 @@ async function boot() {
     }
 
     for (let i = 0; i < n; i++) {
-      // 1970s serial terminals are 7-bit ASCII; the 8th bit is parity/ignored.
-      // Altair BASIC's LIST relies on this — it sets bit 7 on the first letter
-      // of every tokenised keyword (PRINT -> 0xD0,'RINT'), so without the mask
-      // that leading letter renders as a stray C1 control and vanishes.
+      // 7-bit ASCII: mask bit 7. BASIC's LIST sets it on each keyword's first letter (PRINT -> 0xD0,'RINT').
       const b = out[i] & 0x7f;
       outQ.push(b);
       if (crlf.checked && b === 0x0d) {
@@ -564,10 +482,7 @@ async function boot() {
     if (n > 0) { baudBudget -= n; writeFiltered(outQ.splice(0, n)); }
   }
 
-  // the selected profile's escape-handling filter, if it has one (§ above) --
-  // ASR-33/Glass TTY strip escapes entirely, VT52/ADM-3A translate their own
-  // codes to what xterm understands. CRT profiles that really speak ANSI pass
-  // straight through.
+  // profile escape filter, if any; ANSI-speaking CRT profiles pass through
   function writeFiltered(bytes) {
     const out = termFilter ? termFilter(bytes) : bytes;
     if (out.length) term.write(new Uint8Array(out));
@@ -622,11 +537,9 @@ async function boot() {
          "2 MHz, 256 bytes of RAM, no keyboard or screen. Gates & Allen " +
          "wrote its BASIC.", "   ");
     lines.push(bar);
-    // centre the block in the screen: pad rows above, indent columns left
+    // centre the block in the screen
     const rows = term.rows || 24;
-    // on a narrow terminal the paragraphs wrap longer -- drop the blank
-    // separator lines until the page fits (there's no scrollback to recover
-    // what runs off the top)
+    // on a narrow terminal drop blank separator lines until it fits (no scrollback)
     /* v8 ignore next 5 -- only runs when the manual is taller than the screen */
     while (lines.length > rows) {
       const i = lines.indexOf("");
@@ -639,9 +552,8 @@ async function boot() {
       "\r\n".repeat(padTop) +
       lines.map((l) => indent + l).join("\r\n") +
       "\x1b[" + rows + ";1H";   // park the cursor on a clean line below the block
-    // meter it onto the screen at the terminal's baud (instant on Modern) --
-    // but floor it so a 110-baud Teletype prints the page in ~8 s, not ~2 min.
-    // Press a key to skip to the end.
+    // meter at the terminal's baud, floored so a 110-baud Teletype prints in ~8 s, not ~2 min
+    // (a keypress skips to the end)
     const text = body.toUpperCase();
     for (let i = 0; i < text.length; i++) outQ.push(text.charCodeAt(i));
     if (baudCps > 0) {
@@ -674,7 +586,6 @@ async function boot() {
   ].filter(Boolean)).catch(() => {}).finally(() => applyProfile(savedTerm));
 
   // --- page theme (Win95 / mid-90s Mosaic web / Modern / Dark Modern) ---
-  // See shared/theme-picker.js for the actual mechanism.
   initThemePicker(() => {
     placeTermBar();                // layout may have gained/lost side-by-side
     setTimeout(sizeScreen, 60);    // page width changed
@@ -713,14 +624,12 @@ async function boot() {
     lastFrame = now;
     if (powered) tape.tick();     // the reader feeds while the CPU is stopped
     if (running && powered) {
-      // cycles paced by real elapsed time, so speed is 2 MHz on any display —
-      // except while a loader is streaming BASIC in / answering its cold-start
-      // prompts, when we let the CPU sprint (ends on the first keypress)
+      // paced by real elapsed time, so 2 MHz on any display; the CPU sprints only while a
+      // loader streams BASIC or answers cold-start prompts (ends on first keypress)
       const boost = turbo ? 12 : 1;
       machine.runCycles(Math.round(CPU_HZ * dt / 1000) * boost);
     }
-    // the cassette deck isn't on the S-100 bus -- PLAY/FF/REW keep winding in
-    // real time even with the panel on STOP or the machine powered off
+    // the cassette deck is off the S-100 bus: PLAY/FF/REW keep winding while stopped or off
     machine.tickCassette?.(dt, running);
     pumpTerminal(dt);          // keep typing out buffered text even when stopped
     updatePanel();
@@ -764,8 +673,7 @@ async function boot() {
   const switchWord = () => switchState.reduce((w, on, i) => w | (on << i), 0);
   const senseByte  = () => (switchWord() >> 8) & 0xff;
 
-  // drive the low `n` toggle switches from a value (used by the panel guide's
-  // per-row "set switches" buttons)
+  // drive the low `n` toggle switches from a value
   const setSwitchWord = (value, n) => {
     for (let b = 0; b < n; b++) {
       switchState[b] = (value >> b) & 1;
@@ -774,10 +682,8 @@ async function boot() {
     machine.setSenseSwitches?.(senseByte());
   };
 
-  // A8-A15 are the same physical toggles as the sense switches (IN 0FFh) --
-  // setSwitchWord(addr, 16) for an EXAMINE necessarily leaves them showing
-  // whatever the address's upper byte was. Zero them back down, the way an
-  // operator would before running 2SIO-console software (0 = 2SIO).
+  // A8-A15 are the same toggles as the sense switches (IN 0FFh), so an EXAMINE leaves them
+  // showing the address's high byte; zero them before 2SIO-console software (0 = 2SIO)
   const clearSenseSwitches = () => {
     for (let b = 8; b < 16; b++) {
       switchState[b] = 0;
@@ -904,9 +810,8 @@ async function boot() {
       const c = el("fp-cell paddle", `<div class="fp-cap up"><b>${up}</b></div>`);
       const b = el("bat" + (latching ? "" : " momentary"));
       const twoWay = !!(dn && dnFn);
-      // Whole cell is the hit target. A two-function paddle still needs a
-      // direction, so it splits at the lever's midline (top label -> up,
-      // bottom label -> down); everything else just fires on any click.
+      // whole cell is the hit target; a two-function paddle splits at the lever's midline
+      // (top label -> up, bottom label -> down)
       c.addEventListener("click", (e) => {
         let upper = true;
         if (latching) {
@@ -977,11 +882,8 @@ async function boot() {
     }
   }
 
-  // The address lamps while the CPU runs: not one address but a per-bit touch
-  // count over the frame, like the real incandescent lamps integrating many
-  // bus cycles. A bit driven almost every cycle (Kill the Bit's D, via four
-  // LDAX D per loop) should read brighter than one a slow counter only sweeps
-  // through once (H) -- see ALTAIR_REVIEW.md §3.6b. counts[] is 16 uint16s.
+  // Address lamps while the CPU runs: per-bit touch counts over the frame, like incandescent
+  // lamps integrating bus cycles (§3.6b). counts[] is 16 uint16s.
   function setAddrBrightness(leds, counts) {
     let peak = 0;
     for (let b = 0; b < 16; b++) if (counts[b] > peak) peak = counts[b];
@@ -990,8 +892,7 @@ async function boot() {
       if (!l) continue;
       const c = counts[b];
       l.classList.toggle("on", c > 0);
-      // floor a touched lamp at 40% so a single hit still reads as lit, then
-      // scale up toward the frame's busiest bit
+      // floor a touched lamp at 40% so one hit still reads lit, scale toward the busiest bit
       l.style.opacity = c > 0 ? String(0.4 + 0.6 * (c / peak)) : "";
     }
   }
@@ -1004,12 +905,8 @@ async function boot() {
       return;
     }
     const s = machine.state();
-    // while a tape is reading in, the address lamps climb with the reader's
-    // write pointer. While the CPU runs, the address lamps show per-bit
-    // brightness -- how often the bus touched each bit this frame, exactly as
-    // the real incandescent lamps integrate (that's how Kill the Bit's moving
-    // bit rides A8..A15, brighter than H's slow sweep). STOP freezes them at
-    // PC. The data lamps follow the last real byte on the bus.
+    // tape reading: address lamps climb with the reader's write pointer. CPU running: per-bit
+    // brightness (see above). STOP freezes them at PC. Data lamps follow the last bus byte.
     const loading = tape.phase === "feeding" || tape.phase === "draining";
     const runningNow = running && !s.halted;
     const dAddr = loading ? 0
@@ -1022,21 +919,15 @@ async function boot() {
                               : machine.readByte ? machine.readByte(dAddr & 0xffff) : 0, 8);
     const set = (name, on) => statusLeds[name] && statusLeds[name].classList.toggle("on", !!on);
     const active = running && !s.halted;
-    // MEMR/WO/INP/OUT reflect the actual last bus access (Machine::state(),
-    // wasm_machine.cpp) rather than "the CPU is running" for all four alike --
-    // a real IN, not just "the reader happens to be feeding". M1 and STACK
-    // still can't be told apart from a plain read/write without the CPU core
-    // itself saying what an access is *for*, so they stay approximated;
-    // HLDA/PROT are correctly always off (no DMA peripheral ever asserts
-    // HOLD; PROTECT is a documented no-op -- panel.spec.ts). See
-    // ALTAIR_REVIEW.md §3.6a.
+    // MEMR/WO/INP/OUT come from the last real bus access (Machine::state()). M1 and STACK
+    // are approximated since the core can't say what an access is for; HLDA/PROT stay off. §3.6a.
     set("INP", s.inp);
     set("WAIT", !running || s.halted);
     set("HLTA", s.halted);
     set("INTE", s.intEnabled);
     set("MEMR", s.memr);
     set("M1", active);
-    set("MI", active);          // (legacy key, harmless)
+    set("MI", active);
     set("WO", s.wo);
     set("PROT", false);
     set("OUT", s.out);
@@ -1048,9 +939,8 @@ async function boot() {
   buildPanel();
 
   // --- front-panel bootstrap guide -----------------------
-  // A collapsible "here is how you'd hand-load this from the panel" reference,
-  // preset-aware, with the actual octal for the current machine and buttons
-  // that key the loader in and spool the tape so it really works.
+  // Collapsible, preset-aware hand-load reference with the real octal, plus buttons that
+  // key the loader in and spool the tape.
   const oct = (n, w) => n.toString(8).padStart(w, "0").replace(/(\d{3})(?=\d)/g, "$1 ");
 
   // one entry per bootstrap byte; first byte of each instruction carries the text
@@ -1081,11 +971,8 @@ async function boot() {
   let pgDoneKey = null;          // model signature; a change clears the checklist
   let pgWired = false;           // the #panelGuide listeners are attached once
   let pgKeyinRunning = false;    // "Key the loader in for me" animation in flight
-  // Real time to flip a switch bank and a paddle by hand -- this is UI pacing
-  // for the assisted keyin, not emulated hardware, so ?test=1 fast-forwards it
-  // the same way it fast-forwards tape/disk loads (CLAUDE.md sanctioned overrides).
-  // A `let` (not const) so the __test seam can slow a single test back down to
-  // prove the steps really are sequential, without paying real time everywhere else.
+  // Real time to flip a switch bank and paddle by hand: UI pacing for the assisted keyin,
+  // fast-forwarded under ?test=1. `let` so one test can slow it back to prove ordering.
   let pgKeyinStepMs = TEST_MODE ? 5 : 500;
   const pgFloat = { left: null, top: null };
   try {
@@ -1118,16 +1005,12 @@ async function boot() {
     if (!root) return;
     const wasOpen = open != null ? open
       : !!(root.querySelector(".pg-body") && !root.querySelector(".pg-body").hidden);
-    // replacing .pg-doc's innerHTML resets its scroll to the top -- rebuilding
-    // repeatedly (every step of the keyin animation) would otherwise yank the
-    // view back up out from under anyone scrolled down to watch it. Restore it.
+    // replacing innerHTML resets .pg-doc's scroll; restore it so mid-keyin rebuilds don't yank the view
     const scrollTop = root.querySelector(".pg-doc")?.scrollTop || 0;
     const m = panelGuideModel();
 
-    // a different machine / loader (usually: a new tape threaded) -> start the
-    // checklist over. If a loader was already keyed into RAM for the old tape,
-    // re-key it for the new one so "keyin -> thread -> Feed / START" works in
-    // any order -- the baked-in byte count has to match the tape being fed.
+    // different machine or loader: restart the checklist, and re-key a loader already in RAM
+    // so its baked-in byte count matches the new tape
     const key = [m.org, m.dest, m.start, m.count].join("/");
     if (key !== pgDoneKey) {
       const wasKeyed = pgDoneKey != null && m.boot.every((_, i) => pgDone.has(i));
@@ -1153,10 +1036,8 @@ async function boot() {
       return s + "</span>";
     };
 
-    // the three little buttons beside a switch graphic: set the panel switches
-    // to this value; set them and do the step's paddle (EXAMINE for an address,
-    // DEPOSIT for a data byte); or a checkbox to tick the step off by hand.
-    // `k` is the checklist key -- a byte index, or "taddr" / "daddr".
+    // buttons beside a switch graphic: set switches; set and fire the step's paddle; tick by hand.
+    // `k` is the checklist key (byte index, or "taddr" / "daddr")
     const swDo = (act, value, bits, k) => {
       const isAddr = bits > 8;
       const done = isDone(k);
@@ -1225,8 +1106,7 @@ async function boot() {
       <b>LOAD SPEED</b> paces the feed &mdash; Realistic &asymp; 14&nbsp;min for
       8K BASIC.</p>` : "";
 
-    // one shared "start over" control for the whole checklist -- only worth
-    // showing once something on it is actually ticked
+    // one shared "start over" control, shown once something is ticked
     const resetSection = pgDone.size > 0
       ? `<div class="pg-reset"><button class="pg-feed" id="pgReset">Reset checklist</button></div>` : "";
 
@@ -1242,7 +1122,7 @@ async function boot() {
          </div>
        </div>`;
     if (scrollTop) root.querySelector(".pg-doc").scrollTop = scrollTop;
-    updateLoadButtonsPowered();   // a fresh rebuild defaults buttons back to enabled -- resync it
+    updateLoadButtonsPowered();   // rebuild re-enables buttons; resync
 
     // restore a dragged-to position
     const panel = root.querySelector(".pg-body");
@@ -1252,8 +1132,7 @@ async function boot() {
       panel.style.right = "auto";
     }
 
-    // Listeners are delegated on #panelGuide and attached exactly once -- the
-    // innerHTML above is replaced on every rebuild but `root` itself is not.
+    // listeners are delegated on #panelGuide and attached once; innerHTML is replaced but `root` isn't
     if (pgWired) return;
     pgWired = true;
 
@@ -1271,9 +1150,7 @@ async function boot() {
       grp.querySelector('button[data-act="check"]')?.classList.toggle("on", done);
     };
 
-    // rebuild the checklist mid-animation and pin it "busy" -- a rebuild
-    // always hands back fresh, enabled buttons, so re-disable/relabel every
-    // time the DOM is replaced underneath the running animation.
+    // a rebuild hands back fresh enabled buttons, so re-disable them while the animation runs
     const renderKeyinProgress = (label) => {
       buildPanelGuide(true);
       const kb = root.querySelector("#pgKeyin");
@@ -1282,11 +1159,8 @@ async function boot() {
       if (rb) rb.disabled = true;
     };
 
-    // Keys the loader in one switch/paddle at a time, the same actions (and
-    // same effects) as clicking each row's ▸ button by hand, paced so a
-    // visitor can actually watch it happen -- see CLAUDE.md "start the
-    // machine off" thread. ?test=1 collapses pgKeyinStepMs to keep the
-    // suite fast without changing what each step does.
+    // Keys the loader in one switch/paddle at a time, same effects as clicking each ▸ by hand,
+    // paced so a visitor can watch. ?test=1 collapses pgKeyinStepMs.
     async function animateKeyin() {
       if (pgKeyinRunning) return;
       pgKeyinRunning = true;
@@ -1296,9 +1170,7 @@ async function boot() {
       setRunning(false);
       machine.clearMemory?.();
       const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-      // if the tape/preset changes underneath a running animation, the guide
-      // rebuilds against a new model (pgDoneKey moves on) -- stop touching
-      // memory for a loader that's no longer the one on screen.
+      // the guide rebuilt against a new model: stop touching memory for a stale loader
       const stillCurrent = () => pgDoneKey === key;
 
       // address step: set the address switches, flip EXAMINE
@@ -1325,11 +1197,8 @@ async function boot() {
       pgKeyinRunning = false;
       if (stillCurrent()) {
         machine.setPC?.(mm.org & 0xffff);   // leave it set to RUN from the top
-        // the address step above necessarily left the sense switches (A8-A15,
-        // the same physical toggles) showing org's high byte -- a competent
-        // operator clears them before running 2SIO-console software (see
-        // clearSenseSwitches, and startReader()'s own call for the same
-        // reason -- belt and suspenders, since RUN alone doesn't feed anything).
+        // the address step left the sense switches showing org's high byte; clear them before
+        // running 2SIO-console software (see clearSenseSwitches)
         clearSenseSwitches();
         buildPanelGuide(true);              // whole checklist ticked, buttons back to normal
         flashPanelGuide("loader keyed in at " + oct(mm.org, 6) + " -- thread a tape, flip RUN, then START");
@@ -1342,7 +1211,7 @@ async function boot() {
       if (e.target.closest("#pgX"))      { p.hidden = true; setToggle(); return; }
       if (e.target.closest("#pgKeyin")) { animateKeyin(); return; }
       if (e.target.closest("#pgReset")) {
-        if (pgKeyinRunning) return;   // disabled mid-animation, but belt and suspenders
+        if (pgKeyinRunning) return;
         pgDone.clear();
         buildPanelGuide(true);
         flashPanelGuide("checklist reset -- key it in again by hand, or click Key the loader in for me");
@@ -1383,9 +1252,7 @@ async function boot() {
     root.addEventListener("mousedown", pgDragStart);   // drag the title bar
   }
 
-  // drag the floating guide by its title bar. Exercised by panelguide.spec.ts
-  // "...can be dragged", but V8 coverage doesn't attribute code that runs inside
-  // Playwright-synthesised mouse events, so the body is marked ignored.
+  // drag the floating guide by its title bar; V8 coverage misses synthesised mouse events
   /* v8 ignore start */
   function pgDragStart(e) {
     if (!e.target.closest("#pgDrag") || e.target.closest("#pgX")) return;
@@ -1410,12 +1277,8 @@ async function boot() {
   }
   /* v8 ignore stop */
 
-  // Flick the real front-panel EXAMINE/DEPOSIT paddle, purely for visual
-  // feedback -- the animated keyin already moves PC/memory itself; this just
-  // makes it look like a hand is on the switches, same "flick" CSS the
-  // paddle's own click handler uses. `half` picks the upper/red or
-  // lower/grey labelled function (EXAMINE vs EXAMINE NEXT, DEPOSIT vs
-  // DEPOSIT NEXT), matching the paddle() convention above.
+  // Flick the real EXAMINE/DEPOSIT paddle for visual feedback only; `half` picks the
+  // upper/red or lower/grey function, matching paddle() above.
   function flickPaddle(label, half) {
     const cell = [...document.querySelectorAll("#altair .fp-ctl .fp-cell.paddle")]
       .find((c) => label.test(c.textContent || ""));
@@ -1425,9 +1288,7 @@ async function boot() {
     setTimeout(() => bat.classList.remove("flick", "flick-dn"), 140);
   }
 
-  // Power the machine on first if it's currently off -- an automated action
-  // (the panel guide's "key it in for me") should run on a lit, live panel,
-  // same as a real operator would flip ON before touching any switches.
+  // power on first so automated actions run on a lit panel
   function ensurePowered() {
     if (powered) return;
     powered = true;
@@ -1436,17 +1297,11 @@ async function boot() {
     updateLoadButtonsPowered();
   }
 
-  // The one-click "load and go" shortcuts all write straight into memory/PC
-  // whether or not the CPU has power -- with the panel dark that's a click
-  // that looks like it did nothing (the actual bug report this fixes).
-  // Grey them out while powered off instead of leaving that mystery; the
-  // panel guide's own "Key the loader in for me" is exempt since it flips
-  // power on for you (ensurePowered, above) rather than needing to be blocked.
+  // The load-and-go shortcuts write to memory/PC even unpowered, which looks like a dead click;
+  // grey them out while off. "Key the loader in" is exempt since it powers on.
   function updateLoadButtonsPowered() {
-    // the reader's own START/AUTO-LOAD already grey out for lack of a
-    // threaded tape (syncButtons, keyed off paperTape.entry) -- recompute
-    // that first, then only ever ADD the power condition on top of it, never
-    // clear a disable that's there for an unrelated reason.
+    // recompute the reader's own disables (no tape threaded) first, then only add the power
+    // condition, never clear an unrelated disable
     paperTape.syncButtons?.();
     for (const sel of ["#ptr .ptr-load", "#ptr .ptr-start"]) {
       const b = document.querySelector(sel);
@@ -1467,9 +1322,8 @@ async function boot() {
   }
 
   // --- MITS 88-DCDD disk drive cabinet --------------------
-  // Rotation IS timed (ALTAIR_REVIEW.md §3.2d): a real 88-DCDD spins at
-  // ~166 ms/revolution over 32 sectors ~= 193 sectors/sec -- "Realistic".
-  // Same LOAD SPEED pattern as the paper-tape reader / cassette deck.
+  // Rotation is timed (ALTAIR_REVIEW.md §3.2d): ~166 ms/rev over 32 sectors, ~193/sec "Realistic";
+  // same LOAD SPEED pattern as the paper tape and cassette.
   const DISK_SPEEDS = { realistic: 193, x5: 965, x25: 4825, x50: 9650, max: 0 };
   const DISK_SPEED_KEYS = ["realistic", "x5", "x25", "x50"];
 
@@ -1610,17 +1464,13 @@ async function boot() {
 
     setVisible(v) { document.getElementById("dcdd").classList.toggle("empty", !v); },
 
-    // A brand-new diskette: 0xE5-filled and unformatted, the way real 8" media
-    // shipped. CP/M can't read it until FORMAT (the DISK command) has laid down
-    // the sector framing and an empty directory from a booted drive.
+    // new diskette: 0xE5-filled and unformatted, as 8" media shipped; CP/M needs FORMAT first
     blank(drive) {
       this.insert(drive, new Uint8Array(337568).fill(0xe5), "BLANK");
     },
 
-    // A blank diskette that has already been through FORMAT: real MITS sector
-    // framing (borrowed from the bundled CP/M image) with the directory --
-    // track 2, the whole track so the sector skew doesn't matter -- wiped to
-    // 0xE5 and its checksum fixed up, so CP/M sees it as empty right away.
+    // a blank diskette already through FORMAT: real MITS sector framing (from the bundled CP/M
+    // image), track 2 (the directory) wiped to 0xE5 with its checksum fixed
     async blankFormatted(drive) {
       await this.loadCatalog();
       const src = this.catalog.find((d) => d.os === "cpm" && d.bytes);
@@ -1637,8 +1487,7 @@ async function boot() {
 
     insert(drive, bytes, name, entry) {
       if (!bytes || !bytes.length) return;
-      // swapping a diskette is not a hardware change -- keep the era preset
-      // (same as the paper-tape reader and the cassette deck)
+      // swapping a diskette keeps the era preset (like the tape reader and cassette)
       machine.mountDisk(drive, bytes);
       this.names[drive] = name;
       this.entries[drive] = entry || null;
@@ -1732,8 +1581,7 @@ async function boot() {
       for (let d = 0; d < 2; d++) {
         const b = this.bays[d];
         if (!b) continue;
-        // io/step are shared counters -- only the selected drive is the one
-        // actually moving, so don't flash the idle drive's lamp along with it
+        // io/step counters are shared; flash only the selected drive's lamp
         const tick = (d === 0 ? st.track0 : st.track1) + st.io + st.step;
         const moved = tick !== this.lastTick[d];
         this.lastTick[d] = tick;
@@ -1901,8 +1749,7 @@ async function boot() {
 
     pos() { return (machine.tapeStatus ? machine.tapeStatus().pos : 0) | 0; },
 
-    // fixed instructions on the deck: how to load, how to save, use the counter.
-    // Line 1 shows the real CLOAD name of whatever tape is in.
+    // fixed deck instructions: load, save, counter; line 1 shows the CLOAD name of the loaded tape
     updateHint() {
       if (!this.hintEl) return;
       const name = this.cload || "X";
@@ -1915,9 +1762,7 @@ async function boot() {
           `<b>&#9654;&#9654; F.FWD</b> past one (watch the counter) to record the next.</i></span>`;
     },
 
-    // the transport keys, like the recorder the 88-ACR plugged into. CLOAD only
-    // pulls bytes while PLAY is down; CSAVE only records while REC is down --
-    // so you type the command, then press the key, exactly as you did in 1976.
+    // transport keys: CLOAD pulls bytes only while PLAY is down, CSAVE records only while REC is down
     transport(action) {
       if (action === "eject") { this.eject(); return; }
       // no status text -- the keys and the head bar show what the tape is doing
@@ -1925,9 +1770,8 @@ async function boot() {
       this.poll();
     },
 
-    // Drive the transport. C++ owns the state from here: it moves the head and
-    // auto-stops at the tape ends, and poll() renders the keys from what it
-    // reports back. mode: "stop" | "play" | "rec" | "ff" | "rew".
+    // Drive the transport. C++ moves the head and auto-stops at the ends; poll() renders the keys.
+    // mode: "stop" | "play" | "rec" | "ff" | "rew".
     setDeck(mode) {
       const play = mode === "play" || mode === "rec";
       machine.setTapeMotor?.(play);
@@ -2124,21 +1968,9 @@ async function boot() {
   });
 
   // --- era presets ---------------------------------------
-  // Each preset is a period-correct machine build: RAM, primary I/O, the S-100
-  // cards plugged in, and (already threaded, not yet loaded) the flagship
-  // software. Nothing runs on its own -- like a real Altair, the machine
-  // starts powered off; flip the front panel's ON switch, then load the
-  // software through whichever device holds it (the reader's own AUTO-LOAD
-  // button, the disk cabinet's BOOT button, or by hand from the panel guide).
-  //
-  // Every preset's console is the 88-2SIO (the only serial board this emulator
-  // implements). A genuinely period "1975" machine would have shipped the
-  // earlier 88-SIO at ports 0x00/0x01 instead -- not modelled here, and the
-  // BASIC images this project bundles target the 2SIO anyway. So `baremetal`
-  // and `stock` are dated 1976 (when the 2SIO existed), not the earlier dates
-  // their software's real MITS release would suggest. See ALTAIR_REVIEW.md
-  // §5.2 for the fuller options (implement 88-SIO vs. relabel); this is the
-  // deliberate, documented "relabel" choice.
+  // Each preset is a period-correct build (RAM, I/O, S-100 cards, threaded software). Nothing runs
+  // on its own: power on, then load via AUTO-LOAD, BOOT, or the panel guide. Every console is the
+  // 88-2SIO (the only serial board implemented), so `baremetal` and `stock` are dated 1976. §5.2.
   const PRESETS = {
     baremetal: {
       name: "Bare-Metal Toggle", era: "1976",
@@ -2281,8 +2113,7 @@ exactly as it did in 1975.`;
     }
   }
 
-  // a standing note under the PRESET row — only for failures (media 404, out of
-  // RAM). Cleared at the top of applyPreset() so it never outlives its cause.
+  // standing note under the PRESET row, for failures only (media 404, out of RAM); cleared by applyPreset()
   function presetHint(msg, opts) {
     presetNote.textContent = msg || "";
     presetNote.style.color = (opts && opts.color) || "";
@@ -2372,11 +2203,8 @@ exactly as it did in 1975.`;
       // bare, running machine, then thread the preset's media
       machine.reset(); term.clear(); outQ.length = 0; crlfPending = false;
       if ((p.devices || []).includes("disk")) {
-        // A disk-equipped machine's RAM was never blank on a real power-on
-        // (see wasm_machine.cpp's randomizeMemory) -- this holds regardless of
-        // *how* CP/M ends up getting booted -- the disk cabinet's BOOT button
-        // or by hand from the panel guide's EXAMINE 0FF00h / RUN -- so it belongs here rather than
-        // only in bootDisk()'s own convenience path.
+        // a disk machine's RAM was never blank at power-on, however CP/M gets booted (see
+        // randomizeMemory), so it is filled here rather than only in bootDisk()
         machine.randomizeMemory?.();
         machine.mapDiskBoot?.();   // reset wiped it
       }
@@ -2424,14 +2252,10 @@ exactly as it did in 1975.`;
   guideDialog.addEventListener("click", (e) => { if (e.target === guideDialog) closeGuide(); });
 
   // --- paper-tape reader -----------------------------------------
-  // A binary loads the way a MITS paper tape really did: a short serial
-  // bootstrap keyed into RAM (we do it for you), running while the reader
-  // trickles the tape through the 88-2SIO byte by byte -- blank LEADER first
-  // (the tape physically spooling before any data), then the image, the
-  // address lamps climbing with the loader's write pointer. LOAD SPEED at
-  // "Realistic" = 10 B/s, an ASR-33 Teletype reader (8K BASIC then takes ~14
-  // minutes, exactly as it did); 5x / 10x / 20x for the impatient.
-  // A 0xE000 ROM build can't stream (it sits above RAM) so that one drops in.
+  // A binary loads like a MITS paper tape: a short serial bootstrap keyed into RAM, run while the
+  // reader trickles the tape through the 2SIO (blank leader first, address lamps following the
+  // write pointer). Realistic is the 10 B/s ASR-33 reader (8K BASIC takes ~14 minutes).
+  // A 0xE000 ROM build sits above RAM and can't stream, so it drops in.
   // bytes/sec. Realistic is the real ASR-33 reader; `max` (0 = unlimited) isn't
   // in the picker -- it's what ?test=1 uses.
   const PAPER_SPEEDS = { realistic: 10, x5: 50, x25: 250, x50: 500, max: 0 };
@@ -2440,9 +2264,8 @@ exactly as it did in 1975.`;
   const PROMPTS_4K = [[/MEMORY SIZE/i, "\r"], [/TERMINAL WIDTH/i, "\r"], [/\bSIN\?/i, "Y\r"]];
   const PROMPTS_8K = [[/MEMORY SIZE\?/i, "\r"], [/TERMINAL WIDTH\?/i, "\r"], [/SIN-COS-TAN-ATN\?/i, "Y\r"]];
 
-  // serial bootstrap at `org`: skip leader nulls, then store `count` bytes at
-  // `dest`, JMP `start`. ~40 bytes. Assumes the image's first byte is non-zero
-  // (true for every MITS load-and-go image -- they start DI / MVI / LXI).
+  // serial bootstrap at `org`: skip leader nulls, store `count` bytes at `dest`, JMP `start`.
+  // Assumes the first image byte is non-zero (MITS load-and-go images start DI / MVI / LXI).
   function makeBootstrap(org, dest, count, start) {
     const lo = (n) => n & 0xff, hi = (n) => (n >> 8) & 0xff;
     const A = (off) => [lo(org + off), hi(org + off)];
@@ -2479,10 +2302,8 @@ exactly as it did in 1975.`;
 
     get addr() { return (this.dest + this.pos) & 0xffff; },
 
-    // Start the reader. Normally: key a bootstrap into the top of RAM, run it,
-    // and stream the tape in. opts.raw = true: just spool the bytes into the
-    // 88-2SIO -- no bootstrap, no memory touched -- for a hand-keyed loader
-    // (see the panel guide). Returns false if the machine lacks the RAM.
+    // Start the reader: key a bootstrap into the top of RAM, run it, stream the tape. opts.raw
+    // spools bytes into the 2SIO only (no bootstrap, no memory touched) for a hand-keyed loader.
     run(image, dest, start, bytesPerSec, opts = {}) {
       const ramTop = (machine.ramKb ? machine.ramKb() : 64) * 1024;
       const bootOrg = ramTop - 0x40;      // bootstrap sits in the top page of RAM
@@ -2526,9 +2347,8 @@ exactly as it did in 1975.`;
       return true;
     },
 
-    // stop the reader mid-tape -- the ASR-33 lever back to STOP. Memory and the
-    // CPU are left exactly as they are; a half-fed load just stalls, as it would
-    // on real hardware.
+    // stop the reader mid-tape (ASR-33 lever to STOP); memory and CPU stay as they are, so a
+    // half-fed load stalls as on real hardware
     stop() {
       if (this.phase !== "feeding" && this.phase !== "draining") return;
       this.phase = "idle";
@@ -2546,8 +2366,7 @@ exactly as it did in 1975.`;
         const now = performance.now();
         const dt = Math.min(now - (this.lastTick || now), 200);
         this.lastTick = now;
-        // accumulate a byte budget at the current rate -- changing LOAD SPEED
-        // mid-load takes effect on the next frame, no jump
+        // accumulate a byte budget at the current rate; a LOAD SPEED change applies next frame
         if (this.bytesPerSec) {
           this.credit = Math.min((this.credit || 0) + (dt * this.bytesPerSec) / 1000,
                                  Math.max(4, this.bytesPerSec * 0.5));
@@ -2556,12 +2375,8 @@ exactly as it did in 1975.`;
         }
         const before = this.lead + this.pos;
         while (this.credit >= 1 && this.lead + this.pos < total) {
-          // Pace the feed to a loader that is keeping up, so a per-frame CPU
-          // burst doesn't miss bytes a real continuously-clocked loader would
-          // catch. But once the FIFO stays jammed the consumer isn't keeping up
-          // (or, on a raw START, there may be no loader running at all) -- then
-          // let the reader overrun the 88-2SIO and shed bytes, exactly as the
-          // reader lever would on real hardware.
+          // Pace the feed while the loader keeps up, so a per-frame CPU burst doesn't miss bytes. Once
+          // the FIFO stays jammed (or a raw START has no loader), overrun the 2SIO and shed bytes.
           if (!this.flooding && machine.rxPending && machine.rxPending() > 400) break;
           if (this.lead < TAPE_LEADER) {          // blank leader spooling through -- nothing loads yet
             this.lead++;
@@ -2786,7 +2601,7 @@ exactly as it did in 1975.`;
       }
     },
 
-    // how a threaded tape actually loads.
+    // how a threaded tape actually loads
     //   opts.speed  -- override the LOAD SPEED selector for this one load
     //   opts.then   -- callback once loaded (and BASIC is at OK), gets {feed,waitFor}
     load(opts = {}) {
@@ -2812,21 +2627,14 @@ exactly as it did in 1975.`;
       return true;
     },
 
-    // the reader's own START button: run the reader motor and nothing else --
-    // no memory touched, no bootstrap, no RUN. A loader has to be running
-    // already (boot PROM, or one keyed in at the panel) or the bytes fall on
-    // the floor, exactly as on real hardware. AUTO-LOAD (this.load) is the
-    // shortcut that keys a bootstrap in and runs it for you.
+    // the reader's own START: run the reader motor and nothing else (no memory, bootstrap or RUN).
+    // Bytes fall on the floor unless a loader is already running. AUTO-LOAD (this.load) keys one in.
     startReader() {
       if (!this.feedRaw()) return false;   // nothing threaded, or already reading
-      // A8-A15 double as the sense switches (IN 0FFh); EXAMINE-ing the loader's
-      // address in necessarily left them showing its high byte. Altair BASIC
-      // reads sense switches at cold start to pick a console device (0 = 2SIO),
-      // so this is the hand-load path's last chance to clear them before the
-      // tape's bytes actually reach a running loader -- see clearSenseSwitches.
+      // EXAMINE-ing the loader left A8-A15 (the sense switches) showing its high byte; BASIC reads
+      // them at cold start to pick a console (0 = 2SIO), so clear them before the tape's bytes arrive.
       clearSenseSwitches();
-      // if no loader is running the bytes just overrun the 2SIO -- warn, since
-      // the reader animation looks the same either way
+      // no loader running means the bytes just overrun the 2SIO; warn, since the animation looks the same
       if (!running) this.flash("no loader running — press RUN or the bytes are lost");
       return true;
     },
@@ -2896,8 +2704,7 @@ exactly as it did in 1975.`;
       return;
     }
 
-    // A catalog entry names either one `file` or an ordered `files` list that
-    // is fetched and concatenated (e.g. a ROM split across 2K PROM images).
+    // an entry names one `file` or an ordered `files` list fetched and concatenated (e.g. a split ROM)
     async function fetchImage(rom) {
       const names = rom.files || [rom.file];
       const parts = [];
@@ -2931,8 +2738,8 @@ exactly as it did in 1975.`;
     if (typeof machine.setPC === "function") machine.setPC(start);
     setRunning(true);
     turbo = false;
-    term.clear();           // fresh screen for the new program; its output (if
-    outQ.length = 0;        // any) is all that will appear
+    term.clear();           // fresh screen for the new program
+    outQ.length = 0;
     crlfPending = false;
     term.focus();
   }
@@ -3001,12 +2808,8 @@ exactly as it did in 1975.`;
     };
   }
 
-  // Automated-test seam. `?test=1` forces the sanctioned load-speed override
-  // (paper tape / cassette / floppy loads run at Max so a suite isn't held up
-  // by a ~14-minute read or a needless ~166 ms/rev pause on every disk poll)
-  // and exposes the internals the Playwright suite drives. The CPU still
-  // runs at real 2 MHz -- nothing here is a speed knob. Absent `?test`, none
-  // of this exists. See CLAUDE.md "Current sanctioned overrides".
+  // Automated-test seam. ?test=1 forces paper tape / cassette / floppy load speed to Max and
+  // exposes internals to Playwright. The CPU still runs at real 2 MHz. Absent ?test, none of this exists.
   if (TEST_MODE) {
     paperTape.setSpeed("max");
     cassette.setSpeed("max");
@@ -3021,16 +2824,14 @@ exactly as it did in 1975.`;
       get applyingPreset() { return applyingPreset; },
       get outQLen()     { return outQ.length; },
       get rxWatch()     { return rxWatch; },
-      // slow the panel guide's "Key the loader in for me" animation back down
-      // for a test that needs to observe it stepping, not just its outcome
+      // slow the keyin animation back down for a test that observes it stepping
       setKeyinStepMs: (ms) => { pgKeyinStepMs = ms; },
       regs: () => machine.state(),
       leds: () => {
         const bits = (arr) => arr.reduce((w, l, i) => w | ((l && l.classList.contains("on") ? 1 : 0) << i), 0);
         const st = {};
         for (const k in statusLeds) st[k] = statusLeds[k].classList.contains("on");
-        // per-bit brightness (0 when off) -- lets a test tell a lightly-touched
-        // address bit apart from a heavily-touched one, not just lit/unlit
+        // per-bit brightness (0 when off), to tell lightly from heavily touched address bits
         const addrBrightness = addrLeds.map((l) => (l && l.style.opacity ? Number(l.style.opacity) : (l && l.classList.contains("on") ? 1 : 0)));
         return { addr: bits(addrLeds), data: bits(dataLeds), status: st, addrBrightness };
       },
@@ -3045,8 +2846,8 @@ exactly as it did in 1975.`;
 
   if (location.search.includes("help")) setTimeout(printManual, 300);
 
-  // restore / apply an era preset (URL wins over the stored choice); a custom
-  // build ("") still runs applyPreset so its load devices get set up
+  // restore / apply an era preset (URL wins over the stored choice); a custom build ("") still
+  // runs applyPreset so its load devices get set up
   buildBackplane([]);
   let startPreset = new URLSearchParams(location.search).get("preset");
   try { if (startPreset == null) startPreset = localStorage.getItem("retro8080.preset"); } catch {}

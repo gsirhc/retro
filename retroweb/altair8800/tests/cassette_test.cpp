@@ -1,8 +1,5 @@
-// GoogleTest suite for the MITS 88-ACR cassette interface (cassette.{h,cpp}).
-//
-// The board is polled the way Altair BASIC's CLOAD/CSAVE do it:
-//   read  a byte:  spin on IN 06 bit 0, then IN 07
-//   write a byte:  spin on IN 06 bit 7, then OUT 07
+// GoogleTest suite for the MITS 88-ACR (cassette.{h,cpp}), polled like BASIC's
+// CLOAD (IN 06 bit 0, then IN 07) and CSAVE (IN 06 bit 7, then OUT 07).
 
 #include <gtest/gtest.h>
 
@@ -53,7 +50,7 @@ TEST(Cassette, RecorderReadyOnlyWhenArmed) {
     EXPECT_EQ(c.data(), (std::vector<uint8_t>{0x42}));
 }
 
-// The record interlock needs PLAY as well as REC -- no capstan, no recording.
+// recording needs PLAY as well as REC
 TEST(Cassette, RecordingNeedsTheMotorToo) {
     CassetteACR c;
     c.setRecordArm(true);                       // REC pressed, but not PLAY
@@ -120,8 +117,7 @@ TEST(Cassette, RecordThenRewindThenPlay) {
     EXPECT_EQ(got, prog);
 }
 
-// After CSAVE the head sits past the recording (no auto-rewind) -- CLOAD needs a
-// manual REW first, exactly like a real recorder.
+// the head stays past the recording after CSAVE; no auto-rewind
 TEST(Cassette, RecordingLeavesHeadPastTheData) {
     CassetteACR c;
     std::vector<uint8_t> prog = {1, 2, 3, 4, 5};
@@ -148,7 +144,6 @@ TEST(Cassette, EjectClears) {
     EXPECT_NE(c.in(STAT) & ST_RDA, 0);
 }
 
-// Playback only feeds while the motor is engaged (PLAY on the deck).
 TEST(Cassette, MotorGatesPlayback) {
     CassetteACR c;
     std::vector<uint8_t> tape = {11, 22, 33};
@@ -164,8 +159,7 @@ TEST(Cassette, MotorGatesPlayback) {
     EXPECT_EQ(got, tape);
 }
 
-// With a byte-rate throttle set, a byte becomes readable only once tick() has
-// credited enough CPU cycles for it -- so BASIC can't outrun the tape.
+// a byte is readable only once tick() has credited enough cycles
 TEST(Cassette, SpeedThrottleGatesOnCpuCycles) {
     CassetteACR c;
     std::vector<uint8_t> tape = {10, 20, 30};
@@ -189,8 +183,7 @@ TEST(Cassette, SpeedThrottleGatesOnCpuCycles) {
     EXPECT_EQ(c.in(DATA), 20);
 }
 
-// At 25x / 50x the CLOAD loop drains several byte-times per tick(), so a batch
-// of bytes becomes readable in one frame -- the point of the fast modes.
+// at 25x/50x one tick() yields a batch of bytes
 TEST(Cassette, FastSpeedDeliversManyBytesPerTick) {
     CassetteACR c;
     std::vector<uint8_t> tape(400);
@@ -222,7 +215,6 @@ TEST(Cassette, UnlimitedSpeedNeverGates) {
     EXPECT_EQ(got, tape);
 }
 
-// Recording writes at the head and leaves the old tail on the tape.
 TEST(Cassette, RecordingOverwritesInPlace) {
     CassetteACR c;
     uint8_t old[] = {0xAA, 0xBB, 0xCC, 0xDD, 0xEE};
@@ -233,8 +225,7 @@ TEST(Cassette, RecordingOverwritesInPlace) {
     EXPECT_EQ(c.pos(), 2u);
 }
 
-// Two programs on one tape: record A, STOP, record B where the head is left --
-// the tape holds A, a blank gap, then B. Nothing is wiped.
+// two programs on one tape leave a blank gap between them
 TEST(Cassette, RecordAppendsForMultipleFiles) {
     CassetteACR c;
     c.mount(nullptr, 0);                         // blank tape
@@ -251,8 +242,7 @@ TEST(Cassette, RecordAppendsForMultipleFiles) {
     EXPECT_TRUE(std::equal(b.rbegin(), b.rend(), tape.rbegin()));  // B follows it
 }
 
-// FAST-FORWARD winds the head toward the tape end at kWindMult x the byte rate,
-// then auto-stops when it gets there.
+// FAST-FORWARD winds at kWindMult x the byte rate, then auto-stops
 TEST(Cassette, WindForwardHonoursSpeedAndAutoStopsAtEnd) {
     CassetteACR c;
     std::vector<uint8_t> tape(200);
@@ -276,7 +266,6 @@ TEST(Cassette, WindBackAutoStopsAtStart) {
     c.mount(tape.data(), tape.size());
     c.setSpeed(30);
     c.tick(0);
-    // wind forward a bit first
     c.setWind(+1);
     uint64_t t = 100000;
     for (; t <= 40000000ull && c.pos() < 2000; t += 100000) c.tick(t);
@@ -290,7 +279,6 @@ TEST(Cassette, WindBackAutoStopsAtStart) {
     EXPECT_EQ(c.transport(), CassetteACR::kStop);
 }
 
-// PLAY with nothing reading the board: the tape still rolls past the head.
 TEST(Cassette, PlayFreeRunsWhenNothingReads) {
     CassetteACR c;
     std::vector<uint8_t> tape(4000);
@@ -302,7 +290,6 @@ TEST(Cassette, PlayFreeRunsWhenNothingReads) {
     EXPECT_GT(c.pos(), 0u);                      // the head advanced on its own
 }
 
-// PLAY with nobody reading eventually runs the tape off the end -> auto-stop.
 TEST(Cassette, PlayRunsOffTheEndAndStops) {
     CassetteACR c;
     std::vector<uint8_t> tape(64);
@@ -317,14 +304,8 @@ TEST(Cassette, PlayRunsOffTheEndAndStops) {
     EXPECT_EQ(c.in(0x07), 0);                       // nothing feeds -- transport is stopped
 }
 
-// The front-panel RESET paddle zeroes the CPU's own cycle counter
-// (i8080::reset()), and wasm_machine.cpp's tickCassette() feeds that same
-// counter to tick() as its clock source -- so from tick()'s point of view, a
-// RESET makes its cpuCycles argument go backward. ALTAIR_REVIEW.md §3.4: the
-// deck isn't on the S-100 bus and must keep rolling right through a reset,
-// not lurch. Before this fix, unsigned wraparound in tick()'s cycle-delta
-// math turned that backward jump into an enormous spurious elapsed time,
-// yanking the head to the end of the tape in a single tick().
+// RESET zeroes the CPU cycle counter that feeds tick(); the deck must keep rolling
+// rather than underflow the delta (ALTAIR_REVIEW.md §3.4).
 TEST(Cassette, TickToleratesCpuCycleCounterGoingBackwardOnReset) {
     CassetteACR c;
     std::vector<uint8_t> tape(4000);
@@ -339,7 +320,6 @@ TEST(Cassette, TickToleratesCpuCycleCounterGoingBackwardOnReset) {
     c.tick(0);                                    // CPU RESET: its own cycle count dropped to 0
     EXPECT_EQ(c.pos(), before);                    // head did not move on the reset tick itself
 
-    // and playback resumes normally afterward, from the new baseline.
     c.tick(1000000);
     EXPECT_GT(c.pos(), before);
 }
@@ -362,7 +342,6 @@ TEST(Cassette, RecordingCreditIsCappedNotSpilled) {
     EXPECT_EQ(c.data(), (std::vector<uint8_t>{0x5A, 0x3C}));
 }
 
-// "Max" makes a wind an instant seek.
 TEST(Cassette, UnlimitedSpeedWindIsInstant) {
     CassetteACR c;
     std::vector<uint8_t> tape(100);

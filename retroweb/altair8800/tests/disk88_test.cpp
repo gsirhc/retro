@@ -1,11 +1,5 @@
-// GoogleTest suite for the MITS 88-DCDD controller (disk88.{h,cpp}).
-//
-// The controller is exercised the way the MITS boot PROM and CP/M BIOS drive
-// it: OUT 0x08 to select, OUT 0x09 to step / load the head, IN 0x09 to walk the
-// sector counter, IN 0x0A to stream 137-byte sectors, and the write sequence
-// (OUT 0x09 bit 7, then 137x OUT 0x0A).
-//
-// Status bits read back INVERTED (0 = true), so the helpers below unwrap that.
+// GoogleTest suite for the MITS 88-DCDD (disk88.{h,cpp}), driven the way the boot
+// PROM and CP/M BIOS do. Status reads back inverted (0 = true).
 
 #include <gtest/gtest.h>
 
@@ -28,14 +22,12 @@ constexpr uint8_t FN_STEP_OUT  = 0x02;
 constexpr uint8_t FN_HEAD_LOAD = 0x04;
 constexpr uint8_t FN_WRITE     = 0x80;
 
-// status bits read back from IN 0x08 (SEL), inverted -- 0 = true. Mirrors the
-// private constants in disk88.cpp so tests can name what they're checking.
+// IN 0x08 status bits, inverted (0 = true); mirror disk88.cpp
 constexpr uint8_t F_MOVE = 0x02;
 constexpr uint8_t F_HEAD = 0x04;
 constexpr uint8_t F_NRDA = 0x80;
 
-// A synthetic image whose every byte encodes its own (track, sector, offset)
-// so a misread is obvious.
+// every byte encodes its own (track, sector, offset)
 std::vector<uint8_t> makeImage() {
     std::vector<uint8_t> img(Disk88::kImageSize);
     for (int t = 0; t < Disk88::kTracks; ++t)
@@ -46,8 +38,7 @@ std::vector<uint8_t> makeImage() {
     return img;
 }
 
-// Read one physical 137-byte sector from the controller: sync to `sector` via
-// IN 0x09, then pull 137 bytes from the data port.
+// sync to `sector` via IN 0x09, then read 137 bytes from the data port
 std::vector<uint8_t> readSector(Disk88 &d, int sector) {
     for (int guard = 0; guard < 64; ++guard) {
         uint8_t pos = d.in(CTL);
@@ -88,15 +79,12 @@ TEST_F(DiskTest, DeselectedStatusReadsAllFalse) {
     EXPECT_EQ(d.in(SEL), 0xFF);
 }
 
-// A drive with nothing in it must not read as a healthy, ready diskette --
-// real hardware gets no index pulses without media. ALTAIR_REVIEW.md §3.2c.
+// no media means no index pulses, so the drive never reads ready (§3.2c)
 TEST_F(DiskTest, EmptyDriveNeverReportsReady) {
     d.out(SEL, 0x00);                       // select drive 0 -- nothing mounted
     EXPECT_EQ(d.in(SEL), 0xFF);             // unlike a mounted drive, reads all-false
     d.out(CTL, FN_HEAD_LOAD);               // try to load the head anyway
-    // track-0 is a mechanical carriage sensor, independent of media, so a
-    // fresh empty drive can legitimately still read it true -- but nothing
-    // that implies a readable diskette does
+    // track-0 is a carriage sensor and may read true with no media
     EXPECT_TRUE(d.in(SEL) & F_HEAD)   << "head must not read as loaded";
     EXPECT_TRUE(d.in(SEL) & F_NRDA)   << "no data can be ready with no media";
     EXPECT_TRUE(d.in(SEL) & F_MOVE)   << "the SIMH-0x1A 'healthy' bits must not appear";
@@ -113,8 +101,7 @@ TEST_F(DiskTest, HeadStepsClampAtBothEnds) {
     EXPECT_EQ(d.track(0), 0);
 }
 
-// A bus RESET deselects the controller but does not carry STEP pulses -- a
-// real drive's head just stays wherever it was. ALTAIR_REVIEW.md §3.2b.
+// bus RESET sends no STEP pulses, so the head stays put (§3.2b)
 TEST_F(DiskTest, ResetDoesNotHomeTheHead) {
     d.mount(0, img.data(), img.size());
     d.out(SEL, 0x00);
@@ -126,8 +113,7 @@ TEST_F(DiskTest, ResetDoesNotHomeTheHead) {
     EXPECT_EQ(d.in(SEL), 0xFF);            // but the controller is deselected
 }
 
-// The regression that broke Burcon CP/M: the track-0 line must follow the head,
-// not latch once set.
+// track-0 must follow the head, not latch (broke Burcon CP/M)
 TEST_F(DiskTest, Track0LineFollowsHead) {
     d.mount(0, img.data(), img.size());
     d.out(SEL, 0x00);
@@ -174,9 +160,7 @@ TEST_F(DiskTest, SectorReadMatchesImage) {
     }
 }
 
-// A real BIOS reads exactly kSectorLen (137) bytes then re-syncs via IN 0x09;
-// a 138th read without doing that should re-deliver the sector from byte 0
-// (matching SIMH), not return a phantom always-zero byte. ALTAIR_REVIEW.md §3.2a.
+// a 138th read re-delivers the sector from byte 0 (SIMH), not a zero byte (§3.2a)
 TEST_F(DiskTest, A138thReadReDeliversTheSectorInsteadOfAPhantomByte) {
     d.mount(0, img.data(), img.size());
     d.out(SEL, 0x00);
@@ -192,22 +176,19 @@ TEST_F(DiskTest, WriteSequenceRoundTrips) {
     d.out(CTL, FN_HEAD_LOAD);
     for (int i = 0; i < 3; ++i) d.out(CTL, FN_STEP_IN);   // track 3
 
-    // sync to sector 4, arm write, push 137 bytes
     for (int g = 0; g < 64; ++g)
         if (((d.in(CTL) >> 1) & 0x1F) == 4) break;
     d.out(CTL, FN_WRITE);
     std::vector<uint8_t> payload(Disk88::kSectorLen);
     std::iota(payload.begin(), payload.end(), 0x11);
     for (uint8_t v : payload) d.out(DATA, v);
-    d.out(DATA, 0x00);   // the BIOS trails the sector with fill bytes; the last
-                         // one past 137 is what commits the buffer to the image
+    d.out(DATA, 0x00);   // the BIOS fill byte past 137 commits the buffer
 
     EXPECT_TRUE(d.dirty(0));
     const std::size_t base = (std::size_t(3) * Disk88::kSectors + 4) * Disk88::kSectorLen;
     for (int b = 0; b < Disk88::kSectorLen; ++b)
         EXPECT_EQ(d.image(0)[base + b], payload[b]) << "byte " << b;
 
-    // and it reads back
     d.out(CTL, FN_STEP_OUT); d.out(CTL, FN_STEP_IN);      // reseek track 3
     auto got = readSector(d, 4);
     EXPECT_EQ(got, payload);

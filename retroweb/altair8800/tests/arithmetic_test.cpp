@@ -1,9 +1,6 @@
-// GoogleTest suite for the 8080 arithmetic group: ADD, ADC, SUB, SBB
-// (register and immediate forms) and the Zero / Sign / Parity / Carry flags
-// they produce. Auxiliary Carry is checked too where the value is well known.
-//
-// Reference values are taken from the "Intel 8080/8085 Assembly Language
-// Programming Manual" flag descriptions and worked examples.
+// GoogleTest suite for the 8080 arithmetic group (ADD, ADC, SUB, SBB) and the
+// flags they produce. Reference values: Intel 8080/8085 Assembly Language
+// Programming Manual.
 
 #include <gtest/gtest.h>
 
@@ -16,7 +13,6 @@
 
 namespace {
 
-// Opcodes under test (register operand = B unless noted).
 constexpr uint8_t ADD_B = 0x80, ADC_B = 0x88, SUB_B = 0x90, SBB_B = 0x98;
 constexpr uint8_t ADD_A = 0x87, SUB_A = 0x97;
 constexpr uint8_t ADI = 0xC6, ACI = 0xCE, SUI = 0xD6, SBI = 0xDE;
@@ -36,7 +32,6 @@ protected:
         cpu->reset();
     }
 
-    // Assemble `code` at 0x0000 and execute exactly one instruction.
     void run(std::initializer_list<uint8_t> code) {
         uint16_t addr = 0;
         for (uint8_t byte : code) mem[addr++] = byte;
@@ -228,8 +223,7 @@ TEST_F(Arith, SubEqualOperandsSetsZero) {
     EXPECT_FALSE(CY());
 }
 
-// Programming manual: "SUB A" zeroes the accumulator, clears carry,
-// sets zero and parity, and leaves the auxiliary carry set.
+// Programming manual: SUB A zeroes A, clears carry, sets Z and P, leaves AC set.
 TEST_F(Arith, SubAccumulatorFromItself) {
     cpu->a = 0x3E;
     run({SUB_A});

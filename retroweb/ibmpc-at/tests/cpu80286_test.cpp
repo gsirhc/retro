@@ -1,16 +1,3 @@
-// GoogleTest suite for the 80286 real-mode core: the shared 8086-legacy
-// instruction subset (MOV/ALU/stack/string/jump/flag groups) plus the
-// real-mode-legal 80286-native additions (PUSHA/POPA, BOUND, ENTER/LEAVE,
-// shift-by-immediate, three-operand IMUL, PUSH imm) and the specific
-// documented CPU-generation quirks worth pinning down in a test (PUSH SP
-// pushing the decremented value; shift counts masked mod 32).
-//
-// Reference values are worked by hand against the semantics described in
-// the Intel iAPX 286 Programmer's Reference Manual (1987) and, for the
-// 8086-legacy subset, the Intel 8086/8088 User's Manual -- opcode encodings
-// are cross-checked against the well-known canonical byte sequences for
-// each mnemonic (e.g. "01 D8" = ADD AX,BX).
-
 #include <gtest/gtest.h>
 
 #include "cpu80286.h"
@@ -43,11 +30,7 @@ protected:
         bus.write = [this](uint32_t a, uint8_t v) { mem[a & 0xFFFFF] = v; };
         bus.in    = [this](uint16_t) -> uint8_t { return next_in_val; };
         bus.out   = [this](uint16_t p, uint8_t v) { last_out_port = p; last_out_port_val = v; };
-        // Genuinely atomic 16-bit port access -- distinct from `in`/`out` so
-        // a test can prove IN AX,DX / OUT DX,AX go through this path rather
-        // than silently decomposing into two 8-bit accesses (which would be
-        // wrong for a device like the hard disk controller's data register;
-        // see chipset.h's io_in16/io_out16 comment).
+        // Atomic 16-bit port access, so tests can prove IN AX,DX / OUT DX,AX do not split into two 8-bit accesses.
         bus.in16  = [this](uint16_t) -> uint16_t { return next_in16_val; };
         bus.out16 = [this](uint16_t p, uint16_t v) { last_out16_port = p; last_out16_val = v; };
         cpu = std::make_unique<Cpu>(bus);
@@ -60,13 +43,13 @@ protected:
         uint16_t addr = at;
         for (uint8_t b : code) mem[addr++] = b;
     }
-    // Assemble `code` at CS:0 and execute exactly one instruction.
+    // Assembles `code` at CS:0 and executes one instruction.
     void run(std::initializer_list<uint8_t> code) {
         load(code);
         cpu->ip = 0;
         cpu->step();
     }
-    // Assemble `code` at CS:0 and execute `n` instructions in sequence.
+    // Assembles `code` at CS:0 and executes `n` instructions.
     void runN(std::initializer_list<uint8_t> code, int n) {
         load(code);
         cpu->ip = 0;
@@ -207,10 +190,7 @@ TEST_F(Cpu80286Test, PushPopRoundTripRestoresValue) {
 }
 
 TEST_F(Cpu80286Test, PushSpPushesDecrementedValue) {
-    // Intel iAPX 286 PRM, "Instruction Set Differences from the 8086": the
-    // 286 pushes SP's value *after* the 2-byte decrement, unlike the 8086
-    // (which pushes the pre-decrement value). Software of the era used this
-    // exact instruction to CPU-detect an 8086 vs a 286-or-later at runtime.
+    // Intel iAPX 286 PRM: the 286 pushes SP after the decrement, unlike the 8086.
     cpu->ss = 0;
     cpu->sp = 0x2000;
     run({0x54});  // PUSH SP
@@ -241,29 +221,13 @@ TEST_F(Cpu80286Test, PushaPopaRoundTrip) {
 }
 
 // ---------------------------------------------------------------------------
-// PUSHF/POPF/IRET: IOPL and NT (bits 12-14) are deliberately always cleared
+// PUSHF/POPF/IRET: IOPL and NT are always cleared
 // ---------------------------------------------------------------------------
 
 TEST_F(Cpu80286Test, PopfAndIretAlwaysClearIoplAndNt) {
-    // A real 80286 loads IOPL (bits 12-13) and NT (bit 14) from the popped
-    // value unconditionally in real mode (Intel iAPX 286 PRM) -- unlike the
-    // 8086 family, where bits 12-15 are unimplemented and always read back
-    // as 1. Tried implementing exactly that (also handy: it's the classic
-    // period technique DOS diagnostics like CheckIt/MSD/Norton used to tell
-    // an 8086-family chip from a real 286 with no CPUID available -- this
-    // core was briefly misreported as an "80188" without it). BUT:
-    // empirically, letting IOPL/NT round-trip through POPF breaks FreeDOS
-    // 1.3's installer -- a real, deterministic "Runtime error 200" partway
-    // through extracting FREEDOS.SAF, bisected via
-    // disks/build_freedos_hdd.cpp to specifically POPF's mask (reverting
-    // only IRET's did not clear it; reverting only POPF's did). Root
-    // mechanism unconfirmed -- something downstream reads FLAGS back and
-    // reacts to a genuinely-nonzero IOPL/NT it was never able to observe
-    // before. Since this core also powers the live shipped machine (same
-    // file, not just this offline build tool), a passing benchmark-
-    // detection edge case in one third-party diagnostic isn't worth a
-    // broken installer -- both instructions keep the always-0 behavior.
-    // See IBM_PCAT_REVIEW.md.
+    // A real 286 loads IOPL/NT from the popped value (Intel iAPX 286 PRM), but that
+    // breaks the FreeDOS 1.3 installer (Runtime error 200 extracting FREEDOS.SAF), so
+    // POPF and IRET keep the always-0 behavior. See IBM_PCAT_REVIEW.md.
     cpu->ss = 0;
     uint16_t want = uint16_t(cpu80286::FLAG_IOPL | cpu80286::FLAG_NT | cpu80286::FLAG_R1);
 
@@ -289,8 +253,7 @@ TEST_F(Cpu80286Test, PopfAndIretAlwaysClearIoplAndNt) {
 }
 
 // ---------------------------------------------------------------------------
-// Shift/rotate group, incl. the 286-new shift-by-immediate encoding and
-// the 286's mod-32 count masking (the 8086 used the raw unmasked count).
+// Shift/rotate, including the 286 mod-32 count mask
 // ---------------------------------------------------------------------------
 
 TEST_F(Cpu80286Test, ShlByImmediate) {
@@ -300,8 +263,7 @@ TEST_F(Cpu80286Test, ShlByImmediate) {
 }
 
 TEST_F(Cpu80286Test, ShiftCountMaskedMod32) {
-    // 33 mod 32 == 1, so SHL BX,33 must behave exactly like SHL BX,1 on a
-    // 286 (unlike the 8086, which would shift a full 33 times).
+    // 33 mod 32 == 1: SHL BX,33 behaves like SHL BX,1 on a 286.
     cpu->bx = 0x0001;
     run({0xC1, 0xE3, 33});
     EXPECT_EQ(cpu->bx, 0x0002);
@@ -326,10 +288,7 @@ TEST_F(Cpu80286Test, ShrSetsOverflowFromOriginalMsb) {
 // ---------------------------------------------------------------------------
 
 TEST_F(Cpu80286Test, JccNear0FEncodingTakenWhenZero) {
-    // 0x0F 0x8x (Jcc rel16) is an 80386 addition, not genuine 80286 -- this
-    // core supports it only as a compatibility concession for real-world
-    // "legacy" BIOS substitutes that turned out to assume a 386+ baseline.
-    // See IBM_PCAT_REVIEW.md.
+    // 0x0F 0x8x (Jcc rel16) is an 80386 addition the BIOS substitute needs.
     cpu->set_flag(cpu80286::FLAG_ZF, true);
     run({0x0F, 0x84, 0x05, 0x00});  // JZ near +5
     EXPECT_EQ(cpu->ip, 4 + 5);
@@ -367,8 +326,7 @@ TEST_F(Cpu80286Test, LoopDecrementsCxAndBranchesUntilZero) {
 TEST_F(Cpu80286Test, CallNearThenRetReturnsToCaller) {
     cpu->ss = 0;
     cpu->sp = 0x1000;
-    // At CS:0: CALL rel16=+2 (3-byte instruction, so IP=3 after fetch, target
-    // = 3+2 = 5). At CS:5: RET.
+    // At CS:0: CALL rel16=+2 (IP=3 after fetch, target 5). At CS:5: RET.
     load({0xE8, 0x02, 0x00}, 0);
     load({0xC3}, 5);
     cpu->ip = 0;
@@ -500,9 +458,7 @@ TEST_F(Cpu80286Test, DivByteExactQuotient) {
 }
 
 TEST_F(Cpu80286Test, DivByZeroFaultsThroughVectorZero) {
-    // Vector 0 lives at physical address 0, the same neighborhood code would
-    // otherwise load into by default -- place the DIV instruction well clear
-    // of the IVT (at CS:0x100) so the two don't overlap.
+    // Vector 0 sits at physical 0, so the DIV goes at CS:0x100 to stay clear of the IVT.
     mem[0] = 0x11; mem[1] = 0x11; mem[2] = 0x22; mem[3] = 0x22;  // vector 0 -> 2222:1111
     cpu->ss = 0; cpu->sp = 0x9000;
     cpu->ax = 10;
@@ -555,9 +511,7 @@ TEST_F(Cpu80286Test, OutImmAlWritesPort) {
 }
 
 TEST_F(Cpu80286Test, InAxImmGoesThroughAtomicSixteenBitPath) {
-    // IN AX,imm8 must use Bus::in16, not two Bus::in calls at port/port+1 --
-    // wrong for a device whose 16-bit register isn't just two adjacent
-    // 8-bit ones (e.g. the ATA data register at 0x1F0; see chipset.h).
+    // IN AX,imm8 must use Bus::in16, not two Bus::in calls.
     next_in16_val = 0x1234;
     run({0xE5, 0x60});  // IN AX, 60h
     EXPECT_EQ(cpu->ax & 0xFFFF, 0x1234);
@@ -608,9 +562,7 @@ TEST_F(Cpu80286Test, OutswSendsAtomicSixteenBitPortWriteFromDsSi) {
 }
 
 // ---------------------------------------------------------------------------
-// 0x66 operand-size prefix (386 compatibility concession -- see
-// IBM_PCAT_REVIEW.md; not genuine 80286 behavior, needed because this
-// machine's prebuilt BIOS substitute assumes a 386+ baseline)
+// 0x66 operand-size prefix (386 concession, not 80286 behavior)
 // ---------------------------------------------------------------------------
 
 TEST_F(Cpu80286Test, OpSize32MovImmediateLoadsFullThirtyTwoBits) {

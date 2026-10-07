@@ -5,8 +5,7 @@
 namespace pacman {
 namespace {
 
-// Address/data lines on U5/U6/U7 are wired scrambled (US 4,525,599). Bit
-// orders are a cross-check of MAME init_mspacman, not a behavior source.
+// U5/U6/U7 address and data lines are wired scrambled (US 4,525,599, MAME init_mspacman).
 uint16_t bitswap(uint16_t val, const int* bits, int n) {
     uint16_t out = 0;
     for (int i = 0; i < n; i++)
@@ -23,9 +22,7 @@ bool in_trap(uint16_t addr, uint16_t base) {
     return addr >= base && addr < uint16_t(base + 8);
 }
 
-// Forty 8-byte overlay windows: dest in $0000–$2FFF, source in decrypted
-// aux ROM $8000–$81EF. PAL decode, cross-checked against MAME
-// mspacman_install_patches.
+// Forty 8-byte overlay windows: dest $0000-$2FFF, source decrypted aux ROM $8000-$81EF.
 constexpr std::pair<uint16_t, uint16_t> kPatches[] = {
     {0x0410, 0x8008}, {0x08E0, 0x81D8}, {0x0A30, 0x8118}, {0x0BD0, 0x80D8},
     {0x0C20, 0x8120}, {0x0E58, 0x8168}, {0x0EA8, 0x8198}, {0x1000, 0x8020},
@@ -48,7 +45,7 @@ z80::Bus Machine::make_bus() {
     b.read = [this](uint16_t a) { return mem_read(a); };
     b.write = [this](uint16_t a, uint8_t v) { mem_write(a, v); };
     b.in = [](uint8_t) { return uint8_t(0xFF); };
-    // Only port 0 is ever exercised by the real ROM, so that's all we decode.
+    // Only port 0 is decoded.
     b.out = [this](uint8_t port, uint8_t v) { if (port == 0) irq_vector = v; };
     b.irq_data = [this] { return irq_vector; };
     return b;
@@ -59,10 +56,7 @@ void Machine::reset() {
     irq_enable = false;
     irq_vector = 0xFF;
     watchdog_ = kWatchdogFrames;
-    // watchdog_reset is sticky: run_cycles sets it when the 8-frame
-    // watchdog elapses, then calls reset() to mimic the real pulse.
-    // Clearing the flag here would hide the trip from tests.
-    // The aux-board PAL latch is not on the Z80 RESET line.
+    // watchdog_reset is sticky so tests see the trip. The aux PAL latch is not on Z80 RESET.
     frames = 0;
     audio.clear();
     video.reset();
@@ -119,8 +113,7 @@ void Machine::load_roms(const RomSet& set) {
 
 void Machine::aux_trap(uint16_t addr) {
     if (!aux_board) return;
-    // Any access (fetch, read, or write) trips the latch. Enable returns
-    // decrypted data; disable returns the original Pac-Man byte.
+    // Any access (fetch, read, or write) trips the latch.
     if (in_trap(addr, 0x3FF8)) {
         aux_decode = true;
         return;
@@ -134,8 +127,7 @@ void Machine::aux_trap(uint16_t addr) {
 
 uint8_t Machine::mem_read(uint16_t addr) {
     aux_trap(addr);
-    // Stock Pac-Man PCB leaves A15 unconnected, so $8000–$FFFF mirror
-    // $0000–$7FFF. The aux board is what actually decodes A15 as extra ROM.
+    // Stock PCB leaves A15 unconnected, so $8000-$FFFF mirror $0000-$7FFF.
     const uint16_t lo = addr & 0x7FFF;
     if (lo >= 0x4000 && lo < 0x4400) return video.videoram[lo - 0x4000];
     if (lo >= 0x4400 && lo < 0x4800) return video.colorram[lo - 0x4400];

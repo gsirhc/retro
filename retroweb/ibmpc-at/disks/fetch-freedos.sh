@@ -1,11 +1,7 @@
 #!/usr/bin/env bash
-# Fetch the FreeDOS 1.3 boot floppy, 1.2MB (5.25" HD) format -- the "120m"
-# variant of the official Floppy Edition, matching this machine's Drive A:
-# geometry exactly (80 cyl / 2 head / 15 sec/track / 512B = 1,228,800
-# bytes). FreeDOS is public-domain-adjacent/freely redistributable (GPL +
-# various permissive licenses per-component); this is the official
-# ibiblio.org distribution point. SHA-256 verified, same pattern as
-# fetch-basic.sh.
+# Fetch the FreeDOS 1.3 boot floppy, 1.2MB (5.25" HD) "120m" variant of the
+# official Floppy Edition, matching Drive A: geometry (80 cyl / 2 head /
+# 15 sec/track / 512B = 1,228,800 bytes). SHA-256 verified.
 #
 #   ./fetch-freedos.sh            # fetch what's missing / wrong
 #   ./fetch-freedos.sh --force    # re-fetch

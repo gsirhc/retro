@@ -1,17 +1,7 @@
-// CP/M boot smoke test for the 88-DCDD controller.
-//
-// Builds a full Altair: i8080 + 88-2SIO console + 88-DCDD + the MITS disk
-// bootstrap PROM at 0xFF00. Mounts the diskette image given on the command line
-// in drive 0, runs the turnkey boot, and passes (exit 0) once the console
-// output contains the CP/M drive prompt ("A>"). Optional extra arguments are
-// typed at the prompt, one per subsequent "A>".
-//
-//   build:  make cpmdisk         (from Emulator8080/)
-//   run:    ./cpm/cpm_disk DISK01.DSK
-//           ./cpm/cpm_disk DISK01.DSK DIR STAT
-//
-// Standard MITS 8-inch images are 337,568 bytes (77 x 32 x 137). See
-// web/disks/README.md for where to get them.
+// CP/M boot smoke test for the 88-DCDD: mounts the image given on the command
+// line in drive 0, runs the turnkey boot, and passes once the console shows "A>".
+// Extra arguments are typed at each subsequent "A>".
+//   run: ./cpm/cpm_disk DISK01.DSK [DIR STAT ...]
 
 #include "../i8080.h"
 #include "../serial2sio.h"

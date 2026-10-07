@@ -1,8 +1,3 @@
-// GoogleTest suite for the MC146818 CMOS/RTC: address/data port protocol,
-// the NMI-mask bit, the always-clear UIP bit (so BIOS's update-in-progress
-// wait loop can't hang), register C's read-clears-flags behavior, and the
-// poke()/peek() host-side preload path.
-
 #include <gtest/gtest.h>
 
 #include "cmos_rtc.h"

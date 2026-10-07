@@ -1,34 +1,26 @@
-// Emscripten wrapper: binds the 80486 core + this machine's chipset into
-// one `Machine` object the browser can drive. Build with `make` in this
-// directory (needs the emsdk toolchain on PATH). Mirrors
-// ibmpc-at/web/wasm_machine.cpp's structure and JS surface, adapted for a
-// single floppy bay and the new secondary-channel ATAPI CD-ROM.
+// Emscripten wrapper: binds the 80486 core and chipset into one `Machine` object for the browser.
 //
 // JS surface (all via embind):
 //   const m = new Module.Machine();
 //   m.loadRom(0xF0000, biosBytes);       // BIOS-bochs-legacy at the reset vector
 //   m.loadRom(0xC0000, vgaBiosBytes);    // VGABIOS-lgpl-latest.bin extension ROM
-//   m.mountHdd(hddBytes);                // whatever the front end decides C: should start as this
-//                                         // power-on -- factory FreeDOS, a blank drive, or a
-//                                         // previously-saved image; no swap UI while running
-//   m.hddDirty() / m.clearHddDirty() / m.hddImage()  // for persisting C:'s writes across power cycles
-//   m.hddDirtyPatches()                  // [{offset, bytes}, ...] -- only what actually changed,
-//                                         // for periodic persistence without re-copying all of C:
+//   m.mountHdd(hddBytes);                // C: as of this power-on (factory, blank or saved); no swap while running
+//   m.hddDirty() / m.clearHddDirty() / m.hddImage()  // persist C:'s writes
+//   m.hddDirtyPatches()                  // [{offset, bytes}, ...] only what changed
 //   m.mountFloppy(imgBytes);             // this machine's one 3.5" bay (A:)
 //   m.mountCdrom(isoBytes) / m.ejectCdrom()  // swappable, like the floppy
 //   m.mountCdromCue(cueText, binBytes)   // mixed-mode disc: data + CD-DA audio tracks
 //   const cd = m.cdromDrainSamples();    // the drive's own audio output, same shape as sbDrainSamples()
 //   m.cdromSampleRateHz(); m.cdGainLeft(); m.cdGainRight();  // CD-DA's fixed rate and SB16 mixer gain
 //   m.runCycles(66000000/60);            // advance one frame at real 66 MHz
-//   const frame = m.renderFrame();        // Uint8ClampedArray RGBA -- call
-//                                          // renderWidth()/renderHeight() after (resolution varies by mode)
+//   const frame = m.renderFrame();        // Uint8ClampedArray RGBA; size from renderWidth()/renderHeight()
 //   m.injectScancode(0x1E);               // real Set 1 scan code (see i8042.h)
-//   m.injectMouseEvent(dx, dy, buttons);   // PS/2 AUX port -- dy is +away-from-user, negate a browser movementY first
+//   m.injectMouseEvent(dx, dy, buttons);   // PS/2 AUX port, dy is +away-from-user
 //   const edges = m.speakerEdges();       // {cycles: Float64Array, levels: Uint8Array}
 //   const audio = m.sbDrainSamples();     // {cycles: Float64Array, left: Int16Array, right: Int16Array}
 //   m.sbSampleRateHz();                   // the DSP's currently-programmed output rate
 //   const fm = m.fmDrainSamples();        // the OPL3's stream, same shape as above
-//   m.fmStartTrace(400000); m.fmDrainTrace();  // opt-in register-write trace, see app.js's window.__fm
+//   m.fmStartTrace(400000); m.fmDrainTrace();  // opt-in register-write trace
 //   m.fmGainLeft(); m.sbGainLeft();       // the CT1745 attenuators the front end mixes with
 //   m.sbMixerRegister(0x44);              // raw CT1745 mixer register (treble/bass: 44h-47h)
 //   m.textScreen();                       // test-only: current text-mode screen as a string, "" in graphics modes
@@ -55,39 +47,27 @@ class WasmMachine {
 public:
     WasmMachine() { m_.reset(); }
 
-    // The front-panel Reset button: pulses CPU+chipset reset, preserving
-    // CMOS -- exactly what a real reset button's RESET line does. Power
-    // on/off (the front panel's separate power switch) is a front-end/JS
-    // concern -- whether runCycles() gets called at all -- not modeled here,
-    // same as ibmpc-at's own reset()/comment.
+    // Front-panel Reset: pulses CPU+chipset reset, CMOS preserved. Power is a front-end concern.
     void reset() { m_.reset(); }
 
-    // Loads the RTC's calendar, as BIOS Setup would. weekday 1-7, 1 = Sunday.
+    // Loads the RTC calendar as BIOS Setup would. weekday 1-7, 1 = Sunday.
     void setRtc(int year, int month, int day, int hour, int minute, int second, int weekday) {
         m_.chipset.cmos.set_time(year, month, day, hour, minute, second, weekday);
     }
 
-    // Front-panel Turbo. Off holds the CPU off the bus part of the time;
-    // the clock stays 66 MHz. See Machine::set_turbo.
+    // Front-panel Turbo. Off holds the CPU off the bus part of the time; the clock stays 66 MHz.
     void setTurbo(bool on) { m_.set_turbo(on); }
     bool turbo() const { return m_.turbo(); }
     double cpuHz() const { return m_.cpu_hz(); }
 
-    // Drop a ROM image at a physical address -- BIOS-bochs-legacy at
-    // 0x100000-bios.size() (the real reset vector, F000:FFF0, expects a
-    // 64KB image there) or VGABIOS-lgpl-latest.bin at 0xC0000 (the
-    // standard video-BIOS extension ROM window).
+    // Drops a ROM image at a physical address: BIOS at 0x100000-size (reset vector F000:FFF0 expects 64KB) or VGABIOS at 0xC0000.
     void loadRom(double addr, val bytes) {
         std::vector<uint8_t> data = emscripten::convertJSArrayToNumberVector<uint8_t>(bytes);
         m_.chipset.load_rom(uint32_t(addr), data.data(), data.size());
     }
 
-    // Run instructions until at least `cycles` more CPU cycles have
-    // elapsed (real 66 MHz -- never sped up, per CLAUDE.md). Sub-chunked so
-    // activity-LED state can be latched along the way -- see
-    // ibmpc-at/web/wasm_machine.cpp's identical comment for why sampling
-    // busy()/motor_on only once at the end of a whole frame would miss
-    // activity that started and finished mid-frame.
+    // Runs until at least `cycles` more CPU cycles have elapsed. Sub-chunked so activity LEDs latch
+    // mid-frame.
     void runCycles(double cycles) {
         int64_t remaining = int64_t(cycles);
         constexpr int64_t kSubChunk = 2000;
@@ -104,7 +84,7 @@ public:
     double totalCycles() const { return double(m_.total_cycles()); }
     bool halted() const { return m_.cpu.halted; }
 
-    // ---- video (vga, running at its Milestone 1 real-EGA-ceiling modes) --
+    // ---- video ----
     val renderFrame() {
         pc486::RenderScreen(m_.chipset.vga, last_frame_);
         const auto &rgba = last_frame_.rgba;
@@ -116,19 +96,17 @@ public:
     int renderWidth() const { return last_frame_.width; }
     int renderHeight() const { return last_frame_.height; }
 
-    // ---- keyboard -------------------------------------------------------
+    // ---- keyboard ----
     void injectScancode(int code) { m_.chipset.kbc.inject_scancode(uint8_t(code)); }
     bool keyboardRepeating() const { return m_.chipset.kbc.typematic_active(); }
 
-    // ---- PS/2 mouse (8042 AUX port) --------------------------------------
-    // `dy` follows the mouse's own axis convention (+Y away from the user)
-    // -- see chipset.h's inject_mouse_event comment. A caller passing a
-    // browser `movementY` must negate it first.
+    // ---- PS/2 mouse (8042 AUX port) ----
+    // `dy` is +Y away from the user (chipset.h inject_mouse_event); negate a browser movementY.
     void injectMouseEvent(int dx, int dy, int buttons) {
         m_.chipset.inject_mouse_event(dx, dy, uint8_t(buttons));
     }
 
-    // ---- floppy drive (fdc765) -- this machine's single 3.5" bay --------
+    // ---- floppy (fdc765) ----
     void mountFloppy(val bytes) {
         std::vector<uint8_t> data = emscripten::convertJSArrayToNumberVector<uint8_t>(bytes);
         m_.chipset.fdc.mount(0, data.data(), data.size());
@@ -150,7 +128,7 @@ public:
         return out;
     }
 
-    // ---- hard disk (wd1003) -- fixed media, no swap-while-running UI -----
+    // ---- hard disk (wd1003) ----
     void mountHdd(val bytes) {
         m_.chipset.hdd.mount(0, emscripten::convertJSArrayToNumberVector<uint8_t>(bytes));
     }
@@ -168,10 +146,8 @@ public:
             out.call<void>("set", val(emscripten::typed_memory_view(img.size(), img.data())));
         return out;
     }
-    // Only the byte ranges dirty_ranges() says actually changed, each as its
-    // own small Uint8Array -- see wd1003.h's dirty_ranges() comment. The
-    // front end patches these into its own kept copy of C: instead of
-    // pulling the whole image on every periodic save.
+    // Only the byte ranges dirty_ranges() reports, each as its own Uint8Array (wd1003.h), so the
+    // front end patches its copy of C: instead of pulling the whole image.
     val hddDirtyPatches() {
         auto ranges = m_.chipset.hdd.dirty_ranges(0);
         const std::vector<uint8_t> &img = m_.chipset.hdd.image(0);
@@ -187,14 +163,13 @@ public:
         return out;
     }
 
-    // ---- CD-ROM (atapi_cdrom) -- removable media, like the floppy -------
+    // ---- CD-ROM (atapi_cdrom) ----
     void mountCdrom(val bytes) {
         std::vector<uint8_t> data = emscripten::convertJSArrayToNumberVector<uint8_t>(bytes);
         m_.chipset.cdrom.mount(data.data(), data.size());
     }
-    // Mixed-mode disc (data + CD-DA audio tracks): a CUE sheet naming the
-    // one BIN file `binBytes` supplies. Returns false (mounting nothing) if
-    // the sheet doesn't parse -- see atapi_cdrom.h's mount_cue().
+    // Mixed-mode disc: a CUE sheet naming the one BIN in `binBytes`. Returns false if the sheet
+    // doesn't parse (atapi_cdrom.h mount_cue()).
     bool mountCdromCue(const std::string &cueText, val binBytes) {
         std::vector<uint8_t> data = emscripten::convertJSArrayToNumberVector<uint8_t>(binBytes);
         return m_.chipset.cdrom.mount_cue(cueText.c_str(), data.data(), data.size());
@@ -208,12 +183,10 @@ public:
     }
     bool cdromPlayingAudio() const { return m_.chipset.cdrom.playing_audio(); }
 
-    // ---- PC speaker -------------------------------------------------------
+    // ---- PC speaker ----
     bool speakerLevel() const { return m_.chipset.speaker.level(); }
 
-    // ---- test-only convenience: text-mode screen as a string --------------
-    // See ibmpc-at/web/wasm_machine.cpp's identical function for the full
-    // rationale -- unchanged here beyond the namespace.
+    // ---- test-only: text-mode screen as a string ----
     std::string textScreen() const {
         const auto &vga = m_.chipset.vga;
         if (pc486::DetectScreenMode(vga) != pc486::ScreenMode::kText) return "";
@@ -252,13 +225,10 @@ public:
         return out;
     }
 
-    // ---- Sound Blaster 16 -------------------------------------------------
-    // Drains the samples the DSP produced since the last call, paced at the
-    // real programmed sample rate (soundblaster.h's Sample log) -- same
-    // drain-and-clear shape as speakerEdges() above.
-    // The OPL3's own stream. Separate from sbDrainSamples() because the card
-    // sums FM and digitized audio in the analog domain, each behind its own
-    // CT1745 attenuator -- the front end applies those and mixes.
+    // ---- Sound Blaster 16 ----
+    // Drains samples the DSP produced since the last call, paced at the programmed sample rate.
+    // The OPL3's stream. Separate from sbDrainSamples(): the card sums FM and digitized audio in the
+    // analog domain behind separate CT1745 attenuators, which the front end applies.
     val fmDrainSamples() {
         std::vector<pc486::Opl3::Sample> samples = m_.chipset.sb.fm.drain_samples();
         std::vector<double> cycles(samples.size());
@@ -285,11 +255,8 @@ public:
         return out;
     }
 
-    // The CD-ROM's own analog audio leg, same {cycles,left,right} shape as
-    // fmDrainSamples() above -- on real hardware this never crosses the ATA
-    // bus either, it reaches the sound card over a physical cable. The
-    // front end mixes it in alongside FM/digitized audio, gated by
-    // cdGainLeft()/cdGainRight() below.
+    // The CD-ROM's analog audio leg, same shape as fmDrainSamples(). It never crosses the ATA bus;
+    // the front end mixes it using cdGainLeft()/cdGainRight().
     val cdromDrainSamples() {
         std::vector<pc486::AtapiCdrom::Sample> samples = m_.chipset.cdrom.drain_samples();
         std::vector<double> cycles(samples.size());
@@ -317,16 +284,14 @@ public:
     }
     uint32_t cdromSampleRateHz() const { return pc486::AtapiCdrom::kAudioSampleRateHz; }
 
-    // Test-only: the machine's real I/O decode, so a test can drive a device
-    // through its actual ports rather than reaching past the port block.
+    // Test-only: the machine's real I/O decode, to drive a device through its ports.
     uint8_t portIn(uint16_t port) { return m_.chipset.io_in(port); }
     void portOut(uint16_t port, uint8_t v) { m_.chipset.io_out(port, v); }
     uint8_t fmReg(uint16_t index) const { return m_.chipset.sb.fm.reg(index); }
     bool fmOpl3Mode() const { return m_.chipset.sb.fm.opl3_mode(); }
 
-    // ---- OPL3 register write trace (opt-in diagnostic, see app.js's
-    // window.__fm) -- captures every FM register write with its CPU cycle
-    // stamp so a real DOS game's music can be analysed offline.
+    // ---- OPL3 register write trace (opt-in, app.js window.__fm) ----
+    // Captures each FM register write with its CPU cycle stamp.
     void fmStartTrace(int maxEvents) { m_.chipset.sb.fm.start_trace(std::size_t(maxEvents)); }
     val fmDrainTrace() {
         std::vector<pc486::Opl3::TraceEvent> events = m_.chipset.sb.fm.drain_trace();
@@ -341,27 +306,17 @@ public:
         return out;
     }
 
-    // Cycles the 486 has spent halted. The front end differences this
-    // against totalCycles() to show the guest's own CPU usage -- the share
-    // of its time the machine is doing work rather than waiting on an
-    // interrupt. Always available; see Cpu::halt_cycles.
+    // Cycles the 486 spent halted; differenced against totalCycles() for guest CPU usage (Cpu::halt_cycles).
     double haltCycles() const { return double(m_.cpu.halt_cycles); }
 
-    // Cycles the guest spent in a DOS wait loop rather than halted -- see
-    // Cpu::idle_poll_cycles. Added to halted cycles, this is what makes a
-    // usage figure mean anything on a machine whose OS has no idea what
-    // idle is.
+    // Cycles spent in a DOS wait loop rather than halted (Cpu::idle_poll_cycles). Added to halted
+    // cycles, it makes a usage figure meaningful for an OS with no idle.
     double idleCycles() const { return double(m_.cpu.idle_poll_cycles); }
 
-    // The emulator's real memory footprint: the wasm heap holds the 32MB of
-    // guest RAM, video memory, the disk images in flight and everything else
-    // the machine owns. Always available -- it costs one call and is the
-    // figure a visitor is most likely to find interesting.
+    // The wasm heap: 32MB guest RAM, video memory, disk images in flight and the rest.
     double heapBytes() const { return double(emscripten_get_heap_size()); }
 
-    // Always present, so the front end can ask whether this build carries
-    // the emulator's own counters -- the Performance panel's Tier 2 -- and
-    // show them only then. The shipped binary answers false.
+    // Whether this build carries the emulator's own counters (Performance panel Tier 2). The shipped binary answers false.
     bool perfBuild() const {
 #ifdef PC486_PERF
         return true;
@@ -370,8 +325,7 @@ public:
 #endif
     }
 #ifdef PC486_PERF
-    // Counters since the last call, as "name=value" pairs. Reading resets
-    // them, so the front end gets a per-interval rate rather than a total.
+    // Counters since the last call as "name=value" pairs. Reading resets them.
     std::string perfStats() {
         auto &p = m_.cpu.perf;
         char buf[256];
@@ -385,10 +339,7 @@ public:
         return buf;
     }
 
-    // The busiest instruction forms since the last call, ranked. For an
-    // interpreter, what it runs most is what is worth optimizing -- and a
-    // count costs one increment, where timing each instruction would cost
-    // more than the instruction. "0f" marks the two-byte map.
+    // The busiest instruction forms since the last call, ranked. "0f" marks the two-byte map.
     std::string perfHotOpcodes(int top) {
         auto &p = m_.cpu.perf;
         struct Entry { uint64_t n; int op; bool two; };
@@ -424,8 +375,7 @@ public:
     float sbGainRight() const { return m_.chipset.sb.output_gain_right(); }
     float cdGainLeft() const { return m_.chipset.sb.cd_gain_left(); }
     float cdGainRight() const { return m_.chipset.sb.cd_gain_right(); }
-    // Raw CT1745 mixer register, for the tone controls (44h-47h) the front
-    // end turns into shelving-filter gains -- see app.js's refreshSbTone().
+    // Raw CT1745 mixer register for the tone controls (44h-47h); see app.js refreshSbTone().
     uint8_t sbMixerRegister(uint8_t index) const { return m_.chipset.sb.mixer_register(index); }
 
     val sbDrainSamples() {

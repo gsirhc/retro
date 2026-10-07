@@ -1,11 +1,8 @@
 import { test, expect } from "@playwright/test";
 import { readFileSync } from "fs";
 
-// ROM-set loader: members are mapped by usual MAME/board names and accepted
-// when each chip is the original size. CRC32 only labels the generated
-// hardware self-test ROM vs. a user dump — it is not a whitelist. Fixtures
-// are that generated set (roms/*, built by `make roms`), never Namco Pac-Man.
-// See PACMAN_REVIEW.md §8.
+// Members map by MAME/board names and must be original chip size. CRC32 only
+// labels the self-test ROM vs a user dump.
 
 const HWTEST_FILES = [
   "roms/program.bin",

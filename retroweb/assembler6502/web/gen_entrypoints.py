@@ -1,37 +1,17 @@
 #!/usr/bin/env python3
-"""Extracts editor.s/load.s's <addr>R entry-point addresses from the ROM's
-own build output (cpu6502/rom/tmp/firmware.lbl) into a small JS constants
-file the browser can trust. Generated at build time, never hand-copied --
-a hardcoded hex literal in app.js would silently go stale the next time
-the ROM's layout shifts (exactly the bug class the C++/Playwright test
-suites hit repeatedly while these addresses were being hand-maintained --
-see CGOAC6502_REVIEW.md)."""
+"""Extracts ROM entry-point addresses from cpu6502/rom/tmp/firmware.lbl into a JS constants file."""
 import re
 import sys
 
 WANTED = [
     "SHELL_ENTRY", "SHELL_PROMPT", "START_WOZ",
-    # bios.s's fixed OS-call jump table (see its own header comment) --
-    # callable by a user's own assembled program (JSR $xxxx), documented
-    # on the Help panel's "OS calls" section below.
+    # bios.s's OS-call jump table, shown in the Help panel's OS calls section
     "PRINT_CHAR", "PRINT_STR", "LCD_PUTC", "LCD_PUTS", "LCD_CLEAR", "LCD_LINE1", "LCD_LINE2",
     "READ_KEY",
 ]
-# Note: NEW/LIST/EDIT/ASM/RUN/LOAD/SAVE are no longer independent <addr>R
-# targets -- the command shell (editor.s's SHELL_ENTRY) absorbed all of
-# them as typed command words at its own "*" prompt, so there's nothing
-# left to extract addresses for beyond the shell's own entry point (plus
-# SHELL_PROMPT, the documented RUN-resume address, and START_WOZ, Wozmon's
-# own re-entry). This is the whole point of that design: one real address
-# to track here instead of seven.
-#
-# SRC_START/SYM_START/OBJ_START ($3000/$2C00/$0400) are NOT here either --
-# they're plain `=` constants in editor.s, not linker-placed labels, so
-# they never appear in firmware.lbl at all. They're fixed, deliberately-
-# chosen memory-map boundaries (not something ld65 moves around the way it
-# does real code/data labels), so the Help panel documents them as static
-# text instead -- keep that text in sync if editor.s's own constants ever
-# change.
+# SRC_START/SYM_START/OBJ_START ($3000/$2C00/$0400) are `=` constants in
+# editor.s, not labels, so they're absent from firmware.lbl. The Help panel
+# documents them as static text.
 
 
 def main():

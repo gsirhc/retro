@@ -3,13 +3,9 @@ import { CoverageReport } from "monocart-coverage-reports";
 import { coverageEnabled, coverageOptions } from "./coverage";
 import { boot, bootLive, resetLivePage, resetPromptPage } from "./helpers";
 
-// Every spec imports { test, expect } from here instead of @playwright/test so
-// that V8 coverage for app.js is collected automatically when COVERAGE=1.
-//
-// Worker-scoped pages (livePage / perfPage / promptPage) mount the 256MB HDD
-// once per worker and reset between tests. Prefer those over boot()/bootLive()
-// whenever the test does not need a fresh navigation (first-visit localStorage,
-// reload persistence, route.abort, addInitScript, realtime smoke, etc.).
+// Specs import { test, expect } from here so V8 coverage is collected when COVERAGE=1.
+// Worker-scoped pages (livePage / perfPage / promptPage) mount the 256MB HDD once per worker.
+// Prefer them over boot()/bootLive() unless the test needs a fresh navigation.
 
 type WorkerFixtures = {
   _sharedLivePage: Page;

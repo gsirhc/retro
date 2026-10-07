@@ -5,9 +5,7 @@
 namespace pc486 {
 
 namespace {
-// Standard ISA DMA page-register port assignments (separate 74-series glue
-// logic, not part of the 8237 itself) -- unchanged from the AT; a period
-// 486 Super I/O chip still wires DMA page registers the same way.
+// ISA DMA page-register ports (74-series glue, not part of the 8237).
 bool page_port_map(uint16_t port, int &controller, int &channel) {
     switch (port) {
         case 0x87: controller = 1; channel = 0; return true;
@@ -46,10 +44,7 @@ void Chipset::reset() {
     sb.reset();
     mpu.reset();
     note_a20();  // kbc.reset() closes the gate again
-    // mem/rom_/cmos deliberately survive reset() -- see ibmpc-at/chipset.cpp's
-    // identical comment; the same real-hardware facts (RAM, ROM write-
-    // protect, and battery-backed CMOS all survive a CPU/warm reset) apply
-    // unchanged on this machine.
+    // mem, rom_ and cmos survive reset.
 }
 
 void Chipset::set_cpu_hz(double hz) {
@@ -85,16 +80,12 @@ void Chipset::mem_write(uint32_t addr, uint8_t v) {
 
 uint8_t *Chipset::page_host(uint32_t page_base, bool write) {
     note_vga_mapping();
-    // The gate masks a 4KB-aligned base the same way it masks a byte address:
-    // 0xFFFFF+1 is a whole number of pages, so the offset within the page is
-    // untouched.
+    // A20 masks a page base like a byte address.
     if (!kbc.a20_enabled()) page_base &= 0xFFFFF;
     page_base = rom_alias(page_base);
     if (vga.owns_mem(page_base)) {
-        // The card answers, not RAM -- but in a mode whose planar stages are
-        // all pass-through (mode 13h) the aperture is plain linear bytes, so
-        // the CPU can be handed a pointer straight into VRAM instead of
-        // paying mem_read/mem_write's per-byte plane decode on every pixel.
+        // Mode 13h's aperture is linear, so hand the CPU a pointer into VRAM and skip
+        // the per-byte plane decode.
         return vga.linear_page(page_base, write);
     }
     if (page_base >= mem.size()) return nullptr;  // nothing populated up there
@@ -114,9 +105,7 @@ void Chipset::set_port61(uint8_t v) {
 }
 
 uint8_t Chipset::io_in(uint16_t port) {
-    // A port access can change any device's state (or read a signal tick()
-    // maintains, like port 0x61's refresh toggle), so the service gate
-    // re-opens for the next instruction boundary -- see tick().
+    // Any port access can change device state, so reopen the service gate.
     next_service_ = 0;
     if (pic_master.owns(port)) return pic_master.in(port);
     if (pic_slave.owns(port)) return pic_slave.in(port);
@@ -139,10 +128,8 @@ uint8_t Chipset::io_in(uint16_t port) {
 }
 void Chipset::io_out(uint16_t port, uint8_t v) {
     io_out_impl(port, v);
-    // A VGA register write can change how its aperture maps, and page_host()
-    // hands the CPU cached pointers into VRAM -- so the mapping is re-checked
-    // after every port write, before the guest's next memory access can use a
-    // pointer resolved under the old mode.
+    // A VGA register write can change the aperture mapping; recheck before the
+    // guest uses a pointer resolved under the old mode.
     note_vga_mapping();
 }
 
@@ -172,14 +159,10 @@ void Chipset::io_out_impl(uint16_t port, uint8_t v) {
 
 uint16_t Chipset::io_in16(uint16_t port) {
     next_service_ = 0;
-    // Both IDE channels' data registers are inherently 16-bit at a single
-    // port address -- see cpu80486.h's Bus::in16/out16 comment (ported
-    // from cpu80286.h's identical note about the AT's single HDD channel;
-    // this machine has two such registers, one per channel).
+    // IDE data registers are 16-bit at a single port.
     if (port == 0x1F0) return hdd.data_in16();
     if (port == 0x170) return cdrom.data_in16();
-    // The video card's SVGA extension index/data ports are 16-bit registers
-    // at a single address too -- see Ega::owns_port16.
+    // SVGA extension index/data ports are 16-bit too.
     if (Ega::owns_port16(port)) return vga.in16(port);
     return uint16_t(io_in(port)) | (uint16_t(io_in(uint16_t(port + 1))) << 8);
 }
@@ -193,8 +176,7 @@ void Chipset::io_out16(uint16_t port, uint16_t v) {
 }
 
 cpu80486::Bus Chipset::make_bus() {
-    // Chipset already names its six bus operations exactly as Bus::For
-    // expects (mem_read/mem_write/io_in/io_out/io_in16/io_out16).
+    // Chipset names the six bus operations exactly as Bus::For expects.
     return cpu80486::Bus::For(this);
 }
 
@@ -206,12 +188,8 @@ void Chipset::service(uint64_t cpu_cycles, double cpu_hz) {
 
     fdc.tick(cpu_cycles);
     vga.tick(cpu_cycles);
-    // The FDC/DMA handoff -- unchanged from the AT (see ibmpc-at/chipset.cpp
-    // for the full rationale): once a paced READ/WRITE DATA transfer's
-    // real-time wait has elapsed, perform the whole block copy in one step
-    // using whichever of DMA1's address/count/page registers were
-    // programmed for channel 2 (the floppy's fixed DMA channel). DMA
-    // addresses bypass the A20 gate, going straight at `mem`.
+    // Once the paced FDC transfer wait has elapsed, copy the block in one step
+    // through DMA1 channel 2. DMA bypasses the A20 gate.
     dma1.set_dreq(2, fdc.transfer_ready());
     if (fdc.transfer_ready() && !dma1.channel_masked(2)) {
         uint16_t dma_len16 = uint16_t(dma1.count(2) + 1);  // 8237 count register is programmed as N-1
@@ -231,37 +209,21 @@ void Chipset::service(uint64_t cpu_cycles, double cpu_hz) {
         for (std::size_t i = 0; i < len; ++i) dma1.advance(2);
         fdc.finish_transfer(len);
     }
-    // Edge-triggered ISA IRQs: raised only on the 0->1 transition, matching
-    // genuine wiring -- see chipset.h's *_irq_prev_ comment.
+    // Edge-triggered: raise only on the 0->1 transition.
     bool fdc_irq_now = fdc.irq_pending();
     if (fdc_irq_now && !fdc_irq_prev_) pic_master.raise(6);
     fdc_irq_prev_ = fdc_irq_now;
 
-    // IRQ1 (keyboard) and IRQ12 (PS/2 mouse, master PIC line 4 -- slave line
-    // 4, cascaded): level-checked every tick, NOT edge-detected like every
-    // other IRQ here. Both share one output register behind i8042.cpp's
-    // queue, and its in(0x60) re-fills that register and re-asserts the
-    // pending line inside the very same call that cleared it, whenever a
-    // second byte was already queued -- the extended-key 0xE0 prefix pair,
-    // a multi-byte command response, or ordinary typing outrunning the
-    // guest's own ISR. No 1->0->1 transition is ever observable at tick
-    // granularity, so an edge-detect here would drop that second byte's
-    // interrupt outright (a keyboard byte sitting unread forever looks
-    // exactly like the browser's reported "keyboard freezes" -- see
-    // PC486_REVIEW.md for the trace that pinned it on IRQ1 specifically).
+    // IRQ1 and IRQ12 are level-checked, not edge-detected. i8042's in(0x60)
+    // refills the output register inside the call that cleared it, so a queued
+    // second byte never shows an edge and its interrupt would be lost.
     kbc.tick(cpu_cycles, cpu_hz);
     if (kbc.irq1_pending()) { pic_master.raise(1); kbc.clear_irq1(); }
     if (kbc.irq12_pending()) { pic_slave.raise(4); kbc.clear_irq12(); }
 
-    // IRQ5 (Sound Blaster, master PIC line 5) -- edge-triggered like the
-    // other device IRQs: one interrupt per completed DMA block/command,
-    // not a continuously-re-asserting condition the way the mouse's
-    // queued-byte case is.
+    // IRQ5 (Sound Blaster) is edge-triggered, one per completed block/command.
     sb.tick(cpu_cycles);
-    // DREQ for whichever channel/controller the card is currently jumpered
-    // to -- live every tick, not only while a transfer is actually serviced,
-    // so a channel left masked while the card wants bytes shows a real
-    // pending request on that controller's status register.
+    // DREQ follows the jumpered channel every tick so a masked channel shows a pending request.
     {
         bool is16 = sb.transfer_is_16bit();
         int global_ch = sb.transfer_dma_channel();
@@ -269,23 +231,15 @@ void Chipset::service(uint64_t cpu_cycles, double cpu_hz) {
         int idx = is16 ? (global_ch - 4) : global_ch;
         if (idx >= 0 && idx <= 3) dma.set_dreq(idx, sb.transfer_ready());
     }
-    // Guarded by the device's own inline "is a block waiting" flag so the
-    // out-of-line byte mover is not called 66 million times a second just to
-    // return -- same shape as run_cycles()'s has_interrupt() guard (§8).
+    // Skips the out-of-line call unless a block is waiting.
     if (sb.transfer_ready()) service_sb_dma();
     bool sb_irq_now = sb.irq_pending();
     if (sb_irq_now && !sb_irq_prev_) {
-        // Mixer register 80h picks which line the card actually drives --
-        // see soundblaster.cpp's irq_line() (SBPG 2-6). -1 means software
-        // deselected every line, so the card raises nothing at all.
+        // Mixer register 80h picks the line (SBPG 2-6); -1 means none.
         switch (sb.irq_line()) {
             case 2:
-                // The SB16's "IRQ2" jumper/mixer position is wired to global
-                // IRQ9, not the master's own IR2: on the AT, IBM cascaded the
-                // second 8259 in at the former XT IRQ2 line and rerouted the
-                // XT's IRQ2-using cards to the slave's IR1 (global IRQ9)
-                // instead, so master IR2 is only ever the cascade input, never
-                // a device's own interrupt. IBM 5170 Technical Reference.
+                // "IRQ2" is wired to global IRQ9 (slave IR1) since the AT cascade takes master
+                // IR2 (IBM 5170 Technical Reference).
                 pic_slave.raise(1);
                 break;
             case 5: pic_master.raise(5); break;
@@ -296,9 +250,7 @@ void Chipset::service(uint64_t cpu_cycles, double cpu_hz) {
     }
     sb_irq_prev_ = sb_irq_now;
 
-    // IRQ14 (hard disk) and IRQ15 (CD-ROM), both on the slave PIC --
-    // global IRQ14 = slave line 6, global IRQ15 = slave line 7, the
-    // standard secondary-IDE-channel assignment.
+    // IRQ14 (hard disk) and IRQ15 (CD-ROM) are slave lines 6 and 7.
     hdd.tick(cpu_cycles);
     bool hdd_irq_now = hdd.irq_pending();
     if (hdd_irq_now && !hdd_irq_prev_) pic_slave.raise(6);
@@ -309,8 +261,7 @@ void Chipset::service(uint64_t cpu_cycles, double cpu_hz) {
     if (cdrom_irq_now && !cdrom_irq_prev_) pic_slave.raise(7);
     cdrom_irq_prev_ = cdrom_irq_now;
 
-    // IRQ8 (RTC, slave line 0): the chip's active-low IRQ output, inverted
-    // onto the ISA line, so a new flag is a rising edge.
+    // IRQ8 (RTC, slave line 0): inverted active-low output, so a new flag is a rising edge.
     cmos.tick(cpu_cycles, cpu_hz);
     bool rtc_irq_now = cmos.irq_pending();
     if (rtc_irq_now && !rtc_irq_prev_) pic_slave.raise(0);
@@ -329,24 +280,13 @@ void Chipset::service_sb_dma() {
 
     uint8_t *buf = sb.transfer_buffer();
     std::size_t want = sb.transfer_length();  // already in bytes
-    // Direction follows the DSP command's A/D bit, not the floppy's
-    // write-to-disk sense: an *input* (A/D, recording) transfer carries the
-    // card's own samples out to memory, and playback -- the common case --
-    // reads memory into the card. Getting this backwards leaves the DAC
-    // playing the card's own buffer while overwriting the program's mixed
-    // audio (PC486_REVIEW.md §13).
-    // The physical address is recomputed from the DMA channel's own live
-    // page/address registers on every unit moved, then dma.advance() is
-    // called right after -- that's what makes a transfer that wraps the
-    // 64KB page (address increments/decrements and wraps, page register
-    // unchanged -- a real, documented 8237 quirk) or runs in decrement mode
-    // (mode register bit 5) fall out correctly, for both channel widths,
-    // instead of just walking a single phys+i computed once up front.
+    // Direction follows the DSP A/D bit: input (recording) writes memory, playback reads it.
+    // The address is recomputed from the live page/address registers each unit,
+    // so 64KB page wrap and decrement mode (mode bit 5) work (8237 behavior).
     std::size_t moved = 0;
     if (is16) {
-        // 16-bit channel: address outputs are A1-A16 (page supplies
-        // A17-A23, bit 0 not connected), and the count/advance() step in
-        // words, not bytes -- see soundblaster.h's header formula.
+        // 16-bit channel: A1-A16 from the address register, A17-A23 from the page
+        // register, and count/advance step in words.
         std::size_t avail_bytes = (std::size_t(dma.count(idx)) + 1) * 2;
         std::size_t len = std::min(want, avail_bytes) & ~std::size_t(1);  // whole words only
         for (std::size_t i = 0; i < len; i += 2) {

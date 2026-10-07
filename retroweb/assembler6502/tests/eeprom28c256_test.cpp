@@ -1,6 +1,3 @@
-// GoogleTest suite for eeprom28c256::Eeprom -- page-write timing and the
-// bus-write-is-a-no-op contract (see eeprom28c256.h).
-
 #include <gtest/gtest.h>
 
 #include "../eeprom28c256.h"
@@ -37,12 +34,11 @@ TEST(Eeprom28C256, WriteSpanningTwoPagesTakesTwoPageCycles) {
     e.erase_all();
     uint8_t data[10];
     for (int i = 0; i < 10; i++) data[i] = uint8_t(0x10 + i);
-    // Starts 2 bytes before the page boundary, runs 8 bytes into the next
-    // page -- touches exactly pages 0 and 1.
+    // spans pages 0 and 1
     e.begin_program(uint16_t(kPageSize - 2), data, 10);
     e.advance(kPageWriteCycleUs);        // first page committed
     EXPECT_TRUE(e.busy());
-    EXPECT_EQ(e.read(kPageSize - 2), data[0]);   // first page's data landed
+    EXPECT_EQ(e.read(kPageSize - 2), data[0]);
     EXPECT_EQ(e.read(kPageSize), 0xFF);           // second page not yet
     e.advance(kPageWriteCycleUs);
     EXPECT_FALSE(e.busy());

@@ -908,7 +908,7 @@ int Cpu::interrupt() {
     } else if (im == 0) {
         uint8_t data = bus_.irq_data ? bus_.irq_data() : uint8_t(0xFF);
         push16(pc);
-        // Hardware usually jams RST 38 (0xFF). Treat any RST the same way.
+        // hardware usually jams RST 38 (0xFF)
         pc = uint16_t((data & 0x38));
         t = 13;
     } else {

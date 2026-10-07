@@ -1,49 +1,21 @@
-/* ---- fullscreen: expand the whole bezel (frame + vignette + power LED),
-   not just the bare screen element, so it still reads as "real hardware"
-   rather than suddenly looking like a plain <video>. No real machine this
-   site emulates has a fullscreen mode -- there's no hardware precedent for
-   this at all, so unlike CRT/case styling this is a pure web-UI convenience
-   (the same kind of labelled opt-in shortcut as the theme picker), not
-   something CLAUDE.md's realism rules govern. #screen keeping its
-   aspect-ratio in sync with whatever the live display mode actually is (see
-   each machine's own app.js) means this only ever scales that real picture
-   up, never distorts or fakes a different resolution.
-
-   Shared verbatim across every machine page: all three already use the same
-   #bezel/#screen/.crt-overlay element shape and the same 16px 18px bezel
-   padding / #0c0b0a plastic, so one fullscreen mechanism fits every one of
-   them with no per-machine override needed.
-
-   Keyed on #bezel (an id -- every machine's own bezel element carries one),
-   not .bezel, so these rules reliably outrank each machine's own local
-   `.monitor .bezel`/`.monitor.crt .bezel`-style padding/background rules
-   regardless of how many classes those stack (an ID beats any number of
-   classes on specificity alone) -- a plain `.bezel:fullscreen` tied on
-   specificity with assembler6502's own `.monitor .bezel { padding: 4px }`
-   and lost the padding on source order, leaving the bezel a few pixels
-   short of the real viewport instead of the intended 100vw/100vh. */
+/* ---- fullscreen: expands the whole bezel, not just the screen ----
+   Keyed on #bezel (an id) so these outrank each machine's local `.bezel`
+   padding rules; a class selector lost to assembler6502's `.monitor .bezel`. */
 #bezel:fullscreen, #bezel:-webkit-full-screen {
   width: 100vw; height: 100vh; max-width: none; border-radius: 0;
   padding: 3vh 3vw; box-sizing: border-box; background: #0c0b0a;
 }
 #bezel:fullscreen #screen, #bezel:-webkit-full-screen #screen {
-  /* Portrait cabinets (Pac-Man 224×288, Galaxian-family 224×256) fill
-     height and leave side letterbox. A block canvas with a definite
-     width (from aspect-ratio) and auto side margins sits in the
-     middle of that leftover instead of pinning left. Terminals set
-     their own inline pixel size, so this rule never applies there. */
+  /* Portrait cabinets fill height; a block canvas with auto side margins
+     centers in the leftover. Terminals set inline pixel sizes instead. */
   display: block;
   width: auto; height: 100%; max-width: 100%; max-height: 100%;
   margin-left: auto; margin-right: auto;
 }
 #bezel:fullscreen .crt-overlay, #bezel:-webkit-full-screen .crt-overlay { inset: 3vh 3vw; }
 
-/* Lives inside the bezel itself (not a sibling row) so it's still reachable
-   while fullscreen -- the Fullscreen API only expands #bezel's own subtree,
-   so a control placed outside it would be visually covered and unclickable
-   the moment fullscreen engaged. Grouped in one corner cluster of the
-   bezel's own plastic-frame padding, not over the picture, so the controls
-   move together with a single position rule. */
+/* Inside the bezel so it stays reachable in fullscreen, which only expands
+   #bezel's subtree. */
 .bezel-controls {
   position: absolute; top: 6px; right: 8px; z-index: 7;
   display: flex; gap: 6px; align-items: center;
@@ -59,25 +31,13 @@
 .bezel-btn:hover, .bezel-btn:focus-visible { opacity: 1; }
 .bezel-btn:disabled { opacity: .25; cursor: default; }
 #fullscreenBtn { width: 26px; padding: 0; }
-/* Sends a real Escape keystroke straight to the guest (see fullscreen.js),
-   bypassing the native keyboard event entirely. Needed because the
-   browser's own Esc key never reaches the page at all while fullscreen
-   (confirmed live on ibmpc-at, where this was first built -- it's not
-   merely "also" exiting fullscreen, the guest gets nothing): the Fullscreen
-   API treats Esc as its own reserved exit gesture, not a key a page can
-   observe or reclaim. Hidden outside fullscreen -- that's the only place
-   this problem exists at all, since a real physical Esc key works fine
-   otherwise. */
+/* Injects a real Escape keystroke into the guest (see fullscreen.js); the
+   browser reserves Esc to exit fullscreen. Hidden outside fullscreen. */
 #escBtn { font-size: 11px; font-weight: 600; display: none; }
 #bezel:fullscreen #escBtn, #bezel:-webkit-full-screen #escBtn { display: inline-block; }
 
-/* One-time hint shown the first time anyone hits Fullscreen -- a plain
-   <dialog> promotes to the browser's top layer, the same layer fullscreen
-   elements use, so it renders above the fullscreened bezel rather than
-   being covered by it (see fullscreen.js). `.site-dialog` is the same
-   chrome for other page popups (ROM-load errors, etc.). Styled from the
-   shared panel/button theme tokens so it matches whichever theme is
-   active instead of looking like a foreign popup. */
+/* First-fullscreen hint. A <dialog> lands in the top layer, above the
+   fullscreened bezel. `.site-dialog` is the same chrome for other popups. */
 #fsEscHint, .site-dialog {
   max-width: 380px; padding: 16px 18px 18px;
   background: var(--panel-bg); color: var(--text);

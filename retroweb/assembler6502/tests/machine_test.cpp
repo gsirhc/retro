@@ -1,8 +1,3 @@
-// GoogleTest suite for machine::Machine -- reset timing, the LCD
-// accessory's default-attached behavior, and (when the real ROM has been
-// built -- `make -C .. rom`, gitignored like every other *.bin in this
-// repo) a full end-to-end boot of the actual, unmodified firmware.
-
 #include <gtest/gtest.h>
 
 #include "../machine.h"
@@ -24,15 +19,14 @@ TEST(Machine, ResetHoldsPcAtZeroUntilTheDs1813DelayElapses) {
     EXPECT_EQ(m.cpu.pc, 0);
     m.run_cycles(kResetHoldCycles - 1000);
     EXPECT_EQ(m.cpu.pc, 0);          // still held
-    m.run_cycles(1000);               // exactly the remainder of the hold, no further execution yet
+    m.run_cycles(1000);
     EXPECT_EQ(m.cpu.pc, 0x9000);      // released, real reset vector read
 }
 
 TEST(Machine, LcdAttachedByDefaultSoResetViaIrqDoesNotHang) {
     Machine m;
     EXPECT_TRUE(m.lcd_attached());
-    // reset_via_irq's busy-poll (PB configured as input, bit7 checked)
-    // must read "not busy" with the accessory attached.
+    // reset_via_irq's busy-poll must read not busy with the LCD attached
     m.bus.via.write(0x2, 0x00);       // DDRB: all input, as lcd_wait sets it
     EXPECT_EQ(m.bus.via.read(0x0) & 0x80, 0);
 }
@@ -41,7 +35,7 @@ TEST(Machine, DetachingTheLcdReproducesTheGenuineBareBoardHang) {
     Machine m;
     m.set_lcd_attached(false);
     m.bus.via.write(0x2, 0x00);
-    EXPECT_NE(m.bus.via.read(0x0) & 0x80, 0);   // floating input reads high -- busy-wait never clears
+    EXPECT_NE(m.bus.via.read(0x0) & 0x80, 0);   // floating input reads high
 }
 
 TEST(Machine, TypedCharacterReachesTheAciaAsAReceivedByte) {
@@ -55,8 +49,7 @@ TEST(Machine, TypedCharacterReachesTheAciaAsAReceivedByte) {
 // --- real-firmware end-to-end boot, skipped if the ROM hasn't been built ---
 
 TEST(Machine, BootsTheRealFirmwareStraightToWozmon) {
-    // ctest's cwd for gtest_discover_tests is tests/build/ -- four levels
-    // up reaches the repo's cpu6502/rom/ tree.
+    // ctest cwd is tests/build/; four levels up is cpu6502/rom/
     std::ifstream f("../../../../cpu6502/rom/tmp/firmware.bin", std::ios::binary);
     if (!f) GTEST_SKIP() << "firmware.bin not built -- run `make -C .. rom` first";
     std::vector<uint8_t> img((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
@@ -67,20 +60,14 @@ TEST(Machine, BootsTheRealFirmwareStraightToWozmon) {
     std::string out;
     m.on_serial_out = [&](uint8_t c) { out += char(c); };
 
-    m.run_cycles(200000);   // clears the DS1813 hold + reset init + CLEAR_TERMINAL + the "\" banner
+    m.run_cycles(200000);   // DS1813 hold, reset init, banner
 
-    // Real Wozmon's cold/re-sync entry (ESCAPE) prints "\" then CR/LF --
-    // this is the actual, unmodified banner, not a custom boot message.
+    // Wozmon's ESCAPE entry prints "\" then CR/LF
     EXPECT_NE(out.find("\\\r\n"), std::string::npos);
 
-    // The prompt should accept a real examine command: "0.F" dumps 16
-    // bytes of zero page starting at $00 -- a real end-to-end interaction,
-    // not just a banner check.
+    // "0.F" dumps 16 bytes of zero page
     out.clear();
-    // The ACIA has only a one-byte RX register -- pushing a second char
-    // before the NMI handler has drained the first (into SERIAL_BUFFER)
-    // overwrites it, a real overrun, so each type_char() needs cycles to
-    // run in between (same reason the real browser pump interleaves them).
+    // one-byte ACIA RX register: give the NMI handler cycles to drain between chars
     for (char c : std::string("0.F\r")) { m.type_char(uint8_t(c)); m.run_cycles(1000); }
     m.run_cycles(200000);
     EXPECT_NE(out.find("0000:"), std::string::npos);

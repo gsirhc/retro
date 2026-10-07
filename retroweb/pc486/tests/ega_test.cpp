@@ -1,12 +1,5 @@
-// GoogleTest suite for the EGA device: the real planar-memory read/write
-// engine (latch, Set/Reset, Data Rotate/ALU, all 4 write modes, both read
-// modes, Map Mask and odd/even plane gating, the legacy-window Memory
-// Mapping select), CRTC cursor/start-address register programming, the
-// Attribute Controller's address/data flip-flop and its reset-on-reading-
-// 0x3DA quirk, and the Input Status 1 retrace toggle; plus (Milestone 3)
-// the VGA parts Milestone 1 stopped short of -- Chain 4 addressing, the
-// 256-entry DAC and its PEL mask, and the card's SVGA extension registers
-// that carry the VESA BIOS Extensions. See PC486_REVIEW.md §7.
+// GoogleTest suite for the EGA/VGA device: planar memory engine, CRTC/AC registers,
+// retrace timing, Chain 4, the DAC and the SVGA extension registers. See PC486_REVIEW.md §7.
 
 #include <gtest/gtest.h>
 
@@ -20,19 +13,10 @@ namespace {
 
 using pc486::Ega;
 
-// Real hardware requires a BIOS/driver mode-set to program these registers
-// before video memory behaves predictably -- a freshly reset card has no
-// planes enabled and an all-zero Bit Mask, so even a trivial byte write is
-// a no-op until something programs it, exactly as on genuine hardware.
-// These helpers reproduce the IBM EGA/VGA standard register values for the
-// two mode families this suite exercises, matching what every compatible
-// BIOS (including this machine's Bochs vgabios) programs for them.
+// A freshly reset card has no planes enabled and a zero Bit Mask, so writes are no-ops
+// until a mode set. These helpers program standard IBM EGA/VGA values (as the Bochs vgabios does).
 
-// Standard mode 3 (80x25 16-color text): odd/even chaining OFF-the-CPU's-
-// mind (Sequencer Memory Mode enables it), Map Mask enables planes 0+1
-// (character/attribute), Graphics Controller Mode enables odd/even on the
-// read side too, Miscellaneous selects the 32K color-text window @ B8000,
-// Bit Mask passes every CPU bit through untouched.
+// Mode 3 (80x25 text): odd/even on, Map Mask planes 0+1, 32K color-text window @ B8000.
 void SetupTextMode80x25(Ega &ega) {
     ega.out(0x3C4, 0x02); ega.out(0x3C5, 0x03);  // Sequencer Map Mask: planes 0+1
     ega.out(0x3C4, 0x04); ega.out(0x3C5, 0x02);  // Sequencer Memory Mode: odd/even enabled
@@ -41,10 +25,7 @@ void SetupTextMode80x25(Ega &ega) {
     ega.out(0x3CE, 0x08); ega.out(0x3CF, 0xFF);  // Bit Mask: all bits pass through
 }
 
-// Standard 16-color graphics mode shape (e.g. mode 0x10, 640x350x16): all 4
-// planes enabled, odd/even chaining OFF (linear addressing), 64K@A0000,
-// write mode 0, Set/Reset disabled so the CPU byte passes straight through,
-// Bit Mask all-pass.
+// 16-color graphics shape (mode 0x10): all planes, odd/even off, 64K@A0000, write mode 0, no Set/Reset.
 void SetupLinearGraphics(Ega &ega) {
     ega.out(0x3C4, 0x02); ega.out(0x3C5, 0x0F);  // Map Mask: all 4 planes
     ega.out(0x3C4, 0x04); ega.out(0x3C5, 0x06);  // Memory Mode: odd/even disabled (linear)
@@ -54,11 +35,8 @@ void SetupLinearGraphics(Ega &ega) {
     ega.out(0x3CE, 0x08); ega.out(0x3CF, 0xFF);  // Bit Mask: all bits pass through
 }
 
-// Programs the handful of CRTC/Sequencer/Misc Output registers
-// recompute_timing_() consults -- Horizontal Total, Vertical Total (+
-// Overflow), Vertical Retrace Start (+ Overflow) and End, Clocking Mode,
-// and the dot-clock select -- without touching anything else (these tests
-// care only about frame timing, not a full mode set).
+// Programs only the registers recompute_timing_() reads: Horizontal/Vertical Total (+ Overflow),
+// Vertical Retrace Start/End, Clocking Mode and the dot-clock select.
 void ProgramCrtcTiming(Ega &ega, uint8_t htotal, uint8_t vtotal, uint8_t overflow,
                         uint8_t vrs, uint8_t vre_low4, uint8_t seq_clocking_mode,
                         uint8_t misc_output) {
@@ -71,14 +49,8 @@ void ProgramCrtcTiming(Ega &ega, uint8_t htotal, uint8_t vtotal, uint8_t overflo
     ega.out(0x3C2, misc_output);
 }
 
-// Ticks ega cycle-by-cycle for `span` cycles starting at `*cursor`
-// (tick() expects a monotonically non-decreasing cycle count, exactly
-// like the real Machine::run_cycles() caller, so repeated measurements on
-// the same Ega must continue the timeline rather than restart it -- see
-// *cursor, which this leaves just past the last cycle ticked), returning
-// the cycle count of every rising edge (0x3DA bit 3 going 0->1) seen along
-// the way -- exactly what a real "wait for vertical retrace" polling loop
-// watches for. Consecutive onsets are one frame period apart.
+// Ticks ega for `span` cycles from `*cursor` (tick() needs a non-decreasing count; the cursor is
+// left just past the last cycle) and returns the cycle of every 0x3DA bit 3 rising edge.
 std::vector<uint64_t> RetraceOnsets(Ega &ega, uint64_t &cursor, uint64_t span) {
     std::vector<uint64_t> onsets;
     bool prev = (ega.in(0x3DA) & 0x08) != 0;
@@ -93,9 +65,7 @@ std::vector<uint64_t> RetraceOnsets(Ega &ega, uint64_t &cursor, uint64_t span) {
     return onsets;
 }
 
-// Cycle length of the first retrace pulse found within `span` cycles from
-// `*cursor` -- the distance from its onset to the following falling edge.
-// Continues the same cycle timeline as RetraceOnsets() above.
+// Length of the first retrace pulse within `span` cycles from `*cursor`, onset to falling edge.
 uint64_t MeasureRetraceWindowCycles(Ega &ega, uint64_t &cursor, uint64_t span) {
     bool prev = (ega.in(0x3DA) & 0x08) != 0;
     uint64_t rising = 0;
@@ -127,9 +97,7 @@ TEST(EgaTest, TextModeMemoryReadWriteRoundTrip) {
 }
 
 TEST(EgaTest, MemoryMappingSelectsWhichLegacyWindowIsDecoded) {
-    // Real EGA/VGA hardware decodes only ONE of the three legacy windows
-    // (64K@A0000, 32K@B0000 mono, 32K@B8000 color) at a time, per the
-    // Graphics Controller's Memory Mapping field -- not all three at once.
+    // Only one of the three legacy windows (64K@A0000, 32K@B0000, 32K@B8000) is decoded, per Memory Mapping.
     Ega ega;
     ega.reset();
     SetupLinearGraphics(ega);  // starts mapped 64K @ A0000
@@ -142,19 +110,13 @@ TEST(EgaTest, MemoryMappingSelectsWhichLegacyWindowIsDecoded) {
     ega.out(0x3CE, 0x06); ega.out(0x3CF, 0x0F);  // Misc: graphics mode, 32K @ B8000 color
     ega.mem_write(0xB8000, 0x33);
     EXPECT_EQ(ega.mem_read(0xB8000), 0x33);
-    // Switching windows didn't touch A0000's storage, but it's no longer
-    // decoded from this address either -- independent, not aliased.
+    // A0000's storage is intact but no longer decoded from this address.
     EXPECT_EQ(ega.mem_read(0xA0000), 0xFF);
 }
 
 TEST(EgaTest, LegacyPlanarStrideStaysFixedRegardlessOfTheEnlargedVram) {
-    // The plane interleave in mem_read/mem_write is the literal "<< 2" in
-    // (plane_off << 2) + plane, not anything derived from vram.size() -- so
-    // growing vram for the SVGA maxima (ega.h) must not shift where legacy
-    // planar bytes land. Writing at the top of the 64K@A0000 window (the
-    // widest offset any legacy mode reaches) lands at the fixed byte
-    // 0xFFFF*4 = 262,140 -- the last word of the old 256KB card -- not
-    // somewhere scaled into the new 1MB.
+    // The plane interleave is the literal (plane_off << 2) + plane, not derived from vram.size(), so
+    // growing vram must not move legacy bytes. The top of the A0000 window lands at 0xFFFF*4 = 262,140.
     Ega ega;
     ega.reset();
     SetupLinearGraphics(ega);
@@ -169,8 +131,7 @@ TEST(EgaTest, WriteMode0AppliesDataRotateAluFunction) {
     SetupLinearGraphics(ega);
     ega.mem_write(0xA0000, 0xF0);  // seed all 4 planes with 0xF0
 
-    // Data Rotate: rotate count 0, function 2 = OR the CPU byte with the
-    // latch (which a preceding read loads from the current VRAM content).
+    // Data Rotate: rotate 0, function 2 = OR the CPU byte with the latch.
     ega.out(0x3CE, 0x03); ega.out(0x3CF, 0x10);  // rotate=0, function=OR
     ega.mem_read(0xA0000);                       // load the latch from the seeded byte
     ega.mem_write(0xA0000, 0x0F);
@@ -237,7 +198,7 @@ TEST(EgaTest, MapMaskGatesWhichPlanesActuallyStore) {
 
     ega.out(0x3CE, 0x04); ega.out(0x3CF, 0x00); EXPECT_EQ(ega.mem_read(0xA0000), 0x00);
     ega.out(0x3CE, 0x04); ega.out(0x3CF, 0x01); EXPECT_EQ(ega.mem_read(0xA0000), 0x00);
-    // Planes 2 and 3 weren't in the mask -- their earlier 0xFF survives.
+    // Planes 2 and 3 are outside the mask and keep 0xFF.
     ega.out(0x3CE, 0x04); ega.out(0x3CF, 0x02); EXPECT_EQ(ega.mem_read(0xA0000), 0xFF);
     ega.out(0x3CE, 0x04); ega.out(0x3CF, 0x03); EXPECT_EQ(ega.mem_read(0xA0000), 0xFF);
 }
@@ -246,9 +207,7 @@ TEST(EgaTest, ReadMode1ColorCompareMatchesOnlyCaredAboutPlanes) {
     Ega ega;
     ega.reset();
     SetupLinearGraphics(ega);
-    // Plane 0 = 0xFF (all set), plane 1 = 0x00 (all clear), via two mode-2
-    // writes (mode 2 already exercised above, reused here as the setup
-    // mechanism -- one CPU bit per plane).
+    // Plane 0 = 0xFF, plane 1 = 0x00, set up with a mode-2 write.
     ega.out(0x3CE, 0x05); ega.out(0x3CF, 0x02);  // write mode 2
     ega.mem_write(0xA0000, 0x01);                 // plane0=0xFF, planes1-3=0x00
 
@@ -262,13 +221,8 @@ TEST(EgaTest, ReadMode1ColorCompareMatchesOnlyCaredAboutPlanes) {
 }
 
 TEST(EgaTest, OddEvenChainingRoutesCharacterGeneratorWritesToPlanes2And3) {
-    // The BIOS's character-generator/font-load routine reaches plane 2 the
-    // same way text mode splits character/attribute across planes 0/1:
-    // odd/even chaining stays on, Map Mask just points at a different bit
-    // -- but it does so through the 64K@A0000 graphics-style window (the
-    // character generator RAM isn't visible through the B8000 text window),
-    // a real, documented EGA/VGA BIOS technique. An even CPU address
-    // reaches plane 2; an odd address would reach plane 3 (unused here).
+    // The BIOS font-load routine reaches plane 2 through the 64K@A0000 window with odd/even on
+    // and Map Mask on plane 2. An even address reaches plane 2, an odd one plane 3.
     Ega ega;
     ega.reset();
     ega.out(0x3C4, 0x02); ega.out(0x3C5, 0x04);  // Map Mask: plane 2 only
@@ -280,8 +234,7 @@ TEST(EgaTest, OddEvenChainingRoutesCharacterGeneratorWritesToPlanes2And3) {
 
     ega.out(0x3CE, 0x04); ega.out(0x3CF, 0x02);  // Read Map Select: plane 2
     EXPECT_EQ(ega.mem_read(0xA0000), 0x7E);
-    // Plane 0/1 (text mode's normal char/attr planes) are untouched by a
-    // write that Map Mask routed to plane 2 only.
+    // Planes 0 and 1 are untouched by a write routed to plane 2.
     ega.out(0x3CE, 0x04); ega.out(0x3CF, 0x00);
     EXPECT_EQ(ega.mem_read(0xA0000), 0x00);
 }
@@ -317,7 +270,7 @@ TEST(EgaTest, AttrPaletteReportsTheLiveRegisterMaskedToSixBits) {
     ega.out(0x3C0, 0x05);  // index = palette register 5
     ega.out(0x3C0, 0xFF);  // data -- only the low 6 bits are a real EGA color
     EXPECT_EQ(ega.attr_palette(5), 0x3F);
-    // Untouched registers still read back their reset value (0).
+    // Untouched registers read back 0.
     EXPECT_EQ(ega.attr_palette(6), 0x00);
 }
 
@@ -343,10 +296,7 @@ TEST(EgaTest, ReadingInputStatusOneResetsAttributeFlipFlop) {
 // --- VGA DAC (ports 0x3C6-0x3C9) -----------------------------------------
 
 TEST(EgaTest, DacWritesAutoAdvanceThroughRgbAndOnToTheNextEntry) {
-    // Real hardware: one index write to the PEL Address Write register,
-    // then every third PEL Data write rolls on to the next color register
-    // -- which is how period code loads a whole 256-entry palette with a
-    // single OUT and 768 more.
+    // One PEL Address Write index, then every third PEL Data write rolls to the next color register.
     Ega ega;
     ega.reset();
     ega.out(0x3C8, 5);
@@ -358,14 +308,12 @@ TEST(EgaTest, DacWritesAutoAdvanceThroughRgbAndOnToTheNextEntry) {
     EXPECT_EQ(r, 63); EXPECT_EQ(g, 21); EXPECT_EQ(b, 0);
     ega.dac_entry(6, r, g, b);
     EXPECT_EQ(r, 1); EXPECT_EQ(g, 2); EXPECT_EQ(b, 3);
-    // The write index has genuinely moved on, not wrapped back.
+    // The write index moved on rather than wrapping.
     EXPECT_EQ(ega.in(0x3C8), 7);
 }
 
 TEST(EgaTest, DacKeepsOnlyTheSixBitsTheHardwareWired) {
-    // A VGA DAC has 6 significant bits per channel; the top two simply
-    // aren't connected, which is why 8-bit-minded code gets a washed-out
-    // picture on real hardware rather than an error.
+    // The VGA DAC has 6 significant bits per channel; the top two aren't connected.
     Ega ega;
     ega.reset();
     ega.out(0x3C8, 0);
@@ -378,10 +326,7 @@ TEST(EgaTest, DacKeepsOnlyTheSixBitsTheHardwareWired) {
 }
 
 TEST(EgaTest, DacReadPathHasItsOwnIndexAndReportsReadModeInTheStateRegister) {
-    // Read and write indices are separate registers on real hardware, so a
-    // driver reading one entry part-way through writing another corrupts
-    // neither. The DAC State register (0x3C7 read) reports which side was
-    // addressed last: 3 = read mode, 0 = write mode.
+    // Read and write indices are separate. The DAC State register (0x3C7) reports the last addressed side: 3 = read, 0 = write.
     Ega ega;
     ega.reset();
     ega.out(0x3C8, 10);
@@ -393,8 +338,7 @@ TEST(EgaTest, DacReadPathHasItsOwnIndexAndReportsReadModeInTheStateRegister) {
     EXPECT_EQ(ega.in(0x3C9), 60);
     EXPECT_EQ(ega.in(0x3C9), 50);
     EXPECT_EQ(ega.in(0x3C9), 40);
-    // Reading three bytes advanced only the READ index; the write index is
-    // still where the writes above left it.
+    // Reading advanced only the READ index.
     EXPECT_EQ(ega.in(0x3C8), 11);
 }
 
@@ -410,8 +354,7 @@ TEST(EgaTest, PelMaskDefaultsToAllOnesAndRoundTrips) {
 
 // --- Chain 4 (Sequencer Memory Mode bit 3), VGA mode 13h's addressing ----
 
-// The Sequencer/Graphics-Controller setup mode 13h uses: Chain 4 on,
-// odd/even off, all planes writable, straight CPU-byte writes.
+// Mode 13h setup: Chain 4 on, odd/even off, all planes writable.
 void SetupChain4(Ega &ega) {
     ega.out(0x3C4, 0x02); ega.out(0x3C5, 0x0F);  // Map Mask: all 4 planes
     ega.out(0x3C4, 0x04); ega.out(0x3C5, 0x0E);  // Memory Mode: Chain 4, odd/even disabled
@@ -421,11 +364,8 @@ void SetupChain4(Ega &ega) {
     ega.out(0x3CE, 0x08); ega.out(0x3CF, 0xFF);  // Bit Mask: all bits pass through
 }
 
-// The CPU may touch the aperture as plain linear bytes only while every
-// planar stage is pass-through, which is exactly mode 13h. Handing out a
-// pointer when any stage still transforms the byte would silently skip that
-// stage -- so each guard gets its own assertion, and each must also move
-// mapping_epoch() so the CPU's cached page pointers are invalidated.
+// The CPU may touch the aperture as plain linear bytes only while every planar stage is
+// pass-through (mode 13h). Each guard has its own assertion and must also move mapping_epoch().
 TEST(EgaTest, LinearPageOnlyWhileEveryPlanarStageIsPassThrough) {
     Ega ega;
     ega.reset();
@@ -436,8 +376,7 @@ TEST(EgaTest, LinearPageOnlyWhileEveryPlanarStageIsPassThrough) {
     uint8_t *p = ega.linear_page(0xA0000, true);
     ASSERT_NE(p, nullptr) << "mode 13h's configuration is linear";
 
-    // A pointer write and the decode path must see the same byte, both ways --
-    // otherwise the fast path is a second, divergent copy of video memory.
+    // A pointer write and the decode path must see the same byte.
     p[0x123] = 0x5A;
     EXPECT_EQ(ega.mem_read(0xA0123), 0x5A);
     ega.mem_write(0xA0456, 0xC3);
@@ -470,7 +409,7 @@ TEST(EgaTest, LinearPageOnlyWhileEveryPlanarStageIsPassThrough) {
     r.out(0x3CE, 0x05); r.out(0x3CF, 0x48);
     EXPECT_EQ(r.linear_page(0xA0000, false), nullptr);
 
-    // Without Chain 4 the aperture is planar no matter what else is set.
+    // Without Chain 4 the aperture is planar.
     Ega planar;
     planar.reset();
     SetupChain4(planar);
@@ -478,8 +417,7 @@ TEST(EgaTest, LinearPageOnlyWhileEveryPlanarStageIsPassThrough) {
     EXPECT_EQ(planar.linear_page(0xA0000, true), nullptr);
 }
 
-// A page must lie wholly inside the active window, or a pointer would let the
-// CPU walk past the end of what the card decodes.
+// A page must lie wholly inside the active window.
 TEST(EgaTest, LinearPageRefusesPagesOutsideTheActiveWindow) {
     Ega ega;
     ega.reset();
@@ -490,10 +428,7 @@ TEST(EgaTest, LinearPageRefusesPagesOutsideTheActiveWindow) {
 }
 
 TEST(EgaTest, Chain4SendsFourConsecutiveCpuBytesToFourDifferentPlanes) {
-    // Real hardware: address bits 0-1 become the plane select and drop out
-    // of the per-plane offset. With this file's byte-interleaved plane
-    // storage that collapses to vram[offset] exactly -- which is *why* mode
-    // 13h looks linear to software.
+    // Address bits 0-1 become the plane select, which with byte-interleaved storage collapses to vram[offset].
     Ega ega;
     ega.reset();
     SetupChain4(ega);
@@ -508,10 +443,7 @@ TEST(EgaTest, Chain4SendsFourConsecutiveCpuBytesToFourDifferentPlanes) {
 }
 
 TEST(EgaTest, Chain4StillHonorsTheSequencerMapMask) {
-    // Chain 4 changes which plane an address reaches; it does not bypass
-    // the Sequencer's plane-enable wires. A mode-13h driver that narrows
-    // Map Mask genuinely stops some pixels landing (this is exactly how
-    // "mode X"-style planar tricks are built on top of the same silicon).
+    // Chain 4 doesn't bypass the Sequencer plane enables; narrowing Map Mask stops some pixels (mode X tricks).
     Ega ega;
     ega.reset();
     SetupChain4(ega);
@@ -525,9 +457,7 @@ TEST(EgaTest, Chain4StillHonorsTheSequencerMapMask) {
 }
 
 TEST(EgaTest, Chain4TakesPriorityOverOddEvenChaining) {
-    // Both bits set is a nonsense combination software can still program;
-    // the real part resolves it in favour of Chain 4's 2-bit plane select,
-    // not odd/even's 1-bit one.
+    // With Chain 4 and odd/even both set, Chain 4's 2-bit plane select wins.
     Ega ega;
     ega.reset();
     SetupChain4(ega);
@@ -540,10 +470,8 @@ TEST(EgaTest, Chain4TakesPriorityOverOddEvenChaining) {
 // --- SVGA extension registers (0x1CE/0x1CF) and the VESA path ------------
 
 TEST(EgaTest, SvgaRegistersAreSixteenBitAtOneAddress) {
-    // The card's ROM drives these with `out dx, ax` / `in ax, dx`, so a
-    // value with a non-zero high byte has to survive -- splitting the
-    // access into two byte cycles would write the high half into the data
-    // port. See Ega::owns_port16 and chipset.cpp's io_out16.
+    // The ROM uses `out dx, ax` / `in ax, dx`, so a non-zero high byte must survive.
+    // See Ega::owns_port16 and chipset.cpp io_out16.
     Ega ega;
     ega.reset();
     ega.out16(Ega::kVbeIndexPort, Ega::kVbeRegXres);
@@ -554,9 +482,7 @@ TEST(EgaTest, SvgaRegistersAreSixteenBitAtOneAddress) {
 }
 
 TEST(EgaTest, SvgaIdRegisterAcceptsOnlyRevisionsThisCardImplements) {
-    // The ROM probes by writing a revision number and reading it back; a
-    // revision the card does not implement must NOT stick, or the probe
-    // wrongly concludes the card speaks it.
+    // The ROM probes by writing a revision and reading it back; an unimplemented one must not stick.
     Ega ega;
     ega.reset();
     EXPECT_EQ(ega.vbe_reg(Ega::kVbeRegId), Ega::kVbeIdLowest);
@@ -570,12 +496,8 @@ TEST(EgaTest, SvgaIdRegisterAcceptsOnlyRevisionsThisCardImplements) {
 }
 
 TEST(EgaTest, SvgaGetCapsReportsCardMaximaNotTheCurrentGeometry) {
-    // Real, load-bearing behavior: the card's own ROM sets the GETCAPS bit
-    // and re-reads XRES/YRES/BPP to discover what the board can do before
-    // it will list a VESA mode (vgabios mode_info_check_mode). Without
-    // this, every mode compares against the current geometry -- zero on a
-    // freshly-reset card -- and the VBE mode list comes back empty. See
-    // PC486_REVIEW.md §7.
+    // The ROM sets GETCAPS and re-reads XRES/YRES/BPP before listing VESA modes
+    // (vgabios mode_info_check_mode); otherwise the list is empty. See PC486_REVIEW.md §7.
     Ega ega;
     ega.reset();
     auto put = [&](uint16_t reg, uint16_t v) {
@@ -601,9 +523,7 @@ TEST(EgaTest, SvgaGetCapsReportsCardMaximaNotTheCurrentGeometry) {
 }
 
 TEST(EgaTest, SvgaMaximaAndVramMatchTheOneMegabyteCard) {
-    // Pins the literal numbers behind kVbeMaxXres/Yres/Bpp and vram's size
-    // -- 1024x768x8 = 786,432 bytes is the largest 8bpp frame that fits in
-    // this card's 1MB, reported here as 16 64KB units. See ega.h.
+    // 1024x768x8 = 786,432 bytes is the largest 8bpp frame in 1MB, reported as 16 64KB units (ega.h).
     Ega ega;
     ega.reset();
     EXPECT_EQ(ega.vram.size(), std::size_t(1024 * 1024));
@@ -630,9 +550,7 @@ TEST(EgaTest, SvgaVideoMemoryRegisterReportsInstalledVramAndIsReadOnly) {
 }
 
 TEST(EgaTest, EnablingAnSvgaModeClearsVramUnlessAskedNotTo) {
-    // A mode set must not leave the previous mode's pixels on screen; the
-    // NoClearMem bit is the documented way for software to keep them (a
-    // mode switch that preserves an already-drawn frame).
+    // A mode set clears the previous pixels unless NoClearMem is set.
     Ega ega;
     ega.reset();
     ega.vram[0] = 0x99;
@@ -652,11 +570,8 @@ TEST(EgaTest, EnablingAnSvgaModeClearsVramUnlessAskedNotTo) {
 }
 
 TEST(EgaTest, SvgaWindowIsFlatLinearMemorySlidByTheBankRegister) {
-    // In an SVGA mode the planar engine is out of the picture entirely --
-    // no latches, no Map Mask, no Graphics Controller ALU -- and the 64KB
-    // aperture at 0xA0000 is a window the Bank register slides over the
-    // whole frame buffer. Map Mask is deliberately narrowed here to prove
-    // it no longer gates anything.
+    // In an SVGA mode the planar engine is out; the Bank register slides the 64KB aperture
+    // over the frame buffer. Map Mask is narrowed to prove it gates nothing.
     Ega ega;
     ega.reset();
     SetupChain4(ega);
@@ -679,8 +594,7 @@ TEST(EgaTest, SvgaWindowIsFlatLinearMemorySlidByTheBankRegister) {
     EXPECT_EQ(ega.mem_read(0xA0000), 0x77);
     EXPECT_EQ(ega.vram[0], 0x20);  // bank 0's byte is untouched
 
-    // Past the end of the card's real 1MB the write is rejected and the
-    // window stays put -- Bochs (vga.cc) does the same.
+    // Past the card's 1MB the write is rejected and the window stays put, as in Bochs vga.cc.
     uint16_t past_end_bank = uint16_t(ega.vram.size() / Ega::kVbeBankSize + 1);
     ega.out16(Ega::kVbeIndexPort, Ega::kVbeRegBank); ega.out16(Ega::kVbeDataPort, past_end_bank);
     EXPECT_EQ(ega.vbe_reg(Ega::kVbeRegBank), 2);
@@ -688,10 +602,7 @@ TEST(EgaTest, SvgaWindowIsFlatLinearMemorySlidByTheBankRegister) {
 }
 
 TEST(EgaTest, GetCapsOnBankAdvertisesThirtyTwoKGranularity) {
-    // The firmware's dispi_support_bank_granularity_32k reads BANK under
-    // GETCAPS and expects bit 0x10 in the high byte -- without it, 4F05
-    // still doubles the bank number against a 64KB step and every SVGA
-    // blit lands twice as far as the guest intended.
+    // dispi_support_bank_granularity_32k reads BANK under GETCAPS and expects bit 0x10 in the high byte.
     Ega ega;
     ega.reset();
     ega.out16(Ega::kVbeIndexPort, Ega::kVbeRegEnable);
@@ -701,10 +612,8 @@ TEST(EgaTest, GetCapsOnBankAdvertisesThirtyTwoKGranularity) {
 }
 
 TEST(EgaTest, ThirtyTwoKBankGranularityMakesFourFZeroFiveLandCorrectly) {
-    // With the 32KB Enable bit on (what the ROM ORs in after GETCAPS
-    // succeeds), hardware bank N is N*32KB. The firmware's 4F05 path
-    // writes guest_bank*2, so guest bank 1 -> hardware bank 2 -> offset
-    // 64KB -- one WinGranularity unit, not two.
+    // With the 32KB Enable bit on, hardware bank N is N*32KB. The firmware's 4F05 writes
+    // guest_bank*2, so guest bank 1 -> offset 64KB.
     Ega ega;
     ega.reset();
     SetupChain4(ega);
@@ -725,9 +634,7 @@ TEST(EgaTest, ThirtyTwoKBankGranularityMakesFourFZeroFiveLandCorrectly) {
 }
 
 TEST(EgaTest, LeavingAnSvgaModeGivesThePlanarEngineBackItsMemory) {
-    // 4F02 back to a legacy VGA mode turns the extension registers off, and
-    // the 0xA0000 window has to return to planar decoding -- otherwise
-    // every subsequent text/EGA mode reads the wrong bytes.
+    // 4F02 back to a legacy mode turns the extension registers off and restores planar decoding.
     Ega ega;
     ega.reset();
     SetupLinearGraphics(ega);
@@ -745,11 +652,8 @@ TEST(EgaTest, LeavingAnSvgaModeGivesThePlanarEngineBackItsMemory) {
 }
 
 TEST(EgaTest, FourBppDispiModeKeepsThePlanarEngineAndSlidesItByTheBankRegister) {
-    // Mode 104h (1024x768x4) needs 98,304 bytes/plane -- past the 64KB
-    // aperture -- so the Bank register has to slide plane_off the same way
-    // Bochs's ext_offset does, without switching to the flat 8bpp window.
-    // See PC486_REVIEW.md §7.5.1 and the pinned VGABIOS dispi_set_mode
-    // (bpp=4 keeps _biosfn_set_video_mode + the planar path).
+    // Mode 104h (1024x768x4) needs 98,304 bytes/plane, past the 64KB aperture, so Bank slides
+    // plane_off as Bochs's ext_offset does (PC486_REVIEW.md §7.5.1, VGABIOS dispi_set_mode).
     Ega ega;
     ega.reset();
     SetupLinearGraphics(ega);
@@ -763,8 +667,7 @@ TEST(EgaTest, FourBppDispiModeKeepsThePlanarEngineAndSlidesItByTheBankRegister) 
     ega.mem_write(0xA0000, 0xA5);
     for (int p = 0; p < 4; ++p) EXPECT_EQ(ega.vram[std::size_t(p)], 0xA5) << "plane " << p;
 
-    // Bank 1: same CPU address lands at plane_off 65536 -- interleaved
-    // index (65536 << 2) = 262144, the first byte past the old 256KB card.
+    // Bank 1: plane_off 65536, interleaved index 262144.
     ega.out16(Ega::kVbeIndexPort, Ega::kVbeRegBank); ega.out16(Ega::kVbeDataPort, 1);
     ega.mem_write(0xA0000, 0x5A);
     for (int p = 0; p < 4; ++p) {
@@ -773,18 +676,14 @@ TEST(EgaTest, FourBppDispiModeKeepsThePlanarEngineAndSlidesItByTheBankRegister) 
     }
     EXPECT_EQ(ega.mem_read(0xA0000), 0x5A);
 
-    // A 1MB card has only four planar banks at 64KB gran
-    // ((1MB/64KB)/4); a fifth is rejected and the window stays put.
+    // A 1MB card has four planar banks at 64KB granularity; a fifth is rejected.
     ega.out16(Ega::kVbeIndexPort, Ega::kVbeRegBank); ega.out16(Ega::kVbeDataPort, 4);
     EXPECT_EQ(ega.vbe_reg(Ega::kVbeRegBank), 1);
     EXPECT_EQ(ega.mem_read(0xA0000), 0x5A);
 }
 
 TEST(EgaTest, BankRegisterIgnoresTheFirmwareRdWrFlagBits) {
-    // The pinned VGABIOS's 4F05 path ORs VBE_DISPI_BANK_RW (bits 15:14)
-    // into the value it writes; only the low bank number slides the
-    // window. Storing the flags would send an 8bpp linear offset into
-    // the weeds.
+    // The VGABIOS 4F05 ORs VBE_DISPI_BANK_RW (bits 15:14) into the bank; only the low bits select.
     Ega ega;
     ega.reset();
     SetupChain4(ega);
@@ -824,12 +723,8 @@ TEST(EgaTest, RetraceBitToggledByTick) {
     EXPECT_TRUE(saw_false);
 }
 
-// Standard mode 03h (720x400 text, 28.322 MHz dot clock, 9 dots/char,
-// Horizontal Total register 0x5F -> 100 char clocks, Vertical Total
-// register 0xBF + Overflow bits -> 449 scanlines) is the textbook ~70.1Hz
-// VGA frame rate -- the real register values every compatible BIOS
-// (including this machine's) programs for it. At this machine's 66 MHz
-// CPU clock that's 66e6/70.1 CPU cycles per frame.
+// Mode 03h (720x400, 28.322 MHz, 9 dots/char, HT 0x5F, VT 0xBF + overflow = 449 lines) is ~70.1 Hz,
+// i.e. 66e6/70.1 CPU cycles per frame.
 TEST(EgaTest, Mode03hTimingYieldsSeventyHertzFrame) {
     Ega ega;
     ega.reset();
@@ -843,9 +738,7 @@ TEST(EgaTest, Mode03hTimingYieldsSeventyHertzFrame) {
     EXPECT_NEAR(double(period), 66e6 / 70.1, 66e6 / 70.1 * 0.01);
 }
 
-// 640x480 (25.175 MHz dot clock, 8 dots/char, same Horizontal Total 0x5F
-// -> 100 char clocks, Vertical Total -> 525 scanlines) is the textbook
-// 59.94Hz VESA frame rate.
+// 640x480 (25.175 MHz, 8 dots/char, HT 0x5F, 525 lines) is 59.94 Hz.
 TEST(EgaTest, SixForty480TimingYieldsFiftyNinePointNineFourHertzFrame) {
     Ega ega;
     ega.reset();
@@ -859,9 +752,7 @@ TEST(EgaTest, SixForty480TimingYieldsFiftyNinePointNineFourHertzFrame) {
     EXPECT_NEAR(double(period), 66e6 / 59.94, 66e6 / 59.94 * 0.01);
 }
 
-// A slower CPU clock must not change the wall-clock refresh rate: the
-// video card runs from its own crystal, so the same mode 03h timing takes
-// half as many CPU cycles per frame at 33 MHz.
+// The card runs from its own crystal, so mode 03h takes half the CPU cycles per frame at 33 MHz.
 TEST(EgaTest, SetCpuHzHalvesCyclesPerFrameAtHalfTheClock) {
     Ega ega;
     ega.reset();
@@ -876,10 +767,7 @@ TEST(EgaTest, SetCpuHzHalvesCyclesPerFrameAtHalfTheClock) {
     EXPECT_NEAR(double(period), 33e6 / 70.1, 33e6 / 70.1 * 0.01);
 }
 
-// The retrace window is CRTC 10h (Vertical Retrace Start) to CRTC 11h's
-// low 4 bits (Vertical Retrace End, a 4-bit comparator) -- not a fixed
-// fraction of the frame. Widening the programmed retrace-end value must
-// widen the measured window.
+// Retrace runs from CRTC 10h to the low 4 bits of 11h (a 4-bit comparator), not a fixed fraction of the frame.
 TEST(EgaTest, RetraceWindowLengthTracksVerticalRetraceEndRegister) {
     Ega ega;
     ega.reset();
@@ -890,8 +778,7 @@ TEST(EgaTest, RetraceWindowLengthTracksVerticalRetraceEndRegister) {
     uint64_t narrow_window = MeasureRetraceWindowCycles(ega, cursor, 1'500'000);
     ASSERT_GT(narrow_window, 0u);
 
-    // Same Vertical Retrace Start, a Vertical Retrace End that wraps
-    // around to a value further from it -- a much wider pulse.
+    // Same start, a retrace end that wraps to a value further away: a wider pulse.
     ega.out(0x3D4, 0x11); ega.out(0x3D5, 0x08);
     uint64_t wide_window = MeasureRetraceWindowCycles(ega, cursor, 1'500'000);
     ASSERT_GT(wide_window, 0u);
@@ -899,8 +786,7 @@ TEST(EgaTest, RetraceWindowLengthTracksVerticalRetraceEndRegister) {
     EXPECT_GT(wide_window, narrow_window * 3);
 }
 
-// Mode 13h's CRTC (Horizontal Display End 4Fh -> 80 of 100 char clocks,
-// Vertical Display End 8Fh + Overflow 1Fh -> 400 of 449 lines, VRS 9Ch).
+// Mode 13h CRTC: HDE 4Fh (80 of 100 clocks), VDE 8Fh + Overflow 1Fh (400 of 449 lines), VRS 9Ch.
 void ProgramMode13hTiming(Ega &ega) {
     ProgramCrtcTiming(ega, /*htotal=*/0x5F, /*vtotal=*/0xBF, /*overflow=*/0x1F,
                        /*vrs=*/0x9C, /*vre_low4=*/0x0E, /*seq clocking=*/0x01,
@@ -909,10 +795,8 @@ void ProgramMode13hTiming(Ega &ega) {
     ega.out(0x3D4, 0x12); ega.out(0x3D5, 0x8F);
 }
 
-// Input Status 1 bit 0 (display disabled) goes high in every horizontal
-// blank, not just the vertical one: one pulse per displayed scanline. A
-// palette loader that waits on it before each DAC write (Duke Nukem 3D's
-// does) hangs forever if it never moves.
+// Input Status 1 bit 0 is high in every horizontal blank, not just vertical.
+// Duke Nukem 3D's palette loader waits on it and hangs if it never moves.
 TEST(EgaTest, DisplayDisabledBitPulsesOncePerScanline) {
     Ega ega;
     ega.reset();
@@ -936,8 +820,7 @@ TEST(EgaTest, DisplayDisabledBitPulsesOncePerScanline) {
     EXPECT_NEAR(double(high) / samples, expected, 0.02);
 }
 
-// Vertical retrace sits inside vertical blank, so bit 0 is high for the
-// whole of every bit 3 pulse.
+// Vertical retrace sits inside vertical blank, so bit 0 is high for every bit 3 pulse.
 TEST(EgaTest, DisplayDisabledBitHighThroughoutVerticalRetrace) {
     Ega ega;
     ega.reset();
@@ -954,8 +837,7 @@ TEST(EgaTest, DisplayDisabledBitHighThroughoutVerticalRetrace) {
     EXPECT_GT(retrace_samples, 0);
 }
 
-// An unprogrammed CRTC still toggles bit 0, so a poll on it cannot hang
-// during a mode set.
+// An unprogrammed CRTC still toggles bit 0 so a poll can't hang during a mode set.
 TEST(EgaTest, DisplayDisabledBitTogglesWithUnprogrammedCrtc) {
     Ega ega;
     ega.reset();
@@ -968,10 +850,7 @@ TEST(EgaTest, DisplayDisabledBitTogglesWithUnprogrammedCrtc) {
     EXPECT_TRUE(saw_low);
 }
 
-// A freshly reset Ega has every CRTC register at 0, which the formula in
-// recompute_timing_() would otherwise turn into a several-hundred-kHz
-// "frame rate" -- nonsense no real monitor could sync to. It must fall
-// back to the ~70Hz mode 03h default instead.
+// An all-zero CRTC would give a several-hundred-kHz frame rate; it must fall back to ~70 Hz.
 TEST(EgaTest, UnprogrammedCrtcFallsBackToSeventyHertzInsteadOfNonsense) {
     Ega ega;
     ega.reset();
@@ -982,13 +861,7 @@ TEST(EgaTest, UnprogrammedCrtcFallsBackToSeventyHertzInsteadOfNonsense) {
     EXPECT_NEAR(double(period), 66e6 / 70.0, 66e6 / 70.0 * 0.01);
 }
 
-// Clocking Mode bit 3 (Dot Clock Rate) halves the dot clock -- the real
-// mode 0Dh (320x200x16) shape: Horizontal Total register 0x2D -> 50 char
-// clocks, 8 dots/char, the same 449-line Vertical Total as mode 03h. Should
-// still land near 70Hz -- the halved dot clock and the narrower/8-dot
-// horizontal geometry roughly offset each other, exactly as they do on
-// real VGA silicon (this is how a 320-wide low-res mode keeps the same
-// refresh rate as the 720-wide text mode it's often switched from).
+// Clocking Mode bit 3 halves the dot clock. Mode 0Dh (HT 0x2D, 8 dots/char, 449 lines) still lands near 70 Hz.
 TEST(EgaTest, ClockingModeDivideByTwoBitIsHonoured) {
     Ega ega;
     ega.reset();

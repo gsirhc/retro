@@ -52,8 +52,7 @@ TEST(Machine, SelfTestBlocksNmi) {
     m.program[0x7FFC - 0x6800] = 0x00;
     m.program[0x7FFD - 0x6800] = 0x68;
     m.program[0x7FFA - 0x6800] = 0x00;
-    m.program[0x7FFB - 0x6800] = 0x40;  // NMI → RTI at $4000 (unmapped 0)
-    // Plant RTI at $4000 via vector... simpler: NMI vector → $6803 which is EA
+    m.program[0x7FFB - 0x6800] = 0x40;
     m.program[0x7FFA - 0x6800] = 0x03;
     m.program[0x7FFB - 0x6800] = 0x68;
     m.program[3] = 0x40;  // RTI
@@ -61,7 +60,6 @@ TEST(Machine, SelfTestBlocksNmi) {
     uint64_t before = m.cpu.cycles;
     m.inputs.in0 = 0x80;  // self-test
     m.run_cycles(asteroids::kCyclesPerNmi * 4);
-    // With NMI blocked, PC should still be in the JMP loop near $6800.
     EXPECT_GE(m.cpu.pc, 0x6800);
     EXPECT_LT(m.cpu.pc, 0x6810);
     EXPECT_GT(m.cpu.cycles, before);

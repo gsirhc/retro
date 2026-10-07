@@ -1,18 +1,13 @@
 import { test, expect } from "./fixtures";
 import { bootLive } from "./helpers";
 
-// What the card actually puts on the wire, measured rather than assumed.
-// A pure OPL3 sine should stay a pure sine through the front end's
-// resampling: the emulator produces audio on the guest's clock and the
-// device consumes it on its own, and the buffer handed over has to be sized
-// in the same timebase it is filled from. When it was sized from wall-clock
-// time instead, every post ended in a held fragment -- a buzz at the post
-// rate, worst while the guest was busy. This runs at REAL speed on purpose
-// (no fast=1): the fast-test multiplier decimates the FM stream 20:1 and
-// measures a completely different resampling regime.
+// Measures what the card puts on the wire. A pure OPL3 sine must stay pure through resampling.
+// The buffer has to be sized in the guest timebase it is filled from; sizing it from wall-clock
+// time left a held fragment in every post (a buzz at the post rate). Runs at real speed on
+// purpose: fast=1 decimates the FM stream 20:1.
 type Capture = { samples: number[]; cyc: number[] };
 
-// Rising zero crossings, as fractional sample positions.
+// Rising zero crossings as fractional sample positions.
 function crossings(samples: number[]) {
   const zc: number[] = [];
   for (let i = 1; i < samples.length; i++) {
@@ -23,7 +18,7 @@ function crossings(samples: number[]) {
   return zc;
 }
 
-// Period jitter as heard, in output samples.
+// Period jitter in output samples.
 function zeroCrossingJitter(samples: number[]) {
   const zc = crossings(samples);
   const iv: number[] = [];
@@ -34,11 +29,8 @@ function zeroCrossingJitter(samples: number[]) {
   return { count: iv.length, mean, median, cv: sd / mean };
 }
 
-// The same periods measured in guest cycles, from the cycle the worklet
-// says each output sample played. Whatever pace the worklet chose, every
-// period of the tone should span the same number of guest cycles. A period
-// that spans a hold (no guest time played) or a re-anchor (guest time
-// skipped) is a dropout, not placement, so only clean periods count.
+// Periods in guest cycles, from the cycle the worklet says each sample played. Every period
+// should span the same count; periods spanning a hold or re-anchor are dropouts and are excluded.
 function guestPeriods(c: Capture, sampleRate: number) {
   const nominal = 66_000_000 / sampleRate;
   const broken = c.cyc.map((v, i) => {
@@ -69,9 +61,8 @@ test.describe("FM output quality", () => {
       .poll(() => page.evaluate(() => (window as any).__test.audioState))
       .toBe("running");
 
-    // Carrier only: additive connection with the modulator fully attenuated,
-    // so nothing modulates the phase and the output is one sine. fnum 0x198
-    // at block 4, MULT 1 => 408 * 49715.9 / 2^20 * 2^4 = 309.5 Hz.
+    // Carrier only: additive connection, modulator fully attenuated. fnum 0x198, block 4, MULT 1:
+    // 408 * 49715.9 / 2^20 * 2^4 = 309.5 Hz.
     await page.evaluate(() => {
       const m = (window as any).__test.machine;
       const w = (r: number, v: number) => { m.portOut(0x388, r); m.portOut(0x389, v); };
@@ -88,10 +79,8 @@ test.describe("FM output quality", () => {
     const capture = async (load: boolean) => {
       await page.evaluate(() => (window as any).__test.startSbCapture(48000));
       if (load) {
-        // Occupy the main thread the way a heavy guest redraw does, in
-        // bursts the emulator can still keep its clock through -- a load
-        // heavy enough to push the guest below real time genuinely starves
-        // the audio, because the machine has not produced it yet.
+        // Occupy the main thread like a heavy guest redraw, in bursts the emulator can keep its clock
+        // through. A load that drops the guest below real time starves the audio.
         for (let i = 0; i < 50; i++) {
           await page.evaluate(() => { const e = performance.now() + 8; while (performance.now() < e); });
           await page.waitForTimeout(12);
@@ -99,9 +88,7 @@ test.describe("FM output quality", () => {
       } else {
         await page.waitForTimeout(1000);
       }
-      // The capture comes back from the audio thread once it has the
-      // requested number of samples -- it is what actually reached the
-      // device, not what the main thread hoped would.
+      // The capture comes from the audio thread, so it is what reached the device.
       await expect
         .poll(() => page.evaluate(() => (window as any).__test.hasSbCapture), { timeout: 20000 })
         .toBe(true);
@@ -115,11 +102,9 @@ test.describe("FM output quality", () => {
     const idleCapture = await capture(false);
     const loadedCapture = await capture(true);
 
-    // Playback speed the worklet chose: guest time per period over heard
-    // time per period. 1.0 when the host kept real time.
+    // Playback speed the worklet chose: guest time per period over heard time per period.
     const speed = (c: Capture) =>
       (guestPeriods(c, sampleRate).median / 66_000_000) / (zeroCrossingJitter(c.samples).median / sampleRate);
-    // The host kept up: real speed, and no dropout anywhere in the capture.
     const keptUp = (c: Capture) => {
       const g = guestPeriods(c, sampleRate);
       return speed(c) >= 0.99 && g.clean === g.total && g.off === 0;
@@ -131,28 +116,18 @@ test.describe("FM output quality", () => {
         type: name,
         description: `speed ${speed(c).toFixed(3)}, clean ${g.clean}/${g.total}, off ${(g.off * 100).toFixed(1)}%`,
       });
-      // A host starved so badly that little plays cleanly can't say
-      // anything about placement either way.
+      // A starved host that rarely plays cleanly says nothing about placement.
       test.skip(g.clean < 50, `${name}: only ${g.clean} clean periods, host too starved to judge`);
-      // In guest time the tone is 309.5 Hz exactly: 66 MHz / 309.5 = 213,247
-      // cycles a period. Samples landing where their stamps say keeps every
-      // period there. When the main thread delivers audio late the worklet
-      // slows playback a little, or holds, on purpose rather than drop out
-      // -- that changes what a listener hears, not the guest-time period,
-      // except for the odd period spanning a hold.
+      // In guest time the tone is 66 MHz / 309.5 = 213,247 cycles a period. Late audio makes the
+      // worklet slow or hold on purpose, which changes the heard period but not the guest one.
       expect(66_000_000 / g.median).toBeGreaterThan(305);
       expect(66_000_000 / g.median).toBeLessThan(315);
       expect(g.off).toBeLessThan(0.05);
     }
 
-    // As heard, on a host that keeps real time: 309.5 Hz, and steady.
-    // Placing samples by this chunk's measured cycles-per-second instead of
-    // the CPU's own clock bent this to 286 Hz with 18% period jitter as soon
-    // as the main thread was busy, because a chunk whose wall window held a
-    // stall ran fewer cycles than that window and its audio got spread
-    // across all of it. A host that fell behind gets the guest-time checks
-    // above only, since the worklet's deliberate slowdown and holds are
-    // what it hears.
+    // As heard on a host keeping real time: 309.5 Hz, steady. Placing samples by a chunk's measured
+    // cycles-per-second bent this to 286 Hz with 18% jitter under load; a lagging host gets only
+    // the guest-time checks.
     const idle = zeroCrossingJitter(idleCapture.samples);
     const loaded = zeroCrossingJitter(loadedCapture.samples);
     if (keptUp(idleCapture)) {
@@ -160,11 +135,8 @@ test.describe("FM output quality", () => {
       expect(sampleRate / idle.mean).toBeLessThan(315);
       expect(idle.cv).toBeLessThan(0.02);
     }
-    // And under main-thread load, which is where this used to fall apart:
-    // placing samples on the main thread from performance.now() deltas gave
-    // ~286 Hz with ~18% jitter here, because runCycles() blocks that thread
-    // for up to 12ms and the ratio was derived over ~1ms windows. The audio
-    // thread's own clock has no such problem.
+    // Under main-thread load. Deriving the ratio from performance.now() over ~1ms windows gave
+    // ~286 Hz with ~18% jitter because runCycles() blocks for up to 12ms.
     if (keptUp(loadedCapture)) {
       expect(sampleRate / loaded.mean).toBeGreaterThan(303);
       expect(sampleRate / loaded.mean).toBeLessThan(317);

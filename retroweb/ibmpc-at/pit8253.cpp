@@ -40,7 +40,7 @@ uint8_t Pit8253::in(uint16_t port) {
 void Pit8253::out(uint16_t port, uint8_t v) {
     if (port == 0x43) {
         int channel = (v >> 6) & 3;
-        if (channel == 3) return;  // 8254 read-back command -- not modeled, unused by AT BIOS/DOS
+        if (channel == 3) return;  // 8254 read-back command not modeled
         int rw = (v >> 4) & 3;
         Channel &ch = ch_[channel];
         if (rw == 0) {  // counter latch command
@@ -71,11 +71,10 @@ void Pit8253::set_gate2(bool level) {
     bool was = ch.gate;
     ch.gate = level;
     if (!level) {
-        // Gate low: force the output high immediately -- see pit8253.h.
+        // Gate low forces the output high (pit8253.h).
         ch.output = true;
     } else if (!was) {
-        // Gate's rising edge: reload the counter, restarting the square
-        // wave cleanly -- see pit8253.h.
+        // Gate rising edge reloads the counter (pit8253.h).
         ch.counter = ch.toggle_period;
     }
 }

@@ -1,54 +1,20 @@
-// Intel 8042 keyboard controller, AT wiring, with the PS/2 auxiliary
-// (mouse) port every 486-class board carries.
-//
-// Ports 0x60 (data) / 0x64 (status on read, command on write). Beyond
-// talking to the keyboard itself, the AT's 8042 firmware carries two
-// motherboard-level jobs software depends on constantly:
-//
-//   - Output Port bit 1 gates the A20 address line. It defaults DISABLED
-//     at power-on/reset (an AT starts out wrapping at 1MB exactly like an
-//     8086, for backward compatibility with real-mode software that
-//     depends on the wraparound) -- BIOS enables it early in POST via the
-//     "write output port" command (0xD1 then a data byte with bit1 set)
-//     before doing anything above 1MB. `chipset.h`'s memory decode reads
-//     a20_enabled() to mask/pass address bit 20 accordingly.
-//   - Output Port bit 0, driven low (or the 0xFE "pulse output line 0"
-//     command), pulses the CPU's RESET line. Early 286es have no
-//     instruction to leave protected mode other than a full reset, so
-//     real-mode-return sequences of the era use exactly this trick.
-//     reset_requested() surfaces that to the embedding Machine, which
-//     calls cpu.reset() -- this device has no direct reach into the CPU
-//     object, matching every other device in this codebase.
-//
-// The second device port is genuinely a PS/2-line feature, not an original
-// PC/AT one: the 5170's own 8042 firmware ignores 0xA7/0xA8/0xD2/0xD3/0xD4
-// outright (OS/2 Museum's disassembly of the AT KBC ROM lists that whole
-// range as "ignored"). Every 486 board with a round mouse DIN is running a
-// PS/2-superset KBC instead, which is what this models -- see
-// PC486_REVIEW.md §10.
-//
-// Port 0x92 ("System Control Port A" / "Fast A20 Gate") is a genuinely
-// separate piece of period hardware modeled here alongside the 8042
-// because it drives the *same* A20 signal, not a distinct one: virtually
-// every 386+ motherboard chipset exposes this port specifically because
-// toggling A20 through the keyboard controller's command protocol is slow,
-// and real-world software of this era (Microsoft's own HIMEM.SYS included)
-// commonly tries it first. Bit 1 is the A20 gate (1 = enabled), bit 0
-// triggers a fast CPU reset on being written 1 (OSDev Wiki, "A20 Line";
-// see also the AMD64 Architecture Programmer's Manual chipset notes, which
-// guarantee port 0x92 bit 1 stays available for this on any AMD64 chipset
-// for backward compatibility). See PC486_REVIEW.md §19.6 for the real,
-// live bug this port's total absence caused.
-//
-// Controller-command scope: self-test, interface test, read/write command
-// byte, enable/disable keyboard, enable/disable/test the AUX interface,
-// write-to-AUX-device, write-to-either-output-buffer, read/write output
-// port, pulse-output-line-0. The keyboard repeats its last-pressed key at
-// the typematic rate set by 0xF3 (default 500 ms delay, 10.9 cps); LED
-// state isn't modeled (those command bytes just get ACKed). Reference: IBM 5170 Technical Reference, "Keyboard System";
-// the 8042 command set is otherwise identical across the whole
-// PC/AT-compatible universe and is documented in any AT-class BIOS's
-// keyboard POST routine.
+// Intel 8042 keyboard controller, AT wiring, with the PS/2 auxiliary (mouse)
+// port every 486-class board carries. Ports 0x60 (data), 0x64 (status/command).
+// Motherboard jobs:
+// - Output Port bit 1 gates A20. It starts disabled (wrap at 1MB like an 8086);
+//   BIOS enables it with 0xD1 early in POST. chipset.h reads a20_enabled().
+// - Output Port bit 0 driven low, or command 0xFE, pulses CPU RESET.
+//   reset_requested() surfaces it to Machine, which calls cpu.reset().
+// The AUX port is a PS/2 feature: the 5170's KBC firmware ignores
+// 0xA7/0xA8/0xD2/0xD3/0xD4 (OS/2 Museum's AT KBC ROM disassembly), so this
+// models a PS/2-superset KBC (PC486_REVIEW.md §10).
+// Port 0x92 (Fast A20 Gate) is modeled here because it drives the same A20
+// signal. Bit 1 is the gate, bit 0 fast-resets on a 1 write (OSDev Wiki, "A20
+// Line"). HIMEM.SYS tries it first (PC486_REVIEW.md §19.6).
+// Commands: self-test, interface test, read/write command byte, enable/disable
+// keyboard and AUX, write to AUX or either output buffer, read/write output
+// port, pulse line 0. Typematic default 500 ms / 10.9 cps (set by 0xF3). LED
+// state isn't modeled. IBM 5170 Technical Reference, "Keyboard System".
 #ifndef PC486_I8042_H
 #define PC486_I8042_H
 
@@ -64,16 +30,9 @@ public:
     uint8_t in(uint16_t port) const;
     void out(uint16_t port, uint8_t v);
 
-    // Port 0x92 -- see the file header. This is the *same* A20 gate as the
-    // 8042's own output port, not an independent latch: real chipsets tie
-    // both to one physical line, and software of the era freely mixes
-    // "read output port" (0xD0) with a direct port-0x92 read expecting to
-    // see the identical bit, so this reads/writes output_port_ bit 1
-    // directly rather than keeping a second copy that could drift out of
-    // sync. Bit 0 pulses a reset exactly like output-port bit 0 already
-    // does (reset_requested()) -- it is a distinct write-only trigger, not
-    // stored back into the readable byte, matching real hardware where
-    // that bit self-clears.
+    // Port 0x92 shares the 8042 output port's A20 bit (one physical line), so it
+    // reads/writes output_port_ bit 1 directly. Bit 0 is a write-only reset trigger
+    // that self-clears and is not stored.
     bool owns_fast_a20(uint16_t port) const { return port == 0x92; }
     uint8_t fast_a20_in() const { return output_port_ & 0x02; }
     void fast_a20_out(uint8_t v) {
@@ -84,9 +43,8 @@ public:
     bool irq1_pending() const { return irq1_pending_; }
     void clear_irq1() { irq1_pending_ = false; }
 
-    // IRQ12, the AUX port's own interrupt line. Driven by the same output
-    // buffer as IRQ1, but only while the byte sitting in it came from the
-    // mouse (status bit 5, AUXB) and command-byte bit 1 enables it.
+    // IRQ12, the AUX line. Driven by the output buffer only while the byte came
+    // from the mouse (status bit 5, AUXB) and command-byte bit 1 enables it.
     bool irq12_pending() const { return irq12_pending_; }
     void clear_irq12() { irq12_pending_ = false; }
 
@@ -95,28 +53,14 @@ public:
     bool reset_requested() const { return reset_requested_; }
     void clear_reset_request() { reset_requested_ = false; }
 
-    // Host/front-end side: deliver one Set 1 scan code, as if a key event
-    // just happened -- pushed straight to port 0x60 with no translation.
-    // No-op while the controller has the keyboard disabled (0xAD).
-    //
-    // Real hardware: an AT keyboard is physically Set-2-native, and the
-    // 8042's own firmware translates Set 2 -> Set 1 before software ever
-    // sees a code at port 0x60 (translation is the default/overwhelmingly
-    // common mode; genuine Set-2 passthrough exists but essentially no
-    // real software selects it). This device models the visible result of
-    // that translation directly rather than a Set-2 stage nothing above
-    // the 8042 can ever observe in that default mode -- callers (a browser
-    // front end's own physical-key -> Set-1 table, disks/build_freedos_hdd.cpp's
-    // Set1MakeCode()) supply Set 1 codes already, matching what a real
-    // BIOS/DOS keyboard driver actually reads.
+    // Delivers one Set 1 scan code to port 0x60. No-op while the keyboard is
+    // disabled (0xAD). A real AT keyboard is Set-2-native and the 8042 translates
+    // to Set 1, so this models the translated result; callers supply Set 1 codes.
     void inject_scancode(uint8_t code);
 
-    // Typematic repeat, run on the keyboard's own clock against the CPU's
-    // running cycle count (absolute, like Pit8253::tick). A real keyboard
-    // repeats only the most recently pressed key, from the typematic delay
-    // until that key's break (IBM PS/2 Technical Reference, "Keyboard",
-    // Set Typematic Rate/Delay; Chapweske, "The AT-PS/2 Keyboard
-    // Interface"). inject_scancode() tracks which key that is.
+    // Typematic repeat against the CPU's absolute cycle count (like Pit8253::tick).
+    // Only the most recent key repeats, until its break (IBM PS/2 Technical Reference
+    // "Keyboard"; Chapweske "The AT-PS/2 Keyboard Interface").
     void tick(uint64_t cpu_cycles, double cpu_hz) {
         uint64_t d = cpu_cycles - prev_cycles_;
         prev_cycles_ = cpu_cycles;
@@ -127,35 +71,21 @@ public:
     uint8_t typematic_byte() const { return typematic_; }
     bool typematic_active() const { return tm_active_; }
 
-    // Button bits, in the order the PS/2 movement packet's first byte
-    // carries them (Chapweske, "The PS/2 Mouse Interface", 2001).
+    // Button bits in PS/2 movement packet order (Chapweske)
     enum MouseButton : uint8_t {
         kMouseLeft = 0x01,
         kMouseRight = 0x02,
         kMouseMiddle = 0x04,
     };
 
-    // Host/front-end side: one sample from the mouse's own optics/switches.
-    //
-    // dx/dy are movement *counts*, in the mouse's axis convention: +X is
-    // right, +Y is AWAY from the user (up the screen). A browser front end
-    // whose mousemove deltas grow downward must negate dy -- the real part
-    // reports "move up one" as 08 00 01 and "move down one" as 28 00 FF.
-    // `buttons` is the full current button state (kMouseLeft etc.), not a
-    // change: a real mouse latches the switch states on every sample.
-    //
-    // Counts accumulate in the mouse's own 9-bit movement counters exactly
-    // as they do on real hardware -- sampling continues while the host has
-    // the line inhibited or the previous packet still in flight, and the
-    // counters clear only when a packet is actually sent. Whether that
-    // produces a packet depends on the device's mode and on whether
-    // reporting is enabled; see mouse_reporting_enabled().
+    // One mouse sample. dx/dy are counts, +X right, +Y away from the user, so a
+    // browser front end must negate dy (up one = 08 00 01, down one = 28 00 FF).
+    // `buttons` is the full current state. Counts accumulate in the 9-bit counters
+    // and clear only when a packet is sent; see mouse_reporting_enabled().
     void inject_mouse_event(int dx, int dy, uint8_t buttons);
 
-    // True once a driver has put the mouse in stream mode with reporting
-    // enabled (0xF4) and the controller is not holding the AUX clock low.
-    // A front end can use this to tell whether anything is listening
-    // before it starts capturing the pointer.
+    // True once a driver has the mouse in stream mode with reporting enabled
+    // (0xF4) and the AUX clock is not held low
     bool mouse_reporting_enabled() const;
 
 private:
@@ -173,7 +103,7 @@ private:
     mutable bool output_full_ = false;
     mutable bool output_is_aux_ = false;  // status bit 5 (AUXB) for the byte in output_buf_
     uint8_t command_byte_ = 0x00;
-    uint8_t output_port_ = 0x00;  // bit1 (A20) starts disabled -- see file header
+    uint8_t output_port_ = 0x00;  // bit 1 (A20) starts disabled
     bool kbd_enabled_ = true;
     bool system_flag_ = false;
     bool last_was_command_ = false;
@@ -198,51 +128,23 @@ private:
     }
     void typematic_fire();
 
-    // The output buffer is one byte wide on the real part, but both devices
-    // behind it answer in multi-byte bursts (a keyboard RESET's ACK + BAT,
-    // a mouse RESET's ACK + BAT + device ID, every 3-byte movement packet),
-    // and the keyboard can produce a scan code part-way through one of the
-    // mouse's. That queues on real hardware in the *devices*, not the
-    // controller: the 8042 holds a device's clock line low while OBF is
-    // set, and the device keeps its bytes until the line is released -- no
-    // byte is ever lost, only delayed. This FIFO stands in for both
-    // devices' holding buffers, each byte tagged with the source that
-    // decides status bit 5 and which interrupt it drives.
-    //
-    // Sized generously (not the real AT keyboard's own 16-byte depth)
-    // because `enqueue()` below drops a byte outright if the queue is
-    // full, which the real device-side holdoff this stands in for never
-    // does -- a keyboard break code landing at exactly the wrong moment
-    // during a burst of mouse-movement packets found this the hard way
-    // (a real, reported "key stuck forever" bug: the guest's IRQ1/IRQ12
-    // handlers fell behind a rapid mouse-look burst, the queue filled, and
-    // the one byte that would have released the key never arrived). This
-    // is a size increase, not real backpressure -- a sustained enough
-    // mismatch between production and draining could still overflow it --
-    // but comfortably covers any realistic gameplay burst.
-    //
-    // Answers to controller commands do not go through here -- see
-    // push_ctrl().
-    //
-    // `irq` records whether this byte should assert an interrupt as it
-    // reaches the buffer. IRQ1 and IRQ12 are not the OBF flag itself on
-    // the real part -- they are output-port lines (P24, P25) the 8042's
-    // own firmware drives. Answers to *controller* commands (self-test,
-    // read command byte, AUX interface test) are polled for by whoever
-    // issued them and raise nothing here; scan codes raise IRQ1, and every
-    // byte from the mouse raises IRQ12 -- the firmware this machine ships
-    // depends on that second one, which is why it disables IRQ12 around
-    // its own mouse commands (PC486_REVIEW.md §10).
+    // Output queue. The real buffer is one byte, but devices answer in bursts and
+    // hold bytes behind the clock line, so none are lost. This FIFO stands in for
+    // those holding buffers, each byte tagged with its source (status bit 5 and
+    // IRQ). Oversized because enqueue() drops on overflow: a break code lost
+    // during a mouse-look burst left a key stuck. Controller command answers use
+    // push_ctrl() instead.
+    // `irq`: IRQ1/IRQ12 are output-port lines (P24, P25) driven by firmware, not
+    // OBF. Controller answers raise nothing, scan codes raise IRQ1, mouse bytes
+    // raise IRQ12 (PC486_REVIEW.md §10).
     struct Queued { uint8_t value; bool aux; bool irq; };
     static constexpr int kQueueSize = 1024;
     mutable Queued queue_[kQueueSize] = {};
     mutable int queue_head_ = 0;
     mutable int queue_count_ = 0;
 
-    // The PS/2 mouse itself. Every field here is the device's state, not
-    // the controller's; defaults are the ones its BAT loads (sample rate
-    // 100/sec, resolution 4 counts/mm, 1:1 scaling, reporting disabled,
-    // stream mode) per Chapweske's "Reset Mode".
+    // Mouse device state. Defaults are what its BAT loads (100 samples/s,
+    // 4 counts/mm, 1:1, reporting off, stream mode; Chapweske "Reset Mode").
     enum class MouseMode { kStream, kRemote, kWrap };
     struct Mouse {
         MouseMode mode = MouseMode::kStream;
@@ -263,20 +165,12 @@ private:
     };
     mutable Mouse mouse_;
 
-    // The 8042 answering for itself (self-test, read command byte, read
-    // output port, interface tests): the firmware writes its answer
-    // straight into the one-byte output buffer, over whatever was sitting
-    // there unread, and raises no interrupt. It has no queue of its own,
-    // and every caller of these commands polls for the answer.
+    // The 8042 answering for itself: written straight into the one-byte output
+    // buffer over any unread byte, no interrupt, no queue. Callers poll.
     void push_ctrl(uint8_t v) const;
-    // Every byte the *keyboard* itself sends back -- scan codes, but
-    // exactly as much a command ACK (0xFA), a reset's BAT-pass (0xAA), or
-    // a Read-ID's 0xAB/0x83 -- sets IBF and fires IRQ1 on real hardware,
-    // with no distinction by content: "If no errors occur, the response
-    // byte is placed in the input buffer, the IBF flag is set, and IRQ1 is
-    // activated" (Chapweske, "The AT-PS/2 Keyboard Interface", "Writing to
-    // keyboard"). No caller here has a real reason to suppress that, so
-    // `irq` takes no default -- every call site must say so explicitly.
+    // Every byte the keyboard sends (scan codes, ACK 0xFA, BAT 0xAA, ID 0xAB/0x83)
+    // sets IBF and fires IRQ1 (Chapweske "AT-PS/2 Keyboard Interface", "Writing to
+    // keyboard"). `irq` has no default so each call site says so.
     void push_kbd(uint8_t v, bool irq);
     void push_aux(uint8_t v) const;
     void enqueue(uint8_t v, bool aux, bool irq) const;

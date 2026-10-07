@@ -1,9 +1,4 @@
 // GoogleTest suite for Cpu::interrupt() and the EI one-instruction delay.
-//
-// Until this was wired up (ALTAIR_REVIEW.md §2.2/§2.3), Cpu::interrupt() had
-// no caller anywhere in the repo -- correct where it could be judged by
-// inspection, but entirely unverified by execution. These tests exercise it
-// directly against the Bus interface, the same way arithmetic_test.cpp does.
 
 #include <gtest/gtest.h>
 
@@ -37,7 +32,6 @@ protected:
         cpu->reset();
     }
 
-    // Assemble `code` at 0x0000, PC = 0. Does not run anything.
     void load(std::initializer_list<uint8_t> code) {
         uint16_t addr = 0;
         for (uint8_t byte : code) mem[addr++] = byte;
@@ -68,8 +62,7 @@ TEST_F(Interrupt, TakenWhileEnabled) {
 }
 
 TEST_F(Interrupt, VectorIsOpcodeAndTriplet) {
-    // RST n = 11rrr111 (n = bits 5-3); the jammed opcode's n*8 is the vector,
-    // i.e. opcode & 0x38.
+    // RST n = 11rrr111; the vector is opcode & 0x38
     struct { uint8_t opcode; uint16_t vector; } cases[] = {
         {0xC7, 0x00}, {0xCF, 0x08}, {0xD7, 0x10}, {0xDF, 0x18},
         {0xE7, 0x20}, {0xEF, 0x28}, {0xF7, 0x30}, {0xFF, 0x38},
@@ -100,9 +93,7 @@ TEST_F(Interrupt, WakesHalt) {
 }
 
 TEST_F(Interrupt, DisabledAndHaltedStaysHalted) {
-    // A real 8080 in HALT with DI stays halted forever (until RESET) --
-    // there's no way to wake it, which is exactly why real software always
-    // does EI before HLT if it means to wake on an interrupt.
+    // HLT with DI never wakes (until RESET)
     load({HLT});
     cpu->step();
     ASSERT_TRUE(cpu->halted);
@@ -110,12 +101,10 @@ TEST_F(Interrupt, DisabledAndHaltedStaysHalted) {
     EXPECT_TRUE(cpu->halted);
 }
 
-// The load-bearing EI/RET idiom: a real 8080 doesn't recognize an interrupt
-// until after the instruction *following* EI has retired.
+// EI/RET idiom: no interrupt is taken until the instruction after EI retires
 TEST_F(Interrupt, EiDelaysOneInstruction) {
     load({EI, NOP, NOP});
-    cpu->step();                          // EI retires; int_enabled = true now,
-                                           // but the delay window is open
+    cpu->step();                          // EI retires, delay window open
     EXPECT_EQ(cpu->interrupt(RST7), 0)    // requested immediately after EI: too soon
         << "an interrupt right after EI must wait for the next instruction";
     EXPECT_TRUE(cpu->int_enabled);        // still enabled -- just not yet acceptable
@@ -126,10 +115,7 @@ TEST_F(Interrupt, EiDelaysOneInstruction) {
 }
 
 TEST_F(Interrupt, EiThenHaltSatisfiesTheDelayOnHaltsOwnRetirement) {
-    // EI immediately followed by HLT (a real, if unusual, "enable and wait
-    // for work" idiom): HLT's own retirement is the "one instruction" the
-    // delay wants, so the CPU can wake and vector on the very first
-    // interrupt requested once halted.
+    // HLT's own retirement satisfies the EI delay
     load({EI, HLT});
     cpu->step();                          // EI
     cpu->step();                          // HLT retires and halts

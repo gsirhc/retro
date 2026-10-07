@@ -1,18 +1,9 @@
 #!/usr/bin/env bash
-# Fetch the diskette images the 88-DCDD cabinet's manifest lists. All three
-# come from Mike Douglas's collection (dhansel/Altair8800, pinned to one
-# commit so this can't drift), verified by SHA-256.
-#
-#   cpm63k.dsk     CP/M 2.2 -- freely redistributable since 2022 (DRDOS Inc. /
-#                  Bryan Sparks); the disk the "CP/M Workstation" preset boots.
-#                  License: http://cpm.z80.de/license.html
-#   games.dsk      CP/M game disk -- 1970s type-in BASIC (Star Trek, Lunar
-#                  Lander) plus small hobbyist CP/M games; decades of open,
-#                  unchallenged redistribution, no asserted rights holder.
-#   altairdos.dsk  MITS Altair DOS 1.0 -- MITS ceased operating in 1979;
-#                  orphaned, same long-unchallenged category CP/M itself sat
-#                  in before its 2001 release, just never formally released.
-#
+# Fetch the 88-DCDD diskette images from Mike Douglas's collection (dhansel/Altair8800,
+# pinned to one commit), verified by SHA-256.
+#   cpm63k.dsk     CP/M 2.2, redistributable since 2022 (http://cpm.z80.de/license.html)
+#   games.dsk      type-in BASIC and CP/M games, long open redistribution
+#   altairdos.dsk  MITS Altair DOS 1.0, orphaned since MITS closed in 1979
 #   ./fetch-disks.sh            # fetch what's missing / wrong
 #   ./fetch-disks.sh --force
 

@@ -1,10 +1,7 @@
 // Midway Pac-Man (1980) board: Z80 + tilemap/sprites + Namco WSG.
 // Optional GCC Ms. Pac-Man aux board in the Z80 socket (U5/U6/U7 + PAL
 // overlay / dump-protection latch, US 4,525,599).
-//
-// Memory map from the Midway Pac-Man service manual / schematics. MAME
-// pacman.cpp is a cross-check of decoded chip-selects, not a behavior source.
-// Clock: 18.432 MHz master, CPU 18.432/6 = 3.072 MHz.
+// Memory map from the Midway service manual. CPU is 18.432 MHz / 6.
 
 #ifndef PACMAN_MACHINE_H
 #define PACMAN_MACHINE_H
@@ -26,15 +23,13 @@ struct Inputs {
     // Active-low bits as the cabinet presents them (1 = released).
     uint8_t in0 = 0xFF;
     uint8_t in1 = 0xFF;
-    // DSW1 at $5080. Midway factory: 1C/1C, 3 lives, bonus 10k, normal
-    // difficulty, normal ghost names (0xC9). Bit map from the service
-    // manual, cross-checked against MAME INPUT_PORTS_START(pacman):
+    // DSW1 at $5080, factory 0xC9 (service manual, MAME pacman):
     //   1:0 coinage  01=1C/1C  11=2C/1C  10=1C/2C  00=free
     //   3:2 lives    00=1  01=2  10=3  11=5
     //   5:4 bonus    00=10k  01=15k  10=20k  11=none
     //   6   difficulty  1=normal  0=hard   (solder pad on some boards)
     //   7   ghost names 1=normal  0=alternate (solder pad on some boards)
-    // Rack test is IN0 bit 4; cabinet upright/cocktail is IN1 bit 7.
+    // Rack test is IN0 bit 4, upright/cocktail is IN1 bit 7.
     uint8_t dsw1 = 0xC9;
     uint8_t dsw2 = 0xFF;  // unused on the Midway pacman set
 };
@@ -46,8 +41,7 @@ struct RomSet {
     std::array<uint8_t, 32> color_prom{};
     std::array<uint8_t, 256> lookup_prom{};
     std::array<uint8_t, 256> wave_prom{};
-    // GCC/Midway Ms. Pac-Man aux board (U5 2716, U6/U7 2532). Empty and
-    // aux_board=false means the stock Pac-Man PCB, Z80 in socket 6B.
+    // Ms. Pac-Man aux board (U5 2716, U6/U7 2532). aux_board=false is the stock PCB.
     std::array<uint8_t, 0x0800> aux_u5{};
     std::array<uint8_t, 0x1000> aux_u6{};
     std::array<uint8_t, 0x1000> aux_u7{};
@@ -63,23 +57,18 @@ public:
     std::array<uint8_t, 0x4000> program{};
     std::array<uint8_t, 0x800> ram{};  // $4800–$4FFF
     bool irq_enable = false;
-    // Latched by `OUT (0),A`: the real board wires the Z80's IM 2 vector
-    // byte to a discrete output latch, not a fixed value. The ROM reprograms
-    // it (0xFA during the self-test's per-vblank checksum passes, 0xFC once
-    // the main game's vblank ISR at $008D takes over) -- see the "interrupt
-    // vector" writes at $233F/$3183 in the Midway pacman disassembly.
+    // IM 2 vector byte, latched by OUT (0),A. The ROM reprograms it (0xFA in
+    // self-test, 0xFC once the vblank ISR at $008D takes over).
     uint8_t irq_vector = 0xFF;
     int watchdog_ = kWatchdogFrames;
     int frames = 0;
     std::vector<float> audio;
     int audio_hz = 48000;
-    // Sticky: set when the 8-vblank watchdog elapses. reset() does not
-    // clear it — a host that wants a clean board assigns false itself.
+    // Sticky, reset() does not clear it.
     bool watchdog_reset = false;
 
-    // GCC aux board in the Z80 socket. aux_decode is the dump-protection
-    // latch (US 4,525,599): access $3FF8–$3FFF sets it, several 8-byte
-    // trap windows clear it. Z80 RESET does not clear the PAL.
+    // aux_decode is the dump-protection latch (US 4,525,599): $3FF8-$3FFF sets
+    // it, 8-byte trap windows clear it.
     bool aux_board = false;
     bool aux_decode = false;
 

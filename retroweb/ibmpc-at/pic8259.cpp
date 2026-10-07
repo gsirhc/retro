@@ -30,11 +30,10 @@ void Pic8259::out(uint16_t port, uint8_t v) {
         }
         if (v & 0x08) {  // OCW3
             if (v & 0x02) read_isr_next_ = (v & 0x01) != 0;
-            // poll command (bit 2) not implemented -- see IBM_PCAT_REVIEW.md
+            // poll command (bit 2) not implemented
             return;
         }
-        // OCW2: EOI family. bits 7-5 select the command, bit 6 = specific,
-        // bits 2-0 = the IR line for a specific command.
+        // OCW2: EOI. Bit 6 = specific, bits 2-0 = the IR line.
         bool specific = (v & 0x40) != 0;
         int level = v & 0x07;
         if (specific) {
@@ -78,7 +77,7 @@ int Pic8259::highest_pending() const {
 
 uint8_t Pic8259::acknowledge() {
     int line = highest_pending();
-    if (line < 0) return vector_base_;  // spurious -- caller should have checked has_interrupt()
+    if (line < 0) return vector_base_;  // spurious; caller should have checked has_interrupt()
     irr_ = uint8_t(irr_ & ~(1 << line));
     if (!auto_eoi_) isr_ = uint8_t(isr_ | (1 << line));
     return uint8_t(vector_base_ + line);

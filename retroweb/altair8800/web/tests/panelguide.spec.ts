@@ -49,8 +49,7 @@ test.describe("front-panel bootstrap guide", () => {
     await boot(page, { params: "preset=stock" }); // 4 KB -> org = 0x1000 - 0x40 = 0x0FC0
     await page.click("#pgToggle");
     await page.click("#pgKeyin");
-    // the keyin now animates one switch/paddle at a time (?test=1 fast-forwards
-    // the pacing) -- #pgKeyin re-enables once the whole loader is in
+    // the keyin animates one step at a time (?test=1 fast-forwards); #pgKeyin re-enables when done
     await expect(page.locator("#pgKeyin")).toBeEnabled({ timeout: 10_000 });
     const org = 4 * 1024 - 0x40;
     expect((await regs(page)).pc).toBe(org);
@@ -63,8 +62,7 @@ test.describe("front-panel bootstrap guide", () => {
   }) => {
     await boot(page, { params: "preset=stock" });
     await page.click("#pgToggle");
-    // slow the animation back down (?test=1 otherwise collapses it to keep the
-    // rest of the suite fast) so the steps are actually observable here
+    // slow the animation back down so the steps are observable
     await page.evaluate(() => (window as any).__test.setKeyinStepMs(300));
     const rows = page.locator("#panelGuide .pg-listing table tr");
     const doneRows = page.locator("#panelGuide .pg-listing table tr.done");
@@ -72,16 +70,14 @@ test.describe("front-panel bootstrap guide", () => {
     const total = await rows.count();
 
     await page.click("#pgKeyin");
-    // right after the click, the button is busy and only the address step
-    // (if any row) has landed -- the whole 40-byte loader isn't in yet
+    // right after the click the button is busy and only the address step has landed
     await expect(page.locator("#pgKeyin")).toBeDisabled();
     const early = await doneCount();
     expect(early).toBeLessThan(total);
 
     // it keeps advancing rather than jumping straight to "all done"
     await expect.poll(doneCount, { timeout: 5000 }).toBeGreaterThan(early);
-    // ...and eventually finishes, switches/paddle flicks included (the ~40-byte
-    // loader at 300ms/step is ~12s; give it real headroom on a slow runner)
+    // ...and eventually finishes (~12 s at 300 ms/step; leave headroom for a slow runner)
     await expect(page.locator("#pgKeyin")).toBeEnabled({ timeout: 20_000 });
     expect(await doneCount()).toBe(total - 1); // every row but the header
   });
@@ -253,18 +249,10 @@ test.describe("front-panel bootstrap guide", () => {
     expect((await regs(page)).pc).toBe(org);
   });
 
-  // A8-A15 are the same physical toggles as the sense switches (IN 0FFh),
-  // read by Altair BASIC at cold start to pick a console device (0 = 2SIO).
-  // Keying in the loader's org (0x7FC0 on a 32K machine -- upper byte 0x7F,
-  // non-zero) necessarily leaves the sense switches showing that byte too;
-  // without clearing them back to 0 before running, BASIC waits on a phantom
-  // device and MEMORY SIZE? never appears. Only bites a 32K+ machine (a 4K
-  // org's upper byte, 0x0F, happens not to trip BASIC's device check) --
-  // Cassette Hobbyist is the one preset that both hand-loads off paper tape
-  // and has enough RAM to hit it. animateKeyin() clears them on its own
-  // completion (see app.js), so this has to hold regardless of which control
-  // actually starts the loader running -- RUN then the reader's own START,
-  // the only path there is now.
+  // A8-A15 double as the sense switches (IN 0FFh), which BASIC reads at cold start to pick a console.
+  // Keying in a 32K org (0x7FC0) leaves them showing 0x7F; unless cleared before running, BASIC waits
+  // on a phantom device and MEMORY SIZE? never appears. A 4K org's 0x0F doesn't trip it. Must hold
+  // whichever control starts the loader (RUN, then the reader's START).
   test("keying in the loader on a 32K machine doesn't leave the sense switches stuck non-zero", async ({
     page,
   }) => {
@@ -277,10 +265,8 @@ test.describe("front-panel bootstrap guide", () => {
     await waitForScreen(page, /MEMORY SIZE\?/i, 15_000);
   });
 
-  // Same bug, hit by hand instead of by the assist button: clicking the
-  // address row's own EXAMINE sets the sense switches to the org's high byte
-  // just as directly. Nothing clears them until the reader's own START does
-  // (startReader, app.js) -- there's no assist step in this path to do it early.
+  // Same by hand: EXAMINE sets the sense switches to the org's high byte, and only the reader's
+  // START (startReader, app.js) clears them.
   test("...and neither does keying it in by hand, address row included", async ({ page }) => {
     await boot(page, { params: "preset=cassette" });
     await page.click("#pgToggle");
@@ -359,10 +345,8 @@ test.describe("front-panel bootstrap guide", () => {
       await rows.nth(i).locator('.pg-do button[data-act="dep"]').click();
     }
     expect(await memAt(page, 0xfc0)).toBe(0x21); // whole loader is in memory
-    // the stock preset already threaded 4K BASIC in the reader -- flip RUN,
-    // then START the reader. A hand-keyed loader does no prompt-answering, so
-    // BASIC stops at its first cold-start question -- exactly as it would on
-    // real hardware.
+    // stock threads 4K BASIC already: RUN, then START the reader. A hand-keyed loader answers no
+    // prompts, so BASIC stops at its first cold-start question.
     await panelRun(page);
     await page.click("#ptr .ptr-start");
     await waitForScreen(page, /MEMORY SIZE\?/i, 40_000);
@@ -378,8 +362,7 @@ test.describe("front-panel bootstrap guide", () => {
   test("keying the loader in, then threading a different tape, re-keys it to match", async ({
     page,
   }) => {
-    // Bare-Metal threads Kill the Bit (~24 bytes) -- the loader's baked-in byte
-    // count would be wrong for anything else
+    // Bare-Metal threads Kill the Bit (~24 bytes); the loader's baked-in count would be wrong otherwise
     await boot(page, { params: "preset=baremetal" });
     await page.click("#pgToggle");
     await page.click("#pgKeyin");

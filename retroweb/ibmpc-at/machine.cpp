@@ -4,41 +4,22 @@ namespace ibmpcat {
 
 void Machine::configure_factory_cmos() {
     auto &c = chipset.cmos;
-    // Floppy drive types (0x10): high nibble = drive A:, low nibble =
-    // drive B:. 1=360KB 5.25", 2=1.2MB 5.25" -- this system's two drives.
+    // Floppy types (0x10): high nibble A:, low nibble B:. 1=360KB, 2=1.2MB.
     c.poke(0x10, 0x21);
-    // Equipment byte (0x14): bit0 = at least one floppy drive installed.
-    // The floppy-count (bits 6-7) and video-type (bits 4-5) sub-fields
-    // aren't asserted here -- not empirically verified against this
-    // specific BIOS build yet, see IBM_PCAT_REVIEW.md §8.
+    // Equipment byte (0x14): bit0 = floppy installed. Other sub-fields are unset.
     c.poke(0x14, 0x01);
-    // Base memory size, 640KB, little-endian word (0x15 low, 0x16 high) --
-    // matches the real POST "640 KB OK" message this system's spec calls for.
+    // Base memory 640KB, word at 0x15/0x16.
     c.poke(0x15, 0x80);
     c.poke(0x16, 0x02);
-    // Boot device sequence (BX_ELTORITO_BOOT convention, the actual BIOS
-    // source read to find this): low nibble of 0x3D selects the 1st boot
-    // device, high nibble the 2nd -- 0x01=floppy, 0x02=hard disk, per
-    // rombios.c's own boot-device-code table. Without a 1st device the
-    // BIOS panics with "No bootable device" regardless of what's actually
-    // mounted -- it never auto-probes drives for bootability (see
-    // IBM_PCAT_REVIEW.md §8). 0x21 (floppy first, falling back to the
-    // fixed disk) is this BIOS's literal spelling of the standard real-AT
-    // default sequence (A: then C:) for a machine that has a hard disk
-    // installed -- confirmed missing when a genuine HDD-only boot (no
-    // floppy present) hit that exact panic instead of falling through.
-    // See IBM_PCAT_REVIEW.md.
+    // Boot sequence (BX_ELTORITO_BOOT style, rombios.c): low nibble of 0x3D is
+    // the 1st device, high nibble the 2nd; 1=floppy, 2=hard disk. The BIOS panics
+    // "No bootable device" without a 1st device. 0x21 = A: then C:
+    // (IBM_PCAT_REVIEW.md §8).
     c.poke(0x3D, 0x21);
 
-    // Fixed-disk "Type 47 user-definable" geometry (0x12, 0x19, 0x1B-0x23):
-    // this BIOS's hard_drive_post reads these into a legacy EBDA parameter
-    // table completely separately from ata_detect()'s IDENTIFY-based path
-    // (wd1003.h) -- both describe the identical ST-4038 geometry (733
-    // cyl / 5 heads / 17 sec/track, no write precomp, landing zone 733),
-    // so the two paths agree. Found by reading hard_drive_post itself:
-    // 0x12 high nibble must be 0xF ("use extended type") or this whole
-    // block is skipped; 0x19 must then read exactly 47 or POST halts.
-    // See IBM_PCAT_REVIEW.md.
+    // Fixed-disk Type 47 geometry (0x12, 0x19, 0x1B-0x23), read by hard_drive_post
+    // separately from ata_detect() (wd1003.h), same ST-4038 geometry. 0x12 high
+    // nibble must be 0xF and 0x19 must be 47, or POST skips the block or halts.
     c.poke(0x12, 0xF0);  // drive C: = extended type; no drive D:
     c.poke(0x19, 47);
     c.poke(0x1B, 0xDD);  // cylinders low  (733 = 0x2DD)
@@ -51,9 +32,7 @@ void Machine::configure_factory_cmos() {
     c.poke(0x22, 0x02);  // landing zone high
     c.poke(0x23, 17);    // sectors per track
 
-    // CMOS checksum over bytes 0x10-0x2D, stored big-endian at 0x2E/0x2F --
-    // kept internally consistent even though this BIOS build hasn't been
-    // observed to actually enforce it.
+    // CMOS checksum over 0x10-0x2D, big-endian at 0x2E/0x2F.
     uint16_t sum = 0;
     for (uint16_t reg = 0x10; reg <= 0x2D; ++reg) sum = uint16_t(sum + c.peek(uint8_t(reg)));
     c.poke(0x2E, uint8_t(sum >> 8));
@@ -70,11 +49,7 @@ void Machine::run_cycles(int64_t cycles) {
         int spent = cpu.step();
         total_cycles_ += uint64_t(spent);
         chipset.tick(total_cycles_, kCpuHz);
-        // Real hardware only begins an INTA cycle if the CPU's IF flag
-        // permits it to respond to INTR -- polling (and thus acknowledging)
-        // the PIC while IF is clear would wrongly consume a pending IRQ the
-        // CPU never actually served, e.g. losing timer ticks during a
-        // cli-protected critical section.
+        // An INTA cycle only starts when IF is set; polling earlier would consume IRQs the CPU never served.
         if (cpu.flag(cpu80286::FLAG_IF)) {
             int vec = chipset.poll_interrupt();
             if (vec >= 0) cpu.interrupt(uint8_t(vec));

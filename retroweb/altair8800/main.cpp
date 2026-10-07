@@ -1,6 +1,4 @@
-// Minimal harness: a flat 64K RAM Altair-style machine with an 88-2SIO serial
-// board on ports 0x10-0x13. Runs a small echo program and shuttles bytes
-// through the board's ring buffers the way a web bridge eventually will.
+// Minimal harness: flat 64K RAM with an 88-2SIO on ports 0x10-0x13 running an echo program.
 
 #include "i8080.h"
 #include "serial2sio.h"
@@ -19,8 +17,6 @@ int main() {
     bus.in    = [&](uint8_t port) { return sio.in(port); };
     bus.out   = [&](uint8_t port, uint8_t v) { sio.out(port, v); };
 
-    // Echo program: reset ACIA, configure 8N1, then loop reading a byte when
-    // RDRF is set and writing it back when TDRE is set.
     //   0000  MVI A,03 / OUT 10        master reset channel A
     //   0004  MVI A,11 / OUT 10        /16 clock, 8N1, IRQ off
     //   0008  IN 10 / ANI 01 / JZ 0008 wait for RDRF
@@ -42,18 +38,15 @@ int main() {
     i8080::Cpu cpu(bus);
     cpu.reset();
 
-    // Front end pushes keystrokes into the receive ring buffer.
     const std::string typed = "Hello, Altair!\r";
     sio.host_send(typed);
     std::printf("host typed %zu bytes, rx queue = %zu\n",
                 typed.size(), sio.rx_pending());
 
-    // Run until the echo program has transmitted the whole line back.
     int guard = 0;
     while (sio.tx_pending() < typed.size() && guard++ < 2'000'000)
         cpu.step();
 
-    // Front end drains what the CPU transmitted.
     std::vector<uint8_t> echoed = sio.host_drain();
     std::string out(echoed.begin(), echoed.end());
     std::printf("cpu echoed %zu bytes after %llu cycles: \"", echoed.size(),

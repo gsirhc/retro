@@ -1,23 +1,5 @@
-// GoogleTest suite for cpu80286.cpp's per-opcode cycle-cost model --
-// separate from cpu80286_test.cpp (which covers instruction *semantics*)
-// because this file exists specifically to pin down a real regression: an
-// earlier version of this core charged a handful of generic bucket costs
-// (2 register-operand / 7 memory-operand / 7 taken-branch / 3 not-taken)
-// for every opcode regardless of which one it actually was, badly
-// undercosting MUL/DIV/IDIV and REP-prefixed string/shift instructions in
-// particular. That surfaced concretely running a real piece of period
-// software (Landmark System Speed Test v2.00) under this emulator: it
-// measured an apparent ~11.5-14 MHz CPU clock against this machine's real,
-// wall-clock-paced 8 MHz (app.js's frame() -- see CLAUDE.md "Never speed
-// these up"), because a DIV/MUL-heavy timing loop was completing far more
-// iterations per real second than real 80286 timings allow.
-//
-// Reference cycle counts below are the 80286 column of the published
-// "Art of Assembly" (Randall Hyde) Appendix D instruction-timing table,
-// itself reproducing Intel's own iAPX 286 Programmer's Reference Manual /
-// 80286 data sheet timing appendix -- the same source cited inline in
-// cpu80286.cpp at each fixed constant. See IBM_PCAT_REVIEW.md's CPU-timing
-// section for the full investigation.
+// Per-opcode cycle costs for cpu80286.cpp. Reference counts are the 80286 column
+// of the Art of Assembly (Hyde) Appendix D table, which reproduces Intel's iAPX 286 PRM.
 
 #include <gtest/gtest.h>
 
@@ -58,8 +40,7 @@ protected:
         uint16_t addr = at;
         for (uint8_t b : code) mem[addr++] = b;
     }
-    // Assemble `code` at CS:0 and execute exactly one instruction, returning
-    // the cycle count step() reports for it -- the thing under test here.
+    // Assembles `code` at CS:0, executes one instruction, returns step()'s cycles.
     int runCycles(std::initializer_list<uint8_t> code) {
         load(code);
         cpu->ip = 0;
@@ -67,9 +48,7 @@ protected:
     }
 };
 
-// --- MUL/IMUL/DIV/IDIV: each op costs its own real total below, not a  ---
-// --- flat 7 for every op -- the dominant real-world cause of the       ---
-// --- Landmark Speed Test overshoot.                                    ---
+// --- MUL/IMUL/DIV/IDIV ---
 
 TEST_F(Cpu80286TimingTest, MulRegister8BitCosts13Cycles) {
     // F6 /4: MUL AL (mod=11, reg=100, rm=000 -> F6 E0)
@@ -108,19 +87,12 @@ TEST_F(Cpu80286TimingTest, IdivRegister16BitCosts25Cycles) {
     EXPECT_EQ(runCycles({0xF7, 0xFB}), 25);  // IDIV BX
 }
 TEST_F(Cpu80286TimingTest, TestAndNotAndNegKeepTheGenericRegMemSplit) {
-    // TEST reg,imm8 and NOT/NEG were never the bug, but grp3_unary now
-    // computes its own cost table rather than a blanket CYC_MEM -- pin
-    // down that the reg-operand case (which a flat 7 for every case in
-    // this group would overcost) reads back correctly too.
     EXPECT_EQ(runCycles({0xF6, 0xD0}), 2);         // F6 /2: NOT AL
     EXPECT_EQ(runCycles({0xF6, 0xD8}), 2);         // F6 /3: NEG AL
     EXPECT_EQ(runCycles({0xF6, 0xC0, 0x00}), 3);   // F6 /0, imm8: TEST AL,0
 }
 
-// --- grp1_immed (ADD/OR/ADC/SBB/AND/SUB/XOR/CMP r/m,imm): the single ----
-// --- hottest opcode in Landmark's actual hot path (0x83, per the       ---
-// --- opcode-histogram diagnostic) -- was flat-costed at CYC_MEM=7 even ---
-// --- for a register operand, whose real cost is 3.                    ---
+// --- grp1_immed: reg 3, mem 7 ---
 
 TEST_F(Cpu80286TimingTest, Grp1ImmedSignExtended8BitRegisterCosts3Cycles) {
     EXPECT_EQ(runCycles({0x83, 0xF8, 0x00}), 3);  // 83 /7, mod=11,rm=000: CMP AX,0
@@ -136,25 +108,20 @@ TEST_F(Cpu80286TimingTest, Grp1Immed8BitMemoryCosts7Cycles) {
 }
 
 TEST_F(Cpu80286TimingTest, PushReg16Costs3Cycles) {
-    // Was flat-costed at CYC_MEM=7 like every other opcode in the original
-    // 4-bucket model; real 80286 cost for PUSH reg16 is 3.
     EXPECT_EQ(runCycles({0x50}), 3);  // PUSH AX
 }
 
-// --- REP-prefixed string ops: cost scales with count, not a flat 7 -----
+// --- REP string ops ---
 
 TEST_F(Cpu80286TimingTest, MovsbNonRepCosts5Cycles) {
     EXPECT_EQ(runCycles({0xA4}), 5);  // MOVSB
 }
-// Every REP-prefixed case below adds 2 to the string_op() formula itself --
-// step()'s prefix-fetch loop (pre-existing, untouched by this fix) charges
-// +2 per prefix byte consumed before the opcode dispatch even runs, and
-// REP/REPE/REPNE (0xF2/0xF3) is itself one such prefix byte.
+// REP cases add 2 for the prefix byte step() consumes first.
 TEST_F(Cpu80286TimingTest, RepMovsbScalesWithCount) {
     cpu->cx = 10;
-    // F3 A4: REP MOVSB -- 2 (prefix) + 5 + 4*10 = 47, not the old flat 7
+    // F3 A4: REP MOVSB: 2 (prefix) + 5 + 4*10 = 47
     EXPECT_EQ(runCycles({0xF3, 0xA4}), 47);
-    EXPECT_EQ(cpu->cx, 0);  // sanity: the whole rep actually ran
+    EXPECT_EQ(cpu->cx, 0);  // the whole rep ran
 }
 TEST_F(Cpu80286TimingTest, RepMovsbWithZeroCountStillChargesTheBaseCost) {
     cpu->cx = 0;
@@ -166,9 +133,7 @@ TEST_F(Cpu80286TimingTest, RepStosbScalesWithCount) {
     EXPECT_EQ(runCycles({0xF3, 0xAA}), 66);
 }
 TEST_F(Cpu80286TimingTest, RepeCmpsbStopsEarlyAndCostsOnlyTheIterationsThatRan) {
-    // CMPSB compares [SI] vs [ES:DI]; make byte 3 differ so REPE stops
-    // after 3 iterations even though CX asked for 10 -- the cost must
-    // follow the actual iteration count (3), not the original CX (10).
+    // Byte 3 differs, so REPE stops after 3 iterations. Cost follows that, not CX.
     cpu->si = 0x100; cpu->di = 0x200; cpu->cx = 10;
     for (int i = 0; i < 10; ++i) { mem[0x100 + i] = 5; mem[0x200 + i] = 5; }
     mem[0x102] = 9;  // third byte differs
@@ -195,7 +160,7 @@ TEST_F(Cpu80286TimingTest, ShiftByOneMemoryCosts7Cycles) {
 }
 TEST_F(Cpu80286TimingTest, ShiftByClRegisterScalesWithCount) {
     cpu->cx = (cpu->cx & 0xFF00) | 5;  // CL = 5
-    // D2 /4: SHL AL,CL -- 5 + 5 = 10, not the old flat 7
+    // D2 /4: SHL AL,CL: 5 + 5 = 10
     EXPECT_EQ(runCycles({0xD2, 0xE0}), 10);
 }
 TEST_F(Cpu80286TimingTest, ShiftByImm8MemoryScalesWithCount) {
@@ -204,12 +169,7 @@ TEST_F(Cpu80286TimingTest, ShiftByImm8MemoryScalesWithCount) {
     EXPECT_EQ(runCycles({0xC0, 0x27, 0x03}), 11);
 }
 
-// --- LOOP/LOOPE/LOOPNE/JCXZ: a classic counting-loop construct, and the
-// --- one this fix's first pass genuinely missed (found by disassembling
-// --- Landmark itself, since the MUL/DIV/REP-string fixes above turned out
-// --- not to move its own CPU-speed reading at all). Taken cost is floor(8)
-// --- + kQueueRefillTax(2) = 10, landing inside Intel's documented 8-11
-// --- range for the taken case -- see cpu80286.h's queue-refill-tax comment.
+// --- LOOP/LOOPE/LOOPNE/JCXZ: taken = floor 8 + kQueueRefillTax 2 = 10 (Intel 8-11) ---
 
 TEST_F(Cpu80286TimingTest, LoopTakenCosts10Cycles) {
     cpu->cx = 2;
@@ -264,11 +224,7 @@ TEST_F(Cpu80286TimingTest, LeaveCosts5Cycles) {
     EXPECT_EQ(runCycles({0xC9}), 5);
 }
 
-// --- INT/INT3/INTO/IRET: a flat 45 would *over*count these by ~2x (the
-// --- opposite direction from MUL/DIV) -- real 80286 floor is 23 (INT3/INT
-// --- nn), 24 (INTO taken), 17 (IRET), each + kQueueRefillTax since entering
-// --- or returning from an interrupt is itself a control transfer that
-// --- flushes the prefetch queue (see cpu80286.h).
+// --- INT/INT3/INTO/IRET: floor 23 / 24 / 17, each plus kQueueRefillTax ---
 
 TEST_F(Cpu80286TimingTest, Int3Costs25Cycles) {
     cpu->sp = 0x200;
@@ -323,13 +279,7 @@ TEST_F(Cpu80286TimingTest, MovDisplacementFromAlCosts3Cycles) {
     EXPECT_EQ(runCycles({0xA2, 0x00, 0x00}), 3);  // MOV [0000],AL
 }
 
-// --- Jcc/JMP/CALL/RET: every queue-flushing control transfer gets its
-// --- cited floor-of-range cost + kQueueRefillTax (cpu80286.h), landing
-// --- inside Intel's own documented range for each (verified per opcode
-// --- against the same Appendix D table cited throughout this file). A
-// --- flat 11 for CALL near (0xE8) would sit *above* Intel's own 7-10
-// --- range for that opcode, a real, separate overcost bug caught while
-// --- auditing every control-transfer opcode for this fix.
+// --- Jcc/JMP/CALL/RET: cited floor plus kQueueRefillTax ---
 
 TEST_F(Cpu80286TimingTest, JccShortTakenCosts9Cycles) {
     cpu->flags |= FLAG_ZF;
@@ -349,7 +299,7 @@ TEST_F(Cpu80286TimingTest, JmpFarCosts13Cycles) {
 }
 TEST_F(Cpu80286TimingTest, CallNearCosts9Cycles) {
     cpu->sp = 0x200;
-    EXPECT_EQ(runCycles({0xE8, 0x00, 0x00}), 9);  // floor 7 (7-10) + tax -- was a flat 11, above Intel's own range
+    EXPECT_EQ(runCycles({0xE8, 0x00, 0x00}), 9);  // floor 7 (7-10) + tax
 }
 TEST_F(Cpu80286TimingTest, CallFarCosts15Cycles) {
     cpu->sp = 0x200;

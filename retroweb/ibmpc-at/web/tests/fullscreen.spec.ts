@@ -1,23 +1,9 @@
 import { test, expect } from "./fixtures";
 import { boot, waitForScreen, focusScreen, typeStr } from "./helpers";
 
-// Fullscreen mode (expands #bezel -- CRT frame + vignette + power LED, not
-// just the bare canvas -- see index.html's .bezel:fullscreen CSS comment),
-// the corner Esc button, and the one-time hint dialog explaining why that
-// button exists at all.
-//
-// The Esc button matters because browsers reserve the physical Esc key to
-// exit fullscreen and never dispatch it to the page while doing so --
-// confirmed live (not merely "also" exiting fullscreen: DOS gets nothing at
-// all), so there is no way for page script to claim it back from the
-// Fullscreen API. The button sends the real scancode directly instead,
-// bypassing the native key event that problem lives in.
-//
-// FS_ESC_HINT_VERSION in app.js is "2" as of this writing; the tests below
-// that plant a stored value hardcode that alongside a deliberately stale
-// one, matching how a real visitor's browser would hold whatever version
-// they last saw. Keep the "already seen" value here in sync if that
-// constant changes again.
+// Fullscreen of #bezel, the corner Esc button, and its one-time hint dialog.
+// The button exists because browsers never deliver Esc to the page in fullscreen.
+// Tests hardcode FS_ESC_HINT_VERSION ("2" in app.js) as the already-seen value.
 
 test.describe("fullscreen", () => {
   test("first-ever click shows the hint dialog and does not enter fullscreen yet", async ({ page }) => {
@@ -77,8 +63,7 @@ test.describe("fullscreen", () => {
     await typeStr(page, "ABC", { pressEnterAfter: false });
     await waitForScreen(page, /C:\\>abc/i);
     await page.locator("#escBtn").click();
-    // COMMAND.COM's real Escape handling discards the pending line -- the
-    // prompt is left bare again, not still holding "abc".
+    // COMMAND.COM discards the pending line on Escape
     await waitForScreen(page, /C:\\>\s*$/);
   });
 });

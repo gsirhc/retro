@@ -2,18 +2,11 @@
 #   git clone https://github.com/emscripten-core/emsdk
 #   ./emsdk install latest && ./emsdk activate latest && source ./emsdk_env.sh
 
-# Use the C++ driver (em++), not emcc -- embind pulls in libc++abi typeinfo
-# that the C driver won't link.
+# em++ not emcc: embind needs libc++abi typeinfo the C driver won't link.
 EMCC ?= em++
 
-# DEBUG_PERF=1 compiles in the emulator's own performance counters and the
-# front end's Debug panel (which appears only when the module reports a debug
-# build). Off by default: the counters sit on the hottest paths there are, so
-# a shipped machine must not carry them.
-# The Performance panel's Tier 2 (the emulator's own counters) needs an
-# instrumented build. It is a SECOND binary, pc486-perf.js/.wasm, loaded only
-# by ?perf -- the shipped pc486.wasm carries none of the counters, which sit
-# on the hottest paths there are.
+# DEBUG_PERF=1 compiles in the perf counters and the Debug panel. Off by default.
+# The Performance panel's Tier 2 loads a second binary, pc486-perf.js/.wasm, via ?perf.
 PERF ?= 0
 ifeq ($(PERF),1)
 EMCC_PERF_FLAGS = -DPC486_PERF
@@ -28,33 +21,10 @@ SRC = wasm_machine.cpp $(CORE)/machine.cpp $(CORE)/chipset.cpp $(CORE)/cpu80486.
       $(CORE)/opl3.cpp \
       $(CORE)/mpu401.cpp
 
-# Exception catching is required, not optional: the CPU core raises a
-# protected-mode fault (#GP/#NP/#SS/#PF/#UD/#NM) by throwing cpu80486::Fault,
-# because an x86 fault genuinely abandons a partially executed instruction
-# and restarts it. Emscripten disables exception *catching* by default,
-# which turns every throw into an abort -- so without catching enabled the
-# first page fault a DOS extender takes would kill the whole module instead
-# of reaching its handler.
-#
-# -fwasm-exceptions (native WASM exception handling), not plain -fexceptions
-# (Emscripten's older JS-emulated unwinding): step() wraps EVERY instruction
-# in a try/catch to catch that throw, so this is the hot path, executed 66
-# million times a second at real speed -- JS-emulated exceptions add real
-# per-call overhead even when nothing throws, which made the interpreter
-# unable to sustain real time at all (100% CPU, falling further behind every
-# frame, which is what made keystrokes take seconds to register or drop
-# entirely -- the main thread never got a break between catch-up bursts).
-# Native wasm exception handling has no such per-call tax and has shipped in
-# every major browser for years. Needs a matching -sSUPPORT_LONGJMP=wasm
-# (Emscripten's default pairs plain -fexceptions with a JS-emulated longjmp
-# too, and mixing the two unwind mechanisms is not supported).
-#
-# -O3 -flto, not -O2: the interpreter's hot loop is spread across
-# machine.cpp (the run loop), cpu80486.cpp (step) and chipset.cpp plus each
-# device's own translation unit, so without link-time optimization the
-# per-instruction device ticks and bus accesses stay out-of-line cross-TU
-# calls that no amount of per-file optimization can reach. Worth ~10% of
-# raw interpreter throughput on its own -- see PC486_REVIEW.md §8.
+# Exception catching is required: the CPU core throws cpu80486::Fault for protected-mode faults.
+# -fwasm-exceptions, not -fexceptions: step() wraps every instruction in try/catch, and JS-emulated
+# unwinding is too slow to hold real time. Needs -sSUPPORT_LONGJMP=wasm to match.
+# -O3 -flto: the hot loop spans several translation units (~10% throughput, PC486_REVIEW.md §8).
 EMFLAGS = -O3 -flto -std=c++17 -lembind --no-entry -fwasm-exceptions -sSUPPORT_LONGJMP=wasm \
           $(EMCC_PERF_FLAGS) \
   -sMODULARIZE=1 -sEXPORT_NAME=Pc486 \
@@ -62,18 +32,13 @@ EMFLAGS = -O3 -flto -std=c++17 -lembind --no-entry -fwasm-exceptions -sSUPPORT_L
   -sALLOW_MEMORY_GROWTH=1 \
   -sFILESYSTEM=0
 
-# Headers count: the CPU core's hot paths (the decoder's fast path, the
-# prefetch window, the page cache, every device's inline tick) live in the
-# .h files, so a header-only change that isn't rebuilt leaves a stale module
-# behind -- which reads as a change that did nothing. Same family of trap as
-# the stale-wasm cache serve_nocache.py exists for (PC486_REVIEW.md §15).
+# Headers count: hot paths are inline in the .h files, so a stale module hides header-only changes.
 HDRS = $(wildcard $(CORE)/*.h)
 
 pc486.js: $(SRC) $(HDRS)
 	$(EMCC) $(EMFLAGS) $(SRC) -o $@
 
-# The instrumented twin. Same sources, same export name -- only ever one of
-# the two is loaded, chosen by ?perf -- built with the counters compiled in.
+# Instrumented twin: same sources and export name, counters compiled in, chosen by ?perf.
 pc486-perf.js: $(SRC) $(HDRS)
 	$(EMCC) $(EMFLAGS) -DPC486_PERF $(SRC) -o $@
 
@@ -81,10 +46,7 @@ perf-build: pc486-perf.js
 
 .PHONY: shared roms hdd-image legacy-hdd-fixture cdrom-image driver-images perf-build serve test test-smoke test-install coverage clean
 
-# Theme system / pagebar chrome / fullscreen / focus-hint -- one canonical
-# copy in retroweb/shared/, copied into this machine's own web/shared/ at
-# build time. Not committed here -- see .gitignore -- regenerated by this
-# target, like the wasm build itself.
+# Copied from retroweb/shared/ at build time, git-ignored.
 SHARED = ../../shared
 shared:
 	mkdir -p shared
@@ -106,23 +68,14 @@ disks/freedos-hdd.img: $(CORE)/disks/freedos-hdd.img
 	mkdir -p disks
 	cp $(CORE)/disks/freedos-hdd.img disks/
 
-# A freshly-installed 256MB FAT disk is mostly unwritten space (§5 built it
-# with real packages but nowhere near fills the drive), so it gzips hard
-# (a mostly-empty FAT16 disk shrinks to a few MB at -9) --
-# unlike freedos-cd.iso below, which is a densely-packed LiveCD image and
-# barely compresses at all, not worth the same treatment. serve_nocache.py
-# serves this sibling transparently (Content-Encoding: gzip) whenever a
-# client's Accept-Encoding allows it, so app.js's plain
-# `fetch("disks/freedos-hdd.img")` needs no changes at all -- a browser's
-# fetch() always hands back the already-decompressed body regardless of
-# what Content-Encoding the transfer used.
+# Mostly-empty FAT16 gzips to a few MB. serve_nocache.py serves the .gz sibling transparently
+# (Content-Encoding: gzip), so app.js fetch() is unchanged. freedos-cd.iso doesn't compress.
 disks/freedos-hdd.img.gz: disks/freedos-hdd.img
 	gzip -9 -k -f disks/freedos-hdd.img
 
 hdd-image: disks/freedos-hdd.img disks/freedos-hdd.img.gz
 
-# Test-only C: images in the format the 504MB builds saved, for hdd.spec.ts's
-# conversion tests (see tests/make-legacy-hdd.sh). tests/ is never staged.
+# Test-only C: images in the old 504MB format, for hdd.spec.ts (tests/make-legacy-hdd.sh).
 tests/media/legacy-504.img: disks/freedos-hdd.img tests/make-legacy-hdd.sh
 	bash tests/make-legacy-hdd.sh disks/freedos-hdd.img $@
 
@@ -134,8 +87,7 @@ tests/media/%.img.gz: tests/media/%.img
 
 legacy-hdd-fixture: tests/media/legacy-504.img tests/media/legacy-504.img.gz tests/media/legacy-504-full.img.gz
 
-# This machine's default mounted CD-ROM disc -- FreeDOS's own official
-# install/live CD, per the approved plan. See ../disks/fetch-freedos-cd.sh.
+# Default mounted CD-ROM: FreeDOS's official live CD (../disks/fetch-freedos-cd.sh).
 $(CORE)/disks/freedos-cd.iso:
 	$(MAKE) -C $(CORE) disks/freedos-cd.iso
 
@@ -143,8 +95,7 @@ disks/freedos-cd.iso: $(CORE)/disks/freedos-cd.iso
 	mkdir -p disks
 	cp $(CORE)/disks/freedos-cd.iso disks/
 
-# The Freeware Disks & Drivers panel fetches this at runtime, so it has to live under web/ --
-# nothing one level up is staged (see retroweb/README.md).
+# Fetched at runtime, so it lives under web/ (nothing one level up is staged).
 $(CORE)/disks/ctmouse.img:
 	$(MAKE) -C $(CORE) disks/ctmouse.img
 
@@ -156,9 +107,7 @@ driver-images: disks/ctmouse.img
 
 cdrom-image: disks/freedos-cd.iso
 
-# Port 8000, matching every other machine's own `make serve` default --
-# this machine's Playwright suite reserves ports 8400/8410 instead (see
-# `test` below), precisely so it never collides with a hand-run `make serve`.
+# Port 8000 like every machine; the Playwright suite uses 8400/8410.
 serve: pc486.js pc486-perf.js roms shared cdrom-image driver-images
 	@if [ ! -f disks/freedos-hdd.img ]; then \
 	  echo "disks/freedos-hdd.img not found -- run 'make hdd-image' first"; \
@@ -168,11 +117,7 @@ serve: pc486.js pc486-perf.js roms shared cdrom-image driver-images
 	@echo "serving on http://localhost:8000  (Ctrl-C to stop)"
 	python3 devserve.py 8000
 
-# Playwright integration suite (tests/) -- needs firmware/roms/the shipped
-# HDD+CD images the same way `serve` does, plus `npm ci` once. Ports
-# 8400/8410 (this suite's own webServer block in playwright.config.ts) are
-# dedicated to this machine's Playwright run -- 8100 altair8800, 8200
-# assembler6502, 8300/8310 ibmpc-at, so 8400/8410 is the next free pair.
+# Playwright suite. Needs the same roms and images as serve, plus npm ci once. Ports 8400/8410.
 test: pc486.js pc486-perf.js roms shared cdrom-image driver-images legacy-hdd-fixture
 	@if [ ! -f disks/freedos-hdd.img ]; then \
 	  echo "disks/freedos-hdd.img not found -- run 'make hdd-image' first"; \
@@ -187,8 +132,7 @@ test: pc486.js pc486-perf.js roms shared cdrom-image driver-images legacy-hdd-fi
 	fi
 	npx playwright test
 
-# Smoke: tests/smoke.spec.ts only -- what deploy CI runs. Full suite
-# is `make test` (nightly + local). See CLAUDE.md "Smoke vs full".
+# Smoke: tests/smoke.spec.ts only, what deploy CI runs.
 test-smoke: pc486.js pc486-perf.js roms shared cdrom-image driver-images
 	@if [ ! -f disks/freedos-hdd.img ]; then \
 	  echo "disks/freedos-hdd.img not found -- run 'make hdd-image' first"; \
@@ -203,8 +147,7 @@ test-smoke: pc486.js pc486-perf.js roms shared cdrom-image driver-images
 	fi
 	npx playwright test tests/smoke.spec.ts
 
-# same suite, one worker, with V8 line/branch/function coverage for app.js
-# -> coverage/index.html  (+ coverage/lcov.info)
+# Same suite, one worker, V8 coverage for app.js -> coverage/index.html (+ coverage/lcov.info)
 coverage: pc486.js roms shared cdrom-image legacy-hdd-fixture
 	@if [ ! -f disks/freedos-hdd.img ]; then \
 	  echo "disks/freedos-hdd.img not found -- run 'make hdd-image' first"; \

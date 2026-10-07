@@ -108,10 +108,7 @@ test.describe("front panel", () => {
     expect(await page.evaluate(() => (window as any).__test.regs().pc)).toBeDefined();
   });
 
-  // The page's own boot() test helper flips power ON for the rest of the
-  // suite's convenience (see helpers.ts); the raw front end starts powered
-  // off, like a real Altair you've just walked up to -- covered separately
-  // below without going through that helper.
+  // boot() flips power ON; the raw front end starts off, covered below without that helper
   test("power OFF halts the machine and darkens every lamp", async ({ page }) => {
     await boot(page);
     const batDown = () =>

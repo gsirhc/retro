@@ -1,15 +1,5 @@
-// WDC W65C02S CPU core.
-//
-// The board (see FullBoard/pcb6502full.net, U1) populates a real WDC
-// W65C02S, not an NMOS 6502 — this core implements the CMOS instruction
-// set and its documented behavioral fixes over NMOS (see cpu65c02.cpp for
-// the specific list), never the NMOS bugs some other emulators port by
-// habit. Cite: WDC W65C02S datasheet
-// (https://www.westerndesigncenter.com/wdc/documentation/w65c02s.pdf).
-//
-// Host-agnostic like i8080::Cpu: talks to the outside world only through
-// the Bus callbacks, so the same core drives the GoogleTest harness (incl.
-// Klaus Dormann's 6502/65C02 functional test) and the real machine.
+// WDC W65C02S core (U1): CMOS instruction set and fixes over NMOS, no NMOS bugs.
+// Datasheet: https://www.westerndesigncenter.com/wdc/documentation/w65c02s.pdf
 
 #ifndef CG_OAC_6502_CPU65C02_H
 #define CG_OAC_6502_CPU65C02_H
@@ -19,7 +9,6 @@
 
 namespace cpu65c02 {
 
-// Processor status register bits.
 enum Flag : uint8_t {
     FLAG_C = 1 << 0,  // carry
     FLAG_Z = 1 << 1,  // zero
@@ -43,40 +32,26 @@ public:
     uint16_t pc = 0;
     uint8_t  p = FLAG_U | FLAG_I;
 
-    // WAI (Wait for Interrupt) and STP (Stop) — both real W65C02S
-    // instructions with no NMOS equivalent. WAI suspends fetch/execute
-    // until an IRQ or NMI is pending (the interrupt still only *services*
-    // if I=0, but WAI itself wakes on either); STP suspends until reset.
+    // WAI wakes on any pending IRQ/NMI (serviced only if I=0); STP halts until reset.
     bool waiting = false;
     bool stopped = false;
 
-    uint64_t cycles = 0;   // total clock cycles executed, for wall-clock pacing
+    uint64_t cycles = 0;
 
-    // Level-sensitive IRQ line (wire-ORed by the bus from VIA/ACIA, per the
-    // board's J7 jumper routing) and edge-triggered NMI request — the
-    // embedding machine sets/clears these; step() samples them once per
-    // instruction boundary, matching real 65C02 interrupt polling.
+    // Level-sensitive IRQ and edge-triggered NMI; step() samples them once per instruction.
     bool irq_line = false;
-    void nmi();            // request an NMI (edge — latches until serviced)
+    void nmi();
 
     explicit Cpu(Bus bus) : bus_(std::move(bus)) {}
 
-    // Re-points the bus callbacks only, leaving every register and the
-    // cycle count untouched -- for an owner (Machine) that has just moved
-    // and needs its `this`-capturing read/write lambdas rebound to the new
-    // address, without losing in-flight execution state the way replacing
-    // the whole Cpu object (a-la `cpu = Cpu(newBus)`) would.
+    // Rebinds the bus callbacks without touching registers or the cycle count.
     void rebind_bus(Bus bus) { bus_ = std::move(bus); }
 
-    // Load PC from the reset vector ($FFFC/$FFFD). SP settles at 0xFD: a
-    // real 65C02 decrements SP three times during reset with R/W forced
-    // high (no actual bus writes), so from a power-on SP of 0 it lands on
-    // 0xFD — modeled directly rather than simulating the phantom pushes.
-    // The 65C02 (unlike NMOS 6502) also clears D on reset — WDC datasheet.
+    // Loads PC from $FFFC. SP lands on 0xFD (three phantom pushes on real
+    // hardware). Clears D, unlike NMOS (WDC datasheet).
     void reset();
 
-    // Decode and execute one instruction (or one idle tick if WAI/STP-
-    // suspended). Returns clock cycles consumed.
+    // Executes one instruction (or an idle tick if WAI/STP). Returns cycles.
     int step();
 
     bool flag(Flag f) const { return (p & f) != 0; }
@@ -98,10 +73,8 @@ private:
     void set_flag(Flag f, bool on) { p = on ? uint8_t(p | f) : uint8_t(p & ~f); }
     void set_nz(uint8_t v)         { set_flag(FLAG_Z, v == 0); set_flag(FLAG_N, (v & 0x80) != 0); }
 
-    // Addressing modes: each returns the effective address, advancing PC
-    // past its operand bytes. `crossed` (when supplied) reports whether an
-    // indexed mode crossed a page boundary, for the +1-cycle penalty on
-    // read-only instructions (never charged on stores or read-modify-write).
+    // Addressing modes return the effective address. `crossed` reports a page
+    // cross, for the +1 cycle on reads (not stores or RMW).
     uint16_t am_zp()    { return fetch8(); }
     uint16_t am_zpx()   { return uint8_t(fetch8() + x); }
     uint16_t am_zpy()   { return uint8_t(fetch8() + y); }
@@ -124,15 +97,13 @@ private:
         uint16_t addr = uint16_t(base + y);
         crossed = (base & 0xFF00) != (addr & 0xFF00); return addr;
     }
-    // 65C02 addition: (zp) with no index — fills the gap NMOS left at the
-    // $x2 column for eight of the ALU ops (ORA/AND/EOR/ADC/STA/LDA/CMP/SBC).
+    // 65C02 (zp) mode, no index
     uint16_t am_ind() {
         uint8_t zp = fetch8();
         return uint16_t(rb(zp)) | (uint16_t(rb(uint8_t(zp + 1))) << 8);
     }
     int8_t rel() { return int8_t(fetch8()); }
 
-    // ALU / RMW primitives.
     void adc(uint8_t v);
     void sbc(uint8_t v);
     void cmp_(uint8_t reg, uint8_t v);

@@ -1,24 +1,9 @@
-// Intel 8237A DMA controller -- register file only (this phase).
-//
-// The AT has two, cascaded: DMA1 (channels 0-3, 8-bit, ports 0x00-0x0F,
-// plus page registers on separate glue-decoded ports) handles the floppy
-// on channel 2; DMA2 (channels 4-7, 16-bit, ports 0xC0-0xDF) cascades into
-// DMA1's channel 4 and isn't used by anything this machine emulates yet.
-// DMA2's registers are wired one address bit to the left of DMA1's (a real,
-// documented AT quirk: A0 isn't decoded into the chip, only into which
-// nibble of the 16-bit bus carries the byte), so its register spacing is 2
-// ports apart instead of 1 -- modeled via the `stride` constructor
-// parameter rather than two near-duplicate classes.
-//
-// Scope: address/count/mode/mask/command register read-write is complete
-// enough for a BIOS's POST-time DMA controller check to program and read
-// back without hanging. Actual memory<->device byte transfer (driven by a
-// device's DREQ, e.g. the floppy controller pulling bytes over channel 2)
-// is NOT implemented here -- that lands in Phase 3 alongside fdc765.h,
-// which is the first device that actually needs it. Reference: Intel
-// 8237A-5 data sheet, "Programming the DMA Controller"; the AT's page-
-// register wiring (separate 74LS670-family glue, not part of the 8237
-// itself) is documented in the IBM 5170 Technical Reference.
+// Intel 8237A DMA controller.
+// The AT has two, cascaded: DMA1 (channels 0-3, 8-bit, ports 0x00-0x0F) and
+// DMA2 (channels 4-7, 16-bit, ports 0xC0-0xDF) cascading into DMA1 channel 4.
+// DMA2 registers sit one address bit to the left, so spacing is 2 ports
+// instead of 1 (the `stride` parameter). Page registers are separate glue
+// (IBM 5170 Technical Reference). Intel 8237A-5 data sheet, "Programming".
 #ifndef PC486_DMA8237_H
 #define PC486_DMA8237_H
 
@@ -37,56 +22,30 @@ public:
     uint8_t in(uint16_t port);
     void out(uint16_t port, uint8_t v);
 
-    // Page registers (address bits 16-23 for each channel) live on a
-    // separate port range decoded by different glue logic, not the 8237
-    // itself -- chipset.h owns that decode and calls these directly.
+    // Page registers (address bits 16-23) are separate glue; chipset.h owns the decode
     void set_page(int channel, uint8_t v) { page_[channel & 3] = v; }
     uint8_t page(int channel) const { return page_[channel & 3]; }
 
     bool channel_masked(int channel) const { return ch_[channel & 3].masked; }
 
-    // Live-transfer support (Phase 3, for fdc765.h): the programmed
-    // address/count for a channel, and advance() to move one byte --
-    // wraps the address within the 64KB page (a real, documented 8237
-    // quirk: a transfer never carries across a page-register boundary,
-    // it just wraps) and decrements count, returning true if count was 0
-    // before the decrement (terminal count -- real hardware programs
-    // count as N-1 and detects TC on the 0x0000 -> 0xFFFF underflow).
-    // `chipset.cpp` orchestrates the actual byte move between a device
-    // and memory using these, the same way it orchestrates the PIC
-    // master/slave cascade -- devices don't reach into each other
-    // directly.
+    // advance() moves one byte. The address wraps within the 64KB page and
+    // count is N-1, so it returns true when count was 0 (TC on 0x0000 -> 0xFFFF).
+    // chipset.cpp orchestrates the device-to-memory move.
     uint16_t address(int channel) const { return ch_[channel & 3].address; }
     uint16_t count(int channel) const { return ch_[channel & 3].count; }
     bool advance(int channel);
 
-    // DREQ is a live signal line, not a register a device writes once --
-    // chipset.cpp calls this every tick with whatever each channel's device
-    // currently reports wanting (SoundBlaster::transfer_ready(),
-    // Fdc765::transfer_ready()), independent of that channel's mask bit (a
-    // real device asserts DREQ whether or not the controller is listening).
-    // The status register's request bits (in(8), bits 4-7) OR this together
-    // with the software Request Register (out(9), `soft_request_`)
-    // unlatched, matching the 8237A-5 data sheet's "channel request" bit,
-    // which the chip sets from either source; a channel that stays masked
-    // while its
-    // device wants service is the one case the DREQ half is actually
-    // observable at tick granularity, since everything else here resolves a
-    // transfer within the same tick it goes ready.
+    // DREQ is a live line: chipset.cpp sets it every tick from each device,
+    // regardless of the mask bit. Status bits 4-7 OR it with the software
+    // request (out(9)), unlatched, per the 8237A-5 "channel request" bit.
     void set_dreq(int channel, bool asserted) { dreq_[channel & 3] = asserted; }
 
 private:
     struct Channel {
         uint16_t address = 0, count = 0;
-        // Real 8237A hardware latches the same value into a shadow "base"
-        // register the instant address/count is programmed (one write
-        // pulse feeds both). In Autoinitialize mode (mode bit 4), advance()
-        // reloads current address/count from these at terminal count
-        // instead of leaving them incremented/wrapped -- what lets a
-        // device stream continuously from one program of the controller
-        // (Sound Blaster 16 auto-init playback is the first device here
-        // that needs it; the floppy never sets the autoinit bit, so its
-        // behavior is unchanged). Intel 8237A-5 data sheet, "Autoinitialize".
+        // Shadow base registers latched on the same write as address/count.
+        // Autoinitialize (mode bit 4) reloads current from these at TC (8237A-5
+        // "Autoinitialize"); SB16 auto-init playback needs it.
         uint16_t base_address = 0, base_count = 0;
         uint8_t mode = 0;
         bool masked = true;  // real chips power on with every channel masked
@@ -95,18 +54,11 @@ private:
     uint8_t page_[4] = {};
     uint8_t command_ = 0;
     // Software Request Register (out(9)): bits 0-1 select the channel, bit 2
-    // sets (1) or resets (0) that channel's request bit -- same per-channel
-    // set/reset-bit encoding as the single mask register (reg 10) and mode
-    // register (reg 11) elsewhere in this file. Intel 8237A-5 data sheet,
-    // "Request Register". No period floppy or Sound Blaster driver here
-    // uses it (both ride hardware DREQ exclusively); modeled for
-    // completeness alongside the status register it feeds.
+    // sets/resets its request bit. 8237A-5 "Request Register".
     bool soft_request_[4] = {};
     bool dreq_[4] = {};        // live hardware DREQ per channel, see set_dreq()
-    // Terminal-count latch per channel (status register bits 0-3): set by
-    // advance() when a channel reaches TC, cleared by reading the status
-    // register -- Intel 8237A-5 data sheet, "Status Register". Real hardware
-    // also clears it on a master reset, which reset() below already covers.
+    // TC latch per channel (status bits 0-3): set by advance(), cleared by a
+    // status read and by master reset (8237A-5 "Status Register")
     bool tc_latch_[4] = {};
     bool flip_flop_ = false;  // false = next address/count byte is the low half
     uint16_t base_;

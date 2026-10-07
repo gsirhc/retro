@@ -1,6 +1,3 @@
-// GoogleTest suite for hd44780::Lcd -- the subset of the HD44780 protocol
-// rom/via.s actually drives (see hd44780.h).
-
 #include <gtest/gtest.h>
 
 #include "../hd44780.h"
@@ -28,7 +25,7 @@ TEST(Hd44780, ClearDisplayResetsBufferAndCursor) {
 
 TEST(Hd44780, SetDdramLine2MovesCursorToRow1) {
     Lcd l;
-    l.strobe(false, false, 0xC0);   // cursorLine2_lcd's instruction
+    l.strobe(false, false, 0xC0);
     l.strobe(true, false, 'Z');
     EXPECT_EQ(l.text[1][0], 'Z');
     EXPECT_EQ(l.text[0][0], ' ');
@@ -37,7 +34,7 @@ TEST(Hd44780, SetDdramLine2MovesCursorToRow1) {
 TEST(Hd44780, ReturnHomeMovesCursorWithoutClearing) {
     Lcd l;
     l.strobe(true, false, 'A');
-    l.strobe(false, false, 0x02);   // cursorLine1_lcd's instruction (return home)
+    l.strobe(false, false, 0x02);   // return home
     l.strobe(true, false, 'B');
     EXPECT_EQ(l.text[0][0], 'B');   // overwritten, not cleared first
 }

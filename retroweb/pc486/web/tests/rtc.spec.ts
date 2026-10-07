@@ -1,8 +1,7 @@
 import { test, expect } from "./fixtures";
 import { bootLive } from "./helpers";
 
-// The board's battery-backed RTC: a fresh power-on reads the visitor's own
-// local clock, and the chip keeps it running in guest time.
+// Battery-backed RTC: power-on reads the visitor's local clock, then keeps it in guest time.
 async function readRtc(page: any) {
   return page.evaluate(() => {
     const m = (window as any).__test.machine;

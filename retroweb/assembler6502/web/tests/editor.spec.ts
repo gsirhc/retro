@@ -1,15 +1,10 @@
 import { test, expect } from "@playwright/test";
 
-// The end-to-end demo scenario, driven through the real browser terminal:
-// enter the command shell (SHELL_ENTRY, a real built address -- read live
-// from window.CGOAC_ENTRYPOINTS rather than hardcoded, so this can't go
-// stale the way a hand-copied hex literal would), type a program, LIST,
-// ASM, RUN.
+// End-to-end demo: enter the shell (SHELL_ENTRY from window.CGOAC_ENTRYPOINTS),
+// type a program, LIST, ASM, RUN.
 
-// app.js's driveFrame paces input to the ACIA's live baud by default (see
-// its own header comment) -- typing one line, then giving the frame loop a
-// clear moment to fully drain it before the next line starts, keeps this
-// test about the ROM's shell logic rather than that separate timing.
+// driveFrame paces input to the ACIA baud, so type one line and let the frame
+// loop drain it before the next
 async function typeLine(page: import("@playwright/test").Page, text: string) {
   await page.keyboard.type(text, { delay: 100 });
   await page.keyboard.press("Enter");
@@ -27,21 +22,15 @@ test("type, LIST, ASM, and RUN a program entirely through the terminal", async (
   await typeLine(page, `${E.SHELL_ENTRY.toString(16).toUpperCase()}R`);
   await expect(page.locator("#screen .xterm-rows")).toContainText("6502 ASSEMBLY CODER", { timeout: 20000 });
 
-  // Type a small program -- one explicitly numbered (out of typing order,
-  // to prove the shell sorts by number, not entry order), the rest
-  // auto-numbered.
+  // one explicitly numbered out of order to prove the shell sorts by number
   await typeLine(page, "20 STA $50");
   await typeLine(page, "10 START: LDA #$2A");
   await typeLine(page, "30 JMP START");
 
-  // LIST -- sorted by line number, not typed order. Compare positions only
-  // within LIST's own reply (after the last ">LIST" echo), not the whole
-  // screen buffer -- the earlier typed-out-of-order lines ("20 STA $50"
-  // before "10 START...") are themselves still echoed higher up on
-  // screen and would otherwise throw off a raw indexOf comparison.
+  // compare positions only within LIST's reply (after the last ">LIST" echo),
+  // since the earlier typed lines are echoed above it
   await typeLine(page, "LIST");
-  // PRINT_ENTRY reformats into fixed columns (editor.s) -- "START:" plus
-  // its guaranteed separator and padding, see CGOAC6502_REVIEW.md.
+  // PRINT_ENTRY reformats into fixed columns (editor.s)
   await expect(page.locator("#screen .xterm-rows")).toContainText("10 START:  LDA #$2A", { timeout: 20000 });
   const screenText = await page.locator("#screen .xterm-rows").innerText();
   const listReply = screenText.slice(screenText.lastIndexOf(">LIST"));
@@ -52,8 +41,7 @@ test("type, LIST, ASM, and RUN a program entirely through the terminal", async (
   await typeLine(page, "ASM");
   await expect(page.locator("#screen .xterm-rows")).toContainText("Ok", { timeout: 20000 });
 
-  // RUN -- JMP START loops forever, which is fine here: this just proves
-  // the assembled object code is real, executable 65C02.
+  // JMP START loops forever, which proves the object code is real 65C02
   await typeLine(page, "RUN");
   await page.waitForTimeout(500);
   const s1 = await page.evaluate(() => window.__machine.cycleCount());
@@ -71,9 +59,7 @@ test("Ctrl-C breaks a genuinely hung (infinite-loop) program back to the shell",
   await typeLine(page, `${E.SHELL_ENTRY.toString(16).toUpperCase()}R`);
   await expect(page.locator("#screen .xterm-rows")).toContainText("6502 ASSEMBLY CODER", { timeout: 20000 });
 
-  // A tight, genuinely infinite loop -- see bios.s's NMI_HANDLER and
-  // editor_test.cpp's own Ctrl-C coverage for the ROM-level proof; this is
-  // the same scenario driven through the real browser terminal instead.
+  // tight infinite loop; ROM-level twin is editor_test.cpp's Ctrl-C test
   await typeLine(page, "10 START: JMP START");
   await typeLine(page, "ASM");
   await expect(page.locator("#screen .xterm-rows")).toContainText("Ok", { timeout: 20000 });
@@ -88,8 +74,7 @@ test("Ctrl-C breaks a genuinely hung (infinite-loop) program back to the shell",
   const screenBefore = await page.locator("#screen .xterm-rows").innerText();
   const promptsBefore = (screenBefore.match(/>/g) || []).length;
 
-  // xterm.js's default keybinding sends the real ASCII ETX ($03) byte for
-  // Ctrl-C (no text selected) -- same wire byte NMI_HANDLER recognizes.
+  // xterm.js sends ETX ($03) for Ctrl-C with no selection, which NMI_HANDLER recognizes
   await page.keyboard.press("Control+C");
   await page.waitForTimeout(1000);
 
@@ -97,18 +82,14 @@ test("Ctrl-C breaks a genuinely hung (infinite-loop) program back to the shell",
   const promptsAfter = (screenAfter.match(/>/g) || []).length;
   expect(promptsAfter).toBeGreaterThan(promptsBefore);   // a fresh ">" landed
 
-  // Shell is fully usable afterward -- LIST still works.
+  // LIST still works
   await typeLine(page, "LIST");
   await expect(page.locator("#screen .xterm-rows")).toContainText("10 START: JMP START", { timeout: 20000 });
 });
 
 test("backspace erases the character, not just the cursor", async ({ page }) => {
-  // Checked on the raw echoed byte stream (Machine.readOutput), not
-  // rendered DOM text -- this is a terminal-control-sequence claim (which
-  // bytes went out for one backspace keystroke), not a content claim, and
-  // editor_test.cpp's GoogleTest coverage already proves the same thing
-  // at the ROM level. This is the same scenario driven through the real
-  // browser terminal and input-pacing pipeline instead.
+  // checked on the raw echoed bytes (Machine.readOutput), not DOM text; ROM-level
+  // twin is editor_test.cpp
   await page.goto("/");
   await expect(page.locator("#screen .xterm-rows")).toContainText("\\", { timeout: 45000 });
   await page.click("#screen");
@@ -132,9 +113,7 @@ test("backspace erases the character, not just the cursor", async ({ page }) => 
   await page.keyboard.press("Backspace");   // erase the trailing 'A'
   await page.waitForTimeout(300);
 
-  // READCHAR's own bare BS echo, then READLINE_ECHO's added erase: a
-  // space (overwrites the 'A'), then a second BS (backs over the space
-  // too).
+  // READCHAR's BS echo, then READLINE_ECHO's space and second BS
   await expect
     .poll(() => page.evaluate(() => (window as any).__rawOut), { timeout: 20000 })
     .toContain("\x08 \x08");

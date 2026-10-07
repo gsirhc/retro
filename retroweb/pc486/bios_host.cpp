@@ -1,12 +1,5 @@
-// Native diagnostic harness: boots the real, freely-licensed BIOS-bochs-
-// legacy image (+ optional vgabios and a floppy image) against this
-// machine's chipset and reports what happens -- no browser, no WASM.
-// Adapted from ibmpc-at/bios_host.cpp for the 80486 core; same technique
-// (POST-code + wrch() character-print capture) applies unchanged since
-// this machine boots the identical BIOS-bochs-legacy substitute.
-// Machine::configure_factory_cmos() (called automatically by Machine's
-// constructor) seeds the CMOS bytes this BIOS needs to actually attempt a
-// boot instead of panicking immediately.
+// Native harness: boots BIOS-bochs-legacy (+ optional vgabios and floppy) against
+// the chipset, no browser. Adapted from ibmpc-at/bios_host.cpp.
 //
 // Usage: bios_host <BIOS-bochs-legacy> [max_steps] [vgabios] [floppy-image]
 
@@ -38,9 +31,7 @@ int main(int argc, char **argv) {
 
     pc486::Machine m;  // constructor seeds factory CMOS config, see file header
     m.reset();  // parks CPU at the real reset vector, F000:FFF0
-    // BIOS-bochs-legacy is a 64KB image -- lands at the top of the address
-    // space, F0000-FFFFF, exactly where the real x86 reset vector
-    // (F000:FFF0 -> physical FFFF0) expects it, unchanged since the 8086.
+    // 64KB image at F0000-FFFFF so the reset vector F000:FFF0 lands in it
     m.chipset.load_rom(0x100000 - bios.size(), bios.data(), bios.size());
 
     if (argc > 3) {

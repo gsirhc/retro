@@ -42,7 +42,6 @@ void Ay8910::reset() {
 void Ay8910::write_addr(uint8_t v) { addr = uint8_t(v & 0x0F); }
 
 void Ay8910::write_data(uint8_t v) {
-    // Period / mixer / amplitude coarse masks match the datasheet.
     static constexpr uint8_t kMask[16] = {
         0xFF, 0x0F, 0xFF, 0x0F, 0xFF, 0x0F, 0x1F, 0xFF,
         0x1F, 0x1F, 0x1F, 0xFF, 0xFF, 0x0F, 0xFF, 0xFF,
@@ -61,8 +60,7 @@ void Ay8910::restart_envelope() {
     env_cnt_ = 0;
     env_hold_ = false;
     uint8_t shape = regs[13];
-    // Continue bit: if clear, the envelope runs once then holds 0
-    // (or 15 if alternate+hold). Attack starts at 0 going up, else 15 down.
+    // continue clear: run once then hold 0 (15 if alternate+hold)
     if (shape & 0x04) {
         env_pos_ = 0;
         env_step_ = 1;
@@ -77,9 +75,8 @@ uint8_t Ay8910::env_level() const {
 }
 
 void Ay8910::tick() {
-    // GI datasheet: square-wave f = fclock/(16·TP), so the output toggles
-    // every 8·TP clocks. Noise is fclock/(16·NP). MAME ay8910.cpp (stream
-    // at fclock/8) is a ratio cross-check.
+    // GI datasheet: tone f = fclock/(16*TP), toggling every 8*TP clocks; noise
+    // fclock/(16*NP)
     if ((ay_cycle_ & 7) == 0) {
         for (int ch = 0; ch < 3; ch++) {
             if (++tone_cnt_[ch] >= tone_period(regs, ch)) {

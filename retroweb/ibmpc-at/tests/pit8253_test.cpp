@@ -1,12 +1,3 @@
-// GoogleTest suite for the 8253 PIT: control-word channel/access/mode
-// decode, reload programming, the counter-latch readback command, the
-// channel-2 gate (port 0x61 bit 0), and tick()'s edge-rate output.
-//
-// Tests that need an exact tick count use cpu_hz == the PIT's own 1.193182
-// MHz clock, so tick()'s internal PIT-clocks-per-CPU-cycle ratio is exactly
-// 1.0 and elapsed-clock counts are integer-exact -- avoids floating-point
-// rounding noise in the assertions.
-
 #include <gtest/gtest.h>
 
 #include "pit8253.h"
@@ -14,6 +5,7 @@
 namespace {
 
 using ibmpcat::Pit8253;
+// cpu_hz == the PIT clock keeps tick() ratios integer-exact.
 constexpr double kPitHz = 1193182.0;
 
 TEST(Pit8253Test, ProgramChannel0Mode3ReloadFour) {
@@ -29,8 +21,7 @@ TEST(Pit8253Test, ProgramChannel0Mode3ReloadFour) {
 }
 
 TEST(Pit8253Test, Channel0DivisorZeroMeansSixtyFiveThousandFiveThirtySix) {
-    // The real AT BIOS programs channel 0 with a divisor of 0 (meaning
-    // 65536) for the ~18.2 Hz DOS timer tick: 1193182/65536 = 18.2 Hz.
+    // BIOS divisor 0 = 65536: 1193182/65536 = 18.2 Hz.
     Pit8253 pit;
     pit.out(0x43, 0x36);
     pit.out(0x40, 0);
@@ -41,9 +32,7 @@ TEST(Pit8253Test, Channel0DivisorZeroMeansSixtyFiveThousandFiveThirtySix) {
 }
 
 TEST(Pit8253Test, Gate2FreezesChannelTwoCounter) {
-    // tick()'s return value only ever reports channel 0's edges (that's the
-    // one wired to PIC IRQ0) -- channel 2's state is read directly via
-    // channel2_output(), which is what pcspeaker.h will poll in a later phase.
+    // tick() reports only channel 0 edges; channel 2 is read via channel2_output().
     Pit8253 pit;
     pit.out(0x43, 0xB6);  // channel 2 (10), access LSB-then-MSB, mode 3
     pit.out(0x42, 4);
@@ -61,12 +50,7 @@ TEST(Pit8253Test, Gate2FreezesChannelTwoCounter) {
 }
 
 TEST(Pit8253Test, Gate2LowForcesOutputHighEvenMidCycle) {
-    // Real Mode 3 hardware forces the output high the instant GATE drops,
-    // regardless of what phase it was in -- not merely whatever it
-    // happened to be. This is what lets pcspeaker.h's direct-toggle
-    // "digitized" playback technique rely on a clean, predictable high
-    // baseline from the PIT side while it drives the speaker itself via
-    // the Speaker Data Enable bit.
+    // Mode 3 forces the output high the instant GATE drops, mid-cycle included.
     Pit8253 pit;
     pit.out(0x43, 0xB6);  // channel 2, access LSB-then-MSB, mode 3
     pit.out(0x42, 4);
@@ -78,9 +62,7 @@ TEST(Pit8253Test, Gate2LowForcesOutputHighEvenMidCycle) {
 }
 
 TEST(Pit8253Test, Gate2RisingEdgeReloadsCounterInsteadOfResumingMidPhase) {
-    // Real Mode 3 hardware: GATE's rising edge reloads the counter, so the
-    // square wave restarts cleanly from the beginning of its period
-    // instead of resuming from wherever it was frozen.
+    // GATE's rising edge reloads the counter instead of resuming mid-phase.
     Pit8253 pit;
     pit.out(0x43, 0xB6);
     pit.out(0x42, 4);

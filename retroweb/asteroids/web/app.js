@@ -8,9 +8,7 @@ const TEST = new URLSearchParams(location.search).has("test");
 const DIP_KEY = "retroweb.asteroids.dips";
 const DSW1_FACTORY = 0x12; // 1C/1C, x1 center, 3 lives (bit4), English
 // $2802 pair: 0=1x&4 lives, 1=1x&3, 2=2x&4, 3=2x&3 (computerarcheology).
-// Work RAM range the real board's high-score table lives in (through the
-// initials + score entries at $51). See .claude/arcade.md "High scores" --
-// persist this range for a user ROM, never invent an initials overlay.
+// Work RAM range holding the high-score table, through the initials at $51.
 const HISCORE_ADDR = 0x1d;
 const HISCORE_LEN = 0x35;
 
@@ -94,10 +92,8 @@ function concat3(parts) {
   return out;
 }
 
-// Board locations on the original Atari PCB, as they appear in MAME names
-// (035145-04e.ef2, 035144-04e.h2, 035143-02.j2, 035127-02.np3). 034602 is
-// the bonus-coin PROM on later revisions; this core doesn't implement its
-// coin-counter encoding, so loose dumps that include it are just ignored.
+// Board locations as named in MAME. 034602 is the bonus-coin PROM, which
+// this core doesn't implement, so dumps that include it are ignored.
 const SIZE = { program: 0x1800, chip: 0x0800, vector: 0x0800 };
 const CHIP_RE = /(?:^|[._-])(035145|ef2|035144|h2|035143|j2|035127|np3)(?:[^a-z0-9]|$)/i;
 const IGNORE_RE = /(?:^|[._-])(034602)(?:[^a-z0-9]|$)/i;
@@ -159,11 +155,7 @@ initFullscreen({
   fullscreenBtn: document.getElementById("fullscreenBtn"),
   isRunning: () => true,
 });
-// initFocusHint only updates the banner on later focusin/focusout events --
-// call it once now too, since nothing here calls screen.focus() on load the
-// way altair8800/assembler6502's terminal-focusing boot flow does, so the
-// hint needs an explicit nudge to reflect "nothing is focused yet" from the
-// very first frame (same reasoning as ibmpc-at's own post-power-on call).
+// Nothing focuses the screen on load, so nudge the hint once up front.
 const updateFocusHint = initFocusHint(document.getElementById("screen"), () => true);
 updateFocusHint();
 
@@ -192,8 +184,7 @@ AsteroidsArcade().then(async (Module) => {
   const coinUntil = { left: 0, center: 0, right: 0 };
   const coinDoor = document.getElementById("coinDoor");
 
-  // Stroke vectors at the canvas's device-pixel size so line weight tracks
-  // CSS/fullscreen scale (a fixed 1024² blit goes soft under bilinear).
+  // Stroke at device-pixel size; a fixed 1024² blit goes soft when scaled.
   function syncCanvasBacking() {
     const dpr = window.devicePixelRatio || 1;
     const css = screen.getBoundingClientRect();
@@ -212,9 +203,7 @@ AsteroidsArcade().then(async (Module) => {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.fillStyle = "#000";
     ctx.fillRect(0, 0, w, h);
-    // 4:3 tube. The attract picture uses about beam Y 96..927 (scores
-    // at the top, copyright at the bottom), so the height is opened to
-    // 64..960 and that span fills the glass. X stays the full 0..1023.
+    // 4:3 tube. Attract uses beam Y 96..927, so open the height to 64..960.
     const sx = w / 1024;
     const sy = h / 896;
     const yTop = 960;
@@ -235,7 +224,7 @@ AsteroidsArcade().then(async (Module) => {
         const a = glow ? 0.18 + bri * 0.02 : 0.45 + bri * 0.036;
         const c = glow ? 160 + bri * 4 : 200 + bri * 3;
         const col = `rgba(${c|0},${c|0},${Math.min(255, c + 20)|0},${Math.min(1, a)})`;
-        // Zero-length bright VEC = photon shot (XY spot).
+        // Zero-length bright VEC is a photon shot.
         if (Math.abs(x1 - x0) < 0.5 && Math.abs(y1 - y0) < 0.5) {
           ctx.fillStyle = col;
           ctx.beginPath();
@@ -252,9 +241,7 @@ AsteroidsArcade().then(async (Module) => {
     }
   }
 
-  // Inputs are active-high as the board's own open-collector latch sees
-  // them (1 = pressed) -- see Inputs in machine.h, unlike the active-low
-  // edge connectors on Pac-Man/Galaxian-family boards.
+  // Active-high (1 = pressed), unlike the Pac-Man/Galaxian boards.
   function applyKeys() {
     let n0 = 0, n1 = 0;
     const down = (k) => keys[k];
@@ -274,8 +261,7 @@ AsteroidsArcade().then(async (Module) => {
   }
 
   function insertCoin() {
-    // Both slots are the left coin (IN1 bit 0), same as the 5 key.
-    // Center and right mechs stay on 6 and 7.
+    // Both slots are the left coin (IN1 bit 0). Center and right stay on 6 and 7.
     coinUntil.left = Date.now() + 120;
     applyKeys();
     window.setTimeout(applyKeys, 130);
@@ -325,8 +311,7 @@ AsteroidsArcade().then(async (Module) => {
       return;
     }
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    // The discrete-sound mixer's cycle-rate sample generation resamples to
-    // whatever the actual output device rate is -- don't assume 48 kHz.
+    // Output device rate varies, don't assume 48 kHz.
     machine.setAudioHz(audioCtx.sampleRate);
     if (!audioCtx.audioWorklet) return;
     const src = `registerProcessor("ast", class extends AudioWorkletProcessor {
@@ -383,11 +368,9 @@ AsteroidsArcade().then(async (Module) => {
     for (let i = 0; i < HISCORE_LEN; i++) machine.setRamByte(HISCORE_ADDR + i, bytes[i] & 0xff);
   }
 
-  // Scores are $1D–$30 (20 bytes). $31–$33 are live initials-entry
-  // state: CheckHighScore writes $FF into the rank bytes on attract
-  // (NumPlayers = $FF). Those must not look like a filled table, or
-  // restore never arms and we never save. Cite: 6502disassembly.com
-  // va-asteroids CheckHighScore $7664.
+  // Scores are $1D-$30. $31-$33 are live initials-entry state that
+  // CheckHighScore fills with $FF on attract (6502disassembly.com $7664),
+  // so they must not count as a filled table.
   function hiscoreIsFactory(b) {
     for (let i = 0; i < 20; i++) if (b[i]) return false;
     return true;
@@ -408,10 +391,7 @@ AsteroidsArcade().then(async (Module) => {
     lastSavedHiscore = bytes.join(",");
   }
 
-  // service_nmi() runs at ≈246 Hz and increments frames; reset() zeroes both
-  // frames and work RAM, so a few hundred frames is comfortably past the
-  // real ROM's own startup RAM clear -- restoring any earlier is racing
-  // the game's own POST wipe (see .claude/arcade.md "Restore after POST").
+  // NMI runs at about 246 Hz. A few hundred frames is past the ROM's startup RAM clear.
   function postDone() {
     return machine.frames() >= 180 && hiscoreIsFactory(readHiscore());
   }

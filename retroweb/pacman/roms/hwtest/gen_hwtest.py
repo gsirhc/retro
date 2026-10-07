@@ -64,8 +64,7 @@ FONT = {
     ":": (0x00, 0x18, 0x18, 0x00, 0x00, 0x18, 0x18, 0x00),
 }
 
-# Help-screen layout (upright). Title row is what Machine.HwtestHelpScreen
-# asserts; keep that line/row in sync with the GoogleTest.
+# Help-screen layout (upright). Keep the title row in sync with Machine.HwtestHelpScreen.
 HELP_TITLE = "PAC-MAN ARCADE"
 HELP_TITLE_ROW = 4
 HELP_LINES = [
@@ -83,8 +82,7 @@ HELP_LINES = [
     (32, "BROWSER ONLY",      2),
 ]
 
-# Same self-test on the Ms. Pac-Man cabinet (`?game=mspacman`). Still original
-# 8×8 font, not Namco's 5E; the copy names that conversion kit.
+# Same self-test on the Ms. Pac-Man cabinet (`?game=mspacman`), the copy names the conversion kit.
 MSPACMAN_HELP_TITLE = "MS PAC-MAN ARCADE"
 MSPACMAN_HELP_LINES = [
     (4,  MSPACMAN_HELP_TITLE, 1),
@@ -195,8 +193,7 @@ def screen_crosshatch():
 def screen_color_bars():
     video = bytearray(0x400)
     color = bytearray(0x400)
-    # Six vertical bars (upright x). Tile 2 is solid; attrs 4–9 are the
-    # bar colors in lookup_prom.
+    # Six vertical bars (upright x), attrs 4-9 are the bar colors.
     bar_w = U_COLS // 6
     for uc in range(U_COLS):
         attr = 4 + min(uc // bar_w, 5)
@@ -348,10 +345,7 @@ def tiles():
     for ch, rows in FONT.items():
         code = ord(ch)
         for y, bits in enumerate(rows):
-            # Glyphs are drawn in *upright* (lx right, ly down) and stored
-            # already rotated so Video::render's ROT90 stands them up on
-            # the cabinet monitor. Inverse of dst(x=223-ny, y=nx):
-            #   native tx = ly, native ty = 7 - lx.
+            # Stored pre-rotated so ROT90 stands glyphs up: native tx = ly, ty = 7 - lx.
             for x in range(8):
                 if bits & (0x80 >> x):
                     plot_tile(rom, code, y, 7 - x)

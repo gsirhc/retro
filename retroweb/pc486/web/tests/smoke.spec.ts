@@ -1,19 +1,13 @@
 import { test, expect } from "./fixtures";
 import { bootLive } from "./helpers";
 
-// Real-speed timing verification. Every other spec in this suite boots via
-// helpers.ts's boot()/bootLive() under `?test=1&fast=1` (see app.js's
-// TEST_CPU_MULTIPLIER). This is the one that deliberately opts back out
-// (`realtime: true`) to confirm the underlying "genuine, wall-clock-paced
-// 66 MHz" contract (CLAUDE.md's "Never speed these up") actually holds.
-// See CLAUDE.md "Current sanctioned overrides".
+// Real-speed pacing check. Every other spec boots under `?test=1&fast=1` (app.js
+// TEST_CPU_MULTIPLIER); this one passes `realtime: true` to confirm the wall-clock-paced 66 MHz holds.
 test.describe("real-speed smoke test", () => {
   test("the guest CPU runs at real, wall-clock-paced 66 MHz -- not sped up", async ({ page }) => {
-    // Skip the (slow, at real speed) wait for a live prompt -- this test
-    // only needs the machine running, not fully booted.
+    // Skip the slow live-prompt wait; the machine only needs to be running.
     await bootLive(page, { realtime: true });
-    // Let page start-up settle first (wasm tier-up, the first C: write to
-    // IndexedDB), which a slow CI runner can still be busy with.
+    // Let start-up settle first (wasm tier-up, the first C: write to IndexedDB).
     await page.waitForTimeout(1000);
 
     const c0 = await page.evaluate(() => (window as any).__test.machine.totalCycles());
@@ -23,31 +17,17 @@ test.describe("real-speed smoke test", () => {
     const t1 = Date.now();
 
     const cyclesPerSecond = (c1 - c0) / ((t1 - t0) / 1000);
-    // Generous tolerance for CI scheduling jitter (a backgrounded/throttled
-    // tab runs frame()'s rAF loop less often, not faster) -- this is
-    // checking for genuine ~66 MHz pacing, not tight timing precision, and
-    // specifically that it's nowhere near the fast-test multiplier's rate.
+    // Generous tolerance for CI jitter; the check is ~66 MHz pacing, nowhere near the fast multiplier.
     expect(cyclesPerSecond).toBeGreaterThan(33_000_000);
     expect(cyclesPerSecond).toBeLessThan(99_000_000);
   });
 
-  // The throughput assertion above passed throughout the entire period the
-  // browser build was unusable (PC486_REVIEW.md §8): at 59 M cycles/sec the
-  // machine sat inside that band while being 10% too slow to hold real
-  // time, and a cycles-per-second average says nothing about how that work
-  // is distributed. Real-time emulation has two requirements and the band
-  // only covers the first -- enough throughput, AND no single synchronous
-  // call long enough to starve input. This is the second one.
-  //
-  // runCycles() is synchronous: for its whole duration the main thread
-  // dispatches no keydown, no click, and no rAF callback. Before §8.4 split
-  // the run loop into wall-clock-bounded chunks, a real boot spent ~23 of
-  // every 25 seconds inside ~300ms uninterruptible calls arriving back to
-  // back -- which is what made keystrokes take seconds to land or vanish.
+  // The throughput band above passed while the browser build was unusable (PC486_REVIEW.md §8): 59 M
+  // cycles/sec was 10% too slow for real time. Real time also needs no synchronous call long enough to
+  // starve input. runCycles() blocks keydown/click/rAF; before §8.4 chunked it, a boot spent ~23 of
+  // every 25 seconds in ~300ms calls.
   test("no single task blocks the main thread long enough to starve input", async ({ page }) => {
-    // Real speed, not the fast multiplier: this is about the experience an
-    // actual visitor gets. Installed before navigation so it observes the
-    // whole page lifetime.
+    // Real speed, installed before navigation to observe the whole page lifetime.
     await page.addInitScript(() => {
       (window as any).__longTasks = [];
       new PerformanceObserver((list) => {
@@ -56,15 +36,12 @@ test.describe("real-speed smoke test", () => {
       }).observe({ entryTypes: ["longtask"] });
     });
     await bootLive(page, { realtime: true });
-    // Let the machine run a real stretch of its boot under observation.
     await page.waitForTimeout(15_000);
 
     const tasks: { at: number; dur: number }[] = await page.evaluate(
       () => (window as any).__longTasks
     );
-    // Page load itself (wasm instantiation plus mounting 947MB of disc
-    // images) is genuinely one long task and is not what this guards --
-    // see PC486_REVIEW.md §8.5. Everything after the machine is up is.
+    // Page load (wasm instantiation, mounting 947MB of discs) is one long task and not guarded; see PC486_REVIEW.md §8.5.
     const running = tasks.filter((t) => t.at > 3_000);
     const worst = running.reduce((a, t) => (t.dur > a ? t.dur : a), 0);
     expect(

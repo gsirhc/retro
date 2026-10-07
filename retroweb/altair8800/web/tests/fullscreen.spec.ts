@@ -1,23 +1,10 @@
 import { test, expect } from "./fixtures";
 import { boot } from "./helpers";
 
-// Fullscreen mode (expands #bezel -- CRT frame + vignette + power LED, not
-// just the bare terminal -- see index.html's .bezel:fullscreen CSS comment),
-// the corner Esc button, and the one-time hint dialog explaining why that
-// button exists at all. Ported from ibmpc-at/web/tests/fullscreen.spec.ts
-// (shared/fullscreen.js is the same mechanism on both pages).
-//
-// The Esc button matters because browsers reserve the physical Esc key to
-// exit fullscreen and never dispatch it to the page while doing so, so
-// there is no way for page script to claim it back from the Fullscreen
-// API. The button feeds a synthetic Escape straight into the machine's own
-// terminal-input path instead (see app.js's handleTermData), bypassing the
-// native key event that problem lives in.
-//
-// FS_ESC_HINT_VERSION in shared/fullscreen.js is "2" as of this writing;
-// the tests below that plant a stored value hardcode that alongside a
-// deliberately stale one, matching how a real visitor's browser would hold
-// whatever version they last saw.
+// Fullscreen mode (expands #bezel), the corner Esc button, and its one-time hint dialog.
+// Ported from ibmpc-at/web/tests/fullscreen.spec.ts. Browsers never dispatch a physical Esc
+// while exiting fullscreen, so the button feeds a synthetic Escape into app.js handleTermData.
+// Tests that plant a stored hint version hardcode FS_ESC_HINT_VERSION ("2") beside a stale one.
 
 test.describe("fullscreen", () => {
   test("first-ever click shows the hint dialog and does not enter fullscreen yet", async ({ page }) => {
@@ -37,7 +24,6 @@ test.describe("fullscreen", () => {
     await expect(page.locator("#fsEscHint")).toBeHidden();
     await expect(page.locator("#escBtn")).toBeVisible();
     await expect(page.locator("#fullscreenBtn")).toHaveAttribute("aria-label", "Exit fullscreen");
-    // the stored flag now matches the current version, so it won't nag again
     expect(await page.evaluate(() => localStorage.getItem("retro8080.fsEscHintSeen"))).toBe("2");
   });
 
@@ -75,13 +61,8 @@ test.describe("fullscreen", () => {
     const before = await page.locator("#screen").boundingBox();
     await page.locator("#fullscreenBtn").click();
     await expect.poll(() => page.evaluate(() => !!document.fullscreenElement)).toBe(true);
-    // #screen is a <div> sized by inline pixel width/height (see
-    // sizeScreen()) -- entering fullscreen grows the terminal's own font
-    // size and resizes #screen to fill the bezel directly, not a CSS
-    // transform (a different machine's mechanism). Poll rather than diff a
-    // single before/after pair so an unrelated few-pixel reflow (e.g. the
-    // page's own scrollbar disappearing once fullscreen hides the
-    // document) can't be mistaken for the real change.
+    // fullscreen grows the terminal's font and resizes #screen directly (no CSS transform).
+    // Poll rather than diff once so an unrelated few-pixel reflow isn't mistaken for the change.
     await expect
       .poll(() => page.locator("#screen").boundingBox().then((b) => b!.width))
       .toBeGreaterThan(before!.width * 1.2);
@@ -96,9 +77,7 @@ test.describe("fullscreen", () => {
     await expect.poll(() => page.evaluate(() => !!document.fullscreenElement)).toBe(true);
     const before = await page.evaluate(() => (window as any).__test.regs().cycles);
     await page.locator("#escBtn").click();
-    // sendByte() feeds the 2SIO RX FIFO the CPU polls -- some cycles run to
-    // service it, same observable proof-of-delivery workflow.spec.ts's own
-    // preset tests use rather than asserting on a specific guest reaction.
+    // sendByte() feeds the 2SIO RX FIFO, same proof-of-delivery workflow.spec.ts uses
     await expect
       .poll(() => page.evaluate(() => (window as any).__test.regs().cycles))
       .toBeGreaterThan(before);

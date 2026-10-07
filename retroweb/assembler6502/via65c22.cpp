@@ -1,20 +1,11 @@
-// WDC W65C22 VIA implementation. See via65c22.h for the interface and
-// citation.
-//
-// Simplifications, labelled rather than silently approximated (none are
-// exercised by the board's shipped firmware, which only uses DDRA/DDRB,
-// free-run Timer 1, IER, and PORTA/PORTB -- see rom/via.s):
-//   - Input latching (ACR bits 0/1) is not modeled -- port reads always
-//     return the live external line state, never a CB1/CA1-edge-latched
-//     snapshot. WDC datasheet §Input Latching.
-//   - CA2/CB2 "pulse output" mode drops the line low for the duration of
-//     one tick() call and raises it again before the next register access
-//     can observe it, rather than a true single-Phi2-cycle pulse -- tick()
-//     is called with however many cycles the last CPU instruction took,
-//     not one cycle at a time, so sub-instruction pulse width isn't
-//     representable without a per-cycle bus model.
-//   - The shift register (SR) models the register and IFR bit but not the
-//     8 external/T2/Phi2 clock-source nuances of ACR bits 2-4 in detail.
+// Simplifications. The shipped firmware (rom/via.s) only uses DDRA/DDRB,
+// free-run Timer 1, IER and PORTA/PORTB.
+//   - No input latching (ACR bits 0/1): port reads return the live line
+//     state (WDC datasheet, Input Latching).
+//   - CA2/CB2 pulse output drops low for one tick() call, not one Phi2
+//     cycle, since tick() gets a whole instruction's cycles at once.
+//   - The shift register models the register and IFR bit, not the ACR bits
+//     2-4 clock-source details.
 
 #include "via65c22.h"
 
@@ -35,7 +26,7 @@ void Via::reset() {
 
 uint8_t Via::out_pb() const {
     uint8_t v = uint8_t((orb_ & ddrb_) | (read_pb ? (read_pb() & ~ddrb_) : uint8_t(~ddrb_)));
-    if ((acr_ & 0x80) && (ddrb_ & 0x80)) {           // ACR bit7: PB7 driven by Timer1 (free-run/one-shot pulse)
+    if ((acr_ & 0x80) && (ddrb_ & 0x80)) {           // ACR bit7: PB7 driven by Timer1
         v = uint8_t((v & 0x7F) | (t1_pb7_ ? 0x80 : 0));
     }
     return v;
@@ -45,12 +36,12 @@ CxMode Via::ca2_mode() const {
     int m = (pcr_ >> 1) & 7;
     switch (m) {
         case 0: return CxMode::InputNegEdge;
-        case 1: return CxMode::InputNegEdge;   // independent -- flag-clear distinction handled by caller
+        case 1: return CxMode::InputNegEdge;
         case 2: return CxMode::InputPosEdge;
         case 3: return CxMode::InputPosEdge;
         case 4: return CxMode::HandshakeOut;
         case 5: return CxMode::PulseOut;
-        default: return CxMode::ManualOut;      // 6 = fixed low, 7 = fixed high
+        default: return CxMode::ManualOut;      // 6 = low, 7 = high
     }
 }
 CxMode Via::cb2_mode() const {
@@ -70,7 +61,7 @@ static bool is_independent(uint8_t pcr_field3) { return (pcr_field3 & 1) != 0; }
 
 void Via::handle_ca1_edge() {
     set_if(IRQ_CA1);
-    if (((pcr_ & 0x0E) >> 1) == 4) {                // CA2 handshake output: released high by CA1's active edge
+    if (((pcr_ & 0x0E) >> 1) == 4) {                // CA2 handshake output: released by CA1's active edge
         ca2_ = true;
         if (on_ca2_change) on_ca2_change(true);
     }
@@ -209,7 +200,7 @@ void Via::tick(int n) {
                 t1c_--;
             }
         }
-        if (t2_running_ && !(acr_ & 0x20)) {   // ACR bit5 set = PB6 pulse-counting mode, not modeled (see header)
+        if (t2_running_ && !(acr_ & 0x20)) {   // ACR bit5 set = PB6 pulse counting, not modeled
             if (t2c_ == 0) {
                 t2c_ = 0xFFFF;
                 set_if(IRQ_T2);

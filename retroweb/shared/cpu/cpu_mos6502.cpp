@@ -1,8 +1,5 @@
-// MOS Technology NMOS 6502 — see cpu_mos6502.h for the interface and
-// citation trail. Documented opcodes follow the MCS6500 Family Hardware
-// Manual cycle tables; undocumented opcodes follow the Nesdev / Visual6502
-// stable set (unstable bus-fight ops use the common MAGIC approximations
-// noted inline).
+// MOS NMOS 6502. Cycle tables from the MCS6500 Family Hardware Manual;
+// undocumented opcodes follow the Nesdev / Visual6502 stable set.
 
 #include "cpu_mos6502.h"
 
@@ -460,8 +457,7 @@ int Cpu::step() {
         case 0xB7: lax(rb(am_zpy())); c = 4; break;
         case 0xBF: lax(rb(am_absy(crossed))); c = 4 + (crossed ? 1 : 0); break;
         case 0xAB: {
-            // Unstable LXA/LAX #imm. MAGIC=$EE is the common VIC-20 /
-            // Nesdev approximation (bus fight A | MAGIC then AND imm).
+            // LXA, MAGIC=$EE (Nesdev)
             uint8_t imm = fetch8();
             lax(uint8_t((a | 0xEE) & imm));
             c = 2;
@@ -522,7 +518,7 @@ int Cpu::step() {
             break;
         }
         case 0x8B: {
-            // Unstable XAA/ANE. MAGIC=$FF is the common stable approximation.
+            // XAA/ANE, MAGIC=$FF
             uint8_t imm = fetch8();
             a = uint8_t((a | 0xFF) & x & imm);
             set_nz(a);
@@ -530,9 +526,7 @@ int Cpu::step() {
             break;
         }
 
-        // ---- Undocumented: unstable high-byte AND stores -------------
-        // SHY/SHX/AHX/TAS AND the value with (high_byte + 1) of the
-        // effective address. Cite: Nesdev unofficial opcodes; VICE BUGS.
+        // SHY/SHX/AHX/TAS AND with (high byte + 1) of the effective address (Nesdev, VICE)
         case 0x9C: {
             bool cr;
             uint16_t base = fetch16();

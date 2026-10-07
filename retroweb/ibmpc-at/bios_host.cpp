@@ -1,19 +1,7 @@
-// Native diagnostic harness: boots the real, freely-licensed BIOS-bochs-
-// legacy image (+ optional vgabios and a floppy image) against this
-// machine's chipset and reports what happens -- no browser, no WASM.
-// Analogous to altair8800/cpm/cpm_host.cpp and
-// cg-oac-6502/dormann/dormann_host.cpp: a headless way to prove the
-// emulated hardware is real enough for real firmware to make progress on,
-// before any front end exists.
-//
-// Prints POST checkpoint codes (port 0x80) as they change, notes when the
-// CPU parks in HLT, and reconstructs the screen's actual text by logging
-// every character the BIOS sends through its own `wrch()` character-print
-// helper (physical address F000:0679 in this specific BIOS build) -- the
-// same technique that found the CMOS boot-device requirement documented in
-// IBM_PCAT_REVIEW.md §8. Machine::configure_factory_cmos() (called
-// automatically by Machine's constructor) seeds the CMOS bytes this BIOS
-// needs to actually attempt a boot instead of panicking immediately.
+// Native harness: boots BIOS-bochs-legacy (+ optional vgabios and floppy)
+// against this chipset and reports POST codes, HLT, and the screen text.
+// Screen text is captured by logging each char passed to the BIOS wrch()
+// helper (F000:0679 in this build).
 //
 // Usage: bios_host <BIOS-bochs-legacy> [max_steps] [vgabios] [floppy-image]
 
@@ -43,11 +31,9 @@ int main(int argc, char **argv) {
 
     uint64_t max_steps = argc > 2 ? std::strtoull(argv[2], nullptr, 10) : 50'000'000ull;
 
-    ibmpcat::Machine m;  // constructor seeds factory CMOS config, see file header
-    m.reset();  // parks CPU at the real reset vector, F000:FFF0
-    // BIOS-bochs-legacy is a 64KB image -- lands at the top of the address
-    // space, F0000-FFFFF, exactly where the real 80286 reset vector
-    // (F000:FFF0 -> physical FFFF0) expects it.
+    ibmpcat::Machine m;
+    m.reset();  // reset vector F000:FFF0
+    // 64KB image lands at F0000-FFFFF where the 80286 reset vector expects it.
     m.chipset.load_rom(0x100000 - bios.size(), bios.data(), bios.size());
 
     if (argc > 3) {

@@ -1,7 +1,3 @@
-// GoogleTest suite for the shared EGA text-mode renderer: glyph decode
-// from VRAM plane 2, palette decode via the live Attribute Controller
-// registers, and the block cursor's visibility/shape/scanline range.
-
 #include <gtest/gtest.h>
 
 #include "ega.h"
@@ -20,16 +16,13 @@ using ibmpcat::RenderScreen;
 using ibmpcat::RenderTextScreen;
 using ibmpcat::ScreenMode;
 
-// Programs the two real Graphics Controller registers that select mode:
-// GR06 bit 0 (graphics vs. alphanumeric) and GR05 bits 5-6 (Shift
-// Register field).
+// Programs GR06 bit 0 (graphics vs alphanumeric) and GR05 bits 5-6 (Shift Register).
 void SetGraphicsMode(Ega &ega, bool graphics, uint8_t shift_register_mode) {
     ega.out(0x3CE, 0x06); ega.out(0x3CF, graphics ? 0x01 : 0x00);
     ega.out(0x3CE, 0x05); ega.out(0x3CF, uint8_t((shift_register_mode & 0x03) << 5));
 }
 
-// Programs Attribute Controller palette register `index` to raw EGA color
-// `value` (the same address/data flip-flop port real software uses).
+// Programs palette register `index` through the 0x3C0 address/data flip-flop.
 void SetPalette(Ega &ega, int index, uint8_t value) {
     ega.out(0x3C0, uint8_t(index));
     ega.out(0x3C0, value);
@@ -48,19 +41,13 @@ TEST(EgaRenderTest, ProducesTheDocumentedBufferSize) {
     EXPECT_EQ(rgba.size(), std::size_t(kTextRenderWidth * kTextRenderHeight * 4));
 }
 
-// Real hardware fact this covers: this machine's freely-licensed BIOS
-// substitute is a full VGA BIOS and programs VGA's native 16-line-per-row
-// text mode (Max Scan Line = 15) rather than genuine EGA's own 14-line
-// convention (see ega_render.h's RenderTextScreen comment). The renderer
-// must follow that real register, not a hardcoded row height -- otherwise
-// every glyph's last two scanlines (exactly where the VGA 8x16 font draws
-// descenders on g/y/p/q/j) get silently discarded.
+// The VGA BIOS programs 16-line rows (Max Scan Line = 15). The renderer must follow
+// the register, or the last two scanlines (descenders) are discarded.
 TEST(EgaRenderTest, RowHeightAndFrameSizeFollowTheRealMaxScanLineRegister) {
     Ega ega;
     ega.reset();
     ega.out(0x3D4, 0x09); ega.out(0x3D5, 0x0F);  // Max Scan Line = 15 -> 16 lines/row
-    // Character 'g' (0x67), scanline 14 -- part of a real descender, and
-    // exactly the row the old hardcoded 14-line renderer never reached.
+    // 'g' (0x67) scanline 14 is part of a descender.
     uint32_t glyph_off = uint32_t('g') * 32 + 14;
     ega.vram[(glyph_off << 2) + 2] = 0xFF;  // every pixel in this row set
     ega.vram[(0 << 2) + 0] = 'g';
@@ -71,31 +58,21 @@ TEST(EgaRenderTest, RowHeightAndFrameSizeFollowTheRealMaxScanLineRegister) {
     int w = 0, h = 0;
     RenderTextScreen(ega, rgba, /*blink_on=*/false, w, h);
     EXPECT_EQ(w, kTextRenderWidth);
-    EXPECT_EQ(h, 16 * 25);  // 400, not the old fixed 350
+    EXPECT_EQ(h, 16 * 25);  // not a fixed 350
     ASSERT_EQ(rgba.size(), std::size_t(kTextRenderWidth * 16 * 25 * 4));
 
     std::size_t p = PixelIndex(0, 14);
     EXPECT_EQ(rgba[p + 0], 255); EXPECT_EQ(rgba[p + 1], 255); EXPECT_EQ(rgba[p + 2], 255);
 }
 
-// Real hardware fact this covers: 40-column text (BIOS mode 0/1) is a
-// genuine CRTC configuration -- Horizontal Displayed (R01) = 39, not 79 --
-// that period DOS software legitimately uses for a large-character screen
-// (confirmed live against MECC's The Oregon Trail's "Look at map" screen,
-// which renders exactly this way). VRAM stays laid out row*cols+col with
-// cols=40 in this mode, so a renderer that hardcodes 80 columns starts
-// every row after the first at the wrong offset -- reading half of row 1
-// from the tail of row 0 and the other half from row 1's own first bytes
-// -- which is exactly the scrambled-glyph-noise failure mode the file
-// header warns about, just reached through a missed CRTC register instead
-// of a missed graphics-mode bit. See IBM_PCAT_REVIEW.md.
+// 40-column text has Horizontal Displayed (R01) = 39. A renderer that
+// hardcodes 80 starts rows after the first at the wrong offset (IBM_PCAT_REVIEW.md).
 TEST(EgaRenderTest, ColumnCountAndFrameWidthFollowTheRealHorizontalDisplayedRegister) {
     Ega ega;
     ega.reset();
     ega.out(0x3D4, 0x01); ega.out(0x3D5, 39);  // Horizontal Displayed = 39 -> 40 cols
     SetPalette(ega, 15, 0x3F);  // white
-    // Cell (row=1, col=0) sits at the 40-column offset 40 -- at the
-    // hardcoded-80 offset that same VRAM slot would instead land mid-row 0.
+    // Cell (row=1, col=0) sits at offset 40 in 40-column mode.
     uint32_t cell = 40;
     ega.vram[(cell << 2) + 0] = 0x41;
     ega.vram[(cell << 2) + 1] = 0x0F;  // fg=white, bg=black
@@ -105,11 +82,11 @@ TEST(EgaRenderTest, ColumnCountAndFrameWidthFollowTheRealHorizontalDisplayedRegi
     std::vector<uint8_t> rgba;
     int w = 0, h = 0;
     RenderTextScreen(ega, rgba, /*blink_on=*/false, w, h);
-    EXPECT_EQ(w, 40 * 8);  // 320, not the old fixed 640
+    EXPECT_EQ(w, 40 * 8);  // not a fixed 640
     EXPECT_EQ(h, kTextRenderHeight);
     ASSERT_EQ(rgba.size(), std::size_t(w * h * 4));
 
-    // Row 1's top-left pixel: y = 1 row * 14 (default scan lines/row) = 14, x = 0.
+    // Row 1's top-left pixel: y = 14 (default rows), x = 0.
     std::size_t p = (std::size_t(14) * std::size_t(w) + 0) * 4;
     EXPECT_EQ(rgba[p + 0], 255); EXPECT_EQ(rgba[p + 1], 255); EXPECT_EQ(rgba[p + 2], 255);
 }
@@ -202,9 +179,7 @@ TEST(EgaRenderTest, DetectScreenModeReadsTheRealModeRegisters) {
 }
 
 TEST(EgaRenderTest, CgaGraphics4DecodesPlane0ThenPlane1AsFourPixelsEach) {
-    // Real hardware: a CGA-unaware program's two consecutive flat bytes for
-    // scanline 0 (pixels 0-3, then 4-7) land at the same plane offset (0),
-    // split across planes 0 and 1 by odd/even chaining -- see ega_render.h.
+    // A CGA program's two flat bytes for scanline 0 land at plane offset 0, split across planes 0 and 1.
     Ega ega;
     ega.reset();
     SetPalette(ega, 0, 0x00);  // black
@@ -232,8 +207,7 @@ TEST(EgaRenderTest, CgaGraphics4DecodesPlane0ThenPlane1AsFourPixelsEach) {
 }
 
 TEST(EgaRenderTest, CgaGraphics4OddScanlinesUseTheSecondEightKilobyteBank) {
-    // Scanline 1 (odd) starts at flat offset 0x2000, not 1 -- real CGA's
-    // even/odd-scanline bank split, distinct from the plane odd/even split.
+    // Odd scanlines start at flat offset 0x2000 (CGA bank split, separate from plane odd/even).
     Ega ega;
     ega.reset();
     SetPalette(ega, 3, 0x3F);  // white
@@ -250,10 +224,7 @@ TEST(EgaRenderTest, CgaGraphics4OddScanlinesUseTheSecondEightKilobyteBank) {
 }
 
 TEST(EgaRenderTest, EgaNative16ResolutionComesFromCrtcTimingNotATable) {
-    // Verified against this machine's own real BIOS: directly invoking its
-    // INT 10h AL=0x10 handler and reading back what it programs gives
-    // exactly these register values for genuine mode 0x10 (640x350x16) --
-    // see IBM_PCAT_REVIEW.md §16.
+    // Register values from this BIOS's INT 10h AL=0x10 (mode 0x10, 640x350x16), IBM_PCAT_REVIEW.md §16.
     Ega ega;
     ega.reset();
     ega.out(0x3D4, 0x01); ega.out(0x3D5, 79);    // H Display End
@@ -269,18 +240,14 @@ TEST(EgaRenderTest, EgaNative16ResolutionComesFromCrtcTimingNotATable) {
 }
 
 TEST(EgaRenderTest, EgaNative16DecodesOneBitPerPlanePerPixelMsbFirst) {
-    // Real EGA/VGA convention: plane 0 = bit 0 (LSB) of the 4-bit color
-    // index, through plane 3 = bit 3 (MSB); within a byte, bit 7 is the
-    // leftmost pixel (MSB-first, the same convention text mode's glyph
-    // bytes and CGA-mode's pixel bytes already use).
+    // Plane 0 = bit 0 of the color index through plane 3 = bit 3; bit 7 of a byte is the leftmost pixel.
     Ega ega;
     ega.reset();
     ega.out(0x3D4, 0x01); ega.out(0x3D5, 9);     // H Display End -> (9+1)*8 = 80 wide (small, for the test)
     ega.out(0x3D4, 0x12); ega.out(0x3D5, 0);     // V Display End -> 0+1 = 1 tall
     SetPalette(ega, 0x0, 0x00);  // black
     SetPalette(ega, 0x5, 0x02);  // index 5 = green (planes 0 and 2 set: bits 0+2 = 0b0101 = 5)
-    // Plane 0 byte and plane 2 byte both have their MSB set (leftmost
-    // pixel); planes 1 and 3 are 0 -- leftmost pixel's index = 0b0101 = 5.
+    // Planes 0 and 2 have their MSB set: leftmost pixel index = 0b0101 = 5.
     ega.vram[(0 << 2) + 0] = 0x80;
     ega.vram[(0 << 2) + 2] = 0x80;
 
@@ -306,8 +273,7 @@ TEST(EgaRenderTest, RenderScreenDispatchesToTheRightModeAtTheRightResolution) {
     EXPECT_EQ(cga_frame.width, 320);
     EXPECT_EQ(cga_frame.height, 200);
 
-    // Native 16-color EGA: resolution comes from the CRTC, not a table --
-    // program real mode-0x10 Horizontal/Vertical Display End values.
+    // Native 16-color: resolution comes from the CRTC (mode 0x10 values).
     SetGraphicsMode(ega, true, 0);
     ega.out(0x3D4, 0x01); ega.out(0x3D5, 79);    // H Display End -> (79+1)*8 = 640
     ega.out(0x3D4, 0x12); ega.out(0x3D5, 0x5D);  // V Display End low 8 bits = 93

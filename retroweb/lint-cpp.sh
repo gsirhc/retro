@@ -1,7 +1,6 @@
 #!/bin/sh
 # cppcheck over retroweb source. Headers are C++ (a bare .h is C to cppcheck).
-# GoogleTest's own headers are not this tree. Each machine is its own program,
-# so a repeated Machine class is not one-definition-rule breakage.
+# Each machine is its own program, so a repeated Machine class is not an ODR bug.
 set -eu
 cd "$(dirname "$0")"
 
@@ -30,9 +29,7 @@ if [ -z "$gtest" ]; then
   exit 1
 fi
 
-# libgtest-dev drops headers in /usr/include/gtest. Passing -I /usr/include
-# makes cppcheck treat libc as project code; Ubuntu's cppcheck 2.13 then
-# syntax-errors inside stdlib.h. Expose only the gtest directory.
+# Pass only the gtest dir: -I /usr/include makes cppcheck 2.13 syntax-error in stdlib.h.
 gtest_inc=$gtest
 gtest_tmp=""
 case "$gtest" in

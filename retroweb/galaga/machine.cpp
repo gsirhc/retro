@@ -100,9 +100,7 @@ uint8_t Machine::mcu51_hle_read() {
     if (mcu51_mode_ == 2) {
         int c = credits;
         if (c > 99) c = 99;
-        // Six nibbles from the 51XX mask program's credit mode: BCD credits,
-        // then the stick nibbles, then buttons/coins. whiterocker.com's
-        // 51XX disassembly is the source for the nibble order.
+        // Credit-mode nibbles: BCD credits, stick, buttons/coins (whiterocker.com 51XX disassembly).
         bytes[0] = uint8_t(((c / 10) << 4) | (c % 10));
         bytes[1] = uint8_t(r0 | (r1 << 4));
         bytes[2] = uint8_t(r2 | (r3 << 4));
@@ -122,8 +120,7 @@ void Machine::mcu51_command(uint8_t data) {
         mcu51_args_--;
         return;
     }
-    // Command bytes published with the 51XX (nop, coinage, credit mode,
-    // joystick remap, switch mode). namco51.cpp's header is a cross-check.
+    // 51XX command bytes: nop, coinage, credit mode, joystick remap, switch mode.
     if (data == 0x01) {
         mcu51_args_ = 4;
         return;
@@ -177,8 +174,7 @@ void Machine::io06_write(uint8_t v) {
                 mcu54_args_--;
             } else {
                 uint8_t hi = uint8_t(v >> 4);
-                // 54XX command nibbles from the chip's published command
-                // list: 1/2/5 play, 3/4/6 set parameters, 7 sets type-C volume.
+                // 54XX commands: 1/2/5 play, 3/4/6 set parameters, 7 sets type-C volume.
                 if (hi == 1 || hi == 2 || hi == 5) {
                     noise_amp_ = v & 0x0f;
                     if (noise_amp_ == 0) noise_amp_ = 8;
@@ -331,8 +327,7 @@ void Machine::on_vblank() {
 }
 
 void Machine::service_mcu(int z80_cycles) {
-    // MB8843/44 instruction cycle is the 1.536 MHz input divided by 6,
-    // which is one instruction per 12 Z80 T-states.
+    // MB8843/44 instruction cycle is 1.536 MHz / 6, one per 12 Z80 T-states.
     mcu_acc_ += z80_cycles;
     while (mcu_acc_ >= 12) {
         mcu_acc_ -= 12;
@@ -341,11 +336,8 @@ void Machine::service_mcu(int z80_cycles) {
     }
     int shift = (io_ctrl_ >> 5) & 7;
     if (shift != 0) {
-        // NMI spacing stays one full period, (64 << shift) Z80 cycles, with
-        // the first falling edge one period after the control write. The
-        // midpoint drops /IO so the next falling edge is a new MCU interrupt.
-        // The first read-mode falling edge skips the host NMI so the MCU can
-        // drive the data bus before the CPU samples it.
+        // NMI period is (64 << shift) Z80 cycles; the midpoint drops /IO for a new MCU interrupt.
+        // The first read-mode edge skips the host NMI so the MCU drives the bus first.
         int half = (64 << shift) / 2;
         io_div_count_ += z80_cycles;
         while (io_div_count_ >= half) {
@@ -366,12 +358,9 @@ void Machine::service_mcu(int z80_cycles) {
 int Machine::run_cycles(int n) {
     int done = 0;
     while (done < n && !watchdog_reset) {
-        // 08XX gives each CPU its own slot in the 18.432 MHz cycle, so none
-        // of them wait on the others. Advance sub and sound by the same
-        // T-state count as the main instruction.
+        // 08XX gives each CPU its own bus slot, so sub and sound advance by main's T-states.
         int t = step_cpu(0);
-        // Pay back instruction overshoot so sub/sound stay locked to main
-        // (same leftover-credit pattern as Frogger/Scramble sound Z80).
+        // Repay instruction overshoot so sub/sound stay locked to main.
         if (!sub_reset) {
             sub_credit_ += t;
             while (sub_credit_ > 0) {
@@ -397,8 +386,7 @@ int Machine::run_cycles(int n) {
         if (video.sound_nmi_edge && !nmi_disable && !sound_reset) sound.nmi();
         if (video.vblank_edge) on_vblank();
         if (watchdog_reset) break;
-        // 54XX noise is mixed per host sample so duration tracks wall time
-        // and the LFSR is not stepped once per Z80 instruction.
+        // 54XX noise is mixed per host sample so duration tracks wall time.
         if (mcu54_hle && noise_left_ > 0 && noise_amp_ > 0) {
             for (size_t i = audio_before; i < audio.size() && noise_left_ > 0; i++) {
                 noise_lfsr_ = (noise_lfsr_ >> 1) ^ ((noise_lfsr_ & 1) ? 0xA300u : 0);

@@ -41,15 +41,8 @@ TEST(Machine, JoystickEchoesToRam) {
     EXPECT_EQ(m.ram[0x4C10 - 0x4800], 0xFE);
 }
 
-// Real Pac-Man latches its Z80 IM 2 interrupt-vector byte via `OUT (0),A` --
-// a discrete hardware latch, not a fixed value -- and the ROM reprograms it
-// at runtime (0xFA during the self-test's per-vblank checksum passes, 0xFC
-// once the main game's vblank ISR takes over; see $233F/$3183 in the Midway
-// pacman disassembly). A machine that ignores the OUT and hands the CPU a
-// hardcoded vector byte sends every interrupt to whatever ROM bytes happen
-// to sit at that one fixed address, which is exactly the bug this guards:
-// on the real ROM it derailed the CPU into unmapped memory within a few
-// frames of loading a genuine ROM set.
+// The ROM reprograms the IM 2 vector latch (OUT (0),A) at runtime, so a
+// hardcoded vector byte derails the CPU on a real ROM set.
 TEST(Machine, OutPort0LatchesInterruptVector) {
     pacman::RomSet s;
     // I=0x00, IM 2, OUT (0),A with A=0x40 -> vector $0040 -> handler at $0100.
@@ -89,10 +82,8 @@ int vram_off(int col, int row) {
     return c + (r << 5);
 }
 
-// After the two ~1.5 s test patterns (crosshatch, color bars) the ROM
-// holds a help screen whose first line is "PAC-MAN ARCADE" in the
-// generated 8×8 font — see gen_hwtest.py HELP_TITLE / HELP_TITLE_ROW.
-// Upright (col, row) → native (row, 27-col), same ROT90 as Video::render.
+// After the two test patterns the ROM shows a help screen titled
+// "PAC-MAN ARCADE" (gen_hwtest.py HELP_TITLE). Upright (col, row) is native (row, 27-col).
 TEST(Machine, HwtestHelpScreenShowsCopyrightPrompt) {
     pacman::Machine m;
     m.load_roms(test_set());
@@ -201,8 +192,7 @@ TEST(Machine, Write5003SetsFlipScreen) {
     EXPECT_FALSE(m.video.flip_screen);
 }
 
-// Stock Pac-Man PCB leaves Z80 A15 unconnected, so $8000–$BFFF mirror
-// $0000–$3FFF. The aux board is what makes A15 real extra ROM.
+// A15 is unconnected on the stock PCB, so $8000-$BFFF mirror $0000-$3FFF.
 TEST(Machine, PacManA15MirrorsProgramRom) {
     pacman::RomSet s;
     s.program[0] = 0x3C;
@@ -215,8 +205,7 @@ TEST(Machine, PacManA15MirrorsProgramRom) {
     EXPECT_EQ(m.mem_read(0x9234), 0xA5);
 }
 
-// U5/U6/U7 data-line scramble (patent 4,525,599). Independent of
-// machine.cpp: result bit 7 ← input bit 0, so 0x01 descrambles to 0x80.
+// U5/U6/U7 data-line scramble (patent 4,525,599): input bit 0 becomes bit 7.
 uint16_t bitswap_t(uint16_t val, const int* bits, int n) {
     uint16_t out = 0;
     for (int i = 0; i < n; i++)
@@ -310,8 +299,7 @@ TEST(Machine, AuxDisableTrapAt8000ReturnsPacManMirror) {
     m.load_roms(s);
     (void)m.mem_read(0x3FF8);
     EXPECT_TRUE(m.aux_decode);
-    // $8000–$8007 is a latch-clear trap: the read disables decode and
-    // returns the original-bank mirror (Pac-Man $0000), not decrypted U5.
+    // $8000-$8007 is a latch-clear trap, so the read returns the original-bank mirror.
     EXPECT_EQ(m.mem_read(0x8000), 0xC3);
     EXPECT_FALSE(m.aux_decode);
 }
@@ -345,8 +333,7 @@ TEST(Machine, WatchdogResetLeavesAuxLatchAlone) {
     EXPECT_EQ(m.mem_read(0x8008), 0x11);
 }
 
-// IM 2 vector table sits in $3FF8–$3FFF, which is the latch-set trap, so
-// the first vblank IRQ both enables Ms. Pac-Man and reads U7's vector.
+// The IM 2 vector table at $3FF8-$3FFF is the latch-set trap.
 TEST(Machine, Im2VectorFetchEnablesAuxDecode) {
     pacman::RomSet s = aux_set();
     const uint8_t code[] = {

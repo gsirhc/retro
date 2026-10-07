@@ -1,7 +1,4 @@
-// Board-level smoke: the shared Z80 actually runs this machine's generated
-// hardware self-test ROM. ISA coverage lives in retroweb/shared/cpu (zexdoc +
-// GoogleTest); this only checks the board boots, writes the RAM signature,
-// kicks the watchdog, and paints.
+// Board smoke: the generated self-test ROM boots, writes the RAM signature, kicks the watchdog, paints.
 
 #include <gtest/gtest.h>
 

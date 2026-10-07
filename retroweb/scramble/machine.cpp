@@ -31,9 +31,7 @@ z80::Bus Machine::make_sound_bus() {
 }
 
 uint8_t Machine::in2_with_protection() const {
-    // IN2 bits 5 and 7 are the PAL 6J "alt" bits, derived from the high bit
-    // of the nibble the PAL returns. Cross-checked against MAME
-    // theend_protection_alt_r, not a source — exact PAL equations unpublished.
+    // IN2 bits 5/7 are PAL 6J "alt" bits from the high bit of the PAL's nibble (equations unpublished).
     uint8_t alt = uint8_t((protection_result >> 7) & 1);
     return uint8_t((inputs.in2 & ~0xA0) | (alt ? 0xA0 : 0));
 }
@@ -51,9 +49,7 @@ void Machine::wire_ppi() {
 }
 
 void Machine::pal6j_write(uint8_t v) {
-    // PAL at 6J: nibble in / nibble out. Observed scramble sequences use
-    // op $9 (increment). Exact equations are not published; MAME
-    // theend_protection_w is a cross-check of those observed ops.
+    // PAL 6J: nibble in/out. Observed sequences use op $9 (increment); equations unpublished.
     protection_state_ = (protection_state_ << 4) | (v & 0x0F);
     uint8_t num1 = uint8_t((protection_state_ >> 8) & 0x0F);
     uint8_t num2 = uint8_t((protection_state_ >> 4) & 0x0F);
@@ -204,8 +200,7 @@ int Machine::run_cycles(int n) {
         int t = main.step();
         done += t;
         video.advance(t);
-        // Credit is in sound-cycle units scaled by kCpuHz so a sound
-        // instruction that overshoots the budget is paid back later.
+        // Credit in sound-cycle units so an overshooting sound instruction is repaid later.
         sound_credit_ += t * kSoundHz;
         while (sound_credit_ >= kCpuHz) {
             int st;

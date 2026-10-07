@@ -1,15 +1,8 @@
 import { test, expect } from "./fixtures";
 
-// CD-DA (Red Book audio) playback through the ATAPI CD-ROM drive on the
-// secondary channel (0x170-0x177/0x376) -- PLAY AUDIO(10) and the stream it
-// produces, mirroring atapi_cdrom_test.cpp's register-level fixture but
-// driven through the real port block the way a DOS CD driver would. Mounts a
-// small synthetic mixed-mode CUE+BIN disc (one data sector, one short audio
-// track with a known waveform) and confirms cdromDrainSamples() reproduces
-// that exact waveform at the real 44.1kHz rate, and that playback stops on
-// its own at the end of the requested range -- the same contract
-// atapi_cdrom_test.cpp verifies natively, exercised here through the actual
-// embind/port surface the front end uses.
+// CD-DA playback through the secondary-channel ATAPI drive (0x170-0x177/0x376). Mounts a synthetic
+// mixed-mode CUE+BIN and checks cdromDrainSamples() reproduces the waveform at 44.1kHz and that
+// playback stops at the end of the range. Native counterpart: atapi_cdrom_test.cpp.
 test.describe("ATAPI CD-DA audio playback", () => {
   test("PLAY AUDIO(10) streams the mounted track's real PCM samples", async ({
     livePage: page,
@@ -17,11 +10,8 @@ test.describe("ATAPI CD-DA audio playback", () => {
     const result = await page.evaluate(() => {
       const m = (window as any).__test.machine;
 
-      // Track 1: one MODE1/2048 data sector (so this exercises the mixed-mode
-      // path a real game CD uses, not just a lone audio track). Track 2: a
-      // short CD-DA track -- a 4-frame repeating square wave, easy to verify
-      // exactly rather than by spectral analysis. Left and right are inverted
-      // from each other so a channel swap would also be caught.
+      // Track 1: one MODE1/2048 data sector. Track 2: CD-DA, a 4-frame square wave with L/R inverted
+      // so a channel swap is caught.
       const dataBlocks = 1;
       const framesPerLba = 588;
       const audioLbas = 2;
@@ -35,9 +25,7 @@ test.describe("ATAPI CD-DA audio playback", () => {
         bin[off++] = l & 0xff; bin[off++] = (l >> 8) & 0xff;
         bin[off++] = r & 0xff; bin[off++] = (r >> 8) & 0xff;
       }
-      // Track 2's INDEX 01 is in frames (75/sec, Red Book), which this
-      // single-digit-second disc uses as a plain LBA counter: frame 1 is
-      // right after track 1's one data sector.
+      // INDEX 01 is in frames (75/sec); frame 1 follows track 1's one sector.
       const cue =
         'FILE "disc.bin" BINARY\n' +
         "  TRACK 01 MODE1/2048\n" +
@@ -46,8 +34,7 @@ test.describe("ATAPI CD-DA audio playback", () => {
         "    INDEX 01 00:00:01\n";
       const mounted = m.mountCdromCue(cue, bin);
 
-      // Drive the secondary ATA channel's real registers -- same protocol
-      // atapi_cdrom_test.cpp's SendPacket/DrainData helpers use natively.
+      // Drive the secondary ATA registers like atapi_cdrom_test.cpp's SendPacket/DrainData.
       const rd = (port: number) => m.portIn(port);
       const wr = (port: number, v: number) => m.portOut(port, v);
       const busy = () => (rd(0x376) & 0x80) !== 0;
@@ -74,19 +61,15 @@ test.describe("ATAPI CD-DA audio playback", () => {
       }
 
       wr(0x176, 0xa0);                       // select device 0
-      sendPacket([0x00]);                     // TEST UNIT READY -- surfaces the mount's unit attention
+      sendPacket([0x00]);  // TEST UNIT READY surfaces the mount's unit attention
       sendPacket([0x03, 0, 0, 0, 18]);        // REQUEST SENSE
       drainData();                            // ...and clears it
 
-      // PLAY AUDIO(10): starting LBA 1 (the audio track), for audioLbas LBAs.
+      // PLAY AUDIO(10) from LBA 1 for audioLbas LBAs.
       sendPacket([0x45, 0, 0, 0, 0, 1, 0, 0, audioLbas]);
       const playingRightAfter = m.cdromPlayingAudio();
 
-      // Run enough real CPU cycles for every frame of the track to be
-      // produced at 44.1kHz, with slack so the end-of-range stop also fires.
-      // runCycles() can yield early mid-call (a host-side soft-lock guard),
-      // so loop on the actual cycle delta rather than assuming one call
-      // covers the whole budget.
+      // Run enough cycles for the whole track plus slack; runCycles() can yield early, so loop on the delta.
       const cyclesPerFrame = m.cpuHz() / 44100;
       let remaining = Math.ceil(cyclesPerFrame * (audioFrames + 100));
       while (remaining > 0) {
@@ -113,7 +96,7 @@ test.describe("ATAPI CD-DA audio playback", () => {
     expect(result.mounted).toBe(true);
     expect(result.playingRightAfter).toBe(true);
     expect(result.sampleRate).toBe(44100);
-    // 2 LBAs * 588 frames/LBA, allowing slack for burst granularity.
+    // 2 LBAs * 588 frames/LBA, with slack for burst granularity.
     expect(result.count).toBeGreaterThan(1100);
     expect(result.count).toBeLessThanOrEqual(1176);
     expect(result.firstLeft).toBe(12000);

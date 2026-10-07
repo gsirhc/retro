@@ -1,10 +1,6 @@
-// Native diagnostic tool: boots the real BIOS (+ optional vgabios, floppy,
-// hard disk, CD-ROM) against this machine's chipset for a fixed cycle
-// budget, then renders the current VGA screen (Milestone 1's real-EGA-
-// ceiling text/graphics modes -- see ega_render.h) to an actual BMP image.
-// Adapted from ibmpc-at/render_screen.cpp -- the pixel decode itself is
-// unchanged (shared with the WASM front end's canvas renderer), this file
-// is just the native harness.
+// Native tool: boots the BIOS (+ optional vgabios, floppy, hard disk, CD-ROM)
+// for a fixed cycle budget and renders the VGA screen to a BMP.
+// Adapted from ibmpc-at/render_screen.cpp.
 //
 // Usage: render_screen <bios> <vgabios> <out.bmp> [max_cycles] [hdd-image] [floppy-image]
 
@@ -27,8 +23,7 @@ std::vector<uint8_t> ReadFile(const char *path) {
     return std::vector<uint8_t>((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
 }
 
-// Hand-written 24-bit uncompressed BMP -- see ibmpc-at/render_screen.cpp's
-// identical helper for the format rationale.
+// 24-bit uncompressed BMP
 void WriteBmp(const char *path, int w, int h, const std::vector<uint8_t> &rgba) {
     int row_bytes = w * 3;
     int pad = (4 - (row_bytes % 4)) % 4;

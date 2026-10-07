@@ -23,12 +23,8 @@ void Dvg::go(const MemRead& read_word) {
 }
 
 int Dvg::apply_scale(int delta, int total_scale) {
-    // Global (LABS) + local (VEC/SVEC) are added as 4-bit quantities; the
-    // sum selects /512../1 for 0..9. Outside that range the vector timer
-    // saturates and the beam does not advance (Asteroids HDL / DP-143).
-    // Cite: nmikstas asteroidsHDL "Total Scaling Value"; matches
-    // computerarcheology's 0..9 divisor table once the 4-bit wrap is applied
-    // (e.g. LABS scale 14 + VEC local 6 → 20 → 4 → /32 for the ship).
+    // global + local scale added as 4-bit; 0..9 selects /512../1, beyond that the
+    // beam doesn't advance (nmikstas asteroidsHDL "Total Scaling Value")
     total_scale &= 0xF;
     if (total_scale > 9) return 0;
     int div = 512 >> total_scale;
@@ -40,12 +36,9 @@ void Dvg::draw_delta(int dx, int dy, uint8_t intensity) {
     int x0 = x, y0 = y;
     int x1 = x + dx;
     int y1 = y + dy;
-    // 12-bit counters keep counting while off the 10-bit tube (bit 10
-    // blanks the beam). An asteroid is a chain of SVECs from one LABS;
-    // clamping the cursor to the edge would drag the rest of the outline
-    // along the bezel. Cite: MAME avgdvg.cpp dvg_gostrobe / bit 10.
-    // Zero-length bright VECs are photon shots (and similar) — a real XY
-    // monitor paints a bright spot. Keep them as point segments.
+    // 12-bit counters keep counting off the 10-bit tube (bit 10 blanks the beam)
+    // so SVEC chains from one LABS stay put (MAME avgdvg.cpp dvg_gostrobe).
+    // Zero-length bright VECs are photon shots: draw a point.
     if (intensity && dx == 0 && dy == 0) {
         if (unsigned(x0) <= 1023 && unsigned(y0) <= 1023)
             segments.push_back(VectorSeg{x0, y0, x0, y0, intensity});
@@ -55,8 +48,7 @@ void Dvg::draw_delta(int dx, int dy, uint8_t intensity) {
     }
 
     if (intensity) {
-        // Liang-Barsky against the visible 10-bit window. The cursor
-        // itself is not clamped.
+        // Liang-Barsky against the visible window; cursor is not clamped
         double t0 = 0, t1 = 1;
         auto clip = [&](double p, double q) {
             if (p == 0) return q >= 0;
@@ -94,7 +86,6 @@ void Dvg::run(const MemRead& read_word) {
         uint8_t cmd = uint8_t(op >> 12);
 
         if (cmd <= 0x9) {
-            // VEC: two words. First has scale+Y, second brightness+X.
             uint16_t op2 = read_word(pc_++);
             int local_scale = (op >> 12) & 0xF;
             int ymag = op & 0x3FF;
@@ -109,7 +100,6 @@ void Dvg::run(const MemRead& read_word) {
 
         switch (cmd) {
             case 0xA: {
-                // LABS / CUR: set (x,y) and global scale. Second word.
                 uint16_t op2 = read_word(pc_++);
                 y = op & 0x3FF;
                 x = op2 & 0x3FF;
@@ -120,7 +110,7 @@ void Dvg::run(const MemRead& read_word) {
                 halt = true;
                 break;
             case 0xC: {
-                // JSR — word address in low 12 bits; stack depth 4.
+                // JSR: 12-bit word address, stack depth 4
                 uint16_t dest = op & 0x0FFF;
                 if (sp_ < kStackDepth) {
                     stack_[sp_++] = pc_;
@@ -138,12 +128,8 @@ void Dvg::run(const MemRead& read_word) {
                 pc_ = op & 0x0FFF;
                 break;
             case 0xF: {
-                // SVEC — one word. Ss = ((op&0x800)>>11)|((op&8)>>2).
-                // Hardware remaps Ss to VEC local scale 2..5 and places the
-                // 2-bit deltas in bits 9:8 of the 10-bit magnitude (same path
-                // as VEC). Cite: Asteroids HDL / jmargolin schematics;
-                // computerarcheology VectorROM.html (LABS0 + SVEC ss2 x=3
-                // → dx 24).
+                // SVEC: Ss = ((op&0x800)>>11)|((op&8)>>2) remaps to VEC local scale
+                // 2..5, deltas in bits 9:8 (Asteroids HDL; computerarcheology VectorROM)
                 int ss = int(((op & 0x800) >> 11) | ((op & 0x8) >> 2));
                 int ymag = (op >> 8) & 3;
                 if (op & 0x400) ymag = -ymag;

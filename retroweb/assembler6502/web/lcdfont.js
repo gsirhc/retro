@@ -1,8 +1,4 @@
-// A small 5x7 dot-matrix font for rendering the J3 LCD accessory (see
-// hd44780.h) as an actual HD44780-style character-generator grid instead
-// of plain text -- covers exactly what rom/bios.s's LCD strings and the
-// boot_clock digits/colon actually use (uppercase, digits, space, and a
-// few punctuation marks), plus a fallback glyph for anything else.
+// 5x7 dot-matrix font for the J3 LCD: just what bios.s and boot_clock use, plus a fallback glyph.
 (function (global) {
   "use strict";
   const F = {
@@ -53,7 +49,7 @@
     "!": ["00100","00100","00100","00100","00100","00000","00100"],
     "?": ["01110","10001","00001","00010","00100","00000","00100"],
   };
-  const FALLBACK = ["11111","10001","10001","10001","10001","10001","11111"];   // an open box, for anything unmapped
+  const FALLBACK = ["11111","10001","10001","10001","10001","10001","11111"];
   global.LcdFont = {
     rows: 7, cols: 5,
     glyph(ch) { return F[ch] || FALLBACK; },

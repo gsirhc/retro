@@ -1,8 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-// Joystick/coin/start input mapping (app.js's applyKeys). IN0/IN1 are
-// active-low as the real cabinet edge connector presents them -- released
-// reads back 0xFF, a pressed bit reads back 0.
+// IN0/IN1 are active-low: released reads 0xFF, pressed clears the bit.
 
 test.describe("keyboard input", () => {
   test.beforeEach(async ({ page }) => {

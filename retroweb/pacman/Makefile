@@ -1,10 +1,7 @@
 # Namco Pac-Man (1980) arcade board emulator.
 #
 #   make test    GoogleTest suite (video + WSG + machine + board smoke).
-#                Optional playthroughs skip unless roms/user/ holds a dump:
-#                `UserRomInsertsCoinStartsAndEatsAPellet` (PACMAN_ROM /
-#                pacman/puckman) and `UserMsPacmanRomInsertsCoinStartsAndEatsAPellet`
-#                (MSPACMAN_ROM / mspacman zip with U5/U6/U7).
+#                User-ROM playthroughs skip unless roms/user/ holds a dump.
 #   make test-smoke  Smoke.* GoogleTest only (what deploy CI runs)
 #   make check   test (what nightly runs)
 #   make wasm    WebAssembly module

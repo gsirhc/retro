@@ -1,10 +1,4 @@
-// GoogleTest suite for this machine's glue-logic layer: memory read/write
-// and ROM write-protection, the A20 gate's effect on wraparound vs.
-// open-bus behavior, port I/O dispatch to the owned devices (including the
-// new secondary IDE channel for the ATAPI CD-ROM), and the master/slave
-// PIC cascade through poll_interrupt(). Adapted from
-// ibmpc-at/tests/chipset_test.cpp -- unchanged in spirit, just this
-// machine's own RAM size/floppy geometry, plus new CD-ROM coverage.
+// glue logic: memory and ROM protection, A20 wrap, port dispatch, secondary IDE channel, PIC cascade
 
 #include <gtest/gtest.h>
 
@@ -25,15 +19,13 @@ TEST(ChipsetTest, MemoryReadWriteRoundTrip) {
 }
 
 TEST(ChipsetTest, ExtendedMemoryAboveOneMebIsReadWriteWhenA20Open) {
-    // This machine's 32MB (kRamSize) is genuinely installed, unlike the
-    // AT's flat 1MB -- confirm the extended region actually round-trips
-    // once the A20 gate is open, not just the legacy 1MB window.
+    // 32MB is installed; the extended region must round-trip once A20 is open
     Chipset cs;
     auto bus = cs.make_bus();
     cs.kbc.out(0x64, 0xD1);
-    cs.kbc.out(0x60, 0x02);  // bit1 set -> A20 enabled
+    cs.kbc.out(0x60, 0x02);
     ASSERT_TRUE(cs.kbc.a20_enabled());
-    bus.write(bus.ctx, 0x00200000, 0x55);  // 2MB mark, well above the legacy 1MB window
+    bus.write(bus.ctx, 0x00200000, 0x55);
     EXPECT_EQ(bus.read(bus.ctx, 0x00200000), 0x55);
 }
 
@@ -44,16 +36,16 @@ TEST(ChipsetTest, RomRegionRejectsWrites) {
     auto bus = cs.make_bus();
     EXPECT_EQ(bus.read(bus.ctx, 0xF0000), 0x11);
     bus.write(bus.ctx, 0xF0000, 0xFF);
-    EXPECT_EQ(bus.read(bus.ctx, 0xF0000), 0x11);  // unchanged -- ROM ignores writes
+    EXPECT_EQ(bus.read(bus.ctx, 0xF0000), 0x11);  // ROM ignores writes
 }
 
 TEST(ChipsetTest, TheBiosRomAnswersAgainAtTheTopOfFourGigabytes) {
-    // Where a 486's first fetch after RESET lands (FFFFFFF0h).
+    // first fetch after RESET (FFFFFFF0h)
     Chipset cs;
     uint8_t rom[4] = {0xEA, 0x5B, 0xE0, 0x00};
     cs.load_rom(0xFFFF0, rom, 4);
     cs.kbc.out(0x64, 0xD1);
-    cs.kbc.out(0x60, 0x02);  // A20 on, as an OS that reboots leaves it
+    cs.kbc.out(0x60, 0x02);  // as an OS that reboots leaves it
     auto bus = cs.make_bus();
     EXPECT_EQ(bus.read(bus.ctx, 0xFFFFFFF0u), 0xEA);
     EXPECT_EQ(bus.read(bus.ctx, 0xFFFFFFF3u), 0x00);
@@ -66,7 +58,7 @@ TEST(ChipsetTest, TheBiosRomAnswersAgainAtTheTopOfFourGigabytes) {
 TEST(ChipsetTest, A20DisabledWrapsAt1MB) {
     Chipset cs;
     auto bus = cs.make_bus();
-    // A20 starts disabled (see i8042.h): address 0x100010 should alias 0x10.
+    // A20 starts disabled (i8042.h): 0x100010 aliases 0x10
     bus.write(bus.ctx, 0x000010, 0x77);
     EXPECT_EQ(bus.read(bus.ctx, 0x100010), 0x77);
 }
@@ -76,16 +68,14 @@ TEST(ChipsetTest, A20EnabledDoesNotWrapAndReachesExtendedRam) {
     auto bus = cs.make_bus();
     bus.write(bus.ctx, 0x000010, 0x77);
     cs.kbc.out(0x64, 0xD1);
-    cs.kbc.out(0x60, 0x02);  // bit1 set -> A20 enabled
+    cs.kbc.out(0x60, 0x02);
     ASSERT_TRUE(cs.kbc.a20_enabled());
-    EXPECT_EQ(bus.read(bus.ctx, 0x100010), 0x00);  // no wraparound; genuinely-installed extended RAM, zero-initialized
+    EXPECT_EQ(bus.read(bus.ctx, 0x100010), 0x00);  // no wraparound
     EXPECT_EQ(bus.read(bus.ctx, 0x000010), 0x77);  // low memory unaffected
 }
 
-// --- the page-resolution fast path (PC486_REVIEW.md §15) -----------------
-// page_host() has to answer exactly what mem_read/mem_write would, for every
-// byte of the page it hands over -- and refuse the page outright wherever
-// they would do something other than touch `mem`.
+// --- page_host() fast path ---
+// page_host() must answer exactly as mem_read/mem_write would, and refuse any page they would not serve from mem
 
 TEST(ChipsetTest, PageHostHandsOverPlainRamAndRefusesDeviceOrRomPages) {
     Chipset cs;
@@ -93,25 +83,25 @@ TEST(ChipsetTest, PageHostHandsOverPlainRamAndRefusesDeviceOrRomPages) {
     cs.load_rom(0xF0000, rom, 4);
     EXPECT_EQ(cs.page_host(0x01000, false), cs.mem.data() + 0x01000);
     EXPECT_EQ(cs.page_host(0x01000, true), cs.mem.data() + 0x01000);
-    EXPECT_EQ(cs.page_host(0xA0000, false), nullptr);  // VGA window: the card answers
-    EXPECT_EQ(cs.page_host(0xBF000, true), nullptr);   // ... to its last page too
+    EXPECT_EQ(cs.page_host(0xA0000, false), nullptr);  // VGA window
+    EXPECT_EQ(cs.page_host(0xBF000, true), nullptr);
     EXPECT_EQ(cs.page_host(0xF0000, false), cs.mem.data() + 0xF0000);  // ROM reads are plain memory
-    EXPECT_EQ(cs.page_host(0xF0000, true), nullptr);   // ... but writes must go the slow way
+    EXPECT_EQ(cs.page_host(0xF0000, true), nullptr);  // writes take the slow path
     cs.kbc.out(0x64, 0xD1);
-    cs.kbc.out(0x60, 0xDF);  // A20 on, so an address above 1MB stays there
-    EXPECT_EQ(cs.page_host(Chipset::kRamSize, false), nullptr);  // open bus above the RAM
+    cs.kbc.out(0x60, 0xDF);
+    EXPECT_EQ(cs.page_host(Chipset::kRamSize, false), nullptr);  // open bus above RAM
 }
 
 TEST(ChipsetTest, PageHostFollowsTheA20GateAndBumpsItsEpochWhenTheGateMoves) {
     Chipset cs;
     const uint32_t before = *cs.map_epoch();
-    // Gate closed: a page above 1MB aliases down, exactly as mem_read does.
+    // gate closed: a page above 1MB aliases down
     EXPECT_EQ(cs.page_host(0x100000, false), cs.mem.data());
     auto bus = cs.make_bus();
     bus.out(bus.ctx, 0x64, 0xD1);
-    bus.out(bus.ctx, 0x60, 0xDF);  // bit1 set -> A20 enabled (and the reset line left high)
+    bus.out(bus.ctx, 0x60, 0xDF);  // A20 on, reset line high
     ASSERT_TRUE(cs.kbc.a20_enabled());
-    EXPECT_NE(*cs.map_epoch(), before);  // an already-resolved page is now wrong
+    EXPECT_NE(*cs.map_epoch(), before);  // resolved pages are now stale
     EXPECT_EQ(cs.page_host(0x100000, false), cs.mem.data() + 0x100000);
 }
 
@@ -121,8 +111,7 @@ TEST(ChipsetTest, MapEpochAlsoMovesForARomLoadAndForAGateChangeMadeOutsideIoOut)
     uint32_t e0 = *cs.map_epoch();
     cs.load_rom(0xC0000, rom, 4);
     EXPECT_NE(*cs.map_epoch(), e0);
-    // A host poking the controller directly bypasses io_out; tick() runs
-    // after every instruction and catches it anyway.
+    // a host poke bypasses io_out; tick() catches it
     e0 = *cs.map_epoch();
     cs.kbc.out(0x64, 0xD1);
     cs.kbc.out(0x60, 0xDF);
@@ -149,8 +138,7 @@ TEST(ChipsetTest, DmaPageRegisterRoundTripsThroughPorts) {
 }
 
 TEST(ChipsetTest, EveryDmaPageRegisterPortReachesItsOwnChannel) {
-    // The AT's scrambled page-register map (IBM AT Technical Reference,
-    // "DMA Page Registers"): 87/83/81/82 for channels 0-3, 8F/8B/89/8A for 4-7.
+    // AT page-register map (IBM AT Technical Reference): 87/83/81/82 for channels 0-3, 8F/8B/89/8A for 4-7
     struct Port { uint16_t port; int controller; int channel; };
     const Port ports[] = {
         {0x87, 1, 0}, {0x83, 1, 1}, {0x81, 1, 2}, {0x82, 1, 3},
@@ -177,8 +165,7 @@ TEST(ChipsetTest, AWordOutToByteWidePortsSplitsLowByteFirst) {
 }
 
 TEST(ChipsetTest, TheVbeIndexAndDataPortsTakeAWholeWord) {
-    // Splitting these into two byte writes would land the high byte on the
-    // data port; the card's ID register only accepts a real ID.
+    // two byte writes would put the high byte on the data port
     Chipset cs;
     auto bus = cs.make_bus();
     bus.out16(bus.ctx, pc486::Ega::kVbeIndexPort, 0);   // VBE_DISPI_INDEX_ID
@@ -212,7 +199,7 @@ TEST(ChipsetTest, MasterPicInterruptDeliveredDirectly) {
 }
 
 TEST(ChipsetTest, FloppyDmaTransferCopiesRealBytesIntoMemory) {
-    // 80 cyl / 2 head / 18 sec/track -- this machine's 1.44MB 3.5" geometry.
+    // 1.44MB geometry
     Chipset cs;
     std::vector<uint8_t> img(80 * 2 * 18 * 512, 0);
     img[512] = 0x77;  // sector 2 (1-based), first byte
@@ -222,7 +209,7 @@ TEST(ChipsetTest, FloppyDmaTransferCopiesRealBytesIntoMemory) {
     cs.dma1.out(0x04, 0x00); cs.dma1.out(0x04, 0x20);  // address = 0x2000
     cs.dma1.out(0x05, 0xFF); cs.dma1.out(0x05, 0x01);  // count = 0x01FF (512 bytes)
 
-    // READ DATA: drive0/head0, C=0,H=0,R=2 (sector 2), N=2, EOT=2 (one sector).
+    // READ DATA, sector 2, one sector
     cs.fdc.out(0x3F5, 0xE6);
     cs.fdc.out(0x3F5, 0x00);
     cs.fdc.out(0x3F5, 0x00);
@@ -310,7 +297,7 @@ TEST(ChipsetTest, KeyboardIrq1ReachesThePic) {
     cs.pic_master.out(0x21, 0x01);
     cs.pic_master.out(0x21, 0x00);  // unmask all, vector base 8
     cs.kbc.out(0x64, 0x60); cs.kbc.out(0x60, 0x01);  // command byte: enable IRQ1
-    cs.kbc.in(0x60);  // drain the keyboard's power-on BAT byte, as BIOS POST does
+    cs.kbc.in(0x60);  // drain BAT
 
     cs.kbc.inject_scancode(0x1E);  // 'A' make code
     ASSERT_TRUE(cs.kbc.irq1_pending());
@@ -320,17 +307,8 @@ TEST(ChipsetTest, KeyboardIrq1ReachesThePic) {
 }
 
 TEST(ChipsetTest, SecondQueuedKeyboardByteStillReachesThePic) {
-    // A repro for the freeze the browser keeps reporting: two keyboard
-    // bytes land close enough together that the second is still in the
-    // queue when the first is read. The extended-key 0xE0 prefix pair is
-    // one real-world source (disks/build_freedos_hdd.cpp needed a fix for
-    // exactly this before this test existed); ordinary fast typing that
-    // outruns the guest's own ISR is another. in(0x60)'s pump_output()
-    // re-fills the output register and re-asserts irq1_pending() for byte
-    // two inside the very same call that cleared it for byte one -- no
-    // 1->0->1 transition is ever visible at tick granularity, which is
-    // the identical shape IRQ12 (see chipset.cpp's tick()) was already
-    // fixed for and IRQ1 was not.
+    // two keyboard bytes close together: in(0x60) refills the output register and re-asserts irq1 inside
+    // the same call, so no 1->0->1 edge shows at tick granularity (same shape as the IRQ12 fix in chipset.cpp tick())
     Chipset cs;
     cs.pic_master.out(0x20, 0x11);
     cs.pic_master.out(0x21, 0x08);
@@ -338,21 +316,18 @@ TEST(ChipsetTest, SecondQueuedKeyboardByteStillReachesThePic) {
     cs.pic_master.out(0x21, 0x01);
     cs.pic_master.out(0x21, 0x00);  // unmask all, vector base 8
     cs.kbc.out(0x64, 0x60); cs.kbc.out(0x60, 0x01);  // command byte: enable IRQ1
-    cs.kbc.in(0x60);  // drain the keyboard's power-on BAT byte, as BIOS POST does
+    cs.kbc.in(0x60);  // drain BAT
 
     cs.kbc.inject_scancode(0x1E);        // 'A' make code
-    cs.kbc.inject_scancode(0x9E);        // 'A' break code, queued behind it -- no tick in between
+    cs.kbc.inject_scancode(0x9E);  // queued behind it
     cs.tick(0, 66000000.0);
     ASSERT_TRUE(cs.pic_master.has_interrupt());
     EXPECT_EQ(cs.poll_interrupt(), 0x08 + 1);  // service byte one
-    // Through io_in(), not kbc.in() directly -- a real guest's IN AL,60h
-    // goes through the chipset's port dispatch, which is what re-opens
-    // tick()'s own PIT-paced service gate (see chipset.h's tick()/
-    // next_service_ comment) for the second pass below.
+    // through io_in(), as a guest IN AL,60h does; that reopens tick()'s service gate
     EXPECT_EQ(cs.io_in(0x60), 0x1E);            // the ISR's own IN AL,60h
     cs.pic_master.out(0x20, 0x20);              // and its EOI
 
-    // Byte two is genuinely sitting in the output register right now.
+    // byte two is already in the output register
     ASSERT_TRUE(cs.kbc.irq1_pending());
     cs.tick(0, 66000000.0);
     EXPECT_TRUE(cs.pic_master.has_interrupt())
@@ -363,11 +338,7 @@ TEST(ChipsetTest, SecondQueuedKeyboardByteStillReachesThePic) {
 }
 
 TEST(ChipsetTest, CdromOwnsSecondaryChannelWithoutStealingHddsPrimaryPorts) {
-    // The secondary IDE channel (CD-ROM) and primary channel (HDD) must
-    // each own only their own ports -- a too-wide range on either would
-    // silently steal the other's registers, the exact class of bug
-    // fdc765/wd1003's own 0x3F6-ownership tests already guard against on
-    // this machine's inherited devices.
+    // each IDE channel owns only its own ports
     Chipset cs;
     EXPECT_TRUE(cs.cdrom.owns(0x170));
     EXPECT_TRUE(cs.cdrom.owns(0x177));
@@ -377,29 +348,19 @@ TEST(ChipsetTest, CdromOwnsSecondaryChannelWithoutStealingHddsPrimaryPorts) {
 }
 
 TEST(ChipsetTest, CdromDataRegisterGoesThroughAtomicSixteenBitBusPath) {
-    // Same atomic-16-bit-access need as the HDD's 0x1F0 (see
-    // cpu80486.h/chipset.h's in16/out16 comments) -- IDENTIFY PACKET DEVICE
-    // (0xA1) is the standard ATAPI probe issued via the command register
-    // (0x177), and its result must be readable as real 16-bit words at
-    // 0x170, not decomposed into two 8-bit accesses that would misread an
-    // adjacent, unrelated register as the "high byte".
+    // IDENTIFY PACKET DEVICE (0xA1) must read as real 16-bit words at 0x170
     Chipset cs;
     auto bus = cs.make_bus();
     bus.out(bus.ctx, 0x176, 0xA0);  // drive/head: device 0 select
     bus.out(bus.ctx, 0x177, 0xA1);  // IDENTIFY PACKET DEVICE
     ASSERT_TRUE(bus.in(bus.ctx, 0x177) & 0x08);  // DRQ: data ready
     uint16_t word0 = bus.in16(bus.ctx, 0x170);
-    // Word 0 bits 15-14 = 10b for an ATAPI packet device (ATA/ATAPI-4+
-    // general-configuration convention) -- confirms this is genuinely the
-    // 16-bit-wide identify buffer, not two stitched-together 8-bit reads
-    // of whatever else happens to be at 0x170/0x171.
+    // word 0 bits 15-14 = 10b marks an ATAPI packet device
     EXPECT_EQ(word0 & 0xC000, 0x8000);
 }
 
 TEST(ChipsetTest, Irq15IsEdgeTriggeredOnSlaveLineSeven) {
-    // Same edge-triggering discipline as IRQ6/IRQ1 above, for IRQ15 (the
-    // CD-ROM's secondary-channel interrupt), which lives on the slave
-    // PIC's line 7 -- the standard secondary-IDE-channel IRQ assignment.
+    // edge-triggering for IRQ15, slave PIC line 7 (secondary IDE)
     Chipset cs;
     cs.pic_master.out(0x20, 0x11);
     cs.pic_master.out(0x21, 0x08);
@@ -413,7 +374,7 @@ TEST(ChipsetTest, Irq15IsEdgeTriggeredOnSlaveLineSeven) {
     cs.pic_slave.out(0xA1, 0x00);  // unmask all, vector base 0x70
 
     cs.cdrom.out(0x176, 0xA0);
-    cs.cdrom.out(0x177, 0xA1);  // IDENTIFY PACKET DEVICE -- a command that completes and raises IRQ15
+    cs.cdrom.out(0x177, 0xA1);  // raises IRQ15
 
     bool seen = false;
     for (uint64_t c = 0; c < 10'000'000; c += 100) {
@@ -432,8 +393,7 @@ TEST(ChipsetTest, Irq15IsEdgeTriggeredOnSlaveLineSeven) {
     EXPECT_FALSE(cs.pic_slave.has_interrupt());
 }
 
-// Brings both PICs up the way a real AT BIOS POST does, with everything
-// unmasked: master vector base 0x08 with a slave on IR2, slave base 0x70.
+// both PICs up as AT BIOS POST leaves them: master base 0x08, slave on IR2 base 0x70
 void InitPics(Chipset &cs) {
     cs.pic_master.out(0x20, 0x11);
     cs.pic_master.out(0x21, 0x08);
@@ -448,12 +408,8 @@ void InitPics(Chipset &cs) {
 }
 
 TEST(ChipsetTest, MousePacketBytesArriveOneInterruptAtATimeInOrder) {
-    // A 3-byte AUX packet raises IRQ12 once per byte, and the controller
-    // re-asserts the line inside the same in(0x60) that cleared it. A
-    // handler that runs with interrupts enabled -- the firmware's INT 74h
-    // does -- must therefore be protected by the PIC's in-service block, or
-    // it re-enters itself between reading a byte and storing it and the
-    // packet comes out in the wrong order (PC486_REVIEW.md §13).
+    // a 3-byte AUX packet raises IRQ12 per byte and the controller re-asserts inside the same in(0x60);
+    // the PIC in-service block keeps INT 74h from re-entering
     Chipset cs;
     InitPics(cs);
     cs.kbc.out(0x64, 0x60);  // write command byte: IRQ1 + IRQ12 on, AUX clock enabled
@@ -467,8 +423,7 @@ TEST(ChipsetTest, MousePacketBytesArriveOneInterruptAtATimeInOrder) {
     const uint8_t expect[3] = {0x08 | 0x01 | 0x20, 5, uint8_t(-3)};
     uint64_t cycles = 0;
     for (int byte = 0; byte < 3; ++byte) {
-        // One interrupt per byte, and nothing else may be delivered while
-        // this one is in service.
+        // one interrupt per byte, none while one is in service
         int vec = -1;
         for (int i = 0; i < 64 && vec < 0; ++i) { cs.tick(cycles += 8, 66000000.0); vec = cs.poll_interrupt(); }
         ASSERT_EQ(vec, 0x74) << "byte " << byte << " did not raise IRQ12";
@@ -480,23 +435,19 @@ TEST(ChipsetTest, MousePacketBytesArriveOneInterruptAtATimeInOrder) {
         cs.pic_slave.out(0xA0, 0x20);
         cs.pic_master.out(0x20, 0x20);
     }
-    // Exactly three bytes: no fourth interrupt from the same packet.
+    // exactly three bytes
     for (int i = 0; i < 64; ++i) cs.tick(cycles += 8, 66000000.0);
     EXPECT_EQ(cs.poll_interrupt(), -1);
 }
 
 TEST(ChipsetTest, SoundBlasterPlaybackDmaReadsMemoryIntoTheCard) {
-    // Direction is the whole test. A D/A transfer moves memory *into* the
-    // card; moving the card's own buffer out to memory instead leaves the
-    // DAC playing whatever the card was holding and silently overwrites the
-    // program's mixed audio (PC486_REVIEW.md §13).
+    // a D/A transfer moves memory into the card, not the other way
     Chipset cs;
     const uint32_t phys = 0x00012000;
     const uint8_t pcm[8] = {0x80, 0xFF, 0x00, 0x80, 0xC0, 0x40, 0x80, 0x80};
     for (uint32_t i = 0; i < 8; ++i) cs.mem_write(phys + i, pcm[i]);
 
-    // DMA1 channel 1: clear the flip-flop, program address/count, mode
-    // 0x49 (single transfer, address increment, read-from-memory), unmask.
+    // DMA1 channel 1, mode 0x49 (single, increment, read from memory)
     cs.io_out(0x0C, 0x00);
     cs.io_out(0x02, uint8_t(phys & 0xFF));
     cs.io_out(0x02, uint8_t((phys >> 8) & 0xFF));
@@ -523,14 +474,12 @@ TEST(ChipsetTest, SoundBlasterPlaybackDmaReadsMemoryIntoTheCard) {
     EXPECT_EQ(samples[1].left, 0x7F00);   // FFh
     EXPECT_EQ(samples[2].left, -32768);   // 00h
     EXPECT_EQ(samples[4].left, 0x4000);   // C0h
-    // Playback reads memory; it must not write a byte of it.
+    // playback must not write memory
     for (uint32_t i = 0; i < 8; ++i) EXPECT_EQ(cs.mem_read(phys + i), pcm[i]) << "byte " << i;
 }
 
 TEST(ChipsetTest, SoundBlasterRecordingDmaWritesTheCardsSamplesIntoMemory) {
-    // The mirror image: an A/D transfer carries the card's own samples out to
-    // memory. Nothing is plugged into the inputs, so what lands there is
-    // unsigned-8-bit silence.
+    // A/D transfer: unplugged inputs record unsigned-8-bit silence
     Chipset cs;
     const uint32_t phys = 0x00013000;
     for (uint32_t i = 0; i < 4; ++i) cs.mem_write(phys + i, 0x5A);
@@ -558,20 +507,15 @@ TEST(ChipsetTest, SoundBlasterRecordingDmaWritesTheCardsSamplesIntoMemory) {
 }
 
 TEST(ChipsetTest, SoundBlasterPlaybackWrapsWithinTheSixtyFourKPageNotAcrossIt) {
-    // The 8-bit channel's address register is 16 bits; starting near the top
-    // of a 64KB page and asking for more bytes than fit must wrap back to the
-    // bottom of that same page (a real, documented 8237 quirk -- see
-    // dma8237.h's Channel comment), not spill into the next page up. Before
-    // this fix, service_sb_dma() computed one phys address up front and
-    // walked phys+i, which ran straight off the end of the page instead.
+    // the 8-bit address register wraps within its 64KB page (8237, dma8237.h Channel), not into the next
     Chipset cs;
     const uint32_t page = 0x00020000;      // page-aligned
     const uint32_t start = page + 0xFFFE;  // last 2 bytes of the page
     const uint8_t pcm[4] = {0xA1, 0xB2, 0xC3, 0xD4};
     cs.mem_write(start, pcm[0]);
     cs.mem_write(start + 1, pcm[1]);
-    cs.mem_write(page, pcm[2]);      // where byte 2 must wrap back to
-    cs.mem_write(page + 1, pcm[3]);  // and byte 3
+    cs.mem_write(page, pcm[2]);
+    cs.mem_write(page + 1, pcm[3]);
 
     cs.io_out(0x0C, 0x00);
     cs.io_out(0x02, uint8_t(start & 0xFF));
@@ -599,9 +543,7 @@ TEST(ChipsetTest, SoundBlasterPlaybackWrapsWithinTheSixtyFourKPageNotAcrossIt) {
 }
 
 TEST(ChipsetTest, DmaIdentificationWritesOneByteToMemoryWithNoInterrupt) {
-    // E2h's single-byte DMA write (see soundblaster.cpp's run_command) goes
-    // through the same chipset DMA path as every other transfer, but it is
-    // not a DSP "block": no interrupt, no block-counter bookkeeping.
+    // E2h's single-byte DMA write is not a DSP block: no interrupt, no counters
     Chipset cs;
     InitPics(cs);
     const uint32_t phys = 0x00015000;
@@ -656,20 +598,16 @@ TEST(ChipsetTest, SoundBlasterBlockEndRaisesIrq5) {
 }
 
 TEST(ChipsetTest, SoundBlasterHonoursTheMixerSelectedIrqLine) {
-    // Mixer 80h picks which real PIC line the card actually drives -- before
-    // this, chipset.cpp hardcoded IRQ5 regardless of the register.
+    // mixer 80h selects which PIC line the card drives
     Chipset cs;
-    uint64_t cycles = 0;  // kept monotonic across every sub-case below
+    uint64_t cycles = 0;
 
     auto select_and_trigger = [&](uint8_t mixer80) {
         InitPics(cs);  // fresh master (vector base 8) and slave (0x70), fully unmasked
         cs.io_out(0x226, 1);
         cs.io_out(0x226, 0);
         ASSERT_EQ(cs.io_in(0x22A), 0xAA);
-        // Flush chipset.cpp's sb_irq_prev_ edge-detect state before arming
-        // the next interrupt -- a DSP reset clears sb.irq_pending()
-        // immediately, but sb_irq_prev_ only catches up to that on the next
-        // tick(), and the F2h below sets it pending again synchronously.
+        // flush sb_irq_prev_ edge state first; it only catches up on the next tick()
         cs.tick(cycles += 64, 66000000.0);
         cs.io_out(0x224, 0x80);
         cs.io_out(0x225, mixer80);
@@ -690,16 +628,11 @@ TEST(ChipsetTest, SoundBlasterHonoursTheMixerSelectedIrqLine) {
     select_and_trigger(0x08);  // bit3 = IRQ10 = global IRQ10 = slave line 2
     EXPECT_EQ(run_to_vector(), 0x70 + 2);
 
-    // bit0 = the card's "IRQ2" jumper position. On an AT this is wired to
-    // the slave's IR1 (global IRQ9), not the master's own IR2 -- IBM
-    // rerouted XT cards jumpered for IRQ2 there when the second 8259 was
-    // cascaded in at that line (IBM 5170 Technical Reference). Master IR2
-    // is only ever the cascade input, never a device's own interrupt.
+    // bit0 is the "IRQ2" jumper; on an AT it routes to slave IR1 (IRQ9) (IBM 5170 Technical Reference)
     select_and_trigger(0x01);
     EXPECT_EQ(run_to_vector(), 0x70 + 1);
 
-    // No bit set: software deselected every line, so the card drives no
-    // interrupt at all.
+    // no bit set: no interrupt
     select_and_trigger(0x00);
     for (int i = 0; i < 100; ++i) cs.tick(cycles += 64, 66000000.0);
     EXPECT_EQ(cs.poll_interrupt(), -1);
@@ -724,19 +657,14 @@ TEST(ChipsetTest, SlaveInterruptCascadesThroughMasterIr2) {
 }  // namespace
 
 TEST(ChipsetTest, Mpu401AnswersItsOwnPortsThroughTheBusDecode) {
-    // The MPU-401 is on the same SB16 card but at its own base address, so
-    // the bus has to reach it separately from the card's own block -- and
-    // without either device claiming the other's ports. SBPG Appendix A
-    // Table A-16 puts it at 330h/331h by factory default.
+    // MPU-401 sits at its own base, SBPG Appendix A Table A-16 default 330h/331h
     Chipset cs;
     EXPECT_FALSE(cs.sb.owns(0x330)) << "the card's own block must not cover the MPU-401";
     EXPECT_FALSE(cs.mpu.owns(0x220));
-    // The documented detection probe, driven entirely through the bus: write
-    // FFh to the command port, poll the status port, read 0FEh back.
+    // detection probe: FFh to command, poll status, read FEh
     cs.io_out(0x331, 0xFF);
     EXPECT_EQ(cs.io_in(0x331) & 0x80, 0x00) << "status must report input data available";
     EXPECT_EQ(cs.io_in(0x330), 0xFE);
-    // Entering UART mode works the same way round-trip.
     cs.io_out(0x331, 0x3F);
     EXPECT_EQ(cs.io_in(0x330), 0xFE);
     EXPECT_TRUE(cs.mpu.uart_mode());

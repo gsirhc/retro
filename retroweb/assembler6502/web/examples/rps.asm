@@ -1,16 +1,8 @@
-; ROCK-PAPER-SCISSORS -- a real 5-round match against the
-; computer. READ_KEY ($8018, a new OS call -- see the Help
-; panel) blocks for a keypress, echoes it, and returns it
-; (force-uppercased) in A -- type R, P, or S at each prompt.
-; The computer's own throw comes from an 8-bit Galois LFSR
-; (seeded #$A5, tap mask $B8) reduced mod 3. Every fixed string
-; is a .BYTE literal walked by its own small indexed loop
-; instead of one LDA #imm / JSR pair per character -- JMP START
-; skips past all the raw data up front (falling into it would
-; run the string bytes as instructions). A short 1-2 char print
-; (just CR/LF, or a single computed digit) stays a plain
-; LDA/JSR pair -- a .BYTE + loop only pays for itself on a real
-; string. ASM, then RUN.
+; ROCK-PAPER-SCISSORS. A 5-round match against the computer. READ_KEY
+; ($8018, see Help panel) blocks for a key, echoes it and returns it
+; uppercased in A. Type R, P, or S. The computer's throw is an 8-bit
+; Galois LFSR (seed #$A5, taps $B8) mod 3. Strings are .BYTE data walked
+; by loops; JMP START skips them. ASM, then RUN.
 JMP START
 MSGRPS: .BYTE "R/P/S? ",$00
 MSGYOU: .BYTE "YOU: ",$00

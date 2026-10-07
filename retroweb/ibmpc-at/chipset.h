@@ -1,19 +1,12 @@
-// The AT's "glue logic": owns every chipset device plus the flat 1MB
-// memory window, and builds the cpu80286::Bus the CPU core talks through.
-// Plays the same role cg-oac-6502's bus.h plays for its 74HC00 address
-// decode, scaled up to an ISA-bus machine's separate port space plus its
-// own memory decode (including the A20 gate, which is a motherboard-level
-// concern per cpu80286.h's own header comment -- the CPU never masks
-// addresses itself).
+// AT glue logic: owns the chipset devices and the 1MB memory window, and
+// builds the cpu80286::Bus. The A20 gate lives here, not in the CPU.
 //
-// Memory map, as populated on this system (640KB conventional, no
-// extended memory -- see IBM_PCAT_REVIEW.md and the approved plan):
+// Memory map (640KB conventional, no extended memory):
 //   0x00000-0x9FFFF  640KB conventional RAM
 //   0xA0000-0xBFFFF  EGA video RAM window (routed to `ega`, not `mem`)
 //   0xC0000-0xC7FFF  EGA video BIOS extension ROM window (vgabios)
 //   0xF0000-0xFFFFF  system BIOS ROM
-// Anything not populated reads as 0xFF (open bus) and discards writes,
-// matching a real AT with nothing wired to that address range.
+// Unpopulated addresses read 0xFF and discard writes.
 #ifndef IBMPCAT_CHIPSET_H
 #define IBMPCAT_CHIPSET_H
 
@@ -41,13 +34,11 @@ public:
 
     void reset();
 
-    // Builds the callbacks cpu80286::Cpu is constructed with. The returned
-    // Bus's std::functions capture `this` by reference -- the Chipset must
-    // outlive any Cpu built from it.
+    // The returned Bus captures `this`; the Chipset must outlive any Cpu built from it.
     cpu80286::Bus make_bus();
 
     std::array<uint8_t, 0x100000> mem{};
-    // Marks [addr, addr+len) read-only (a ROM image) and copies `data` in.
+    // Marks [addr, addr+len) read-only and copies `data` in.
     void load_rom(uint32_t addr, const uint8_t *data, std::size_t len);
 
     Pic8259 pic_master{0x20};
@@ -62,47 +53,24 @@ public:
     Wd1003 hdd;
     PcSpeaker speaker;
 
-    // Port 0x61 ("PPI port B" equivalent): bit0 gates PIT channel 2
-    // (speaker), bit1 enables the speaker data path, bit4 is a refresh-
-    // activity toggle a BIOS's memory-refresh POST test polls for
-    // liveness, bit5 reads channel 2's current output level back.
+    // Port 0x61: bit0 gates PIT ch2, bit1 enables the speaker, bit4 is the
+    // refresh toggle, bit5 reads back ch2 output.
     uint8_t port61() const;
     void set_port61(uint8_t v);
 
-    // Advances the PIT against the CPU's running cycle count and pulses
-    // PIC IRQ0 for every channel-0 rising edge it reports; flips the
-    // refresh-activity toggle once per call; recomputes the speaker's
-    // AND-gate signal from the current Port 0x61 Speaker Data Enable bit
-    // and PIT channel 2's output. Machine::run_cycles() calls this once
-    // per CPU instruction (not literally once per video frame, despite the
-    // "call once per frame" phrasing disk88/cassette's tick() convention
-    // elsewhere in this codebase uses) -- fine enough granularity for the
-    // speaker's direct-toggle digitized-playback technique to be captured
-    // accurately.
+    // Advances the PIT and pulses IRQ0 per ch0 rising edge, flips the refresh
+    // toggle, updates the speaker. Called once per CPU instruction.
     void tick(uint64_t cpu_cycles, double cpu_hz);
 
-    // Services one INTA cycle: cascades through the slave when the
-    // master's highest-pending line is IR2, exactly like real AT wiring.
+    // One INTA cycle, cascading through the slave when the master's top line is IR2.
     // Returns -1 if nothing is pending.
     int poll_interrupt();
     bool has_interrupt() const { return pic_master.has_interrupt() || pic_slave.has_interrupt(); }
 
-    // Port 0x80 is the classic BIOS POST-diagnostic-code sink -- real
-    // hardware has nothing listening on it beyond an (optional) LED
-    // display; this core just remembers the last byte written so a native
-    // test/diagnostic harness can observe POST progress the way a real
-    // debug card would.
+    // Port 0x80: last BIOS POST code written.
     uint8_t last_post_code() const { return last_post_code_; }
 
-    // Port 0xE9: the well-known Bochs/QEMU "debug console" convention --
-    // bytes written here have no real hardware meaning at all (no genuine
-    // AT has anything wired to 0xE9) but the Bochs BIOS this machine boots
-    // (and many others) opportunistically writes ASCII progress/panic text
-    // there if a debug console might be listening. Captured verbatim so a
-    // native diagnostic harness can read out what the BIOS was trying to
-    // report, e.g. around a POST failure -- not exposed to the CPU as
-    // anything it can read back, matching real hardware having nothing
-    // there to read.
+    // Port 0xE9: Bochs/QEMU debug console. The Bochs BIOS writes progress text here.
     const std::string &debug_console() const { return debug_console_; }
 
 private:
@@ -111,26 +79,15 @@ private:
     bool refresh_toggle_ = false;
     uint8_t last_post_code_ = 0x00;
     std::string debug_console_;
-    // IRQ6 (the FDC's interrupt line) is genuine ISA edge-triggered, like
-    // every other ISA IRQ on a real AT -- it should be raised once, on the
-    // 0->1 transition of fdc.irq_pending(), not re-raised every tick for
-    // as long as the condition merely remains true. Getting this wrong
-    // was a real bug this session hit: some real BIOS interrupt handlers
-    // legitimately return without draining the FDC's result bytes
-    // themselves (leaving that to foreground code that polls a status
-    // flag later) -- re-raising IRQ6 on every subsequent tick while it
-    // waited turned that into an infinite interrupt storm that starved
-    // the foreground code of any chance to run. See IBM_PCAT_REVIEW.md §8.
+    // IRQ6 is edge-triggered: raised on the 0->1 transition only. Re-raising every tick
+    // storms the CPU when a BIOS handler leaves FDC result bytes undrained.
     bool fdc_irq_prev_ = false;
-    bool kbc_irq_prev_ = false;  // same edge-triggering discipline, for IRQ1 (keyboard)
-    bool hdd_irq_prev_ = false;  // ...and for IRQ14 (hard disk)
+    bool kbc_irq_prev_ = false;
+    bool hdd_irq_prev_ = false;
 
     uint8_t io_in(uint16_t port);
     void io_out(uint16_t port, uint8_t v);
-    // Default: compose two 8-bit accesses (port, port+1) -- correct for
-    // every device except the hard disk controller's inherently-16-bit
-    // data register, which special-cases port 0x1F0. See cpu80286.h's
-    // Bus::in16/out16 comment.
+    // Composes two 8-bit accesses, except the HDD data register at 0x1F0.
     uint16_t io_in16(uint16_t port);
     void io_out16(uint16_t port, uint16_t v);
     uint8_t mem_read(uint32_t addr);

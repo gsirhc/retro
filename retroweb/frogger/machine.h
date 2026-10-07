@@ -1,8 +1,6 @@
 // Konami Frogger (1981) board: dual Z80 + Galaxian video + AY-3-8910.
 //
-// Memory map from the Konami/Sega service material and Computer Archaeology
-// Frogger hardware notes. MAME galaxian.cpp (machine frogger) is a
-// cross-check of decoded chip-selects, not a behavior source.
+// Memory map: Konami/Sega service material, Computer Archaeology Frogger notes.
 // Clocks: main 18.432/6 = 3.072 MHz; sound Z80 and AY 14.31818/8 = 1.789772 MHz.
 
 #ifndef FROGGER_MACHINE_H
@@ -87,10 +85,7 @@ private:
 // have D0↔D1 swapped. 607 is the high plane and is wired straight.
 uint8_t swap_d0d1(uint8_t v);
 
-// Konami sound-board timer on AY port B. `sound_cpu_cycles` is T-states
-// of the 1.789772 MHz sound Z80. Frogger swaps bits 3 and 5 of the
-// generic Konami reading. Computer Archaeology / Konami sound board;
-// MAME konami_sound_timer_r / frogger_sound_timer_r is a cross-check.
+// Konami sound-board timer on AY port B; Frogger swaps bits 3 and 5 (Computer Archaeology).
 uint8_t sound_timer_port(uint64_t sound_cpu_cycles);
 
 }  // namespace frogger

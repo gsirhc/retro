@@ -1,11 +1,9 @@
-// Emscripten wrapper: binds machine::Machine into one `Machine` object the
-// browser can drive. Build with `make` in this directory (needs the emsdk
-// toolchain on PATH). Modeled on retroweb/altair8800/web/wasm_machine.cpp.
+// Emscripten wrapper binding machine::Machine for the browser (embind).
 //
-// JS surface (all via embind):
+// JS surface:
 //   const m = new Module.Machine();
-//   m.burnRom(uint8Array);          // seat a chip in the ZIF socket (instant, boot-time load)
-//   m.pressReset();                  // SW1 / J4 -- re-arms the DS1813 hold
+//   m.burnRom(uint8Array);          // seat a chip in the ZIF socket (instant)
+//   m.pressReset();                  // SW1 / J4
 //   m.typeChar(0x41);                // terminal -> ACIA receive
 //   m.runCycles(16667);              // advance ~1 frame at 1 MHz
 //   const out = m.readOutput();      // Uint8Array the ACIA transmitted
@@ -30,19 +28,14 @@ public:
         m_.on_tx_led = [this](bool) { tx_pulse_ = true; };
     }
 
-    // --- ROM programmer ("the ZIF socket") ------------------------------
-    // Instant seat -- used for the default boot ROM and the "chip library"
-    // swap, both of which are "pull the chip, put a different one in"
-    // moments, not a programming operation. See programRom() for the
-    // actual page-write-timed burn.
+    // --- ROM programmer (ZIF socket) ---
+    // Instant chip swap, not a programming operation. programRom() does the timed burn.
     void burnRom(val bytes) {
         std::vector<uint8_t> data = emscripten::convertJSArrayToNumberVector<uint8_t>(bytes);
         m_.bus.rom.load_image(data.data(), int(data.size()));
     }
 
-    // Begin a realistic, page-write-timed program of `bytes` starting at
-    // `addr` (see eeprom28c256.h). advanceProgram() drives it forward;
-    // programBusy()/programProgress() report status for the UI.
+    // Begin a page-write-timed burn of `bytes` at `addr`; advanceProgram() drives it
     void programRom(int addr, val bytes) {
         program_buf_ = emscripten::convertJSArrayToNumberVector<uint8_t>(bytes);
         m_.bus.rom.begin_program(uint16_t(addr), program_buf_.data(), int(program_buf_.size()));
@@ -51,8 +44,7 @@ public:
     bool programBusy() const { return m_.bus.rom.busy(); }
     double programProgress() const { return m_.bus.rom.progress(); }
 
-    // Read back the chip's current contents (for the programmer's
-    // "verify" step, or to save the running image as a named chip).
+    // Read back the chip's contents
     val readRom() {
         const uint8_t *raw = m_.bus.rom.raw();
         val out = val::global("Uint8Array").new_(eeprom28c256::kSize);
@@ -60,7 +52,7 @@ public:
         return out;
     }
 
-    // --- reset / jumpers -------------------------------------------------
+    // --- reset / jumpers ---
     void pressReset() { m_.press_reset(); }
 
     void setLcdAttached(bool a) { m_.set_lcd_attached(a); }
@@ -72,7 +64,7 @@ public:
     void setRtsToCts(bool on) { m_.bus.jumpers.rts_to_rs232_cts = on; }
     void setBootSelect(int v) { m_.bus.jumpers.boot_select = uint8_t(v & 0x0F); }
 
-    // --- terminal <-> ACIA -------------------------------------------------
+    // --- terminal <-> ACIA ---
     void typeChar(int byte) { m_.type_char(uint8_t(byte & 0xFF)); }
 
     val readOutput() {
@@ -85,25 +77,17 @@ public:
 
     int aciaBaud() const { return m_.bus.acia.baud(); }
 
-    // Appends `bytes` directly to the queue readOutput() drains -- lets
-    // app.js print terminal text that didn't actually come out the
-    // emulated ACIA (used only for pokeExample()'s "LOAD"/"Ok"
-    // confirmation, standing in for what a real LOAD's own echo would
-    // show, since the transfer it's confirming bypassed the ACIA
-    // entirely -- see that function's own comment). Flows through the
-    // exact same readOutput()/terminal-write pipeline as genuine ACIA
-    // output, so nothing downstream (including the raw-output-spy test
-    // helper) needs to special-case it.
+    // Appends to the readOutput() queue; pokeExample() uses it for the LOAD/Ok echo
     void injectOutput(val bytes) {
         std::vector<uint8_t> data = emscripten::convertJSArrayToNumberVector<uint8_t>(bytes);
         out_q_.insert(out_q_.end(), data.begin(), data.end());
     }
 
-    // --- run -------------------------------------------------------------
+    // --- run ---
     void runCycles(int cycles) { m_.run_cycles(cycles); }
     double cycleCount() const { return double(m_.cycles()); }
 
-    // --- LCD (J3 accessory) -----------------------------------------------
+    // --- LCD (J3) ---
     // 32-char string, row-major (chars 0-15 = row 0, 16-31 = row 1).
     val lcdText() const {
         std::string s;
@@ -112,40 +96,23 @@ public:
         return val(s);
     }
 
-    // --- LEDs: "since last poll" pulses, like the Altair bridge's
-    // rxPending()/txPending() pattern ---------------------------------
+    // --- LEDs: pulses since last poll ---
     bool rxLedPulse() { bool p = rx_pulse_; rx_pulse_ = false; return p; }
     bool txLedPulse() { bool p = tx_pulse_; tx_pulse_ = false; return p; }
     bool contended() const { return m_.bus.last_access_was_contended; }
 
-    // Bytes still waiting in bios.s's SERIAL_BUFFER RX ring ($0200-$02FF,
-    // a real hardware structure -- but READ_PTR/WRITE_PTR, its own zero
-    // page $00/$01, are ROM convention, not something this C++ model
-    // tracks itself, so this just reads those two live bytes the same way
-    // a real logic analyzer would). Used by app.js's driveFrame() as
-    // backpressure: a bulk multi-line LOAD can otherwise inject characters
-    // faster than STORE_LINE's own O(n) buffer scan (see
-    // CGOAC6502_REVIEW.md) can drain them, silently overrunning this
-    // 256-byte ring and corrupting the transfer -- not a real ACIA
-    // limitation (it has no such counter of its own), purely a JS-side
-    // input-pacing seam.
+    // Bytes waiting in bios.s's SERIAL_BUFFER ring ($0200-$02FF), from its
+    // READ_PTR/WRITE_PTR at $00/$01. app.js's driveFrame() uses it as backpressure:
+    // a bulk LOAD can outrun STORE_LINE's buffer scan and overrun the 256-byte ring.
     int serialPending() const {
         uint8_t read_ptr = m_.bus.ram[0];
         uint8_t write_ptr = m_.bus.ram[1];
         return int(uint8_t(write_ptr - read_ptr));
     }
 
-    // Writes `bytes` directly into RAM starting at `addr` -- bypasses the
-    // ACIA/NMI serial-reception simulation entirely. Used only to seat a
-    // pre-assembled Example's source buffer + object code + ASMPC (see
-    // app.js's loadExampleBinary(), and web/Makefile's `examples-bin`
-    // target, which produces each .bin by actually running the board's
-    // own real two-pass assembler once, headlessly, at build time) --
-    // never for anything a real visitor types or Loads by hand, which
-    // always goes through typeChar()'s real ACIA/NMI path. Silently
-    // clamps to the real $0000-$3FFF RAM window (a write past $3FFF is
-    // simply dropped, matching how bus.cpp's own decode already ignores
-    // addresses outside a region's real span elsewhere).
+    // Writes `bytes` into RAM, bypassing the ACIA/NMI path. Only for seating an
+    // Example's source buffer (app.js loadExampleBinary(), Makefile `examples-bin`).
+    // Writes past $3FFF are dropped.
     void pokeRam(int addr, val bytes) {
         std::vector<uint8_t> data = emscripten::convertJSArrayToNumberVector<uint8_t>(bytes);
         for (size_t i = 0; i < data.size(); i++) {

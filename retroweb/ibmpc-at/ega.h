@@ -1,43 +1,20 @@
 // IBM Enhanced Graphics Adapter.
 //
-// Owns the 256KB video RAM window (0xA0000-0xBFFFF... the card itself only
-// decodes 0xA0000-0xAFFFF for graphics and 0xB8000-0xBFFFF for text/CGA
-// compatibility; 0xB0000-0xB7FFF is the MDA-compatible mono text window,
-// unused by this color-display machine but still decoded so a write there
-// doesn't fall through to conventional RAM) and the standard EGA register
-// set: CRTC (0x3D4/0x3D5), Sequencer (0x3C4/0x3C5), Graphics Controller
-// (0x3CE/0x3CF), Attribute Controller (0x3C0, address/data toggled by
-// writes and reset by reading Input Status 1), Input Status 1 (0x3DA),
-// and the Miscellaneous Output Register (0x3C2 write / 0x3CC read).
+// Decodes 0xA0000-0xBFFFF (graphics at A0000, color text at B8000, mono text
+// at B0000) and the EGA register set: CRTC 0x3D4/5, Sequencer 0x3C4/5,
+// Graphics Controller 0x3CE/F, Attribute Controller 0x3C0 (flip-flop reset by
+// reading 0x3DA), Input Status 1 0x3DA, Misc Output 0x3C2/0x3CC.
 //
-// Phase 5: real planar memory. VRAM is 4 bitplanes of 64KB each, byte-
-// interleaved as vram[(plane_offset << 2) + plane] -- the genuine EGA/VGA
-// hardware layout, not an approximation of it. mem_read/mem_write implement
-// the real latch-and-ALU engine: every read loads all 4 planes' bytes into
-// a 4-byte latch (Read Mode 0 then returns one plane, substituted by the
-// CPU address's own odd/even-ness when the Sequencer's odd/even chain is
-// active, exactly like text mode's character/attribute split; Read Mode 1
-// does a 4-plane colour-compare instead); every write runs the CPU byte (or
-// the latch, or bit-per-plane selection, depending on Write Mode) through
-// Set/Reset, the data-rotate ALU function, and the Bit Mask before storing,
-// gated per-plane by the Sequencer's Map Mask and -- when odd/even chaining
-// is active -- by the CPU address's own parity, which is what lets a flat
-// CPU address transparently reach alternating planes without the CPU or
-// BIOS ever needing to think in terms of planes at all (used by text mode
-// for character/attribute, and by the BIOS's own character-generator/font-
-// loading code targeting planes 2/3 the same way, just with Map Mask
-// pointed at a different pair of bits). Chain Four (VGA mode 13h's chained-
-// pixel addressing) does not exist on real EGA hardware and is deliberately
-// not modeled here -- see IBM_PCAT_REVIEW.md §12.
+// VRAM is 4 bitplanes of 64KB, byte-interleaved as vram[(plane_offset << 2) + plane].
+// Reads load all 4 planes into a latch. Read Mode 0 returns one plane (the CPU
+// address parity picks it under odd/even chaining), Read Mode 1 does a colour
+// compare. Writes run through Set/Reset, the rotate ALU and Bit Mask, gated by
+// Map Mask and odd/even parity. Chain Four is VGA-only and not modeled
+// (IBM_PCAT_REVIEW.md §12).
 //
-// Register semantics are the IBM EGA/VGA standard, reproduced identically
-// by every compatible BIOS (including this machine's Bochs vgabios) since
-// software that pokes these registers directly depends on exact IBM
-// compatibility; the memory-access algorithm additionally matches Bochs's
-// own reference implementation (bx_vgacore_c::mem_read/mem_write in
-// vgacore.cc, pinned commit ff17a0c2bbabccf96d33af4e08ba8061889b079d --
-// the same source tree this machine's own BIOS/VGABIOS images are built
-// from). See IBM_PCAT_REVIEW.md §12.
+// The memory algorithm follows Bochs bx_vgacore_c::mem_read/mem_write in
+// vgacore.cc (commit ff17a0c2bbabccf96d33af4e08ba8061889b079d, the tree this
+// machine's BIOS/VGABIOS are built from). IBM_PCAT_REVIEW.md §12.
 #ifndef IBMPCAT_EGA_H
 #define IBMPCAT_EGA_H
 
@@ -58,147 +35,69 @@ public:
     uint8_t mem_read(uint32_t addr) const;
     void mem_write(uint32_t addr, uint8_t v);
 
-    // Advances the Input Status 1 retrace toggle against the CPU's running
-    // cycle count -- so a BIOS/driver's "wait for vertical retrace" polling
-    // loop can't hang. Not a real ~70Hz refresh timing; just enough
-    // liveness that the bit visibly changes over a bounded number of ticks.
+    // Toggles the Input Status 1 retrace bit so wait-for-retrace loops can't hang.
+    // Not real ~70Hz timing.
     void tick(uint64_t cpu_cycles);
 
-    // Host/front-end convenience for a future renderer: current CRTC
-    // cursor position and display start address (both are 16-bit CRTC
-    // register pairs, offsets into the text-mode VRAM window).
+    // CRTC cursor position and display start address (16-bit register pairs).
     uint16_t cursor_offset() const { return uint16_t((crtc_[0x0E] << 8) | crtc_[0x0F]); }
     uint16_t start_offset() const { return uint16_t((crtc_[0x0C] << 8) | crtc_[0x0D]); }
 
-    // Cursor shape, CRTC registers 0x0A (Cursor Start: bit 5 = disable,
-    // bits 0-4 = start scanline) / 0x0B (Cursor End: bits 0-4 = end
-    // scanline) -- what a renderer needs to draw the real block cursor at
-    // the right scanlines within a character cell, or not draw it at all.
+    // Cursor shape: CRTC 0x0A (bit 5 = disable, bits 0-4 = start scanline) and 0x0B (bits 0-4 = end).
     bool cursor_disabled() const { return (crtc_[0x0A] >> 5) & 1; }
     uint8_t cursor_start_scanline() const { return uint8_t(crtc_[0x0A] & 0x1F); }
     uint8_t cursor_end_scanline() const { return uint8_t(crtc_[0x0B] & 0x1F); }
 
-    // Host/front-end convenience: one Attribute Controller internal
-    // palette register (0-15), the real 6-bit EGA color value (2 bits per
-    // channel -- primary + secondary/intensity, each channel decoding as
-    // primary*0xAA + secondary*0x55) that byte-attribute nibble maps to.
-    // A renderer combines this with the character-generator bits in plane
-    // 2 (also public, via `vram`) to paint an actual screen.
+    // Attribute Controller palette register (0-15), a 6-bit EGA color.
     uint8_t attr_palette(int index) const { return uint8_t(attr_[index & 0x0F] & 0x3F); }
 
-    // Host/front-end convenience: whether the Graphics Controller's own
-    // Miscellaneous register currently selects graphics addressing over
-    // alphanumeric (GR06 bit 0) -- a renderer's first branch, deciding
-    // between a text-mode and a graphics-mode screen, exactly like a real
-    // CRT controller's own mode logic.
+    // GR06 bit 0: graphics versus alphanumeric addressing.
     bool graphics_mode_active() const { return (gfx_[6] & 0x01) != 0; }
 
-    // Host/front-end convenience: the Graphics Controller Mode register's
-    // Shift Register field (GR05 bits 5-6) -- 0 selects normal 16-color
-    // planar shift-out (real, native EGA graphics: verified by directly
-    // invoking this machine's own BIOS INT 10h AL=0x10 mode-set and
-    // reading back exactly what it programs -- see IBM_PCAT_REVIEW.md
-    // §16), 1 selects "Shift 2 4-color" (the CGA-compatibility mode: each
-    // memory cycle's plane-0 byte then plane-1 byte, each read as four
-    // 2-bit CGA-style pixels in turn). Genuine 1984 EGA silicon has no
-    // hardware for value 2 (VGA's 256-color Chain-4 mode) -- but this
-    // machine's freely-licensed BIOS substitute is a full VGA BIOS (see
-    // IBM_PCAT_REVIEW.md §6), so software that auto-detects and finds
-    // VGA-class capability can and does legitimately program it anyway
-    // (confirmed happening with a real commercial game); that's a real
-    // firmware/hardware mismatch this machine's real EGA device correctly
-    // can't display, not a rendering gap to fill.
+    // GR05 bits 5-6 Shift Register: 0 = 16-color planar (verified against this
+    // BIOS's INT 10h AL=0x10, IBM_PCAT_REVIEW.md §16), 1 = CGA-compatible 4-color.
+    // Value 2 (VGA 256-color Chain-4) has no EGA hardware, but this VGA BIOS
+    // lets software program it anyway.
     uint8_t gc_shift_register_mode() const { return uint8_t((gfx_[5] >> 5) & 0x03); }
 
-    // Host/front-end convenience: the CRTC registers that determine a
-    // graphics mode's actual resolution -- Horizontal Display End
-    // (register 0x01, in character clocks; genuine EGA graphics modes
-    // always use an 8-dot character clock) and Vertical Display End
-    // (register 0x12, plus its one overflow bit in register 0x07 bit 1) --
-    // what a real CRT controller's own scanout timing is built from, not a
-    // BIOS video-mode-number guess. Verified against this machine's own
-    // BIOS's real mode-0x10 (640x350x16) register programming -- see
-    // IBM_PCAT_REVIEW.md §16.
+    // Horizontal Display End (R01, character clocks; EGA graphics use an 8-dot
+    // clock) and Vertical Display End (R12 plus overflow bit 1 of R07). Checked
+    // against the BIOS's mode 0x10 programming (IBM_PCAT_REVIEW.md §16).
     //
-    // Deliberately only ONE overflow bit: on genuine 1984 EGA silicon, CRTC
-    // Overflow (R07) defines exactly one bit per counter that can exceed 8
-    // bits (bit 0 = Vertical Total, bit 1 = Vertical Display End, bit 2 =
-    // Vertical Retrace Start, bit 3 = Start Vertical Blanking, bit 4 = Line
-    // Compare) -- 9 bits tops, plenty for EGA's max 350 lines. Bits 5-7 are
-    // unimplemented on real EGA hardware; VGA later reused them as a second
-    // overflow bit per counter (a 10-bit extension, for its taller modes).
-    // Deliberately excludes register 0x07 bit 6, which VGA (not real EGA)
-    // reuses as a "Vertical Display End bit 9" -- this machine's BIOS
-    // substitute is a full VGA BIOS (see gc_shift_register_mode() above), so
-    // VGA-aware software can legitimately set that bit, but a real EGA CRTC
-    // has no wire to read it back on. Folding it in made the vertical range
-    // jump 512 lines on real-hardware-targeted software (confirmed live:
-    // Prince of Persia's playfield rendering correctly, then black canvas).
-    // See IBM_PCAT_REVIEW.md.
+    // Only one overflow bit is used. Real EGA R07 has one bit per counter (bit 0
+    // Vertical Total, 1 Vertical Display End, 2 Retrace Start, 3 Start Blanking,
+    // 4 Line Compare). Bits 5-7 are VGA extensions. Folding in R07 bit 6 (VGA
+    // Display End bit 9) made the range jump 512 lines (Prince of Persia went black).
     uint16_t crtc_horizontal_display_end() const { return crtc_[0x01]; }
     uint16_t crtc_vertical_display_end() const {
         return uint16_t(crtc_[0x12] | ((crtc_[0x07] >> 1 & 1) << 8));
     }
-    // Maximum Scan Line (CRTC R09, bits 0-4): scan lines per character row
-    // minus 1 -- what a real CRT controller's own text-mode row pitch is
-    // built from, not a hardcoded per-mode constant. See
-    // IBM_PCAT_REVIEW.md's font-descender investigation.
+    // Maximum Scan Line (R09 bits 0-4): scan lines per character row minus 1.
     uint8_t crtc_max_scan_line() const { return uint8_t(crtc_[0x09] & 0x1F); }
 
-    // Scan Doubling (CRTC R09 bit 7): another VGA-only addition riding on a
-    // bit genuine EGA silicon never wired up (same story as the R07
-    // overflow bits above, and gc_shift_register_mode()'s Chain-4 note) --
-    // when set, a VGA CRTC draws every logical scanline twice in a row so a
-    // "200-line" mode fills the same ~400-scanline raster its 350-line
-    // modes use. This substitute firmware is VGA-heritage, so its mode-0Dh
-    // (320x200x16) setup programs Vertical Total/Display End for the full
-    // ~400-line doubled raster AND sets this bit, exactly like a real VGA
-    // card -- but genuine EGA hardware has no doubling circuit, so a real
-    // EGA BIOS's own 320x200 mode-set programs the CRTC for 200 real
-    // scanlines directly, no doubling, nothing to detect here. Confirmed
-    // live: Prince of Persia's EGA mode left Vertical Display End at 399
-    // (carried over verbatim from the prior 640x400 text mode) with this
-    // bit set, expecting the doubling hardware to fold it back down to a
-    // 200-line picture -- without this accessor the renderer took 399+1
-    // literally, drawing the real 200-line playfield in the top half of a
-    // 400-line canvas and leaving the bottom half black. See
+    // Scan Doubling (R09 bit 7) is VGA-only: each scanline is drawn twice so a
+    // 200-line mode fills a ~400-line raster. The VGA-heritage BIOS sets it in
+    // mode 0Dh with Vertical Display End 399 (Prince of Persia). See
     // RenderEgaNative16Screen() in ega_render.cpp and IBM_PCAT_REVIEW.md.
     bool crtc_scan_doubling() const { return (crtc_[0x09] >> 7) & 1; }
 
-    // Offset Register (CRTC R13): the real per-scanline memory stride, in
-    // WORDS (2 bytes) per plane -- genuinely independent of Horizontal
-    // Display End. A real CRT controller advances exactly this many bytes
-    // between scanlines regardless of how much of that row is actually
-    // displayed; software that programs a logical scan-line width wider
-    // than what it shows (panning, or a sub-window blit into a larger
-    // off-screen buffer) relies on this distinction. See
-    // crtc_scanline_stride() below and IBM_PCAT_REVIEW.md.
+    // Offset Register (R13): per-scanline stride in words per plane, independent
+    // of Horizontal Display End (panning and off-screen buffers rely on this).
     uint8_t crtc_offset() const { return crtc_[0x13]; }
-    // Convenience: the real per-plane byte stride between scanlines
-    // (crtc_offset() * 2), with the same "0 means not programmed yet"
-    // fallback the other CRTC accessors use -- a renderer should walk
-    // VRAM by this, not by (displayed width / 8), whenever it differs.
+    // Per-plane byte stride between scanlines (crtc_offset() * 2).
     int crtc_scanline_stride() const { return int(crtc_[0x13]) * 2; }
 
-    // 256KB planar VRAM: 4 bitplanes x 64KB, byte-interleaved as
-    // vram[(plane_offset << 2) + plane] -- see the file header.
+    // 256KB planar VRAM, layout in the file header.
     std::array<uint8_t, 256 * 1024> vram{};
 
 private:
-    // Decodes a CPU address (already known to be within 0xA0000-0xBFFFF)
-    // against the Graphics Controller's Memory Mapping field (GR06 bits
-    // 2-3) into an offset local to whichever legacy window is currently
-    // selected -- 128K@A0000, 64K@A0000, 32K@B0000 (mono), or 32K@B8000
-    // (color). Real hardware only ever decodes ONE of these windows at a
-    // time; an address outside the currently-selected window isn't this
-    // device's to answer. Returns kOutOfWindow for such an address.
+    // Offset within whichever window GR06 bits 2-3 selects: 128K@A0000,
+    // 64K@A0000, 32K@B0000 (mono) or 32K@B8000 (color). kOutOfWindow for
+    // addresses outside it.
     static constexpr uint32_t kOutOfWindow = 0xFFFFFFFF;
     uint32_t window_offset(uint32_t addr) const;
 
-    // Register field accessors -- decode straight from the raw indexed
-    // register arrays below (the single source of truth, also what in()/
-    // out() read and write directly), so there's no duplicated state to
-    // fall out of sync.
+    // Register field accessors over the raw indexed register arrays.
     uint8_t seq_map_mask() const { return uint8_t(sequencer_[2] & 0x0F); }
     bool seq_odd_even_disabled() const { return (sequencer_[4] >> 2) & 1; }
 
@@ -230,15 +129,11 @@ private:
 
     std::array<uint8_t, 21> attr_{};
     uint8_t attr_index_ = 0;
-    bool attr_flip_flop_addr_ = true;  // true = next 0x3C0 write is an index, false = it's data
+    bool attr_flip_flop_addr_ = true;  // next 0x3C0 write is an index when true, data when false
 
     uint8_t misc_output_ = 0;
 
-    // Read latch: real hardware loads all 4 planes' bytes on every memory
-    // read, regardless of read mode, and every write mode except direct-
-    // CPU-passthrough draws on this latch rather than the CPU's byte. It's
-    // a genuine hardware side effect of reading, hence mutable on an
-    // otherwise-const mem_read.
+    // Read latch. Loaded on every read, mutable because reads have this side effect.
     mutable std::array<uint8_t, 4> latch_{};
 
     bool retrace_ = false;

@@ -71,9 +71,7 @@ def set_pix(tile, x, y):
 
 
 def glyph(rows):
-    # Font rows are upright. Video::render's ROT90 (FLIP_X | SWAP_XY) maps
-    # native (px, py) to upright (right-to-left in py, downward in px), so
-    # a font pixel (fx, fy) is stored at native (fy, 7-fx).
+    # Font rows are upright; ROT90 stores font pixel (fx, fy) at native (fy, 7-fx).
     tile = bytearray(16)
     for fy, bits in enumerate(rows):
         for fx in range(8):
@@ -224,24 +222,7 @@ def main():
     codes = bytearray([1]) * 0x400
     colors = bytearray([1]) * 0x400
     place(codes, colors, mapping)
-    # The CPU fills RAM itself; the tile ROM is what it indexes.
-    # Pre-bake nothing into program RAM. Help text is drawn by... the CPU
-    # fill is solid tile 1. Overlay text by encoding a small table the CPU
-    # does not write — so paint the text into a second path: the generator
-    # also emits the screen as part of the tile ROM only.
-    # The running CPU overwrites videoram with tile 1. Patch the CPU fill
-    # value? Text would be lost.
-    # Instead, leave videoram fill as tile 1 and accept a solid screen, and
-    # also store the help layout in the header for a unit test that pokes it.
-    # The page should show the help text, so the CPU must write the text.
-    # Emit the text as immediate stores after the fill. Rebuild main with
-    # those stores appended by patching assemble... done below via a second
-    # pass that is already in assemble? Not yet.
     main_rom = assemble_main()
-    # Insert is too late if the fill already happened at runtime. Add the
-    # text stores by appending them into a hole: rewrite is easier in
-    # assemble. For now the solid tile still paints; text bytes are written
-    # by a trailing table copied in assemble_text() below.
     main_rom = assemble_with_text(mapping)
     blobs = {
         "main": main_rom,
@@ -284,12 +265,7 @@ def main():
 
 def assemble_with_text(mapping):
     mem = assemble_main()
-    # The fill loop ends and then star/WSG/06XX/EI run. Text stores need to
-    # happen after the fill. Easiest correct approach: the fill writes tile 1,
-    # then a generated list of LD (addr),A for each glyph overwrites cells.
-    # Find the EI (0xFB) that precedes the watchdog loop and insert before it.
-    # assemble_main's EI is the last 0xFB before the JR loop. Inserting shifts
-    # the JR displacement, so rebuild with an explicit text phase instead.
+    # Text stores run after the tile-1 fill, so the text is built by _build.
     return _build(mapping)
 
 
@@ -329,9 +305,7 @@ def _build(mapping):
     b(0x32, 0x23, 0x68)
     fill(0x8000, 0, 4)
     fill(0x8400, 0, 4)
-    # Playfield address is (screen_row+2)*32 + (screen_col-2). Upright
-    # column ucol is memory row 29-ucol; upright row urow is memory
-    # column urow-2.
+    # Playfield address is (screen_row+2)*32 + (screen_col-2); ucol is memory row 29-ucol.
     for idx, (urow, text) in enumerate(LINES):
         ucol0 = max(0, (28 - len(text)) // 2)
         color = 1 if idx == 0 else 2
