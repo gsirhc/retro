@@ -1,16 +1,17 @@
-# Shared Zilog Z80 core (used by Pac-Man, Frogger, and Scramble).
+# Shared CPU cores: Zilog Z80 (Pac-Man family) and MOS NMOS 6502 (Asteroids).
 #
-#   make test    GoogleTest suite over the ISA / T-states / INT / NMI
-#   make zexdoc  fetch + run Frank Cringle's documented-opcode exerciser
-#                (~40 s locally; the real ISA gate, like 8080EXM / Dormann)
-#   make test-smoke  named ISA GoogleTest only (what deploy CI runs)
-#   make check       test + zexdoc (what nightly runs)
+#   make test               GoogleTest for Z80 + MOS 6502
+#   make test-smoke         Z80 ISA only (deploy CI z80-test)
+#   make test-smoke-mos6502 MOS 6502 ISA only (deploy CI mos6502-test)
+#   make zexdoc             Frank Cringle's documented Z80 exerciser
+#   make dormann            Klaus Dormann's 6502 functional test (NMOS)
+#   make check              test + zexdoc + dormann (nightly)
 #   make clean
 
 CXX      ?= c++
 CXXFLAGS ?= -std=c++17 -O2 -Wall -Wextra
 
-.PHONY: help test test-smoke zexdoc check clean
+.PHONY: help test test-smoke test-smoke-mos6502 zexdoc dormann check clean
 
 help:
 	@sed -n 's/^#   //p' $(MAKEFILE_LIST)
@@ -19,6 +20,18 @@ test:
 	cmake -S tests -B tests/build
 	cmake --build tests/build -j
 	ctest --test-dir tests/build --output-on-failure
+
+# Deploy CI: Z80 ISA only (arcade cabinets that need: z80-test).
+test-smoke:
+	cmake -S tests -B tests/build
+	cmake --build tests/build -j
+	ctest --test-dir tests/build -R '^Z80\.' --output-on-failure
+
+# Deploy CI: NMOS 6502 ISA only (Asteroids needs: mos6502-test).
+test-smoke-mos6502:
+	cmake -S tests -B tests/build
+	cmake --build tests/build -j
+	ctest --test-dir tests/build -R '^Mos6502\.' --output-on-failure
 
 # Frank Cringle's zexdoc — documented Z80 opcodes only (not zexall's
 # undocumented flags). Pinned + checksummed, kept out of the repo like
@@ -38,9 +51,24 @@ zex/zex_host: zex/zex_host.cpp cpu_z80.cpp cpu_z80.h
 zexdoc: zex/zex_host zex/zexdoc.com
 	./zex/zex_host zex/zexdoc.com
 
-test-smoke: test
+# Klaus Dormann 6502 functional test — NMOS documented opcodes.
+# Same pinned image the W65C02S board suite uses; success PC $3469.
+DORMANN_BASE = https://raw.githubusercontent.com/Klaus2m5/6502_65C02_functional_tests/master/bin_files
+DORMANN_SHA = fa12bfc761e6f9057e4cc01a665a7b800ff01ae91f598af1e39a1201d01953fd
 
-check: test zexdoc
+dormann/6502_functional_test.bin:
+	mkdir -p dormann
+	curl -sSfL -o $@ $(DORMANN_BASE)/6502_functional_test.bin
+	echo "$(DORMANN_SHA)  $@" | shasum -a 256 -c
+
+dormann/dormann_host: dormann/dormann_host.cpp cpu_mos6502.cpp cpu_mos6502.h
+	$(CXX) $(CXXFLAGS) -o $@ dormann/dormann_host.cpp cpu_mos6502.cpp
+
+dormann: dormann/dormann_host dormann/6502_functional_test.bin
+	./dormann/dormann_host dormann/6502_functional_test.bin 3469
+
+check: test zexdoc dormann
 
 clean:
 	rm -rf tests/build zex/zex_host zex/zexdoc.com
+	rm -f dormann/dormann_host dormann/6502_functional_test.bin

@@ -1,7 +1,7 @@
 # Arcade cabinets
 
 Requirements for arcade machines under `retroweb/` (Pac-Man, Frogger,
-Scramble, Galaxian, Galaga, and any new cabinet). Repo-wide principles still live in
+Scramble, Galaxian, Galaga, Asteroids, and any new cabinet). Repo-wide principles still live in
 [`CLAUDE.md`](../CLAUDE.md); this file does not override them.
 
 ## High scores
@@ -27,6 +27,7 @@ the ROM actually keeps:
 | Frogger | `$83EF–$83FA` (display HI + 5-rank table) |
 | Scramble | `$4200` (10 × 3 BCD) + `$40A8` (displayed HI) |
 | Galaga | `$8A20` (0x2D) + `$83ED` (6). Factory top score is the 20000 character bytes, not zeros |
+| Asteroids | `$001D–$0051` (top-10 scores + initials) |
 
 Scramble’s parent set has **numeric** scores only — no initials in the Konami
 ROM. Real PCBs have no battery; persist is a labelled departure, Reset is
@@ -60,9 +61,10 @@ another emulator’s shortcuts as if they were hardware.
 
 ## Shared chips
 
-Z80 in `retroweb/shared/cpu/`. Galaxian-family video / AY-3-8910 / i8255 in
-`retroweb/shared/galaxian/` when it is the same silicon. A new related game
-does not fork those cores.
+Z80 in `retroweb/shared/cpu/`. NMOS MOS 6502 also in `retroweb/shared/cpu/`
+(`cpu_mos6502`). Galaxian-family video / AY-3-8910 / i8255 in
+`retroweb/shared/galaxian/` when it is the same silicon. Atari DVG in
+`retroweb/shared/atari/`. A new related game does not fork those cores.
 
 ## Cabinet chrome
 

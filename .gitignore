@@ -142,9 +142,19 @@ retroweb/assembler6502/web/shared/
 retroweb/ibmpc-at/web/shared/
 retroweb/pacman/web/shared/
 
+retroweb/asteroids/tests/build/
+retroweb/asteroids/web/asteroids.js
+retroweb/asteroids/web/asteroids.wasm
+retroweb/asteroids/web/hwtest_roms.h
+retroweb/asteroids/web/roms/
+retroweb/asteroids/roms/user/
+retroweb/asteroids/web/shared/
+
 retroweb/shared/cpu/tests/build/
 retroweb/shared/cpu/zex/zexdoc.com
 retroweb/shared/cpu/zex/zex_host
+retroweb/shared/cpu/dormann/dormann_host
+retroweb/shared/cpu/dormann/6502_functional_test.bin
 
 retroweb/frogger/tests/build/
 retroweb/frogger/web/frogger.js

@@ -397,6 +397,68 @@ jobs:
 
       - run: make -C retroweb/shared/cpu check
 
+  # Shared NMOS 6502 ISA + Klaus Dormann. Asteroids `needs:` this job.
+  mos6502-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache Dormann 6502 functional test
+        id: dormann
+        uses: actions/cache@v4
+        with:
+          path: retroweb/shared/cpu/dormann/6502_functional_test.bin
+          key: dormann6502-${{ hashFiles('retroweb/shared/cpu/Makefile') }}
+
+      - name: Fetch Dormann image
+        if: steps.dormann.outputs.cache-hit != 'true'
+        run: make -C retroweb/shared/cpu dormann/6502_functional_test.bin
+
+      - run: make -C retroweb/shared/cpu test dormann
+
+  # Asteroids arcade board (see retroweb/asteroids/ASTEROIDS_REVIEW.md).
+  asteroids-test:
+    needs: mos6502-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: make -C retroweb/asteroids check
+
+  asteroids-web-test:
+    needs: asteroids-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: latest
+
+      - working-directory: retroweb/asteroids/web
+        run: make wasm roms shared
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - working-directory: retroweb/asteroids/web
+        run: npm ci
+
+      - working-directory: retroweb/asteroids/web
+        run: npx playwright install --with-deps chromium
+
+      - working-directory: retroweb/asteroids/web
+        run: make test
+
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: asteroids-playwright-report
+          path: |
+            retroweb/asteroids/web/playwright-report/
+            retroweb/asteroids/web/test-results/
+          retention-days: 7
+
   # Frogger arcade board: GoogleTest suite over the dual Z80 + Galaxian
   # video + AY-3-8910 + machine (see retroweb/frogger/FROGGER_REVIEW.md).
   # Shared Z80 ISA is z80-test; Smoke.HwtestBoots* is the board smoke.

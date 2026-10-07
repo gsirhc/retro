@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Asteroids Arcade</title>
+<link rel="icon" href="assets/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="assets/favicon-16.png">
+<link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+<script src="shared/theme-init.js"></script>
+<link rel="stylesheet" href="shared/theme.css">
+<link rel="stylesheet" href="shared/pagebar.css">
+<link rel="stylesheet" href="shared/fullscreen.css">
+<link rel="stylesheet" href="shared/focus-hint.css">
+<link rel="stylesheet" href="shared/footer.css">
+<link rel="stylesheet" href="shared/arcade-cab.css">
+<style>
+  :root {
+    --page-max:  960px;
+    --body-pad:  18px 12px;
+    --inner-pad: 14px 22px 22px;
+    --h1-font:   900 32px "Arial Black", Arial, sans-serif;
+  }
+  :root[data-theme="web94"] {
+    --body-pad:  26px 16px;
+    --h1-font:   bold 26px "Times New Roman", Times, serif;
+  }
+  :root[data-theme="modern"] {
+    --body-pad:  36px 20px;
+    --inner-pad: 22px 30px 30px;
+    --h1-font:   700 28px/1.15 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  :root[data-theme="ai"] {
+    --h1-font:   800 30px/1.15 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  :root[data-theme="ai"] body {
+    background:
+      linear-gradient(180deg, rgba(8,6,18,.55), rgba(8,6,18,.68)),
+      url("assets/ai-theme-bg.jpg") center/cover fixed;
+    color: #ece9ff;
+  }
+  :root[data-theme="ai"] .pagebar { border-bottom: 1px solid rgba(168,140,255,.35); }
+
+  h1 { margin: 4px 0 0; text-align: center; font: var(--h1-font); letter-spacing: .5px; color: var(--h1-color); text-shadow: var(--h1-shadow); }
+  :root[data-theme="modern"] h1 {
+    position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
+    overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+  }
+  .tagline { text-align: center; color: var(--dim); font-size: 14px; margin: 4px 0 0; }
+  :root[data-theme="modern"] .tagline { display: none; }
+  hr.rule { border: 0; border-top: var(--rule); margin: 12px 0; }
+  :root[data-theme="modern"] hr.rule { display: none; }
+
+  .inner { padding: var(--inner-pad); }
+
+  .panel {
+    background: var(--panel-bg); border: var(--panel-border); border-radius: var(--panel-radius);
+    padding: 14px 16px 16px;
+  }
+  .panel + .panel { margin-top: 18px; }
+  .panel h2 {
+    font: bold 14px Arial, Helvetica, sans-serif;
+    text-transform: uppercase; letter-spacing: .06em; color: var(--dim);
+    margin: 0 0 10px;
+  }
+
+  button, select, input[type=file] {
+    font: 14px Arial, Helvetica, sans-serif; color: var(--btn-fg); background: var(--btn-bg);
+    border: var(--btn-border); padding: 4px 10px; cursor: pointer;
+  }
+
+  .monitor { display: flex; justify-content: center; width: 100%; }
+  .bezel {
+    position: relative;
+    background: #1a1a1a;
+    border: 8px solid #2a2a2a;
+    border-radius: 6px;
+    padding: 10px;
+    box-shadow: inset 0 0 0 1px #111;
+    /* 4:3 tube. Bezel chrome is 8px border
+       + 10px pad on each side (36px), sized from the viewport the same
+       way the raster cabinets do so #screen's 100% has a definite parent. */
+    width: min(100%, calc(75vh * 4 / 3 + 36px));
+    width: min(100%, calc(75dvh * 4 / 3 + 36px));
+  }
+  /* 4:3 window onto the 1024×1024 DVG space, stroked at the canvas
+     device-pixel size so line weight stays crisp under CSS scaling. */
+  #screen {
+    display: block;
+    width: 100%;
+    height: auto;
+    aspect-ratio: 4 / 3;
+    background: #000;
+    outline: none;
+  }
+  .bezel-btn {
+    font: 12px Arial, Helvetica, sans-serif; color: #ccc; background: #333;
+    border: 1px solid #555; padding: 2px 6px; cursor: pointer;
+  }
+  .keys { color: var(--dim); font-size: 14px; margin-top: 10px; text-align: center; }
+
+  /* Atari Asteroids' cabinet is a dark charcoal/black painted fascia with
+     a starfield side-art decal, not a bright primary color like Pac-Man's
+     yellow. Layout lives in shared/arcade-cab.css; only the cabinet color
+     tokens stay here. */
+  .cab-face {
+    --cab-face-bg: linear-gradient(180deg, #4c4c4c 0%, #2e2e2e 42%, #171717 100%);
+    --cab-face-inset: inset 0 0 0 2px #5c5c5c, inset 0 0 0 3px #0a0a0a,
+                      inset 0 3px 6px rgba(255,255,255,.14), inset 0 -8px 14px rgba(0,0,0,.3),
+                      0 10px 24px rgba(0,0,0,.4);
+  }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
+  #romStatus { font-size: 14px; color: var(--dim); }
+  .legal { font-size: 13px; color: var(--dim); margin: 8px 0 0; line-height: 1.4; }
+  .dip-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 10px 14px;
+    margin-top: 10px;
+  }
+  .dip-grid label {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font: 14px Arial, Helvetica, sans-serif;
+    color: var(--dim);
+  }
+  .dip-grid label.checkbox-label {
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+  }
+  :root:not([data-theme]) body { background: #0e0f12; color: #d8dbe2; }
+</style>
+</head>
+<body>
+<div class="page">
+  <header class="pagebar">
+    <a class="pb-home" href="../">&#8592;&nbsp;All&nbsp;machines</a>
+    <span class="pb-title"><img class="pb-icon" src="assets/favicon-32.png" alt="" aria-hidden="true"> ASTEROIDS</span>
+    <span class="pb-name">Asteroids Arcade</span>
+    <span class="pb-tag">6502 &middot; 1.5&nbsp;MHz &middot; running entirely in your browser</span>
+    <span class="pb-tools">
+      <label class="pb-theme">Theme
+        <select id="pageTheme">
+          <option value="win">Windows 95</option>
+          <option value="web94">Mid-1990s Web</option>
+          <option value="modern">Modern</option>
+          <option value="moderndark">Dark Modern</option>
+          <option value="ai">AI Generated</option>
+        </select>
+      </label>
+      <span class="pb-winbtns"><span aria-hidden="true">_</span><span aria-hidden="true">&#9633;</span><a class="pb-close" href="../" title="back to all machines" aria-label="close, back to all machines">&times;</a></span>
+    </span>
+  </header>
+
+  <div class="inner">
+    <h1>Asteroids Arcade</h1>
+    <p class="tagline">Atari Asteroids (1979) board. MOS 6502 at 1.5 MHz, DVG vector generator, discrete sound.</p>
+    <hr class="rule">
+
+    <div class="panel" id="displayCard">
+      <div class="monitor" id="monitor">
+        <div class="bezel" id="bezel">
+          <canvas id="screen" width="1024" height="768" tabindex="0" aria-label="Vector monitor. Click to play"></canvas>
+          <div class="crt-overlay"></div>
+          <div class="focus-hint" id="focusHint" aria-hidden="true">Click to focus</div>
+          <div class="bezel-controls">
+            <button type="button" id="fullscreenBtn" class="bezel-btn" title="Fullscreen" aria-label="Fullscreen">&#x26F6;</button>
+          </div>
+        </div>
+      </div>
+      <p class="keys">Left / Right rotate &nbsp;·&nbsp; Up thrust &nbsp;·&nbsp; Z or Space fire &nbsp;·&nbsp; Shift hyperspace &nbsp;·&nbsp; click a 25¢ slot or <kbd>5</kbd> coin &nbsp;·&nbsp; <kbd>1</kbd> / <kbd>2</kbd> start</p>
+      <div class="cab-face">
+        <div class="cab-starts" role="group" aria-label="Start buttons">
+          <button type="button" class="cab-start" data-start="1" aria-label="1 Player start">
+            <img class="cab-start-img" src="shared/cab-start-1p-white.png" width="80" height="80" alt="" draggable="false">
+          </button>
+          <button type="button" class="cab-start" data-start="2" aria-label="2 Player start">
+            <img class="cab-start-img" src="shared/cab-start-2p-white.png" width="80" height="80" alt="" draggable="false">
+          </button>
+        </div>
+        <div class="coin-door" id="coinDoor" role="group" aria-label="Coin slots">
+          <button type="button" class="cd-mech" data-coin aria-label="Insert coin, 25 cents">
+            <span class="cd-lamp">25¢</span>
+            <span class="cd-throat" aria-hidden="true"></span>
+          </button>
+          <button type="button" id="mute" class="cd-mute" aria-pressed="false" aria-label="Mute" title="Mute">
+            <svg class="cd-mute-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path class="cd-mute-body" d="M3 9h4l5-4v14l-5-4H3V9z"/>
+              <path class="cd-mute-waves" d="M16.2 8.2a4.5 4.5 0 0 1 0 7.6"/>
+              <path class="cd-mute-waves" d="M18.8 5.5a8 8 0 0 1 0 13"/>
+              <path class="cd-mute-slash" d="M5 5l14 14"/>
+            </svg>
+          </button>
+          <button type="button" class="cd-mech" data-coin aria-label="Insert coin, 25 cents">
+            <span class="cd-throat" aria-hidden="true"></span>
+            <span class="cd-lamp">25¢</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>ROM sockets</h2>
+      <p class="legal" id="romLegal">This page ships a hardware self-test ROM, not Atari Asteroids. Those ROMs are still under copyright and are <strong>not</strong> included or downloaded. Load a complete original-board set (MAME <code>asteroid</code> zip, or the loose chips: program <code>035145</code>/<code>035144</code>/<code>035143</code> plus vector <code>035127</code>). Each chip is identified by its usual name and checked by size, not a particular CRC. Extra files are ignored. The set stays in this browser.</p>
+      <div class="row">
+        <button type="button" id="loadRomBtn">Load ROM set…</button>
+        <input id="romFile" type="file" accept=".zip,.bin,.ef2,.h2,.j2,.np3" multiple hidden>
+        <button type="button" id="removeRomBtn">Remove ROMs</button>
+        <button type="button" id="resetHiscore" disabled>Reset HIGH SCORE</button>
+        <span id="romStatus">Running test ROM</span>
+      </div>
+      <p class="legal">
+        HIGH SCORE is kept in this browser after refresh. The real board has no
+        battery and loses it when you pull the plug. Reset clears the saved table
+        and restarts the cabinet.
+      </p>
+    </div>
+
+    <div class="panel" id="dipPanel">
+      <h2>DIP switches</h2>
+      <p class="legal" id="dipLegal">Set board DIP switches just like on the real arcade cabinet. These persist in this browser the same way physical switches survive a power cycle.</p>
+      <div class="dip-grid">
+        <label>Coinage
+          <select id="dipCoinage">
+            <option value="0">Free play</option>
+            <option value="1">1 coin / 2 credits</option>
+            <option value="2" selected>1 coin / 1 credit</option>
+            <option value="3">2 coins / 1 credit</option>
+          </select>
+        </label>
+        <label>Right coin mech
+          <select id="dipRightMech">
+            <option value="0" selected>x1</option>
+            <option value="4">x4</option>
+            <option value="8">x5</option>
+            <option value="12">x6</option>
+          </select>
+        </label>
+        <label>Center coin mech
+          <select id="dipCenterMech">
+            <option value="0" selected>x1</option>
+            <option value="32">x2</option>
+          </select>
+        </label>
+        <label>Lives
+          <select id="dipLives">
+            <option value="16" selected>3</option>
+            <option value="0">4</option>
+          </select>
+        </label>
+        <label>Language
+          <select id="dipLanguage">
+            <option value="0" selected>English</option>
+            <option value="64">German</option>
+            <option value="128">French</option>
+            <option value="192">Spanish</option>
+          </select>
+        </label>
+        <label class="checkbox-label">Self-test switch
+          <input type="checkbox" id="dipSelfTest">
+        </label>
+      </div>
+    </div>
+  </div>
+</div>
+
+<dialog class="site-dialog" id="romErrorHint">
+  <h2>ROM set not loaded</h2>
+  <p id="romErrorCopy">Need a complete original-board set: a MAME <code>asteroid</code>
+    zip, or the loose chips (6K program as three 2K chips <code>035145</code>/
+    <code>035144</code>/<code>035143</code>, or one <code>program.bin</code>; plus
+    the 2K vector ROM <code>035127</code>, or <code>vector.bin</code>). Usual names
+    like <code>035145-04e.ef2</code> / <code>035127-02.np3</code>.
+    Each chip is checked by size, not a particular CRC. Extra files are ignored.</p>
+  <div class="row">
+    <button type="button" id="romErrorOk" autofocus>OK</button>
+  </div>
+</dialog>
+<dialog class="site-dialog" id="hiscoreResetHint">
+  <h2>Reset HIGH SCORE</h2>
+  <p>The real board loses it when you pull the plug. Clear the saved table
+    and restart the cabinet?</p>
+  <div class="row">
+    <button type="button" id="hiscoreResetCancel" autofocus>Cancel</button>
+    <button type="button" id="hiscoreResetOk">Reset</button>
+  </div>
+</dialog>
+<script src="asteroids.js"></script>
+<script src="shared/theme-picker.js"></script>
+<script src="shared/fullscreen.js"></script>
+<script src="shared/focus-hint.js"></script>
+<script src="shared/footer.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

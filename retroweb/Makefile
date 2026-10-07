@@ -2,8 +2,8 @@
 #
 #   make site        build _site/ : index.html at the root, the emulators at
 #                    /altair8800/, /assembler6502/, /ibmpc-at/, /pacman/,
-#                    /frogger/, /galaga/, /galaxian/, /scramble/, /pc486/
-#                    (dev-only files stripped) — what CI publishes
+#                    /frogger/, /galaga/, /galaxian/, /scramble/, /asteroids/,
+#                    /pc486/ (dev-only files stripped) — what CI publishes
 #   make preview     stage _site/ (wasm + media first) and serve it over
 #                    HTTPS on :8000 in the FOREGROUND — dies when the
 #                    terminal closes or on Ctrl-C
@@ -52,7 +52,7 @@ help:
 # server never finds its document root deleted out from under it
 site:
 	rm -rf _site.new
-	mkdir -p _site.new/altair8800 _site.new/assembler6502 _site.new/ibmpc-at _site.new/pacman _site.new/frogger _site.new/galaga _site.new/galaxian _site.new/scramble _site.new/pc486
+	mkdir -p _site.new/altair8800 _site.new/assembler6502 _site.new/ibmpc-at _site.new/pacman _site.new/frogger _site.new/galaga _site.new/galaxian _site.new/scramble _site.new/asteroids _site.new/pc486
 	cp index.html about.html _site.new/
 	cp -Rp assets _site.new/ && rm -f _site.new/assets/README.md
 	mkdir -p _site.new/shared
@@ -106,6 +106,12 @@ site:
 	         .playwright .v8-coverage && \
 	  rm -f Makefile devserve.py wasm_machine.cpp \
 	        package.json package-lock.json playwright.config.ts )
+	cp -Rp asteroids/web/. _site.new/asteroids/
+	( cd _site.new/asteroids && \
+	  rm -rf tests node_modules coverage test-results playwright-report \
+	         .playwright .v8-coverage && \
+	  rm -f Makefile devserve.py wasm_machine.cpp \
+	        package.json package-lock.json playwright.config.ts )
 	cp -Rp pc486/web/. _site.new/pc486/
 	( cd _site.new/pc486 && \
 	  rm -rf tests node_modules coverage test-results playwright-report \
@@ -124,6 +130,7 @@ _stage:
 	$(MAKE) -C galaga/web wasm roms shared
 	$(MAKE) -C galaxian/web wasm roms shared
 	$(MAKE) -C scramble/web wasm roms shared
+	$(MAKE) -C asteroids/web wasm roms shared
 	$(MAKE) -C pc486/web pc486.js pc486-perf.js roms hdd-image cdrom-image driver-images shared
 	$(MAKE) site
 
@@ -186,6 +193,7 @@ preview: _stage preview-cert
 	@echo "  https://0.0.0.0:$(PREVIEW_PORT)/galaga/      the Galaga arcade emulator"
 	@echo "  https://0.0.0.0:$(PREVIEW_PORT)/galaxian/    the Galaxian arcade emulator"
 	@echo "  https://0.0.0.0:$(PREVIEW_PORT)/scramble/    the Scramble arcade emulator"
+	@echo "  https://0.0.0.0:$(PREVIEW_PORT)/asteroids/   the Asteroids arcade emulator"
 	@echo "  https://0.0.0.0:$(PREVIEW_PORT)/pc486/       the 486 DX2-66 emulator"
 	@echo "  (foreground — leave this terminal open; Ctrl-C to stop)"
 	@echo

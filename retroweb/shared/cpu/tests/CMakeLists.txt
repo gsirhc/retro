@@ -21,5 +21,11 @@ target_include_directories(cpu_z80_test PRIVATE ${CORE})
 target_link_libraries(cpu_z80_test PRIVATE GTest::gtest_main)
 target_compile_options(cpu_z80_test PRIVATE -Wall -Wextra)
 
+add_executable(cpu_mos6502_test cpu_mos6502_test.cpp ${CORE}/cpu_mos6502.cpp)
+target_include_directories(cpu_mos6502_test PRIVATE ${CORE})
+target_link_libraries(cpu_mos6502_test PRIVATE GTest::gtest_main)
+target_compile_options(cpu_mos6502_test PRIVATE -Wall -Wextra)
+
 include(GoogleTest)
 gtest_discover_tests(cpu_z80_test)
+gtest_discover_tests(cpu_mos6502_test)
