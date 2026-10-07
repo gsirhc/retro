@@ -1,5 +1,14 @@
 import { test, expect } from "@playwright/test";
 
+
+async function chooseTheme(page, theme, mode = "light") {
+  await page.locator("#pageThemeBtn").click();
+  await page.locator(`#themeDialog input[name="pageThemeFamily"][value="${theme}"]`).check();
+  await page.locator(`#themeDialog input[name="pageThemeMode"][value="${mode}"]`).check();
+  await page.locator("#themeDialogDone").click();
+}
+
+
 // The retroweb/ landing page (served on :8110 by the 2nd webServer in
 // playwright.config.ts). It shares the `retro8080.theme` localStorage key with
 // the emulator, so a theme picked here carries into /altair8800/ and back.
@@ -34,12 +43,12 @@ test.describe("retroweb landing page", () => {
 
     await expect(page.locator("#siteFooter a.about-sign")).toHaveText("Help");
 
-    await page.selectOption("#pageTheme", "modern");
+    await chooseTheme(page, "modern");
     await expect(root).toHaveAttribute("data-theme", "modern");
     expect(await page.evaluate(() => localStorage.getItem("retro8080.theme"))).toBe("modern");
     await expect(page.locator("#siteFooter a.about-sign")).toHaveText("Help");
 
-    await page.selectOption("#pageTheme", "web94");
+    await chooseTheme(page, "web94");
     await expect(root).toHaveAttribute("data-theme", "web94");
     expect(await page.evaluate(() => localStorage.getItem("retro8080.theme"))).toBe("web94");
     await expect(page.locator("#siteFooter a.about-sign")).toHaveText("Help");
@@ -48,20 +57,21 @@ test.describe("retroweb landing page", () => {
   test("System follows the OS appearance on the landing page and about page", async ({ page }) => {
     await page.emulateMedia({ colorScheme: "light" });
     await page.goto(HOME);
-    await page.selectOption("#pageTheme", "system");
+    await chooseTheme(page, "modern", "system");
     await expect(page.locator("html")).toHaveAttribute("data-theme", "modern");
     await expect(page.locator("html")).not.toHaveAttribute("data-mode");
-    expect(await page.evaluate(() => localStorage.getItem("retro8080.theme"))).toBe("system");
+    expect(await page.evaluate(() => localStorage.getItem("retro8080.theme"))).toBe("modern");
+    expect(await page.evaluate(() => localStorage.getItem("retro8080.mode"))).toBe("system");
     expect(await page.evaluate(() => getComputedStyle(document.body).backgroundColor)).toBe("rgb(236, 238, 242)");
 
     await page.emulateMedia({ colorScheme: "dark" });
     await expect(page.locator("html")).toHaveAttribute("data-theme", "modern");
     await expect(page.locator("html")).toHaveAttribute("data-mode", "dark");
-    await expect(page.locator("#pageTheme")).toHaveValue("system");
+    await expect(page.locator("#pageThemeBtn")).toHaveText("Modern");
     expect(await page.evaluate(() => getComputedStyle(document.body).backgroundColor)).toBe("rgb(18, 19, 23)");
 
     await page.reload();
-    await expect(page.locator("#pageTheme")).toHaveValue("system");
+    await expect(page.locator("#pageThemeBtn")).toHaveText("Modern");
     await expect(page.locator("html")).toHaveAttribute("data-theme", "modern");
     await expect(page.locator("html")).toHaveAttribute("data-mode", "dark");
 
@@ -69,12 +79,12 @@ test.describe("retroweb landing page", () => {
     await expect(page).toHaveURL(/\/about\.html$/);
     await expect(page.locator("html")).toHaveAttribute("data-theme", "modern");
     await expect(page.locator("html")).toHaveAttribute("data-mode", "dark");
-    await expect(page.locator("#pageTheme")).toHaveValue("system");
+    await expect(page.locator("#pageThemeBtn")).toHaveText("Modern");
 
     await page.emulateMedia({ colorScheme: "light" });
     await expect(page.locator("html")).toHaveAttribute("data-theme", "modern");
     await expect(page.locator("html")).not.toHaveAttribute("data-mode");
-    await expect(page.locator("#pageTheme")).toHaveValue("system");
+    await expect(page.locator("#pageThemeBtn")).toHaveText("Modern");
     expect(await page.evaluate(() => getComputedStyle(document.body).backgroundColor)).toBe("rgb(236, 238, 242)");
   });
 
@@ -83,7 +93,7 @@ test.describe("retroweb landing page", () => {
     await page.evaluate(() => localStorage.setItem("retro8080.theme", "modern"));
     await page.reload();
     await expect(page.locator("html")).toHaveAttribute("data-theme", "modern");
-    await expect(page.locator("#pageTheme")).toHaveValue("modern");
+    await expect(page.locator("#pageThemeBtn")).toHaveText("Modern");
   });
 
   test("the shared site footer credits RetroCG and the Help control goes to about.html", async ({ page }) => {

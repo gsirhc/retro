@@ -77,8 +77,7 @@
     margin: 14px -16px -16px;
     border-top: 1px solid rgba(0,0,0,.2);
   }
-  :root[data-theme="modern"] #displayCard .keys-attach,
-  :root[data-theme="moderndark"] #displayCard .keys-attach {
+  :root[data-theme="modern"] #displayCard .keys-attach {
     border-top-color: var(--panel-border, #e7e9ee);
   }
   :root[data-theme="aurora"] #displayCard .keys-attach {
@@ -90,8 +89,7 @@
   #displayCard .keys-section + .keys-section {
     border-top: 1px solid rgba(0,0,0,.15);
   }
-  :root[data-theme="modern"] #displayCard .keys-section + .keys-section,
-  :root[data-theme="moderndark"] #displayCard .keys-section + .keys-section {
+  :root[data-theme="modern"] #displayCard .keys-section + .keys-section {
     border-top-color: var(--panel-border, #e7e9ee);
   }
   :root[data-theme="aurora"] #displayCard .keys-section + .keys-section {
@@ -974,14 +972,7 @@
     <span class="pb-tag">80486DX2 &middot; 66 MHz &middot; 32 MB RAM &middot; 256 MB HDD &middot; VGA &middot; Sound Blaster 16 &middot; 2x CD-ROM</span>
     <span class="pb-tools">
       <label class="pb-theme">Theme
-        <select id="pageTheme">
-          <option value="win">Windows 95</option>
-          <option value="web94">Mid-1990s Web</option>
-          <option value="modern">Light Modern</option>
-          <option value="moderndark">Dark Modern</option>
-          <option value="system">System Modern</option>
-          <option value="systemaurora">System Aurora</option>
-        </select>
+        <button type="button" class="pb-theme-btn" id="pageThemeBtn">Windows 95</button>
       </label>
       <span class="pb-winbtns"><span aria-hidden="true">_</span><span aria-hidden="true">&#9633;</span><a class="pb-close" href="../" title="back to all machines" aria-label="close &mdash; back to all machines">&times;</a></span>
     </span>

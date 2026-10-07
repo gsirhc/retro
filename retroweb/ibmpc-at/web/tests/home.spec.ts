@@ -1,5 +1,14 @@
 import { test, expect } from "@playwright/test";
 
+
+async function chooseTheme(page, theme, mode = "light") {
+  await page.locator("#pageThemeBtn").click();
+  await page.locator(`#themeDialog input[name="pageThemeFamily"][value="${theme}"]`).check();
+  await page.locator(`#themeDialog input[name="pageThemeMode"][value="${mode}"]`).check();
+  await page.locator("#themeDialogDone").click();
+}
+
+
 // The retroweb/ landing page (served on :8310 by the 2nd webServer in
 // playwright.config.ts). It shares the `retro8080.theme` localStorage key with
 // the emulator, so a theme picked here carries into /ibmpc-at/ and back.
@@ -31,12 +40,12 @@ test.describe("retroweb landing page", () => {
 
     await expect(page.locator("#siteFooter a.about-sign")).toHaveText("Help");
 
-    await page.selectOption("#pageTheme", "modern");
+    await chooseTheme(page, "modern");
     await expect(root).toHaveAttribute("data-theme", "modern");
     expect(await page.evaluate(() => localStorage.getItem("retro8080.theme"))).toBe("modern");
     await expect(page.locator("#siteFooter a.about-sign")).toHaveText("Help");
 
-    await page.selectOption("#pageTheme", "web94");
+    await chooseTheme(page, "web94");
     await expect(root).toHaveAttribute("data-theme", "web94");
     expect(await page.evaluate(() => localStorage.getItem("retro8080.theme"))).toBe("web94");
     await expect(page.locator("#siteFooter a.about-sign")).toHaveText("Help");
@@ -63,6 +72,6 @@ test.describe("retroweb landing page", () => {
     await page.evaluate(() => localStorage.setItem("retro8080.theme", "modern"));
     await page.reload();
     await expect(page.locator("html")).toHaveAttribute("data-theme", "modern");
-    await expect(page.locator("#pageTheme")).toHaveValue("modern");
+    await expect(page.locator("#pageThemeBtn")).toHaveText("Modern");
   });
 });

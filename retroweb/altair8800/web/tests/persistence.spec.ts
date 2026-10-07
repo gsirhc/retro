@@ -1,11 +1,20 @@
 import { test, expect } from "./fixtures";
 import { boot, waitForScreen } from "./helpers";
 
+
+async function chooseTheme(page, theme, mode = "light") {
+  await page.locator("#pageThemeBtn").click();
+  await page.locator(`#themeDialog input[name="pageThemeFamily"][value="${theme}"]`).check();
+  await page.locator(`#themeDialog input[name="pageThemeMode"][value="${mode}"]`).check();
+  await page.locator("#themeDialogDone").click();
+}
+
+
 test.describe("page chrome, persistence, URL params", () => {
   test("the page theme select drives data-theme and persists", async ({ page }) => {
     await boot(page);
     for (const t of ["web94", "modern", "win"]) {
-      await page.selectOption("#pageTheme", t);
+      await chooseTheme(page, t);
       await expect(page.locator("html")).toHaveAttribute("data-theme", t);
       expect(await page.evaluate(() => localStorage.getItem("retro8080.theme"))).toBe(t);
     }
@@ -16,22 +25,22 @@ test.describe("page chrome, persistence, URL params", () => {
     await expect(page.locator("html")).toHaveAttribute("data-theme", "web94");
   });
 
-  test("Dark Modern = Modern layout + data-mode=dark, cleared when switching away", async ({ page }) => {
+  test("Modern + Dark sets data-mode=dark; Light clears it", async ({ page }) => {
     await boot(page);
-    await page.selectOption("#pageTheme", "moderndark");
+    await chooseTheme(page, "modern", "dark");
     await expect(page.locator("html")).toHaveAttribute("data-theme", "modern");
     await expect(page.locator("html")).toHaveAttribute("data-mode", "dark");
-    expect(await page.evaluate(() => localStorage.getItem("retro8080.theme"))).toBe("moderndark");
+    expect(await page.evaluate(() => localStorage.getItem("retro8080.theme"))).toBe("modern");
+    expect(await page.evaluate(() => localStorage.getItem("retro8080.mode"))).toBe("dark");
     expect(await page.evaluate(() => getComputedStyle(document.body).backgroundColor)).toBe("rgb(18, 19, 23)");
 
     // restored on reload
     await page.reload();
     await page.waitForFunction(() => !!(window as any).__test?.machine);
     await expect(page.locator("html")).toHaveAttribute("data-mode", "dark");
-    expect(await page.locator("#pageTheme").inputValue()).toBe("moderndark");
+    await expect(page.locator("#pageThemeBtn")).toHaveText("Modern");
 
-    // switching to another theme drops the dark mode
-    await page.selectOption("#pageTheme", "win");
+    await chooseTheme(page, "win", "light");
     await expect(page.locator("html")).toHaveAttribute("data-theme", "win");
     expect(await page.evaluate(() => document.documentElement.hasAttribute("data-mode"))).toBe(false);
   });
@@ -39,18 +48,19 @@ test.describe("page chrome, persistence, URL params", () => {
   test("System follows the OS appearance on the Modern palette", async ({ page }) => {
     await boot(page);
     await page.emulateMedia({ colorScheme: "light" });
-    await page.selectOption("#pageTheme", "system");
+    await chooseTheme(page, "modern", "system");
     await expect(page.locator("html")).toHaveAttribute("data-theme", "modern");
     expect(await page.evaluate(() => document.documentElement.hasAttribute("data-mode"))).toBe(false);
-    expect(await page.evaluate(() => localStorage.getItem("retro8080.theme"))).toBe("system");
+    expect(await page.evaluate(() => localStorage.getItem("retro8080.theme"))).toBe("modern");
+    expect(await page.evaluate(() => localStorage.getItem("retro8080.mode"))).toBe("system");
 
     await page.emulateMedia({ colorScheme: "dark" });
     await expect(page.locator("html")).toHaveAttribute("data-theme", "modern");
     await expect(page.locator("html")).toHaveAttribute("data-mode", "dark");
     expect(await page.evaluate(() => getComputedStyle(document.body).backgroundColor)).toBe("rgb(18, 19, 23)");
-    expect(await page.locator("#pageTheme").inputValue()).toBe("system");
+    await expect(page.locator("#pageThemeBtn")).toHaveText("Modern");
 
-    await page.selectOption("#pageTheme", "modern");
+    await chooseTheme(page, "modern");
     await page.emulateMedia({ colorScheme: "dark" });
     await expect(page.locator("html")).toHaveAttribute("data-theme", "modern");
     expect(await page.evaluate(() => document.documentElement.hasAttribute("data-mode"))).toBe(false);
@@ -58,15 +68,15 @@ test.describe("page chrome, persistence, URL params", () => {
 
   test("the theme picker lives in the top bar, not a mid-page toolbar", async ({ page }) => {
     await boot(page);
-    await expect(page.locator(".pagebar #pageTheme")).toBeVisible();
-    await expect(page.locator(".toolbar #pageTheme")).toHaveCount(0);
-    await expect(page.locator('.pagebar #pageTheme option[value="win"]')).toHaveText(/Windows 95/);
+    await expect(page.locator(".pagebar #pageThemeBtn")).toBeVisible();
+    await expect(page.locator(".toolbar #pageThemeBtn")).toHaveCount(0);
+    await expect(page.locator(".pagebar #pageThemeBtn")).toHaveText(/Windows 95/);
   });
 
   test("every theme offers a way back to the landing page", async ({ page }) => {
     await boot(page);
     for (const t of ["win", "web94", "modern"]) {
-      await page.selectOption("#pageTheme", t);
+      await chooseTheme(page, t);
       // win: the titlebar close box; web94/modern: the "All machines" link
       const home = page.locator('.pagebar a[href="../"]:visible');
       await expect(home).toHaveCount(1);
@@ -111,7 +121,7 @@ test.describe("page chrome, persistence, URL params", () => {
     await expect(page.locator(".footer")).toContainText(/Page last modified:/);
 
     // Win95: same links, but "Last built" and no Mosaic blue
-    await page.selectOption("#pageTheme", "win");
+    await chooseTheme(page, "win");
     await expect(links).toBeVisible();
     await expect(links).toContainText("Altair Manual");
     await expect(page.locator(".footer")).toContainText(/Last built/);
@@ -125,7 +135,7 @@ test.describe("page chrome, persistence, URL params", () => {
     await expect(page.locator(".inner .tagline.modern-only")).not.toBeVisible();
     await expect(page.locator(".spec")).toHaveCount(0);                   // description removed
 
-    await page.selectOption("#pageTheme", "win");
+    await chooseTheme(page, "win");
     expect((await page.locator(".inner > h1").boundingBox())!.height).toBeGreaterThan(20); // big header back
     await expect(page.locator(".pagebar .pb-name")).not.toBeVisible();
   });
@@ -152,7 +162,7 @@ test.describe("page chrome, persistence, URL params", () => {
 
   test("a stored theme is restored on the next visit", async ({ page }) => {
     await boot(page);
-    await page.selectOption("#pageTheme", "modern");
+    await chooseTheme(page, "modern");
     await page.reload();
     await page.waitForFunction(() => !!(window as any).__test?.machine);
     await expect(page.locator("html")).toHaveAttribute("data-theme", "modern");

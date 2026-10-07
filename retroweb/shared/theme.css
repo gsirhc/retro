@@ -1,15 +1,15 @@
 /* Shared theme color-token palette -- Windows 95 / Mid-1990s Web / Modern /
-   Dark Modern / System Aurora. Every :root[data-theme=...] custom-property
-   block that defines a THEME (not a page's own layout) lives here, in one
-   place -- edit a color once and it reaches the landing page and every
-   machine. Page-specific layout tuning that varies with a page's own
-   content rather than its theme (--page-max, --body-pad, --inner-pad,
-   heading font sizes, altair8800's --altair-bg/--altair-radius bezel
-   tokens) stays local to each page's own <style>. See CLAUDE.md's
-   shared-front-end convention and each machine's web/Makefile `shared`
-   target, which copies this file into that machine's own web/shared/ --
-   retroweb/index.html (the landing page, no build step) links it straight
-   from its own sibling shared/ directory instead. */
+   Atmosphere, each with light and dark (via data-mode="dark"). Every
+   :root[data-theme=...] custom-property block that defines a THEME (not a
+   page's own layout) lives here, in one place -- edit a color once and it
+   reaches the landing page and every machine. Page-specific layout tuning
+   that varies with a page's own content rather than its theme (--page-max,
+   --body-pad, --inner-pad, heading font sizes, altair8800's
+   --altair-bg/--altair-radius bezel tokens) stays local to each page's own
+   <style>. See CLAUDE.md's shared-front-end convention and each machine's
+   web/Makefile `shared` target, which copies this file into that machine's
+   own web/shared/ -- retroweb/index.html (the landing page, no build step)
+   links it straight from its own sibling shared/ directory instead. */
 
 :root {
   --desktop:   #008080;
@@ -45,6 +45,34 @@
   --accent2:      #008000;
   --warn:         #c00000;
 }
+/* Windows 95 night: charcoal chrome, dusk desktop, classic 3D borders. */
+:root[data-theme="win"][data-mode="dark"] {
+  color-scheme: dark;
+  --desktop:   #002020;
+  --page-bg:   #404040;
+  --page-border: 3px outset #808080;
+  --text:      #ffffff;
+  --dim:       #c0c0c0;
+  --link:      #80c0ff;
+  --link-visited: #c080ff;
+  --titlebar-bg: linear-gradient(90deg, #000080, #0000c0);
+  --titlebar-fg: #ffffff;
+  --rule:      2px groove #808080;
+  --h1-color:  #a0d0ff;
+  --h1-shadow: 2px 2px 0 #202020, 3px 3px 0 #000000;
+  --panel-bg:     #404040;
+  --panel-border: 2px outset #808080;
+  --btn-bg:       #404040;
+  --btn-fg:       #ffffff;
+  --btn-border:   2px outset #808080;
+  --field-bg:     #000000;
+  --field-border: 2px inset #808080;
+  --statusline-bg:     #0b1a10;
+  --statusline-fg:     #6bffa0;
+  --statusline-border: #05100a;
+  --accent2:      #33ff88;
+  --warn:         #ff8080;
+}
 /* the ubiquitous tiled "blue marble" Windows desktop every period browser
    shipped with -- one shared texture instead of the same ~4KB data URI
    duplicated in every page. */
@@ -65,6 +93,36 @@
   --h1-shadow: none;
   --h1-align:  center;
   --center:    center;
+}
+/* Mid-1990s web at night: flat dark desktop, bright period links. */
+:root[data-theme="web94"][data-mode="dark"] {
+  color-scheme: dark;
+  --desktop:   #1a1a2e;
+  --page-bg:   #2a2a3a;
+  --page-border: 3px ridge #555566;
+  --text:      #e8e8f0;
+  --dim:       #a0a0b8;
+  --link:      #6ea8ff;
+  --link-visited: #c090ff;
+  --rule:      2px inset #3a3a4a;
+  --h1-color:  #ffffff;
+  --panel-bg:     #2a2a3a;
+  --panel-border: 2px outset #555566;
+  --btn-bg:       #3a3a4a;
+  --btn-fg:       #e8e8f0;
+  --btn-border:   2px outset #555566;
+  --field-bg:     #12121c;
+  --field-border: 2px inset #555566;
+  --statusline-bg:     #0b1a10;
+  --statusline-fg:     #6bffa0;
+  --statusline-border: #05100a;
+  --accent2:      #33ff88;
+  --warn:         #ff8080;
+}
+:root[data-theme="web94"][data-mode="dark"] body {
+  background: #1a1a2e;
+  color: #e8e8f0;
+  font-family: "Times New Roman", Times, serif;
 }
 :root[data-theme="modern"] {
   --desktop:   #eceef2;
@@ -131,10 +189,9 @@
   --accent2:      #33ff88;
   --warn:         #ff7a7a;
 }
-/* System Aurora -- purple/cyan glass on a daytime sky (sun + clouds +
-   a soft aurora wash), or the space starfield when the OS is dark.
-   Stored as systemaurora; theme scripts set data-theme="aurora" and
-   data-mode="dark" with the OS. */
+/* Atmosphere -- purple/cyan glass on a daytime sky (sun + clouds +
+   a soft aurora wash), or the space starfield when dark. Storage key
+   remains aurora (legacy systemaurora migrates here). */
 :root[data-theme="aurora"] {
   color-scheme: light;
   --desktop:   #b8d4f0;

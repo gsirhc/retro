@@ -1,5 +1,14 @@
 import { test, expect } from "./fixtures";
 
+
+async function chooseTheme(page, theme, mode = "light") {
+  await page.locator("#pageThemeBtn").click();
+  await page.locator(`#themeDialog input[name="pageThemeFamily"][value="${theme}"]`).check();
+  await page.locator(`#themeDialog input[name="pageThemeMode"][value="${mode}"]`).check();
+  await page.locator("#themeDialogDone").click();
+}
+
+
 // The front panel's turbo cluster: seven-segment clock readout tracks
 // Turbo (66 / 33), amber LED matches, and Turbo switches the 471's
 // de-turbo bus hold. Power/reset behavior is in boot.spec.ts.
@@ -77,7 +86,7 @@ test.describe("front panel jewelry", () => {
     const vp = page.viewportSize()!;
     try {
       await page.setViewportSize({ width: 1600, height: 1000 });
-      await page.locator("#pageTheme").selectOption("modern");
+      await chooseTheme(page, "modern");
       const blanks = page.locator(".at-bay.bay-blank");
       await expect(blanks).toHaveCount(2);
       await expect(blanks.nth(0)).toBeVisible();
@@ -99,7 +108,7 @@ test.describe("front panel jewelry", () => {
   }) => {
     const vp = page.viewportSize()!;
     try {
-      await page.locator("#pageTheme").selectOption("modern");
+      await chooseTheme(page, "modern");
       await page.setViewportSize({ width: 1200, height: 900 });
       const visible = page.locator(".at-drives .at-bay:visible");
       await expect(visible).toHaveCount(4);
@@ -121,7 +130,7 @@ test.describe("front panel jewelry", () => {
   test("modern theme puts the mini-tower beside the screen (CD, floppy, then controls)", async ({
     livePage: page,
   }) => {
-    await page.locator("#pageTheme").selectOption("modern");
+    await chooseTheme(page, "modern");
     const layout = await page.evaluate(() => {
       const screen = document.getElementById("screen")!.getBoundingClientRect();
       const cd = document.querySelector('.at-bay[data-drive="cdrom"]')!.getBoundingClientRect();
@@ -148,7 +157,7 @@ test.describe("front panel jewelry", () => {
   }) => {
     const vp = page.viewportSize()!;
     try {
-      await page.locator("#pageTheme").selectOption("modern");
+      await chooseTheme(page, "modern");
       // Wide enough for a roomy window, too narrow for a 640px screen
       // beside the 340px tower.
       await page.setViewportSize({ width: 1000, height: 900 });
@@ -235,7 +244,7 @@ test.describe("front panel jewelry", () => {
   }) => {
     const vp = page.viewportSize()!;
     try {
-      await page.locator("#pageTheme").selectOption("modern");
+      await chooseTheme(page, "modern");
       await page.setViewportSize({ width: 420, height: 900 });
       const layout = await page.evaluate(() => {
         const screen = document.getElementById("screen")!.getBoundingClientRect();

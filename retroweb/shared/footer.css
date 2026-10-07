@@ -25,9 +25,9 @@
   display: inline-block;
   min-width: 75px;
   padding: 3px 14px 4px;
-  color: #000;
-  background: #c0c0c0;
-  border: 2px outset #dfdfdf;
+  color: var(--btn-fg);
+  background: var(--btn-bg);
+  border: var(--btn-border);
   border-radius: 0;
   font: 12px "MS Sans Serif", "Microsoft Sans Serif", Tahoma, sans-serif;
   text-align: center;
@@ -38,7 +38,7 @@
   padding: 4px 13px 3px 15px;
 }
 .site-footer .about-sign:focus-visible {
-  outline: 1px dotted #000;
+  outline: 1px dotted var(--text);
   outline-offset: -5px;
 }
 
@@ -46,7 +46,7 @@
 :root[data-theme="web94"] .site-footer .about-sign {
   min-width: 0;
   padding: 0;
-  color: #0000ff;
+  color: var(--link);
   background: none;
   border: none;
   font: 16px "Times New Roman", Times, serif;
@@ -54,14 +54,17 @@
 }
 :root[data-theme="web94"] .site-footer .about-sign::before { content: "[ "; }
 :root[data-theme="web94"] .site-footer .about-sign::after { content: " ]"; }
-:root[data-theme="web94"] .site-footer .about-sign:visited { color: #800080; }
+:root[data-theme="web94"] .site-footer .about-sign:visited { color: var(--link-visited); }
 :root[data-theme="web94"] .site-footer .about-sign:active {
   color: #f00;
   padding: 0;
   border: none;
 }
+:root[data-theme="web94"][data-mode="dark"] .site-footer .about-sign:active {
+  color: #ff8080;
+}
 :root[data-theme="web94"] .site-footer .about-sign:focus-visible {
-  outline: 1px dotted #000;
+  outline: 1px dotted var(--text);
   outline-offset: 2px;
 }
 
@@ -87,7 +90,7 @@
   outline-offset: 3px;
 }
 
-/* System Aurora: same Help control, this theme's glassy gradient tokens. */
+/* Atmosphere: same Help control, this theme's glassy gradient tokens. */
 :root[data-theme="aurora"] .site-footer .about-sign {
   min-width: 0;
   padding: 7px 16px;

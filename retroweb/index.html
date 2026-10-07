@@ -13,18 +13,18 @@
 <link rel="stylesheet" href="shared/footer.css">
 <style>
   /* ---- page themes: default = Windows 95; web94 = mid-90s Mosaic web;
-     modern = clean; the color palette for all five themes (moderndark and
-     ai included) lives in shared/theme.css (linked above) -- editing a
-     color there reaches this page and every machine. This page has no
-     build step, so it links that file straight from its own sibling
-     shared/ directory rather than a copied web/shared/ (see each machine's
+     modern / aurora = clean layouts. Light and dark palettes for every
+     family live in shared/theme.css (linked above) -- editing a color
+     there reaches this page and every machine. This page has no build
+     step, so it links that file straight from its own sibling shared/
+     directory rather than a copied web/shared/ (see each machine's
      web/Makefile `shared` target for that copy). Only --title-font (this
      page's own heading size, which varies with its own header layout, not
      the theme) stays local, below. */
   :root { --title-font: 900 30px "Arial Black", Arial, sans-serif; }
   :root[data-theme="web94"] { --title-font: bold 26px "Times New Roman", Times, serif; }
   :root[data-theme="modern"] { --title-font: 700 28px/1.15 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-  /* "System Aurora" title size; desktop background lives in shared/theme.css. */
+  /* Atmosphere title size; desktop background lives in shared/theme.css. */
   :root[data-theme="aurora"] { --title-font: 800 30px/1.15 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
   :root[data-theme="aurora"] body {
     display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -53,6 +53,7 @@
     border-radius: var(--page-radius);
     box-shadow: var(--page-shadow);
   }
+  :root[data-theme="aurora"] .page { max-width: min(980px, 86vw); }
   .inner { padding: 22px 26px 26px; }
 
   header {
@@ -112,21 +113,14 @@
 </style>
 </head>
 <body>
-<script>try{var t=localStorage.getItem("retro8080.theme")||"win",r=document.documentElement;if(t=="ai")t="systemaurora";var sys=matchMedia("(prefers-color-scheme: dark)").matches;if(t=="moderndark"||t=="system"){r.dataset.theme="modern";if(t=="moderndark"||sys)r.dataset.mode="dark";}else if(t=="systemaurora"){r.dataset.theme="aurora";if(sys)r.dataset.mode="dark";}else{r.dataset.theme=t;}}catch(e){}</script>
+<script>try{var r=document.documentElement,t=localStorage.getItem("retro8080.theme")||"win",m=localStorage.getItem("retro8080.mode");if(t=="ai"||t=="systemaurora"){t="aurora";if(!m)m="system";}else if(t=="moderndark"){t="modern";if(!m)m="dark";}else if(t=="system"){t="modern";if(!m)m="system";}if(t!="win"&&t!="web94"&&t!="modern"&&t!="aurora")t="win";if(m!="light"&&m!="dark"&&m!="system")m="light";var dark=m=="dark"||(m=="system"&&matchMedia("(prefers-color-scheme: dark)").matches);r.dataset.theme=t;if(dark)r.dataset.mode="dark";else delete r.dataset.mode;}catch(e){}</script>
 
 <div class="page">
   <header class="pagebar">
     <span class="pb-title"><img class="pb-icon" src="assets/favicon-32.png" alt="" aria-hidden="true"> RetroCG</span>
     <span class="pb-tools">
       <label class="pb-theme">Theme
-        <select id="pageTheme">
-          <option value="win">Windows 95</option>
-          <option value="web94">Mid-1990s Web</option>
-          <option value="modern">Light Modern</option>
-          <option value="moderndark">Dark Modern</option>
-          <option value="system">System Modern</option>
-          <option value="systemaurora">System Aurora</option>
-        </select>
+        <button type="button" class="pb-theme-btn" id="pageThemeBtn">Windows 95</button>
       </label>
       <span class="pb-winbtns"><span aria-hidden="true">_</span><span aria-hidden="true">&#9633;</span><span aria-hidden="true">&times;</span></span>
     </span>
@@ -215,36 +209,8 @@
   </div>
 </div>
 
-<script>
-  (function () {
-    var root = document.documentElement;
-    var sel = document.getElementById("pageTheme");
-    var VALUES = ["win", "web94", "modern", "moderndark", "system", "systemaurora"];
-    var systemDark = matchMedia("(prefers-color-scheme: dark)");
-    function apply(v) {
-      if (v === "ai") v = "systemaurora";
-      if (VALUES.indexOf(v) < 0) v = "win";
-      var theme = v, dark = false;
-      if (v === "moderndark") { theme = "modern"; dark = true; }
-      else if (v === "system") { theme = "modern"; dark = systemDark.matches; }
-      else if (v === "systemaurora") { theme = "aurora"; dark = systemDark.matches; }
-      root.dataset.theme = theme;
-      if (dark) root.dataset.mode = "dark";
-      else delete root.dataset.mode;
-      return v;
-    }
-    var saved;
-    try { saved = localStorage.getItem("retro8080.theme"); } catch (e) {}
-    sel.value = apply(saved || "win");
-    sel.addEventListener("change", function () {
-      apply(sel.value);
-      try { localStorage.setItem("retro8080.theme", sel.value); } catch (e) {}
-    });
-    systemDark.addEventListener("change", function () {
-      if (sel.value === "system" || sel.value === "systemaurora") apply(sel.value);
-    });
-  })();
-</script>
+<script src="shared/theme-picker.js"></script>
+<script>initThemePicker();</script>
 <script src="shared/footer.js"></script>
 </body>
 </html>

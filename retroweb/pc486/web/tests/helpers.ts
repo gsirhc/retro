@@ -146,12 +146,16 @@ export async function resetLivePage(page: Page): Promise<void> {
   // Do NOT hint.close() here: that listener enters fullscreen (handled above).
   await page.evaluate(() => {
     localStorage.removeItem("retro8080.theme");
+    localStorage.removeItem("retro8080.mode");
     localStorage.removeItem("retro8080.fsEscHintSeen");
     localStorage.removeItem("retro8080.pc486BootNoticeDismissed");
   });
-  const theme = page.locator("#pageTheme");
-  if ((await theme.count()) && (await theme.inputValue()) !== "win") {
-    await theme.selectOption("win");
+  const themeBtn = page.locator("#pageThemeBtn");
+  if ((await themeBtn.count()) && (await themeBtn.innerText()) !== "Windows 95") {
+    await themeBtn.click();
+    await page.locator('#themeDialog input[name="pageThemeFamily"][value="win"]').check();
+    await page.locator('#themeDialog input[name="pageThemeMode"][value="light"]').check();
+    await page.locator("#themeDialogDone").click();
   }
   // Focus hint only shows while the screen is unfocused.
   await page.locator("#fullscreenBtn").focus();

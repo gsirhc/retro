@@ -36,6 +36,8 @@ h1, h2, h3 { font-weight: 600; }
 }
 /* Modern theme goes almost full page width on every machine page. */
 :root[data-theme="modern"] { --page-max: min(1600px, 95vw); }
+/* Atmosphere sits between the 90s fixed column and Modern's near-bleed. */
+:root[data-theme="aurora"] { --page-max: min(1180px, 86vw); }
 
 .pagebar {
   display: flex; align-items: center; gap: 10px;
@@ -54,12 +56,59 @@ h1, h2, h3 { font-weight: 600; }
 .pb-name, .pb-tag { display: none; }   /* Modern folds the page title into this bar instead */
 .pb-tools { flex: 0 0 auto; margin-left: auto; display: flex; align-items: center; gap: 10px; }
 .pb-theme { display: inline-flex; align-items: center; gap: 5px; font: inherit; }
-.pb-theme select {
+.pb-theme-btn {
   font: 12px Arial, Helvetica, sans-serif;
-  color: var(--text); background: var(--field-bg);
-  border: var(--field-border); border-radius: var(--btn-radius);
-  padding: 1px 3px;
+  color: var(--btn-fg); background: var(--btn-bg);
+  border: var(--btn-border); border-radius: var(--btn-radius);
+  padding: 1px 8px 2px; cursor: pointer;
 }
+.pb-theme-btn:active { border-style: inset; }
+
+/* Theme picker dialog -- built by theme-picker.js; chrome lives here so
+   landing/about (no fullscreen.css) get the same panel look. */
+#themeDialog {
+  max-width: 320px; padding: 16px 18px 18px;
+  background: var(--panel-bg); color: var(--text);
+  border: var(--panel-border); border-radius: var(--panel-radius);
+}
+/* Atmosphere (aurora) panels are glassy; the dialog needs to read as a
+   solid sheet over the page cards. */
+:root[data-theme="aurora"]:not([data-mode="dark"]) #themeDialog {
+  background: rgba(255, 252, 255, .94);
+}
+:root[data-theme="aurora"][data-mode="dark"] #themeDialog {
+  background: rgba(20, 17, 32, .94);
+}
+#themeDialog::backdrop { background: rgba(0,0,0,.55); }
+#themeDialog h2 {
+  margin: 0 0 10px; font: bold 15px Arial, Helvetica, sans-serif;
+  text-transform: none; letter-spacing: normal; color: var(--text);
+}
+#themeDialog fieldset {
+  margin: 0 0 12px; padding: 8px 10px 10px;
+  border: var(--rule); min-width: 0;
+}
+#themeDialog legend {
+  padding: 0 4px; font-size: 12px; color: var(--dim);
+}
+#themeDialog label {
+  display: flex; align-items: center; gap: 8px;
+  margin: 4px 0; font-size: 14px; cursor: pointer;
+}
+#themeDialog .theme-dialog-modes {
+  display: flex; flex-wrap: wrap; gap: 4px 14px;
+}
+#themeDialog .theme-dialog-modes label { margin: 2px 0; }
+#themeDialog .row {
+  display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px;
+}
+#themeDialog .row button {
+  font: 12px Arial, Helvetica, sans-serif;
+  color: var(--btn-fg); background: var(--btn-bg);
+  border: var(--btn-border); border-radius: var(--btn-radius);
+  padding: 4px 16px; min-width: 72px; cursor: pointer;
+}
+#themeDialog .row button:active { border-style: inset; }
 .pb-winbtns span, .pb-winbtns a {
   display: inline-block; width: 16px; height: 14px; line-height: 12px;
   margin-left: 2px; text-align: center; font-size: 10px;
@@ -68,14 +117,17 @@ h1, h2, h3 { font-weight: 600; }
 }
 
 :root[data-theme="web94"] .pagebar {
-  background: #c0c0c0; color: #000;
+  background: var(--page-bg); color: var(--text);
   border-bottom: 1px solid #808080;
   font: 15px "Times New Roman", Times, serif;
 }
+:root[data-theme="web94"][data-mode="dark"] .pagebar {
+  border-bottom: 1px solid #555566;
+}
 :root[data-theme="web94"] .pb-title   { display: none; }
 :root[data-theme="web94"] .pb-winbtns { display: none; }
-:root[data-theme="web94"] .pb-home { display: inline; color: #0000ff; text-decoration: underline; font-weight: normal; }
-:root[data-theme="web94"] .pb-home:visited { color: #800080; }
+:root[data-theme="web94"] .pb-home { display: inline; color: var(--link); text-decoration: underline; font-weight: normal; }
+:root[data-theme="web94"] .pb-home:visited { color: var(--link-visited); }
 
 :root[data-theme="modern"] .pagebar {
   background: var(--titlebar-bg); color: var(--titlebar-fg);

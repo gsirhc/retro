@@ -1,4 +1,11 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
+
+async function chooseTheme(page: Page, theme: string, mode = "light") {
+  await page.locator("#pageThemeBtn").click();
+  await page.locator(`#themeDialog input[name="pageThemeFamily"][value="${theme}"]`).check();
+  await page.locator(`#themeDialog input[name="pageThemeMode"][value="${mode}"]`).check();
+  await page.locator("#themeDialogDone").click();
+}
 
 test.describe("page theme", () => {
   test.beforeEach(async ({ page }) => {
@@ -8,67 +15,67 @@ test.describe("page theme", () => {
 
   test("defaults to Windows 95 (retro8080.theme unset)", async ({ page }) => {
     await expect(page.locator("html")).toHaveAttribute("data-theme", "win");
-    await expect(page.locator("#pageTheme")).toHaveValue("win");
+    await expect(page.locator("#pageThemeBtn")).toHaveText("Windows 95");
   });
 
   test("every theme is selectable and sets the expected data-theme/data-mode", async ({ page }) => {
-    const cases: [string, string, string | null][] = [
-      ["win", "win", null],
-      ["web94", "web94", null],
-      ["modern", "modern", null],
-      ["moderndark", "modern", "dark"],
+    const cases: [string, string, string, string | null][] = [
+      ["win", "light", "win", null],
+      ["web94", "light", "web94", null],
+      ["modern", "light", "modern", null],
+      ["modern", "dark", "modern", "dark"],
     ];
-    for (const [value, theme, mode] of cases) {
-      await page.selectOption("#pageTheme", value);
-      await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
+    for (const [theme, mode, dataTheme, dataMode] of cases) {
+      await chooseTheme(page, theme, mode);
+      await expect(page.locator("html")).toHaveAttribute("data-theme", dataTheme);
       const gotMode = await page.evaluate(() => document.documentElement.dataset.mode ?? null);
-      expect(gotMode).toBe(mode);
+      expect(gotMode).toBe(dataMode);
     }
   });
 
-  test("System follows the OS appearance on the Modern palette", async ({ page }) => {
+  test("System mode follows the OS appearance on the Modern palette", async ({ page }) => {
     await page.emulateMedia({ colorScheme: "light" });
-    await page.selectOption("#pageTheme", "system");
+    await chooseTheme(page, "modern", "system");
     await expect(page.locator("html")).toHaveAttribute("data-theme", "modern");
     await expect(page.locator("html")).not.toHaveAttribute("data-mode");
-    expect(await page.evaluate(() => localStorage.getItem("retro8080.theme"))).toBe("system");
+    expect(await page.evaluate(() => localStorage.getItem("retro8080.theme"))).toBe("modern");
+    expect(await page.evaluate(() => localStorage.getItem("retro8080.mode"))).toBe("system");
 
     await page.emulateMedia({ colorScheme: "dark" });
     await expect(page.locator("html")).toHaveAttribute("data-theme", "modern");
     await expect(page.locator("html")).toHaveAttribute("data-mode", "dark");
-    await expect(page.locator("#pageTheme")).toHaveValue("system");
 
-    // An explicit Modern choice stays light when the OS goes dark.
-    await page.selectOption("#pageTheme", "modern");
+    await chooseTheme(page, "modern", "light");
     await page.emulateMedia({ colorScheme: "dark" });
     await expect(page.locator("html")).toHaveAttribute("data-theme", "modern");
     await expect(page.locator("html")).not.toHaveAttribute("data-mode");
   });
 
-  test("System Aurora follows the OS appearance on the Aurora palette", async ({ page }) => {
+  test("System mode follows the OS appearance on the Aurora palette", async ({ page }) => {
     await page.emulateMedia({ colorScheme: "light" });
-    await page.selectOption("#pageTheme", "systemaurora");
+    await chooseTheme(page, "aurora", "system");
     await expect(page.locator("html")).toHaveAttribute("data-theme", "aurora");
     await expect(page.locator("html")).not.toHaveAttribute("data-mode");
-    expect(await page.evaluate(() => localStorage.getItem("retro8080.theme"))).toBe("systemaurora");
+    expect(await page.evaluate(() => localStorage.getItem("retro8080.theme"))).toBe("aurora");
+    expect(await page.evaluate(() => localStorage.getItem("retro8080.mode"))).toBe("system");
 
     await page.emulateMedia({ colorScheme: "dark" });
     await expect(page.locator("html")).toHaveAttribute("data-theme", "aurora");
     await expect(page.locator("html")).toHaveAttribute("data-mode", "dark");
-    await expect(page.locator("#pageTheme")).toHaveValue("systemaurora");
   });
 
-  test("persists across reload via the shared retro8080.theme key", async ({ page }) => {
-    await page.selectOption("#pageTheme", "web94");
+  test("persists across reload via the shared theme and mode keys", async ({ page }) => {
+    await chooseTheme(page, "web94");
     await page.reload();
     await expect(page.locator("#screen .xterm-rows")).toContainText("\\", { timeout: 45000 });
     await expect(page.locator("html")).toHaveAttribute("data-theme", "web94");
-    await expect(page.locator("#pageTheme")).toHaveValue("web94");
+    await expect(page.locator("#pageThemeBtn")).toHaveText("Mid-1990s Web");
     expect(await page.evaluate(() => localStorage.getItem("retro8080.theme"))).toBe("web94");
+    expect(await page.evaluate(() => localStorage.getItem("retro8080.mode"))).toBe("light");
   });
 
   test("the board and terminal still work under every theme", async ({ page }) => {
-    await page.selectOption("#pageTheme", "win");
+    await chooseTheme(page, "win");
     await page.click("#screen");
     await page.keyboard.type("0.F", { delay: 100 });
     await page.keyboard.press("Enter");

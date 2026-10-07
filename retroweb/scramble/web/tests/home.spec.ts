@@ -1,5 +1,14 @@
 import { test, expect } from "@playwright/test";
 
+
+async function chooseTheme(page, theme, mode = "light") {
+  await page.locator("#pageThemeBtn").click();
+  await page.locator(`#themeDialog input[name="pageThemeFamily"][value="${theme}"]`).check();
+  await page.locator(`#themeDialog input[name="pageThemeMode"][value="${mode}"]`).check();
+  await page.locator("#themeDialogDone").click();
+}
+
+
 const HOME = "http://localhost:8710/";
 
 test.describe("retroweb landing page", () => {
@@ -27,7 +36,7 @@ test.describe("retroweb landing page", () => {
     await expect(root).toHaveAttribute("data-theme", "win");
     await expect(page.locator("#siteFooter a.about-sign")).toHaveText("Help");
 
-    await page.selectOption("#pageTheme", "modern");
+    await chooseTheme(page, "modern");
     await expect(root).toHaveAttribute("data-theme", "modern");
     expect(await page.evaluate(() => localStorage.getItem("retro8080.theme"))).toBe("modern");
     await expect(page.locator("#siteFooter a.about-sign")).toHaveText("Help");

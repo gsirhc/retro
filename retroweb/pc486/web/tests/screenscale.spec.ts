@@ -2,6 +2,15 @@ import { test, expect } from "./fixtures";
 import type { Page } from "@playwright/test";
 import { bootLive } from "./helpers";
 
+
+async function chooseTheme(page, theme, mode = "light") {
+  await page.locator("#pageThemeBtn").click();
+  await page.locator(`#themeDialog input[name="pageThemeFamily"][value="${theme}"]`).check();
+  await page.locator(`#themeDialog input[name="pageThemeMode"][value="${mode}"]`).check();
+  await page.locator("#themeDialogDone").click();
+}
+
+
 // The guest frame is blown up by a whole factor per axis (nearest-
 // neighbour) into #screen, then smooth-scaled to the CSS box. A plain
 // pixelated stretch to 860px doubles every third column and garbles text on
@@ -52,11 +61,11 @@ test.describe("screen scaling", () => {
   test("modern theme on a wide window fills its column past 860px and re-fits", async ({ livePage: page }) => {
     const vp = page.viewportSize()!;
     await page.setViewportSize({ width: 1920, height: 1080 });
-    await page.locator("#pageTheme").selectOption("modern");
+    await chooseTheme(page, "modern");
     await expect.poll(async () => (await measure(page)).cssW).toBeGreaterThan(860);
     await expect.poll(async () => { const m = await measure(page); return m.cw / m.fw === axisScale(m.cssW, m.dpr, m.fw); }).toBe(true);
     expectSharpBilinear(await measure(page));
-    await page.locator("#pageTheme").selectOption("win");
+    await chooseTheme(page, "win");
     await page.setViewportSize(vp);
   });
 
