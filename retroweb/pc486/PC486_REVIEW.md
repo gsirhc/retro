@@ -6997,7 +6997,8 @@ going and anything that needs the bus waits. The machine used to halve
 the clock to 33 MHz instead, which is what other boards of the period
 did, but not this one. Now `Machine::set_turbo` sets the hold and leaves
 the clock at 66 MHz. The front panel's readout still shows 33, as a
-tower's jumpers would set it.
+tower's jumpers would set it. The Turbo button's tooltip, which said
+"Off: 33 MHz", is gone; the panel has no explainers, like a real tower.
 
 ### 48.5 What's left
 

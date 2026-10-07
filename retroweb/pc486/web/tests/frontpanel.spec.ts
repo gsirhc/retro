@@ -36,6 +36,9 @@ test.describe("front panel jewelry", () => {
   test("reads as a tower turbo cluster with 5.25\" CD above 3.5\" floppy", async ({ livePage: page }) => {
     await expect(page.locator(".tower-panel")).toBeVisible();
     await expect(page.locator("#turboBtn")).toBeVisible();
+    // No explainer on the panel: the buttons are as bare as a real tower's.
+    await expect(page.locator("#turboBtn")).not.toHaveAttribute("data-tip");
+    await expect(page.locator("#turboBtn")).not.toHaveAttribute("title");
     await expect(page.locator("#resetBtn")).toBeVisible();
     await expect(page.locator("#powerSwitch")).toBeVisible();
     await expect(page.locator(".power-rocker")).toBeVisible();

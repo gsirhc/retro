@@ -393,8 +393,7 @@
     cursor: help; user-select: none; flex: 0 0 auto;
   }
   .info-tip:hover, .info-tip:focus-visible { color: var(--text); border-color: var(--text); outline: none; }
-  .info-tip::after,
-  .tower-btn[data-tip]::after {
+  .info-tip::after {
     content: attr(data-tip);
     position: absolute; left: 50%; bottom: calc(100% + 8px);
     transform: translateX(-50%);
@@ -408,8 +407,7 @@
     transition: opacity .12s ease, visibility .12s ease;
     transition-delay: 0s;
   }
-  .info-tip:hover::after, .info-tip:focus-visible::after,
-  .tower-btn[data-tip]:hover::after, .tower-btn[data-tip]:focus-visible::after {
+  .info-tip:hover::after, .info-tip:focus-visible::after {
     opacity: 1; visibility: visible;
     transition-delay: .4s;
   }
@@ -1189,7 +1187,6 @@
                 <div class="tower-btn-wrap">
                   <span class="tower-btn-cap">Turbo</span>
                   <button type="button" class="tower-btn" id="turboBtn"
-                          data-tip="On: 66 MHz. Off: 33 MHz. Real 486 towers had this switch because some software ran too fast or broke at 66 MHz."
                           aria-label="Turbo" aria-pressed="true"></button>
                 </div>
                 <div class="tower-btn-wrap">
