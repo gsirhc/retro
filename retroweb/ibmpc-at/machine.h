@@ -18,6 +18,7 @@ public:
     // not equal it) and the factory CMOS configuration is already set.
     Machine() : cpu(chipset.make_bus()) {
         cpu.reset();
+        start_refresh();
         // The BIOS and video BIOS stand-ins use 386 opcodes (IBM_PCAT_REVIEW.md §7).
         cpu.firmware_at = [this](uint32_t addr) { return chipset.is_rom(addr); };
         // One PIT clock, so a long REP doesn't hold off IRQ0.
@@ -27,6 +28,7 @@ public:
 
     void reset() {
         chipset.reset();
+        start_refresh();
         cpu.reset();
         // CMOS is battery-backed and survives reset; chipset.reset() leaves it alone.
     }
@@ -35,6 +37,13 @@ public:
     // floppy types, equipment byte and boot-device sequence (IBM_PCAT_REVIEW.md §8).
     // Called once at construction.
     void configure_factory_cmos();
+
+    // Channel 1 mode 2, count 18, as IBM's POST does (IBM PC/AT Technical
+    // Reference, BIOS listing); the stand-in BIOS never starts refresh.
+    void start_refresh() {
+        chipset.pit.out(0x43, 0x54);
+        chipset.pit.out(0x41, 0x12);
+    }
 
     // Runs instructions until at least `cycles` more CPU cycles have elapsed at
     // the fixed 8 MHz, servicing 8042 reset requests and interrupts between instructions.

@@ -42,7 +42,8 @@ TEST(ChipsetTest, RomAlsoDecodesAtTheTopOf16MB) {
     EXPECT_EQ(bus.read(0xFFFFF0), 0xEA);
     bus.write(0xFFFFF0, 0x00);
     EXPECT_EQ(bus.read(0xFFFFF0), 0xEA);
-    EXPECT_EQ(bus.read(0xFE0000), 0xFF) << "no ROM fitted at E0000h, so its alias is open bus";
+    EXPECT_EQ(bus.read(0xFEFFFF), 0xFF) << "the alias is the 64KB at FF0000h only";
+    EXPECT_EQ(bus.read(0xFF0000), 0xFF) << "no ROM at F0000h itself, so its alias is open bus";
     EXPECT_TRUE(cs.is_rom(0xFFFFF1));
 }
 
@@ -71,11 +72,41 @@ TEST(ChipsetTest, Port61GatesSpeakerAndReadsBackRefreshToggle) {
     Chipset cs;
     auto bus = cs.make_bus();
     bus.out(0x61, 0x01);  // gate channel 2 on
+    EXPECT_EQ(bus.in(0x61) & 0x01, 0x01);
     uint8_t before = bus.in(0x61);
     cs.tick(1000, 1193182.0);
-    uint8_t after = bus.in(0x61);
-    EXPECT_NE(before & 0x10, after & 0x10);  // refresh toggle flipped by tick()
-    EXPECT_EQ(before & 0x01, 0x01);          // gate bit reads back as programmed
+    EXPECT_EQ(bus.in(0x61) & 0x10, before & 0x10) << "no refresh until channel 1 is programmed";
+}
+
+TEST(ChipsetTest, RefreshFollowsChannelOneAndStealsFiveClocksEach) {
+    Chipset cs;
+    auto bus = cs.make_bus();
+    bus.out(0x43, 0x54);  // channel 1, LSB, mode 2 -- IBM's POST
+    bus.out(0x41, 18);
+    uint8_t before = bus.in(0x61) & 0x10;
+    cs.tick(19, 1193182.0);  // one PIT clock per CPU cycle: the load clock plus one 15 us period
+    EXPECT_NE(bus.in(0x61) & 0x10, before);
+    EXPECT_EQ(cs.take_held_clocks(), 5);
+    EXPECT_EQ(cs.take_held_clocks(), 0);
+    cs.tick(19 + 18 * 100, 1193182.0);
+    EXPECT_EQ(cs.take_held_clocks(), 500);
+}
+
+TEST(ChipsetTest, BusCycleLengthsFollowTheTechnicalReference) {
+    Chipset cs;
+    auto bus = cs.make_bus();
+    ASSERT_NE(bus.mem_clocks, nullptr);
+    EXPECT_EQ(bus.mem_clocks[0x00000 >> 12], 3);   // system-board RAM
+    EXPECT_EQ(bus.mem_clocks[0x9F000 >> 12], 3);
+    constexpr uint8_t kSlot = cpu80286::Bus::kMemSlotted;
+    EXPECT_EQ(bus.mem_clocks[0xA0000 >> 12], 6 | kSlot);   // EGA, an 8-bit card holding the CPU to its slots
+    EXPECT_EQ(bus.mem_clocks[0xB8000 >> 12], 6 | kSlot);
+    EXPECT_EQ(bus.mem_clocks[0xC0000 >> 12], 6);   // EGA BIOS ROM
+    EXPECT_EQ(bus.mem_clocks[0xF0000 >> 12], 3);   // system ROM
+    EXPECT_EQ(bus.mem_clocks[0xFFF000 >> 12], 3);  // its alias
+    EXPECT_EQ(bus.io_clocks(0x1F0), 3);            // WD1003 data port, 16-bit
+    EXPECT_EQ(bus.io_clocks(0x1F7), 6);
+    EXPECT_EQ(bus.io_clocks(0x20), 6);
 }
 
 TEST(ChipsetTest, DmaPageRegisterRoundTripsThroughPorts) {
@@ -127,6 +158,7 @@ TEST(ChipsetTest, FloppyDmaTransferCopiesRealBytesIntoMemory) {
     EXPECT_TRUE(copied);
     EXPECT_EQ(cs.dma1.address(2), 0x2000 + 512);
     EXPECT_TRUE(cs.fdc.irq_pending());
+    EXPECT_EQ(cs.take_held_clocks(), 512 * 10) << "each DMA byte holds the CPU off for one 10-clock DMA cycle";
 }
 
 TEST(ChipsetTest, Irq6IsEdgeTriggeredNotReRaisedWhileStillPending) {

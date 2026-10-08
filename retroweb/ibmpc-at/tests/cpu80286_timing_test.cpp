@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <initializer_list>
 #include <memory>
+#include <vector>
 
 namespace {
 
@@ -147,6 +148,20 @@ TEST_F(Cpu80286TimingTest, RepScasbScalesWithCount) {
     for (int i = 0; i < 4; ++i) mem[0x300 + i] = 0xFF;  // never matches -> runs all 4
     // F2 AE: REPNE SCASB (stop on match; never matches here) -- 2 (prefix) + 5 + 8*4 = 39
     EXPECT_EQ(runCycles({0xF2, 0xAE}), 39);
+}
+TEST_F(Cpu80286TimingTest, RepLodsbScalesWithCount) {
+    cpu->cx = 12;
+    // F3 AC: REP LODSB -- 2 (prefix) + 5 + 4*12 = 55 (80C286 data sheet)
+    EXPECT_EQ(runCycles({0xF3, 0xAC}), 55);
+}
+
+// --- Effective address: summing base, index and displacement costs a clock ---
+
+TEST_F(Cpu80286TimingTest, BaseIndexDisplacementAddsOneClock) {
+    EXPECT_EQ(runCycles({0x8B, 0x00}), 5);        // MOV AX,[BX+SI]
+    EXPECT_EQ(runCycles({0x8B, 0x47, 0x02}), 5);  // MOV AX,[BX+2]
+    EXPECT_EQ(runCycles({0x8B, 0x40, 0x02}), 6);  // MOV AX,[BX+SI+2]
+    EXPECT_EQ(runCycles({0x89, 0x83, 0x00, 0x01}), 4);  // MOV [BP+DI+100h],AX
 }
 
 // --- Shift/rotate group: by-1 is its own fixed cost, CL/imm8 scale ------
@@ -326,6 +341,124 @@ TEST_F(Cpu80286TimingTest, RetfImm16Costs17Cycles) {
     mem[0x100] = 0x00; mem[0x101] = 0x00;
     mem[0x102] = 0x00; mem[0x103] = 0x00;
     EXPECT_EQ(runCycles({0xCA, 0x04, 0x00}), 17);  // RETF 4 -- floor 15 (15-18) + tax
+}
+
+// --- AT bus timing: wait states and the prefetch queue ---
+
+// RAM, ROM and port 1F0h take 3 clocks a cycle; A0000-BFFFF and other ports 6.
+class Cpu80286BusTest : public ::testing::Test {
+protected:
+    std::array<uint8_t, 0x100000> mem{};
+    std::array<uint8_t, 4096> clocks{};
+    std::unique_ptr<Cpu> cpu;
+    Bus bus;
+
+    void SetUp() override {
+        clocks.fill(3);
+        for (uint32_t page = 0xA0; page < 0xC0; ++page) clocks[page] = 6;
+        bus.read   = [this](uint32_t a) { return mem[a & 0xFFFFF]; };
+        bus.write  = [this](uint32_t a, uint8_t v) { mem[a & 0xFFFFF] = v; };
+        bus.in     = [](uint16_t) -> uint8_t { return 0xFF; };
+        bus.out    = [](uint16_t, uint8_t) {};
+        bus.in16   = [](uint16_t) -> uint16_t { return 0xFFFF; };
+        bus.out16  = [](uint16_t, uint16_t) {};
+        bus.mem_clocks = clocks.data();
+        bus.io_clocks = [](uint16_t p) -> uint8_t { return p == 0x1F0 ? 3 : 6; };
+        cpu = std::make_unique<Cpu>(bus);
+    }
+    // Fresh CPU (empty queue) running `code` at 0000:0000.
+    int first(std::initializer_list<uint8_t> code) {
+        uint16_t addr = 0;
+        for (uint8_t b : code) mem[addr++] = b;
+        cpu->reset();
+        cpu->cs = 0; cpu->ip = 0;
+        cpu->ss = 0; cpu->sp = 0x8000;
+        return cpu->step();
+    }
+};
+
+TEST_F(Cpu80286BusTest, WordToAnEightBitDeviceTakesTwelveClocks) {
+    int ram = first({0xA1, 0x00, 0x02});  // MOV AX, [0200h]
+    cpu->reset();
+    cpu->cs = 0; cpu->ip = 0; cpu->ds = 0xA000;
+    EXPECT_EQ(cpu->step() - ram, 12 - 3);
+}
+
+TEST_F(Cpu80286BusTest, ByteToAnEightBitDeviceTakesSixClocks) {
+    int ram = first({0xA0, 0x00, 0x02});  // MOV AL, [0200h]
+    cpu->reset();
+    cpu->cs = 0; cpu->ip = 0; cpu->ds = 0xA000;
+    EXPECT_EQ(cpu->step() - ram, 6 - 3);
+}
+
+TEST_F(Cpu80286BusTest, SlottedPagesWaitForTheDevicePerByte) {
+    int ram = first({0xA1, 0x00, 0x02});  // MOV AX, [0200h]
+    std::vector<uint32_t> asked;
+    clocks[0xA0] = 6 | Bus::kMemSlotted;
+    bus.mem_wait = [&](uint32_t a, uint64_t) { asked.push_back(a); return 20; };
+    cpu = std::make_unique<Cpu>(bus);
+    cpu->reset();
+    cpu->cs = 0; cpu->ip = 0; cpu->ds = 0xA000;
+    EXPECT_EQ(cpu->step() - ram, 2 * 20 - 3);
+    EXPECT_EQ(asked, (std::vector<uint32_t>{0xA0200, 0xA0201}));
+}
+
+TEST_F(Cpu80286BusTest, OddWordTakesTwoCycles) {
+    int even = first({0xA1, 0x00, 0x02});  // MOV AX, [0200h]
+    int odd = first({0xA1, 0x01, 0x02});   // MOV AX, [0201h]
+    EXPECT_EQ(odd - even, 3);
+}
+
+TEST_F(Cpu80286BusTest, PortCyclesFollowTheDevice) {
+    mem[0] = 0xED;  // IN AX, DX
+    auto in_from = [&](uint16_t port) {
+        cpu->reset();
+        cpu->cs = 0; cpu->ip = 0; cpu->dx = port;
+        return cpu->step();
+    };
+    EXPECT_EQ(in_from(0x60) - in_from(0x1F0), 12 - 3) << "a word from an 8-bit port is two 6-clock cycles";
+}
+
+TEST_F(Cpu80286BusTest, BusBoundCodeRunsAtTheFetchRate) {
+    for (int i = 0; i < 100; ++i) { mem[3 * i] = 0xB8; mem[3 * i + 1] = 0x34; mem[3 * i + 2] = 0x12; }
+    cpu->reset();
+    cpu->cs = 0; cpu->ip = 0;
+    for (int i = 0; i < 10; ++i) cpu->step();
+    int total = 0;
+    for (int i = 0; i < 80; ++i) total += cpu->step();
+    EXPECT_EQ(total, 80 * 3 * 3 / 2) << "MOV AX,imm16 (3 bytes, 2 clocks) waits on 1.5 word fetches of 3 clocks";
+}
+
+TEST_F(Cpu80286BusTest, SlowInstructionsHideTheirFetches) {
+    for (int i = 0; i < 40; ++i) { mem[2 * i] = 0xF6; mem[2 * i + 1] = 0xE0; }  // MUL AL
+    cpu->reset();
+    cpu->cs = 0; cpu->ip = 0;
+    for (int i = 0; i < 5; ++i) cpu->step();
+    for (int i = 0; i < 20; ++i) EXPECT_EQ(cpu->step(), 13);
+}
+
+TEST_F(Cpu80286BusTest, TakenJumpRefetchesItsTargetAtWaitStates) {
+    mem[0] = 0xEB; mem[1] = 0x00;                    // JMP $+2
+    mem[2] = 0xB8; mem[3] = 0x34; mem[4] = 0x12;     // MOV AX, 1234h
+    cpu->reset();
+    cpu->cs = 0; cpu->ip = 0;
+    cpu->step();
+    EXPECT_EQ(cpu->step(), 2 + 2 * (3 - 2)) << "two words at one extra clock each";
+}
+
+TEST_F(Cpu80286BusTest, HardwareInterruptCostsIntPlusTwoInta) {
+    mem[0x20] = 0x00; mem[0x21] = 0x10; mem[0x22] = 0x00; mem[0x23] = 0x00;
+    cpu->reset();
+    cpu->cs = 0; cpu->ip = 0x0500;
+    cpu->ss = 0; cpu->sp = 0x8000;
+    // 23 + queue tax, two 6-clock INTA cycles, and 5 RAM words at one wait state each.
+    EXPECT_EQ(cpu->hardware_interrupt(8), 23 + 2 + 2 * 6 + 5);
+    EXPECT_EQ(cpu->ip, 0x1000);
+}
+
+TEST_F(Cpu80286TimingTest, HardwareInterruptOnAZeroWaitBus) {
+    cpu->ss = 0; cpu->sp = 0x8000;
+    EXPECT_EQ(cpu->hardware_interrupt(8), 23 + 2 + 2 * 2);
 }
 
 }  // namespace

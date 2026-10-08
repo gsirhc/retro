@@ -90,7 +90,7 @@ int main(int argc, char **argv) {
     auto vga = ReadFile(argv[2]);
     std::string floppy_dir = argv[3];
     std::string out_path = argv[4];
-    uint64_t budget = argc > 5 ? std::strtoull(argv[5], nullptr, 10) : 60'000'000'000ull;
+    uint64_t budget = argc > 5 ? std::strtoull(argv[5], nullptr, 10) : 120'000'000'000ull;
 
     if (bios.empty() || vga.empty()) {
         std::fprintf(stderr, "cannot open BIOS or VGABIOS image\n");
@@ -157,6 +157,9 @@ int main(int argc, char **argv) {
     int nag_presses_left = 0;
 
     std::string last_screen, prev_screen;
+    constexpr uint64_t kSettle = 4'000'000;
+    bool pending = false, after_swap = false;
+    uint64_t still_since = 0;
     std::size_t step_idx = 0;
     const uint64_t kChunk = 200'000;
     for (uint64_t used = 0; used < budget; used += kChunk) {
@@ -168,8 +171,13 @@ int main(int argc, char **argv) {
         // the transition from absent to present.
         bool has_now = step_idx < steps.size() && s.find(steps[step_idx].wait_for) != std::string::npos;
         bool had_before = step_idx < steps.size() && prev_screen.find(steps[step_idx].wait_for) != std::string::npos;
+        if (s != prev_screen) still_since = used;
         prev_screen = s;
-        if (has_now && !had_before) {
+        if (has_now && (!had_before || after_swap)) pending = true;
+        after_swap = false;
+        // Prompts flush the keyboard before reading, so answer once the screen settles.
+        if (pending && used - still_since >= kSettle) {
+            pending = false;
             const std::string &send = steps[step_idx].send;
             nagging = false;  // new match is progress; NAG re-arms it
             if (!send.empty() && send[0] == '@') {
@@ -179,6 +187,7 @@ int main(int argc, char **argv) {
                     nag_next_at = m.total_cycles();   // first press fires immediately
                 } else {
                     swap_floppy(send.substr(1));
+                    after_swap = true;  // its "Press a key" is already on screen
                 }
             } else {
                 SendString(m, send);

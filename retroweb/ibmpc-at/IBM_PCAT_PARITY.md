@@ -8,21 +8,22 @@ ports, the item cites its `PC486_REVIEW.md` section. Checked against the
 code as of commit `7534c4c`. When an item is fixed, write it up in
 `IBM_PCAT_REVIEW.md` as usual (fact, why it matters, what it fixed,
 source) and delete it here. Done so far: the real-mode CPU, C1-C9
-(`IBM_PCAT_REVIEW.md` §44), and the reset vector and `F1h`, C11-C12
-(§45).
+(`IBM_PCAT_REVIEW.md` §44), the reset vector and `F1h`, C11-C12
+(§45), bus timing, T1-T5 and T8 with P5 and E11 (§46), and EGA
+contention plus the TOPBENCH calibration, T6-T7 with P1-P3 (§47).
 
-Rough parity today: **~71%**.
+Rough parity today: **~74%**.
 
 | Area | Parity | Biggest gap |
 |------|--------|-------------|
 | CPU (real mode) | 98% | the IDT limit isn't checked; no STOREALL |
 | CPU (protected mode) | 0% | not implemented at all |
-| Timing | 70% | no memory or I/O wait states, no refresh steal |
+| Timing | 96% | fetch-bound code runs 4-8% fast against TOPBENCH |
 | EGA | 60% | graphics ignore the start address, the BIOS says VGA |
-| Chipset (PIT, PIC, DMA, memory) | 60% | PIT square waves only, no extended memory |
+| Chipset (PIT, PIC, DMA, memory) | 72% | no extended memory, no serial or parallel port |
 | Storage (WD1003, floppy) | 75% | thin WD1003 command set, no FDC data rate |
 | Keyboard, RTC | 60% | RTC doesn't tick, no typematic, lost bytes |
-| Speaker | 90% | rides on the PIT's mode model |
+| Speaker | 95% | not checked against a recording of a real 5170 |
 
 Every fix lands with its native test and, where it's visible from the
 page, a Playwright test, in the same commit.
@@ -50,32 +51,13 @@ page, a Playwright test, in the same commit.
 
 ## 2. Timing
 
-- **T1. No memory wait state.** The per-opcode costs (§40) are Intel's
-  zero-wait-state numbers, and `cpu80286.h` notes the 5170-339's wait
-  state isn't modelled. The 8 MHz AT runs system-board memory at one wait
-  state, so each bus cycle is 3 clocks, not 2. Charge it per memory word
-  transferred, code fetch included. Source: IBM PC/AT Technical
-  Reference, "System Timing".
-- **T2. No I/O or 8-bit card wait states.** The AT bus stretches 8-bit
-  cycles (the EGA, the FDC, the 8042, every 8-bit adapter) well beyond a
-  16-bit memory cycle, and a 16-bit access to an 8-bit card is split into
-  two. The EGA is an 8-bit card, so word writes to A0000h cost double.
-  Port the approach of `PC486_REVIEW.md` §48.1 with the AT's own numbers.
-  Same source.
-- **T3. Refresh doesn't steal the bus.** DMA channel 0 refresh, clocked
-  by PIT channel 1 every ~15 us, takes the bus for a few clocks each
-  time, about 5-7% of the CPU on a real AT. Benchmarks of the period
-  measure it. Ties to P5. Same source.
-- **T5. IRQ delivery isn't charged.** `Machine::run_cycles()` ignores the
-  cycles `Cpu::interrupt()` returns for a hardware interrupt, so the
-  INTA cycles and the vector fetch cost no wall-clock time. That figure
-  (45) also disagrees with INT n's 23. Settle the number from the iAPX 286
-  timing appendix, then charge it.
-- **T4. EGA retrace timing is fixed.** `Ega::tick` uses a flat 60 Hz with
-  an 8% retrace window, not the CRTC's programmed totals, and has no
-  horizontal timing at all. Port `recompute_timing_()` from the 486
-  (§8.6) with the EGA's 14.318 / 16.257 MHz dot clocks from Misc Output
-  bits 2-3. Source: IBM Enhanced Graphics Adapter Technical Reference.
+- **T9. Fetch-bound code runs fast.** Against the real 5170-339 in
+  TOPBENCH's database, MemEA is 7% fast, Opcodes 5%, 3DGames 4% (§47.4).
+  MemEA sits on the bus limit the data sheet and §46.1 allow, so the real
+  286 leaves its bus idle about 0.85 clocks per instruction somewhere the
+  published timings don't describe. Needs a logic-analyzer trace of a
+  real 286 bus unit or a cycle-level 286 model to source, not a fitted
+  constant.
 
 ## 3. EGA
 
@@ -86,7 +68,9 @@ page, a Playwright test, in the same commit.
   is IBM's copyright, so the answer is a stand-in that reports an EGA
   (AH=1Ah unsupported, AH=12h BL=10h returning EGA and its memory size),
   built from the LGPL source with only EGA modes, and labelled as a
-  stand-in in the README and boot banner. Source: IBM EGA Technical
+  stand-in in the README and boot banner. Since §46.4 reads the CRTC as
+  an EGA does, its VGA mode values also run the raster at about 42 Hz
+  instead of 60. Source: IBM EGA Technical
   Reference, BIOS interface.
 - **E2. Graphics ignore the start address.** `RenderEgaNative16Screen`
   draws from offset 0 every frame. EGA games page-flip and scroll by
@@ -119,9 +103,6 @@ page, a Playwright test, in the same commit.
 - **E10. No vertical retrace interrupt.** CRTC 11h bits 4-5 enable and
   clear an interrupt on IRQ2 (IRQ9 on the AT's slave PIC). Some period
   games time to it. Same source.
-- **E11. Input Status 1 bit 0 never moves.** 3DAh returns only bit 3.
-  Bit 0 (display enable, inverted) is what programs poll for horizontal
-  timing and snow-free updates. Port the 486's 22fafe9 fix. Needs T4.
 - **E12. Mode 06h and CGA interleave.** The 16-colour renderer ignores
   CRTC 17h bit 0 (CGA compatibility addressing), so 640x200 two-colour
   mode, which the EGA runs through the CGA odd/even banks, likely renders
@@ -135,21 +116,8 @@ page, a Playwright test, in the same commit.
 
 ## 4. Chipset
 
-- **P1. PIT modes 0, 1, 4, 5 are square waves.** Every mode runs as mode
-  3. Mode 0 one-shots fire periodically and Landmark-style mode 2 timing
-  is off. Port `pit8253.cpp` from `pc486` (§41.1). Source: Intel 8254
-  data sheet, "Mode Definitions".
-- **P2. Mode 3 doesn't count by two.** Visible on any counter readback.
-  Same port.
-- **P3. No 8254 read-back command.** `pit8253.cpp` drops control word
-  `11xxxxxx`. The AT has an 8254, so it has read-back. Port §41.2.
 - **P4. No PIC poll command.** OCW3 with P=1. Port §41.3. Source: Intel
   8259A data sheet, "The Poll Command".
-- **P5. Port 61h bit 4 flips every instruction.** `Chipset::tick` toggles
-  it on every pass. It should follow PIT channel 1's refresh request,
-  about every 15 us with the BIOS's count of 18. Channel 1 isn't
-  modelled at all yet. Same item as the 486's P8. Source: IBM PC/AT
-  Technical Reference, port 61h.
 - **P6. ICW1 doesn't clear the mask.** ICW1 clears IRR and ISR here but
   leaves IMR, where the 8259A clears IMR. Same bug in `pc486`. Source:
   Intel 8259A data sheet, "Initialization Command Words".
@@ -229,8 +197,8 @@ page, a Playwright test, in the same commit.
   checks real-speed pacing and says it "only needs the machine running".
   `CLAUDE.md` wants a boot plus one real interaction. Add a case: boot to
   `C:\>` and echo a typed key. Same as the 486's X1.
-- **X2. Thin native suites.** pit 7, pic 7, machine 8, cmos 6, fdc 9,
-  dma 9. P1-P4 and R1 grow pit, pic and cmos anyway. Machine needs IRQ
+- **X2. Thin native suites.** pic 7, machine 8, cmos 6, fdc 9, dma 9.
+  P4 and R1 grow pic and cmos anyway. Machine needs IRQ
   routing and cascading through the whole board.
 - **X3. Controls without a test.** `hddLed` has none, and the F-key and
   extra-key rows are only checked for enabled state and focus, not that

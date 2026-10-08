@@ -44,8 +44,21 @@ public:
         if (addr >= kRomAlias) addr -= kRomAliasOffset;
         return addr < rom_.size() && rom_[addr];
     }
-    // The system ROM also decodes at FE0000-FFFFFF (IBM PC/AT Technical Reference, memory map).
-    static constexpr uint32_t kRomAlias = 0xFE0000, kRomAliasOffset = 0xF00000;
+    // The system ROM also decodes at FF0000 (IBM PC/AT Technical Reference, ROM subsystem).
+    static constexpr uint32_t kRomAlias = 0xFF0000, kRomAliasOffset = 0xF00000;
+
+    // Clocks per byte bus cycle, by 4KB page: 3 for board RAM, ROM and port 1F0h,
+    // 6 for 8-bit devices (IBM PC/AT Technical Reference, "System Performance").
+    static constexpr uint8_t kClocks16 = 3, kClocks8 = 6;
+    std::array<uint8_t, 4096> mem_clocks{};
+    static uint8_t io_clocks(uint16_t port) { return port == 0x1F0 ? kClocks16 : kClocks8; }
+
+    // Each refresh request from PIT channel 1 holds the bus for 5 clocks (same source).
+    static constexpr int kRefreshClocks = 5;
+    // A DMA transfer is 5 DMA clocks at half the CPU clock (same source, 3 MHz on the 6 MHz board).
+    static constexpr int kDmaCycleClocks = 10;
+    // Clocks refresh and DMA have held the CPU off the bus since the last call.
+    int take_held_clocks() { int c = held_clocks_; held_clocks_ = 0; return c; }
 
     Pic8259 pic_master{0x20};
     Pic8259 pic_slave{0xA0};
@@ -65,7 +78,8 @@ public:
     void set_port61(uint8_t v);
 
     // Advances the PIT and pulses IRQ0 per ch0 rising edge, flips the refresh
-    // toggle, updates the speaker. Called once per CPU instruction.
+    // toggle per ch1 refresh request, updates the speaker. Called once per CPU
+    // instruction.
     void tick(uint64_t cpu_cycles, double cpu_hz);
 
     // One INTA cycle, cascading through the slave when the master's top line is IR2.
@@ -83,6 +97,7 @@ private:
     std::array<bool, 0x100000> rom_{};
     uint8_t port61_ = 0x00;
     bool refresh_toggle_ = false;
+    int held_clocks_ = 0;
     uint8_t last_post_code_ = 0x00;
     std::string debug_console_;
     // IRQ6 is edge-triggered: raised on the 0->1 transition only. Re-raising every tick

@@ -24,6 +24,7 @@ bool page_port_map(uint16_t port, int &controller, int &channel) {
 void Chipset::reset() {
     port61_ = 0;
     refresh_toggle_ = false;
+    held_clocks_ = 0;
     fdc_irq_prev_ = false;
     kbc_irq_prev_ = false;
     hdd_irq_prev_ = false;
@@ -119,6 +120,15 @@ void Chipset::io_out16(uint16_t port, uint16_t v) {
 
 cpu80286::Bus Chipset::make_bus() {
     cpu80286::Bus bus;
+    for (uint32_t page = 0; page < mem_clocks.size(); ++page) {
+        uint32_t a = page << 12;
+        bool board = a < 0xA0000 || (a >= 0xF0000 && a < 0x100000) || a >= kRomAlias;
+        mem_clocks[page] = board ? kClocks16 : kClocks8;  // EGA, its ROM and empty slots are 8-bit
+        if (a >= 0xA0000 && a < 0xC0000) mem_clocks[page] |= cpu80286::Bus::kMemSlotted;
+    }
+    bus.mem_clocks = mem_clocks.data();
+    bus.mem_wait = [this](uint32_t addr, uint64_t now) { return ega.cpu_access_clocks(addr, now); };
+    bus.io_clocks = io_clocks;
     bus.read = [this](uint32_t addr) { return mem_read(addr); };
     bus.write = [this](uint32_t addr, uint8_t v) { mem_write(addr, v); };
     bus.in = [this](uint16_t port) { return io_in(port); };
@@ -129,9 +139,12 @@ cpu80286::Bus Chipset::make_bus() {
 }
 
 void Chipset::tick(uint64_t cpu_cycles, double cpu_hz) {
-    int ch0_rises = pit.tick(cpu_cycles, cpu_hz);
+    int refreshes = 0;
+    int ch0_rises = pit.tick(cpu_cycles, cpu_hz, &refreshes);
     for (int i = 0; i < ch0_rises; ++i) pic_master.raise(0);
-    refresh_toggle_ = !refresh_toggle_;
+    // Port 61h bit 4 toggles with each refresh request (IBM PC/AT Technical Reference, port 61h).
+    if (refreshes & 1) refresh_toggle_ = !refresh_toggle_;
+    held_clocks_ += refreshes * kRefreshClocks;
     speaker.update(cpu_cycles, (port61_ & 0x02) != 0, pit.channel2_output());
 
     fdc.tick(cpu_cycles);
@@ -151,6 +164,7 @@ void Chipset::tick(uint64_t cpu_cycles, double cpu_hz) {
             }
         }
         for (std::size_t i = 0; i < len; ++i) dma1.advance(2);
+        held_clocks_ += int(len) * kDmaCycleClocks;
         fdc.finish_transfer(len);
     }
     // IRQ6 is edge-triggered.

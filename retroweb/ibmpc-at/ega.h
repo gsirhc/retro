@@ -35,9 +35,13 @@ public:
     uint8_t mem_read(uint32_t addr) const;
     void mem_write(uint32_t addr, uint8_t v);
 
-    // Toggles the Input Status 1 retrace bit so wait-for-retrace loops can't hang.
-    // Not real ~70Hz timing.
+    // Advances the raster against the CPU clock. Input Status 1 reads vertical
+    // retrace and display enable from it.
     void tick(uint64_t cpu_cycles);
+
+    // CPU clocks a display-memory byte access starting at `now` takes to land in
+    // the next processor memory cycle the sequencer grants. IBM_PCAT_REVIEW.md §47.
+    int cpu_access_clocks(uint32_t addr, uint64_t now);
 
     // CRTC cursor position and display start address (16-bit register pairs).
     uint16_t cursor_offset() const { return uint16_t((crtc_[0x0E] << 8) | crtc_[0x0F]); }
@@ -136,9 +140,16 @@ private:
     // Read latch. Loaded on every read, mutable because reads have this side effect.
     mutable std::array<uint8_t, 4> latch_{};
 
-    bool retrace_ = false;
+    // Raster timing in CPU cycles from the CRTC and clock registers (IBM EGA
+    // Technical Reference). See IBM_PCAT_REVIEW.md §46.4.
+    static constexpr double kCpuHz = 8000000.0;
+    void recompute_timing_();
+    double line_cycles_ = 0.0, frame_cycles_ = 0.0, hde_cycles_ = 0.0;
+    int vde_lines_ = 0, vrs_line_ = 0, vre_line_ = 0;
     uint64_t prev_cycles_ = 0;
-    double retrace_credit_ = 0.0;
+    double raster_ = 0.0;  // cycles into the current frame
+    double mem_cycle_ = 0.0;  // CPU clocks per display-memory cycle
+    double next_free_ = 0.0;  // end of the last processor cycle granted
 };
 
 }  // namespace ibmpcat

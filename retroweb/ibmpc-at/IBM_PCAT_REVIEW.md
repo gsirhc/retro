@@ -128,7 +128,7 @@ a silent one, per this repo's fidelity conventions (`CLAUDE.md`).
   line is IR2 forwards the actual vector fetch to the slave. Real DOS-era
   BIOS/software never programs rotating priority or special mask mode, so
   they're not implemented.
-- **PIT (8253)**: models a uniform symmetric toggle for every mode (a full
+- **PIT (8253)**: (§47.2 replaces this with a full 8254.) models a uniform symmetric toggle for every mode (a full
   period every `reload` PIT clocks) rather than each mode's exact waveform
   — correct for the AT's actual dependency (IRQ0's ~18.2 Hz edge rate,
   confirmed exactly via divisor-0/65536 in `Pit8253Test`), not for a
@@ -2558,10 +2558,11 @@ fetches use FF0000h as the base while it's set and CS is still F000h,
 and JMP/CALL far, RETF, IRET, the indirect far forms and every
 interrupt entry clear it. A fault restores it with the other registers.
 
-That fetch only finds code because the AT decodes its system ROM twice:
-at E0000-FFFFF and again at FE0000-FFFFFF (IBM PC/AT Technical
-Reference, memory map). `Chipset` now mirrors ROM there, read-only.
-Anything in the alias without ROM behind it reads open bus.
+That fetch only finds code because the AT decodes its 64KB system ROM
+twice, "at the top of the first and last 1M address space (0F0000 and
+FF0000)" (IBM PC/AT Technical Reference, ROM subsystem). `Chipset` mirrors
+F0000-FFFFF at FF0000-FFFFFF, read-only. Anything in the alias without ROM
+behind it reads open bus.
 
 A data access through a `CS:` override while the high base is in force
 still uses F000h's ordinary base. The BIOS's first instruction is a far
@@ -2619,3 +2620,278 @@ outside ROM.
 - The FreeDOS installer completes at cycle 37,591,270,713, the same as
   in §44.8, and its image boots the same way.
 - 41/41 Playwright against the rebuilt wasm.
+
+## 46. Bus timing: wait states, the prefetch queue, refresh, the EGA raster
+
+Items T1-T5 and T8 from [`IBM_PCAT_PARITY.md`](IBM_PCAT_PARITY.md), plus
+P5 and E11, which come out of the same signals.
+
+### 46.1 The AT's bus cycles
+
+The per-opcode costs (§40) are Intel's figures, which assume "bus cycles
+do not require wait states" and an instruction already in the prefetch
+queue (80C286 data sheet, Instruction Clock Count Assumptions). The AT
+doesn't meet either. Its Technical Reference ("System Performance"):
+
+- A bus cycle "requires 3 clock cycles (which includes 1 wait state)".
+- "Eight-bit bus operations to 8-bit devices take 6 clock cycles (which
+  include 4 wait states)."
+- "Sixteen-bit bus operations to 8-bit devices take 12 clock cycles."
+
+That TR edition describes the 6 MHz board. The 339's announcement letter
+gives the same RAM, 150 ns access and 275 ns cycle. A zero-wait cycle at
+8 MHz is 250 ns, too short for it, and one wait state is 375 ns, so the
+339 runs one wait state too. That's derived, not quoted.
+
+`Chipset::mem_clocks` is a 4KB-page table of byte-cycle lengths: 3 for
+system-board RAM, the system ROM and its alias; 6 for the EGA's memory
+and ROM (an 8-bit card) and for empty slot space, where no card claims a
+16-bit cycle. Ports are all 6 except the WD1003 data register at 1F0h,
+the one 16-bit port. `Cpu` charges each data cycle's clocks over the 2
+the published count includes: a byte or aligned word to RAM +1, an odd
+word +4 (two cycles), a byte to an 8-bit device +4, a word +10. Port I/O
+goes through the same accounting. The unit-test fixtures leave the
+tables unset, so they still check Intel's numbers exactly.
+
+### 46.2 The prefetch queue
+
+With wait states, the bus unit can't always keep the 6-byte queue ahead
+of execution. `Cpu::prefetch()` models it after each instruction: the
+instruction's bytes come out of the queue, and if it's short, the CPU
+stalls while the missing words are fetched at the code's cycle length.
+Whatever part of the instruction's own time its data cycles leave the bus
+idle goes to fetching the next words, carried over between instructions
+so a fetch can straddle two of them. A full queue stops the bus unit.
+
+A taken transfer empties the queue (Intel iAPX 286 PRM, bus unit), even
+`JMP $+2`. The published transfer counts already include fetching the
+target's first bytes at zero wait states, so the next instruction pays
+only the wait states on those words. Every taken transfer goes through
+`Cpu::flush()`, which adds `kQueueRefillTax` and marks the flush;
+indirect transfers and interrupts mark it too.
+
+Checks it lands on: a run of 3-byte, 2-clock `MOV AX,imm16` costs 4.5
+clocks each, the rate 1.5 three-clock word fetches allow, and a run of
+13-clock MULs costs exactly 13, with the fetches hidden.
+
+### 46.3 Refresh
+
+"The refresh controller steps one refresh address every 15 microseconds.
+Each refresh cycle requires 5 clock cycles", about 5% of the bus (IBM
+PC/AT Technical Reference, "System Performance"). PIT channel 1 is the
+refresh request generator, "programmed as a rate generator to produce a
+15-microsecond period signal". Channel 1's rising edges now reach the
+chipset, which steals 5 clocks for each one (`Chipset::take_held_clocks`)
+and toggles port 61h bit 4 with it (P5). That bit used to flip on every
+CPU step.
+
+IBM's POST starts refresh early with `OUT 43h,54h` and `OUT 41h,12h`
+(channel 1, LSB only, mode 2, count 18, per the TR's BIOS listing).
+`BIOS-bochs-legacy` programs only channel 0; a probe of every PIT write
+during a FreeDOS boot saw `43h <- 34h` and two writes to 40h, nothing
+else. A real AT left like that would never refresh. `Machine::start_refresh()`
+writes IBM's two bytes at power-on and on reset, labelled as standing in
+for the BIOS. Software that reprograms channel 1 later still gets what it
+asked for.
+
+### 46.4 The EGA raster
+
+`Ega::tick` ran a fixed 60 Hz frame with an 8% retrace window, and no
+horizontal timing. Now `recompute_timing_()` derives it on any write to
+Misc Output, the sequencer or the CRTC, per the IBM EGA Technical
+Reference:
+
+- Dot clock: Misc Output bits 2-3, `00` the 14.318 MHz I/O-channel clock,
+  `01` the on-board 16.257 MHz. Clocking Mode bit 3 halves it.
+- Characters are 8 or 9 dots by Clocking Mode bit 0.
+- Horizontal Total is "the total number of characters less 2";
+  Horizontal Display Enable End is one less than the displayed count.
+- Vertical Total "represents the number of horizontal raster scans ...
+  including vertical retrace", with bit 8 in Overflow bit 0. Vertical
+  Display Enable End and Vertical Retrace Start take bit 8 from Overflow
+  bits 1 and 2. Vertical Retrace End is a 4-bit compare.
+
+IBM's 350-line text parameters check it: 93 characters of 8 dots at
+16.257 MHz is the EGA's 21.85 kHz line, and 364 lines make 60.04 Hz.
+
+Input Status 1 bit 3 is vertical retrace from that raster, and bit 0 is
+now live too (E11): it reads 1 whenever display enable is off,
+horizontally or vertically. The TR's text says "logical 0 indicates the
+CRT raster is in a horizontal or vertical retrace interval", the reverse.
+The CGA reads 1 there, CGA software polls for it to avoid snow, and the
+EGA runs that software, so this follows the CGA. Unprogrammed or
+implausible registers (outside 30-120 Hz) fall back to a 60 Hz raster.
+
+The stand-in VGA BIOS programs VGA mode values. Read as an EGA reads them,
+`67h` in Misc Output selects 16.257 MHz and a 449-line VGA frame comes out
+at about 42 Hz, which is what the probe below measured. A real EGA given
+those values would run at that rate too. It's E1 in the parity doc, not
+this timing.
+
+### 46.5 Hardware interrupts
+
+`Machine` took IRQs without charging them. `Cpu::hardware_interrupt()`
+now costs INT n's 23+m (80C286 data sheet; m as `kQueueRefillTax`), plus
+the two INTA bus cycles that read the vector from the 8259s, timed as the
+8-bit device they are, plus the wait states on the three pushes and the
+vector fetch. `interrupt()` itself no longer adds a stray 45 to
+`cpu.cycles`.
+
+### 46.6 DMA
+
+The FDC's DMA copied each block for free. "All DMA data-transfer bus
+cycles are 5 clock cycles or 1.66 microseconds", with the DMA controller
+at 3 MHz on the 6 MHz board (IBM PC/AT Technical Reference, "System
+Performance"), and the CPU is off the bus for each one. The 3 MHz is half
+the CPU clock; on the 8 MHz board that relationship gives 10 CPU clocks a
+transfer, which is an inference from the 6 MHz figures. Each byte the
+FDC moves now holds the CPU off for 10 clocks, through the same
+`Chipset::take_held_clocks()` as refresh. The bus-control handover the TR
+leaves out isn't charged.
+
+### 46.7 Checks
+
+- 279 native tests (265 before): each cycle length in the table, word and
+  odd-word costs, ports, the fetch-bound and execute-bound queue cases, a
+  jump to the next instruction still flushing, IRQ cost on both buses,
+  refresh at 5 clocks per channel 1 period, port 61h bit 4 following it,
+  and the EGA raster against IBM's 350-line parameters, including the
+  retrace lines and the halved dot clock.
+- The shipped HDD image boots to `C:\>` at 455.6M cycles, up from
+  342.4M, with no exceptions. About 57 s at 8 MHz against 43 s. Fixed
+  real-time waits like FreeDOS's boot-menu countdown don't change, so
+  CPU-bound work slowed more than that, consistent with one wait state,
+  6-12 clock EGA accesses and refresh.
+- The FreeDOS installer completes at cycle 50,216,919,471, up from
+  37,591,270,713 (§45.5), and its image boots to `C:\>` at 469.1M cycles
+  with no exceptions. That's within `build_freedos_hdd`'s old 60-billion
+  default but close, so the default is now 120 billion.
+- 41/41 Playwright against the rebuilt wasm, including the real-speed
+  smoke check.
+- Not checked against a period benchmark. Landmark and Norton SI are
+  proprietary and not in the repo; running one from a floppy is the
+  next calibration step (T7 in the parity doc, done in §47).
+
+## 47. EGA memory contention and a TOPBENCH calibration
+
+Items T6 and T7 from [`IBM_PCAT_PARITY.md`](IBM_PCAT_PARITY.md). T7 turned
+up P1-P3, a REP LODS undercount and a missing EA clock on the way.
+
+### 47.1 The reference: TOPBENCH
+
+TOPBENCH, the Oldskool PC Benchmark (Jim Leonard), is MIT-licensed with
+published source (github.com/MobyGamer/TOPBENCH) and ships a database of
+results measured on real machines. Two entries matter here:
+
+| Entry | MemTest | MemEA | Opcodes | VidMem | 3DGames | Score |
+|-------|--------:|------:|--------:|-------:|--------:|------:|
+| IBM PC/AT 319 or 339, 8 MHz, EGA | 923 | 514 | 397 | 1470 | 388 | 13 |
+| IBM PC/AT, 6 MHz (01/10/84 BIOS), EGA | 1245 | 705 | 542 | 1477 | 526 | 11 |
+
+Each test is a fixed instruction sequence timed in microseconds with
+Abrash's precision Zen timer (PIT channel 0, mode 2, count 0, latched and
+negated). VidMem copies 160 words out of B800h, writes two, and copies
+160 back. It's the same on both boards, so the EGA sets its speed, not
+the CPU clock. None of TOPBENCH is in the repo; the runs below put
+`TOPBENCH.EXE` 0.40c on a scratch copy of the HDD image and drove its
+menus from a native probe.
+
+### 47.2 The PIT was a square wave in every mode (P1-P3)
+
+The first run read about 28,000 µs for every test. `Pit8253` ran every
+mode as mode 3 and counted down from half the reload, so a mode 2 count
+of 0 read back from 32768 and the Zen timer saw 32768 extra ticks
+(27.5 ms) every time. §40's Landmark readings went through the same
+mode 2 readback. The AT's timer is an 8254-2 (IBM PC/AT Technical
+Reference, "System Timers"), and `pc486` already had one: all six modes,
+BCD, counter latch, read-back and status (Intel 8254 data sheet, "Mode
+Definitions", "Read-Back Command"). `pit8253.cpp` is now that port, with
+channel 1's rising edges still reported for refresh (§46.3) and its test
+suite brought over too.
+
+One test moved: the 8254 spends one clock loading a count, so channel 1's
+first refresh request lands 19 clocks after `OUT 41h,12h`, not 18.
+
+### 47.3 EGA processor memory cycles (T6)
+
+The EGA TR's sequencer "allows the processor to access memory during
+active display intervals by inserting dedicated processor memory cycles
+periodically between the display memory cycles", and Clocking Mode bit 1
+gives the split: "CRT memory cycles occur on 4 out of 5 available memory
+cycles", or 2 of 5 for the medium-resolution modes. It doesn't give the
+cycle length. Five cycles have to fetch four characters in high
+resolution, one 32-bit fetch per character, so five memory cycles are
+32 dots of the undivided dot clock (36 with 9-dot characters). The same
+32 dots give exactly two fetches in the 320-wide modes, where the halved
+dot clock makes each character 16 dots, which is the TR's 2 of 5. That
+length is derived, not quoted.
+
+The CPU slot is the fifth cycle; in 2-of-5 mode the CPU gets three of the
+five, placed at cycles 1, 3 and 4 since the TR doesn't say which. Pages
+A0000-BFFFF are flagged `Bus::kMemSlotted`, and each byte access the
+EGA's window decodes asks `Ega::cpu_access_clocks()` for the next free
+slot after the access starts. The cycle costs the longer of that and the
+6-clock 8-bit bus cycle (§46.1). A word is two byte cycles, each waiting
+for its own slot. Back to back, that's one byte per 1.97 µs at
+16.257 MHz, against the 2.0 µs per byte the 6 MHz and 8 MHz entries both
+imply.
+
+### 47.4 Results
+
+After the PIT port, before any timing change, against the 339 entry:
+MemTest 874 (-5%), MemEA 476 (-7%), Opcodes 380 (-4%), VidMem 643 (-56%),
+3DGames 374 (-4%), score 18 against 13.
+
+- VidMem: 1500 with the slots, +2% against 1470. Nothing was fitted.
+- Score: 13, the same as the real machine. TOPScore counts full-suite runs
+  in 50 ms, and VidMem was most of the gap.
+- MemTest is all string instructions. The data sheet's REP counts plus a
+  wait state per bus cycle and §46.3's refresh add up to about 929 µs by
+  hand. The emulator read 874 because REP LODS cost a flat 5 clocks; the
+  80C286 data sheet gives `5 + 4n`, and the comment that there was no
+  cited formula was wrong. Fixed: 941, +2%.
+- The data sheet's asterisk (`(Note 1)` in the scanned copy) adds one
+  clock "if offset calculation requires summing 3 elements". The decoder
+  never charged it. It does now, for base + index + displacement.
+- MemEA didn't move with that clock: it sits on the bus limit. The kernel
+  is 1368 code bytes and 520 data cycles, 3612 clocks at three clocks a
+  cycle, 471 µs with refresh. The emulator reads 476. The real 339 read
+  514, so the real 286 leaves its bus idle about 0.85 clocks an
+  instruction somewhere the data sheet doesn't describe. Opcodes (-5%)
+  and 3DGames (-4%) are likely the same thing. That's T9 in the parity
+  doc. A fitted constant would close it but isn't a source.
+
+| Test | Real 339 | Emulator | |
+|------|---------:|---------:|--:|
+| MemTest | 923 | 941 | +2% |
+| MemEA | 514 | 476 | -7% |
+| Opcodes | 397 | 379 | -5% |
+| VidMem | 1470 | 1500 | +2% |
+| 3DGames | 388 | 373 | -4% |
+| Score | 13 | 13 | |
+
+The submitter's monitor isn't recorded. The stand-in VGA BIOS selects
+16.257 MHz for mode 3 (§46.4), the enhanced display's clock; at 14.318
+MHz the slot model would read about 9% slower.
+
+### 47.5 Checks
+
+- 313 native tests (279 before): the 8254 suite from `pc486` plus the Zen
+  timer's mode 2 readback and channel 1's refresh rate, REP LODS, the
+  three-element EA clock, a slotted word asking the device once per byte,
+  and the EGA's slot spacing in both bandwidth modes, after an idle gap
+  and outside the mapped window.
+- The shipped HDD image boots to `C:\>` at 458.0M cycles, up from
+  455.6M, with no exceptions. The probe's INT 1 count is a resident
+  program chaining INT 2Ah to DOS's default handler, which INT 1 and
+  INT 3 share; the same count shows up with the EGA slots switched off.
+- The FreeDOS installer completes at cycle 50,234,086,633 and its image
+  boots to `C:\>` at 472.2M cycles. `build_freedos_hdd` used to type an
+  answer the moment its prompt appeared; with slower EGA writes,
+  "ready to install FreeDOS" lost its `y` to the prompt's keyboard flush.
+  It now answers once the screen has been still for half a second, and
+  arms a swap's "Press a key" straight away since both lines print
+  together.
+- 41/41 Playwright against the rebuilt wasm, including the real-speed
+  smoke check.
+- TOPBENCH: repeat runs land within 2 µs of the §47.4 table.

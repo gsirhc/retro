@@ -2,6 +2,9 @@
 
 #include "ega.h"
 
+#include <cmath>
+#include <utility>
+
 namespace {
 
 using ibmpcat::Ega;
@@ -232,6 +235,107 @@ TEST(EgaTest, RetraceBitToggledByTick) {
     }
     EXPECT_TRUE(saw_true);
     EXPECT_TRUE(saw_false);
+}
+
+// IBM EGA BIOS mode 3 at 350 lines: 21.85 kHz, 60 Hz.
+void ProgramEga350LineText(Ega &ega) {
+    ega.out(0x3C2, 0xA7);
+    ega.out(0x3C4, 0x01); ega.out(0x3C5, 0x01);
+    const std::pair<uint8_t, uint8_t> crtc[] = {
+        {0x00, 0x5B}, {0x01, 0x4F}, {0x06, 0x6C}, {0x07, 0x1F},
+        {0x10, 0x5E}, {0x11, 0x2B}, {0x12, 0x5D},
+    };
+    for (auto [i, v] : crtc) { ega.out(0x3D4, i); ega.out(0x3D5, v); }
+}
+
+TEST(EgaTest, RasterTimingComesFromTheCrtcAndClock) {
+    Ega ega;
+    ega.reset();
+    ProgramEga350LineText(ega);
+    int retraces = 0, lines = 0;
+    bool was_retrace = true, was_blank = true;
+    uint64_t c = 0;
+    for (; c < 8000000; c += 4) {
+        ega.tick(c);
+        uint8_t st = ega.in(0x3DA);
+        bool retrace = st & 0x08, blank = st & 0x01;
+        if (retrace && !was_retrace) ++retraces;
+        if (!blank && was_blank) ++lines;
+        was_retrace = retrace; was_blank = blank;
+    }
+    EXPECT_EQ(retraces, 60) << "one second of 60.04 Hz frames";
+    EXPECT_NEAR(lines, 350 * 60, 60) << "display enable comes on once per displayed line";
+}
+
+TEST(EgaTest, VerticalRetraceSpansTheProgrammedLines) {
+    Ega ega;
+    ega.reset();
+    ProgramEga350LineText(ega);
+    double line = 93.0 * 8 / 16257000.0 * 8000000.0;
+    auto status_at_line = [&](double l) { Ega e = ega; e.tick(uint64_t(l * line)); return e.in(0x3DA); };
+    EXPECT_FALSE(status_at_line(349.5) & 0x08);
+    EXPECT_TRUE(status_at_line(350.5) & 0x08);
+    EXPECT_TRUE(status_at_line(362.5) & 0x08);
+    EXPECT_FALSE(status_at_line(363.5) & 0x08);
+    EXPECT_TRUE(status_at_line(355.5) & 0x01) << "no display during retrace";
+    EXPECT_FALSE(status_at_line(100.1) & 0x01) << "early in a displayed line";
+    EXPECT_TRUE(status_at_line(100.95) & 0x01) << "horizontal blanking at the end of the line";
+}
+
+TEST(EgaTest, ClockSelectAndDotClockHalvingChangeTheRate) {
+    Ega ega;
+    ega.reset();
+    ProgramEga350LineText(ega);
+    ega.out(0x3C4, 0x01); ega.out(0x3C5, 0x09);  // dot clock / 2
+    int retraces = 0;
+    bool was = true;
+    for (uint64_t c = 0; c < 8000000; c += 4) {
+        ega.tick(c);
+        bool r = ega.in(0x3DA) & 0x08;
+        if (r && !was) ++retraces;
+        was = r;
+    }
+    EXPECT_EQ(retraces, 30);
+}
+
+// One processor cycle in five, five cycles to 32 dots: 1.97 us at 16.257 MHz (IBM_PCAT_REVIEW.md §47.3).
+TEST(EgaTest, BackToBackCpuAccessesTakeOneSlotPerFiveMemoryCycles) {
+    Ega ega;
+    ega.reset();
+    ProgramEga350LineText(ega);
+    uint64_t now = 0;
+    for (int i = 0; i < 1000; ++i) now += ega.cpu_access_clocks(0xB8000, now);
+    EXPECT_NEAR(double(now) / 1000, 32 / 16.257e6 * 8e6, 0.05);
+}
+
+TEST(EgaTest, MediumResolutionBandwidthGivesTheCpuThreeSlotsInFive) {
+    Ega ega;
+    ega.reset();
+    ProgramEga350LineText(ega);
+    ega.out(0x3C4, 0x01); ega.out(0x3C5, 0x0B);  // Clocking Mode bit 1, dot clock / 2
+    uint64_t now = 0;
+    for (int i = 0; i < 999; ++i) now += ega.cpu_access_clocks(0xA0000, now);
+    EXPECT_LT(double(now) / 999, 32 / 16.257e6 * 8e6 / 2);
+}
+
+TEST(EgaTest, AnAccessAfterAnIdleGapWaitsOnlyForTheNextSlot) {
+    Ega ega;
+    ega.reset();
+    ProgramEga350LineText(ega);
+    double cycle = 32 / 16.257e6 * 8e6 / 5;
+    EXPECT_EQ(ega.cpu_access_clocks(0xB8000, 0), int(std::ceil(5 * cycle))) << "the fifth cycle, then its own length";
+    double slot = 4 * cycle;
+    while (slot < 1000) slot += 5 * cycle;
+    EXPECT_EQ(ega.cpu_access_clocks(0xB8000, 1000), int(std::ceil(slot + cycle - 1000)));
+}
+
+TEST(EgaTest, AccessesOutsideTheMappedWindowDoNotWait) {
+    Ega ega;
+    ega.reset();
+    ProgramEga350LineText(ega);
+    ega.out(0x3CE, 0x06); ega.out(0x3CF, 0x0C);  // 32K at B8000
+    EXPECT_EQ(ega.cpu_access_clocks(0xA0000, 0), 0);
+    EXPECT_GT(ega.cpu_access_clocks(0xB8000, 0), 0);
 }
 
 }  // namespace

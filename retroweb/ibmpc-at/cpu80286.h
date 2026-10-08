@@ -17,6 +17,7 @@
 #ifndef IBMPCAT_CPU80286_H
 #define IBMPCAT_CPU80286_H
 
+#include <algorithm>
 #include <cstdint>
 #include <functional>
 
@@ -49,6 +50,15 @@ struct Bus {
     std::function<void(uint16_t port, uint8_t v)>  out;
     std::function<uint16_t(uint16_t port)>         in16;
     std::function<void(uint16_t port, uint16_t v)> out16;
+
+    // Clocks per byte cycle by 4KB page and by port; 6+ is an 8-bit device.
+    // Unset is the zero-wait bus the published instruction timings assume.
+    const uint8_t* mem_clocks = nullptr;
+    std::function<uint8_t(uint16_t port)> io_clocks;
+    // Pages with kMemSlotted set hold the cycle until the device grants it:
+    // returns the clocks a byte access starting at `now` takes.
+    static constexpr uint8_t kMemSlotted = 0x80;
+    std::function<int(uint32_t addr, uint64_t now)> mem_wait;
 };
 
 class Cpu {
@@ -91,8 +101,12 @@ public:
     int step();
 
     // Real-mode INT n: push FLAGS, CS, IP, clear IF and TF, jump through the
-    // vector at vector*4. Wakes HLT. The caller checks IF for maskable sources.
-    int interrupt(uint8_t vector);
+    // vector at vector*4. Wakes HLT. Costs nothing by itself; callers charge it.
+    void interrupt(uint8_t vector);
+
+    // INTR: INT n's cost plus the two INTA bus cycles. Returns its clocks. The
+    // caller checks IF and the interrupt shadow first.
+    int hardware_interrupt(uint8_t vector);
 
     // STI, MOV SS and POP SS hold off INTR for one instruction.
     bool interrupt_shadow() const { return shadow_; }
@@ -139,16 +153,53 @@ private:
 
     // physical = seg*16 + off.
     uint32_t phys(uint16_t seg, uint16_t off) const { return (uint32_t(seg) << 4) + off; }
-    uint8_t  rb(uint16_t seg, uint16_t off)            { return fault_ ? uint8_t(0xFF) : bus_.read(phys(seg, off)); }
-    void     wb(uint16_t seg, uint16_t off, uint8_t v) { if (!fault_) bus_.write(phys(seg, off), v); }
+    // Bus time this step's data cycles took, and how much of it the published
+    // counts don't already include (2 clocks per cycle).
+    int bus_busy_ = 0, bus_extra_ = 0;
+    void charge(int clocks) { bus_busy_ += clocks; bus_extra_ += clocks - 2; }
+    int  mem_clk(uint32_t a) const { return bus_.mem_clocks ? bus_.mem_clocks[(a >> 12) & 0xFFF] & ~Bus::kMemSlotted : 2; }
+    bool slotted(uint32_t a) const { return bus_.mem_clocks && (bus_.mem_clocks[(a >> 12) & 0xFFF] & Bus::kMemSlotted) && bus_.mem_wait; }
+    int byte_clocks(uint32_t a, int after = 0) {
+        int k = mem_clk(a);
+        if (slotted(a)) k = std::max(k, bus_.mem_wait(a, cycles + uint64_t(bus_busy_ + after)));
+        return k;
+    }
+    void charge_byte(uint32_t a) { charge(byte_clocks(a)); }
+    int  io_clk(uint16_t p) const { return bus_.io_clocks ? bus_.io_clocks(p) : 2; }
+    // A word is one cycle to a 16-bit device at an even address, two at an odd
+    // one, and always two byte cycles to an 8-bit device.
+    int  word_clocks(int k, bool odd) const { return (k >= 6 || odd) ? 2 * k : k; }
+    void charge_word(uint32_t a) {
+        if (slotted(a)) { int lo = byte_clocks(a); charge(lo + byte_clocks(a + 1, lo)); return; }
+        charge(word_clocks(mem_clk(a), a & 1));
+    }
+
+    uint8_t  raw_rb(uint16_t seg, uint16_t off)            { return fault_ ? uint8_t(0xFF) : bus_.read(phys(seg, off)); }
+    void     raw_wb(uint16_t seg, uint16_t off, uint8_t v) { if (!fault_) bus_.write(phys(seg, off), v); }
+    uint8_t  rb(uint16_t seg, uint16_t off)            { charge_byte(phys(seg, off)); return raw_rb(seg, off); }
+    void     wb(uint16_t seg, uint16_t off, uint8_t v) { charge_byte(phys(seg, off)); raw_wb(seg, off, v); }
     uint16_t rw(uint16_t seg, uint16_t off, bool stack = false) {
         if (off == 0xFFFF) overrun(stack);
-        return rb(seg, off) | (uint16_t(rb(seg, uint16_t(off + 1))) << 8);
+        charge_word(phys(seg, off));
+        return raw_rb(seg, off) | (uint16_t(raw_rb(seg, uint16_t(off + 1))) << 8);
     }
     void     ww(uint16_t seg, uint16_t off, uint16_t v, bool stack = false) {
         if (off == 0xFFFF) overrun(stack);
-        wb(seg, off, v & 0xFF); wb(seg, uint16_t(off + 1), v >> 8);
+        charge_word(phys(seg, off));
+        raw_wb(seg, off, v & 0xFF); raw_wb(seg, uint16_t(off + 1), v >> 8);
     }
+    uint8_t  in8(uint16_t p)  { charge(io_clk(p)); return bus_.in(p); }
+    void     out8(uint16_t p, uint8_t v) { charge(io_clk(p)); bus_.out(p, v); }
+    uint16_t in16(uint16_t p) { charge(word_clocks(io_clk(p), p & 1)); return bus_.in16(p); }
+    void     out16(uint16_t p, uint16_t v) { charge(word_clocks(io_clk(p), p & 1)); bus_.out16(p, v); }
+
+    // 6-byte prefetch queue, filled a word at a time while the bus is idle
+    // (Intel iAPX 286 PRM, bus unit). Published counts assume it's full.
+    static constexpr int kQueueBytes = 6;
+    int  queue_ = 0;
+    int  fetch_progress_ = 0;  // clocks already spent on the word being fetched
+    bool flushed_ = true;
+    int  prefetch(int exec_clocks);
     uint32_t rd(uint16_t seg, uint16_t off, bool stack = false) {
         if (off > 0xFFFC) overrun(stack);
         return uint32_t(rw(seg, off)) | (uint32_t(rw(seg, uint16_t(off + 2))) << 16);
@@ -299,6 +350,9 @@ private:
     // appendix via Art of Assembly App. D), so each adds a flat tax on its
     // floor cost. 2 keeps floor+tax inside every range. Not-taken branches pay none.
     static constexpr int kQueueRefillTax = 2;
+    // A taken control transfer empties the prefetch queue, even one to the next instruction.
+    bool transfer_ = false;
+    int flush() { transfer_ = true; return kQueueRefillTax; }
 
     bool cond(int cc) const;          // Jcc/LOOPcc condition, cc = opcode low nibble
     void jcc(bool taken);

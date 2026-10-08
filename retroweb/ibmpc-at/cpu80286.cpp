@@ -2,10 +2,12 @@
 // Programmer's Reference Manual (1987), or the 8086/8088 User's Manual where identical.
 //
 // Preserved quirks:
-//   - PUSH SP pushes the decremented value (286+, unlike the 8086).
+//   - PUSH SP pushes SP from before the push (286+; the 8086 pushes the decremented value).
 //   - Shift/rotate counts are masked mod 32 (the 8086 used the raw count).
 //   - OF after a multi-bit shift/rotate is undefined per Intel and is left untouched.
 #include "cpu80286.h"
+
+#include <algorithm>
 
 namespace cpu80286 {
 
@@ -28,9 +30,11 @@ void Cpu::reset() {
     fault_ = 0;
     shadow_ = vectored_ = rep_resume_ = rep_resumed_ = step_each_ = false;
     cs_high_ = true;
+    queue_ = fetch_progress_ = 0;
+    flushed_ = true;
 }
 
-int Cpu::interrupt(uint8_t vector) {
+void Cpu::interrupt(uint8_t vector) {
     halted = false;
     in_interrupt_ = true;
     push16(flags);
@@ -41,6 +45,8 @@ int Cpu::interrupt(uint8_t vector) {
     set_flag(FLAG_TF, false);
     // Real mode indexes the IDT from IDTR's base, which LIDT can move.
     uint32_t vec = (idt_base_ + uint32_t(vector) * 4) & 0xFFFFFF;
+    charge_word(vec);
+    charge_word(vec + 2);
     uint16_t new_ip = bus_.read(vec) | (uint16_t(bus_.read(vec + 1)) << 8);
     uint16_t new_cs = bus_.read(vec + 2) | (uint16_t(bus_.read(vec + 3)) << 8);
     ip = new_ip;
@@ -48,8 +54,51 @@ int Cpu::interrupt(uint8_t vector) {
     cs_high_ = false;
     vectored_ = true;
     rep_resume_ = false;
-    cycles += 45;  // iAPX 286 timing appendix: INT (real mode) = 45 cycles
-    return 45;
+}
+
+// INT n is 23+m (80C286 data sheet, instruction timing); INTR adds the two
+// INTA bus cycles that fetch the vector from the 8259s.
+int Cpu::hardware_interrupt(uint8_t vector) {
+    bus_busy_ = bus_extra_ = 0;
+    interrupt(vector);
+    int c = 23 + kQueueRefillTax + 2 * io_clk(0x20) + bus_extra_;
+    flushed_ = true;
+    cycles += c;
+    return c;
+}
+
+int Cpu::prefetch(int exec_clocks) {
+    int k = mem_clk(code_base() + instr_start_ip_);
+    int word = word_clocks(k, false);
+    int need = rep_resumed_ ? 0 : fetched_;
+    int stall = 0;
+    if (flushed_) {
+        // A transfer's published count already fetched its target at 0 wait states.
+        int words = (need + 1) / 2;
+        stall = words * (word - 2);
+        queue_ = words * 2 - need;
+        fetch_progress_ = 0;
+    } else {
+        while (queue_ < need) {
+            stall += word - fetch_progress_;
+            fetch_progress_ = 0;
+            queue_ += 2;
+        }
+        queue_ -= need;
+    }
+    // The bus unit works on the next word whenever execution leaves the bus idle.
+    int idle = exec_clocks - bus_busy_;
+    if (idle > 0 && queue_ < kQueueBytes) {
+        fetch_progress_ += idle;
+        while (fetch_progress_ >= word && queue_ < kQueueBytes) {
+            fetch_progress_ -= word;
+            queue_ += 2;
+        }
+        if (queue_ >= kQueueBytes) { queue_ = kQueueBytes; fetch_progress_ = 0; }
+    }
+    flushed_ = vectored_ || transfer_ || (!rep_resume_ && (ip != uint16_t(instr_start_ip_ + fetched_) || cs != snap_.cs));
+    if (flushed_) queue_ = fetch_progress_ = 0;
+    return stall;
 }
 
 void Cpu::save_regs() {
@@ -183,6 +232,7 @@ Cpu::RM Cpu::decode_modrm() {
             uint16_t d = fetch16();
             addr = uint16_t(addr + d);
         }
+        if (mod != 0 && rm < 4) ++extra_cycles_;  // base+index+disp sums 3 elements: +1 clock (80C286 data sheet)
     }
     int seg_idx = uses_bp ? SEG_SS : SEG_DS;
     if (seg_override_ >= 0) seg_idx = seg_override_;
@@ -708,7 +758,7 @@ int Cpu::loop_group(uint8_t op) {
     }
     // Taken costs 8-11 (iAPX 286 PRM timing appendix): floor 8 plus
     // kQueueRefillTax. Not-taken costs differ per op and pay no flush.
-    if (take) return 8 + kQueueRefillTax;
+    if (take) return 8 + flush();
     switch (op) {
         case 0xE0: return 5;  // LOOPNE not taken
         case 0xE1: return 6;  // LOOPE not taken
@@ -727,7 +777,7 @@ int Cpu::string_op(uint8_t op) {
     bool dword = wide && opsize32_;
     int iterations = 0;  // actually executed; REPE/REPNE can stop early
     const int per_iteration = (op == 0xA4 || op == 0xA5) ? 4 : (op == 0xA6 || op == 0xA7) ? 9
-                            : (op == 0xAA || op == 0xAB) ? 3 : (op == 0xAC || op == 0xAD) ? 0 : 8;
+                            : (op == 0xAA || op == 0xAB) ? 3 : (op == 0xAC || op == 0xAD) ? 4 : 8;
     do {
         if (is_rep && cx == 0) break;
         if (is_rep) save_regs();
@@ -784,7 +834,7 @@ int Cpu::string_op(uint8_t op) {
         case 0xA4: case 0xA5: return is_rep ? (5 + 4 * iterations) : 5;  // MOVS
         case 0xA6: case 0xA7: return is_rep ? (5 + 9 * iterations) : 8;  // CMPS
         case 0xAA: case 0xAB: return is_rep ? (4 + 3 * iterations) : 3;  // STOS
-        case 0xAC: case 0xAD: return 5;  // LODS: no cited REP formula, REP is degenerate
+        case 0xAC: case 0xAD: return is_rep ? (5 + 4 * iterations) : 5;  // LODS
         default:              return is_rep ? (5 + 8 * iterations) : 7;  // SCAS
     }
 }
@@ -799,14 +849,14 @@ int Cpu::io_string_op(uint8_t op) {
         int step = wide ? 2 : 1;
         int dir = flag(FLAG_DF) ? -step : step;
         if (op == 0x6C || op == 0x6D) {  // INS: port DX -> ES:DI
-            if (!wide) wb(es, di, bus_.in(uint16_t(dx)));
-            else ww(es, di, bus_.in16(uint16_t(dx)));
+            if (!wide) wb(es, di, in8(uint16_t(dx)));
+            else ww(es, di, in16(uint16_t(dx)));
             di = uint16_t(di + dir);
         } else {  // OUTS: DS:SI -> port DX
-            if (!wide) bus_.out(uint16_t(dx), rb(src_seg, si));
+            if (!wide) out8(uint16_t(dx), rb(src_seg, si));
             else {
                 uint16_t v = rw(src_seg, si);
-                bus_.out16(uint16_t(dx), v);
+                out16(uint16_t(dx), v);
             }
             si = uint16_t(si + dir);
         }
@@ -1031,19 +1081,19 @@ void Cpu::grp5(uint8_t op) {  // 0xFE: INC/DEC r/m8   0xFF: INC/DEC/CALL/JMP/PUS
             else { uint16_t r = sub16(rm_read16(rm), 1, false); set_flag(FLAG_CF, cf); rm_write16(rm, r); }
             break;
         }
-        case 2: { uint16_t target = rm_read16(rm); push16(ip); ip = target; break; }  // CALL near indirect
+        case 2: { uint16_t target = rm_read16(rm); push16(ip); ip = target; transfer_ = true; break; }  // CALL near indirect
         case 3: {                                                                                    // CALL far indirect (memory only)
             uint16_t off, seg;
             if (!far_operand(rm, off, seg)) break;
             push16(cs); push16(ip);
-            cs = seg; ip = off; cs_high_ = false;
+            cs = seg; ip = off; cs_high_ = false; transfer_ = true;
             break;
         }
-        case 4: ip = rm_read16(rm); break;                                                          // JMP near indirect
+        case 4: ip = rm_read16(rm); transfer_ = true; break;                                                          // JMP near indirect
         case 5: {                                                                                    // JMP far indirect (memory only)
             uint16_t off, seg;
             if (!far_operand(rm, off, seg)) break;
-            cs = seg; ip = off; cs_high_ = false;
+            cs = seg; ip = off; cs_high_ = false; transfer_ = true;
             break;
         }
         case 6: { if (opsize32_) push32(rm_read32(rm)); else push16(rm_read16(rm)); break; }         // PUSH r/m16/32
@@ -1071,6 +1121,8 @@ int Cpu::step() {
     fault_ = 0;
     fetched_ = 0;
     fetch_wrapped_ = false;
+    bus_busy_ = bus_extra_ = 0;
+    transfer_ = false;
     save_regs();
     int c = 0;
 
@@ -1110,6 +1162,8 @@ int Cpu::step() {
         interrupt(EXC_DB);
         c += 23 + kQueueRefillTax;
     }
+    c += bus_extra_;
+    if (bus_.mem_clocks) c += prefetch(c);
     cycles += c;
     return c;
 }
@@ -1169,7 +1223,7 @@ int Cpu::execute(uint8_t op, int c) {
             } else if (op2 >= 0x80 && op2 <= 0x8F) {
                 // Jcc rel16 is an 80386 addition (the 286 has only rel8). BIOS-bochs-legacy needs it.
                 int16_t rel = int16_t(fetch16());
-                if (cond(op2 & 0xF)) ip = uint16_t(ip + rel);
+                if (cond(op2 & 0xF)) { ip = uint16_t(ip + rel); transfer_ = true; }
                 c += 3;
             } else if (op2 >= 0x90 && op2 <= 0x9F) {
                 // SETcc r/m8, 386 addition.
@@ -1254,7 +1308,7 @@ int Cpu::execute(uint8_t op, int c) {
                 c += CYC_MEM;
             }
             else if (op >= 0x6C && op <= 0x6F) { c += io_string_op(op); }
-            else if (op >= 0x70 && op <= 0x7F) { bool taken = cond(op & 0xF); jcc(taken); c += taken ? (CYC_JMP_TAKEN + kQueueRefillTax) : CYC_JMP_NOT; }  // taken: floor 7 plus queue-refill tax
+            else if (op >= 0x70 && op <= 0x7F) { bool taken = cond(op & 0xF); jcc(taken); c += taken ? (CYC_JMP_TAKEN + flush()) : CYC_JMP_NOT; }  // taken: floor 7 plus queue-refill tax
             else if (op == 0x80 || op == 0x81 || op == 0x82 || op == 0x83) { c += grp1_immed(op); }
             else if (op == 0x84) { RM rm = decode_modrm(); and8(rm_read8(rm), get_reg8(last_reg_)); c += rm.is_mem ? CYC_MEM : CYC_REG; }
             else if (op == 0x85) { RM rm = decode_modrm(); and16(rm_read16(rm), get_reg16(last_reg_)); c += rm.is_mem ? CYC_MEM : CYC_REG; }
@@ -1285,7 +1339,7 @@ int Cpu::execute(uint8_t op, int c) {
             }
             else if (op == 0x98) { if (opsize32_) ax = uint32_t(int32_t(int16_t(ax))); else ax = (ax & 0xFFFF0000u) | uint16_t(int16_t(int8_t(ax & 0xFF))); c += CYC_REG; }  // CBW / CWDE
             else if (op == 0x99) { if (opsize32_) dx = (ax & 0x80000000u) ? 0xFFFFFFFFu : 0u; else dx = (dx & 0xFFFF0000u) | ((ax & 0x8000) ? 0xFFFFu : 0u); c += CYC_REG; }  // CWD / CDQ
-            else if (op == 0x9A) { uint16_t off = fetch16(); uint16_t seg = fetch16(); push16(cs); push16(ip); cs = seg; ip = off; cs_high_ = false; c += 13 + kQueueRefillTax; }  // CALL far: floor 13 plus queue-refill tax
+            else if (op == 0x9A) { uint16_t off = fetch16(); uint16_t seg = fetch16(); push16(cs); push16(ip); cs = seg; ip = off; cs_high_ = false; c += 13 + flush(); }  // CALL far: floor 13 plus queue-refill tax
             else if (op == 0x9B) { if ((msw_ & MSW_MP) && (msw_ & MSW_TS)) raise(EXC_NM); c += 3; }  // WAIT: no coprocessor present
             else if (op == 0x9C) { push16(flags); c += 3; }
             // FLAGS bits 12-15 are always 0 on a 286 in real mode (Intel AP-485 CPU identification).
@@ -1309,8 +1363,8 @@ int Cpu::execute(uint8_t op, int c) {
             else if (op >= 0xB0 && op <= 0xB7) { set_reg8(op - 0xB0, fetch8()); c += CYC_REG; }
             else if (op >= 0xB8 && op <= 0xBF) { if (opsize32_) set_reg32(op - 0xB8, fetch32()); else set_reg16(op - 0xB8, fetch16()); c += CYC_REG; }
             else if (op == 0xC0 || op == 0xC1) { c += grp2_shift(op); }
-            else if (op == 0xC2) { uint16_t n = fetch16(); ip = pop16(); sp = uint16_t(sp + n); c += 11 + kQueueRefillTax; }  // RET imm16: floor 11 plus queue-refill tax
-            else if (op == 0xC3) { ip = pop16(); c += 11 + kQueueRefillTax; }  // RET: floor 11 plus queue-refill tax
+            else if (op == 0xC2) { uint16_t n = fetch16(); ip = pop16(); sp = uint16_t(sp + n); c += 11 + flush(); }  // RET imm16: floor 11 plus queue-refill tax
+            else if (op == 0xC3) { ip = pop16(); c += 11 + flush(); }  // RET: floor 11 plus queue-refill tax
             else if (op == 0xC4) { RM rm = decode_modrm(); int r = last_reg_; uint16_t off, seg; if (far_operand(rm, off, seg)) { set_reg16(r, off); es = seg; } c += CYC_MEM; }
             else if (op == 0xC5) { RM rm = decode_modrm(); int r = last_reg_; uint16_t off, seg; if (far_operand(rm, off, seg)) { set_reg16(r, off); ds = seg; } c += CYC_MEM; }
             else if (op == 0xC6) { RM rm = decode_modrm(); uint8_t imm = fetch8(); rm_write8(rm, imm); c += rm.is_mem ? 3 : CYC_REG; }
@@ -1318,13 +1372,13 @@ int Cpu::execute(uint8_t op, int c) {
             // ENTER: 11 (level 0), 15 (level 1), 12+4*(lex-1) (level>1), iAPX 286 PRM timing appendix.
             else if (op == 0xC8) { int lex = enter(); c += (lex == 0) ? 11 : (lex == 1) ? 15 : (12 + 4 * (lex - 1)); }
             else if (op == 0xC9) { leave(); c += 5; }
-            else if (op == 0xCA) { uint16_t n = fetch16(); ip = pop16(); cs = pop16(); sp = uint16_t(sp + n); cs_high_ = false; c += 15 + kQueueRefillTax; }  // RETF imm16: floor 15 plus queue-refill tax
-            else if (op == 0xCB) { ip = pop16(); cs = pop16(); cs_high_ = false; c += 15 + kQueueRefillTax; }  // RETF: floor 15 plus queue-refill tax
+            else if (op == 0xCA) { uint16_t n = fetch16(); ip = pop16(); cs = pop16(); sp = uint16_t(sp + n); cs_high_ = false; c += 15 + flush(); }  // RETF imm16: floor 15 plus queue-refill tax
+            else if (op == 0xCB) { ip = pop16(); cs = pop16(); cs_high_ = false; c += 15 + flush(); }  // RETF: floor 15 plus queue-refill tax
             // INT n/INT3 floor 23, INTO 24, IRET 17 (iAPX 286 PRM timing appendix), plus kQueueRefillTax.
-            else if (op == 0xCC) { interrupt(3); c += 23 + kQueueRefillTax; }
-            else if (op == 0xCD) { uint8_t n = fetch8(); interrupt(n); c += 23 + kQueueRefillTax; }
-            else if (op == 0xCE) { if (flag(FLAG_OF)) { interrupt(4); c += 24 + kQueueRefillTax; } else c += 3; }
-            else if (op == 0xCF) { ip = pop16(); cs = pop16(); cs_high_ = false; flags = uint16_t((pop16() & 0x0FD5) | FLAG_R1); c += 17 + kQueueRefillTax; }  // IRET, POPF masking as above
+            else if (op == 0xCC) { interrupt(3); c += 23 + flush(); }
+            else if (op == 0xCD) { uint8_t n = fetch8(); interrupt(n); c += 23 + flush(); }
+            else if (op == 0xCE) { if (flag(FLAG_OF)) { interrupt(4); c += 24 + flush(); } else c += 3; }
+            else if (op == 0xCF) { ip = pop16(); cs = pop16(); cs_high_ = false; flags = uint16_t((pop16() & 0x0FD5) | FLAG_R1); c += 17 + flush(); }  // IRET, POPF masking as above
             else if (op >= 0xD0 && op <= 0xD3) { c += grp2_shift(op); }
             else if (op == 0xD4) { aam(); c += 16; }
             else if (op == 0xD5) { aad(); c += 14; }
@@ -1334,19 +1388,19 @@ int Cpu::execute(uint8_t op, int c) {
             else if (op >= 0xD8 && op <= 0xDF) { decode_modrm(); if (msw_ & (MSW_EM | MSW_TS)) raise(EXC_NM); c += 3; }
             else if (op == 0xE0 || op == 0xE1 || op == 0xE2 || op == 0xE3) { c += loop_group(op); }
             // IN=5, OUT=3 (iAPX 286 PRM timing appendix).
-            else if (op == 0xE4) { uint8_t p = fetch8(); set_reg8(0, bus_.in(p)); c += 5; }
-            else if (op == 0xE5) { uint8_t p = fetch8(); ax = (ax & 0xFFFF0000u) | bus_.in16(p); c += 5; }
-            else if (op == 0xE6) { uint8_t p = fetch8(); bus_.out(p, get_reg8(0)); c += 3; }
-            else if (op == 0xE7) { uint8_t p = fetch8(); bus_.out16(p, uint16_t(ax)); c += 3; }
+            else if (op == 0xE4) { uint8_t p = fetch8(); set_reg8(0, in8(p)); c += 5; }
+            else if (op == 0xE5) { uint8_t p = fetch8(); ax = (ax & 0xFFFF0000u) | in16(p); c += 5; }
+            else if (op == 0xE6) { uint8_t p = fetch8(); out8(p, get_reg8(0)); c += 3; }
+            else if (op == 0xE7) { uint8_t p = fetch8(); out16(p, uint16_t(ax)); c += 3; }
             // CALL/JMP near floor 7, JMP far floor 11 (iAPX 286 PRM timing appendix), plus queue-refill tax.
-            else if (op == 0xE8) { int16_t rel = int16_t(fetch16()); push16(ip); ip = uint16_t(ip + rel); c += 7 + kQueueRefillTax; }
-            else if (op == 0xE9) { int16_t rel = int16_t(fetch16()); ip = uint16_t(ip + rel); c += 7 + kQueueRefillTax; }
-            else if (op == 0xEA) { uint16_t off = fetch16(); uint16_t seg = fetch16(); cs = seg; ip = off; cs_high_ = false; c += 11 + kQueueRefillTax; }
-            else if (op == 0xEB) { int8_t rel = int8_t(fetch8()); ip = uint16_t(ip + rel); c += 7 + kQueueRefillTax; }
-            else if (op == 0xEC) { set_reg8(0, bus_.in(dx)); c += 5; }
-            else if (op == 0xED) { ax = (ax & 0xFFFF0000u) | bus_.in16(uint16_t(dx)); c += 5; }
-            else if (op == 0xEE) { bus_.out(dx, get_reg8(0)); c += 3; }
-            else if (op == 0xEF) { bus_.out16(uint16_t(dx), uint16_t(ax)); c += 3; }
+            else if (op == 0xE8) { int16_t rel = int16_t(fetch16()); push16(ip); ip = uint16_t(ip + rel); c += 7 + flush(); }
+            else if (op == 0xE9) { int16_t rel = int16_t(fetch16()); ip = uint16_t(ip + rel); c += 7 + flush(); }
+            else if (op == 0xEA) { uint16_t off = fetch16(); uint16_t seg = fetch16(); cs = seg; ip = off; cs_high_ = false; c += 11 + flush(); }
+            else if (op == 0xEB) { int8_t rel = int8_t(fetch8()); ip = uint16_t(ip + rel); c += 7 + flush(); }
+            else if (op == 0xEC) { set_reg8(0, in8(uint16_t(dx))); c += 5; }
+            else if (op == 0xED) { ax = (ax & 0xFFFF0000u) | in16(uint16_t(dx)); c += 5; }
+            else if (op == 0xEE) { out8(uint16_t(dx), get_reg8(0)); c += 3; }
+            else if (op == 0xEF) { out16(uint16_t(dx), uint16_t(ax)); c += 3; }
             else if (op == 0xF4) { halted = true; c += 2; }
             else if (op == 0xF5) { set_flag(FLAG_CF, !flag(FLAG_CF)); c += CYC_REG; }
             else if (op == 0xF6 || op == 0xF7) { c += grp3_unary(op); }
