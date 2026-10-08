@@ -70,6 +70,10 @@ retroweb/ibmpc-at/tests/build-cov/
 retroweb/ibmpc-at/tests/coverage-cpp/
 retroweb/ibmpc-at/roms/BIOS-bochs-legacy
 retroweb/ibmpc-at/roms/VGABIOS-lgpl-latest.bin
+retroweb/ibmpc-at/roms/vgafonts.h
+retroweb/ibmpc-at/roms/egabios/egabios.bin
+retroweb/ibmpc-at/roms/egabios/egabios.tmp
+retroweb/ibmpc-at/roms/egabios/font*.inc
 retroweb/ibmpc-at/bios_host
 retroweb/ibmpc-at/render_screen
 retroweb/ibmpc-at/disks/build_freedos_hdd

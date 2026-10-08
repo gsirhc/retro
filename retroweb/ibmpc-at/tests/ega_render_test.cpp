@@ -3,6 +3,9 @@
 #include "ega.h"
 #include "ega_render.h"
 
+#include <initializer_list>
+#include <utility>
+
 namespace {
 
 using ibmpcat::DetectScreenMode;
@@ -16,279 +19,443 @@ using ibmpcat::RenderScreen;
 using ibmpcat::RenderTextScreen;
 using ibmpcat::ScreenMode;
 
-// Programs GR06 bit 0 (graphics vs alphanumeric) and GR05 bits 5-6 (Shift Register).
-void SetGraphicsMode(Ega &ega, bool graphics, uint8_t shift_register_mode) {
-    ega.out(0x3CE, 0x06); ega.out(0x3CF, graphics ? 0x01 : 0x00);
-    ega.out(0x3CE, 0x05); ega.out(0x3CF, uint8_t((shift_register_mode & 0x03) << 5));
+void Crtc(Ega &ega, std::initializer_list<std::pair<uint8_t, uint8_t>> regs) {
+    for (auto [i, v] : regs) { ega.out(0x3D4, i); ega.out(0x3D5, v); }
+}
+void Seq(Ega &ega, uint8_t i, uint8_t v) { ega.out(0x3C4, i); ega.out(0x3C5, v); }
+void Gfx(Ega &ega, uint8_t i, uint8_t v) { ega.out(0x3CE, i); ega.out(0x3CF, v); }
+void Attr(Ega &ega, uint8_t i, uint8_t v) { ega.in(0x3DA); ega.out(0x3C0, i); ega.out(0x3C0, v); }
+
+// IBM's mode 3 with the Enhanced Color Display (IBM EGA Technical Reference, BIOS register tables).
+void ProgramMode3(Ega &ega) {
+    ega.out(0x3C2, 0xA7);
+    Seq(ega, 0x01, 0x01); Seq(ega, 0x02, 0x03); Seq(ega, 0x03, 0x00); Seq(ega, 0x04, 0x03);
+    Crtc(ega, {{0x00, 0x5B}, {0x01, 0x4F}, {0x06, 0x6C}, {0x07, 0x1F}, {0x08, 0x00}, {0x09, 0x0D},
+               {0x0A, 0x0B}, {0x0B, 0x0C}, {0x0C, 0x00}, {0x0D, 0x00}, {0x10, 0x5E}, {0x11, 0x2B},
+               {0x12, 0x5D}, {0x13, 0x28}, {0x14, 0x0F}, {0x17, 0xA3}, {0x18, 0xFF}});
+    Gfx(ega, 0x05, 0x10); Gfx(ega, 0x06, 0x0E);
+    Attr(ega, 0x10, 0x08); Attr(ega, 0x12, 0x0F); Attr(ega, 0x13, 0x00);
+    for (int i = 0; i < 16; ++i) Attr(ega, uint8_t(i), uint8_t(i));
+    Attr(ega, 0x07, 0x07); Attr(ega, 0x0F, 0x3F);
 }
 
-// Programs palette register `index` through the 0x3C0 address/data flip-flop.
-void SetPalette(Ega &ega, int index, uint8_t value) {
-    ega.out(0x3C0, uint8_t(index));
-    ega.out(0x3C0, value);
+// IBM's mode 10h with 128KB or more (same tables).
+void ProgramMode10(Ega &ega) {
+    ega.out(0x3C2, 0xA7);
+    Seq(ega, 0x01, 0x01); Seq(ega, 0x02, 0x0F); Seq(ega, 0x04, 0x06);
+    Crtc(ega, {{0x00, 0x5B}, {0x01, 0x4F}, {0x06, 0x6C}, {0x07, 0x1F}, {0x08, 0x00}, {0x09, 0x00},
+               {0x0C, 0x00}, {0x0D, 0x00}, {0x10, 0x5E}, {0x11, 0x2B}, {0x12, 0x5D}, {0x13, 0x28},
+               {0x14, 0x0F}, {0x17, 0xE3}, {0x18, 0xFF}});
+    Gfx(ega, 0x05, 0x00); Gfx(ega, 0x06, 0x05);
+    Attr(ega, 0x10, 0x01); Attr(ega, 0x12, 0x0F); Attr(ega, 0x13, 0x00);
+    for (int i = 0; i < 16; ++i) Attr(ega, uint8_t(i), uint8_t(i));
 }
 
-std::size_t PixelIndex(int x, int y) { return (std::size_t(y) * kTextRenderWidth + std::size_t(x)) * 4; }
+void PutCell(Ega &ega, uint32_t cell, uint8_t ch, uint8_t attr) {
+    const uint32_t a = ega.display_address(cell, 0);
+    ega.vram[(a << 2) + 0] = ch;
+    ega.vram[(a << 2) + 1] = attr;
+}
+void PutGlyphRow(Ega &ega, uint32_t map_offset, uint8_t ch, int row, uint8_t bits) {
+    ega.vram[((map_offset + uint32_t(ch) * 32 + uint32_t(row)) << 2) + 2] = bits;
+}
 
-TEST(EgaRenderTest, ProducesTheDocumentedBufferSize) {
-    Ega ega;
-    ega.reset();
+struct Frame {
     std::vector<uint8_t> rgba;
     int w = 0, h = 0;
-    RenderTextScreen(ega, rgba, false, w, h);
-    EXPECT_EQ(w, kTextRenderWidth);
-    EXPECT_EQ(h, kTextRenderHeight);
-    EXPECT_EQ(rgba.size(), std::size_t(kTextRenderWidth * kTextRenderHeight * 4));
+    uint8_t r(int x, int y) const { return rgba[(std::size_t(y) * std::size_t(w) + std::size_t(x)) * 4 + 0]; }
+    uint8_t g(int x, int y) const { return rgba[(std::size_t(y) * std::size_t(w) + std::size_t(x)) * 4 + 1]; }
+    uint8_t b(int x, int y) const { return rgba[(std::size_t(y) * std::size_t(w) + std::size_t(x)) * 4 + 2]; }
+    bool white(int x, int y) const { return r(x, y) == 0xFF && g(x, y) == 0xFF && b(x, y) == 0xFF; }
+    bool black(int x, int y) const { return r(x, y) == 0 && g(x, y) == 0 && b(x, y) == 0; }
+};
+Frame Text(const Ega &ega) { Frame f; RenderTextScreen(ega, f.rgba, f.w, f.h); return f; }
+Frame Native(const Ega &ega) { Frame f; RenderEgaNative16Screen(ega, f.rgba, f.w, f.h); return f; }
+
+// Runs the raster until `n` more vertical frames have passed.
+void AdvanceFrames(Ega &ega, uint64_t &now, uint32_t n) {
+    uint32_t target = ega.frame_count() + n;
+    while (ega.frame_count() < target) ega.tick(now += 1000);
 }
 
-// The VGA BIOS programs 16-line rows (Max Scan Line = 15). The renderer must follow
-// the register, or the last two scanlines (descenders) are discarded.
-TEST(EgaRenderTest, RowHeightAndFrameSizeFollowTheRealMaxScanLineRegister) {
+TEST(EgaRenderTest, Mode3IsEightyByTwentyFiveOnA350LineRaster) {
     Ega ega;
     ega.reset();
-    ega.out(0x3D4, 0x09); ega.out(0x3D5, 0x0F);  // Max Scan Line = 15 -> 16 lines/row
-    // 'g' (0x67) scanline 14 is part of a descender.
-    uint32_t glyph_off = uint32_t('g') * 32 + 14;
-    ega.vram[(glyph_off << 2) + 2] = 0xFF;  // every pixel in this row set
-    ega.vram[(0 << 2) + 0] = 'g';
-    ega.vram[(0 << 2) + 1] = 0x0F;  // fg=white, bg=black
-    SetPalette(ega, 15, 0x3F);
-
-    std::vector<uint8_t> rgba;
-    int w = 0, h = 0;
-    RenderTextScreen(ega, rgba, /*blink_on=*/false, w, h);
-    EXPECT_EQ(w, kTextRenderWidth);
-    EXPECT_EQ(h, 16 * 25);  // not a fixed 350
-    ASSERT_EQ(rgba.size(), std::size_t(kTextRenderWidth * 16 * 25 * 4));
-
-    std::size_t p = PixelIndex(0, 14);
-    EXPECT_EQ(rgba[p + 0], 255); EXPECT_EQ(rgba[p + 1], 255); EXPECT_EQ(rgba[p + 2], 255);
+    ProgramMode3(ega);
+    Frame f = Text(ega);
+    EXPECT_EQ(f.w, 640);
+    EXPECT_EQ(f.h, 350);
 }
 
-// 40-column text has Horizontal Displayed (R01) = 39. A renderer that
-// hardcodes 80 starts rows after the first at the wrong offset (IBM_PCAT_REVIEW.md).
-TEST(EgaRenderTest, ColumnCountAndFrameWidthFollowTheRealHorizontalDisplayedRegister) {
+TEST(EgaRenderTest, RenderScreenIsBlackWhileTheCrtcIsHeldInReset) {
     Ega ega;
     ega.reset();
-    ega.out(0x3D4, 0x01); ega.out(0x3D5, 39);  // Horizontal Displayed = 39 -> 40 cols
-    SetPalette(ega, 15, 0x3F);  // white
-    // Cell (row=1, col=0) sits at offset 40 in 40-column mode.
-    uint32_t cell = 40;
-    ega.vram[(cell << 2) + 0] = 0x41;
-    ega.vram[(cell << 2) + 1] = 0x0F;  // fg=white, bg=black
-    uint32_t glyph_off = uint32_t(0x41) * 32 + 0;
-    ega.vram[(glyph_off << 2) + 2] = 0x80;  // font row 0: leftmost pixel set
-
-    std::vector<uint8_t> rgba;
-    int w = 0, h = 0;
-    RenderTextScreen(ega, rgba, /*blink_on=*/false, w, h);
-    EXPECT_EQ(w, 40 * 8);  // not a fixed 640
-    EXPECT_EQ(h, kTextRenderHeight);
-    ASSERT_EQ(rgba.size(), std::size_t(w * h * 4));
-
-    // Row 1's top-left pixel: y = 14 (default rows), x = 0.
-    std::size_t p = (std::size_t(14) * std::size_t(w) + 0) * 4;
-    EXPECT_EQ(rgba[p + 0], 255); EXPECT_EQ(rgba[p + 1], 255); EXPECT_EQ(rgba[p + 2], 255);
+    ProgramMode3(ega);
+    PutCell(ega, 0, 'A', 0x0F);
+    PutGlyphRow(ega, 0, 'A', 0, 0xFF);
+    Crtc(ega, {{0x17, 0x23}});
+    RenderedFrame out;
+    RenderScreen(ega, out);
+    EXPECT_EQ(out.width, kTextRenderWidth);
+    EXPECT_EQ(out.height, kTextRenderHeight);
+    EXPECT_EQ(out.rgba[0], 0);
 }
 
-TEST(EgaRenderTest, RendersAGlyphInTheLivePaletteColors) {
+TEST(EgaRenderTest, RenderScreenFollowsTheModeRegisters) {
     Ega ega;
     ega.reset();
-    SetPalette(ega, 15, 0x3F);  // white
-    SetPalette(ega, 1, 0x01);   // blue
-    // Cell (0,0): character code 0x41, attribute fg=15 (white) / bg=1 (blue).
-    ega.vram[(0 << 2) + 0] = 0x41;
-    ega.vram[(0 << 2) + 1] = 0x1F;
-    // Font row 0 of character 0x41: only the leftmost pixel set.
-    uint32_t glyph_off = uint32_t(0x41) * 32 + 0;
-    ega.vram[(glyph_off << 2) + 2] = 0x80;
-
-    std::vector<uint8_t> rgba;
-    int w = 0, h = 0;
-    RenderTextScreen(ega, rgba, /*blink_on=*/false, w, h);
-
-    std::size_t i0 = PixelIndex(0, 0);  // set bit -> foreground (white)
-    EXPECT_EQ(rgba[i0 + 0], 255); EXPECT_EQ(rgba[i0 + 1], 255); EXPECT_EQ(rgba[i0 + 2], 255);
-    EXPECT_EQ(rgba[i0 + 3], 255);  // alpha always opaque
-
-    std::size_t i1 = PixelIndex(1, 0);  // clear bit -> background (blue)
-    EXPECT_EQ(rgba[i1 + 0], 0); EXPECT_EQ(rgba[i1 + 1], 0); EXPECT_EQ(rgba[i1 + 2], 0xAA);
-}
-
-TEST(EgaRenderTest, CursorDrawsAsASolidBlockAtItsProgrammedScanlines) {
-    Ega ega;
-    ega.reset();
-    SetPalette(ega, 15, 0x3F);
-    // Cell (0,0) holds a blank character (font row all zero, so without the
-    // cursor override every pixel would read as background).
-    ega.vram[(0 << 2) + 0] = 0x00;
-    ega.vram[(0 << 2) + 1] = 0x0F;  // fg=white, bg=black(0)
-    ega.out(0x3D4, 0x0E); ega.out(0x3D5, 0x00);  // cursor location high
-    ega.out(0x3D4, 0x0F); ega.out(0x3D5, 0x00);  // cursor location low -> cell (0,0)
-    ega.out(0x3D4, 0x0A); ega.out(0x3D5, 0x05);  // cursor start scanline 5, not disabled
-    ega.out(0x3D4, 0x0B); ega.out(0x3D5, 0x06);  // cursor end scanline 6
-
-    std::vector<uint8_t> rgba;
-    int w = 0, h = 0;
-    RenderTextScreen(ega, rgba, /*blink_on=*/true, w, h);
-    // Scanline 5 (within the cursor's range): forced to foreground (white).
-    std::size_t in_range = PixelIndex(0, 5);
-    EXPECT_EQ(rgba[in_range + 0], 255); EXPECT_EQ(rgba[in_range + 1], 255); EXPECT_EQ(rgba[in_range + 2], 255);
-    // Scanline 4 (outside the range): the blank glyph's background (black).
-    std::size_t out_of_range = PixelIndex(0, 4);
-    EXPECT_EQ(rgba[out_of_range + 0], 0); EXPECT_EQ(rgba[out_of_range + 1], 0); EXPECT_EQ(rgba[out_of_range + 2], 0);
-}
-
-TEST(EgaRenderTest, CursorIsHiddenWhenBlinkPhaseIsOffOrTheDisableBitIsSet) {
-    Ega ega;
-    ega.reset();
-    SetPalette(ega, 15, 0x3F);
-    ega.vram[(0 << 2) + 0] = 0x00;
-    ega.vram[(0 << 2) + 1] = 0x0F;
-    ega.out(0x3D4, 0x0A); ega.out(0x3D5, 0x00);
-    ega.out(0x3D4, 0x0B); ega.out(0x3D5, 0x0D);  // covers the whole cell (0-13)
-
-    std::vector<uint8_t> rgba_blink_off;
-    int w = 0, h = 0;
-    RenderTextScreen(ega, rgba_blink_off, /*blink_on=*/false, w, h);
-    std::size_t p = PixelIndex(0, 0);
-    EXPECT_EQ(rgba_blink_off[p + 0], 0);  // background -- no cursor this phase
-
-    ega.out(0x3D4, 0x0A); ega.out(0x3D5, 0x20);  // bit 5 -- cursor disabled outright
-    std::vector<uint8_t> rgba_disabled;
-    RenderTextScreen(ega, rgba_disabled, /*blink_on=*/true, w, h);
-    EXPECT_EQ(rgba_disabled[p + 0], 0);
-}
-
-TEST(EgaRenderTest, DetectScreenModeReadsTheRealModeRegisters) {
-    Ega ega;
-    ega.reset();
-    EXPECT_EQ(DetectScreenMode(ega), ScreenMode::kText);  // reset default: alphanumeric
-
-    SetGraphicsMode(ega, /*graphics=*/true, /*shift_register_mode=*/1);
+    ProgramMode3(ega);
+    EXPECT_EQ(DetectScreenMode(ega), ScreenMode::kText);
+    Gfx(ega, 0x06, 0x01); Gfx(ega, 0x05, 0x20);
     EXPECT_EQ(DetectScreenMode(ega), ScreenMode::kCgaGraphics4);
+    Gfx(ega, 0x05, 0x00);
+    EXPECT_EQ(DetectScreenMode(ega), ScreenMode::kEgaGraphics16);
+    Gfx(ega, 0x05, 0x40);  // bit 6 is VGA's 256-color shift; the EGA has no such mode
+    EXPECT_EQ(DetectScreenMode(ega), ScreenMode::kEgaGraphics16);
+    Gfx(ega, 0x06, 0x00);
+    EXPECT_EQ(DetectScreenMode(ega), ScreenMode::kText);
 
-    SetGraphicsMode(ega, /*graphics=*/true, /*shift_register_mode=*/0);
-    EXPECT_EQ(DetectScreenMode(ega), ScreenMode::kEgaGraphics16);  // real, native EGA planar graphics
+    ProgramMode10(ega);
+    RenderedFrame out;
+    RenderScreen(ega, out);
+    EXPECT_EQ(out.width, 640);
+    EXPECT_EQ(out.height, 350);
+}
 
-    SetGraphicsMode(ega, /*graphics=*/true, /*shift_register_mode=*/2);
-    EXPECT_EQ(DetectScreenMode(ega), ScreenMode::kUnsupportedGraphics);  // VGA-only 256-color Chain-4
+TEST(EgaRenderTest, GlyphUsesTheLivePaletteColors) {
+    Ega ega;
+    ega.reset();
+    ProgramMode3(ega);
+    Attr(ega, 0x01, 0x01);
+    PutCell(ega, 0, 'A', 0x1F);
+    PutGlyphRow(ega, 0, 'A', 0, 0x80);
+    Frame f = Text(ega);
+    EXPECT_TRUE(f.white(0, 0));
+    EXPECT_EQ(f.b(1, 0), 0xAA);
+    EXPECT_EQ(f.r(1, 0), 0);
+}
 
-    SetGraphicsMode(ega, /*graphics=*/false, /*shift_register_mode=*/1);
-    EXPECT_EQ(DetectScreenMode(ega), ScreenMode::kText);  // alphanumeric bit wins regardless of shift mode
+TEST(EgaRenderTest, RowHeightFollowsMaximumScanLine) {
+    Ega ega;
+    ega.reset();
+    ProgramMode3(ega);
+    Crtc(ega, {{0x09, 0x0F}, {0x12, 0x8F}, {0x07, 0x1F}});  // 16-line rows, 400 lines
+    PutCell(ega, 0, 'g', 0x0F);
+    PutGlyphRow(ega, 0, 'g', 14, 0xFF);
+    Frame f = Text(ega);
+    EXPECT_EQ(f.h, 400);
+    EXPECT_TRUE(f.white(0, 14));
+}
+
+TEST(EgaRenderTest, FortyColumnTextWrapsAtTheOffsetRegister) {
+    Ega ega;
+    ega.reset();
+    ProgramMode3(ega);
+    Crtc(ega, {{0x01, 0x27}, {0x13, 0x14}});
+    PutCell(ega, 40, 'A', 0x0F);
+    PutGlyphRow(ega, 0, 'A', 0, 0x80);
+    Frame f = Text(ega);
+    EXPECT_EQ(f.w, 320);
+    EXPECT_TRUE(f.white(0, 14));
+}
+
+// E5: MODE CON LINES=43 is an 8x8 font in 350 lines.
+TEST(EgaRenderTest, FortyThreeLineModeShowsEveryRow) {
+    Ega ega;
+    ega.reset();
+    ProgramMode3(ega);
+    Crtc(ega, {{0x09, 0x07}});
+    PutCell(ega, 42 * 80, 'A', 0x0F);
+    PutGlyphRow(ega, 0, 'A', 0, 0x80);
+    Frame f = Text(ega);
+    EXPECT_EQ(f.h, 350);
+    EXPECT_TRUE(f.white(0, 42 * 8));
+}
+
+TEST(EgaRenderTest, NineDotCellsRepeatColumnEightOnlyForLineGraphics) {
+    Ega ega;
+    ega.reset();
+    ProgramMode3(ega);
+    Seq(ega, 0x01, 0x00);
+    Attr(ega, 0x10, 0x0C);
+    Attr(ega, 0x13, 0x08);
+    PutCell(ega, 0, 0xC4, 0x0F);
+    PutCell(ega, 1, 'A', 0x0F);
+    PutGlyphRow(ega, 0, 0xC4, 0, 0xFF);
+    PutGlyphRow(ega, 0, 'A', 0, 0xFF);
+    Frame f = Text(ega);
+    EXPECT_EQ(f.w, 720);
+    EXPECT_TRUE(f.white(8, 0));
+    EXPECT_TRUE(f.black(17, 0));
+    Attr(ega, 0x10, 0x08);
+    EXPECT_TRUE(Text(ega).black(8, 0));
+}
+
+TEST(EgaRenderTest, CpuTextWritesLandWhereTheCrtcFetches) {
+    Ega ega;
+    ega.reset();
+    ProgramMode3(ega);
+    Seq(ega, 0x04, 0x02);
+    Gfx(ega, 0x08, 0xFF);
+    PutGlyphRow(ega, 0, 'A', 0, 0x80);
+    ega.mem_write(0xB8000 + 2 * 81, 'A');
+    ega.mem_write(0xB8000 + 2 * 81 + 1, 0x0F);
+    Frame f = Text(ega);
+    EXPECT_TRUE(f.white(8, 14));
+    EXPECT_TRUE(f.black(0, 0));
+}
+
+TEST(EgaRenderTest, MonochromeDisplayShowsVideoAndIntensityInGreen) {
+    Ega ega;
+    ega.reset();
+    ProgramMode3(ega);
+    ega.set_switches(0x0B);
+    Attr(ega, 0x07, 0x08); Attr(ega, 0x0F, 0x18);
+    PutCell(ega, 0, 0xDB, 0x07);
+    PutCell(ega, 1, 0xDB, 0x0F);
+    PutGlyphRow(ega, 0, 0xDB, 0, 0xFF);
+    Frame f = Text(ega);
+    EXPECT_EQ(f.g(0, 0), 0xAA);
+    EXPECT_EQ(f.r(0, 0), 0x00);
+    EXPECT_EQ(f.g(9, 0), 0xFF);
+    EXPECT_EQ(f.b(9, 0), 0x00);
+}
+
+// E2: the start address picks the first cell, in text and in graphics.
+TEST(EgaRenderTest, StartAddressScrollsTextAndGraphics) {
+    Ega ega;
+    ega.reset();
+    ProgramMode3(ega);
+    PutCell(ega, 160, 'A', 0x0F);
+    PutGlyphRow(ega, 0, 'A', 0, 0x80);
+    Crtc(ega, {{0x0C, 0x00}, {0x0D, 0xA0}});
+    EXPECT_TRUE(Text(ega).white(0, 0));
+
+    ProgramMode10(ega);
+    Attr(ega, 0x0F, 0x3F);
+    for (int p = 0; p < 4; ++p) ega.vram[(0x4000u << 2) + uint32_t(p)] = 0x80;
+    EXPECT_TRUE(Native(ega).black(0, 0));
+    Crtc(ega, {{0x0C, 0x40}, {0x0D, 0x00}});
+    EXPECT_TRUE(Native(ega).white(0, 0));
+}
+
+// E3: AR13 shifts left 0-7 dots; 9-dot text runs 8, 0-7 for 0-8.
+TEST(EgaRenderTest, PelPanningShiftsLeft) {
+    Ega ega;
+    ega.reset();
+    ProgramMode10(ega);
+    Attr(ega, 0x0F, 0x3F);
+    for (int p = 0; p < 4; ++p) ega.vram[uint32_t(p)] = 0x08;  // dot 4
+    EXPECT_TRUE(Native(ega).white(4, 0));
+    Attr(ega, 0x13, 0x03);
+    EXPECT_TRUE(Native(ega).white(1, 0));
+
+    ProgramMode3(ega);
+    Seq(ega, 0x01, 0x00);
+    PutCell(ega, 0, 'A', 0x0F);
+    PutGlyphRow(ega, 0, 'A', 0, 0x08);
+    Attr(ega, 0x13, 0x08);
+    EXPECT_TRUE(Text(ega).white(4, 0));
+    Attr(ega, 0x13, 0x00);
+    EXPECT_TRUE(Text(ega).white(3, 0));
+}
+
+TEST(EgaRenderTest, PresetRowScanStartsTheTopRowPartWayDown) {
+    Ega ega;
+    ega.reset();
+    ProgramMode3(ega);
+    PutCell(ega, 0, 'A', 0x0F);
+    PutGlyphRow(ega, 0, 'A', 5, 0x80);
+    Crtc(ega, {{0x08, 0x05}});
+    EXPECT_TRUE(Text(ega).white(0, 0));
+}
+
+// E4: past Line Compare (9 bits, bit 8 in Overflow bit 4) the address restarts at 0.
+TEST(EgaRenderTest, LineCompareSplitsTheScreen) {
+    Ega ega;
+    ega.reset();
+    ProgramMode10(ega);
+    Attr(ega, 0x0F, 0x3F);
+    for (int p = 0; p < 4; ++p) ega.vram[uint32_t(p)] = 0x80;
+    Crtc(ega, {{0x0C, 0x40}, {0x0D, 0x00}, {0x18, 0x2B}, {0x07, 0x1F}});  // split after line 299
+    Frame f = Native(ega);
+    EXPECT_TRUE(f.black(0, 0));
+    EXPECT_TRUE(f.black(0, 299));
+    EXPECT_TRUE(f.white(0, 300));
+    Crtc(ega, {{0x07, 0x0F}});  // bit 8 clear: compare 43
+    EXPECT_TRUE(Native(ega).white(0, 44));
+}
+
+// E6: AR10 bit 3 picks blinking foreground or a bright background for attribute bit 7.
+TEST(EgaRenderTest, AttributeBitSevenBlinksOrBrightens) {
+    Ega ega;
+    ega.reset();
+    ProgramMode3(ega);
+    Attr(ega, 0x09, 0x39);
+    PutCell(ega, 0, 'A', 0x9F);
+    PutGlyphRow(ega, 0, 'A', 0, 0x80);
+    uint64_t now = 0;
+    EXPECT_TRUE(Text(ega).white(0, 0));
+    EXPECT_EQ(Text(ega).b(1, 0), 0xAA);
+    AdvanceFrames(ega, now, 16);
+    EXPECT_EQ(Text(ega).b(0, 0), 0xAA);
+
+    Attr(ega, 0x10, 0x00);
+    Frame f = Text(ega);
+    EXPECT_TRUE(f.white(0, 0));
+    EXPECT_EQ(f.r(1, 0), 0x55);
+}
+
+// E7: map A (SR03 bits 2-3) for attribute bit 3 set, map B for clear, only with Memory Mode bit 1.
+TEST(EgaRenderTest, CharacterMapSelectPicksAFontByAttributeBitThree) {
+    Ega ega;
+    ega.reset();
+    ProgramMode3(ega);
+    PutCell(ega, 0, 'A', 0x0F);
+    PutCell(ega, 1, 'A', 0x07);
+    PutGlyphRow(ega, 0x0000, 'A', 0, 0x80);
+    PutGlyphRow(ega, 0x4000, 'A', 0, 0x40);
+    Seq(ega, 0x03, 0x04);  // A = map 1, B = map 0
+    Frame f = Text(ega);
+    EXPECT_TRUE(f.white(1, 0));
+    EXPECT_TRUE(f.black(0, 0));
+    EXPECT_FALSE(f.black(8, 0));
+    Seq(ega, 0x04, 0x01);
+    EXPECT_TRUE(Text(ega).white(0, 0));
+}
+
+TEST(EgaRenderTest, CursorRowsEndBeforeTheEndRegister) {
+    Ega ega;
+    ega.reset();
+    ProgramMode3(ega);
+    PutCell(ega, 0, 0x00, 0x0F);
+    Frame f = Text(ega);  // IBM's 0Bh/0Ch: row 11 only
+    EXPECT_TRUE(f.black(0, 10));
+    EXPECT_TRUE(f.white(0, 11));
+    EXPECT_TRUE(f.black(0, 12));
+    Crtc(ega, {{0x0B, 0x00}});  // end at or below start runs to the bottom
+    f = Text(ega);
+    EXPECT_TRUE(f.white(0, 13));
+    EXPECT_TRUE(f.black(0, 10));
+    Crtc(ega, {{0x0A, 0x1E}});  // IBM's cursor off
+    EXPECT_TRUE(Text(ega).black(0, 13));
+}
+
+TEST(EgaRenderTest, CursorBlinksEverySixteenFrames) {
+    Ega ega;
+    ega.reset();
+    ProgramMode3(ega);
+    PutCell(ega, 0, 0x00, 0x0F);
+    uint64_t now = 0;
+    EXPECT_TRUE(Text(ega).white(0, 11));
+    AdvanceFrames(ega, now, 15);
+    EXPECT_TRUE(Text(ega).white(0, 11));
+    AdvanceFrames(ega, now, 1);
+    EXPECT_TRUE(Text(ega).black(0, 11));
+}
+
+TEST(EgaRenderTest, CursorSkewMovesTheCursorRight) {
+    Ega ega;
+    ega.reset();
+    ProgramMode3(ega);
+    PutCell(ega, 0, 0x00, 0x0F);
+    PutCell(ega, 2, 0x00, 0x0F);
+    Crtc(ega, {{0x0B, 0x4C}});
+    Frame f = Text(ega);
+    EXPECT_TRUE(f.black(0, 11));
+    EXPECT_TRUE(f.white(16, 11));
+}
+
+TEST(EgaRenderTest, MonochromeAttributesUnderlineForegroundOne) {
+    Ega ega;
+    ega.reset();
+    ProgramMode3(ega);
+    Attr(ega, 0x10, 0x0A);
+    Attr(ega, 0x01, 0x3F);
+    Crtc(ega, {{0x14, 0x0C}, {0x0A, 0x1E}});
+    PutCell(ega, 0, 0x00, 0x01);
+    PutCell(ega, 1, 0x00, 0x07);
+    Frame f = Text(ega);
+    EXPECT_TRUE(f.white(0, 12));
+    EXPECT_TRUE(f.black(0, 11));
+    EXPECT_TRUE(f.black(8, 12));
+    Attr(ega, 0x10, 0x08);
+    EXPECT_TRUE(Text(ega).black(0, 12)) << "colour attributes have no underline";
+}
+
+TEST(EgaRenderTest, ColorPlaneEnableMasksTextColours) {
+    Ega ega;
+    ega.reset();
+    ProgramMode3(ega);
+    Attr(ega, 0x07, 0x07);
+    PutCell(ega, 0, 'A', 0x0F);
+    PutGlyphRow(ega, 0, 'A', 0, 0x80);
+    Attr(ega, 0x12, 0x07);
+    Frame f = Text(ega);
+    EXPECT_EQ(f.r(0, 0), 0xAA);
 }
 
 TEST(EgaRenderTest, CgaGraphics4DecodesPlane0ThenPlane1AsFourPixelsEach) {
-    // A CGA program's two flat bytes for scanline 0 land at plane offset 0, split across planes 0 and 1.
     Ega ega;
     ega.reset();
-    SetPalette(ega, 0, 0x00);  // black
-    SetPalette(ega, 1, 0x01);  // blue
-    SetPalette(ega, 2, 0x02);  // green
-    SetPalette(ega, 3, 0x3F);  // white
-    ega.vram[(0 << 2) + 0] = 0x6C;  // 01 10 11 00 -> pixels 0-3: blue,green,white,black
-    ega.vram[(0 << 2) + 1] = 0xC6;  // 11 00 01 10 -> pixels 4-7: white,black,blue,green
-
+    ProgramMode3(ega);
+    Crtc(ega, {{0x01, 0x27}, {0x09, 0x01}, {0x12, 0xC7}, {0x07, 0x11}, {0x13, 0x14}, {0x17, 0xA2}});
+    Attr(ega, 0x10, 0x01);
+    Attr(ega, 0x01, 0x01); Attr(ega, 0x02, 0x02); Attr(ega, 0x03, 0x3F);
+    ega.vram[0] = 0x6C;  // blue, green, white, black
+    ega.vram[1] = 0xC6;  // white, black, blue, green
+    ega.vram[(0x2000u << 2) + 0] = 0xFF;  // B800:2000h, scanline 1
     std::vector<uint8_t> rgba;
     RenderCgaGraphics4Screen(ega, rgba);
     ASSERT_EQ(rgba.size(), std::size_t(320 * 200 * 4));
-
-    auto px = [&](int x) { return (std::size_t(x)) * 4; };
-    EXPECT_EQ(rgba[px(0) + 2], 0xAA);  // blue -> b channel set
-    EXPECT_EQ(rgba[px(1) + 1], 0xAA);  // green -> g channel set
-    EXPECT_EQ(rgba[px(2) + 0], 0xFF);  // white -> all channels set
-    EXPECT_EQ(rgba[px(2) + 1], 0xFF);
-    EXPECT_EQ(rgba[px(2) + 2], 0xFF);
-    EXPECT_EQ(rgba[px(3) + 0], 0x00);  // black -> all channels clear
-    EXPECT_EQ(rgba[px(4) + 0], 0xFF);  // white again -- plane 1's byte, first pixel
-    EXPECT_EQ(rgba[px(5) + 0], 0x00);  // black
-    EXPECT_EQ(rgba[px(6) + 2], 0xAA);  // blue
-    EXPECT_EQ(rgba[px(7) + 1], 0xAA);  // green
+    auto px = [&](int x, int y) { return (std::size_t(y) * 320 + std::size_t(x)) * 4; };
+    EXPECT_EQ(rgba[px(0, 0) + 2], 0xAA);
+    EXPECT_EQ(rgba[px(1, 0) + 1], 0xAA);
+    EXPECT_EQ(rgba[px(2, 0) + 0], 0xFF);
+    EXPECT_EQ(rgba[px(3, 0) + 0], 0x00);
+    EXPECT_EQ(rgba[px(4, 0) + 0], 0xFF);
+    EXPECT_EQ(rgba[px(6, 0) + 2], 0xAA);
+    EXPECT_EQ(rgba[px(0, 1) + 0], 0xFF);
 }
 
-TEST(EgaRenderTest, CgaGraphics4OddScanlinesUseTheSecondEightKilobyteBank) {
-    // Odd scanlines start at flat offset 0x2000 (CGA bank split, separate from plane odd/even).
+// E12: mode 6 is planar plane 0 in byte mode, with 17h bit 0 putting odd lines 8KB up.
+TEST(EgaRenderTest, Mode6UsesTheCgaBanks) {
     Ega ega;
     ega.reset();
-    SetPalette(ega, 3, 0x3F);  // white
-    uint32_t linear_offset = 0x2000;  // scanline 1, byte column 0
-    uint32_t plane = linear_offset & 1, plane_offset = linear_offset >> 1;
-    ega.vram[(plane_offset << 2) + plane] = 0xFF;  // all four pixels = value 3 (white)
-
-    std::vector<uint8_t> rgba;
-    RenderCgaGraphics4Screen(ega, rgba);
-    std::size_t i = (std::size_t(1) * 320 + 0) * 4;  // (x=0, y=1)
-    EXPECT_EQ(rgba[i + 0], 0xFF);
-    EXPECT_EQ(rgba[i + 1], 0xFF);
-    EXPECT_EQ(rgba[i + 2], 0xFF);
+    ProgramMode10(ega);
+    Crtc(ega, {{0x09, 0x01}, {0x12, 0xC7}, {0x07, 0x11}, {0x17, 0xC2}});
+    Attr(ega, 0x01, 0x3F);
+    ega.vram[(0x2000u << 2) + 0] = 0x80;
+    Frame f = Native(ega);
+    EXPECT_EQ(f.h, 200);
+    EXPECT_TRUE(f.black(0, 0));
+    EXPECT_TRUE(f.white(0, 1));
 }
 
-TEST(EgaRenderTest, EgaNative16ResolutionComesFromCrtcTimingNotATable) {
-    // Register values from this BIOS's INT 10h AL=0x10 (mode 0x10, 640x350x16), IBM_PCAT_REVIEW.md §16.
+TEST(EgaRenderTest, NativeSixteenColorDecodesOneBitPerPlane) {
     Ega ega;
     ega.reset();
-    ega.out(0x3D4, 0x01); ega.out(0x3D5, 79);    // H Display End
-    ega.out(0x3D4, 0x12); ega.out(0x3D5, 0x5D);  // V Display End low 8 bits
-    ega.out(0x3D4, 0x07); ega.out(0x3D5, 0x02);  // Overflow: bit 1 set
-
-    std::vector<uint8_t> rgba;
-    int width = 0, height = 0;
-    RenderEgaNative16Screen(ega, rgba, width, height);
-    EXPECT_EQ(width, 640);
-    EXPECT_EQ(height, 350);
-    EXPECT_EQ(rgba.size(), std::size_t(640 * 350 * 4));
+    ProgramMode10(ega);
+    Attr(ega, 0x05, 0x02);
+    ega.vram[0] = 0x80;
+    ega.vram[2] = 0x80;
+    Frame f = Native(ega);
+    EXPECT_EQ(f.g(0, 0), 0xAA);
+    EXPECT_TRUE(f.black(1, 0));
 }
 
-TEST(EgaRenderTest, EgaNative16DecodesOneBitPerPlanePerPixelMsbFirst) {
-    // Plane 0 = bit 0 of the color index through plane 3 = bit 3; bit 7 of a byte is the leftmost pixel.
+TEST(EgaRenderTest, GraphicsBlinkDropsBitThreeInTheOffPhase) {
     Ega ega;
     ega.reset();
-    ega.out(0x3D4, 0x01); ega.out(0x3D5, 9);     // H Display End -> (9+1)*8 = 80 wide (small, for the test)
-    ega.out(0x3D4, 0x12); ega.out(0x3D5, 0);     // V Display End -> 0+1 = 1 tall
-    SetPalette(ega, 0x0, 0x00);  // black
-    SetPalette(ega, 0x5, 0x02);  // index 5 = green (planes 0 and 2 set: bits 0+2 = 0b0101 = 5)
-    // Planes 0 and 2 have their MSB set: leftmost pixel index = 0b0101 = 5.
-    ega.vram[(0 << 2) + 0] = 0x80;
-    ega.vram[(0 << 2) + 2] = 0x80;
-
-    std::vector<uint8_t> rgba;
-    int width = 0, height = 0;
-    RenderEgaNative16Screen(ega, rgba, width, height);
-    ASSERT_EQ(width, 80);
-    EXPECT_EQ(rgba[0], 0x00); EXPECT_EQ(rgba[1], 0xAA); EXPECT_EQ(rgba[2], 0x00);  // green
-    EXPECT_EQ(rgba[4], 0x00); EXPECT_EQ(rgba[5], 0x00); EXPECT_EQ(rgba[6], 0x00);  // next pixel: black
-}
-
-TEST(EgaRenderTest, RenderScreenDispatchesToTheRightModeAtTheRightResolution) {
-    Ega ega;
-    ega.reset();
-    RenderedFrame text_frame;
-    RenderScreen(ega, text_frame, /*blink_on=*/false);
-    EXPECT_EQ(text_frame.width, kTextRenderWidth);
-    EXPECT_EQ(text_frame.height, kTextRenderHeight);
-
-    SetGraphicsMode(ega, true, 1);
-    RenderedFrame cga_frame;
-    RenderScreen(ega, cga_frame, false);
-    EXPECT_EQ(cga_frame.width, 320);
-    EXPECT_EQ(cga_frame.height, 200);
-
-    // Native 16-color: resolution comes from the CRTC (mode 0x10 values).
-    SetGraphicsMode(ega, true, 0);
-    ega.out(0x3D4, 0x01); ega.out(0x3D5, 79);    // H Display End -> (79+1)*8 = 640
-    ega.out(0x3D4, 0x12); ega.out(0x3D5, 0x5D);  // V Display End low 8 bits = 93
-    ega.out(0x3D4, 0x07); ega.out(0x3D5, 0x02);  // overflow bit1 set -> +256 = 349 -> +1 = 350
-    RenderedFrame native16_frame;
-    RenderScreen(ega, native16_frame, false);
-    EXPECT_EQ(native16_frame.width, 640);
-    EXPECT_EQ(native16_frame.height, 350);
-
-    SetGraphicsMode(ega, true, 2);  // VGA-only Chain-4 -- unsupported, placeholder frame
-    RenderedFrame placeholder;
-    RenderScreen(ega, placeholder, false);
-    EXPECT_EQ(placeholder.width, kTextRenderWidth);
-    EXPECT_EQ(placeholder.height, kTextRenderHeight);
-    EXPECT_EQ(placeholder.rgba[0], 0);  // black, not a garbled misread of graphics VRAM as text
+    ProgramMode10(ega);
+    Attr(ega, 0x10, 0x09);
+    Attr(ega, 0x0F, 0x3F);
+    Attr(ega, 0x07, 0x07);
+    for (int p = 0; p < 4; ++p) ega.vram[uint32_t(p)] = 0x80;
+    uint64_t now = 0;
+    EXPECT_TRUE(Native(ega).white(0, 0));
+    AdvanceFrames(ega, now, 16);
+    EXPECT_EQ(Native(ega).r(0, 0), 0xAA);
 }
 
 }  // namespace

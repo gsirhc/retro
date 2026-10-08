@@ -1,8 +1,8 @@
-// Native tool: boots the real BIOS (+ optional vgabios, floppy, hard disk)
+// Native tool: boots the real BIOS (+ optional EGA BIOS, floppy, hard disk)
 // for a fixed cycle budget, then writes the current EGA screen to a BMP using
 // the shared renderer in ega_render.h.
 //
-// Usage: render_screen <bios> <vgabios> <out.bmp> [max_cycles] [hdd-image] [floppy-image]
+// Usage: render_screen <bios> <egabios> <out.bmp> [max_cycles] [hdd-image] [floppy-image]
 
 #include "ega_render.h"
 #include "machine.h"
@@ -50,20 +50,20 @@ void WriteBmp(const char *path, int w, int h, const std::vector<uint8_t> &rgba) 
 int main(int argc, char **argv) {
     if (argc < 4) {
         std::fprintf(stderr,
-            "usage: %s <bios> <vgabios> <out.bmp> [max_cycles] [hdd-image] [floppy-image]\n", argv[0]);
+            "usage: %s <bios> <egabios> <out.bmp> [max_cycles] [hdd-image] [floppy-image]\n", argv[0]);
         return 2;
     }
     auto bios = ReadFile(argv[1]);
-    auto vga = ReadFile(argv[2]);
+    auto vbios = ReadFile(argv[2]);
     const char *out_path = argv[3];
     uint64_t max_cycles = argc > 4 ? std::strtoull(argv[4], nullptr, 10) : 400'000'000ull;
     if (bios.empty()) { std::fprintf(stderr, "cannot open/empty bios: %s\n", argv[1]); return 2; }
-    std::fprintf(stderr, "bios=%zu vga=%zu\n", bios.size(), vga.size());
+    std::fprintf(stderr, "bios=%zu egabios=%zu\n", bios.size(), vbios.size());
 
     Machine m;
     m.reset();
     m.chipset.load_rom(0x100000 - bios.size(), bios.data(), bios.size());
-    if (!vga.empty()) m.chipset.load_rom(0xC0000, vga.data(), vga.size());
+    if (!vbios.empty()) m.chipset.load_rom(0xC0000, vbios.data(), vbios.size());
     if (argc > 5) {
         auto hdd = ReadFile(argv[5]);
         std::fprintf(stderr, "mounted %s: %zu bytes on HDD\n", argv[5], hdd.size());
@@ -80,7 +80,7 @@ int main(int argc, char **argv) {
     std::fprintf(stderr, "ran %llu cycles\n", (unsigned long long)max_cycles);
 
     ibmpcat::RenderedFrame frame;
-    ibmpcat::RenderScreen(m.chipset.ega, frame, /*blink_on=*/true);
+    ibmpcat::RenderScreen(m.chipset.ega, frame);
     WriteBmp(out_path, frame.width, frame.height, frame.rgba);
     std::fprintf(stderr, "wrote %s (%dx%d)\n", out_path, frame.width, frame.height);
     return 0;

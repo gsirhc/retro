@@ -290,13 +290,58 @@
   let cycleCredit = 0, lastT = null;
 
   function clearScreenToBlack() {
-    screenEl.width = kTextRenderWidth;
-    screenEl.height = kTextRenderHeight;
-    screenEl.style.aspectRatio = kTextRenderWidth + " / " + kTextRenderHeight;
-    ctx.fillStyle = "#000";
-    ctx.fillRect(0, 0, screenEl.width, screenEl.height);
+    setFrameSize(kTextRenderWidth, kTextRenderHeight);
+    frameCtx.fillStyle = "#000";
+    frameCtx.fillRect(0, 0, frameCanvas.width, frameCanvas.height);
+    presentFrame();
   }
   const kTextRenderWidth = 640, kTextRenderHeight = 350;  // ega_render.h text-mode default
+
+  // The guest frame lands in frameCanvas at native resolution, is scaled by a whole factor per
+  // axis (nearest) into #screen, then smooth-scaled to the CSS box, so guest pixels stay uniform.
+  // The 5154 Enhanced Color Display is a 4:3 tube in every mode, so 640x350 and 320x200 stretch tall.
+  const frameCanvas = document.createElement("canvas");
+  const frameCtx = frameCanvas.getContext("2d");
+  const kMaxScreenScale = 4;  // past 4x the final smoothing pass is invisible
+  let screenScaleX = 0, screenScaleY = 0;
+
+  function setFrameSize(w, h) {
+    if (frameCanvas.width === w && frameCanvas.height === h && screenScaleX) return;
+    frameCanvas.width = w;
+    frameCanvas.height = h;
+    screenScaleX = screenScaleY = 0;
+    fitScreen();
+  }
+
+  function fitScreen() {
+    const dpr = window.devicePixelRatio || 1;
+    const axis = (box, n) => Math.min(kMaxScreenScale, Math.max(1, Math.ceil(box * dpr / n - 0.01)));
+    const sx = axis(screenEl.clientWidth, frameCanvas.width);
+    const sy = axis(screenEl.clientHeight, frameCanvas.height);
+    if (sx === screenScaleX && sy === screenScaleY) return;
+    screenScaleX = sx;
+    screenScaleY = sy;
+    screenEl.width = frameCanvas.width * sx;
+    screenEl.height = frameCanvas.height * sy;
+    ctx.imageSmoothingEnabled = false;
+    presentFrame();
+  }
+
+  function presentFrame() {
+    ctx.drawImage(frameCanvas, 0, 0, screenEl.width, screenEl.height);
+  }
+
+  const screenResizeObserver = new ResizeObserver(fitScreen);
+  try {
+    screenResizeObserver.observe(screenEl, { box: "device-pixel-content-box" });
+  } catch {
+    screenResizeObserver.observe(screenEl);
+    // Without device-pixel-content-box a monitor move changes no CSS size, so watch the ratio.
+    (function watchDpr() {
+      matchMedia("(resolution: " + (window.devicePixelRatio || 1) + "dppx)")
+        .addEventListener("change", () => { fitScreen(); watchDpr(); }, { once: true });
+    })();
+  }
 
   function frame(t) {
     if (!poweredOn || !machine) return;  // powered off mid-loop, stop rescheduling
@@ -314,18 +359,14 @@
 
     pumpAudio(frameStartCycle, cyclesThisFrame, dtSeconds);
 
-    const blinkOn = Math.floor(t / 266) % 2 === 0;  // ~1.9Hz cursor blink
-    const rgba = machine.renderFrame(blinkOn);
-    // canvas follows the mode's native resolution (640x350 text, 320x200 CGA graphics)
+    const rgba = machine.renderFrame();
+    // Resolution varies by mode (640x350 text, 320x200 CGA graphics, ega_render.h); the 4:3 box stays put.
     const frameW = machine.renderWidth(), frameH = machine.renderHeight();
-    if (screenEl.width !== frameW || screenEl.height !== frameH) {
-      screenEl.width = frameW;
-      screenEl.height = frameH;
-      screenEl.style.aspectRatio = frameW + " / " + frameH;
-    }
-    const img = ctx.createImageData(frameW, frameH);
+    setFrameSize(frameW, frameH);
+    const img = frameCtx.createImageData(frameW, frameH);
     img.data.set(rgba);
-    ctx.putImageData(img, 0, 0);
+    frameCtx.putImageData(img, 0, 0);
+    presentFrame();
 
     for (const bay of bays) {
       const drive = parseInt(bay.dataset.drive, 10);
@@ -395,7 +436,7 @@
   const powerSwitch = document.getElementById("powerSwitch");
   const powerLed = document.getElementById("powerLed");
   let poweredOn = false;
-  let firmware = null;  // {Module, bios, vga, hdd}, fetched once
+  let firmware = null;  // {Module, bios, videoBios, hdd}, fetched once
   const pendingFloppy = [null, null];  // {name, bytes} per drive
 
   // next power-on mounts the saved IndexedDB image if any, else the factory image
@@ -476,7 +517,7 @@
     if (!machine) {
       machine = new firmware.Module.Machine();
       machine.loadRom(0x100000 - firmware.bios.byteLength, new Uint8Array(firmware.bios));
-      machine.loadRom(0xC0000, new Uint8Array(firmware.vga));
+      machine.loadRom(0xC0000, new Uint8Array(firmware.videoBios));
       machine.mountHdd(savedHdd || new Uint8Array(firmware.hdd));
       remountPendingFloppies();
     }
@@ -489,7 +530,7 @@
     updateFocusHint();
     if (new URLSearchParams(location.search).get("test") === "1") {
       window.__test = {
-        machine, sendKey, screenEl,
+        machine, sendKey, screenEl, frameCanvas,
         get loadOverlayVisible() { return loadOverlayEl.classList.contains("visible"); },
         get loadOverlayText() { return loadOverlayLabel.textContent; },
         beginLoad, endLoad,
@@ -576,14 +617,14 @@
     beginLoad("Loading\u2026");
     try {
       await paintLoadOverlay();
-      const [Module, savedHddResult, bios, vga, hdd] = await Promise.all([
+      const [Module, savedHddResult, bios, videoBios, hdd] = await Promise.all([
         IbmPcAt({}),
         loadSavedHdd(),
         fetch("roms/BIOS-bochs-legacy").then((r) => r.arrayBuffer()),
-        fetch("roms/VGABIOS-lgpl-latest.bin").then((r) => r.arrayBuffer()),
+        fetch("roms/egabios.bin").then((r) => r.arrayBuffer()),
         fetch("disks/freedos-hdd.img").then((r) => r.arrayBuffer()),
       ]);
-      firmware = { Module, bios, vga, hdd };
+      firmware = { Module, bios, videoBios, hdd };
       if (savedHddResult) {
         savedHdd = savedHddResult;
         hddLabel = "saved state (from a previous visit)";

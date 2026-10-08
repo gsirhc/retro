@@ -97,6 +97,25 @@ TEST(EgaTest, WriteMode2SelectsPlaneValueFromEachCpuBit) {
     ega.out(0x3CE, 0x04); ega.out(0x3CF, 0x03); EXPECT_EQ(ega.mem_read(0xA0000), 0x00);
 }
 
+TEST(EgaTest, WriteMode2AndSetResetGoThroughTheDataRotateFunction) {
+    Ega ega;
+    ega.reset();
+    SetupLinearGraphics(ega);
+    ega.out(0x3CE, 0x05); ega.out(0x3CF, 0x02);
+    ega.mem_write(0xA0000, 0x0C);
+    ega.out(0x3CE, 0x03); ega.out(0x3CF, 0x18);  // XOR
+    ega.mem_read(0xA0000);
+    ega.mem_write(0xA0000, 0x05);
+    for (int p = 0; p < 4; ++p) EXPECT_EQ(ega.vram[p], (0x09 >> p) & 1 ? 0xFF : 0x00);
+
+    ega.out(0x3CE, 0x05); ega.out(0x3CF, 0x00);
+    ega.out(0x3CE, 0x00); ega.out(0x3CF, 0x0F);
+    ega.out(0x3CE, 0x01); ega.out(0x3CF, 0x0F);
+    ega.mem_read(0xA0000);
+    ega.mem_write(0xA0000, 0x00);
+    for (int p = 0; p < 4; ++p) EXPECT_EQ(ega.vram[p], (0x06 >> p) & 1 ? 0xFF : 0x00);
+}
+
 TEST(EgaTest, EnableSetResetOverridesCpuByteWithSetResetValue) {
     Ega ega;
     ega.reset();
@@ -117,8 +136,89 @@ TEST(EgaTest, BitMaskProtectsUntouchedBitsOfExistingByte) {
     SetupLinearGraphics(ega);
     ega.mem_write(0xA0000, 0xFF);                // seed every plane fully set
     ega.out(0x3CE, 0x08); ega.out(0x3CF, 0x0F);  // Bit Mask: only the low nibble is writable
+    ega.mem_read(0xA0000);
     ega.mem_write(0xA0000, 0x00);
     EXPECT_EQ(ega.mem_read(0xA0000), 0xF0);       // low nibble cleared, high nibble untouched
+}
+
+TEST(EgaTest, BitMaskTakesUnwrittenBitsFromTheLatchNotMemory) {
+    Ega ega;
+    ega.reset();
+    SetupLinearGraphics(ega);
+    ega.mem_write(0xA0000, 0xAA);
+    ega.mem_write(0xA0001, 0x0F);
+    ega.mem_read(0xA0000);                       // latch 0xAA
+    ega.out(0x3CE, 0x08); ega.out(0x3CF, 0xF0);
+    ega.mem_write(0xA0001, 0x50);
+    for (int p = 0; p < 4; ++p) EXPECT_EQ(ega.vram[(1u << 2) + uint32_t(p)], 0x5A);
+}
+
+TEST(EgaTest, OddEvenPutsThePageBitOnA0AndKeepsTheRestOfTheAddress) {
+    Ega ega;
+    ega.reset();
+    SetupTextMode80x25(ega);
+    ega.out(0x3C2, 0x23);  // page bit set: A0 = 0
+    ega.mem_write(0xB8000 + 0x10, 'A');
+    ega.mem_write(0xB8000 + 0x11, 0x1F);
+    EXPECT_EQ(ega.vram[(0x10u << 2) + 0], 'A');
+    EXPECT_EQ(ega.vram[(0x10u << 2) + 1], 0x1F);
+    ega.out(0x3C2, 0x03);  // page bit clear: A0 = 1
+    ega.mem_write(0xB8000 + 0x10, 'B');
+    EXPECT_EQ(ega.vram[(0x11u << 2) + 0], 'B');
+    EXPECT_EQ(ega.mem_read(0xB8000 + 0x10), 'B');
+}
+
+TEST(EgaTest, OddEvenReadsFollowGraphicsModeBit4) {
+    Ega ega;
+    ega.reset();
+    SetupLinearGraphics(ega);
+    ega.vram[(0x21u << 2) + 0] = 0x11;
+    ega.vram[(0x21u << 2) + 1] = 0x22;
+    ega.out(0x3CE, 0x04); ega.out(0x3CF, 0x00);
+    EXPECT_EQ(ega.mem_read(0xA0021), 0x11);
+    ega.out(0x3CE, 0x05); ega.out(0x3CF, 0x10);
+    EXPECT_EQ(ega.mem_read(0xA0021), 0x22);
+}
+
+TEST(EgaTest, MemoryModeBit1ClearLimitsEachPlaneTo16KB) {
+    Ega ega;
+    ega.reset();
+    SetupLinearGraphics(ega);
+    ega.out(0x3C4, 0x04); ega.out(0x3C5, 0x04);
+    ega.mem_write(0xA4001, 0x77);
+    EXPECT_EQ(ega.vram[(1u << 2) + 0], 0x77);
+}
+
+TEST(EgaTest, DisplayAddressInByteAndWordModes) {
+    Ega ega;
+    ega.reset();
+    ega.out(0x3C2, 0x01);
+    ega.out(0x3D4, 0x17); ega.out(0x3D5, 0xE3);
+    EXPECT_EQ(ega.display_address(0x1234, 0), 0x1234u);
+    ega.out(0x3D5, 0xA3);  // word mode, MA15 into bit 0
+    EXPECT_EQ(ega.display_address(0x0005, 0), 0x000Au);
+    EXPECT_EQ(ega.display_address(0x8005, 0), 0x000Bu);
+    ega.out(0x3D5, 0x83);  // word mode, MA13 into bit 0
+    EXPECT_EQ(ega.display_address(0x2005, 0), 0x400Bu);
+    ega.out(0x3D5, 0xA2);  // row scan bit 0 on MA13
+    EXPECT_EQ(ega.display_address(0x0005, 1), 0x200Au);
+    ega.out(0x3D5, 0xA1);  // row scan bit 1 on MA14
+    EXPECT_EQ(ega.display_address(0x0005, 2), 0x400Au);
+}
+
+TEST(EgaTest, MiscOutputBit0MovesTheCrtcBetween3BxAnd3Dx) {
+    Ega ega;
+    ega.reset();
+    EXPECT_TRUE(ega.owns_port(0x3B4));
+    EXPECT_FALSE(ega.owns_port(0x3D4));
+    ega.out(0x3B4, 0x0F); ega.out(0x3B5, 0x42);
+    EXPECT_EQ(ega.in(0x3B5), 0x42);
+    ega.in(0x3BA);
+    ega.out(0x3C2, 0x01);
+    EXPECT_FALSE(ega.owns_port(0x3B5));
+    EXPECT_TRUE(ega.owns_port(0x3DA));
+    ega.out(0x3D4, 0x0F);
+    EXPECT_EQ(ega.in(0x3D5), 0x42);
 }
 
 TEST(EgaTest, MapMaskGatesWhichPlanesActuallyStore) {
@@ -174,6 +274,7 @@ TEST(EgaTest, OddEvenChainingRoutesCharacterGeneratorWritesToPlanes2And3) {
 TEST(EgaTest, CrtcCursorAndStartAddressRegisters) {
     Ega ega;
     ega.reset();
+    ega.out(0x3C2, 0x01);  // color I/O addresses
     ega.out(0x3D4, 0x0E); ega.out(0x3D5, 0x01);  // cursor location high
     ega.out(0x3D4, 0x0F); ega.out(0x3D5, 0x40);  // cursor location low
     EXPECT_EQ(ega.cursor_offset(), 0x0140);
@@ -183,17 +284,15 @@ TEST(EgaTest, CrtcCursorAndStartAddressRegisters) {
     EXPECT_EQ(ega.start_offset(), 0x0000);
 }
 
-TEST(EgaTest, CursorShapeRegistersReportStartEndAndDisableBit) {
+TEST(EgaTest, CursorShapeRegistersHaveNoDisableBit) {
     Ega ega;
     ega.reset();
-    ega.out(0x3D4, 0x0A); ega.out(0x3D5, 0x0D);  // Cursor Start: scanline 13, not disabled
-    ega.out(0x3D4, 0x0B); ega.out(0x3D5, 0x0E);  // Cursor End: scanline 14
-    EXPECT_FALSE(ega.cursor_disabled());
+    ega.out(0x3C2, 0x01);  // color I/O addresses
+    ega.out(0x3D4, 0x0A); ega.out(0x3D5, 0x2D);  // bit 5 is VGA's cursor off; the EGA ignores it
+    ega.out(0x3D4, 0x0B); ega.out(0x3D5, 0x0E);
     EXPECT_EQ(ega.cursor_start_scanline(), 13);
     EXPECT_EQ(ega.cursor_end_scanline(), 14);
-
-    ega.out(0x3D4, 0x0A); ega.out(0x3D5, 0x20);  // bit 5 set -- cursor off
-    EXPECT_TRUE(ega.cursor_disabled());
+    EXPECT_TRUE(ega.cursor_on_row(13));
 }
 
 TEST(EgaTest, AttrPaletteReportsTheLiveRegisterMaskedToSixBits) {
@@ -211,23 +310,45 @@ TEST(EgaTest, AttributeControllerFlipFlopAlternatesIndexAndData) {
     ega.reset();
     ega.out(0x3C0, 0x00);  // first write after reset = index (palette register 0)
     ega.out(0x3C0, 0x3F);  // second write = data
-    ega.out(0x3C0, 0x00);  // back to index again
-    EXPECT_EQ(ega.in(0x3C1), 0x3F);
+    ega.out(0x3C0, 0x01);  // back to index again
+    ega.out(0x3C0, 0x15);
+    EXPECT_EQ(ega.attr_palette(0), 0x3F);
+    EXPECT_EQ(ega.attr_palette(1), 0x15);
 }
 
 TEST(EgaTest, ReadingInputStatusOneResetsAttributeFlipFlop) {
     Ega ega;
     ega.reset();
+    ega.out(0x3C2, 0x01);  // color I/O addresses
     ega.out(0x3C0, 0x00);  // consumes the "index" half of the flip-flop
     ega.in(0x3DA);         // real hardware: this forces the next 0x3C0 write back to "index"
     ega.out(0x3C0, 0x01);  // index = 1 (not data for register 0)
     ega.out(0x3C0, 0x2A);  // now this is data for register 1
-    EXPECT_EQ(ega.in(0x3C1), 0x2A);
+    EXPECT_EQ(ega.attr_palette(1), 0x2A);
+    EXPECT_EQ(ega.attr_palette(0), 0x00);
+}
+
+TEST(EgaTest, OnlyStartAddressCursorAndLightPenReadBack) {
+    Ega ega;
+    ega.reset();
+    ega.out(0x3C2, 0x01);  // color I/O addresses
+    for (uint8_t i = 0; i < 0x19; ++i) { ega.out(0x3D4, i); ega.out(0x3D5, uint8_t(0x40 + i)); }
+    for (uint8_t i = 0; i < 0x19; ++i) {
+        ega.out(0x3D4, i);
+        uint8_t want = (i >= 0x0C && i <= 0x0F) ? uint8_t(0x40 + i) : (i == 0x10 || i == 0x11) ? 0x00 : 0xFF;
+        EXPECT_EQ(ega.in(0x3D5), want) << "CRTC " << int(i);
+    }
+    ega.out(0x3C4, 0x02); ega.out(0x3C5, 0x0F);
+    ega.out(0x3CE, 0x08); ega.out(0x3CF, 0x55);
+    ega.out(0x3C2, 0xA7);
+    for (uint16_t port : {0x3C0, 0x3C4, 0x3C5, 0x3CA, 0x3CC, 0x3CE, 0x3CF, 0x3D4}) EXPECT_EQ(ega.in(port), 0xFF) << std::hex << port;
+    EXPECT_FALSE(ega.owns_port(0x3C1));
 }
 
 TEST(EgaTest, RetraceBitToggledByTick) {
     Ega ega;
     ega.reset();
+    ega.out(0x3C2, 0x01);  // color I/O addresses
     bool saw_true = false, saw_false = false;
     for (uint64_t c = 0; c < 2'000'000; c += 500) {
         ega.tick(c);
@@ -336,6 +457,43 @@ TEST(EgaTest, AccessesOutsideTheMappedWindowDoNotWait) {
     ega.out(0x3CE, 0x06); ega.out(0x3CF, 0x0C);  // 32K at B8000
     EXPECT_EQ(ega.cpu_access_clocks(0xA0000, 0), 0);
     EXPECT_GT(ega.cpu_access_clocks(0xB8000, 0), 0);
+}
+
+// Clock select n reads switch 4-n, 0 when closed (IBM EGA BIOS listing, RD_SWS).
+TEST(EgaTest, InputStatusZeroReadsTheSwitchClockSelectPicks) {
+    Ega ega;
+    ega.reset();
+    uint8_t got = 0;
+    for (uint8_t misc : {0x0D, 0x09, 0x05, 0x01}) {
+        ega.out(0x3C2, misc);
+        got = uint8_t((got << 1) | ((ega.in(0x3C2) >> 4) & 1));
+    }
+    EXPECT_EQ(got, 0x09) << "Enhanced Display, high resolution";
+    ega.set_switches(0x06);
+    ega.out(0x3C2, 0x01);
+    EXPECT_FALSE(ega.in(0x3C2) & 0x10);
+    EXPECT_EQ(ega.in(0x3C2) & 0x6F, 0x0F);
+}
+
+TEST(EgaTest, VerticalInterruptLatchesAtRetraceUntilCleared) {
+    Ega ega;
+    ega.reset();
+    ProgramEga350LineText(ega);
+    uint64_t now = 0;
+    auto run_frame = [&] { for (int i = 0; i < 140; ++i) ega.tick(now += 1000); };
+    run_frame();
+    EXPECT_FALSE(ega.vertical_interrupt()) << "IBM's 2Bh leaves bit 5 set: disabled";
+    ega.out(0x3D4, 0x11); ega.out(0x3D5, 0x1B);
+    run_frame();
+    EXPECT_TRUE(ega.vertical_interrupt());
+    EXPECT_TRUE(ega.in(0x3C2) & 0x80);
+    ega.out(0x3D5, 0x0B);
+    EXPECT_FALSE(ega.vertical_interrupt());
+    run_frame();
+    EXPECT_FALSE(ega.vertical_interrupt()) << "bit 4 low holds it clear";
+    ega.out(0x3D5, 0x1B);
+    run_frame();
+    EXPECT_TRUE(ega.vertical_interrupt());
 }
 
 }  // namespace

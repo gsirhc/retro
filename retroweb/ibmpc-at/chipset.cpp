@@ -28,6 +28,7 @@ void Chipset::reset() {
     fdc_irq_prev_ = false;
     kbc_irq_prev_ = false;
     hdd_irq_prev_ = false;
+    ega_irq_prev_ = false;
     pic_master.reset();
     pic_slave.reset();
     pit.reset();
@@ -176,6 +177,11 @@ void Chipset::tick(uint64_t cpu_cycles, double cpu_hz) {
     bool kbc_irq_now = kbc.irq1_pending();
     if (kbc_irq_now && !kbc_irq_prev_) pic_master.raise(1);
     kbc_irq_prev_ = kbc_irq_now;
+
+    // The EGA's IRQ2 pin reaches the AT's slave line 1 (IRQ9).
+    bool ega_irq_now = ega.vertical_interrupt();
+    if (ega_irq_now && !ega_irq_prev_) pic_slave.raise(1);
+    ega_irq_prev_ = ega_irq_now;
 
     // IRQ14 is slave line 6.
     hdd.tick(cpu_cycles);

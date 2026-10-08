@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
-# Fetch the freely-licensed firmware this machine substitutes for IBM's
-# copyrighted AT BIOS and EGA video BIOS. Both are from the Bochs Project
-# (LGPL), pinned to a commit and SHA-256 verified. Files land next to this script.
+# Fetch the freely-licensed AT BIOS this machine substitutes for IBM's
+# copyrighted one (Bochs Project, LGPL) and the public-domain fonts egabios/
+# assembles into its EGA BIOS. Pinned to commits and SHA-256 verified. Files
+# land next to this script.
 #
 #   ./fetch-bios.sh            # fetch what's missing / wrong
 #   ./fetch-bios.sh --force    # re-fetch everything
 #
 # Bochs rather than SeaBIOS: SeaBIOS needs an i386 cross compiler and ships no
 # prebuilt binaries. BIOS-bochs-legacy is a prebuilt plain-ISA/no-PCI BIOS in the
-# Bochs tree, as is VGABIOS-lgpl-latest.bin. See IBM_PCAT_REVIEW.md §6.
+# Bochs tree. See IBM_PCAT_REVIEW.md §6.
 #
-# Both are compatible stand-ins, not the genuine firmware. The VGA BIOS offers
-# more modes than a real EGA; the EGA device enforces the 640x350x16 ceiling.
+# Both BIOSes are compatible stand-ins, not the genuine firmware.
 
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -21,10 +21,13 @@ FORCE="${1:-}"
 # Pinned to bochs-emu/Bochs@ff17a0c2bbabccf96d33af4e08ba8061889b079d (master, fetched 2026-09-05).
 BASE="https://raw.githubusercontent.com/bochs-emu/Bochs/ff17a0c2bbabccf96d33af4e08ba8061889b079d/bochs/bios"
 
+# Public-domain 8x8 and 8x14 fonts (Joseph Gil) for egabios/, from qemu/vgabios@19ea12c.
+FONTS="https://raw.githubusercontent.com/qemu/vgabios/19ea12c230ded95928ecaef0db47a82231c2e485/vgafonts.h"
+
 # name  |  url  |  sha256
 FILES=(
   "BIOS-bochs-legacy|$BASE/BIOS-bochs-legacy|d8848f08e6c832144d906d2c2175469a818a54062d42e8c7e60895b9e9aa930c"
-  "VGABIOS-lgpl-latest.bin|$BASE/VGABIOS-lgpl/VGABIOS-lgpl-latest.bin|157ee2e631c429114e48a8051c029ee79f1dc5adae59dd18178a6c6673c7cf37"
+  "vgafonts.h|$FONTS|2db10aaeda77d19e01bae8c82b23da866e982256e60aec79b07abd86d5f70a32"
 )
 
 sha() {
@@ -53,4 +56,4 @@ for row in "${FILES[@]}"; do
   chmod 644 "$name"
 done
 
-echo "BIOS + video BIOS ready."
+echo "BIOS + EGA BIOS fonts ready."

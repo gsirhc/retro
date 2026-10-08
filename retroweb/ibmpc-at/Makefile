@@ -1,7 +1,7 @@
 # Top-level targets for the IBM PC/AT (5170-339) emulator.
 #
 #   make test        build + run the GoogleTest suite
-#   make bios        fetch + verify the freely-licensed BIOS/video-BIOS images
+#   make bios        fetch + verify the freely-licensed BIOS, assemble the EGA BIOS (needs nasm)
 #   make bios-check   boot the real BIOS against this chipset natively, report progress
 #   make hdd-image   build the shipped FreeDOS HDD image (see below -- SLOW)
 #   make render_screen   build the screen-to-BMP diagnostic tool (see below)
@@ -21,9 +21,9 @@ CXX      ?= c++
 CXXFLAGS ?= -std=c++17 -O2 -Wall -Wextra
 
 CHIPSET_SRCS = machine.cpp chipset.cpp cpu80286.cpp pic8259.cpp pit8253.cpp i8042.cpp cmos_rtc.cpp dma8237.cpp fdc765.cpp ega.cpp wd1003.cpp pcspeaker.cpp
-UNIT_TESTS = cpu80286_test pic8259_test pit8253_test i8042_test cmos_rtc_test dma8237_test chipset_test machine_test fdc765_test ega_test ega_render_test wd1003_test pcspeaker_test
+UNIT_TESTS = cpu80286_test pic8259_test pit8253_test i8042_test cmos_rtc_test dma8237_test chipset_test machine_test fdc765_test ega_test ega_render_test wd1003_test pcspeaker_test egabios_test
 
-.PHONY: help test test-smoke bios bios-check hdd-image wasm serve coverage check clean
+.PHONY: help test test-smoke bios egabios bios-check hdd-image wasm serve coverage check clean
 
 LLVM_PROFDATA ?= xcrun llvm-profdata
 LLVM_COV      ?= xcrun llvm-cov
@@ -32,7 +32,7 @@ help:
 	@sed -n 's/^#   //p' $(MAKEFILE_LIST)
 
 # --- unit tests ---------------------------------------------------------
-test:
+test: egabios
 	cmake -S tests -B tests/build
 	cmake --build tests/build -j
 	ctest --test-dir tests/build --output-on-failure
@@ -40,6 +40,10 @@ test:
 # --- freely-licensed BIOS (IBM_PCAT_REVIEW.md §6) ---
 bios:
 	bash roms/fetch-bios.sh
+	$(MAKE) -C roms/egabios
+
+egabios:
+	$(MAKE) -C roms/egabios
 
 bios_host: bios_host.cpp $(CHIPSET_SRCS)
 	$(CXX) $(CXXFLAGS) -o $@ bios_host.cpp $(CHIPSET_SRCS)
@@ -58,7 +62,7 @@ disks/build_freedos_hdd: disks/build_freedos_hdd.cpp $(CHIPSET_SRCS)
 hdd-image: bios disks/build_freedos_hdd
 	bash disks/fetch-freedos.sh
 	bash disks/fetch-freedos-install-set.sh
-	./disks/build_freedos_hdd roms/BIOS-bochs-legacy roms/VGABIOS-lgpl-latest.bin disks disks/freedos-hdd.img
+	./disks/build_freedos_hdd roms/BIOS-bochs-legacy roms/egabios/egabios.bin disks disks/freedos-hdd.img
 
 # --- webassembly + browser front end ---
 wasm:
@@ -68,7 +72,7 @@ serve:
 	$(MAKE) -C web serve
 
 # --- C++ coverage (source-based, llvm-cov) ------------------------------
-coverage:
+coverage: egabios
 	cmake -S tests -B tests/build-cov -DCOVERAGE=ON >/dev/null
 	cmake --build tests/build-cov -j >/dev/null
 	@set -e; cd tests/build-cov && rm -f *.profraw cov.profdata; \
@@ -95,4 +99,5 @@ check: test
 
 clean:
 	rm -rf tests/build tests/build-cov tests/coverage-cpp bios_host disks/build_freedos_hdd render_screen
+	$(MAKE) -C roms/egabios clean
 	$(MAKE) -C web clean

@@ -32,6 +32,17 @@ TEST(MachineTest, FactoryCmosSurvivesAnExplicitResetCall) {
     EXPECT_EQ(m.chipset.cmos.peek(0x10), 0x21);
 }
 
+TEST(MachineTest, OnlyTheSystemRomGetsThe386Concession) {
+    Machine m;
+    std::vector<uint8_t> rom(0x4000, 0x90);
+    m.chipset.load_rom(0xC0000, rom.data(), rom.size());
+    m.chipset.load_rom(0xFC000, rom.data(), rom.size());
+    EXPECT_FALSE(m.cpu.firmware_at(0xC0003));
+    EXPECT_TRUE(m.cpu.firmware_at(0xFC003));
+    EXPECT_TRUE(m.cpu.firmware_at(0xFFC003));
+    EXPECT_FALSE(m.cpu.firmware_at(0x7C00));
+}
+
 TEST(MachineTest, RunCyclesAdvancesAtLeastTheRequestedAmount) {
     Machine m;
     m.reset();

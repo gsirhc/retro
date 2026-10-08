@@ -1,9 +1,9 @@
-// Native harness: boots BIOS-bochs-legacy (+ optional vgabios and floppy)
+// Native harness: boots BIOS-bochs-legacy (+ optional EGA BIOS and floppy)
 // against this chipset and reports POST codes, HLT, and the screen text.
 // Screen text is captured by logging each char passed to the BIOS wrch()
 // helper (F000:0679 in this build).
 //
-// Usage: bios_host <BIOS-bochs-legacy> [max_steps] [vgabios] [floppy-image]
+// Usage: bios_host <BIOS-bochs-legacy> [max_steps] [egabios] [floppy-image]
 
 #include "machine.h"
 
@@ -22,7 +22,7 @@ std::vector<uint8_t> ReadFile(const char *path) {
 
 int main(int argc, char **argv) {
     if (argc < 2) {
-        std::fprintf(stderr, "usage: %s <BIOS-bochs-legacy> [max_steps] [vgabios] [floppy-image]\n", argv[0]);
+        std::fprintf(stderr, "usage: %s <BIOS-bochs-legacy> [max_steps] [egabios] [floppy-image]\n", argv[0]);
         return 2;
     }
     std::vector<uint8_t> bios = ReadFile(argv[1]);
@@ -37,9 +37,9 @@ int main(int argc, char **argv) {
     m.chipset.load_rom(0x100000 - bios.size(), bios.data(), bios.size());
 
     if (argc > 3) {
-        std::vector<uint8_t> vga = ReadFile(argv[3]);
-        std::fprintf(stderr, "loaded %s: %zu bytes at 0xC0000\n", argv[3], vga.size());
-        m.chipset.load_rom(0xC0000, vga.data(), vga.size());
+        std::vector<uint8_t> vbios = ReadFile(argv[3]);
+        std::fprintf(stderr, "loaded %s: %zu bytes at 0xC0000\n", argv[3], vbios.size());
+        m.chipset.load_rom(0xC0000, vbios.data(), vbios.size());
     }
     if (argc > 4) {
         std::vector<uint8_t> disk = ReadFile(argv[4]);

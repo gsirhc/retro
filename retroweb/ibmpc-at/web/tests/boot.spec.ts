@@ -11,6 +11,15 @@ test.describe("boot and power", () => {
     await expect.poll(() => screenText(page)).toMatch(/C:\\>/);
   });
 
+  test("the EGA BIOS sets 350-line text for the Enhanced Color Display", async ({ page }) => {
+    await boot(page);
+    const size = await page.evaluate(() => {
+      const fc = (window as any).__test.frameCanvas as HTMLCanvasElement;
+      return [fc.width, fc.height];
+    });
+    expect(size).toEqual([640, 350]);
+  });
+
   test("power switch off discards the running machine; on boots a fresh one", async ({ page }) => {
     await boot(page);
     const cyclesRunning = await page.evaluate(() => (window as any).__test.machine.totalCycles());

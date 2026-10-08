@@ -300,4 +300,23 @@ TEST(ChipsetTest, SlaveInterruptCascadesThroughMasterIr2) {
     EXPECT_EQ(cs.poll_interrupt(), 0x70);
 }
 
+TEST(ChipsetTest, EgaVerticalInterruptArrivesOnIrq9) {
+    Chipset cs;
+    cs.pic_master.out(0x20, 0x11);
+    cs.pic_master.out(0x21, 0x08);
+    cs.pic_master.out(0x21, 0x04);
+    cs.pic_master.out(0x21, 0x01);
+    cs.pic_master.out(0x21, 0x00);
+    cs.pic_slave.out(0xA0, 0x11);
+    cs.pic_slave.out(0xA1, 0x70);
+    cs.pic_slave.out(0xA1, 0x02);
+    cs.pic_slave.out(0xA1, 0x01);
+    cs.pic_slave.out(0xA1, 0x00);
+    cs.ega.out(0x3C2, 0x01);
+    cs.ega.out(0x3D4, 0x11); cs.ega.out(0x3D5, 0x10);  // enabled, not clearing
+    for (uint64_t c = 0; c < 400'000 && !cs.has_interrupt(); c += 100) cs.tick(c, 8000000.0);
+    ASSERT_TRUE(cs.pic_slave.has_interrupt());
+    EXPECT_EQ(cs.poll_interrupt(), 0x71);
+}
+
 }  // namespace

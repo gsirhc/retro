@@ -2,12 +2,12 @@
 // JS surface via embind:
 //   const m = new Module.Machine();
 //   m.loadRom(0xF0000, biosBytes);       // BIOS-bochs-legacy at the reset vector
-//   m.loadRom(0xC0000, vgaBiosBytes);    // VGABIOS-lgpl-latest.bin extension ROM
+//   m.loadRom(0xC0000, egaBiosBytes);    // egabios.bin extension ROM
 //   m.mountHdd(hddBytes);                // C: image, chosen before power-on
 //   m.hddDirty() / m.clearHddDirty() / m.hddImage()  // persist C: across power cycles
 //   m.mountFloppy(0, imgBytes);          // drive A:
 //   m.runCycles(66667);                  // one frame at 8 MHz
-//   const frame = m.renderFrame(blinkOn); // RGBA; then renderWidth()/renderHeight()
+//   const frame = m.renderFrame(); // RGBA; then renderWidth()/renderHeight()
 //   m.injectScancode(0x1E);               // Set 1 scan code (see i8042.h)
 //   const edges = m.speakerEdges();       // {cycles: Float64Array, levels: Uint8Array}
 //   m.textScreen();                       // test-only: text-mode screen as a string
@@ -33,7 +33,7 @@ public:
     // reset keeps CMOS, like the real reset button
     void reset() { m_.reset(); }
 
-    // BIOS-bochs-legacy at 0x100000-size (reset vector F000:FFF0 needs a 64KB image) or VGABIOS at 0xC0000
+    // BIOS-bochs-legacy at 0x100000-size (reset vector F000:FFF0 needs a 64KB image) or the EGA BIOS at 0xC0000
     void loadRom(double addr, val bytes) {
         std::vector<uint8_t> data = emscripten::convertJSArrayToNumberVector<uint8_t>(bytes);
         m_.chipset.load_rom(uint32_t(addr), data.data(), data.size());
@@ -57,9 +57,9 @@ public:
     bool halted() const { return m_.cpu.halted; }
 
     // ---- EGA screen ----
-    // blinkOn is the text cursor phase. Call renderFrame() before renderWidth()/renderHeight().
-    val renderFrame(bool blinkOn) {
-        ibmpcat::RenderScreen(m_.chipset.ega, last_frame_, blinkOn);
+    // Call renderFrame() before renderWidth()/renderHeight().
+    val renderFrame() {
+        ibmpcat::RenderScreen(m_.chipset.ega, last_frame_);
         const auto &rgba = last_frame_.rgba;
         val out = val::global("Uint8ClampedArray").new_(rgba.size());
         if (!rgba.empty())
@@ -130,14 +130,14 @@ public:
     std::string textScreen() const {
         const auto &ega = m_.chipset.ega;
         if (ibmpcat::DetectScreenMode(ega) != ibmpcat::ScreenMode::kText) return "";
-        constexpr int kColsFallback = 80, kRows = 25;  // rows fixed, matching RenderTextScreen
-        int cols_reg = int(ega.crtc_horizontal_display_end()) + 1;
-        int cols = cols_reg <= 1 ? kColsFallback : cols_reg;
+        int cols = int(ega.crtc_horizontal_display_end()) + 1;
+        int stride = ega.crtc_scanline_stride() > 0 ? ega.crtc_scanline_stride() : cols;
+        int rows = (int(ega.crtc_vertical_display_end()) + 1) / (int(ega.crtc_max_scan_line()) + 1);
         std::string out;
-        out.reserve(std::size_t(cols + 1) * kRows);
-        for (int row = 0; row < kRows; ++row) {
+        out.reserve(std::size_t(cols + 1) * std::size_t(rows));
+        for (int row = 0; row < rows; ++row) {
             for (int col = 0; col < cols; ++col) {
-                uint32_t plane_off = (uint32_t(ega.start_offset()) + uint32_t(row * cols + col)) & 0xFFFF;
+                uint32_t plane_off = ega.display_address((uint32_t(ega.start_offset()) + uint32_t(row * stride + col)) & 0xFFFF, 0);
                 out += char(ega.vram[(plane_off << 2) + 0]);
             }
             out += '\n';

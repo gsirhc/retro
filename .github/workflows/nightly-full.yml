@@ -164,6 +164,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y nasm
       - run: make -C retroweb/ibmpc-at check
 
   # Playwright suite for the IBM PC/AT front end: boots the real 80286 core
@@ -182,6 +183,8 @@ jobs:
         with:
           version: latest
 
+      - run: sudo apt-get update && sudo apt-get install -y nasm
+
       - working-directory: retroweb/ibmpc-at/web
         run: make roms
 
@@ -190,7 +193,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: retroweb/ibmpc-at/disks/freedos-hdd.img
-          key: ibmpcat-hdd-${{ hashFiles('retroweb/ibmpc-at/*.h', 'retroweb/ibmpc-at/*.cpp', 'retroweb/ibmpc-at/disks/*.cpp', 'retroweb/ibmpc-at/disks/*.sh', 'retroweb/ibmpc-at/roms/*.sh') }}
+          key: ibmpcat-hdd-${{ hashFiles('retroweb/ibmpc-at/*.h', 'retroweb/ibmpc-at/*.cpp', 'retroweb/ibmpc-at/disks/*.cpp', 'retroweb/ibmpc-at/disks/*.sh', 'retroweb/ibmpc-at/roms/*.sh', 'retroweb/ibmpc-at/roms/egabios/*') }}
 
       - name: Build IBM PC/AT FreeDOS HDD image
         if: steps.ibmpcat-hdd.outputs.cache-hit != 'true'

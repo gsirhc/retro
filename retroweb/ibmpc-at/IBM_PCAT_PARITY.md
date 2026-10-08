@@ -5,21 +5,23 @@ IBM EGA, plus the test gaps against the repo rules in `CLAUDE.md`. Most of
 the chip files started as the same code `pc486` grew from, so a lot of
 this list is `PC486_PARITY.md` work that never came back. Where a 486 fix
 ports, the item cites its `PC486_REVIEW.md` section. Checked against the
-code as of commit `7534c4c`. When an item is fixed, write it up in
+code as of §49 (the EGA addressing work, after commit `c87bf64`). When an item is fixed, write it up in
 `IBM_PCAT_REVIEW.md` as usual (fact, why it matters, what it fixed,
 source) and delete it here. Done so far: the real-mode CPU, C1-C9
 (`IBM_PCAT_REVIEW.md` §44), the reset vector and `F1h`, C11-C12
 (§45), bus timing, T1-T5 and T8 with P5 and E11 (§46), and EGA
-contention plus the TOPBENCH calibration, T6-T7 with P1-P3 (§47).
+contention plus the TOPBENCH calibration, T6-T7 with P1-P3 (§47), and
+the EGA BIOS stand-in plus E1-E10 and E12-E14 (§48), and EGA
+addressing, latches and the monochrome ports, E15-E17 (§49).
 
-Rough parity today: **~74%**.
+Rough parity today: **~79%**.
 
 | Area | Parity | Biggest gap |
 |------|--------|-------------|
 | CPU (real mode) | 98% | the IDT limit isn't checked; no STOREALL |
 | CPU (protected mode) | 0% | not implemented at all |
-| Timing | 96% | fetch-bound code runs 4-8% fast against TOPBENCH |
-| EGA | 60% | graphics ignore the start address, the BIOS says VGA |
+| Timing | 96% | fetch-bound code runs 4-7% fast against TOPBENCH |
+| EGA | 92% | memory-cycle length unsourced (VidMem -9% on the Enhanced Display) |
 | Chipset (PIT, PIC, DMA, memory) | 72% | no extended memory, no serial or parallel port |
 | Storage (WD1003, floppy) | 75% | thin WD1003 command set, no FDC data rate |
 | Keyboard, RTC | 60% | RTC doesn't tick, no typematic, lost bytes |
@@ -61,58 +63,23 @@ page, a Playwright test, in the same commit.
 
 ## 3. EGA
 
-- **E1. The video BIOS is a VGA BIOS.** `VGABIOS-lgpl-latest.bin` answers
-  INT 10h AH=1Ah as a VGA, so programs that probe pick VGA paths: they
-  load the DAC at 3C8h/3C9h (not decoded here), ask for mode 13h or 12h
-  (rendered black), or size the screen for 480 lines. The IBM EGA BIOS
-  is IBM's copyright, so the answer is a stand-in that reports an EGA
-  (AH=1Ah unsupported, AH=12h BL=10h returning EGA and its memory size),
-  built from the LGPL source with only EGA modes, and labelled as a
-  stand-in in the README and boot banner. Since §46.4 reads the CRTC as
-  an EGA does, its VGA mode values also run the raster at about 42 Hz
-  instead of 60. Source: IBM EGA Technical
-  Reference, BIOS interface.
-- **E2. Graphics ignore the start address.** `RenderEgaNative16Screen`
-  draws from offset 0 every frame. EGA games page-flip and scroll by
-  writing CRTC 0Ch/0Dh, so double-buffered games show the wrong page or
-  never move. The CGA-compatible renderer has the same problem (port
-  §43.2). Source: IBM EGA Technical Reference, CRTC.
-- **E3. No pel panning.** AR13 and CRTC 08h (preset row scan) are
-  ignored. Commander Keen's smooth scroll is the classic EGA use. Port
-  §42.2.
-- **E4. No line compare.** CRTC 18h plus Overflow bit 4 for split
-  screens. Port §42 (the EGA has 9 bits, not the VGA's 10). Same source.
-- **E5. Text is always 25 rows.** `ega_render.cpp` hard-codes `rows =
-  25`, so the EGA's 43-line mode (8x8 font in 350 lines, `MODE CON
-  LINES=43`) draws the top 25. Derive rows from Vertical Display End and
-  Max Scan Line. Port §42.3. EGA text stays 8 dots wide, unlike the 486.
-- **E6. Attribute bit 7 is dropped.** AR10 bit 3 picks blink or bright
-  backgrounds. Blink runs off the vertical sync count. Port §42.3 and
-  §43.1. Same source.
-- **E7. Character map select (SR03) is ignored.** Two fonts, and
-  512-character mode through attribute bit 3, with 128KB or more on the
-  card. Same source.
-- **E8. Registers read back like a VGA.** On a real EGA almost every
-  register is write-only: only CRTC 0Ch-0Fh (start address, cursor) and
-  10h-11h (light pen) read back, and 3CCh doesn't exist. Programs tell an
-  EGA from a VGA exactly this way. Return open bus for the rest. Same
-  source.
-- **E9. Input Status 0 reads 00h.** 3C2h bit 4 is the switch sense the
-  BIOS reads the card's DIP switches through, and bit 7 is the vertical
-  retrace interrupt flag. Same source.
-- **E10. No vertical retrace interrupt.** CRTC 11h bits 4-5 enable and
-  clear an interrupt on IRQ2 (IRQ9 on the AT's slave PIC). Some period
-  games time to it. Same source.
-- **E12. Mode 06h and CGA interleave.** The 16-colour renderer ignores
-  CRTC 17h bit 0 (CGA compatibility addressing), so 640x200 two-colour
-  mode, which the EGA runs through the CGA odd/even banks, likely renders
-  wrong. Check against the IBM EGA mode table before changing it.
-- **E13. Aspect ratio.** `app.js` sets `aspectRatio` to the pixel size, so
-  640x350 and 320x200 are drawn too short. The 5154 Enhanced Color
-  Display is a 4:3 tube in every mode. Port §42.4 and keep the integer
-  pre-scale on each axis.
-- **E14. Cursor skew and underline.** CRTC 0Ah/0Bh skew bits and the
-  underline location register. Port §43.3.
+- **E18. Write mode 3 on a real EGA.** GR05 bits 0-1 = 3 is VGA's write
+  mode 3; the EGA TR lists it as not valid and doesn't say what the card
+  does. `Ega` runs it as VGA does. MAME's EGA does the same, 86Box's
+  writes nothing, and neither cites hardware. Needs a test on a real IBM
+  EGA. Until then there's nothing to port.
+- **E19. No 9x14 alternate glyphs.** In mode 7, IBM's ROM patches the 8x14
+  font with 9-dot versions of about a dozen characters. The only open set
+  found (DOSBox's) is GPL and looks copied from IBM's ROM, so it can't go
+  in the stand-in. AH=11h AL=30h BH=5 returns an empty list. Drawing new
+  glyphs wouldn't make the screen any closer to IBM's, so this stays open
+  until a clean public-domain set turns up.
+- **E20. EGA memory-cycle length isn't sourced.** §47.3 derives 32 dots
+  per five memory cycles. With the Enhanced Display, TOPBENCH's VidMem
+  reads 1335 against the real 5170-339's 1470 (-9%); with a 200-line
+  colour display it reads 1514 (+3%). The real run didn't record its
+  monitor (§47.4). Needs a VidMem reading from a 5170 with an EGA and a
+  5154, or the cycle timing from the EGA's sequencer documentation.
 
 ## 4. Chipset
 
@@ -197,7 +164,7 @@ page, a Playwright test, in the same commit.
   checks real-speed pacing and says it "only needs the machine running".
   `CLAUDE.md` wants a boot plus one real interaction. Add a case: boot to
   `C:\>` and echo a typed key. Same as the 486's X1.
-- **X2. Thin native suites.** pic 7, machine 8, cmos 6, fdc 9, dma 9.
+- **X2. Thin native suites.** pic 7, machine 11, cmos 6, fdc 9, dma 9.
   P4 and R1 grow pic and cmos anyway. Machine needs IRQ
   routing and cascading through the whole board.
 - **X3. Controls without a test.** `hddLed` has none, and the F-key and
@@ -211,7 +178,7 @@ page, a Playwright test, in the same commit.
 
 ## Not ported from the 486, on purpose
 
-VBE, the DAC and 9-dot text (VGA only), the cache model, FPU tags and
+VBE, the DAC and VGA's 400-line text, the cache model, FPU tags and
 SoftFloat (no 80287 fitted; the ESC opcodes doing nothing is right), the
 DX signature, #AC and debug registers (386 and later), the 15-byte limit
 (the 286's is 10, §44.5), SB16/OPL3/CD-DA, and the PS/2 mouse (the AT has no

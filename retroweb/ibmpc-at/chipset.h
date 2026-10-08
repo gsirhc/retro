@@ -4,7 +4,7 @@
 // Memory map (640KB conventional, no extended memory):
 //   0x00000-0x9FFFF  640KB conventional RAM
 //   0xA0000-0xBFFFF  EGA video RAM window (routed to `ega`, not `mem`)
-//   0xC0000-0xC7FFF  EGA video BIOS extension ROM window (vgabios)
+//   0xC0000-0xC7FFF  EGA video BIOS extension ROM window
 //   0xF0000-0xFFFFF  system BIOS ROM
 // Unpopulated addresses read 0xFF and discard writes.
 #ifndef IBMPCAT_CHIPSET_H
@@ -105,6 +105,7 @@ private:
     bool fdc_irq_prev_ = false;
     bool kbc_irq_prev_ = false;
     bool hdd_irq_prev_ = false;
+    bool ega_irq_prev_ = false;
 
     uint8_t io_in(uint16_t port);
     void io_out(uint16_t port, uint8_t v);

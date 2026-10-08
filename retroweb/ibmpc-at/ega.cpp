@@ -14,21 +14,32 @@ void Ega::reset() {
     prev_cycles_ = 0;
     raster_ = 0.0;
     next_free_ = 0.0;
+    frame_count_ = 0;
+    vint_ = false;
     recompute_timing_();
     // vram survives reset, like real hardware.
 }
 
 bool Ega::owns_port(uint16_t port) const {
     switch (port) {
-        case 0x3C0: case 0x3C1: case 0x3C2: case 0x3C4: case 0x3C5:
-        case 0x3CC: case 0x3CE: case 0x3CF: case 0x3D4: case 0x3D5: case 0x3DA:
+        case 0x3C0: case 0x3C2: case 0x3C4: case 0x3C5: case 0x3CA:
+        case 0x3CC: case 0x3CE: case 0x3CF:
             return true;
+        case 0x3B4: case 0x3B5: case 0x3BA: return !(misc_output_ & 1);
+        case 0x3D4: case 0x3D5: case 0x3DA: return (misc_output_ & 1) != 0;
         default: return false;
     }
 }
 
+// Misc Output bit 0 moves the CRTC and Input Status 1 between 3Bx and 3Dx (IBM EGA TR).
+uint16_t Ega::color_port(uint16_t port) const {
+    if (port >= 0x3B0 && port <= 0x3BF) return uint16_t(port + 0x20);
+    return port;
+}
+
 uint8_t Ega::in(uint16_t port) {
-    switch (port) {
+    if (!owns_port(port)) return 0xFF;
+    switch (color_port(port)) {
         case 0x3DA: {
             attr_flip_flop_addr_ = true;  // reading Input Status 1 resets the AC flip-flop
             int line = int(raster_ / line_cycles_);
@@ -38,22 +49,25 @@ uint8_t Ega::in(uint16_t port) {
             // Bit 0 is 1 outside display enable, the CGA's polarity; the EGA manual's wording says the reverse.
             return uint8_t((vretrace ? 0x08 : 0x00) | (display ? 0x00 : 0x01));
         }
-        case 0x3C0: return attr_flip_flop_addr_ ? attr_index_ : uint8_t(0xFF);
-        case 0x3C1: return attr_[attr_index_ % attr_.size()];
-        case 0x3C2: return 0x00;  // Input Status 0 not modeled
-        case 0x3C4: return sequencer_index_;
-        case 0x3C5: return sequencer_[sequencer_index_ % sequencer_.size()];
-        case 0x3CC: return misc_output_;
-        case 0x3CE: return gfx_index_;
-        case 0x3CF: return gfx_[gfx_index_ % gfx_.size()];
-        case 0x3D4: return crtc_index_;
-        case 0x3D5: return crtc_[crtc_index_ % crtc_.size()];
-        default: return 0xFF;
+        case 0x3C2: {
+            // Clock select 0-3 reads switch 4-1, 0 when closed (IBM EGA BIOS listing, RD_SWS).
+            // Bits 0-3 float high (DOSBox vga_misc.cpp); no feature card drives bits 5-6.
+            int sel = (misc_output_ >> 2) & 3;
+            bool open = (switches_ >> (3 - sel)) & 1;
+            return uint8_t(0x0F | (open ? 0x10 : 0x00) | (vint_ ? 0x80 : 0x00));
+        }
+        case 0x3D5:
+            // Only the start address, cursor and light pen registers read back (IBM EGA TR, CRT Controller).
+            if (crtc_index_ >= 0x0C && crtc_index_ <= 0x0F) return crtc_[crtc_index_];
+            if (crtc_index_ == 0x10 || crtc_index_ == 0x11) return 0x00;  // light pen latch, no pen
+            return 0xFF;
+        default: return 0xFF;  // write-only
     }
 }
 
 void Ega::out(uint16_t port, uint8_t v) {
-    switch (port) {
+    if (!owns_port(port)) return;
+    switch (color_port(port)) {
         case 0x3C0:
             if (attr_flip_flop_addr_) attr_index_ = uint8_t(v & 0x1F);
             else attr_[attr_index_ % attr_.size()] = v;
@@ -65,7 +79,11 @@ void Ega::out(uint16_t port, uint8_t v) {
         case 0x3CE: gfx_index_ = v; break;
         case 0x3CF: gfx_[gfx_index_ % gfx_.size()] = v; break;
         case 0x3D4: crtc_index_ = v; break;
-        case 0x3D5: crtc_[crtc_index_ % crtc_.size()] = v; recompute_timing_(); break;
+        case 0x3D5:
+            crtc_[crtc_index_ % crtc_.size()] = v;
+            if (crtc_index_ == 0x11 && !(v & 0x10)) vint_ = false;  // Clear Vertical Interrupt
+            recompute_timing_();
+            break;
         default: break;
     }
 }
@@ -86,16 +104,38 @@ uint32_t Ega::window_offset(uint32_t addr) const {
     }
 }
 
+// A0 is replaced in odd/even chaining: by the inverted page bit, or A16 in the 128KB map (86Box vid_ega.c).
+uint32_t Ega::cpu_plane_offset(uint32_t off) const {
+    uint32_t a = off & 0xFFFF;
+    if (gfx_[6] & 0x02) {
+        uint32_t a0 = gc_memory_mapping() == 0 ? (off >> 16) & 1 : (~misc_output_ >> 5) & 1;
+        a = (a & ~1u) | a0;
+    }
+    if (!(sequencer_[4] & 0x02)) a &= 0x3FFF;  // Memory Mode bit 1 clear: 64KB card addressing
+    return a;
+}
+
+uint32_t Ega::display_address(uint32_t ma, int row_scan) const {
+    uint32_t a;
+    if (crtc_[0x17] & 0x40) {
+        a = ma;
+    } else {
+        // Word mode: MA shifts up one and MA15 (or MA13, CRTC 17h bit 5 clear) fills bit 0.
+        uint32_t low = (crtc_[0x17] & 0x20) ? (ma >> 15) & 1 : (ma >> 13) & 1;
+        a = (ma << 1) | low;
+    }
+    if (crtc_cga_banks()) a = (a & ~0x2000u) | (uint32_t(row_scan & 1) << 13);
+    if (crtc_row_scan_ma14()) a = (a & ~0x4000u) | (uint32_t((row_scan >> 1) & 1) << 14);
+    return a & 0xFFFF;
+}
+
 uint8_t Ega::mem_read(uint32_t addr) const {
     uint32_t off = window_offset(addr);
     if (off == kOutOfWindow) return 0xFF;  // not decoded by the active window
 
-    // Odd/even chaining drops the CPU address parity bit from the per-plane offset.
-    bool oe = !seq_odd_even_disabled();
-    uint32_t plane_off = oe ? (off >> 1) : off;
+    uint32_t plane_off = cpu_plane_offset(off);
 
     // Every read loads all 4 planes into the latch, whatever the read mode.
-    // write will use) is selected.
     for (int p = 0; p < 4; ++p) latch_[p] = vram[(plane_off << 2) + p];
 
     if (gc_read_mode1()) {
@@ -111,10 +151,9 @@ uint8_t Ega::mem_read(uint32_t addr) const {
         return result;
     }
 
-    // Read Mode 0: Read Map Select picks the plane, with odd/even chaining the CPU
-    // address parity replaces its low bit.
+    // Read Mode 0: Read Map Select picks the plane; GR05 bit 4 puts CPU A0 in its low bit (86Box vid_ega.c).
     uint8_t plane = gc_read_map_select();
-    if (oe) plane = uint8_t((plane & 0xFE) | (off & 1));
+    if (gfx_[5] & 0x10) plane = uint8_t((plane & 0xFE) | (off & 1));
     return latch_[plane & 3];
 }
 
@@ -123,7 +162,7 @@ void Ega::mem_write(uint32_t addr, uint8_t v) {
     if (off == kOutOfWindow) return;  // not decoded by the active window
 
     bool oe = !seq_odd_even_disabled();
-    uint32_t plane_off = oe ? (off >> 1) : off;
+    uint32_t plane_off = cpu_plane_offset(off);
     uint8_t map_mask = seq_map_mask();
     uint8_t write_mode = gc_write_mode();
     uint8_t bit_mask = gc_bit_mask();
@@ -154,16 +193,17 @@ void Ega::mem_write(uint32_t addr, uint8_t v) {
             // Set/Reset supplies the value: always in mode 3, per-plane via Enable Set/Reset in mode 0.
             val = (gc_set_reset() & (1 << p)) ? uint8_t(0xFF) : uint8_t(0x00);
         } else {
-            // Write Mode 0: rotate, then combine with the latch per the Data Rotate function.
             val = rotated;
-            switch (gc_raster_op()) {
-                case 1: val = uint8_t(val & latch_[p]); break;   // AND
-                case 2: val = uint8_t(val | latch_[p]); break;   // OR
-                case 3: val = uint8_t(val ^ latch_[p]); break;   // XOR
-                default: break;                                   // 0: replace
-            }
         }
-        vram[idx] = uint8_t((val & bit_mask) | (vram[idx] & ~bit_mask));
+        // Data Rotate logic applies to CPU, Set/Reset and write mode 2 data alike (86Box vid_ega.c).
+        switch (gc_raster_op()) {
+            case 1: val = uint8_t(val & latch_[p]); break;   // AND
+            case 2: val = uint8_t(val | latch_[p]); break;   // OR
+            case 3: val = uint8_t(val ^ latch_[p]); break;   // XOR
+            default: break;                                   // 0: replace
+        }
+        // Bits the Bit Mask leaves out come from the latch, not memory (86Box vid_ega.c).
+        vram[idx] = uint8_t((val & bit_mask) | (latch_[p] & ~bit_mask));
     }
 }
 
@@ -223,8 +263,14 @@ int Ega::cpu_access_clocks(uint32_t addr, uint64_t now) {
 void Ega::tick(uint64_t cpu_cycles) {
     uint64_t d = cpu_cycles - prev_cycles_;
     prev_cycles_ = cpu_cycles;
+    double retrace = vrs_line_ * line_cycles_;
+    bool crossed = d >= uint64_t(frame_cycles_) ||
+                   (raster_ < retrace ? raster_ + double(d) >= retrace
+                                      : raster_ + double(d) >= retrace + frame_cycles_);
     raster_ += double(d);
-    while (raster_ >= frame_cycles_) raster_ -= frame_cycles_;
+    while (raster_ >= frame_cycles_) { raster_ -= frame_cycles_; ++frame_count_; }
+    // Latched at the start of vertical retrace while CRTC 11h bit 5 is 0 and bit 4 is 1 (EGA TR, DOSBox vga_draw.cpp).
+    if (crossed && (crtc_[0x11] & 0x30) == 0x10) vint_ = true;
 }
 
 }  // namespace ibmpcat

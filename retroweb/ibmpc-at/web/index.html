@@ -135,28 +135,13 @@
      screen" per request; actual pixel content is still whatever
      resolution the current mode really is (640x350 text, 320x200 CGA
      graphics, etc. -- see app.js), just displayed larger. */
-  #screen { width: 860px; max-width: 100%; height: auto; aspect-ratio: 640/350; background: #000; display: block; image-rendering: pixelated; }
+  #screen { width: 860px; max-width: 100%; height: auto; aspect-ratio: 4/3; background: #000; display: block; }
   /* modern theme already goes almost full page width (--page-max above) --
      let the CRT grow to fill it too, instead of stranding it at the fixed
-     860px size while everything around it is wide. Still just a bigger
-     upscale of whatever the real resolution is (aspect-ratio is kept in
-     sync with the current mode by app.js), not a change to any real
-     hardware resolution. */
+     860px size while everything around it is wide. Still the same 4:3
+     tube, just bigger. */
   :root[data-theme="modern"] .monitor { width: 100%; }
   :root[data-theme="modern"] #screen { width: 100%; max-width: 1400px; margin: 0 auto; }
-  /* Toned down from an earlier pass that read as gimmicky rather than
-     photoreal, especially over the fine detail of an EGA graphics-mode
-     game: softer vignette, lighter/wider-spaced scanlines, a much gentler
-     inset shadow. Still a real CRT does have some visible scan structure
-     and corner falloff -- this keeps a hint of both without the heavy
-     banding-plus-vignette combination that was drawing attention to
-     itself as an "effect" instead of just looking like a monitor. */
-  .crt-overlay {
-    position: absolute; inset: 16px 18px; pointer-events: none; z-index: 6; mix-blend-mode: multiply;
-    background: radial-gradient(150% 150% at 50% 45%, rgba(0,0,0,0) 82%, rgba(0,0,0,.10) 100%),
-      repeating-linear-gradient(0deg, rgba(0,0,0,.05) 0 1px, rgba(0,0,0,0) 1px 4px);
-    box-shadow: inset 0 0 18px rgba(0,0,0,.14);
-  }
   /* Covers the screen while a large image is fetched or read (first-visit
      HDD download, floppy insert) so a multi-second hang is not silent. */
   .load-overlay {
@@ -477,7 +462,6 @@
       <div class="monitor" id="monitor">
         <div class="bezel" id="bezel">
           <canvas id="screen" width="640" height="350" tabindex="0" aria-label="EGA display -- click to type"></canvas>
-          <div class="crt-overlay"></div>
           <div class="focus-hint" id="focusHint" aria-hidden="true">Click to focus</div>
           <div class="load-overlay" id="loadOverlay" aria-hidden="true" role="status">
             <div class="load-spinner" aria-hidden="true"></div>

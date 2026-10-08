@@ -27,7 +27,9 @@ The browser emulators and the landing page that lists them.
   chipset + WD1003 hard disk + NEC 765 floppy controller + EGA graphics + PC
   speaker, C++ core + GoogleTest + WebAssembly front end in `ibmpc-at/web/`.
   Deploys to `/ibmpc-at/`. Ships pre-loaded with FreeDOS 1.3 on its virtual
-  hard disk — boots straight to a `C:\>` prompt. Hardware findings live in
+  hard disk — boots straight to a `C:\>` prompt. IBM's BIOSes are still
+  copyrighted, so it runs open stand-ins: the Bochs legacy BIOS and an EGA
+  BIOS assembled from `ibmpc-at/roms/egabios/`. Hardware findings live in
   [`IBM_PCAT_REVIEW.md`](ibmpc-at/IBM_PCAT_REVIEW.md).
 - [`pacman/`](pacman/) — Namco Pac-Man (1980) arcade board: Z80 at
   3.072 MHz, real tilemap/sprite video and Namco 3-voice WSG, C++ core +

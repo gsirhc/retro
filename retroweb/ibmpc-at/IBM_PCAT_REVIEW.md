@@ -2842,7 +2842,8 @@ After the PIT port, before any timing change, against the 339 entry:
 MemTest 874 (-5%), MemEA 476 (-7%), Opcodes 380 (-4%), VidMem 643 (-56%),
 3DGames 374 (-4%), score 18 against 13.
 
-- VidMem: 1500 with the slots, +2% against 1470. Nothing was fitted.
+- VidMem: 1500 with the slots under the VGA BIOS's 9-dot mode 3. Nothing
+  was fitted, but the match was partly luck: see the note under the table.
 - Score: 13, the same as the real machine. TOPScore counts full-suite runs
   in 50 ms, and VidMem was most of the gap.
 - MemTest is all string instructions. The data sheet's REP counts plus a
@@ -2870,9 +2871,24 @@ MemTest 874 (-5%), MemEA 476 (-7%), Opcodes 380 (-4%), VidMem 643 (-56%),
 | 3DGames | 388 | 373 | -4% |
 | Score | 13 | 13 | |
 
-The submitter's monitor isn't recorded. The stand-in VGA BIOS selects
-16.257 MHz for mode 3 (§46.4), the enhanced display's clock; at 14.318
-MHz the slot model would read about 9% slower.
+The submitter's monitor isn't recorded. Both IBM AT entries (6 MHz and
+8 MHz) are modem7's, with `VideoAdapter=EGA` and nothing about the
+display. VidMem depends on it, because a memory cycle is a fixed number
+of dots (§47.3): character width over dot clock. Under §48's EGA BIOS,
+IBM's mode 3 is 8-dot, so:
+
+| Display (switches) | Mode 3 clock | VidMem | vs 1470 |
+|--------------------|-------------:|-------:|--------:|
+| Enhanced Display, high resolution (9, shipped) | 16.257 MHz | 1335 | -9% |
+| Colour Display, 200 lines (7) | 14.318 MHz | 1514 | +3% |
+
+The VGA BIOS's 9-dot mode at 16.257 MHz (1500) happened to land between
+the two. With a 200-line display the slot model matches the real machine
+as well as everything else does, and score is 13. With an Enhanced
+Display it's 9% fast, and either the 32-dot memory cycle derived in
+§47.3 is short or the real run used a 200-line monitor. The TR doesn't
+give the cycle length, so this stays open until a 5170-and-5154 reading
+turns up. The shipped machine, with the Enhanced Display, scores 14.
 
 ### 47.5 Checks
 
@@ -2895,3 +2911,181 @@ MHz the slot model would read about 9% slower.
 - 41/41 Playwright against the rebuilt wasm, including the real-speed
   smoke check.
 - TOPBENCH: repeat runs land within 2 µs of the §47.4 table.
+
+## 48. The EGA: an EGA BIOS, and the CRTC and attribute rules
+
+Items E1-E14 from [`IBM_PCAT_PARITY.md`](IBM_PCAT_PARITY.md) (E11 was
+§46). The renderer and the BIOS changed together, since the old VGA BIOS
+leaned on two VGA-only bits the renderer had to honour.
+
+### 48.1 An EGA BIOS stand-in (E1)
+
+`VGABIOS-lgpl-latest.bin` answered INT 10h AH=1Ah as a VGA, set VGA's
+400-line text with scan doubling, and turned the cursor off through a
+VGA-only bit. Programs that probe for a VGA found one. IBM's EGA BIOS is
+IBM's copyright, and no maintained open EGA-only BIOS exists, so
+`roms/egabios/egabios.asm` is a new one: about 2,200 lines of nasm,
+286-only, built from the interface the EGA Technical Reference (August
+1984) documents and the register values it publishes. None of IBM's code
+is copied.
+
+- **Parameter table.** The 23 64-byte VIDEO_PARMS entries are IBM's
+  published values, in IBM's order (modes 0-7, the reserved 8-0Ch,
+  D-10h for 64KB and again for more, then 0-3 for the Enhanced Display).
+  Mode set reaches them through the save pointer at 40:A8, as IBM's does,
+  so a program can hand the BIOS its own table.
+- **Switches.** Power-on reads the four DIP switches through Input
+  Status 0, one clock select at a time, and stores them in 40:88. Switch
+  setting 9 (Enhanced Display, high resolution, EGA primary) picks the
+  350-line text entries and the 8x14 font. The TR's two switch tables
+  give the full map.
+- **Cursor.** AH=01h follows IBM's documented emulation: CGA-style
+  start/end values above line 4 move down five lines in a 14-line cell,
+  the end register is one past the last line and wraps to 0 at the cell
+  height, and CX=2000h becomes 1E00h since the EGA has no cursor-off bit.
+  40:87 bit 0 turns the emulation off.
+- **Functions.** 00h-13h as the TR lists them, AH=1Ah absent. Character
+  generator calls 00-03h, 10-12h (with the documented ROWS, POINTS,
+  CRT_LEN and CRTC 09h-0Bh, 12h recalculation), 20-23h and 30h. AH=12h
+  BL=10h reports a colour EGA with 256KB and the switch setting, and
+  BL=20h installs a print-screen routine that prints every row. Graphics
+  characters, dots and scrolling cover modes 4-6 and D-10h.
+- **Fonts.** The 8x8 and 8x14 sets are Joseph Gil's public-domain fonts
+  (via LGPL vgabios's `vgafonts.h`, pinned in `fetch-bios.sh`). There is
+  no 9x14 alternate set; AH=11h AL=30h BH=5 returns an empty list.
+- **Labelling.** The ROM prints `EGA BIOS: open stand-in for IBM's ROM`
+  after its mode set.
+
+The build is `make -C roms/egabios` (nasm plus a checksum byte).
+`tests/egabios_test.cpp` boots the ROM on the emulated machine with no
+system BIOS and calls INT 10h directly: 26 tests across the header,
+power-on, cursor emulation, pages, characters, scrolling, strings, the
+three graphics families, palettes, fonts and AH=12h.
+
+Writing it turned up an `Ega` bug. The Data Rotate function (AND, OR,
+XOR) applied only to CPU data in write mode 0. On the EGA it applies to
+Set/Reset data and write mode 2 data as well (86Box `vid_ega.c`), and
+IBM's documented XOR dots use write mode 2.
+
+The 386-opcode concession for firmware (§7) now covers the system-board
+ROM space, E0000-FFFFF, only. The EGA BIOS runs as plain 286 code.
+
+### 48.2 Renderer (E2-E7, E12, E14)
+
+`ega_render.cpp` is a port of `pc486`'s renderer with the EGA's rules in
+place of the VGA's:
+
+- Start address and the 9-bit Line Compare (CRTC 18h plus Overflow bit 4)
+  in every mode (E2, E4). Preset Row Scan and AR13 pel panning, with the
+  9-dot sequence 8, 0-7 (E3). No byte panning and no pan-split; AR10 has
+  bits 0-3 only.
+- Text rows come from Vertical Display End and Max Scan Line, so the
+  43-line mode draws 43 rows (E5). AR10 bit 3 picks blink or bright
+  backgrounds, and blinking characters and the cursor both toggle every
+  16 frames (E6, 86Box `vid_ega.c`).
+- SR03 character maps A and B at 16KB banks in plane 2, only map 0
+  without Memory Mode bit 1 (E7).
+- CRTC 17h bits 0 and 1 put row scan bits 0 and 1 on MA13 and MA14, which
+  is how modes 4-6 reach the CGA's interleaved banks (E12). Bit 7 clear
+  holds the CRTC in reset, drawn black.
+- Cursor skew and the underline location, with underline only under
+  monochrome attributes (E14, 86Box).
+- GR05 bit 5 picks the CGA 2-bit shift. Bit 6 and R09 bit 7 (VGA's
+  256-colour shift and scan doubling) and CRTC 0Ah bit 5 (VGA's cursor
+  off) are gone, since nothing on an EGA sets them.
+
+### 48.3 Ports (E8-E10)
+
+- Only CRTC 0Ch-0Fh read back, plus 10h-11h, the light pen latch, which
+  reads 0 with no pen (E8). Everything else reads open bus. 3C1h isn't
+  decoded, and 3CAh and 3CCh are the write-only Graphics 1 and 2
+  Position registers. Programs tell an EGA from a VGA this way.
+- Input Status 0 returns the switch the clock select picks in bit 4 and
+  the vertical interrupt in bit 7 (E9). The interrupt latches at the start
+  of vertical retrace when CRTC 11h bit 5 is clear and bit 4 is set,
+  clears when 11h is written with bit 4 clear, and arrives on IRQ9 (E10).
+
+### 48.4 Screen (E13)
+
+The 5154 is a 4:3 tube in every mode. `app.js` scales each frame by a
+whole factor per axis into a backing canvas and lets the browser smooth
+that to a 4:3 box, so 640x350 and 320x200 both fill the same shape.
+
+### 48.5 Checks
+
+- 356 native tests, including the 26 INT 10h tests and the write mode 2
+  Data Rotate test.
+- The shipped HDD image boots to `C:\>` at 640x350 under the new BIOS.
+- The FreeDOS installer completes under it at cycle 50,177,611,554, and
+  that image boots to `C:\>` too.
+- 46/46 Playwright, including a new check that the boot frame is
+  640x350.
+
+## 49. EGA addressing, latches and the monochrome ports
+
+Items E15-E17 from [`IBM_PCAT_PARITY.md`](IBM_PCAT_PARITY.md), found while
+doing §48.
+
+### 49.1 Odd/even addressing (E15)
+
+`Ega` stored odd/even data the way Bochs does: the plane offset was the
+CPU address shifted right one. The EGA keeps the address and swaps A0
+through a multiplexer. With Graphics Miscellaneous bit 1 set, A0 becomes
+the inverted page select (Miscellaneous Output bit 5), or A16 in the
+128KB map. With Memory Mode bit 1 clear, each plane is 16KB (86Box
+`vid_ega.c`, `ega_remap_cpu_addr`). Plane selection is now split the way
+the card splits it: Memory Mode bit 2 gates writes to the odd or even
+planes, and Graphics Mode bit 4 puts A0 on the read map.
+
+The display side is `Ega::display_address()`. In byte mode (CRTC 17h bit
+6) the CRTC address is the plane offset. In word mode it shifts up one,
+with MA15 in bit 0, or MA13 when 17h bit 5 is clear. 17h bits 0 and 1
+clear then put row scan bits 0 and 1 on offset bits 13 and 14 (86Box
+`vid_ega_render_remap.h`). Every renderer path, the page's `textScreen()`
+and the installer's screen reader all fetch through it, so what the CPU
+writes and what the CRTC reads agree by construction, not by both using
+the same shortcut.
+
+With IBM's tables the page bit is always set, so text and modes 4-6 look
+the same as before. Character n of a text page sits at plane offset 2n
+now, not n. A program that turns odd/even off to read text or attributes
+straight from the planes now finds them where a real card keeps them.
+
+Modes 4 and 5 now take a character clock as 4 pels from plane 0 and then
+4 from plane 1, with planes 2 and 3 as the high colour bits (86Box
+`vid_ega_render.c`).
+
+### 49.2 The Bit Mask merges with the latch (E16)
+
+Bits the Bit Mask leaves out used to come from the byte already at the
+write address. They come from the latch, loaded by the last read wherever
+it was (86Box `vid_ega.c`; MAME `isa/ega.cpp` `alu_op` agrees). Code that
+reads first, which includes the BIOS and every well-behaved program,
+gets the same result. Code that doesn't copies the stale latch bits, as
+on the real card.
+
+### 49.3 The monochrome I/O addresses (E17)
+
+Miscellaneous Output bit 0 moves the CRTC and Input Status 1 between 3B4h,
+3B5h and 3BAh and 3D4h, 3D5h and 3DAh (IBM EGA TR). Only the selected set
+is decoded. The register resets to 0, so a bare card answers at 3Bxh until
+the BIOS programs it. With monochrome switch settings (4, 5, A, B) the
+renderer drives a 5151: palette bit 3 is video and bit 4 is intensity
+(EGA TR, Direct Drive Connector), shown on green phosphor. The stand-in
+BIOS's mode 7 now reaches the CRTC and renders 720x350.
+
+No page control sets the switches, so the shipped machine is still the
+Enhanced Color Display. Monochrome is native-only.
+
+### 49.4 Checks
+
+- 364 native tests: A0 and the page bit, the Graphics Mode read select,
+  16KB planes, byte and word display addressing with both row-scan
+  banks, latch merging, the 3Bx/3Dx port switch, a CPU text write landing
+  where the CRTC fetches it, the monochrome palette, and the stand-in
+  BIOS's mode 7 on a monochrome setting.
+- The shipped HDD image boots to `C:\>` and looks as before.
+- The FreeDOS installer, whose screen reader now goes through
+  `display_address()`, completes at the same cycle as in §48.5,
+  50,177,611,554.
+- 46/46 Playwright.

@@ -3,7 +3,7 @@
 // floppy swaps across all six install floppies (IBM_PCAT_REVIEW.md §11).
 //
 // Usage:
-//   build_freedos_hdd <bios> <vgabios> <floppy-dir> <out.img> [max_cycles]
+//   build_freedos_hdd <bios> <egabios> <floppy-dir> <out.img> [max_cycles]
 //
 // <floppy-dir> needs the FD13-FloppyEdition "120m" set: x86BOOT.img and
 // x86DSK01.img .. x86DSK06.img (fetch-freedos-install-set.sh). <out.img>
@@ -37,7 +37,7 @@ std::string ScreenText(Machine &m) {
     for (int row = 0; row < 25; ++row) {
         std::string line;
         for (int col = 0; col < 80; ++col) {
-            uint32_t plane_off = (uint32_t(ega.start_offset()) + uint32_t(row * 80 + col)) & 0xFFFF;
+            uint32_t plane_off = ega.display_address((uint32_t(ega.start_offset()) + uint32_t(row * 80 + col)) & 0xFFFF, 0);
             uint8_t ch = ega.vram[(plane_off << 2) + 0];
             line.push_back((ch >= 32 && ch < 127) ? char(ch) : ' ');
         }
@@ -83,17 +83,17 @@ struct Step {
 int main(int argc, char **argv) {
     if (argc < 5) {
         std::fprintf(stderr,
-            "usage: %s <bios> <vgabios> <floppy-dir> <out.img> [max_cycles]\n", argv[0]);
+            "usage: %s <bios> <egabios> <floppy-dir> <out.img> [max_cycles]\n", argv[0]);
         return 2;
     }
     auto bios = ReadFile(argv[1]);
-    auto vga = ReadFile(argv[2]);
+    auto vbios = ReadFile(argv[2]);
     std::string floppy_dir = argv[3];
     std::string out_path = argv[4];
     uint64_t budget = argc > 5 ? std::strtoull(argv[5], nullptr, 10) : 120'000'000'000ull;
 
-    if (bios.empty() || vga.empty()) {
-        std::fprintf(stderr, "cannot open BIOS or VGABIOS image\n");
+    if (bios.empty() || vbios.empty()) {
+        std::fprintf(stderr, "cannot open BIOS or EGA BIOS image\n");
         return 2;
     }
     auto boot = ReadFile(floppy_dir + "/x86BOOT.img");
@@ -105,7 +105,7 @@ int main(int argc, char **argv) {
     Machine m;
     m.reset();
     m.chipset.load_rom(0x100000 - bios.size(), bios.data(), bios.size());
-    m.chipset.load_rom(0xC0000, vga.data(), vga.size());
+    m.chipset.load_rom(0xC0000, vbios.data(), vbios.size());
     m.chipset.fdc.mount(0, boot.data(), boot.size());
 
     // Blank factory-fresh fixed disk; the installer writes everything else.

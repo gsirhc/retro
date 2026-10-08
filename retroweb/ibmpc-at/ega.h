@@ -3,18 +3,15 @@
 // Decodes 0xA0000-0xBFFFF (graphics at A0000, color text at B8000, mono text
 // at B0000) and the EGA register set: CRTC 0x3D4/5, Sequencer 0x3C4/5,
 // Graphics Controller 0x3CE/F, Attribute Controller 0x3C0 (flip-flop reset by
-// reading 0x3DA), Input Status 1 0x3DA, Misc Output 0x3C2/0x3CC.
+// reading 0x3DA), Input Status 1 0x3DA, Misc Output 0x3C2. The CRTC and Input
+// Status 1 sit at 0x3Bx instead when Misc Output bit 0 is clear.
 //
 // VRAM is 4 bitplanes of 64KB, byte-interleaved as vram[(plane_offset << 2) + plane].
-// Reads load all 4 planes into a latch. Read Mode 0 returns one plane (the CPU
-// address parity picks it under odd/even chaining), Read Mode 1 does a colour
-// compare. Writes run through Set/Reset, the rotate ALU and Bit Mask, gated by
-// Map Mask and odd/even parity. Chain Four is VGA-only and not modeled
-// (IBM_PCAT_REVIEW.md §12).
-//
-// The memory algorithm follows Bochs bx_vgacore_c::mem_read/mem_write in
-// vgacore.cc (commit ff17a0c2bbabccf96d33af4e08ba8061889b079d, the tree this
-// machine's BIOS/VGABIOS are built from). IBM_PCAT_REVIEW.md §12.
+// The CPU's plane offset is its address with A0 multiplexed under odd/even
+// chaining; the display's is the CRTC address in byte or word mode. Reads load
+// all 4 planes into a latch. Writes run through Set/Reset, the rotate ALU and
+// Bit Mask, gated by Map Mask and odd/even parity (86Box vid_ega.c,
+// IBM_PCAT_REVIEW.md §49).
 #ifndef IBMPCAT_EGA_H
 #define IBMPCAT_EGA_H
 
@@ -39,6 +36,13 @@ public:
     // retrace and display enable from it.
     void tick(uint64_t cpu_cycles);
 
+    // Vertical retrace interrupt latch, on the card's IRQ2 pin (IRQ9 on the AT).
+    bool vertical_interrupt() const { return vint_; }
+
+    // Configuration switches, bit n = switch n+1, 1 when open. 9 is an Enhanced
+    // Display in high-resolution mode (IBM EGA Technical Reference, switch settings).
+    void set_switches(uint8_t v) { switches_ = uint8_t(v & 0x0F); }
+
     // CPU clocks a display-memory byte access starting at `now` takes to land in
     // the next processor memory cycle the sequencer grants. IBM_PCAT_REVIEW.md §47.
     int cpu_access_clocks(uint32_t addr, uint64_t now);
@@ -47,22 +51,57 @@ public:
     uint16_t cursor_offset() const { return uint16_t((crtc_[0x0E] << 8) | crtc_[0x0F]); }
     uint16_t start_offset() const { return uint16_t((crtc_[0x0C] << 8) | crtc_[0x0D]); }
 
-    // Cursor shape: CRTC 0x0A (bit 5 = disable, bits 0-4 = start scanline) and 0x0B (bits 0-4 = end).
-    bool cursor_disabled() const { return (crtc_[0x0A] >> 5) & 1; }
     uint8_t cursor_start_scanline() const { return uint8_t(crtc_[0x0A] & 0x1F); }
     uint8_t cursor_end_scanline() const { return uint8_t(crtc_[0x0B] & 0x1F); }
+    // The end register is the row after the last; at or below the start the
+    // cursor runs to the bottom of the cell (IBM EGA BIOS listing, CALC_CURSOR).
+    bool cursor_on_row(int row) const {
+        int start = cursor_start_scanline(), end = cursor_end_scanline();
+        return row >= start && (end <= start || row < end);
+    }
+    int cursor_skew() const { return (crtc_[0x0B] >> 5) & 3; }
+    int crtc_underline_row() const { return crtc_[0x14] & 0x1F; }
+
+    // Vertical frames since reset. Cursor and blinking characters both toggle
+    // every 16 (86Box vid_ega.c).
+    uint32_t frame_count() const { return frame_count_; }
+    bool cursor_blink_phase_on() const { return (frame_count_ & 16) == 0; }
+    bool char_blink_phase_on() const { return (frame_count_ & 16) == 0; }
 
     // Attribute Controller palette register (0-15), a 6-bit EGA color.
     uint8_t attr_palette(int index) const { return uint8_t(attr_[index & 0x0F] & 0x3F); }
+    // AR10 bit 1: monochrome attributes, bit 2: line graphics, bit 3: blink.
+    bool attr_mono() const { return (attr_[0x10] >> 1) & 1; }
+    bool attr_line_graphics() const { return (attr_[0x10] >> 2) & 1; }
+    bool attr_blink_enabled() const { return (attr_[0x10] >> 3) & 1; }
+    uint8_t attr_plane_enable() const { return uint8_t(attr_[0x12] & 0x0F); }
+    uint8_t attr_pel_pan() const { return uint8_t(attr_[0x13] & 0x0F); }
+
+    bool seq_8dot_chars() const { return sequencer_[1] & 1; }
+    // SR03: map A (bits 2-3) for attribute bit 3 set, map B (bits 0-1) for clear.
+    // Without Memory Mode bit 1 (more than 64KB) only map 0 exists.
+    int seq_char_map_a() const { return (sequencer_[4] & 2) ? (sequencer_[3] >> 2) & 3 : 0; }
+    int seq_char_map_b() const { return (sequencer_[4] & 2) ? sequencer_[3] & 3 : 0; }
+
+    // Line Compare: 9 bits, bit 8 in Overflow bit 4.
+    int crtc_line_compare() const { return crtc_[0x18] | ((crtc_[0x07] >> 4 & 1) << 8); }
+    int crtc_preset_row_scan() const { return crtc_[0x08] & 0x1F; }
+    // CRTC 17h bit 0 clear puts row scan bit 0 on MA13: CGA's two 8KB banks.
+    bool crtc_cga_banks() const { return (crtc_[0x17] & 1) == 0; }
+    bool crtc_row_scan_ma14() const { return (crtc_[0x17] & 2) == 0; }
+    bool crtc_running() const { return (crtc_[0x17] & 0x80) != 0; }
+    // Plane offset the display fetches for CRTC address `ma` on row scan line `row_scan`:
+    // byte or word mode (CRTC 17h bit 6) and the row scan banks (86Box vid_ega_render_remap.h).
+    uint32_t display_address(uint32_t ma, int row_scan) const;
+
+    // Switches 4, 5 and A-F describe a monochrome display (IBM EGA TR, switch settings).
+    bool mono_display() const { return switches_ == 4 || switches_ == 5 || switches_ >= 0x0A; }
 
     // GR06 bit 0: graphics versus alphanumeric addressing.
     bool graphics_mode_active() const { return (gfx_[6] & 0x01) != 0; }
 
-    // GR05 bits 5-6 Shift Register: 0 = 16-color planar (verified against this
-    // BIOS's INT 10h AL=0x10, IBM_PCAT_REVIEW.md §16), 1 = CGA-compatible 4-color.
-    // Value 2 (VGA 256-color Chain-4) has no EGA hardware, but this VGA BIOS
-    // lets software program it anyway.
-    uint8_t gc_shift_register_mode() const { return uint8_t((gfx_[5] >> 5) & 0x03); }
+    // GR05 bit 5: CGA-compatible 2-bit shift for modes 4 and 5 (IBM EGA TR, Mode Register).
+    bool gc_cga_shift() const { return (gfx_[5] >> 5) & 1; }
 
     // Horizontal Display End (R01, character clocks; EGA graphics use an 8-dot
     // clock) and Vertical Display End (R12 plus overflow bit 1 of R07). Checked
@@ -79,12 +118,6 @@ public:
     // Maximum Scan Line (R09 bits 0-4): scan lines per character row minus 1.
     uint8_t crtc_max_scan_line() const { return uint8_t(crtc_[0x09] & 0x1F); }
 
-    // Scan Doubling (R09 bit 7) is VGA-only: each scanline is drawn twice so a
-    // 200-line mode fills a ~400-line raster. The VGA-heritage BIOS sets it in
-    // mode 0Dh with Vertical Display End 399 (Prince of Persia). See
-    // RenderEgaNative16Screen() in ega_render.cpp and IBM_PCAT_REVIEW.md.
-    bool crtc_scan_doubling() const { return (crtc_[0x09] >> 7) & 1; }
-
     // Offset Register (R13): per-scanline stride in words per plane, independent
     // of Horizontal Display End (panning and off-screen buffers rely on this).
     uint8_t crtc_offset() const { return crtc_[0x13]; }
@@ -100,6 +133,8 @@ private:
     // addresses outside it.
     static constexpr uint32_t kOutOfWindow = 0xFFFFFFFF;
     uint32_t window_offset(uint32_t addr) const;
+    uint32_t cpu_plane_offset(uint32_t window_off) const;
+    uint16_t color_port(uint16_t port) const;
 
     // Register field accessors over the raw indexed register arrays.
     uint8_t seq_map_mask() const { return uint8_t(sequencer_[2] & 0x0F); }
@@ -150,6 +185,9 @@ private:
     double raster_ = 0.0;  // cycles into the current frame
     double mem_cycle_ = 0.0;  // CPU clocks per display-memory cycle
     double next_free_ = 0.0;  // end of the last processor cycle granted
+    uint32_t frame_count_ = 0;
+    bool vint_ = false;
+    uint8_t switches_ = 0x09;
 };
 
 }  // namespace ibmpcat

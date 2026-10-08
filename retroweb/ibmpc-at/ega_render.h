@@ -1,16 +1,7 @@
-// Renders the EGA's current screen to a packed RGBA8888 buffer. Shared by
+// Renders the EGA's current screen to packed RGBA8888. Shared by
 // render_screen.cpp and the WASM canvas renderer.
-//
-// Supported layouts:
-//   - Text mode (80x25 or 40x25, 8-pixel cells, row height from the CRTC).
-//   - CGA-compatible 4-color 320x200 (GR05 Shift Register = 1), INT 10h modes 4/5.
-//   - Native 16-color EGA (Shift Register = 0; modes 0x0D/0x0E/0x10). Resolution
-//     comes from the CRTC Display End registers. This BIOS's INT 10h AL=0x10
-//     gives Horizontal Display End 79 and Vertical Display End 349, i.e. 640x350
-//     (IBM_PCAT_REVIEW.md §16).
-//
-// Shift Register 2 (VGA 256-color Chain-4) and unrecognized combinations
-// render a black frame.
+// Modes: text, CGA-compatible 4-color (GR05 shift = 1), native planar
+// (shift = 0). Shift 2 and a CRTC held in reset render black.
 #ifndef IBMPCAT_EGA_RENDER_H
 #define IBMPCAT_EGA_RENDER_H
 
@@ -24,19 +15,12 @@ namespace ibmpcat {
 constexpr int kTextRenderWidth = 640;
 constexpr int kTextRenderHeight = 350;  // classic 14-line/row default
 
-// Renders the text-mode screen. Glyphs come from VRAM plane 2 (character
-// generator RAM, 32 bytes per character), colors from the Attribute
-// Controller palette.
-//
-// Scan lines per row come from the CRTC Maximum Scan Line register. The VGA
-// BIOS programs 16-line rows (640x400), and a hardcoded 14 clipped descenders.
-// A freshly reset Ega reads 0 and falls back to 14.
-//
-// Columns per row come from R01 (crtc_horizontal_display_end()), since 40-column
-// text (mode 0/1) is real. Same fallback to 80 when unprogrammed.
-//
-// `blink_on` is the cursor phase. The caller paces the blink.
-void RenderTextScreen(const Ega &ega, std::vector<uint8_t> &rgba, bool blink_on, int &width, int &height);
+// Renders the text-mode screen. Glyphs come from VRAM plane 2 (32 bytes per
+// character), colors from the Attribute Controller palette. Rows come from
+// Vertical Display End over Maximum Scan Line, columns from Horizontal Display
+// End. Cells are 9 dots unless SR01 bit 0 selects 8. Start address, pel
+// panning, Preset Row Scan and Line Compare apply as in the planar modes.
+void RenderTextScreen(const Ega &ega, std::vector<uint8_t> &rgba, int &width, int &height);
 
 // Fills `rgba` with 320*200 pixels of the CGA-compatible 4-color mode. A CGA
 // program writes one flat bank (even scanlines first half, odd second, 80
@@ -54,9 +38,9 @@ void RenderCgaGraphics4Screen(const Ega &ega, std::vector<uint8_t> &rgba);
 // displayed width, since software can program a wider logical scanline.
 void RenderEgaNative16Screen(const Ega &ega, std::vector<uint8_t> &rgba, int &width, int &height);
 
-enum class ScreenMode { kText, kCgaGraphics4, kEgaGraphics16, kUnsupportedGraphics };
+enum class ScreenMode { kText, kCgaGraphics4, kEgaGraphics16, kBlank };
 
-// Picks the layout from GR06 (graphics vs alphanumeric) and the GR05 Shift Register field.
+// Picks the layout from GR06 (graphics vs alphanumeric) and GR05 bit 5.
 ScreenMode DetectScreenMode(const Ega &ega);
 
 // A frame and its resolution, which differs per mode.
@@ -67,7 +51,7 @@ struct RenderedFrame {
 };
 
 // Renders the active screen into `out`, resizing as needed.
-void RenderScreen(const Ega &ega, RenderedFrame &out, bool blink_on);
+void RenderScreen(const Ega &ega, RenderedFrame &out);
 
 }  // namespace ibmpcat
 

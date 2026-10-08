@@ -46,6 +46,11 @@ add_unit_test(ega_test      ega_test.cpp     ${CORE}/ega.cpp)
 add_unit_test(ega_render_test ega_render_test.cpp ${CORE}/ega.cpp ${CORE}/ega_render.cpp)
 add_unit_test(wd1003_test   wd1003_test.cpp  ${CORE}/wd1003.cpp)
 add_unit_test(pcspeaker_test pcspeaker_test.cpp ${CORE}/pcspeaker.cpp)
+add_unit_test(egabios_test  egabios_test.cpp
+  ${CORE}/machine.cpp ${CORE}/chipset.cpp ${CORE}/cpu80286.cpp
+  ${CORE}/pic8259.cpp ${CORE}/pit8253.cpp ${CORE}/i8042.cpp
+  ${CORE}/cmos_rtc.cpp ${CORE}/dma8237.cpp ${CORE}/fdc765.cpp ${CORE}/ega.cpp ${CORE}/ega_render.cpp ${CORE}/wd1003.cpp ${CORE}/pcspeaker.cpp)
+target_compile_definitions(egabios_test PRIVATE EGABIOS_PATH="${CORE}/roms/egabios/egabios.bin")
 
 include(GoogleTest)
 gtest_discover_tests(cpu80286_test)
@@ -58,6 +63,7 @@ gtest_discover_tests(dma8237_test)
 gtest_discover_tests(chipset_test)
 gtest_discover_tests(machine_test)
 gtest_discover_tests(fdc765_test)
+gtest_discover_tests(egabios_test)
 gtest_discover_tests(ega_test)
 gtest_discover_tests(ega_render_test)
 gtest_discover_tests(wd1003_test)
