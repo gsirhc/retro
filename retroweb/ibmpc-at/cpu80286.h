@@ -1,11 +1,12 @@
 // Intel 80286 CPU core, real mode only, plus an 80386 compatibility layer:
 // 32-bit registers via the 0x66 prefix, Jcc rel16, SETcc, two-operand IMUL,
 // MOVZX/MOVSX. None of that exists on a real 286. BIOS-bochs-legacy assumes
-// a 386+ baseline (IBM_PCAT_REVIEW.md §6), found via on_unimplemented.
+// a 386+ baseline (IBM_PCAT_REVIEW.md §6), so the layer runs only for code
+// fetched where firmware_at() says firmware lives; anywhere else it is #UD.
 //
-// No GDT/LDT/IDT/TSS, descriptor caches or privilege checks. Protected-mode
-// opcodes (LGDT/SGDT/LIDT/SIDT/LLDT/SLDT/LTR/STR/LMSW/SMSW/ARPL/LAR/LSL/
-// VERR/VERW/CLTS) are unimplemented.
+// No protected mode. The real-mode-legal system instructions (SGDT/SIDT/
+// LGDT/LIDT, SMSW/LMSW, CLTS) work, but LMSW cannot set PE. LLDT/SLDT/LTR/
+// STR/VERR/VERW/LAR/LSL/ARPL are #UD in real mode, as on the chip.
 //
 // The core talks only through Bus. Addresses are 24 bits and never wrapped at
 // 1MB here, because the A20 gate is motherboard logic (8042 P21) in the chipset.
@@ -21,7 +22,7 @@
 
 namespace cpu80286 {
 
-// FLAGS bits. IOPL/NT are storage only in real mode.
+// FLAGS bits.
 enum Flag : uint16_t {
     FLAG_CF   = 1 << 0,   // carry
     FLAG_R1   = 1 << 1,   // reserved, always 1
@@ -33,8 +34,8 @@ enum Flag : uint16_t {
     FLAG_IF   = 1 << 9,   // interrupt enable
     FLAG_DF   = 1 << 10,  // direction (string ops)
     FLAG_OF   = 1 << 11,  // overflow
-    FLAG_IOPL = 3 << 12,  // I/O privilege level (2 bits) -- storage only
-    FLAG_NT   = 1 << 14,  // nested task -- storage only
+    FLAG_IOPL = 3 << 12,  // I/O privilege level (2 bits), always 0 in real mode
+    FLAG_NT   = 1 << 14,  // nested task, always 0 in real mode
 };
 
 // `addr` is a 24-bit physical address, unmasked. in16/out16 are one atomic
@@ -66,9 +67,18 @@ public:
     bool     halted = false;
     uint64_t cycles = 0;   // total clock cycles executed (includes wait states)
 
-    // Called with (CS, IP, opcode-word) on an unimplemented opcode: 0x00xx for
-    // single-byte, 0x0Fxx for 0x0F sub-opcodes outside Jcc rel16.
+    // Called with (CS, IP, opcode-word) on an opcode firmware runs that this
+    // core skips as a no-op: 0x00xx single-byte, 0x0Fxx two-byte. Also LOADALL
+    // and an LMSW that tries to set PE.
     std::function<void(uint16_t cs, uint16_t ip, uint16_t opcode_word)> on_unimplemented;
+
+    // True for physical addresses holding firmware that may use the 386 layer.
+    // Unset means none does.
+    std::function<bool(uint32_t addr)> firmware_at;
+
+    // A REP string op hands back to the caller after this many cycles so
+    // devices advance and interrupts land between iterations. 0 never yields.
+    uint32_t rep_yield_cycles = 0;
 
     explicit Cpu(Bus bus) : bus_(std::move(bus)) {}
 
@@ -83,6 +93,11 @@ public:
     // Real-mode INT n: push FLAGS, CS, IP, clear IF and TF, jump through the
     // vector at vector*4. Wakes HLT. The caller checks IF for maskable sources.
     int interrupt(uint8_t vector);
+
+    // STI, MOV SS and POP SS hold off INTR for one instruction.
+    bool interrupt_shadow() const { return shadow_; }
+
+    uint16_t msw() const { return msw_; }
 
     bool flag(Flag f) const { return (flags & f) != 0; }
     void set_flag(Flag f, bool on) { flags = on ? (flags | f) : (flags & ~f); }
@@ -111,25 +126,94 @@ private:
 
     uint16_t &seg_reg(int idx);   // ES/CS/SS/DS by the indices above
 
-    // physical = seg*16 + off; the 16-bit offset wraps at 64K.
-    uint32_t phys(uint16_t seg, uint16_t off) const { return (uint32_t(seg) << 4) + off; }
-    uint8_t  rb(uint16_t seg, uint16_t off)            { return bus_.read(phys(seg, off)); }
-    void     wb(uint16_t seg, uint16_t off, uint8_t v) { bus_.write(phys(seg, off), v); }
-    uint16_t rw(uint16_t seg, uint16_t off) { return rb(seg, off) | (uint16_t(rb(seg, uint16_t(off + 1))) << 8); }
-    void     ww(uint16_t seg, uint16_t off, uint16_t v) { wb(seg, off, v & 0xFF); wb(seg, uint16_t(off + 1), v >> 8); }
-    uint32_t rd(uint16_t seg, uint16_t off) { return uint32_t(rw(seg, off)) | (uint32_t(rw(seg, uint16_t(off + 2))) << 16); }
-    void     wd(uint16_t seg, uint16_t off, uint32_t v) { ww(seg, off, uint16_t(v & 0xFFFF)); ww(seg, uint16_t(off + 2), uint16_t(v >> 16)); }
+    // Exception vectors (Intel iAPX 286 PRM, real-address-mode exceptions).
+    enum : uint8_t { EXC_DB = 1, EXC_UD = 6, EXC_NM = 7, EXC_SS = 12, EXC_GP = 13 };
 
-    uint8_t  fetch8()  { return rb(cs, ip++); }
-    uint16_t fetch16() { uint16_t v = rw(cs, ip); ip += 2; return v; }
-    uint32_t fetch32() { uint32_t v = rd(cs, ip); ip += 4; return v; }
+    // A fault found mid-instruction: further bus traffic is dropped, and the
+    // end of step() restores the registers and vectors through fault_.
+    uint8_t fault_ = 0;
+    void raise(uint8_t vec) { if (!fault_) fault_ = vec; }
+    bool in_interrupt_ = false;
+    // An operand that runs past offset FFFFh: #SS on the stack, #GP otherwise.
+    void overrun(bool stack) { if (!in_interrupt_) raise(stack ? EXC_SS : EXC_GP); }
+
+    // physical = seg*16 + off.
+    uint32_t phys(uint16_t seg, uint16_t off) const { return (uint32_t(seg) << 4) + off; }
+    uint8_t  rb(uint16_t seg, uint16_t off)            { return fault_ ? uint8_t(0xFF) : bus_.read(phys(seg, off)); }
+    void     wb(uint16_t seg, uint16_t off, uint8_t v) { if (!fault_) bus_.write(phys(seg, off), v); }
+    uint16_t rw(uint16_t seg, uint16_t off, bool stack = false) {
+        if (off == 0xFFFF) overrun(stack);
+        return rb(seg, off) | (uint16_t(rb(seg, uint16_t(off + 1))) << 8);
+    }
+    void     ww(uint16_t seg, uint16_t off, uint16_t v, bool stack = false) {
+        if (off == 0xFFFF) overrun(stack);
+        wb(seg, off, v & 0xFF); wb(seg, uint16_t(off + 1), v >> 8);
+    }
+    uint32_t rd(uint16_t seg, uint16_t off, bool stack = false) {
+        if (off > 0xFFFC) overrun(stack);
+        return uint32_t(rw(seg, off)) | (uint32_t(rw(seg, uint16_t(off + 2))) << 16);
+    }
+    void     wd(uint16_t seg, uint16_t off, uint32_t v, bool stack = false) {
+        if (off > 0xFFFC) overrun(stack);
+        ww(seg, off, uint16_t(v & 0xFFFF)); ww(seg, uint16_t(off + 2), uint16_t(v >> 16));
+    }
+
+    // The 286 faults an instruction over 10 bytes or one that runs past FFFFh.
+    int  fetched_ = 0;
+    bool fetch_wrapped_ = false;
+    uint8_t fetch8() {
+        if (++fetched_ > 10 || fetch_wrapped_) raise(EXC_GP);
+        if (ip == 0xFFFF) fetch_wrapped_ = true;
+        return fault_ ? uint8_t(0xFF) : bus_.read(code_base() + ip++);
+    }
+    uint16_t fetch16() { uint16_t lo = fetch8(); return uint16_t(lo | (uint16_t(fetch8()) << 8)); }
+    uint32_t fetch32() { uint32_t lo = fetch16(); return lo | (uint32_t(fetch16()) << 16); }
 
     // Stack is always SS. 32-bit push/pop moves SP by 4.
-    void     push16(uint16_t v) { sp -= 2; ww(ss, uint16_t(sp), v); }
-    uint16_t pop16()            { uint16_t v = rw(ss, uint16_t(sp)); sp += 2; return v; }
+    void     push16(uint16_t v) { sp = uint16_t(sp - 2); ww(ss, uint16_t(sp), v, true); }
+    uint16_t pop16()            { uint16_t v = rw(ss, uint16_t(sp), true); sp = uint16_t(sp + 2); return v; }
     // sp wraps at 64KB even for 32-bit operands (no 0x67 / big real mode).
-    void     push32(uint32_t v) { sp = (sp - 4) & 0xFFFF; wd(ss, uint16_t(sp), v); }
-    uint32_t pop32()            { uint32_t v = rd(ss, uint16_t(sp)); sp = (sp + 4) & 0xFFFF; return v; }
+    void     push32(uint32_t v) { sp = (sp - 4) & 0xFFFF; wd(ss, uint16_t(sp), v, true); }
+    uint32_t pop32()            { uint32_t v = rd(ss, uint16_t(sp), true); sp = (sp + 4) & 0xFFFF; return v; }
+
+    // Register state at the start of the instruction (or REP iteration) a
+    // fault rolls back to.
+    struct Snapshot {
+        uint32_t ax, bx, cx, dx, sp, bp, si, di;
+        uint16_t cs, ds, es, ss, flags, msw;
+        bool cs_high;
+        uint32_t gdt_base, idt_base;
+        uint16_t gdt_limit, idt_limit;
+        bool halted;
+    };
+    Snapshot snap_{};
+    void save_regs();
+    void restore_regs();
+
+    bool firmware() const { return firmware_at && firmware_at(code_base() + instr_start_ip_); }
+
+    // After RESET, CS's hidden base is FF0000h until the first far transfer
+    // loads CS, so the first fetch is FFFFF0h (Intel iAPX 286 PRM, "Reset").
+    bool cs_high_ = false;
+    uint32_t code_base() const { return (cs_high_ && cs == 0xF000) ? 0xFF0000u : uint32_t(cs) << 4; }
+    void ud() { raise(EXC_UD); }
+
+    // Machine status word and descriptor-table registers. MSW resets to FFF0h
+    // and the IDT to base 0, limit 3FFh (Intel iAPX 286 PRM, "Reset").
+    uint16_t msw_ = 0xFFF0;
+    uint32_t gdt_base_ = 0, idt_base_ = 0;
+    uint16_t gdt_limit_ = 0xFFFF, idt_limit_ = 0x03FF;
+    enum : uint16_t { MSW_PE = 1, MSW_MP = 2, MSW_EM = 4, MSW_TS = 8 };
+    int system_0f01();  // 0x0F 0x01: SGDT/SIDT/LGDT/LIDT/SMSW/LMSW
+
+    bool shadow_ = false;
+    bool vectored_ = false;      // this step entered a handler, so no single-step trap
+    bool rep_resume_ = false;    // the last step yielded part-way through a REP
+    bool rep_resumed_ = false;   // this step continues one, so setup is already paid
+    bool step_each_ = false;     // TF set on a REP: one iteration per step
+    bool rep_yield(int iterations, int per_iteration);
+
+    int execute(uint8_t op, int c);
 
     // --- ModR/M decode ---
     // Register (is_mem=false) or memory operand with default-segment rules
@@ -138,15 +222,24 @@ private:
         bool     is_mem;
         int      reg;      // valid when !is_mem
         uint16_t seg, off;  // valid when is_mem
+        bool     stack;    // seg is SS, so an overrun is #SS
     };
     // Decodes ModR/M and any displacement at CS:IP, advancing IP.
     RM decode_modrm();
     uint8_t  rm_read8(const RM &rm)              { return rm.is_mem ? rb(rm.seg, rm.off) : get_reg8(rm.reg); }
     void     rm_write8(const RM &rm, uint8_t v)  { if (rm.is_mem) wb(rm.seg, rm.off, v); else set_reg8(rm.reg, v); }
-    uint16_t rm_read16(const RM &rm)             { return rm.is_mem ? rw(rm.seg, rm.off) : get_reg16(rm.reg); }
-    void     rm_write16(const RM &rm, uint16_t v){ if (rm.is_mem) ww(rm.seg, rm.off, v); else set_reg16(rm.reg, v); }
-    uint32_t rm_read32(const RM &rm)             { return rm.is_mem ? rd(rm.seg, rm.off) : get_reg32(rm.reg); }
-    void     rm_write32(const RM &rm, uint32_t v){ if (rm.is_mem) wd(rm.seg, rm.off, v); else set_reg32(rm.reg, v); }
+    uint16_t rm_read16(const RM &rm)             { return rm.is_mem ? rw(rm.seg, rm.off, rm.stack) : get_reg16(rm.reg); }
+    void     rm_write16(const RM &rm, uint16_t v){ if (rm.is_mem) ww(rm.seg, rm.off, v, rm.stack); else set_reg16(rm.reg, v); }
+    uint32_t rm_read32(const RM &rm)             { return rm.is_mem ? rd(rm.seg, rm.off, rm.stack) : get_reg32(rm.reg); }
+    void     rm_write32(const RM &rm, uint32_t v){ if (rm.is_mem) wd(rm.seg, rm.off, v, rm.stack); else set_reg32(rm.reg, v); }
+    // Offset:segment pair (LES/LDS/far CALL/JMP/BOUND). Memory only; a register is #UD.
+    bool     far_operand(const RM &rm, uint16_t &lo, uint16_t &hi) {
+        if (!rm.is_mem) { ud(); return false; }
+        if (rm.off > 0xFFFC) overrun(rm.stack);
+        lo = rw(rm.seg, rm.off, rm.stack);
+        hi = rw(rm.seg, uint16_t(rm.off + 2), rm.stack);
+        return !fault_;
+    }
 
     // flag helpers
     void set_pzs8(uint8_t r);
@@ -183,7 +276,7 @@ private:
 
     // BCD adjust and single-purpose instructions.
     void daa(); void das(); void aaa(); void aas(); void aam(); void aad();
-    void push_reg(int idx);         // PUSH SP pushes the decremented value
+    void push_reg(int idx);         // PUSH SP pushes the value from before the push
     void pusha(); void popa();      // 286-native PUSHA/POPA
     void bound();                   // 286-native BOUND r16, m16&16
     void imul_imm16(int dst_reg, const RM &rm, uint16_t imm);  // 286 IMUL r16,r/m16,imm
@@ -194,7 +287,7 @@ private:
     int  extra_cycles_ = 0;  // added to the opcode's base cost by step()
 
     int      last_reg_ = 0;        // ModR/M reg field of the last decode_modrm(), used by group opcodes
-    uint16_t instr_start_ip_ = 0;  // restart IP for DIV/IDIV faults
+    uint16_t instr_start_ip_ = 0;  // first prefix byte: where a fault restarts
 
     // Helpers used by step()'s switch. string_op, io_string_op, grp2_shift and
     // grp3_unary return their own cycle cost, which varies by sub-opcode and

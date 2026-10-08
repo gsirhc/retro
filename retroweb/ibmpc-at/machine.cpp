@@ -46,11 +46,15 @@ void Machine::run_cycles(int64_t cycles) {
             chipset.kbc.clear_reset_request();
             cpu.reset();
         }
+        uint32_t from = (uint32_t(cpu.cs) << 4) + cpu.ip;
         int spent = cpu.step();
+        // IBM's POST closes A20 before booting; the stand-in BIOS never does, so
+        // the machine closes it when ROM code enters a boot sector at 0000:7C00.
+        if ((uint32_t(cpu.cs) << 4) + cpu.ip == 0x7C00 && chipset.is_rom(from)) chipset.kbc.set_a20(false);
         total_cycles_ += uint64_t(spent);
         chipset.tick(total_cycles_, kCpuHz);
         // An INTA cycle only starts when IF is set; polling earlier would consume IRQs the CPU never served.
-        if (cpu.flag(cpu80286::FLAG_IF)) {
+        if (cpu.flag(cpu80286::FLAG_IF) && !cpu.interrupt_shadow()) {
             int vec = chipset.poll_interrupt();
             if (vec >= 0) cpu.interrupt(uint8_t(vec));
         }

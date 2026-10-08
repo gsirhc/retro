@@ -2,6 +2,8 @@
 
 #include "machine.h"
 
+#include <vector>
+
 namespace {
 
 using ibmpcat::Machine;
@@ -81,6 +83,8 @@ TEST(MachineTest, KeyboardControllerResetTrickResetsCpuWithoutLosingPacing) {
     Machine m;
     m.reset();
     for (int i = 0; i < 0x100; ++i) m.chipset.mem[i] = 0x90;  // harmless NOP sled everywhere
+    std::vector<uint8_t> rom(16, 0x90);
+    m.chipset.load_rom(0xFFFF0, rom.data(), rom.size());
     m.cpu.cs = 0;
     m.cpu.ip = 0;
     m.run_cycles(100);
@@ -93,6 +97,109 @@ TEST(MachineTest, KeyboardControllerResetTrickResetsCpuWithoutLosingPacing) {
     EXPECT_EQ(m.cpu.cs, 0xF000);
     EXPECT_GE(m.cpu.ip, 0xFFF0);
     EXPECT_GE(m.total_cycles(), before);  // pacing counter kept advancing, not zeroed by the reset
+}
+
+TEST(MachineTest, FirstFetchIsFromTheTopOf16MBUntilAFarJump) {
+    Machine m;
+    m.reset();
+    const uint8_t stub[] = {0xEA, 0x00, 0xE0, 0x00, 0xF0};  // JMP F000:E000
+    m.chipset.load_rom(0xFFFF0, stub, sizeof stub);
+    const uint8_t target[] = {0x90};
+    m.chipset.load_rom(0xFE000, target, sizeof target);
+    m.chipset.kbc.set_a20(false);  // the low 1MB copy would still answer, the alias wouldn't
+    m.cpu.reset();
+    m.run_cycles(1);
+    EXPECT_NE(m.cpu.ip, 0xE000) << "with A20 held low the fetch at FFFFF0h finds no ROM";
+
+    m.chipset.kbc.set_a20(true);
+    m.cpu.reset();
+    m.run_cycles(1);
+    EXPECT_EQ(m.cpu.cs, 0xF000);
+    EXPECT_EQ(m.cpu.ip, 0xE000);
+    m.chipset.mem[0xFE000 + 1] = 0x90;
+    m.run_cycles(1);
+    EXPECT_EQ(m.cpu.ip, 0xE001) << "after the far jump CS's base is F0000h again";
+}
+
+TEST(MachineTest, A20ClosesWhenRomCodeEntersABootSector) {
+    Machine m;
+    m.reset();
+    ASSERT_TRUE(m.chipset.kbc.a20_enabled());
+    auto &mem = m.chipset.mem;
+    mem[0x0600] = 0xEA; mem[0x0601] = 0x00; mem[0x0602] = 0x7C; mem[0x0603] = 0x00; mem[0x0604] = 0x00;
+    m.cpu.cs = 0; m.cpu.ip = 0x0600;
+    m.run_cycles(1);  // JMP 0000:7C00 from RAM, as an MBR handing to a VBR does
+    EXPECT_EQ(m.cpu.ip, 0x7C00);
+    EXPECT_TRUE(m.chipset.kbc.a20_enabled());
+
+    const uint8_t jmp[] = {0xEA, 0x00, 0x7C, 0x00, 0x00};
+    m.chipset.load_rom(0xF8000, jmp, sizeof jmp);
+    m.cpu.cs = 0xF800; m.cpu.ip = 0;
+    m.run_cycles(1);
+    EXPECT_EQ(m.cpu.ip, 0x7C00);
+    EXPECT_FALSE(m.chipset.kbc.a20_enabled()) << "IBM's POST closes A20 before booting";
+}
+
+TEST(MachineTest, Opcodes386RunFromRomButNotFromRam) {
+    Machine m;
+    m.reset();
+    const uint8_t movzx[] = {0x0F, 0xB6, 0xC3, 0xF4};  // MOVZX AX, BL ; HLT
+    m.chipset.load_rom(0xE0000, movzx, sizeof movzx);
+    auto &mem = m.chipset.mem;
+    for (int i = 0; i < 4; ++i) mem[0x0600 + i] = movzx[i];
+    mem[6 * 4 + 0] = 0x00; mem[6 * 4 + 1] = 0x50;  // IVT[6] -> 0000:5000
+    mem[6 * 4 + 2] = 0x00; mem[6 * 4 + 3] = 0x00;
+    m.cpu.ss = 0; m.cpu.sp = 0x8000;
+    m.cpu.bx = 0x80;
+
+    m.cpu.cs = 0xE000; m.cpu.ip = 0;
+    m.run_cycles(1);
+    EXPECT_EQ(m.cpu.ax & 0xFFFF, 0x80u);
+    EXPECT_EQ(m.cpu.ip, 3);
+
+    m.cpu.ax = 0;
+    m.cpu.cs = 0; m.cpu.ip = 0x0600;
+    m.run_cycles(1);
+    EXPECT_EQ(m.cpu.ax, 0u);
+    EXPECT_EQ(m.cpu.ip, 0x5000) << "a 286 raises #UD outside the firmware";
+}
+
+TEST(MachineTest, MovSsHoldsOffAPendingIrqForOneInstruction) {
+    Machine m;
+    m.reset();
+    m.chipset.pic_master.out(0x20, 0x11);
+    m.chipset.pic_master.out(0x21, 0x08);
+    m.chipset.pic_master.out(0x21, 0x04);
+    m.chipset.pic_master.out(0x21, 0x01);
+    m.chipset.pic_master.out(0x21, 0xFD);  // unmask IRQ1 only
+
+    auto &mem = m.chipset.mem;
+    mem[9 * 4 + 0] = 0x00; mem[9 * 4 + 1] = 0x50;  // IVT[9] -> 0000:5000
+    mem[9 * 4 + 2] = 0x00; mem[9 * 4 + 3] = 0x00;
+    mem[0x0600] = 0x8E; mem[0x0601] = 0xD0;  // MOV SS, AX
+    mem[0x0602] = 0x90;                      // NOP
+    m.cpu.cs = 0; m.cpu.ip = 0x0600;
+    m.cpu.ax = 0; m.cpu.sp = 0x8000;
+    m.cpu.set_flag(cpu80286::FLAG_IF, true);
+    m.chipset.pic_master.raise(1);
+
+    m.run_cycles(1);
+    EXPECT_EQ(m.cpu.ip, 0x0602) << "no INTR between MOV SS and the next instruction";
+    m.run_cycles(1);
+    EXPECT_EQ(m.cpu.ip, 0x5000);
+}
+
+TEST(MachineTest, LongRepYieldsSoTheTimerStillTicks) {
+    Machine m;
+    m.reset();
+    auto &mem = m.chipset.mem;
+    mem[0x0600] = 0xF3; mem[0x0601] = 0xAB;  // REP STOSW
+    m.cpu.cs = 0; m.cpu.ip = 0x0600;
+    m.cpu.es = 0x2000; m.cpu.di = 0;
+    m.cpu.cx = 0x8000;
+    m.run_cycles(1);
+    EXPECT_EQ(m.cpu.ip, 0x0600);
+    EXPECT_GT(m.cpu.cx, 0x7F00u) << "one PIT clock's worth of iterations, not the whole 64KB";
 }
 
 }  // namespace

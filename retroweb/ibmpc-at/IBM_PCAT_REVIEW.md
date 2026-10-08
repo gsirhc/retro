@@ -36,12 +36,11 @@ front end (7), test suites + site integration (8).
 ## 1. Scope: real-address-mode only
 
 PC-DOS 3.30 and FreeDOS never leave real mode on this hardware, so the core
-implements real mode exclusively. Deliberately unimplemented (protected-mode
-only, no real-mode-legal behavior worth emulating): `LGDT/SGDT`, `LIDT/SIDT`,
-`LLDT/SLDT`, `LTR/STR`, `LMSW/SMSW`, `ARPL`, `LAR`, `LSL`, `VERR/VERW`,
-`CLTS`, and all descriptor/gate/TSS machinery. The two-byte `0x0F` escape
-(where all of these live) is decoded as a 3-cycle no-op rather than
-implementing any of them.
+implements real mode only. The real-mode-legal system instructions work
+(`SGDT/SIDT/LGDT/LIDT`, `SMSW/LMSW`, `CLTS`; §44.4). LMSW can't set PE,
+and the protected-mode-only ones (`LLDT/SLDT`, `LTR/STR`, `ARPL`, `LAR`,
+`LSL`, `VERR/VERW`) raise #UD, as they do on a 286 in real mode. Protected
+mode itself is open in `IBM_PCAT_PARITY.md` (C10).
 
 **Deferred, not forgotten**: the well-documented 80286 erratum where a
 segment's cached descriptor limit is not reset to `0xFFFF` on a return to
@@ -62,10 +61,10 @@ Programmer's Reference Manual (1987), "Instruction Set Differences from the
 
 **Quirks preserved on purpose** (real, documented CPU-generation behavior,
 not bugs):
-- `PUSH SP` pushes the *post-decrement* value on the 286, unlike the 8086
-  (pre-decrement) — `push_reg()` in `cpu80286.cpp`, tested explicitly in
-  `PushSpPushesDecrementedValue`. Software of the era used exactly this
-  instruction to CPU-detect an 8086 vs. a 286-or-later at runtime.
+- `PUSH SP` pushes the value SP had *before* the push on the 286; the 8086
+  and 80186 push the decremented value. `push_reg()` in `cpu80286.cpp`,
+  tested in `PushSpPushesValueFromBeforeThePush`. Software of the era used
+  exactly this instruction to tell an 8086 from a 286 (§44.1).
 - Shift/rotate counts are masked mod 32 on the 286; the 8086 used the raw
   unmasked count (so a shift by 200 took 200 cycles on real 8086 silicon).
   Tested in `ShiftCountMaskedMod32`.
@@ -79,22 +78,12 @@ not bugs):
 
 ## 3. Known simplifications (documented, not silent)
 
-- **RESET vector**: real silicon aliases the top of its 16MB address space
-  down to physical `0xFFFFF0` on RESET, then relies on CS's hidden
-  descriptor-cache base (not the visible CS *value*) to make that work
-  before any far jump reloads CS normally. This core has no descriptor
-  cache (real-mode-only, §1), so it approximates the observable effect the
-  way every real-mode-only 8086-family core does: `CS=0xF000, IP=0xFFF0`
-  giving physical `0xFFFF0` directly — one hex digit short of the genuine
-  286's `0xFFFFF0`, but equivalent for any real AT BIOS, which always
-  far-jumps to a normal `F000:xxxx` entry point within its first few
-  instructions anyway.
+- **RESET vector**: the first fetch is the genuine `0xFFFFF0`, through
+  CS's hidden FF0000h base and the board's ROM alias at the top of 16MB
+  (§45.1).
 - **`POPF`/`IRET` flag mask** (`0x0FD5`) restores CF/PF/AF/ZF/SF/TF/IF/DF/OF
-  from the popped word but always zeroes IOPL and NT rather than loading
-  them from the stack. Those bits have no functional effect without
-  protected-mode privilege checking (which this core doesn't have, §1), so
-  this is a no-op simplification today — revisit only alongside any future
-  protected-mode work.
+  from the popped word and always zeroes bits 12-15. That's the real 286 in
+  real mode, not a simplification (§44.2).
 - **Cycle counts are categorical, not the full effective-address-dependent
   table.** Real 80286 timing charges a different EA-calculation cost per
   addressing mode (e.g. base+index+displacement costs more than a bare
@@ -111,17 +100,18 @@ not bugs):
 
 ## 4. Opcode coverage gaps
 
-Not implemented (falls through to the "unimplemented opcode" 2-cycle no-op
-default case, or the explicit `0x0F`/`0xD8-0xDF` handling noted above):
-- The protected-mode `0x0F` two-byte space (§1), **except `0x0F 0x80-0x8F`**
-  (`Jcc rel16`) — an 80386 addition, not genuine 80286 behavior, but
-  decoded anyway as a pragmatic compatibility concession for the prebuilt
-  BIOS substitute this machine boots; see §6's investigation for why.
+Undefined opcodes raise #UD (INT 6) outside the firmware, and are a
+reported no-op inside it (§44.3). Beyond that:
+- The 386 layer (`0x66`, `0x0F 0x80-0x8F` Jcc rel16, SETcc, MOVZX/MOVSX,
+  two-operand IMUL) runs only from ROM, where the prebuilt BIOS and video
+  BIOS substitutes need it; see §6 and §7. Anywhere else it's #UD.
+- `0x0F 0x05` (LOADALL) is a reported no-op. It needs descriptor caches.
 - `0xD8`-`0xDF` (x87 coprocessor ESC) decode the ModR/M byte (so instruction
   length stays correct for whatever follows) but perform no FPU operation —
   correct behavior for this system's spec, which has no 80287 installed.
-- `0xF1` (undocumented ICEBP/INT1) is a no-op rather than raising a
-  single-step-like trap.
+  MSW.EM or TS set makes them #NM (INT 7).
+- `0xF1` is a LOCK-alias prefix, as tested on a real 286 (§45.4).
+  `F1 0F 04` (STOREALL) isn't modelled.
 - `AAM`/`AAD` are implemented for the standard base-10 encoding but not
   exhaustively tested against non-standard bases.
 
@@ -143,10 +133,8 @@ a silent one, per this repo's fidelity conventions (`CLAUDE.md`).
   — correct for the AT's actual dependency (IRQ0's ~18.2 Hz edge rate,
   confirmed exactly via divisor-0/65536 in `Pit8253Test`), not for a
   cycle-perfect oscilloscope trace of e.g. Mode 2's asymmetric pulse.
-- **i8042**: A20 gate defaults **disabled** at reset (a genuine AT starts
-  out wrapping at 1MB like an 8086; BIOS enables A20 early in POST) — get
-  this backwards and every "does A20 wraparound work" assumption in
-  real-mode software breaks. The CPU-reset trick (Output Port bit 0, or
+- **i8042**: the A20 gate is open at reset and after the 0xAA self-test,
+  and closed again before DOS boots (§45.2-§45.3). The CPU-reset trick (Output Port bit 0, or
   command 0xFE) is exposed as `reset_requested()`/`clear_reset_request()`
   for the embedding `Machine` to act on, matching this codebase's
   host-agnostic device convention (a device never reaches into the CPU
@@ -2365,6 +2353,10 @@ than just flagging it.
 
 ## 43. POPF/IRET: IOPL/NT round-trip is more PRM-accurate but breaks FreeDOS
 
+**Corrected in §44.2.** The always-0 behaviour this section reverted to is
+the real 286, not a workaround, and the CheckIt result came from PUSH SP
+(§44.1). The bisection below stands as a record of what was tried.
+
 A CheckIt (TouchStone Software) DOS diagnostic run misidentified this
 machine as an "80188, 0.74 MHz" instead of an 80286 @ 8 MHz. Root-caused to
 `cpu80286.cpp`'s POPF/IRET masking FLAGS bits 12-15 to always-0 regardless
@@ -2411,3 +2403,219 @@ edge case in one third-party diagnostic isn't worth a broken installer.
 `Cpu80286Test.PopfAndIretAlwaysClearIoplAndNt` documents this as
 deliberate, not an oversight, so a future pass doesn't re-attempt the same
 fix without knowing it regresses FreeDOS.
+
+## 44. CPU parity: PUSH SP, a 286 that can't run 386 code, exceptions, single-step
+
+Items C1-C9 from [`IBM_PCAT_PARITY.md`](IBM_PCAT_PARITY.md). C10 (protected
+mode) and C11 (the reset state that comes with it) stay open.
+
+### 44.1 PUSH SP
+
+`push_reg()` pushed the decremented SP and called that the 286. It's the
+other way round. The 8086 and 80186 push the decremented value; the 286
+pushes SP as it was before the instruction (Intel iAPX 286 PRM,
+"Instruction Set Differences from the 8086"). `PUSH SP / POP AX / CMP
+AX,SP` is how period software told an 8086 from a 286, so every detector
+saw an 8086-class part. With PUSHA, BOUND and the mod-32 shift count
+saying 186, that's the likely cause of CheckIt's "80188" in §43.
+
+### 44.2 FLAGS bits 12-15 were already right
+
+§43 called the always-0 IOPL/NT a workaround. It's the chip: "bits 12-15
+of FLAGS are always clear on the Intel 286 processor in real-address
+mode", and a 386 lets them stick (Intel AP-485, CPU identification). The
+§43 attempt to let them round-trip made software see a 386. The FreeDOS
+installer then took a 386 path on a core that only half-runs 386 code,
+which fits its runtime error 200 better than anything reading FLAGS
+downstream. The code stays; its comment and test now say it's correct.
+
+### 44.3 The 386 layer runs only from ROM
+
+The `0x66` prefix with 32-bit registers, Jcc rel16, SETcc, MOVZX/MOVSX and
+two-operand IMUL ran everywhere because `BIOS-bochs-legacy` needs them
+(§7). A 286 raises #UD (INT 6) on all of them, and programs probe for a
+386 by trying one. `Cpu::firmware_at` now decides per instruction from
+its physical address, and `Machine` points it at the chipset's ROM map
+(`Chipset::is_rom`), which covers the system BIOS and the video BIOS. Code
+from ROM keeps the 386 layer. Anything else gets #UD. Unknown opcodes
+fetched from ROM stay a reported no-op through `on_unimplemented`.
+
+Undefined opcodes that used to fall through as 2-cycle no-ops now raise
+#UD, with IP on the instruction: `63h` (ARPL is protected mode only),
+`64h`, `65h`, `67h`, `0F 00`, `0F 02`, `0F 03`, `0F 01 /5` and `/7`; a
+register operand to LEA, LES, LDS, BOUND, or far CALL/JMP; `MOV CS`; and
+`FF /7`. `D6h` is SALC, undocumented but present on every Intel part from
+the 8086 on (Ralf Brown's OPCODES.LST). `F1h` stays a no-op, since no
+source settles what a 286 does with it.
+
+### 44.4 The real-mode system instructions
+
+Once unknown `0F` opcodes raise #UD, the ones a 286 accepts in real mode
+can't stay silent no-ops, so they're implemented:
+
+- **SMSW / LMSW.** MSW resets to FFF0h. LMSW loads MP, EM and TS. It can't
+  set PE, because there's no protected mode to enter (C10). It reports
+  the attempt through `on_unimplemented` and leaves PE clear.
+- **CLTS** clears TS.
+- **LGDT / LIDT / SGDT / SIDT** load and store a 24-bit base and a limit.
+  SGDT and SIDT write FFh in the sixth byte where a 386 writes 00h, another
+  period 286-or-386 test (Intel386 PRM, SGDT/SIDT, 80286 compatibility).
+  The IDT resets to base 0, limit 3FFh, and real-mode INT n now vectors
+  through IDTR's base, so LIDT moves the vector table as it does on the
+  chip. The IDT limit isn't checked yet.
+- **ESC with EM or TS set** raises #NM (INT 7), and so does WAIT with MP
+  and TS set. With MSW as the BIOS leaves it, an ESC still does nothing,
+  as on an AT with no 80287 fitted.
+
+`0F 05` (LOADALL) is a reported no-op. It needs the descriptor caches that
+come with C10.
+
+### 44.5 Faults restart the instruction
+
+A word access at offset FFFFh, or a dword past FFFCh, now raises #GP
+(INT 13), or #SS (INT 12) when the segment is SS. So does an instruction
+that runs past FFFFh or is longer than 10 bytes (Intel iAPX 286 PRM,
+real-address-mode exceptions 12 and 13). The fault is found
+mid-instruction, so the core drops any further bus traffic for that
+instruction, puts back the registers it started with, and vectors with IP
+on the first prefix. #UD and #NM use the same path. Divide errors and
+BOUND also restart at the first prefix now, not at the opcode.
+
+A REP string op saves its registers at each iteration, so a fault partway
+through keeps the iterations already done, as the chip does.
+
+Exceptions and the single-step trap cost an INT n (23 clocks plus
+`kQueueRefillTax`).
+
+### 44.6 Single-step and the interrupt shadow
+
+TF never trapped, so DEBUG's `T` ran free. Now an instruction that starts
+with TF set is followed by INT 1, with the next instruction's address
+saved. A POPF that sets TF runs untrapped; one that clears it still
+traps. INT n, INT3 and INTO enter their handler untrapped. A faulting
+instruction doesn't trap.
+
+STI (from IF clear), MOV SS and POP SS hold off INTR and the trap for one
+instruction, so `MOV SS / MOV SP` can't take an interrupt onto a
+half-loaded stack. `Cpu::interrupt_shadow()` exposes it and
+`Machine::run_cycles()` checks it before polling the PIC. Same design as
+`PC486_REVIEW.md` §40.4-§40.5.
+
+### 44.7 A REP can be interrupted
+
+A REP ran its whole count in one `step()`. A 64KB REP MOVSW is about
+131,000 clocks, 16 ms at 8 MHz, with no IRQ0, keyboard or disk in
+between. The 286 takes interrupts between iterations and resumes after
+IRET. `Cpu::rep_yield_cycles`, which `Machine` sets to one PIT clock (6
+cycles at 8 MHz), is the budget: a REP that reaches it puts IP back on its
+first prefix and returns, the machine services its devices and any
+interrupt, and the next step continues. A continuation is charged only its
+own iterations, so an uninterrupted REP still costs exactly its published
+5+4n. REP LODS has no published per-iteration figure and doesn't yield.
+
+Under TF a REP runs one iteration per step and traps after each, with IP
+still on the instruction until the last one. Same design as
+`PC486_REVIEW.md` §45.3.
+
+### 44.8 Checks
+
+- 260 native tests (230 before). New cases cover each item above, plus
+  three `Machine` cases: 386 opcodes run from ROM but #UD from RAM, MOV SS
+  holds off a pending IRQ for one instruction, and a 64KB REP yields
+  after one PIT clock.
+- The shipped HDD image boots to `C:\>` on the new core. A probe that logs
+  every exception vector taken saw no INT 6, 7, 12 or 13 and nothing
+  reported as unimplemented.
+- The real FreeDOS 1.3 installer (`disks/build_freedos_hdd`, the run that
+  failed in §43) completes, at cycle 37,591,270,713, and its image boots
+  with no exceptions. It now detects a 286 and writes the 286 menu to
+  `FDCONFIG.SYS`: `DOS=HIGH`, and `FDXMS286.SYS` as the default choice.
+  On this machine FDXMS286 prints "Extended memory is too small or not
+  available. Driver won't be installed.", which is what a 640KB AT with
+  no extended memory shows, and the boot carries on. The old image held
+  the 8086 menu.
+- Playwright against the rebuilt wasm: 41/41 in three full runs. A fourth
+  run, made while the installer build had the host busy, failed once in
+  the extended-key panel test (`^C` from Pause/Break, then no response to
+  typing). It didn't come back in 15 isolated runs, 10 more with every
+  core pegged, or the three full runs. Unexplained. The likeliest cause is
+  K1 in `IBM_PCAT_PARITY.md`: the 8042 overwrites an unread byte, and a
+  late frame can deliver two bytes of the Pause or Num Lock sequence
+  back to back.
+
+## 45. The real reset vector, the A20 gate, and F1h
+
+Items C11 and C12 from [`IBM_PCAT_PARITY.md`](IBM_PCAT_PARITY.md).
+
+### 45.1 The first fetch is FFFFF0h
+
+After RESET the 286 sets CS to F000h but its hidden base to FF0000h, so
+the first fetch is FFFFF0h, near the top of the 24-bit address space. The
+base stays there until the first far transfer that loads CS (Intel iAPX
+286 PRM, "Reset"). The core started at F000:FFF0 with the ordinary base,
+so the first fetch was FFFF0h. Now `Cpu::reset()` sets `cs_high_`, code
+fetches use FF0000h as the base while it's set and CS is still F000h,
+and JMP/CALL far, RETF, IRET, the indirect far forms and every
+interrupt entry clear it. A fault restores it with the other registers.
+
+That fetch only finds code because the AT decodes its system ROM twice:
+at E0000-FFFFF and again at FE0000-FFFFFF (IBM PC/AT Technical
+Reference, memory map). `Chipset` now mirrors ROM there, read-only.
+Anything in the alias without ROM behind it reads open bus.
+
+A data access through a `CS:` override while the high base is in force
+still uses F000h's ordinary base. The BIOS's first instruction is a far
+jump, so nothing exercises it.
+
+### 45.2 The A20 gate holds only A20
+
+`Chipset` masked closed-gate addresses to 20 bits, which folds everything
+into the first megabyte. The real gate holds A20 low and passes A21-A23
+through, so FFFFF0h with the gate closed is EFFFF0h, where nothing
+decodes. That's why rebooting a PC with A20 closed can hang it. It's now
+`addr &= ~0x100000`.
+
+So the first fetch needs A20 open, and the 8042 gives it: its port 2
+comes out of reset high (Intel UPI-41A/42 data sheet), releasing the
+reset line and opening A20. The output port starts at FFh instead of
+00h. The 0xAA self-test also leaves A20 open (OS/2 Museum, "IBM PC/AT
+8042 Keyboard Controller Commands").
+
+### 45.3 Closing A20 before boot, for the stand-in BIOS
+
+IBM's POST opens A20 to test memory and closes it before handing over to
+the operating system (Wikipedia, "A20 line"), so DOS sees the 8086's 1MB
+wrap. `BIOS-bochs-legacy` sends the 0xAA self-test and never closes the
+gate: a probe of every 8042 and port 92h write during a FreeDOS boot saw
+no 0xD1. Without help, DOS would run with A20 open, and EXEPACK-packed
+programs loaded low fail with "Packed file is corrupt".
+
+`Machine::run_cycles()` covers it: when code fetched from ROM lands at
+0000:7C00, it closes A20 through the 8042, which is where IBM's POST
+leaves it. That's a labelled stand-in for missing BIOS behaviour, not
+hardware. It re-arms on every boot, cold or warm. A boot sector's own
+jump to 7C00h (an MBR handing to a VBR) runs from RAM and doesn't
+trigger it.
+
+### 45.4 F1h
+
+`F1h` was a 2-cycle no-op. On a real 286 it's a prefix that does nothing
+to the instruction after it, the same LOCK alias it is on the 8086
+(hardware tests in rep lodsb, "Intel 286 secrets: ICE mode and F1 0F
+04"). The 80186 raises #UD on it and the 386 treats it as ICEBP. It's
+now decoded as a prefix. `F1 0F 04` is STOREALL, which dumps state and
+waits for an in-circuit emulator. Without one the machine hangs, and
+the dump layout isn't published, so it isn't modelled; `0F 04` stays #UD
+outside ROM.
+
+### 45.5 Checks
+
+- 265 native tests (260 before): the ROM alias, the bit-20-only gate,
+  A20 open at reset and after 0xAA, the first fetch at FFFFF0h and back
+  to F0000h after the far jump, the boot-sector shim from ROM but not
+  from RAM, and F1h as a prefix.
+- Both the shipped HDD image and §44.8's freshly installed one boot to
+  `C:\>` with A20 closed at the prompt and no INT 6, 7, 12 or 13.
+- The FreeDOS installer completes at cycle 37,591,270,713, the same as
+  in §44.8, and its image boots the same way.
+- 41/41 Playwright against the rebuilt wasm.

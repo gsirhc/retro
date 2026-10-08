@@ -14,10 +14,16 @@ TEST(I8042Test, ResetDeliversUnsolicitedKeyboardBatByte) {
     EXPECT_EQ(kbc.in(0x60), 0xAA);
 }
 
-TEST(I8042Test, A20DisabledByDefault) {
+TEST(I8042Test, A20OpenAtResetAndAfterSelfTest) {
     I8042 kbc;
     kbc.reset();
-    EXPECT_FALSE(kbc.a20_enabled());
+    EXPECT_TRUE(kbc.a20_enabled()) << "the 286's first fetch at FFFFF0h needs A20 high";
+    EXPECT_FALSE(kbc.reset_requested());
+    kbc.out(0x64, 0xD1);
+    kbc.out(0x60, 0x01);  // close A20, keep RESET released
+    ASSERT_FALSE(kbc.a20_enabled());
+    kbc.out(0x64, 0xAA);
+    EXPECT_TRUE(kbc.a20_enabled());
 }
 
 TEST(I8042Test, WriteOutputPortEnablesA20) {

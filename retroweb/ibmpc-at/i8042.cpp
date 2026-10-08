@@ -7,7 +7,8 @@ void I8042::reset() {
     output_buf_ = 0;
     output_full_ = false;
     command_byte_ = 0x00;
-    output_port_ = 0x00;
+    // Port 2 pins come out of reset high (Intel UPI-41A/42 data sheet): RESET released, A20 open.
+    output_port_ = 0xFF;
     kbd_enabled_ = true;
     system_flag_ = false;
     last_was_command_ = false;
@@ -47,7 +48,7 @@ void I8042::out(uint16_t port, uint8_t v) {
         switch (v) {
             case 0x20: push_output(command_byte_); break;             // read command byte
             case 0x60: next_write_ = NextWrite::kCommandByte; break;   // write command byte (next byte at 0x60)
-            case 0xAA: push_output(0x55); system_flag_ = true; break; // self-test: 0x55 = passed
+            case 0xAA: push_output(0x55); system_flag_ = true; output_port_ |= 0x02; break;  // self-test: 0x55 = passed, leaves A20 open (OS/2 Museum, 8042 commands)
             case 0xAB: push_output(0x00); break;                       // interface test: 0x00 = no error
             case 0xAD: kbd_enabled_ = false; break;                     // disable keyboard
             case 0xAE: kbd_enabled_ = true; break;                      // enable keyboard

@@ -40,6 +40,12 @@ public:
     std::array<uint8_t, 0x100000> mem{};
     // Marks [addr, addr+len) read-only and copies `data` in.
     void load_rom(uint32_t addr, const uint8_t *data, std::size_t len);
+    bool is_rom(uint32_t addr) const {
+        if (addr >= kRomAlias) addr -= kRomAliasOffset;
+        return addr < rom_.size() && rom_[addr];
+    }
+    // The system ROM also decodes at FE0000-FFFFFF (IBM PC/AT Technical Reference, memory map).
+    static constexpr uint32_t kRomAlias = 0xFE0000, kRomAliasOffset = 0xF00000;
 
     Pic8259 pic_master{0x20};
     Pic8259 pic_slave{0xA0};

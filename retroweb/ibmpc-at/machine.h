@@ -16,7 +16,14 @@ class Machine {
 public:
     // Powering on: the CPU goes to its reset vector (Cpu's default members do
     // not equal it) and the factory CMOS configuration is already set.
-    Machine() : cpu(chipset.make_bus()) { cpu.reset(); configure_factory_cmos(); }
+    Machine() : cpu(chipset.make_bus()) {
+        cpu.reset();
+        // The BIOS and video BIOS stand-ins use 386 opcodes (IBM_PCAT_REVIEW.md §7).
+        cpu.firmware_at = [this](uint32_t addr) { return chipset.is_rom(addr); };
+        // One PIT clock, so a long REP doesn't hold off IRQ0.
+        cpu.rep_yield_cycles = uint32_t(kCpuHz / 1193182.0);
+        configure_factory_cmos();
+    }
 
     void reset() {
         chipset.reset();

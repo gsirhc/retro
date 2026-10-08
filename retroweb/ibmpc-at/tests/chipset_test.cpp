@@ -29,9 +29,30 @@ TEST(ChipsetTest, RomRegionRejectsWrites) {
 TEST(ChipsetTest, A20DisabledWrapsAt1MB) {
     Chipset cs;
     auto bus = cs.make_bus();
-    // A20 starts disabled (see i8042.h): address 0x100010 should alias 0x10.
+    cs.kbc.set_a20(false);
     bus.write(0x000010, 0x77);
     EXPECT_EQ(bus.read(0x100010), 0x77);
+}
+
+TEST(ChipsetTest, RomAlsoDecodesAtTheTopOf16MB) {
+    Chipset cs;
+    uint8_t rom[2] = {0xEA, 0x5B};
+    cs.load_rom(0xFFFF0, rom, 2);
+    auto bus = cs.make_bus();
+    EXPECT_EQ(bus.read(0xFFFFF0), 0xEA);
+    bus.write(0xFFFFF0, 0x00);
+    EXPECT_EQ(bus.read(0xFFFFF0), 0xEA);
+    EXPECT_EQ(bus.read(0xFE0000), 0xFF) << "no ROM fitted at E0000h, so its alias is open bus";
+    EXPECT_TRUE(cs.is_rom(0xFFFFF1));
+}
+
+TEST(ChipsetTest, ClosedGateHoldsOnlyA20Low) {
+    Chipset cs;
+    uint8_t rom[1] = {0xEA};
+    cs.load_rom(0xFFFF0, rom, 1);
+    auto bus = cs.make_bus();
+    cs.kbc.set_a20(false);
+    EXPECT_EQ(bus.read(0xFFFFF0), 0xFF) << "FFFFF0h lands on EFFFF0h, where nothing decodes";
 }
 
 TEST(ChipsetTest, A20EnabledDoesNotWrapAndAboveOneMebIsOpenBus) {

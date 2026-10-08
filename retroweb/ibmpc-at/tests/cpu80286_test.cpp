@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <initializer_list>
 #include <memory>
+#include <vector>
 
 namespace {
 
@@ -62,6 +63,29 @@ protected:
     bool OF() const { return cpu->flag(cpu80286::FLAG_OF); }
     bool AF() const { return cpu->flag(cpu80286::FLAG_AF); }
     bool PF() const { return cpu->flag(cpu80286::FLAG_PF); }
+
+    void allow_firmware() { cpu->firmware_at = [](uint32_t) { return true; }; }
+    // Points vector `v` at 0700:0000.
+    void handler(int v) {
+        mem[v * 4 + 0] = 0x00; mem[v * 4 + 1] = 0x00;
+        mem[v * 4 + 2] = 0x00; mem[v * 4 + 3] = 0x07;
+    }
+    bool in_handler() const { return cpu->cs == 0x0700 && cpu->ip == 0; }
+    // Runs `code` at 0100:0000, clear of the IVT, with the stack at 0000:8000.
+    void exec(std::initializer_list<uint8_t> code, int n = 1) {
+        uint32_t a = 0x1000;
+        for (uint8_t b : code) mem[a++] = b;
+        cpu->cs = 0x0100;
+        cpu->ip = 0;
+        cpu->ss = 0;
+        cpu->sp = 0x8000;
+        for (int i = 0; i < n; ++i) cpu->step();
+    }
+    // Word i of the interrupt frame: 0 = IP, 1 = CS, 2 = FLAGS.
+    uint16_t frame(int i) const {
+        uint32_t a = uint32_t(cpu->ss) * 16 + uint16_t(cpu->sp + 2 * i);
+        return uint16_t(mem[a] | (mem[a + 1] << 8));
+    }
 };
 
 // ---------------------------------------------------------------------------
@@ -189,15 +213,21 @@ TEST_F(Cpu80286Test, PushPopRoundTripRestoresValue) {
     EXPECT_EQ(cpu->sp, 0x1000);  // net zero stack movement
 }
 
-TEST_F(Cpu80286Test, PushSpPushesDecrementedValue) {
-    // Intel iAPX 286 PRM: the 286 pushes SP after the decrement, unlike the 8086.
+TEST_F(Cpu80286Test, PushSpPushesValueFromBeforeThePush) {
     cpu->ss = 0;
     cpu->sp = 0x2000;
     run({0x54});  // PUSH SP
     uint16_t new_sp = 0x2000 - 2;
     EXPECT_EQ(cpu->sp, new_sp);
     uint16_t pushed = mem[new_sp] | (uint16_t(mem[new_sp + 1]) << 8);
-    EXPECT_EQ(pushed, new_sp) << "286 must push the post-decrement SP value";
+    EXPECT_EQ(pushed, 0x2000) << "the 8086 pushes the decremented value, the 286 the original";
+}
+
+TEST_F(Cpu80286Test, PushSpPopAxMatchesSpLikeA286) {
+    cpu->ss = 0;
+    cpu->sp = 0x2000;
+    runN({0x54, 0x58}, 2);  // PUSH SP ; POP AX, the period 8086-or-286 test
+    EXPECT_EQ(cpu->ax, cpu->sp);
 }
 
 TEST_F(Cpu80286Test, PushaPopaRoundTrip) {
@@ -225,9 +255,7 @@ TEST_F(Cpu80286Test, PushaPopaRoundTrip) {
 // ---------------------------------------------------------------------------
 
 TEST_F(Cpu80286Test, PopfAndIretAlwaysClearIoplAndNt) {
-    // A real 286 loads IOPL/NT from the popped value (Intel iAPX 286 PRM), but that
-    // breaks the FreeDOS 1.3 installer (Runtime error 200 extracting FREEDOS.SAF), so
-    // POPF and IRET keep the always-0 behavior. See IBM_PCAT_REVIEW.md.
+    // Real mode on a 286 can't set FLAGS bits 12-15; a 386 can (Intel AP-485).
     cpu->ss = 0;
     uint16_t want = uint16_t(cpu80286::FLAG_IOPL | cpu80286::FLAG_NT | cpu80286::FLAG_R1);
 
@@ -288,6 +316,7 @@ TEST_F(Cpu80286Test, ShrSetsOverflowFromOriginalMsb) {
 // ---------------------------------------------------------------------------
 
 TEST_F(Cpu80286Test, JccNear0FEncodingTakenWhenZero) {
+    allow_firmware();
     // 0x0F 0x8x (Jcc rel16) is an 80386 addition the BIOS substitute needs.
     cpu->set_flag(cpu80286::FLAG_ZF, true);
     run({0x0F, 0x84, 0x05, 0x00});  // JZ near +5
@@ -295,6 +324,7 @@ TEST_F(Cpu80286Test, JccNear0FEncodingTakenWhenZero) {
 }
 
 TEST_F(Cpu80286Test, JccNear0FEncodingNotTakenWhenNotZero) {
+    allow_firmware();
     cpu->set_flag(cpu80286::FLAG_ZF, false);
     run({0x0F, 0x84, 0x05, 0x00});
     EXPECT_EQ(cpu->ip, 4);
@@ -566,6 +596,7 @@ TEST_F(Cpu80286Test, OutswSendsAtomicSixteenBitPortWriteFromDsSi) {
 // ---------------------------------------------------------------------------
 
 TEST_F(Cpu80286Test, OpSize32MovImmediateLoadsFullThirtyTwoBits) {
+    allow_firmware();
     run({0x66, 0xB8, 0x78, 0x56, 0x34, 0x12});  // MOV EAX, 12345678h
     EXPECT_EQ(cpu->ax, 0x12345678u);
 }
@@ -577,6 +608,7 @@ TEST_F(Cpu80286Test, OpSize16WritePreservesUpperHalfOfFullRegister) {
 }
 
 TEST_F(Cpu80286Test, OpSize32AddRegReg) {
+    allow_firmware();
     run({0x66, 0xB8, 0x01, 0x00, 0x00, 0x00});  // MOV EAX, 1
     run({0x66, 0xBB, 0xFF, 0xFF, 0xFF, 0xFF});  // MOV EBX, FFFFFFFFh (-1)
     // ADD EAX, EBX  (0x66 01 D8) -> 0, carry out
@@ -587,6 +619,7 @@ TEST_F(Cpu80286Test, OpSize32AddRegReg) {
 }
 
 TEST_F(Cpu80286Test, OpSize32PushPopRoundTrip) {
+    allow_firmware();
     cpu->ss = 0;
     cpu->sp = 0x2000;
     cpu->bx = 0x12345678;
@@ -596,18 +629,21 @@ TEST_F(Cpu80286Test, OpSize32PushPopRoundTrip) {
 }
 
 TEST_F(Cpu80286Test, MovzxByteToWord) {
+    allow_firmware();
     cpu->bx = 0x00FF;  // BL = 0xFF
     run({0x0F, 0xB6, 0xC3});  // MOVZX AX, BL
     EXPECT_EQ(cpu->ax, 0x00FFu);  // zero-extended, not sign-extended
 }
 
 TEST_F(Cpu80286Test, MovsxByteToWordSignExtends) {
+    allow_firmware();
     cpu->bx = 0x00FF;  // BL = 0xFF (-1)
     run({0x0F, 0xBE, 0xC3});  // MOVSX AX, BL
     EXPECT_EQ(cpu->ax, 0xFFFFu);
 }
 
 TEST_F(Cpu80286Test, SetccSetsByteFromCondition) {
+    allow_firmware();
     cpu->set_flag(cpu80286::FLAG_ZF, true);
     cpu->bx = 0;
     run({0x0F, 0x94, 0xC3});  // SETZ BL
@@ -618,11 +654,308 @@ TEST_F(Cpu80286Test, SetccSetsByteFromCondition) {
 }
 
 TEST_F(Cpu80286Test, TwoOperandImulSixteenBit) {
+    allow_firmware();
     cpu->ax = 6;
     cpu->bx = 7;
     run({0x0F, 0xAF, 0xC3});  // IMUL AX, BX
     EXPECT_EQ(cpu->ax, 42u);
     EXPECT_FALSE(CF());
+}
+
+TEST_F(Cpu80286Test, Opcodes386OutsideFirmwareRaiseInvalidOpcode) {
+    handler(6);
+    const std::initializer_list<uint8_t> forms[] = {
+        {0x66, 0xB8, 0x78, 0x56, 0x34, 0x12},  // MOV EAX, imm32
+        {0x0F, 0x84, 0x05, 0x00},              // JZ rel16
+        {0x0F, 0x94, 0xC3},                    // SETZ BL
+        {0x0F, 0xAF, 0xC3},                    // IMUL AX, BX
+        {0x0F, 0xB6, 0xC3},                    // MOVZX AX, BL
+        {0x0F, 0xBE, 0xC3},                    // MOVSX AX, BL
+    };
+    for (const auto &code : forms) {
+        cpu->ax = 0x1111;
+        exec(code);
+        EXPECT_TRUE(in_handler());
+        EXPECT_EQ(frame(0), 0) << "#UD saves the faulting instruction's address";
+        EXPECT_EQ(cpu->ax, 0x1111u);
+    }
+}
+
+TEST_F(Cpu80286Test, FirmwarePredicateSeesTheInstructionsPhysicalAddress) {
+    std::vector<uint32_t> asked;
+    cpu->firmware_at = [&](uint32_t a) { asked.push_back(a); return true; };
+    cpu->bx = 0x80;
+    exec({0x90, 0x0F, 0xB6, 0xC3}, 2);  // NOP ; MOVZX AX, BL
+    ASSERT_FALSE(asked.empty());
+    EXPECT_EQ(asked.back(), 0x1001u);
+    EXPECT_EQ(cpu->ax, 0x80u);
+}
+
+TEST_F(Cpu80286Test, UndefinedAndRealModeOnlyOpcodesRaiseInvalidOpcode) {
+    handler(6);
+    const std::initializer_list<uint8_t> forms[] = {
+        {0x63, 0xC0},        // ARPL, protected mode only
+        {0x64, 0x90},        // FS: prefix, 386
+        {0x65, 0x90},        // GS: prefix, 386
+        {0x67, 0x90},        // address-size prefix, 386
+        {0x0F, 0x00, 0xC0},  // SLDT AX, protected mode only
+        {0x0F, 0x02, 0xC0},  // LAR AX, AX
+        {0x0F, 0x01, 0xE8},  // 0F 01 /5
+        {0x8D, 0xC3},        // LEA AX, BX
+        {0xC4, 0xC3},        // LES AX, BX
+        {0xC5, 0xC3},        // LDS AX, BX
+        {0x62, 0xC3},        // BOUND AX, BX
+        {0x8E, 0xC8},        // MOV CS, AX
+        {0xFF, 0xD8},        // CALL FAR BX
+        {0xFF, 0xE8},        // JMP FAR BX
+        {0xFF, 0xF8},        // FF /7
+    };
+    for (const auto &code : forms) {
+        exec(code);
+        EXPECT_TRUE(in_handler()) << "opcode " << int(*code.begin());
+        EXPECT_EQ(frame(0), 0);
+    }
+}
+
+TEST_F(Cpu80286Test, F1IsALockAliasPrefix) {
+    exec({0xF1, 0xB8, 0x34, 0x12});  // F1 ; MOV AX, 1234h
+    EXPECT_EQ(cpu->ax, 0x1234u);
+    EXPECT_EQ(cpu->ip, 4);
+}
+
+TEST_F(Cpu80286Test, SalcSetsAlFromCarry) {
+    cpu->set_flag(cpu80286::FLAG_CF, true);
+    exec({0xD6});
+    EXPECT_EQ(cpu->ax & 0xFF, 0xFFu);
+    cpu->set_flag(cpu80286::FLAG_CF, false);
+    exec({0xD6});
+    EXPECT_EQ(cpu->ax & 0xFF, 0x00u);
+}
+
+// ---------------------------------------------------------------------------
+// Real-mode system instructions
+// ---------------------------------------------------------------------------
+
+TEST_F(Cpu80286Test, SmswReadsTheResetMsw) {
+    exec({0x0F, 0x01, 0xE0});  // SMSW AX
+    EXPECT_EQ(cpu->ax, 0xFFF0u);
+}
+
+TEST_F(Cpu80286Test, LmswLoadsMpEmTsButCannotSetPe) {
+    uint16_t reported = 0;
+    cpu->on_unimplemented = [&](uint16_t, uint16_t, uint16_t op) { reported = op; };
+    cpu->ax = 0x000F;
+    exec({0x0F, 0x01, 0xF0});  // LMSW AX
+    EXPECT_EQ(cpu->msw(), 0xFFFEu);
+    EXPECT_EQ(reported, 0x0F01u);
+}
+
+TEST_F(Cpu80286Test, CltsClearsTaskSwitched) {
+    cpu->ax = 0x0008;
+    exec({0x0F, 0x01, 0xF0, 0x0F, 0x06}, 2);  // LMSW AX ; CLTS
+    EXPECT_EQ(cpu->msw() & 0x0008, 0);
+}
+
+TEST_F(Cpu80286Test, SidtStoresTheResetIdtAndFfInTheSixthByte) {
+    exec({0x0F, 0x01, 0x0E, 0x00, 0x03});  // SIDT [0300h]
+    EXPECT_EQ(mem[0x300] | (mem[0x301] << 8), 0x03FF);
+    EXPECT_EQ(mem[0x302] | (mem[0x303] << 8) | (mem[0x304] << 16), 0);
+    EXPECT_EQ(mem[0x305], 0xFF) << "a 386 stores 00h here";
+}
+
+TEST_F(Cpu80286Test, SgdtReturnsWhatLgdtLoaded) {
+    uint8_t table[6] = {0x27, 0x00, 0x00, 0x40, 0x01, 0x55};  // limit 27h, base 014000h
+    for (int i = 0; i < 6; ++i) mem[0x300 + i] = table[i];
+    exec({0x0F, 0x01, 0x16, 0x00, 0x03, 0x0F, 0x01, 0x06, 0x10, 0x03}, 2);  // LGDT [0300h] ; SGDT [0310h]
+    EXPECT_EQ(mem[0x310], 0x27);
+    EXPECT_EQ(mem[0x313], 0x40);
+    EXPECT_EQ(mem[0x314], 0x01);
+    EXPECT_EQ(mem[0x315], 0xFF);
+}
+
+TEST_F(Cpu80286Test, LidtMovesTheRealModeVectorTable) {
+    uint8_t table[6] = {0xFF, 0x03, 0x00, 0x20, 0x00, 0x00};  // limit 3FFh, base 2000h
+    for (int i = 0; i < 6; ++i) mem[0x300 + i] = table[i];
+    mem[0x2000 + 0x21 * 4 + 0] = 0x34; mem[0x2000 + 0x21 * 4 + 1] = 0x12;
+    mem[0x2000 + 0x21 * 4 + 2] = 0x00; mem[0x2000 + 0x21 * 4 + 3] = 0x09;
+    exec({0x0F, 0x01, 0x1E, 0x00, 0x03, 0xCD, 0x21}, 2);  // LIDT [0300h] ; INT 21h
+    EXPECT_EQ(cpu->cs, 0x0900);
+    EXPECT_EQ(cpu->ip, 0x1234);
+}
+
+TEST_F(Cpu80286Test, EscWithEmulateSetRaisesDeviceNotAvailable) {
+    handler(7);
+    cpu->ax = 0x0004;
+    exec({0xDB, 0xE3});  // FNINIT, EM clear: no coprocessor, nothing happens
+    EXPECT_EQ(cpu->ip, 2);
+    exec({0x0F, 0x01, 0xF0, 0xDB, 0xE3}, 2);  // LMSW AX (EM) ; FNINIT
+    EXPECT_TRUE(in_handler());
+    EXPECT_EQ(frame(0), 3);
+}
+
+// ---------------------------------------------------------------------------
+// Single-step, interrupt shadow, interruptible REP
+// ---------------------------------------------------------------------------
+
+TEST_F(Cpu80286Test, SingleStepTrapsAfterTheInstruction) {
+    handler(1);
+    cpu->set_flag(cpu80286::FLAG_TF, true);
+    exec({0x90, 0x90});
+    EXPECT_TRUE(in_handler());
+    EXPECT_EQ(frame(0), 1) << "the trap saves the next instruction's address";
+    EXPECT_TRUE(frame(2) & cpu80286::FLAG_TF);
+    EXPECT_FALSE(cpu->flag(cpu80286::FLAG_TF)) << "the handler runs untrapped";
+}
+
+TEST_F(Cpu80286Test, PopfThatSetsTfRunsUntrapped) {
+    handler(1);
+    uint16_t popped = cpu80286::FLAG_TF | cpu80286::FLAG_R1;
+    mem[0x8000] = uint8_t(popped); mem[0x8001] = uint8_t(popped >> 8);
+    exec({0x9D, 0x90});  // POPF ; NOP
+    EXPECT_EQ(cpu->cs, 0x0100);
+    EXPECT_EQ(cpu->ip, 1);
+    cpu->step();
+    EXPECT_TRUE(in_handler()) << "the NOP after it traps";
+}
+
+TEST_F(Cpu80286Test, PopfThatClearsTfStillTraps) {
+    handler(1);
+    mem[0x8000] = uint8_t(cpu80286::FLAG_R1); mem[0x8001] = 0;
+    cpu->set_flag(cpu80286::FLAG_TF, true);
+    exec({0x9D});  // POPF
+    EXPECT_TRUE(in_handler());
+    EXPECT_EQ(frame(0), 1);
+}
+
+TEST_F(Cpu80286Test, IntNEntersItsHandlerUntrapped) {
+    handler(1);
+    mem[0x20 * 4 + 0] = 0x00; mem[0x20 * 4 + 1] = 0x00;
+    mem[0x20 * 4 + 2] = 0x00; mem[0x20 * 4 + 3] = 0x08;
+    cpu->set_flag(cpu80286::FLAG_TF, true);
+    exec({0xCD, 0x20});
+    EXPECT_EQ(cpu->cs, 0x0800);
+    EXPECT_EQ(cpu->ip, 0);
+}
+
+TEST_F(Cpu80286Test, MovSsHoldsOffTheTrapForOneInstruction) {
+    handler(1);
+    cpu->set_flag(cpu80286::FLAG_TF, true);
+    cpu->ax = 0;
+    exec({0x8E, 0xD0, 0x90});  // MOV SS, AX ; NOP
+    EXPECT_TRUE(cpu->interrupt_shadow());
+    EXPECT_EQ(cpu->ip, 2);
+    cpu->step();
+    EXPECT_FALSE(cpu->interrupt_shadow());
+    EXPECT_TRUE(in_handler());
+    EXPECT_EQ(frame(0), 3);
+}
+
+TEST_F(Cpu80286Test, PopSsAndStiFromClearSetTheShadow) {
+    exec({0x17});  // POP SS
+    EXPECT_TRUE(cpu->interrupt_shadow());
+    cpu->set_flag(cpu80286::FLAG_IF, false);
+    exec({0xFB});  // STI with IF clear
+    EXPECT_TRUE(cpu->interrupt_shadow());
+    exec({0xFB});  // STI with IF already set
+    EXPECT_FALSE(cpu->interrupt_shadow());
+}
+
+TEST_F(Cpu80286Test, RepYieldsOnItsFirstPrefixAndCostsTheSameInChunks) {
+    cpu->rep_yield_cycles = 6;
+    for (int i = 0; i < 10; ++i) mem[0x3000 + i] = uint8_t(i + 1);
+    cpu->ds = 0; cpu->es = 0x0400;
+    cpu->si = 0x3000; cpu->di = 0;
+    cpu->cx = 10;
+    exec({0x26, 0xF3, 0xA4, 0x90}, 0);  // ES: REP MOVSB (source ES:SI) ; NOP
+    cpu->es = 0x0400;
+    int total = cpu->step();
+    EXPECT_EQ(cpu->ip, 0) << "IP stays on the first prefix while the REP is unfinished";
+    EXPECT_GT(cpu->cx, 0u);
+    EXPECT_LT(cpu->cx, 10u);
+    while (cpu->ip == 0) total += cpu->step();
+    EXPECT_EQ(cpu->ip, 3);
+    EXPECT_EQ(cpu->cx, 0u);
+    EXPECT_EQ(total, 2 * 2 + 5 + 4 * 10) << "two prefixes plus REP MOVS 5+4n, as if uninterrupted";
+}
+
+TEST_F(Cpu80286Test, RepUnderTfTrapsAfterEachIteration) {
+    handler(1);
+    cpu->set_flag(cpu80286::FLAG_TF, true);
+    cpu->es = 0; cpu->di = 0x3000; cpu->cx = 3; cpu->ax = 0x55;
+    exec({0xF3, 0xAA});  // REP STOSB
+    EXPECT_TRUE(in_handler());
+    EXPECT_EQ(frame(0), 0) << "the trap returns to the REP to run the next iteration";
+    EXPECT_EQ(cpu->cx, 2u);
+    EXPECT_EQ(mem[0x3000], 0x55);
+    EXPECT_EQ(mem[0x3001], 0x00);
+}
+
+// ---------------------------------------------------------------------------
+// Real-mode segment overrun and instruction length
+// ---------------------------------------------------------------------------
+
+TEST_F(Cpu80286Test, WordAtOffsetFfffRaisesGeneralProtection) {
+    handler(13);
+    cpu->ax = 0x1111;
+    exec({0x26, 0xA1, 0xFF, 0xFF});  // MOV AX, ES:[FFFFh]
+    EXPECT_TRUE(in_handler());
+    EXPECT_EQ(frame(0), 0) << "a fault restarts at the first prefix";
+    EXPECT_EQ(cpu->ax, 0x1111u);
+}
+
+TEST_F(Cpu80286Test, WordAtOffsetFffeIsFine) {
+    handler(13);
+    mem[0xFFFE] = 0x34; mem[0xFFFF] = 0x12;
+    cpu->ds = 0;
+    exec({0xA1, 0xFE, 0xFF});  // MOV AX, [FFFEh]
+    EXPECT_EQ(cpu->ax, 0x1234u);
+}
+
+TEST_F(Cpu80286Test, SsOperandAtOffsetFfffRaisesStackFault) {
+    handler(12);
+    cpu->bp = 0xFFFF;
+    exec({0x8B, 0x46, 0x00});  // MOV AX, [BP+0]
+    EXPECT_TRUE(in_handler());
+}
+
+TEST_F(Cpu80286Test, PopAtSpFfffFaultsWithSpUnchanged) {
+    handler(12);
+    cpu->ax = 0x1111;
+    mem[0x1000] = 0x58;  // POP AX
+    cpu->cs = 0x0100; cpu->ip = 0;
+    cpu->ss = 0x0900; cpu->sp = 0xFFFF;
+    cpu->step();
+    EXPECT_EQ(cpu->cs, 0x0700);
+    EXPECT_EQ(cpu->ax, 0x1111u);
+    EXPECT_EQ(frame(0), 0);
+    EXPECT_EQ(uint16_t(cpu->sp + 6), 0xFFFF) << "the frame sits below the SP the POP started with";
+}
+
+TEST_F(Cpu80286Test, InstructionOverTenBytesRaisesGeneralProtection) {
+    handler(13);
+    exec({0x26, 0x26, 0x26, 0x26, 0x26, 0x26, 0x26, 0x26, 0x26, 0x90});  // 10 bytes: fine
+    EXPECT_EQ(cpu->ip, 10);
+    exec({0x26, 0x26, 0x26, 0x26, 0x26, 0x26, 0x26, 0x26, 0x26, 0x26, 0x90});  // 11
+    EXPECT_TRUE(in_handler());
+    EXPECT_EQ(frame(0), 0);
+}
+
+TEST_F(Cpu80286Test, InstructionRunningPastFfffRaisesGeneralProtection) {
+    handler(13);
+    mem[0x1000 + 0xFFFF] = 0xB8;  // MOV AX, imm16 starting at the last byte
+    cpu->cs = 0x0100; cpu->ip = 0xFFFF;
+    cpu->ss = 0; cpu->sp = 0x8000;
+    cpu->step();
+    EXPECT_TRUE(in_handler());
+    EXPECT_EQ(frame(0), 0xFFFF);
+}
+
+TEST_F(Cpu80286Test, DivideErrorRestartsAtThePrefix) {
+    mem[0] = 0x00; mem[1] = 0x00; mem[2] = 0x00; mem[3] = 0x07;
+    cpu->bx = 0;
+    exec({0x26, 0xF6, 0xF3});  // ES: DIV BL
+    EXPECT_TRUE(in_handler());
+    EXPECT_EQ(frame(0), 0);
 }
 
 // ---------------------------------------------------------------------------

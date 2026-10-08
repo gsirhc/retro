@@ -46,13 +46,14 @@ void Chipset::load_rom(uint32_t addr, const uint8_t *data, std::size_t len) {
 }
 
 uint8_t Chipset::mem_read(uint32_t addr) {
-    if (!kbc.a20_enabled()) addr &= 0xFFFFF;  // A20 closed wraps at 1MB
+    if (!kbc.a20_enabled()) addr &= ~0x100000u;  // the gate holds A20 low, nothing else
     if (ega.owns_mem(addr)) return ega.mem_read(addr);
+    if (addr >= kRomAlias) return is_rom(addr) ? mem[addr - kRomAliasOffset] : 0xFF;
     if (addr >= mem.size()) return 0xFF;      // unpopulated
     return mem[addr];
 }
 void Chipset::mem_write(uint32_t addr, uint8_t v) {
-    if (!kbc.a20_enabled()) addr &= 0xFFFFF;
+    if (!kbc.a20_enabled()) addr &= ~0x100000u;
     if (ega.owns_mem(addr)) { ega.mem_write(addr, v); return; }
     if (addr >= mem.size()) return;
     if (rom_[addr]) return;

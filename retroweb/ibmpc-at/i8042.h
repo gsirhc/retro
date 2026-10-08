@@ -1,8 +1,8 @@
 // Intel 8042 keyboard controller, AT wiring. Ports 0x60 (data) and 0x64
 // (status read / command write). IBM 5170 Technical Reference, "Keyboard System".
 //
-//   - Output Port bit 1 gates A20. It starts disabled so the AT wraps at 1MB
-//     like an 8086; BIOS enables it via command 0xD1. chipset.h reads a20_enabled().
+//   - Output Port bit 1 gates A20. The port comes out of reset high, so A20
+//     starts open; BIOS closes it via command 0xD1. chipset.h reads a20_enabled().
 //   - Output Port bit 0 driven low, or command 0xFE, pulses CPU RESET (the 286's
 //     only way back to real mode). reset_requested() surfaces it to Machine.
 //
@@ -28,6 +28,7 @@ public:
     void clear_irq1() { irq1_pending_ = false; }
 
     bool a20_enabled() const { return (output_port_ & 0x02) != 0; }
+    void set_a20(bool on) { output_port_ = uint8_t(on ? (output_port_ | 0x02) : (output_port_ & ~0x02)); }
 
     bool reset_requested() const { return reset_requested_; }
     void clear_reset_request() { reset_requested_ = false; }
@@ -44,7 +45,7 @@ private:
     mutable uint8_t output_buf_ = 0;
     mutable bool output_full_ = false;
     uint8_t command_byte_ = 0x00;
-    uint8_t output_port_ = 0x00;  // bit1 (A20) starts disabled
+    uint8_t output_port_ = 0xFF;
     bool kbd_enabled_ = true;
     bool system_flag_ = false;
     bool last_was_command_ = false;
