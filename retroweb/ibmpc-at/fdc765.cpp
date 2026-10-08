@@ -8,6 +8,7 @@ namespace ibmpcat {
 void Fdc765::reset() {
     phase_ = Phase::kIdle;
     dor_ = 0;
+    data_rate_ = 0;  // 500 kbps after reset (WD1003-WA2 OEM manual, Floppy Control register)
     cmd_ = 0;
     params_received_ = param_count_needed_ = 0;
     result_count_ = result_sent_ = 0;
@@ -17,6 +18,7 @@ void Fdc765::reset() {
     irq_pending_ = false;
     transfer_ready_ = false;
     xfer_active_ = false;
+    formatting_ = false;
     prev_cycles_ = 0;
     // Mounted media survives a controller reset.
     for (auto &d : drives) {
@@ -107,6 +109,7 @@ void Fdc765::out(uint16_t port, uint8_t v) {
                 irq_pending_ = false;
                 transfer_ready_ = false;
                 xfer_active_ = false;
+                formatting_ = false;
             }
             break;
         }
@@ -117,7 +120,7 @@ void Fdc765::out(uint16_t port, uint8_t v) {
                 if (params_received_ >= param_count_needed_) run_command();
             }
             break;
-        case 0x3F7: break;  // Configuration Control Register, not modeled
+        case 0x3F7: data_rate_ = uint8_t(v & 0x03); break;
         default: break;
     }
 }
@@ -160,6 +163,7 @@ void Fdc765::begin_transfer(bool is_write) {
     xfer_target_ = double(transfer_len_) / d.bytes_per_sec * kCpuHz;
     xfer_active_ = true;
     transfer_ready_ = false;
+    formatting_ = false;
     phase_ = Phase::kExecution;
 
     result_[3] = uint8_t(cyl);
@@ -224,12 +228,7 @@ void Fdc765::run_command() {
         }
         case 0x05: case 0x09: begin_transfer(true); break;
         case 0x06: case 0x0C: begin_transfer(false); break;
-        case 0x0D: {  // FORMAT TRACK: accepted, not reformatted
-            for (int i = 0; i < 7; ++i) result_[i] = 0;
-            result_count_ = 7; result_sent_ = 0;
-            phase_ = Phase::kResult;
-            break;
-        }
+        case 0x0D: begin_format(); break;
         default:
             phase_ = Phase::kIdle;
             break;
@@ -253,14 +252,51 @@ void Fdc765::tick(uint64_t cpu_cycles) {
     }
 }
 
+// FORMAT A TRACK: DMA supplies C, H, R, N per sector; data fields get the D byte (NEC uPD765A data sheet).
+void Fdc765::begin_format() {
+    int drive = params_[0] & 1;
+    int head = (params_[0] >> 2) & 1;
+    int sc = params_[2];
+    format_fill_ = params_[4];
+    format_ids_.assign(std::size_t(sc) * 4, 0);
+    transfer_len_ = format_ids_.size();
+    xfer_drive_ = drive;
+    transfer_is_write_ = true;
+    formatting_ = true;
+    xfer_credit_ = 0.0;
+    // index to index: A: spins at 360 RPM, B: at 300
+    xfer_target_ = kCpuHz / (drive == 0 ? 6.0 : 5.0);
+    xfer_active_ = true;
+    transfer_ready_ = false;
+    phase_ = Phase::kExecution;
+
+    result_[3] = uint8_t(drives[drive].current_cylinder);
+    result_[4] = uint8_t(head);
+    result_[5] = uint8_t(sc);
+    result_[6] = params_[1];
+}
+
+// A raw image holds a sector at its ID, so the ID's C/H/R place it, as READ DATA finds it.
+void Fdc765::apply_format(std::size_t id_bytes) {
+    Drive &d = drives[xfer_drive_];
+    if (!d.present) return;
+    for (std::size_t i = 0; i + 4 <= id_bytes; i += 4) {
+        int c = format_ids_[i], h = format_ids_[i + 1], r = format_ids_[i + 2], n = format_ids_[i + 3];
+        if (n != 2 || c >= d.cylinders || h >= d.heads || r < 1 || r > d.sectors_per_track) continue;
+        long off = d.offset_for(c, h, r);
+        std::fill(d.image.begin() + off, d.image.begin() + off + Drive::kBytesPerSector, format_fill_);
+    }
+    d.dirty = true;
+}
+
 uint8_t *Fdc765::transfer_image_ptr() {
+    if (formatting_) return format_ids_.data();
     Drive &d = drives[xfer_drive_];
     if (xfer_offset_ < 0 || std::size_t(xfer_offset_) + transfer_len_ > d.image.size()) return nullptr;
     return d.image.data() + xfer_offset_;
 }
 
 void Fdc765::finish_transfer(std::size_t actual_len) {
-    (void)actual_len;
     xfer_active_ = false;
     transfer_ready_ = false;
     result_[0] = 0;  // ST0: normal termination
@@ -268,8 +304,13 @@ void Fdc765::finish_transfer(std::size_t actual_len) {
     result_[2] = 0;
     result_count_ = 7; result_sent_ = 0;
     phase_ = Phase::kResult;
-    if (dor_ & 0x08) irq_pending_ = true;  // DMA/IRQ enable bit
-    if (transfer_is_write_) drives[xfer_drive_].dirty = true;
+    irq_pending_ = true;
+    if (formatting_) {
+        formatting_ = false;
+        apply_format(actual_len);
+    } else if (transfer_is_write_) {
+        drives[xfer_drive_].dirty = true;
+    }
 }
 
 }  // namespace ibmpcat

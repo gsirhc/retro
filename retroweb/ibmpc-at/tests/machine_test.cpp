@@ -12,7 +12,7 @@ TEST(MachineTest, ConstructorSeedsFactoryCmosConfiguration) {
     // Without the factory CMOS bytes the BIOS panics "No bootable device" (IBM_PCAT_REVIEW.md §8).
     Machine m;
     EXPECT_EQ(m.chipset.cmos.peek(0x10), 0x21);  // drive A: 1.2MB, B: 360KB
-    EXPECT_EQ(m.chipset.cmos.peek(0x14) & 0x01, 0x01);  // a floppy is installed
+    EXPECT_EQ(m.chipset.cmos.peek(0x14), 0x41);  // two diskette drives, EGA
     EXPECT_EQ(m.chipset.cmos.peek(0x15), 0x80);  // base memory low byte
     EXPECT_EQ(m.chipset.cmos.peek(0x16), 0x02);  // base memory high byte -> 640KB
     EXPECT_EQ(m.chipset.cmos.peek(0x3D) & 0x0F, 0x01);         // 1st boot device = floppy

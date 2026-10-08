@@ -12,10 +12,11 @@ source) and delete it here. Done so far: the real-mode CPU, C1-C9
 (§45), bus timing, T1-T5 and T8 with P5 and E11 (§46), and EGA
 contention plus the TOPBENCH calibration, T6-T7 with P1-P3 (§47), and
 the EGA BIOS stand-in plus E1-E10 and E12-E14 (§48), and EGA
-addressing, latches and the monochrome ports, E15-E17 (§49), and the
-full 8259A and 8237A with P4, P6 and P9 (§50).
+addressing, latches and the monochrome ports, E15-E17 (§49), the
+full 8259A and 8237A with P4, P6 and P9 (§50), and storage, S1-S4
+(§51) and S5, S6 and S8's rotation (§52).
 
-Rough parity today: **~80%**.
+Rough parity today: **~82%**.
 
 | Area | Parity | Biggest gap |
 |------|--------|-------------|
@@ -24,7 +25,7 @@ Rough parity today: **~80%**.
 | Timing | 96% | fetch-bound code runs 4-7% fast against TOPBENCH |
 | EGA | 92% | memory-cycle length unsourced (VidMem -9% on the Enhanced Display) |
 | Chipset (PIT, PIC, DMA, memory) | 80% | no extended memory, no serial or parallel port |
-| Storage (WD1003, floppy) | 75% | thin WD1003 command set, no FDC data rate |
+| Storage (WD1003, floppy) | 95% | floppy data rate not enforced, hard disk seeks are instant |
 | Keyboard, RTC | 60% | RTC doesn't tick, no typematic, lost bytes |
 | Speaker | 95% | not checked against a recording of a real 5170 |
 
@@ -113,22 +114,18 @@ page, a Playwright test, in the same commit.
 
 ## 5. Storage
 
-- **S1. Thin WD1003 command set.** Only RESTORE, READ, WRITE, SET
-  PARAMETERS and IDENTIFY. The real WD1003-WA2 also has SEEK (7xh), READ
-  VERIFY (40h), FORMAT TRACK (50h) and DIAGNOSE (90h): INT 13h AH=04h
-  verify, low-level format tools and POST all use them. IDENTIFY (ECh) is
-  an ATA command a real WD1003 aborts. It stays because the Bochs BIOS's
-  `ata_detect()` needs it, so label it. Source: WD1003-WA2 OEM manual.
-- **S2. FORMAT TRACK leaves old sector data.** Same as the 486's S2.
-  Source: NEC uPD765 data sheet, FORMAT A TRACK.
-- **S3. The data rate is ignored.** Writes to 3F7h are dropped, so any
-  rate reads any disk. On a real AT a 360KB disk in the 1.2MB drive reads
-  only at 300 kbps, and the BIOS finds it by retrying rates. Source: IBM
-  PC/AT Technical Reference, diskette adapter.
-- **S4. IRQ6 ignores DOR bit 3.** The adapter tri-states INT along with
-  DRQ when DOR bit 3 is clear. DRQ follows it (§50.3), but the FDC still
-  sets INT for a seek or reset with the bit clear. Source: IBM PC/AT
-  Technical Reference, diskette adapter.
+- **S7. The floppy data rate isn't enforced.** 3F7h is latched (§51.4),
+  but a mismatch with the media still reads, because the stand-in BIOS
+  never writes the register. On a real AT, a 360KB disk reads only at
+  300 kbps in A: and 250 kbps in B:. Needs a BIOS that sets the rate (a
+  patch to the Bochs BIOS's media sense, or a different stand-in), then
+  the check. Source: WD1003-WA2 OEM manual, Floppy Control register.
+- **S8. Hard disk seeks are instant.** The platter turns (§52.4), but
+  SEEK, RESTORE and implied seeks take no time. The ST4038 gives 11 ms
+  track to track, 40 ms average and 85 ms full stroke, all maximums, and a
+  real drive is usually quicker. Needs a seek profile, or a measurement
+  from a real drive, not a curve fitted to maximums. Source: Seagate
+  ST4038 product manual 1.2.
 
 ## 6. Keyboard and RTC
 
@@ -165,7 +162,7 @@ page, a Playwright test, in the same commit.
   checks real-speed pacing and says it "only needs the machine running".
   `CLAUDE.md` wants a boot plus one real interaction. Add a case: boot to
   `C:\>` and echo a typed key. Same as the 486's X1.
-- **X2. Thin native suites.** machine 11, cmos 6, fdc 10. R1 grows
+- **X2. Thin native suites.** machine 11, cmos 6, fdc 14. R1 grows
   cmos anyway. IRQ routing and the cascade are covered in `chipset_test`
   (§50.5); machine still runs no CPU-level interrupt through both PICs.
 - **X3. Controls without a test.** `hddLed` has none, and the F-key and

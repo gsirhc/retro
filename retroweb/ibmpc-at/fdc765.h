@@ -9,7 +9,10 @@
 //    decremented byte by byte mid-transfer.
 //  - Seek/recalibrate use a fixed per-track time (3ms 1.2MB, 6ms 360KB).
 //    SPECIFY is stored but does not affect timing.
-//  - FORMAT TRACK returns the right byte counts but does not reformat.
+//  - FORMAT TRACK takes one revolution and fills the sectors its IDs name,
+//    wherever the head is, skipping IDs off the image's geometry.
+//  - The data rate written to 0x3F7 is latched but never checked against the
+//    media: the stand-in BIOS never writes it. Pacing uses the media's rate.
 //  - chipset.cpp performs the memory<->image copy via transfer_ready(),
 //    transfer_image_ptr() and finish_transfer().
 #ifndef IBMPCAT_FDC765_H
@@ -58,12 +61,15 @@ public:
     // Advances seek and transfer pacing against the CPU cycle count.
     void tick(uint64_t cpu_cycles);
 
-    bool irq_pending() const { return irq_pending_; }
+    // DOR bit 3 gates the INT and DRQ drivers, not the FDC's INT (WD1003-WA2 OEM manual, FDMAEN).
+    bool irq_pending() const { return irq_pending_ && dma_enabled(); }
     void clear_irq() { irq_pending_ = false; }
+
+    // 0 = 500, 1 = 300, 2 = 250 kbps MFM, 3 = 125 kbps FM.
+    uint8_t data_rate() const { return data_rate_; }
 
     // --- chipset/DMA integration ---
     bool transfer_ready() const { return transfer_ready_; }
-    // DOR bit 3 gates the INT and DRQ outputs (IBM PC/AT Technical Reference, diskette adapter).
     bool dma_enabled() const { return (dor_ & 0x08) != 0; }
     bool transfer_is_write() const { return transfer_is_write_; }  // memory -> image
     std::size_t transfer_length() const { return transfer_len_; }
@@ -82,6 +88,7 @@ private:
     Phase phase_ = Phase::kIdle;
 
     uint8_t dor_ = 0x00;        // Digital Output Register (0x3F2)
+    uint8_t data_rate_ = 0;     // Floppy Control register (0x3F7 write)
 
     uint8_t cmd_ = 0;
     uint8_t params_[9] = {};
@@ -105,6 +112,9 @@ private:
     std::size_t transfer_len_ = 0;
     double xfer_credit_ = 0.0, xfer_target_ = 0.0;
     bool xfer_active_ = false;
+    bool formatting_ = false;
+    uint8_t format_fill_ = 0;
+    std::vector<uint8_t> format_ids_;  // C, H, R, N per sector, read by DMA
 
     uint64_t prev_cycles_ = 0;
 
@@ -114,6 +124,8 @@ private:
     void start_command(uint8_t first_byte);
     void run_command();  // called once all parameter bytes are in
     void begin_transfer(bool is_write);
+    void begin_format();
+    void apply_format(std::size_t id_bytes);
 };
 
 }  // namespace ibmpcat

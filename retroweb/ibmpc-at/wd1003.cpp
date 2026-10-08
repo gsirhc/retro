@@ -1,12 +1,72 @@
 #include "wd1003.h"
 
 #include <algorithm>
+#include <array>
+#include <cmath>
 #include <cstring>
 
 namespace ibmpcat {
 
+namespace {
+
+// x^32+x^28+x^26+x^19+x^17+x^10+x^6+x^2+1, shifted MSB first (WD11C00-13 data sheet)
+constexpr uint32_t kEccPoly = 0x140A0445;
+// FFFFFFFF preset after the A1 F8 data mark (WD11C00-13 data sheet, Preset Generator)
+constexpr uint32_t kEccSeed = 0xB517894A;
+constexpr int kRecordBits = (512 + 4) * 8;
+constexpr int kCorrectionSpan = 5;  // WD1003-WA2 OEM manual 5.2.3
+
+uint32_t ecc_shift(uint32_t reg, const uint8_t* p, std::size_t n) {
+    for (std::size_t i = 0; i < n; ++i) {
+        for (int b = 7; b >= 0; --b) {
+            bool fb = ((reg >> 31) ^ (p[i] >> b)) & 1;
+            reg <<= 1;
+            if (fb) reg ^= kEccPoly;
+        }
+    }
+    return reg;
+}
+
+uint32_t mul_x(uint32_t r) { return (r << 1) ^ ((r >> 31) ? kEccPoly : 0); }
+
+// Syndrome of a single bit error at each bit of the 516-byte record.
+const std::array<uint32_t, kRecordBits>& bit_syndromes() {
+    static const std::array<uint32_t, kRecordBits> table = [] {
+        std::array<uint32_t, kRecordBits> t{};
+        const uint8_t one = 1;
+        t[kRecordBits - 1] = ecc_shift(0, &one, 1);
+        for (int k = kRecordBits - 2; k >= 0; --k) t[std::size_t(k)] = mul_x(t[std::size_t(k) + 1]);
+        return t;
+    }();
+    return table;
+}
+
+// Finds a burst of up to kCorrectionSpan bits with this syndrome and flips it in data.
+bool correct_burst(uint32_t syndrome, uint8_t* data) {
+    const auto& t = bit_syndromes();
+    for (int k = 0; k < kRecordBits; ++k) {
+        for (int tail = 0; tail < (1 << (kCorrectionSpan - 1)); ++tail) {
+            uint32_t s = t[std::size_t(k)];
+            for (int j = 1; j < kCorrectionSpan; ++j)
+                if ((tail >> (j - 1)) & 1) s ^= k + j < kRecordBits ? t[std::size_t(k + j)] : 0;
+            if (s != syndrome) continue;
+            for (int j = 0; j < kCorrectionSpan; ++j) {
+                int bit = k + j;
+                if ((j == 0 || ((tail >> (j - 1)) & 1)) && bit < 512 * 8) data[bit / 8] ^= uint8_t(0x80 >> (bit % 8));
+            }
+            return true;
+        }
+    }
+    return false;
+}
+
+}  // namespace
+
+uint32_t Wd1003::data_ecc(const uint8_t* data) { return ecc_shift(kEccSeed, data, 512); }
+
 void Wd1003::reset() {
     error_ = 0;
+    precomp_ = 0;
     sector_count_ = 1;
     sector_number_ = 1;
     cyl_low_ = 0;
@@ -21,9 +81,12 @@ void Wd1003::reset() {
     pio_buffer_.clear();
     pio_pos_ = 0;
     pio_mode_ = PioMode::kNone;
+    xfer_ = Xfer::kNone;
     xfer_active_ = false;
-    xfer_is_write_ = false;
-    xfer_credit_ = xfer_target_ = 0.0;
+    sectors_left_ = 0;
+    long_ = no_retry_ = id_missing_ = corrected_ = false;
+    retries_ = 0;
+    due_ = 0.0;
     prev_cycles_ = 0;
     // drives[] survive reset.
 }
@@ -33,6 +96,9 @@ void Wd1003::mount(int drive, const uint8_t *data, std::size_t len) {
     d.image.assign(data, data + len);
     d.present = true;
     d.dirty = false;
+    d.bad_sectors.clear();
+    d.ecc_override.clear();
+    d.layout.clear();
     // ST-4038 geometry, the only configuration
     d.cylinders = 733;
     d.heads = 5;
@@ -48,7 +114,12 @@ uint8_t Wd1003::pio_read_byte() {
     uint8_t b = pio_buffer_[pio_pos_++];
     if (pio_pos_ >= pio_buffer_.size()) {
         pio_mode_ = PioMode::kNone;
-        status_ = uint8_t((status_ & uint8_t(~(ST_DRQ | ST_BSY))) | ST_DRDY | ST_DSC);
+        if (xfer_ == Xfer::kRead && sectors_left_ > 0 && error_ == 0) {
+            seek_sector();
+        } else {
+            xfer_ = Xfer::kNone;
+            status_ = uint8_t(ST_DRDY | ST_DSC | (error_ ? ST_ERR : 0));
+        }
     }
     return b;
 }
@@ -56,11 +127,16 @@ void Wd1003::pio_write_byte(uint8_t v) {
     if (pio_mode_ != PioMode::kWriteFill || pio_pos_ >= pio_buffer_.size()) return;
     pio_buffer_[pio_pos_++] = v;
     if (pio_pos_ >= pio_buffer_.size()) {
-        // Commits synchronously, unlike the paced read. A drive can report a write
-        // done once data is buffered, and rombios.c ata_cmd_data_io() checks status right
-        // after the last outsw without awaiting BSY clear. IBM_PCAT_REVIEW.md.
         pio_mode_ = PioMode::kNone;
-        finish_read_or_write();
+        if (xfer_ == Xfer::kFormat) {
+            // the format starts at the index pulse and runs one revolution
+            double now = double(prev_cycles_);
+            due_ = now + (kCyclesPerRev - std::fmod(now, kCyclesPerRev)) + kCyclesPerRev;
+            xfer_active_ = true;
+            status_ = ST_BSY;
+        } else {
+            finish_write();
+        }
     }
 }
 
@@ -101,7 +177,7 @@ void Wd1003::out(uint16_t port, uint8_t v) {
     if (port == 0x1F7 && selected_drive_absent()) return;
     switch (port) {
         case 0x1F0: pio_write_byte(v); break;
-        case 0x1F1: error_ = v; break;  // "features" register when written; not interpreted
+        case 0x1F1: precomp_ = v; break;
         case 0x1F2: sector_count_ = v; break;
         case 0x1F3: sector_number_ = v; break;
         case 0x1F4: cyl_low_ = v; break;
@@ -123,7 +199,9 @@ void Wd1003::out(uint16_t port, uint8_t v) {
                 floating_reads_left_ = selected_drive_absent() ? 2 : 0;
                 error_ = 0;
                 pio_mode_ = PioMode::kNone;
+                xfer_ = Xfer::kNone;
                 xfer_active_ = false;
+                long_ = false;
             }
             srst_prev_ = srst_now;
             nien_ = (v & 0x02) != 0;
@@ -133,27 +211,50 @@ void Wd1003::out(uint16_t port, uint8_t v) {
     }
 }
 
+void Wd1003::complete(uint8_t error) {
+    xfer_ = Xfer::kNone;
+    xfer_active_ = false;
+    error_ = error;
+    status_ = uint8_t(ST_DRDY | ST_DSC | (error ? ST_ERR : 0));
+    irq_pending_ = true;
+}
+
+// Command codes per WD1003-WA2 OEM manual Table 5-1.
 void Wd1003::run_command(uint8_t cmd) {
     error_ = 0;
-    if ((cmd & 0xF0) == 0x10) {  // RECALIBRATE (0x10-0x1F)
-        status_ = ST_DRDY | ST_DSC;
-        irq_pending_ = !nien_;
-        return;
+    switch (cmd & 0xF0) {
+        case 0x10: complete(); return;  // RESTORE
+        case 0x70: complete(); return;  // SEEK
+        default: break;
     }
     switch (cmd) {
-        case 0xEC: do_identify(); break;
-        case 0x91:  // INITIALIZE DEVICE PARAMETERS: accepted, geometry is fixed
-            status_ = ST_DRDY | ST_DSC;
-            irq_pending_ = !nien_;
-            break;
-        case 0x20: case 0x21: begin_read(); break;
-        case 0x30: case 0x31: begin_write(); break;
-        default:
-            status_ = ST_DRDY | ST_DSC | ST_ERR;
-            error_ = 0x04;  // ABRT
-            irq_pending_ = !nien_;
-            break;
+        case 0xEC: do_identify(); break;  // ATA, not WD1003: the stand-in BIOS's ata_detect() needs it
+        case 0x91: complete(); break;     // SET PARAMETERS: accepted, geometry is fixed
+        case 0x90: do_diagnose(); break;
+        case 0x20: case 0x21: case 0x22: case 0x23: begin_read(Xfer::kRead, cmd); break;
+        case 0x30: case 0x31: case 0x32: case 0x33: begin_write(cmd); break;
+        case 0x40: case 0x41: begin_read(Xfer::kVerify, cmd); break;
+        case 0x50: begin_format(); break;
+        default: complete(ERR_ABRT); break;
     }
+}
+
+// Result code 01 is "no errors" (WD1003-WA2 OEM manual 5.2.7).
+void Wd1003::do_diagnose() {
+    precomp_ = 32;
+    sector_count_ = 1;
+    cyl_low_ = cyl_high_ = 0;
+    drive_head_ = 0;
+    selected_drive_ = 0;
+    complete();
+    error_ = 0x01;
+}
+
+long Wd1003::first_bad(long first, int count) const {
+    const Drive &d = drives[selected_drive_];
+    if (d.bad_sectors.empty()) return -1;
+    auto it = d.bad_sectors.lower_bound(first);
+    return (it != d.bad_sectors.end() && *it < first + count) ? *it : -1;
 }
 
 void Wd1003::do_identify() {
@@ -193,8 +294,9 @@ void Wd1003::do_identify() {
 
     pio_pos_ = 0;
     pio_mode_ = PioMode::kReadDrain;
+    xfer_ = Xfer::kNone;
     status_ = ST_DRQ | ST_DRDY | ST_DSC;
-    irq_pending_ = !nien_;
+    irq_pending_ = true;
 }
 
 long Wd1003::offset_for_current_registers() const {
@@ -213,59 +315,192 @@ long Wd1003::offset_for_current_registers() const {
     return d.offset_for(cyl, head, sector_number_);
 }
 
-void Wd1003::begin_read() {
-    int count = sector_count_ == 0 ? 256 : sector_count_;
-    xfer_len_ = std::size_t(count) * Drive::kBytesPerSector;
+void Wd1003::begin_read(Xfer kind, uint8_t cmd) {
+    xfer_ = kind;
+    long_ = (cmd & 0x02) != 0;
+    no_retry_ = (cmd & 0x01) != 0;
+    corrected_ = false;
+    sectors_left_ = sector_count_ == 0 ? 256 : sector_count_;
     xfer_offset_ = offset_for_current_registers();
-    xfer_is_write_ = false;
+    seek_sector();
+}
+
+double Wd1003::sector_due(long sector) const {
+    const Drive &d = drives[selected_drive_];
+    long track = sector / d.sectors_per_track;
+    int r = int(sector % d.sectors_per_track);
+    int slot = (r * kFactoryInterleave) % d.sectors_per_track, slots = d.sectors_per_track;
+    auto it = d.layout.find(track);
+    if (it != d.layout.end()) {
+        slot = it->second.first[std::size_t(r)];
+        slots = it->second.second;
+    }
+    double now = double(prev_cycles_);
+    double slot_len = kCyclesPerRev / slots;
+    double wait = slot * slot_len - std::fmod(now, kCyclesPerRev);
+    if (wait < 0) wait += kCyclesPerRev;
+    return now + wait + slot_len;
+}
+
+// An ID that never passes the head is searched for 10 revolutions, 2 with T set (WD1003-WA2 OEM manual 5.2.3).
+void Wd1003::seek_sector() {
+    const Drive &d = drives[selected_drive_];
+    long sector = xfer_offset_ / Drive::kBytesPerSector;
+    id_missing_ = xfer_offset_ < 0 || std::size_t(xfer_offset_) + Drive::kBytesPerSector > d.image.size();
+    if (!id_missing_) {
+        auto it = d.layout.find(sector / d.sectors_per_track);
+        id_missing_ = it != d.layout.end() && it->second.first[std::size_t(sector % d.sectors_per_track)] < 0;
+    }
+    due_ = id_missing_ ? double(prev_cycles_) + (no_retry_ ? 2 : 10) * kCyclesPerRev : sector_due(sector);
+    retries_ = 0;
     xfer_active_ = true;
-    xfer_credit_ = 0.0;
-    xfer_target_ = double(xfer_len_) / kBytesPerSec * kCpuHz;
     status_ = ST_BSY;
 }
 
-void Wd1003::begin_write() {
+// READ interrupts per sector as it reaches the buffer, none at the end (WD1003-WA2 OEM manual 5.2.3).
+// An ECC error is reread up to eight times; a correctable one is fixed on the second matching syndrome.
+void Wd1003::sector_arrived() {
+    Drive &d = drives[selected_drive_];
+    if (id_missing_) {
+        complete(ERR_IDNF);
+        return;
+    }
+    long sector = xfer_offset_ / Drive::kBytesPerSector;
+    if (first_bad(sector, 1) >= 0) {
+        complete(ERR_BB);
+        return;
+    }
+    auto src = d.image.begin() + xfer_offset_;
+    std::vector<uint8_t> data(src, src + Drive::kBytesPerSector);
+    uint32_t computed = data_ecc(data.data());
+    auto ov = d.ecc_override.find(sector);
+    uint32_t stored = ov != d.ecc_override.end() ? ov->second : computed;
+    bool uncorrectable = false;
+    if (!long_ && stored != computed) {
+        const uint8_t ecc[4] = {uint8_t(stored >> 24), uint8_t(stored >> 16), uint8_t(stored >> 8), uint8_t(stored)};
+        uint32_t syndrome = ecc_shift(computed, ecc, 4);
+        std::vector<uint8_t> fixed = data;
+        bool correctable = correct_burst(syndrome, fixed.data());
+        if (retries_ < (correctable ? 1 : 8)) {
+            ++retries_;
+            due_ += kCyclesPerRev;
+            return;
+        }
+        if (correctable) {
+            data = fixed;
+            corrected_ = true;
+        } else {
+            uncorrectable = true;
+        }
+    }
+    xfer_active_ = false;
+    xfer_offset_ += Drive::kBytesPerSector;
+    --sectors_left_;
+    if (xfer_ == Xfer::kVerify) {
+        if (uncorrectable) complete(ERR_ECC);
+        else if (sectors_left_ > 0) seek_sector();
+        else {
+            complete();
+            if (corrected_) status_ |= ST_CORR;
+        }
+        return;
+    }
+    if (long_) {
+        for (int i = 3; i >= 0; --i) data.push_back(uint8_t(stored >> (8 * i)));
+    }
+    pio_buffer_ = std::move(data);
+    pio_pos_ = 0;
+    pio_mode_ = PioMode::kReadDrain;
+    error_ = uncorrectable ? ERR_ECC : 0;
+    status_ = uint8_t(ST_DRQ | ST_DRDY | ST_DSC | (uncorrectable ? ST_ERR : 0) | (corrected_ ? ST_CORR : 0));
+    corrected_ = false;
+    irq_pending_ = true;
+}
+
+void Wd1003::begin_write(uint8_t cmd) {
+    long_ = (cmd & 0x02) != 0;
     int count = sector_count_ == 0 ? 256 : sector_count_;
-    xfer_len_ = std::size_t(count) * Drive::kBytesPerSector;
+    xfer_len_ = std::size_t(count) * (Drive::kBytesPerSector + (long_ ? 4 : 0));
     xfer_offset_ = offset_for_current_registers();
-    xfer_is_write_ = true;
+    xfer_ = Xfer::kWrite;
     pio_buffer_.assign(xfer_len_, 0);
     pio_pos_ = 0;
     pio_mode_ = PioMode::kWriteFill;
-    // DRQ is asserted at once, as on real ATA. Completion is synchronous in pio_write_byte().
     status_ = ST_DRQ | ST_DRDY;
     xfer_active_ = false;
 }
 
-void Wd1003::finish_read_or_write() {
+void Wd1003::finish_write() {
     Drive &d = drives[selected_drive_];
-    xfer_active_ = false;
-    if (xfer_offset_ < 0 || std::size_t(xfer_offset_) + xfer_len_ > d.image.size()) {
-        status_ = ST_DRDY | ST_DSC | ST_ERR;
-        error_ = 0x10;  // IDNF, closest code for an out-of-range request
-        irq_pending_ = !nien_;
+    std::size_t record = Drive::kBytesPerSector + (long_ ? 4 : 0);
+    int count = int(xfer_len_ / record);
+    if (xfer_offset_ < 0 || std::size_t(xfer_offset_) + std::size_t(count) * Drive::kBytesPerSector > d.image.size()) {
+        complete(ERR_IDNF);
         return;
     }
-    if (xfer_is_write_) {
-        std::copy(pio_buffer_.begin(), pio_buffer_.end(), d.image.begin() + xfer_offset_);
-        d.dirty = true;
-        status_ = ST_DRDY | ST_DSC;
-        irq_pending_ = !nien_;
-    } else {
-        pio_buffer_.assign(d.image.begin() + xfer_offset_, d.image.begin() + xfer_offset_ + long(xfer_len_));
-        pio_pos_ = 0;
-        pio_mode_ = PioMode::kReadDrain;
-        status_ = ST_DRQ | ST_DRDY | ST_DSC;
-        irq_pending_ = !nien_;
+    long first = xfer_offset_ / Drive::kBytesPerSector;
+    long bad = first_bad(first, count);
+    int good = bad < 0 ? count : int(bad - first);
+    for (int i = 0; i < good; ++i) {
+        const uint8_t* src = pio_buffer_.data() + std::size_t(i) * record;
+        std::copy(src, src + Drive::kBytesPerSector, d.image.begin() + xfer_offset_ + long(i) * Drive::kBytesPerSector);
+        d.ecc_override.erase(first + i);
+        if (long_) {
+            const uint8_t* e = src + Drive::kBytesPerSector;
+            uint32_t ecc = uint32_t(e[0]) << 24 | uint32_t(e[1]) << 16 | uint32_t(e[2]) << 8 | e[3];
+            if (ecc != data_ecc(src)) d.ecc_override[first + i] = ecc;
+        }
     }
+    if (good > 0) d.dirty = true;
+    complete(bad < 0 ? 0 : ERR_BB);
+}
+
+// The host sends a 512-byte buffer of (flag, sector) pairs; 80h marks a bad block (WD1003-WA2 OEM manual 5.2.5).
+void Wd1003::begin_format() {
+    xfer_ = Xfer::kFormat;
+    pio_buffer_.assign(Drive::kBytesPerSector, 0);
+    pio_pos_ = 0;
+    pio_mode_ = PioMode::kWriteFill;
+    status_ = ST_DRQ | ST_DRDY;
+    xfer_active_ = false;
+}
+
+// Data fields end up zeroed (WD1003-WA2 OEM manual 5.2.5). No error reporting.
+void Wd1003::finish_format() {
+    Drive &d = drives[selected_drive_];
+    int cyl = int(cyl_low_) | (int(cyl_high_) << 8);
+    int head = drive_head_ & 0x0F;
+    if (d.present && cyl < d.cylinders && head < d.heads) {
+        long track_index = long(cyl) * d.heads + head;
+        long track = track_index * d.sectors_per_track;
+        d.bad_sectors.erase(d.bad_sectors.lower_bound(track),
+                            d.bad_sectors.lower_bound(track + d.sectors_per_track));
+        d.ecc_override.erase(d.ecc_override.lower_bound(track),
+                             d.ecc_override.lower_bound(track + d.sectors_per_track));
+        int count = std::min(sector_count_ == 0 ? 256 : int(sector_count_), Drive::kBytesPerSector / 2);
+        std::vector<int> slot_of(std::size_t(d.sectors_per_track), -1);
+        for (int i = 0; i < count; ++i) {
+            uint8_t flag = pio_buffer_[std::size_t(i) * 2];
+            int r = pio_buffer_[std::size_t(i) * 2 + 1];
+            if (r < 1 || r > d.sectors_per_track) continue;
+            slot_of[std::size_t(r - 1)] = i;
+            long off = d.offset_for(cyl, head, r);
+            std::fill(d.image.begin() + off, d.image.begin() + off + Drive::kBytesPerSector, uint8_t(0));
+            if (flag & 0x80) d.bad_sectors.insert(track + r - 1);
+        }
+        d.layout[track_index] = {slot_of, std::max(count, 1)};
+        d.dirty = true;
+    }
+    complete();
 }
 
 void Wd1003::tick(uint64_t cpu_cycles) {
-    uint64_t d = cpu_cycles - prev_cycles_;
     prev_cycles_ = cpu_cycles;
-    if (xfer_active_) {
-        xfer_credit_ += double(d);
-        if (xfer_credit_ >= xfer_target_) finish_read_or_write();
+    if (!xfer_active_ || double(cpu_cycles) < due_) return;
+    switch (xfer_) {
+        case Xfer::kRead: case Xfer::kVerify: sector_arrived(); break;
+        case Xfer::kFormat: finish_format(); break;
+        default: xfer_active_ = false; break;
     }
 }
 

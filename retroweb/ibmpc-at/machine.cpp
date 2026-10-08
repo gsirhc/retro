@@ -6,8 +6,9 @@ void Machine::configure_factory_cmos() {
     auto &c = chipset.cmos;
     // Floppy types (0x10): high nibble A:, low nibble B:. 1=360KB, 2=1.2MB.
     c.poke(0x10, 0x21);
-    // Equipment byte (0x14): bit0 = floppy installed. Other sub-fields are unset.
-    c.poke(0x14, 0x01);
+    // Equipment byte (0x14): bits 7-6 = drives - 1, 5-4 = 0 for an EGA, bit0 = diskettes fitted.
+    // rombios.c copies it straight into BDA 40:10.
+    c.poke(0x14, 0x41);
     // Base memory 640KB, word at 0x15/0x16.
     c.poke(0x15, 0x80);
     c.poke(0x16, 0x02);

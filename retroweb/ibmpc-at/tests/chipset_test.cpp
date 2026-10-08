@@ -510,4 +510,39 @@ TEST(ChipsetTest, FdcResetGivesIrq6AFreshEdgeAfterReinit) {
     EXPECT_EQ(cs.poll_interrupt(), 0x0E);
 }
 
+TEST(ChipsetTest, FormatTrackTakesItsIdsByDmaAndRaisesIrq6) {
+    Chipset cs;
+    InitPics(cs);
+    std::vector<uint8_t> img(80 * 2 * 15 * 512, 0x11);
+    cs.fdc.mount(0, img.data(), img.size());
+    cs.fdc.out(0x3F2, 0x1C);
+    cs.fdc.clear_irq();
+    cs.dma2.out(0xD6, 0xC0);
+    cs.dma2.out(0xD4, 0x00);
+    for (int i = 0; i < 15; ++i) {
+        cs.mem[0x3000 + i * 4] = 0;
+        cs.mem[0x3001 + i * 4] = 0;
+        cs.mem[0x3002 + i * 4] = uint8_t(i + 1);
+        cs.mem[0x3003 + i * 4] = 2;
+    }
+    cs.dma1.out(0x0B, 0x4A);
+    cs.dma1.out(0x0C, 0);
+    cs.dma1.out(0x04, 0x00); cs.dma1.out(0x04, 0x30);
+    cs.dma1.out(0x05, 15 * 4 - 1); cs.dma1.out(0x05, 0x00);
+    cs.dma1.out(0x0A, 0x02);
+    const uint8_t cmd[] = {0x4D, 0x00, 0x02, 0x0F, 0x00, 0xF6};
+    for (uint8_t b : cmd) cs.fdc.out(0x3F5, b);
+    bool irq = false;
+    for (uint64_t c = 0; c < 4'000'000 && !irq; c += 100) {
+        cs.tick(c, 8000000.0);
+        irq = cs.has_interrupt();
+    }
+    ASSERT_TRUE(irq);
+    EXPECT_EQ(cs.poll_interrupt(), 0x0E);
+    EXPECT_EQ(cs.dma1.in(0x08) & 0x04, 0x04);
+    EXPECT_EQ(cs.fdc.drives[0].image[0], 0xF6);
+    EXPECT_EQ(cs.fdc.drives[0].image[15 * 512 - 1], 0xF6);
+    EXPECT_EQ(cs.fdc.drives[0].image[15 * 512], 0x11);
+}
+
 }  // namespace

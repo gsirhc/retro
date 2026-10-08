@@ -181,4 +181,76 @@ TEST_F(Fdc765Test, ResetDropsIntUntilItIsReleased) {
     EXPECT_TRUE(fdc.irq_pending());
 }
 
+TEST_F(Fdc765Test, FormatTrackFillsTheNamedSectorsAfterOneRevolution) {
+    auto img = MakeImage(80, 2, 15);
+    fdc.mount(0, img.data(), img.size());
+    PowerOnMotorAndSelect(0);
+    fdc.out(0x3F5, 0x0F); fdc.out(0x3F5, 0x04); fdc.out(0x3F5, 0x05);  // SEEK head 1, cylinder 5
+    uint64_t c = 0;
+    for (; c < 1'000'000 && !fdc.irq_pending(); c += 100) fdc.tick(c);
+    fdc.out(0x3F5, 0x08); fdc.in(0x3F5); fdc.in(0x3F5);
+
+    const uint8_t cmd[] = {0x4D, 0x04, 0x02, 0x0F, 0x54, 0xF6};
+    for (uint8_t b : cmd) fdc.out(0x3F5, b);
+    ASSERT_EQ(fdc.transfer_length(), std::size_t(15 * 4));
+    uint64_t start = c;
+    for (; c < start + 10'000'000 && !fdc.transfer_ready(); c += 100) fdc.tick(c);
+    ASSERT_TRUE(fdc.transfer_ready());
+    EXPECT_NEAR(double(c - start), 8e6 / 6.0, 200.0);
+    EXPECT_TRUE(fdc.transfer_is_write());
+    uint8_t* ids = fdc.transfer_image_ptr();
+    for (int i = 0; i < 15; ++i) {
+        ids[i * 4] = 5; ids[i * 4 + 1] = 1; ids[i * 4 + 2] = uint8_t(i + 1); ids[i * 4 + 3] = 2;
+    }
+    fdc.finish_transfer(15 * 4);
+    EXPECT_TRUE(fdc.irq_pending());
+    EXPECT_EQ(fdc.in(0x3F5), 0x00);
+    const auto& d = fdc.drives[0];
+    for (int r = 1; r <= 15; ++r) {
+        EXPECT_EQ(d.image[std::size_t(d.offset_for(5, 1, r))], 0xF6) << r;
+        EXPECT_EQ(d.image[std::size_t(d.offset_for(5, 1, r)) + 511], 0xF6) << r;
+    }
+    EXPECT_EQ(d.image[std::size_t(d.offset_for(5, 0, 1))], uint8_t(d.offset_for(5, 0, 1) / 512));
+    EXPECT_TRUE(fdc.dirty(0));
+}
+
+TEST_F(Fdc765Test, FormatPlacesSectorsByTheirIdsAndSkipsOnesOffTheImage) {
+    auto img = MakeImage(40, 2, 9);
+    fdc.mount(1, img.data(), img.size());
+    PowerOnMotorAndSelect(1);
+    const uint8_t cmd[] = {0x4D, 0x01, 0x02, 0x05, 0x50, 0xF6};
+    for (uint8_t b : cmd) fdc.out(0x3F5, b);
+    uint64_t c = 0;
+    for (; c < 10'000'000 && !fdc.transfer_ready(); c += 100) fdc.tick(c);
+    EXPECT_NEAR(double(c), 8e6 / 5.0, 200.0);
+    uint8_t* ids = fdc.transfer_image_ptr();
+    const uint8_t table[] = {0, 0, 1, 3,  0, 0, 10, 2,  40, 0, 3, 2,  0, 0, 2, 2,  7, 1, 4, 2};
+    std::memcpy(ids, table, sizeof table);
+    fdc.finish_transfer(sizeof table);
+    const auto& d = fdc.drives[1];
+    EXPECT_EQ(d.image[std::size_t(d.offset_for(0, 0, 1))], 0x00);
+    EXPECT_EQ(d.image[std::size_t(d.offset_for(0, 0, 2))], 0xF6);
+    EXPECT_EQ(d.image[std::size_t(d.offset_for(0, 0, 3))], 0x02);
+    EXPECT_EQ(d.image[std::size_t(d.offset_for(7, 1, 4))], 0xF6);
+}
+
+TEST_F(Fdc765Test, DataRateIsLatchedAndResetsTo500Kbps) {
+    EXPECT_EQ(fdc.data_rate(), 0);
+    fdc.out(0x3F7, 0xFE);
+    EXPECT_EQ(fdc.data_rate(), 2);
+    fdc.reset();
+    EXPECT_EQ(fdc.data_rate(), 0);
+}
+
+TEST_F(Fdc765Test, DorBitThreeHoldsIntWithoutClearingIt) {
+    fdc.out(0x3F2, 0x00);
+    fdc.out(0x3F2, 0x14);
+    EXPECT_FALSE(fdc.irq_pending());
+    fdc.out(0x3F2, 0x1C);
+    EXPECT_TRUE(fdc.irq_pending());
+    fdc.out(0x3F5, 0x08);
+    fdc.in(0x3F5);
+    EXPECT_FALSE(fdc.irq_pending());
+}
+
 }  // namespace

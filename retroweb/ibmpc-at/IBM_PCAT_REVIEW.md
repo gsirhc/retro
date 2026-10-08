@@ -3254,3 +3254,286 @@ Reset now clears both.
 - 47/47 Playwright, including the Ctrl+Alt+Del reboot that caught §50.1's
   ISR question.
 
+
+## 51. Storage: the WD1003 command set, FORMAT on both controllers, the data rate
+
+Items S1-S4 from [`IBM_PCAT_PARITY.md`](IBM_PCAT_PARITY.md). Sources are
+the WD1003-WA2 OEM manual (preliminary, 3/06/86, bitsavers
+`pdf/westernDigital/pc_disk_controller/WD1003/`), the Seagate ST4038
+product manual (36012-001D, 3/86, bitsavers `pdf/seagate/mfm/ST-4038/`)
+and the NEC uPD765A data sheet. The WD1003-WA2 is the combined
+Winchester and floppy board, so its manual covers 3F2h, 3F6h and 3F7h as
+well as the task file.
+
+### 51.1 The WD1003 command set (S1)
+
+Table 5-1 lists eight commands: Restore 1xh, Seek 7xh, Read Sector 20h,
+Write Sector 30h, Format Track 50h, Read Verify 40h, Diagnose 90h and Set
+Parameters 91h. The first four and Set Parameters were here. New:
+
+- **SEEK** completes with an interrupt, like RESTORE.
+- **READ VERIFY** reads the sectors without sending data to the host,
+  with "a single interrupt ... upon completion of the command". It's
+  paced at the disk rate like a read. Past the end of the disk it reports
+  IDNF.
+- **FORMAT TRACK** takes a 512-byte buffer holding a (flag, sector
+  number) pair per sector. "Command completion will leave all data
+  fields initialized to zeroes. The completion interrupt is generated
+  after each track has been formatted." It takes one revolution: the
+  ST4038 spins at 3,600 RPM (product manual 1.3), so 16.7 ms.
+- **DIAGNOSE** puts 01h ("no errors") in the error register, sets the
+  write precomp register to 32, the sector count to 1, and the cylinder
+  and SDH registers to 0, then interrupts.
+
+**Bad blocks.** A flag of 80h in the format table marks that sector bad.
+Read, verify and write then stop at it with BB (error bit 7), after
+moving any sectors before it. A raw image has nowhere to store the mark,
+so marks live in memory only. They survive a reset, and a remount or page
+reload clears them.
+
+**Write precomp.** Writing 1F1h loads the write precomp register, which
+is separate from the error register you read there (Figure 6-1). Before,
+the write landed in the error register and read back as an error code.
+
+**IDENTIFY.** ECh is an ATA command, and a real WD1003 aborts it. It stays
+because the stand-in BIOS's `ata_detect()` sizes the drive with it. The
+code says so where the command is dispatched.
+
+**Long mode.** The L bit (22h, 23h, 32h, 33h) sends 512 data bytes plus 4
+ECC bytes. The manual gives the polynomial but not the seed or the bit
+order, and the image can't hold a bad ECC that WRITE LONG put there. These
+codes still abort. They're open as S6.
+
+### 51.2 Per-sector read interrupts and the IEN latch
+
+Two more from the same manual, both under READ SECTOR and the Fixed Disk
+register:
+
+- "Interrupts occur as each sector is ready to be read by the system. No
+  interrupt is generated at the end of the command." The controller now
+  reads a sector (BSY), raises DRQ and IRQ14, and starts on the next one
+  once the host has drained the buffer. Before, a multi-sector read was
+  timed as one block and raised a single interrupt. The stand-in BIOS
+  waits for BSY to clear between sectors (`ata_cmd_data_io()`), so it
+  follows along.
+- WRITE SECTOR still commits the whole request at once and interrupts at
+  the end. The manual interrupts per sector there too, but the BIOS's
+  write loop checks for DRQ right after each `outsw` without waiting for
+  BSY, so a per-sector BSY would fail it. That stays a labelled concession.
+- IEN- (3F6h bit 1) "does not clear the interrupt level in the disabled
+  state. A pending interrupt would occur when the interrupt is enabled
+  again." The controller now latches the interrupt whatever IEN- says, and
+  IEN- only gates the line. Before, a command finishing with IEN- set
+  dropped its interrupt for good.
+
+### 51.3 FORMAT on the floppy (S2)
+
+FORMAT A TRACK answered at once with no data and no interrupt. The
+stand-in BIOS's INT 13h AH=05h waits for IRQ6, so every format timed out.
+Now it runs as the data sheet describes. DMA supplies C, H, R and N for
+each sector (4 x SC bytes, mode 4Ah from the BIOS), the data fields are
+filled with the D byte, and the result phase and IRQ6 follow one
+revolution later (index to index): 1/6 s in the 360 RPM A: drive, 1/5 s
+in the 300 RPM B: drive.
+
+Where the sectors land needs one call. The 765 formats the track under
+the head, and the IDs it writes are whatever the table says. The stand-in
+BIOS never seeks before AH=05h, because Bochs's own floppy model moves the
+head to the C in the first ID. On this FDC the first run put all 40
+cylinders of a FreeDOS FORMAT onto cylinder 0. A raw image can only hold
+a sector at its ID's address, though, and READ DATA here already finds
+sectors by the C/H/R it's given rather than by head position. So each
+sector goes where its ID says, the one placement the image can represent.
+IDs off the image's geometry, or with N other than 2, are skipped.
+
+### 51.4 The data rate (S3)
+
+3F7h, when written, is the Floppy Control register: 00 = 500 kbps, 01 =
+300, 10 = 250, 11 = 125 kbps FM, with 500 kbps the default after reset
+(WD1003-WA2 manual, Table 6-2). It was dropped. It's now latched and
+cleared to 500 kbps by reset.
+
+It isn't enforced. The stand-in BIOS never writes 3F7h. Its media sense
+fills in the BDA's media state from the CMOS drive type and never touches
+the register. Bochs's floppy model uses the rate only for step timing and
+never refuses a mismatch. With the check, B: and any 360KB disk in A:
+would never read. Transfers keep pacing at the media's real rate, not the
+latched one. Pacing at 500 kbps would read a 360KB disk twice as fast as a
+real AT. The strict check is open as S7.
+
+### 51.5 IRQ6 and DOR bit 3 (S4)
+
+"FDMAEN ... Setting this bit to 1 gates floppy disk DMA and interrupt
+requests to the I/O interface. Setting to 0 disables the DMA and interrupt
+request drivers" (Table 6-2). The FDC's own INT is unaffected, so an
+interrupt raised with the bit clear shows up when it's set. `Fdc765` now
+gates its IRQ output with the bit, the same way §50.3 gated DRQ, and
+holds INT internally. Before, a seek or a reset raised IRQ6 with the bit
+clear, and a transfer that finished with it clear lost its interrupt.
+
+### 51.6 Drive B: was invisible to DOS
+
+Testing S2 from the page turned up an older bug. CMOS 14h is the
+equipment byte, and `rombios.c` copies it straight into the BDA equipment
+word at 40:10. The factory CMOS set it to 01h: diskettes fitted, bits 7-6
+= 00, which means one drive. DOS therefore treated B: as a phantom of A:
+("Remove diskette in drive A:"), and no disk in B: ever read. It's now
+41h: two drives, and bits 5-4 = 00 for a display adapter with its own
+BIOS, the EGA. Source: IBM PC/AT Technical Reference, CMOS equipment byte.
+§8 describes the original 01h, which was only checked for "a floppy is
+installed".
+
+### 51.7 What FreeDOS FORMAT does now
+
+`FORMAT B: /U` on a blank 360KB disk runs all 80 tracks through INT 13h
+AH=05h and reaches "100 percent completed". It then writes the boot
+sector, which reads back (`DIR B:` shows the new serial number). The next
+write, the first FAT sector, comes back from INT 26h with 0207h. FORMAT
+retries with AL | 80h, and the kernel rejects that as unit 81h ("unknown
+unit for driver"). In the FreeDOS kernel, `blockio()` returns that code
+when the sector is past the drive's BPB size, so the kernel's BPB for the
+new disk is wrong. That's the kernel, and possibly the stand-in BIOS's
+INT 13h AH=08h, 15h and 16h answers (AH=16h always says "changed"), not
+the controller. It's open as S5.
+
+### 51.8 Checks
+
+- 424 native tests (407 before): WD1003 SEEK, READ VERIFY timing and
+  IDNF, DIAGNOSE, the precomp register, per-sector read interrupts and
+  the BSY gap between sectors, FORMAT TRACK's timing and zero fill, bad
+  blocks on read, verify and write, bad blocks cleared by a reformat and a
+  remount, the IEN- latch, and Long mode aborting. FDC FORMAT timing in
+  both drives, fill, ID placement and skipped IDs, the data-rate latch,
+  and DOR bit 3 holding INT. A chipset case formats a track through DMA
+  mode 4Ah and takes IRQ6. The machine test checks 14h = 41h.
+- `COPY` to and `DIR` of a disk in B: work.
+- The FreeDOS installer completes at cycle 50,167,844,209, 9.8 million
+  cycles (0.02%) earlier than §50.5's 50,177,611,554. Only the hard disk's
+  timing changed on that path (§51.2), and the change wasn't attributed
+  any further.
+- 48/48 Playwright, including a new `FORMAT B:` test that checks the fill
+  byte on the last track.
+
+## 52. Storage: ECC and Long mode, the turning platter, and FreeDOS FORMAT
+
+Items S5, S6 and the rotation half of S8 from
+[`IBM_PCAT_PARITY.md`](IBM_PCAT_PARITY.md). New sources: the WD2010-05 and
+WD11C00-13 data sheets in WD's 1986 Storage Management Products Handbook
+(bitsavers `components/westernDigital/_dataBooks/`), the FreeDOS FORMAT
+source (`FDOS/format`, `createfs.c` and `hdisk.c`), and a 5170 owner's
+notes on the IBM adapter (retrocmp.de, `ibm/5170/5170-t3.htm`).
+
+### 52.1 The ECC (S6)
+
+The WD1003-WA2 puts its data-field ECC in a WD11C00, a 32-bit shift
+register with the polynomial x^32+x^28+x^26+x^19+x^17+x^10+x^6+x^2+1.
+The WD11C00 sheet gives the rest. The register is preset to FFFFFFFF
+before the A1 F8 data mark, "As the first data byte is reached, the
+polynomial control logic will have generated ECC bytes B517894A", and it's
+read out most significant byte first. A plain MSB-first shift of A1 F8
+from FFFFFFFF gives exactly B517894A, which pins the bit order. Data plus
+its four ECC bytes leaves a zero syndrome. `Wd1003::data_ecc()` is that
+register, and a test checks it against a value computed separately.
+
+### 52.2 READ LONG and WRITE LONG
+
+With the L bit set (22h, 23h, 32h, 33h), "no ECC or CRC characters are
+generated or checked ... the 4 ECC bytes are handled as an additional 4
+bytes of data" (WD2010 sheet). They're sent a byte at a time after the 512
+data bytes (WD1003 manual 5.2.3). READ LONG returns the sector's recorded
+ECC. WRITE LONG records the host's four bytes. If they don't match the
+data, the mismatch is kept per sector in memory, like the bad-block marks,
+since a raw image only holds data. A normal write, a FORMAT TRACK of that
+track, or a remount clears it.
+
+### 52.3 Correction
+
+A normal READ or READ VERIFY of a sector whose recorded ECC doesn't match
+works out the syndrome. "Data errors up to 5 bits in length will be
+automatically corrected", and "For ECC errors, eight Read retries are made
+... ECC correctable data errors are corrected after two consecutive
+matching ECC syndromes" (WD1003 manual 5.2.3, 5.2.6). So:
+
+- **Correctable.** If some burst of 5 bits or less anywhere in the 516-byte
+  record gives that syndrome, the controller rereads once (one
+  revolution), flips those bits in what it hands over, and sets CORR,
+  status bit 2. The data on the platter is left as it is, the same as on
+  the drive.
+- **Uncorrectable.** After eight rereads (eight revolutions) it sets ERR
+  and error bit 6. "If an uncorrectable error occurs, the data transfer
+  will still take place. A multi-sector read, however, will terminate
+  after the sector in error is read by the system." READ VERIFY stops
+  there too.
+
+The search tries every start bit and the 16 bursts that begin there, and
+it's linear in the syndrome, so a table of single-bit syndromes is enough.
+
+The manual's text on the T bit is garbled in the scan ("verify the sector
+for ten disk revolutions, if T is set to 1"). The reading used here: T
+limits the WD2010's ID search (10 revolutions, 2 with T set, before IDNF),
+and the eight ECC rereads happen either way. The WD2010 sheet describes T
+on the bare chip, where it stops correction entirely. The WD1003's
+firmware does its own correction, so that doesn't carry over.
+
+One conflict: the WD2010 sheet says FORMAT fills data fields with FFh,
+and the WD1003 manual says the board leaves them zeroed. The board manual
+is the product being modelled, so it's still zeroes.
+
+### 52.4 The platter turns (S8, rotation)
+
+The disk used to read every sector in a fixed 0.82 ms. Now the platter's
+angle follows the cycle count at 3,600 RPM, with index at angle 0 and 17
+sector slots a track. A read waits until its sector's slot has passed
+under the head, so a single sector takes anywhere from one slot to one
+revolution plus a slot, depending on where the platter is.
+
+Which slot a sector sits in is the interleave. The owner's notes say the
+IBM adapter's "default interleave is 3", and that it can't go below 2:1,
+so the factory layout is 3:1, sector r in slot 3(r-1) mod 17. FORMAT TRACK
+replaces that per track with the table's order, and a sector left out of
+the table has no ID, so reading it searches for 10 revolutions and then
+reports IDNF. A test shows why AT drives weren't formatted 1:1. With the
+next sector in the very next slot, the host can't empty the buffer in
+time, and a two-sector read costs a whole extra revolution.
+
+Writes still commit at once, for the BIOS reason in §51.2. Seeks are still
+instant, which is the other half of S8 and stays open.
+
+### 52.5 FreeDOS FORMAT (S5)
+
+A trace of every INT 13h, 25h, 26h and 21h/44h call during `FORMAT B:`
+settled §51.7. FORMAT writes the boot sector itself with INT 13h AH=03h,
+which succeeds. Then the first INT 26h returns 0207h without the kernel
+issuing any INT 13h, so no hardware is involved. The kernel has never
+built a drive parameter block for B:, and its FAT32 guard in
+`int2526_handler()` rejects the write.
+
+FreeDOS 1.3 ships FORMAT 0.91v (`FORMAT.EXE` dated 2017-09-19). FORMAT's
+own source calls `Force_Drive_Recheck()` (INT 21h AH=0Dh and AH=32h) right
+after writing the boot sector, with this note: "from 0.92, if we don't do
+this then formating changes floppy disk paramters then first time
+attempting to format can fail if no previous format". The trace shows no
+AH=0Dh or AH=32h. With DOS having read B: once first, FORMAT 0.91v runs to
+"Format complete" with 368,640 bytes total, on this emulator as it would
+on an AT. It's a FreeDOS bug fixed upstream, not an emulator gap.
+
+### 52.6 Checks
+
+- 435 native tests (424 before): the WD11C00 generator against an
+  independent value, READ LONG returning data then its ECC, WRITE LONG
+  with a matching ECC, a 5-bit burst corrected after one reread with CORR
+  set, a two-place error left uncorrectable after eight rereads with the
+  data still delivered, a multi-sector read stopping after it, READ VERIFY
+  correcting and reporting, a normal write and a remount clearing a
+  stored ECC, the 3:1 factory interleave in READ VERIFY's timing, a read
+  waiting for its sector, the busy time to the next sector, FORMAT
+  starting at index, the 1:1 interleave miss, a sector left out of the
+  format table, and the 10-revolution IDNF search.
+- The FreeDOS installer completes at cycle 59,543,817,039, up from
+  §51.8's 50,167,844,209. That's about 19.5 emulated minutes more, all
+  reads waiting for their sectors at 3:1.
+- The shipped image boots to `C:\>` at 57.3 s of emulated time, 54.9 s
+  before.
+- 48/48 Playwright. The `FORMAT B:` test now runs the whole command: DIR,
+  FORMAT, "Format complete" with 368,640 bytes, the BLANK label, and the
+  fill byte on the last track.
