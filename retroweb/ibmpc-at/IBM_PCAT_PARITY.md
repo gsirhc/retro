@@ -5,16 +5,17 @@ IBM EGA, plus the test gaps against the repo rules in `CLAUDE.md`. Most of
 the chip files started as the same code `pc486` grew from, so a lot of
 this list is `PC486_PARITY.md` work that never came back. Where a 486 fix
 ports, the item cites its `PC486_REVIEW.md` section. Checked against the
-code as of §49 (the EGA addressing work, after commit `c87bf64`). When an item is fixed, write it up in
+code as of §50 (the 8259A and 8237A). When an item is fixed, write it up in
 `IBM_PCAT_REVIEW.md` as usual (fact, why it matters, what it fixed,
 source) and delete it here. Done so far: the real-mode CPU, C1-C9
 (`IBM_PCAT_REVIEW.md` §44), the reset vector and `F1h`, C11-C12
 (§45), bus timing, T1-T5 and T8 with P5 and E11 (§46), and EGA
 contention plus the TOPBENCH calibration, T6-T7 with P1-P3 (§47), and
 the EGA BIOS stand-in plus E1-E10 and E12-E14 (§48), and EGA
-addressing, latches and the monochrome ports, E15-E17 (§49).
+addressing, latches and the monochrome ports, E15-E17 (§49), and the
+full 8259A and 8237A with P4, P6 and P9 (§50).
 
-Rough parity today: **~79%**.
+Rough parity today: **~80%**.
 
 | Area | Parity | Biggest gap |
 |------|--------|-------------|
@@ -22,7 +23,7 @@ Rough parity today: **~79%**.
 | CPU (protected mode) | 0% | not implemented at all |
 | Timing | 96% | fetch-bound code runs 4-7% fast against TOPBENCH |
 | EGA | 92% | memory-cycle length unsourced (VidMem -9% on the Enhanced Display) |
-| Chipset (PIT, PIC, DMA, memory) | 72% | no extended memory, no serial or parallel port |
+| Chipset (PIT, PIC, DMA, memory) | 80% | no extended memory, no serial or parallel port |
 | Storage (WD1003, floppy) | 75% | thin WD1003 command set, no FDC data rate |
 | Keyboard, RTC | 60% | RTC doesn't tick, no typematic, lost bytes |
 | Speaker | 95% | not checked against a recording of a real 5170 |
@@ -83,11 +84,6 @@ page, a Playwright test, in the same commit.
 
 ## 4. Chipset
 
-- **P4. No PIC poll command.** OCW3 with P=1. Port §41.3. Source: Intel
-  8259A data sheet, "The Poll Command".
-- **P6. ICW1 doesn't clear the mask.** ICW1 clears IRR and ISR here but
-  leaves IMR, where the 8259A clears IMR. Same bug in `pc486`. Source:
-  Intel 8259A data sheet, "Initialization Command Words".
 - **P7. No serial or parallel port.** The 5170-339 came with IBM's
   Serial/Parallel Adapter: COM1 at 3F8h (IRQ4, an NS16450) and LPT1 at
   378h (IRQ7). Opens a serial mouse, which is how an AT got one. Needs a
@@ -104,15 +100,16 @@ page, a Playwright test, in the same commit.
   PC/AT Technical Reference, system memory map. Lands with C10:
   FreeDOS's 286 menu loads FDXMS286, which today declines for lack of
   extended memory and would otherwise need LOADALL or INT 15h AH=87h.
-- **P9. DMA wraps at 1MB, not at the page.** The FDC copy indexes
-  `mem[(addr + i) & 0xFFFFF]`, so a transfer that crosses a 64KB boundary
-  carries into the next page. The 8237's address counter is 16 bits and
-  the page register doesn't increment, so it wraps within the page.
-  Source: Intel 8237A data sheet; IBM PC/AT Technical Reference, DMA
-  page registers.
 - **P10. No game port.** The IBM Game Control Adapter at 201h was an
   option, not standard. Low priority. Port P7 from the 486 if it lands
   there first.
+- **P11. 8237 features nothing here starts.** A software request (request
+  register) on a block-mode channel should run the transfer, including
+  memory-to-memory on channels 0 and 1 through the temporary register.
+  Command bits 3, 5, 6 and 7 (compressed timing, extended write, DREQ and
+  DACK polarity) and rotating priority are stored and ignored. Low
+  priority: no AT device or BIOS path uses them. Source: Intel 8237A-5
+  data sheet (`IBM_PCAT_REVIEW.md` §50.3).
 
 ## 5. Storage
 
@@ -128,6 +125,10 @@ page, a Playwright test, in the same commit.
   rate reads any disk. On a real AT a 360KB disk in the 1.2MB drive reads
   only at 300 kbps, and the BIOS finds it by retrying rates. Source: IBM
   PC/AT Technical Reference, diskette adapter.
+- **S4. IRQ6 ignores DOR bit 3.** The adapter tri-states INT along with
+  DRQ when DOR bit 3 is clear. DRQ follows it (§50.3), but the FDC still
+  sets INT for a seek or reset with the bit clear. Source: IBM PC/AT
+  Technical Reference, diskette adapter.
 
 ## 6. Keyboard and RTC
 
@@ -164,9 +165,9 @@ page, a Playwright test, in the same commit.
   checks real-speed pacing and says it "only needs the machine running".
   `CLAUDE.md` wants a boot plus one real interaction. Add a case: boot to
   `C:\>` and echo a typed key. Same as the 486's X1.
-- **X2. Thin native suites.** pic 7, machine 11, cmos 6, fdc 9, dma 9.
-  P4 and R1 grow pic and cmos anyway. Machine needs IRQ
-  routing and cascading through the whole board.
+- **X2. Thin native suites.** machine 11, cmos 6, fdc 10. R1 grows
+  cmos anyway. IRQ routing and the cascade are covered in `chipset_test`
+  (§50.5); machine still runs no CPU-level interrupt through both PICs.
 - **X3. Controls without a test.** `hddLed` has none, and the F-key and
   extra-key rows are only checked for enabled state and focus, not that
   they deliver a scan code. Every control needs one per `CLAUDE.md`.

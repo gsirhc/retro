@@ -121,7 +121,7 @@ a silent one, per this repo's fidelity conventions (`CLAUDE.md`).
 
 ## 5. Chipset devices (Phase 2): scope and simplifications
 
-- **PIC (8259 ×2)**: fixed-priority mode only (IR0 highest), normal
+- **PIC (8259 ×2)**: (§50.1 replaces this with the full 8259A.) fixed-priority mode only (IR0 highest), normal
   (non-rotating, non-special-mask) EOI. Cascading is wired in `chipset.cpp`
   the way real hardware does: the master's IR2 input tracks
   `slave.has_interrupt()`, and an INTA cycle whose highest-pending master
@@ -142,7 +142,7 @@ a silent one, per this repo's fidelity conventions (`CLAUDE.md`).
 - **CMOS/RTC**: no live ticking clock (nothing in these phases reads the
   time-of-day repeatedly); register A's update-in-progress bit is hard tied
   to 0 so a BIOS's "wait for UIP to clear" POST loop can never hang.
-- **DMA (8237 ×2)**: register file (address/count/mode/mask/command) only —
+- **DMA (8237 ×2)**: (§50.3 replaces this with the full channel model.) register file (address/count/mode/mask/command) only —
   no live memory↔device transfer yet. That lands in Phase 3 alongside
   `fdc765.h`, the first device that actually needs to move bytes over
   channel 2.
@@ -3089,3 +3089,168 @@ Enhanced Color Display. Monochrome is native-only.
   `display_address()`, completes at the same cycle as in §48.5,
   50,177,611,554.
 - 46/46 Playwright.
+
+## 50. The 8259A and 8237A in full
+
+Items P4, P6 and P9 from [`IBM_PCAT_PARITY.md`](IBM_PCAT_PARITY.md), plus
+the rest of both chips, which the backlog didn't list. Sources are the
+Intel 8259A data sheet (231468-003) and the Intel 8237A-5 data sheet
+(231466).
+
+### 50.1 The 8259A
+
+The PIC knew fixed priority, normal EOI and the IRR/ISR read, and nothing
+else. Two of its gaps were bugs any DOS program could hit:
+
+- **No fully nested mode.** The resolver only looked at IRR and IMR, so a
+  handler that re-enabled interrupts could take a lower or equal level
+  before its own EOI. "While the IS bit is set, all further interrupts of
+  the same or lower priority are inhibited." The resolver now walks the
+  levels in priority order and stops at the first IS bit. `pc486` fixed
+  the same thing in its §13.
+- **Requests were pulses, not levels.** Devices called `raise()` on a
+  rising edge, and the request stayed in IRR forever. On the chip the
+  request latch is a transparent D latch behind the edge sense latch
+  (Figure 9, "Be sure to note that the request latch is a transparent D
+  type latch"). Devices now drive their IR line with `set_line()`. IRR is
+  the line ANDed with the edge latch, which sets while the line is low and
+  clears when that level's IS bit sets. A line that drops before INTA
+  withdraws its request. If that happens after INT went out, the INTA gets
+  the default IR7 with no IS bit, as in "Edge and Level Triggered Modes".
+  The visible effect: an IRQ0 square wave that rises and falls while the
+  CPU runs with IF clear loses that tick, as it does on the real board.
+
+The rest of the command set is new: rotation on non-specific and specific
+EOI, set priority, rotate in AEOI, special mask mode, special fully
+nested mode, LTIM level triggering, buffered mode's M/S bit, and the
+MCS-80/85 vector byte. The AT never programs most of these, but programs
+that take over the PIC do.
+
+Special mask mode needs one reading of the data sheet. It says a masked
+level "enables interrupts from all other levels (lower as well as
+higher)", and that "an IS bit that is masked by an IMR bit will not be
+cleared by a non-specific EOI" in that mode. Both hold if the priority
+logic sees ISR ANDed with the inverse of IMR, so that is the model, for the
+resolver and for the EOI alike.
+
+**P4, poll.** OCW3 with P=1 makes the next read of either port an
+interrupt acknowledge. It returns bit 7 set and the level in bits 2-0,
+and sets the IS bit. "Polling overrides status read when P = 1, RR = 1."
+With nothing pending, the data sheet only defines bit 7 as 0, so the
+other bits read 0 here.
+
+**P6, ICW1.** The data sheet lists what ICW1 resets: the edge sense
+latches, IMR (cleared, not masked), IR7 to lowest priority, the slave
+address to 7, special mask mode, the read select back to IRR, and every
+ICW4 function when IC4=0. The old code cleared IRR and ISR and nothing
+else. All of the list is now done, and IRR follows from the edge sense
+reset: a line already high has to fall and rise again.
+
+ISR isn't on Intel's list, and Figure 9 doesn't run master clear to the
+IS latch. Leaving it set broke Ctrl+Alt+Del, though. The stand-in BIOS's
+INT 9 handler jumps to POST without an EOI. POST's ICW1 left IRQ1 in
+service, that blocked IRQ6, and the reboot hung at "Booting from
+Floppy...". So ICW1 clears ISR here, as Bochs, MAME, QEMU and 86Box all
+do. That's an inference from how BIOS warm boots behave, not something
+Intel documents. A real 8259A's answer, or IBM's AT BIOS listing showing
+whether its CAD path sends an EOI, would settle it.
+
+Left out: the MCS-80/85 sequence's third INTA, which a 286 never sends,
+so AEOI does nothing in that mode and the chip isn't left waiting for
+the pulse.
+
+### 50.2 The cascade
+
+`Chipset::poll_interrupt()` runs one INTA sequence the way the board
+wires it. The slave's INT pin is the master's IR2 line. The master's
+`cascades()` checks its ICW3 bitmap, so IR2 vectors through the slave
+only when ICW3 says so. The slave answers only when its ICW3 ID matches
+the CAS code; a mismatch leaves the data bus undriven, read as FFh. The
+slave can give its own default IR7 (vector 77h on the AT) when its
+request is gone by the time the master forwards INTA.
+
+"If a higher priority interrupt occurs between the two INTA pulses, the
+INT line goes inactive immediately after the second INTA pulse." The
+slave's INT therefore drops after each sequence, which re-arms the
+master's IR2 edge latch. Without that, an IRQ8 arriving while IRQ14 is in
+service would never reach the CPU after both EOIs.
+
+### 50.3 The 8237A
+
+The DMA controller had the register file, and the FDC copy indexed
+`mem[(addr + i) & 0xFFFFF]` with the page register ORed into a 20-bit
+address.
+
+**P9.** The 8237's Current Address register is 16 bits, and the AT's page
+register is a separate 74LS612 that never counts. A transfer crossing a
+64KB boundary wraps to the bottom of the same page. This is why DOS's
+DMA boundary checks exist. The copy now runs one transfer cycle per byte
+through `Dma8237::transfer()`, and the 24-bit address goes to the bus
+behind the A20 gate. DMA drives the address lines itself, so the gate
+doesn't apply, and a page above 0Fh reaches memory above 1MB (none is
+fitted yet, P8) rather than wrapping onto low memory. DMA into the EGA
+window now goes through the EGA's planar logic, as a real write would.
+
+The rest of the chip:
+
+- **Transfer type.** Write (I/O to memory), read (memory to I/O) and
+  verify come from the mode register. "Verify transfers are pseudo
+  transfers ... the memory and I/O control lines all remain inactive." A
+  BIOS verify used to copy the sector into RAM. When the mode and the
+  FDC's direction disagree, no data moves.
+- **Terminal count.** TC sets the channel's status bit and clears its
+  software request. Without autoinitialize it sets the mask bit; with it,
+  the base address and count reload and the mask stays. TC is also EOP,
+  so the FDC's transfer stops there.
+- **Decrement**, from mode bit 5.
+- **Base registers**, written alongside the current ones and never
+  changed by a transfer.
+- **Status.** Bits 0-3 are the TC latches, cleared by the read. Bits 4-7
+  are live DREQ ORed with the request register.
+- **Command register** bit 2 disables the controller.
+- **Master clear and reset** clear command, status, request, temporary
+  and the flip-flop, and set all four mask bits. They no longer zero
+  address, count, mode and the page registers, which aren't on Intel's
+  list (the page registers aren't even in the 8237).
+- **Write-only registers.** The mask register isn't readable on an 8237A
+  (Figure 6 lists those reads as illegal), so port 0Fh reads FFh, not the
+  mask. Port 0Dh reads the temporary register.
+
+Two pieces of AT wiring come with it. DMA1's HRQ goes to DMA2's channel 0
+(system channel 4), so DMA1 transfers only while that channel is in
+cascade mode and unmasked, and DMA2 is enabled. The stand-in BIOS sets
+this up in POST. The FDC's DRQ is gated by DOR bit 3, like
+its INT (IBM PC/AT Technical Reference, diskette adapter).
+
+Not modelled: software-requested block transfers and memory-to-memory,
+since nothing on this board starts one; command bits 3, 5, 6 and 7
+(compressed timing, extended write, DREQ and DACK polarity); rotating
+DMA priority, with only one active channel. These are P11 in the parity
+doc.
+
+### 50.4 The FDC drops INT on reset
+
+Levels exposed a bug in `Fdc765`. Holding it in reset through the DOR
+left INT high, so after the reboot above IRQ6 never fell, and the
+re-initialized PIC never saw an edge. "The RESET input places the FDC in
+the idle state. ... INT and DRQ also go low" (NEC uPD765A data sheet).
+Reset now clears both.
+
+### 50.5 Checks
+
+- 407 native tests (364 before): the 8259A suite (fully nested
+  blocking, edges and lost requests, default IR7, LTIM, poll on both
+  ports, every OCW2 rotation, special mask and special fully nested, the
+  ICW1 reset list, single mode, buffered M/S, the MCS-80 vector), the
+  8237A suite (page wrap, decrement, autoinit, status, TC mask, verify,
+  disable, master clear, the write-only mask, DMA2's port aliasing), and
+  chipset cases for the 64KB wrap, verify, the A20 gate, the DMA2 cascade
+  gate, DOR bit 3, slave nesting, the slave's default IR7, ICW3 and the
+  CAS ID, a timer tick lost under CLI, and the FDC reset edge.
+- The shipped HDD image boots to `C:\>`, and the FreeDOS floppy boots to
+  the installer.
+- The FreeDOS installer completes at cycle 50,177,611,554, the same as
+  §49.4.
+- 47/47 Playwright, including the Ctrl+Alt+Del reboot that caught §50.1's
+  ISR question.
+

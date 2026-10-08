@@ -123,7 +123,7 @@ TEST(ChipsetTest, MasterPicInterruptDeliveredDirectly) {
     cs.pic_master.out(0x21, 0x04);
     cs.pic_master.out(0x21, 0x01);
     cs.pic_master.out(0x21, 0x00);  // unmask all
-    cs.pic_master.raise(1);         // e.g. keyboard IRQ1
+    cs.pic_master.set_line(1, true);  // e.g. keyboard IRQ1
     EXPECT_EQ(cs.poll_interrupt(), 0x08 + 1);
 }
 
@@ -132,9 +132,12 @@ TEST(ChipsetTest, FloppyDmaTransferCopiesRealBytesIntoMemory) {
     std::vector<uint8_t> img(80 * 2 * 15 * 512, 0);
     img[512] = 0x77;  // sector 2 (1-based), first byte
     cs.fdc.mount(0, img.data(), img.size());
-    cs.fdc.out(0x3F2, 0x14);  // DOR: ~RESET high, motor A on, drive 0 select
+    cs.fdc.out(0x3F2, 0x1C);  // DOR: ~RESET high, motor A on, DMA/IRQ enable
     // DMA1 channel 2: address 0x2000, page 0, count 511 (512 bytes, N-1),
-    // read mode (device -> memory), unmasked.
+    // write transfer (device -> memory), unmasked, cascaded through DMA2.
+    cs.dma2.out(0xD6, 0xC0);
+    cs.dma2.out(0xD4, 0x00);
+    cs.dma1.out(0x0B, 0x46);
     cs.dma1.out(0x0A, 0x02);  // unmask channel 2
     cs.dma1.out(0x04, 0x00); cs.dma1.out(0x04, 0x20);  // address = 0x2000
     cs.dma1.out(0x05, 0xFF); cs.dma1.out(0x05, 0x01);  // count = 0x01FF (512 bytes)
@@ -173,6 +176,9 @@ TEST(ChipsetTest, Irq6IsEdgeTriggeredNotReRaisedWhileStillPending) {
     std::vector<uint8_t> img(80 * 2 * 15 * 512, 0);
     cs.fdc.mount(0, img.data(), img.size());
     cs.fdc.out(0x3F2, 0x1C);  // DOR: ~RESET high, motor A on, DMA/IRQ enable
+    cs.dma2.out(0xD6, 0xC0);
+    cs.dma2.out(0xD4, 0x00);
+    cs.dma1.out(0x0B, 0x46);
     cs.dma1.out(0x0A, 0x02);
     cs.dma1.out(0x04, 0x00); cs.dma1.out(0x04, 0x20);
     cs.dma1.out(0x05, 0xFF); cs.dma1.out(0x05, 0x01);
@@ -296,7 +302,7 @@ TEST(ChipsetTest, SlaveInterruptCascadesThroughMasterIr2) {
     cs.pic_slave.out(0xA1, 0x02);
     cs.pic_slave.out(0xA1, 0x01);
     cs.pic_slave.out(0xA1, 0x00);
-    cs.pic_slave.raise(0);  // e.g. IRQ8 (RTC)
+    cs.pic_slave.set_line(0, true);  // e.g. IRQ8 (RTC)
     EXPECT_EQ(cs.poll_interrupt(), 0x70);
 }
 
@@ -317,6 +323,191 @@ TEST(ChipsetTest, EgaVerticalInterruptArrivesOnIrq9) {
     for (uint64_t c = 0; c < 400'000 && !cs.has_interrupt(); c += 100) cs.tick(c, 8000000.0);
     ASSERT_TRUE(cs.pic_slave.has_interrupt());
     EXPECT_EQ(cs.poll_interrupt(), 0x71);
+}
+
+void InitPics(Chipset& cs) {
+    cs.pic_master.out(0x20, 0x11);
+    cs.pic_master.out(0x21, 0x08);
+    cs.pic_master.out(0x21, 0x04);
+    cs.pic_master.out(0x21, 0x01);
+    cs.pic_master.out(0x21, 0x00);
+    cs.pic_slave.out(0xA0, 0x11);
+    cs.pic_slave.out(0xA1, 0x70);
+    cs.pic_slave.out(0xA1, 0x02);
+    cs.pic_slave.out(0xA1, 0x01);
+    cs.pic_slave.out(0xA1, 0x00);
+}
+
+// One-sector READ DATA of sector 1 into DMA1 channel 2 at page:address, with the given mode.
+bool FloppyRead(Chipset& cs, std::vector<uint8_t>& img, uint8_t page, uint16_t addr, uint8_t mode, bool cascade = true) {
+    cs.fdc.mount(0, img.data(), img.size());
+    cs.fdc.out(0x3F2, 0x1C);
+    cs.fdc.clear_irq();  // the reset interrupt
+    if (cascade) {
+        cs.dma2.out(0xD6, 0xC0);
+        cs.dma2.out(0xD4, 0x00);
+    }
+    cs.dma1.out(0x0B, mode);
+    cs.dma1.out(0x0C, 0);
+    cs.dma1.out(0x04, uint8_t(addr)); cs.dma1.out(0x04, uint8_t(addr >> 8));
+    cs.dma1.out(0x05, 0xFF); cs.dma1.out(0x05, 0x01);
+    cs.dma1.set_page(2, page);
+    cs.dma1.out(0x0A, 0x02);
+    const uint8_t cmd[] = {0xE6, 0x00, 0x00, 0x00, 0x01, 0x02, 0x01, 0x1B, 0xFF};
+    for (uint8_t b : cmd) cs.fdc.out(0x3F5, b);
+    for (uint64_t c = 0; c < 10'000'000; c += 100) {
+        cs.tick(c, 8000000.0);
+        if (cs.fdc.irq_pending()) return true;
+    }
+    return false;
+}
+
+TEST(ChipsetTest, DmaAddressWrapsWithinTheSixtyFourKPage) {
+    Chipset cs;
+    std::vector<uint8_t> img(80 * 2 * 15 * 512, 0);
+    img[0] = 0x11; img[1] = 0x22;
+    cs.mem[0x20000] = 0xEE;
+    ASSERT_TRUE(FloppyRead(cs, img, 0x01, 0xFFFF, 0x46));
+    EXPECT_EQ(cs.mem[0x1FFFF], 0x11);
+    EXPECT_EQ(cs.mem[0x10000], 0x22) << "the 8237 address carries out of bit 15 and the page stays put";
+    EXPECT_EQ(cs.mem[0x20000], 0xEE);
+}
+
+TEST(ChipsetTest, DmaVerifyMovesNoData) {
+    Chipset cs;
+    std::vector<uint8_t> img(80 * 2 * 15 * 512, 0x5A);
+    ASSERT_TRUE(FloppyRead(cs, img, 0x00, 0x3000, 0x42));
+    EXPECT_EQ(cs.mem[0x3000], 0x00);
+    EXPECT_EQ(cs.dma1.address(2), 0x3000 + 512);
+    EXPECT_TRUE(cs.dma1.channel_masked(2)) << "TC without autoinit sets the mask bit";
+    EXPECT_EQ(cs.dma1.in(0x08) & 0x04, 0x04);
+}
+
+TEST(ChipsetTest, DmaIgnoresTheA20Gate) {
+    Chipset cs;
+    std::vector<uint8_t> img(80 * 2 * 15 * 512, 0);
+    img[0] = 0x33;
+    cs.kbc.set_a20(false);
+    ASSERT_TRUE(FloppyRead(cs, img, 0x10, 0x5000, 0x46));
+    EXPECT_EQ(cs.mem[0x5000], 0x00) << "page 10h is above 1MB, not wrapped onto 0";
+}
+
+TEST(ChipsetTest, Dma1NeedsTheCascadeChannelOnDma2) {
+    Chipset cs;
+    std::vector<uint8_t> img(80 * 2 * 15 * 512, 0);
+    EXPECT_FALSE(FloppyRead(cs, img, 0x00, 0x2000, 0x46, false));
+    EXPECT_EQ(cs.dma1.in(0x08) & 0x40, 0x40) << "DREQ2 waits in the status register";
+    cs.dma2.out(0xD6, 0xC0);
+    cs.dma2.out(0xD4, 0x00);
+    cs.tick(10'000'100, 8000000.0);
+    EXPECT_TRUE(cs.fdc.irq_pending());
+}
+
+TEST(ChipsetTest, DmaRequestNeedsTheDorEnableBit) {
+    Chipset cs;
+    std::vector<uint8_t> img(80 * 2 * 15 * 512, 0);
+    img[0] = 0x44;
+    cs.fdc.mount(0, img.data(), img.size());
+    cs.dma2.out(0xD6, 0xC0);
+    cs.dma2.out(0xD4, 0x00);
+    cs.dma1.out(0x0B, 0x46);
+    cs.dma1.out(0x04, 0x00); cs.dma1.out(0x04, 0x20);
+    cs.dma1.out(0x05, 0xFF); cs.dma1.out(0x05, 0x01);
+    cs.dma1.out(0x0A, 0x02);
+    cs.fdc.out(0x3F2, 0x14);
+    cs.fdc.clear_irq();
+    const uint8_t cmd[] = {0xE6, 0x00, 0x00, 0x00, 0x01, 0x02, 0x01, 0x1B, 0xFF};
+    for (uint8_t b : cmd) cs.fdc.out(0x3F5, b);
+    for (uint64_t c = 0; c < 10'000'000; c += 100) cs.tick(c, 8000000.0);
+    EXPECT_EQ(cs.mem[0x2000], 0x00);
+    cs.fdc.out(0x3F2, 0x1C);
+    cs.tick(10'000'100, 8000000.0);
+    EXPECT_EQ(cs.mem[0x2000], 0x44);
+}
+
+TEST(ChipsetTest, SlaveRequestArrivingInServiceIsDeliveredAfterBothEois) {
+    Chipset cs;
+    InitPics(cs);
+    cs.pic_slave.set_line(6, true);  // IRQ14
+    cs.sync_cascade();
+    EXPECT_EQ(cs.poll_interrupt(), 0x76);
+    cs.pic_slave.set_line(0, true);  // IRQ8, higher priority on the slave
+    cs.sync_cascade();
+    EXPECT_FALSE(cs.has_interrupt()) << "master IR2 is still in service";
+    cs.pic_slave.out(0xA0, 0x20);
+    cs.pic_master.out(0x20, 0x20);
+    cs.sync_cascade();
+    EXPECT_EQ(cs.poll_interrupt(), 0x70);
+}
+
+TEST(ChipsetTest, SlaveDefaultIr7WhenItsRequestIsGone) {
+    Chipset cs;
+    InitPics(cs);
+    cs.pic_slave.set_line(3, true);
+    cs.sync_cascade();
+    ASSERT_TRUE(cs.has_interrupt());
+    // The master's IR2 latch still holds while the slave drops its request.
+    cs.pic_slave.set_line(3, false);
+    int level = cs.pic_master.inta1();
+    ASSERT_EQ(level, 2);
+    EXPECT_EQ(cs.pic_slave.inta2(cs.pic_slave.inta1()), 0x77);
+    EXPECT_EQ(cs.pic_slave.isr(), 0x00);
+}
+
+TEST(ChipsetTest, MasterIr2WithoutIcw3IsAnOrdinaryInput) {
+    Chipset cs;
+    cs.pic_master.out(0x20, 0x13);  // single
+    cs.pic_master.out(0x21, 0x08);
+    cs.pic_master.out(0x21, 0x01);
+    cs.pic_master.out(0x21, 0x00);
+    cs.pic_master.set_line(2, false);
+    cs.pic_master.set_line(2, true);
+    EXPECT_EQ(cs.pic_master.inta2(cs.pic_master.inta1()), 0x0A);
+}
+
+TEST(ChipsetTest, SlaveWithTheWrongIdLeavesTheBusFloating) {
+    Chipset cs;
+    InitPics(cs);
+    cs.pic_slave.out(0xA0, 0x11);
+    cs.pic_slave.out(0xA1, 0x70);
+    cs.pic_slave.out(0xA1, 0x03);
+    cs.pic_slave.out(0xA1, 0x01);
+    cs.pic_slave.out(0xA1, 0x00);
+    cs.pic_slave.set_line(0, true);
+    cs.sync_cascade();
+    EXPECT_EQ(cs.poll_interrupt(), 0xFF);
+}
+
+TEST(ChipsetTest, TimerTickHeldOffPastHalfAPeriodIsLost) {
+    Chipset cs;
+    InitPics(cs);
+    auto bus = cs.make_bus();
+    bus.out(0x43, 0x36);
+    bus.out(0x40, 0x00); bus.out(0x40, 0x10);  // mode 3, 4096 counts
+    uint64_t c = 0;
+    while (!cs.has_interrupt() && c < 1'000'000) cs.tick(c += 10, 8000000.0);
+    ASSERT_TRUE(cs.has_interrupt());
+    // OUT falls after 2048 PIT clocks, about 13.7k CPU clocks; nobody acknowledged
+    for (int i = 0; i < 1500; ++i) cs.tick(c += 10, 8000000.0);
+    EXPECT_FALSE(cs.pic_master.line(0));
+    EXPECT_EQ(cs.pic_master.irr() & 0x01, 0x00);
+}
+
+TEST(ChipsetTest, FdcResetGivesIrq6AFreshEdgeAfterReinit) {
+    Chipset cs;
+    InitPics(cs);
+    cs.fdc.out(0x3F2, 0x1C);
+    cs.tick(0, 8000000.0);
+    ASSERT_EQ(cs.poll_interrupt(), 0x0E);
+    // A warm boot re-initializes the PIC with IRQ6 still high, then resets the FDC.
+    InitPics(cs);
+    cs.tick(100, 8000000.0);
+    EXPECT_FALSE(cs.has_interrupt());
+    cs.fdc.out(0x3F2, 0x18);
+    cs.tick(200, 8000000.0);
+    cs.fdc.out(0x3F2, 0x1C);
+    cs.tick(300, 8000000.0);
+    EXPECT_EQ(cs.poll_interrupt(), 0x0E);
 }
 
 }  // namespace

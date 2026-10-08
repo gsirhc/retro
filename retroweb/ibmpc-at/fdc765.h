@@ -63,6 +63,8 @@ public:
 
     // --- chipset/DMA integration ---
     bool transfer_ready() const { return transfer_ready_; }
+    // DOR bit 3 gates the INT and DRQ outputs (IBM PC/AT Technical Reference, diskette adapter).
+    bool dma_enabled() const { return (dor_ & 0x08) != 0; }
     bool transfer_is_write() const { return transfer_is_write_; }  // memory -> image
     std::size_t transfer_length() const { return transfer_len_; }
     uint8_t *transfer_image_ptr();

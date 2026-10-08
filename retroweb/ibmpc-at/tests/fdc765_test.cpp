@@ -172,4 +172,13 @@ TEST_F(Fdc765Test, MountedMediaSurvivesControllerReset) {
     EXPECT_TRUE(fdc.mounted(0));
 }
 
+TEST_F(Fdc765Test, ResetDropsIntUntilItIsReleased) {
+    fdc.out(0x3F2, 0x1C);
+    ASSERT_TRUE(fdc.irq_pending());
+    fdc.out(0x3F2, 0x18);
+    EXPECT_FALSE(fdc.irq_pending());
+    fdc.out(0x3F2, 0x1C);
+    EXPECT_TRUE(fdc.irq_pending());
+}
+
 }  // namespace

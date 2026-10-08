@@ -45,6 +45,7 @@ public:
     // forces OUT high in modes 2 and 3 (pcspeaker.h direct-toggle relies on it);
     // a rising edge triggers modes 1, 5 and restarts 2, 3 from a full count.
     void set_gate2(bool level);
+    bool channel0_output() const { return ch_[0].output; }
     bool channel2_output() const { return ch_[2].output; }
 
 private:

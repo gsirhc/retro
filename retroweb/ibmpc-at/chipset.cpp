@@ -25,10 +25,6 @@ void Chipset::reset() {
     port61_ = 0;
     refresh_toggle_ = false;
     held_clocks_ = 0;
-    fdc_irq_prev_ = false;
-    kbc_irq_prev_ = false;
-    hdd_irq_prev_ = false;
-    ega_irq_prev_ = false;
     pic_master.reset();
     pic_slave.reset();
     pit.reset();
@@ -39,6 +35,7 @@ void Chipset::reset() {
     ega.reset();
     hdd.reset();
     speaker.reset();
+    update_irq_lines();
     // mem, rom_ and cmos survive reset: RAM and CMOS are not cleared by a warm reset.
 }
 
@@ -49,13 +46,19 @@ void Chipset::load_rom(uint32_t addr, const uint8_t *data, std::size_t len) {
 
 uint8_t Chipset::mem_read(uint32_t addr) {
     if (!kbc.a20_enabled()) addr &= ~0x100000u;  // the gate holds A20 low, nothing else
+    return bus_read(addr);
+}
+void Chipset::mem_write(uint32_t addr, uint8_t v) {
+    if (!kbc.a20_enabled()) addr &= ~0x100000u;
+    bus_write(addr, v);
+}
+uint8_t Chipset::bus_read(uint32_t addr) {
     if (ega.owns_mem(addr)) return ega.mem_read(addr);
     if (addr >= kRomAlias) return is_rom(addr) ? mem[addr - kRomAliasOffset] : 0xFF;
     if (addr >= mem.size()) return 0xFF;      // unpopulated
     return mem[addr];
 }
-void Chipset::mem_write(uint32_t addr, uint8_t v) {
-    if (!kbc.a20_enabled()) addr &= ~0x100000u;
+void Chipset::bus_write(uint32_t addr, uint8_t v) {
     if (ega.owns_mem(addr)) { ega.mem_write(addr, v); return; }
     if (addr >= mem.size()) return;
     if (rom_[addr]) return;
@@ -142,7 +145,11 @@ cpu80286::Bus Chipset::make_bus() {
 void Chipset::tick(uint64_t cpu_cycles, double cpu_hz) {
     int refreshes = 0;
     int ch0_rises = pit.tick(cpu_cycles, cpu_hz, &refreshes);
-    for (int i = 0; i < ch0_rises; ++i) pic_master.raise(0);
+    // Each rising edge sets IRR even if OUT fell again inside this step.
+    for (int i = 0; i < ch0_rises; ++i) {
+        pic_master.set_line(0, false);
+        pic_master.set_line(0, true);
+    }
     // Port 61h bit 4 toggles with each refresh request (IBM PC/AT Technical Reference, port 61h).
     if (refreshes & 1) refresh_toggle_ = !refresh_toggle_;
     held_clocks_ += refreshes * kRefreshClocks;
@@ -150,55 +157,69 @@ void Chipset::tick(uint64_t cpu_cycles, double cpu_hz) {
 
     fdc.tick(cpu_cycles);
     ega.tick(cpu_cycles);
-    // Paced FDC transfers copy the whole block at once using DMA1 channel 2's
-    // programmed address/count/page. DMA bypasses the A20 gate, so this indexes mem directly.
-    if (fdc.transfer_ready() && !dma1.channel_masked(2)) {
-        uint16_t dma_len16 = uint16_t(dma1.count(2) + 1);  // 8237 count register is programmed as N-1
-        std::size_t len = std::min(fdc.transfer_length(), std::size_t(dma_len16));
-        uint32_t addr = (uint32_t(dma1.page(2)) << 16) | dma1.address(2);
-        uint8_t *img = fdc.transfer_image_ptr();
-        if (img != nullptr) {
-            if (fdc.transfer_is_write()) {
-                for (std::size_t i = 0; i < len; ++i) img[i] = mem[(addr + i) & 0xFFFFF];
-            } else {
-                for (std::size_t i = 0; i < len; ++i) mem[(addr + i) & 0xFFFFF] = img[i];
-            }
-        }
-        for (std::size_t i = 0; i < len; ++i) dma1.advance(2);
-        held_clocks_ += int(len) * kDmaCycleClocks;
-        fdc.finish_transfer(len);
-    }
-    // IRQ6 is edge-triggered.
-    bool fdc_irq_now = fdc.irq_pending();
-    if (fdc_irq_now && !fdc_irq_prev_) pic_master.raise(6);
-    fdc_irq_prev_ = fdc_irq_now;
-
-    // IRQ1, edge-triggered.
-    bool kbc_irq_now = kbc.irq1_pending();
-    if (kbc_irq_now && !kbc_irq_prev_) pic_master.raise(1);
-    kbc_irq_prev_ = kbc_irq_now;
-
-    // The EGA's IRQ2 pin reaches the AT's slave line 1 (IRQ9).
-    bool ega_irq_now = ega.vertical_interrupt();
-    if (ega_irq_now && !ega_irq_prev_) pic_slave.raise(1);
-    ega_irq_prev_ = ega_irq_now;
-
-    // IRQ14 is slave line 6.
+    run_fdc_dma();
     hdd.tick(cpu_cycles);
-    bool hdd_irq_now = hdd.irq_pending();
-    if (hdd_irq_now && !hdd_irq_prev_) pic_slave.raise(6);
-    hdd_irq_prev_ = hdd_irq_now;
+    update_irq_lines();
+}
+
+void Chipset::update_irq_lines() {
+    pic_master.set_line(0, pit.channel0_output());
+    pic_master.set_line(1, kbc.irq1_pending());
+    pic_master.set_line(6, fdc.irq_pending());
+    // The EGA drives bus IRQ2, which the AT routes to IRQ9.
+    pic_slave.set_line(1, ega.vertical_interrupt());
+    pic_slave.set_line(6, hdd.irq_pending());
+    sync_cascade();
+}
+
+void Chipset::run_fdc_dma() {
+    bool drq = fdc.transfer_ready() && fdc.dma_enabled();
+    dma1.set_dreq(2, drq);
+    // DMA1's HRQ reaches the CPU only through DMA2 channel 0 in cascade mode (system channel 4).
+    bool hold = dma2.can_service(0) && (dma2.mode(0) >> 6) == Dma8237::kCascadeMode;
+    if (!drq || !hold || !dma1.can_service(2)) return;
+    std::size_t len = fdc.transfer_length();
+    uint8_t* img = fdc.transfer_image_ptr();
+    Dma8237::Type type = dma1.type(2);
+    bool to_mem = type == Dma8237::kWrite && !fdc.transfer_is_write();
+    bool from_mem = type == Dma8237::kRead && fdc.transfer_is_write();
+    uint32_t page = uint32_t(dma1.page(2)) << 16;
+    std::size_t n = 0;
+    bool tc = false;
+    while (n < len && !tc) {
+        uint32_t addr = page | dma1.transfer(2, &tc);
+        if (img != nullptr) {
+            if (to_mem) bus_write(addr, img[n]);
+            else if (from_mem) img[n] = bus_read(addr);
+        }
+        ++n;
+    }
+    held_clocks_ += int(n) * kDmaCycleClocks;
+    fdc.finish_transfer(n);
+    dma1.set_dreq(2, false);
 }
 
 int Chipset::poll_interrupt() {
-    if (pic_slave.has_interrupt()) pic_master.raise(2);
-    else pic_master.lower(2);
+    sync_cascade();
     if (!pic_master.has_interrupt()) return -1;
-    if (pic_master.peek_highest_pending() == 2) {
-        pic_master.acknowledge();  // master INTA side effects; vector discarded
-        return pic_slave.acknowledge();
+    int level = pic_master.inta1();
+    uint8_t vec;
+    if (pic_master.cascades(level)) {
+        // Only the slave whose ID matches the CAS lines drives the bus.
+        if (pic_slave.slave_id() == level) {
+            int slave_level = pic_slave.inta1();
+            vec = pic_slave.inta2(slave_level);
+        } else {
+            vec = 0xFF;
+        }
+        pic_master.inta2(level);
+    } else {
+        vec = pic_master.inta2(level);
     }
-    return pic_master.acknowledge();
+    // INT goes inactive after the second INTA (8259A data sheet, "Interrupt Sequence").
+    pic_master.set_line(2, false);
+    sync_cascade();
+    return vec;
 }
 
 }  // namespace ibmpcat

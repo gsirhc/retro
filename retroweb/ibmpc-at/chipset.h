@@ -60,8 +60,8 @@ public:
     // Clocks refresh and DMA have held the CPU off the bus since the last call.
     int take_held_clocks() { int c = held_clocks_; held_clocks_ = 0; return c; }
 
-    Pic8259 pic_master{0x20};
-    Pic8259 pic_slave{0xA0};
+    Pic8259 pic_master{0x20, true};
+    Pic8259 pic_slave{0xA0, false};
     Pit8253 pit;
     I8042 kbc;
     CmosRtc cmos;
@@ -82,10 +82,12 @@ public:
     // instruction.
     void tick(uint64_t cpu_cycles, double cpu_hz);
 
-    // One INTA cycle, cascading through the slave when the master's top line is IR2.
-    // Returns -1 if nothing is pending.
+    // One INTA sequence, through the slave when the master's level is a cascade
+    // input. Returns -1 if the master's INT is low.
     int poll_interrupt();
-    bool has_interrupt() const { return pic_master.has_interrupt() || pic_slave.has_interrupt(); }
+    bool has_interrupt() const { return pic_master.has_interrupt(); }
+    // The slave's INT pin drives the master's IR2.
+    void sync_cascade() { pic_master.set_line(2, pic_slave.has_interrupt()); }
 
     // Port 0x80: last BIOS POST code written.
     uint8_t last_post_code() const { return last_post_code_; }
@@ -100,12 +102,9 @@ private:
     int held_clocks_ = 0;
     uint8_t last_post_code_ = 0x00;
     std::string debug_console_;
-    // IRQ6 is edge-triggered: raised on the 0->1 transition only. Re-raising every tick
-    // storms the CPU when a BIOS handler leaves FDC result bytes undrained.
-    bool fdc_irq_prev_ = false;
-    bool kbc_irq_prev_ = false;
-    bool hdd_irq_prev_ = false;
-    bool ega_irq_prev_ = false;
+
+    void update_irq_lines();
+    void run_fdc_dma();
 
     uint8_t io_in(uint16_t port);
     void io_out(uint16_t port, uint8_t v);
@@ -114,6 +113,9 @@ private:
     void io_out16(uint16_t port, uint16_t v);
     uint8_t mem_read(uint32_t addr);
     void mem_write(uint32_t addr, uint8_t v);
+    // The 24-bit bus behind the A20 gate, as DMA sees it.
+    uint8_t bus_read(uint32_t addr);
+    void bus_write(uint32_t addr, uint8_t v);
 };
 
 }  // namespace ibmpcat

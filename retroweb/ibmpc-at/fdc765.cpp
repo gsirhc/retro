@@ -102,7 +102,11 @@ void Fdc765::out(uint16_t port, uint8_t v) {
                 phase_ = Phase::kIdle;
                 irq_pending_ = true;
             } else if (now_reset) {
+                // RESET drops INT and DRQ (NEC uPD765A data sheet, RESET)
                 phase_ = Phase::kIdle;
+                irq_pending_ = false;
+                transfer_ready_ = false;
+                xfer_active_ = false;
             }
             break;
         }
