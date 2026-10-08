@@ -64,15 +64,10 @@
 
   let machine = null;
 
-  // The 8042 has a single output byte, so each byte of a multi-byte sequence
-  // needs a gap or the guest never reads the previous one.
+  // The keyboard buffers and paces bytes itself, so a whole sequence goes in at once.
   function injectScancodeSequence(codes) {
-    let i = 0;
-    (function step() {
-      if (!machine || i >= codes.length) return;
-      machine.injectScancode(codes[i++]);
-      if (i < codes.length) setTimeout(step, 20);
-    })();
+    if (!machine) return;
+    for (const code of codes) machine.injectScancode(code);
   }
 
   function sendKey(code, isBreak) {
@@ -89,8 +84,26 @@
     injectScancodeSequence(bytes);
   }
   const screenEl = document.getElementById("screen");
-  screenEl.addEventListener("keydown", (e) => { sendKey(e.code, false); e.preventDefault(); });
-  screenEl.addEventListener("keyup", (e) => { sendKey(e.code, true); e.preventDefault(); });
+  // The keyboard repeats on its own clock, so browser repeats are dropped.
+  // heldKeys releases anything still down when focus leaves, or it would repeat forever.
+  const heldKeys = new Set();
+  function releaseHeldKeys() {
+    for (const code of heldKeys) sendKey(code, true);
+    heldKeys.clear();
+  }
+  screenEl.addEventListener("keydown", (e) => {
+    e.preventDefault();
+    if (e.repeat || heldKeys.has(e.code)) return;
+    heldKeys.add(e.code);
+    sendKey(e.code, false);
+  });
+  screenEl.addEventListener("keyup", (e) => {
+    e.preventDefault();
+    heldKeys.delete(e.code);
+    sendKey(e.code, true);
+  });
+  screenEl.addEventListener("blur", releaseHeldKeys);
+  document.addEventListener("visibilitychange", () => { if (document.hidden) releaseHeldKeys(); });
   screenEl.addEventListener("click", () => screenEl.focus());
 
   // poweredOn is declared later, so pass it as a predicate
@@ -531,6 +544,10 @@
       machine.loadRom(0xC0000, new Uint8Array(firmware.videoBios));
       machine.mountHdd(savedHdd || new Uint8Array(firmware.hdd));
       remountPendingFloppies();
+      // The battery kept the clock running, so a fresh power-on reads the visitor's local time.
+      const now = new Date();
+      machine.setRtc(now.getFullYear(), now.getMonth() + 1, now.getDate(),
+        now.getHours(), now.getMinutes(), now.getSeconds(), now.getDay() + 1);
     }
     poweredOn = true;
     powerLed.classList.add("power-on");
@@ -587,14 +604,12 @@
     btn.addEventListener('click', () => {
       const key = btn.dataset.key;
       sendKey(key, false);
-      // make and break need a gap or the guest misses the make
       setTimeout(() => sendKey(key, true), 50);
     });
   }
   ctrlAltDelBtn.addEventListener('click', () => {
     if (!machine) return;
     // Ctrl-Alt-Del warm boot: BIOS checks the non-extended Del (0x53), not SET1.Delete.
-    // Each byte is spaced or only the last survives.
     injectScancodeSequence([
       0x1D,          // Ctrl make
       0x38,          // Alt make

@@ -34,7 +34,7 @@ export async function waitForScreen(page: Page, re: RegExp, timeout = 120_000): 
     .toMatch(re);
 }
 
-/** One key's make then break, each byte with a real wait (the 8042 has a single output byte). */
+/** One key's make then break, with a real wait after each. */
 export async function tap(page: Page, code: string, gapMs = 40): Promise<void> {
   await page.evaluate((c) => (window as any).__test.sendKey(c, false), code);
   await page.waitForTimeout(gapMs);

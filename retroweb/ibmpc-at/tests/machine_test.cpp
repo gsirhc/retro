@@ -194,6 +194,7 @@ TEST(MachineTest, MovSsHoldsOffAPendingIrqForOneInstruction) {
     m.cpu.set_flag(cpu80286::FLAG_IF, true);
     m.chipset.kbc.out(0x64, 0x60); m.chipset.kbc.out(0x60, 0x01);  // enable IRQ1
     m.chipset.kbc.inject_scancode(0x1E);
+    m.chipset.kbc.tick(uint64_t(ibmpcat::I8042::kFrameSeconds * Machine::kCpuHz) + 1, Machine::kCpuHz);
 
     m.run_cycles(1);
     EXPECT_EQ(m.cpu.ip, 0x0602) << "no INTR between MOV SS and the next instruction";

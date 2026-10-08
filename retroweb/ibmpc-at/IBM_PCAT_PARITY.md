@@ -14,9 +14,10 @@ contention plus the TOPBENCH calibration, T6-T7 with P1-P3 (§47), and
 the EGA BIOS stand-in plus E1-E10 and E12-E14 (§48), and EGA
 addressing, latches and the monochrome ports, E15-E17 (§49), the
 full 8259A and 8237A with P4, P6 and P9 (§50), and storage, S1-S4
-(§51) and S5, S6 and S8's rotation (§52).
+(§51) and S5, S6 and S8's rotation (§52), and the keyboard and
+RTC, K1-K5 and R1 (§53).
 
-Rough parity today: **~82%**.
+Rough parity today: **~85%**.
 
 | Area | Parity | Biggest gap |
 |------|--------|-------------|
@@ -26,7 +27,7 @@ Rough parity today: **~82%**.
 | EGA | 92% | memory-cycle length unsourced (VidMem -9% on the Enhanced Display) |
 | Chipset (PIT, PIC, DMA, memory) | 80% | no extended memory, no serial or parallel port |
 | Storage (WD1003, floppy) | 95% | floppy data rate not enforced, hard disk seeks are instant |
-| Keyboard, RTC | 60% | RTC doesn't tick, no typematic, lost bytes |
+| Keyboard, RTC | 95% | no keylock control, BAT arrives without its self-test delay |
 | Speaker | 95% | not checked against a recording of a real 5170 |
 
 Every fix lands with its native test and, where it's visible from the
@@ -127,44 +128,14 @@ page, a Playwright test, in the same commit.
   from a real drive, not a curve fitted to maximums. Source: Seagate
   ST4038 product manual 1.2.
 
-## 6. Keyboard and RTC
-
-- **K1. Bytes can be lost.** `push_output()` overwrites a byte the BIOS
-  hasn't read yet, and each `sendKey` in `app.js` runs its own 20 ms
-  timer chain, so two keys' sequences can interleave. The 486 hit exactly
-  this as stuck keys (§40.2). Queue on the keyboard side and send one
-  sequence at a time.
-- **K2. No typematic repeat.** The page forwards the browser's key
-  repeats at the host OS rate. A real keyboard repeats on its own clock
-  (500 ms, 10.9 cps at power-on) and `F3` changes it. Port §40.2 and drop
-  the browser repeats. Source: IBM PC/AT Technical Reference, keyboard.
-- **K3. Keyboard commands just ACK.** `ED` should ACK its LED byte too,
-  `EE` answers `EE`, `F3` sets the rate (K2), `F5`/`F4` disable and
-  enable scanning. Port from `pc486`'s `i8042.cpp`. Same source.
-- **K4. Status bit 4 is inverted.** The AT's 8042 reports the front-panel
-  keylock there, 1 meaning not inhibited. This code sets it when the
-  keyboard is disabled ("clone convention"), the opposite. Same bug in
-  `pc486`. The keylock itself, on the bezel, would be a nice period
-  control. Source: IBM PC/AT Technical Reference, 8042 status register.
-- **K5. Missing 8042 commands.** `C0` (read input port: keylock, display
-  switch, the planar RAM jumper) and `E0` (test inputs) return nothing.
-  Same source.
-- **R1. The RTC doesn't tick.** DOS boots to a zero date and time, UIP
-  never sets, IRQ8 never fires. Port §40.1: the MC146818A update cycle,
-  periodic and alarm interrupts, loading the visitor's local time on
-  power-on. Keep the AT's 64-byte part (the 486 went to 128 for the
-  DS12887, which the AT doesn't have). Source: Motorola MC146818A data
-  sheet.
-
-## 7. Test parity
+## 6. Test parity
 
 - **X1. Smoke doesn't prove a boot.** `web/tests/smoke.spec.ts` only
   checks real-speed pacing and says it "only needs the machine running".
   `CLAUDE.md` wants a boot plus one real interaction. Add a case: boot to
   `C:\>` and echo a typed key. Same as the 486's X1.
-- **X2. Thin native suites.** machine 11, cmos 6, fdc 14. R1 grows
-  cmos anyway. IRQ routing and the cascade are covered in `chipset_test`
-  (§50.5); machine still runs no CPU-level interrupt through both PICs.
+- **X2. Thin native suites.** machine 11, fdc 14. IRQ routing and the
+  cascade are covered in `chipset_test` (§50.5); machine still runs no CPU-level interrupt through both PICs.
 - **X3. Controls without a test.** `hddLed` has none, and the F-key and
   extra-key rows are only checked for enabled state and focus, not that
   they deliver a scan code. Every control needs one per `CLAUDE.md`.

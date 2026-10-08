@@ -9,6 +9,7 @@
 //   m.runCycles(66667);                  // one frame at 8 MHz
 //   const frame = m.renderFrame(); // RGBA; then renderWidth()/renderHeight()
 //   m.injectScancode(0x1E);               // Set 1 scan code (see i8042.h)
+//   m.setRtc(1986, 10, 8, 12, 0, 0, 4);   // battery-backed clock, weekday 1 = Sunday
 //   const edges = m.speakerEdges();       // {cycles: Float64Array, levels: Uint8Array}
 //   m.textScreen();                       // test-only: text-mode screen as a string
 
@@ -72,6 +73,10 @@ public:
     // ---- keyboard ----
     // raw Set 1 byte; the front end owns the key table
     void injectScancode(int code) { m_.chipset.kbc.inject_scancode(uint8_t(code)); }
+
+    void setRtc(int year, int month, int day, int hour, int minute, int second, int weekday) {
+        m_.chipset.cmos.set_time(year, month, day, hour, minute, second, weekday);
+    }
 
     // ---- floppy drives (fdc765) ----
     void mountFloppy(int drive, val bytes) {
@@ -184,6 +189,7 @@ EMSCRIPTEN_BINDINGS(ibmpcat_machine) {
         .function("renderWidth", &WasmMachine::renderWidth)
         .function("renderHeight", &WasmMachine::renderHeight)
         .function("injectScancode", &WasmMachine::injectScancode)
+        .function("setRtc", &WasmMachine::setRtc)
         .function("mountFloppy", &WasmMachine::mountFloppy)
         .function("unmountFloppy", &WasmMachine::unmountFloppy)
         .function("floppyPresent", &WasmMachine::floppyPresent)

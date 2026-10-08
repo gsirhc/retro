@@ -159,6 +159,8 @@ void Chipset::tick(uint64_t cpu_cycles, double cpu_hz) {
     ega.tick(cpu_cycles);
     run_fdc_dma();
     hdd.tick(cpu_cycles);
+    kbc.tick(cpu_cycles, cpu_hz);
+    cmos.tick(cpu_cycles, cpu_hz);
     update_irq_lines();
 }
 
@@ -167,6 +169,8 @@ void Chipset::update_irq_lines() {
     pic_master.set_line(1, kbc.irq1_pending());
     pic_master.set_line(6, fdc.irq_pending());
     // The EGA drives bus IRQ2, which the AT routes to IRQ9.
+    // The MC146818A's active-low IRQ is inverted onto IRQ8.
+    pic_slave.set_line(0, cmos.irq_pending());
     pic_slave.set_line(1, ega.vertical_interrupt());
     pic_slave.set_line(6, hdd.irq_pending());
     sync_cascade();

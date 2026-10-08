@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures";
-import { boot, screenText, waitForScreen, focusScreen, clickCtrlAltDel, typeStr, setPowerSwitch } from "./helpers";
+import { boot, screenText, waitForScreen, focusScreen, clickCtrlAltDel, typeStr, setPowerSwitch, tap } from "./helpers";
 
 // Physical DOM keys -> SET1 scan codes -> 8042, the F-key panel, and Ctrl+Alt+Del.
 
@@ -7,9 +7,7 @@ test.describe("keyboard", () => {
   test("typing through the real focused keyboard reaches COMMAND.COM", async ({ page }) => {
     await boot(page);
     await focusScreen(page);
-    // lowercase: page.keyboard.type's uppercase path fires Shift and the letter with no gap, so the 8042 drops Shift
     await page.keyboard.type("dir", { delay: 40 });
-    // Enter needs its own make/break gap or the make code is dropped
     await page.keyboard.down("Enter");
     await page.waitForTimeout(60);
     await page.keyboard.up("Enter");
@@ -59,6 +57,43 @@ test.describe("keyboard", () => {
     await focusScreen(page);
     await typeStr(page, "VER");
     await waitForScreen(page, /C:\\>\s*$/);
+  });
+
+  test("a held key repeats on the keyboard's own typematic clock", async ({ page }) => {
+    await boot(page);
+    await page.evaluate(() => (window as any).__test.sendKey("KeyA", false));
+    await waitForScreen(page, /C:\\>a{6,}/i, 10_000);
+    await page.evaluate(() => (window as any).__test.sendKey("KeyA", true));
+    await page.waitForTimeout(200);
+    const after = await screenText(page);
+    await page.waitForTimeout(500);
+    expect(await screenText(page)).toBe(after);
+    await tap(page, "Escape");
+  });
+
+  test("browser auto-repeat keydowns don't reach the guest", async ({ page }) => {
+    await boot(page);
+    await focusScreen(page);
+    await page.locator("#screen").evaluate((el) => {
+      for (let i = 0; i < 5; i++) {
+        el.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyB", repeat: true, bubbles: true }));
+      }
+    });
+    await page.waitForTimeout(500);
+    expect(await screenText(page)).not.toMatch(/C:\\>b/i);
+  });
+
+  test("leaving the screen releases a held key so it stops repeating", async ({ page }) => {
+    await boot(page);
+    await focusScreen(page);
+    await page.keyboard.down("KeyA");
+    await waitForScreen(page, /C:\\>a{3,}/i, 10_000);
+    await page.locator("#fullscreenBtn").focus();
+    await page.waitForTimeout(200);
+    const after = await screenText(page);
+    await page.waitForTimeout(500);
+    expect(await screenText(page)).toBe(after);
+    await page.keyboard.up("KeyA");
   });
 
   test("\"Click to focus\" hint shows only while running and unfocused", async ({ page }) => {

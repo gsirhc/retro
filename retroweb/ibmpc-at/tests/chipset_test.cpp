@@ -215,10 +215,23 @@ TEST(ChipsetTest, KeyboardIrq1ReachesThePic) {
     cs.kbc.out(0x64, 0x60); cs.kbc.out(0x60, 0x01);  // command byte: enable IRQ1
 
     cs.kbc.inject_scancode(0x1E);  // 'A' make code
+    cs.tick(uint64_t(ibmpcat::I8042::kFrameSeconds * 8000000.0) + 1, 8000000.0);
     ASSERT_TRUE(cs.kbc.irq1_pending());
-    cs.tick(0, 8000000.0);
     EXPECT_TRUE(cs.pic_master.has_interrupt());
     EXPECT_EQ(cs.poll_interrupt(), 0x08 + 1);  // vector_base(8) + IR1
+}
+
+TEST(ChipsetTest, RtcPeriodicInterruptReachesIrq8) {
+    Chipset cs;
+    cs.cmos.out(0x70, 0x0B);
+    cs.cmos.out(0x71, 0x42);  // PIE, 24-hour
+    EXPECT_FALSE(cs.pic_slave.line(0));
+    cs.tick(8000, 8000000.0);  // 1 ms, past one 1024 Hz period
+    EXPECT_TRUE(cs.pic_slave.line(0));
+    cs.cmos.out(0x70, 0x0C);
+    EXPECT_EQ(cs.cmos.in(0x71) & 0xC0, 0xC0);
+    cs.tick(8001, 8000000.0);
+    EXPECT_FALSE(cs.pic_slave.line(0)) << "reading register C drops IRQ8";
 }
 
 TEST(ChipsetTest, HddIdentifyAndReadGoesThroughAtomicSixteenBitBusPath) {

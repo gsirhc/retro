@@ -3537,3 +3537,135 @@ on an AT. It's a FreeDOS bug fixed upstream, not an emulator gap.
 - 48/48 Playwright. The `FORMAT B:` test now runs the whole command: DIR,
   FORMAT, "Format complete" with 368,640 bytes, the BLANK label, and the
   fill byte on the last track.
+
+## 53. Keyboard and RTC: the keyboard's buffer, typematic, commands, and a ticking clock
+
+Items K1-K5 and R1 from [`IBM_PCAT_PARITY.md`](IBM_PCAT_PARITY.md). Most
+of it ports `pc486` (`PC486_REVIEW.md` §40.1-40.2), with the AT's own
+differences. New sources: the IBM Keyboard Technical Reference (6523261,
+as quoted on geekhack, "Rollover, where keyboard data might go"), HelpPC's
+8042 page for the AT input port and command byte, and Chapweske's "The
+AT-PS/2 Keyboard Interface" for the link timing.
+
+### 53.1 The keyboard holds its own bytes (K1)
+
+`push_output()` wrote every keyboard byte straight into the 8042's single
+output register, so a second byte before INT 9 read the first destroyed
+it, and the page spaced each byte 20 ms apart on its own timer. Two keys'
+timers could interleave, which is how `pc486` got stuck keys.
+
+The real keyboard has "a 16-byte first-in-first-out (FIFO) buffer ... that
+stores the scan codes until the system is ready to receive them". The
+model now has that buffer, and each byte crosses the link as an 11-bit
+frame, 825 us at the middle of Chapweske's 10-16.7 kHz clock range. A byte
+only starts when the output register is empty and the controller isn't
+holding the clock low (command byte bit 4, which ADh and AEh set and
+clear). Three things follow:
+
+- IRQ1 drops when INT 9 reads port 60h and rises again a frame later, so
+  every byte is a new edge for the edge-triggered 8259. Delivering the
+  next byte on the read itself would have held the line high and lost the
+  interrupt.
+- The Bochs INT 9 handler brackets its read with ADh and AEh. A key
+  pressed inside that window waits in the keyboard. Before, it was
+  dropped.
+- "An overrun code replaces byte 17. If more keys are pressed before the
+  system allows keyboard output, the additional data is lost." The code
+  is Set 2's 00h, which the 8042 translates to FFh.
+
+A response to a command (ACK, echo, ID, BAT) goes ahead of buffered keys,
+and the controller takes it even with the clock inhibited, since it's
+waiting for it. A command written while a key byte is in flight restarts
+that byte. The controller's own answers (55h, the command byte, the ports)
+still go straight into the register with no link delay.
+
+The page now puts each sequence in at once (`injectScancodeSequence` is a
+plain loop) and the keyboard paces it. The F-key buttons keep their 50 ms
+make-to-break gap, which is a human press, not a workaround.
+
+The BAT itself still arrives one frame after power-on, not after the real
+self-test's few hundred milliseconds.
+
+### 53.2 Typematic (K2)
+
+Ported from §40.2: the most recently pressed key repeats after 500 ms at
+10.9 cps, `F3` changes both, `F5`, `F6` and `FF` restore them, a grey key
+repeats with its `E0`, Pause never repeats, and a break matched on its
+code alone ends the repeat. The timing runs in cycles against the 8 MHz
+clock. One AT-specific rule from 6523261: "If a key is pressed and held
+down while keyboard transmission is inhibited, only the first make code is
+stored in the buffer", so no repeats are generated while the clock is held
+low.
+
+The page drops the browser's `keydown` repeats and tracks held keys.
+Leaving the screen (blur, or the tab hiding) sends a break for each, or a
+key whose `keyup` went elsewhere would repeat forever.
+
+The Bochs BIOS doesn't implement INT 16h AH=03h (AH=09h reports it
+absent), so `MODE CON RATE=` has no effect under the stand-in. Software
+that sends `F3` itself works.
+
+### 53.3 Keyboard commands (K3)
+
+`ED` and `F3` ACK their argument too, and a command byte (bit 7 set) in
+place of an argument runs as a command. `EE` echoes `EE`. `F2` answers
+`FA AB 41`, the Enhanced Keyboard's `AB 83` with the 8042 translating 83h
+to 41h; the 339 shipped with the Enhanced Keyboard. `F4` clears the buffer
+and starts scanning, `F5` restores defaults, clears the buffer and stops
+scanning, `F6` restores defaults and clears the buffer. `F7`-`FD` (Set 3
+key types) are ACKed. `FE` resends the last byte the keyboard sent. `FF`
+ACKs, resets and sends `AA`. Anything else gets `FE`. `F0` takes its
+argument but sets nothing, since only Set 1 is modelled. LED state is
+held, not shown on the page.
+
+### 53.4 Status bit 4 and the keylock (K4)
+
+Status bit 4 is the front-panel keylock, 1 = not inhibited (HelpPC, "1=
+keyboard enabled, 0=keyboard disabled (via switch)"). It read the other
+way, tied to ADh. It now reads 1, since the keylock is open. ADh and AEh
+set and clear command byte bit 4 instead of a private flag, so writing
+the command byte directly has the same effect, as on the chip. The keylock
+itself isn't a control on the page yet. `pc486` still has the inverted
+bit.
+
+### 53.5 Input port and test inputs (K5)
+
+`C0` returns BFh: keylock open (bit 7), colour display (bit 6 low, the
+EGA drives an Enhanced Color Display), no manufacturing jumper (bit 5),
+512KB on the system board (bit 4, "1=enable 2nd 256K"), and bits 0-3 high,
+since they're unconnected and the 8042's quasi-bidirectional port pulls
+them up. `E0` returns T0 (keyboard clock) and T1 (keyboard data): 03h
+idle, 02h while the controller holds the clock low.
+
+### 53.6 The RTC ticks (R1)
+
+`CmosRtc` is §40.1's MC146818A: its own 32.768 kHz time base in guest
+time, UIP 244 us before each update, the 1984 us update, BCD and binary,
+12- and 24-hour, SET, the divider's half-second, the every-fourth-year
+leap rule, the alarm's don't-care bytes, the periodic rate from register
+A, and IRQ8 on slave line 0 while an enabled flag is set, until register C
+is read. It stays 64 bytes, the 5170's part, so 40h-7Fh alias 00h-3Fh.
+
+The old part also never ran `reset()` in the live machine. Registers A, B
+and D read 00h, so the divider was off, the clock was in 12-hour mode and
+the battery-good bit was clear. The constructor now resets it.
+
+Each power-on loads the visitor's local time (`Machine.setRtc` from
+`app.js`), since a real AT's battery kept the clock running. Native
+harnesses start at 1986-01-01 00:00:00, a Wednesday.
+
+### 53.7 Checks
+
+- 472 native tests (435 before). The 8042 suite (33) covers the link
+  delay, IRQ1 dropping between bytes, the inhibit holding keys, responses
+  jumping the queue, the overrun on byte 17, each keyboard command, the
+  input port, the test inputs, status bit 4, and the typematic cases,
+  including held keys under inhibit. The RTC suite (19) is `pc486`'s at
+  8 MHz with the 64-byte alias and the power-on registers. `chipset_test`
+  checks the periodic interrupt reaching IRQ8 and register C dropping it.
+- Bochs POST gets through `keyboard_init` (POST code 77h).
+- 52/52 Playwright. New: a held key repeats at the prompt and stops on
+  release, browser repeat events don't reach the guest, leaving the screen
+  stops a held key, and `DATE` shows today's date (`rtc.spec.ts`).
+- The FreeDOS installer run (`make hdd-image`) wasn't repeated. Its
+  `SendKey` waits 2.5 ms between make and break, well over a frame.
