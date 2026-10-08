@@ -122,7 +122,7 @@
       <label class="pb-theme">Theme
         <button type="button" class="pb-theme-btn" id="pageThemeBtn">Windows 95</button>
       </label>
-      <span class="pb-winbtns"><span aria-hidden="true">_</span><span aria-hidden="true">&#9633;</span><span aria-hidden="true">&times;</span></span>
+      <span class="pb-winbtns"><button type="button" class="pb-min" title="Minimize" aria-label="Minimize" aria-pressed="false">_</button><button type="button" class="pb-max" title="Maximize" aria-label="Maximize" disabled>&#9633;</button><span class="pb-close is-disabled" aria-disabled="true" title="Close unavailable">&times;</span></span>
     </span>
   </header>
 
@@ -211,6 +211,7 @@
 
 <script src="shared/theme-picker.js"></script>
 <script>initThemePicker();</script>
+<script src="shared/winbtns.js"></script>
 <script src="shared/footer.js"></script>
 </body>
 </html>

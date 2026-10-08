@@ -54,7 +54,7 @@ shared:
 	cp $(SHARED)/theme.css $(SHARED)/theme-init.js $(SHARED)/theme-picker.js $(SHARED)/pagebar.css \
 	   $(SHARED)/fullscreen.css $(SHARED)/fullscreen.js \
 	   $(SHARED)/focus-hint.css $(SHARED)/focus-hint.js \
-	   $(SHARED)/footer.css $(SHARED)/footer.js \
+	   $(SHARED)/footer.css $(SHARED)/footer.js $(SHARED)/winbtns.js \
 	   shared/
 
 serve: wasm roms examples-bin shared

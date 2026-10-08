@@ -109,4 +109,20 @@ test.describe("retroweb landing page", () => {
     await page.locator("a.pb-close").click();
     await expect(page).toHaveTitle(/Retro Computers & Games/);
   });
+
+  test("Windows title-bar buttons: soft-minimize collapses the page; close is disabled", async ({ page }) => {
+    await page.goto(HOME);
+    await expect(page.locator(".pb-close.is-disabled")).toHaveAttribute("aria-disabled", "true");
+    await expect(page.locator("a.pb-close")).toHaveCount(0);
+    await expect(page.locator(".pb-max")).toBeDisabled();
+    await expect(page.locator(".inner")).toBeVisible();
+    await page.locator(".pb-min").click();
+    await expect(page.locator(".page")).toHaveClass(/is-minimized/);
+    await expect(page.locator(".inner")).toBeHidden();
+    await expect(page.locator("#siteFooter")).toBeHidden();
+    await page.locator(".pb-min").click();
+    await expect(page.locator(".page")).not.toHaveClass(/is-minimized/);
+    await expect(page.locator(".inner")).toBeVisible();
+  });
+
 });

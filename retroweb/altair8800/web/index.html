@@ -104,9 +104,8 @@
     padding: var(--body-pad);
   }
   a:visited{ color: var(--link-visited); }
-  /* the titlebar's Win95 "x" is a real link (back to the machine list) --
-     don't let :visited fade it relative to the "_"/"[]" spans beside it. */
-  .pb-winbtns a:visited { color: #000; }
+  /* Win95 "x" is a real link; don't let :visited fade it beside _/□. */
+  :root[data-theme="win"] .pb-winbtns a:visited { color: #000; }
 
   /* Win 3.1 / 95 title bar ------------------------------------------ */
   .titlebar {
@@ -1267,7 +1266,7 @@
       <label class="pb-theme">Theme
         <button type="button" class="pb-theme-btn" id="pageThemeBtn">Windows 95</button>
       </label>
-      <span class="pb-winbtns"><span aria-hidden="true">_</span><span aria-hidden="true">&#9633;</span><a class="pb-close" href="../" title="back to all machines" aria-label="close &mdash; back to all machines">&times;</a></span>
+      <span class="pb-winbtns"><button type="button" class="pb-min" title="Minimize" aria-label="Minimize" aria-pressed="false">_</button><button type="button" class="pb-max" title="Maximize" aria-label="Maximize">&#9633;</button><a class="pb-close" href="../" title="back to all machines" aria-label="close &mdash; back to all machines">&times;</a></span>
     </span>
   </header>
 
@@ -1519,6 +1518,7 @@
 <script src="vendor/xterm-addon-fit.js"></script>
 <script src="shared/theme-picker.js"></script>
 <script src="shared/fullscreen.js"></script>
+<script src="shared/winbtns.js"></script>
 <script src="shared/focus-hint.js"></script>
 <script src="shared/footer.js"></script>
 <script>

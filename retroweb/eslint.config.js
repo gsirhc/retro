@@ -74,7 +74,7 @@ export default [
     },
   },
   {
-    files: ["shared/theme-picker.js", "shared/fullscreen.js", "shared/focus-hint.js"],
+    files: ["shared/theme-picker.js", "shared/fullscreen.js", "shared/focus-hint.js", "shared/winbtns.js"],
     languageOptions: {
       globals: {
         ...globals.browser,

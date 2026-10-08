@@ -121,4 +121,21 @@ test.describe("fullscreen", () => {
     await page.locator("#mouseCaptureBtn").click();
     await expect(page.locator("#screen")).toBeFocused();
   });
+
+  test("the title-bar maximize button enters fullscreen like the bezel control", async ({ livePage: page }) => {
+    await page.evaluate(() => localStorage.setItem("retro8080.fsEscHintSeen", "2"));
+    await page.locator(".pb-max").click();
+    await expect.poll(() => page.evaluate(() => !!document.fullscreenElement)).toBe(true);
+    await expect(page.locator("#fullscreenBtn")).toHaveAttribute("aria-label", "Exit fullscreen");
+  });
+
+  test("the title-bar minimize button soft-collapses the page body", async ({ livePage: page }) => {
+    await expect(page.locator(".inner")).toBeVisible();
+    await page.locator(".pb-min").click();
+    await expect(page.locator(".page")).toHaveClass(/is-minimized/);
+    await expect(page.locator(".inner")).toBeHidden();
+    await page.locator(".pb-min").click();
+    await expect(page.locator(".inner")).toBeVisible();
+  });
+
 });

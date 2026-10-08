@@ -97,11 +97,51 @@ h1, h2, h3 { font-weight: 600; }
   padding: 4px 16px; min-width: 72px; cursor: pointer;
 }
 #themeDialog .row button:active { border-style: inset; }
-.pb-winbtns span, .pb-winbtns a {
+.pb-winbtns span, .pb-winbtns a, .pb-winbtns button {
   display: inline-block; width: 16px; height: 14px; line-height: 12px;
   margin-left: 2px; text-align: center; font-size: 10px;
   color: #000; background: #c0c0c0; border: 1px outset #dfdfdf;
-  text-decoration: none;
+  text-decoration: none; padding: 0; font-family: inherit; cursor: pointer;
+  vertical-align: middle; box-sizing: border-box;
+}
+.pb-winbtns button:disabled,
+.pb-winbtns .pb-close.is-disabled {
+  /* Win95 CS_NOCLOSE / disabled caption button */
+  color: #808080; text-shadow: 1px 1px 0 #fff; cursor: default; pointer-events: none;
+}
+.page.is-minimized > .inner,
+.page.is-minimized > #siteFooter { display: none; }
+
+/* Atmosphere: Windows 11 caption buttons (flat, flush, red close on hover). */
+:root[data-theme="aurora"] .pagebar { padding: 0 0 0 12px; min-height: 32px; }
+:root[data-theme="aurora"] .pb-tools { align-self: stretch; gap: 8px; }
+:root[data-theme="aurora"] .pb-theme { padding-right: 4px; }
+:root[data-theme="aurora"] .pb-winbtns {
+  display: inline-flex; align-self: stretch; margin: 0; height: auto;
+}
+:root[data-theme="aurora"] .pb-winbtns span,
+:root[data-theme="aurora"] .pb-winbtns a,
+:root[data-theme="aurora"] .pb-winbtns button {
+  width: 28px; height: auto; min-height: 32px; line-height: 32px;
+  margin: 0; padding: 0; border: 0; border-radius: 0;
+  background: transparent; color: #fff; font-size: 12px; font-weight: 300;
+  text-shadow: none; box-shadow: none;
+}
+:root[data-theme="aurora"] .pb-winbtns a:visited { color: #fff; }
+:root[data-theme="aurora"] .pb-winbtns .pb-min:hover,
+:root[data-theme="aurora"] .pb-winbtns .pb-max:hover {
+  background: rgba(255, 255, 255, .14);
+}
+:root[data-theme="aurora"] .pb-winbtns .pb-close:hover {
+  background: #c42b1c; color: #fff;
+}
+:root[data-theme="aurora"] .pb-winbtns button:disabled,
+:root[data-theme="aurora"] .pb-winbtns .pb-close.is-disabled {
+  color: rgba(255, 255, 255, .4); text-shadow: none; background: transparent;
+}
+:root[data-theme="aurora"] .pb-winbtns button:disabled:hover,
+:root[data-theme="aurora"] .pb-winbtns .pb-close.is-disabled:hover {
+  background: transparent;
 }
 
 :root[data-theme="web94"] .pagebar {

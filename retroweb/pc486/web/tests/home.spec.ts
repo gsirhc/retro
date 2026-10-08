@@ -53,4 +53,20 @@ test.describe("retroweb landing page", () => {
     await expect(page.locator("html")).toHaveAttribute("data-theme", "modern");
     await expect(page.locator("#pageThemeBtn")).toHaveText("Modern");
   });
+
+  test("Windows title-bar buttons: soft-minimize collapses the page; close is disabled", async ({ page }) => {
+    await page.goto(HOME);
+    await expect(page.locator(".pb-close.is-disabled")).toHaveAttribute("aria-disabled", "true");
+    await expect(page.locator("a.pb-close")).toHaveCount(0);
+    await expect(page.locator(".pb-max")).toBeDisabled();
+    await expect(page.locator(".inner")).toBeVisible();
+    await page.locator(".pb-min").click();
+    await expect(page.locator(".page")).toHaveClass(/is-minimized/);
+    await expect(page.locator(".inner")).toBeHidden();
+    await expect(page.locator("#siteFooter")).toBeHidden();
+    await page.locator(".pb-min").click();
+    await expect(page.locator(".page")).not.toHaveClass(/is-minimized/);
+    await expect(page.locator(".inner")).toBeVisible();
+  });
+
 });
