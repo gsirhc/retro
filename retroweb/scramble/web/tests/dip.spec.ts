@@ -13,7 +13,7 @@ test.describe("DIP switches", () => {
     await expect(page.locator("#dipCabinet")).toHaveValue("0");
     expect(await page.evaluate(() => (window as any).__test.machine.in1())).toBe(0xFC);
     expect(await page.evaluate(() => (window as any).__test.machine.in2())).toBe(0x51);
-    await expect(page.locator("#dipPanel .legal")).toContainText(/physical switches/i);
+    await expect(page.locator("#dipPanel .legal")).toContainText(/just like on the real arcade cabinet/i);
   });
 
   test("4 lives writes IN1 bits 1:0 = 01", async ({ page }) => {

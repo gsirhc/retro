@@ -19,6 +19,7 @@ test.describe("retroweb landing page", () => {
     await expect(page).toHaveTitle(/Retro Computers & Games/);
     await expect(page.locator("h2.section-heading")).toHaveText([
       "Arcade: Z-80 Powered",
+      "Arcade: 6502 Powered",
       "Homebrew",
     ]);
 

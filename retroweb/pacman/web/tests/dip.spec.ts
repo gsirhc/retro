@@ -18,7 +18,7 @@ test.describe("DIP switches", () => {
     await expect(page.locator("#dipCabinet")).toHaveValue("0");
     await expect(page.locator("#dipRack")).toHaveValue("0");
     expect(await page.evaluate(() => (window as any).__test.machine.dsw1())).toBe(0xC9);
-    await expect(page.locator("#dipPanel .legal")).toContainText(/physical switches/i);
+    await expect(page.locator("#dipPanel .legal")).toContainText(/just like on the real arcade cabinet/i);
   });
 
   const dsw1Cases: [string, string, string, number][] = [

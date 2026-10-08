@@ -15,7 +15,7 @@ test.describe("DIP switches", () => {
     expect(await page.evaluate(() => (window as any).__test.machine.in0())).toBe(0x00);
     expect(await page.evaluate(() => (window as any).__test.machine.in1())).toBe(0x00);
     expect(await page.evaluate(() => (window as any).__test.machine.in2())).toBe(0x04);
-    await expect(page.locator("#dipPanel .legal")).toContainText(/physical switches/i);
+    await expect(page.locator("#dipPanel .legal")).toContainText(/just like on the real arcade cabinet/i);
   });
 
   test("2 lives writes IN2 bit 2 = 0", async ({ page }) => {

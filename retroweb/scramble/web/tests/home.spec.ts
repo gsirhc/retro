@@ -19,7 +19,7 @@ test.describe("retroweb landing page", () => {
     const card = page.locator('a.machine-card[href="scramble/"]');
     await expect(card.locator(".name")).toHaveText(/Scramble Arcade/i);
     const headings = page.locator("h2.section-heading");
-    await expect(headings).toHaveText(["Arcade: Z-80 Powered", "Homebrew"]);
+    await expect(headings).toHaveText(["Arcade: Z-80 Powered", "Arcade: 6502 Powered", "Homebrew"]);
 
     const shot = card.locator("img.shot");
     await expect(shot).toHaveAttribute("src", /assets\/scramble-cabinet\.png$/);

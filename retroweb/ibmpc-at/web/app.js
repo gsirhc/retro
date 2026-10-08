@@ -352,12 +352,23 @@
 
     // real 8 MHz; TEST_CPU_MULTIPLIER is 1 outside ?test=1&fast=1
     cycleCredit += dtSeconds * 8000000 * TEST_CPU_MULTIPLIER;
-    const cyclesThisFrame = Math.floor(cycleCredit);
+    let cyclesThisFrame = Math.floor(cycleCredit);
     cycleCredit -= cyclesThisFrame;
     const frameStartCycle = machine.totalCycles();
-    if (cyclesThisFrame > 0) machine.runCycles(cyclesThisFrame);
+    if (TEST_CPU_MULTIPLIER === 1) {
+      if (cyclesThisFrame > 0) machine.runCycles(cyclesThisFrame);
+    } else {
+      // fast test mode: stop at a wall-clock budget and drop the rest, or input starves behind 250ms frames
+      const deadline = performance.now() + 12;
+      while (cyclesThisFrame > 0 && performance.now() < deadline) {
+        const n = Math.min(cyclesThisFrame, 200000);
+        machine.runCycles(n);
+        cyclesThisFrame -= n;
+      }
+      cycleCredit = 0;
+    }
 
-    pumpAudio(frameStartCycle, cyclesThisFrame, dtSeconds);
+    pumpAudio(frameStartCycle, machine.totalCycles() - frameStartCycle, dtSeconds);
 
     const rgba = machine.renderFrame();
     // Resolution varies by mode (640x350 text, 320x200 CGA graphics, ega_render.h); the 4:3 box stays put.

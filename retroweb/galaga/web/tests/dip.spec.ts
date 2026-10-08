@@ -24,7 +24,7 @@ test.describe("DIP switches", () => {
     await expect(page.locator("#dipBonus")).toHaveValue("16");
     await expect(page.locator("#dipLives")).toHaveValue("128");
     expect(await dsw(page)).toEqual({ a: 0xF7, b: 0x97 });
-    await expect(page.locator("#dipPanel .legal")).toContainText(/physical switches/i);
+    await expect(page.locator("#dipPanel .legal")).toContainText(/just like on the real arcade cabinet/i);
   });
 
   test("1-player 2-credit game clears SWB bit 0", async ({ page }) => {

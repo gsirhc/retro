@@ -19,7 +19,7 @@ test.describe("retroweb landing page", () => {
     const card = page.locator('a.machine-card[href="galaxian/"]');
     await expect(card.locator(".name")).toHaveText(/Galaxian Arcade/i);
     const headings = page.locator("h2.section-heading");
-    await expect(headings).toHaveText(["Arcade: Z-80 Powered", "Homebrew"]);
+    await expect(headings).toHaveText(["Arcade: Z-80 Powered", "Arcade: 6502 Powered", "Homebrew"]);
 
     const shot = card.locator("img.shot");
     await expect(shot).toHaveAttribute("src", /assets\/galaxian-cabinet\.png$/);
@@ -34,7 +34,7 @@ test.describe("retroweb landing page", () => {
     await page.goto(HOME);
     const computers = await page.locator(".machines").first().locator(".name").allTextContents();
     expect(computers).toEqual(["MITS Altair 8800", "IBM PC/AT", "486 DX2-66 Gaming PC"]);
-    const arcade = await page.locator('h2.section-heading:has-text("Arcade") + .machines .name').allTextContents();
+    const arcade = await page.locator('h2.section-heading:has-text("Z-80") + .machines .name').allTextContents();
     expect(arcade).toEqual([
       "Frogger Arcade",
       "Galaga Arcade",

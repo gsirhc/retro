@@ -26,7 +26,10 @@ test.describe("real-time clock", () => {
     const hostMinutes = now.getHours() * 60 + now.getMinutes();
     expect(Math.abs(rtcMinutes - hostMinutes) % (24 * 60)).toBeLessThanOrEqual(1);
 
-    const before = rtc.min * 60 + rtc.sec;
+    // Same start-up settle as smoke.spec.ts before measuring the clock's pace.
+    await page.waitForTimeout(1000);
+    const settled = await readRtc(page);
+    const before = settled.min * 60 + settled.sec;
     await page.waitForTimeout(2500);
     const later = await readRtc(page);
     const elapsed = (later.min * 60 + later.sec - before + 3600) % 3600;
