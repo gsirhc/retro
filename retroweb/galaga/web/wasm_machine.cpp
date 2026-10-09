@@ -153,6 +153,9 @@ public:
         else if (addr >= 0x9000 && addr < 0x9800) m_.ram2[(addr - 0x9000) & 0x3FF] = uint8_t(v);
         else if (addr >= 0x9800 && addr < 0xA000) m_.ram3[(addr - 0x9800) & 0x3FF] = uint8_t(v);
     }
+    void setMemByte(int addr, int v) {
+        m_.mem_write(uint16_t(addr & 0xFFFF), uint8_t(v));
+    }
     int memRead(int addr) { return m_.mem_read(uint16_t(addr & 0xFFFF)); }
 
 private:
@@ -185,5 +188,6 @@ EMSCRIPTEN_BINDINGS(galaga) {
         .function("screenHeight", &Machine::screenHeight)
         .function("ramByte", &Machine::ramByte)
         .function("setRamByte", &Machine::setRamByte)
+        .function("setMemByte", &Machine::setMemByte)
         .function("memRead", &Machine::memRead);
 }

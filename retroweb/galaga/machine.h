@@ -70,6 +70,7 @@ public:
     int watchdog_ = kWatchdogFrames;
     int frames = 0;
     int credits = 0;
+    std::array<int, 2> coin_counter{};
     std::vector<float> audio;
     int audio_hz = 48000;
     bool watchdog_reset = false;
@@ -102,6 +103,8 @@ private:
     uint8_t mcu51_hle_read();
     uint8_t r_nibble(int n) const;
     void note_coins();
+    void coin_counter_w(int n, bool on);
+    bool coin_line_[2]{};
 
     uint8_t io_ctrl_ = 0;
     int io_div_count_ = 0;

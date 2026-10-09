@@ -183,12 +183,12 @@ prefix is the published reset table; confirmed against a local
 Cabinet chrome follows the Galaxian page: coin door (left slot coin 1,
 right slot coin 2), 1P/2P start, DIP panel in `localStorage`, shared theme
 stack, mute, footer. Gamepad stick, A, Start, and Select use the same
-bits as the keys. Lamps stay out; the coin counters are driven by the
-51XX's outputs, which aren't wired out of the MCU model.
+bits as the keys. Lamps stay out. The coin counters are modelled (§8)
+but have no on-page meter.
 
 ## 8. Parity fixes (2026-10-09)
 
-Items GA1-GA5, B1, B2 and X4 from `shared/cpu/Z80_ARCADE_PARITY.md`.
+Items GA1-GA5, B1-B3 and X4 from `shared/cpu/Z80_ARCADE_PARITY.md`.
 
 - **Raster video (B2) and the 05XX clock (GA1).** *Fact:* the 05XX
   clocks its RNG off the pixel clock. *Why:* the old renderer advanced it
@@ -240,6 +240,17 @@ Items GA1-GA5, B1, B2 and X4 from `shared/cpu/Z80_ARCADE_PARITY.md`.
   `Machine.Io06NmiPeriodIs64ShiftedByControlBits`,
   `Machine.SubAndSoundCpusRunInLockStepWithMain`.
 - **Watchdog keeps RAM (B1)**, `Machine.WatchdogResetKeepsRam`.
+- **Coin counters (B3).** The 51XX P port drives them, active low: P3 is
+  counter 1, P2 counter 2 (MAME `galaga_state_base::out`). The real 51XX
+  image clicks them itself. The HLE clicks the chute's counter once per
+  coin it accepts. `Io.Real51xxDrivesCoinMetersActiveLowOnP`,
+  `Mcu51Hle.CoinMetersClickOncePerCoin`. The genuine image pulses P3 low
+  once for a chute-1 coin, which `Machine.UserRomInsertsCoinWhenLocalDumpPresent`
+  checks. That test used to drop its coin during POST, when the 51XX
+  ignores coins. It now waits 20 s.
+- **54XX fallback level.** `Io.HleExplosionPlaysThroughTheDacNetworkAndDecays`
+  pins the fixed burst's peak through the DAC network (about 0.18) and
+  its decay to silence, so CI covers the network without `54xx.bin`.
 - **Play test harness.** `play_test`'s zip loader copied a temp-dir guard
   whose destructor deleted the extracted ROMs, so the real-ROM test always
   skipped. The guard is move-only now.

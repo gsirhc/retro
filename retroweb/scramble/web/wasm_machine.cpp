@@ -114,6 +114,10 @@ public:
         if (addr < 0x4000 || addr >= 0x4800) return;
         m_.ram[unsigned(addr - 0x4000)] = uint8_t(v);
     }
+    void setMemByte(int addr, int v) {
+        m_.mem_write(uint16_t(addr & 0xFFFF), uint8_t(v));
+    }
+    void soundOut(int port, int v) { m_.sound_out(uint8_t(port), uint8_t(v)); }
     int memRead(int addr) { return m_.mem_read(uint16_t(addr & 0xFFFF)); }
 
 private:
@@ -142,5 +146,7 @@ EMSCRIPTEN_BINDINGS(scramble) {
         .function("screenHeight", &Machine::screenHeight)
         .function("ramByte", &Machine::ramByte)
         .function("setRamByte", &Machine::setRamByte)
+        .function("setMemByte", &Machine::setMemByte)
+        .function("soundOut", &Machine::soundOut)
         .function("memRead", &Machine::memRead);
 }

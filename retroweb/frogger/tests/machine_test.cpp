@@ -5,6 +5,8 @@
 
 #include <algorithm>
 #include <array>
+#include <iterator>
+#include <vector>
 
 namespace {
 
@@ -89,6 +91,39 @@ TEST(Machine, WriteB808EnablesNmi) {
     EXPECT_TRUE(m.nmi_enable);
     m.mem_write(0xB808, 0);
     EXPECT_FALSE(m.nmi_enable);
+}
+
+namespace {
+
+// Counts NMIs at $8000; `rearm` writes 0 then 1 to $B808 inside the handler.
+frogger::RomSet nmi_counter(bool rearm) {
+    frogger::RomSet s;
+    const uint8_t main[] = {0x31, 0x00, 0x88, 0x21, 0x00, 0x80, 0x3E, 0x01,
+                            0x32, 0x08, 0xB8, 0x3A, 0x00, 0x88, 0x18, 0xFB};
+    std::copy(std::begin(main), std::end(main), s.program.begin());
+    std::vector<uint8_t> nmi = {0xF5, 0x34};
+    if (rearm) nmi.insert(nmi.end(), {0xAF, 0x32, 0x08, 0xB8, 0x3C, 0x32, 0x08, 0xB8});
+    nmi.insert(nmi.end(), {0xF1, 0xED, 0x45});
+    std::copy(nmi.begin(), nmi.end(), s.program.begin() + 0x66);
+    return s;
+}
+
+}  // namespace
+
+TEST(Machine, VblankNmiHoldsUntilTheEnableLatchIsCleared) {
+    frogger::Machine m;
+    m.load_roms(nmi_counter(false));
+    m.reset();
+    m.run_cycles(frogger::kCpuPerFrame * 6);
+    EXPECT_EQ(m.ram[0], 1);
+}
+
+TEST(Machine, VblankNmiFiresEveryFrameWhenRearmed) {
+    frogger::Machine m;
+    m.load_roms(nmi_counter(true));
+    m.reset();
+    m.run_cycles(frogger::kCpuPerFrame * 6);
+    EXPECT_EQ(m.ram[0], 6);
 }
 
 TEST(Machine, Ppi0ReadsCabinetPorts) {

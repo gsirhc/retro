@@ -165,6 +165,8 @@ retroweb/shared/cpu/dormann/dormann_host
 retroweb/shared/cpu/dormann/6502_functional_test.bin
 
 retroweb/frogger/tests/build/
+retroweb/frogger/tests/build-cov/
+retroweb/frogger/tests/coverage-cpp/
 retroweb/frogger/web/frogger.js
 retroweb/frogger/web/frogger.wasm
 retroweb/frogger/web/hwtest_roms.h
@@ -173,6 +175,8 @@ retroweb/frogger/roms/user/
 retroweb/frogger/web/shared/
 
 retroweb/galaga/tests/build/
+retroweb/galaga/tests/build-cov/
+retroweb/galaga/tests/coverage-cpp/
 retroweb/galaga/web/galaga.js
 retroweb/galaga/web/galaga.wasm
 retroweb/galaga/web/hwtest_roms.h
@@ -180,6 +184,8 @@ retroweb/galaga/web/roms/
 retroweb/galaga/roms/user/
 retroweb/galaga/web/shared/
 retroweb/galaxian/tests/build/
+retroweb/galaxian/tests/build-cov/
+retroweb/galaxian/tests/coverage-cpp/
 retroweb/galaxian/web/galaxian.js
 retroweb/galaxian/web/galaxian.wasm
 retroweb/galaxian/web/hwtest_roms.h
@@ -188,6 +194,8 @@ retroweb/galaxian/roms/user/
 retroweb/galaxian/web/shared/
 
 retroweb/scramble/tests/build/
+retroweb/scramble/tests/build-cov/
+retroweb/scramble/tests/coverage-cpp/
 retroweb/scramble/web/scramble.js
 retroweb/scramble/web/scramble.wasm
 retroweb/scramble/web/hwtest_roms.h

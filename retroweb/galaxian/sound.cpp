@@ -233,11 +233,13 @@ void DiscreteSound::step(double qa, double qc, double qd, bool noise) {
         bck_cap_ = 5.0 / 3;
     }
     bck_cv_ = std::clamp(bck_cap_ * kR33 / (1.0 / (1 / kR31 + 1 / kR32 + 1 / kR33)) - 5.0 * kR33 / kR31, 0.0, 5.0);
+    static constexpr double kBckR[3] = {kR24, kR27, kR30};
+    static const double bck_r = 1.0 / (1 / kR24 + 1 / kR27 + 1 / kR30);
     double fs_sum = 0;
     for (int i = 0; i < 3; i++)
-        fs_sum += 4.5 * astable(fs555_[i].v, fs555_[i].charging, kFsRa[i], kFsRb[i], kFsC[i], bck_cv_, fs[i]);
-    static const double bck_exp = charge_exp((kR24 / 3) * kC20);
-    bck_mix_ += (fs_sum / 3.0 - bck_mix_) * bck_exp;
+        fs_sum += 4.5 * astable(fs555_[i].v, fs555_[i].charging, kFsRa[i], kFsRb[i], kFsC[i], bck_cv_, fs[i]) / kBckR[i];
+    static const double bck_exp = charge_exp(bck_r * kC20);
+    bck_mix_ += (fs_sum * bck_r - bck_mix_) * bck_exp;
 
     // HIT: C21 follows the HIT line through a diode and bleeds through R35+R36 while the noise gate is open.
     static const double hit_exp = charge_exp((kR35 + kR36) * kC21);

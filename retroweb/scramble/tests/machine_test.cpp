@@ -5,6 +5,8 @@
 
 #include <algorithm>
 #include <array>
+#include <iterator>
+#include <vector>
 
 namespace {
 
@@ -87,6 +89,55 @@ TEST(Machine, LatchesAt6800) {
     m.mem_write(0x6807, 1);
     EXPECT_TRUE(m.video.flip_x);
     EXPECT_TRUE(m.video.flip_y);
+}
+
+namespace {
+
+// Counts NMIs at $4000; `rearm` writes 0 then 1 to $6801 inside the handler.
+scramble::RomSet nmi_counter(bool rearm) {
+    scramble::RomSet s;
+    const uint8_t main[] = {0x31, 0x00, 0x48, 0x21, 0x00, 0x40, 0x3E, 0x01,
+                            0x32, 0x01, 0x68, 0x3A, 0x00, 0x70, 0x18, 0xFB};
+    std::copy(std::begin(main), std::end(main), s.program.begin());
+    std::vector<uint8_t> nmi = {0xF5, 0x34};
+    if (rearm) nmi.insert(nmi.end(), {0xAF, 0x32, 0x01, 0x68, 0x3C, 0x32, 0x01, 0x68});
+    nmi.insert(nmi.end(), {0xF1, 0xED, 0x45});
+    std::copy(nmi.begin(), nmi.end(), s.program.begin() + 0x66);
+    return s;
+}
+
+}  // namespace
+
+TEST(Machine, VblankNmiHoldsUntilTheEnableLatchIsCleared) {
+    scramble::Machine m;
+    m.load_roms(nmi_counter(false));
+    m.reset();
+    m.run_cycles(scramble::kCpuPerFrame * 6);
+    EXPECT_EQ(m.ram[0], 1);
+}
+
+TEST(Machine, VblankNmiFiresEveryFrameWhenRearmed) {
+    scramble::Machine m;
+    m.load_roms(nmi_counter(true));
+    m.reset();
+    m.run_cycles(scramble::kCpuPerFrame * 6);
+    EXPECT_EQ(m.ram[0], 6);
+}
+
+TEST(Machine, SoundIntHoldsUntilTheCpuAcknowledges) {
+    scramble::Machine m;
+    m.reset();
+    m.mem_write(0x8203, 0x80);
+    m.sound.im = 1;
+    m.sound.sp = 0x83F0;
+    m.mem_write(0x8201, 0x08);
+    m.mem_write(0x8201, 0x00);
+    for (int i = 0; i < 10; i++) m.sound.step();
+    EXPECT_TRUE(m.sound.int_line);
+    m.sound.iff1 = m.sound.iff2 = true;
+    m.sound.step();
+    EXPECT_EQ(m.sound.pc, 0x0038);
+    EXPECT_FALSE(m.sound.int_line);
 }
 
 TEST(Machine, Ppi0IfA8Ppi1IfA9) {

@@ -14,6 +14,8 @@ FetchContent_MakeAvailable(googletest)
 
 enable_testing()
 
+option(COVERAGE "instrument the unit-test binaries for llvm-cov" OFF)
+
 set(CORE ${CMAKE_CURRENT_SOURCE_DIR}/..)
 set(Z80 ${CMAKE_CURRENT_SOURCE_DIR}/../../shared/cpu)
 set(SHARED ${CMAKE_CURRENT_SOURCE_DIR}/../../shared)
@@ -23,6 +25,10 @@ function(add_unit_test name)
   target_include_directories(${name} PRIVATE ${CORE} ${Z80} ${SHARED} ${CMAKE_CURRENT_BINARY_DIR})
   target_link_libraries(${name} PRIVATE GTest::gtest_main)
   target_compile_options(${name} PRIVATE -Wall -Wextra)
+  if(COVERAGE)
+    target_compile_options(${name} PRIVATE -O0 -g -fprofile-instr-generate -fcoverage-mapping)
+    target_link_options(${name} PRIVATE -fprofile-instr-generate -fcoverage-mapping)
+  endif()
 endfunction()
 
 add_custom_command(

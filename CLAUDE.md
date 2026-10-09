@@ -494,7 +494,8 @@ separate suite.
   alters behaviour adds or updates a test in the same commit. Deploy CI
   runs **smoke** only and **does not deploy a red build**; the full suites
   run nightly (see "Smoke vs full" above). Coverage targets exist for
-  altair8800 today; none of them gate CI. Use `/* v8 ignore next */` only
+  altair8800 and the five Z80 arcades (`make -C retroweb/<arcade>
+  coverage`, board code only); none of them gate CI. Use `/* v8 ignore next */` only
   for genuinely unreachable defensive paths, never to hide an untested
   feature.
 - The **deployed site** is staged in CI: `retroweb/index.html` → `_site/`,

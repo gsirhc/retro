@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <initializer_list>
 #include <iterator>
 
@@ -129,6 +130,29 @@ TEST(Io, ExplosionCommandArmsNoise) {
     for (float s : m.audio) if (s != 0) any = true;
     EXPECT_TRUE(any);
     EXPECT_TRUE(m.mcu54_hle);
+}
+
+TEST(Io, HleExplosionPlaysThroughTheDacNetworkAndDecays) {
+    Machine m;
+    const uint8_t kick[] = {0x32, 0x30, 0x68, 0x18, 0xFB};
+    std::copy(std::begin(kick), std::end(kick), m.rom_main.begin());
+    m.reset();
+    m.audio_hz = 48000;
+    m.run_cycles(kCpuHz / 2);
+    m.audio.clear();
+    m.mem_write(0x7100, 0xA8);
+    m.mem_write(0x7000, 0x18);
+    m.run_cycles(kCpuHz / 10);
+    float peak = 0;
+    for (float s : m.audio) peak = std::max(peak, std::fabs(s));
+    EXPECT_NEAR(peak, 0.18f, 0.05f) << "MAME's absolute scale";
+    m.run_cycles(kCpuHz / 2);
+    EXPECT_EQ(m.dac54(0), 0);
+    m.audio.clear();
+    m.run_cycles(kCpuHz / 10);
+    float tail = 0;
+    for (float s : m.audio) tail = std::max(tail, std::fabs(s));
+    EXPECT_LT(tail, 1e-3f);
 }
 
 TEST(Video, TileAndSpritePaint) {
@@ -348,6 +372,38 @@ TEST(Mcu51Hle, StartSpendsCreditsOnceUntilCreditModeReenters) {
     send51(m, {0x02});
     tap(m, 0x04);
     EXPECT_EQ(m.credits, 0);
+}
+
+TEST(Mcu51Hle, CoinMetersClickOncePerCoin) {
+    Machine m;
+    m.rom_main[0] = 0x18;
+    m.rom_main[1] = 0xFE;
+    m.reset();
+    send51(m, {0x01, 2, 1, 1, 1, 0x02});
+    tap(m, 0x10);
+    tap(m, 0x10);
+    tap(m, 0x20);
+    EXPECT_EQ(m.coin_counter[0], 2);
+    EXPECT_EQ(m.coin_counter[1], 1);
+    m.reset();
+    EXPECT_EQ(m.coin_counter[0], 2) << "the meter is mechanical";
+}
+
+TEST(Io, Real51xxDrivesCoinMetersActiveLowOnP) {
+    Machine m;
+    RomSet set;
+    set.has51 = true;
+    // JP $10; then OUTP F, 7, F, 3 and spin.
+    const uint8_t prog[] = {0x9F, 0x02, 0x97, 0x02, 0x9F, 0x02, 0x93, 0x02, 0xD8};
+    set.mcu51[0x00] = 0xD0;
+    std::copy(std::begin(prog), std::end(prog), set.mcu51.begin() + 0x10);
+    m.load_roms(set);
+    m.rom_main[0] = 0x18;
+    m.rom_main[1] = 0xFE;
+    m.mem_write(0x6823, 0x01);
+    m.run_cycles(500);
+    EXPECT_EQ(m.coin_counter[0], 2);
+    EXPECT_EQ(m.coin_counter[1], 1);
 }
 
 TEST(Mcu51Hle, ZeroCoinsPerCreditIsFreePlay) {

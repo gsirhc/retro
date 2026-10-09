@@ -11,6 +11,11 @@ Machine::Machine() : main(make_bus(0)), sub(make_bus(1)), sound(make_bus(2)) {
     };
     mcu51_.read_r = [this](int n) { return r_nibble(n); };
     mcu51_.write_o = [this](uint8_t v, uint8_t) { mcu51_.o_output = v; };
+    // P2/P3 drive the coin meters, active low (MAME galaga out()).
+    mcu51_.write_p = [this](uint8_t v) {
+        coin_counter_w(1, !(v & 0x04));
+        coin_counter_w(0, !(v & 0x08));
+    };
     // K and R0 read the latched 06XX command; O nibbles and R1 drive the three DACs (MAME namco54).
     mcu54_.read_k = [this] { return uint8_t(mcu54_cmd_ >> 4); };
     mcu54_.read_r = [this](int) { return uint8_t(mcu54_cmd_ & 0x0f); };
@@ -49,6 +54,7 @@ void Machine::reset() {
     watchdog_ = kWatchdogFrames;
     frames = 0;
     credits = 0;
+    coin_line_[0] = coin_line_[1] = false;
     audio.clear();
     audio_acc_ = 0;
     sub_credit_ = 0;
@@ -175,6 +181,8 @@ void Machine::note_coins() {
         int need = mcu51_coinage_[chute * 2];
         int give = mcu51_coinage_[chute * 2 + 1];
         if (need == 0) continue;
+        coin_counter_w(chute, true);
+        coin_counter_w(chute, false);
         if (++mcu51_coins_[chute] >= need) {
             mcu51_coins_[chute] = 0;
             credits += give;
@@ -193,6 +201,11 @@ void Machine::note_coins() {
             mcu51_started_ = true;
         }
     }
+}
+
+void Machine::coin_counter_w(int n, bool on) {
+    if (on && !coin_line_[n]) coin_counter[unsigned(n)]++;
+    coin_line_[n] = on;
 }
 
 uint8_t Machine::io06_read() {

@@ -126,11 +126,15 @@ TEST(Machine, UserRomInsertsCoinWhenLocalDumpPresent) {
     galaga::Machine m;
     m.load_roms(set);
     m.reset();
-    m.run_cycles(galaga::kCpuHz);
+    // The 51XX ignores coins until POST ends and the game enters credit mode.
+    m.run_cycles(galaga::kCpuHz * 20);
+    EXPECT_EQ(m.coin_counter[0], 0);
     m.inputs.in1 = 0x10;
     m.run_cycles(galaga::kCpuHz / 10);
     m.inputs.in1 = 0x04;
     m.run_cycles(galaga::kCpuHz);
+    EXPECT_EQ(m.coin_counter[0], 1);
+    EXPECT_EQ(m.coin_counter[1], 0);
     EXPECT_GT(m.frames, 60);
     EXPECT_FALSE(m.watchdog_reset);
 }
