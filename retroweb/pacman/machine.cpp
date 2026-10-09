@@ -131,73 +131,69 @@ uint8_t Machine::mem_read(uint16_t addr) {
     aux_trap(addr);
     // Stock PCB leaves A15 unconnected, so $8000-$FFFF mirror $0000-$7FFF.
     const uint16_t lo = addr & 0x7FFF;
-    if (lo >= 0x4000 && lo < 0x4400) return video.videoram[lo - 0x4000];
-    if (lo >= 0x4400 && lo < 0x4800) return video.colorram[lo - 0x4400];
-    if (lo >= 0x4800 && lo < 0x5000) return ram[lo - 0x4800];
-    if (lo >= 0x5000) {
-        switch (lo & 0xFFC0) {
-            case 0x5000: return inputs.in0;
-            case 0x5040: return inputs.in1;
-            case 0x5080: return inputs.dsw1;
-            case 0x50C0: return inputs.dsw2;
-            default: return 0xFF;
-        }
+    if (lo < 0x4000) {
+        if (aux_board && aux_decode) return aux_decrypted_[addr];
+        return program[lo];
     }
-    if (aux_board && aux_decode) return aux_decrypted_[addr];
-    return program[lo];
+    // A13 is not decoded above $4000 (MAME mirror 0xa000).
+    const uint16_t m = lo & 0x5FFF;
+    if (m < 0x4400) return video.videoram[m - 0x4000];
+    if (m < 0x4800) return video.colorram[m - 0x4400];
+    // No RAM at $4800-$4BFF; the floating bus reads $BF (MAME pacman_read_nop).
+    if (m < 0x4C00) return 0xBF;
+    if (m < 0x5000) return ram[m - 0x4C00];
+    switch ((m >> 6) & 3) {
+        case 0: return inputs.in0;
+        case 1: return inputs.in1;
+        case 2: return inputs.dsw1;
+        default: return inputs.dsw2;
+    }
 }
 
 void Machine::mem_write(uint16_t addr, uint8_t v) {
     aux_trap(addr);
     const uint16_t lo = addr & 0x7FFF;
     if (lo < 0x4000) return;
-    if (lo < 0x4400) {
-        video.videoram[lo - 0x4000] = v;
+    const uint16_t m = lo & 0x5FFF;
+    if (m < 0x4400) {
+        video.videoram[m - 0x4000] = v;
         return;
     }
-    if (lo < 0x4800) {
-        video.colorram[lo - 0x4400] = v;
+    if (m < 0x4800) {
+        video.colorram[m - 0x4400] = v;
         return;
     }
-    if (lo < 0x4FF0) {
-        ram[lo - 0x4800] = v;
+    if (m < 0x4C00) return;
+    if (m < 0x5000) {
+        ram[m - 0x4C00] = v;
+        if (m >= 0x4FF0) video.spriteram[m - 0x4FF0] = v;
         return;
     }
-    if (lo < 0x5000) {
-        ram[lo - 0x4800] = v;
-        video.spriteram[lo - 0x4FF0] = v;
+    // A8-A11 are not decoded in the I/O page (MAME mirror 0xaf00).
+    const uint16_t io = m & 0x50FF;
+    if (io < 0x5040) {
+        // 74LS259 main latch, repeated every 8 bytes (MAME mirror 0xaf38).
+        switch (io & 7) {
+            case 0:
+                // Clearing the mask also clears the held vblank request (MAME irq_mask_w).
+                irq_enable = (v & 1) != 0;
+                if (!irq_enable) cpu.set_int(false);
+                return;
+            case 1: wsg.enabled = (v & 1) != 0; return;
+            case 3: video.flip_screen = (v & 1) != 0; return;
+            case 7: coin_counter_w(0, (v & 1) != 0); return;
+            default: return;
+        }
+    }
+    if (io < 0x5060) {
+        wsg.write(io - 0x5040, v);
         return;
     }
-    if (lo == 0x5000) {
-        // Clearing the mask also clears the held vblank request (MAME irq_mask_w).
-        irq_enable = (v & 1) != 0;
-        if (!irq_enable) cpu.set_int(false);
+    if (io < 0x5070) {
+        video.sprite_xy[io - 0x5060] = v;
         return;
     }
-    if (lo == 0x5001) {
-        wsg.enabled = (v & 1) != 0;
-        return;
-    }
-    if (lo == 0x5007) {
-        coin_counter_w(0, (v & 1) != 0);
-        return;
-    }
-    if (lo == 0x5003) {
-        video.flip_screen = (v & 1) != 0;
-        return;
-    }
-    if (lo >= 0x5040 && lo < 0x5060) {
-        wsg.write(lo - 0x5040, v);
-        return;
-    }
-    if (lo >= 0x5060 && lo < 0x5070) {
-        video.sprite_xy[lo - 0x5060] = v;
-        return;
-    }
-    if ((lo & 0xFFC0) == 0x50C0) {
-        watchdog_ = kWatchdogFrames;
-        return;
-    }
+    if (io >= 0x50C0) watchdog_ = kWatchdogFrames;
 }
 
 void Machine::watchdog_fire() {

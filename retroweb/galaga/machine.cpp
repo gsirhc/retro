@@ -7,7 +7,7 @@ namespace galaga {
 
 Machine::Machine() : main(make_bus(0)), sub(make_bus(1)), sound(make_bus(2)) {
     mcu51_.read_k = [this] {
-        return uint8_t(((io_ctrl_ & 0x10) ? 8 : 0) | (mcu51_.o_output & 7));
+        return uint8_t((io_rw_ ? 8 : 0) | (mcu51_.o_output & 7));
     };
     mcu51_.read_r = [this](int n) { return r_nibble(n); };
     mcu51_.write_o = [this](uint8_t v, uint8_t) { mcu51_.o_output = v; };
@@ -60,16 +60,17 @@ void Machine::reset() {
     sub_credit_ = 0;
     sound_credit_ = 0;
     io_ctrl_ = 0;
-    io_div_count_ = 0;
     io_stretch_ = false;
-    io_phase_ = false;
+    io_timer_state_ = false;
+    io_rw_ = false;
     mcu51_mode_ = 0;
     mcu51_args_ = 0;
     mcu51_read_i_ = 0;
     mcu51_started_ = false;
     mcu51_coins_[0] = mcu51_coins_[1] = 0;
     prev_in1_ = 0;
-    mcu_acc_ = 0;
+    mcu_next_ = main.cycles;
+    mcu51_wait_ = mcu54_wait_ = 0;
     mcu54_args_ = 0;
     mcu54_cmd_ = 0;
     for (int ch = 0; ch < 3; ch++) {
@@ -215,9 +216,7 @@ uint8_t Machine::io06_read() {
         if (mcu51_hle) result = uint8_t(result & mcu51_hle_read());
         else result = uint8_t(result & mcu51_.o_output);
     }
-    if (io_ctrl_ & 0x08) {
-        if (!mcu54_hle) result = uint8_t(result & mcu54_cmd_);
-    }
+    // The 54XX only listens; nothing drives the bus for it (MAME galaga n06xx has no read<3>).
     return result;
 }
 
@@ -253,13 +252,29 @@ void Machine::io06_write(uint8_t v) {
 }
 
 void Machine::io06_ctrl(uint8_t v) {
+    // MAME namco06 ctrl_w_sync: a zero divider stops the clock and leaves R/W latched.
     io_ctrl_ = v;
-    io_div_count_ = 0;
-    io_phase_ = false;
-    io_stretch_ = (v & 0x10) != 0;
     if ((v & 0xE0) == 0) {
+        io_timer_state_ = false;
         io_stretch_ = false;
         mcu_select(false);
+        return;
+    }
+    io_stretch_ = (v & 0x10) != 0;
+    // The clock restarts on the next 06XX tick (MASTER/384, every 64 T-states).
+    io_next_edge_ = (main.cycles / 64 + 1) * 64;
+}
+
+void Machine::io06_edge() {
+    // MAME namco06 nmi_generate: R/W, chip selects and NMI follow the falling edge; a read skips its first NMI.
+    io_timer_state_ = !io_timer_state_;
+    if (io_timer_state_) io_rw_ = (io_ctrl_ & 0x10) != 0;
+    bool nmi = io_timer_state_ && !io_stretch_;
+    io_stretch_ = false;
+    mcu_select(io_timer_state_);
+    if (nmi && !sub_reset) {
+        main.set_nmi(true);
+        main.set_nmi(false);
     }
 }
 
@@ -316,6 +331,7 @@ void Machine::mem_write(int cpu, uint16_t addr, uint8_t v) {
                 sound.reset();
                 mcu51_.reset();
                 mcu54_.reset();
+                mcu51_wait_ = mcu54_wait_ = 0;
                 mcu51_.halted_reset = true;
                 mcu54_.halted_reset = true;
             } else {
@@ -378,35 +394,22 @@ void Machine::on_vblank() {
     }
 }
 
-void Machine::service_mcu(int z80_cycles) {
-    // MB8843/44 instruction cycle is 1.536 MHz / 6, one per 12 Z80 T-states.
-    mcu_acc_ += z80_cycles;
-    while (mcu_acc_ >= 12) {
-        mcu_acc_ -= 12;
-        if (!mcu51_hle && !sub_reset) mcu51_.step();
-        if (!mcu54_hle && !sub_reset) mcu54_.step();
-    }
-    int shift = (io_ctrl_ >> 5) & 7;
-    if (shift != 0) {
-        // NMI period is (64 << shift) Z80 cycles; the midpoint drops /IO for a new MCU interrupt.
-        // The first read-mode edge skips the host NMI so the MCU drives the bus first.
-        int half = (64 << shift) / 2;
-        io_div_count_ += z80_cycles;
-        while (io_div_count_ >= half) {
-            io_div_count_ -= half;
-            io_phase_ = !io_phase_;
-            if (io_phase_) {
-                mcu_select(false);
-                continue;
-            }
-            bool skip_nmi = io_stretch_;
-            io_stretch_ = false;
-            mcu_select(true);
-            if (!skip_nmi && !sub_reset) {
-                main.set_nmi(true);
-                main.set_nmi(false);
-            }
+void Machine::service_mcu() {
+    const uint64_t now = main.cycles;
+    for (;;) {
+        const bool clocked = (io_ctrl_ & 0xE0) != 0;
+        const bool edge_first = clocked && io_next_edge_ <= mcu_next_;
+        const uint64_t next = edge_first ? io_next_edge_ : mcu_next_;
+        if (next > now) break;
+        if (edge_first) {
+            io06_edge();
+            io_next_edge_ += (64u << ((io_ctrl_ >> 5) & 7)) / 2;
+            continue;
         }
+        // MB8843/44 instruction cycle is 1.536 MHz / 6, one per 12 Z80 T-states.
+        mcu_next_ += 12;
+        if (!mcu51_hle && !sub_reset && --mcu51_wait_ <= 0) mcu51_wait_ = mcu51_.step();
+        if (!mcu54_hle && !sub_reset && --mcu54_wait_ <= 0) mcu54_wait_ = mcu54_.step();
     }
 }
 
@@ -519,7 +522,7 @@ int Machine::run_cycles(int n) {
         size_t audio_before = audio.size();
         wsg.advance(t, audio_hz, audio);
         note_coins();
-        service_mcu(t);
+        service_mcu();
         if (video.sound_nmi_edge) {
             video.sound_nmi_edge = false;
             if (!nmi_disable && !sound_reset) {

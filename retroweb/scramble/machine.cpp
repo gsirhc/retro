@@ -55,7 +55,7 @@ void Machine::wire_ppi() {
 }
 
 void Machine::pal6j_write(uint8_t v) {
-    // PAL 6J: nibble in/out. Observed sequences use op $9 (increment); equations unpublished.
+    // PAL 6J: nibble in/out, equations unpublished. Ops per MAME theend_protection_w.
     protection_state_ = (protection_state_ << 4) | (v & 0x0F);
     uint8_t num1 = uint8_t((protection_state_ >> 8) & 0x0F);
     uint8_t num2 = uint8_t((protection_state_ >> 4) & 0x0F);
@@ -79,7 +79,6 @@ void Machine::pal6j_write(uint8_t v) {
         default:
             break;
     }
-    ppi1.c = protection_result;
 }
 
 uint8_t Machine::sound_in(uint8_t port) {

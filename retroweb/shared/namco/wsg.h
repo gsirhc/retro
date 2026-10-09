@@ -23,10 +23,6 @@ public:
     // Advance `cpu_cycles` at 3.072 MHz; append mono samples at `host_hz`.
     void advance(int cpu_cycles, int host_hz, std::vector<float>& out);
 
-    // Absolute sample_clock*freq mix for register-map tests. Live playback uses
-    // per-voice counters so a frequency write doesn't jump the phase.
-    float mix_at(uint64_t sample_clock) const;
-
 private:
     uint64_t cpu_cycle_ = 0;
     double sample_hold_ = 0;

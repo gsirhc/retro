@@ -383,6 +383,18 @@ TEST(DiscreteSound, Vol1AddsR49ToThePitchMix) {
     EXPECT_GT(rms(ob, ob.size() / 2), rms(oa, oa.size() / 2) * 1.2);
 }
 
+TEST(DiscreteSound, Vol2AddsR52ToThePitchMix) {
+    galaxian::DiscreteSound a, b;
+    a.reset();
+    b.reset();
+    a.pitch_w(0x80);
+    b.pitch_w(0x80);
+    b.sound_w(7, true);
+    auto oa = run_sound(a, 0.3);
+    auto ob = run_sound(b, 0.3);
+    EXPECT_GT(rms(ob, ob.size() / 2), rms(oa, oa.size() / 2) * 1.2);
+}
+
 TEST(DiscreteSound, FireLatchIsAudible) {
     galaxian::DiscreteSound s;
     s.reset();

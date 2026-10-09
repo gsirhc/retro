@@ -175,6 +175,19 @@ TEST(Machine, DiscreteSoundLatches) {
     EXPECT_EQ(m.sound.pitch, 0x40);
 }
 
+TEST(Machine, UnusedLatchesDoNothing) {
+    galaxian::Machine m;
+    m.reset();
+    m.mem_write(0x6804, 1);
+    for (uint16_t a : {0x7000, 0x7002, 0x7003, 0x7005}) m.mem_write(a, 1);
+    EXPECT_FALSE(m.sound.hit);
+    EXPECT_FALSE(m.sound.fire);
+    EXPECT_FALSE(m.nmi_enable);
+    EXPECT_FALSE(m.video.stars_enable());
+    EXPECT_FALSE(m.video.flip_x);
+    EXPECT_FALSE(m.video.flip_y);
+}
+
 TEST(Machine, JoystickEchoesToRam) {
     galaxian::Machine m;
     m.load_roms(test_set());

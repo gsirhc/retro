@@ -36,23 +36,6 @@ uint8_t Wsg::voice_wave(int v) const { return uint8_t(regs[unsigned(v * 5 + 0x05
 
 uint8_t Wsg::voice_vol(int v) const { return regs[unsigned(v * 5 + 0x15)]; }
 
-float Wsg::mix_at(uint64_t sample_clock) const {
-    if (!enabled) return 0;
-    float acc = 0;
-    for (int v = 0; v < 3; v++) {
-        uint32_t f = voice_freq(v);
-        uint8_t vol = voice_vol(v);
-        if (f == 0 || vol == 0) continue;
-        // 20-bit phase at 96 kHz, 32-sample wave; absolute form is for register-map
-        // tests, see mix_counters() for playback
-        uint32_t phase = uint32_t((sample_clock * uint64_t(f)) >> (20 - 5));
-        uint8_t idx = uint8_t((voice_wave(v) << 5) | (phase & 31));
-        int s = int(wave_prom[idx] & 0x0F) - 8;
-        acc += float(s) * float(vol);
-    }
-    return acc / (8.0f * 15.0f * 3.0f);
-}
-
 float Wsg::mix_counters() const {
     if (!enabled) return 0;
     float acc = 0;

@@ -29,10 +29,10 @@ TEST(Smoke, HwtestBootsSignatureWatchdogAndPaints) {
     m.load_roms(test_set());
     m.reset();
     m.run_cycles(pacman::kCpuHz / 10);
-    EXPECT_EQ(m.ram[0x4C00 - 0x4800], 'T');
-    EXPECT_EQ(m.ram[0x4C01 - 0x4800], 'S');
-    EXPECT_EQ(m.ram[0x4C02 - 0x4800], 'T');
-    EXPECT_EQ(m.ram[0x4C03 - 0x4800], '1');
+    EXPECT_EQ(m.ram[0x4C00 - 0x4C00], 'T');
+    EXPECT_EQ(m.ram[0x4C01 - 0x4C00], 'S');
+    EXPECT_EQ(m.ram[0x4C02 - 0x4C00], 'T');
+    EXPECT_EQ(m.ram[0x4C03 - 0x4C00], '1');
     EXPECT_FALSE(m.watchdog_reset);
     EXPECT_GT(m.frames, 0);
 

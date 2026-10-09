@@ -85,6 +85,7 @@ void Mb88::out_o(uint8_t index) {
 }
 
 void Mb88::burn(int cycles) {
+    cycles_ += cycles;
     // Internal serial clock: one shift of S per instruction cycle, SI into bit 3 (MAME mb88xx, SERIAL_PRESCALE 6 "guess").
     if ((pio & 0x30) == 0x20) {
         for (int i = 0; i < cycles && !sf; i++) {
@@ -126,6 +127,7 @@ void Mb88::burn(int cycles) {
 
 int Mb88::step() {
     if (halted_reset) return 1;
+    cycles_ = 0;
     uint8_t opcode = fetch();
     int oc = 1;
     int ea = (int(x) << 4) + y;
@@ -439,7 +441,7 @@ int Mb88::step() {
         st = 1;
     }
     burn(oc);
-    return oc;
+    return cycles_;
 }
 
 }  // namespace galaga

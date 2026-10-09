@@ -136,15 +136,21 @@ MAME's implementation choices aren't themselves a behavior source.
 | `$0000–$3FFF` | Program ROM (16K) |
 | `$4000–$43FF` | Video RAM (tile codes, 32×28 visible via `vram_offset`'s row/col decode) |
 | `$4400–$47FF` | Color RAM (per-tile palette attribute) |
-| `$4800–$4FEF` | Work RAM |
+| `$4800–$4BFF` | Nothing. No RAM is fitted; reads see the floating bus (`$BF`) |
+| `$4C00–$4FEF` | Work RAM (1K with the sprite RAM) |
 | `$4FF0–$4FFF` | Sprite RAM (8 sprites × 2 bytes: code/flip/attr, color) |
 | `$5000` | Interrupt enable (bit 0) |
 | `$5001` | Sound enable (bit 0) |
 | `$5003` | Flip screen (bit 0) — cocktail-cabinet player-2 upside-down view |
+| `$5007` | Coin counter (bit 0) |
 | `$5040–$505F` | Namco WSG registers (32 nibbles) |
 | `$5060–$506F` | Sprite X/Y coordinate registers |
-| `$5000/$5040/$5080/$50C0` (bits `$FFC0`) | IN0 / IN1 / DSW1 / DSW2 reads |
-| `$50C0` (write) | Watchdog reset kick |
+| `$5000/$5040/$5080/$50C0` (A6-A7) | IN0 / IN1 / DSW1 / DSW2 reads |
+| `$50C0–$50FF` (write) | Watchdog reset kick |
+
+A13 isn't decoded above `$4000`, so `$6000–$7FFF` mirror `$4000–$5FFF`.
+The I/O page ignores A8-A11, and the 74LS259 latch at `$5000–$5007`
+repeats every 8 bytes up to `$503F`.
 
 `machine.cpp`'s `mem_read`/`mem_write` implement exactly this decode. The
 stock PCB leaves Z80 A15 unconnected, so `$8000–$FFFF` mirror
@@ -491,3 +497,30 @@ Items P1-P5, B1-B3 and X5 from `shared/cpu/Z80_ARCADE_PARITY.md`.
 Real `pacman` and `mspacman` sets still boot, take a coin and eat a
 pellet (`play_test`), checked against frames dumped from the real ROMs.
 
+## 11. Memory map against MAME (2026-10-09)
+
+Found while closing the coverage gaps. `make -C retroweb/pacman coverage`
+reports the board code.
+
+- **No RAM at `$4800–$4BFF`.** The board has 1K of work RAM at `$4C00`.
+  We mapped 2K from `$4800`. Reads there now return `$BF` and writes go
+  nowhere. MAME `pacman_read_nop` returns `$BF` and notes that Ms.
+  Pac-Man reads that empty range, which sometimes inverts the maze. MAME
+  calls the exact value inconclusive, so `$BF` is MAME's measurement,
+  not a schematic fact. `Machine.NoRamAt4800TheFloatingBusReadsBF`.
+- **Mirrors.** MAME `pacman_map` and `mspacman_map`: `mirror(0xa000)` on
+  the RAM blocks, `mirror(0xaf00)` on the I/O page, `mirror(0xaf38)` on
+  the latch, and `mirror(0xaf3f)` on the ports and the watchdog. We had
+  only the A15 mirror. `Machine.A13AndA15MirrorTheRamBlocks`,
+  `Machine.IoPageIgnoresA8ToA11`, `Machine.WatchdogKicksAnywhereIn50C0To50FF`.
+- **Latch bits 2, 4, 5 and 6 do nothing.** MAME leaves them unconnected.
+  Its comment notes that the code writes LEDs and a lockout that no Pac-Man
+  or Puckman board has. `Machine.LatchBitsWithNoHardwareDoNothing`.
+- **WSG through the bus.** `$5001` and `$5040–$505F` had no test.
+  `Machine.SoundChipSitsAt5040AndIsEnabledBy5001`. The WSG tests now drive
+  the real `advance()` path, and the test-only `mix_at` mixer is gone.
+  `Wsg.AdvancingWithoutOutputStillTurnsThePhase` covers running the chip
+  with no host output.
+
+The real `pacman` and `mspacman` sets still boot, take a coin and eat a
+pellet.

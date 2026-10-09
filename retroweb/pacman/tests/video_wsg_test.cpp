@@ -4,6 +4,7 @@
 #include "video.h"
 #include "wsg.h"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <vector>
@@ -294,15 +295,27 @@ TEST(Video, UnflippedSpriteKeepsBottomEdgeAtBottom) {
         << "unflipped sprite pixel should land at its native position, not be mirrored";
 }
 
+namespace {
+
+float wsg_peak(pacman::Wsg& w) {
+    std::vector<float> out;
+    w.advance(3072, 48000, out);
+    float p = 0;
+    for (float s : out) p = std::max(p, std::fabs(s));
+    return p;
+}
+
+}  // namespace
+
 TEST(Wsg, SilentWhenDisabled) {
     pacman::Wsg w;
     w.reset();
-    w.regs[0x11] = 1;  // ch0 frequency (real map: 0x10 low nibble, 0x11-0x14 rest)
-    w.regs[0x15] = 0x0F;  // ch0 volume
-    w.wave_prom[0] = 0x0F;
-    EXPECT_EQ(w.mix_at(0), 0);
+    w.regs[0x11] = 1;
+    w.regs[0x15] = 0x0F;
+    w.wave_prom.fill(0x0F);
+    EXPECT_EQ(wsg_peak(w), 0);
     w.enabled = true;
-    EXPECT_NE(w.mix_at(0), 0);
+    EXPECT_GT(wsg_peak(w), 0);
 }
 
 // Real register map (MAME namco.cpp pacman_sound_w): only 0x05/0x0a/0x0f
@@ -311,35 +324,53 @@ TEST(Wsg, RegisterMapMatchesRealHardwareOffsets) {
     pacman::Wsg w;
     w.reset();
     w.enabled = true;
-    for (auto& b : w.wave_prom) b = 0x0F;  // max sample everywhere, any voice audible if selected
-
-    // Channel 2 lives at 0x1b-0x1e (freq) / 0x1f (vol) / 0x0f (waveform).
-    w.write(0x1b, 0x01);  // ch2 frequency, low-of-the-4 nibble
-    w.write(0x1f, 0x0F);  // ch2 volume
-    w.write(0x0f, 0x00);  // ch2 waveform select
-    EXPECT_NE(w.mix_at(1u << 20), 0.0f) << "ch2 should be audible from its real-hardware register offsets";
+    w.wave_prom.fill(0x0F);
+    w.write(0x1b, 0x01);
+    w.write(0x1f, 0x0F);
+    w.write(0x0f, 0x00);
+    EXPECT_GT(wsg_peak(w), 0) << "ch2 is audible from its own offsets";
 
     w.reset();
     w.enabled = true;
-    for (auto& b : w.wave_prom) b = 0x0F;
-    // Unwired offsets: 0x0a is ch1's waveform, 0x07/0x0b-0x0e are dead, and
-    // ch1's volume (0x1a) is unset, so nothing is audible.
     w.write(0x0a, 0x01);
     w.write(0x17, 0x0F);
     w.write(0x07, 0x00);
-    EXPECT_EQ(w.mix_at(1u << 20), 0.0f) << "old wrong per-voice offsets must not make anything audible";
+    EXPECT_EQ(wsg_peak(w), 0) << "ch1 has no volume, and 0x07 is unwired";
 }
 
-// Only voice 0 has a low frequency nibble (offset 0x10), voices 1 and 2 are
-// hardwired to zero.
 TEST(Wsg, OnlyVoiceZeroHasLowFrequencyNibble) {
     pacman::Wsg w;
     w.reset();
     w.enabled = true;
-    for (auto& b : w.wave_prom) b = 0x0F;
-    w.write(0x15, 0x0F);  // ch0 volume, so ch0 is audible
-    w.write(0x10, 0x01);  // ch0's low frequency nibble only
-    EXPECT_NE(w.mix_at(1u << 15), 0.0f) << "ch0's low frequency nibble (offset 0x10) should drive its phase";
+    w.wave_prom.fill(0x0F);
+    w.write(0x15, 0x0F);
+    w.write(0x10, 0x01);
+    EXPECT_GT(wsg_peak(w), 0);
+    w.reset();
+    w.enabled = true;
+    w.write(0x1a, 0x0F);
+    w.write(0x10, 0x01);
+    EXPECT_EQ(wsg_peak(w), 0) << "ch1 ignores 0x10";
+}
+
+TEST(Wsg, AdvancingWithoutOutputStillTurnsThePhase) {
+    pacman::Wsg a, b;
+    for (pacman::Wsg* w : {&a, &b}) {
+        w->reset();
+        w->enabled = true;
+        for (int i = 0; i < 256; i++) w->wave_prom[unsigned(i)] = uint8_t(i & 15);
+        w->write(0x13, 0x08);  // freq = 1 << 15: one wave step per WSG clock
+        w->write(0x15, 0x0F);
+    }
+    std::vector<float> none, sa, sb;
+    a.advance(32 * 5, 0, none);
+    EXPECT_TRUE(none.empty());
+    a.advance(32, 96000, sa);
+    b.advance(32, 96000, sb);
+    ASSERT_EQ(sa.size(), 1u);
+    ASSERT_EQ(sb.size(), 1u);
+    EXPECT_FLOAT_EQ(sa[0], (6 - 8) * 15 / 360.0f);
+    EXPECT_FLOAT_EQ(sb[0], (1 - 8) * 15 / 360.0f);
 }
 
 // Frequency writes must not jump the waveform phase.

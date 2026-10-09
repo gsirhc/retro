@@ -191,6 +191,7 @@ TEST(Machine, AyIoBit6IsDataBit7IsAddress) {
     m.sound_latch = 0x42;
     m.sound_out(0x80, 14);  // address = port A
     EXPECT_EQ(m.sound_in(0x40), 0x42);
+    EXPECT_EQ(m.sound_in(0x80), 0xFF) << "only bit 6 reads the AY";
 }
 
 TEST(Machine, AyPortBIsFroggerSoundTimer) {

@@ -255,8 +255,8 @@ TEST(Machine, UserRomInsertsCoinStartsAndEatsAPellet) {
 
     // POST checksum plus attract.
     ASSERT_TRUE(run_frames(m, 480)) << "watchdog tripped during POST/attract";
-    if (m.ram[0x4C00 - 0x4800] == 'T' && m.ram[0x4C01 - 0x4800] == 'S' &&
-        m.ram[0x4C02 - 0x4800] == 'T' && m.ram[0x4C03 - 0x4800] == '1') {
+    if (m.ram[0x4C00 - 0x4C00] == 'T' && m.ram[0x4C01 - 0x4C00] == 'S' &&
+        m.ram[0x4C02 - 0x4C00] == 'T' && m.ram[0x4C03 - 0x4C00] == '1') {
         GTEST_SKIP() << "that dump is the generated hardware self-test ROM, not Pac-Man";
     }
 
@@ -333,8 +333,8 @@ TEST(Machine, UserMsPacmanRomInsertsCoinStartsAndEatsAPellet) {
     EXPECT_FALSE(m.aux_decode) << "latch starts clear; the first IM2 vector fetch sets it";
 
     ASSERT_TRUE(run_frames(m, 480)) << "watchdog tripped during POST/attract";
-    if (m.ram[0x4C00 - 0x4800] == 'T' && m.ram[0x4C01 - 0x4800] == 'S' &&
-        m.ram[0x4C02 - 0x4800] == 'T' && m.ram[0x4C03 - 0x4800] == '1') {
+    if (m.ram[0x4C00 - 0x4C00] == 'T' && m.ram[0x4C01 - 0x4C00] == 'S' &&
+        m.ram[0x4C02 - 0x4C00] == 'T' && m.ram[0x4C03 - 0x4C00] == '1') {
         GTEST_SKIP() << "that dump is the generated hardware self-test ROM, not Ms. Pac-Man";
     }
     EXPECT_TRUE(m.aux_decode) << "vblank IM2 fetch at $3FFx should have enabled the overlay";

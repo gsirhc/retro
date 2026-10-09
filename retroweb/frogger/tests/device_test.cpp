@@ -30,6 +30,55 @@ TEST(I8255, Mode0AllOutputsLatchesAndCallbacks) {
     EXPECT_EQ(p.read(0), 0x3C);
 }
 
+TEST(I8255, PortCHalvesReadPinsOrLatchByDirection) {
+    frogger::I8255 p;
+    p.reset();
+    p.in_c = [] { return uint8_t(0xA5); };
+    p.write(3, 0x88);  // C upper in, C lower out
+    p.write(2, 0x3C);
+    EXPECT_EQ(p.read(2), 0xAC);
+    p.write(3, 0x81);  // C upper out, C lower in
+    p.write(2, 0x3C);
+    EXPECT_EQ(p.read(2), 0x35);
+    p.write(3, 0x89);
+    EXPECT_EQ(p.read(2), 0xA5);
+    p.write(3, 0x80);
+    p.write(2, 0x3C);
+    EXPECT_EQ(p.read(2), 0x3C);
+}
+
+TEST(I8255, BitSetResetDrivesOnePortCLine) {
+    frogger::I8255 p;
+    p.reset();
+    uint8_t seen = 0;
+    int writes = 0;
+    p.out_c = [&](uint8_t v) {
+        seen = v;
+        writes++;
+    };
+    p.write(3, 0x80);
+    p.write(3, 0x07);  // set PC3
+    EXPECT_EQ(p.c, 0x08);
+    EXPECT_EQ(seen, 0x08);
+    p.write(3, 0x0F);  // set PC7
+    p.write(3, 0x06);  // reset PC3
+    EXPECT_EQ(p.c, 0x80);
+    EXPECT_EQ(seen, 0x80);
+    EXPECT_EQ(writes, 3);
+    EXPECT_TRUE(p.cl_in == false && p.cu_in == false) << "BSR leaves the mode alone";
+}
+
+TEST(Ay8910, RegistersReadBackThroughTheirWidthMasks) {
+    frogger::Ay8910 ay;
+    ay.reset();
+    const uint8_t want[14] = {0xFF, 0x0F, 0xFF, 0x0F, 0xFF, 0x0F, 0x1F, 0xFF, 0x1F, 0x1F, 0x1F, 0xFF, 0xFF, 0x0F};
+    for (uint8_t r = 0; r < 14; r++) {
+        ay.write_addr(r);
+        ay.write_data(0xFF);
+        EXPECT_EQ(ay.read_data(), want[r]) << "R" << int(r);
+    }
+}
+
 TEST(Ay8910, ToneAIsAudibleWhenEnabled) {
     frogger::Ay8910 ay;
     ay.reset();
@@ -251,6 +300,46 @@ double konami_rms(bool filtered, int tone_period) {
 }
 
 }  // namespace
+
+namespace {
+
+// Envelope level at each step for `n` steps, EP = 1, stepped with no host output.
+std::vector<int> envelope_steps(uint8_t shape, int n) {
+    frogger::Ay8910 ay;
+    ay.reset();
+    ay.regs[7] = 0x3F;
+    ay.regs[8] = 0x10;
+    ay.write_addr(11);
+    ay.write_data(1);
+    ay.write_addr(13);
+    ay.write_data(shape);
+    std::vector<int> out;
+    std::vector<float> none;
+    for (int i = 0; i < n; i++) {
+        out.push_back(ay.output_level(0));
+        ay.advance(16, 0, none);
+    }
+    EXPECT_TRUE(none.empty());
+    return out;
+}
+
+}  // namespace
+
+TEST(Ay8910, RepeatingEnvelopeShapesMatchTheDatasheet) {
+    const int n = 64;
+    std::vector<int> saw_down, triangle_down, saw_up, triangle_up;
+    for (int i = 0; i < n; i++) {
+        int p = i % 32;
+        saw_down.push_back(15 - i % 16);
+        saw_up.push_back(i % 16);
+        triangle_down.push_back(p < 16 ? 15 - p : p - 16);
+        triangle_up.push_back(p < 16 ? p : 31 - p);
+    }
+    EXPECT_EQ(envelope_steps(0x08, n), saw_down);
+    EXPECT_EQ(envelope_steps(0x0A, n), triangle_down);
+    EXPECT_EQ(envelope_steps(0x0C, n), saw_up);
+    EXPECT_EQ(envelope_steps(0x0E, n), triangle_up);
+}
 
 TEST(Ay8910, HeldEnvelopeLevelsMatchTheDatasheet) {
     EXPECT_EQ(held_envelope(0x00), 0);

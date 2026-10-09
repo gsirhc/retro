@@ -141,6 +141,7 @@ std::optional<scramble::RomSet> load_user_set() {
     }
     if (auto set = load_path(default_user_dir())) return set;
     if (const char* home = std::getenv("HOME"); home && *home) {
+        if (auto set = load_path(fs::path(home) / "images" / "arcade" / "scramble.zip")) return set;
         if (auto set = load_path(fs::path(home) / "Downloads" / "scramble.zip")) return set;
     }
     return std::nullopt;
@@ -160,7 +161,7 @@ bool is_hwtest(const scramble::Machine& m) {
 TEST(Machine, UserRomInsertsCoinAndStarts) {
     auto set = load_user_set();
     if (!set) {
-        GTEST_SKIP() << "no local scramble dump in roms/user/, SCRAMBLE_ROM, or ~/Downloads/scramble.zip";
+        GTEST_SKIP() << "no local scramble dump in roms/user/, SCRAMBLE_ROM, ~/images/arcade/scramble.zip, or ~/Downloads/scramble.zip";
     }
     scramble::Machine m;
     m.load_roms(*set);
@@ -186,7 +187,7 @@ TEST(Machine, UserRomInsertsCoinAndStarts) {
 TEST(Machine, UserRomProducesAudio) {
     auto set = load_user_set();
     if (!set) {
-        GTEST_SKIP() << "no local scramble dump in roms/user/, SCRAMBLE_ROM, or ~/Downloads/scramble.zip";
+        GTEST_SKIP() << "no local scramble dump in roms/user/, SCRAMBLE_ROM, ~/images/arcade/scramble.zip, or ~/Downloads/scramble.zip";
     }
     scramble::Machine m;
     m.load_roms(*set);

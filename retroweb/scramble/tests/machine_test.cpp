@@ -89,6 +89,13 @@ TEST(Machine, LatchesAt6800) {
     m.mem_write(0x6807, 1);
     EXPECT_TRUE(m.video.flip_x);
     EXPECT_TRUE(m.video.flip_y);
+    scramble::Machine n;
+    n.reset();
+    n.mem_write(0x6800, 1);
+    n.mem_write(0x6805, 1);
+    EXPECT_FALSE(n.nmi_enable);
+    EXPECT_EQ(n.coin_counter[0], 0);
+    EXPECT_FALSE(n.video.background_enable);
 }
 
 namespace {
@@ -206,13 +213,13 @@ TEST(Machine, AyPortBIsGenericKonamiTimer) {
 TEST(Machine, Pal6JOp9IncrementsNibble) {
     scramble::Machine m;
     m.reset();
-    m.mem_write(0x8203, 0x80);
+    m.mem_write(0x8203, 0x88);  // the game's own mode: C upper in, C lower out
     // State shifts: write num1, num2, op. Op $9: result = min(num1+1, 15) << 4.
     m.mem_write(0x8202, 0x03);  // num1
     m.mem_write(0x8202, 0x00);  // num2
     m.mem_write(0x8202, 0x09);  // op
     EXPECT_EQ(m.protection_result, 0x40);  // 4 << 4
-    EXPECT_EQ(m.mem_read(0x8202), 0x40);
+    EXPECT_EQ(m.mem_read(0x8202), 0x49) << "result on the input half, last nibble on the output half";
     // Alt bits 5 and 7 of IN2 follow result bit 7 (clear here).
     EXPECT_EQ(m.mem_read(0x8102) & 0xA0, 0);
 }
@@ -220,12 +227,47 @@ TEST(Machine, Pal6JOp9IncrementsNibble) {
 TEST(Machine, Pal6JOp9SetsAltBitsWhenHigh) {
     scramble::Machine m;
     m.reset();
-    m.mem_write(0x8203, 0x80);
+    m.mem_write(0x8203, 0x88);
     m.mem_write(0x8202, 0x0F);
     m.mem_write(0x8202, 0x00);
     m.mem_write(0x8202, 0x09);  // min(15+1,15)<<4 = 0xF0, bit 7 set
     EXPECT_EQ(m.protection_result, 0xF0);
     EXPECT_EQ(m.mem_read(0x8102) & 0xA0, 0xA0);
+}
+
+TEST(Machine, Pal6JOtherOpsFollowMame) {
+    struct Case { uint8_t num1, num2, op, before, result; };
+    const Case cases[] = {
+        {0x2, 0x7, 0x6, 0x40, 0xC0},  // flip bit 7
+        {0x2, 0x7, 0xA, 0x40, 0x00},  // clear
+        {0x2, 0x7, 0xB, 0x00, 0x50},  // num2 - num1
+        {0x7, 0x2, 0xB, 0x30, 0x00},  // floors at 0
+        {0x7, 0x2, 0xF, 0x00, 0x50},  // num1 - num2
+        {0x2, 0x7, 0xF, 0x30, 0x00},
+        {0x2, 0x7, 0x3, 0x30, 0x30},  // unknown ops leave it
+    };
+    for (const Case& k : cases) {
+        scramble::Machine m;
+        m.reset();
+        m.mem_write(0x8203, 0x88);
+        m.protection_result = k.before;
+        m.mem_write(0x8202, k.num1);
+        m.mem_write(0x8202, k.num2);
+        m.protection_result = k.before;
+        m.mem_write(0x8202, k.op);
+        EXPECT_EQ(m.protection_result, k.result) << "op " << int(k.op);
+    }
+}
+
+TEST(Machine, Pal6JSeesBitSetResetWrites) {
+    scramble::Machine m;
+    m.reset();
+    m.mem_write(0x8203, 0x88);
+    m.mem_write(0x8202, 0x03);
+    m.mem_write(0x8202, 0x00);
+    m.mem_write(0x8202, 0x08);
+    m.mem_write(0x8203, 0x01);  // BSR sets PC0 and re-sends the port: $9 shifts in again
+    EXPECT_EQ(m.protection_result, 0x10) << "num1 0, num2 8, op 9";
 }
 
 TEST(Machine, JoystickEchoesToRam) {

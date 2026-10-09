@@ -14,15 +14,11 @@ uint8_t I8255::read(int port) {
         case 1:
             return b_in && in_b ? in_b() : b;
         case 2: {
-            uint8_t lo = cl_in && in_c ? uint8_t(in_c() & 0x0F) : uint8_t(c & 0x0F);
-            uint8_t hi = cu_in && in_c ? uint8_t(in_c() & 0xF0) : uint8_t(c & 0xF0);
-            // input half from the pin callback, output half from the latch
-            if (cl_in && cu_in && in_c) return in_c();
-            if (!cl_in) lo = uint8_t(c & 0x0F);
-            if (!cu_in) hi = uint8_t(c & 0xF0);
-            if (cl_in && in_c) lo = uint8_t(in_c() & 0x0F);
-            if (cu_in && in_c) hi = uint8_t(in_c() & 0xF0);
-            return uint8_t(lo | hi);
+            // Each half of C reads its pins as an input, its latch as an output.
+            const uint8_t pins = in_c ? in_c() : c;
+            const uint8_t lo = cl_in ? pins : c;
+            const uint8_t hi = cu_in ? pins : c;
+            return uint8_t((lo & 0x0F) | (hi & 0xF0));
         }
         default:
             return 0xFF;
@@ -44,7 +40,13 @@ void I8255::write(int port, uint8_t v) {
             if ((!cl_in || !cu_in) && out_c) out_c(v);
             break;
         default:
-            if ((v & 0x80) == 0) return;  // BSR unused
+            if ((v & 0x80) == 0) {
+                // Bit set/reset on port C (Intel 8255A datasheet).
+                const uint8_t bit = uint8_t(1u << ((v >> 1) & 7));
+                c = (v & 1) ? uint8_t(c | bit) : uint8_t(c & ~bit);
+                if ((!cl_in || !cu_in) && out_c) out_c(c);
+                return;
+            }
             a_in = (v & 0x10) != 0;
             b_in = (v & 0x02) != 0;
             cl_in = (v & 0x01) != 0;

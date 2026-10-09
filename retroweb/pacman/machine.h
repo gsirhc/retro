@@ -56,7 +56,7 @@ public:
     Video video;
     Wsg wsg;
     std::array<uint8_t, 0x4000> program{};
-    std::array<uint8_t, 0x800> ram{};  // $4800–$4FFF
+    std::array<uint8_t, 0x400> ram{};  // $4C00–$4FFF
     bool irq_enable = false;
     // IM 2 vector byte, latched by OUT (0),A. The ROM reprograms it (0xFA in
     // self-test, 0xFC once the vblank ISR at $008D takes over).

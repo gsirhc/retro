@@ -128,3 +128,7 @@ the frog at `$8044`/`$8047` moves and P1 score / furthest-row tick.
 The real `frogger` set boots, takes a coin, starts and hops (`play_test`
 with `FROGGER_ROM`), and frames dumped from it look right.
 
+The shared 8255 now does bit set/reset, and the AY's repeating envelope
+shapes are tested. Both are written up with the rest of the Konami family
+in `SCRAMBLE_REVIEW.md` §10. `play_test` also looks in
+`~/images/arcade/frogger.zip`.

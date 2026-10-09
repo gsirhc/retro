@@ -137,14 +137,14 @@ public:
     int screenWidth() const { return pacman::kUprightW; }
     int screenHeight() const { return pacman::kUprightH; }
     int ramByte(int addr) const {
-        if (addr < 0x4800 || addr >= 0x5000) return -1;
-        return m_.ram[unsigned(addr - 0x4800)];
+        if (addr < 0x4C00 || addr >= 0x5000) return -1;
+        return m_.ram[unsigned(addr - 0x4C00)];
     }
 
     // Work RAM only, sprite RAM is $4FF0-$4FFF.
     void setRamByte(int addr, int v) {
-        if (addr < 0x4800 || addr >= 0x4FF0) return;
-        m_.ram[unsigned(addr - 0x4800)] = uint8_t(v);
+        if (addr < 0x4C00 || addr >= 0x4FF0) return;
+        m_.ram[unsigned(addr - 0x4C00)] = uint8_t(v);
     }
     void setMemByte(int addr, int v) {
         m_.mem_write(uint16_t(addr & 0xFFFF), uint8_t(v));

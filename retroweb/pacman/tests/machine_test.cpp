@@ -40,7 +40,7 @@ TEST(Machine, JoystickEchoesToRam) {
     m.reset();
     m.inputs.in0 = 0xFE;  // up pressed (active low)
     m.run_cycles(pacman::kCpuHz / 20);
-    EXPECT_EQ(m.ram[0x4C10 - 0x4800], 0xFE);
+    EXPECT_EQ(m.ram[0x4C10 - 0x4C00], 0xFE);
 }
 
 // The ROM reprograms the IM 2 vector latch (OUT (0),A) at runtime, so a
@@ -64,9 +64,9 @@ TEST(Machine, OutPort0LatchesInterruptVector) {
     s.program[0x0041] = 0x01;
     s.program[0x0100] = 0x3E;  // LD A,$42
     s.program[0x0101] = 0x42;
-    s.program[0x0102] = 0x32;  // LD ($4800),A
+    s.program[0x0102] = 0x32;  // LD ($4C00),A
     s.program[0x0103] = 0x00;
-    s.program[0x0104] = 0x48;
+    s.program[0x0104] = 0x4C;
     s.program[0x0105] = 0x76;  // HALT
 
     pacman::Machine m;
@@ -74,7 +74,7 @@ TEST(Machine, OutPort0LatchesInterruptVector) {
     m.reset();
     m.run_cycles(pacman::kCpuPerFrame * 2);
 
-    EXPECT_EQ(m.ram[0x4800 - 0x4800], 0x42) << "interrupt should vector through the OUT-latched byte, not a fixed address";
+    EXPECT_EQ(m.ram[0], 0x42) << "interrupt should vector through the OUT-latched byte, not a fixed address";
 }
 
 int vram_off(int col, int row) {
@@ -162,6 +162,83 @@ TEST(Machine, Dsw1PortFollowsInputsIncludingMirrors) {
     EXPECT_EQ(m.mem_read(0x50C0), 0x00);
 }
 
+TEST(Machine, NoRamAt4800TheFloatingBusReadsBF) {
+    pacman::Machine m;
+    m.mem_write(0x4800, 0x12);
+    m.mem_write(0x4BFF, 0x34);
+    EXPECT_EQ(m.mem_read(0x4800), 0xBF);
+    EXPECT_EQ(m.mem_read(0x4BFF), 0xBF);
+    m.mem_write(0x4C00, 0x56);
+    EXPECT_EQ(m.mem_read(0x4C00), 0x56);
+    EXPECT_EQ(m.ram[0], 0x56);
+}
+
+TEST(Machine, A13AndA15MirrorTheRamBlocks) {
+    pacman::Machine m;
+    m.mem_write(0x6000, 0x11);
+    EXPECT_EQ(m.video.videoram[0], 0x11);
+    m.mem_write(0xE400, 0x22);
+    EXPECT_EQ(m.video.colorram[0], 0x22);
+    m.mem_write(0x6C05, 0x33);
+    EXPECT_EQ(m.mem_read(0x4C05), 0x33);
+    EXPECT_EQ(m.mem_read(0xEC05), 0x33);
+    m.mem_write(0x6FF2, 0x44);
+    EXPECT_EQ(m.video.spriteram[2], 0x44);
+    EXPECT_EQ(m.mem_read(0x6800), 0xBF);
+}
+
+TEST(Machine, IoPageIgnoresA8ToA11) {
+    pacman::Machine m;
+    m.inputs.in0 = 0x10;
+    m.inputs.in1 = 0x20;
+    m.inputs.dsw2 = 0x30;
+    EXPECT_EQ(m.mem_read(0x5100), 0x10);
+    EXPECT_EQ(m.mem_read(0x5F7F), 0x20);
+    EXPECT_EQ(m.mem_read(0x7040), 0x20);
+    EXPECT_EQ(m.mem_read(0x5AFF), 0x30);
+    m.mem_write(0x5009, 1);
+    EXPECT_TRUE(m.wsg.enabled) << "the main latch repeats every 8 bytes";
+    m.mem_write(0x513B, 1);
+    EXPECT_TRUE(m.video.flip_screen);
+    m.mem_write(0x5545, 0x07);
+    EXPECT_EQ(m.wsg.regs[5], 0x07);
+    m.mem_write(0x5F6A, 0x99);
+    EXPECT_EQ(m.video.sprite_xy[0xA], 0x99);
+}
+
+TEST(Machine, LatchBitsWithNoHardwareDoNothing) {
+    pacman::Machine m;
+    for (uint16_t a : {0x5002, 0x5004, 0x5005, 0x5006}) m.mem_write(a, 1);
+    EXPECT_FALSE(m.irq_enable);
+    EXPECT_FALSE(m.wsg.enabled);
+    EXPECT_FALSE(m.video.flip_screen);
+    EXPECT_EQ(m.coin_counter[0], 0);
+}
+
+TEST(Machine, SoundChipSitsAt5040AndIsEnabledBy5001) {
+    pacman::Machine m;
+    m.mem_write(0x5001, 1);
+    EXPECT_TRUE(m.wsg.enabled);
+    m.mem_write(0x5001, 0);
+    EXPECT_FALSE(m.wsg.enabled);
+    m.mem_write(0x5055, 0x0F);
+    m.mem_write(0x5045, 0x03);
+    EXPECT_EQ(m.wsg.regs[0x15], 0x0F);
+    EXPECT_EQ(m.wsg.regs[0x05], 0x03);
+}
+
+TEST(Machine, WatchdogKicksAnywhereIn50C0To50FF) {
+    pacman::Machine m;
+    m.program[0] = 0x18;
+    m.program[1] = 0xFE;
+    m.reset();
+    for (int f = 0; f < 40; f++) {
+        m.run_cycles(pacman::kCpuPerFrame);
+        m.mem_write(f & 1 ? 0x50FF : 0x5FC5, 0);
+    }
+    EXPECT_FALSE(m.watchdog_reset);
+}
+
 TEST(Machine, WatchdogExpiresAfterSixteenVblanksWithoutKick) {
     pacman::Machine m;
     m.program[0] = 0x18;
@@ -195,7 +272,7 @@ TEST(Machine, VblankIrqIsHeldUntil5000IsCleared) {
     vblank_counter(m, false);
     m.run_cycles(pacman::kCpuPerFrame * 2);
     EXPECT_TRUE(m.cpu.int_line);
-    EXPECT_GT(m.ram[0x400], 100) << "a held /INT re-enters the ISR after every RETI";
+    EXPECT_GT(m.ram[0], 100) << "a held /INT re-enters the ISR after every RETI";
 }
 
 TEST(Machine, VblankIrqFiresOncePerFrameWhenAcknowledged) {
@@ -203,7 +280,7 @@ TEST(Machine, VblankIrqFiresOncePerFrameWhenAcknowledged) {
     m.reset();
     vblank_counter(m, true);
     m.run_cycles(pacman::kCpuPerFrame * 5);
-    EXPECT_EQ(m.ram[0x400], 5);
+    EXPECT_EQ(m.ram[0], 5);
 }
 
 TEST(Machine, VblankIrqWaitsOutADisabledCpu) {
@@ -212,11 +289,11 @@ TEST(Machine, VblankIrqWaitsOutADisabledCpu) {
     vblank_counter(m, true);
     m.program[10] = 0x00;  // no EI
     m.run_cycles(pacman::kCpuPerFrame * 2);
-    EXPECT_EQ(m.ram[0x400], 0);
+    EXPECT_EQ(m.ram[0], 0);
     EXPECT_TRUE(m.cpu.int_line);
     m.cpu.iff1 = m.cpu.iff2 = true;
     m.run_cycles(100);
-    EXPECT_EQ(m.ram[0x400], 1);
+    EXPECT_EQ(m.ram[0], 1);
 }
 
 TEST(Machine, WatchdogResetKeepsRam) {
@@ -413,9 +490,9 @@ TEST(Machine, Im2VectorFetchEnablesAuxDecode) {
     std::copy(std::begin(code), std::end(code), s.program.begin());
     s.program[0x0100] = 0x3E;  // LD A,$99
     s.program[0x0101] = 0x99;
-    s.program[0x0102] = 0x32;  // LD ($4800),A
+    s.program[0x0102] = 0x32;  // LD ($4C00),A
     s.program[0x0103] = 0x00;
-    s.program[0x0104] = 0x48;
+    s.program[0x0104] = 0x4C;
     s.program[0x0105] = 0x76;
     // $0100 is a patch window ($1000 is, $0100 is not). Handler stays Pac-Man.
     pacman::Machine m;

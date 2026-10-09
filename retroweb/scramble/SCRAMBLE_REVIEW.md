@@ -75,10 +75,13 @@ no frame drift. See §10.
 
 ## 6. Protection PAL at 6J
 
-Nibble in / nibble out on PPI1 port C. Exact PAL equations are not
-published. Observed scramble sequences use op `$9` (increment). IN2 bits
-5 and 7 feed the “alt” bits derived from the high bit of that nibble.
-MAME `theend_protection_*` is a cross-check of those observed ops.
+Nibble in / nibble out on PPI1 port C. The game sets PPI1 to mode `$88`
+(its own `LD A,$88; LD ($8203),A`), so C's lower half drives the PAL and
+its upper half reads the result off the pins. Exact PAL equations are not
+published. Scramble uses op `$9` (increment); ops `$6`/`$F` and `$A`/`$B`
+are the bootleg and The End sequences MAME `theend_protection_w` lists.
+IN2 bits 5 and 7 feed the “alt” bits derived from the high bit of that
+nibble.
 
 ## 7. Inputs / DIPs
 
@@ -195,3 +198,21 @@ HOLD_LINE). It used to be a one-shot with a retry flag.
 The real `scramble` set boots, takes a coin, starts and fires
 (`play_test` with `SCRAMBLE_ROM`), and frames dumped from it look right.
 
+### Found closing the coverage gaps
+
+- **8255 bit set/reset.** A control write with D7 low sets or clears one
+  port C line (Intel 8255A datasheet) and re-sends the port, as MAME
+  `output_pc` does. Ours ignored BSR, so a BSR write to the PAL went
+  nowhere. `I8255.BitSetResetDrivesOnePortCLine`,
+  `Machine.Pal6JSeesBitSetResetWrites`.
+- **No result in the port C latch.** `pal6j_write` also copied the result
+  into PPI1's output latch, which a BSR would then have sent back to the
+  PAL. In mode `$88` the result comes in on the input pins, so the copy is
+  gone. A port C read in that mode gives the result's high nibble and the
+  last nibble written. `Machine.Pal6JOp9IncrementsNibble`,
+  `Machine.Pal6JOtherOpsFollowMame`.
+- **Repeating AY envelopes.** Shapes 8, 10, 12 and 14 had no test. They
+  now match the datasheet waveforms step by step, with the end level held
+  for one step at each turn of the triangle, as MAME's AY does.
+  `Ay8910.RepeatingEnvelopeShapesMatchTheDatasheet`.
+- `play_test` also looks in `~/images/arcade/scramble.zip`.

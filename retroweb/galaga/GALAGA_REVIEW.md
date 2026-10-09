@@ -255,3 +255,30 @@ Items GA1-GA5, B1-B3 and X4 from `shared/cpu/Z80_ARCADE_PARITY.md`.
   whose destructor deleted the extracted ROMs, so the real-ROM test always
   skipped. The guard is move-only now.
 
+### Found closing the coverage gaps
+
+- **MB88 instruction timing.** The board ran one MB88 instruction per
+  instruction-cycle slot. EN, DIS, CALL, JPL and JPA take two cycles, and
+  taking an interrupt costs three more (MAME `mb88xx.cpp` `oc++`,
+  `burn_cycles(3)`). `step()` now returns every cycle it burns, and the
+  board waits them out. `Io.McuSpendsTwoSlotsOnTwoCycleInstructions`.
+- **06XX R/W latch.** At real MCU speed the genuine 51XX stalled at
+  startup until the watchdog fired. Our K3 read the R/W bit straight from
+  the control register, so the stop write ($10) after a command flipped it
+  to "read" while the 51XX was still taking that byte. MAME
+  `namco06.cpp` latches R/W on the 06XX clock's falling edge and leaves it
+  alone when the divider is 0. The clock also restarts on the next 06XX
+  tick (64 T-states), not half a period later.
+  `Io.ReadWriteLineLatchesOnTheClockEdge`,
+  `Io.Mcu51SeesTheLatchedReadWriteLineOnK3`,
+  `Io.ClockRestartsOnTheNext06xxTick`. With both fixes the genuine 51XX
+  reaches the same CREDIT 2 / PLAYER 1 screens as the HLE. Only the
+  starfield phase differs.
+- **The 54XX isn't readable.** MAME's galaga config gives the 06XX no
+  read callback for it, so the bus reads `$FF`. We echoed its command
+  latch. `Io.Reading54xxGivesTheOpenBus`.
+- **MB88 ISA suite.** `mb88_test.cpp` checks every opcode, the timer, and
+  interrupt entry and return against MAME `mb88xx.cpp`.
+- Also tested now: the real 54XX's K/R0 command and O/R1 DACs, the HLE
+  54XX argument counts and volume, the HLE 51XX credit-mode reply, sprite
+  RAM banks 2 and 3, IRQ2 masking, and the `$6823` reset line.

@@ -172,6 +172,7 @@ std::optional<frogger::RomSet> load_user_set() {
     }
     if (auto set = load_path(default_user_dir())) return set;
     if (const char* home = std::getenv("HOME"); home && *home) {
+        if (auto set = load_path(fs::path(home) / "images" / "arcade" / "frogger.zip")) return set;
         if (auto set = load_path(fs::path(home) / "Downloads" / "frogger.zip")) return set;
     }
     return std::nullopt;
@@ -195,7 +196,7 @@ bool is_hwtest(const frogger::Machine& m) {
 TEST(Machine, UserRomInsertsCoinAndStarts) {
     auto set = load_user_set();
     if (!set) {
-        GTEST_SKIP() << "no local frogger dump in roms/user/, FROGGER_ROM, or ~/Downloads/frogger.zip";
+        GTEST_SKIP() << "no local frogger dump in roms/user/, FROGGER_ROM, ~/images/arcade/frogger.zip, or ~/Downloads/frogger.zip";
     }
     frogger::Machine m;
     m.load_roms(*set);
@@ -222,7 +223,7 @@ TEST(Machine, UserRomInsertsCoinAndStarts) {
 TEST(Machine, UserRomProducesAudio) {
     auto set = load_user_set();
     if (!set) {
-        GTEST_SKIP() << "no local frogger dump in roms/user/, FROGGER_ROM, or ~/Downloads/frogger.zip";
+        GTEST_SKIP() << "no local frogger dump in roms/user/, FROGGER_ROM, ~/images/arcade/frogger.zip, or ~/Downloads/frogger.zip";
     }
     frogger::Machine m;
     m.load_roms(*set);
@@ -248,7 +249,7 @@ TEST(Machine, UserRomProducesAudio) {
 TEST(Machine, UserRomPlayfieldUsesKonamiPalette) {
     auto set = load_user_set();
     if (!set) {
-        GTEST_SKIP() << "no local frogger dump in roms/user/, FROGGER_ROM, or ~/Downloads/frogger.zip";
+        GTEST_SKIP() << "no local frogger dump in roms/user/, FROGGER_ROM, ~/images/arcade/frogger.zip, or ~/Downloads/frogger.zip";
     }
     frogger::Machine m;
     m.load_roms(*set);

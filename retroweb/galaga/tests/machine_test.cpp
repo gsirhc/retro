@@ -28,6 +28,32 @@ TEST(Map, DipBitsAndSharedRam) {
     EXPECT_EQ(m.video.videoram[0x3ED], 0x24);
 }
 
+TEST(Map, SpriteRamBanksTakeBusWrites) {
+    Machine m;
+    m.mem_write(0x9000, 0x11);
+    m.mem_write(0x9BFF, 0x22);
+    EXPECT_EQ(m.ram2[0], 0x11);
+    EXPECT_EQ(m.mem_read(0x9000), 0x11);
+    EXPECT_EQ(m.ram3[0x3FF], 0x22);
+    EXPECT_EQ(m.mem_read(0x9BFF), 0x22);
+}
+
+TEST(Map, Irq2MaskAndSubResetLine) {
+    Machine m;
+    m.mem_write(0x6823, 0x01);
+    m.mem_write(0x6821, 0x01);
+    EXPECT_TRUE(m.irq2_enable);
+    m.sub.set_int(true);
+    m.mem_write(0x6821, 0x00);
+    EXPECT_FALSE(m.irq2_enable);
+    EXPECT_FALSE(m.sub.int_line) << "clearing the mask drops the held IRQ";
+    m.sub.pc = 0x1234;
+    m.mem_write(0x6823, 0x00);
+    EXPECT_TRUE(m.sub_reset);
+    EXPECT_TRUE(m.sound_reset);
+    EXPECT_EQ(m.sub.pc, 0);
+}
+
 TEST(Map, WatchdogAndIrqLatch) {
     Machine m;
     EXPECT_TRUE(m.sub_reset);
@@ -95,11 +121,89 @@ TEST(Io, ReadModeClockIrqs51xx) {
     EXPECT_FALSE(m.watchdog_reset);
 }
 
-TEST(Io, WriteModeDividerNmisMain) {
+TEST(Io, ReadWriteLineLatchesOnTheClockEdge) {
     Machine m;
-    // JR $ at reset; NMI handler counts and idles the 06XX like galagamw's $0066.
     m.rom_main[0] = 0x18;
     m.rom_main[1] = 0xFE;
+    m.reset();
+    m.mem_write(0x7100, 0xA1);
+    m.run_cycles(96);
+    EXPECT_FALSE(m.io06_rw());
+    m.mem_write(0x7100, 0x10);
+    m.run_cycles(4096);
+    EXPECT_FALSE(m.io06_rw()) << "a stopped clock leaves R/W as it was";
+    m.mem_write(0x7100, 0xB1);
+    EXPECT_FALSE(m.io06_rw());
+    m.run_cycles(76);
+    EXPECT_TRUE(m.io06_rw()) << "latched on the next 06XX tick";
+}
+
+TEST(Io, Mcu51SeesTheLatchedReadWriteLineOnK3) {
+    Machine m;
+    RomSet set;
+    set.has51 = true;
+    // INK; OUTO; JMP $00 echoes K onto O.
+    set.mcu51[0] = 0x12;
+    set.mcu51[1] = 0x01;
+    set.mcu51[2] = 0xC0;
+    m.load_roms(set);
+    m.rom_main[0] = 0x18;
+    m.rom_main[1] = 0xFE;
+    m.reset();
+    m.mem_write(0x6823, 0x01);
+    m.mem_write(0x7100, 0xA1);
+    m.run_cycles(200);
+    m.mem_write(0x7100, 0x11);
+    m.run_cycles(200);
+    EXPECT_EQ(m.mem_read(0x7000) & 0x08, 0) << "still the write it latched";
+    m.mem_write(0x7100, 0xB1);
+    m.run_cycles(200);
+    m.mem_write(0x7100, 0x11);
+    m.run_cycles(200);
+    EXPECT_EQ(m.mem_read(0x7000) & 0x08, 0x08);
+}
+
+TEST(Io, ClockRestartsOnTheNext06xxTick) {
+    Machine m;
+    // LD SP,$8C00; JR $. NMI handler counts and returns.
+    const uint8_t boot[] = {0x31, 0x00, 0x8C, 0x18, 0xFE};
+    std::copy(std::begin(boot), std::end(boot), m.rom_main.begin());
+    const uint8_t nmi[] = {0x21, 0x00, 0x88, 0x34, 0xED, 0x45};
+    std::copy(std::begin(nmi), std::end(nmi), m.rom_main.begin() + 0x66);
+    m.reset();
+    m.mem_write(0x6823, 0x01);
+    m.mem_write(0x7100, 0xA1);
+    m.run_cycles(64 + 40);
+    EXPECT_EQ(m.ram1[0], 1);
+    m.run_cycles((64 << 5) - 64);
+    EXPECT_EQ(m.ram1[0], 1);
+    m.run_cycles(64);
+    EXPECT_EQ(m.ram1[0], 2);
+}
+
+TEST(Io, McuSpendsTwoSlotsOnTwoCycleInstructions) {
+    Machine m;
+    RomSet set;
+    set.has51 = true;
+    // A chain of JPLs, two instruction cycles each.
+    for (int a = 0; a < 0x3E; a += 2) {
+        set.mcu51[unsigned(a)] = 0x68;
+        set.mcu51[unsigned(a + 1)] = uint8_t(a + 2);
+    }
+    m.load_roms(set);
+    m.rom_main[0] = 0x18;
+    m.rom_main[1] = 0xFE;
+    m.reset();
+    m.mem_write(0x6823, 0x01);
+    m.run_cycles(12 * 20);
+    EXPECT_EQ(m.mcu51_pc(), 22);
+}
+
+TEST(Io, WriteModeDividerNmisMain) {
+    Machine m;
+    // LD SP,$8C00; JR $. NMI handler counts and idles the 06XX like galagamw's $0066.
+    const uint8_t boot[] = {0x31, 0x00, 0x8C, 0x18, 0xFE};
+    std::copy(std::begin(boot), std::end(boot), m.rom_main.begin());
     m.rom_main[0x66] = 0x21;  // LD HL,$8800
     m.rom_main[0x67] = 0x00;
     m.rom_main[0x68] = 0x88;
@@ -113,7 +217,7 @@ TEST(Io, WriteModeDividerNmisMain) {
     m.rom_main[0x70] = 0x45;
     m.mem_write(0x6823, 0x01);
     m.mem_write(0x7100, 0xA1);
-    // Divider 5 periods at 64<<5 T-states, plus the handler that stores $10.
+    // First edge is the next 06XX tick; a second NMI would follow 64<<5 T-states later.
     m.run_cycles((64 << 5) + 64);
     EXPECT_EQ(m.ram1[0], 1);
     EXPECT_EQ(m.mem_read(0x7100), 0x10);
@@ -153,6 +257,93 @@ TEST(Io, HleExplosionPlaysThroughTheDacNetworkAndDecays) {
     float tail = 0;
     for (float s : m.audio) tail = std::max(tail, std::fabs(s));
     EXPECT_LT(tail, 1e-3f);
+}
+
+TEST(Io, HostWriteLandsOnTheReal51xxPortO) {
+    Machine m;
+    RomSet set;
+    set.has51 = true;
+    m.load_roms(set);
+    m.mem_write(0x7100, 0x01);
+    m.mem_write(0x7000, 0x5A);
+    m.mem_write(0x7100, 0x11);
+    EXPECT_EQ(m.mem_read(0x7000), 0x5A);
+}
+
+TEST(Io, Reading54xxGivesTheOpenBus) {
+    Machine m;
+    RomSet set;
+    set.has54 = true;
+    m.load_roms(set);
+    m.mem_write(0x7100, 0x08);
+    m.mem_write(0x7000, 0x5A);
+    m.mem_write(0x7100, 0x18);
+    EXPECT_EQ(m.mem_read(0x7000), 0xFF);
+}
+
+TEST(Io, Real54xxReadsTheCommandOnKAndR0AndDrivesThreeDacs) {
+    Machine m;
+    RomSet set;
+    set.has54 = true;
+    // INK; OUTO; LYI 0; INR; SETC; OUTO; LYI 1; OUTR; RSTC; JMP $00
+    const uint8_t prog[] = {0x12, 0x01, 0x80, 0x13, 0x21, 0x01, 0x81, 0x03, 0x23, 0xC0};
+    std::copy(std::begin(prog), std::end(prog), set.mcu54.begin());
+    m.load_roms(set);
+    m.rom_main[0] = 0x18;
+    m.rom_main[1] = 0xFE;
+    m.mem_write(0x7100, 0x08);
+    m.mem_write(0x7000, 0x5A);
+    m.mem_write(0x6823, 0x01);
+    m.run_cycles(12 * 40);
+    EXPECT_EQ(m.dac54(0), 0x5);
+    EXPECT_EQ(m.dac54(1), 0xA);
+    EXPECT_EQ(m.dac54(2), 0xA);
+}
+
+namespace {
+
+bool hle54_sounds(Machine& m, std::initializer_list<uint8_t> bytes) {
+    m.mem_write(0x7100, 0x08);
+    for (uint8_t b : bytes) m.mem_write(0x7000, b);
+    for (int i = 0; i < 400; i++) {
+        m.run_cycles(32);
+        if (m.dac54(0) != 0) return true;
+    }
+    return false;
+}
+
+Machine idle_main() {
+    Machine m;
+    m.rom_main[0] = 0x18;
+    m.rom_main[1] = 0xFE;
+    m.reset();
+    return m;
+}
+
+}  // namespace
+
+TEST(Mcu54Hle, ParameterCommandsSwallowTheirArguments) {
+    {
+        Machine m = idle_main();
+        EXPECT_FALSE(hle54_sounds(m, {0x30, 0x1F, 0x1F, 0x1F, 0x1F})) << "3x takes four";
+        EXPECT_TRUE(hle54_sounds(m, {0x1F}));
+    }
+    {
+        Machine m = idle_main();
+        EXPECT_FALSE(hle54_sounds(m, {0x40, 0x1F, 0x1F, 0x1F, 0x1F}));
+    }
+    {
+        Machine m = idle_main();
+        EXPECT_FALSE(hle54_sounds(m, {0x60, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F})) << "6x takes five";
+        EXPECT_TRUE(hle54_sounds(m, {0x5F}));
+    }
+}
+
+TEST(Mcu54Hle, VolumeCommandScalesTheBurst) {
+    Machine m = idle_main();
+    EXPECT_FALSE(hle54_sounds(m, {0x70, 0x2F}));
+    Machine n = idle_main();
+    EXPECT_TRUE(hle54_sounds(n, {0x7F, 0x2F}));
 }
 
 TEST(Video, TileAndSpritePaint) {
@@ -404,6 +595,25 @@ TEST(Io, Real51xxDrivesCoinMetersActiveLowOnP) {
     m.run_cycles(500);
     EXPECT_EQ(m.coin_counter[0], 2);
     EXPECT_EQ(m.coin_counter[1], 1);
+}
+
+TEST(Mcu51Hle, CreditModeReportsBcdCreditsThenControls) {
+    Machine m;
+    m.rom_main[0] = 0x18;
+    m.rom_main[1] = 0xFE;
+    m.reset();
+    send51(m, {0x01, 1, 1, 1, 1, 0x02});
+    for (int i = 0; i < 12; i++) tap(m, 0x10);
+    m.inputs.in0 = 0x0F;
+    m.mem_write(0x7100, 0x11);
+    EXPECT_EQ(m.mem_read(0x7000), 0x12);
+    EXPECT_EQ(m.mem_read(0x7000), 0xF0) << "active-low IN0";
+    EXPECT_EQ(m.mem_read(0x7000), 0xFF);
+    EXPECT_EQ(m.mem_read(0x7000), 0x12);
+    send51(m, {0x01, 0, 0, 0, 0, 0x02});
+    tap(m, 0x10);
+    m.mem_write(0x7100, 0x11);
+    EXPECT_EQ(m.mem_read(0x7000), 0x99) << "free play shows 99";
 }
 
 TEST(Mcu51Hle, ZeroCoinsPerCreditIsFreePlay) {

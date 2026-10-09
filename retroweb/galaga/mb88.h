@@ -35,7 +35,7 @@ public:
     void reset();
     void set_irq(bool level);
     void set_tc(bool level);
-    // One instruction. Returns instruction cycles (input clock / 6).
+    // One instruction. Returns instruction cycles (input clock / 6), interrupt entry included.
     int step();
 
     int pc_full() const { return (int(pa) << 6) + pc; }
@@ -48,6 +48,7 @@ private:
     bool if_ = false;
     bool ctr_ = false;
     int sb_count_ = 0;
+    int cycles_ = 0;
 
     uint8_t fetch();
     uint8_t read_data(int addr) const;

@@ -45,6 +45,7 @@ set(BOARD
   ${CORE}/machine.cpp ${CORE}/video.cpp ${CORE}/mb88.cpp
   ${Z80}/cpu_z80.cpp ${SHARED}/namco/wsg.cpp)
 
+add_unit_test(mb88_test mb88_test.cpp ${CORE}/mb88.cpp)
 add_unit_test(machine_test machine_test.cpp ${BOARD})
 add_dependencies(machine_test hwtest_roms)
 add_unit_test(smoke_test smoke_test.cpp ${BOARD})
@@ -54,6 +55,7 @@ target_compile_definitions(play_test PRIVATE
   CORE_USER_ROMS="${CORE}/roms/user")
 
 include(GoogleTest)
+gtest_discover_tests(mb88_test)
 gtest_discover_tests(machine_test)
 gtest_discover_tests(smoke_test)
 gtest_discover_tests(play_test PROPERTIES TIMEOUT 120)

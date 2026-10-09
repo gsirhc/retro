@@ -85,6 +85,8 @@ public:
     void mem_write(int cpu, uint16_t addr, uint8_t v);
     uint8_t mem_read(uint16_t addr) { return mem_read(0, addr); }
     uint8_t dac54(int ch) const { return dac54_[ch]; }
+    bool io06_rw() const { return io_rw_; }
+    int mcu51_pc() const { return mcu51_.pc_full(); }
     void mem_write(uint16_t addr, uint8_t v) { mem_write(0, addr, v); }
 
 private:
@@ -94,7 +96,8 @@ private:
     z80::Bus make_bus(int cpu);
     int step_cpu(int cpu);
     void on_vblank();
-    void service_mcu(int z80_cycles);
+    void service_mcu();
+    void io06_edge();
     uint8_t io06_read();
     void io06_write(uint8_t v);
     void io06_ctrl(uint8_t v);
@@ -107,9 +110,10 @@ private:
     bool coin_line_[2]{};
 
     uint8_t io_ctrl_ = 0;
-    int io_div_count_ = 0;
+    uint64_t io_next_edge_ = 0;
     bool io_stretch_ = false;
-    bool io_phase_ = false;
+    bool io_timer_state_ = false;
+    bool io_rw_ = false;
     int mcu51_mode_ = 0;
     int mcu51_args_ = 0;
     int mcu51_read_i_ = 0;
@@ -117,7 +121,9 @@ private:
     int mcu51_coins_[2]{};
     bool mcu51_started_ = false;
     uint8_t prev_in1_ = 0;
-    int mcu_acc_ = 0;
+    uint64_t mcu_next_ = 0;
+    int mcu51_wait_ = 0;
+    int mcu54_wait_ = 0;
     int mcu54_args_ = 0;
     uint8_t mcu54_cmd_ = 0;
     // 54XX DAC network (MAME galaga_a.cpp galaga_discrete).
