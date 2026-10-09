@@ -88,6 +88,25 @@
   outline-offset: 3px;
 }
 
+/* Windows XP: Luna-style Help button (Tahoma, soft gradient face). */
+:root[data-theme="winxp"] .site-footer .about-sign {
+  min-width: 75px;
+  padding: 3px 14px 4px;
+  color: var(--btn-fg);
+  background: var(--btn-bg);
+  border: var(--btn-border);
+  border-radius: 3px;
+  font: 12px Tahoma, "Segoe UI", "Microsoft Sans Serif", sans-serif;
+}
+:root[data-theme="winxp"] .site-footer .about-sign:active {
+  border-style: inset;
+  padding: 4px 13px 3px 15px;
+}
+:root[data-theme="winxp"] .site-footer .about-sign:focus-visible {
+  outline: 1px dotted var(--text);
+  outline-offset: -5px;
+}
+
 /* Atmosphere: same Help control, this theme's glassy gradient tokens. */
 :root[data-theme="aurora"] .site-footer .about-sign {
   min-width: 0;

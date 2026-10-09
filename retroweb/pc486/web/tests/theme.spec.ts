@@ -19,9 +19,11 @@ test.describe("page theme", () => {
   test("every theme is selectable and sets the expected data-theme/data-mode", async ({ livePage: page }) => {
     const cases: [string, string, string, string | null][] = [
       ["win", "light", "win", null],
+      ["winxp", "light", "winxp", null],
       ["web94", "light", "web94", null],
       ["modern", "light", "modern", null],
       ["modern", "dark", "modern", "dark"],
+      ["winxp", "dark", "winxp", "dark"],
     ];
     for (const [theme, mode, dataTheme, dataMode] of cases) {
       await chooseTheme(page, theme, mode);

@@ -6,7 +6,7 @@
 // flash of the wrong theme on reload. Kept a single tiny file rather than
 // folded into theme-picker.js so it can be inlined at the very top of
 // <head>/<body> with nothing else to block on.
-// Storage is retro8080.theme (win|web94|modern|aurora) + retro8080.mode
+// Storage is retro8080.theme (win|winxp|web94|modern|aurora) + retro8080.mode
 // (light|dark|system). Old composite theme values (moderndark, system,
 // systemaurora, ai) still resolve here; theme-picker.js rewrites them.
 try {
@@ -16,7 +16,7 @@ try {
   if (t == "ai" || t == "systemaurora") { t = "aurora"; if (!m) m = "system"; }
   else if (t == "moderndark") { t = "modern"; if (!m) m = "dark"; }
   else if (t == "system") { t = "modern"; if (!m) m = "system"; }
-  if (t != "win" && t != "web94" && t != "modern" && t != "aurora") t = "win";
+  if (t != "win" && t != "winxp" && t != "web94" && t != "modern" && t != "aurora") t = "win";
   if (m != "light" && m != "dark" && m != "system") m = "light";
   var dark = m == "dark" || (m == "system" && matchMedia("(prefers-color-scheme: dark)").matches);
   r.dataset.theme = t;

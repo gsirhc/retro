@@ -42,16 +42,21 @@
   :root[data-theme="aurora"] {
     --h1-font:   800 32px/1.15 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   }
+  :root[data-theme="winxp"] {
+    --h1-font:   bold 30px Tahoma, "Segoe UI", sans-serif;
+  }
 
   /* Ties the gradient titlebar to the page frame instead of letting it float
      above the panel body, and gives the last panel the same breathing room
      against the bottom edge that the header gets at the top. */
   :root[data-theme="aurora"] .pagebar { border-bottom: 1px solid rgba(168,140,255,.35); }
   :root[data-theme="aurora"] .inner { padding-bottom: 32px; }
+  :root[data-theme="winxp"] .inner { padding-bottom: 32px; }
   /* the function/extended-key rows are the last thing in this panel --
      .panel's shared 16px bottom padding reads as tight under them
      specifically, since every other panel ends on a shorter row of text. */
   :root[data-theme="aurora"] #fkeysCard { padding-bottom: 28px; }
+  :root[data-theme="winxp"] #fkeysCard { padding-bottom: 28px; }
 
   /* box-sizing reset, body/page-shell rules, .page, and the pagebar/pb-*
      chrome all now live in shared/pagebar.css (linked in <head> above); the

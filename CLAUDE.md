@@ -113,8 +113,8 @@ A request to add a system to this repo means a fully emulated machine, not a
 spec sheet or reference document. Every addition must:
 
 - **Run entirely in the browser**, compiled to WASM (the `cpu6502`/Altair 8800
-  pattern), using the existing `retroweb` theme system (Windows 95 / Mid-1990s
-  Web / Modern / Dark Modern) and CRT/terminal conventions already in place.
+  pattern), using the existing `retroweb` theme system (Windows 95 / Windows XP /
+  Mid-1990s Web / Modern / Atmosphere) and CRT/terminal conventions already in place.
 - **Emulate the real CPU, memory map, and clock** at the machine's actual
   speed — no shortcuts on instruction timing, wait states, or bus contention
   (see "Never speed these up" above; the same opt-in-override rules apply).

@@ -8,10 +8,11 @@
 // Returns the family; onChange runs after later interactive changes.
 
 function initThemePicker(onChange) {
-  const THEMES = ["win", "web94", "modern", "aurora"];
+  const THEMES = ["win", "winxp", "web94", "modern", "aurora"];
   const MODES = ["light", "dark", "system"];
   const LABELS = {
     win: "Windows 95",
+    winxp: "Windows XP",
     web94: "Mid-1990s Web",
     modern: "Modern",
     aurora: "Atmosphere",

@@ -8,7 +8,7 @@ The browser emulators and the landing page that lists them.
   hardware; arcade cards are original 286×128 starfield titles in Courier
   New — see [`assets/README.md`](assets/README.md) and
   [`shared/marquee.py`](shared/marquee.py). A Theme button opens a dialog
-  for family (Windows 95 / Mid-1990s Web / Modern / Atmosphere) and appearance
+  for family (Windows 95 / Windows XP / Mid-1990s Web / Modern / Atmosphere) and appearance
   (Light / Dark / System). Choices persist in `retro8080.theme` and
   `retro8080.mode` and carry across every page.
 - [`altair8800/`](altair8800/) — MITS Altair 8800 (Intel 8080). C++ core +

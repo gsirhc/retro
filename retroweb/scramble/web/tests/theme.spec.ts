@@ -23,11 +23,13 @@ test.describe("page theme", () => {
     await page.emulateMedia({ colorScheme: "light" });
     const cases: [string, string, string, string | null][] = [
       ["win", "light", "win", null],
+      ["winxp", "light", "winxp", null],
       ["web94", "light", "web94", null],
       ["modern", "light", "modern", null],
       ["modern", "dark", "modern", "dark"],
       ["aurora", "light", "aurora", null],
       ["win", "dark", "win", "dark"],
+      ["winxp", "dark", "winxp", "dark"],
       ["web94", "dark", "web94", "dark"],
     ];
     for (const [theme, mode, dataTheme, dataMode] of cases) {

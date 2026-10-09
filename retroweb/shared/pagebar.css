@@ -52,6 +52,55 @@ h1, h2, h3 { font-weight: 600; }
   padding: 1px 8px 2px; cursor: pointer;
 }
 .pb-theme-btn:active { border-style: inset; }
+:root[data-theme="winxp"] .pb-theme-btn {
+  font: 11px Tahoma, "Segoe UI", sans-serif;
+  border-radius: 3px;
+}
+:root[data-theme="winxp"] .pagebar {
+  font: bold 13px Tahoma, "Segoe UI", sans-serif;
+  padding: 5px 6px 5px 8px;
+  min-height: 30px;
+  border-radius: 7px 7px 0 0;
+  border-bottom: 0;
+}
+:root[data-theme="winxp"] .page {
+  border-radius: 8px 8px 0 0;
+  overflow: hidden;
+}
+:root[data-theme="winxp"] .pb-winbtns {
+  display: inline-flex; align-items: center; gap: 2px;
+  margin: 0 1px 0 4px;
+}
+:root[data-theme="winxp"] .pb-winbtns span,
+:root[data-theme="winxp"] .pb-winbtns a,
+:root[data-theme="winxp"] .pb-winbtns button {
+  width: 21px; height: 21px; line-height: 18px;
+  margin: 0; font-size: 13px; font-weight: 700;
+  color: #fff;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, .55) 0%, rgba(255, 255, 255, 0) 42%),
+    linear-gradient(180deg, #3c9aff 0%, #1664d8 52%, #0a4aa8 100%);
+  border: 1px solid #fff;
+  border-radius: 4px;
+  box-shadow: inset 0 0 0 1px rgba(0, 40, 120, .35),
+              0 1px 1px rgba(0, 0, 0, .25);
+  text-shadow: 0 1px 0 rgba(0, 0, 0, .4);
+}
+:root[data-theme="winxp"] .pb-winbtns a:visited { color: #fff; }
+:root[data-theme="winxp"] .pb-winbtns .pb-close {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, .5) 0%, rgba(255, 255, 255, 0) 42%),
+    linear-gradient(180deg, #ff8e7a 0%, #e5483b 48%, #b82014 100%);
+  border-color: #fff;
+  box-shadow: inset 0 0 0 1px rgba(120, 20, 10, .4),
+              0 1px 1px rgba(0, 0, 0, .25);
+}
+:root[data-theme="winxp"] .pb-winbtns button:disabled {
+  color: rgba(255, 255, 255, .45); text-shadow: none;
+}
+:root[data-theme="winxp"] .pb-winbtns .pb-close.is-disabled {
+  color: rgba(255, 255, 255, .55); text-shadow: none;
+}
 
 /* Theme picker dialog, built by theme-picker.js. Lives here so landing/about
    get it too. */
@@ -172,4 +221,6 @@ h1, h2, h3 { font-weight: 600; }
 @media (max-width: 700px) { :root[data-theme="modern"] .pb-tag { display: none; } }
 
 .inner { padding: 16px 20px 20px; }
-:root[data-theme="win"] .inner, :root[data-theme="web94"] .inner { padding: 14px 22px 22px; }
+:root[data-theme="win"] .inner,
+:root[data-theme="winxp"] .inner,
+:root[data-theme="web94"] .inner { padding: 14px 22px 22px; }

@@ -1,7 +1,7 @@
-/* Shared theme color tokens: Windows 95 / Mid-1990s Web / Modern / Atmosphere,
-   each light and dark (data-mode="dark"). Page-specific layout tuning stays in
-   each page's own <style>. Machines copy this into web/shared/; index.html
-   links it directly. */
+/* Shared theme color tokens: Windows 95 / Windows XP / Mid-1990s Web / Modern /
+   Atmosphere, each light and dark (data-mode="dark"). Page-specific layout
+   tuning stays in each page's own <style>. Machines copy this into
+   web/shared/; index.html links it directly. */
 
 :root {
   --desktop:   #008080;
@@ -63,6 +63,89 @@
   --statusline-border: #05100a;
   --accent2:      #33ff88;
   --warn:         #ff8080;
+}
+/* Luna chrome + CSS Bliss stand-in (the real photo is Microsoft-owned). */
+:root[data-theme="winxp"] {
+  --desktop:   #5a9fd4;
+  --page-bg:   #ece9d8;
+  --page-border: 4px solid #0a5ad1;
+  --page-radius: 8px 8px 0 0;
+  --page-shadow: 2px 3px 12px rgba(0, 0, 0, .35);
+  --body-font: Tahoma, "Segoe UI", "Microsoft Sans Serif", sans-serif;
+  --text:      #000000;
+  --dim:       #404040;
+  --link:      #0066cc;
+  --link-visited: #551a8b;
+  --titlebar-display: flex;
+  --titlebar-bg: linear-gradient(180deg, #3c9bff 0%, #1668f0 5%, #0a5aef 9%, #0054e3 14%, #0054e3 88%, #0048c8 95%, #0039a8 100%);
+  --titlebar-fg: #ffffff;
+  --rule:      1px solid #d4d0c8;
+  --h1-color:  #003399;
+  --h1-shadow: none;
+  --h1-align:  center;
+  --center:    center;
+  --panel-bg:     #ece9d8;
+  --panel-border: 2px solid #919b9c;
+  --panel-radius: 3px;
+  --btn-bg:       linear-gradient(180deg, #ffffff 0%, #ece9d8 45%, #d4d0c8 100%);
+  --btn-fg:       #000000;
+  --btn-border:   1px solid #003c74;
+  --btn-radius:   3px;
+  --field-bg:     #ffffff;
+  --field-border: 2px inset #aca899;
+  --statusline-bg:     #0b1a10;
+  --statusline-fg:     #6bffa0;
+  --statusline-border: #05100a;
+  --accent2:      #008000;
+  --warn:         #c00000;
+}
+:root[data-theme="winxp"] body {
+  background-color: #5a9fd4;
+  background-image:
+    radial-gradient(ellipse 110% 55% at 50% 118%, #2f7a28 0%, #3d9a32 42%, transparent 70%),
+    radial-gradient(ellipse 80% 48% at 12% 105%, #4aad3a 0%, #2f7a28 48%, transparent 72%),
+    radial-gradient(ellipse 85% 50% at 88% 108%, #357f2a 0%, #246620 52%, transparent 74%),
+    radial-gradient(ellipse 60% 28% at 58% 72%, rgba(140, 190, 70, .5), transparent 72%),
+    radial-gradient(ellipse 40% 18% at 30% 68%, rgba(255, 255, 255, .35), transparent 70%),
+    linear-gradient(180deg, #3a7fc4 0%, #6eb3e8 36%, #a8d4f0 58%, #c5e0a8 74%, #7cb342 100%);
+  background-attachment: fixed;
+}
+:root[data-theme="winxp"][data-mode="dark"] {
+  color-scheme: dark;
+  --desktop:   #1a3a5c;
+  --page-bg:   #2a2a28;
+  --page-border: 4px solid #0a3a7c;
+  --page-shadow: 2px 3px 14px rgba(0, 0, 0, .55);
+  --text:      #f0efe8;
+  --dim:       #b8b4a8;
+  --link:      #6eb6ff;
+  --link-visited: #c090ff;
+  --titlebar-bg: linear-gradient(180deg, #2a6ad0 0%, #0a4cb0 5%, #063a8c 9%, #053a8a 14%, #053a8a 88%, #042e6e 95%, #032050 100%);
+  --titlebar-fg: #ffffff;
+  --rule:      1px solid #4a4a44;
+  --h1-color:  #8ec0ff;
+  --panel-bg:     #2a2a28;
+  --panel-border: 2px solid #555550;
+  --btn-bg:       linear-gradient(180deg, #4a4a46 0%, #2a2a28 45%, #1e1e1c 100%);
+  --btn-fg:       #f0efe8;
+  --btn-border:   1px solid #6a8ab8;
+  --field-bg:     #1a1a18;
+  --field-border: 2px inset #555550;
+  --statusline-bg:     #0b1a10;
+  --statusline-fg:     #6bffa0;
+  --statusline-border: #05100a;
+  --accent2:      #33ff88;
+  --warn:         #ff8080;
+}
+:root[data-theme="winxp"][data-mode="dark"] body {
+  background-color: #1a3a5c;
+  background-image:
+    radial-gradient(ellipse 110% 55% at 50% 118%, #1a4a18 0%, #246020 42%, transparent 70%),
+    radial-gradient(ellipse 80% 48% at 12% 105%, #2a6020 0%, #1a4a18 48%, transparent 72%),
+    radial-gradient(ellipse 85% 50% at 88% 108%, #1e5018 0%, #143810 52%, transparent 74%),
+    radial-gradient(ellipse 60% 28% at 58% 72%, rgba(40, 80, 30, .4), transparent 72%),
+    linear-gradient(180deg, #0e2848 0%, #1a4068 36%, #2a5070 58%, #3a5840 74%, #2a5028 100%);
+  background-attachment: fixed;
 }
 /* tiled "blue marble" desktop, shared instead of a data URI per page */
 :root[data-theme="web94"] body {

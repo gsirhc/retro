@@ -75,7 +75,7 @@ test.describe("page chrome, persistence, URL params", () => {
 
   test("every theme offers a way back to the landing page", async ({ page }) => {
     await boot(page);
-    for (const t of ["win", "web94", "modern"]) {
+    for (const t of ["win", "winxp", "web94", "modern", "aurora"]) {
       await chooseTheme(page, t);
       // win: the titlebar close box; web94/modern: the "All machines" link
       const home = page.locator('.pagebar a[href="../"]:visible');
@@ -85,7 +85,7 @@ test.describe("page chrome, persistence, URL params", () => {
 
   test("every theme flows front panel -> terminal -> devices", async ({ page }) => {
     await page.setViewportSize({ width: 1200, height: 900 }); // below the side-by-side breakpoint
-    for (const t of ["win", "web94", "modern"]) {
+    for (const t of ["win", "winxp", "web94", "modern", "aurora"]) {
       await boot(page, { params: `theme=${t}&preset=cassette` });
       await expect(page.locator("#ptr")).toBeVisible();
       const y = async (s: string) => (await page.locator(s).boundingBox())!.y;
@@ -153,7 +153,7 @@ test.describe("page chrome, persistence, URL params", () => {
 
   test("the terminal settings bar sits above the monitor in every other layout", async ({ page }) => {
     await page.setViewportSize({ width: 1200, height: 900 });
-    for (const t of ["win", "web94", "modern"]) {
+    for (const t of ["win", "winxp", "web94", "modern", "aurora"]) {
       await boot(page, { params: `theme=${t}` });
       await expect(page.locator(".ws-terminal .term-bar"), t).toHaveCount(1);
       await expect(page.locator(".toolbars .term-bar"), t).toHaveCount(0);

@@ -12,16 +12,17 @@
 <link rel="stylesheet" href="shared/pagebar.css">
 <link rel="stylesheet" href="shared/footer.css">
 <style>
-  /* ---- page themes: default = Windows 95; web94 = mid-90s Mosaic web;
-     modern / aurora = clean layouts. Light and dark palettes for every
-     family live in shared/theme.css (linked above) -- editing a color
-     there reaches this page and every machine. This page has no build
-     step, so it links that file straight from its own sibling shared/
-     directory rather than a copied web/shared/ (see each machine's
-     web/Makefile `shared` target for that copy). Only --title-font (this
-     page's own heading size, which varies with its own header layout, not
-     the theme) stays local, below. */
+  /* ---- page themes: default = Windows 95; winxp = Luna; web94 = mid-90s
+     Mosaic web; modern / aurora = clean layouts. Light and dark palettes
+     for every family live in shared/theme.css (linked above) -- editing a
+     color there reaches this page and every machine. This page has no
+     build step, so it links that file straight from its own sibling
+     shared/ directory rather than a copied web/shared/ (see each
+     machine's web/Makefile `shared` target for that copy). Only
+     --title-font (this page's own heading size, which varies with its own
+     header layout, not the theme) stays local, below. */
   :root { --title-font: 900 30px "Arial Black", Arial, sans-serif; }
+  :root[data-theme="winxp"] { --title-font: bold 28px Tahoma, "Segoe UI", sans-serif; }
   :root[data-theme="web94"] { --title-font: bold 26px "Times New Roman", Times, serif; }
   :root[data-theme="modern"] { --title-font: 700 28px/1.15 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
   /* Atmosphere title size; desktop background lives in shared/theme.css. */
@@ -78,6 +79,7 @@
     font: bold 17px Arial, Helvetica, sans-serif; color: var(--text);
     letter-spacing: .5px; text-transform: uppercase;
   }
+  :root[data-theme="winxp"] .section-heading { font: bold 15px Tahoma, "Segoe UI", sans-serif; letter-spacing: .4px; }
   :root[data-theme="web94"] .section-heading { font: bold 19px "Times New Roman", Times, serif; letter-spacing: normal; text-transform: none; }
   :root[data-theme="modern"] .section-heading { font: 700 14px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: var(--muted); }
 
@@ -113,7 +115,7 @@
 </style>
 </head>
 <body>
-<script>try{var r=document.documentElement,t=localStorage.getItem("retro8080.theme")||"win",m=localStorage.getItem("retro8080.mode");if(t=="ai"||t=="systemaurora"){t="aurora";if(!m)m="system";}else if(t=="moderndark"){t="modern";if(!m)m="dark";}else if(t=="system"){t="modern";if(!m)m="system";}if(t!="win"&&t!="web94"&&t!="modern"&&t!="aurora")t="win";if(m!="light"&&m!="dark"&&m!="system")m="light";var dark=m=="dark"||(m=="system"&&matchMedia("(prefers-color-scheme: dark)").matches);r.dataset.theme=t;if(dark)r.dataset.mode="dark";else delete r.dataset.mode;}catch(e){}</script>
+<script>try{var r=document.documentElement,t=localStorage.getItem("retro8080.theme")||"win",m=localStorage.getItem("retro8080.mode");if(t=="ai"||t=="systemaurora"){t="aurora";if(!m)m="system";}else if(t=="moderndark"){t="modern";if(!m)m="dark";}else if(t=="system"){t="modern";if(!m)m="system";}if(t!="win"&&t!="winxp"&&t!="web94"&&t!="modern"&&t!="aurora")t="win";if(m!="light"&&m!="dark"&&m!="system")m="light";var dark=m=="dark"||(m=="system"&&matchMedia("(prefers-color-scheme: dark)").matches);r.dataset.theme=t;if(dark)r.dataset.mode="dark";else delete r.dataset.mode;}catch(e){}</script>
 
 <div class="page">
   <header class="pagebar">
