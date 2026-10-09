@@ -26,22 +26,38 @@ void Video::reset() {
     vblank_edge = false;
     sound_nmi_edge = false;
     star_lfsr_ = kStarSeed;
+    stars_on_ = false;
+    sprite_line_.fill(0);
+    star_line_.fill(0);
 }
 
 void Video::advance(int cpu_cycles) {
-    vblank_edge = false;
-    sound_nmi_edge = false;
     int pixels = cpu_cycles * 2;
-    h += pixels;
-    while (h >= kHTotal) {
-        h -= kHTotal;
-        v++;
-        if (v >= kVTotal) v = 0;
+    while (pixels > 0) {
+        if (h < kVisW) {
+            int end = h + pixels < kVisW ? h + pixels : kVisW;
+            if (v < kVisH) paint(v, h, end);
+            pixels -= end - h;
+            h = end;
+            if (h == kVisW) hblank_setup(v + 1 == kVTotal ? 0 : v + 1);
+            continue;
+        }
+        int end = h + pixels < kHTotal ? h + pixels : kHTotal;
+        pixels -= end - h;
+        h = end;
+        if (h < kHTotal) continue;
+        h = 0;
+        if (++v == kVTotal) v = 0;
         // Sound-CPU NMI twice a frame (scanlines 64 and 192), enabled by !NMION.
         if (v == 64 || v == 192) sound_nmi_edge = true;
-        bool vb = v >= kVBlankLine;
-        if (vb && !vblank) vblank_edge = true;
-        vblank = vb;
+        if (v == kVBlankLine) {
+            vblank = true;
+            vblank_edge = true;
+            if (stars_on_)
+                for (int i = 0; i < 10 * kStarFieldW; i++) star_lfsr_ = next_star_lfsr(star_lfsr_);
+        } else if (v == 0) {
+            vblank = false;
+        }
     }
 }
 
@@ -77,126 +93,113 @@ uint16_t Video::next_star_lfsr(uint16_t lfsr) {
     return uint16_t((lfsr >> 1) | (bit << 15));
 }
 
-void Video::draw_stars(uint32_t* native) const {
-    // $A005 low clears the field and reseeds. SCROLL_Y is tied low; only SCROLL_X changes clocks.
-    if (!star_latch[5]) {
+void Video::frame_start() {
+    // The 05XX samples its controls as vblank ends (MAME screen_vblank_galaga). Low $A005 clears and reseeds.
+    stars_on_ = star_latch[5] != 0;
+    if (!stars_on_) {
         star_lfsr_ = kStarSeed;
         return;
     }
     int speed_x = (star_latch[0] ? 1 : 0) | (star_latch[1] ? 2 : 0) | (star_latch[2] ? 4 : 0);
-    int set_a = star_latch[3] ? 1 : 0;
-    int set_b = (star_latch[4] ? 1 : 0) | 2;
-    int pre = 22 * kStarFieldW + kSpeedXOffset[speed_x & 7];
-    int post = 10 * kStarFieldW;
-    for (int i = 0; i < pre; i++) star_lfsr_ = next_star_lfsr(star_lfsr_);
-    for (int y = 0; y < kVisH; y++) {
+    star_set_a_ = star_latch[3] ? 1 : 0;
+    star_set_b_ = (star_latch[4] ? 1 : 0) | 2;
+    // SCROLL_Y is tied low; SCROLL_X adds or drops clocks ahead of the visible field.
+    for (int i = 0; i < 22 * kStarFieldW + kSpeedXOffset[speed_x & 7]; i++) star_lfsr_ = next_star_lfsr(star_lfsr_);
+}
+
+void Video::hblank_setup(int line) {
+    sprite_line_.fill(0);
+    star_line_.fill(0);
+    if (line == 0) frame_start();
+    if (line >= kVisH) return;
+
+    if (stars_on_) {
         for (int x = kStarOffsetX; x < kStarLimitX; x++) {
             if ((star_lfsr_ & kStarHitMask) == kStarHitValue) {
                 int star_set = int(((star_lfsr_ >> 10) & 1) << 1) | int((star_lfsr_ >> 8) & 1);
-                if (star_set == set_a || star_set == set_b) {
+                if (star_set == star_set_a_ || star_set == star_set_b_) {
                     uint8_t color = uint8_t((star_lfsr_ >> 5) & 7);
                     color = uint8_t(color | ((star_lfsr_ << 3) & 0x18));
                     color = uint8_t(color | ((star_lfsr_ << 2) & 0x20));
                     color = uint8_t((~color) & 0x3F);
-                    int dx = x;
-                    if (flip) dx += 64;
-                    if (dx >= 0 && dx < kVisW)
-                        native[y * kVisW + dx] = star_rgb(color);
+                    int dx = flip ? x + 64 : x;
+                    if (dx < kVisW) star_line_[unsigned(dx)] = star_rgb(color) | (1u << 24);
                 }
             }
             star_lfsr_ = next_star_lfsr(star_lfsr_);
         }
     }
-    for (int i = 0; i < post; i++) star_lfsr_ = next_star_lfsr(star_lfsr_);
+
+    if (!ram1 || !ram2 || !ram3) return;
+    // 04XX: X is 10 bits, register 0 is 40 px left of the visible origin. Y is one line late
+    // and wraps by 32. Later sprites overwrite earlier ones (MAME draw_sprites order).
+    static constexpr int kOffs[2][2] = {{0, 1}, {2, 3}};
+    static constexpr int kCol[4] = {0, 8, 16, 24};
+    for (int i = 0; i < 64; i++) {
+        int o = 0x380 + i * 2;
+        uint8_t attr = ram3[o];
+        bool flipx = (attr & 1) != 0;
+        bool flipy = (attr & 2) != 0;
+        int sizex = (attr & 4) ? 1 : 0;
+        int sizey = (attr & 8) ? 1 : 0;
+        if (flip) {
+            flipx = !flipx;
+            flipy = !flipy;
+        }
+        int sy = 256 - int(ram2[o]) + 1;
+        sy -= 16 * sizey;
+        sy = (sy & 0xff) - 32;
+        int rel = line - sy;
+        if (rel < 0 || rel >= 16 * (sizey + 1)) continue;
+        int sx = int(ram2[o + 1]) - 40 + 0x100 * (ram3[o + 1] & 3);
+        int ty = rel >> 4;
+        int py = flipy ? 15 - (rel & 15) : (rel & 15);
+        uint8_t color = uint8_t(ram1[o + 1] & 0x3F);
+        for (int tx = 0; tx <= sizex; tx++) {
+            int code = (ram1[o] & 0x7f) + kOffs[ty ^ (sizey & flipy)][tx ^ (sizex & flipx)];
+            const uint8_t* t = &sprite_rom[(unsigned(code) * 64) % sprite_rom.size()];
+            int base_y = (py < 8) ? py : (32 + (py - 8));
+            for (int px = 0; px < 16; px++) {
+                int x = sx + tx * 16 + (flipx ? (15 - px) : px);
+                if (x < 0 || x >= kVisW) continue;
+                uint8_t byte = t[kCol[px >> 2] + base_y];
+                int xb = px & 3;
+                uint8_t pen = uint8_t((((byte >> (7 - xb)) & 1) << 1) | ((byte >> (3 - xb)) & 1));
+                // A pen is clear when its LUT entry is 0x0F (MAME transpen_mask(..., 0x0f)).
+                uint8_t li = sprite_lut[unsigned((color << 2) | pen)] & 0x0F;
+                if (li == 0x0F) continue;
+                sprite_line_[unsigned(x)] = prom_rgb(li) | (1u << 24);
+            }
+        }
+    }
 }
 
-void Video::render(uint32_t* upright, const uint8_t* ram1, const uint8_t* ram2,
-                   const uint8_t* ram3) const {
-    std::array<uint32_t, kVisW * kVisH> native{};
-    // Stars, sprites, tiles. Score strips are in the tile plane, so they stay above sprites.
-    draw_stars(native.data());
-
-    if (ram1 && ram2 && ram3) {
-        // 04XX sprite address: X is 10 bits, register 0 is 40 px left of the visible origin.
-        // Y counts down one line late, then wraps by 32. A 2x sprite is four consecutive codes.
-        for (int i = 0; i < 64; i++) {
-            int o = 0x380 + i * 2;
-            uint8_t attr = ram3[o];
-            bool flipx = (attr & 1) != 0;
-            bool flipy = (attr & 2) != 0;
-            int sizex = (attr & 4) ? 1 : 0;
-            int sizey = (attr & 8) ? 1 : 0;
-            if (flip) {
-                flipx = !flipx;
-                flipy = !flipy;
-            }
-            int sx = int(ram2[o + 1]) - 40 + 0x100 * (ram3[o + 1] & 3);
-            int sy = 256 - int(ram2[o]) + 1;
-            sy -= 16 * sizey;
-            sy = (sy & 0xff) - 32;
-            int base = ram1[o] & 0x7f;
-            uint8_t color = ram1[o + 1];
-            // sphcnt(3:2) selects bytes 0, 8, 16, 24 (galaga.vhd spgraphx_addr).
-            static constexpr int kOffs[2][2] = {{0, 1}, {2, 3}};
-            static constexpr int kCol[4] = {0, 8, 16, 24};
-            for (int ty = 0; ty <= sizey; ty++) {
-                for (int tx = 0; tx <= sizex; tx++) {
-                    int code = base + kOffs[ty ^ (sizey & flipy)][tx ^ (sizex & flipx)];
-                    const uint8_t* t = &sprite_rom[(unsigned(code) * 64) % sprite_rom.size()];
-                    for (int py = 0; py < 16; py++) {
-                        for (int px = 0; px < 16; px++) {
-                            int x = sx + tx * 16 + (flipx ? (15 - px) : px);
-                            int y = sy + ty * 16 + (flipy ? (15 - py) : py);
-                            if (x < 0 || y < 0 || x >= kVisW || y >= kVisH) continue;
-                            int base_y = (py < 8) ? py : (32 + (py - 8));
-                            uint8_t byte = t[kCol[px >> 2] + base_y];
-                            int xb = px & 3;
-                            uint8_t pen = uint8_t((((byte >> (7 - xb)) & 1) << 1) |
-                                                  ((byte >> (3 - xb)) & 1));
-                            if (pen == 0) continue;
-                            uint8_t li = sprite_lut[((color & 0x3F) << 2) | pen] & 0x0F;
-                            native[y * kVisW + x] = prom_rgb(li);
-                        }
-                    }
-                }
-            }
-        }
+void Video::paint(int line, int x0, int x1) {
+    uint32_t* row = &frame_[unsigned(line * kVisW)];
+    for (int x = x0; x < x1; x++) {
+        uint32_t px = sprite_line_[unsigned(x)];
+        if (!px) px = star_line_[unsigned(x)];
+        // Flip inverts the counters, which pick the byte half; the second char set reverses each nibble.
+        int tx = flip ? kVisW - 1 - x : x;
+        int ty = flip ? kVisH - 1 - line : line;
+        int r = (ty >> 3) + 2;
+        int c = (tx >> 3) - 2;
+        // hcnt bit 8 selects the side strips (galaga.vhd).
+        int offs = ((c & 0x20) ? (r + ((c & 0x1f) << 5)) : (c + (r << 5))) & 0x3ff;
+        uint8_t code = uint8_t((videoram[unsigned(offs)] & 0x7f) | (flip ? 0x80 : 0));
+        uint8_t attr = videoram[unsigned(0x400 + offs)];
+        uint8_t pen = tile_pixel(code, (tx & 4) | (x & 3), ty & 7);
+        // Character LUT is 4 bits; the board ORs 0x10 to use the upper PROM half. 0x1F is transparent.
+        uint8_t li = uint8_t((char_lut[unsigned(((attr & 0x3F) << 2) | pen)] & 0x0F) | 0x10);
+        if (li != 0x1F) px = prom_rgb(li);
+        row[x] = px & 0xFFFFFF;
     }
+}
 
-    // hcnt bit 8 selects the side strips (galaga.vhd). A credit line across row 1 lies on the bottom.
-    for (int row = 0; row < 28; row++) {
-        for (int col = 0; col < 36; col++) {
-            int sr = flip ? (27 - row) : row;
-            int sc = flip ? (35 - col) : col;
-            int r = sr + 2;
-            int c = sc - 2;
-            int offs = (c & 0x20) ? (r + ((c & 0x1f) << 5)) : (c + (r << 5));
-            offs &= 0x3ff;
-            uint8_t code = videoram[offs];
-            uint8_t attr = videoram[0x400 + offs];
-            int ox = col * 8;
-            int oy = row * 8;
-            for (int py = 0; py < 8; py++) {
-                for (int px = 0; px < 8; px++) {
-                    uint8_t pen = tile_pixel(code, px, py);
-                    if (pen == 0) continue;
-                    // Character LUT is 4 bits; the board ORs 0x10 to use the upper PROM half. 0x1F is transparent.
-                    uint8_t li = uint8_t((char_lut[((attr & 0x3F) << 2) | pen] & 0x0F) | 0x10);
-                    if (li == 0x1F) continue;
-                    int x = ox + px;
-                    int y = oy + py;
-                    if (x >= 0 && x < kVisW && y >= 0 && y < kVisH)
-                        native[y * kVisW + x] = prom_rgb(li);
-                }
-            }
-        }
-    }
-
+void Video::render(uint32_t* upright) const {
     for (int ny = 0; ny < kVisH; ny++) {
         for (int nx = 0; nx < kVisW; nx++) {
-            int dx = (kVisH - 1) - ny;
-            int dy = nx;
-            upright[dy * kUprightW + dx] = native[ny * kVisW + nx];
+            upright[nx * kUprightW + (kVisH - 1) - ny] = frame_[unsigned(ny * kVisW + nx)];
         }
     }
 }

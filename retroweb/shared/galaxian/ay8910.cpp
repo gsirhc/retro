@@ -60,7 +60,6 @@ void Ay8910::restart_envelope() {
     env_cnt_ = 0;
     env_hold_ = false;
     uint8_t shape = regs[13];
-    // continue clear: run once then hold 0 (15 if alternate+hold)
     if (shape & 0x04) {
         env_pos_ = 0;
         env_step_ = 1;
@@ -111,7 +110,7 @@ void Ay8910::tick() {
                     env_hold_ = true;
                     bool alt = (shape & 0x02) != 0;
                     bool att = (shape & 0x04) != 0;
-                    env_pos_ = (att ^ alt) ? 0 : 15;
+                    env_pos_ = (att ^ alt) ? 15 : 0;  // shapes 11 and 13 hold high (GI datasheet)
                 } else if (shape & 0x02) {  // alternate
                     env_step_ = -env_step_;
                     env_pos_ += env_step_;
@@ -124,18 +123,40 @@ void Ay8910::tick() {
     ay_cycle_++;
 }
 
+uint8_t Ay8910::output_level(int ch) const {
+    uint8_t mixer = regs[7];
+    bool tone_off = (mixer & (1u << ch)) != 0;
+    bool noise_off = (mixer & (1u << (ch + 3))) != 0;
+    if (!((tone_off || tone_out_[ch]) && (noise_off || noise_out_))) return 0;
+    uint8_t amp = regs[unsigned(8 + ch)];
+    return (amp & 0x10) ? env_level() : uint8_t(amp & 0x0F);
+}
+
+double Ay8910::output_resistance(uint8_t level) {
+    // Kn per DAC step in uA/V^2, fitted to die measurements (MAME ay8910_mosfet_param).
+    static const std::array<double, 16> table = [] {
+        constexpr double kKn[16] = {
+            0.00076, 0.80536, 1.13106, 1.65952, 2.42261, 3.60536, 5.34893, 8.96871,
+            10.97202, 19.32370, 29.01935, 38.82026, 55.50539, 78.44395, 109.49257, 153.72985,
+        };
+        constexpr double kVth = 1.465385778, kVg = 4.9, kRd = 1000.0;
+        std::array<double, 16> out{};
+        const double vg = kVg - kVth;
+        for (int j = 0; j < 16; j++) {
+            const double kn = kKn[j] / 1.0e6;
+            const double p2 = 1.0 / (2.0 * kn * kRd) + vg;
+            const double vs = p2 - std::sqrt(p2 * p2 - vg * vg);
+            out[unsigned(j)] = kRd * (5.0 / vs - 1.0);
+        }
+        return out;
+    }();
+    return table[level & 15];
+}
+
 float Ay8910::mix() const {
     if (mute) return 0.0f;
     float s = 0;
-    uint8_t mixer = regs[7];
-    for (int ch = 0; ch < 3; ch++) {
-        bool tone_off = (mixer & (1u << ch)) != 0;
-        bool noise_off = (mixer & (1u << (ch + 3))) != 0;
-        bool on = (tone_off || tone_out_[ch]) && (noise_off || noise_out_);
-        uint8_t amp = regs[unsigned(8 + ch)];
-        uint8_t level = (amp & 0x10) ? env_level() : uint8_t(amp & 0x0F);
-        if (on) s += kVol[level];
-    }
+    for (int ch = 0; ch < 3; ch++) s += kVol[output_level(ch)];
     return s / 3.0f;
 }
 

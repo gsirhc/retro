@@ -38,10 +38,10 @@ add_custom_target(hwtest_roms DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/hwtest_roms.h)
 
 set(BOARD
   ${CORE}/machine.cpp ${Z80}/cpu_z80.cpp
-  ${GAL}/video.cpp ${GAL}/ay8910.cpp ${GAL}/i8255.cpp ${GAL}/timer.cpp)
+  ${GAL}/video.cpp ${GAL}/ay8910.cpp ${GAL}/konami_sound.cpp ${GAL}/i8255.cpp ${GAL}/timer.cpp)
 
 add_unit_test(device_test device_test.cpp
-  ${GAL}/video.cpp ${GAL}/ay8910.cpp ${GAL}/i8255.cpp ${GAL}/timer.cpp)
+  ${GAL}/video.cpp ${GAL}/ay8910.cpp ${GAL}/konami_sound.cpp ${GAL}/i8255.cpp ${GAL}/timer.cpp)
 add_unit_test(machine_test machine_test.cpp ${BOARD})
 add_dependencies(machine_test hwtest_roms)
 add_unit_test(smoke_test smoke_test.cpp ${BOARD})

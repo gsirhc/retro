@@ -4,6 +4,8 @@
 #include "hwtest_roms.h"
 
 #include <algorithm>
+#include <iterator>
+#include <vector>
 
 namespace {
 
@@ -160,14 +162,75 @@ TEST(Machine, Dsw1PortFollowsInputsIncludingMirrors) {
     EXPECT_EQ(m.mem_read(0x50C0), 0x00);
 }
 
-TEST(Machine, WatchdogExpiresAfterEightVblanksWithoutKick) {
+TEST(Machine, WatchdogExpiresAfterSixteenVblanksWithoutKick) {
     pacman::Machine m;
     m.program[0] = 0x18;
     m.program[1] = 0xFE;  // JR $
     m.reset();
     m.watchdog_reset = false;
-    m.run_cycles(pacman::kCpuPerFrame * pacman::kWatchdogFrames);
+    m.run_cycles(pacman::kCpuPerFrame * 15);
+    EXPECT_FALSE(m.watchdog_reset);
+    m.run_cycles(pacman::kCpuPerFrame);
     EXPECT_TRUE(m.watchdog_reset);
+}
+
+namespace {
+
+// IM 1 ISR counting at $4C00; `rearm` writes 0 then 1 to $5000 before RETI.
+void vblank_counter(pacman::Machine& m, bool rearm) {
+    const uint8_t main[] = {0x31, 0xF0, 0x4F, 0xED, 0x56, 0x3E, 0x01, 0x32, 0x00, 0x50, 0xFB,
+                            0x32, 0xC0, 0x50, 0x18, 0xFB};
+    std::copy(std::begin(main), std::end(main), m.program.begin());
+    std::vector<uint8_t> isr = {0xF5, 0x3A, 0x00, 0x4C, 0x3C, 0x32, 0x00, 0x4C};
+    if (rearm) isr.insert(isr.end(), {0xAF, 0x32, 0x00, 0x50, 0x3C, 0x32, 0x00, 0x50});
+    isr.insert(isr.end(), {0xF1, 0xFB, 0xED, 0x4D});
+    std::copy(isr.begin(), isr.end(), m.program.begin() + 0x38);
+}
+
+}  // namespace
+
+TEST(Machine, VblankIrqIsHeldUntil5000IsCleared) {
+    pacman::Machine m;
+    m.reset();
+    vblank_counter(m, false);
+    m.run_cycles(pacman::kCpuPerFrame * 2);
+    EXPECT_TRUE(m.cpu.int_line);
+    EXPECT_GT(m.ram[0x400], 100) << "a held /INT re-enters the ISR after every RETI";
+}
+
+TEST(Machine, VblankIrqFiresOncePerFrameWhenAcknowledged) {
+    pacman::Machine m;
+    m.reset();
+    vblank_counter(m, true);
+    m.run_cycles(pacman::kCpuPerFrame * 5);
+    EXPECT_EQ(m.ram[0x400], 5);
+}
+
+TEST(Machine, VblankIrqWaitsOutADisabledCpu) {
+    pacman::Machine m;
+    m.reset();
+    vblank_counter(m, true);
+    m.program[10] = 0x00;  // no EI
+    m.run_cycles(pacman::kCpuPerFrame * 2);
+    EXPECT_EQ(m.ram[0x400], 0);
+    EXPECT_TRUE(m.cpu.int_line);
+    m.cpu.iff1 = m.cpu.iff2 = true;
+    m.run_cycles(100);
+    EXPECT_EQ(m.ram[0x400], 1);
+}
+
+TEST(Machine, WatchdogResetKeepsRam) {
+    pacman::Machine m;
+    m.program[0] = 0x18;
+    m.program[1] = 0xFE;
+    m.reset();
+    m.ram[0x10] = 0xA5;
+    m.video.videoram[5] = 0x5A;
+    m.run_cycles(pacman::kCpuPerFrame * pacman::kWatchdogFrames);
+    ASSERT_TRUE(m.watchdog_reset);
+    EXPECT_EQ(m.ram[0x10], 0xA5);
+    EXPECT_EQ(m.video.videoram[5], 0x5A);
+    EXPECT_FALSE(m.irq_enable);
 }
 
 TEST(Machine, WatchdogKickAt50C0PreventsExpiry) {
@@ -365,3 +428,13 @@ TEST(Machine, Im2VectorFetchEnablesAuxDecode) {
 }
 
 }  // namespace
+
+TEST(Machine, CoinCounterCountsRisingEdges) {
+    pacman::Machine m;
+    m.reset();
+    m.mem_write(0x5007, 1);
+    m.mem_write(0x5007, 1);
+    m.mem_write(0x5007, 0);
+    m.mem_write(0x5007, 1);
+    EXPECT_EQ(m.coin_counter[0], 2);
+}

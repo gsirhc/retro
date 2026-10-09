@@ -17,7 +17,8 @@
 namespace pacman {
 
 constexpr int kCpuHz = 3072000;
-constexpr int kWatchdogFrames = 8;
+// Vblanks without a $50C0 kick before /RESET (MAME pacman set_vblank_count(16)).
+constexpr int kWatchdogFrames = 16;
 
 struct Inputs {
     // Active-low bits as the cabinet presents them (1 = released).
@@ -66,6 +67,8 @@ public:
     int audio_hz = 48000;
     // Sticky, reset() does not clear it.
     bool watchdog_reset = false;
+    // Electromechanical counters: one count per rising edge of the drive line.
+    std::array<int, 2> coin_counter{};
 
     // aux_decode is the dump-protection latch (US 4,525,599): $3FF8-$3FFF sets
     // it, 8-byte trap windows clear it.
@@ -82,6 +85,9 @@ public:
     void mem_write(uint16_t addr, uint8_t v);
 
 private:
+    void watchdog_fire();
+    void coin_counter_w(int n, bool on);
+    bool coin_line_[2]{};
     z80::Bus make_bus();
     void aux_trap(uint16_t addr);
     void rebuild_aux();

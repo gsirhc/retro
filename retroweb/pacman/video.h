@@ -42,12 +42,13 @@ public:
 
     int h = 0, v = 0;            // pixel position in the full raster
     bool vblank = false;
-    bool vblank_edge = false;    // set for one advance() that enters vblank
+    // Set when the beam enters vblank; the board clears it once handled.
+    bool vblank_edge = false;
 
     void reset();
-    // Advance `cpu_cycles` (2 pixels each). Sets vblank_edge on the 0→1 edge.
+    // Moves the beam `cpu_cycles` T-states (2 pixels each), painting as it goes.
     void advance(int cpu_cycles);
-    // Render upright 224×288 RGB888 (packed 0x00RRGGBB) into `out` (224*288).
+    // Upright 224x288 RGB888 (0x00RRGGBB) of the last painted frame.
     void render(uint32_t* out) const;
 
     uint8_t tile_pixel(uint8_t code, int x, int y) const;
@@ -55,7 +56,12 @@ public:
     uint32_t lookup_rgb(uint8_t attr, uint8_t pix) const;
 
 private:
+    std::array<uint32_t, kVisW * kVisH> frame_{};
+    std::array<uint32_t, kVisW> sprite_line_{};  // RGB | 1 << 24, 0 = empty
+
     int vram_offset(int col, int row) const;
+    void hblank_setup(int line);
+    void paint(int line, int x0, int x1);
 };
 
 }  // namespace pacman

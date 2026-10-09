@@ -197,6 +197,10 @@ def assemble_main(s1, s2, s3):
     # NMI: kick the watchdog, bump the frame counter at $4008.
     a.org(0x0066)
     a.db(0xF5)             # PUSH AF
+    a.db(0xAF)             # XOR A
+    a.ld_nn_a(0x6801)      # clear the NMI flip-flop
+    a.db(0x3C)             # INC A
+    a.ld_nn_a(0x6801)      # re-arm
     a.ld_a_nn(0x7000)      # LD A,(7000)  watchdog
     a.ld_a_nn(0x4008)
     a.db(0x3C)             # INC A

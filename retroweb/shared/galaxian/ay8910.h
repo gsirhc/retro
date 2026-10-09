@@ -28,6 +28,11 @@ public:
     // Advance `ay_cycles` at the chip clock; append mono samples at host_hz.
     void advance(int ay_cycles, int host_hz, std::vector<float>& out);
     float mix() const;
+    void tick();
+    // DAC level 0-15 on a channel's output this clock; 0 while the mixer gates it off.
+    uint8_t output_level(int ch) const;
+    // Source-follower output as a Thevenin resistance to 5 V into a 1k load (MAME ay8910.cpp mosfet model).
+    static double output_resistance(uint8_t level);
 
 private:
     uint64_t ay_cycle_ = 0;
@@ -43,7 +48,6 @@ private:
     int env_step_ = 1;
     bool env_hold_ = false;
 
-    void tick();
     void restart_envelope();
     uint8_t env_level() const;
 };

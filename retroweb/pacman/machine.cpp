@@ -48,10 +48,12 @@ z80::Bus Machine::make_bus() {
     // Only A0-A7 are decoded; port 0 latches the vector.
     b.out = [this](uint16_t port, uint8_t v) { if ((port & 0xFF) == 0) irq_vector = v; };
     b.irq_data = [this] { return irq_vector; };
+    b.tick = [this](int t) { video.advance(t); };
     return b;
 }
 
 void Machine::reset() {
+    coin_line_[0] = coin_line_[1] = false;
     ram.fill(0);
     irq_enable = false;
     irq_vector = 0xFF;
@@ -167,11 +169,17 @@ void Machine::mem_write(uint16_t addr, uint8_t v) {
         return;
     }
     if (lo == 0x5000) {
+        // Clearing the mask also clears the held vblank request (MAME irq_mask_w).
         irq_enable = (v & 1) != 0;
+        if (!irq_enable) cpu.set_int(false);
         return;
     }
     if (lo == 0x5001) {
         wsg.enabled = (v & 1) != 0;
+        return;
+    }
+    if (lo == 0x5007) {
+        coin_counter_w(0, (v & 1) != 0);
         return;
     }
     if (lo == 0x5003) {
@@ -192,22 +200,42 @@ void Machine::mem_write(uint16_t addr, uint8_t v) {
     }
 }
 
+void Machine::watchdog_fire() {
+    // The watchdog pulses /RESET; RAM keeps its contents, unlike a power cycle.
+    const auto keep_ram = ram;
+    const auto keep_v_videoram = video.videoram;
+    const auto keep_v_colorram = video.colorram;
+    const auto keep_v_spriteram = video.spriteram;
+    const auto keep_v_sprite_xy = video.sprite_xy;
+    reset();
+    ram = keep_ram;
+    video.videoram = keep_v_videoram;
+    video.colorram = keep_v_colorram;
+    video.spriteram = keep_v_spriteram;
+    video.sprite_xy = keep_v_sprite_xy;
+    watchdog_reset = true;
+}
+
+void Machine::coin_counter_w(int n, bool on) {
+    if (on && !coin_line_[n]) coin_counter[unsigned(n)]++;
+    coin_line_[n] = on;
+}
+
 int Machine::run_cycles(int n) {
     int done = 0;
     while (done < n) {
         int t = cpu.step();
         done += t;
-        video.advance(t);
         wsg.advance(t, audio_hz, audio);
         if (video.vblank_edge) {
+            video.vblank_edge = false;
             frames++;
             watchdog_--;
             if (watchdog_ <= 0) {
-                watchdog_reset = true;
-                reset();
+                watchdog_fire();
                 break;
             }
-            if (irq_enable) cpu.interrupt();
+            if (irq_enable) cpu.set_int(true);
         }
     }
     return done;

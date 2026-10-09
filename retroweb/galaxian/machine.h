@@ -45,6 +45,9 @@ public:
     std::vector<float> audio;
     int audio_hz = 48000;
     bool watchdog_reset = false;
+    // Electromechanical counters: one count per rising edge of the drive line.
+    std::array<int, 2> coin_counter{};
+    bool coin_lockout = true;
 
     Machine();
     void reset();
@@ -56,6 +59,9 @@ public:
     void mem_write(uint16_t addr, uint8_t v);
 
 private:
+    void watchdog_fire();
+    void coin_counter_w(int n, bool on);
+    bool coin_line_[2]{};
     z80::Bus make_bus();
     double audio_acc_ = 0;
 };

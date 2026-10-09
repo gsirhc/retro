@@ -215,14 +215,17 @@ def assemble_program(screen1, screen2, screen3):
     a.org(0x0000)
     a.jp(0x0200)
 
-    # IM 1 vblank: kick the watchdog, bump the frame counter at $4C08.
+    # IM 1 vblank: kick the watchdog, clear and re-arm the IRQ, bump the frame counter at $4C08.
     a.org(0x0038)
     a.db(0xF5)             # PUSH AF
     a.db(0xAF)             # XOR A
     a.ld_nn_a(0x50C0)      # LD (50C0),A  watchdog
+    a.ld_nn_a(0x5000)      # LD (5000),A  drop the held vblank request
     a.ld_a_nn(0x4C08)      # LD A,(4C08)
     a.db(0x3C)             # INC A
     a.ld_nn_a(0x4C08)      # LD (4C08),A
+    a.ld_a(0x01)
+    a.ld_nn_a(0x5000)      # LD (5000),A  re-arm
     a.db(0xF1)             # POP AF
     a.db(0xFB)             # EI
     a.db(0xED, 0x4D)       # RETI

@@ -59,6 +59,21 @@ TEST(Machine, WatchdogExpiresAfterEightVblanksWithoutKick) {
     EXPECT_TRUE(m.watchdog_reset);
 }
 
+TEST(Machine, WatchdogResetKeepsRam) {
+    scramble::RomSet s;
+    s.program[0] = 0x76;  // HALT
+    scramble::Machine m;
+    m.load_roms(s);
+    m.reset();
+    m.ram[0x10] = 0xA5;
+    m.video.videoram[5] = 0x5A;
+    m.run_cycles(scramble::kCpuPerFrame * 10);
+    ASSERT_TRUE(m.watchdog_reset);
+    EXPECT_EQ(m.ram[0x10], 0xA5);
+    EXPECT_EQ(m.video.videoram[5], 0x5A);
+    EXPECT_EQ(m.frames, 0);
+}
+
 TEST(Machine, LatchesAt6800) {
     scramble::Machine m;
     m.reset();
@@ -67,7 +82,7 @@ TEST(Machine, LatchesAt6800) {
     m.mem_write(0x6803, 1);
     EXPECT_TRUE(m.video.background_enable);
     m.mem_write(0x6804, 1);
-    EXPECT_TRUE(m.video.stars_enable);
+    EXPECT_TRUE(m.video.stars_enable());
     m.mem_write(0x6806, 1);
     m.mem_write(0x6807, 1);
     EXPECT_TRUE(m.video.flip_x);
@@ -99,7 +114,21 @@ TEST(Machine, Ppi1LatchFallingBit3InterruptsSoundCpu) {
     m.mem_write(0x8201, 0x08);
     EXPECT_EQ(m.sound.pc, 0x1234);
     m.mem_write(0x8201, 0x00);
+    EXPECT_TRUE(m.sound.int_line);
+    m.sound.step();
     EXPECT_EQ(m.sound.pc, 0x0038);
+    EXPECT_FALSE(m.sound.int_line);
+}
+
+TEST(Machine, FilterLatchSplitsAddressLinesBetweenAys) {
+    scramble::Machine m;
+    m.reset();
+    m.sound_write(0x9000 | 0x3F, 0);
+    for (int n = 0; n < 6; n++) EXPECT_FALSE(m.konami.filter_switch(n));
+    for (int n = 6; n < 12; n++) EXPECT_TRUE(m.konami.filter_switch(n));
+    m.sound_write(0xF000 | (1 << 6), 0);
+    EXPECT_TRUE(m.konami.filter_switch(0));
+    EXPECT_FALSE(m.konami.filter_switch(6));
 }
 
 TEST(Machine, TwoAysDecodeOnKonamiBits) {
@@ -165,7 +194,7 @@ TEST(Machine, HwtestStaysSilent) {
     m.run_cycles(scramble::kCpuHz * 4);
     ASSERT_FALSE(m.audio.empty());
     bool any = false;
-    for (float s : m.audio) if (s != 0.0f) { any = true; break; }
+    for (float s : m.audio) if (s > 1e-3f || s < -1e-3f) { any = true; break; }
     EXPECT_FALSE(any);
 }
 
@@ -213,4 +242,14 @@ TEST(Machine, SoundRamAt8000) {
     m.sound_write(0x8000, 0x5A);
     EXPECT_EQ(m.sound_read(0x8000), 0x5A);
     EXPECT_EQ(m.sound_read(0x8400), 0x5A);  // mirror (A10)
+}
+
+TEST(Machine, CoinCounterCountsRisingEdges) {
+    scramble::Machine m;
+    m.reset();
+    m.mem_write(0x6802, 1);
+    m.mem_write(0x6802, 1);
+    m.mem_write(0x6802, 0);
+    m.mem_write(0x6802, 1);
+    EXPECT_EQ(m.coin_counter[0], 2);
 }

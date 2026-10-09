@@ -6,9 +6,9 @@ Z80 = ../../shared/cpu
 SHARED = ../../shared
 GAL = $(SHARED)/galaxian
 SRC = wasm_machine.cpp $(CORE)/machine.cpp $(Z80)/cpu_z80.cpp \
-      $(GAL)/video.cpp $(GAL)/ay8910.cpp $(GAL)/i8255.cpp $(GAL)/timer.cpp
+      $(GAL)/video.cpp $(GAL)/ay8910.cpp $(GAL)/konami_sound.cpp $(GAL)/i8255.cpp $(GAL)/timer.cpp
 HDR = wasm_machine.cpp $(CORE)/machine.h $(Z80)/cpu_z80.h \
-      $(GAL)/video.h $(GAL)/ay8910.h $(GAL)/i8255.h $(GAL)/timer.h hwtest_roms.h
+      $(GAL)/video.h $(GAL)/ay8910.h $(GAL)/konami_sound.h $(GAL)/i8255.h $(GAL)/timer.h hwtest_roms.h
 
 EMFLAGS = -O2 -std=c++17 -lembind --no-entry \
   -sMODULARIZE=1 -sEXPORT_NAME=ScrambleArcade \

@@ -9,6 +9,7 @@
 #include "cpu_z80.h"
 #include "galaxian/ay8910.h"
 #include "galaxian/i8255.h"
+#include "galaxian/konami_sound.h"
 #include "galaxian/timer.h"
 #include "galaxian/video.h"
 
@@ -48,6 +49,7 @@ public:
     galaxian::Video video;
     galaxian::Ay8910 ay1;
     galaxian::Ay8910 ay2;
+    galaxian::KonamiSound konami;
     galaxian::I8255 ppi0;
     galaxian::I8255 ppi1;
     std::array<uint8_t, 0x4000> program{};
@@ -60,6 +62,8 @@ public:
     std::vector<float> audio;
     int audio_hz = 48000;
     bool watchdog_reset = false;
+    // Electromechanical counters: one count per rising edge of the drive line.
+    std::array<int, 2> coin_counter{};
 
     uint8_t sound_latch = 0;
     uint8_t sound_control = 0;
@@ -81,14 +85,15 @@ public:
     void pal6j_write(uint8_t v);
 
 private:
+    void watchdog_fire();
+    void coin_counter_w(int n, bool on);
+    bool coin_line_[2]{};
     z80::Bus make_main_bus();
     z80::Bus make_sound_bus();
     void wire_ppi();
     void on_sound_control(uint8_t v);
     uint8_t in2_with_protection() const;
     int sound_credit_ = 0;
-    double audio_acc_ = 0;
-    bool sound_irq_ = false;
     uint32_t protection_state_ = 0;
 };
 

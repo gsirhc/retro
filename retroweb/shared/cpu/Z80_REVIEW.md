@@ -170,10 +170,12 @@ instruction-atomic one (70 s vs 44 s on the dev machine). That still comes
 to about 660 MHz of emulated Z80 per host core, against 9.2 MHz for
 Galaga's three CPUs. Every arcade's real-time pacing smoke test passes.
 
-## 11. Not yet used by the boards
+## 11. How the boards use it
 
-The boards still call `step()` and advance video by its return value, and
-still fire `interrupt()`/`nmi()` themselves. Moving them onto `set_int`,
-`Bus::tick` and `Bus::wait` is board work: Pac-Man P1 (held vblank IRQ)
-and P6 (VRAM waits), and B2 (per-line rendering) in
-`Z80_ARCADE_PARITY.md`.
+Every main CPU drives its video beam from `Bus::tick`, so a write lands
+on the pixel the beam has reached. Vblank interrupts are held lines
+(`set_int`, or `set_nmi` held until the enable latch clears), matching
+each board's flip-flop. The Konami sound CPUs hold /INT until the
+acknowledge (`irq_data` clears it). Galaga's 06XX and sound NMIs are
+edges. `Bus::wait` is unused: no board has a sourced wait state yet
+(Pac-Man P6 in `Z80_ARCADE_PARITY.md`).

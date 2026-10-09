@@ -4,6 +4,9 @@
 #include "mb88.h"
 
 #include <algorithm>
+#include <array>
+#include <initializer_list>
+#include <iterator>
 
 using namespace galaga;
 
@@ -130,6 +133,8 @@ TEST(Io, ExplosionCommandArmsNoise) {
 
 TEST(Video, TileAndSpritePaint) {
     Machine m;
+    m.video.char_lut.fill(0x0F);
+    m.video.sprite_lut.fill(0x0F);
     m.video.palette[1] = 0x3F;
     m.video.palette[0x11] = 0x3F;
     m.video.char_lut[7] = 1;
@@ -146,6 +151,7 @@ TEST(Video, TileAndSpritePaint) {
     m.ram2[0x380] = 40;
     m.ram2[0x381] = 40;
     std::array<uint32_t, kUprightW * kUprightH> rgb{};
+    m.video.advance(2 * kCpuPerFrame);
     m.render(rgb.data());
     int nonzero = 0;
     for (uint32_t p : rgb) if (p) nonzero++;
@@ -156,6 +162,8 @@ TEST(Video, TileAndSpritePaint) {
 
 TEST(Video, SpriteColumnOrder) {
     Machine m;
+    m.video.char_lut.fill(0x0F);
+    m.video.sprite_lut.fill(0x0F);
     m.video.palette[1] = 0x3F;
     m.video.sprite_lut[7] = 1;
     // Byte 0 is sphcnt 3:2 = 0. Bits 7 and 3 are that group's first pixel.
@@ -164,6 +172,7 @@ TEST(Video, SpriteColumnOrder) {
     m.ram2[0x380] = 40;
     m.ram2[0x381] = 40;
     std::array<uint32_t, kUprightW * kUprightH> rgb{};
+    m.video.advance(2 * kCpuPerFrame);
     m.render(rgb.data());
     // sx = 0, sy = 185. Upright y follows native x, so the pixel is on row 0.
     EXPECT_EQ(rgb[0 * kUprightW + (kVisH - 1 - 185)], 0x00FFFF00u);
@@ -172,7 +181,10 @@ TEST(Video, SpriteColumnOrder) {
 
 TEST(Video, StarfieldEnableAndScoreStripStayClear) {
     Machine m;
+    m.video.char_lut.fill(0x0F);
+    m.video.sprite_lut.fill(0x0F);
     std::array<uint32_t, kUprightW * kUprightH> rgb{};
+    m.video.advance(2 * kCpuPerFrame);
     m.render(rgb.data());
     int stars_off = 0;
     for (uint32_t p : rgb) if (p) stars_off++;
@@ -181,6 +193,7 @@ TEST(Video, StarfieldEnableAndScoreStripStayClear) {
     m.video.star_latch[5] = 1;
     m.video.star_latch[3] = 0;
     m.video.star_latch[4] = 0;
+    m.video.advance(2 * kCpuPerFrame);
     m.render(rgb.data());
     int stars_on = 0;
     for (uint32_t p : rgb) if (p) stars_on++;
@@ -198,6 +211,8 @@ TEST(Video, StarfieldEnableAndScoreStripStayClear) {
 
 TEST(Video, TilesCoverSpritesInScoreStrip) {
     Machine m;
+    m.video.char_lut.fill(0x0F);
+    m.video.sprite_lut.fill(0x0F);
     m.video.palette[1] = 0x3F;
     m.video.palette[0x11] = 0x3F;
     m.video.char_lut[7] = 1;
@@ -212,9 +227,181 @@ TEST(Video, TilesCoverSpritesInScoreStrip) {
     m.ram2[0x380] = 225;  // sy = 0 after the 04XX countdown
     m.ram2[0x381] = 40;   // sx = 0
     std::array<uint32_t, kUprightW * kUprightH> rgb{};
+    m.video.advance(2 * kCpuPerFrame);
     m.render(rgb.data());
     // Native (0,0) → upright (223, 0). Tile paints after the sprite.
     EXPECT_NE(rgb[0 * kUprightW + (kVisH - 1)], 0u);
+}
+
+TEST(Video, FlipUsesSecondCharSetAndInvertedCounters) {
+    Machine m;
+    m.video.char_lut.fill(0x0F);
+    m.video.char_lut[3] = 1;
+    m.video.palette[0x11] = 0x3F;
+    m.video.tile_rom[16 + 8] = 0x88;            // char 1, pixel (0,0)
+    m.video.tile_rom[0x81 * 16 + 8] = 0x11;     // char 0x81, same pixel nibble-reversed to (3,0)
+    m.video.videoram[2 + (2 << 5)] = 1;         // screen tile 4,0
+    m.video.flip = true;
+    m.video.advance(2 * kCpuPerFrame);
+    std::array<uint32_t, kUprightW * kUprightH> rgb{};
+    m.render(rgb.data());
+    // Fully mirrored: native (32,0) lands at (255,223), upright (0,255).
+    EXPECT_NE(rgb[255 * kUprightW + 0], 0u);
+    int lit = 0;
+    for (uint32_t p : rgb) if (p) lit++;
+    EXPECT_EQ(lit, 1);
+}
+
+TEST(Video, SpritePenIsClearOnlyWhenItsLutEntryIs0F) {
+    Machine m;
+    m.video.char_lut.fill(0x0F);
+    m.video.sprite_lut.fill(0x0F);
+    m.video.palette[2] = 0x07;
+    m.video.sprite_lut[4] = 2;                  // colour 1, pen 0 opaque
+    m.ram1[0x381] = 1;
+    m.ram2[0x380] = 40;
+    m.ram2[0x381] = 40;
+    m.video.advance(2 * kCpuPerFrame);
+    std::array<uint32_t, kUprightW * kUprightH> rgb{};
+    m.render(rgb.data());
+    EXPECT_EQ(rgb[5 * kUprightW + (kVisH - 1 - 190)], m.video.prom_rgb(2));
+}
+
+TEST(Video, StarfieldAdvancesWithTheBeamNotRender) {
+    Machine m;
+    m.video.star_latch[5] = 1;
+    m.video.advance(kCpuPerFrame);
+    uint16_t a = m.video.star_lfsr();
+    std::array<uint32_t, kUprightW * kUprightH> rgb{};
+    for (int i = 0; i < 5; i++) m.render(rgb.data());
+    EXPECT_EQ(m.video.star_lfsr(), a);
+    m.video.advance(kCpuPerFrame);
+    EXPECT_NE(m.video.star_lfsr(), a);
+}
+
+TEST(Machine, VblankIrqHoldsUntilMaskCleared) {
+    Machine m;
+    m.mem_write(0x6820, 1);
+    m.main.iff1 = false;
+    m.video.advance(kVBlankLine * kCpuPerLine);
+    m.run_cycles(8);
+    EXPECT_TRUE(m.main.int_line);
+    m.mem_write(0x6820, 0);
+    EXPECT_FALSE(m.main.int_line);
+}
+
+TEST(Machine, WatchdogResetKeepsRam) {
+    Machine m;
+    m.rom_main[0] = 0x18;
+    m.rom_main[1] = 0xFE;
+    m.reset();
+    m.ram1[0x10] = 0xA5;
+    m.video.videoram[5] = 0x5A;
+    m.run_cycles(kCpuPerFrame * (kWatchdogFrames + 1));
+    ASSERT_TRUE(m.watchdog_reset);
+    EXPECT_EQ(m.ram1[0x10], 0xA5);
+    EXPECT_EQ(m.video.videoram[5], 0x5A);
+    EXPECT_TRUE(m.sub_reset);
+}
+
+namespace {
+
+void send51(Machine& m, std::initializer_list<uint8_t> bytes) {
+    m.mem_write(0x7100, 0x01);
+    for (uint8_t b : bytes) m.mem_write(0x7000, b);
+}
+
+void tap(Machine& m, uint8_t bit) {
+    m.inputs.in1 |= bit;
+    m.run_cycles(64);
+    m.inputs.in1 = uint8_t(m.inputs.in1 & ~bit);
+    m.run_cycles(64);
+}
+
+}  // namespace
+
+TEST(Mcu51Hle, CoinageTwoCoinsOneCredit) {
+    Machine m;
+    m.rom_main[0] = 0x18;
+    m.rom_main[1] = 0xFE;
+    m.reset();
+    send51(m, {0x01, 2, 1, 1, 1, 0x02});
+    tap(m, 0x10);
+    EXPECT_EQ(m.credits, 0);
+    tap(m, 0x10);
+    EXPECT_EQ(m.credits, 1);
+    tap(m, 0x20);
+    EXPECT_EQ(m.credits, 2);
+}
+
+TEST(Mcu51Hle, StartSpendsCreditsOnceUntilCreditModeReenters) {
+    Machine m;
+    m.rom_main[0] = 0x18;
+    m.rom_main[1] = 0xFE;
+    m.reset();
+    send51(m, {0x01, 1, 1, 1, 1, 0x02});
+    for (int i = 0; i < 3; i++) tap(m, 0x10);
+    tap(m, 0x08);
+    EXPECT_EQ(m.credits, 1) << "2P start takes two";
+    tap(m, 0x04);
+    EXPECT_EQ(m.credits, 1) << "a game is running";
+    send51(m, {0x02});
+    tap(m, 0x04);
+    EXPECT_EQ(m.credits, 0);
+}
+
+TEST(Mcu51Hle, ZeroCoinsPerCreditIsFreePlay) {
+    Machine m;
+    m.rom_main[0] = 0x18;
+    m.rom_main[1] = 0xFE;
+    m.reset();
+    send51(m, {0x01, 0, 0, 0, 0, 0x02});
+    tap(m, 0x10);
+    EXPECT_EQ(m.credits, 100);
+}
+
+TEST(Video, SoundNmiEdgesAtLines64And192) {
+    Video v;
+    v.reset();
+    v.advance(64 * kCpuPerLine - 1);
+    EXPECT_FALSE(v.sound_nmi_edge);
+    v.advance(1);
+    EXPECT_TRUE(v.sound_nmi_edge);
+    v.sound_nmi_edge = false;
+    v.advance(128 * kCpuPerLine - 1);
+    EXPECT_FALSE(v.sound_nmi_edge);
+    v.advance(1);
+    EXPECT_TRUE(v.sound_nmi_edge);
+}
+
+TEST(Machine, Io06NmiPeriodIs64ShiftedByControlBits) {
+    Machine m;
+    // LD SP,$8C00; JR $. NMI: INC ($8800); RETN.
+    const uint8_t main[] = {0x31, 0x00, 0x8C, 0x18, 0xFE};
+    std::copy(std::begin(main), std::end(main), m.rom_main.begin());
+    const uint8_t nmi[] = {0xF5, 0x3A, 0x00, 0x88, 0x3C, 0x32, 0x00, 0x88, 0xF1, 0xED, 0x45};
+    std::copy(std::begin(nmi), std::end(nmi), m.rom_main.begin() + 0x66);
+    m.reset();
+    m.mem_write(0x6823, 1);
+    m.mem_write(0x7100, 0x20 | 0x08);  // shift 1: 128 T-states, 54XX selected, write mode
+    m.run_cycles(128 * 100);
+    EXPECT_NEAR(m.ram1[0], 100, 2);
+    m.mem_write(0x7100, 0x00);
+    m.run_cycles(200);
+    uint8_t held = m.ram1[0];
+    m.run_cycles(128 * 100);
+    EXPECT_EQ(m.ram1[0], held) << "control 0 stops the NMI clock";
+}
+
+TEST(Machine, SubAndSoundCpusRunInLockStepWithMain) {
+    Machine m;
+    m.reset();
+    m.mem_write(0x6823, 1);
+    uint64_t main0 = m.main.cycles, sub0 = m.sub.cycles, snd0 = m.sound.cycles;
+    m.run_cycles(kCpuHz / 10);
+    int64_t dm = int64_t(m.main.cycles - main0);
+    EXPECT_NEAR(double(m.sub.cycles - sub0), double(dm), 32.0);
+    EXPECT_NEAR(double(m.sound.cycles - snd0), double(dm), 32.0);
 }
 
 TEST(Mb88, LoadImmediateAddAndCall) {
@@ -248,4 +435,34 @@ TEST(Wsg, GalagaRegisterWriteReachesSharedChip) {
     EXPECT_EQ(m.wsg.regs[0x15], 0x0F);
     EXPECT_EQ(m.wsg.regs[0x11], 0x01);
     EXPECT_TRUE(m.wsg.enabled);
+}
+
+TEST(Mb88, InternalSerialClockSetsSfAfterFourShifts) {
+    Mb88 cpu;
+    cpu.reset();
+    cpu.halted_reset = false;
+    cpu.rom[0] = 0x3E;  // EN $20: serial on, internal clock
+    cpu.rom[1] = 0x20;
+    cpu.rom[6] = 0x27;  // TSTS
+    cpu.sb = 0x0F;
+    cpu.step();
+    EXPECT_EQ(cpu.sf, 0);
+    for (int i = 0; i < 4 && cpu.pc < 6; i++) cpu.step();
+    EXPECT_EQ(cpu.sf, 1);
+    EXPECT_EQ(cpu.sb, 0) << "SI reads 0 when unconnected";
+    cpu.step();
+    EXPECT_EQ(cpu.st, 0);
+    EXPECT_EQ(cpu.sf, 0);
+}
+
+TEST(Mb88, SerialInterruptVectorsTo06) {
+    Mb88 cpu;
+    cpu.reset();
+    cpu.halted_reset = false;
+    cpu.rom[0] = 0x3E;  // EN $21: serial on with its interrupt
+    cpu.rom[1] = 0x21;
+    for (int i = 0; i < 8; i++) cpu.step();
+    EXPECT_TRUE(cpu.in_irq);
+    EXPECT_GE(cpu.pc_full(), 0x06);
+    EXPECT_LT(cpu.pc_full(), 0x10);
 }

@@ -93,8 +93,9 @@ TEST(Video, ScrambleBackdropIsBlueWhenEnabled) {
     galaxian::Video v;
     v.board = galaxian::Board::Scramble;
     v.background_enable = true;
-    v.stars_enable = false;
+    v.set_stars_enable(false);
     std::array<uint32_t, galaxian::kUprightW * galaxian::kUprightH> out{};
+    v.advance(galaxian::kCpuPerFrame);
     v.render(out.data());
     EXPECT_EQ(out[0] & 0x00FFFFFF, galaxian::kScrambleBgBlue);
 }
@@ -103,6 +104,7 @@ TEST(Video, ScrambleHasNoRiverSplit) {
     galaxian::Video v;
     v.board = galaxian::Board::Scramble;
     std::array<uint32_t, galaxian::kUprightW * galaxian::kUprightH> out{};
+    v.advance(galaxian::kCpuPerFrame);
     v.render(out.data());
     EXPECT_EQ(out[0 * galaxian::kUprightW + 0] & 0x00FFFFFF, 0u);
     EXPECT_EQ(out[200 * galaxian::kUprightW + 0] & 0x00FFFFFF, 0u);
@@ -118,16 +120,18 @@ TEST(Video, ScrambleScrollDoesNotNibbleSwap) {
     v.gfx[0x800 + 2 * 8 + 1] = 0x80;
     v.color_prom[1] = 0x07;
     std::array<uint32_t, galaxian::kUprightW * galaxian::kUprightH> out{};
+    v.advance(galaxian::kCpuPerFrame);
     v.render(out.data());
-    EXPECT_EQ(out[200 * galaxian::kUprightW + 223] & 0xFF0000, 0xFF0000u);
+    EXPECT_EQ(out[200 * galaxian::kUprightW + 223] & 0xFF0000, 0xE00000u);
 }
 
 TEST(Video, StarsEnableLightsPixels) {
     galaxian::Video v;
     v.board = galaxian::Board::Scramble;
-    v.stars_enable = true;
+    v.set_stars_enable(true);
     v.stars_blink_state = 3;  // mask 0xFF, no 2V skip
     std::array<uint32_t, galaxian::kUprightW * galaxian::kUprightH> out{};
+    v.advance(galaxian::kCpuPerFrame);
     v.render(out.data());
     int lit = 0;
     for (uint32_t p : out) {
@@ -136,18 +140,17 @@ TEST(Video, StarsEnableLightsPixels) {
     EXPECT_GT(lit, 8);
 }
 
-TEST(Video, YellowShellsDrawAtMatchY) {
+TEST(Video, ScrambleShellsAreTwoYellowPixels) {
     galaxian::Video v;
     v.board = galaxian::Board::Scramble;
-    // Bullet 3 matches V. Y such that y + obj[1] = 0xFF for native y = vis+16.
-    // vis y=16 → native 32. obj[1] = 0xFF - 32 = 0xDF. X via 255 - obj[3] - 4.
     v.objram[0x60 + 3 * 4 + 1] = 0xDF;
     v.objram[0x60 + 3 * 4 + 3] = 100;
     std::array<uint32_t, galaxian::kUprightW * galaxian::kUprightH> out{};
+    v.advance(galaxian::kCpuPerFrame);
     v.render(out.data());
     int yellow = 0;
     for (uint32_t p : out) {
         if ((p & 0x00FFFFFF) == 0xFFFF00) yellow++;
     }
-    EXPECT_GE(yellow, 1);
+    EXPECT_EQ(yellow, 2);
 }

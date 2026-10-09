@@ -5,6 +5,9 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
+#include <iterator>
+#include <vector>
 
 namespace {
 
@@ -59,19 +62,89 @@ TEST(Machine, WatchdogExpiresAfterEightVblanksWithoutKick) {
     EXPECT_TRUE(m.watchdog_reset);
 }
 
+TEST(Machine, WatchdogResetKeepsRam) {
+    galaxian::RomSet s;
+    s.program[0] = 0x76;  // HALT
+    galaxian::Machine m;
+    m.load_roms(s);
+    m.reset();
+    m.ram[0x10] = 0xA5;
+    m.video.videoram[5] = 0x5A;
+    m.run_cycles(galaxian::kCpuPerFrame * 10);
+    ASSERT_TRUE(m.watchdog_reset);
+    EXPECT_EQ(m.ram[0x10], 0xA5);
+    EXPECT_EQ(m.video.videoram[5], 0x5A);
+    EXPECT_EQ(m.frames, 0);
+}
+
+namespace {
+
+// Counts NMIs at $4000; `rearm` writes 0 then 1 to $7001 inside the handler.
+galaxian::RomSet nmi_counter(bool rearm) {
+    galaxian::RomSet s;
+    const uint8_t main[] = {0x31, 0x00, 0x44, 0x21, 0x00, 0x40, 0x3E, 0x01,
+                            0x32, 0x01, 0x70, 0x3A, 0x00, 0x78, 0x18, 0xFB};
+    std::copy(std::begin(main), std::end(main), s.program.begin());
+    std::vector<uint8_t> nmi = {0xF5, 0x34};
+    if (rearm) nmi.insert(nmi.end(), {0xAF, 0x32, 0x01, 0x70, 0x3C, 0x32, 0x01, 0x70});
+    nmi.insert(nmi.end(), {0xF1, 0xED, 0x45});
+    std::copy(nmi.begin(), nmi.end(), s.program.begin() + 0x66);
+    return s;
+}
+
+}  // namespace
+
+TEST(Machine, VblankNmiHoldsUntilTheEnableLatchIsCleared) {
+    galaxian::Machine m;
+    m.load_roms(nmi_counter(false));
+    m.reset();
+    m.run_cycles(galaxian::kCpuPerFrame * 6);
+    EXPECT_EQ(m.ram[0], 1);
+}
+
+TEST(Machine, VblankNmiFiresEveryFrameWhenRearmed) {
+    galaxian::Machine m;
+    m.load_roms(nmi_counter(true));
+    m.reset();
+    m.run_cycles(galaxian::kCpuPerFrame * 6);
+    EXPECT_EQ(m.ram[0], 6);
+}
+
+TEST(Machine, CoinLockoutTurnsCoinsAway) {
+    galaxian::Machine m;
+    m.reset();
+    m.inputs.in0 = 0x01;
+    EXPECT_EQ(m.mem_read(0x6000), 0x00);
+    m.mem_write(0x6002, 1);
+    EXPECT_EQ(m.mem_read(0x6000), 0x01);
+}
+
+TEST(Machine, CoinCounterCountsRisingEdges) {
+    galaxian::Machine m;
+    m.reset();
+    m.mem_write(0x6003, 1);
+    m.mem_write(0x6003, 1);
+    m.mem_write(0x6003, 0);
+    m.mem_write(0x6003, 1);
+    EXPECT_EQ(m.coin_counter[0], 2);
+    m.reset();
+    EXPECT_EQ(m.coin_counter[0], 2) << "the meter is mechanical";
+}
+
 TEST(Machine, PortsAndLatches) {
     galaxian::Machine m;
     m.reset();
     m.inputs.in0 = 0x15;
     m.inputs.in1 = 0x03;
     m.inputs.in2 = 0x04;
+    m.mem_write(0x6002, 1);
     EXPECT_EQ(m.mem_read(0x6000), 0x15);
     EXPECT_EQ(m.mem_read(0x6800), 0x03);
     EXPECT_EQ(m.mem_read(0x7000), 0x04);
     m.mem_write(0x7001, 1);
     EXPECT_TRUE(m.nmi_enable);
     m.mem_write(0x7004, 1);
-    EXPECT_TRUE(m.video.stars_enable);
+    EXPECT_TRUE(m.video.stars_enable());
     m.mem_write(0x7006, 1);
     m.mem_write(0x7007, 1);
     EXPECT_TRUE(m.video.flip_x);
@@ -118,9 +191,9 @@ TEST(Machine, HwtestStaysSilent) {
     m.audio.clear();
     m.run_cycles(galaxian::kCpuHz * 4);
     ASSERT_FALSE(m.audio.empty());
-    bool any = false;
-    for (float s : m.audio) if (s != 0.0f) { any = true; break; }
-    EXPECT_FALSE(any);
+    double peak = 0;
+    for (size_t i = m.audio.size() / 2; i < m.audio.size(); i++) peak = std::max(peak, double(std::fabs(m.audio[i])));
+    EXPECT_LT(peak, 1e-3);
 }
 
 TEST(Machine, HwtestHelpScreenShowsCopyrightPrompt) {
@@ -152,7 +225,7 @@ TEST(Machine, FactoryDipIdles) {
 TEST(Machine, StarsDoNotBlink) {
     galaxian::Machine m;
     m.reset();
-    m.video.stars_enable = true;
+    m.video.set_stars_enable(true);
     m.run_cycles(galaxian::kCpuHz);
     EXPECT_EQ(m.video.stars_blink_state, 0);
 }

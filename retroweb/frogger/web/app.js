@@ -306,11 +306,7 @@ FroggerArcade().then(async (Module) => {
     const url = URL.createObjectURL(new Blob([src], { type: "text/javascript" }));
     await audioCtx.audioWorklet.addModule(url);
     audioNode = new AudioWorkletNode(audioCtx, "ay");
-    // Dry mix leaves headroom for three voices; 4x matches the other cabinets.
-    const speaker = audioCtx.createGain();
-    speaker.gain.value = 4;
-    audioNode.connect(speaker);
-    speaker.connect(audioCtx.destination);
+    audioNode.connect(audioCtx.destination);
   }
 
   document.addEventListener("click", () => { ensureAudio().catch(() => {}); }, { once: true });

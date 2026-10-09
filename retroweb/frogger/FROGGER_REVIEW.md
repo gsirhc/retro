@@ -50,10 +50,12 @@ Computer Archaeology Frogger hardware notes; Konami/Sega service material.
 | `$A800–$ABFF` | tile VRAM |
 | `$B000–$B0FF` | object RAM (column scroll/colour, 8 sprites, unused bullets) |
 | `$B808 / $B80C / $B810` | NMI enable, flip Y, flip X |
+| `$B818 / $B81C` | coin counters 1 / 2 |
 | `$D000 / $D002` | PPI1 sound latch / control |
 | `$E000 / $E002 / $E004` | PPI0 IN0 / IN1 / IN2 (active-low) |
 
-Sound CPU: ROM `$0000–$17FF`, RAM `$4000–$43FF` (mirrored through `$5FFF`).
+Sound CPU: ROM `$0000–$17FF`, RAM `$4000–$43FF` (mirrored through `$5FFF`),
+filter latch `$6000–$6FFF` mirrored to `$7FFF` (data on the address lines).
 AY I/O is bit-decoded: bit 7 = address, bit 6 = data (so `$80` / `$40`).
 AY port A is the command latch; port B is the Konami sound-board timer
 (Frogger swaps bits 3 and 5 of that reading). First 2K of sound ROM (608)
@@ -68,6 +70,8 @@ ROT90 the Konami glyphs read upright. Per-column scroll and sprite Y
 enter the adder with nibbles swapped (PCB wiring). A hardware colour split paints the river: native
 x < 128 is blue (`0x47`), the rest black — tile/sprite pen 0 is
 transparent onto that. Eight 16×16 sprites; the first three match V−1.
+Shells use Galaxian's rule (four white pixels). The shared renderer is
+written up in `SCRAMBLE_REVIEW.md` §10.
 Color PROM is 32 bytes; Frogger's blue gun has PROM bit 0 unconnected.
 Attribute bits are remapped `((attr >> 1) & 3) | ((attr << 2) & 4)` —
 PROM wiring, cross-checked against MAME `frogger_extend_tile_info` /
@@ -76,10 +80,13 @@ PROM wiring, cross-checked against MAME `frogger_extend_tile_info` /
 ## 6. Sound
 
 One AY-3-8910. PPI1 port A is the command latch, read back on AY I/O A.
-Bit 4 of the control port mutes. Tone f = fclock/(16·TP). Discrete analog
-filter on the real PCB is not modeled (dry mix) — documented simplification.
-The page multiplies that mix by 4 so a mid-level voice matches the other
-cabinets; the chip samples are unchanged.
+Bit 4 of the control port mutes. Tone f = fclock/(16·TP). Each AY output
+runs through the Konami network (`shared/galaxian/konami_sound.cpp`, see
+`SCRAMBLE_REVIEW.md` §10): MOSFET source, 1 kΩ, 4066-switched 0.22/0.047 µF
+caps, 5 kΩ into a uA741 summer, then the volume pot and 0.15 µF into the
+amp. Output is on MAME's scale, so the page plays it at unity gain.
+The falling edge of control bit 3 sets the sound Z80's INT flip-flop,
+which holds /INT until the CPU acknowledges.
 
 ## 7. Inputs / DIPs
 
@@ -100,14 +107,24 @@ the frog at `$8044`/`$8047` moves and P1 score / furthest-row tick.
 ## 9. Known simplifications
 
 - Cocktail P2 stick unmapped.
-- Coin-counter solenoids not modeled.
 - Galaxian starfield not populated on this game (Frogger uses the river
   colour split instead).
-- AY output is a dry mix (no discrete filter). The page applies a 4×
-  playback gain on that mix.
 - **HIGH SCORE RAM is volatile on the real PCB.** There is no battery.
   `$83EF–$83FA` (display HI word plus five 16-bit ranks — Computer Archaeology
   RAM map) dies on power-off. This page always persists those bytes in
   IndexedDB for a user ROM — a labelled departure. **Reset HIGH SCORE**
   deletes the save and `machine.reset()`s the board. Covered by
   `web/tests/hiscore.spec.ts`.
+
+## 10. Parity fixes (2026-10-09)
+
+- Shared video V1-V7 and raster rendering (B2), held vblank NMI, Konami
+  sound K1/K2, the AY envelope hold fix and the held sound INT: see
+  `SCRAMBLE_REVIEW.md` §10.
+- **Watchdog keeps RAM (B1)**, `Machine.WatchdogResetKeepsRam`.
+- **Coin counters (B3).** `$B818`/`$B81C` D0 rising edges count
+  (MAME `coin_count_0_w`/`_1_w`). `Machine.CoinCounterCountsRisingEdges`.
+
+The real `frogger` set boots, takes a coin, starts and hops (`play_test`
+with `FROGGER_ROM`), and frames dumped from it look right.
+

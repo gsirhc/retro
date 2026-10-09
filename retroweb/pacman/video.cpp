@@ -11,19 +11,32 @@ void Video::reset() {
     h = v = 0;
     vblank = false;
     vblank_edge = false;
+    sprite_line_.fill(0);
 }
 
 void Video::advance(int cpu_cycles) {
-    vblank_edge = false;
     int pixels = cpu_cycles * 2;
-    h += pixels;
-    while (h >= kHTotal) {
-        h -= kHTotal;
-        v++;
-        if (v >= kVTotal) v = 0;
-        bool vb = v >= kVBlankLine;
-        if (vb && !vblank) vblank_edge = true;
-        vblank = vb;
+    while (pixels > 0) {
+        if (h < kVisW) {
+            int end = h + pixels < kVisW ? h + pixels : kVisW;
+            if (v < kVisH) paint(v, h, end);
+            pixels -= end - h;
+            h = end;
+            if (h == kVisW) hblank_setup(v + 1 == kVTotal ? 0 : v + 1);
+            continue;
+        }
+        int end = h + pixels < kHTotal ? h + pixels : kHTotal;
+        pixels -= end - h;
+        h = end;
+        if (h < kHTotal) continue;
+        h = 0;
+        if (++v == kVTotal) v = 0;
+        if (v == kVBlankLine) {
+            vblank = true;
+            vblank_edge = true;
+        } else if (v == 0) {
+            vblank = false;
+        }
     }
 }
 
@@ -64,73 +77,58 @@ int Video::vram_offset(int col, int row) const {
     return c + (r << 5);
 }
 
-void Video::render(uint32_t* out) const {
-    uint32_t native[kVisW * kVisH];
-    for (int row = 0; row < 28; row++) {
-        for (int col = 0; col < 36; col++) {
-            int offs = vram_offset(col, row) & 0x3FF;
-            uint8_t code = videoram[unsigned(offs)];
-            uint8_t attr = colorram[unsigned(offs)];
-            if (attr & 0x20) code = uint8_t(code | 0x100);  // bank bit unused in 4K 5E
-            for (int ty = 0; ty < 8; ty++) {
-                for (int tx = 0; tx < 8; tx++) {
-                    int x = col * 8 + tx;
-                    int y = row * 8 + ty;
-                    if (x >= kVisW || y >= kVisH) continue;
-                    uint8_t pix = tile_pixel(uint8_t(code), tx, ty);
-                    native[y * kVisW + x] = lookup_rgb(attr, pix);
-                }
-            }
-        }
-    }
-
-    // Sprites: 8 objects in unrotated space. Pen 0 is always transparent, plus
-    // any pen with the same RGB as pen 0 (see transpen_mask below).
-    // ram2[i] feeds sy = ram2[i] - 31, ram2[i+1] feeds sx = 272 - ram2[i+1];
-    // cocktail mode swaps to sx = ram2[i+1], sy = 240 - ram2[i] (MAME draw_sprites).
-    for (int i = 7; i >= 0; i--) {
+void Video::hblank_setup(int line) {
+    sprite_line_.fill(0);
+    if (line >= kVisH) return;
+    // Lower slots win, as MAME draws 7..0 last-on-top.
+    for (int i = 0; i < 8; i++) {
         uint8_t b0 = spriteram[unsigned(i * 2)];
-        uint8_t b1 = spriteram[unsigned(i * 2 + 1)];
+        uint8_t color = uint8_t(spriteram[unsigned(i * 2 + 1)] & 0x1F);
+        int sx = 272 - int(sprite_xy[unsigned(i * 2 + 1)]);
+        // Slots 0-2 land a line later, like the Galaxian line buffer (MAME m_xoffsethack).
+        int sy = int(sprite_xy[unsigned(i * 2)]) - 31 + (i < 3 ? 1 : 0);
+        int row = line - sy;
+        if (row < 0 || row >= 16) continue;
+        bool fx = (b0 & 1) != 0;
+        bool fy = (b0 & 2) != 0;
         uint8_t code = uint8_t(b0 >> 2);
-        // Bit 0 = X flip, bit 1 = Y flip (MAME pacman_v.cpp), applied in native
-        // space before the ROT90 swaps the axes.
-        bool flipx = (b0 & 1) != 0;
-        bool flipy = (b0 & 2) != 0;
-        uint8_t color = uint8_t(b1 & 0x1F);
-        // MAME draw_sprites uses transpen_mask(gfx, color, 0): any pen whose
-        // RGB matches pen 0 is transparent. The ROM hides Pac-Man during the
-        // ghost-eaten pause with an all-black color group.
-        uint32_t transparent_rgb = lookup_rgb(color, 0);
-        bool pen_transparent[4];
-        for (int p = 0; p < 4; p++) pen_transparent[p] = lookup_rgb(color, uint8_t(p)) == transparent_rgb;
-        int sx, sy;
-        if (flip_screen) {
-            sx = int(sprite_xy[unsigned(i * 2 + 1)]);
-            sy = 240 - int(sprite_xy[unsigned(i * 2)]);
-            flipx = !flipx;
-            flipy = !flipy;
-        } else {
-            sx = 272 - int(sprite_xy[unsigned(i * 2 + 1)]);
-            sy = int(sprite_xy[unsigned(i * 2)]) - 31;
-        }
-        for (int py = 0; py < 16; py++) {
+        for (int wrap = 0; wrap < 2; wrap++) {
+            int base = sx - wrap * 256;
             for (int px = 0; px < 16; px++) {
-                int x = sx + (flipx ? 15 - px : px);
-                int y = sy + (flipy ? 15 - py : py);
-                if (x < 0 || y < 0 || x >= kVisW || y >= kVisH) continue;
-                uint8_t pix = sprite_pixel(code, px, py);
-                if (pen_transparent[pix]) continue;
-                native[y * kVisW + x] = lookup_rgb(color, pix);
+                int x = base + (fx ? 15 - px : px);
+                // Sprites never reach the two score columns at each end (MAME spriteclip).
+                if (x < 16 || x > 271 || sprite_line_[unsigned(x)]) continue;
+                uint8_t pix = sprite_pixel(code, px, fy ? 15 - row : row);
+                // A pen is clear when its lookup entry selects colour 0 (MAME transpen_mask).
+                if ((lookup_prom[unsigned((color << 2) | pix)] & 0x0F) == 0) continue;
+                sprite_line_[unsigned(x)] = lookup_rgb(color, pix) | (1u << 24);
             }
         }
     }
+}
 
+void Video::paint(int line, int x0, int x1) {
+    uint32_t* row = &frame_[unsigned(line * kVisW)];
+    for (int x = x0; x < x1; x++) {
+        if (uint32_t s = sprite_line_[unsigned(x)]) {
+            row[x] = s & 0xFFFFFF;
+            continue;
+        }
+        // Flip inverts both tilemap counters; sprites are positioned by the game.
+        int tx = flip_screen ? kVisW - 1 - x : x;
+        int ty = flip_screen ? kVisH - 1 - line : line;
+        int offs = vram_offset(tx >> 3, ty >> 3) & 0x3FF;
+        uint8_t attr = colorram[unsigned(offs)];
+        uint8_t pix = tile_pixel(videoram[unsigned(offs)], tx & 7, ty & 7);
+        row[x] = lookup_rgb(attr, pix);
+    }
+}
+
+void Video::render(uint32_t* out) const {
     // MAME ROT90 = FLIP_X | SWAP_XY: dst(x = (H-1) - native_y, y = native_x).
     for (int ny = 0; ny < kVisH; ny++) {
         for (int nx = 0; nx < kVisW; nx++) {
-            int dx = (kVisH - 1) - ny;
-            int dy = nx;
-            out[dy * kUprightW + dx] = native[ny * kVisW + nx];
+            out[nx * kUprightW + (kVisH - 1) - ny] = frame_[unsigned(ny * kVisW + nx)];
         }
     }
 }

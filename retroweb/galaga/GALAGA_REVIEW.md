@@ -101,7 +101,8 @@ right (the bottom of the upright screen) and rows 30 and 31 on the
 native left (the top), walked by the vertical counter. A credit line
 stored across row 1 therefore reads horizontally along the bottom.
 greyrogue `galaga.vhd` `bgtile_addr` is the source; MAME `tilemap_scan`
-is the cross-check. Pen 0 is transparent. 2bpp nibble packing matches
+is the cross-check. A tile pen is clear when its LUT entry ORed with 0x10
+is 0x1F. 2bpp nibble packing matches
 the Namco character layout (high nibble plane 0, low nibble plane 1).
 Sprites: 64 × 2 bytes. Each 16×16 picture is four columns at bytes
 0, 8, 16 and 24. Attribute bit
@@ -109,7 +110,10 @@ Sprites: 64 × 2 bytes. Each 16×16 picture is four columns at bytes
 `spdata` is the cross-check). X is 10 bits: the position byte plus two
 bits in the following register, and register 0 is 40 pixels left of the
 visible origin. Y counts down from its register. A 2× sprite is the next
-three codes. MAME `video/galaga.cpp` `draw_sprites` is the cross-check.
+three codes. A sprite pen is clear when its LUT entry is 0x0F (MAME
+`transpen_mask(..., 0x0f)`). Later sprites overwrite earlier ones. MAME
+`video/galaga.cpp` `draw_sprites` is the cross-check. See §8 for the
+raster renderer and flip.
 
 Stars are the Namco 05XX: a 16-bit Fibonacci LFSR (taps 16/13/11/6)
 that paints a hit into the centre 256 pixels when bits match
@@ -128,8 +132,9 @@ data (64 nibbles). The core is `retroweb/galaga/mb88.cpp`. Opcode behavior
 is cross-checked against MAME `mb88xx.cpp` (Ernesto Corvi). The ST flag
 is inverted versus a normal Z flag. External IRQ vectors to `$02`, the
 timer to `$04`. The timer prescale of 32 is included (MAME marks it a
-guess and uses it to match PCB recordings). The serial prescaler is not
-implemented. Stack is 4×16-bit. `st` resets to 1 so a conditional jump is
+guess and uses it to match PCB recordings). The internal serial clock
+shifts S once per instruction cycle (MAME's `SERIAL_PRESCALE 6`, also
+marked a guess); see §8. Stack is 4×16-bit. `st` resets to 1 so a conditional jump is
 taken after reset.
 
 CRC values `c2f57ef8` (51xx) and `ee7357e0` (54xx) are a cross-check only,
@@ -146,12 +151,14 @@ BCD credits, then stick nibbles, then buttons and coins; that nibble
 order follows a 51XX disassembly and has not been checked against a
 `galagamw` trace. Commands `03`/`04` (cocktail remap) are stored and
 ignored — cocktail player 2 stays unmapped and is labelled on the page.
-Coin edges increment credits only while the HLE is in credit mode.
+Coin edges count against the coinage from command `01` and START spends
+credits until credit mode is re-entered; see §8.
 
 54XX HLE: high nibble 1, 2, or 5 plays noise for about 1/8 second. 3 and
-4 expect 4 parameter bytes, 6 expects 5, 7 sets volume. The noise is an
-LFSR mixed onto the wavetable samples. A real 54XX image mixes `o_output`
-as a DAC instead. The 06XX falling edge asserts /IO on the selected MCU
+4 expect 4 parameter bytes, 6 expects 5, 7 sets volume. The noise drives
+the 54XX_0 DAC, so it goes through the real filter network. That fixed
+burst is still a labelled stand-in for the 54XX program. A real 54XX
+image drives all three DACs (§8). The 06XX falling edge asserts /IO on the selected MCU
 (MB8843 external IRQ) and NMIs the main CPU; the first read-mode edge
 skips the NMI so the mask program can drive the data bus. The rising
 edge clears /IO. A data write only latches the byte. The fallback is
@@ -176,4 +183,64 @@ prefix is the published reset table; confirmed against a local
 Cabinet chrome follows the Galaxian page: coin door (left slot coin 1,
 right slot coin 2), 1P/2P start, DIP panel in `localStorage`, shared theme
 stack, mute, footer. Gamepad stick, A, Start, and Select use the same
-bits as the keys. Coin counters and lamps stay out.
+bits as the keys. Lamps stay out; the coin counters are driven by the
+51XX's outputs, which aren't wired out of the MCU model.
+
+## 8. Parity fixes (2026-10-09)
+
+Items GA1-GA5, B1, B2 and X4 from `shared/cpu/Z80_ARCADE_PARITY.md`.
+
+- **Raster video (B2) and the 05XX clock (GA1).** *Fact:* the 05XX
+  clocks its RNG off the pixel clock. *Why:* the old renderer advanced it
+  inside `render()`, once per `requestAnimationFrame`, so a 120 Hz monitor
+  scrolled the stars twice as fast and a hidden tab froze them. *What:*
+  the main Z80's `Bus::tick` drives `Video::advance`. Each HBLANK loads
+  the next line's sprite and star buffers: 256 RNG clocks per visible
+  line, the pre-visible count (with the SCROLL_X offset) as the frame
+  starts, and the post count at vblank. Controls are sampled as vblank
+  ends (MAME `screen_vblank_galaga`). `render()` only copies the frame.
+  `Video.StarfieldAdvancesWithTheBeamNotRender`.
+- **Sprite transparency (GA2).** LUT entry 0x0F, not pen 0.
+  `Video.SpritePenIsClearOnlyWhenItsLutEntryIs0F`.
+- **Flip screen.** Found on the way, checked against the real ROM's
+  upside-down POST screen. Flip inverts the timing counters, so the
+  counter picks the tile's byte half, and selects the second character
+  set (`code | 0x80`), whose nibbles are stored reversed. The shifter
+  outputs each nibble in screen order, so the two together give a full
+  mirror. The old code mirrored tile positions only, and didn't mask the
+  code to 7 bits. MAME `get_tile_info`. `Video.FlipUsesSecondCharSetAndInvertedCounters`.
+- **51XX HLE coinage and credits (GA3).** *Fact:* the 51XX counts coins
+  against the coinage the game sends with command `01`; zero coins means
+  free play; START spends 1 or 2 credits and starts a game. *Why:* the HLE
+  gave a credit per coin and never spent one, so the default path could
+  not start a game. *What:* checked against the genuine 51XX running in
+  this core: three coins then START gives CREDIT 2 and PLAYER 1 on both.
+  `Mcu51Hle.*`.
+- **54XX DAC network (GA4).** *Fact:* the 54XX drives three 4-bit R
+  ladders (O low/high nibble, R1). Each goes through its own MFB
+  band-pass into an op-amp summer, then a 0.1 µF coupling cap. *Why:* the
+  LLE path mixed the raw O latch, and that latch also held the CPU's
+  command bytes. *What:* separate command latch for K/R0; the network at
+  96 kHz using MAME's values (`galaga_chanl1-3_filt`, `galaga_final_mixer`);
+  the whole Galaga mix on MAME's absolute scale (WSG at 0.5625 of /1024,
+  network at 0.9), which keeps explosions under full scale. Filters start
+  at rest, so power-on is silent. *Source:* MAME `galaga_a.cpp`
+  (Derrick Renaud), `namco54.cpp`. `Machine.UserRom54xxPlaysThroughItsDacs`
+  (real 54XX image).
+- **MB88 serial clock (GA5).** The real 51XX/54XX program enables serial
+  mode (PIO `$64`) and polls SF. With SI unconnected, S shifts in 0 once
+  per instruction cycle and SF sets after four. Serial IRQ vectors to
+  `$06`. MAME `mb88xx.cpp` `serial_timer`. MAME's prescale of 6 is its own
+  guess; the datasheet figure is still wanted. `Mb88.InternalSerialClockSetsSfAfterFourShifts`,
+  `Mb88.SerialInterruptVectorsTo06`.
+- **Held IRQs.** Main and sub vblank IRQs hold /INT until `$6820`/`$6821`
+  D0 is written 0 (MAME `irq1_clear_w`/`irq2_clear_w`); the 06XX and
+  sound NMIs are edges. `Machine.VblankIrqHoldsUntilMaskCleared`.
+- **Timing tests (X4).** `Video.SoundNmiEdgesAtLines64And192`,
+  `Machine.Io06NmiPeriodIs64ShiftedByControlBits`,
+  `Machine.SubAndSoundCpusRunInLockStepWithMain`.
+- **Watchdog keeps RAM (B1)**, `Machine.WatchdogResetKeepsRam`.
+- **Play test harness.** `play_test`'s zip loader copied a temp-dir guard
+  whose destructor deleted the extracted ROMs, so the real-ROM test always
+  skipped. The guard is move-only now.
+

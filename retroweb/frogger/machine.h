@@ -8,6 +8,7 @@
 
 #include "ay8910.h"
 #include "cpu_z80.h"
+#include "galaxian/konami_sound.h"
 #include "i8255.h"
 #include "video.h"
 
@@ -42,6 +43,7 @@ public:
     z80::Cpu sound;
     Video video;
     Ay8910 ay;
+    galaxian::KonamiSound konami;
     I8255 ppi0;
     I8255 ppi1;
     std::array<uint8_t, 0x4000> program{};
@@ -54,6 +56,8 @@ public:
     std::vector<float> audio;
     int audio_hz = 48000;
     bool watchdog_reset = false;
+    // Electromechanical counters: one count per rising edge of the drive line.
+    std::array<int, 2> coin_counter{};
 
     uint8_t sound_latch = 0;
     uint8_t sound_control = 0;
@@ -73,12 +77,14 @@ public:
     void sound_out(uint8_t port, uint8_t v);
 
 private:
+    void watchdog_fire();
+    void coin_counter_w(int n, bool on);
+    bool coin_line_[2]{};
     z80::Bus make_main_bus();
     z80::Bus make_sound_bus();
     void wire_ppi();
     void on_sound_control(uint8_t v);
     int sound_credit_ = 0;
-    bool sound_irq_ = false;
 };
 
 // PCB wiring: first 2K of sound ROM (608) and gfx ROM 606 (low plane at $800)

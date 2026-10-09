@@ -7,6 +7,7 @@
 #include <fstream>
 #include <optional>
 #include <string>
+#include <utility>
 
 namespace fs = std::filesystem;
 
@@ -46,6 +47,9 @@ bool has_main(const fs::path& dir) {
 struct Hold {
     fs::path dir;
     fs::path tmp;
+    Hold() = default;
+    Hold(Hold&& o) noexcept : dir(std::move(o.dir)), tmp(std::move(o.tmp)) { o.tmp.clear(); }
+    Hold(const Hold&) = delete;
     ~Hold() {
         if (!tmp.empty()) {
             std::error_code ec;
@@ -68,7 +72,7 @@ std::optional<Hold> open_path(const fs::path& p) {
         return std::nullopt;
     }
     if (!has_main(h.dir)) return std::nullopt;
-    return h;
+    return std::optional<Hold>(std::move(h));
 }
 
 std::optional<Hold> find_dump() {
@@ -129,4 +133,35 @@ TEST(Machine, UserRomInsertsCoinWhenLocalDumpPresent) {
     m.run_cycles(galaga::kCpuHz);
     EXPECT_GT(m.frames, 60);
     EXPECT_FALSE(m.watchdog_reset);
+}
+
+TEST(Machine, UserRom54xxPlaysThroughItsDacs) {
+    auto hold = find_dump();
+    if (!hold) GTEST_SKIP() << "no local galagamw dump";
+    const fs::path& dir = hold->dir;
+    galaga::RomSet set;
+    if (!read_file(dir / "3200a.bin", set.main.data(), 0x1000) ||
+        !read_file(dir / "3300b.bin", set.main.data() + 0x1000, 0x1000) ||
+        !read_file(dir / "3400c.bin", set.main.data() + 0x2000, 0x1000) ||
+        !read_file(dir / "3500d.bin", set.main.data() + 0x3000, 0x1000) ||
+        !read_file(dir / "3600e.bin", set.sub.data(), 0x1000) ||
+        !read_file(dir / "3700g.bin", set.sound.data(), 0x1000) ||
+        !read_file(dir / "54xx.bin", set.mcu54.data(), set.mcu54.size())) {
+        GTEST_SKIP() << "set lacks 54xx.bin";
+    }
+    set.has54 = true;
+    read_file(dir / "51xx.bin", set.mcu51.data(), set.mcu51.size()) && (set.has51 = true);
+    galaga::Machine m;
+    m.load_roms(set);
+    m.reset();
+    int changes = 0;
+    uint8_t last[3] = {m.dac54(0), m.dac54(1), m.dac54(2)};
+    for (int i = 0; i < galaga::kCpuHz * 15 / 64; i++) {
+        m.run_cycles(64);
+        for (int ch = 0; ch < 3; ch++) {
+            if (m.dac54(ch) != last[ch]) changes++;
+            last[ch] = m.dac54(ch);
+        }
+    }
+    EXPECT_GT(changes, 50);
 }

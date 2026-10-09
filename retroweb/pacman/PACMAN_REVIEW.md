@@ -81,11 +81,14 @@ and `web/tests/mspacman.spec.ts`.
   "plain" 90°-CCW transpose `Video::render` shipped with initially (which
   came out visibly upside-down against a real ROM set — the two differ by
   a further 180°, not just handedness).
-- **IRQ once per vblank**, gated by bit 0 of `$5000` (`machine.cpp`'s
+- **Vblank IRQ is a held line**, gated by bit 0 of `$5000` (`machine.cpp`'s
   `irq_enable`). Vblank starts at raster line 224 of 264
-  (`kVBlankLine = kVisH = 224`); `Machine::run_cycles` fires `cpu.interrupt()`
-  on `video.vblank_edge`, i.e. right at the H-blank/V-blank corner, matching
-  "IRQ at the right cycle" rather than a per-CPU-frame poll.
+  (`kVBlankLine = kVisH = 224`). The beam is advanced by the Z80's own
+  `Bus::tick`, so the edge lands at the exact T-state; `run_cycles` then
+  asserts `/INT` with `Cpu::set_int(true)`, and only a `$5000` write of 0
+  drops it (MAME `vblank_irq` / `irq_mask_w`). A request raised while the
+  CPU has interrupts off waits instead of being lost, and an ISR that
+  never clears `$5000` re-enters after every `RETI`, as on the board. See §10.
 - No visitor-facing turbo, per `CLAUDE.md`. `?test=1` only adds the `__test`
   seam in `app.js`; it does not change `CPU_HZ` or the `requestAnimationFrame`
   pacing.
@@ -116,10 +119,11 @@ interrupt-acknowledge cycle, not a fixed vector; `machine.cpp`'s `irq_vector`
 field models that latch, and `Bus::irq_data` returns its current value
 instead of a hardcoded byte (`Machine.OutPort0LatchesInterruptVector` is the
 board-level regression; `Z80.Im2InterruptReadsVectorTableAtIConcatData` is
-the CPU-side one). The 8-vblank watchdog at `$50C0` trips and pulses
-`reset()` if it is not kicked (`Machine.WatchdogExpiresAfterEightVblanksWithoutKick`);
+the CPU-side one). The 16-vblank watchdog at `$50C0` trips and pulses
+/RESET if it is not kicked (`Machine.WatchdogExpiresAfterSixteenVblanksWithoutKick`);
+RAM survives that pulse (`Machine.WatchdogResetKeepsRam`).
 `$5003` bit 0 is cocktail flip-screen (`Machine.Write5003SetsFlipScreen`,
-`Video.FlipScreenUsesTheCocktailSpriteRegisterRoles`).
+`Video.FlipScreenFlipsOnlyTheTilemap`).
 
 ## 4. Memory map (Midway Pac-Man service manual / schematics)
 
@@ -182,11 +186,10 @@ board's non-linear VRAM address decode — the tilemap isn't stored in raster
 (row-major) order in VRAM; MAME's `pacman_state::pacman_scan_rows` (a
 cross-check, not the source) reflects the same schematic-derived decode.
 
-Sprite coordinate transform (`sy = ram2[i] - 31; sx = 272 - ram2[i+1]`
-before flipscreen, `sx = ram2[i+1]; sy = 240 - ram2[i]` after -- note the
-register pair's roles swap between the two, an artifact of these being
-native pre-rotation coordinates) matches Midway's sprite shifter, cross-
-checked against MAME's `draw_sprites`. This was a genuine bring-up bug
+Sprite coordinate transform (`sy = ram2[i] - 31; sx = 272 - ram2[i+1]`)
+matches Midway's sprite shifter, cross-checked against MAME's
+`draw_sprites`. Flip screen does not touch it: the game writes flipped
+coordinates itself in cocktail mode (see §10). This was a genuine bring-up bug
 (get it wrong and Pac-Man/ghosts still render, just bunched at the wrong
 position, e.g. at the ghost house instead of each character's own start
 spot) -- `Video.SpritePositionMatchesMameRegisterRoles` is the regression
@@ -220,8 +223,8 @@ staying dome-up) via a native trace harness before landing.
 Sprite transparency isn't "pen index 0 is transparent" -- MAME's
 `draw_sprites` resolves it per color group via
 `device_palette_interface::transpen_mask(gfx, color, 0)`, which treats
-*any* pen whose looked-up RGB matches pen 0's RGB (for that specific color)
-as transparent too, not just literal pen 0. The ROM depends on this: it
+*any* pen whose lookup-PROM entry selects colour 0 as transparent, not
+just literal pen 0. The ROM depends on this: it
 hides Pac-Man during the "you ate a ghost" freeze not by changing his
 sprite code or moving him off-screen, but by pointing him at a color group
 whose whole four-pen row resolves to black (confirmed by reading the real
@@ -302,7 +305,8 @@ convenience encoding). `web/app.js` maps arrows/WASD to the joystick bits,
 `5` / numpad `5` to coin, `1`/`2` and the matching numpad keys to 1P/2P
 start. Two on-page 25¢ lamps + coin slots pulse the same IN0 coin bit as
 the `5` key — a labelled web-UI stand-in for dropping a quarter, not a
-claim that the coin-counter/lockout solenoids are modeled.
+claim that you are dropping a real coin. The coin counter on `$5007`
+counts its own pulses (`Machine::coin_counter`, §10).
 
 Factory-typical DIP defaults (1 coin / 1 credit, 3 lives, 10000-point
 bonus, normal difficulty, normal ghost names — `Inputs::dsw1 = 0xC9`)
@@ -417,10 +421,13 @@ a credit into Namco's program.
   for the cabinet's operator bank; the bit values themselves match the
   real ports. Cocktail-cabinet player-2 joystick (IN1 bits 0–3) is not
   mapped. Covered by `dip.spec.ts` and the two `Machine.Dsw1*` tests.
-- **Coin counter / lockout solenoid outputs are not modeled.** The on-page
-  25¢ slots are a labelled UI control that pulses the same IN0 coin bit as
-  the `5` key; they do not drive (or claim to drive) the cabinet's physical
-  coin-counter or lockout coils.
+- **Lockout coil.** MAME leaves Pac-Man's `$5006` lockout output
+  unconnected (commented out in `pacman.cpp`), so it isn't modeled here
+  either. The `$5007` coin counter is.
+- **VRAM wait states (parity P6).** Unverified either way. If the
+  Midway sync-bus logic holds /WAIT on CPU access to video RAM during
+  active display, the game runs slightly fast here. `Bus::wait` is ready
+  for it; it needs the schematic, not a guess.
 - **HIGH SCORE RAM is volatile on the real PCB.** There is no battery.
   `$4E88–$4E8A` (BCD TOP, low byte first — Data Crystal RAM map) dies on
   power-off. A page refresh is a power cycle. This page always persists those
@@ -442,3 +449,45 @@ a credit into Namco's program.
   `mspacman.zip` is present, the same file also waits for real attract
   restore (not the seam) and asserts `$4E88` plus the `$43F2` tiles and
   their canvas pixels.
+
+## 10. Parity fixes (2026-10-09)
+
+Items P1-P5, B1-B3 and X5 from `shared/cpu/Z80_ARCADE_PARITY.md`.
+
+- **Held vblank IRQ (P1).** *Fact:* the vblank flip-flop holds /INT until
+  `$5000` is written 0. *Why:* the old one-shot `interrupt()` dropped a
+  request that arrived with interrupts off. *What:* `set_int` on the edge,
+  cleared by `$5000 = 0`. The self-test ROM's ISR now clears and re-arms
+  `$5000`, as the real ROM's does. *Source:* MAME `vblank_irq`/`irq_mask_w`.
+  `Machine.VblankIrqIsHeldUntil5000IsCleared`,
+  `Machine.VblankIrqFiresOncePerFrameWhenAcknowledged`,
+  `Machine.VblankIrqWaitsOutADisabledCpu`.
+- **Sprite clip (P2).** Sprites draw only in native x 16-271, never over
+  the two score columns. MAME `spriteclip(2*8, 34*8-1, ...)`.
+  `Video.SpritesClipToTheMazeColumns`.
+- **Slots 0-2 one line later (P3).** MAME applies `m_xoffsethack = 1` to
+  sprites 0-2 and calls it a placement fix. It is the same effect as the
+  Galaxian line buffer, where the first three sprites are set up on the
+  other side of the V increment. Ported, cross-checked only, not
+  schematic-verified. `Video.SlotsZeroToTwoSitOneLineLater`.
+- **Wraparound (P4).** Each sprite also draws at `sx - 256`.
+  `Video.SpritesWrapAt256`.
+- **Watchdog 16 (P5).** MAME `set_vblank_count(16)`.
+- **Raster rendering (B2).** `Video::advance` paints each span as the
+  beam crosses it and loads a sprite line buffer in HBLANK, so a mid-frame
+  write lands where the beam is. Lower slots win the buffer.
+  `Video.MidFrameFlipTakesEffectAtTheBeam`, `Video.LowerSlotWinsTheLineBuffer`.
+- **Cocktail flip.** Found on the way. `$5003` flips the tilemap in X and
+  Y and leaves sprites alone; the renderer used to borrow birdiy's
+  inverted sprite registers (`m_inv_spr`) and never flipped tiles. MAME
+  `flipscreen_w`, `draw_sprites`. `Video.FlipScreenFlipsOnlyTheTilemap`.
+- **Transparency by lookup index.** `transpen_mask(..., 0)` compares the
+  lookup entry, not the RGB. Same visible result on the real PROMs.
+- **Watchdog keeps RAM (B1).** A watchdog trip pulses /RESET; work RAM,
+  VRAM and sprite RAM keep their contents. `Machine.WatchdogResetKeepsRam`.
+- **Coin counter (B3).** `$5007` D0 rising edges count
+  (`Machine.CoinCounterCountsRisingEdges`).
+
+Real `pacman` and `mspacman` sets still boot, take a coin and eat a
+pellet (`play_test`), checked against frames dumped from the real ROMs.
+

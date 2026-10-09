@@ -83,9 +83,11 @@ public:
     uint8_t mem_read(int cpu, uint16_t addr);
     void mem_write(int cpu, uint16_t addr, uint8_t v);
     uint8_t mem_read(uint16_t addr) { return mem_read(0, addr); }
+    uint8_t dac54(int ch) const { return dac54_[ch]; }
     void mem_write(uint16_t addr, uint8_t v) { mem_write(0, addr, v); }
 
 private:
+    void watchdog_fire();
     Mb88 mcu51_;
     Mb88 mcu54_;
     z80::Bus make_bus(int cpu);
@@ -109,15 +111,28 @@ private:
     int mcu51_args_ = 0;
     int mcu51_read_i_ = 0;
     uint8_t mcu51_coinage_[4]{};
+    int mcu51_coins_[2]{};
+    bool mcu51_started_ = false;
     uint8_t prev_in1_ = 0;
     int mcu_acc_ = 0;
     int mcu54_args_ = 0;
+    uint8_t mcu54_cmd_ = 0;
+    // 54XX DAC network (MAME galaga_a.cpp galaga_discrete).
+    struct Bandpass54 {
+        double x1 = 0, x2 = 0, y1 = 0, y2 = 0;
+    };
+    uint8_t dac54_[3]{};
+    Bandpass54 bp54_[3];
+    double amp54_cap_ = 0;
+    bool bp54_rest_ = false;
+    double disc_sum_ = 0;
+    int disc_n_ = 0;
+    int disc_clock_ = 0;
+    void step_54xx_network();
     int noise_left_ = 0;
     int noise_amp_ = 0;
     int noise_vol_ = 15;
     uint32_t noise_lfsr_ = 1;
-    bool irq1_line_ = false;
-    bool irq2_line_ = false;
     double audio_acc_ = 0;
     int sub_credit_ = 0;
     int sound_credit_ = 0;

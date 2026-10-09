@@ -7,6 +7,7 @@ namespace {
 constexpr int kTimerPrescale = 32;
 constexpr int kIntExternal = 0x04;
 constexpr int kIntTimer = 0x02;
+constexpr int kIntSerial = 0x01;
 
 }  // namespace
 
@@ -23,6 +24,7 @@ void Mb88::reset() {
     data_.fill(0);
     tp_ = 0;
     pending_ = 0;
+    sb_count_ = 0;
     if_ = false;
     ctr_ = false;
 }
@@ -83,6 +85,16 @@ void Mb88::out_o(uint8_t index) {
 }
 
 void Mb88::burn(int cycles) {
+    // Internal serial clock: one shift of S per instruction cycle, SI into bit 3 (MAME mb88xx, SERIAL_PRESCALE 6 "guess").
+    if ((pio & 0x30) == 0x20) {
+        for (int i = 0; i < cycles && !sf; i++) {
+            sb = uint8_t((sb >> 1) | ((read_si && read_si()) ? 8 : 0));
+            if (++sb_count_ >= 4) {
+                sf = 1;
+                pending_ |= kIntSerial;
+            }
+        }
+    }
     if (pio & 0x80) {
         tp_ += cycles;
         while (tp_ >= kTimerPrescale) {
@@ -104,6 +116,7 @@ void Mb88::burn(int cycles) {
         si = uint8_t((si + 1) & 3);
         if (pending_ & pio & kIntExternal) pc = 0x02;
         else if (pending_ & pio & kIntTimer) pc = 0x04;
+        else if (pending_ & pio & kIntSerial) pc = 0x06;
         pa = 0;
         st = 1;
         pending_ = 0;
@@ -286,6 +299,7 @@ int Mb88::step() {
         vf = 0;
     } else if (opcode == 0x27) {
         st = uint8_t(sf ^ 1);
+        if (sf) sb_count_ = 0;
         sf = 0;
     } else if (opcode == 0x28) {
         st = uint8_t(cf ^ 1);

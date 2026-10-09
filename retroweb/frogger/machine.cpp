@@ -15,6 +15,7 @@ uint8_t sound_timer_port(uint64_t sound_cpu_cycles) {
 }
 
 Machine::Machine() : main(make_main_bus()), sound(make_sound_bus()) {
+    konami.ay = {&ay, nullptr};
     wire_ppi();
     reset();
 }
@@ -26,6 +27,7 @@ z80::Bus Machine::make_main_bus() {
     b.in = [](uint16_t) { return uint8_t(0xFF); };
     b.out = [](uint16_t, uint8_t) {};
     b.irq_data = [] { return uint8_t(0xFF); };
+    b.tick = [this](int t) { video.advance(t); };
     return b;
 }
 
@@ -35,7 +37,11 @@ z80::Bus Machine::make_sound_bus() {
     b.write = [this](uint16_t a, uint8_t v) { sound_write(a, v); };
     b.in = [this](uint16_t port) { return sound_in(uint8_t(port)); };
     b.out = [this](uint16_t port, uint8_t v) { sound_out(uint8_t(port), v); };
-    b.irq_data = [] { return uint8_t(0xFF); };
+    // The INT flip-flop clears on the acknowledge (MAME konami_sound_control_w HOLD_LINE).
+    b.irq_data = [this] {
+        sound.set_int(false);
+        return uint8_t(0xFF);
+    };
     return b;
 }
 
@@ -66,13 +72,12 @@ void Machine::on_sound_control(uint8_t v) {
     bool prev3 = (sound_control & 0x08) != 0;
     bool now3 = (v & 0x08) != 0;
     sound_control = v;
-    ay.mute = (v & 0x10) != 0;
-    if (prev3 && !now3) {
-        if (sound.interrupt() <= 0) sound_irq_ = true;
-    }
+    konami.mute = (v & 0x10) != 0;
+    if (prev3 && !now3) sound.set_int(true);
 }
 
 void Machine::reset() {
+    coin_line_[0] = coin_line_[1] = false;
     ram.fill(0);
     sound_ram.fill(0);
     nmi_enable = false;
@@ -82,9 +87,9 @@ void Machine::reset() {
     sound_latch = 0;
     sound_control = 0;
     sound_credit_ = 0;
-    sound_irq_ = false;
     video.reset();
     ay.reset();
+    konami.reset();
     ppi0.reset();
     ppi1.reset();
     // Both 8255s power up as inputs; PPI1 must be set to outputs for the latch to stick.
@@ -130,11 +135,14 @@ void Machine::mem_write(uint16_t addr, uint8_t v) {
     if (addr >= 0xB000 && addr < 0xC000) {
         // Standalone D0 latches, decoded ahead of the $B000 objram mirror.
         switch (addr & 0xFF1F) {
-            case 0xB808: nmi_enable = (v & 1) != 0; return;
+            case 0xB808:
+                nmi_enable = (v & 1) != 0;
+                if (!nmi_enable) main.set_nmi(false);
+                return;
             case 0xB80C: video.flip_y = (v & 1) != 0; return;
             case 0xB810: video.flip_x = (v & 1) != 0; return;
-            case 0xB818:
-            case 0xB81C: return;  // coin counters, not modeled
+            case 0xB818: coin_counter_w(0, (v & 1) != 0); return;
+            case 0xB81C: coin_counter_w(1, (v & 1) != 0); return;
             default: break;
         }
         if (addr < 0xB800) video.objram[addr & 0xFF] = v;
@@ -158,7 +166,28 @@ uint8_t Machine::sound_read(uint16_t addr) {
 }
 
 void Machine::sound_write(uint16_t addr, uint8_t v) {
+    addr &= 0x7FFF;
     if (addr >= 0x4000 && addr < 0x6000) sound_ram[addr & 0x3FF] = v;
+    else if (addr >= 0x6000) konami.filter_w(uint16_t(addr & 0x0FFF));
+}
+
+void Machine::watchdog_fire() {
+    // The watchdog pulses /RESET; RAM keeps its contents, unlike a power cycle.
+    const auto keep_ram = ram;
+    const auto keep_sound_ram = sound_ram;
+    const auto keep_v_videoram = video.videoram;
+    const auto keep_v_objram = video.objram;
+    reset();
+    ram = keep_ram;
+    sound_ram = keep_sound_ram;
+    video.videoram = keep_v_videoram;
+    video.objram = keep_v_objram;
+    watchdog_reset = true;
+}
+
+void Machine::coin_counter_w(int n, bool on) {
+    if (on && !coin_line_[n]) coin_counter[unsigned(n)]++;
+    coin_line_[n] = on;
 }
 
 int Machine::run_cycles(int n) {
@@ -166,36 +195,22 @@ int Machine::run_cycles(int n) {
     while (done < n) {
         int t = main.step();
         done += t;
-        video.advance(t);
         // Credit in sound-cycle units so an overshooting sound instruction is repaid later.
         sound_credit_ += t * kSoundHz;
         while (sound_credit_ >= kCpuHz) {
-            int st;
-            if (sound_irq_) {
-                int it = sound.interrupt();
-                if (it > 0) {
-                    sound_irq_ = false;
-                    st = it;
-                } else {
-                    st = sound.step();
-                    if (st <= 0) st = 4;
-                }
-            } else {
-                st = sound.step();
-                if (st <= 0) st = 4;
-            }
-            ay.advance(st, audio_hz, audio);
+            int st = sound.step();
+            konami.advance(st, audio_hz, audio);
             sound_credit_ -= st * kCpuHz;
         }
         if (video.vblank_edge) {
+            video.vblank_edge = false;
             frames++;
             watchdog_--;
             if (watchdog_ <= 0) {
-                watchdog_reset = true;
-                reset();
+                watchdog_fire();
                 break;
             }
-            if (nmi_enable) main.nmi();
+            if (nmi_enable) main.set_nmi(true);
         }
     }
     return done;

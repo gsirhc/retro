@@ -66,6 +66,21 @@ TEST(Machine, WatchdogExpiresAfterEightVblanksWithoutKick) {
     EXPECT_TRUE(m.watchdog_reset);
 }
 
+TEST(Machine, WatchdogResetKeepsRam) {
+    frogger::RomSet s;
+    s.program[0] = 0x76;  // HALT
+    frogger::Machine m;
+    m.load_roms(s);
+    m.reset();
+    m.ram[0x10] = 0xA5;
+    m.video.videoram[5] = 0x5A;
+    m.run_cycles(frogger::kCpuPerFrame * 10);
+    ASSERT_TRUE(m.watchdog_reset);
+    EXPECT_EQ(m.ram[0x10], 0xA5);
+    EXPECT_EQ(m.video.videoram[5], 0x5A);
+    EXPECT_EQ(m.frames, 0);
+}
+
 TEST(Machine, WriteB808EnablesNmi) {
     frogger::Machine m;
     m.reset();
@@ -101,7 +116,36 @@ TEST(Machine, Ppi1LatchFallingBit3InterruptsSoundCpu) {
     m.mem_write(0xD002, 0x08);
     EXPECT_EQ(m.sound.pc, 0x1234);  // still high
     m.mem_write(0xD002, 0x00);      // falling edge
+    EXPECT_TRUE(m.sound.int_line);
+    m.sound.step();
     EXPECT_EQ(m.sound.pc, 0x0038);
+    EXPECT_FALSE(m.sound.int_line);
+}
+
+TEST(Machine, SoundIntHoldsUntilTheCpuAcknowledges) {
+    frogger::Machine m;
+    m.reset();
+    m.mem_write(0xD006, 0x80);
+    m.sound.im = 1;
+    m.sound.sp = 0x43F0;
+    m.mem_write(0xD002, 0x08);
+    m.mem_write(0xD002, 0x00);
+    for (int i = 0; i < 10; i++) m.sound.step();
+    EXPECT_TRUE(m.sound.int_line);
+    m.sound.iff1 = m.sound.iff2 = true;
+    m.sound.step();
+    EXPECT_EQ(m.sound.pc, 0x0038);
+    EXPECT_FALSE(m.sound.int_line);
+}
+
+TEST(Machine, FilterLatchDecodesAddressLinesAt6000) {
+    frogger::Machine m;
+    m.reset();
+    m.sound_write(0x6000 | (0x3F << 6), 0);
+    for (int n = 0; n < 6; n++) EXPECT_TRUE(m.konami.filter_switch(n));
+    m.sound_write(0x7000 | (1 << 7), 0);
+    EXPECT_FALSE(m.konami.filter_switch(0));
+    EXPECT_TRUE(m.konami.filter_switch(1));
 }
 
 TEST(Machine, AyIoBit6IsDataBit7IsAddress) {
@@ -151,7 +195,7 @@ TEST(Machine, HwtestStaysSilent) {
     m.run_cycles(frogger::kCpuHz * 4);
     ASSERT_FALSE(m.audio.empty());
     bool any = false;
-    for (float s : m.audio) if (s != 0.0f) { any = true; break; }
+    for (float s : m.audio) if (s > 1e-3f || s < -1e-3f) { any = true; break; }
     EXPECT_FALSE(any);
 }
 
@@ -192,4 +236,16 @@ TEST(Machine, FactoryDipIdles) {
     EXPECT_EQ(in.in0, 0xFF);
     EXPECT_EQ(in.in1, 0xFC);  // 3 lives
     EXPECT_EQ(in.in2, 0xF1);  // 1C/1C upright
+}
+
+TEST(Machine, CoinCounterCountsRisingEdges) {
+    frogger::Machine m;
+    m.reset();
+    m.mem_write(0xB818, 1);
+    m.mem_write(0xB818, 1);
+    m.mem_write(0xB818, 0);
+    m.mem_write(0xB818, 1);
+    EXPECT_EQ(m.coin_counter[0], 2);
+    m.mem_write(0xB81C, 1);
+    EXPECT_EQ(m.coin_counter[1], 1);
 }
