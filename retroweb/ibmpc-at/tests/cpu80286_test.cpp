@@ -24,6 +24,7 @@ protected:
     uint16_t last_out16_port = 0;
     uint16_t last_out16_val = 0;
     uint16_t next_in16_val = 0xFFFF;
+    uint16_t reported = 0;
 
     void SetUp() override {
         Bus bus;
@@ -35,6 +36,7 @@ protected:
         bus.in16  = [this](uint16_t) -> uint16_t { return next_in16_val; };
         bus.out16 = [this](uint16_t p, uint16_t v) { last_out16_port = p; last_out16_val = v; };
         cpu = std::make_unique<Cpu>(bus);
+        cpu->on_unimplemented = [this](uint16_t, uint16_t, uint16_t op) { reported = op; };
         cpu->reset();
         cpu->cs = 0;
         cpu->ip = 0;
@@ -742,8 +744,6 @@ TEST_F(Cpu80286Test, SmswReadsTheResetMsw) {
 }
 
 TEST_F(Cpu80286Test, LmswLoadsMpEmTsButCannotSetPe) {
-    uint16_t reported = 0;
-    cpu->on_unimplemented = [&](uint16_t, uint16_t, uint16_t op) { reported = op; };
     cpu->ax = 0x000F;
     exec({0x0F, 0x01, 0xF0});  // LMSW AX
     EXPECT_EQ(cpu->msw(), 0xFFFEu);
@@ -1422,8 +1422,6 @@ TEST_F(Cpu80286Test, MovReachesEveryWordRegister) {
 }
 
 TEST_F(Cpu80286Test, LoadallIsReported) {
-    uint16_t reported = 0;
-    cpu->on_unimplemented = [&](uint16_t, uint16_t, uint16_t op) { reported = op; };
     exec({0x0F, 0x05});
     EXPECT_EQ(reported, 0x0F05u);
     EXPECT_EQ(cpu->ip, 2);
@@ -1432,8 +1430,6 @@ TEST_F(Cpu80286Test, LoadallIsReported) {
 TEST_F(Cpu80286Test, FirmwareOpcodesWithNoModelAreReportedNotFaulted) {
     allow_firmware();
     handler(6);
-    uint16_t reported = 0;
-    cpu->on_unimplemented = [&](uint16_t, uint16_t, uint16_t op) { reported = op; };
     exec({0x0F, 0x00, 0xC0});  // SLDT AX
     EXPECT_EQ(reported, 0x0F00u);
     EXPECT_FALSE(in_handler());
@@ -1810,7 +1806,7 @@ TEST_F(Cpu80286Test, UnaryGroupMemoryForms) {
 
 TEST_F(Cpu80286Test, DivideOverflowsOnTheNegativeSideToo) {
     handler(0);
-    const struct { std::initializer_list<uint8_t> code; uint16_t dx, ax, bx; } cases[] = {
+    const struct { std::initializer_list<uint8_t> code; uint16_t dx = 0, ax = 0, bx = 0; } cases[] = {
         {{0xF6, 0xF3}, 0, 0x0300, 2},       // DIV BL: 384/2 over FFh
         {{0xF6, 0xFB}, 0, 0xFE00, 2},       // IDIV BL: -512/2 under -128
         {{0xF7, 0xFB}, 0xFFFE, 0x0000, 1},  // IDIV BX: -131072 under -32768
@@ -1938,7 +1934,8 @@ TEST_F(Cpu80286Test, SmswAndLmswTakeMemoryOperands) {
     exec({0x0F, 0x01, 0x26, 0x00, 0x05});  // SMSW [0500h]
     EXPECT_EQ(mem[0x0500], 0xF0);
     EXPECT_EQ(mem[0x0501], 0xFF);
-    mem[0x0502] = 0x09; mem[0x0503] = 0x00;  // PE|TS, no on_unimplemented hook
+    mem[0x0502] = 0x09; mem[0x0503] = 0x00;  // PE|TS
+    cpu->on_unimplemented = nullptr;
     exec({0x0F, 0x01, 0x36, 0x02, 0x05});  // LMSW [0502h]
     EXPECT_EQ(cpu->msw() & 0x000F, 0x0008);
 }
@@ -1991,7 +1988,8 @@ TEST_F(Cpu80286Test, FaultInsideARepStopsWithCxCounted) {
 }
 
 TEST_F(Cpu80286Test, UnhookedReportsAreSilent) {
-    exec({0x0F, 0x05});  // LOADALL, no on_unimplemented hook
+    cpu->on_unimplemented = nullptr;
+    exec({0x0F, 0x05});  // LOADALL
     EXPECT_EQ(cpu->ip, 2);
     allow_firmware();
     exec({0x0F, 0x00, 0xC0});
