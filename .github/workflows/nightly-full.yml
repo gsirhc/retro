@@ -379,24 +379,38 @@ jobs:
             retroweb/pc486/web/test-results/
           retention-days: 7
 
-  # Shared Z80 ISA: named GoogleTest groups (UM0080) plus Frank Cringle's
-  # zexdoc documented-opcode exerciser. Pac-Man, Frogger, Scramble, and
-  # Galaxian all `needs:` this job; each board then only smokes that the CPU is wired.
+  # Shared Z80: named GoogleTest groups (UM0080 + bus timing), Frank Cringle's
+  # zexdoc and zexall, and SingleStepTests/z80 (every opcode, MEMPTR/Q, per-T-state
+  # bus traces). Pac-Man, Frogger, Scramble, Galaxian, and Galaga all `needs:`
+  # this job; each board then only smokes that the CPU is wired.
   z80-test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Cache zexdoc
-        id: zexdoc
+      - name: Cache zexdoc / zexall
+        id: zex
         uses: actions/cache@v4
         with:
-          path: retroweb/shared/cpu/zex/zexdoc.com
-          key: zexdoc-${{ hashFiles('retroweb/shared/cpu/Makefile') }}
+          path: |
+            retroweb/shared/cpu/zex/zexdoc.com
+            retroweb/shared/cpu/zex/zexall.com
+          key: zex-${{ hashFiles('retroweb/shared/cpu/Makefile') }}
 
-      - name: Fetch zexdoc
-        if: steps.zexdoc.outputs.cache-hit != 'true'
-        run: make -C retroweb/shared/cpu zex/zexdoc.com
+      - name: Fetch zexdoc / zexall
+        if: steps.zex.outputs.cache-hit != 'true'
+        run: make -C retroweb/shared/cpu zex/zexdoc.com zex/zexall.com
+
+      - name: Cache SingleStepTests
+        id: sst
+        uses: actions/cache@v4
+        with:
+          path: retroweb/shared/cpu/sst/v1
+          key: z80-sst-${{ hashFiles('retroweb/shared/cpu/Makefile') }}
+
+      - name: Fetch SingleStepTests
+        if: steps.sst.outputs.cache-hit != 'true'
+        run: make -C retroweb/shared/cpu sst/v1/00.json
 
       - run: make -C retroweb/shared/cpu check
 

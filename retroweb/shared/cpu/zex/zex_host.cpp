@@ -86,8 +86,9 @@ int main(int argc, char** argv) {
     z80::Bus bus;
     bus.read = [](uint16_t a) { return g_mem[a]; };
     bus.write = [](uint16_t a, uint8_t v) { g_mem[a] = v; };
-    bus.in = [](uint8_t) -> uint8_t { return 0x00; };
-    bus.out = [&](uint8_t port, uint8_t) {
+    bus.in = [](uint16_t) -> uint8_t { return 0x00; };
+    bus.out = [&](uint16_t addr, uint8_t) {
+        const uint8_t port = uint8_t(addr);
         if (port == 0x00) g_finished = true;
         else if (port == 0x01) bdos_call(*cpu_ptr);
     };

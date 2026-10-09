@@ -157,6 +157,10 @@ retroweb/asteroids/web/shared/
 retroweb/shared/cpu/tests/build/
 retroweb/shared/cpu/zex/zexdoc.com
 retroweb/shared/cpu/zex/zex_host
+retroweb/shared/cpu/zex/zexall.com
+retroweb/shared/cpu/sst/sst_host
+retroweb/shared/cpu/sst/v1/
+retroweb/shared/cpu/sst/z80-sst.tar.gz
 retroweb/shared/cpu/dormann/dormann_host
 retroweb/shared/cpu/dormann/6502_functional_test.bin
 

@@ -94,20 +94,17 @@ and `web/tests/mspacman.spec.ts`.
 
 Shared core (`retroweb/shared/cpu/cpu_z80.h`/`.cpp`), separate from `retroweb/altair8800/i8080.h`
 (8080 stays 8080 — this repo doesn't try to make one core paper over both
-ISAs, since Z80 flag polarity and several opcodes genuinely differ). Source
-for instruction semantics and official T-states: the Zilog Z80 CPU User's
-Manual (UM0080). Implemented: documented main/CB/ED/DD/FD opcode maps,
-IX/IY (including `(IX+d)`/`(IY+d)` displacement addressing), I/R registers,
-`IM 0`/`IM 1`/`IM 2`, NMI (vectors to `$0066`; `iff2` latches the pre-NMI
-`iff1` per UM0080, tested in `Z80.NmiVectorsTo66AndCopiesIff1ToIff2`), and
-the `EI`-delays-interrupt-by-one-instruction rule (`ei_delay_` in
-`retroweb/shared/cpu/cpu_z80.h`, tested in `Z80.EiDelaysInterruptOneInstruction`). `Z80.Im2InterruptReadsVectorTableAtIConcatData`
-pins the CPU-side IM 2 table walk (`I` concatenated with the bus data
-byte) separately from the board latch. Named GoogleTests cover the UM0080
-opcode groups; Frank Cringle's zexdoc exerciser (`make -C retroweb/shared/cpu zexdoc`)
-is the independent documented-ISA gate — same role Klaus Dormann / 8080PRE
-play for the other cores. CI's `z80-test` job runs both; Pac-Man's native
-suite then only smokes that this CPU is wired (`Smoke.HwtestBootsSignatureWatchdogAndPaints`).
+ISAs, since Z80 flag polarity and several opcodes genuinely differ). It is
+T-state exact: every instruction runs as its UM0080 machine cycles, with
+the undocumented set (MEMPTR, Q, block-I/O flags), real IM 0 execution,
+16-bit port addresses, and /WAIT, /INT, /NMI and refresh as bus pins.
+NMI leaves `iff2` alone so RETN restores the pre-NMI `iff1`
+(`Z80.NmiVectorsTo66AndLeavesIff2`). The `EI` shadow is
+`Z80.EiDelaysInterruptOneInstruction`. Gates: the named GoogleTests,
+Frank Cringle's zexdoc and zexall, and SingleStepTests/z80 (every opcode,
+per-T-state bus traces). Design notes and sources are in
+`retroweb/shared/cpu/Z80_REVIEW.md`. CI's `z80-test` job runs them; Pac-Man's
+native suite then only smokes that this CPU is wired (`Smoke.HwtestBootsSignatureWatchdogAndPaints`).
 
 The self-test ROM only ever programs `IM 1` (RST 7, vector `$0038`); the
 real Midway `pacman`/`puckman` program ROM uses `IM 2` instead, reprogramming
@@ -123,14 +120,6 @@ the CPU-side one). The 8-vblank watchdog at `$50C0` trips and pulses
 `reset()` if it is not kicked (`Machine.WatchdogExpiresAfterEightVblanksWithoutKick`);
 `$5003` bit 0 is cocktail flip-screen (`Machine.Write5003SetsFlipScreen`,
 `Video.FlipScreenUsesTheCocktailSpriteRegisterRoles`).
-
-Undocumented `X`/`Y` flag bits (copies of bits 3/5 of the result, or of `A`
-memory-refresh timing, on odd ops) are modeled as plain result-bit copies
-via `set_szxy`/`set_szxy_p` — the common documented-undocumented-flags
-behavior, not the more obscure `MEMPTR`-dependent cases (`SCF`/`CCF`'s flags
-sometimes depend on the last-accessed memory address on real silicon).
-Pac-Man's own ROM code doesn't depend on those obscure cases; revisit only
-if a user-supplied ROM set's behavior ever requires it.
 
 ## 4. Memory map (Midway Pac-Man service manual / schematics)
 

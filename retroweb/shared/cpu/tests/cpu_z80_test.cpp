@@ -6,6 +6,7 @@
 #include "cpu_z80.h"
 
 #include <array>
+#include <functional>
 #include <memory>
 #include <utility>
 #include <vector>
@@ -17,23 +18,43 @@ protected:
     std::array<uint8_t, 0x10000> mem{};
     std::unique_ptr<z80::Cpu> cpu;
     uint8_t irq_byte = 0xFF;
+    std::vector<uint8_t> irq_queue;
     uint8_t in_val = 0xFF;
-    uint8_t last_out_port = 0;
+    uint16_t last_in_port = 0;
+    uint16_t last_out_port = 0;
     uint8_t last_out_val = 0;
-    std::vector<std::pair<uint8_t, uint8_t>> outs;
+    std::vector<std::pair<uint16_t, uint8_t>> outs;
+    std::vector<uint16_t> reads;
+    std::vector<uint16_t> refreshes;
 
-    void SetUp() override {
+    z80::Bus make_bus() {
         z80::Bus bus;
-        bus.read = [this](uint16_t a) { return mem[a]; };
+        bus.read = [this](uint16_t a) {
+            reads.push_back(a);
+            return mem[a];
+        };
         bus.write = [this](uint16_t a, uint8_t v) { mem[a] = v; };
-        bus.in = [this](uint8_t) { return in_val; };
-        bus.out = [this](uint8_t p, uint8_t v) {
+        bus.in = [this](uint16_t p) {
+            last_in_port = p;
+            return in_val;
+        };
+        bus.out = [this](uint16_t p, uint8_t v) {
             last_out_port = p;
             last_out_val = v;
             outs.push_back({p, v});
         };
-        bus.irq_data = [this] { return irq_byte; };
-        cpu = std::make_unique<z80::Cpu>(bus);
+        bus.irq_data = [this] {
+            if (irq_queue.empty()) return irq_byte;
+            uint8_t v = irq_queue.front();
+            irq_queue.erase(irq_queue.begin());
+            return v;
+        };
+        bus.refresh = [this](uint16_t a) { refreshes.push_back(a); };
+        return bus;
+    }
+
+    void SetUp() override {
+        cpu = std::make_unique<z80::Cpu>(make_bus());
         cpu->reset();
     }
 
@@ -151,7 +172,7 @@ TEST_F(Z80, Im2InterruptReadsVectorTableAtIConcatData) {
     EXPECT_FALSE(cpu->iff1);
 }
 
-TEST_F(Z80, NmiVectorsTo66AndCopiesIff1ToIff2) {
+TEST_F(Z80, NmiVectorsTo66AndLeavesIff2) {
     cpu->iff1 = true;
     cpu->iff2 = false;
     cpu->sp = 0x8000;
@@ -159,7 +180,9 @@ TEST_F(Z80, NmiVectorsTo66AndCopiesIff1ToIff2) {
     EXPECT_EQ(cpu->nmi(), 11);
     EXPECT_EQ(cpu->pc, 0x0066);
     EXPECT_FALSE(cpu->iff1);
-    EXPECT_TRUE(cpu->iff2);
+    EXPECT_FALSE(cpu->iff2);
+    EXPECT_EQ(mem[0x7FFF], 0x12);
+    EXPECT_EQ(mem[0x7FFE], 0x34);
 }
 
 // --- 8-bit load / ALU (UM0080) -------------------------------------------
@@ -588,7 +611,7 @@ TEST_F(Z80, InAFromPort) {
 TEST_F(Z80, OutAToPort) {
     cpu->a = 0xCD;
     run({0xD3, 0x12});
-    EXPECT_EQ(last_out_port, 0x12);
+    EXPECT_EQ(last_out_port, 0xCD12);
     EXPECT_EQ(last_out_val, 0xCD);
     EXPECT_EQ(cpu->cycles, 11u);
 }
@@ -691,6 +714,511 @@ TEST_F(Z80, DiClearsIff) {
     run({0xF3});
     EXPECT_FALSE(cpu->iff1);
     EXPECT_FALSE(cpu->iff2);
+}
+
+// --- block I/O -----------------------------------------------------------
+
+TEST_F(Z80, IniStoresPortByteAndAddressesWithOldB) {
+    cpu->set_bc(0x0234);
+    cpu->set_hl(0x4000);
+    in_val = 0x5A;
+    run({0xED, 0xA2});
+    EXPECT_EQ(last_in_port, 0x0234);
+    EXPECT_EQ(mem[0x4000], 0x5A);
+    EXPECT_EQ(cpu->b, 0x01);
+    EXPECT_EQ(cpu->hl(), 0x4001);
+    EXPECT_EQ(cpu->wz, 0x0235);
+    EXPECT_EQ(cpu->cycles, 16u);
+}
+
+TEST_F(Z80, IndDecrementsHlAndMemptr) {
+    cpu->set_bc(0x0234);
+    cpu->set_hl(0x4000);
+    run({0xED, 0xAA});
+    EXPECT_EQ(cpu->hl(), 0x3FFF);
+    EXPECT_EQ(cpu->wz, 0x0233);
+}
+
+TEST_F(Z80, IniFlagsFollowPortByteAndCPlusOne) {
+    cpu->set_bc(0x0110);
+    cpu->set_hl(0x4000);
+    in_val = 0xF0;
+    run({0xED, 0xA2});
+    EXPECT_EQ(cpu->b, 0);
+    EXPECT_EQ(cpu->f, z80::FLAG_Z | z80::FLAG_H | z80::FLAG_N | z80::FLAG_C);
+}
+
+TEST_F(Z80, InirRepeatsUntilBIsZero) {
+    cpu->set_bc(0x0310);
+    cpu->set_hl(0x4000);
+    in_val = 0x11;
+    load({0xED, 0xB2});
+    cpu->pc = 0;
+    EXPECT_EQ(cpu->step(), 21);
+    EXPECT_EQ(cpu->pc, 0);
+    EXPECT_EQ(cpu->step(), 21);
+    EXPECT_EQ(cpu->step(), 16);
+    EXPECT_EQ(cpu->pc, 2);
+    EXPECT_EQ(cpu->hl(), 0x4003);
+    EXPECT_EQ(mem[0x4002], 0x11);
+}
+
+TEST_F(Z80, InirRepeatShowsPcHighInXyAndSetsMemptr) {
+    cpu->set_bc(0x0210);
+    cpu->set_hl(0x4000);
+    in_val = 0x00;
+    load({0xED, 0xB2}, 0x2800);
+    cpu->pc = 0x2800;
+    cpu->step();
+    EXPECT_EQ(cpu->f & (z80::FLAG_X | z80::FLAG_Y), z80::FLAG_X | z80::FLAG_Y);
+    EXPECT_EQ(cpu->wz, 0x2801);
+}
+
+TEST_F(Z80, OutiAddressesWithDecrementedB) {
+    cpu->set_bc(0x0210);
+    cpu->set_hl(0x4000);
+    mem[0x4000] = 0x77;
+    run({0xED, 0xA3});
+    EXPECT_EQ(last_out_port, 0x0110);
+    EXPECT_EQ(last_out_val, 0x77);
+    EXPECT_EQ(cpu->hl(), 0x4001);
+    EXPECT_EQ(cpu->wz, 0x0111);
+    EXPECT_EQ(cpu->cycles, 16u);
+}
+
+TEST_F(Z80, OutdDecrementsHl) {
+    cpu->set_bc(0x0210);
+    cpu->set_hl(0x4000);
+    run({0xED, 0xAB});
+    EXPECT_EQ(cpu->hl(), 0x3FFF);
+    EXPECT_EQ(cpu->wz, 0x010F);
+}
+
+TEST_F(Z80, OtirSendsEveryByte) {
+    cpu->set_bc(0x0320);
+    cpu->set_hl(0x4000);
+    mem[0x4000] = 1;
+    mem[0x4001] = 2;
+    mem[0x4002] = 3;
+    load({0xED, 0xB3});
+    cpu->pc = 0;
+    EXPECT_EQ(cpu->step(), 21);
+    EXPECT_EQ(cpu->step(), 21);
+    EXPECT_EQ(cpu->step(), 16);
+    ASSERT_EQ(outs.size(), 3u);
+    EXPECT_EQ(outs[0], std::make_pair(uint16_t(0x0220), uint8_t(1)));
+    EXPECT_EQ(outs[2], std::make_pair(uint16_t(0x0020), uint8_t(3)));
+}
+
+// --- MEMPTR and Q --------------------------------------------------------
+
+TEST_F(Z80, BitHlTakesXyFromMemptr) {
+    cpu->set_hl(0x4000);
+    load({0x3A, 0xFF, 0x27, 0xCB, 0x46});  // LD A,(27FF) / BIT 0,(HL)
+    cpu->pc = 0;
+    cpu->step();
+    EXPECT_EQ(cpu->wz, 0x2800);
+    cpu->step();
+    EXPECT_EQ(cpu->f & (z80::FLAG_X | z80::FLAG_Y), z80::FLAG_X | z80::FLAG_Y);
+}
+
+TEST_F(Z80, BitRegisterTakesXyFromOperand) {
+    cpu->wz = 0x2800;
+    cpu->b = 0x00;
+    run({0xCB, 0x40});
+    EXPECT_EQ(cpu->f & (z80::FLAG_X | z80::FLAG_Y), 0);
+}
+
+TEST_F(Z80, MemptrAfterLdNnAAndJump) {
+    cpu->a = 0x12;
+    load({0x32, 0xFF, 0x40, 0xC3, 0x00, 0x30});  // LD (40FF),A / JP 3000
+    cpu->pc = 0;
+    cpu->step();
+    EXPECT_EQ(cpu->wz, 0x1200);
+    cpu->step();
+    EXPECT_EQ(cpu->wz, 0x3000);
+}
+
+TEST_F(Z80, MemptrAfterAddHlAndInAN) {
+    cpu->set_hl(0x1000);
+    cpu->set_bc(0x0001);
+    cpu->a = 0x56;
+    load({0x09, 0xDB, 0x78});  // ADD HL,BC / IN A,(78)
+    cpu->pc = 0;
+    cpu->step();
+    EXPECT_EQ(cpu->wz, 0x1001);
+    cpu->step();
+    EXPECT_EQ(cpu->wz, 0x5679);
+}
+
+TEST_F(Z80, ScfAfterNonFlagInstructionOrsFIntoXy) {
+    cpu->a = 0x00;
+    cpu->f = z80::FLAG_X | z80::FLAG_Y;
+    load({0x00, 0x37});  // NOP / SCF
+    cpu->pc = 0;
+    cpu->step();
+    EXPECT_EQ(cpu->q, 0);
+    cpu->step();
+    EXPECT_EQ(cpu->f & (z80::FLAG_X | z80::FLAG_Y), z80::FLAG_X | z80::FLAG_Y);
+}
+
+TEST_F(Z80, ScfAfterFlagInstructionTakesXyFromA) {
+    cpu->a = 0x28;
+    cpu->b = 0x00;
+    load({0xB0, 0xAF, 0x37});  // OR B / XOR A / SCF
+    cpu->pc = 0;
+    cpu->step();
+    cpu->a = 0x00;
+    cpu->f = z80::FLAG_X | z80::FLAG_Y;
+    cpu->q = cpu->f;
+    cpu->pc = 2;
+    cpu->step();
+    EXPECT_EQ(cpu->f & (z80::FLAG_X | z80::FLAG_Y), 0);
+}
+
+TEST_F(Z80, CcfUsesQ) {
+    cpu->a = 0x08;
+    cpu->f = z80::FLAG_Y | z80::FLAG_C;
+    cpu->q = cpu->f;
+    run({0x3F});
+    EXPECT_EQ(cpu->f & (z80::FLAG_X | z80::FLAG_Y), z80::FLAG_X);
+    EXPECT_TRUE(cpu->flag(z80::FLAG_H));
+    EXPECT_FALSE(cpu->flag(z80::FLAG_C));
+}
+
+TEST_F(Z80, PopAfLeavesQClear) {
+    cpu->sp = 0x4000;
+    mem[0x4000] = 0xFF;
+    run({0xF1});
+    EXPECT_EQ(cpu->q, 0);
+}
+
+TEST_F(Z80, IndexPrefixClearsQ) {
+    cpu->a = 0x00;
+    cpu->f = z80::FLAG_X;
+    cpu->q = cpu->f;
+    run({0xDD, 0x37});
+    EXPECT_EQ(cpu->f & z80::FLAG_X, z80::FLAG_X);
+    EXPECT_EQ(cpu->cycles, 8u);
+}
+
+// --- R, refresh, reset ---------------------------------------------------
+
+TEST_F(Z80, RefreshCarriesIAndRBeforeIncrement) {
+    cpu->i = 0x3E;
+    cpu->r = 0x7F;
+    run({0x00});
+    ASSERT_EQ(refreshes.size(), 1u);
+    EXPECT_EQ(refreshes[0], 0x3E7F);
+    EXPECT_EQ(cpu->r, 0x00);
+}
+
+TEST_F(Z80, RKeepsBit7) {
+    cpu->r = 0xFF;
+    run({0x00});
+    EXPECT_EQ(cpu->r, 0x80);
+}
+
+TEST_F(Z80, InterruptAcknowledgeIncrementsR) {
+    cpu->im = 1;
+    cpu->iff1 = cpu->iff2 = true;
+    cpu->sp = 0x8000;
+    cpu->r = 5;
+    cpu->interrupt();
+    EXPECT_EQ(cpu->r, 6);
+}
+
+TEST_F(Z80, NmiAcknowledgeIncrementsRAndFetchesAtPc) {
+    cpu->sp = 0x8000;
+    cpu->pc = 0x1234;
+    cpu->r = 5;
+    cpu->nmi();
+    EXPECT_EQ(cpu->r, 6);
+    ASSERT_FALSE(reads.empty());
+    EXPECT_EQ(reads[0], 0x1234);
+}
+
+TEST_F(Z80, IndexedCbOpcodeByteIsNotAnM1) {
+    cpu->ix = 0x4000;
+    cpu->r = 0;
+    run({0xDD, 0xCB, 0x00, 0x46});
+    EXPECT_EQ(cpu->r, 2);
+    EXPECT_EQ(cpu->cycles, 20u);
+}
+
+TEST_F(Z80, ResetSetsAfAndSpToFfff) {
+    cpu->a = 0;
+    cpu->f = 0;
+    cpu->sp = 0;
+    cpu->pc = 0x1234;
+    cpu->im = 2;
+    cpu->iff1 = cpu->iff2 = true;
+    cpu->reset();
+    EXPECT_EQ(cpu->af(), 0xFFFF);
+    EXPECT_EQ(cpu->sp, 0xFFFF);
+    EXPECT_EQ(cpu->pc, 0);
+    EXPECT_EQ(cpu->im, 0);
+    EXPECT_FALSE(cpu->iff1);
+}
+
+// --- 16-bit port address -------------------------------------------------
+
+TEST_F(Z80, InANPutsAOnHighByte) {
+    cpu->a = 0x12;
+    run({0xDB, 0x34});
+    EXPECT_EQ(last_in_port, 0x1234);
+}
+
+TEST_F(Z80, InRCPutsBOnHighByte) {
+    cpu->set_bc(0x5678);
+    run({0xED, 0x40});
+    EXPECT_EQ(last_in_port, 0x5678);
+    EXPECT_EQ(cpu->wz, 0x5679);
+}
+
+TEST_F(Z80, OutCZeroDrivesZeroOnNmos) {
+    cpu->set_bc(0x1234);
+    run({0xED, 0x71});
+    EXPECT_EQ(last_out_port, 0x1234);
+    EXPECT_EQ(last_out_val, 0x00);
+}
+
+// --- IM 0 ----------------------------------------------------------------
+
+TEST_F(Z80, Im0ExecutesCallFromBus) {
+    irq_queue = {0xCD, 0x00, 0x40};
+    cpu->im = 0;
+    cpu->iff1 = cpu->iff2 = true;
+    cpu->sp = 0x8000;
+    cpu->pc = 0x1234;
+    EXPECT_EQ(cpu->interrupt(), 19);
+    EXPECT_EQ(cpu->pc, 0x4000);
+    EXPECT_EQ(mem[0x7FFF], 0x12);
+    EXPECT_EQ(mem[0x7FFE], 0x34);
+}
+
+TEST_F(Z80, Im0ExecutesOneByteInstructionWithoutMovingPc) {
+    irq_byte = 0x3C;  // INC A
+    cpu->im = 0;
+    cpu->a = 0x41;
+    cpu->iff1 = cpu->iff2 = true;
+    cpu->pc = 0x1234;
+    EXPECT_EQ(cpu->interrupt(), 6);
+    EXPECT_EQ(cpu->a, 0x42);
+    EXPECT_EQ(cpu->pc, 0x1234);
+    EXPECT_FALSE(cpu->iff1);
+}
+
+// --- interrupt lines -----------------------------------------------------
+
+TEST_F(Z80, HeldIntIsTakenOnceInterruptsAreEnabled) {
+    cpu->im = 1;
+    cpu->sp = 0x8000;
+    load({0x00, 0xFB, 0x00});  // NOP / EI / NOP
+    cpu->pc = 0;
+    cpu->set_int(true);
+    EXPECT_EQ(cpu->step(), 4);
+    EXPECT_EQ(cpu->step(), 4);
+    EXPECT_EQ(cpu->step(), 4);
+    EXPECT_EQ(cpu->pc, 3);
+    EXPECT_EQ(cpu->step(), 13);
+    EXPECT_EQ(cpu->pc, 0x0038);
+    EXPECT_EQ(mem[0x7FFE], 0x03);
+}
+
+TEST_F(Z80, ReleasedIntIsNotTaken) {
+    cpu->im = 1;
+    cpu->iff1 = cpu->iff2 = true;
+    load({0x00, 0x00});
+    cpu->pc = 0;
+    cpu->set_int(true);
+    cpu->set_int(false);
+    EXPECT_EQ(cpu->step(), 4);
+    EXPECT_EQ(cpu->pc, 1);
+}
+
+TEST_F(Z80, NmiIsEdgeTriggered) {
+    cpu->sp = 0x8000;
+    load({0x00, 0x00, 0x00}, 0x0066);
+    cpu->set_nmi(true);
+    EXPECT_TRUE(cpu->nmi_pending());
+    EXPECT_EQ(cpu->step(), 11);
+    EXPECT_EQ(cpu->pc, 0x0066);
+    EXPECT_EQ(cpu->step(), 4);
+    EXPECT_EQ(cpu->pc, 0x0067);
+    cpu->set_nmi(false);
+    cpu->set_nmi(true);
+    EXPECT_EQ(cpu->step(), 11);
+}
+
+TEST_F(Z80, NmiIsTakenInTheEiShadow) {
+    cpu->sp = 0x8000;
+    run({0xFB});
+    cpu->set_nmi(true);
+    EXPECT_EQ(cpu->step(), 11);
+    EXPECT_EQ(cpu->pc, 0x0066);
+}
+
+TEST_F(Z80, InterruptAfterLdAIClearsParity) {
+    cpu->im = 1;
+    cpu->iff1 = cpu->iff2 = true;
+    cpu->sp = 0x8000;
+    cpu->i = 0x01;
+    run({0xED, 0x57});
+    EXPECT_TRUE(cpu->flag(z80::FLAG_PV));
+    cpu->interrupt();
+    EXPECT_FALSE(cpu->flag(z80::FLAG_PV));
+}
+
+TEST_F(Z80, HaltRefetchesTheByteAfterHalt) {
+    load({0x76, 0x00});
+    cpu->pc = 0;
+    cpu->step();
+    reads.clear();
+    cpu->r = 0;
+    EXPECT_EQ(cpu->step(), 4);
+    EXPECT_EQ(cpu->step(), 4);
+    EXPECT_EQ(cpu->pc, 1);
+    EXPECT_EQ(cpu->r, 2);
+    ASSERT_EQ(reads.size(), 2u);
+    EXPECT_EQ(reads[0], 1);
+    EXPECT_EQ(reads[1], 1);
+}
+
+TEST_F(Z80, RetiCopiesIff2ToIff1) {
+    cpu->iff1 = false;
+    cpu->iff2 = true;
+    cpu->sp = 0x4000;
+    run({0xED, 0x4D});
+    EXPECT_TRUE(cpu->iff1);
+    EXPECT_EQ(cpu->cycles, 14u);
+}
+
+// --- bus timing, /WAIT, tick ---------------------------------------------
+
+class Z80Timing : public Z80 {
+protected:
+    std::vector<std::pair<char, int>> strobes;
+    uint64_t start = 0;
+    std::function<int(uint16_t, z80::Cycle)> wait;
+    int ticked = 0;
+
+    void SetUp() override {
+        z80::Bus bus = make_bus();
+        auto rd = bus.read;
+        auto wr = bus.write;
+        auto in = bus.in;
+        auto out = bus.out;
+        bus.read = [this, rd](uint16_t a) {
+            strobes.push_back({'r', int(cpu->cycles - start)});
+            return rd(a);
+        };
+        bus.write = [this, wr](uint16_t a, uint8_t v) {
+            strobes.push_back({'w', int(cpu->cycles - start)});
+            wr(a, v);
+        };
+        bus.in = [this, in](uint16_t p) {
+            strobes.push_back({'i', int(cpu->cycles - start)});
+            return in(p);
+        };
+        bus.out = [this, out](uint16_t p, uint8_t v) {
+            strobes.push_back({'o', int(cpu->cycles - start)});
+            out(p, v);
+        };
+        bus.wait = [this](uint16_t a, z80::Cycle k) { return wait ? wait(a, k) : 0; };
+        bus.tick = [this](int t) { ticked += t; };
+        cpu = std::make_unique<z80::Cpu>(bus);
+        cpu->reset();
+    }
+
+    int exec(std::initializer_list<uint8_t> code) {
+        load(code);
+        cpu->pc = 0;
+        start = cpu->cycles;
+        return cpu->step();
+    }
+};
+
+TEST_F(Z80Timing, MemoryReadStrobesInT2OfEachMachineCycle) {
+    EXPECT_EQ(exec({0x3A, 0x00, 0x40}), 13);  // LD A,(4000)
+    std::vector<std::pair<char, int>> want = {{'r', 1}, {'r', 5}, {'r', 8}, {'r', 11}};
+    EXPECT_EQ(strobes, want);
+}
+
+TEST_F(Z80Timing, WriteFollowsInternalCycles) {
+    cpu->set_hl(0x4000);
+    EXPECT_EQ(exec({0x34}), 11);  // INC (HL)
+    std::vector<std::pair<char, int>> want = {{'r', 1}, {'r', 5}, {'w', 9}};
+    EXPECT_EQ(strobes, want);
+}
+
+TEST_F(Z80Timing, PushWritesAfterTheFiveTStateM1) {
+    cpu->sp = 0x8000;
+    EXPECT_EQ(exec({0xC5}), 11);  // PUSH BC
+    std::vector<std::pair<char, int>> want = {{'r', 1}, {'w', 6}, {'w', 9}};
+    EXPECT_EQ(strobes, want);
+}
+
+TEST_F(Z80Timing, IoStrobesInTheThirdTState) {
+    EXPECT_EQ(exec({0xDB, 0x10}), 11);
+    EXPECT_EQ(strobes.back(), std::make_pair('i', 9));
+    strobes.clear();
+    EXPECT_EQ(exec({0xD3, 0x10}), 11);
+    EXPECT_EQ(strobes.back(), std::make_pair('o', 9));
+}
+
+TEST_F(Z80Timing, IndexedOperandWaitsFiveInternalTStates) {
+    cpu->ix = 0x4000;
+    EXPECT_EQ(exec({0xDD, 0x7E, 0x02}), 19);  // LD A,(IX+2)
+    std::vector<std::pair<char, int>> want = {{'r', 1}, {'r', 5}, {'r', 9}, {'r', 17}};
+    EXPECT_EQ(strobes, want);
+}
+
+TEST_F(Z80Timing, WaitStretchesOnlyTheCycleItHolds) {
+    wait = [](uint16_t a, z80::Cycle k) { return a == 0x4000 && k == z80::Cycle::Read ? 2 : 0; };
+    EXPECT_EQ(exec({0x3A, 0x00, 0x40}), 15);
+    EXPECT_EQ(strobes.back(), std::make_pair('r', 13));
+}
+
+TEST_F(Z80Timing, WaitOnOpcodeFetch) {
+    wait = [](uint16_t, z80::Cycle k) { return k == z80::Cycle::Fetch ? 1 : 0; };
+    EXPECT_EQ(exec({0x00}), 5);
+}
+
+TEST_F(Z80Timing, WaitOnIoCycle) {
+    wait = [](uint16_t, z80::Cycle k) { return k == z80::Cycle::In ? 3 : 0; };
+    EXPECT_EQ(exec({0xDB, 0x10}), 14);
+}
+
+TEST_F(Z80Timing, WaitOnInterruptAcknowledge) {
+    wait = [](uint16_t, z80::Cycle k) { return k == z80::Cycle::IntAck ? 2 : 0; };
+    cpu->im = 1;
+    cpu->iff1 = cpu->iff2 = true;
+    cpu->sp = 0x8000;
+    EXPECT_EQ(cpu->interrupt(), 15);
+}
+
+TEST_F(Z80Timing, TickReportsEveryTState) {
+    cpu->sp = 0x8000;
+    int t = exec({0xCD, 0x00, 0x30});  // CALL 3000
+    EXPECT_EQ(t, 17);
+    EXPECT_EQ(ticked, 17);
+    EXPECT_EQ(cpu->cycles, 17u);
+}
+
+TEST_F(Z80Timing, Im2ReadsTheVectorAfterPushing) {
+    irq_byte = 0x40;
+    cpu->i = 0x30;
+    cpu->im = 2;
+    cpu->iff1 = cpu->iff2 = true;
+    cpu->sp = 0x8000;
+    mem[0x3040] = 0x00;
+    mem[0x3041] = 0x50;
+    start = cpu->cycles;
+    EXPECT_EQ(cpu->interrupt(), 19);
+    std::vector<std::pair<char, int>> want = {{'w', 8}, {'w', 11}, {'r', 14}, {'r', 17}};
+    EXPECT_EQ(strobes, want);
+    EXPECT_EQ(cpu->pc, 0x5000);
 }
 
 }  // namespace

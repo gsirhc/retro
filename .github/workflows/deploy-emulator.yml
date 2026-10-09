@@ -330,7 +330,8 @@ jobs:
             retroweb/pc486/web/test-results/
           retention-days: 7
 
-  # Shared Z80 ISA smoke: named GoogleTest groups (UM0080). zexdoc is nightly.
+  # Shared Z80 smoke: named GoogleTest groups (UM0080 + bus timing). zexdoc,
+  # zexall, and SingleStepTests are nightly.
   z80-test:
     runs-on: ubuntu-latest
     steps:

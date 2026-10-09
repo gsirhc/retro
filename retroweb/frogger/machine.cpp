@@ -23,8 +23,8 @@ z80::Bus Machine::make_main_bus() {
     z80::Bus b;
     b.read = [this](uint16_t a) { return mem_read(a); };
     b.write = [this](uint16_t a, uint8_t v) { mem_write(a, v); };
-    b.in = [](uint8_t) { return uint8_t(0xFF); };
-    b.out = [](uint8_t, uint8_t) {};
+    b.in = [](uint16_t) { return uint8_t(0xFF); };
+    b.out = [](uint16_t, uint8_t) {};
     b.irq_data = [] { return uint8_t(0xFF); };
     return b;
 }
@@ -33,8 +33,8 @@ z80::Bus Machine::make_sound_bus() {
     z80::Bus b;
     b.read = [this](uint16_t a) { return sound_read(a); };
     b.write = [this](uint16_t a, uint8_t v) { sound_write(a, v); };
-    b.in = [this](uint8_t port) { return sound_in(port); };
-    b.out = [this](uint8_t port, uint8_t v) { sound_out(port, v); };
+    b.in = [this](uint16_t port) { return sound_in(uint8_t(port)); };
+    b.out = [this](uint16_t port, uint8_t v) { sound_out(uint8_t(port), v); };
     b.irq_data = [] { return uint8_t(0xFF); };
     return b;
 }

@@ -102,8 +102,9 @@ shared CSS via the cascade.
 
 [`shared/cpu/`](shared/cpu/) is the C++ Z80 core used by Pac-Man, Frogger,
 Scramble, Galaxian, and Galaga — not front-end chrome, and not copied into `_site/shared/`.
-`make -C retroweb/shared/cpu check` is the full ISA suite (GoogleTest +
-zexdoc); each arcade board then only smokes that the CPU is wired.
+`make -C retroweb/shared/cpu check` is the full ISA suite (GoogleTest,
+zexdoc, zexall, SingleStepTests); each arcade board then only smokes that
+the CPU is wired.
 [`shared/galaxian/`](shared/galaxian/) is the AY / 8255 / Galaxian video /
 Konami timer shared by Frogger, Scramble, and Galaxian (Galaxian the game
 uses the video with `Board::Galaxian`; it has no AY or 8255).

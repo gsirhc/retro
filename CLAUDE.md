@@ -226,13 +226,15 @@ enough to gate Pages deploys. The full fidelity suites are slower
   **real wall-clock pacing** check (`tests/smoke.spec.ts` realtime /
   `realtime: true` cases) — the contract in "Never speed these up".
 - Arcade native: the existing `TEST(Smoke, …)` board smoke only.
-- Shared Z80: the named ISA GoogleTest suite only (not zexdoc).
+- Shared Z80: the named ISA and bus-timing GoogleTest suites only (not
+  zexdoc, zexall, or SingleStepTests).
 
 **What is nightly / local full** (not deploy CI):
 
 - Every other Playwright spec (controls, media, themes, home card, …).
 - Long native exercisers: Altair CP/M diagnostics + disk boot, Klaus
-  Dormann 6502/65C02, Frank Cringle's zexdoc, pc486 `pm-check` /
+  Dormann 6502/65C02, Frank Cringle's zexdoc and zexall, SingleStepTests/z80,
+  pc486 `pm-check` /
   `vbe-check`, pc486 Performance panel against the shipped (non-`?perf`)
   binary, arcade `play_test` optional ROM playthroughs.
 
@@ -427,7 +429,8 @@ separate suite.
   `smoke.spec.ts`). Ships only that self-test ROM; a real Midway `pacman` ROM
   set is opt-in and browser-local (IndexedDB) — see `PACMAN_REVIEW.md`.
   The Z80 core is `retroweb/shared/cpu/` (`make -C retroweb/shared/cpu check`
-  runs the named GoogleTest ISA suite plus Frank Cringle's zexdoc exerciser).
+  runs the named GoogleTest suite, Frank Cringle's zexdoc and zexall, and
+  SingleStepTests/z80's per-T-state bus traces; see `Z80_REVIEW.md`).
 - **Frogger Arcade** (`retroweb/frogger/`): `make -C retroweb/frogger check`
   (GoogleTest over the dual Z80 + Galaxian video + AY-3-8910 + two i8255s,
   including the board smoke), `make -C retroweb/frogger/web wasm roms`,
