@@ -600,7 +600,7 @@ void Cpu::aas() {
 void Cpu::aam() {
     uint8_t base = fetch8();
     uint8_t al = get_reg8(0);
-    if (base == 0) { ip = instr_start_ip_; interrupt(0); return; }  // #DE, divide error
+    if (base == 0) { exception(0); return; }  // #DE, divide error
     uint8_t ah = uint8_t(al / base);
     al = uint8_t(al % base);
     set_reg8(4, ah);
@@ -638,7 +638,7 @@ void Cpu::bound() {
     int16_t idx = int16_t(get_reg16(last_reg_));
     uint16_t lo, hi;
     if (!far_operand(rm, lo, hi)) return;
-    if (idx < int16_t(lo) || idx > int16_t(hi)) { ip = instr_start_ip_; interrupt(5); }  // #BR
+    if (idx < int16_t(lo) || idx > int16_t(hi)) exception(5);  // #BR
 }
 void Cpu::imul_imm16(int dst_reg, const RM &rm, uint16_t imm) {
     int32_t a = int16_t(rm_read16(rm));
@@ -903,8 +903,8 @@ int Cpu::grp1_immed(uint8_t op) {  // 0x80/0x82: r/m8,imm8  0x81: r/m16/32,imm16
         uint16_t res = alu_apply16(alu, rm_read16(rm), imm);
         if (alu != 7) rm_write16(rm, res);
     }
-    // reg r/m 3, mem r/m 7 (iAPX 286 PRM timing appendix).
-    return rm.is_mem ? 7 : 3;
+    // reg 3, mem 7, CMP mem 6 (iAPX 286 PRM timing appendix).
+    return rm.is_mem ? (alu == 7 ? 6 : 7) : 3;
 }
 int Cpu::grp2_shift(uint8_t op) {  // 0xC0/0xD0/0xD2: 8-bit  0xC1/0xD1/0xD3: 16-bit
     RM rm = decode_modrm();
@@ -914,6 +914,7 @@ int Cpu::grp2_shift(uint8_t op) {  // 0xC0/0xD0/0xD2: 8-bit  0xC1/0xD1/0xD3: 16-
     if (op == 0xC0 || op == 0xC1) count = fetch8();
     else if (op == 0xD0 || op == 0xD1) count = 1;
     else count = get_reg8(1);  // CL
+    count &= 0x1F;  // the 286 masks the count before it runs, so 5+n has n <= 31
     if (!wide) {
         uint8_t res = shiftrot8(alu, rm_read8(rm), count);
         if (count != 0) rm_write8(rm, res);
@@ -953,18 +954,18 @@ int Cpu::grp3_unary(uint8_t op) {  // 0xF6: r/m8  0xF7: r/m16 -- TEST/NOT/NEG/MU
                 break;
             }
             case 6: {  // DIV
-                if (v == 0) { ip = instr_start_ip_; interrupt(0); break; }
+                if (v == 0) { exception(0); break; }
                 int q = ax / v, rem = ax % v;
-                if (q > 0xFF) { ip = instr_start_ip_; interrupt(0); break; }
+                if (q > 0xFF) { exception(0); break; }
                 ax = uint16_t((uint16_t(uint8_t(rem)) << 8) | uint8_t(q));
                 break;
             }
             default: {  // IDIV
                 int16_t dividend = int16_t(ax);
                 int8_t divisor = int8_t(v);
-                if (divisor == 0) { ip = instr_start_ip_; interrupt(0); break; }
+                if (divisor == 0) { exception(0); break; }
                 int q = dividend / divisor, rem = dividend % divisor;
-                if (q > 127 || q < -128) { ip = instr_start_ip_; interrupt(0); break; }
+                if (q > 127 || q < -128) { exception(0); break; }
                 ax = uint16_t((uint16_t(uint8_t(int8_t(rem))) << 8) | uint8_t(int8_t(q)));
                 break;
             }
@@ -991,18 +992,18 @@ int Cpu::grp3_unary(uint8_t op) {  // 0xF6: r/m8  0xF7: r/m16 -- TEST/NOT/NEG/MU
             }
             case 6: {
                 uint64_t dividend = (uint64_t(dx) << 32) | ax;
-                if (v == 0) { ip = instr_start_ip_; interrupt(0); break; }
+                if (v == 0) { exception(0); break; }
                 uint64_t q = dividend / v, rem = dividend % v;
-                if (q > 0xFFFFFFFFull) { ip = instr_start_ip_; interrupt(0); break; }
+                if (q > 0xFFFFFFFFull) { exception(0); break; }
                 ax = uint32_t(q); dx = uint32_t(rem);
                 break;
             }
             default: {
                 int64_t dividend = int64_t((uint64_t(dx) << 32) | ax);
                 int32_t divisor = int32_t(v);
-                if (divisor == 0 || (divisor == -1 && dividend == INT64_MIN)) { ip = instr_start_ip_; interrupt(0); break; }
+                if (divisor == 0 || (divisor == -1 && dividend == INT64_MIN)) { exception(0); break; }
                 int64_t q = dividend / divisor, rem = dividend % divisor;
-                if (q > 2147483647ll || q < -2147483648ll) { ip = instr_start_ip_; interrupt(0); break; }
+                if (q > 2147483647ll || q < -2147483648ll) { exception(0); break; }
                 ax = uint32_t(int32_t(q)); dx = uint32_t(int32_t(rem));
                 break;
             }
@@ -1029,18 +1030,18 @@ int Cpu::grp3_unary(uint8_t op) {  // 0xF6: r/m8  0xF7: r/m16 -- TEST/NOT/NEG/MU
             }
             case 6: {
                 uint32_t dividend = (uint32_t(uint16_t(dx)) << 16) | uint16_t(ax);
-                if (v == 0) { ip = instr_start_ip_; interrupt(0); break; }
+                if (v == 0) { exception(0); break; }
                 uint32_t q = dividend / v, rem = dividend % v;
-                if (q > 0xFFFF) { ip = instr_start_ip_; interrupt(0); break; }
+                if (q > 0xFFFF) { exception(0); break; }
                 ax = (ax & 0xFFFF0000u) | uint16_t(q); dx = (dx & 0xFFFF0000u) | uint16_t(rem);
                 break;
             }
             default: {
                 int64_t dividend = int32_t((uint32_t(uint16_t(dx)) << 16) | uint16_t(ax));
                 int64_t divisor = int16_t(v);
-                if (divisor == 0) { ip = instr_start_ip_; interrupt(0); break; }
+                if (divisor == 0) { exception(0); break; }
                 int64_t q = dividend / divisor, rem = dividend % divisor;
-                if (q > 32767 || q < -32768) { ip = instr_start_ip_; interrupt(0); break; }
+                if (q > 32767 || q < -32768) { exception(0); break; }
                 ax = (ax & 0xFFFF0000u) | uint16_t(int16_t(q)); dx = (dx & 0xFFFF0000u) | uint16_t(int16_t(rem));
                 break;
             }
@@ -1055,45 +1056,47 @@ int Cpu::grp3_unary(uint8_t op) {  // 0xF6: r/m8  0xF7: r/m16 -- TEST/NOT/NEG/MU
         default:        return wide ? (rm.is_mem ? 28 : 25) : (rm.is_mem ? 20 : 17); // IDIV
     }
 }
-void Cpu::grp5(uint8_t op) {  // 0xFE: INC/DEC r/m8   0xFF: INC/DEC/CALL/JMP/PUSH r/m16
+int Cpu::grp5(uint8_t op) {  // 0xFE: INC/DEC r/m8   0xFF: INC/DEC/CALL/JMP/PUSH r/m16
     RM rm = decode_modrm();
     int alu = last_reg_;
     if (op == 0xFE) {
         bool cf = flag(FLAG_CF);
         if (alu == 0) { uint8_t r = add8(rm_read8(rm), 1, false); set_flag(FLAG_CF, cf); rm_write8(rm, r); }
         else if (alu == 1) { uint8_t r = sub8(rm_read8(rm), 1, false); set_flag(FLAG_CF, cf); rm_write8(rm, r); }
-        return;
+        else return 7;
+        return rm.is_mem ? 7 : 2;
     }
     switch (alu) {
         case 0: {
             bool cf = flag(FLAG_CF);
             if (opsize32_) { uint32_t r = add32(rm_read32(rm), 1, false); set_flag(FLAG_CF, cf); rm_write32(rm, r); }
             else { uint16_t r = add16(rm_read16(rm), 1, false); set_flag(FLAG_CF, cf); rm_write16(rm, r); }
-            break;
+            return rm.is_mem ? 7 : 2;
         }
         case 1: {
             bool cf = flag(FLAG_CF);
             if (opsize32_) { uint32_t r = sub32(rm_read32(rm), 1, false); set_flag(FLAG_CF, cf); rm_write32(rm, r); }
             else { uint16_t r = sub16(rm_read16(rm), 1, false); set_flag(FLAG_CF, cf); rm_write16(rm, r); }
-            break;
+            return rm.is_mem ? 7 : 2;
         }
-        case 2: { uint16_t target = rm_read16(rm); push16(ip); ip = target; transfer_ = true; break; }  // CALL near indirect
+        // Indirect transfers: reg 7, mem 11, far 16 (CALL) / 15 (JMP), each plus the refill tax.
+        case 2: { uint16_t target = rm_read16(rm); push16(ip); ip = target; return (rm.is_mem ? 11 : 7) + flush(); }  // CALL near indirect
         case 3: {                                                                                    // CALL far indirect (memory only)
             uint16_t off, seg;
-            if (!far_operand(rm, off, seg)) break;
+            if (!far_operand(rm, off, seg)) return 3;
             push16(cs); push16(ip);
-            cs = seg; ip = off; cs_high_ = false; transfer_ = true;
-            break;
+            cs = seg; ip = off; cs_high_ = false;
+            return 16 + flush();
         }
-        case 4: ip = rm_read16(rm); transfer_ = true; break;                                                          // JMP near indirect
+        case 4: ip = rm_read16(rm); return (rm.is_mem ? 11 : 7) + flush();                          // JMP near indirect
         case 5: {                                                                                    // JMP far indirect (memory only)
             uint16_t off, seg;
-            if (!far_operand(rm, off, seg)) break;
-            cs = seg; ip = off; cs_high_ = false; transfer_ = true;
-            break;
+            if (!far_operand(rm, off, seg)) return 3;
+            cs = seg; ip = off; cs_high_ = false;
+            return 15 + flush();
         }
-        case 6: { if (opsize32_) push32(rm_read32(rm)); else push16(rm_read16(rm)); break; }         // PUSH r/m16/32
-        default: ud(); break;
+        case 6: { if (opsize32_) push32(rm_read32(rm)); else push16(rm_read16(rm)); return rm.is_mem ? 5 : 3; }  // PUSH r/m16/32
+        default: ud(); return 3;
     }
 }
 
@@ -1180,19 +1183,19 @@ int Cpu::execute(uint8_t op, int c) {
                 c += rm.is_mem ? CYC_MEM : CYC_REG;
                 break;
             }
-            case 2: { RM rm = decode_modrm(); uint8_t res = alu_apply8(alu, get_reg8(last_reg_), rm_read8(rm)); if (alu != 7) set_reg8(last_reg_, res); c += rm.is_mem ? CYC_MEM : CYC_REG; break; }
+            case 2: { RM rm = decode_modrm(); uint8_t res = alu_apply8(alu, get_reg8(last_reg_), rm_read8(rm)); if (alu != 7) set_reg8(last_reg_, res); c += rm.is_mem ? (alu == 7 ? 6 : CYC_MEM) : CYC_REG; break; }
             case 3: {
                 RM rm = decode_modrm();
                 if (opsize32_) { uint32_t res = alu_apply32(alu, get_reg32(last_reg_), rm_read32(rm)); if (alu != 7) set_reg32(last_reg_, res); }
                 else { uint16_t res = alu_apply16(alu, get_reg16(last_reg_), rm_read16(rm)); if (alu != 7) set_reg16(last_reg_, res); }
-                c += rm.is_mem ? CYC_MEM : CYC_REG;
+                c += rm.is_mem ? (alu == 7 ? 6 : CYC_MEM) : CYC_REG;  // CMP reg,mem is 6
                 break;
             }
-            case 4: { uint8_t imm = fetch8(); uint8_t res = alu_apply8(alu, get_reg8(0), imm); if (alu != 7) set_reg8(0, res); c += CYC_REG; break; }
+            case 4: { uint8_t imm = fetch8(); uint8_t res = alu_apply8(alu, get_reg8(0), imm); if (alu != 7) set_reg8(0, res); c += 3; break; }
             default: {
                 if (opsize32_) { uint32_t imm = fetch32(); uint32_t res = alu_apply32(alu, get_reg32(0), imm); if (alu != 7) set_reg32(0, res); }
                 else { uint16_t imm = fetch16(); uint16_t res = alu_apply16(alu, get_reg16(0), imm); if (alu != 7) set_reg16(0, res); }
-                c += CYC_REG;
+                c += 3;  // ALU acc,imm
                 break;
             }
         }
@@ -1200,9 +1203,9 @@ int Cpu::execute(uint8_t op, int c) {
     }
 
     switch (op) {
-        case 0x06: push16(es); c += CYC_MEM; break;
-        case 0x07: es = pop16(); c += CYC_MEM; break;
-        case 0x0E: push16(cs); c += CYC_MEM; break;
+        case 0x06: push16(es); c += 3; break;
+        case 0x07: es = pop16(); c += 5; break;
+        case 0x0E: push16(cs); c += 3; break;
         case 0x0F: {
             uint8_t op2 = fetch8();
             if (op2 == 0x01) {
@@ -1261,14 +1264,14 @@ int Cpu::execute(uint8_t op, int c) {
             }
             break;
         }
-        case 0x16: push16(ss); c += CYC_MEM; break;
-        case 0x17: ss = pop16(); shadow_ = true; c += CYC_MEM; break;
-        case 0x1E: push16(ds); c += CYC_MEM; break;
-        case 0x1F: ds = pop16(); c += CYC_MEM; break;
-        case 0x27: daa(); c += CYC_REG; break;
-        case 0x2F: das(); c += CYC_REG; break;
-        case 0x37: aaa(); c += CYC_REG; break;
-        case 0x3F: aas(); c += CYC_REG; break;
+        case 0x16: push16(ss); c += 3; break;
+        case 0x17: ss = pop16(); shadow_ = true; c += 5; break;
+        case 0x1E: push16(ds); c += 3; break;
+        case 0x1F: ds = pop16(); c += 5; break;
+        case 0x27: daa(); c += 3; break;
+        case 0x2F: das(); c += 3; break;
+        case 0x37: aaa(); c += 3; break;
+        case 0x3F: aas(); c += 3; break;
         default:
             if (op <= 0x47) {
                 int r = op - 0x40; bool cf = flag(FLAG_CF);
@@ -1286,30 +1289,30 @@ int Cpu::execute(uint8_t op, int c) {
             else if (op <= 0x5F) {
                 int r = op - 0x58;
                 if (opsize32_) set_reg32(r, pop32()); else set_reg16(r, pop16());
-                c += CYC_MEM;
+                c += 5;
             }
             else if (op == 0x60) { pusha(); c += 17; }  // PUSHA
             else if (op == 0x61) { popa(); c += 19; }  // POPA
-            else if (op == 0x62) { bound(); c += CYC_MEM; }
-            else if (op == 0x68) { if (opsize32_) push32(fetch32()); else push16(fetch16()); c += CYC_REG; }
+            else if (op == 0x62) { bound(); c += 13; }
+            else if (op == 0x68) { if (opsize32_) push32(fetch32()); else push16(fetch16()); c += 3; }
             else if (op == 0x69) {
                 RM rm = decode_modrm(); int r = last_reg_;
                 if (opsize32_) imul_imm32(r, rm, fetch32()); else imul_imm16(r, rm, fetch16());
-                c += CYC_MEM;
+                c += rm.is_mem ? 24 : 21;
             }
-            else if (op == 0x6A) { int8_t imm = int8_t(fetch8()); if (opsize32_) push32(uint32_t(int32_t(imm))); else push16(uint16_t(int16_t(imm))); c += CYC_REG; }
+            else if (op == 0x6A) { int8_t imm = int8_t(fetch8()); if (opsize32_) push32(uint32_t(int32_t(imm))); else push16(uint16_t(int16_t(imm))); c += 3; }
             else if (op == 0x6B) {
                 RM rm = decode_modrm(); int r = last_reg_; int8_t imm = int8_t(fetch8());
                 if (opsize32_) imul_imm32(r, rm, uint32_t(int32_t(imm))); else imul_imm16(r, rm, uint16_t(int16_t(imm)));
-                c += CYC_MEM;
+                c += rm.is_mem ? 24 : 21;
             }
             else if (op >= 0x6C && op <= 0x6F) { c += io_string_op(op); }
             else if (op >= 0x70 && op <= 0x7F) { bool taken = cond(op & 0xF); jcc(taken); c += taken ? (CYC_JMP_TAKEN + flush()) : CYC_JMP_NOT; }  // taken: floor 7 plus queue-refill tax
             else if (op == 0x80 || op == 0x81 || op == 0x82 || op == 0x83) { c += grp1_immed(op); }
-            else if (op == 0x84) { RM rm = decode_modrm(); and8(rm_read8(rm), get_reg8(last_reg_)); c += rm.is_mem ? CYC_MEM : CYC_REG; }
-            else if (op == 0x85) { RM rm = decode_modrm(); and16(rm_read16(rm), get_reg16(last_reg_)); c += rm.is_mem ? CYC_MEM : CYC_REG; }
-            else if (op == 0x86) { RM rm = decode_modrm(); uint8_t a = get_reg8(last_reg_), b = rm_read8(rm); set_reg8(last_reg_, b); rm_write8(rm, a); c += CYC_MEM; }
-            else if (op == 0x87) { RM rm = decode_modrm(); uint16_t a = get_reg16(last_reg_), b = rm_read16(rm); set_reg16(last_reg_, b); rm_write16(rm, a); c += CYC_MEM; }
+            else if (op == 0x84) { RM rm = decode_modrm(); and8(rm_read8(rm), get_reg8(last_reg_)); c += rm.is_mem ? 6 : CYC_REG; }
+            else if (op == 0x85) { RM rm = decode_modrm(); and16(rm_read16(rm), get_reg16(last_reg_)); c += rm.is_mem ? 6 : CYC_REG; }
+            else if (op == 0x86) { RM rm = decode_modrm(); uint8_t a = get_reg8(last_reg_), b = rm_read8(rm); set_reg8(last_reg_, b); rm_write8(rm, a); c += rm.is_mem ? 5 : 3; }
+            else if (op == 0x87) { RM rm = decode_modrm(); uint16_t a = get_reg16(last_reg_), b = rm_read16(rm); set_reg16(last_reg_, b); rm_write16(rm, a); c += rm.is_mem ? 5 : 3; }
             // MOV memory cost is directional: write 3, read 5 (iAPX 286 PRM timing appendix).
             else if (op == 0x88) { RM rm = decode_modrm(); rm_write8(rm, get_reg8(last_reg_)); c += rm.is_mem ? 3 : CYC_REG; }
             else if (op == 0x89) { RM rm = decode_modrm(); if (opsize32_) rm_write32(rm, get_reg32(last_reg_)); else rm_write16(rm, get_reg16(last_reg_)); c += rm.is_mem ? 3 : CYC_REG; }
@@ -1317,7 +1320,7 @@ int Cpu::execute(uint8_t op, int c) {
             else if (op == 0x8B) { RM rm = decode_modrm(); if (opsize32_) set_reg32(last_reg_, rm_read32(rm)); else set_reg16(last_reg_, rm_read16(rm)); c += rm.is_mem ? 5 : CYC_REG; }
             // MOV reg16,segreg and segreg,reg16 cost 2 register-to-register.
             else if (op == 0x8C) { RM rm = decode_modrm(); rm_write16(rm, seg_reg(last_reg_ & 3)); c += rm.is_mem ? 3 : CYC_REG; }
-            else if (op == 0x8D) { RM rm = decode_modrm(); if (!rm.is_mem) ud(); else if (opsize32_) set_reg32(last_reg_, rm.off); else set_reg16(last_reg_, rm.off); c += CYC_REG; }  // LEA
+            else if (op == 0x8D) { RM rm = decode_modrm(); if (!rm.is_mem) ud(); else if (opsize32_) set_reg32(last_reg_, rm.off); else set_reg16(last_reg_, rm.off); c += 3; }  // LEA
             else if (op == 0x8E) {
                 RM rm = decode_modrm();
                 int sr = last_reg_ & 3;
@@ -1325,13 +1328,13 @@ int Cpu::execute(uint8_t op, int c) {
                 else { seg_reg(sr) = rm_read16(rm); if (sr == SEG_SS) shadow_ = true; }
                 c += rm.is_mem ? 5 : CYC_REG;
             }
-            else if (op == 0x8F) { RM rm = decode_modrm(); if (opsize32_) rm_write32(rm, pop32()); else rm_write16(rm, pop16()); c += CYC_MEM; }
-            else if (op == 0x90) { c += CYC_REG; }
+            else if (op == 0x8F) { RM rm = decode_modrm(); if (opsize32_) rm_write32(rm, pop32()); else rm_write16(rm, pop16()); c += 5; }
+            else if (op == 0x90) { c += 3; }
             else if (op >= 0x91 && op <= 0x97) {
                 int r = op - 0x90;
                 if (opsize32_) { uint32_t t = ax; ax = get_reg32(r); set_reg32(r, t); }
                 else { uint16_t t = uint16_t(ax); ax = (ax & 0xFFFF0000u) | get_reg16(r); set_reg16(r, t); }
-                c += CYC_REG;
+                c += 3;
             }
             else if (op == 0x98) { if (opsize32_) ax = uint32_t(int32_t(int16_t(ax))); else ax = (ax & 0xFFFF0000u) | uint16_t(int16_t(int8_t(ax & 0xFF))); c += CYC_REG; }  // CBW / CWDE
             else if (op == 0x99) { if (opsize32_) dx = (ax & 0x80000000u) ? 0xFFFFFFFFu : 0u; else dx = (dx & 0xFFFF0000u) | ((ax & 0x8000) ? 0xFFFFu : 0u); c += CYC_REG; }  // CWD / CDQ
@@ -1353,8 +1356,8 @@ int Cpu::execute(uint8_t op, int c) {
                 c += is_load ? 5 : 3;
             }
             else if (op >= 0xA4 && op <= 0xA7) { c += string_op(op); }
-            else if (op == 0xA8) { uint8_t imm = fetch8(); and8(get_reg8(0), imm); c += CYC_REG; }
-            else if (op == 0xA9) { if (opsize32_) and32(ax, fetch32()); else and16(uint16_t(ax), fetch16()); c += CYC_REG; }
+            else if (op == 0xA8) { uint8_t imm = fetch8(); and8(get_reg8(0), imm); c += 3; }
+            else if (op == 0xA9) { if (opsize32_) and32(ax, fetch32()); else and16(uint16_t(ax), fetch16()); c += 3; }
             else if (op >= 0xAA && op <= 0xAF) { c += string_op(op); }
             else if (op >= 0xB0 && op <= 0xB7) { set_reg8(op - 0xB0, fetch8()); c += CYC_REG; }
             else if (op >= 0xB8 && op <= 0xBF) { if (opsize32_) set_reg32(op - 0xB8, fetch32()); else set_reg16(op - 0xB8, fetch16()); c += CYC_REG; }
@@ -1379,7 +1382,7 @@ int Cpu::execute(uint8_t op, int c) {
             else if (op == 0xD4) { aam(); c += 16; }
             else if (op == 0xD5) { aad(); c += 14; }
             else if (op == 0xD6) { set_reg8(0, flag(FLAG_CF) ? 0xFF : 0x00); c += CYC_REG; }  // SALC, undocumented (Ralf Brown's OPCODES.LST)
-            else if (op == 0xD7) { uint16_t seg = (seg_override_ >= 0) ? seg_reg(seg_override_) : ds; set_reg8(0, rb(seg, uint16_t(bx + get_reg8(0)))); c += CYC_MEM; }
+            else if (op == 0xD7) { uint16_t seg = (seg_override_ >= 0) ? seg_reg(seg_override_) : ds; set_reg8(0, rb(seg, uint16_t(bx + get_reg8(0)))); c += 5; }
             // x87 escape, no 80287 fitted: #NM if EM or TS is set (iAPX 286 PRM, exception 7).
             else if (op >= 0xD8 && op <= 0xDF) { decode_modrm(); if (msw_ & (MSW_EM | MSW_TS)) raise(EXC_NM); c += 3; }
             else if (op == 0xE0 || op == 0xE1 || op == 0xE2 || op == 0xE3) { c += loop_group(op); }
@@ -1406,7 +1409,7 @@ int Cpu::execute(uint8_t op, int c) {
             else if (op == 0xFB) { if (!flag(FLAG_IF)) shadow_ = true; set_flag(FLAG_IF, true); c += CYC_REG; }
             else if (op == 0xFC) { set_flag(FLAG_DF, false); c += CYC_REG; }
             else if (op == 0xFD) { set_flag(FLAG_DF, true); c += CYC_REG; }
-            else if (op == 0xFE || op == 0xFF) { grp5(op); c += CYC_MEM; }
+            else if (op == 0xFE || op == 0xFF) { c += grp5(op); }
             else if (firmware()) {
                 if (on_unimplemented) on_unimplemented(cs, instr_start_ip_, op);
                 c += 2;

@@ -248,6 +248,8 @@ private:
     bool cs_high_ = false;
     uint32_t code_base() const { return (cs_high_ && cs == 0xF000) ? 0xFF0000u : uint32_t(cs) << 4; }
     void ud() { raise(EXC_UD); }
+    // #DE and #BR, found once the operands are in: vectors now and pays INT n like a fault.
+    void exception(uint8_t vec) { ip = instr_start_ip_; interrupt(vec); extra_cycles_ += 23 + kQueueRefillTax; }
 
     // Machine status word and descriptor-table registers. MSW resets to FFF0h
     // and the IDT to base 0, limit 3FFh (Intel iAPX 286 PRM, "Reset").
@@ -362,7 +364,7 @@ private:
     int  grp1_immed(uint8_t op);      // 0x80/0x81/0x83: ADD/OR/ADC/SBB/AND/SUB/XOR/CMP r/m,imm
     int  grp2_shift(uint8_t op);      // 0xC0/C1/D0-D3: shift/rotate group
     int  grp3_unary(uint8_t op);      // 0xF6/0xF7: TEST/NOT/NEG/MUL/IMUL/DIV/IDIV
-    void grp5(uint8_t op);            // 0xFE/0xFF: INC/DEC/CALL/JMP/PUSH r/m
+    int  grp5(uint8_t op);            // 0xFE/0xFF: INC/DEC/CALL/JMP/PUSH r/m
 };
 
 } // namespace cpu80286

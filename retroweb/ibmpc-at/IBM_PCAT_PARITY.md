@@ -5,7 +5,8 @@ IBM EGA, plus the test gaps against the repo rules in `CLAUDE.md`. Most of
 the chip files started as the same code `pc486` grew from, so a lot of
 this list is `PC486_PARITY.md` work that never came back. Where a 486 fix
 ports, the item cites its `PC486_REVIEW.md` section. Checked against the
-code as of §55 (CPU test coverage). When an item is fixed, write it up in
+code as of §55 (CPU test coverage), and re-audited against every source
+file on 2026-10-08 (E21-E22, P12, S9-S10, X6). When an item is fixed, write it up in
 `IBM_PCAT_REVIEW.md` as usual (fact, why it matters, what it fixed,
 source) and delete it here. Done so far: the real-mode CPU, C1-C9
 (`IBM_PCAT_REVIEW.md` §44), the reset vector and `F1h`, C11-C12
@@ -15,8 +16,8 @@ the EGA BIOS stand-in plus E1-E10 and E12-E14 (§48), and EGA
 addressing, latches and the monochrome ports, E15-E17 (§49), the
 full 8259A and 8237A with P4, P6 and P9 (§50), and storage, S1-S4
 (§51) and S5, S6 and S8's rotation (§52), the keyboard and
-RTC, K1-K5 and R1 (§53), test parity, X1-X4 (§54), and CPU test
-coverage (§55).
+RTC, K1-K5 and R1 (§53), test parity, X1-X4 (§54), CPU test
+coverage (§55), and the last flat instruction costs, T10-T12 (§56).
 
 Rough parity today: **~85%**.
 
@@ -24,10 +25,10 @@ Rough parity today: **~85%**.
 |------|--------|-------------|
 | CPU (real mode) | 98% | the IDT limit isn't checked; no STOREALL; `FE /2`-`/7` unverified (C13) |
 | CPU (protected mode) | 0% | not implemented at all |
-| Timing | 96% | fetch-bound code runs 4-7% fast against TOPBENCH |
-| EGA | 92% | memory-cycle length unsourced (VidMem -9% on the Enhanced Display) |
+| Timing | 95% | fetch-bound code runs 5-7% fast against TOPBENCH |
+| EGA | 91% | memory-cycle length unsourced (VidMem -9% on the Enhanced Display) |
 | Chipset (PIT, PIC, DMA, memory) | 80% | no extended memory, no serial or parallel port |
-| Storage (WD1003, floppy) | 95% | floppy data rate not enforced, hard disk seeks are instant |
+| Storage (WD1003, floppy) | 92% | floppy data rate and SPECIFY ignored; hard disk seeks and writes are instant |
 | Keyboard, RTC | 95% | no keylock control, BAT arrives without its self-test delay |
 | Speaker | 95% | not checked against a recording of a real 5170 |
 
@@ -65,12 +66,14 @@ page, a Playwright test, in the same commit.
 ## 2. Timing
 
 - **T9. Fetch-bound code runs fast.** Against the real 5170-339 in
-  TOPBENCH's database, MemEA is 7% fast, Opcodes 5%, 3DGames 4% (§47.4).
+  TOPBENCH's database, MemEA is 7% fast, Opcodes 6%, 3DGames 5% (§47.4,
+  §56.4).
   MemEA sits on the bus limit the data sheet and §46.1 allow, so the real
   286 leaves its bus idle about 0.85 clocks per instruction somewhere the
   published timings don't describe. Needs a logic-analyzer trace of a
   real 286 bus unit or a cycle-level 286 model to source, not a fitted
-  constant.
+  constant. Not the base costs: correcting the last flat-costed opcodes
+  (§56) moved Opcodes and 3DGames 1% further from the real machine.
 
 ## 3. EGA
 
@@ -91,6 +94,15 @@ page, a Playwright test, in the same commit.
   colour display it reads 1514 (+3%). The real run didn't record its
   monitor (§47.4). Needs a VidMem reading from a 5170 with an EGA and a
   5154, or the cycle timing from the EGA's sequencer documentation.
+- **E21. The palette address source bit is dropped.** Bit 5 of the 3C0h
+  index is PAS: clear, the CPU owns the palette and the screen goes
+  blank; set, the display reads it. `Ega::out` masks the index to 5 bits,
+  so a program that leaves PAS clear still shows a picture here. Source:
+  IBM EGA Technical Reference, Attribute Address Register.
+- **E22. Input Status 1 bits 4-5 read 0.** On the EGA they return two of
+  the six colour outputs, picked by AR12 bits 4-5 (Video Status MUX).
+  IBM's EGA POST and some adapter-detection code read them. Low priority.
+  Source: IBM EGA Technical Reference, Input Status Register One.
 
 ## 4. Chipset
 
@@ -120,6 +132,13 @@ page, a Playwright test, in the same commit.
   DACK polarity) and rotating priority are stored and ignored. Low
   priority: no AT device or BIOS path uses them. Source: Intel 8237A-5
   data sheet (`IBM_PCAT_REVIEW.md` §50.3).
+- **P12. Port 61h bits 2-3 read back 0, and there's no NMI.** On the AT,
+  bits 0-3 of 61h read back as written: bit 2 enables RAM parity check,
+  bit 3 enables I/O channel check. `Chipset::set_port61` keeps only bits
+  0-1. Bits 6-7 (parity error, channel check) and the NMI behind them,
+  gated by port 70h bit 7 (`CmosRtc::nmi_masked`), aren't wired. Nothing
+  here raises them, so the readback is the visible part. Source: IBM
+  PC/AT Technical Reference, port 061h.
 
 ## 5. Storage
 
@@ -135,11 +154,35 @@ page, a Playwright test, in the same commit.
   real drive is usually quicker. Needs a seek profile, or a measurement
   from a real drive, not a curve fitted to maximums. Source: Seagate
   ST4038 product manual 1.2.
+- **S9. SPECIFY doesn't set the floppy step rate.** `Fdc765` takes SPECIFY
+  and drops it. Seeks use a fixed 3 ms a track on A: and 6 ms on B:,
+  chosen by drive, where the chip steps at the SRT the BIOS programmed,
+  scaled by the data rate. Head load time is ignored too. Lands with S7,
+  since the step time depends on the rate. Source: NEC uPD765A data
+  sheet, SPECIFY.
+- **S10. Hard disk writes don't wait for the platter.** WRITE SECTORS takes
+  every sector's data, then commits and interrupts at once. A real
+  WD1003 holds BSY while each sector reaches its slot. The Bochs BIOS
+  reads status straight after each `outsw` and fails on BSY, so this
+  waits on the same BIOS work as S7. Source: WD1003-WA2 OEM manual,
+  Write Sector.
 
 ## 6. Test parity
 
 - **X5. Review corrections.** §1 and §3 still describe protected mode
-  as out of scope. Update them when C10 lands.
+  as out of scope, and §1 calls it "not currently planned". Update them
+  when C10 lands. Not tied to C10: §3's cycle-count bullet still
+  describes the flat `CYC_REG`/`CYC_MEM` model with no wait states (§40,
+  §46), §5's CMOS bullet still says the clock doesn't tick (§53.6), and
+  §44.3 says `firmware_at` covers the video BIOS, but `Machine` limits it
+  to E0000-FFFFF.
+- **X6. Stale code comments.** `cpu80286.h` says the 5170's wait state
+  and the prefetch queue aren't modelled (§46 did both), `reset()` names
+  F000:FFF0 as the first fetch (§45.1), and `interrupt()` says it vectors
+  through vector*4 (§44.4, IDTR). `wasm_machine.cpp` says `reset()` acts
+  like "the real reset button", which the 5170 doesn't have, and its
+  speaker-edge comment sits on `speakerLevel()`. Fix with the next change
+  to each file.
 
 ## Not ported from the 486, on purpose
 

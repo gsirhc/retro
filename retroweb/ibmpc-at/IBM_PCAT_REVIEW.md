@@ -3824,3 +3824,81 @@ PUSH and POP ranges (every lower opcode is dispatched first), and
 - All native: 97.8% lines, 93.9% branches.
 - Playwright smoke, boot, keyboard and floppy specs (25) pass on the
   rebuilt wasm, including FreeDOS FORMAT B:.
+
+## 56. The last flat instruction costs
+
+Items T10-T12 from [`IBM_PCAT_PARITY.md`](IBM_PCAT_PARITY.md). §40 gave
+the hot groups their own figures, but about twenty opcodes still charged
+`CYC_REG` (2) or `CYC_MEM` (7). Every figure here is the 286 column of
+HelpPC 2.10, which follows the iAPX 286 PRM appendix (the same table
+§55.4 used).
+
+### 56.1 The opcodes (T10)
+
+| Instruction | Was | 286 |
+|-------------|----:|----:|
+| NOP, XCHG AX,reg | 2 | 3 |
+| XCHG reg,reg / reg,mem | 7 | 3 / 5 |
+| LEA | 2 | 3 |
+| ALU acc,imm, TEST acc,imm | 2 | 3 |
+| TEST r/m,reg, memory | 7 | 6 |
+| CMP reg,mem and CMP mem,imm | 7 | 6 |
+| PUSH imm | 2 | 3 |
+| PUSH sreg | 7 | 3 |
+| PUSH mem | 7 | 5 |
+| POP reg, sreg, mem | 7 | 5 |
+| DAA, DAS, AAA, AAS | 2 | 3 |
+| XLAT | 7 | 5 |
+| BOUND | 7 | 13 |
+| IMUL r,r/m,imm | 7 | 21 reg, 24 mem |
+| INC/DEC through `FE`/`FF`, register | 7 | 2 |
+| JMP / CALL near indirect | 7 | 7 reg, 11 mem, plus the refill tax |
+| JMP / CALL far indirect | 7 | 15 / 16, plus the refill tax |
+
+The `FF` transfers set `transfer_` for the prefetch model but never paid
+`kQueueRefillTax` like every other taken transfer (§41). They do now.
+CMP's memory forms are a clock cheaper than the other ALU ops because
+nothing is written back; CMP mem,reg stays 7, as the table has it.
+
+### 56.2 Shift cost used the raw count (T11)
+
+`grp2_shift` masked the count inside the shift itself but charged 5+n
+with the raw CL or imm8, so `SHL AX,CL` with CL=200 cost 205 clocks. The
+286 masks the count to 5 bits before it runs (Intel iAPX 286 PRM), so n
+is at most 31. The count is now masked once, before both.
+
+### 56.3 Divide errors and BOUND paid nothing for the interrupt (T12)
+
+#DE from DIV, IDIV and AAM 0, and #BR from BOUND, called `interrupt()`
+directly. Faults found through `raise()` add INT n's 23 clocks plus
+`kQueueRefillTax` in `step()`; these didn't. `Cpu::exception()` now
+vectors and charges the same. They stay off the `raise()` path, which
+can't carry vector 0 and would roll back registers for no reason.
+
+### 56.4 TOPBENCH
+
+Re-run with §47's method: `TOPBENCH.EXE` 0.40c on a scratch copy of the
+shipped HDD image, its Realtime screen read from a native probe.
+
+| Test | Real 339 | Before | After | |
+|------|---------:|-------:|------:|--:|
+| MemTest | 923 | 939 | 940 | +2% |
+| MemEA | 514 | 476 | 476 | -7% |
+| Opcodes | 397 | 380 | 375 | -6% |
+| VidMem (Enhanced Display) | 1470 | 1335 | 1335 | -9% |
+| 3DGames | 388 | 373 | 368 | -5% |
+
+The corrections go both ways, and POP's two clocks outweigh the rest:
+the machine is slightly faster than before. So T9's gap isn't the flat
+costs. It stays open as a bus-unit question.
+
+### 56.5 Checks
+
+- 567 native tests (548 before). New timing cases cover every row in
+  §56.1, the masked shift count (CL=200, and imm 32 as a count of 0), and
+  #DE and #BR paying for the interrupt. `Grp1ImmedSignExtended8BitMemory`
+  now uses ADD, since CMP is 6.
+- The shipped HDD image boots to `C:\>` at 450.3M cycles, down from
+  458.2M.
+- Playwright smoke (boot and type, real-speed pacing) passes on the
+  rebuilt wasm.

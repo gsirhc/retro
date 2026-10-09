@@ -99,7 +99,11 @@ TEST_F(Cpu80286TimingTest, Grp1ImmedSignExtended8BitRegisterCosts3Cycles) {
     EXPECT_EQ(runCycles({0x83, 0xF8, 0x00}), 3);  // 83 /7, mod=11,rm=000: CMP AX,0
 }
 TEST_F(Cpu80286TimingTest, Grp1ImmedSignExtended8BitMemoryCosts7Cycles) {
-    EXPECT_EQ(runCycles({0x83, 0x3F, 0x00}), 7);  // 83 /7, mod=00,rm=111: CMP [BX],0
+    EXPECT_EQ(runCycles({0x83, 0x07, 0x00}), 7);  // 83 /0, mod=00,rm=111: ADD [BX],0
+}
+TEST_F(Cpu80286TimingTest, CmpMemoryImmediateCosts6Cycles) {
+    EXPECT_EQ(runCycles({0x83, 0x3F, 0x00}), 6);  // CMP [BX],0
+    EXPECT_EQ(runCycles({0x80, 0x3F, 0x00}), 6);  // CMP byte [BX],0
 }
 TEST_F(Cpu80286TimingTest, Grp1Immed8BitRegisterCosts3Cycles) {
     EXPECT_EQ(runCycles({0x80, 0xC0, 0x01}), 3);  // 80 /0, mod=11,rm=000: ADD AL,1
@@ -110,6 +114,91 @@ TEST_F(Cpu80286TimingTest, Grp1Immed8BitMemoryCosts7Cycles) {
 
 TEST_F(Cpu80286TimingTest, PushReg16Costs3Cycles) {
     EXPECT_EQ(runCycles({0x50}), 3);  // PUSH AX
+}
+
+// --- The rest of the 286 column (HelpPC 2.10) ---
+
+TEST_F(Cpu80286TimingTest, NopAndXchgAccumulatorCost3Cycles) {
+    EXPECT_EQ(runCycles({0x90}), 3);
+    EXPECT_EQ(runCycles({0x93}), 3);  // XCHG AX,BX
+}
+TEST_F(Cpu80286TimingTest, XchgCosts3RegisterAnd5Memory) {
+    EXPECT_EQ(runCycles({0x87, 0xD8}), 3);  // XCHG BX,AX
+    EXPECT_EQ(runCycles({0x87, 0x07}), 5);  // XCHG [BX],AX
+    EXPECT_EQ(runCycles({0x86, 0x07}), 5);  // XCHG [BX],AL
+}
+TEST_F(Cpu80286TimingTest, LeaCosts3Cycles) {
+    EXPECT_EQ(runCycles({0x8D, 0x07}), 3);  // LEA AX,[BX]
+}
+TEST_F(Cpu80286TimingTest, AccumulatorImmediateCosts3Cycles) {
+    EXPECT_EQ(runCycles({0x04, 0x01}), 3);        // ADD AL,1
+    EXPECT_EQ(runCycles({0x3D, 0x01, 0x00}), 3);  // CMP AX,1
+    EXPECT_EQ(runCycles({0xA8, 0x01}), 3);        // TEST AL,1
+    EXPECT_EQ(runCycles({0xA9, 0x01, 0x00}), 3);  // TEST AX,1
+}
+TEST_F(Cpu80286TimingTest, TestRegisterMemoryCosts6Cycles) {
+    EXPECT_EQ(runCycles({0x85, 0xC3}), 2);  // TEST BX,AX
+    EXPECT_EQ(runCycles({0x85, 0x07}), 6);  // TEST [BX],AX
+    EXPECT_EQ(runCycles({0x84, 0x07}), 6);  // TEST [BX],AL
+}
+TEST_F(Cpu80286TimingTest, CmpRegisterMemoryCosts6AndMemoryRegister7) {
+    EXPECT_EQ(runCycles({0x3B, 0x07}), 6);  // CMP AX,[BX]
+    EXPECT_EQ(runCycles({0x3A, 0x07}), 6);  // CMP AL,[BX]
+    EXPECT_EQ(runCycles({0x39, 0x07}), 7);  // CMP [BX],AX
+    EXPECT_EQ(runCycles({0x03, 0x07}), 7);  // ADD AX,[BX]
+}
+TEST_F(Cpu80286TimingTest, PushImmediateAndSegmentCost3Cycles) {
+    cpu->sp = 0x200;
+    EXPECT_EQ(runCycles({0x68, 0x34, 0x12}), 3);
+    EXPECT_EQ(runCycles({0x6A, 0x01}), 3);
+    EXPECT_EQ(runCycles({0x06}), 3);  // PUSH ES
+    EXPECT_EQ(runCycles({0x1E}), 3);  // PUSH DS
+}
+TEST_F(Cpu80286TimingTest, PopCosts5Cycles) {
+    cpu->sp = 0x100;
+    EXPECT_EQ(runCycles({0x58}), 5);        // POP AX
+    EXPECT_EQ(runCycles({0x07}), 5);        // POP ES
+    EXPECT_EQ(runCycles({0x8F, 0x07}), 5);  // POP [BX]
+}
+TEST_F(Cpu80286TimingTest, PushMemoryCosts5Cycles) {
+    cpu->sp = 0x200;
+    EXPECT_EQ(runCycles({0xFF, 0x37}), 5);  // PUSH [BX]
+}
+TEST_F(Cpu80286TimingTest, BcdAdjustsCost3Cycles) {
+    EXPECT_EQ(runCycles({0x27}), 3);  // DAA
+    EXPECT_EQ(runCycles({0x2F}), 3);  // DAS
+    EXPECT_EQ(runCycles({0x37}), 3);  // AAA
+    EXPECT_EQ(runCycles({0x3F}), 3);  // AAS
+}
+TEST_F(Cpu80286TimingTest, XlatCosts5Cycles) {
+    EXPECT_EQ(runCycles({0xD7}), 5);
+}
+TEST_F(Cpu80286TimingTest, BoundInRangeCosts13Cycles) {
+    cpu->bx = 0x50;
+    mem[0x50] = 0x00; mem[0x51] = 0x00; mem[0x52] = 0x10; mem[0x53] = 0x00;
+    cpu->ax = 5;
+    EXPECT_EQ(runCycles({0x62, 0x07}), 13);  // BOUND AX,[BX]
+}
+TEST_F(Cpu80286TimingTest, ImulImmediateCosts21RegisterAnd24Memory) {
+    EXPECT_EQ(runCycles({0x6B, 0xC3, 0x03}), 21);        // IMUL AX,BX,3
+    EXPECT_EQ(runCycles({0x69, 0xC3, 0x03, 0x00}), 21);  // IMUL AX,BX,3 (imm16)
+    EXPECT_EQ(runCycles({0x6B, 0x07, 0x03}), 24);        // IMUL AX,[BX],3
+}
+TEST_F(Cpu80286TimingTest, IncDecThroughGroupCost2RegisterAnd7Memory) {
+    EXPECT_EQ(runCycles({0xFE, 0xC0}), 2);  // INC AL
+    EXPECT_EQ(runCycles({0xFF, 0xCB}), 2);  // DEC BX
+    cpu->bx = 0x50;
+    EXPECT_EQ(runCycles({0xFE, 0x07}), 7);  // INC byte [BX]
+    EXPECT_EQ(runCycles({0xFF, 0x0F}), 7);  // DEC word [BX]
+}
+TEST_F(Cpu80286TimingTest, IndirectTransfersPayTheirFloorPlusTax) {
+    cpu->sp = 0x200;
+    EXPECT_EQ(runCycles({0xFF, 0xE3}), 7 + 2);   // JMP BX
+    EXPECT_EQ(runCycles({0xFF, 0x27}), 11 + 2);  // JMP [BX]
+    EXPECT_EQ(runCycles({0xFF, 0x2F}), 15 + 2);  // JMP FAR [BX]
+    EXPECT_EQ(runCycles({0xFF, 0xD3}), 7 + 2);   // CALL BX
+    EXPECT_EQ(runCycles({0xFF, 0x17}), 11 + 2);  // CALL [BX]
+    EXPECT_EQ(runCycles({0xFF, 0x1F}), 16 + 2);  // CALL FAR [BX]
 }
 
 // --- REP string ops ---
@@ -177,6 +266,11 @@ TEST_F(Cpu80286TimingTest, ShiftByClRegisterScalesWithCount) {
     cpu->cx = (cpu->cx & 0xFF00) | 5;  // CL = 5
     // D2 /4: SHL AL,CL: 5 + 5 = 10
     EXPECT_EQ(runCycles({0xD2, 0xE0}), 10);
+}
+TEST_F(Cpu80286TimingTest, ShiftCostUsesTheMaskedCount) {
+    cpu->cx = (cpu->cx & 0xFF00) | 200;  // 200 & 31 = 8
+    EXPECT_EQ(runCycles({0xD2, 0xE0}), 5 + 8);
+    EXPECT_EQ(runCycles({0xC1, 0xE0, 0x20}), 5);  // SHL AX,32 runs as a count of 0
 }
 TEST_F(Cpu80286TimingTest, ShiftByImm8MemoryScalesWithCount) {
     cpu->bx = 0x50;
@@ -460,6 +554,20 @@ TEST_F(Cpu80286BusTest, HardwareInterruptCostsIntPlusTwoInta) {
     // 23 + queue tax, two 6-clock INTA cycles, and 5 RAM words at one wait state each.
     EXPECT_EQ(cpu->hardware_interrupt(8), 23 + 2 + 2 * 6 + 5);
     EXPECT_EQ(cpu->ip, 0x1000);
+}
+
+TEST_F(Cpu80286TimingTest, DivideErrorPaysForTheInterrupt) {
+    cpu->sp = 0x200;
+    cpu->ax = 4; cpu->bx = 0;
+    EXPECT_EQ(runCycles({0xF6, 0xF3}), 14 + 23 + 2);  // DIV BL by zero
+    EXPECT_EQ(runCycles({0xD4, 0x00}), 16 + 23 + 2);  // AAM 0
+}
+TEST_F(Cpu80286TimingTest, BoundOutOfRangePaysForTheInterrupt) {
+    cpu->sp = 0x200;
+    cpu->bx = 0x50;
+    mem[0x50] = 0x00; mem[0x51] = 0x00; mem[0x52] = 0x10; mem[0x53] = 0x00;
+    cpu->ax = 0x20;
+    EXPECT_EQ(runCycles({0x62, 0x07}), 13 + 23 + 2);
 }
 
 TEST_F(Cpu80286TimingTest, HardwareInterruptOnAZeroWaitBus) {
