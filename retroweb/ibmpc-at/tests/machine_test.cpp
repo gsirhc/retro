@@ -202,6 +202,58 @@ TEST(MachineTest, MovSsHoldsOffAPendingIrqForOneInstruction) {
     EXPECT_EQ(m.cpu.ip, 0x5000);
 }
 
+// RTC IRQ8 to a CPU handler at vector 70h through the slave and the master's IR2,
+// with the AT BIOS's ICWs. The handler counts, acks register C, and EOIs as told.
+int RtcInterruptsThroughBothPics(bool eoi_slave, bool eoi_master) {
+    Machine m;
+    m.reset();
+    m.chipset.pic_master.out(0x20, 0x11);
+    m.chipset.pic_master.out(0x21, 0x08);
+    m.chipset.pic_master.out(0x21, 0x04);
+    m.chipset.pic_master.out(0x21, 0x01);
+    m.chipset.pic_master.out(0x21, 0xFB);  // IR2 (cascade) only
+    m.chipset.pic_slave.out(0xA0, 0x11);
+    m.chipset.pic_slave.out(0xA1, 0x70);
+    m.chipset.pic_slave.out(0xA1, 0x02);
+    m.chipset.pic_slave.out(0xA1, 0x01);
+    m.chipset.pic_slave.out(0xA1, 0xFE);  // IRQ8 only
+    m.chipset.cmos.out(0x70, 0x0B);
+    m.chipset.cmos.out(0x71, 0x42);  // PIE, 1024 Hz
+
+    auto &mem = m.chipset.mem;
+    mem[0x70 * 4 + 0] = 0x00; mem[0x70 * 4 + 1] = 0x50;  // IVT[70h] -> 0000:5000
+    mem[0x70 * 4 + 2] = 0x00; mem[0x70 * 4 + 3] = 0x00;
+    std::vector<uint8_t> handler = {
+        0xFE, 0x06, 0x34, 0x12,  // INC byte [1234h]
+        0xB0, 0x0C, 0xE6, 0x70,  // MOV AL,0Ch ; OUT 70h,AL
+        0xE4, 0x71,              // IN AL,71h
+        0xB0, 0x20,              // MOV AL,20h
+    };
+    if (eoi_slave) handler.insert(handler.end(), {0xE6, 0xA0});
+    if (eoi_master) handler.insert(handler.end(), {0xE6, 0x20});
+    handler.push_back(0xCF);  // IRET
+    std::copy(handler.begin(), handler.end(), mem.begin() + 0x5000);
+    mem[0x1234] = 0;
+
+    mem[0] = 0xFB;                 // STI
+    mem[1] = 0xF4;                 // HLT
+    mem[2] = 0xEB; mem[3] = 0xFD;  // JMP 1
+    m.cpu.cs = 0; m.cpu.ip = 0;
+    m.cpu.ss = 0; m.cpu.sp = 0x8000;
+
+    m.run_cycles(uint64_t(Machine::kCpuHz / 100));  // 10 ms, about ten RTC periods
+    return mem[0x1234];
+}
+
+TEST(MachineTest, RtcInterruptReachesTheCpuThroughBothPics) {
+    EXPECT_GE(RtcInterruptsThroughBothPics(true, true), 8);
+}
+
+TEST(MachineTest, CascadedInterruptNeedsAnEoiAtEachPic) {
+    EXPECT_EQ(RtcInterruptsThroughBothPics(false, true), 1) << "slave IR0 still in service";
+    EXPECT_EQ(RtcInterruptsThroughBothPics(true, false), 1) << "master IR2 still in service";
+}
+
 TEST(MachineTest, LongRepYieldsSoTheTimerStillTicks) {
     Machine m;
     m.reset();

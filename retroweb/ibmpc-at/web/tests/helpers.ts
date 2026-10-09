@@ -34,11 +34,13 @@ export async function waitForScreen(page: Page, re: RegExp, timeout = 120_000): 
     .toMatch(re);
 }
 
-/** One key's make then break, with a real wait after each. */
+/** One key's make and break together, then a wait. The keyboard paces the two bytes. */
 export async function tap(page: Page, code: string, gapMs = 40): Promise<void> {
-  await page.evaluate((c) => (window as any).__test.sendKey(c, false), code);
-  await page.waitForTimeout(gapMs);
-  await page.evaluate((c) => (window as any).__test.sendKey(c, true), code);
+  // a wall-clock hold under fast=1 outlasts the 500ms typematic delay
+  await page.evaluate((c) => {
+    (window as any).__test.sendKey(c, false);
+    (window as any).__test.sendKey(c, true);
+  }, code);
   await page.waitForTimeout(gapMs);
 }
 

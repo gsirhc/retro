@@ -5,7 +5,7 @@ IBM EGA, plus the test gaps against the repo rules in `CLAUDE.md`. Most of
 the chip files started as the same code `pc486` grew from, so a lot of
 this list is `PC486_PARITY.md` work that never came back. Where a 486 fix
 ports, the item cites its `PC486_REVIEW.md` section. Checked against the
-code as of §50 (the 8259A and 8237A). When an item is fixed, write it up in
+code as of §55 (CPU test coverage). When an item is fixed, write it up in
 `IBM_PCAT_REVIEW.md` as usual (fact, why it matters, what it fixed,
 source) and delete it here. Done so far: the real-mode CPU, C1-C9
 (`IBM_PCAT_REVIEW.md` §44), the reset vector and `F1h`, C11-C12
@@ -14,14 +14,15 @@ contention plus the TOPBENCH calibration, T6-T7 with P1-P3 (§47), and
 the EGA BIOS stand-in plus E1-E10 and E12-E14 (§48), and EGA
 addressing, latches and the monochrome ports, E15-E17 (§49), the
 full 8259A and 8237A with P4, P6 and P9 (§50), and storage, S1-S4
-(§51) and S5, S6 and S8's rotation (§52), and the keyboard and
-RTC, K1-K5 and R1 (§53).
+(§51) and S5, S6 and S8's rotation (§52), the keyboard and
+RTC, K1-K5 and R1 (§53), test parity, X1-X4 (§54), and CPU test
+coverage (§55).
 
 Rough parity today: **~85%**.
 
 | Area | Parity | Biggest gap |
 |------|--------|-------------|
-| CPU (real mode) | 98% | the IDT limit isn't checked; no STOREALL |
+| CPU (real mode) | 98% | the IDT limit isn't checked; no STOREALL; `FE /2`-`/7` unverified (C13) |
 | CPU (protected mode) | 0% | not implemented at all |
 | Timing | 96% | fetch-bound code runs 4-7% fast against TOPBENCH |
 | EGA | 92% | memory-cycle length unsourced (VidMem -9% on the Enhanced Display) |
@@ -53,6 +54,13 @@ page, a Playwright test, in the same commit.
   (`0F 05`, a reported no-op today), which HIMEM 2.x and RAMDRIVE used on
   286s. Same scale as the 486's T1: its own design pass first. Lands with
   P8. Source: Intel iAPX 286 PRM.
+
+- **C13. `FE /2` to `FE /7` do nothing.** Group 4 defines only INC and DEC
+  on a byte. The core reads the operand and drops the instruction. `FF /7`
+  raises #UD here, and the 286 raises #UD for undefined encodings in
+  general, but no source found says what a 286 does with these six. Needs
+  the iAPX 286 PRM opcode map or a test on a real 286. No test pins the
+  current behaviour (§55.4).
 
 ## 2. Timing
 
@@ -130,18 +138,6 @@ page, a Playwright test, in the same commit.
 
 ## 6. Test parity
 
-- **X1. Smoke doesn't prove a boot.** `web/tests/smoke.spec.ts` only
-  checks real-speed pacing and says it "only needs the machine running".
-  `CLAUDE.md` wants a boot plus one real interaction. Add a case: boot to
-  `C:\>` and echo a typed key. Same as the 486's X1.
-- **X2. Thin native suites.** machine 11, fdc 14. IRQ routing and the
-  cascade are covered in `chipset_test` (§50.5); machine still runs no CPU-level interrupt through both PICs.
-- **X3. Controls without a test.** `hddLed` has none, and the F-key and
-  extra-key rows are only checked for enabled state and focus, not that
-  they deliver a scan code. Every control needs one per `CLAUDE.md`.
-- **X4. No coverage figures.** `make coverage` and `make -C web coverage`
-  exist but the review has no recorded numbers. Record a baseline before
-  this backlog starts, then refresh it.
 - **X5. Review corrections.** §1 and §3 still describe protected mode
   as out of scope. Update them when C10 lands.
 
@@ -154,6 +150,6 @@ DX signature, #AC and debug registers (386 and later), the 15-byte limit
 aux port; a serial mouse via P7 is the period way).
 
 Already in line with the rules, for reference: the `?test=1&fast=1`
-multiplier is gated in `app.js` and the smoke file keeps a real-speed
-check; deploy CI runs `ibmpcat-test` / `ibmpcat-web-test` smoke only, and
-the full suites run nightly.
+multiplier is gated in `app.js`, the smoke file boots to `C:\>`, runs a
+typed command and keeps a real-speed check, deploy CI runs `ibmpcat-test`
+/ `ibmpcat-web-test` smoke only, and the full suites run nightly.

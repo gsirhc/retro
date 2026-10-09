@@ -21,7 +21,7 @@ CXX      ?= c++
 CXXFLAGS ?= -std=c++17 -O2 -Wall -Wextra
 
 CHIPSET_SRCS = machine.cpp chipset.cpp cpu80286.cpp pic8259.cpp pit8253.cpp i8042.cpp cmos_rtc.cpp dma8237.cpp fdc765.cpp ega.cpp wd1003.cpp pcspeaker.cpp
-UNIT_TESTS = cpu80286_test pic8259_test pit8253_test i8042_test cmos_rtc_test dma8237_test chipset_test machine_test fdc765_test ega_test ega_render_test wd1003_test pcspeaker_test egabios_test
+UNIT_TESTS = cpu80286_test cpu80286_timing_test pic8259_test pit8253_test i8042_test cmos_rtc_test dma8237_test chipset_test machine_test fdc765_test ega_test ega_render_test wd1003_test pcspeaker_test egabios_test
 
 .PHONY: help test test-smoke bios egabios bios-check hdd-image wasm serve coverage check clean
 

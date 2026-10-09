@@ -1,5 +1,13 @@
 import { test, expect } from "./fixtures";
-import { boot } from "./helpers";
+import { boot, typeStr, waitForScreen } from "./helpers";
+
+test.describe("boot smoke test", () => {
+  test("boots FreeDOS to C:\\> and runs a typed command", async ({ page }) => {
+    await boot(page);
+    await typeStr(page, "ECHO SMOKE");
+    await waitForScreen(page, /C:\\>echo smoke\s*\nsmoke\s*\n/i, 20_000);
+  });
+});
 
 // Real-speed check. Other specs boot with the fast-test multiplier; this one opts out
 // to confirm the wall-clock-paced 8 MHz clock.

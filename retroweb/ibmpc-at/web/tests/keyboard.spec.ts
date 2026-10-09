@@ -59,6 +59,58 @@ test.describe("keyboard", () => {
     await waitForScreen(page, /C:\\>\s*$/);
   });
 
+  test("every key button sends its Set 1 make and break codes", async ({ page }) => {
+    await boot(page);
+    await page.evaluate(() => {
+      const m = (window as any).__test.machine;
+      const inject = m.injectScancode.bind(m);
+      (window as any).__sent = [];
+      m.injectScancode = (code: number) => {
+        (window as any).__sent.push(code);
+        inject(code);
+      };
+    });
+    const ext = (code: number) => [0xe0, code, 0xe0, code | 0x80];
+    const expected: Record<string, number[]> = {
+      F1: [0x3b, 0xbb], F2: [0x3c, 0xbc], F3: [0x3d, 0xbd], F4: [0x3e, 0xbe],
+      F5: [0x3f, 0xbf], F6: [0x40, 0xc0], F7: [0x41, 0xc1], F8: [0x42, 0xc2],
+      F9: [0x43, 0xc3], F10: [0x44, 0xc4], F11: [0x57, 0xd7], F12: [0x58, 0xd8],
+      Insert: ext(0x52), Delete: ext(0x53), Home: ext(0x47), End: ext(0x4f),
+      PageUp: ext(0x49), PageDown: ext(0x51),
+      PrintScreen: [0xe0, 0x2a, 0xe0, 0x37, 0xe0, 0xb7, 0xe0, 0xaa],
+      ScrollLock: [0x46, 0xc6],
+      Pause: [0xe1, 0x1d, 0x45, 0xe1, 0x9d, 0xc5],
+      NumLock: [0x45, 0xc5],
+    };
+    const buttons = await page.locator("#fkeyRow [data-key], #extraKeyRow [data-key]").evaluateAll((els) =>
+      els.map((e) => (e as HTMLElement).dataset.key!),
+    );
+    expect(buttons.sort()).toEqual(Object.keys(expected).sort());
+    for (const [key, bytes] of Object.entries(expected)) {
+      await page.evaluate(() => { (window as any).__sent = []; });
+      await page.locator(`[data-key="${key}"]`).click();
+      await expect
+        .poll(() => page.evaluate(() => (window as any).__sent), { message: key })
+        .toEqual(bytes);
+    }
+  });
+
+  test("F3 and Home/End from the button rows reach COMMAND.COM's line editor", async ({ page }) => {
+    await boot(page);
+    await typeStr(page, "VER");
+    await waitForScreen(page, /C:\\>\s*$/);
+    await page.locator('[data-key="F3"]').click();
+    await waitForScreen(page, /C:\\>ver\s*$/i);
+    await tap(page, "Escape");
+
+    await typeStr(page, "ABC", { pressEnterAfter: false });
+    await page.locator('[data-key="Home"]').click();
+    await typeStr(page, "X", { pressEnterAfter: false });
+    await page.locator('[data-key="End"]').click();
+    await typeStr(page, "Y", { pressEnterAfter: false });
+    await waitForScreen(page, /C:\\>xabcy\s*$/i);
+  });
+
   test("a held key repeats on the keyboard's own typematic clock", async ({ page }) => {
     await boot(page);
     await page.evaluate(() => (window as any).__test.sendKey("KeyA", false));

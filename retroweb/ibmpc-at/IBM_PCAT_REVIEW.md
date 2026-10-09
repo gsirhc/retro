@@ -3669,3 +3669,158 @@ harnesses start at 1986-01-01 00:00:00, a Wednesday.
   stops a held key, and `DATE` shows today's date (`rtc.spec.ts`).
 - The FreeDOS installer run (`make hdd-image`) wasn't repeated. Its
   `SendKey` waits 2.5 ms between make and break, well over a frame.
+
+## 54. Test parity: a smoke boot, the thin native suites, every control, and coverage
+
+Items X1-X4 from [`IBM_PCAT_PARITY.md`](IBM_PCAT_PARITY.md). X5 waits on
+C10.
+
+### 54.1 Smoke boots and types (X1)
+
+`smoke.spec.ts` only measured real-speed pacing, which needs the machine
+running but not booted. It now also boots to `C:\>` under the fast-test
+multiplier, types `ECHO SMOKE` and waits for COMMAND.COM's output on its
+own line: a boot plus one real interaction, as the smoke rules ask. The
+real-speed check stays.
+
+### 54.2 Test typing repeated keys
+
+The first run of that case printed `veer` for `VER`. The `tap()` helper
+sent a key's make, waited 40 ms of wall time, then sent its break. Under
+`fast=1` that's about 800 ms of guest time, past the keyboard's 500 ms
+typematic delay (§53.2), so the key repeated whenever a frame boundary
+landed in the gap. The keyboard was right; the helper was holding the key
+down. `tap()` now injects make and break in one call and lets the
+keyboard pace them, so a tap lasts the same guest time at any multiplier.
+Earlier specs didn't notice because they only waited for a prompt.
+
+The page's own F-key buttons hold for 50 ms, a human press at real speed
+(§53.1). Under `fast=1` that also repeats, so the button tests check the
+bytes each button sends, and the end-to-end check uses keys where a
+repeat is harmless.
+
+### 54.3 Native suites (X2)
+
+- `machine_test` (13): RTC IRQ8 reaches a CPU handler at vector 70h
+  through the slave and the master's IR2, with the AT BIOS's ICWs, ten
+  times in 10 ms at 1024 Hz. Leaving out either PIC's EOI stops it after
+  one, since that PIC's in-service bit holds the next.
+- `fdc765_test` (20): SEEK takes 3 ms a cylinder on the 1.2MB drive with
+  the drive-busy bit up and reports the new PCN, SENSE DRIVE STATUS shows
+  track 0 only at cylinder 0, READ ID returns the cylinder under the head,
+  a multi-sector read runs R to EOT on head 1, a 360KB disk transfers at
+  half the 1.2MB rate, and a DOR reset abandons a transfer in progress.
+
+### 54.4 Every control (X3)
+
+- `hddLed`: lights during the boot, stays dark at an idle prompt, lights
+  for a `DIR` of an unread directory, and goes out at power-off.
+- Floppy LEDs had no test either. A:'s lights for `DIR A:` and goes out
+  when the BIOS stops the motor, and B:'s stays dark. A:'s motor is still
+  running down from the boot probe when the prompt first appears, so the
+  test waits for it first.
+- The F-key and extra-key rows: each button sends its exact Set 1 make
+  and break (`E0` pairs, Print Screen's four-byte sequences, Pause's six
+  bytes with no break), and the test fails if a button is added without
+  an entry. F3 recalls the last line in COMMAND.COM, and Home and End
+  move its cursor. Esc is covered in `fullscreen.spec.ts`.
+- **Upload image** was only checked for its disabled state. A full-size
+  image with a marker in its last sector mounts at the next power-on and
+  boots, and a wrong-size file gets the geometry alert and isn't mounted.
+
+### 54.5 Coverage (X4)
+
+No figures were recorded before this backlog started, and the native
+code has changed under every section since, so this is the first
+baseline, not a before-and-after.
+
+- Native (`make coverage`, llvm-cov): 89.3% lines, 79.8% branches, 94.1%
+  functions over the chip and machine sources (88.7% / 79.3% without
+  §54.3's tests). `fdc765.cpp` went from 86.9% to 94.6% lines. The
+  weakest file is `cpu80286.cpp`, at 74.6% lines and 68.6% branches.
+- `app.js` (`make -C web coverage`, V8): 85.0% lines, 71.7% branches,
+  81.1% functions.
+
+### 54.6 Checks
+
+- 480 native tests (472 before).
+- 62/62 Playwright, run once with coverage on one worker. The new cases
+  also passed three times each on three workers.
+
+## 55. CPU test coverage, and four bugs it found
+
+Every reachable region and function in `cpu80286.cpp` now runs under a
+test. Writing them turned up three behaviour bugs and one measurement bug.
+
+### 55.1 The coverage report skipped the timing suite
+
+`make coverage` ran every unit-test binary except `cpu80286_timing_test`,
+which wasn't in the Makefile's `UNIT_TESTS` list. Its runs counted for
+nothing, so §54.5's CPU figure was low. With it added, the starting point
+for this section was 77.0% lines and 70.9% branches.
+
+### 55.2 AAA and AAS used the 8086's arithmetic
+
+"On the 80286 and later processors, the first addition is performed on AX
+instead of AL, incrementing the AH register if a carry is generated out of
+AL. ... If AX contains 00FFh, executing AAA on an 8088 will leave AX=0105h.
+On an 80386, the same operation will leave AX=0205h" (Hummel, PC Magazine
+Programmer's Technical Reference: The Processor and Coprocessor, AAA). The
+core added 6 to AL alone. AAA now adds 106h to AX. AAS now takes 6 from AX
+and then 1 from AH, as in the Intel SDM's pseudo-code. Hummel's note
+covers AAA only, and the AAS change rests on the SDM and on the two
+instructions sharing the change. Valid ASCII digits give the same result
+either way. Only an out-of-range AL (FAh-FFh for AAA, 00h-05h for AAS)
+tells the two apart.
+
+### 55.3 16-bit IDIV of -2^31 by -1
+
+The 16-bit IDIV computed `int32 / int16` in C++, and `INT32_MIN / -1`
+overflows. ARM returns INT32_MIN, which then failed the quotient check and
+raised #DE as a 286 does, so the native tests passed. wasm's `i32.div_s`
+traps on that overflow, so in the browser a program dividing DX:AX =
+8000:0000 by FFFFh would have aborted the module. The divide now runs in
+64 bits. The 32-bit form had the same problem with `INT64_MIN / -1` and
+now checks for it first.
+
+### 55.4 LOOPE and LOOPNE timing
+
+Not taken, LOOPNE cost 5 clocks and LOOPE 6. Both are 4 on the 286
+(HelpPC 2.10, LOOPE and LOOPNZ: "no jump 5 4 ? 6" for the 8086, 286, 386
+and 486). The old numbers were the 8086 and 486 columns. All four loop
+instructions now cost 4 when not taken. TOPBENCH (§47.4) wasn't re-run;
+none of its tests are built on these loops.
+
+`FE /2` to `FE /7` still do nothing. That's open as C13, without a test,
+so the current behaviour isn't locked in.
+
+### 55.5 What the tests cover
+
+Twelve real 286 instructions had never run in any test: CBW, CWD, SAHF,
+LAHF, CMC, STD, XLAT, WAIT, XCHG r/m16, TEST AX imm16, PUSH imm8 and POP
+r/m16. Line coverage hid them. In the long `else if (op == ...)` chain the
+test and the body share a line, so the line counted as covered even when
+the body never ran. Branch coverage showed it. The new tests also cover
+BCD adjusts in every carry state, every rotate both ways in all three
+widths, the Jcc conditions, LOOPE and LOOPNE, the group 3 and group 5
+forms in register and memory, the divide errors on both sides, DF=1
+strings, REP with CX=0, a fault in the middle of a REP, REP INS yielding
+and resuming, the descriptor-table operand checks, and the 0x66 forms the
+BIOS ROM uses.
+
+Three conditions could never be false, so they're gone: the `is_rep`
+re-test at the bottom of both REP loops, the lower bound of the INC, DEC,
+PUSH and POP ranges (every lower opcode is dispatched first), and
+`string_op`'s `default`.
+
+### 55.6 Checks
+
+- 548 native tests (480 before). `cpu80286.cpp`: 100% regions and
+  functions, 99.5% lines, 99.7% branches. The 6 lines are closing braces
+  after a `break`, which llvm-cov counts as separate regions. The 4
+  branches are C13, a switch with no default whose reachable opcodes all
+  have a case, and the prefetch model's safety net in `prefetch()`, which
+  only fires if a control transfer forgets `flush()`.
+- All native: 97.8% lines, 93.9% branches.
+- Playwright smoke, boot, keyboard and floppy specs (25) pass on the
+  rebuilt wasm, including FreeDOS FORMAT B:.

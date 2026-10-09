@@ -253,4 +253,101 @@ TEST_F(Fdc765Test, DorBitThreeHoldsIntWithoutClearingIt) {
     EXPECT_FALSE(fdc.irq_pending());
 }
 
+TEST_F(Fdc765Test, SeekTakesOneStepTimePerCylinderAndReportsTheNewCylinder) {
+    auto img = MakeImage(80, 2, 15);
+    fdc.mount(0, img.data(), img.size());
+    PowerOnMotorAndSelect(0);
+    fdc.out(0x3F5, 0x0F); fdc.out(0x3F5, 0x00); fdc.out(0x3F5, 10);  // SEEK drive 0, cylinder 10
+    EXPECT_EQ(fdc.in(0x3F4) & 0x01, 0x01) << "drive 0 busy seeking";
+    EXPECT_EQ(fdc.in(0x3F4) & 0x80, 0x80) << "RQM stays up during a seek";
+
+    uint64_t c = 0;
+    for (; c < 10'000'000 && !fdc.irq_pending(); c += 100) fdc.tick(c);
+    ASSERT_TRUE(fdc.irq_pending());
+    EXPECT_NEAR(double(c), 10 * 0.003 * 8e6, 200.0);
+    EXPECT_EQ(fdc.in(0x3F4) & 0x01, 0x00);
+
+    fdc.out(0x3F5, 0x08);
+    EXPECT_EQ(fdc.in(0x3F5), 0x20);  // ST0: seek end, drive 0
+    EXPECT_EQ(fdc.in(0x3F5), 10);    // PCN
+    EXPECT_FALSE(fdc.irq_pending());
+}
+
+TEST_F(Fdc765Test, SenseDriveStatusShowsTrackZeroOnlyAtCylinderZero) {
+    auto img = MakeImage(40, 2, 9);
+    fdc.mount(1, img.data(), img.size());
+    PowerOnMotorAndSelect(1);
+    fdc.out(0x3F5, 0x04); fdc.out(0x3F5, 0x01);
+    EXPECT_EQ(fdc.in(0x3F5) & 0x33, 0x31);  // ST3: ready, track 0, drive 1
+
+    fdc.out(0x3F5, 0x0F); fdc.out(0x3F5, 0x01); fdc.out(0x3F5, 3);
+    fdc.out(0x3F5, 0x04); fdc.out(0x3F5, 0x01);
+    EXPECT_EQ(fdc.in(0x3F5) & 0x33, 0x21);
+}
+
+TEST_F(Fdc765Test, ReadIdReportsTheCylinderUnderTheHead) {
+    auto img = MakeImage(80, 2, 15);
+    fdc.mount(0, img.data(), img.size());
+    PowerOnMotorAndSelect(0);
+    fdc.out(0x3F5, 0x0F); fdc.out(0x3F5, 0x00); fdc.out(0x3F5, 7);
+    fdc.out(0x3F5, 0x4A); fdc.out(0x3F5, 0x04);  // READ ID, MFM, head 1
+    uint8_t res[7];
+    for (auto &b : res) b = fdc.in(0x3F5);
+    EXPECT_EQ(res[0], 0x00);
+    EXPECT_EQ(res[3], 7);  // C
+    EXPECT_EQ(res[4], 1);  // H
+    EXPECT_EQ(res[6], 2);  // N: 512 bytes
+    EXPECT_EQ(fdc.in(0x3F4) & 0x10, 0x00) << "result phase fully drained";
+}
+
+TEST_F(Fdc765Test, MultiSectorReadRunsFromRToEotOnTheSelectedHead) {
+    auto img = MakeImage(80, 2, 15);
+    fdc.mount(0, img.data(), img.size());
+    PowerOnMotorAndSelect(0);
+    const uint8_t cmd[] = {0xE6, 0x04, 0x00, 0x01, 0x02, 0x02, 0x04, 0x1B, 0xFF};  // C0 H1 R2-4
+    for (uint8_t b : cmd) fdc.out(0x3F5, b);
+    ASSERT_EQ(fdc.transfer_length(), std::size_t(3 * 512));
+    for (uint64_t c = 0; c < 10'000'000 && !fdc.transfer_ready(); c += 100) fdc.tick(c);
+    ASSERT_TRUE(fdc.transfer_ready());
+    const uint8_t* p = fdc.transfer_image_ptr();
+    EXPECT_EQ(p[0], 16);    // C0 H1 R2 is the 17th sector on the image
+    EXPECT_EQ(p[1024], 18);
+    fdc.finish_transfer(3 * 512);
+    uint8_t res[7];
+    for (auto &b : res) b = fdc.in(0x3F5);
+    EXPECT_EQ(res[3], 0);
+    EXPECT_EQ(res[4], 1);
+    EXPECT_EQ(res[5], 4);
+}
+
+TEST_F(Fdc765Test, A360KDiskReadsAtHalfTheRateOfA12MDisk) {
+    auto cycles_for_one_sector = [this](std::size_t cyl, int spt) {
+        fdc.reset();
+        auto img = MakeImage(cyl, 2, spt);
+        fdc.mount(0, img.data(), img.size());
+        PowerOnMotorAndSelect(0);
+        const uint8_t cmd[] = {0xE6, 0x00, 0x00, 0x00, 0x01, 0x02, 0x01, 0x1B, 0xFF};
+        for (uint8_t b : cmd) fdc.out(0x3F5, b);
+        uint64_t c = 0;
+        for (; c < 10'000'000 && !fdc.transfer_ready(); c += 16) fdc.tick(c);
+        return double(c);
+    };
+    EXPECT_NEAR(cycles_for_one_sector(80, 15), 512.0 / 62500.0 * 8e6, 32.0);  // 500 kbit/s
+    EXPECT_NEAR(cycles_for_one_sector(40, 9), 512.0 / 31250.0 * 8e6, 32.0);   // 250 kbit/s
+}
+
+TEST_F(Fdc765Test, ResetDuringATransferAbandonsIt) {
+    auto img = MakeImage(80, 2, 15);
+    fdc.mount(0, img.data(), img.size());
+    PowerOnMotorAndSelect(0);
+    const uint8_t cmd[] = {0xE6, 0x00, 0x00, 0x00, 0x01, 0x02, 0x01, 0x1B, 0xFF};
+    for (uint8_t b : cmd) fdc.out(0x3F5, b);
+    EXPECT_EQ(fdc.in(0x3F4) & 0x80, 0x00) << "no RQM in the execution phase";
+
+    fdc.out(0x3F2, 0x18);
+    for (uint64_t c = 0; c < 1'000'000; c += 100) fdc.tick(c);
+    EXPECT_FALSE(fdc.transfer_ready());
+    EXPECT_EQ(fdc.in(0x3F4), 0x80);
+}
+
 }  // namespace

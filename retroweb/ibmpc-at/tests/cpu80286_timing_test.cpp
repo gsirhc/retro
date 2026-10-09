@@ -194,6 +194,12 @@ TEST_F(Cpu80286TimingTest, LoopNotTakenCosts4Cycles) {
     cpu->cx = 1;
     EXPECT_EQ(runCycles({0xE2, 0xFE}), 4);  // cx becomes 0 -- not taken
 }
+TEST_F(Cpu80286TimingTest, LoopneAndLoopeNotTakenCost4Cycles) {
+    cpu->cx = 1;
+    EXPECT_EQ(runCycles({0xE0, 0xFE}), 4);  // HelpPC 2.10: no jump 4 on the 286
+    cpu->cx = 1;
+    EXPECT_EQ(runCycles({0xE1, 0xFE}), 4);
+}
 TEST_F(Cpu80286TimingTest, JcxzTakenCosts10Cycles) {
     cpu->cx = 0;
     EXPECT_EQ(runCycles({0xE3, 0xFE}), 10);

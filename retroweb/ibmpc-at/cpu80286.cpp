@@ -567,8 +567,9 @@ void Cpu::aaa() {
     uint8_t al = get_reg8(0), ah = get_reg8(4);
     bool af = flag(FLAG_AF);
     if (((al & 0x0F) > 9) || af) {
-        al = uint8_t(al + 6);
-        ah = uint8_t(ah + 1);
+        // AX + 106h on the 286, not AL + 6 (Hummel, Programmer's Technical Reference)
+        uint16_t sum = uint16_t(((ah << 8) | al) + 0x106);
+        al = uint8_t(sum); ah = uint8_t(sum >> 8);
         set_flag(FLAG_AF, true);
         set_flag(FLAG_CF, true);
     } else {
@@ -583,8 +584,9 @@ void Cpu::aas() {
     uint8_t al = get_reg8(0), ah = get_reg8(4);
     bool af = flag(FLAG_AF);
     if (((al & 0x0F) > 9) || af) {
-        al = uint8_t(al - 6);
-        ah = uint8_t(ah - 1);
+        // AX - 6, then AH - 1 (Intel SDM, AAS)
+        uint16_t diff = uint16_t(((ah << 8) | al) - 6);
+        al = uint8_t(diff); ah = uint8_t((diff >> 8) - 1);
         set_flag(FLAG_AF, true);
         set_flag(FLAG_CF, true);
     } else {
@@ -757,13 +759,9 @@ int Cpu::loop_group(uint8_t op) {
         if (take) ip = uint16_t(ip + rel);
     }
     // Taken costs 8-11 (iAPX 286 PRM timing appendix): floor 8 plus
-    // kQueueRefillTax. Not-taken costs differ per op and pay no flush.
+    // kQueueRefillTax. Not taken pays no flush.
     if (take) return 8 + flush();
-    switch (op) {
-        case 0xE0: return 5;  // LOOPNE not taken
-        case 0xE1: return 6;  // LOOPE not taken
-        default:   return 4;  // LOOP, JCXZ not taken
-    }
+    return 4;  // all four not taken (HelpPC 2.10, 286 column)
 }
 
 // --- string instructions ---------------------------------------------------
@@ -814,7 +812,6 @@ int Cpu::string_op(uint8_t op) {
                 else sub16(uint16_t(ax), rw(es, di), false);
                 di = uint16_t(di + dir);
                 break;
-            default: break;
         }
         ++iterations;
         if (!is_rep) break;
@@ -826,7 +823,7 @@ int Cpu::string_op(uint8_t op) {
             if (rep_ == REP_NZ && z) break;   // REPNE/REPNZ: stop once equal
         }
         if (cx != 0 && rep_yield(iterations, per_iteration)) break;
-    } while (is_rep && cx != 0);
+    } while (cx != 0);
     if (is_rep && rep_resumed_) return iterations * per_iteration;
     // REP runs cost fixed overhead plus a per-iteration cost (iAPX 286 PRM
     // timing appendix), scaled by the iterations that actually ran.
@@ -865,7 +862,7 @@ int Cpu::io_string_op(uint8_t op) {
         cx = uint16_t(cx - 1);
         if (fault_) break;
         if (cx != 0 && rep_yield(iterations, 4)) break;
-    } while (is_rep && cx != 0);
+    } while (cx != 0);
     if (is_rep && rep_resumed_) return iterations * 4;
     // INS/OUTS: 5 non-rep, 5+4n rep (iAPX 286 PRM timing appendix).
     return is_rep ? (5 + 4 * iterations) : 5;
@@ -875,8 +872,7 @@ int Cpu::io_string_op(uint8_t op) {
 // with IP still on the instruction (Intel iAPX 286 PRM, string instructions).
 bool Cpu::rep_yield(int iterations, int per_iteration) {
     if (step_each_) { ip = instr_start_ip_; return true; }
-    if (rep_yield_cycles != 0 && per_iteration != 0 &&
-        uint32_t(iterations * per_iteration) >= rep_yield_cycles) {
+    if (rep_yield_cycles != 0 && uint32_t(iterations * per_iteration) >= rep_yield_cycles) {
         ip = instr_start_ip_;
         rep_resume_ = true;
         return true;
@@ -1004,7 +1000,7 @@ int Cpu::grp3_unary(uint8_t op) {  // 0xF6: r/m8  0xF7: r/m16 -- TEST/NOT/NEG/MU
             default: {
                 int64_t dividend = int64_t((uint64_t(dx) << 32) | ax);
                 int32_t divisor = int32_t(v);
-                if (divisor == 0) { ip = instr_start_ip_; interrupt(0); break; }
+                if (divisor == 0 || (divisor == -1 && dividend == INT64_MIN)) { ip = instr_start_ip_; interrupt(0); break; }
                 int64_t q = dividend / divisor, rem = dividend % divisor;
                 if (q > 2147483647ll || q < -2147483648ll) { ip = instr_start_ip_; interrupt(0); break; }
                 ax = uint32_t(int32_t(q)); dx = uint32_t(int32_t(rem));
@@ -1040,10 +1036,10 @@ int Cpu::grp3_unary(uint8_t op) {  // 0xF6: r/m8  0xF7: r/m16 -- TEST/NOT/NEG/MU
                 break;
             }
             default: {
-                int32_t dividend = int32_t((uint32_t(uint16_t(dx)) << 16) | uint16_t(ax));
-                int16_t divisor = int16_t(v);
+                int64_t dividend = int32_t((uint32_t(uint16_t(dx)) << 16) | uint16_t(ax));
+                int64_t divisor = int16_t(v);
                 if (divisor == 0) { ip = instr_start_ip_; interrupt(0); break; }
-                int32_t q = dividend / divisor, rem = dividend % divisor;
+                int64_t q = dividend / divisor, rem = dividend % divisor;
                 if (q > 32767 || q < -32768) { ip = instr_start_ip_; interrupt(0); break; }
                 ax = (ax & 0xFFFF0000u) | uint16_t(int16_t(q)); dx = (dx & 0xFFFF0000u) | uint16_t(int16_t(rem));
                 break;
@@ -1274,20 +1270,20 @@ int Cpu::execute(uint8_t op, int c) {
         case 0x37: aaa(); c += CYC_REG; break;
         case 0x3F: aas(); c += CYC_REG; break;
         default:
-            if (op >= 0x40 && op <= 0x47) {
+            if (op <= 0x47) {
                 int r = op - 0x40; bool cf = flag(FLAG_CF);
                 if (opsize32_) set_reg32(r, add32(get_reg32(r), 1, false));
                 else set_reg16(r, add16(get_reg16(r), 1, false));
                 set_flag(FLAG_CF, cf); c += CYC_REG;
             }
-            else if (op >= 0x48 && op <= 0x4F) {
+            else if (op <= 0x4F) {
                 int r = op - 0x48; bool cf = flag(FLAG_CF);
                 if (opsize32_) set_reg32(r, sub32(get_reg32(r), 1, false));
                 else set_reg16(r, sub16(get_reg16(r), 1, false));
                 set_flag(FLAG_CF, cf); c += CYC_REG;
             }
-            else if (op >= 0x50 && op <= 0x57) { push_reg(op - 0x50); c += 3; }  // PUSH reg16 costs 3 (iAPX 286 PRM timing appendix)
-            else if (op >= 0x58 && op <= 0x5F) {
+            else if (op <= 0x57) { push_reg(op - 0x50); c += 3; }  // PUSH reg16 costs 3 (iAPX 286 PRM timing appendix)
+            else if (op <= 0x5F) {
                 int r = op - 0x58;
                 if (opsize32_) set_reg32(r, pop32()); else set_reg16(r, pop16());
                 c += CYC_MEM;

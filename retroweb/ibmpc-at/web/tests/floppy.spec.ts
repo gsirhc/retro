@@ -132,6 +132,29 @@ test.describe("floppy drives", () => {
     await expect(page.locator("#loadOverlay")).not.toHaveClass(/visible/);
   });
 
+  test("a drive's LED lights while its motor runs, not while it sits idle", async ({ page }) => {
+    await boot(page);
+    const ledA = bay(page, 0).locator('[data-role="led"]');
+    // A:'s motor is still running down from the boot probe
+    await expect.poll(() => page.evaluate(() => (window as any).__test.machine.floppyMotorOn(0))).toBe(false);
+    await page.evaluate(() => {
+      (window as any).__ledA = 0;
+      const led = document.querySelector('.at-bay[data-drive="0"] [data-role="led"]')!;
+      new MutationObserver(() => {
+        if (led.classList.contains("on")) (window as any).__ledA++;
+      }).observe(led, { attributes: true, attributeFilter: ["class"] });
+    });
+    await insertFloppy(page, 0, makeBlankImage(1228800));
+    await page.waitForTimeout(1000);
+    expect(await page.evaluate(() => (window as any).__ledA)).toBe(0);
+
+    await typeStr(page, "DIR A:");
+    await expect.poll(() => page.evaluate(() => (window as any).__ledA), { timeout: 20_000 }).toBeGreaterThan(0);
+    await expect(bay(page, 1).locator('[data-role="led"]')).not.toHaveClass(/\bon\b/);
+    // the BIOS turns the motor off about 2s after the last access
+    await expect(ledA).not.toHaveClass(/\bon\b/, { timeout: 30_000 });
+  });
+
   test("FORMAT B: formats a 360KB diskette end to end", async ({ page }) => {
     test.setTimeout(300_000);
     await boot(page);

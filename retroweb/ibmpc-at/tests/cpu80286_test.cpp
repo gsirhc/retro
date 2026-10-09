@@ -971,4 +971,1152 @@ TEST_F(Cpu80286Test, DaaAdjustsAfterBcdAddition) {
     EXPECT_FALSE(CF());
 }
 
+
+TEST_F(Cpu80286Test, DaaLeavesAValidDigitAloneAndAdjustsTheHighNibble) {
+    cpu->ax = 0x0009;
+    run({0x27});
+    EXPECT_EQ(cpu->ax & 0xFF, 0x09u);
+    EXPECT_FALSE(AF());
+    EXPECT_FALSE(CF());
+
+    cpu->ax = 0x00A0;
+    run({0x27});
+    EXPECT_EQ(cpu->ax & 0xFF, 0x00u);
+    EXPECT_TRUE(CF());
+    EXPECT_TRUE(ZF());
+}
+
+TEST_F(Cpu80286Test, DasAdjustsAfterBcdSubtraction) {
+    cpu->ax = 0x001F;
+    run({0x2F});
+    EXPECT_EQ(cpu->ax & 0xFF, 0x19u);
+    EXPECT_TRUE(AF());
+    EXPECT_FALSE(CF());
+
+    cpu->ax = 0x00A0;
+    cpu->set_flag(cpu80286::FLAG_AF, false);
+    run({0x2F});
+    EXPECT_EQ(cpu->ax & 0xFF, 0x40u);
+    EXPECT_FALSE(AF());
+    EXPECT_TRUE(CF());
+
+    cpu->ax = 0x0003;
+    cpu->set_flag(cpu80286::FLAG_AF, true);
+    cpu->set_flag(cpu80286::FLAG_CF, false);
+    run({0x2F});
+    EXPECT_EQ(cpu->ax & 0xFF, 0xFDu);
+    EXPECT_TRUE(CF()) << "the borrow out of AL - 6 sets CF";
+}
+
+TEST_F(Cpu80286Test, AaaAddsSixToAxNotAl) {
+    // AX=00FFh gives 0105h on an 8088 and 0205h on later parts (Hummel)
+    cpu->ax = 0x00FF;
+    run({0x37});
+    EXPECT_EQ(cpu->ax, 0x0205u);
+    EXPECT_TRUE(AF());
+    EXPECT_TRUE(CF());
+
+    cpu->ax = 0x000B;
+    run({0x37});
+    EXPECT_EQ(cpu->ax, 0x0101u);
+
+    cpu->ax = 0x0135;
+    cpu->set_flag(cpu80286::FLAG_AF, false);
+    run({0x37});
+    EXPECT_EQ(cpu->ax, 0x0105u);
+    EXPECT_FALSE(AF());
+    EXPECT_FALSE(CF());
+}
+
+TEST_F(Cpu80286Test, AasSubtractsSixFromAxThenOneFromAh) {
+    cpu->ax = 0x0200;
+    cpu->set_flag(cpu80286::FLAG_AF, true);
+    run({0x3F});
+    EXPECT_EQ(cpu->ax, 0x000Au) << "the borrow out of AL reaches AH";
+    EXPECT_TRUE(AF());
+    EXPECT_TRUE(CF());
+
+    cpu->ax = 0x010F;
+    run({0x3F});
+    EXPECT_EQ(cpu->ax, 0x0009u);
+
+    cpu->ax = 0x0135;
+    cpu->set_flag(cpu80286::FLAG_AF, false);
+    run({0x3F});
+    EXPECT_EQ(cpu->ax, 0x0105u);
+    EXPECT_FALSE(CF());
+}
+
+TEST_F(Cpu80286Test, AamSplitsAlByItsImmediateBase) {
+    cpu->ax = 0x004F;
+    exec({0xD4, 0x0A});
+    EXPECT_EQ(cpu->ax, 0x0709u);
+    cpu->ax = 0x004F;
+    exec({0xD4, 0x10});
+    EXPECT_EQ(cpu->ax, 0x040Fu);
+}
+
+TEST_F(Cpu80286Test, AamByZeroIsADivideError) {
+    handler(0);
+    cpu->ax = 0x004F;
+    exec({0xD4, 0x00});
+    EXPECT_TRUE(in_handler());
+    EXPECT_EQ(frame(0), 0);
+    EXPECT_EQ(cpu->ax, 0x004Fu);
+}
+
+TEST_F(Cpu80286Test, AadJoinsAhAndAlByItsImmediateBase) {
+    cpu->ax = 0x0709;
+    exec({0xD5, 0x0A});
+    EXPECT_EQ(cpu->ax, 0x004Fu);
+    cpu->ax = 0x0405;
+    exec({0xD5, 0x10});
+    EXPECT_EQ(cpu->ax, 0x0045u);
+    cpu->ax = 0x0000;
+    exec({0xD5, 0x0A});
+    EXPECT_TRUE(ZF());
+}
+
+// ---------------------------------------------------------------------------
+// ALU, shift and rotate forms
+// ---------------------------------------------------------------------------
+
+TEST_F(Cpu80286Test, AdcAndSbbTakeTheCarryIn) {
+    cpu->set_flag(cpu80286::FLAG_CF, true);
+    cpu->ax = 0x007F; cpu->bx = 0;
+    run({0x10, 0xD8});  // ADC AL, BL
+    EXPECT_EQ(cpu->ax & 0xFF, 0x80u);
+    EXPECT_TRUE(OF());
+
+    cpu->set_flag(cpu80286::FLAG_CF, true);
+    cpu->ax = 0x0000;
+    run({0x18, 0xD8});  // SBB AL, BL
+    EXPECT_EQ(cpu->ax & 0xFF, 0xFFu);
+    EXPECT_TRUE(CF());
+
+    cpu->set_flag(cpu80286::FLAG_CF, true);
+    cpu->ax = 0xFFFF;
+    run({0x11, 0xD8});  // ADC AX, BX
+    EXPECT_EQ(cpu->ax, 0u);
+    EXPECT_TRUE(CF());
+    EXPECT_TRUE(ZF());
+
+    cpu->set_flag(cpu80286::FLAG_CF, true);
+    cpu->ax = 0x8000;
+    run({0x19, 0xD8});  // SBB AX, BX
+    EXPECT_EQ(cpu->ax, 0x7FFFu);
+    EXPECT_TRUE(OF());
+}
+
+TEST_F(Cpu80286Test, OrWordClearsCarryAndOverflow) {
+    cpu->set_flag(cpu80286::FLAG_CF, true);
+    cpu->set_flag(cpu80286::FLAG_OF, true);
+    cpu->ax = 0x8000; cpu->bx = 0x0001;
+    run({0x09, 0xD8});  // OR AX, BX
+    EXPECT_EQ(cpu->ax, 0x8001u);
+    EXPECT_FALSE(CF());
+    EXPECT_FALSE(OF());
+    EXPECT_TRUE(SF());
+}
+
+TEST_F(Cpu80286Test, ByteRotatesAndSarByOne) {
+    cpu->ax = 0x0081;
+    run({0xD0, 0xC0});  // ROL AL, 1
+    EXPECT_EQ(cpu->ax & 0xFF, 0x03u);
+    EXPECT_TRUE(CF());
+    EXPECT_TRUE(OF());
+
+    cpu->ax = 0x0001;
+    run({0xD0, 0xC8});  // ROR AL, 1
+    EXPECT_EQ(cpu->ax & 0xFF, 0x80u);
+    EXPECT_TRUE(CF());
+    EXPECT_TRUE(OF());
+
+    cpu->ax = 0x0000;
+    cpu->set_flag(cpu80286::FLAG_CF, true);
+    run({0xD0, 0xD8});  // RCR AL, 1
+    EXPECT_EQ(cpu->ax & 0xFF, 0x80u);
+    EXPECT_FALSE(CF());
+    EXPECT_TRUE(OF());
+
+    cpu->ax = 0x0081;
+    run({0xD0, 0xF8});  // SAR AL, 1
+    EXPECT_EQ(cpu->ax & 0xFF, 0xC0u);
+    EXPECT_TRUE(CF());
+    EXPECT_FALSE(OF());
+    EXPECT_TRUE(SF());
+}
+
+TEST_F(Cpu80286Test, WordRotatesAndSarByOne) {
+    cpu->ax = 0x0001;
+    run({0xD1, 0xC8});  // ROR AX, 1
+    EXPECT_EQ(cpu->ax, 0x8000u);
+    EXPECT_TRUE(CF());
+    EXPECT_TRUE(OF());
+
+    cpu->ax = 0x8000;
+    cpu->set_flag(cpu80286::FLAG_CF, false);
+    run({0xD1, 0xD0});  // RCL AX, 1
+    EXPECT_EQ(cpu->ax, 0x0000u);
+    EXPECT_TRUE(CF());
+    EXPECT_TRUE(OF());
+
+    cpu->ax = 0x0000;
+    cpu->set_flag(cpu80286::FLAG_CF, true);
+    run({0xD1, 0xD8});  // RCR AX, 1
+    EXPECT_EQ(cpu->ax, 0x8000u);
+    EXPECT_FALSE(CF());
+    EXPECT_TRUE(OF());
+
+    cpu->ax = 0x8001;
+    run({0xD1, 0xF8});  // SAR AX, 1
+    EXPECT_EQ(cpu->ax, 0xC000u);
+    EXPECT_TRUE(CF());
+    EXPECT_FALSE(OF());
+}
+
+TEST_F(Cpu80286Test, ConditionalJumpsReadTheirFlags) {
+    using cpu80286::FLAG_OF; using cpu80286::FLAG_SF; using cpu80286::FLAG_PF; using cpu80286::FLAG_ZF;
+    struct Case { uint8_t op; bool of, sf, pf, zf, taken; };
+    const Case cases[] = {
+        {0x70, true,  false, false, false, true},   // JO
+        {0x70, false, false, false, false, false},
+        {0x71, false, false, false, false, true},   // JNO
+        {0x71, true,  false, false, false, false},
+        {0x78, false, true,  false, false, true},   // JS
+        {0x7A, false, false, true,  false, true},   // JP
+        {0x7A, false, false, false, false, false},
+        {0x7B, false, false, false, false, true},   // JNP
+        {0x7C, true,  false, false, false, true},   // JL: SF != OF
+        {0x7C, true,  true,  false, false, false},
+        {0x7D, true,  true,  false, false, true},   // JGE: SF == OF
+        {0x7D, false, true,  false, false, false},
+        {0x7E, false, false, false, true,  true},   // JLE: ZF or SF != OF
+        {0x7E, false, true,  false, false, true},
+        {0x7E, false, false, false, false, false},
+        {0x7F, false, false, false, false, true},   // JG: !ZF and SF == OF
+        {0x7F, false, false, false, true,  false},
+        {0x7F, true,  false, false, false, false},
+    };
+    for (const auto &k : cases) {
+        cpu->set_flag(FLAG_OF, k.of); cpu->set_flag(FLAG_SF, k.sf);
+        cpu->set_flag(FLAG_PF, k.pf); cpu->set_flag(FLAG_ZF, k.zf);
+        run({k.op, 0x10});
+        EXPECT_EQ(cpu->ip, k.taken ? 0x12 : 0x02) << "opcode " << std::hex << int(k.op);
+    }
+}
+
+TEST_F(Cpu80286Test, LoopneAndLoopeTestZfAsWellAsCx) {
+    cpu->cx = 2;
+    cpu->set_flag(cpu80286::FLAG_ZF, false);
+    run({0xE0, 0x10});  // LOOPNE
+    EXPECT_EQ(cpu->ip, 0x12);
+    cpu->cx = 2;
+    cpu->set_flag(cpu80286::FLAG_ZF, true);
+    run({0xE0, 0x10});
+    EXPECT_EQ(cpu->ip, 0x02);
+    EXPECT_EQ(cpu->cx, 1u);
+
+    cpu->cx = 2;
+    run({0xE1, 0x10});  // LOOPE, ZF still set
+    EXPECT_EQ(cpu->ip, 0x12);
+    cpu->cx = 2;
+    cpu->set_flag(cpu80286::FLAG_ZF, false);
+    run({0xE1, 0x10});
+    EXPECT_EQ(cpu->ip, 0x02);
+}
+
+// ---------------------------------------------------------------------------
+// Group 3 and group 5
+// ---------------------------------------------------------------------------
+
+TEST_F(Cpu80286Test, NegByteSetsCarryUnlessZero) {
+    cpu->ax = 0x0001;
+    run({0xF6, 0xD8});  // NEG AL
+    EXPECT_EQ(cpu->ax & 0xFF, 0xFFu);
+    EXPECT_TRUE(CF());
+    cpu->ax = 0x0000;
+    run({0xF6, 0xD8});
+    EXPECT_EQ(cpu->ax & 0xFF, 0x00u);
+    EXPECT_FALSE(CF());
+}
+
+TEST_F(Cpu80286Test, ImulByteSignExtendsIntoAh) {
+    cpu->ax = 0x00FE; cpu->bx = 100;
+    run({0xF6, 0xEB});  // IMUL BL: -2 * 100
+    EXPECT_EQ(cpu->ax, 0xFF38u);
+    EXPECT_TRUE(CF());
+    EXPECT_TRUE(OF());
+    cpu->ax = 0x00FE; cpu->bx = 3;
+    run({0xF6, 0xEB});
+    EXPECT_EQ(cpu->ax, 0xFFFAu);
+    EXPECT_FALSE(CF());
+}
+
+TEST_F(Cpu80286Test, IdivByteTruncatesTowardZero) {
+    cpu->ax = 0xFFF9; cpu->bx = 2;
+    exec({0xF6, 0xFB});  // IDIV BL: -7 / 2
+    EXPECT_EQ(cpu->ax, 0xFFFDu);  // AH = -1, AL = -3
+    cpu->ax = 0xFF00; cpu->bx = 2;
+    exec({0xF6, 0xFB});  // -256 / 2 = -128 fits on the 286
+    EXPECT_EQ(cpu->ax, 0x0080u);
+}
+
+TEST_F(Cpu80286Test, IdivByteOverflowAndZeroAreDivideErrors) {
+    handler(0);
+    cpu->ax = 0x0200; cpu->bx = 2;
+    exec({0xF6, 0xFB});
+    EXPECT_TRUE(in_handler());
+    cpu->ax = 0x0010; cpu->bx = 0;
+    exec({0xF6, 0xFB});
+    EXPECT_TRUE(in_handler());
+    EXPECT_EQ(cpu->ax, 0x0010u);
+}
+
+TEST_F(Cpu80286Test, TestAndNotWord) {
+    cpu->ax = 0x8000;
+    run({0xF7, 0xC0, 0x00, 0x80});  // TEST AX, 8000h
+    EXPECT_EQ(cpu->ax, 0x8000u);
+    EXPECT_TRUE(SF());
+    EXPECT_FALSE(ZF());
+    cpu->ax = 0x00FF;
+    run({0xF7, 0xD0});  // NOT AX
+    EXPECT_EQ(cpu->ax, 0xFF00u);
+}
+
+TEST_F(Cpu80286Test, ImulWordFillsDx) {
+    cpu->ax = 0xFED4; cpu->bx = 300;
+    run({0xF7, 0xEB});  // IMUL BX: -300 * 300
+    EXPECT_EQ(cpu->ax, 0xA070u);
+    EXPECT_EQ(cpu->dx, 0xFFFEu);
+    EXPECT_TRUE(OF());
+}
+
+TEST_F(Cpu80286Test, DivAndIdivWord) {
+    cpu->dx = 0x0001; cpu->ax = 0x0000; cpu->bx = 3;
+    exec({0xF7, 0xF3});  // DIV BX
+    EXPECT_EQ(cpu->ax, 0x5555u);
+    EXPECT_EQ(cpu->dx, 1u);
+    cpu->dx = 0xFFFE; cpu->ax = 0x7960; cpu->bx = 7;
+    exec({0xF7, 0xFB});  // IDIV BX: -100000 / 7
+    EXPECT_EQ(cpu->ax, 0xC833u);
+    EXPECT_EQ(cpu->dx, 0xFFFBu);
+}
+
+TEST_F(Cpu80286Test, WordDivideErrors) {
+    handler(0);
+    const struct { uint16_t dx, ax, bx; uint8_t modrm; } cases[] = {
+        {0x0005, 0x0000, 0x0005, 0xF3},  // DIV quotient over FFFFh
+        {0x0000, 0x0010, 0x0000, 0xF3},  // DIV by zero
+        {0x8000, 0x0000, 0xFFFF, 0xFB},  // IDIV -2^31 / -1
+        {0x0001, 0x0000, 0x0001, 0xFB},  // IDIV quotient over 7FFFh
+        {0x0000, 0x0010, 0x0000, 0xFB},  // IDIV by zero
+    };
+    for (const auto &k : cases) {
+        cpu->dx = k.dx; cpu->ax = k.ax; cpu->bx = k.bx;
+        exec({0xF7, k.modrm});
+        EXPECT_TRUE(in_handler()) << std::hex << k.dx << ":" << k.ax << " / " << k.bx;
+        EXPECT_EQ(frame(0), 0);
+    }
+}
+
+TEST_F(Cpu80286Test, IndirectJumpsCallsAndPush) {
+    cpu->ds = 0;
+    mem[0x500] = 0x78; mem[0x501] = 0x56; mem[0x502] = 0x34; mem[0x503] = 0x12;
+
+    cpu->bx = 0x1234;
+    exec({0xFF, 0xE3});  // JMP BX
+    EXPECT_EQ(cpu->cs, 0x0100);
+    EXPECT_EQ(cpu->ip, 0x1234);
+
+    exec({0xFF, 0x2E, 0x00, 0x05});  // JMP FAR [0500h]
+    EXPECT_EQ(cpu->cs, 0x1234);
+    EXPECT_EQ(cpu->ip, 0x5678);
+    EXPECT_EQ(cpu->sp, 0x8000u);
+
+    exec({0xFF, 0x1E, 0x00, 0x05});  // CALL FAR [0500h]
+    EXPECT_EQ(cpu->cs, 0x1234);
+    EXPECT_EQ(cpu->ip, 0x5678);
+    EXPECT_EQ(frame(0), 4);
+    EXPECT_EQ(frame(1), 0x0100);
+
+    exec({0xFF, 0x36, 0x00, 0x05});  // PUSH [0500h]
+    EXPECT_EQ(cpu->sp, 0x7FFEu);
+    EXPECT_EQ(frame(0), 0x5678);
+}
+
+// ---------------------------------------------------------------------------
+// Strings, prefixes, addressing, registers
+// ---------------------------------------------------------------------------
+
+TEST_F(Cpu80286Test, WordStringOps) {
+    cpu->ds = 0x0200; cpu->es = 0x0300;
+    mem[0x2000] = 0x34; mem[0x2001] = 0x12;
+    cpu->si = 0; cpu->di = 0;
+    run({0xA5});  // MOVSW
+    EXPECT_EQ(mem[0x3000], 0x34);
+    EXPECT_EQ(mem[0x3001], 0x12);
+    EXPECT_EQ(cpu->si, 2u);
+    EXPECT_EQ(cpu->di, 2u);
+
+    cpu->si = 0; cpu->di = 0;
+    run({0xA7});  // CMPSW
+    EXPECT_TRUE(ZF());
+
+    cpu->si = 0;
+    run({0xAD});  // LODSW
+    EXPECT_EQ(cpu->ax, 0x1234u);
+
+    cpu->di = 0;
+    run({0xAF});  // SCASW
+    EXPECT_TRUE(ZF());
+    EXPECT_EQ(cpu->di, 2u);
+}
+
+TEST_F(Cpu80286Test, RepInsbFillsCxBytes) {
+    cpu->es = 0x0300; cpu->di = 0;
+    cpu->dx = 0x0060; cpu->cx = 3;
+    next_in_val = 0xAB;
+    run({0xF3, 0x6C});  // REP INSB
+    EXPECT_EQ(mem[0x3000], 0xAB);
+    EXPECT_EQ(mem[0x3002], 0xAB);
+    EXPECT_EQ(mem[0x3003], 0x00);
+    EXPECT_EQ(cpu->cx, 0u);
+    EXPECT_EQ(cpu->di, 3u);
+}
+
+TEST_F(Cpu80286Test, SsAndDsOverridesAndLock) {
+    cpu->ds = 0x0200;
+    mem[0x0010] = 0x77;
+    mem[0x2010] = 0x11;
+    exec({0x36, 0xA0, 0x10, 0x00});  // MOV AL, SS:[0010h]
+    EXPECT_EQ(cpu->ax & 0xFF, 0x77u);
+    cpu->bp = 0x0010;
+    exec({0x3E, 0x8A, 0x46, 0x00});  // MOV AL, DS:[BP+0]
+    EXPECT_EQ(cpu->ax & 0xFF, 0x11u);
+    exec({0xF0, 0xB0, 0x5A});  // LOCK ; MOV AL, 5Ah
+    EXPECT_EQ(cpu->ax & 0xFF, 0x5Au);
+    EXPECT_EQ(cpu->ip, 3);
+}
+
+TEST_F(Cpu80286Test, BxPlusDiAndBpPlusDiAddressing) {
+    cpu->ds = 0x0200; cpu->ss = 0x0300;
+    cpu->bx = 0x10; cpu->bp = 0x20; cpu->di = 0x05;
+    mem[0x2015] = 0xAA;
+    mem[0x3025] = 0xBB;
+    run({0x8A, 0x01});  // MOV AL, [BX+DI]
+    EXPECT_EQ(cpu->ax & 0xFF, 0xAAu);
+    run({0x8A, 0x03});  // MOV AL, [BP+DI], SS by default
+    EXPECT_EQ(cpu->ax & 0xFF, 0xBBu);
+}
+
+TEST_F(Cpu80286Test, MovReachesEveryWordRegister) {
+    cpu->ax = 0x1234;
+    // MOV BP,AX ; MOV SP,BP ; MOV SI,SP ; MOV DI,SI ; MOV DX,DI
+    runN({0x8B, 0xE8, 0x8B, 0xE5, 0x8B, 0xF4, 0x8B, 0xFE, 0x8B, 0xD7}, 5);
+    EXPECT_EQ(cpu->bp, 0x1234u);
+    EXPECT_EQ(cpu->sp, 0x1234u);
+    EXPECT_EQ(cpu->si, 0x1234u);
+    EXPECT_EQ(cpu->di, 0x1234u);
+    EXPECT_EQ(cpu->dx, 0x1234u);
+}
+
+TEST_F(Cpu80286Test, LoadallIsReported) {
+    uint16_t reported = 0;
+    cpu->on_unimplemented = [&](uint16_t, uint16_t, uint16_t op) { reported = op; };
+    exec({0x0F, 0x05});
+    EXPECT_EQ(reported, 0x0F05u);
+    EXPECT_EQ(cpu->ip, 2);
+}
+
+TEST_F(Cpu80286Test, FirmwareOpcodesWithNoModelAreReportedNotFaulted) {
+    allow_firmware();
+    handler(6);
+    uint16_t reported = 0;
+    cpu->on_unimplemented = [&](uint16_t, uint16_t, uint16_t op) { reported = op; };
+    exec({0x0F, 0x00, 0xC0});  // SLDT AX
+    EXPECT_EQ(reported, 0x0F00u);
+    EXPECT_FALSE(in_handler());
+    exec({0x64});  // FS:
+    EXPECT_EQ(reported, 0x0064u);
+    EXPECT_FALSE(in_handler());
+}
+
+// ---------------------------------------------------------------------------
+// 386 forms the BIOS ROM uses (0x66 and 0F, firmware only)
+// ---------------------------------------------------------------------------
+
+TEST_F(Cpu80286Test, OpSize32MovReachesEveryRegister) {
+    allow_firmware();
+    exec({0x66, 0xBA, 0x02, 0x00, 0x00, 0x80,   // MOV EDX
+          0x66, 0xBC, 0x04, 0x00, 0x00, 0x80,   // MOV ESP
+          0x66, 0xBD, 0x05, 0x00, 0x00, 0x80,   // MOV EBP
+          0x66, 0xBE, 0x06, 0x00, 0x00, 0x80,   // MOV ESI
+          0x66, 0xBF, 0x07, 0x00, 0x00, 0x80},  // MOV EDI
+         5);
+    EXPECT_EQ(cpu->dx, 0x80000002u);
+    EXPECT_EQ(cpu->sp, 0x80000004u);
+    EXPECT_EQ(cpu->bp, 0x80000005u);
+    EXPECT_EQ(cpu->si, 0x80000006u);
+    EXPECT_EQ(cpu->di, 0x80000007u);
+}
+
+TEST_F(Cpu80286Test, OpSize32AluForms) {
+    allow_firmware();
+    struct Case { uint8_t op; bool cf_in; uint32_t want; };
+    const Case cases[] = {
+        {0x09, false, 0x1F3F5F7Fu},  // OR
+        {0x11, true,  0x21436588u},  // ADC
+        {0x19, true,  0x03254768u},  // SBB
+        {0x21, false, 0x02040608u},  // AND
+        {0x29, false, 0x03254769u},  // SUB
+        {0x31, false, 0x1D3B5977u},  // XOR
+        {0x39, false, 0x12345678u},  // CMP leaves EAX
+    };
+    for (const auto &k : cases) {
+        cpu->ax = 0x12345678u; cpu->bx = 0x0F0F0F0Fu;
+        cpu->set_flag(cpu80286::FLAG_CF, k.cf_in);
+        exec({0x66, k.op, 0xD8});
+        EXPECT_EQ(cpu->ax, k.want) << "opcode " << std::hex << int(k.op);
+    }
+    cpu->ax = 0x80000000u; cpu->bx = 1;
+    exec({0x66, 0x39, 0xD8});  // CMP EAX, EBX
+    EXPECT_TRUE(OF());
+    EXPECT_FALSE(CF());
+    cpu->ax = 0; cpu->bx = 1;
+    exec({0x66, 0x29, 0xD8});
+    EXPECT_EQ(cpu->ax, 0xFFFFFFFFu);
+    EXPECT_TRUE(CF());
+    EXPECT_TRUE(SF());
+}
+
+TEST_F(Cpu80286Test, OpSize32ImmediateGroup) {
+    allow_firmware();
+    cpu->ax = 1;
+    exec({0x66, 0x81, 0xC0, 0xFF, 0xFF, 0xFF, 0x7F});  // ADD EAX, 7FFFFFFFh
+    EXPECT_EQ(cpu->ax, 0x80000000u);
+    EXPECT_TRUE(OF());
+    cpu->ax = 0xFFFFFFFFu;
+    exec({0x66, 0x83, 0xF8, 0xFF});  // CMP EAX, -1
+    EXPECT_TRUE(ZF());
+    EXPECT_EQ(cpu->ax, 0xFFFFFFFFu);
+}
+
+TEST_F(Cpu80286Test, OpSize32ShiftsAndRotates) {
+    allow_firmware();
+    struct Case { uint8_t modrm; uint32_t want; bool cf, of; };
+    const Case cases[] = {
+        {0xC0, 0x00000003u, true, true},   // ROL
+        {0xC8, 0xC0000000u, true, false},  // ROR
+        {0xD0, 0x00000002u, true, true},   // RCL
+        {0xD8, 0x40000000u, true, true},   // RCR
+        {0xE0, 0x00000002u, true, true},   // SHL
+        {0xE8, 0x40000000u, true, true},   // SHR
+        {0xF8, 0xC0000000u, true, false},  // SAR
+    };
+    for (const auto &k : cases) {
+        cpu->ax = 0x80000001u;
+        cpu->set_flag(cpu80286::FLAG_CF, false);
+        exec({0x66, 0xD1, k.modrm});
+        EXPECT_EQ(cpu->ax, k.want) << std::hex << int(k.modrm);
+        EXPECT_EQ(CF(), k.cf) << std::hex << int(k.modrm);
+        EXPECT_EQ(OF(), k.of) << std::hex << int(k.modrm);
+    }
+    cpu->ax = 0x80000001u;
+    exec({0x66, 0xC1, 0xE0, 0x04});  // SHL EAX, 4
+    EXPECT_EQ(cpu->ax, 0x00000010u);
+    EXPECT_FALSE(CF());
+    cpu->set_flag(cpu80286::FLAG_CF, true);
+    exec({0x66, 0xC1, 0xE0, 0x00});  // SHL EAX, 0
+    EXPECT_EQ(cpu->ax, 0x00000010u);
+    EXPECT_TRUE(CF());
+}
+
+TEST_F(Cpu80286Test, OpSize32UnaryGroup) {
+    allow_firmware();
+    cpu->ax = 0x80000000u;
+    exec({0x66, 0xF7, 0xC0, 0x00, 0x00, 0x00, 0x80});  // TEST EAX, 80000000h
+    EXPECT_TRUE(SF());
+    EXPECT_EQ(cpu->ax, 0x80000000u);
+    exec({0x66, 0xF7, 0xD0});  // NOT EAX
+    EXPECT_EQ(cpu->ax, 0x7FFFFFFFu);
+    exec({0x66, 0xF7, 0xD8});  // NEG EAX
+    EXPECT_EQ(cpu->ax, 0x80000001u);
+    EXPECT_TRUE(CF());
+
+    cpu->ax = 0x80000000u; cpu->bx = 4;
+    exec({0x66, 0xF7, 0xE3});  // MUL EBX
+    EXPECT_EQ(cpu->ax, 0u);
+    EXPECT_EQ(cpu->dx, 2u);
+    EXPECT_TRUE(CF());
+    cpu->ax = 0xFFFFFFFEu; cpu->bx = 3;
+    exec({0x66, 0xF7, 0xEB});  // IMUL EBX
+    EXPECT_EQ(cpu->ax, 0xFFFFFFFAu);
+    EXPECT_EQ(cpu->dx, 0xFFFFFFFFu);
+    EXPECT_FALSE(CF());
+    cpu->dx = 1; cpu->ax = 0; cpu->bx = 2;
+    exec({0x66, 0xF7, 0xF3});  // DIV EBX
+    EXPECT_EQ(cpu->ax, 0x80000000u);
+    EXPECT_EQ(cpu->dx, 0u);
+    cpu->dx = 0xFFFFFFFFu; cpu->ax = 0xFFFFFFF9u; cpu->bx = 2;
+    exec({0x66, 0xF7, 0xFB});  // IDIV EBX: -7 / 2
+    EXPECT_EQ(cpu->ax, 0xFFFFFFFDu);
+    EXPECT_EQ(cpu->dx, 0xFFFFFFFFu);
+}
+
+TEST_F(Cpu80286Test, OpSize32DivideErrors) {
+    allow_firmware();
+    handler(0);
+    const struct { uint32_t dx, ax, bx; uint8_t modrm; } cases[] = {
+        {2, 0, 2, 0xF3},                    // DIV quotient over 32 bits
+        {0, 1, 0, 0xF3},                    // DIV by zero
+        {0x80000000u, 0, 0xFFFFFFFFu, 0xFB},  // IDIV -2^63 / -1
+        {1, 0, 1, 0xFB},                    // IDIV quotient over 7FFFFFFFh
+        {0, 1, 0, 0xFB},                    // IDIV by zero
+    };
+    for (const auto &k : cases) {
+        cpu->dx = k.dx; cpu->ax = k.ax; cpu->bx = k.bx;
+        exec({0x66, 0xF7, k.modrm});
+        EXPECT_TRUE(in_handler()) << std::hex << k.dx << ":" << k.ax << " / " << k.bx;
+        EXPECT_EQ(frame(0), 0);
+    }
+}
+
+TEST_F(Cpu80286Test, OpSize32MultipliesAndExtends) {
+    allow_firmware();
+    cpu->bx = 0x10000;
+    exec({0x66, 0x69, 0xC3, 0x00, 0x00, 0x01, 0x00});  // IMUL EAX, EBX, 10000h
+    EXPECT_EQ(cpu->ax, 0u);
+    EXPECT_TRUE(OF());
+    cpu->bx = 5;
+    exec({0x66, 0x6B, 0xC3, 0xFE});  // IMUL EAX, EBX, -2
+    EXPECT_EQ(cpu->ax, 0xFFFFFFF6u);
+    EXPECT_FALSE(OF());
+    cpu->ax = 6; cpu->bx = 7;
+    exec({0x66, 0x0F, 0xAF, 0xC3});  // IMUL EAX, EBX
+    EXPECT_EQ(cpu->ax, 42u);
+
+    cpu->bx = 0x8000;
+    exec({0x66, 0x0F, 0xB7, 0xC3});  // MOVZX EAX, BX
+    EXPECT_EQ(cpu->ax, 0x00008000u);
+    exec({0x66, 0x0F, 0xBF, 0xC3});  // MOVSX EAX, BX
+    EXPECT_EQ(cpu->ax, 0xFFFF8000u);
+    cpu->ax = 0xAAAA0000u;
+    exec({0x0F, 0xB7, 0xC3});  // MOVZX AX, BX
+    EXPECT_EQ(cpu->ax, 0xAAAA8000u);
+    exec({0x0F, 0xBF, 0xC3});  // MOVSX AX, BX
+    EXPECT_EQ(cpu->ax, 0xAAAA8000u);
+}
+
+TEST_F(Cpu80286Test, OpSize32PushAndStringOps) {
+    allow_firmware();
+    cpu->bx = 0x11223344u;
+    exec({0x66, 0xFF, 0xF3});  // PUSH EBX
+    EXPECT_EQ(cpu->sp, 0x7FFCu);
+    EXPECT_EQ(frame(0), 0x3344);
+    EXPECT_EQ(frame(1), 0x1122);
+
+    cpu->ds = 0x0200; cpu->es = 0x0300;
+    mem[0x2000] = 0x44; mem[0x2001] = 0x33; mem[0x2002] = 0x22; mem[0x2003] = 0x11;
+    cpu->si = 0; cpu->di = 0;
+    exec({0x66, 0xA5});  // MOVSD
+    EXPECT_EQ(mem[0x3003], 0x11);
+    EXPECT_EQ(cpu->si, 4u);
+    cpu->si = 0; cpu->di = 0;
+    exec({0x66, 0xA7});  // CMPSD
+    EXPECT_TRUE(ZF());
+    cpu->si = 0;
+    exec({0x66, 0xAD});  // LODSD
+    EXPECT_EQ(cpu->ax, 0x11223344u);
+    cpu->di = 0;
+    exec({0x66, 0xAF});  // SCASD
+    EXPECT_TRUE(ZF());
+    EXPECT_EQ(cpu->di, 4u);
+}
+
+// ---------------------------------------------------------------------------
+// Single-byte instructions and their remaining forms
+// ---------------------------------------------------------------------------
+
+TEST_F(Cpu80286Test, CbwAndCwdSignExtend) {
+    cpu->ax = 0x1280;
+    run({0x98});  // CBW
+    EXPECT_EQ(cpu->ax, 0xFF80u);
+    cpu->ax = 0x127F;
+    run({0x98});
+    EXPECT_EQ(cpu->ax, 0x007Fu);
+    cpu->ax = 0x8000; cpu->dx = 0x1234;
+    run({0x99});  // CWD
+    EXPECT_EQ(cpu->dx, 0xFFFFu);
+    cpu->ax = 0x7FFF;
+    run({0x99});
+    EXPECT_EQ(cpu->dx, 0x0000u);
+}
+
+TEST_F(Cpu80286Test, SahfLoadsOnlyTheFlagBitsAndLahfReadsThemBack) {
+    cpu->ax = 0xFF00;
+    run({0x9E});  // SAHF
+    EXPECT_TRUE(SF()); EXPECT_TRUE(ZF()); EXPECT_TRUE(AF()); EXPECT_TRUE(PF()); EXPECT_TRUE(CF());
+    EXPECT_EQ(cpu->flags & 0xFF, 0xD7) << "bits 3 and 5 stay clear, bit 1 stays set";
+    cpu->ax = 0;
+    run({0x9F});  // LAHF
+    EXPECT_EQ(cpu->ax, 0xD700u);
+}
+
+TEST_F(Cpu80286Test, CmcAndStd) {
+    cpu->set_flag(cpu80286::FLAG_CF, false);
+    run({0xF5});
+    EXPECT_TRUE(CF());
+    run({0xF5});
+    EXPECT_FALSE(CF());
+    run({0xFD});
+    EXPECT_TRUE(cpu->flag(cpu80286::FLAG_DF));
+}
+
+TEST_F(Cpu80286Test, StringOpsRunBackwardWithDfSet) {
+    cpu->set_flag(cpu80286::FLAG_DF, true);
+    cpu->es = 0x0300; cpu->di = 0x10;
+    cpu->ax = 0x00AA;
+    run({0xAA});  // STOSB
+    EXPECT_EQ(mem[0x3010], 0xAA);
+    EXPECT_EQ(cpu->di, 0x0Fu);
+    cpu->ds = 0x0200; cpu->si = 0x10; cpu->dx = 0x60;
+    mem[0x2010] = 0x5A;
+    run({0x6E});  // OUTSB
+    EXPECT_EQ(last_out_port, 0x60);
+    EXPECT_EQ(last_out_port_val, 0x5A);
+    EXPECT_EQ(cpu->si, 0x0Fu);
+}
+
+TEST_F(Cpu80286Test, XlatLooksUpAlInTheTableAtBx) {
+    cpu->ds = 0x0200; cpu->es = 0x0300;
+    cpu->bx = 0x0100; cpu->ax = 0x0005;
+    mem[0x2105] = 0x42;
+    mem[0x3105] = 0x24;
+    run({0xD7});
+    EXPECT_EQ(cpu->ax & 0xFF, 0x42u);
+    cpu->ax = 0x0005;
+    run({0x26, 0xD7});  // ES: XLAT
+    EXPECT_EQ(cpu->ax & 0xFF, 0x24u);
+}
+
+TEST_F(Cpu80286Test, WaitFaultsOnlyWithMpAndTsBothSet) {
+    handler(7);
+    exec({0x9B});
+    EXPECT_FALSE(in_handler());
+    EXPECT_EQ(cpu->ip, 1);
+    cpu->ax = 0x0002;
+    exec({0x0F, 0x01, 0xF0, 0x9B}, 2);  // LMSW (MP) ; WAIT
+    EXPECT_FALSE(in_handler());
+    cpu->ax = 0x000A;
+    exec({0x0F, 0x01, 0xF0, 0x9B}, 2);  // LMSW (MP|TS) ; WAIT
+    EXPECT_TRUE(in_handler());
+    EXPECT_EQ(frame(0), 3);
+}
+
+TEST_F(Cpu80286Test, XchgAndPopMemoryAndTestAxImmediate) {
+    cpu->ds = 0;
+    mem[0x0500] = 0x34; mem[0x0501] = 0x12;
+    cpu->ax = 0xBEEF;
+    exec({0x87, 0x06, 0x00, 0x05});  // XCHG AX, [0500h]
+    EXPECT_EQ(cpu->ax, 0x1234u);
+    EXPECT_EQ(mem[0x0500], 0xEF);
+
+    cpu->ax = 0x5678;
+    exec({0x50, 0x8F, 0x06, 0x00, 0x05}, 2);  // PUSH AX ; POP [0500h]
+    EXPECT_EQ(mem[0x0500], 0x78);
+    EXPECT_EQ(cpu->sp, 0x8000u);
+
+    cpu->ax = 0x0F00;
+    exec({0xA9, 0xF0, 0x00});  // TEST AX, 00F0h
+    EXPECT_TRUE(ZF());
+    EXPECT_EQ(cpu->ax, 0x0F00u);
+}
+
+TEST_F(Cpu80286Test, PushImm8SignExtends) {
+    exec({0x6A, 0xFE});
+    EXPECT_EQ(cpu->sp, 0x7FFEu);
+    EXPECT_EQ(frame(0), 0xFFFE);
+}
+
+TEST_F(Cpu80286Test, RegisterAndMemoryFormsOfTheMoveAndTestGroup) {
+    cpu->ds = 0; cpu->bx = 0x0500;
+    mem[0x0500] = 0x0F; mem[0x0501] = 0x00;
+    cpu->ax = 0x00F0;
+    run({0x84, 0x07});  // TEST [BX], AL
+    EXPECT_TRUE(ZF());
+    run({0x85, 0x07});  // TEST [BX], AX
+    EXPECT_TRUE(ZF());
+
+    cpu->bx = 0x0042;
+    run({0x8A, 0xC3});  // MOV AL, BL
+    EXPECT_EQ(cpu->ax & 0xFF, 0x42u);
+    cpu->ds = 0x1234;
+    run({0x8C, 0xD8});  // MOV AX, DS
+    EXPECT_EQ(cpu->ax, 0x1234u);
+    cpu->ds = 0;
+    mem[0x0600] = 0x00; mem[0x0601] = 0x30;
+    run({0x8E, 0x06, 0x00, 0x06});  // MOV ES, [0600h]
+    EXPECT_EQ(cpu->es, 0x3000);
+    run({0xC6, 0xC0, 0x99});  // MOV AL, 99h (C6 /0 register form)
+    EXPECT_EQ(cpu->ax & 0xFF, 0x99u);
+    run({0xC7, 0xC3, 0x34, 0x12});  // MOV BX, 1234h (C7 /0 register form)
+    EXPECT_EQ(cpu->bx, 0x1234u);
+}
+
+TEST_F(Cpu80286Test, AluRegisterFormsAndThe82Alias) {
+    cpu->ax = 0x0005; cpu->bx = 0x0005;
+    run({0x3A, 0xC3});  // CMP AL, BL
+    EXPECT_TRUE(ZF());
+    EXPECT_EQ(cpu->ax, 0x0005u);
+    run({0x03, 0xC3});  // ADD AX, BX
+    EXPECT_EQ(cpu->ax, 0x000Au);
+    run({0x82, 0xC0, 0x05});  // 82 is 80 again: ADD AL, 5
+    EXPECT_EQ(cpu->ax, 0x000Fu);
+}
+
+TEST_F(Cpu80286Test, TestSlashOneIsAnAliasOfTest) {
+    cpu->ax = 0x0080;
+    run({0xF6, 0xC8, 0x80});  // TEST AL, 80h via /1
+    EXPECT_TRUE(SF());
+    cpu->ax = 0x8000;
+    run({0xF7, 0xC8, 0x00, 0x80});  // TEST AX, 8000h via /1
+    EXPECT_TRUE(SF());
+}
+
+TEST_F(Cpu80286Test, UnaryGroupMemoryForms) {
+    cpu->ds = 0;
+    mem[0x0500] = 0x03; mem[0x0501] = 0x00;
+    cpu->ax = 0x0009;
+    exec({0xF6, 0x36, 0x00, 0x05});  // DIV BYTE [0500h]
+    EXPECT_EQ(cpu->ax, 0x0003u);
+    cpu->ax = 0x0009;
+    exec({0xF6, 0x3E, 0x00, 0x05});  // IDIV BYTE [0500h]
+    EXPECT_EQ(cpu->ax, 0x0003u);
+    cpu->dx = 0; cpu->ax = 9;
+    exec({0xF7, 0x36, 0x00, 0x05});  // DIV WORD [0500h]
+    EXPECT_EQ(cpu->ax, 3u);
+    cpu->dx = 0; cpu->ax = 9;
+    exec({0xF7, 0x3E, 0x00, 0x05});  // IDIV WORD [0500h]
+    EXPECT_EQ(cpu->ax, 3u);
+    exec({0xF6, 0x06, 0x00, 0x05, 0x02});  // TEST BYTE [0500h], 2
+    EXPECT_FALSE(ZF());
+    exec({0xF6, 0x16, 0x00, 0x05});  // NOT BYTE [0500h]
+    EXPECT_EQ(mem[0x0500], 0xFC);
+    cpu->bx = 3;
+    exec({0xF6, 0xF3});  // DIV BL, register form
+    EXPECT_EQ(cpu->ax, 0x0001u);
+}
+
+TEST_F(Cpu80286Test, DivideOverflowsOnTheNegativeSideToo) {
+    handler(0);
+    const struct { std::initializer_list<uint8_t> code; uint16_t dx, ax, bx; } cases[] = {
+        {{0xF6, 0xF3}, 0, 0x0300, 2},       // DIV BL: 384/2 over FFh
+        {{0xF6, 0xFB}, 0, 0xFE00, 2},       // IDIV BL: -512/2 under -128
+        {{0xF7, 0xFB}, 0xFFFE, 0x0000, 1},  // IDIV BX: -131072 under -32768
+    };
+    for (const auto &k : cases) {
+        cpu->dx = k.dx; cpu->ax = k.ax; cpu->bx = k.bx;
+        exec(k.code);
+        EXPECT_TRUE(in_handler()) << std::hex << k.ax;
+    }
+}
+
+TEST_F(Cpu80286Test, BoundBelowTheLowerLimitFaults) {
+    handler(5);
+    cpu->ds = 0;
+    mem[0x0600] = 0x05; mem[0x0601] = 0x00; mem[0x0602] = 0x0A; mem[0x0603] = 0x00;
+    cpu->ax = 2;
+    exec({0x62, 0x06, 0x00, 0x06});
+    EXPECT_TRUE(in_handler());
+}
+
+TEST_F(Cpu80286Test, ShiftCountsOfZeroWriteNothing) {
+    cpu->set_flag(cpu80286::FLAG_CF, true);
+    cpu->ax = 0x0081; cpu->cx = 0x20;  // CL masks to 0
+    run({0xD2, 0xE0});  // SHL AL, CL
+    EXPECT_EQ(cpu->ax, 0x0081u);
+    EXPECT_TRUE(CF());
+    run({0xD3, 0xE0});  // SHL AX, CL
+    EXPECT_EQ(cpu->ax, 0x0081u);
+    cpu->cx = 0;
+    run({0xD2, 0xE0});
+    run({0xD3, 0xE0});
+    EXPECT_EQ(cpu->ax, 0x0081u);
+    cpu->cx = 4;
+    run({0xD3, 0xE0});
+    EXPECT_EQ(cpu->ax, 0x0810u);
+}
+
+TEST_F(Cpu80286Test, RotatesCarryTheOtherBitValue) {
+    cpu->set_flag(cpu80286::FLAG_CF, true);
+    cpu->ax = 0x0001;
+    run({0xD0, 0xC0});  // ROL AL: out bit 0
+    EXPECT_EQ(cpu->ax & 0xFF, 0x02u);
+    EXPECT_FALSE(CF());
+    cpu->ax = 0x0002;
+    run({0xD0, 0xC8});  // ROR AL
+    EXPECT_EQ(cpu->ax & 0xFF, 0x01u);
+    EXPECT_FALSE(CF());
+    cpu->ax = 0x0002;
+    run({0xD0, 0xD8});  // RCR AL, CF=0 in
+    EXPECT_EQ(cpu->ax & 0xFF, 0x01u);
+
+    cpu->ax = 0x0001;
+    run({0xD1, 0xC0});  // ROL AX
+    EXPECT_EQ(cpu->ax, 0x0002u);
+    cpu->ax = 0x0002;
+    run({0xD1, 0xC8});  // ROR AX
+    EXPECT_EQ(cpu->ax, 0x0001u);
+    cpu->set_flag(cpu80286::FLAG_CF, true);
+    cpu->ax = 0x0000;
+    run({0xD1, 0xD0});  // RCL AX, CF=1 in
+    EXPECT_EQ(cpu->ax, 0x0001u);
+    cpu->set_flag(cpu80286::FLAG_CF, false);
+    cpu->ax = 0x0002;
+    run({0xD1, 0xD8});  // RCR AX, CF=0 in
+    EXPECT_EQ(cpu->ax, 0x0001u);
+}
+
+TEST_F(Cpu80286Test, BcdAdjustsWithCarryAndAuxiliaryCarryIn) {
+    cpu->ax = 0x0012;
+    cpu->set_flag(cpu80286::FLAG_AF, true);
+    cpu->set_flag(cpu80286::FLAG_CF, false);
+    run({0x27});  // DAA, AF in
+    EXPECT_EQ(cpu->ax & 0xFF, 0x18u);
+
+    cpu->ax = 0x000B;
+    cpu->set_flag(cpu80286::FLAG_AF, false);
+    cpu->set_flag(cpu80286::FLAG_CF, true);
+    run({0x27});  // DAA, CF in
+    EXPECT_EQ(cpu->ax & 0xFF, 0x71u);
+    EXPECT_TRUE(CF());
+
+    cpu->ax = 0x00FA;
+    cpu->set_flag(cpu80286::FLAG_AF, false);
+    cpu->set_flag(cpu80286::FLAG_CF, false);
+    run({0x27});  // DAA, AL + 6 carries out
+    EXPECT_EQ(cpu->ax & 0xFF, 0x60u);
+    EXPECT_TRUE(CF());
+
+    cpu->ax = 0x001F;
+    cpu->set_flag(cpu80286::FLAG_AF, false);
+    cpu->set_flag(cpu80286::FLAG_CF, true);
+    run({0x2F});  // DAS, CF in
+    EXPECT_EQ(cpu->ax & 0xFF, 0xB9u);
+    EXPECT_TRUE(CF());
+
+    cpu->ax = 0x0003;
+    cpu->set_flag(cpu80286::FLAG_AF, true);
+    run({0x37});  // AAA, AF in with a valid low digit
+    EXPECT_EQ(cpu->ax, 0x0109u);
+}
+
+// ---------------------------------------------------------------------------
+// Descriptor-table loads and stores, MSW forms
+// ---------------------------------------------------------------------------
+
+TEST_F(Cpu80286Test, TableLoadsAndStoresNeedAMemoryOperand) {
+    handler(6);
+    exec({0x0F, 0x01, 0xC0});  // SGDT AX
+    EXPECT_TRUE(in_handler());
+    exec({0x0F, 0x01, 0xD0});  // LGDT AX
+    EXPECT_TRUE(in_handler());
+}
+
+TEST_F(Cpu80286Test, TableOperandPastFffaRaisesGeneralProtection) {
+    handler(13);
+    cpu->ds = 0;
+    exec({0x0F, 0x01, 0x06, 0xFC, 0xFF});  // SGDT [FFFCh]
+    EXPECT_TRUE(in_handler());
+    exec({0x0F, 0x01, 0x16, 0xFC, 0xFF});  // LGDT [FFFCh]
+    EXPECT_TRUE(in_handler());
+}
+
+TEST_F(Cpu80286Test, SmswAndLmswTakeMemoryOperands) {
+    cpu->ds = 0;
+    exec({0x0F, 0x01, 0x26, 0x00, 0x05});  // SMSW [0500h]
+    EXPECT_EQ(mem[0x0500], 0xF0);
+    EXPECT_EQ(mem[0x0501], 0xFF);
+    mem[0x0502] = 0x09; mem[0x0503] = 0x00;  // PE|TS, no on_unimplemented hook
+    exec({0x0F, 0x01, 0x36, 0x02, 0x05});  // LMSW [0502h]
+    EXPECT_EQ(cpu->msw() & 0x000F, 0x0008);
+}
+
+// ---------------------------------------------------------------------------
+// REP edge cases
+// ---------------------------------------------------------------------------
+
+TEST_F(Cpu80286Test, RepWithCxZeroDoesNothing) {
+    cpu->es = 0x0300; cpu->di = 0; cpu->cx = 0;
+    run({0xF3, 0x6C});  // REP INSB
+    EXPECT_EQ(cpu->di, 0u);
+    EXPECT_EQ(cpu->ip, 2);
+}
+
+TEST_F(Cpu80286Test, OutsHonoursASegmentOverride) {
+    cpu->es = 0x0300; cpu->si = 0; cpu->dx = 0x61;
+    mem[0x3000] = 0x3C;
+    run({0x26, 0x6E});  // ES: OUTSB
+    EXPECT_EQ(last_out_port_val, 0x3C);
+}
+
+TEST_F(Cpu80286Test, RepInsYieldsAndResumes) {
+    cpu->rep_yield_cycles = 6;
+    cpu->es = 0x0300; cpu->di = 0; cpu->dx = 0x60; cpu->cx = 8;
+    next_in_val = 0x11;
+    load({0xF3, 0x6C, 0x90});
+    cpu->ip = 0;
+    cpu->step();
+    EXPECT_EQ(cpu->ip, 0);
+    EXPECT_GT(cpu->cx, 0u);
+    while (cpu->ip == 0) cpu->step();
+    EXPECT_EQ(cpu->cx, 0u);
+    EXPECT_EQ(cpu->di, 8u);
+    EXPECT_EQ(mem[0x3007], 0x11);
+}
+
+TEST_F(Cpu80286Test, FaultInsideARepStopsWithCxCounted) {
+    handler(13);
+    cpu->ds = 0x0200; cpu->es = 0x0300;
+    cpu->si = 0xFFFD; cpu->di = 0; cpu->cx = 4;
+    exec({0xF3, 0xA5});  // REP MOVSW; the second word straddles FFFFh
+    EXPECT_TRUE(in_handler());
+    EXPECT_EQ(cpu->cx, 3u);
+    cpu->ds = 0; cpu->es = 0x0300;
+    cpu->dx = 0x60; cpu->di = 0xFFFD; cpu->cx = 4;
+    exec({0xF3, 0x6D});  // REP INSW
+    EXPECT_TRUE(in_handler());
+    EXPECT_EQ(cpu->cx, 3u);
+}
+
+TEST_F(Cpu80286Test, UnhookedReportsAreSilent) {
+    exec({0x0F, 0x05});  // LOADALL, no on_unimplemented hook
+    EXPECT_EQ(cpu->ip, 2);
+    allow_firmware();
+    exec({0x0F, 0x00, 0xC0});
+    exec({0x64});
+    EXPECT_EQ(cpu->ip, 1);
+}
+
+// ---------------------------------------------------------------------------
+// More 0x66 forms
+// ---------------------------------------------------------------------------
+
+TEST_F(Cpu80286Test, OpSize32SingleByteForms) {
+    allow_firmware();
+    cpu->ax = 0xFFFFFFFFu;
+    exec({0x66, 0x40});  // INC EAX
+    EXPECT_EQ(cpu->ax, 0u);
+    exec({0x66, 0x48});  // DEC EAX
+    EXPECT_EQ(cpu->ax, 0xFFFFFFFFu);
+    cpu->ax = 0x8000;
+    exec({0x66, 0x98});  // CWDE
+    EXPECT_EQ(cpu->ax, 0xFFFF8000u);
+    exec({0x66, 0x99});  // CDQ
+    EXPECT_EQ(cpu->dx, 0xFFFFFFFFu);
+    cpu->ax = 0x7FFFFFFFu;
+    exec({0x66, 0x99});
+    EXPECT_EQ(cpu->dx, 0u);
+    cpu->ax = 1; cpu->bx = 2;
+    exec({0x66, 0x93});  // XCHG EAX, EBX
+    EXPECT_EQ(cpu->ax, 2u);
+    EXPECT_EQ(cpu->bx, 1u);
+    cpu->ax = 0x80000000u;
+    exec({0x66, 0xA9, 0x00, 0x00, 0x00, 0x80});  // TEST EAX, 80000000h
+    EXPECT_TRUE(SF());
+    cpu->ax = 1;
+    exec({0x66, 0x05, 0x01, 0x00, 0x00, 0x00});  // ADD EAX, 1
+    EXPECT_EQ(cpu->ax, 2u);
+    exec({0x66, 0x3D, 0x02, 0x00, 0x00, 0x00});  // CMP EAX, 2
+    EXPECT_TRUE(ZF());
+    cpu->bx = 5;
+    exec({0x66, 0x03, 0xC3});  // ADD EAX, EBX
+    EXPECT_EQ(cpu->ax, 7u);
+    cpu->bx = 7;
+    exec({0x66, 0x3B, 0xC3});  // CMP EAX, EBX
+    EXPECT_TRUE(ZF());
+    EXPECT_EQ(cpu->ax, 7u);
+}
+
+TEST_F(Cpu80286Test, OpSize32StackAndMemoryForms) {
+    allow_firmware();
+    exec({0x66, 0x68, 0x44, 0x33, 0x22, 0x11});  // PUSH 11223344h
+    EXPECT_EQ(cpu->sp, 0x7FFCu);
+    EXPECT_EQ(frame(1), 0x1122);
+    exec({0x66, 0x6A, 0xFF});  // PUSH -1 as a dword
+    EXPECT_EQ(frame(0), 0xFFFF);
+    EXPECT_EQ(frame(1), 0xFFFF);
+
+    cpu->ds = 0;
+    cpu->ax = 0xCAFEBABEu;
+    exec({0x66, 0xA3, 0x00, 0x05});  // MOV [0500h], EAX
+    EXPECT_EQ(mem[0x0503], 0xCA);
+    cpu->ax = 0;
+    exec({0x66, 0xA1, 0x00, 0x05});  // MOV EAX, [0500h]
+    EXPECT_EQ(cpu->ax, 0xCAFEBABEu);
+    cpu->bx = 0x01020304u;
+    exec({0x66, 0x89, 0x1E, 0x00, 0x06});  // MOV [0600h], EBX
+    EXPECT_EQ(mem[0x0603], 0x01);
+    exec({0x66, 0x8B, 0x0E, 0x00, 0x06});  // MOV ECX, [0600h]
+    EXPECT_EQ(cpu->cx, 0x01020304u);
+    exec({0x66, 0xC7, 0x06, 0x00, 0x07, 0x78, 0x56, 0x34, 0x12});  // MOV DWORD [0700h], 12345678h
+    EXPECT_EQ(mem[0x0703], 0x12);
+    exec({0x66, 0xFF, 0x06, 0x00, 0x07});  // INC DWORD [0700h]
+    EXPECT_EQ(mem[0x0700], 0x79);
+    exec({0x66, 0xFF, 0x0E, 0x00, 0x07});  // DEC DWORD [0700h]
+    EXPECT_EQ(mem[0x0700], 0x78);
+    exec({0x66, 0x50, 0x66, 0x8F, 0x06, 0x00, 0x08}, 2);  // PUSH EAX ; POP DWORD [0800h]
+    EXPECT_EQ(mem[0x0803], 0xCA);
+    cpu->bx = 0x10; cpu->si = 0x20;
+    exec({0x66, 0x8D, 0x00});  // LEA EAX, [BX+SI]
+    EXPECT_EQ(cpu->ax, 0x30u);
+}
+
+TEST_F(Cpu80286Test, OpSize32ByteExtendsAndStosd) {
+    allow_firmware();
+    cpu->bx = 0x80;
+    exec({0x66, 0x0F, 0xB6, 0xC3});  // MOVZX EAX, BL
+    EXPECT_EQ(cpu->ax, 0x80u);
+    exec({0x66, 0x0F, 0xBE, 0xC3});  // MOVSX EAX, BL
+    EXPECT_EQ(cpu->ax, 0xFFFFFF80u);
+    cpu->es = 0x0300; cpu->di = 0;
+    exec({0x66, 0xAB});  // STOSD
+    EXPECT_EQ(mem[0x3003], 0xFF);
+    EXPECT_EQ(cpu->di, 4u);
+}
+
+TEST_F(Cpu80286Test, OpSize32RotatesCarryTheOtherBitValue) {
+    allow_firmware();
+    cpu->set_flag(cpu80286::FLAG_CF, true);
+    cpu->ax = 1;
+    exec({0x66, 0xD1, 0xC0});  // ROL EAX
+    EXPECT_EQ(cpu->ax, 2u);
+    EXPECT_FALSE(CF());
+    exec({0x66, 0xD1, 0xC8});  // ROR EAX
+    EXPECT_EQ(cpu->ax, 1u);
+    cpu->set_flag(cpu80286::FLAG_CF, true);
+    cpu->ax = 0;
+    exec({0x66, 0xD1, 0xD0});  // RCL EAX, CF=1 in
+    EXPECT_EQ(cpu->ax, 1u);
+    cpu->set_flag(cpu80286::FLAG_CF, true);
+    cpu->ax = 0;
+    exec({0x66, 0xD1, 0xD8});  // RCR EAX, CF=1 in
+    EXPECT_EQ(cpu->ax, 0x80000000u);
+}
+
+TEST_F(Cpu80286Test, OpSize32DivideEdges) {
+    allow_firmware();
+    cpu->dx = 0; cpu->ax = 5; cpu->bx = 0xFFFFFFFFu;
+    exec({0x66, 0xF7, 0xFB});  // IDIV EBX: 5 / -1
+    EXPECT_EQ(cpu->ax, 0xFFFFFFFBu);
+    handler(0);
+    cpu->dx = 0xFFFFFFFFu; cpu->ax = 0; cpu->bx = 1;
+    exec({0x66, 0xF7, 0xFB});  // -2^32 / 1 under -2^31
+    EXPECT_TRUE(in_handler());
+    cpu->ax = 0x80;
+    exec({0x66, 0xF7, 0xC8, 0x80, 0x00, 0x00, 0x00});  // TEST EAX, 80h via /1
+    EXPECT_FALSE(ZF());
+}
+
 }  // namespace
