@@ -52,8 +52,10 @@ test.describe("keyboard", () => {
   // The keyboard repeats a held key itself (500 ms delay, 10.9 cps); browser repeat events are ignored.
   test("holding a key makes the keyboard repeat it", async ({ promptPage: page }) => {
     await focusScreen(page);
+    const c0 = await page.evaluate(() => (window as any).__test.machine.totalCycles());
     await page.keyboard.down("KeyX");
-    await page.waitForTimeout(1500);
+    // Typematic runs on guest cycles, so hold for 1.5 s of guest time (66 MHz), not host time.
+    await page.waitForFunction((c) => (window as any).__test.machine.totalCycles() - c >= 99_000_000, c0, { timeout: 30_000 });
     await page.keyboard.up("KeyX");
     await expect.poll(async () => (/C:\\>(x+)/.exec(await screenText(page)) || ["", ""])[1].length)
       .toBeGreaterThan(3);

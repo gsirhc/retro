@@ -17,6 +17,36 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Wall-clock-paced suites go to the self-hosted Mac mini (label retro-mini)
+  # when it's online; otherwise ubuntu-latest with SLOW_HOST=1, which skips
+  # the specs that need the host to hold real guest speed. Listing runners
+  # needs RUNNER_STATUS_TOKEN (fine-grained, Administration: read); without
+  # it this always falls back.
+  pick-runner:
+    runs-on: ubuntu-latest
+    outputs:
+      runner: ${{ steps.pick.outputs.runner }}
+      slow: ${{ steps.pick.outputs.slow }}
+    steps:
+      - id: pick
+        env:
+          GH_TOKEN: ${{ secrets.RUNNER_STATUS_TOKEN }}
+        run: |
+          online=0
+          if [ -n "$GH_TOKEN" ]; then
+            online=$(gh api "repos/${{ github.repository }}/actions/runners" \
+              -q '[.runners[] | select(.status == "online" and any(.labels[]; .name == "retro-mini"))] | length' || echo 0)
+          fi
+          if [ "$online" -gt 0 ]; then
+            echo 'runner=["self-hosted","retro-mini"]' >> "$GITHUB_OUTPUT"
+            echo 'slow=' >> "$GITHUB_OUTPUT"
+            echo "Mac mini online"
+          else
+            echo 'runner="ubuntu-latest"' >> "$GITHUB_OUTPUT"
+            echo 'slow=1' >> "$GITHUB_OUTPUT"
+            echo "::notice::Mac mini offline or token missing; timing specs skipped on ubuntu"
+          fi
+
   altair8800-test:
     runs-on: ubuntu-latest
     steps:
@@ -174,8 +204,11 @@ jobs:
   # image build as the `build` job below -- see its own comment on the
   # cache step.
   ibmpcat-web-test:
-    needs: ibmpcat-test
-    runs-on: ubuntu-latest
+    needs: [ibmpcat-test, pick-runner]
+    runs-on: ${{ fromJSON(needs.pick-runner.outputs.runner) }}
+    env:
+      SLOW_HOST: ${{ needs.pick-runner.outputs.slow }}
+      HOMEBREW_NO_AUTO_UPDATE: 1
     steps:
       - uses: actions/checkout@v4
 
@@ -183,7 +216,11 @@ jobs:
         with:
           version: latest
 
-      - run: sudo apt-get update && sudo apt-get install -y nasm
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y nasm
+
+      - if: runner.os == 'macOS'
+        run: brew list nasm >/dev/null || brew install nasm
 
       - working-directory: retroweb/ibmpc-at/web
         run: make roms
@@ -194,6 +231,7 @@ jobs:
         with:
           path: retroweb/ibmpc-at/disks/freedos-hdd.img
           key: ibmpcat-hdd-${{ hashFiles('retroweb/ibmpc-at/*.h', 'retroweb/ibmpc-at/*.cpp', 'retroweb/ibmpc-at/disks/*.cpp', 'retroweb/ibmpc-at/disks/*.sh', 'retroweb/ibmpc-at/roms/*.sh', 'retroweb/ibmpc-at/roms/egabios/*') }}
+          enableCrossOsArchive: true
 
       - name: Build IBM PC/AT FreeDOS HDD image
         if: steps.ibmpcat-hdd.outputs.cache-hit != 'true'
@@ -288,8 +326,11 @@ jobs:
   # slow FreeDOS 1.3 installer run (PC486_REVIEW.md §5), and the CD-ROM ISO
   # is a ~400MB download that's otherwise pointless to repeat every run.
   pc486-web-test:
-    needs: pc486-test
-    runs-on: ubuntu-latest
+    needs: [pc486-test, pick-runner]
+    runs-on: ${{ fromJSON(needs.pick-runner.outputs.runner) }}
+    env:
+      SLOW_HOST: ${{ needs.pick-runner.outputs.slow }}
+      HOMEBREW_NO_AUTO_UPDATE: 1
     # Suite is host-bound near real 66 MHz (PC486_REVIEW.md §8.6); without a
     # cap a stuck boot waits out the runner's 6 h default. Warm-cache target
     # is under 10 minutes for make test; 45 leaves room for a cold ~8 min
@@ -307,7 +348,11 @@ jobs:
 
       # mtools builds the CuteMouse driver floppy from the FreeDOS image --
       # see retroweb/pc486/disks/build-ctmouse-floppy.sh.
-      - run: sudo apt-get update && sudo apt-get install -y mtools
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y mtools
+
+      - if: runner.os == 'macOS'
+        run: brew list mtools >/dev/null || brew install mtools
 
       - name: Cache pc486 FreeDOS CD-ROM ISO
         id: pc486-cd
@@ -317,6 +362,7 @@ jobs:
             retroweb/pc486/disks/freedos-cd.iso
             retroweb/pc486/disks/freedos-boot.img
           key: pc486-cd-${{ hashFiles('retroweb/pc486/disks/fetch-freedos-cd.sh') }}
+          enableCrossOsArchive: true
 
       - name: Fetch pc486 FreeDOS CD-ROM ISO
         if: steps.pc486-cd.outputs.cache-hit != 'true'
@@ -331,6 +377,7 @@ jobs:
         with:
           path: retroweb/pc486/disks/freedos-hdd.img
           key: pc486-hdd-${{ hashFiles('retroweb/pc486/*.h', 'retroweb/pc486/*.cpp', 'retroweb/pc486/disks/*.cpp', 'retroweb/pc486/disks/*.sh', 'retroweb/pc486/roms/*.sh') }}
+          enableCrossOsArchive: true
 
       - name: Build pc486 FreeDOS HDD image
         if: steps.pc486-hdd.outputs.cache-hit != 'true'
@@ -342,6 +389,7 @@ jobs:
         with:
           path: retroweb/pc486/disks/freedos-hdd.img
           key: pc486-hdd-${{ hashFiles('retroweb/pc486/*.h', 'retroweb/pc486/*.cpp', 'retroweb/pc486/disks/*.cpp', 'retroweb/pc486/disks/*.sh', 'retroweb/pc486/roms/*.sh') }}
+          enableCrossOsArchive: true
 
       # Both binaries: the shipped one and the instrumented twin the
       # Performance panel's ?perf loads. Building only the shipped one would

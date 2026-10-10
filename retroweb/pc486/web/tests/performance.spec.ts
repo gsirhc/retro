@@ -34,7 +34,7 @@ test.describe("Performance panel", () => {
     expect(p50).toBeLessThan(500);
     // At real speed the guest produces about a second of audio per second.
     const guest = Number(/guest ([\d.]+)x/.exec(text)![1]);
-    expect(guest).toBeGreaterThan(0.2);
+    if (!process.env.SLOW_HOST) expect(guest).toBeGreaterThan(0.2);
     // The range shows a brief surplus or drain the correction already bled off by the snapshot.
     // min <= current <= max always.
     const [, rMin, rMax] = /range (\d+)-(\d+) ms \(60s\)/.exec(text)!;

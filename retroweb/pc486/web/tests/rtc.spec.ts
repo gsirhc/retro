@@ -26,6 +26,7 @@ test.describe("real-time clock", () => {
     const hostMinutes = now.getHours() * 60 + now.getMinutes();
     expect(Math.abs(rtcMinutes - hostMinutes) % (24 * 60)).toBeLessThanOrEqual(1);
 
+    test.skip(!!process.env.SLOW_HOST, "host can't hold real 66 MHz; pace checked on the self-hosted runner");
     // Same start-up settle as smoke.spec.ts before measuring the clock's pace.
     await page.waitForTimeout(1000);
     const settled = await readRtc(page);
