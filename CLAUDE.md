@@ -254,6 +254,15 @@ deploy-critical case there; put exhaustive control coverage in the other
 Altair/assembler/ibmpc-at/pc486/z80 omit the long exercisers listed above
 (`make check` still runs them for nightly/local).
 
+**Self-hosted runner** (`retro-mini`, Chris's Mac mini): only nightly jobs
+whose specs need the host to hold real guest speed (today `pc486-web-test`
+and `ibmpcat-web-test`), routed through `nightly-full.yml`'s `pick-runner`
+with an ubuntu fallback that sets `SLOW_HOST=1`. Never put smoke or any
+`deploy-emulator.yml` job on it: smoke must prove real-speed pacing on a
+stock GitHub runner, and deploy CI runs on PRs (a public repo's fork PRs
+must never reach the Mini). Gate a wall-clock-sensitive spec with
+`test.skip(!!process.env.SLOW_HOST, "…")`, never smoke.
+
 ## Always delegate to a cheaper model when the task allows it
 
 **This is the default, not a suggestion, and it does not need asking about

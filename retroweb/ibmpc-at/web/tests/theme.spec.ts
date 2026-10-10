@@ -69,6 +69,24 @@ test.describe("page theme", () => {
     await expect(page.locator("html")).toHaveAttribute("data-mode", "dark");
   });
 
+  test("aurora and modern keep the case at the Win95 fascia width", async ({ page }) => {
+    const vp = page.viewportSize()!;
+    try {
+      await page.setViewportSize({ width: 1400, height: 900 });
+      await chooseTheme(page, "win");
+      const winWidth = await page.evaluate(() =>
+        document.querySelector("#frontPanelCard .at-case")!.getBoundingClientRect().width);
+      for (const theme of ["aurora", "modern"] as const) {
+        await chooseTheme(page, theme);
+        const width = await page.evaluate(() =>
+          document.querySelector("#frontPanelCard .at-case")!.getBoundingClientRect().width);
+        expect(width).toBeLessThanOrEqual(winWidth + 1);
+      }
+    } finally {
+      await page.setViewportSize(vp);
+    }
+  });
+
   test("persists across reload via the shared theme and mode keys", async ({ page }) => {
     await chooseTheme(page, "web94");
     await page.reload();

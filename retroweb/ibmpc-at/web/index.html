@@ -200,18 +200,11 @@
     color: #3a3527;
     font: 10px Arial, Helvetica, sans-serif;
     overflow-x: auto;
-    /* stretches to fill .page like every other panel in the Windows 95/
-       Mid-1990s Web/dark-default themes (those all sit at a fixed ~920px
-       page width anyway, so this doesn't run away); a real case fascia
-       has a fixed physical size, so the wide modern theme caps it instead
-       of letting it stretch with .page the way the CRT does. */
+    /* Win95 fascia (920 page - borders - inner/panel pad). */
     width: 100%;
+    max-width: 834px;
+    margin-inline: auto;
   }
-  /* Matches the other three themes' own fixed page width (--page-max:
-     920px), rather than an arbitrary narrower cap -- modern's own page
-     runs much wider than that, so without a cap the case would stretch
-     far wider here than it ever appears anywhere else. */
-  :root[data-theme="modern"] .at-case { max-width: 920px; margin: 0 auto; }
   /* left cluster (badge, LEDs+switch, grille) is the wider side of a
      real 5170's bezel -- roughly 2/3, so the drive stack sits over on
      the right the way the real fascia does. */

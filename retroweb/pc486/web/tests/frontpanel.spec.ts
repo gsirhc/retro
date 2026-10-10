@@ -190,6 +190,32 @@ test.describe("front panel jewelry", () => {
     }
   });
 
+  test("aurora and stacked modern keep the case at the Win95 fascia width", async ({
+    livePage: page,
+  }) => {
+    const vp = page.viewportSize()!;
+    try {
+      await page.setViewportSize({ width: 1400, height: 900 });
+      await chooseTheme(page, "win");
+      const winWidth = await page.evaluate(() =>
+        document.querySelector("#frontPanelCard .at-case")!.getBoundingClientRect().width);
+
+      await chooseTheme(page, "aurora");
+      let width = await page.evaluate(() =>
+        document.querySelector("#frontPanelCard .at-case")!.getBoundingClientRect().width);
+      expect(width).toBeLessThanOrEqual(winWidth + 1);
+
+      // Narrow enough that modern drops the tower under the screen.
+      await page.setViewportSize({ width: 1000, height: 900 });
+      await chooseTheme(page, "modern");
+      width = await page.evaluate(() =>
+        document.querySelector("#frontPanelCard .at-case")!.getBoundingClientRect().width);
+      expect(width).toBeLessThanOrEqual(winWidth + 1);
+    } finally {
+      await page.setViewportSize(vp);
+    }
+  });
+
   test("narrow front panel stacks drives above controls with CD capped to the island", async ({
     livePage: page,
   }) => {
