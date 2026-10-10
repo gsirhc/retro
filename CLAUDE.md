@@ -6,6 +6,9 @@ This repo holds recreations of vintage machines. The browser emulators live in
 `commodore64`, `cc65`, `kicad`. The whole point is **fidelity to the real
 hardware**. When you work here, that comes first.
 
+Planned features that haven't been started are listed in
+[`retroweb/IDEAS.md`](retroweb/IDEAS.md).
+
 ## Realism is the default, not an option
 
 - **Match the real machine's behavior, timing, limits, prompts, error messages,
