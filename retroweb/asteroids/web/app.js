@@ -310,12 +310,21 @@ AsteroidsArcade().then(async (Module) => {
       if (audioCtx.state === "suspended") await audioCtx.resume();
       return;
     }
-    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: "interactive" });
     // Output device rate varies, don't assume 48 kHz.
     machine.setAudioHz(audioCtx.sampleRate);
     if (!audioCtx.audioWorklet) return;
     const src = `registerProcessor("ast", class extends AudioWorkletProcessor {
-      constructor() { super(); this.q = []; this.i = 0; this.port.onmessage = e => { this.q.push(e.data); }; }
+      constructor() {
+        super();
+        this.q = [];
+        this.i = 0;
+        this.port.onmessage = e => {
+          // Drop backlog so a main-thread stall cannot leave the sound behind the picture.
+          if (this.q.length > 2) { this.q = []; this.i = 0; }
+          this.q.push(e.data);
+        };
+      }
       process(_, outputs) {
         const o = outputs[0][0];
         for (let i = 0; i < o.length; i++) {
