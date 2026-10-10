@@ -23,6 +23,19 @@ TEST(Machine, ResetHoldsPcAtZeroUntilTheDs1813DelayElapses) {
     EXPECT_EQ(m.cpu.pc, 0x9000);      // released, real reset vector read
 }
 
+TEST(Machine, NegativeBudgetIsANoOpAndTheCpuKeepsRunning) {
+    Machine m;
+    uint8_t img[32768] = {};
+    img[32768 - 4] = 0x00; img[32768 - 3] = 0x90;
+    m.bus.rom.load_image(img, 32768);
+    m.power_on_reset();
+    m.run_cycles(-5);
+    EXPECT_EQ(m.cycles(), 0u);
+    m.run_cycles(kResetHoldCycles);
+    EXPECT_GE(m.cycles(), uint64_t(kResetHoldCycles));
+    EXPECT_EQ(m.cpu.pc, 0x9000);
+}
+
 TEST(Machine, LcdAttachedByDefaultSoResetViaIrqDoesNotHang) {
     Machine m;
     EXPECT_TRUE(m.lcd_attached());

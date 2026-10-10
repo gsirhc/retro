@@ -91,6 +91,7 @@ void Machine::step_one(int budget) {
 }
 
 void Machine::run_cycles(int cycles) {
+    if (cycles <= 0) return;
     uint64_t target = total_cycles_ + uint64_t(cycles);
     while (total_cycles_ < target) step_one(int(target - total_cycles_));
 }

@@ -703,7 +703,7 @@ async function boot() {
   const CLOCK_HZ = 1_000_000;   // X1
   let last = performance.now();
   function frame(now) {
-    const dtMs = Math.min(now - last, 50);
+    const dtMs = Math.max(0, Math.min(now - last, 50));   // first rAF timestamp can predate `last`
     last = now;
     if (!poweredOn) { requestAnimationFrame(frame); return; }
 
