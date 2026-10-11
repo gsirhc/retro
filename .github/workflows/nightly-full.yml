@@ -415,8 +415,30 @@ jobs:
       # Both binaries: the shipped one and the instrumented twin the
       # Performance panel's ?perf loads. Building only the shipped one would
       # let the PC486_PERF paths rot unnoticed -- nothing else compiles them.
+      # DOOM preset C: (?disk=doom): id's own installer run onto a bare FreeDOS
+      # from the library's DOOM floppies (disks/build_doom_hdd.cpp).
+      - name: Restore pc486 DOOM preset hard disk
+        id: pc486-doom-hdd
+        uses: actions/cache/restore@v4
+        with:
+          path: retroweb/pc486/disks/doom-hdd.img
+          key: pc486-doom-hdd-${{ hashFiles('retroweb/pc486/*.h', 'retroweb/pc486/*.cpp', 'retroweb/pc486/disks/*.cpp', 'retroweb/pc486/disks/*.sh', 'retroweb/pc486/disks/*.py', 'retroweb/pc486/disks/library.json', 'retroweb/pc486/roms/*.sh', 'retroweb/shared/dos-library/*.py', 'retroweb/shared/dos-library/*.sh') }}
+          enableCrossOsArchive: true
+
+      - name: Build pc486 DOOM preset hard disk
+        if: steps.pc486-doom-hdd.outputs.cache-hit != 'true'
+        run: make -C retroweb/pc486 doom-hdd
+
+      - name: Save pc486 DOOM preset hard disk
+        if: steps.pc486-doom-hdd.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: retroweb/pc486/disks/doom-hdd.img
+          key: pc486-doom-hdd-${{ hashFiles('retroweb/pc486/*.h', 'retroweb/pc486/*.cpp', 'retroweb/pc486/disks/*.cpp', 'retroweb/pc486/disks/*.sh', 'retroweb/pc486/disks/*.py', 'retroweb/pc486/disks/library.json', 'retroweb/pc486/roms/*.sh', 'retroweb/shared/dos-library/*.py', 'retroweb/shared/dos-library/*.sh') }}
+          enableCrossOsArchive: true
+
       - working-directory: retroweb/pc486/web
-        run: make pc486.js pc486-perf.js hdd-image cdrom-image driver-images library-images shared
+        run: make pc486.js pc486-perf.js hdd-image cdrom-image driver-images library-images preset-images shared
 
       - uses: actions/setup-node@v4
         with:

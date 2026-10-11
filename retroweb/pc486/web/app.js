@@ -1570,11 +1570,20 @@
     requestAnimationFrame(frame);
   }
 
+  // ---- preset C: (?disk=doom, the home page's Ready to Play cards) ----
+  const kPresetHdds = {
+    doom: { file: "disks/presets/doom-hdd.img", label: "DOOM shareware", reset: "Reset to original DOOM disk" },
+  };
+  const presetId = new URLSearchParams(location.search).get("disk");
+  const presetHdd = Object.hasOwn(kPresetHdds, presetId) ? kPresetHdds[presetId] : null;
+  const kFactoryHddFile = presetHdd ? presetHdd.file : "disks/freedos-hdd.img";
+  const kFactoryHddLabel = presetHdd ? presetHdd.label : "FreeDOS (default)";
+
   // ---- hard disk persistence (IndexedDB, hdd-worker.js) ----
   // The Machine is discarded on power-off, so C: is mirrored to IndexedDB. The worker owns that
   // database so saves, loads and the 504MB conversion stay off this thread.
   const hddWorker = (() => {
-    const worker = new Worker("hdd-worker.js");
+    const worker = new Worker(presetHdd ? "hdd-worker.js?disk=" + presetId : "hdd-worker.js");
     const pending = new Map();
     let nextId = 1;
     const api = {
@@ -1680,14 +1689,14 @@
   // What C: mounts next power-on. `pendingHdd` is an image already read at page load; otherwise
   // the worker is asked, and with nothing saved the factory image is mounted and handed to it.
   let pendingHdd = null;
-  let hddLabel = "FreeDOS (default)";
+  let hddLabel = kFactoryHddLabel;
   let legacyHddNote = null;
   const kLegacyHddNote = "Your old 504MB C: couldn't be converted to 256MB. Download it before you reset.";
   let legacyConvertFailed = false;
   // Fetched only when a session needs the pristine factory image (nothing saved, or Reset to factory).
   let factoryHddPromise = null;
   function factoryHddUrl() {
-    return new URL("disks/freedos-hdd.img", location.href).href;
+    return new URL(kFactoryHddFile, location.href).href;
   }
   // Cheap identity of the server's freedos-hdd.img (ETag, else Last-Modified, plus Content-Length)
   // to tell an untouched older C: from a current one without the body. One HEAD per page load.
@@ -1717,8 +1726,8 @@
       factoryHddPromise = (async () => {
         currentFactoryFingerprint = await factoryFingerprint();
         if (loadBusyDepth > 0) loadOverlayLabel.textContent = "Downloading hard disk…";
-        const r = await fetch("disks/freedos-hdd.img");
-        if (!r.ok) throw new Error("freedos-hdd.img HTTP " + r.status);
+        const r = await fetch(kFactoryHddFile);
+        if (!r.ok) throw new Error(kFactoryHddFile + " HTTP " + r.status);
         const bytes = await r.arrayBuffer();
         if (firmware) firmware.hdd = bytes;
         return bytes;
@@ -1760,6 +1769,11 @@
   const hddDownloadBtn = document.getElementById("hddDownloadBtn");
   const hddLegacyDownloadBtn = document.getElementById("hddLegacyDownloadBtn");
   const hddUploadInput = document.getElementById("hddUploadInput");
+  if (presetHdd) {
+    hddResetBtn.textContent = presetHdd.reset;
+    hddBlankBtn.hidden = true;
+    hddUploadInput.closest(".filebtn").hidden = true;
+  }
   function refreshHddControls() {
     hddStatus.textContent = "Using: " + hddLabel + (legacyHddNote ? ". " + legacyHddNote : "");
     hddLegacyDownloadBtn.hidden = !legacyHddNote;
@@ -1773,7 +1787,7 @@
   hddResetBtn.addEventListener("click", () => {
     pendingHdd = null;
     legacyHddNote = null;
-    hddLabel = "FreeDOS (default). Takes effect at next power-on";
+    hddLabel = kFactoryHddLabel + ". Takes effect at next power-on";
     refreshHddControls();
     // Reset to factory means the image the server has now, so drop any fetched copy.
     factoryHddPromise = null;
@@ -1819,7 +1833,7 @@
       const r = await hddWorker.call("load");
       bytes = r.buffer ? new Uint8Array(r.buffer) : new Uint8Array(await ensureFactoryHdd());
     }
-    downloadBytes(bytes, "pc486-hdd.img");
+    downloadBytes(bytes, presetHdd ? "pc486-" + presetId + "-hdd.img" : "pc486-hdd.img");
   });
   hddLegacyDownloadBtn.addEventListener("click", async () => {
     const buf = await hddWorker.call("loadLegacy");
@@ -2078,7 +2092,7 @@
       if (saved) {
         pendingHdd = saved.bytes;
         hddLabel = saved.status === "converted" ? "converted from 504MB"
-          : saved.modified ? "saved (previous visit)" : "FreeDOS (default)";
+          : saved.modified ? "saved (previous visit)" : kFactoryHddLabel;
       } else {
         await ensureFactoryHdd();
       }

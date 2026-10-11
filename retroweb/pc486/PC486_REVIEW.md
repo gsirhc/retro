@@ -7089,3 +7089,43 @@ Backspace and Tab, a broken bar on the backslash key, darker caps for
 modifiers, function and navigation keys. `pckeyboard.spec.ts` covers the
 show/hide state, typing, latching, the Caps Lock lamp, map mode, and
 mapped clicks.
+
+## 50. Preset hard disks (`?disk=doom`)
+
+The landing page's **Ready to Play** cards open a machine with a ready-made
+C: in place of the factory FreeDOS one. The first is DOOM:
+`pc486/?disk=doom`.
+
+- **Built by the real installer.** `disks/build-doom-hdd.sh` keeps the
+  factory image's MBR and FreeDOS boot sector, formats a fresh FAT16 over
+  the same partition, and copies only `KERNEL.SYS`, `COMMAND.COM`,
+  `C:\DOS\HIMEMX.EXE` and `C:\DOS\CTMOUSE.EXE`, with a plain
+  `CONFIG.SYS`/`AUTOEXEC.BAT`. `disks/build_doom_hdd.cpp` then boots that
+  disk on this emulator, inserts the library's `doom-1.img`, types
+  `A:` / `INSTALL`, and answers DEICE (drive C, `\DOOMS`, create it),
+  swapping disk 2 in and disk 1 back as DEICE asks. `INSTALL.BAT` runs
+  `DOOMS_19.EXE`, deletes it, and runs id's SETUP, which the harness drives
+  to keyboard + mouse, Sound Blaster music and effects at 220h / IRQ 5 /
+  DMA 1 (this machine's `BLASTER` line), 8 channels, then "Save parameters
+  and launch DOOM". In DOOM the harness presses `=` once and quits with F10,
+  Y, so DOOM's own save writes `screenblocks 10`: full width over the status
+  bar, one step up from the default bordered view. The last step appends `CD \DOOMS` and `DOOM` to
+  `AUTOEXEC.BAT`, and `disks/zero-free-clusters.py` zeroes the clusters
+  the deleted self-extractor left, so the 256MB image gzips to about 2.8MB.
+  The harness takes about 70 s natively.
+- **SETUP quirks.** SETUP ignores the grey arrow keys (the `E0`-prefixed
+  ones, which INT 16h returns with AL=E0h), so the harness sends keypad
+  arrows. The selection bar is attribute 7Fh; `@PICK=` arrows until the bar
+  holds exactly the wanted entry ("Sound Blaster" and "Sound Blaster AWE32"
+  are both in the music list).
+- **Separate save.** `hdd-worker.js` opens IndexedDB `pc486-hdd-<preset>`
+  instead of `pc486-hdd`, so a visitor's own C: is never opened from a
+  preset page and plain `pc486/` never sees the preset's save. Everything
+  else (64KB chunks, the factory fingerprint that replaces an untouched
+  copy of an older image) works as for the factory C:. The Hard disk panel
+  relabels Reset ("Reset to original DOOM disk"), hides Upload and Mount
+  blank, and downloads as `pc486-doom-hdd.img`. An unknown `?disk=` mounts
+  the visitor's own C:.
+- **Tests.** `preset.spec.ts` checks the image's FAT16 layout, files,
+  `AUTOEXEC.BAT` and `DEFAULT.CFG`, that the page mounts it, and the
+  IndexedDB isolation both ways. No test boots DOOM.

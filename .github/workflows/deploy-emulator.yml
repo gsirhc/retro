@@ -727,8 +727,32 @@ jobs:
           path: retroweb/pc486/disks/freedos-hdd.img
           key: pc486-hdd-${{ hashFiles('retroweb/pc486/*.h', 'retroweb/pc486/*.cpp', 'retroweb/pc486/disks/*.cpp', 'retroweb/pc486/disks/*.sh', 'retroweb/pc486/roms/*.sh') }}
 
+      # DOOM preset C: (?disk=doom): id's own installer run onto a bare FreeDOS
+      # from the library's DOOM floppies (disks/build_doom_hdd.cpp).
+      - name: Restore pc486 DOOM preset hard disk
+        id: pc486-doom-hdd
+        uses: actions/cache/restore@v4
+        with:
+          path: retroweb/pc486/disks/doom-hdd.img
+          key: pc486-doom-hdd-${{ hashFiles('retroweb/pc486/*.h', 'retroweb/pc486/*.cpp', 'retroweb/pc486/disks/*.cpp', 'retroweb/pc486/disks/*.sh', 'retroweb/pc486/disks/*.py', 'retroweb/pc486/disks/library.json', 'retroweb/pc486/roms/*.sh', 'retroweb/shared/dos-library/*.py', 'retroweb/shared/dos-library/*.sh') }}
+
+      - name: Build pc486 DOOM preset hard disk
+        if: steps.pc486-doom-hdd.outputs.cache-hit != 'true'
+        run: make -C retroweb/pc486 doom-hdd
+
+      - name: Save pc486 DOOM preset hard disk
+        if: steps.pc486-doom-hdd.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: retroweb/pc486/disks/doom-hdd.img
+          key: pc486-doom-hdd-${{ hashFiles('retroweb/pc486/*.h', 'retroweb/pc486/*.cpp', 'retroweb/pc486/disks/*.cpp', 'retroweb/pc486/disks/*.sh', 'retroweb/pc486/disks/*.py', 'retroweb/pc486/disks/library.json', 'retroweb/pc486/roms/*.sh', 'retroweb/shared/dos-library/*.py', 'retroweb/shared/dos-library/*.sh') }}
+
       - working-directory: retroweb/pc486/web
-        run: make pc486.js pc486-perf.js roms hdd-image cdrom-image driver-images shared
+        run: make pc486.js pc486-perf.js roms hdd-image cdrom-image driver-images library-images preset-images shared
+
+      # Disk library floppies; the FreeDOS packages come from pc486's LiveCD restored above.
+      - working-directory: retroweb/ibmpc-at/web
+        run: make library-images
 
       # stage the site: retroweb/index.html at the root, the Altair front end
       # at /altair8800/, 6502 Assembler at /assembler6502/, IBM PC/AT at

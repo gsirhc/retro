@@ -131,7 +131,7 @@ _stage:
 	$(MAKE) -C galaxian/web wasm roms shared
 	$(MAKE) -C scramble/web wasm roms shared
 	$(MAKE) -C asteroids/web wasm roms shared
-	$(MAKE) -C pc486/web pc486.js pc486-perf.js roms hdd-image cdrom-image driver-images library-images shared
+	$(MAKE) -C pc486/web pc486.js pc486-perf.js roms hdd-image cdrom-image driver-images library-images preset-images shared
 	$(MAKE) site
 
 # Local TLS cert (localhost, LAN name, LAN IP). Plain http:// on a LAN address

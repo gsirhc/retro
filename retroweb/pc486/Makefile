@@ -7,6 +7,7 @@
 #   make vbe-check   run the VGA mode 13h / DAC / VESA end-to-end pixel proof
 #   make hdd-image   build the shipped FreeDOS HDD image (see below -- SLOW)
 #   make hdd-boot-check  cold-boot the finished HDD image standalone, report the screen
+#   make doom-hdd    build the DOOM preset C: (id's installer run on a bare FreeDOS)
 #   make render_screen   build the screen-to-BMP diagnostic tool (see below)
 #   make fm-trace-render build the OPL3 trace-to-WAV dev tool (see below)
 #   make wasm        build the WebAssembly module (needs emsdk -- see web/Makefile)
@@ -25,7 +26,7 @@ CXXFLAGS ?= -std=c++17 -O2 -Wall -Wextra
 CHIPSET_SRCS = machine.cpp chipset.cpp cpu80486.cpp cache486.cpp pic8259.cpp pit8253.cpp i8042.cpp cmos_rtc.cpp dma8237.cpp fdc765.cpp ega.cpp wd1003.cpp atapi_cdrom.cpp pcspeaker.cpp soundblaster.cpp opl3.cpp mpu401.cpp
 UNIT_TESTS = cpu80486_test cpu80486_timing_test cache486_test pic8259_test pit8253_test i8042_test cmos_rtc_test dma8237_test chipset_test machine_test fdc765_test ega_test ega_render_test wd1003_test atapi_cdrom_test pcspeaker_test soundblaster_test mpu401_test opl3_test
 
-.PHONY: help test test-smoke bios bios-check pm-check vbe-check library hdd-image hdd-boot-check wasm serve coverage check clean fm-trace-render
+.PHONY: help test test-smoke bios bios-check pm-check vbe-check library hdd-image hdd-boot-check doom-hdd wasm serve coverage check clean fm-trace-render
 
 LLVM_PROFDATA ?= xcrun llvm-profdata
 LLVM_COV      ?= xcrun llvm-cov
@@ -112,6 +113,20 @@ library: disks/freedos-cd.iso disks/ctmouse.img
 	python3 $(DOSLIB)/build-library.py --library disks/library.json --iso disks/freedos-cd.iso --out disks/library
 	cp disks/ctmouse.img disks/library/
 
+# --- DOOM preset C: (?disk=doom), from the library's two DOOM floppies ---
+disks/build_doom_hdd: disks/build_doom_hdd.cpp $(CHIPSET_SRCS)
+	$(CXX) $(CXXFLAGS) -o $@ disks/build_doom_hdd.cpp $(CHIPSET_SRCS)
+
+disks/library/doom-1.img disks/library/doom-2.img:
+	$(MAKE) library
+
+disks/doom-hdd.img: disks/build_doom_hdd disks/build-doom-hdd.sh disks/zero-free-clusters.py disks/freedos-hdd.img disks/library/doom-1.img disks/library/doom-2.img
+	bash disks/build-doom-hdd.sh ./disks/build_doom_hdd roms/BIOS-bochs-legacy roms/VGABIOS-lgpl-latest.bin \
+	  disks/freedos-hdd.img disks/library/doom-1.img disks/library/doom-2.img $@.tmp
+	mv $@.tmp $@
+
+doom-hdd: bios disks/doom-hdd.img
+
 # --- boot the finished HDD image standalone (hdd_boot_check.cpp) ---
 hdd-boot-check: bios disks/hdd_boot_check
 	./disks/hdd_boot_check roms/BIOS-bochs-legacy roms/VGABIOS-lgpl-latest.bin disks/freedos-hdd.img
@@ -156,5 +171,5 @@ test-smoke: test
 check: test pm-check vbe-check
 
 clean:
-	rm -rf tests/build tests/build-cov tests/coverage-cpp bios_host pm_stub_check vbe_mode13_check disks/build_freedos_hdd disks/hdd_boot_check disks/boom_run_check render_screen fm_trace_render
+	rm -rf tests/build tests/build-cov tests/coverage-cpp bios_host pm_stub_check vbe_mode13_check disks/build_freedos_hdd disks/build_doom_hdd disks/hdd_boot_check disks/boom_run_check render_screen fm_trace_render
 	$(MAKE) -C web clean

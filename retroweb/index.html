@@ -86,6 +86,7 @@
   .machines {
     display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;
   }
+  .machines + .machines { margin-top: 30px; }
 
   .machine-card {
     display: flex; flex-direction: column; padding: 0;
@@ -138,6 +139,15 @@
         </div>
       </div>
     </header>
+
+    <h2 class="section-heading">Ready to Play</h2>
+    <div class="machines">
+      <a class="machine-card" href="pc486/?disk=doom">
+        <img class="shot" src="assets/doom-e1m1.jpg" width="286" height="128"
+             decoding="async" alt="Shareware DOOM, looking out a window in E1M1, on the 486 DX2-66">
+        <span class="name">Shareware DOOM on the 486 DX2-66</span>
+      </a>
+    </div>
 
     <div class="machines">
       <a class="machine-card" href="altair8800/">

@@ -3,7 +3,9 @@
 // every earlier save. C: is stored as 64KB chunks keyed "c2:<index>"; all-zero chunks have no record.
 importScripts("hdd-convert.js");
 
-const DB_NAME = "pc486-hdd", STORE = "hdd";
+// A preset C: (?disk=doom) has its own database, so the visitor's own C: is never touched.
+const PRESET = new URLSearchParams(self.location.search).get("disk");
+const DB_NAME = PRESET ? "pc486-hdd-" + PRESET : "pc486-hdd", STORE = "hdd";
 const META_KEY = "c2-meta";
 const CHUNK = 65536;
 const MODEL = "AC2250";

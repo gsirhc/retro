@@ -32,6 +32,20 @@ test.describe("retroweb landing page", () => {
     expect(await shot.evaluate((img: HTMLImageElement) => img.naturalHeight)).toBe(128);
   });
 
+  test("Ready to Play lists DOOM first, linking to the 486 with ?disk=doom", async ({ page }) => {
+    await page.goto(HOME);
+    await expect(page.locator(".section-heading").first()).toHaveText("Ready to Play");
+    const card = page.locator("a.machine-card").first();
+    await expect(card).toHaveAttribute("href", "pc486/?disk=doom");
+    await expect(card.locator(".name")).toHaveText("Shareware DOOM on the 486 DX2-66");
+
+    const shot = card.locator("img.shot");
+    await expect(shot).toHaveAttribute("src", /assets\/doom-e1m1\.jpg$/);
+    await expect(shot).toHaveJSProperty("complete", true);
+    expect(await shot.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(286);
+    expect(await shot.evaluate((img: HTMLImageElement) => img.naturalHeight)).toBe(128);
+  });
+
   test("the theme selector switches the page and persists to retro8080.theme", async ({ page }) => {
     await page.goto(HOME);
     const root = page.locator("html");

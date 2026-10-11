@@ -44,7 +44,7 @@ pc486-perf.js: $(SRC) $(HDRS)
 
 perf-build: pc486-perf.js
 
-.PHONY: library-images shared roms hdd-image legacy-hdd-fixture cdrom-image driver-images perf-build serve test test-smoke test-install coverage clean
+.PHONY: library-images shared roms hdd-image preset-images legacy-hdd-fixture cdrom-image driver-images perf-build serve test test-smoke test-install coverage clean
 
 # Copied from retroweb/shared/ at build time, git-ignored.
 SHARED = ../../shared
@@ -76,6 +76,18 @@ disks/freedos-hdd.img.gz: disks/freedos-hdd.img
 	gzip -9 -k -f disks/freedos-hdd.img
 
 hdd-image: disks/freedos-hdd.img disks/freedos-hdd.img.gz
+
+$(CORE)/disks/doom-hdd.img:
+	$(MAKE) -C $(CORE) doom-hdd
+
+disks/presets/doom-hdd.img: $(CORE)/disks/doom-hdd.img
+	mkdir -p disks/presets
+	cp $(CORE)/disks/doom-hdd.img disks/presets/
+
+disks/presets/doom-hdd.img.gz: disks/presets/doom-hdd.img
+	gzip -9 -k -f disks/presets/doom-hdd.img
+
+preset-images: disks/presets/doom-hdd.img disks/presets/doom-hdd.img.gz
 
 # Test-only C: images in the old 504MB format, for hdd.spec.ts (tests/make-legacy-hdd.sh).
 tests/media/legacy-504.img: disks/freedos-hdd.img tests/make-legacy-hdd.sh

@@ -479,7 +479,8 @@ separate suite.
 - **486 DX2-66 Gaming PC** (`retroweb/pc486/`): `make -C retroweb/pc486 check`
   (GoogleTest over the 80486 core, chipset, EGA/VGA+VBE, WD1003, ATAPI
   CD-ROM, Sound Blaster 16 and its OPL3), `make -C retroweb/pc486/web
-  pc486.js roms hdd-image cdrom-image driver-images library-images`, `make -C
+  pc486.js roms hdd-image cdrom-image driver-images library-images
+  preset-images`, `make -C
   retroweb/pc486/web test-install test` (Playwright). The FreeDOS HDD image
   is a real, slow installer run the first time and cached after that (see
   `PC486_REVIEW.md` §11); the CuteMouse driver floppy the Drivers panel
@@ -490,6 +491,9 @@ separate suite.
   `library-images` (both PCs) builds the Disk library floppies from
   `disks/library.json` via `retroweb/shared/dos-library/` (mtools, plus
   pc486's pinned FreeDOS LiveCD); see that folder's README.
+  `preset-images` builds the `?disk=doom` C: behind the landing page's
+  Ready to Play card: id's real DOOM installer and SETUP run headless onto a
+  bare FreeDOS from the library's DOOM floppies (`PC486_REVIEW.md` §50).
   `make -C retroweb/pc486/web pc486-perf.js` builds a *second* wasm with the
   emulator's own performance counters compiled in (`PC486_PERF`), which
   `?perf` loads for the Performance panel's Tier 2 — the shipped binary
