@@ -77,17 +77,20 @@ disks/freedos-hdd.img.gz: disks/freedos-hdd.img
 
 hdd-image: disks/freedos-hdd.img disks/freedos-hdd.img.gz
 
-$(CORE)/disks/doom-hdd.img:
-	$(MAKE) -C $(CORE) doom-hdd
+PRESETS = doom wolf3d
+.PRECIOUS: $(CORE)/disks/%-hdd.img
 
-disks/presets/doom-hdd.img: $(CORE)/disks/doom-hdd.img
+$(CORE)/disks/%-hdd.img:
+	$(MAKE) -C $(CORE) preset-hdds
+
+disks/presets/%-hdd.img: $(CORE)/disks/%-hdd.img
 	mkdir -p disks/presets
-	cp $(CORE)/disks/doom-hdd.img disks/presets/
+	cp $< $@
 
-disks/presets/doom-hdd.img.gz: disks/presets/doom-hdd.img
-	gzip -9 -k -f disks/presets/doom-hdd.img
+disks/presets/%-hdd.img.gz: disks/presets/%-hdd.img
+	gzip -9 -k -f $<
 
-preset-images: disks/presets/doom-hdd.img disks/presets/doom-hdd.img.gz
+preset-images: $(foreach p,$(PRESETS),disks/presets/$(p)-hdd.img disks/presets/$(p)-hdd.img.gz)
 
 # Test-only C: images in the old 504MB format, for hdd.spec.ts (tests/make-legacy-hdd.sh).
 tests/media/legacy-504.img: disks/freedos-hdd.img tests/make-legacy-hdd.sh

@@ -45,62 +45,69 @@ async function mountedVolumeLabel(page: Page): Promise<string> {
   });
 }
 
+// Reads a preset image over HTTP and walks its FAT16: root and one game directory, plus
+// the text of AUTOEXEC.BAT and named files in that directory.
+async function readPreset(page: Page, file: string, dir: string, texts: string[]) {
+  return page.evaluate(async ({ file, dir, texts }) => {
+    const b = new Uint8Array(await (await fetch(file)).arrayBuffer());
+    const dv = new DataView(b.buffer);
+    const part = dv.getUint32(454, true) * 512;
+    const bps = dv.getUint16(part + 11, true);
+    const spc = b[part + 13];
+    const rootEntries = dv.getUint16(part + 17, true);
+    const root = part + (dv.getUint16(part + 14, true) + b[part + 16] * dv.getUint16(part + 22, true)) * bps;
+    const data = root + rootEntries * 32;
+    const entries = (off: number, n: number) => {
+      const out: Record<string, { cluster: number; size: number }> = {};
+      for (let i = 0; i < n; i++) {
+        const e = off + i * 32;
+        if (b[e] === 0) break;
+        if (b[e] === 0xe5 || b[e + 11] === 0x0f) continue;
+        const name = String.fromCharCode(...b.subarray(e, e + 8)).trim();
+        const ext = String.fromCharCode(...b.subarray(e + 8, e + 11)).trim();
+        out[ext ? name + "." + ext : name] = { cluster: dv.getUint16(e + 26, true), size: dv.getUint32(e + 28, true) };
+      }
+      return out;
+    };
+    const cluster = (n: number) => data + (n - 2) * spc * bps;
+    const text = (e: { cluster: number; size: number }) =>
+      String.fromCharCode(...b.subarray(cluster(e.cluster), cluster(e.cluster) + e.size));
+    const top = entries(root, rootEntries);
+    const game = entries(cluster(top[dir].cluster), (spc * bps) / 32);
+    return {
+      len: b.length,
+      mbr: b[510] === 0x55 && b[511] === 0xaa,
+      fs: String.fromCharCode(...b.subarray(part + 54, part + 62)),
+      top: Object.keys(top),
+      game: Object.keys(game),
+      sizes: Object.fromEntries(Object.entries(game).map(([k, v]) => [k, v.size])),
+      autoexec: text(top["AUTOEXEC.BAT"]),
+      texts: Object.fromEntries(texts.map((t) => [t, text(game[t])])),
+    };
+  }, { file, dir, texts });
+}
+
+function expectBareFreeDos(r: Awaited<ReturnType<typeof readPreset>>, dir: string) {
+  expect(r.len).toBe(kHddImageBytes);
+  expect(r.mbr).toBe(true);
+  expect(r.fs).toBe("FAT16   ");
+  expect(r.top).toEqual(expect.arrayContaining(["KERNEL.SYS", "COMMAND.COM", "CONFIG.SYS", "AUTOEXEC.BAT", "DOS", dir]));
+  expect(r.top).not.toContain("FREEDOS");
+}
+
 test.describe("preset C: (?disk=doom)", () => {
   test("the DOOM image is a 256MB FAT16 C: with DOOM installed and an AUTOEXEC.BAT that runs it", async ({ page }) => {
     await bootLive(page, { params: DOOM });
-    const r = await page.evaluate(async () => {
-      const b = new Uint8Array(await (await fetch("disks/presets/doom-hdd.img")).arrayBuffer());
-      const dv = new DataView(b.buffer);
-      const part = dv.getUint32(454, true) * 512;
-      const bps = dv.getUint16(part + 11, true);
-      const spc = b[part + 13];
-      const fats = b[part + 16];
-      const rootEntries = dv.getUint16(part + 17, true);
-      const spf = dv.getUint16(part + 22, true);
-      const root = part + (dv.getUint16(part + 14, true) + fats * spf) * bps;
-      const data = root + rootEntries * 32;
-      const entries = (off: number, n: number) => {
-        const out: Record<string, { cluster: number; size: number }> = {};
-        for (let i = 0; i < n; i++) {
-          const e = off + i * 32;
-          if (b[e] === 0) break;
-          if (b[e] === 0xe5 || b[e + 11] === 0x0f) continue;
-          const name = String.fromCharCode(...b.subarray(e, e + 8)).trim();
-          const ext = String.fromCharCode(...b.subarray(e + 8, e + 11)).trim();
-          out[ext ? name + "." + ext : name] = { cluster: dv.getUint16(e + 26, true), size: dv.getUint32(e + 28, true) };
-        }
-        return out;
-      };
-      const cluster = (n: number) => data + (n - 2) * spc * bps;
-      const top = entries(root, rootEntries);
-      const doomDir = entries(cluster(top.DOOMS.cluster), (spc * bps) / 32);
-      const ae = top["AUTOEXEC.BAT"];
-      const autoexec = String.fromCharCode(...b.subarray(cluster(ae.cluster), cluster(ae.cluster) + ae.size));
-      const cfg = doomDir["DEFAULT.CFG"];
-      const defaults = String.fromCharCode(...b.subarray(cluster(cfg.cluster), cluster(cfg.cluster) + cfg.size));
-      return {
-        len: b.length,
-        mbr: b[510] === 0x55 && b[511] === 0xaa,
-        fs: String.fromCharCode(...b.subarray(part + 54, part + 62)),
-        top: Object.keys(top),
-        doom: Object.keys(doomDir),
-        wad: doomDir["DOOM1.WAD"]?.size,
-        autoexec,
-        defaults,
-      };
-    });
-    expect(r.len).toBe(kHddImageBytes);
-    expect(r.mbr).toBe(true);
-    expect(r.fs).toBe("FAT16   ");
-    expect(r.top).toEqual(expect.arrayContaining(["KERNEL.SYS", "COMMAND.COM", "CONFIG.SYS", "AUTOEXEC.BAT", "DOS", "DOOMS"]));
-    expect(r.top).not.toContain("FREEDOS");
-    expect(r.doom).toEqual(expect.arrayContaining(["DOOM.EXE", "DOOM1.WAD", "SETUP.EXE", "DEFAULT.CFG"]));
-    expect(r.doom).not.toContain("DOOMS_19.EXE");
-    expect(r.wad).toBe(4196020);
+    const r = await readPreset(page, "disks/presets/doom-hdd.img", "DOOMS", ["DEFAULT.CFG"]);
+    expectBareFreeDos(r, "DOOMS");
+    expect(r.game).toEqual(expect.arrayContaining(["DOOM.EXE", "DOOM1.WAD", "SETUP.EXE", "DEFAULT.CFG"]));
+    expect(r.game).not.toContain("DOOMS_19.EXE");
+    expect(r.sizes["DOOM1.WAD"]).toBe(4196020);
     expect(r.autoexec).toMatch(/CD \\DOOMS\r\nDOOM\r\n$/);
-    expect(r.defaults).toMatch(/snd_sfxdevice\t+3/);
-    expect(r.defaults).toMatch(/snd_sbport\t+544/);
-    expect(r.defaults).toMatch(/screenblocks\t+10\r?\n/);
+    const defaults = r.texts["DEFAULT.CFG"];
+    expect(defaults).toMatch(/snd_sfxdevice\t+3/);
+    expect(defaults).toMatch(/snd_sbport\t+544/);
+    expect(defaults).toMatch(/screenblocks\t+10\r?\n/);
   });
 
   test("mounts the DOOM image instead of FreeDOS and relabels the Hard disk panel", async ({ page }) => {
@@ -170,5 +177,25 @@ test.describe("preset C: (?disk=doom)", () => {
     await expect(page.locator("#hddStatus")).toHaveText(/Using: FreeDOS \(default\)/);
     await expect(page.locator("#hddBlankBtn")).toBeVisible();
     expect(await mountedVolumeLabel(page)).toBe("FREEDOS2022");
+  });
+});
+
+test.describe("preset C: (?disk=wolf3d)", () => {
+  test("the Wolfenstein image has Wolf3D installed, its saved view at full width, and mounts with its own label", async ({ page }) => {
+    await bootLive(page, { params: "disk=wolf3d" });
+    const r = await readPreset(page, "disks/presets/wolf3d-hdd.img", "WOLF1", ["CONFIG.WL1"]);
+    expectBareFreeDos(r, "WOLF1");
+    expect(r.game).toEqual(expect.arrayContaining(["WOLF3D.EXE", "VSWAP.WL1", "CONFIG.WL1"]));
+    expect(r.game).not.toContain("WOLF3D1.EXE");
+    expect(r.autoexec).toMatch(/CD \\WOLF1\r\nWOLF3D\r\n$/);
+    // WL_MAIN.C WriteConfig: 7 high scores of 66 bytes, then SoundMode, MusicMode, DigiMode ... viewsize at 518
+    const cfg = r.texts["CONFIG.WL1"];
+    const word = (o: number) => cfg.charCodeAt(o) | (cfg.charCodeAt(o + 1) << 8);
+    expect(cfg.length).toBe(522);
+    expect([word(462), word(464), word(466)]).toEqual([2, 1, 3]);
+    expect(word(518)).toBe(19);
+    expect(await mountedVolumeLabel(page)).toBe("WOLF3D");
+    await expect(page.locator("#hddStatus")).toHaveText(/Using: Wolfenstein 3-D shareware/);
+    await expect(page.locator("#hddResetBtn")).toHaveText("Reset to original Wolfenstein disk");
   });
 });

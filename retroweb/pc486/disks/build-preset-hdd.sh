@@ -1,15 +1,21 @@
 #!/usr/bin/env bash
-# DOOM preset C:: the factory image's MBR and boot sector over a fresh FAT16 with only
-# the kernel, FreeCOM, HIMEMX and CTMOUSE, then id's own installer run onto it by
-# build_doom_hdd, then an AUTOEXEC.BAT that starts DOOM.
+# Preset C: (?disk=<preset>): the factory image's MBR and boot sector over a fresh FAT16
+# with only the kernel, FreeCOM, HIMEMX and CTMOUSE, then the game's own installer run
+# onto it by build_preset_hdd, then an AUTOEXEC.BAT that starts the game.
 set -euo pipefail
 
-if [ $# -ne 7 ]; then
-    echo "usage: build-doom-hdd.sh <build_doom_hdd> <bios> <vgabios> <freedos-hdd.img> <doom-1.img> <doom-2.img> <out.img>" >&2
+if [ $# -lt 7 ]; then
+    echo "usage: build-preset-hdd.sh <doom|wolf3d> <build_preset_hdd> <bios> <vgabios> <freedos-hdd.img> <out.img> <disk1.img> [disk2.img]" >&2
     exit 1
 fi
-TOOL=$1 BIOS=$2 VGA=$3 SRC=$4 DISK1=$5 DISK2=$6 OUT=$7
-command -v mformat >/dev/null 2>&1 || { echo "build-doom-hdd: mtools not installed (brew install mtools)" >&2; exit 1; }
+PRESET=$1 TOOL=$2 BIOS=$3 VGA=$4 SRC=$5 OUT=$6
+shift 6
+case "$PRESET" in
+    doom)   LABEL=DOOM   SERIAL=1993D00D RUN='CD \\DOOMS\r\nDOOM\r\n' ;;
+    wolf3d) LABEL=WOLF3D SERIAL=1992F3D0 RUN='CD \\WOLF1\r\nWOLF3D\r\n' ;;
+    *) echo "build-preset-hdd: unknown preset $PRESET" >&2; exit 1 ;;
+esac
+command -v mformat >/dev/null 2>&1 || { echo "build-preset-hdd: mtools not installed (brew install mtools)" >&2; exit 1; }
 
 export MTOOLS_SKIP_CHECK=1
 PART_LBA=$(od -An -t u4 -j 454 -N 4 "$SRC" | tr -d ' ')
@@ -28,7 +34,7 @@ dd if="$SRC" of="$tmp/vbr.bin" bs=512 skip="$PART_LBA" count=1 status=none
 
 # Same BPB as the installer's FORMAT left on the factory C: (minfo)
 mformat -i "$D" -T "$PART_SECTORS" -h 9 -s 55 -H "$PART_LBA" -c 8 -r 32 \
-    -v DOOM -N 1993D00D -B "$tmp/vbr.bin" ::
+    -v "$LABEL" -N "$SERIAL" -B "$tmp/vbr.bin" ::
 
 mcopy -m -i "$S" ::KERNEL.SYS ::COMMAND.COM ::FREEDOS/BIN/HIMEMX.EXE ::FREEDOS/BIN/CTMOUSE.EXE "$tmp/"
 printf 'DOS=HIGH\r\nFILES=40\r\nBUFFERS=20\r\nDEVICE=C:\\DOS\\HIMEMX.EXE\r\nSHELL=C:\\COMMAND.COM C:\\ /E:1024 /P\r\n' > "$tmp/CONFIG.SYS"
@@ -39,11 +45,11 @@ mcopy -m -i "$D" "$tmp/KERNEL.SYS" "$tmp/COMMAND.COM" "$tmp/CONFIG.SYS" "$tmp/AU
 mmd -i "$D" ::DOS
 mcopy -m -i "$D" "$tmp/HIMEMX.EXE" "$tmp/CTMOUSE.EXE" ::DOS
 
-"$TOOL" "$BIOS" "$VGA" "$BASE" "$DISK1" "$DISK2" "$OUT"
+"$TOOL" "$PRESET" "$BIOS" "$VGA" "$BASE" "$OUT" "$@"
 
-printf "${AUTOEXEC}CD \\\\DOOMS\r\nDOOM\r\n" > "$tmp/AUTOEXEC.BAT"
+printf "${AUTOEXEC}${RUN}" > "$tmp/AUTOEXEC.BAT"
 touch -t 199401010000 "$tmp/AUTOEXEC.BAT"
 mcopy -o -m -i "$OUT@@$PART_OFFSET" "$tmp/AUTOEXEC.BAT" ::AUTOEXEC.BAT
 python3 "$(dirname "$0")/zero-free-clusters.py" "$OUT" "$PART_OFFSET"
 
-echo "build-doom-hdd: wrote $OUT"
+echo "build-preset-hdd: wrote $OUT"

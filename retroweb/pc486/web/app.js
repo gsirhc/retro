@@ -1573,6 +1573,7 @@
   // ---- preset C: (?disk=doom, the home page's Ready to Play cards) ----
   const kPresetHdds = {
     doom: { file: "disks/presets/doom-hdd.img", label: "DOOM shareware", reset: "Reset to original DOOM disk" },
+    wolf3d: { file: "disks/presets/wolf3d-hdd.img", label: "Wolfenstein 3-D shareware", reset: "Reset to original Wolfenstein disk" },
   };
   const presetId = new URLSearchParams(location.search).get("disk");
   const presetHdd = Object.hasOwn(kPresetHdds, presetId) ? kPresetHdds[presetId] : null;

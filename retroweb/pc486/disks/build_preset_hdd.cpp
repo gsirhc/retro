@@ -1,11 +1,11 @@
-// Installs DOOM 1.9 shareware onto the DOOM preset C: by running id's own INSTALL.BAT
-// (DEICE, then the DOOMS_19.EXE self-extractor, then SETUP) on this emulator, from the
-// library's two install floppies, with injected keys and screen-text matching.
+// Installs a shareware game onto a preset C: by running its publisher's own INSTALL.BAT
+// on this emulator from the library's install floppies, with injected keys and
+// screen-text matching, then runs the game once so it saves its own config.
 //
-// Usage: build_doom_hdd <bios> <vgabios> <base.img> <disk1.img> <disk2.img> <out.img> [max_cycles]
+// Usage: build_preset_hdd <doom|wolf3d> <bios> <vgabios> <base.img> <out.img> <disk1.img> [disk2.img]
 //
-// <base.img> is build-doom-base.sh's bare FreeDOS C:. PC486_TRACE=1 dumps every screen
-// change to stderr.
+// <base.img> is build-preset-hdd.sh's bare FreeDOS C:. PC486_TRACE=1 dumps every screen
+// change to stderr; PC486_BUDGET caps the run in cycles.
 
 #include "../machine.h"
 
@@ -91,6 +91,8 @@ void Inject(Machine &m, uint8_t code) {
 void SendKey(Machine &m, uint8_t make, bool shift = false) {
     if (shift) Inject(m, kScanLShift);
     Inject(m, make);
+    // ~120ms held: Wolf3D's menus poll the key-state table once a frame
+    m.run_cycles(8'000'000);
     Inject(m, uint8_t(make | 0x80));
     if (shift) Inject(m, uint8_t(kScanLShift | 0x80));
 }
@@ -98,47 +100,19 @@ void SendKey(Machine &m, uint8_t make, bool shift = false) {
 // DOOM SETUP's selection bar: bright white on grey
 constexpr uint8_t kHighlight = 0x7F;
 
-constexpr uint8_t kScanUp = 0x48, kScanDown = 0x50, kScanEnter = 0x1C, kScanEsc = 0x01, kScanF10 = 0x44;
+constexpr uint8_t kScanUp = 0x48, kScanDown = 0x50, kScanEnter = 0x1C, kScanEsc = 0x01,
+                  kScanF10 = 0x44;
 
-// Steps run in order. One fires once `wait_for` is on screen, the screen has changed
-// since the previous step's keys, and it has then been still for kSettle.
+// Steps run in order. One fires once `wait_for` is on screen, the screen differs from
+// the one the previous step answered, and it has then been still for kSettle.
 struct Step {
     std::string wait_for;
-    std::string send;  // tokens: @ENTER @ESC @F10 @WAIT=seconds @PICK=Menu_entry @DISK1 @DISK2 @DONE, else literal keys
+    std::string send;  // tokens: @ENTER @ESC @SPACE @F10 @UP @DOWN @WAIT=seconds @PICK=Menu_entry @DISK1 @DISK2 @DONE, else literal keys
 };
 
-}  // namespace
-
-int main(int argc, char **argv) {
-    if (argc < 7) {
-        std::fprintf(stderr,
-            "usage: %s <bios> <vgabios> <base.img> <disk1.img> <disk2.img> <out.img> [max_cycles]\n",
-            argv[0]);
-        return 2;
-    }
-    uint64_t budget = argc > 7 ? std::strtoull(argv[7], nullptr, 10) : 200'000'000'000ull;
-    const bool trace = std::getenv("PC486_TRACE") != nullptr;
-
-    Machine m;
-    m.reset();
-    {
-        auto bios = ReadFile(argv[1]);
-        auto vga = ReadFile(argv[2]);
-        if (bios.empty() || vga.empty()) { std::fprintf(stderr, "cannot open BIOS/VGABIOS\n"); return 2; }
-        m.chipset.load_rom(0x100000 - uint32_t(bios.size()), bios.data(), bios.size());
-        m.chipset.load_rom(0xC0000, vga.data(), vga.size());
-    }
-    auto hdd = ReadFile(argv[3]);
-    auto disk1 = ReadFile(argv[4]);
-    auto disk2 = ReadFile(argv[5]);
-    if (hdd.size() != pc486::Wd1003::kImageBytes || disk1.empty() || disk2.empty()) {
-        std::fprintf(stderr, "cannot open the base C: or the install floppies\n");
-        return 2;
-    }
-    m.chipset.hdd.mount(0, hdd.data(), hdd.size());
-
-    // Booting with A: empty, then inserting disk 1 at the prompt, keeps the BIOS on C:
-    std::vector<Step> steps = {
+// Booting with A: empty, then inserting disk 1 at the prompt, keeps the BIOS on C:
+const std::map<std::string, std::vector<Step>> kPresets = {
+    {"doom", {
         {"C:\\>", "@DISK1 a:\n"},
         {"A:\\>", "install\n"},
         {"Which drive to install to?", "c"},
@@ -158,7 +132,54 @@ int main(int argc, char **argv) {
         {"Save parameters and launch DOOM", "@PICK=Save_parameters_and_launch_DOOM @ENTER"},
         {"DOOM System Startup", "@WAIT=15 = @WAIT=2 @F10 @WAIT=2 y"},
         {"C:\\DOOMS>", "@DONE"},
-    };
+    }},
+    {"wolf3d", {
+        {"C:\\>", "@DISK1 a:\n"},
+        {"A:\\>", "install\n"},
+        {"Which drive to install to?", "c"},
+        {"Enter directory name to copy into:", "@ENTER"},
+        {"That directory does not exist! Create it?", "y"},
+        // Sign-on, PC-13 and title each wait for a key; the menu cursor starts on Read This!,
+        // one below Change View. Wolf3D writes CONFIG.WL1 on quit.
+        {"C:\\WOLF1>", "wolf3d\n @WAIT=12 @SPACE @WAIT=6 @SPACE @WAIT=6 @ESC @WAIT=4 @UP @WAIT=1 @ENTER @WAIT=3 "
+                        "@UP @UP @UP @UP @UP @UP @UP @UP @UP @UP @ENTER @WAIT=3 "
+                        "@DOWN @DOWN @DOWN @DOWN @WAIT=1 @ENTER @WAIT=3 y"},
+        {"Thanks for playing", "@DONE"},
+    }},
+};
+
+}  // namespace
+
+int main(int argc, char **argv) {
+    if (argc < 7 || !kPresets.count(argv[1])) {
+        std::fprintf(stderr,
+            "usage: %s <doom|wolf3d> <bios> <vgabios> <base.img> <out.img> <disk1.img> [disk2.img]\n",
+            argv[0]);
+        return 2;
+    }
+    const std::vector<Step> &steps = kPresets.at(argv[1]);
+    const char *budget_env = std::getenv("PC486_BUDGET");
+    const uint64_t budget = budget_env ? std::strtoull(budget_env, nullptr, 10) : 200'000'000'000ull;
+    const bool trace = std::getenv("PC486_TRACE") != nullptr;
+
+    Machine m;
+    m.reset();
+    {
+        auto bios = ReadFile(argv[2]);
+        auto vga = ReadFile(argv[3]);
+        if (bios.empty() || vga.empty()) { std::fprintf(stderr, "cannot open BIOS/VGABIOS\n"); return 2; }
+        m.chipset.load_rom(0x100000 - uint32_t(bios.size()), bios.data(), bios.size());
+        m.chipset.load_rom(0xC0000, vga.data(), vga.size());
+    }
+    const char *out_path = argv[5];
+    auto hdd = ReadFile(argv[4]);
+    auto disk1 = ReadFile(argv[6]);
+    auto disk2 = argc > 7 ? ReadFile(argv[7]) : std::vector<uint8_t>{};
+    if (hdd.size() != pc486::Wd1003::kImageBytes || disk1.empty() || (argc > 7 && disk2.empty())) {
+        std::fprintf(stderr, "cannot open the base C: or the install floppies\n");
+        return 2;
+    }
+    m.chipset.hdd.mount(0, hdd.data(), hdd.size());
 
     std::string last_screen, prev_screen, sent_screen;
     std::size_t step_idx = 0;
@@ -203,6 +224,9 @@ int main(int argc, char **argv) {
             if (tok == "@DONE") { done = true; break; }
             if (tok == "@ENTER") SendKey(m, kScanEnter);
             else if (tok == "@F10") SendKey(m, kScanF10);
+            else if (tok == "@UP") SendKey(m, kScanUp);
+            else if (tok == "@DOWN") SendKey(m, kScanDown);
+            else if (tok == "@SPACE") SendKey(m, 0x39);
             else if (tok.rfind("@WAIT=", 0) == 0) m.run_cycles(int64_t(std::stoi(tok.substr(6))) * 66'000'000);
             else if (tok == "@ESC") SendKey(m, kScanEsc);
             else if (tok.rfind("@PICK=", 0) == 0) {
@@ -231,7 +255,7 @@ int main(int argc, char **argv) {
                 }
             }
         }
-        sent_screen = ScreenText(m);
+        sent_screen = s;
         ++step_idx;
     }
 
@@ -244,9 +268,9 @@ int main(int argc, char **argv) {
     }
 
     std::vector<uint8_t> final_image = m.chipset.hdd.image(0);
-    std::ofstream out(argv[6], std::ios::binary);
+    std::ofstream out(out_path, std::ios::binary);
     out.write(reinterpret_cast<const char *>(final_image.data()), std::streamsize(final_image.size()));
-    if (!out) { std::fprintf(stderr, "failed to write %s\n", argv[6]); return 2; }
-    std::fprintf(stderr, "wrote %s at cycle %llu\n", argv[6], (unsigned long long)m.total_cycles());
+    if (!out) { std::fprintf(stderr, "failed to write %s\n", out_path); return 2; }
+    std::fprintf(stderr, "wrote %s at cycle %llu\n", out_path, (unsigned long long)m.total_cycles());
     return 0;
 }

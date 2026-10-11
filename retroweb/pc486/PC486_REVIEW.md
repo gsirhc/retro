@@ -7090,42 +7090,58 @@ modifiers, function and navigation keys. `pckeyboard.spec.ts` covers the
 show/hide state, typing, latching, the Caps Lock lamp, map mode, and
 mapped clicks.
 
-## 50. Preset hard disks (`?disk=doom`)
+## 50. Preset hard disks (`?disk=doom`, `?disk=wolf3d`)
 
 The landing page's **Ready to Play** cards open a machine with a ready-made
-C: in place of the factory FreeDOS one. The first is DOOM:
-`pc486/?disk=doom`.
+C: in place of the factory FreeDOS one: `pc486/?disk=doom` and
+`pc486/?disk=wolf3d`.
 
-- **Built by the real installer.** `disks/build-doom-hdd.sh` keeps the
+- **Bare FreeDOS base.** `disks/build-preset-hdd.sh <preset>` keeps the
   factory image's MBR and FreeDOS boot sector, formats a fresh FAT16 over
   the same partition, and copies only `KERNEL.SYS`, `COMMAND.COM`,
   `C:\DOS\HIMEMX.EXE` and `C:\DOS\CTMOUSE.EXE`, with a plain
-  `CONFIG.SYS`/`AUTOEXEC.BAT`. `disks/build_doom_hdd.cpp` then boots that
-  disk on this emulator, inserts the library's `doom-1.img`, types
-  `A:` / `INSTALL`, and answers DEICE (drive C, `\DOOMS`, create it),
-  swapping disk 2 in and disk 1 back as DEICE asks. `INSTALL.BAT` runs
+  `CONFIG.SYS`/`AUTOEXEC.BAT`. `disks/build_preset_hdd.cpp <preset>` then
+  boots it on this emulator and runs the game's own installer from the
+  library floppies. Afterwards the script appends the game's directory and
+  command to `AUTOEXEC.BAT`, and `disks/zero-free-clusters.py` zeroes the
+  clusters the deleted self-extractor left. `make preset-hdds` builds both.
+- **DOOM** (`\DOOMS`, about 2.8MB gzipped, about 75 s natively). Types
+  `A:` / `INSTALL`, answers DEICE (drive C, `\DOOMS`, create it), swapping
+  disk 2 in and disk 1 back as DEICE asks. `INSTALL.BAT` runs
   `DOOMS_19.EXE`, deletes it, and runs id's SETUP, which the harness drives
   to keyboard + mouse, Sound Blaster music and effects at 220h / IRQ 5 /
   DMA 1 (this machine's `BLASTER` line), 8 channels, then "Save parameters
-  and launch DOOM". In DOOM the harness presses `=` once and quits with F10,
-  Y, so DOOM's own save writes `screenblocks 10`: full width over the status
-  bar, one step up from the default bordered view. The last step appends `CD \DOOMS` and `DOOM` to
-  `AUTOEXEC.BAT`, and `disks/zero-free-clusters.py` zeroes the clusters
-  the deleted self-extractor left, so the 256MB image gzips to about 2.8MB.
-  The harness takes about 70 s natively.
-- **SETUP quirks.** SETUP ignores the grey arrow keys (the `E0`-prefixed
+  and launch DOOM". In DOOM the harness presses `=` once and quits with
+  F10, Y, so DOOM's own save writes `screenblocks 10`: full width over the
+  status bar, one step up from the default bordered view.
+- **Wolfenstein 3-D** (`\WOLF1`, about 1.1MB gzipped, about 45 s
+  natively). One disk; the same DEICE answers, then `INSTALL.BAT` runs
+  `WOLF3D1.EXE -y` and deletes it. There is no SETUP: on first run Wolf3D
+  detects the AdLib and Sound Blaster itself (AdLib effects and music,
+  Sound Blaster digitized sound). The harness runs `WOLF3D`, keys past the
+  sign-on, PC-13 and title screens, opens the menu (its cursor starts on
+  Read This! on a first run, one below Change View; Save Game is skipped
+  with no game running), grows Change View to its limit, then Quit, Y.
+  Wolf3D's own save writes `CONFIG.WL1` with `viewsize` 19, the widest the
+  menu allows (304 pixels over the status bar). The sign-on screen still
+  waits for a key on every boot, as it did on real machines.
+- **Harness quirks.** SETUP ignores the grey arrow keys (the `E0`-prefixed
   ones, which INT 16h returns with AL=E0h), so the harness sends keypad
-  arrows. The selection bar is attribute 7Fh; `@PICK=` arrows until the bar
-  holds exactly the wanted entry ("Sound Blaster" and "Sound Blaster AWE32"
-  are both in the music list).
+  arrows. SETUP's selection bar is attribute 7Fh; `@PICK=` arrows until
+  the bar holds exactly the wanted entry ("Sound Blaster" and "Sound
+  Blaster AWE32" are both in the music list). Each key is held about
+  120ms: Wolf3D's menus poll the key-state table once a frame and miss a
+  4ms tap. A step answers a screen once it differs from the screen the
+  previous step answered, since a held key lets DOS print the next prompt
+  before the keys finish.
 - **Separate save.** `hdd-worker.js` opens IndexedDB `pc486-hdd-<preset>`
   instead of `pc486-hdd`, so a visitor's own C: is never opened from a
-  preset page and plain `pc486/` never sees the preset's save. Everything
+  preset page and plain `pc486/` never sees a preset's save. Everything
   else (64KB chunks, the factory fingerprint that replaces an untouched
   copy of an older image) works as for the factory C:. The Hard disk panel
-  relabels Reset ("Reset to original DOOM disk"), hides Upload and Mount
-  blank, and downloads as `pc486-doom-hdd.img`. An unknown `?disk=` mounts
-  the visitor's own C:.
-- **Tests.** `preset.spec.ts` checks the image's FAT16 layout, files,
-  `AUTOEXEC.BAT` and `DEFAULT.CFG`, that the page mounts it, and the
-  IndexedDB isolation both ways. No test boots DOOM.
+  relabels Reset ("Reset to original DOOM disk", "Reset to original
+  Wolfenstein disk"), hides Upload and Mount blank, and downloads as
+  `pc486-<preset>-hdd.img`. An unknown `?disk=` mounts the visitor's own C:.
+- **Tests.** `preset.spec.ts` checks each image's FAT16 layout, files,
+  `AUTOEXEC.BAT` and saved config, that the page mounts it, and the
+  IndexedDB isolation both ways (on DOOM). No test boots either game.
