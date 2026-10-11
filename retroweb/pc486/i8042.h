@@ -14,7 +14,8 @@
 // Commands: self-test, interface test, read/write command byte, enable/disable
 // keyboard and AUX, write to AUX or either output buffer, read/write output
 // port, pulse line 0. Typematic default 500 ms / 10.9 cps (set by 0xF3). LED
-// state isn't modeled. IBM 5170 Technical Reference, "Keyboard System".
+// state (0xED) is held for the page's keyboard drawing. IBM 5170 Technical
+// Reference, "Keyboard System".
 #ifndef PC486_I8042_H
 #define PC486_I8042_H
 
@@ -49,6 +50,9 @@ public:
     void clear_irq12() { irq12_pending_ = false; }
 
     bool a20_enabled() const { return (output_port_ & 0x02) != 0; }
+
+    // 0xED argument: bit 0 Scroll Lock, bit 1 Num Lock, bit 2 Caps Lock.
+    uint8_t leds() const { return leds_; }
 
     bool reset_requested() const { return reset_requested_; }
     void clear_reset_request() { reset_requested_ = false; }
@@ -113,6 +117,7 @@ private:
 
     uint8_t typematic_ = 0x2B;   // 500 ms delay, 10.9 cps: the power-on default
     uint8_t kbd_arg_cmd_ = 0;    // a keyboard command (0xED/0xF0/0xF3) awaiting its argument
+    uint8_t leds_ = 0;
     bool tm_active_ = false;
     uint8_t tm_prefix_ = 0;      // 0xE0 for a grey key, else 0
     uint8_t tm_code_ = 0;

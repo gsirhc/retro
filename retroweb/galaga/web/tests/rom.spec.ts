@@ -136,9 +136,22 @@ test.describe("ROM set loader", () => {
   });
 
   test("Remove ROMs clears the stored set and reverts to the test ROM", async ({ page }) => {
+    // The status reads "Running test ROM" before, during and after both the store and the delete,
+    // so poll IndexedDB itself.
+    const stored = () => page.evaluate(() => new Promise((resolve) => {
+      const req = indexedDB.open("retroweb-galaga", 1);
+      req.onsuccess = () => {
+        const g = req.result.transaction("roms").objectStore("roms").get("set");
+        g.onsuccess = () => resolve(g.result ? g.result.kind : "");
+        g.onerror = () => resolve("");
+      };
+      req.onerror = () => resolve("");
+    }));
     await page.locator("#romFile").setInputFiles(PARTS);
     await expect(page.locator("#romStatus")).toHaveText("Running test ROM");
+    await expect.poll(stored).toBe("hwtest");
     await page.locator("#removeRomBtn").click();
+    await expect.poll(stored).toBe("");
     await expect(page.locator("#romStatus")).toHaveText("Running test ROM");
     await page.reload();
     await expect(page.locator("#romStatus")).toHaveText("Running test ROM");

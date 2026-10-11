@@ -293,6 +293,23 @@ AsteroidsArcade().then(async (Module) => {
     el.addEventListener("pointercancel", up);
   });
 
+  const touch = initArcadeTouch({
+    root: document.getElementById("touchControls"),
+    stick: null,
+    buttons: [
+      { code: "ArrowLeft", label: "Left" },
+      { code: "ArrowRight", label: "Right" },
+      { code: "ShiftLeft", label: "Hyperspace" },
+      { code: "ArrowUp", label: "Thrust" },
+      { code: "Space", label: "Fire", cls: "red" },
+    ],
+    groups: [["ArrowLeft", "ArrowRight"], ["ShiftLeft"], ["ArrowUp", "Space"]],
+    setKey: (code, down) => {
+      keys[code] = down;
+      applyKeys();
+    },
+  });
+
   window.addEventListener("keydown", (e) => {
     keys[e.code] = true;
     applyKeys();
@@ -604,6 +621,7 @@ AsteroidsArcade().then(async (Module) => {
   if (TEST) {
     window.__test = {
       machine,
+      touch,
       get status() { return status.textContent; },
       get usingUserRom() { return usingUserRom; },
       mute,

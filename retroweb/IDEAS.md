@@ -109,22 +109,28 @@ Work involved:
 ## 9. On-screen keyboards
 
 Clickable keyboards drawn to match the real hardware, for phones and tablets
-and for anyone who wants to see the original layout.
+and for anyone who wants to see the original layout. Still to do:
 
 - ASR-33 Teletype keyboard for the Altair, including HERE IS, REPT, and the
   real key positions (no lowercase)
-- IBM Model M / AT 84-key layout for ibmpc-at, and a 101-key for pc486
 - 6502 Assembler: its own keypad
-- arcades get their own touch controls (see 13)
 
-Work involved:
+ibmpc-at and pc486 already have one (the IBM Enhanced Keyboard,
+`shared/pc-keyboard.js`), and the arcades have touch controls
+(`shared/arcade-touch.js`). Follow the PC keyboard's pattern:
 
+- drawn to scale from the real layout, keys sized relative to each other
+- a Keyboard checkbox in the machine's control bar shows it under that bar;
+  off by default on desktop, on by default on touch-only devices, remembered
 - keys feed the same input path as the physical keyboard, at the same rate
   (no typing faster than the machine accepts input)
 - modifier and repeat behavior matches the real keyboard (the ASR-33 has
-  no auto-repeat except REPT)
-- hidden by default on desktop, offered automatically on touch devices
-- Playwright tests that click keys and check what the machine receives
+  no auto-repeat except REPT; its CTRL and SHIFT latch on a click the way
+  the PC keyboard's do)
+- a real key press lights the drawn key, and lamps follow the machine's own
+  state rather than a guess
+- Playwright tests that click every key and check the bytes the machine
+  receives
 
 ## 10. Recorded drive and Teletype sounds
 
@@ -202,27 +208,6 @@ Work involved:
 - persisted disks store deltas, the same approach as snapshots (idea 2)
 - tests for each: guest reports the period date, a dropped file is readable
   in the guest, an edit to C: survives a reload
-
-## 13. Touch controls for the arcades
-
-Play the arcade machines on a phone or tablet.
-
-- an on-screen joystick (4-way or 8-way, matching the real cabinet's
-  restrictor) and the cabinet's real buttons
-- COIN and START (1P/2P) where the cabinet put them
-- laid out like the real control panel, in the cabinet's art where possible
-- the screen keeps its real orientation and aspect ratio (most of these are
-  vertical monitors) and fits the phone in portrait
-- haptic feedback on button press where the device supports it
-
-Work involved:
-
-- touch input goes through the same input ports as the keyboard, sampled at
-  the same rate the game polls them
-- Pac-Man's 4-way stick has to behave like the real restrictor (no
-  diagonals), Asteroids gets its five buttons and no stick
-- shown automatically on touch devices, hidden on desktop
-- Playwright tests with touch emulation for each cabinet
 
 ## 14. Dial-up to a BBS
 

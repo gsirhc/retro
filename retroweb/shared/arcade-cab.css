@@ -231,3 +231,79 @@
   border-radius: 2px;
   box-shadow: 0 1px 0 #3a3a3a;
 }
+
+/* Touch control panel: joystick left, buttons right, as on the cabinet. Phones and tablets only. */
+.touch-controls[hidden] { display: none; }
+.touch-panel {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-around; gap: 14px 18px;
+  margin: 0 0 16px;
+  user-select: none; -webkit-user-select: none;
+}
+.touch-group { display: flex; align-items: center; gap: 18px; }
+
+.touch-stick {
+  width: 132px; height: 132px; flex: 0 0 auto;
+  display: flex; align-items: center; justify-content: center;
+  touch-action: none;
+}
+.touch-gate {
+  position: relative; width: 112px; height: 112px; border-radius: 50%;
+  background: radial-gradient(circle at 50% 45%, #2a2a2a 0%, #111 70%);
+  box-shadow: inset 0 0 0 3px #3a3a3a, inset 0 4px 10px rgba(0,0,0,.8), 0 2px 3px rgba(0,0,0,.4);
+  display: flex; align-items: center; justify-content: center;
+}
+.touch-stick[data-ways="2way"] .touch-gate { height: 64px; border-radius: 32px; }
+.touch-stick[data-ways="4way"] .touch-gate { border-radius: 18px; }
+.touch-ball {
+  width: 54px; height: 54px; border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #ff8a8a 0%, #d81b1b 45%, #7a0909 100%);
+  box-shadow: 0 4px 8px rgba(0,0,0,.6), inset 0 -3px 6px rgba(0,0,0,.35);
+  transition: transform .05s linear;
+  pointer-events: none;
+}
+
+.touch-btn {
+  appearance: none; -webkit-appearance: none;
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  padding: 0; margin: 0; border: 0; background: none; color: inherit;
+  cursor: pointer; touch-action: none; -webkit-tap-highlight-color: transparent;
+}
+.touch-btn-cap {
+  width: 66px; height: 66px; border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #fff1a8 0%, #f2c200 45%, #9a7a00 100%);
+  box-shadow: 0 0 0 4px #1a1a1a, 0 5px 0 4px #000, 0 7px 10px 4px rgba(0,0,0,.4);
+  transition: transform .05s ease, box-shadow .05s ease;
+}
+.touch-btn.red .touch-btn-cap { background: radial-gradient(circle at 35% 30%, #ff9a9a 0%, #e01f1f 45%, #7a0909 100%); }
+.touch-btn.white .touch-btn-cap { background: radial-gradient(circle at 35% 30%, #ffffff 0%, #e2e2e2 45%, #8a8a8a 100%); }
+.touch-btn.pressed .touch-btn-cap {
+  transform: translateY(4px);
+  box-shadow: 0 0 0 4px #1a1a1a, 0 1px 0 4px #000, 0 2px 4px 4px rgba(0,0,0,.4);
+}
+.touch-btn-label {
+  font: 700 11px Arial, Helvetica, sans-serif; letter-spacing: .06em; text-transform: uppercase;
+  color: #f2f0ea; background: rgba(0, 0, 0, .6); padding: 1px 6px; border-radius: 3px;
+}
+
+/* Portrait phone: the monitor fills the width at its real aspect, controls underneath. */
+.arcade-touch .inner { padding: 8px; }
+.arcade-touch .tagline, .arcade-touch hr.rule, .arcade-touch .keys { display: none; }
+.arcade-touch #displayCard { padding: 8px; }
+@media (orientation: portrait) {
+  .arcade-touch .bezel { width: 100%; }
+}
+.arcade-touch .cab-face { width: 100%; box-sizing: border-box; padding: 14px 12px 14px; }
+.arcade-touch .focus-hint { display: none; }
+@media (max-width: 420px) {
+  .arcade-touch .touch-stick { width: 116px; height: 116px; }
+  .arcade-touch .touch-gate { width: 100px; height: 100px; }
+  .arcade-touch .touch-btn-cap { width: 58px; height: 58px; }
+  .arcade-touch .touch-panel { gap: 12px 8px; }
+  .arcade-touch .touch-group { gap: 8px; }
+  .arcade-touch .touch-btn-label { font-size: 9px; letter-spacing: .02em; }
+  .arcade-touch .coin-door { padding: 14px 10px; gap: 8px; }
+  .arcade-touch .coin-door .cd-mech { gap: 6px; }
+  .arcade-touch .cd-lamp { width: 44px; height: 36px; font-size: 14px; }
+  .arcade-touch .cd-throat { width: 44px; height: 36px; }
+  .arcade-touch .cd-throat::after { left: 8px; right: 8px; }
+}

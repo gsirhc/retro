@@ -1,0 +1,107 @@
+/* IBM Enhanced Keyboard: photoreal hardware in every theme, like the CRT and case fascia. */
+
+#keyboardCard { margin-top: 12px; }
+#keyboardCard[hidden] { display: none; }
+
+.kbd-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; margin-top: 12px; }
+.kbd-bar button[aria-pressed="true"] { outline: 2px solid var(--link); outline-offset: 1px; }
+.kbd-status { display: block; min-height: 1.2em; margin: 6px 0; text-align: center; }
+
+.kbd-wrap { overflow-x: auto; padding-bottom: 2px; }
+.kbd {
+  container-type: inline-size;
+  min-width: 540px; max-width: 980px; margin: 0 auto;
+  padding: 0;
+  border-radius: 8px;
+  background: linear-gradient(180deg, #ece8dc 0%, #ddd8ca 55%, #c9c3b3 100%);
+  box-shadow: inset 0 0 0 1px #f6f3ea, inset 0 0 0 2px #a8a291,
+              inset 0 3px 6px rgba(255,255,255,.55), inset 0 -6px 12px rgba(0,0,0,.15),
+              0 8px 20px rgba(0,0,0,.3);
+  user-select: none; -webkit-user-select: none;
+  touch-action: manipulation;
+}
+.kbd-deck {
+  --u: calc(100cqw / (var(--kbd-w) + 1));
+  position: relative;
+  height: calc(var(--u) * (var(--kbd-h) + 1));
+}
+
+
+.kbd-leds {
+  position: absolute; left: calc(var(--u) * 19); top: calc(var(--u) * .5);
+  width: calc(var(--u) * 4); height: var(--u);
+  display: flex; justify-content: space-around; align-items: flex-start;
+}
+.kbd-led-cell { display: flex; flex-direction: column; align-items: center; gap: calc(var(--u) * .1); }
+.kbd-led {
+  width: calc(var(--u) * .22); height: calc(var(--u) * .22); border-radius: 50%;
+  background: radial-gradient(circle at 40% 35%, #3c4a3c, #172017 70%);
+  box-shadow: inset 0 0 1px rgba(0,0,0,.8), 0 0 0 1px rgba(0,0,0,.35);
+}
+.kbd-led.on {
+  background: radial-gradient(circle at 40% 35%, #d9ffd2, #4be04b 55%, #1f8a1f);
+  box-shadow: 0 0 calc(var(--u) * .2) calc(var(--u) * .05) rgba(80,230,80,.75);
+}
+.kbd-led-label {
+  font: 400 calc(var(--u) * .19) Arial, Helvetica, sans-serif; color: #55524a; white-space: nowrap;
+}
+
+.kbd-key {
+  position: absolute;
+  left: calc(var(--u) * (var(--x) + .5) + 1px);
+  top: calc(var(--u) * (var(--y) + .5) + 1px);
+  width: calc(var(--u) * var(--w) - 2px);
+  height: calc(var(--u) * var(--h) - 2px);
+  margin: 0; padding: 0; border: 0; border-radius: calc(var(--u) * .08);
+  font: inherit; color: #3a3a38; cursor: pointer;
+  background: #b9b6ad;
+  box-shadow: inset 0 0 0 1px rgba(0,0,0,.25), 0 1px 1px rgba(0,0,0,.25);
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+.kbd-cap {
+  position: absolute;
+  inset: calc(var(--u) * .06) calc(var(--u) * .1) calc(var(--u) * .16);
+  border-radius: calc(var(--u) * .06);
+  background: linear-gradient(180deg, #f7f5ef, #e9e6dd);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.8), 0 0 0 1px rgba(0,0,0,.08);
+  display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-start;
+  padding: calc(var(--u) * .06) calc(var(--u) * .1);
+  font: 400 calc(var(--u) * .36) Arial, Helvetica, sans-serif; line-height: 1.05;
+  text-align: left; overflow: hidden; pointer-events: none;
+  transition: transform .04s ease, filter .04s ease;
+}
+.kbd-key.dark { background: #8f8c84; }
+.kbd-key.dark .kbd-cap { background: linear-gradient(180deg, #c9c6bd, #b8b5ac); }
+.kbd-cap.two { justify-content: space-between; }
+.kbd-cap.two:not(.word) { justify-content: flex-start; font-size: calc(var(--u) * .29); line-height: 1; gap: calc(var(--u) * .03); }
+.kbd-cap.word { font-size: calc(var(--u) * .2); line-height: 1.15; }
+.kbd-key.down .kbd-cap { transform: translateY(calc(var(--u) * .05)); filter: brightness(.88); }
+.kbd-key.latched .kbd-cap {
+  transform: translateY(calc(var(--u) * .05)); filter: brightness(.9);
+  box-shadow: inset 0 0 0 2px #3a7bd5;
+}
+
+.kbd-map {
+  position: absolute; right: calc(var(--u) * .04); bottom: calc(var(--u) * .03);
+  max-width: calc(100% - var(--u) * .08);
+  padding: 0 calc(var(--u) * .06); border-radius: calc(var(--u) * .1);
+  font: 700 calc(var(--u) * .18) Arial, Helvetica, sans-serif; line-height: 1.3;
+  color: #2a1c00; background: #f2b632; white-space: nowrap; overflow: hidden;
+  display: flex; align-items: center; gap: calc(var(--u) * .06);
+}
+.kbd-map[hidden] { display: none; }
+.kbd-map-txt { min-width: 0; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+.kbd-map-del {
+  flex: 0 0 auto; cursor: pointer; opacity: .65;
+  padding: 0 calc(var(--u) * .03);
+}
+.kbd-map-del:hover { opacity: 1; }
+.kbd-key.mapped-off .kbd-map { background: #5f5b52; color: #e4e0d6; }
+.kbd-key.mapped-off .kbd-map-txt { text-decoration: line-through; }
+
+.kbd.mapping .kbd-key { cursor: crosshair; }
+.kbd-key.map-from .kbd-cap { box-shadow: inset 0 0 0 2px #f2b632; }
+.kbd-key.map-latched .kbd-cap { box-shadow: inset 0 0 0 2px #3a7bd5; }
+
+.kbd.off .kbd-key { cursor: default; }

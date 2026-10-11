@@ -100,9 +100,22 @@ export async function setPowerSwitch(page: Page, on: boolean): Promise<void> {
   if ((await sw.isChecked()) !== on) await sw.click({ force: true });
 }
 
-/** Ctrl-Alt-Del via the on-page button. Needs force like the power switch. */
+/** Shows the drawn keyboard under the monitor (hidden by default on desktop). */
+export async function openKeyboard(page: Page): Promise<void> {
+  await page.locator("#keyboardToggle").check();
+}
+
+/** A drawn key on the IBM Enhanced Keyboard under the monitor. */
+export function boardKey(page: Page, code: string) {
+  return page.locator(`#pcKeyboard [data-key="${code}"]`);
+}
+
+/** Ctrl-Alt-Del on the drawn keyboard: Ctrl and Alt latch, Delete sends the combo. */
 export async function clickCtrlAltDel(page: Page): Promise<void> {
-  await page.locator("#ctrlAltDelBtn").click({ force: true });
+  await openKeyboard(page);
+  await boardKey(page, "ControlLeft").click();
+  await boardKey(page, "AltLeft").click();
+  await boardKey(page, "Delete").click();
 }
 
 export function bay(page: Page, drive: 0 | 1) {

@@ -18,6 +18,7 @@
 <link rel="stylesheet" href="shared/fullscreen.css">
 <link rel="stylesheet" href="shared/focus-hint.css">
 <link rel="stylesheet" href="shared/footer.css">
+<link rel="stylesheet" href="shared/pc-keyboard.css">
 <style>
   /* ---- page themes: default = Windows 95; web94 = mid-90s Mosaic web;
      modern = clean; moderndark = modern's layout, dark palette; ai = the
@@ -76,39 +77,6 @@
     padding: 14px 16px 16px;
   }
   .panel + .panel { margin-top: 18px; }
-  /* Function keys + Key Mapper sit flush under the monitor/audio chrome,
-     as one attached block rather than separate floating panels. */
-  #displayCard .keys-attach {
-    margin: 14px -16px -16px;
-    border-top: 1px solid rgba(0,0,0,.2);
-  }
-  :root[data-theme="modern"] #displayCard .keys-attach {
-    border-top-color: var(--panel-border, #e7e9ee);
-  }
-  :root[data-theme="aurora"] #displayCard .keys-attach {
-    border-top-color: rgba(168,140,255,.3);
-  }
-  :root[data-theme="winxp"] #displayCard .keys-attach {
-    border-top-color: #aca899;
-  }
-  #displayCard .keys-section {
-    padding: 10px 16px 12px;
-  }
-  #displayCard .keys-section + .keys-section {
-    border-top: 1px solid rgba(0,0,0,.15);
-  }
-  :root[data-theme="modern"] #displayCard .keys-section + .keys-section {
-    border-top-color: var(--panel-border, #e7e9ee);
-  }
-  :root[data-theme="aurora"] #displayCard .keys-section + .keys-section {
-    border-top-color: rgba(168,140,255,.25);
-  }
-  :root[data-theme="winxp"] #displayCard .keys-section + .keys-section {
-    border-top-color: #aca899;
-  }
-  #displayCard .keys-section h2 { margin: 0 0 10px; }
-  #displayCard .keys-section.collapsed h2 { margin-bottom: 0; }
-  #displayCard .keys-section.collapsed .panel-body { display: none; }
   .panel-collapse-btn {
     font: inherit; color: inherit; text-transform: inherit; letter-spacing: inherit;
     background: none; border: 0; padding: 0; margin: 0; cursor: pointer;
@@ -118,21 +86,9 @@
   .panel-collapse-btn::after {
     content: "\25BE"; font-size: 11px; opacity: .7; flex: 0 0 auto;
   }
-  .panel.collapsed .panel-collapse-btn::after,
-  .keys-section.collapsed .panel-collapse-btn::after { content: "\25B8"; }
+  .panel.collapsed .panel-collapse-btn::after { content: "\25B8"; }
   .panel.collapsed .panel-body { display: none; }
   .panel.collapsed h2 { margin-bottom: 0; }
-  .keymap-table {
-    width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px;
-  }
-  .keymap-table th, .keymap-table td {
-    text-align: left; padding: 4px 8px; border-bottom: 1px solid rgba(0,0,0,.15);
-    vertical-align: middle;
-  }
-  .keymap-table th { color: var(--dim); font-weight: 700; text-transform: uppercase;
-    letter-spacing: .04em; font-size: 10px; }
-  .keymap-table td.keymap-actions { white-space: nowrap; }
-  .keymap-table .keymap-empty td { color: var(--dim); font-style: italic; border-bottom: 0; }
   .media-table {
     border-collapse: collapse; font-size: 14px; color: var(--dim);
   }
@@ -144,7 +100,6 @@
     font-weight: 700; color: var(--text);
     white-space: nowrap; padding-right: 20px;
   }
-  #keymapCaptureStatus { min-height: 1.2em; }
 
   button, select, input[type=text] {
     font: 12px Arial, Helvetica, sans-serif; color: var(--btn-fg); background: var(--btn-bg);
@@ -208,7 +163,7 @@
   }
   :root[data-theme="modern"] #displayCard > .monitor { grid-row: 1; }
   :root[data-theme="modern"] #displayCard > .audio-row { grid-row: 2; }
-  :root[data-theme="modern"] #displayCard > .keys-attach { grid-row: 3; }
+  :root[data-theme="modern"] #displayCard > #keyboardCard { grid-row: 3; }
   :root[data-theme="modern"] #frontPanelCard {
     grid-column: 2;
     grid-row: 1;
@@ -419,7 +374,7 @@
   }
   /* Sound / mouse / key-map mirrors -- live in the bezel so they stay
      reachable once fullscreen covers the page chrome. KEYS toggles
-     enable/disable for every Key Mapper row. */
+     every key mapping on or off. */
   .bezel-btn[aria-pressed="true"] {
     opacity: 1; background: rgba(255,255,255,.22); color: #fff;
   }
@@ -971,11 +926,6 @@
   .fb-mod { display: none; }
   :root[data-theme="web94"] .fb-built { display: none; }
   :root[data-theme="web94"] .fb-mod   { display: inline; }
-
-  button.danger-key {
-    border-color: var(--warn);
-    color: var(--warn);
-  }
 </style>
 </head>
 <body>
@@ -1024,14 +974,14 @@
                     aria-label="Enable Sound" aria-pressed="false">&#9834;</button>
             <button type="button" id="mouseCaptureBtn" class="bezel-btn" title="Enable Mouse"
                     aria-label="Enable Mouse" aria-pressed="false"><svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path fill="currentColor" d="M8 1.5C6.1 1.5 4.5 2.9 4.5 4.7v5.1c0 1.9 1.6 3.5 3.5 3.5s3.5-1.6 3.5-3.5V4.7C11.5 2.9 9.9 1.5 8 1.5zm0 1.2c1.1 0 2 .8 2 1.8v1.5H6V4.5c0-1 .9-1.8 2-1.8z"/></svg></button>
-            <button type="button" id="keymapAllBtn" class="bezel-btn" title="Enable / disable all key mappings"
-                    aria-label="Enable / disable all key mappings" aria-pressed="false" disabled>KEYS</button>
+            <button type="button" id="keymapAllBtn" class="bezel-btn" title="Turn your key mappings on or off"
+                    aria-label="Turn key mappings on or off" aria-pressed="false" disabled>KEYS</button>
             <button type="button" id="fullscreenBtn" class="bezel-btn" title="Fullscreen" aria-label="Fullscreen">&#x26F6;</button>
           </div>
         </div>
       </div>
       <div class="row audio-row">
-        <label><input type="checkbox" id="speakerEnabled"> Enable Sound</label>
+        <label><input type="checkbox" id="speakerEnabled"> Sound</label>
         <label class="volwheel">Volume
           <span class="info-tip" tabindex="0" data-tip="Sound Blaster 16 volume (the pot on the card's backplate). DOS can't see or change it. Does not affect the PC speaker."
                 aria-label="Sound Blaster 16 volume (the pot on the card's backplate). DOS can't see or change it. Does not affect the PC speaker.">i</span>
@@ -1039,70 +989,11 @@
                  aria-label="Sound Blaster 16 volume">
           <span class="muted" id="sbVolumeReadout">70</span>
         </label>
-        <label><input type="checkbox" id="mouseCaptureEnabled"> Enable Mouse</label>
+        <label><input type="checkbox" id="mouseCaptureEnabled"> Mouse</label>
+        <label><input type="checkbox" id="keyboardToggle"> Keyboard</label>
       </div>
-
-      <div class="keys-attach">
-        <div class="keys-section" id="fkeysCard">
-          <h2>
-            <button type="button" class="panel-collapse-btn" id="fkeysToggle"
-                    aria-expanded="true" aria-controls="fkeysBody">Function &amp; extended keys</button>
-          </h2>
-          <div class="panel-body" id="fkeysBody">
-            <div class="row" id="fkeyRow">
-              <button type="button" data-key="F1" disabled>F1</button>
-              <button type="button" data-key="F2" disabled>F2</button>
-              <button type="button" data-key="F3" disabled>F3</button>
-              <button type="button" data-key="F4" disabled>F4</button>
-              <button type="button" data-key="F5" disabled>F5</button>
-              <button type="button" data-key="F6" disabled>F6</button>
-              <button type="button" data-key="F7" disabled>F7</button>
-              <button type="button" data-key="F8" disabled>F8</button>
-              <button type="button" data-key="F9" disabled>F9</button>
-              <button type="button" data-key="F10" disabled>F10</button>
-              <button type="button" data-key="F11" disabled>F11</button>
-              <button type="button" data-key="F12" disabled>F12</button>
-              <button type="button" id="ctrlAltDelBtn" class="danger-key" disabled>Ctrl+Alt+Del</button>
-            </div>
-            <div class="row" id="extraKeyRow">
-              <button type="button" data-key="Escape" disabled>Esc</button>
-              <button type="button" data-key="Insert" disabled>Insert</button>
-              <button type="button" data-key="Delete" disabled>Delete</button>
-              <button type="button" data-key="Home" disabled>Home</button>
-              <button type="button" data-key="End" disabled>End</button>
-              <button type="button" data-key="PageUp" disabled>Page Up</button>
-              <button type="button" data-key="PageDown" disabled>Page Down</button>
-              <button type="button" data-key="PrintScreen" disabled>Print Screen</button>
-              <button type="button" data-key="ScrollLock" disabled>Scroll Lock</button>
-              <button type="button" data-key="Pause" disabled>Pause/Break</button>
-              <button type="button" data-key="NumLock" disabled>Num Lock</button>
-            </div>
-          </div>
-        </div>
-
-        <div class="keys-section" id="keymapCard">
-          <h2>
-            <button type="button" class="panel-collapse-btn" id="keymapToggle"
-                    aria-expanded="true" aria-controls="keymapBody">Key Mapper</button>
-          </h2>
-          <div class="panel-body" id="keymapBody">
-            <div class="row">
-              <button type="button" id="keymapPresetWasd">WASD &rarr; Arrows</button>
-              <button type="button" id="keymapPresetShiftCtrl">Left Shift &rarr; Ctrl</button>
-              <button type="button" id="keymapAddBtn">Add mapping</button>
-              <button type="button" id="keymapToggleAll" disabled>Disable All</button>
-            </div>
-            <span class="muted" id="keymapCaptureStatus"></span>
-            <table class="keymap-table" id="keymapTable">
-              <thead>
-                <tr><th>From</th><th>To</th><th>On</th><th></th></tr>
-              </thead>
-              <tbody id="keymapTableBody"></tbody>
-            </table>
-            <p class="muted">Mappings apply while the screen has focus.  You can
-              enable/disable using the <b>KEYS</b> button in fullscreen.</p>
-          </div>
-        </div>
+      <div id="keyboardCard" hidden>
+        <div id="keyboardBody"></div>
       </div>
     </div>
 
@@ -1303,6 +1194,7 @@
 <script src="shared/winbtns.js"></script>
 <script src="shared/focus-hint.js"></script>
 <script src="shared/footer.js"></script>
+<script src="shared/pc-keyboard.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

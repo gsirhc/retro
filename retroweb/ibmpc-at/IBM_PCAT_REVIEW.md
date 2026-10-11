@@ -3902,3 +3902,24 @@ costs. It stays open as a bus-unit question.
   458.2M.
 - Playwright smoke (boot and type, real-speed pacing) passes on the
   rebuilt wasm.
+
+## 57. The drawn Enhanced Keyboard
+
+The Function & extended keys panel and its Ctrl+Alt+Del button (§30) are
+replaced by a to-scale drawing of the keyboard the 339 shipped with, the
+101-key IBM Enhanced Keyboard (§53.3: the 8042 already answers `F2` with
+its ID). It sits under the monitor, shown by the bar's Keyboard box:
+off by default on a desktop, on by default on a touch screen with no
+mouse. The module
+is `retroweb/shared/pc-keyboard.js`, shared with pc486 (PC486_REVIEW.md
+§49, which covers the layout, latching and map mode).
+
+- Clicks go through `sendKey()` and the 8042's queue like a real key.
+  Ctrl, Alt, Delete on the drawing reboots, so the separate button is gone.
+- The lock lamps read `leds()` (held since §53.3) through a new
+  `keyboardLeds()` binding.
+- This page gains the Key Mapper pc486 had, on the drawing, and the bezel
+  KEYS button. Mappings persist in `retro8080.ibmpcat.keymap`.
+- `keyboard.spec.ts` now checks all 101 drawn keys send their Set 1 make
+  and break bytes (modifiers on the latch and unlatch clicks), replacing
+  the old 22-button check.

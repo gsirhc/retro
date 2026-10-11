@@ -7023,3 +7023,46 @@ invalidates the L1 line and holds the bus for 512 x 48 bus clocks.
 for §47. `mem_timing` stopped being inlined once it grew the PCD check,
 which cost about 5% on a memory-heavy loop until it was forced back
 inline.
+
+## 49. The drawn keyboard replaces the key panels
+
+The Function & extended keys panel, the Ctrl+Alt+Del button and the Key
+Mapper table (§25) are gone. In their place, under the monitor and its
+sound/mouse bar, is a drawing of the IBM Enhanced Keyboard, the 101-key US
+layout a 1993 486 shipped with. It's shared with ibmpc-at
+(`retroweb/shared/pc-keyboard.js`, IBM_PCAT_REVIEW.md §57). The bar's
+Keyboard box is off by default on a desktop, on by default on a touch
+screen with no mouse, and remembered once toggled
+(`retro8080.pc486.keyboardOpen`).
+
+- **Scale.** Keys are placed on a 1u pitch: 2u Backspace, 2.25u Enter and
+  left Shift, 2.75u right Shift, 7u space bar with the blank spaces either
+  side of it, 2u-tall keypad + and Enter, a 2u keypad 0, and the half-unit
+  gaps between the function groups and the three blocks.
+- **Same input path.** A click sends the key's Set 1 make on press and break
+  on release through `sendKey()`, so it goes through the same scancode
+  queue and 8042 as the real keyboard. Holding a drawn key repeats on the
+  8042's own typematic clock.
+- **Modifiers latch.** A click can't hold two keys, so Shift, Ctrl and Alt
+  latch (make sent at once) until the next key's release, or until clicked
+  again. Ctrl, Alt, Delete reboots with the real scancodes. The old
+  button's follow-up `machine.reset()` isn't needed: `keyboard.spec.ts`'s
+  warm-reboot test passes on the clicked combo alone.
+- **Lock lights.** `i8042` now keeps the 0xED argument (`leds()`, cleared
+  by 0xFF), and the Num Lock, Caps Lock and Scroll Lock lamps above the
+  keypad follow it, so they light when the BIOS says so, not when the page
+  guesses.
+- **Mapping lives on the board.** "Map a key", then press one of your own
+  keys (or click it), then click what it should send. Latch Shift, Ctrl or
+  Alt first for a combination; Done commits a modifier on its own. A mapped
+  key wears a badge naming its target; clicking it twice in map mode clears
+  it. The WASD and Left Shift → Ctrl presets, Disable All, Clear All and the
+  bezel KEYS button stay. Mappings apply to the visitor's own keys and to
+  clicks on the drawing alike. A clicked key whose mapping is all
+  modifiers (Left Shift → Ctrl) latches like a modifier.
+
+Legend style follows the Model M: shifted character above unshifted, symbol
+Backspace and Tab, a broken bar on the backslash key, darker caps for
+modifiers, function and navigation keys. `pckeyboard.spec.ts` covers the
+show/hide state, typing, latching, the Caps Lock lamp, map mode, and
+mapped clicks.

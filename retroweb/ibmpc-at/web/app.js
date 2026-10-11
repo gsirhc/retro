@@ -84,32 +84,27 @@
     injectScancodeSequence(bytes);
   }
   const screenEl = document.getElementById("screen");
-  // The keyboard repeats on its own clock, so browser repeats are dropped.
-  // heldKeys releases anything still down when focus leaves, or it would repeat forever.
-  const heldKeys = new Set();
-  function releaseHeldKeys() {
-    for (const code of heldKeys) sendKey(code, true);
-    heldKeys.clear();
-  }
-  screenEl.addEventListener("keydown", (e) => {
-    e.preventDefault();
-    if (e.repeat || heldKeys.has(e.code)) return;
-    heldKeys.add(e.code);
-    sendKey(e.code, false);
+  // The keyboard repeats on its own clock, so browser repeats are dropped (pc-keyboard.js).
+  const keyboard = initPcKeyboard({
+    root: document.getElementById("keyboardBody"),
+    toggleId: "keyboardToggle",
+    cardId: "keyboardCard",
+    sendKey,
+    isEnabled: () => poweredOn && !!machine,
+    readLeds: () => (machine ? machine.keyboardLeds() : 0),
+    keymapStorageKey: "retro8080.ibmpcat.keymap",
+    openStateKey: "retro8080.ibmpcat.keyboardOpen",
+    bezelKeysBtn: document.getElementById("keymapAllBtn"),
   });
-  screenEl.addEventListener("keyup", (e) => {
-    e.preventDefault();
-    heldKeys.delete(e.code);
-    sendKey(e.code, true);
-  });
-  screenEl.addEventListener("blur", releaseHeldKeys);
-  document.addEventListener("visibilitychange", () => { if (document.hidden) releaseHeldKeys(); });
+  screenEl.addEventListener("keydown", keyboard.keyDown);
+  screenEl.addEventListener("keyup", keyboard.keyUp);
+  screenEl.addEventListener("blur", keyboard.releaseAll);
+  document.addEventListener("visibilitychange", () => { if (document.hidden) keyboard.releaseAll(); });
   screenEl.addEventListener("click", () => screenEl.focus());
 
   // poweredOn is declared later, so pass it as a predicate
   const isRunning = () => poweredOn;
   const updateFocusHint = initFocusHint(screenEl, isRunning);
-  // escBtn rides the [data-key] handling below
   initFullscreen({
     bezelEl: document.getElementById("bezel"),
     screenEl,
@@ -558,7 +553,7 @@
     updateFocusHint();
     if (new URLSearchParams(location.search).get("test") === "1") {
       window.__test = {
-        machine, sendKey, screenEl, frameCanvas,
+        machine, sendKey, screenEl, frameCanvas, keyboard,
         get loadOverlayVisible() { return loadOverlayEl.classList.contains("visible"); },
         get loadOverlayText() { return loadOverlayLabel.textContent; },
         beginLoad, endLoad,
@@ -591,33 +586,16 @@
     updateFocusHint();
   }
 
-  // ---- function/extended-key panel ----
-  // For keys a Mac keyboard lacks. escBtn is here because fullscreen swallows Esc.
-  const fkeyButtons = Array.from(document.querySelectorAll('#fkeyRow [data-key], #extraKeyRow [data-key], #bezel [data-key]'));
-  const ctrlAltDelBtn = document.getElementById('ctrlAltDelBtn');
+  // ---- bezel Esc ----
+  // Fullscreen swallows the real Esc key, so the bezel sends it.
+  const escBtn = document.getElementById("escBtn");
   function refreshFkeyControls() {
-    const enabled = poweredOn && !!machine;
-    for (const b of fkeyButtons) b.disabled = !enabled;
-    ctrlAltDelBtn.disabled = !enabled;
+    escBtn.disabled = !(poweredOn && !!machine);
+    keyboard.refresh();
   }
-  for (const btn of fkeyButtons) {
-    btn.addEventListener('click', () => {
-      const key = btn.dataset.key;
-      sendKey(key, false);
-      setTimeout(() => sendKey(key, true), 50);
-    });
-  }
-  ctrlAltDelBtn.addEventListener('click', () => {
-    if (!machine) return;
-    // Ctrl-Alt-Del warm boot: BIOS checks the non-extended Del (0x53), not SET1.Delete.
-    injectScancodeSequence([
-      0x1D,          // Ctrl make
-      0x38,          // Alt make
-      0x53,          // Del make (classic non-extended)
-      0x53 | 0x80,   // Del break
-      0x38 | 0x80,   // Alt break
-      0x1D | 0x80,   // Ctrl break
-    ]);
+  escBtn.addEventListener("click", () => {
+    sendKey("Escape", false);
+    setTimeout(() => sendKey("Escape", true), 50);
   });
 
   powerSwitch.checked = false;

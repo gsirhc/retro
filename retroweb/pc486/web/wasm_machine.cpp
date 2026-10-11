@@ -98,6 +98,7 @@ public:
 
     // ---- keyboard ----
     void injectScancode(int code) { m_.chipset.kbc.inject_scancode(uint8_t(code)); }
+    int keyboardLeds() const { return m_.chipset.kbc.leds(); }
     bool keyboardRepeating() const { return m_.chipset.kbc.typematic_active(); }
 
     // ---- PS/2 mouse (8042 AUX port) ----
@@ -429,6 +430,7 @@ EMSCRIPTEN_BINDINGS(pc486_machine) {
         .function("renderWidth", &WasmMachine::renderWidth)
         .function("renderHeight", &WasmMachine::renderHeight)
         .function("injectScancode", &WasmMachine::injectScancode)
+        .function("keyboardLeds", &WasmMachine::keyboardLeds)
         .function("keyboardRepeating", &WasmMachine::keyboardRepeating)
         .function("injectMouseEvent", &WasmMachine::injectMouseEvent)
         .function("mountFloppy", &WasmMachine::mountFloppy)

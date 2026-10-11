@@ -11,7 +11,7 @@
 //
 // Controller commands: self-test, interface test, read/write command byte,
 // enable/disable keyboard, read input port, read test inputs, read/write
-// output port, pulse line 0. LED state is held but not shown.
+// output port, pulse line 0. LED state is held for the page's keyboard drawing.
 #ifndef IBMPCAT_I8042_H
 #define IBMPCAT_I8042_H
 

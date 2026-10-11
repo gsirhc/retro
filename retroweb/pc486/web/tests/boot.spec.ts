@@ -49,21 +49,19 @@ test.describe("boot and power", () => {
     expect(cyclesAfter).toBeGreaterThan(cyclesBefore);
   });
 
-  test("F-keys and Ctrl+Alt+Del are disabled while powered off, enabled while on", async ({ livePage: page }) => {
-    await expect(page.locator("#ctrlAltDelBtn")).toBeEnabled();
-    await expect(page.locator('[data-key="F1"]')).toBeEnabled();
+  test("the drawn keyboard is live while on and inert while off", async ({ livePage: page }) => {
+    await expect(page.locator('#pcKeyboard [data-key="F1"]')).toHaveAttribute("aria-disabled", "false");
+    await expect(page.locator("#escBtn")).toBeEnabled();
 
     await setPowerSwitch(page, false);
-    await expect(page.locator("#ctrlAltDelBtn")).toBeDisabled();
-    await expect(page.locator('[data-key="F1"]')).toBeDisabled();
+    await expect(page.locator('#pcKeyboard [data-key="F1"]')).toHaveAttribute("aria-disabled", "true");
+    await expect(page.locator("#escBtn")).toBeDisabled();
   });
 
   test("clicking a control focuses the control, not the screen", async ({ livePage: page }) => {
     await focusScreen(page);
     await expect(page.locator("#screen")).toBeFocused();
 
-    await page.locator('[data-key="F5"]').click();
-    await expect(page.locator('[data-key="F5"]')).toBeFocused();
 
     await page.locator("#speakerEnabled").click();
     await expect(page.locator("#speakerEnabled")).toBeFocused();

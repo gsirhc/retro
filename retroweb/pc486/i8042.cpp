@@ -39,6 +39,7 @@ void I8042::reset() {
     queue_count_ = 0;
     typematic_ = 0x2B;
     kbd_arg_cmd_ = 0;
+    leds_ = 0;
     tm_active_ = false;
     pending_e0_ = false;
     e1_skip_ = 0;
@@ -167,20 +168,20 @@ void I8042::out(uint16_t port, uint8_t v) {
             aux_write(v);
             break;
         default:
-            // Keyboard-bound byte: every accepted command is ACKed (LEDs/typematic aren't
-            // modeled). 0xFF (RESET) adds a second 0xAA BAT byte that keyboard POST checks.
-            // 0xF2 (Read ID) adds 0xAB, 0x83 (Chapweske "The AT-PS/2 Keyboard Interface").
+            // Keyboard-bound byte: every accepted command is ACKed. 0xFF (RESET) adds a
+            // second 0xAA BAT byte that keyboard POST checks. 0xF2 (Read ID) adds 0xAB, 0x83 (Chapweske "The AT-PS/2 Keyboard Interface").
             // These are device output so irq=true. With false, MS-DOS 6.22 SETUP sent 0xF2,
             // saw no IRQ1, retried, and the unread ACKs wedged the output register.
             push_kbd(0xFA, true);
             if (kbd_arg_cmd_ != 0) {
+                if (kbd_arg_cmd_ == 0xED) leds_ = uint8_t(v & 0x07);
                 if (kbd_arg_cmd_ == 0xF3) typematic_ = uint8_t(v & 0x7F);
                 kbd_arg_cmd_ = 0;
                 break;
             }
             if (v == 0xED || v == 0xF0 || v == 0xF3) kbd_arg_cmd_ = v;
             if (v == 0xF6 || v == 0xFF) { typematic_ = 0x2B; tm_active_ = false; }
-            if (v == 0xFF) push_kbd(0xAA, true);
+            if (v == 0xFF) { leds_ = 0; push_kbd(0xAA, true); }
             if (v == 0xF2) { push_kbd(0xAB, true); push_kbd(0x83, true); }
             break;
     }

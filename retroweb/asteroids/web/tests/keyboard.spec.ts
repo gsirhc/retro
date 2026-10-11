@@ -5,6 +5,7 @@ import { test, expect } from "@playwright/test";
 test.describe("keyboard input", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto("/?test=1");
+    await page.waitForFunction(() => !!(window as any).__test?.machine);
     await page.locator("#screen").click();
   });
 

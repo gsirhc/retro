@@ -322,6 +322,16 @@ GalagaArcade().then(async (Module) => {
     el.addEventListener("pointercancel", up);
   });
 
+  const touch = initArcadeTouch({
+    root: document.getElementById("touchControls"),
+    stick: "2way",
+    buttons: [{ code: "Space", label: "Fire", cls: "red" }],
+    setKey: (code, down) => {
+      keys[code] = down;
+      applyKeys();
+    },
+  });
+
   window.addEventListener("keydown", (e) => {
     keys[e.code] = true;
     applyKeys();
@@ -641,6 +651,7 @@ GalagaArcade().then(async (Module) => {
   if (TEST) {
     window.__test = {
       machine,
+      touch,
       get status() { return status.textContent; },
       get usingUserRom() { return usingUserRom; },
       mute,

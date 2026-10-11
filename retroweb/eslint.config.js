@@ -70,11 +70,13 @@ export default [
         initThemePicker: "readonly",
         initFullscreen: "readonly",
         initFocusHint: "readonly",
+        initPcKeyboard: "readonly",
+        initArcadeTouch: "readonly",
       },
     },
   },
   {
-    files: ["shared/theme-picker.js", "shared/fullscreen.js", "shared/focus-hint.js", "shared/winbtns.js"],
+    files: ["shared/theme-picker.js", "shared/fullscreen.js", "shared/focus-hint.js", "shared/winbtns.js", "shared/pc-keyboard.js", "shared/arcade-touch.js"],
     languageOptions: {
       globals: {
         ...globals.browser,
@@ -84,7 +86,7 @@ export default [
       "no-unused-vars": ["error", {
         argsIgnorePattern: "^_",
         caughtErrors: "none",
-        varsIgnorePattern: "^(_|initThemePicker|initFullscreen|initFocusHint)$",
+        varsIgnorePattern: "^(_|initThemePicker|initFullscreen|initFocusHint|initPcKeyboard|initArcadeTouch|arcadeTouchOnly)$",
       }],
     },
   },

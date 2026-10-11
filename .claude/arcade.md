@@ -68,7 +68,9 @@ Z80 in `retroweb/shared/cpu/`. NMOS MOS 6502 also in `retroweb/shared/cpu/`
 
 ## Cabinet chrome
 
-Coin door + 1P/2P start, keys legend, shared theme stack, DIP panel persisted
+Coin door + 1P/2P start, keys legend, touch controls (`shared/arcade-touch.js`:
+the cabinet's real stick restrictor and buttons, shown only on touch-only
+devices, hidden after a real key press), shared theme stack, DIP panel persisted
 in `localStorage` (physical switches survive a power cycle). Cocktail P2
 stick is unmapped and labelled. Only `web/` is staged: copy `retroweb/shared/`
 into each machine’s `web/shared/`, never `../` at runtime.

@@ -88,19 +88,25 @@ export async function resetLivePage(page: Page): Promise<void> {
     const box = page.locator(id);
     if (await box.count() && (await box.isChecked())) await box.uncheck();
   }
-  // Key Mapper and UI prefs persist across reloads.
+  // Key mappings and UI prefs persist across reloads.
   await page.evaluate(() => {
     localStorage.removeItem("retro8080.pc486.keymap");
     localStorage.removeItem("retro8080.pc486.ui");
+    localStorage.removeItem("retro8080.pc486.keyboardOpen");
     const t = (window as any).__test;
     if (t?.clearKeymap) t.clearKeymap();
+    t?.keyboard?.releaseAll();
   });
-  // Re-expand panels a prior test left collapsed.
-  for (const id of ["#fkeysToggle", "#keymapToggle"] as const) {
-    const btn = page.locator(id);
-    if ((await btn.count()) && (await btn.getAttribute("aria-expanded")) === "false") {
-      await btn.click();
-    }
+  // A map-mode capture left running would swallow the next test's keys.
+  const mapBtn = page.locator("#keymapAddBtn");
+  if ((await mapBtn.count()) && (await mapBtn.getAttribute("aria-pressed")) === "true") {
+    await page.keyboard.press("Escape");
+  }
+  // Hide the keyboard a prior test left showing (desktop default).
+  const kbToggle = page.locator("#keyboardToggle");
+  if ((await kbToggle.count()) && (await kbToggle.isChecked())) {
+    await kbToggle.uncheck();
+    await page.evaluate(() => localStorage.removeItem("retro8080.pc486.keyboardOpen"));
   }
   // Restore Turbo if a prior test left it off.
   const turbo = page.locator("#turboBtn");
@@ -216,9 +222,22 @@ export async function clickReset(page: Page): Promise<void> {
   await page.locator("#resetBtn").click();
 }
 
-/** The Ctrl+Alt+Del warm-boot combo via the on-page button (app.js ctrlAltDelBtn). */
+/** Shows the drawn keyboard under the monitor (hidden by default on desktop). */
+export async function openKeyboard(page: Page): Promise<void> {
+  await page.locator("#keyboardToggle").check();
+}
+
+/** A drawn key on the IBM Enhanced Keyboard under the monitor. */
+export function boardKey(page: Page, code: string) {
+  return page.locator(`#pcKeyboard [data-key="${code}"]`);
+}
+
+/** Ctrl+Alt+Del on the drawn keyboard: Ctrl and Alt latch, Delete sends the combo. */
 export async function clickCtrlAltDel(page: Page): Promise<void> {
-  await page.locator("#ctrlAltDelBtn").click({ force: true });
+  await openKeyboard(page);
+  await boardKey(page, "ControlLeft").click();
+  await boardKey(page, "AltLeft").click();
+  await boardKey(page, "Delete").click();
 }
 
 export function bay(page: Page, drive: 0 | "cdrom") {

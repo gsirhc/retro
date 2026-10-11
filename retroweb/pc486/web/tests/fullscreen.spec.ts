@@ -76,7 +76,7 @@ test.describe("fullscreen", () => {
     await expect(page.locator("#mouseCaptureEnabled")).toBeChecked();
     await expect(page.locator("#mouseCaptureBtn")).toHaveAttribute("aria-pressed", "true");
 
-    await page.locator("#keymapPresetWasd").click();
+    await page.evaluate(() => (window as any).__test.applyWasdPreset());
     await expect(page.locator("#keymapAllBtn")).toBeEnabled();
     await expect(page.locator("#keymapAllBtn")).toHaveAttribute("aria-pressed", "true");
     await page.locator("#keymapAllBtn").click();
@@ -88,7 +88,7 @@ test.describe("fullscreen", () => {
   });
 
   test("bezel toggles stay usable while fullscreen", async ({ livePage: page }) => {
-    await page.locator("#keymapPresetWasd").click();
+    await page.evaluate(() => (window as any).__test.applyWasdPreset());
     await expect(page.locator("#keymapAllBtn")).toHaveAttribute("aria-pressed", "true");
 
     await page.evaluate(() => localStorage.setItem("retro8080.fsEscHintSeen", "2"));
@@ -104,7 +104,7 @@ test.describe("fullscreen", () => {
   });
 
   test("bezel button clicks in fullscreen return focus to the screen", async ({ livePage: page }) => {
-    await page.locator("#keymapPresetWasd").click();
+    await page.evaluate(() => (window as any).__test.applyWasdPreset());
     await page.evaluate(() => localStorage.setItem("retro8080.fsEscHintSeen", "2"));
     await page.locator("#fullscreenBtn").click();
     await expect.poll(() => page.evaluate(() => !!document.fullscreenElement)).toBe(true);

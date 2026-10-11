@@ -178,6 +178,19 @@ TEST(I8042Test, ReadIdRespondsWithAckThenTwoIdBytes) {
     EXPECT_FALSE(kbc.in(0x64) & 0x01);  // nothing left queued
 }
 
+TEST(I8042Test, SetLedsHoldsTheArgumentAndResetClearsIt) {
+    I8042 kbc;
+    kbc.reset();
+    kbc.in(0x60);
+    kbc.out(0x60, 0xED);
+    EXPECT_EQ(kbc.in(0x60), 0xFA);
+    kbc.out(0x60, 0x06);  // Num Lock + Caps Lock
+    EXPECT_EQ(kbc.in(0x60), 0xFA);
+    EXPECT_EQ(kbc.leds(), 0x06);
+    kbc.out(0x60, 0xFF);
+    EXPECT_EQ(kbc.leds(), 0x00);
+}
+
 // MS-DOS 6.22 SETUP.EXE relies on IRQ1 for the 0xF2 response; the ACK must raise IRQ1 too
 TEST(I8042Test, KeyboardCommandAckRaisesIrq1WhenEnabled) {
     // Chapweske, "Writing to keyboard": every keyboard response, ACK included, activates IRQ1

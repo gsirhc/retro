@@ -1,4 +1,4 @@
-// monocart-coverage-reports config. Opt-in via COVERAGE=1, app.js only.
+// monocart-coverage-reports config. Opt-in via COVERAGE=1, app.js and shared/pc-keyboard.js.
 
 export const coverageEnabled = !!process.env.COVERAGE;
 
@@ -13,10 +13,12 @@ export const coverageOptions = {
   // keep only our own source; drop everything else V8 reports
   entryFilter: {
     "**/app.js*": true,
+    "**/shared/pc-keyboard.js*": true,
     "**/*": false,
   },
   sourceFilter: {
     "**/app.js*": true,
+    "**/shared/pc-keyboard.js*": true,
   },
   // treat query-string builds (app.js?v=123) as the same file
   onEntry: async (entry: any) => {

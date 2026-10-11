@@ -54,6 +54,7 @@ shared:
 	   $(SHARED)/fullscreen.css $(SHARED)/fullscreen.js \
 	   $(SHARED)/focus-hint.css $(SHARED)/focus-hint.js \
 	   $(SHARED)/footer.css $(SHARED)/footer.js $(SHARED)/winbtns.js \
+	   $(SHARED)/pc-keyboard.css $(SHARED)/pc-keyboard.js \
 	   shared/
 
 roms:

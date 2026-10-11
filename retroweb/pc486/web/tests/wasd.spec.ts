@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures";
-import { screenText } from "./helpers";
+import { openKeyboard, screenText } from "./helpers";
 
 // Doom 1.2 and its contemporaries default to the arrow cluster. The Key Mapper maps at the
 // browser edge, so the guest gets genuine arrow scancodes. Off by default; the WASD -> Arrows
@@ -10,6 +10,8 @@ test.describe("WASD to arrow keys", () => {
     await page.waitForFunction(() => !!(window as any).__test?.machine, null, { timeout: 60_000 });
     await page.evaluate(() => (window as any).__test.clearKeymap());
     await expect(page.locator("#keymapAllBtn")).toBeDisabled();
+
+    await openKeyboard(page);
 
     await page.locator("#keymapPresetWasd").click();
     await expect(page.locator("#keymapAllBtn")).toBeEnabled();
@@ -54,6 +56,7 @@ test.describe("WASD to arrow keys", () => {
     await page.keyboard.type("xyzzy");
     await page.keyboard.press("Enter");
     await expect.poll(() => screenText(page), { timeout: 10_000 }).toMatch(/xyzzy/i);
+    await openKeyboard(page);
     await page.locator("#keymapPresetWasd").click();
     await page.locator("#screen").click();
     await page.keyboard.press("w");
@@ -68,6 +71,7 @@ test.describe("WASD to arrow keys", () => {
   test("keys held across a toggle are released, not left stuck down", async ({ promptPage: page }) => {
     await page.locator("#screen").click();
     await page.keyboard.down("w");
+    await openKeyboard(page);
     await page.locator("#keymapPresetWasd").click();
     await page.keyboard.up("w");
     await page.locator("#screen").click();
@@ -84,6 +88,8 @@ test.describe("WASD to arrow keys", () => {
 
     expect(await map("KeyA")).toEqual(["KeyA"]);   // off: untouched
 
+    await openKeyboard(page);
+
     await page.locator("#keymapPresetWasd").click();
     expect(await map("KeyW")).toEqual(["ArrowUp"]);
     expect(await map("KeyS")).toEqual(["ArrowDown"]);
@@ -92,6 +98,7 @@ test.describe("WASD to arrow keys", () => {
   });
 
   test("on: A no longer types a literal a at the DOS prompt", async ({ promptPage: page }) => {
+    await openKeyboard(page);
     await page.locator("#keymapPresetWasd").click();
     await page.locator("#screen").click();
     await page.keyboard.press("a");
