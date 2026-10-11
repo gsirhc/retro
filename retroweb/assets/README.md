@@ -29,6 +29,12 @@
   a frame read off `__test.frameCanvas`, cropped inside the view border down
   to the bottom of the view and resized to 286×128 (JPEG q90).
 
+- **`keen1-mars.jpg`**: shareware Commander Keen 1 on the Mars overworld map,
+  with Keen and the Bean-with-Bacon Megarocket, from *this project's* IBM
+  PC/AT running the `?disk=keen1` preset C:. Space at the title on
+  `ibmpc-at/?test=1&fast=1&disk=keen1` starts a game; a frame read off
+  `__test.frameCanvas` (320×200), top 143 rows resized to 286×128 (JPEG q90).
+
 - **`ibmpcat-panel.jpg`** — a screenshot of *this project's* rendered IBM
   PC/AT front panel (`#frontPanelCard .at-case`), captured from the emulator
   after auto-boot with a diskette inserted in drive A: (power LED lit,

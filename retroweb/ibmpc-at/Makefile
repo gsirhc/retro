@@ -4,6 +4,7 @@
 #   make bios        fetch + verify the freely-licensed BIOS, assemble the EGA BIOS (needs nasm)
 #   make bios-check   boot the real BIOS against this chipset natively, report progress
 #   make hdd-image   build the shipped FreeDOS HDD image (see below -- SLOW)
+#   make preset-hdds build the Commander Keen preset C: (Apogee's installer run on a bare FreeDOS)
 #   make render_screen   build the screen-to-BMP diagnostic tool (see below)
 #   make wasm        build the WebAssembly module (needs emsdk -- see web/Makefile)
 #   make serve       build the wasm module + serve the browser front end
@@ -23,7 +24,7 @@ CXXFLAGS ?= -std=c++17 -O2 -Wall -Wextra
 CHIPSET_SRCS = machine.cpp chipset.cpp cpu80286.cpp pic8259.cpp pit8253.cpp i8042.cpp cmos_rtc.cpp dma8237.cpp fdc765.cpp ega.cpp wd1003.cpp pcspeaker.cpp
 UNIT_TESTS = cpu80286_test cpu80286_timing_test pic8259_test pit8253_test i8042_test cmos_rtc_test dma8237_test chipset_test machine_test fdc765_test ega_test ega_render_test wd1003_test pcspeaker_test egabios_test
 
-.PHONY: help test test-smoke bios egabios bios-check library hdd-image wasm serve coverage check clean
+.PHONY: help test test-smoke bios egabios bios-check library hdd-image preset-hdds wasm serve coverage check clean
 
 LLVM_PROFDATA ?= xcrun llvm-profdata
 LLVM_COV      ?= xcrun llvm-cov
@@ -75,6 +76,20 @@ library: $(FDCD)
 	bash $(DOSLIB)/fetch-shareware.sh
 	python3 $(DOSLIB)/build-library.py --library disks/library.json --iso $(FDCD) --out disks/library
 
+# --- preset C: (?disk=keen1), from the library's install floppy ---
+disks/build_preset_hdd: disks/build_preset_hdd.cpp $(CHIPSET_SRCS)
+	$(CXX) $(CXXFLAGS) -o $@ disks/build_preset_hdd.cpp $(CHIPSET_SRCS)
+
+disks/library/keen1.img:
+	$(MAKE) library
+
+disks/keen1-hdd.img: disks/build_preset_hdd disks/build-preset-hdd.sh ../pc486/disks/zero-free-clusters.py disks/freedos-hdd.img disks/library/keen1.img
+	bash disks/build-preset-hdd.sh keen1 ./disks/build_preset_hdd roms/BIOS-bochs-legacy roms/egabios/egabios.bin \
+	  disks/freedos-hdd.img $@.tmp disks/library/keen1.img
+	mv $@.tmp $@
+
+preset-hdds: bios egabios disks/keen1-hdd.img
+
 wasm:
 	$(MAKE) -C web
 
@@ -108,6 +123,6 @@ test-smoke: test
 check: test
 
 clean:
-	rm -rf tests/build tests/build-cov tests/coverage-cpp bios_host disks/build_freedos_hdd render_screen
+	rm -rf tests/build tests/build-cov tests/coverage-cpp bios_host disks/build_freedos_hdd disks/build_preset_hdd render_screen
 	$(MAKE) -C roms/egabios clean
 	$(MAKE) -C web clean

@@ -18,7 +18,7 @@ EMFLAGS = -O2 -std=c++17 -lembind --no-entry \
 ibmpcat.js: $(SRC)
 	$(EMCC) $(EMFLAGS) $(SRC) -o $@
 
-.PHONY: library-images shared roms hdd-image serve test test-smoke test-install coverage clean
+.PHONY: library-images shared roms hdd-image serve test test-smoke test-install coverage clean preset-images
 
 # Copied from retroweb/shared/ at build time; only web/ gets staged.
 SHARED = ../../shared
@@ -46,6 +46,19 @@ disks/freedos-hdd.img: $(CORE)/disks/freedos-hdd.img
 	cp $(CORE)/disks/freedos-hdd.img disks/
 
 hdd-image: disks/freedos-hdd.img
+
+$(CORE)/disks/keen1-hdd.img:
+	$(MAKE) -C $(CORE) preset-hdds
+.PRECIOUS: $(CORE)/disks/keen1-hdd.img
+
+disks/presets/keen1-hdd.img: $(CORE)/disks/keen1-hdd.img
+	mkdir -p disks/presets
+	cp $< $@
+
+disks/presets/keen1-hdd.img.gz: disks/presets/keen1-hdd.img
+	gzip -9 -k -f $<
+
+preset-images: disks/presets/keen1-hdd.img disks/presets/keen1-hdd.img.gz
 
 # Port 8000 like the other machines; the Playwright suite uses its own port.
 serve: ibmpcat.js roms shared

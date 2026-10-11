@@ -124,7 +124,7 @@ site:
 _stage:
 	$(MAKE) -C altair8800/web retro8080.js roms media shared
 	$(MAKE) -C assembler6502/web wasm roms examples-bin shared
-	$(MAKE) -C ibmpc-at/web ibmpcat.js roms hdd-image library-images shared
+	$(MAKE) -C ibmpc-at/web ibmpcat.js roms hdd-image library-images preset-images shared
 	$(MAKE) -C pacman/web wasm roms shared
 	$(MAKE) -C frogger/web wasm roms shared
 	$(MAKE) -C galaga/web wasm roms shared

@@ -758,6 +758,29 @@ jobs:
       - working-directory: retroweb/ibmpc-at/web
         run: make library-images
 
+      # Preset C: (?disk=keen1): Apogee's installer run onto a bare FreeDOS from the
+      # library's Keen floppy (disks/build_preset_hdd.cpp).
+      - name: Restore IBM PC/AT preset hard disks
+        id: ibmpcat-preset-hdds
+        uses: actions/cache/restore@v4
+        with:
+          path: retroweb/ibmpc-at/disks/keen1-hdd.img
+          key: ibmpcat-preset-hdds-${{ hashFiles('retroweb/ibmpc-at/*.h', 'retroweb/ibmpc-at/*.cpp', 'retroweb/ibmpc-at/disks/*.cpp', 'retroweb/ibmpc-at/disks/*.sh', 'retroweb/ibmpc-at/disks/library.json', 'retroweb/ibmpc-at/roms/*.sh', 'retroweb/ibmpc-at/roms/egabios/*', 'retroweb/pc486/disks/zero-free-clusters.py', 'retroweb/shared/dos-library/*.py', 'retroweb/shared/dos-library/*.sh') }}
+
+      - name: Build IBM PC/AT preset hard disks
+        if: steps.ibmpcat-preset-hdds.outputs.cache-hit != 'true'
+        run: make -C retroweb/ibmpc-at preset-hdds
+
+      - name: Save IBM PC/AT preset hard disks
+        if: steps.ibmpcat-preset-hdds.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: retroweb/ibmpc-at/disks/keen1-hdd.img
+          key: ibmpcat-preset-hdds-${{ hashFiles('retroweb/ibmpc-at/*.h', 'retroweb/ibmpc-at/*.cpp', 'retroweb/ibmpc-at/disks/*.cpp', 'retroweb/ibmpc-at/disks/*.sh', 'retroweb/ibmpc-at/disks/library.json', 'retroweb/ibmpc-at/roms/*.sh', 'retroweb/ibmpc-at/roms/egabios/*', 'retroweb/pc486/disks/zero-free-clusters.py', 'retroweb/shared/dos-library/*.py', 'retroweb/shared/dos-library/*.sh') }}
+
+      - working-directory: retroweb/ibmpc-at/web
+        run: make preset-images
+
       # stage the site: retroweb/index.html at the root, the Altair front end
       # at /altair8800/, 6502 Assembler at /assembler6502/, IBM PC/AT at
       # /ibmpc-at/, Pac-Man at /pacman/, Frogger at /frogger/, Galaxian at

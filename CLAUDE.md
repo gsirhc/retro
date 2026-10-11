@@ -427,9 +427,10 @@ separate suite.
   `make -C retroweb/assembler6502/web test` (Playwright).
 - **IBM PC/AT** (`retroweb/ibmpc-at/`): `make -C retroweb/ibmpc-at check`
   (GoogleTest over the 80286 core + AT chipset), `make -C
-  retroweb/ibmpc-at/web ibmpcat.js roms hdd-image library-images` (the shipped FreeDOS HDD
+  retroweb/ibmpc-at/web ibmpcat.js roms hdd-image library-images preset-images` (the shipped FreeDOS HDD
   image is a real, slow installer run the first time — see
-  `IBM_PCAT_REVIEW.md` §11 — cached after that), `make -C
+  `IBM_PCAT_REVIEW.md` §11 — cached after that; `preset-images` builds the
+  `?disk=keen1` Ready to Play C:, §58), `make -C
   retroweb/ibmpc-at/web test` (Playwright; `make test-install` once for
   `npm ci` + Chromium).
 - **Pac-Man Arcade** (`retroweb/pacman/`): `make -C retroweb/pacman check`

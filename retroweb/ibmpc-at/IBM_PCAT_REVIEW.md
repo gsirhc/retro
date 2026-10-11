@@ -3923,3 +3923,36 @@ is `retroweb/shared/pc-keyboard.js`, shared with pc486 (PC486_REVIEW.md
 - `keyboard.spec.ts` now checks all 101 drawn keys send their Set 1 make
   and break bytes (modifiers on the latch and unlatch clicks), replacing
   the old 22-button check.
+
+## 58. Preset hard disk (`?disk=keen1`)
+
+The landing page's Ready to Play card for Commander Keen opens
+`ibmpc-at/?disk=keen1`, a ready-made C: in place of the factory FreeDOS one.
+It follows pc486's presets (`PC486_REVIEW.md` §50) with two differences that
+come from this machine.
+
+- **Built by Apogee's installer.** `disks/build-preset-hdd.sh keen1` keeps
+  the factory image's MBR and FreeDOS boot sector over a fresh FAT16 with the
+  same BPB (4-sector clusters, 61-sector FATs), holding only `KERNEL.SYS` and
+  `COMMAND.COM`. `disks/build_preset_hdd.cpp` boots it, inserts the
+  library's 360K `keen1.img`, runs `INSTALL`, answers DEICE with drive C and
+  directory `\`, and stops at the self-extractor's "Authentic files
+  Verified!". About 500M cycles; the image gzips to about 300KB.
+- **Keen is the shell.** With 640K and no extended memory there is no HMA,
+  and FreeCOM has nothing to swap to, so it stays 69K resident. Under it
+  MEM shows 504K free and Keen 1 stops with "Out of memory! Try unloading
+  your TSRs!". The final `CONFIG.SYS` is `FILES=15`, `BUFFERS=10`,
+  `SHELL=C:\KEEN1.EXE`: Keen gets 579K, about what MS-DOS 3.3 left on a real
+  AT. A shell starts in the root, and Keen opens its data files by bare
+  name, which is why it is installed to `C:\`. Quitting Keen brings up the
+  kernel's "Bad or missing Command Interpreter ... Enter the full shell
+  command line:" prompt; `C:\COMMAND.COM` gives a DOS prompt and
+  `C:\KEEN1.EXE` starts Keen again. F5 at boot skips `CONFIG.SYS` for a
+  plain prompt.
+- **Separate save.** C: is stored in IndexedDB `ibmpcat-hdd-keen1` instead
+  of `ibmpcat-hdd`. The Hard disk panel relabels Reset ("Reset to original
+  Keen disk"), hides Upload and Mount blank, and downloads as
+  `ibmpcat-keen1-hdd.img`.
+- **Tests.** `preset.spec.ts` checks the image layout and `CONFIG.SYS`,
+  that the page mounts it, and that a saved own C: and the Keen C: never
+  mount in each other's place. No test runs Keen.

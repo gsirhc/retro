@@ -31,6 +31,14 @@ test.describe("retroweb landing page", () => {
     expect(await shot.evaluate((img: HTMLImageElement) => img.naturalHeight)).toBe(128);
   });
 
+  test("Ready to Play lists Commander Keen, linking to the PC/AT with ?disk=keen1", async ({ page }) => {
+    await page.goto(HOME);
+    const card = page.locator('a.machine-card[href="ibmpc-at/?disk=keen1"]');
+    await expect(card.locator(".name")).toHaveText("Commander Keen (Shareware)");
+    await expect(card.locator("img.shot")).toHaveAttribute("src", /assets\/keen1-mars\.jpg$/);
+    await expect(card.locator("img.shot")).toHaveJSProperty("naturalWidth", 286);
+  });
+
   test("the theme selector switches the page and persists to retro8080.theme", async ({ page }) => {
     await page.goto(HOME);
     const root = page.locator("html");

@@ -433,9 +433,18 @@
     requestAnimationFrame(frame);
   }
 
+  // ---- preset C: (?disk=keen1, the home page's Ready to Play cards) ----
+  const kPresetHdds = {
+    keen1: { file: "disks/presets/keen1-hdd.img", label: "Commander Keen 1 shareware", reset: "Reset to original Keen disk" },
+  };
+  const presetId = new URLSearchParams(location.search).get("disk");
+  const presetHdd = Object.hasOwn(kPresetHdds, presetId) ? kPresetHdds[presetId] : null;
+  const kFactoryHddLabel = presetHdd ? presetHdd.label : "factory FreeDOS (default)";
+
   // ---- hard disk persistence (IndexedDB) ----
   // the Machine is discarded on power-off, so C: is stored here (one record)
-  const HDD_DB_NAME = "ibmpcat-hdd", HDD_STORE = "hdd", HDD_KEY = "c-drive";
+  // a preset C: has its own database, so the visitor's own C: is never touched
+  const HDD_DB_NAME = presetHdd ? "ibmpcat-hdd-" + presetId : "ibmpcat-hdd", HDD_STORE = "hdd", HDD_KEY = "c-drive";
   function openHddDb() {
     return new Promise((resolve, reject) => {
       const req = indexedDB.open(HDD_DB_NAME, 1);
@@ -496,12 +505,17 @@
 
   // next power-on mounts the saved IndexedDB image if any, else the factory image
   let savedHdd = null;   // Uint8Array | null
-  let hddLabel = "factory FreeDOS (default)";
+  let hddLabel = kFactoryHddLabel;
   const hddStatus = document.getElementById("hddStatus");
   const hddResetBtn = document.getElementById("hddResetBtn");
   const hddBlankBtn = document.getElementById("hddBlankBtn");
   const hddDownloadBtn = document.getElementById("hddDownloadBtn");
   const hddUploadInput = document.getElementById("hddUploadInput");
+  if (presetHdd) {
+    hddResetBtn.textContent = presetHdd.reset;
+    hddBlankBtn.hidden = true;
+    hddUploadInput.closest(".filebtn").hidden = true;
+  }
   function refreshHddControls() {
     hddStatus.textContent = "Using: " + hddLabel;
     // C: only changes at the next power-on
@@ -513,7 +527,7 @@
   }
   hddResetBtn.addEventListener("click", () => {
     savedHdd = null;
-    hddLabel = "factory FreeDOS (default) -- takes effect next power-on";
+    hddLabel = kFactoryHddLabel + " -- takes effect next power-on";
     refreshHddControls();
     clearSavedHdd();
   });
@@ -532,7 +546,7 @@
     const blob = new Blob([bytes], { type: "application/octet-stream" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = "ibmpcat-hdd.img";
+    a.download = presetHdd ? "ibmpcat-" + presetId + "-hdd.img" : "ibmpcat-hdd.img";
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -662,7 +676,7 @@
         loadSavedHdd(),
         fetch("roms/BIOS-bochs-legacy").then((r) => r.arrayBuffer()),
         fetch("roms/egabios.bin").then((r) => r.arrayBuffer()),
-        fetch("disks/freedos-hdd.img").then((r) => r.arrayBuffer()),
+        fetch(presetHdd ? presetHdd.file : "disks/freedos-hdd.img").then((r) => r.arrayBuffer()),
       ]);
       firmware = { Module, bios, videoBios, hdd };
       if (savedHddResult) {
