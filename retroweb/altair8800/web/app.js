@@ -32,6 +32,20 @@ STOP A PROGRAM
 
 There is no shut-down -- just stop, or eject the disk.`;
 
+const BASIC_PRIMER =
+`Disk BASIC is the whole operating system. There's no CP/M under it.
+
+  MOUNT 0          mount drive A:  (MOUNT 0,1 for A: and B:)
+  FILES            list files on A:.  FILES 1 for B:
+  LOAD "NAME"      load a program.  LOAD "NAME",1 from B:
+  RUN "NAME"       load and run in one go
+  SAVE "NAME"      save the program in memory
+  KILL "NAME"      delete a file
+  UNLOAD           do this before you eject a disk
+
+Disk BASIC picks its console from the front-panel sense switches
+when it boots. Leave them all down for this terminal.`;
+
 const DOS_PRIMER =
 `Altair DOS is not CP/M. The prompt is a period:  .
 
@@ -1329,7 +1343,7 @@ async function boot() {
 
   const disk = {
     catalog: [],
-    catalogLoaded: false,
+    catalogPromise: null,
     names: [null, null],       // label shown on each drive's diskette
     entries: [null, null],     // the manifest entry mounted in each drive (or null)
     bays: [],                  // per-drive DOM refs
@@ -1413,9 +1427,12 @@ async function boot() {
         try { localStorage.setItem("retro8080.diskspeed", this.speed); } catch {}
     },
 
-    async loadCatalog() {
-      if (this.catalogLoaded) return;
-      this.catalogLoaded = true;
+    loadCatalog() {
+      if (!this.catalogPromise) this.catalogPromise = this.fillCatalog();
+      return this.catalogPromise;
+    },
+
+    async fillCatalog() {
       diskList.innerHTML = "";
       let manifest;
       try {
@@ -1431,27 +1448,41 @@ async function boot() {
         return;
       }
       this.catalog = manifest.disks || [];
+      // HEAD only: an image is fetched when it's inserted, not for every catalog entry
+      const avail = await Promise.all(this.catalog.map((dsk) =>
+        fetch("disks/" + dsk.file, { method: "HEAD" }).then((r) => r.ok, () => false)));
       for (let i = 0; i < this.catalog.length; i++) {
         const dsk = this.catalog[i];
-        try {
-          const r = await fetch("disks/" + dsk.file);
-          dsk.bytes = r.ok ? new Uint8Array(await r.arrayBuffer()) : null;
-        } catch { dsk.bytes = null; }
+        dsk.available = avail[i];
         const o = document.createElement("option");
         o.value = String(i);
-        o.textContent = dsk.bytes
-          ? `${dsk.name}  —  ${(dsk.bytes.length / 1024).toFixed(0)} KB`
+        o.textContent = dsk.available
+          ? dsk.name + (dsk.year ? `  ·  ${dsk.year}` : "")
           : `${dsk.name}  —  (unavailable)`;
-        o.disabled = !dsk.bytes;
+        o.disabled = !dsk.available;
         diskList.appendChild(o);
       }
-      const first = this.catalog.findIndex((d) => d.bytes);
+      const first = this.catalog.findIndex((d) => d.available);
       if (first >= 0) { diskList.value = String(first); this.syncPicker(); }
+    },
+
+    async diskBytes(dsk) {
+      if (!dsk.bytes) {
+        const r = await fetch("disks/" + dsk.file);
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        dsk.bytes = new Uint8Array(await r.arrayBuffer());
+      }
+      return dsk.bytes;
+    },
+
+    metaLine(dsk) {
+      return [dsk.year, dsk.publisher, dsk.needs && "Needs " + dsk.needs].filter(Boolean).join("  ·  ");
     },
 
     syncPicker() {
       const dsk = this.catalog[Number(diskList.value)];
       diskDesc.textContent = dsk ? (dsk.description || "") : "";
+      diskMeta.textContent = dsk ? this.metaLine(dsk) : "";
     },
 
     openPicker(drive) {
@@ -1473,9 +1504,11 @@ async function boot() {
     // image), track 2 (the directory) wiped to 0xE5 with its checksum fixed
     async blankFormatted(drive) {
       await this.loadCatalog();
-      const src = this.catalog.find((d) => d.os === "cpm" && d.bytes);
-      if (!src) { this.blank(drive); return; }
-      const img = src.bytes.slice();
+      const src = this.catalog.find((d) => d.os === "cpm" && d.available);
+      let bytes = null;
+      if (src) bytes = await this.diskBytes(src).catch(() => null);
+      if (!bytes) { this.blank(drive); return; }
+      const img = bytes.slice();
       const SEC = 137;
       for (let s = 0; s < 32; s++) {
         const b = (2 * 32 + s) * SEC;               // track 2 = the CP/M directory
@@ -1502,7 +1535,7 @@ async function boot() {
     eject(drive) {
       if (machine.diskDirty && machine.diskDirty(drive) &&
           !confirm(`Drive ${drive === 0 ? "A" : "B"} has unsaved changes. Eject anyway?`))
-        return;
+        return false;
       machine.unmountDisk(drive);
       this.names[drive] = null;
       this.entries[drive] = null;
@@ -1513,6 +1546,23 @@ async function boot() {
       b.eject.classList.add("hidden");
       b.help.classList.add("hidden");
       b.save.classList.add("hidden");
+      return true;
+    },
+
+    fitted() { return !document.getElementById("dcdd").classList.contains("empty"); },
+    dropTarget() { return this.names[0] && !this.names[1] ? 1 : 0; },
+
+    async dropFile(file) {
+      if (!this.fitted()) {
+        presetHint("No 88-DCDD here. Tick Floppy under Custom, or pick the CP/M preset, then drop the disk again.");
+        return;
+      }
+      const drive = this.dropTarget();
+      if (this.names[drive] && !this.eject(drive)) return;
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      if (bytes.length !== 337568)
+        console.warn(`disk image is ${bytes.length} bytes; MITS 8" is 337568`);
+      this.insert(drive, bytes, file.name);
     },
 
     showHelp(drive) {
@@ -1528,14 +1578,21 @@ async function boot() {
       };
       body.innerHTML = "";
       if (entry && entry.description) body.appendChild(mk("p", entry.description));
+      if (entry && this.metaLine(entry)) body.appendChild(mk("p", this.metaLine(entry), "disk-meta"));
+      if (entry && entry.license) body.appendChild(mk("p", entry.license, "disk-meta"));
       body.appendChild(mk("h4", "THIS DISK"));
       body.appendChild(mk("pre", entry && entry.help
         ? entry.help
         : "No notes for this image. The basics below still apply once it boots."));
       body.appendChild(mk("div", null, "divider"));
-      const dos = entry && entry.os === "dos";
-      body.appendChild(mk("h4", dos ? "USING ALTAIR DOS" : "USING CP/M"));
-      body.appendChild(mk("pre", dos ? DOS_PRIMER : CPM_PRIMER));
+      const os = (entry && entry.os) || "cpm";
+      const primer = {
+        cpm: ["USING CP/M", CPM_PRIMER],
+        dos: ["USING ALTAIR DOS", DOS_PRIMER],
+        basic: ["USING DISK BASIC", BASIC_PRIMER],
+      }[os] || ["USING CP/M", CPM_PRIMER];
+      body.appendChild(mk("h4", primer[0]));
+      body.appendChild(mk("pre", primer[1]));
       diskHelpDialog.hidden = false;
     },
     closeHelp() { diskHelpDialog.hidden = true; term.focus(); },
@@ -1599,11 +1656,20 @@ async function boot() {
   const diskDialog     = document.getElementById("diskDialog");
   const diskList       = document.getElementById("diskList");
   const diskDesc       = document.getElementById("diskDesc");
+  const diskMeta       = document.getElementById("diskMeta");
   const diskFile       = document.getElementById("diskFile");
   const diskFileName   = document.getElementById("diskFileName");
   const diskHelpDialog = document.getElementById("diskHelpDialog");
 
   disk.build();
+  initDiskDrop({
+    accept: /\.dsk$/i,
+    message: () => disk.fitted()
+      ? `Drop a .dsk image to put it in drive ${disk.dropTarget() ? "B" : "A"}:`
+      : "No 88-DCDD fitted",
+    onDrop: (f) => disk.dropFile(f),
+    onReject: (f) => presetHint(`${f.name} isn't a .dsk image. The 88-DCDD only takes 8" .dsk files.`),
+  });
 
   document.getElementById("diskHelpClose").addEventListener("click", () => disk.closeHelp());
   document.getElementById("diskHelpOk").addEventListener("click", () => disk.closeHelp());
@@ -1635,8 +1701,8 @@ async function boot() {
       name = file.name;
     } else {
       const dsk = disk.catalog[Number(diskList.value)];
-      if (!dsk || !dsk.bytes) { diskDesc.textContent = "That diskette is unavailable."; return; }
-      bytes = dsk.bytes;
+      bytes = dsk && dsk.available ? await disk.diskBytes(dsk).catch(() => null) : null;
+      if (!bytes) { diskDesc.textContent = "That diskette is unavailable."; return; }
       name = dsk.name;
       entry = dsk;
     }
@@ -2173,8 +2239,9 @@ exactly as it did in 1975.`;
     } else cassette.eject(true);
     if (pl.disk) {
       await disk.loadCatalog();
-      const d = disk.catalog.find((x) => x.bytes && pl.disk.match.test(x.name));
-      if (d) disk.insert(pl.disk.drive || 0, d.bytes, d.name, d);
+      const d = disk.catalog.find((x) => x.available && pl.disk.match.test(x.name));
+      const b = d ? await disk.diskBytes(d).catch(() => null) : null;
+      if (b) disk.insert(pl.disk.drive || 0, b, d.name, d);
       else missing = missing || p.missing;
     }
     return missing;

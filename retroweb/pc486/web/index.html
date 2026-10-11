@@ -18,6 +18,8 @@
 <link rel="stylesheet" href="shared/fullscreen.css">
 <link rel="stylesheet" href="shared/focus-hint.css">
 <link rel="stylesheet" href="shared/footer.css">
+<link rel="stylesheet" href="shared/disk-drop.css">
+<link rel="stylesheet" href="shared/disk-library.css">
 <link rel="stylesheet" href="shared/pc-keyboard.css">
 <style>
   /* ---- page themes: default = Windows 95; web94 = mid-90s Mosaic web;
@@ -904,6 +906,17 @@
   .at-bay.bay-35 .drive-label { flex: 1 1 auto; }
 
   .at-bay-ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin-top: 6px; }
+  .floppy-save {
+    flex: 0 0 auto;
+    padding: 0 6px;
+    font: bold 10px Arial, Helvetica, sans-serif;
+    color: #fff;
+    background: #b5462a;
+    border: 1px solid #7a2c18;
+    border-radius: 2px;
+    cursor: pointer;
+  }
+  .floppy-save[hidden] { display: none; }
   .drive-label { font: 11px "Courier New", monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #2b2b28; flex: 1 1 100%; min-width: 0; }
   .drive-label.empty { color: #7a7358; font-style: italic; }
 
@@ -1044,6 +1057,7 @@
             <div class="at-bay-ctl">
               <span class="drive-letter">A:</span>
               <span class="drive-label empty" data-role="label">empty (1.44MB, 3.5&Prime;)</span>
+              <button type="button" class="floppy-save" data-role="save" title="Download this diskette with your changes" hidden>Save</button>
             </div>
           </div>
           <div class="bay-rail" aria-hidden="true"></div>
@@ -1155,12 +1169,7 @@
         <span class="muted">Useful freeware drivers and software to help you get up and running.</span>
       </div>
       <div class="row">
-        <button type="button" id="ctmouseBtn">Insert CuteMouse driver disk</button>
-        <button type="button" id="freedosCdBtn">Insert FreeDOS CD&hellip;</button>
-        <span class="muted" id="ctmouseStatus"></span>
-      </div>
-      <div class="row">
-        <span class="muted" id="freedosCdStatus"></span>
+        <button type="button" id="libraryBtn">Disk library&hellip;</button>
       </div>
     </div>
 
@@ -1194,6 +1203,8 @@
 <script src="shared/winbtns.js"></script>
 <script src="shared/focus-hint.js"></script>
 <script src="shared/footer.js"></script>
+<script src="shared/disk-drop.js"></script>
+<script src="shared/disk-library.js"></script>
 <script src="shared/pc-keyboard.js"></script>
 <script src="app.js"></script>
 </body>

@@ -237,8 +237,29 @@ jobs:
         if: steps.ibmpcat-hdd.outputs.cache-hit != 'true'
         run: make -C retroweb/ibmpc-at hdd-image
 
+      # library floppies: mtools, plus FreeDOS packages from pc486's pinned LiveCD
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y mtools
+
+      - if: runner.os == 'macOS'
+        run: brew list mtools >/dev/null || brew install mtools
+
+      - name: Cache pc486 FreeDOS CD-ROM ISO
+        id: pc486-cd
+        uses: actions/cache@v4
+        with:
+          path: |
+            retroweb/pc486/disks/freedos-cd.iso
+            retroweb/pc486/disks/freedos-boot.img
+          key: pc486-cd-${{ hashFiles('retroweb/pc486/disks/fetch-freedos-cd.sh') }}
+          enableCrossOsArchive: true
+
+      - name: Fetch pc486 FreeDOS CD-ROM ISO
+        if: steps.pc486-cd.outputs.cache-hit != 'true'
+        run: bash retroweb/pc486/disks/fetch-freedos-cd.sh
+
       - working-directory: retroweb/ibmpc-at/web
-        run: make ibmpcat.js hdd-image
+        run: make ibmpcat.js hdd-image library-images
 
       - uses: actions/setup-node@v4
         with:
@@ -395,7 +416,7 @@ jobs:
       # Performance panel's ?perf loads. Building only the shipped one would
       # let the PC486_PERF paths rot unnoticed -- nothing else compiles them.
       - working-directory: retroweb/pc486/web
-        run: make pc486.js pc486-perf.js hdd-image cdrom-image driver-images shared
+        run: make pc486.js pc486-perf.js hdd-image cdrom-image driver-images library-images shared
 
       - uses: actions/setup-node@v4
         with:

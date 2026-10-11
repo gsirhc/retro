@@ -70,13 +70,15 @@ export default [
         initThemePicker: "readonly",
         initFullscreen: "readonly",
         initFocusHint: "readonly",
+        initDiskDrop: "readonly",
+        initDiskLibrary: "readonly",
         initPcKeyboard: "readonly",
         initArcadeTouch: "readonly",
       },
     },
   },
   {
-    files: ["shared/theme-picker.js", "shared/fullscreen.js", "shared/focus-hint.js", "shared/winbtns.js", "shared/pc-keyboard.js", "shared/arcade-touch.js"],
+    files: ["shared/theme-picker.js", "shared/fullscreen.js", "shared/focus-hint.js", "shared/winbtns.js", "shared/pc-keyboard.js", "shared/arcade-touch.js", "shared/disk-drop.js", "shared/disk-library.js"],
     languageOptions: {
       globals: {
         ...globals.browser,
@@ -86,7 +88,7 @@ export default [
       "no-unused-vars": ["error", {
         argsIgnorePattern: "^_",
         caughtErrors: "none",
-        varsIgnorePattern: "^(_|initThemePicker|initFullscreen|initFocusHint|initPcKeyboard|initArcadeTouch|arcadeTouchOnly)$",
+        varsIgnorePattern: "^(_|initThemePicker|initFullscreen|initFocusHint|initDiskDrop|initDiskLibrary|initPcKeyboard|initArcadeTouch|arcadeTouchOnly)$",
       }],
     },
   },

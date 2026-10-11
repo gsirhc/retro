@@ -29,7 +29,12 @@ public:
     uint16_t in16(uint16_t port);
     void out16(uint16_t port, uint16_t v);
 
-    bool owns_mem(uint32_t addr) const { return addr >= 0xA0000 && addr <= 0xBFFFF; }
+    // VBE 2.0 linear frame buffer where the card ROM reports it
+    // (VGABIOS vbe.c VBE_DISPI_LFB_PHYSICAL_ADDRESS); Bochs vga.cc maps it onto VRAM.
+    static constexpr uint32_t kVbeLfbBase = 0xE0000000u;
+    bool owns_mem(uint32_t addr) const {
+        return (addr >= 0xA0000 && addr <= 0xBFFFF) || (addr >= kVbeLfbBase && addr - kVbeLfbBase < vram.size());
+    }
     uint8_t mem_read(uint32_t addr) const;
     void mem_write(uint32_t addr, uint8_t v);
 

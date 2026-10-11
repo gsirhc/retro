@@ -601,6 +601,36 @@ TEST(EgaTest, SvgaWindowIsFlatLinearMemorySlidByTheBankRegister) {
     EXPECT_EQ(ega.mem_read(0xA0000), 0x77);
 }
 
+TEST(EgaTest, LinearFrameBufferAtE0000000IsTheWholeVramInAnSvgaMode) {
+    Ega ega;
+    ega.reset();
+    const uint32_t lfb = Ega::kVbeLfbBase;
+    EXPECT_TRUE(ega.owns_mem(lfb));
+    EXPECT_TRUE(ega.owns_mem(lfb + uint32_t(ega.vram.size()) - 1));
+    EXPECT_FALSE(ega.owns_mem(lfb + uint32_t(ega.vram.size())));
+
+    ega.mem_write(lfb + 5, 0x42);  // no SVGA mode yet: nothing decodes it
+    EXPECT_EQ(ega.vram[5], 0x00);
+    EXPECT_EQ(ega.mem_read(lfb + 5), 0xFF);
+    EXPECT_EQ(ega.linear_page(lfb, true), nullptr);
+
+    ega.out16(Ega::kVbeIndexPort, Ega::kVbeRegBpp); ega.out16(Ega::kVbeDataPort, 8);
+    ega.out16(Ega::kVbeIndexPort, Ega::kVbeRegXres); ega.out16(Ega::kVbeDataPort, 640);
+    ega.out16(Ega::kVbeIndexPort, Ega::kVbeRegYres); ega.out16(Ega::kVbeDataPort, 480);
+    ega.out16(Ega::kVbeIndexPort, Ega::kVbeRegEnable); ega.out16(Ega::kVbeDataPort, Ega::kVbeEnabled);
+
+    // Past the first 64KB bank, with no Bank write: the LFB doesn't page.
+    const uint32_t far = 3 * Ega::kVbeBankSize + 7;
+    ega.mem_write(lfb + far, 0x5A);
+    EXPECT_EQ(ega.vram[far], 0x5A);
+    EXPECT_EQ(ega.mem_read(lfb + far), 0x5A);
+
+    uint8_t* page = ega.linear_page(lfb + 0x40000, true);
+    ASSERT_NE(page, nullptr);
+    EXPECT_EQ(page, ega.vram.data() + 0x40000);
+    EXPECT_EQ(ega.linear_page(lfb + uint32_t(ega.vram.size()) - 0x800, false), nullptr);
+}
+
 TEST(EgaTest, GetCapsOnBankAdvertisesThirtyTwoKGranularity) {
     // dispi_support_bank_granularity_32k reads BANK under GETCAPS and expects bit 0x10 in the high byte.
     Ega ega;

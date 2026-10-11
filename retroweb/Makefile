@@ -124,14 +124,14 @@ site:
 _stage:
 	$(MAKE) -C altair8800/web retro8080.js roms media shared
 	$(MAKE) -C assembler6502/web wasm roms examples-bin shared
-	$(MAKE) -C ibmpc-at/web ibmpcat.js roms hdd-image shared
+	$(MAKE) -C ibmpc-at/web ibmpcat.js roms hdd-image library-images shared
 	$(MAKE) -C pacman/web wasm roms shared
 	$(MAKE) -C frogger/web wasm roms shared
 	$(MAKE) -C galaga/web wasm roms shared
 	$(MAKE) -C galaxian/web wasm roms shared
 	$(MAKE) -C scramble/web wasm roms shared
 	$(MAKE) -C asteroids/web wasm roms shared
-	$(MAKE) -C pc486/web pc486.js pc486-perf.js roms hdd-image cdrom-image driver-images shared
+	$(MAKE) -C pc486/web pc486.js pc486-perf.js roms hdd-image cdrom-image driver-images library-images shared
 	$(MAKE) site
 
 # Local TLS cert (localhost, LAN name, LAN IP). Plain http:// on a LAN address

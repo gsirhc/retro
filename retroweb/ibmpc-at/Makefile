@@ -23,7 +23,7 @@ CXXFLAGS ?= -std=c++17 -O2 -Wall -Wextra
 CHIPSET_SRCS = machine.cpp chipset.cpp cpu80286.cpp pic8259.cpp pit8253.cpp i8042.cpp cmos_rtc.cpp dma8237.cpp fdc765.cpp ega.cpp wd1003.cpp pcspeaker.cpp
 UNIT_TESTS = cpu80286_test cpu80286_timing_test pic8259_test pit8253_test i8042_test cmos_rtc_test dma8237_test chipset_test machine_test fdc765_test ega_test ega_render_test wd1003_test pcspeaker_test egabios_test
 
-.PHONY: help test test-smoke bios egabios bios-check hdd-image wasm serve coverage check clean
+.PHONY: help test test-smoke bios egabios bios-check library hdd-image wasm serve coverage check clean
 
 LLVM_PROFDATA ?= xcrun llvm-profdata
 LLVM_COV      ?= xcrun llvm-cov
@@ -65,6 +65,16 @@ hdd-image: bios disks/build_freedos_hdd
 	./disks/build_freedos_hdd roms/BIOS-bochs-legacy roms/egabios/egabios.bin disks disks/freedos-hdd.img
 
 # --- webassembly + browser front end ---
+# Library floppies (disks/library.json): FreeDOS packages from pc486's pinned LiveCD, pinned shareware.
+DOSLIB = ../shared/dos-library
+FDCD = ../pc486/disks/freedos-cd.iso
+$(FDCD):
+	$(MAKE) -C ../pc486 disks/freedos-cd.iso
+
+library: $(FDCD)
+	bash $(DOSLIB)/fetch-shareware.sh
+	python3 $(DOSLIB)/build-library.py --library disks/library.json --iso $(FDCD) --out disks/library
+
 wasm:
 	$(MAKE) -C web
 

@@ -25,7 +25,7 @@ CXXFLAGS ?= -std=c++17 -O2 -Wall -Wextra
 CHIPSET_SRCS = machine.cpp chipset.cpp cpu80486.cpp cache486.cpp pic8259.cpp pit8253.cpp i8042.cpp cmos_rtc.cpp dma8237.cpp fdc765.cpp ega.cpp wd1003.cpp atapi_cdrom.cpp pcspeaker.cpp soundblaster.cpp opl3.cpp mpu401.cpp
 UNIT_TESTS = cpu80486_test cpu80486_timing_test cache486_test pic8259_test pit8253_test i8042_test cmos_rtc_test dma8237_test chipset_test machine_test fdc765_test ega_test ega_render_test wd1003_test atapi_cdrom_test pcspeaker_test soundblaster_test mpu401_test opl3_test
 
-.PHONY: help test test-smoke bios bios-check pm-check vbe-check hdd-image hdd-boot-check wasm serve coverage check clean fm-trace-render
+.PHONY: help test test-smoke bios bios-check pm-check vbe-check library hdd-image hdd-boot-check wasm serve coverage check clean fm-trace-render
 
 LLVM_PROFDATA ?= xcrun llvm-profdata
 LLVM_COV      ?= xcrun llvm-cov
@@ -104,6 +104,13 @@ disks/ctmouse.img: disks/build-ctmouse-floppy.sh disks/freedos-hdd.img
 	bash disks/build-ctmouse-floppy.sh
 
 ctmouse-image: disks/ctmouse.img
+
+# Library floppies (disks/library.json): FreeDOS packages from the LiveCD, pinned shareware.
+DOSLIB = ../shared/dos-library
+library: disks/freedos-cd.iso disks/ctmouse.img
+	bash $(DOSLIB)/fetch-shareware.sh
+	python3 $(DOSLIB)/build-library.py --library disks/library.json --iso disks/freedos-cd.iso --out disks/library
+	cp disks/ctmouse.img disks/library/
 
 # --- boot the finished HDD image standalone (hdd_boot_check.cpp) ---
 hdd-boot-check: bios disks/hdd_boot_check

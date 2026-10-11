@@ -265,9 +265,13 @@ export async function ejectCdrom(page: Page): Promise<void> {
   await bay(page, "cdrom").locator('[data-role="eject"]').click();
 }
 
-/** Fetches and mounts the shipped FreeDOS CD on demand ("Insert FreeDOS CD..."). */
+/** Fetches and mounts the shipped FreeDOS CD on demand, through the Disk library. */
 export async function loadFreedosCdrom(page: Page): Promise<void> {
-  await page.locator("#freedosCdBtn").click();
+  await page.locator("#libraryBtn").click();
+  await page.locator("#libraryDialog .lib-item", { hasText: "FreeDOS 1.3 LiveCD" }).click();
+  await page.locator('#libraryDialog .lib-disks button[data-drive="cdrom"]').click();
+  await expect(page.locator("#libraryDialog .lib-status")).toHaveText("It is in D:", { timeout: 60_000 });
+  await page.locator("#libraryDialog .lib-close").click();
 }
 
 /** Byte length of C:'s current image (factory, blank, or written-to). */

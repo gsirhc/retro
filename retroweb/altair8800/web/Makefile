@@ -36,6 +36,7 @@ shared:
 	   $(SHARED)/fullscreen.css $(SHARED)/fullscreen.js \
 	   $(SHARED)/focus-hint.css $(SHARED)/focus-hint.js \
 	   $(SHARED)/footer.css $(SHARED)/footer.js $(SHARED)/winbtns.js \
+	   $(SHARED)/disk-drop.css $(SHARED)/disk-drop.js \
 	   shared/
 
 serve: retro8080.js roms media shared

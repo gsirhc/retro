@@ -84,28 +84,6 @@ Work involved:
 - tests: the VT100 self-test passes, SET-UP round-trips, and a known
   escape-sequence torture test matches real hardware captures
 
-## 5. Larger disk library
-
-The Altair and the PCs already swap disk images. Grow what's on offer, and
-let changed disks leave the browser.
-
-- Altair: more CP/M 2.2 disks (Zork, WordStar, MBASIC, assemblers,
-  languages), where redistribution is clear
-- ibmpc-at and pc486: freely licensed DOS software on floppy images
-- a library picker that shows title, year, and what the disk needs (memory,
-  drive count)
-- a "save this disk" button on every drive, so a modified image downloads
-  (some machines already have this; make it consistent)
-- loading your own image from a file or by drag and drop, consistently
-  across machines
-
-Work involved:
-
-- each image pinned and checksum-verified in a `fetch-*.sh` script, never
-  committed (`*.dsk`/`*.bin` stay git-ignored)
-- a short provenance note for every image (where it came from, license)
-- Playwright tests that mount each library disk and prove it boots or runs
-
 ## 9. On-screen keyboards
 
 Clickable keyboards drawn to match the real hardware, for phones and tablets

@@ -261,6 +261,10 @@ bool Ega::display_disabled_() const {
 }
 
 uint8_t *Ega::linear_page(uint32_t page_base, bool write) {
+    if (page_base >= kVbeLfbBase) {
+        uint32_t off = page_base - kVbeLfbBase;
+        return vbe_mode_active() && off + 0x1000u <= vram.size() ? vram.data() + off : nullptr;
+    }
     if (vbe_mode_active()) return nullptr;   // the VBE window has its own banked mapping
     if (!seq_chain4()) return nullptr;
     // Every planar stage must be pass-through or a byte write is not a plain store.
@@ -310,6 +314,7 @@ uint32_t Ega::vbe_planar_plane_off(uint32_t plane_off) const {
 }
 
 uint8_t Ega::mem_read(uint32_t addr) const {
+    if (addr >= kVbeLfbBase) return vbe_mode_active() ? vram[addr - kVbeLfbBase] : uint8_t(0xFF);
     // SVGA modes bypass the planar engine for a flat banked frame buffer.
     if (vbe_mode_active()) {
         uint32_t lin = vbe_linear_offset(addr);
@@ -352,6 +357,10 @@ uint8_t Ega::mem_read(uint32_t addr) const {
 }
 
 void Ega::mem_write(uint32_t addr, uint8_t v) {
+    if (addr >= kVbeLfbBase) {
+        if (vbe_mode_active()) vram[addr - kVbeLfbBase] = v;
+        return;
+    }
     if (vbe_mode_active()) {  // see mem_read
         uint32_t lin = vbe_linear_offset(addr);
         if (lin != kOutOfWindow) vram[lin] = v;

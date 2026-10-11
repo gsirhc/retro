@@ -41,22 +41,17 @@ test.describe("CD-ROM drive", () => {
     expect(requests.some((u) => u.includes("freedos-cd.iso"))).toBe(false);
   });
 
-  test('"Insert FreeDOS CD..." fetches and mounts it on demand', async ({ livePage: page }) => {
+  test("the Disk library fetches and mounts the FreeDOS CD on demand", async ({ livePage: page }) => {
 
     const bayCd = bay(page, "cdrom");
-    const status = page.locator("#freedosCdStatus");
-    await expect(status).toHaveText("");
     await loadFreedosCdrom(page);
     await expect(bayCd).toHaveClass(/loaded/, { timeout: 60_000 });
     const label = bayCd.locator('[data-role="label"]');
-    await expect(label).toContainText("FreeDOS install/live CD");
+    await expect(label).toHaveText("FreeDOS 1.3 LiveCD");
     await expect(bayCd.locator('[data-role="eject"]')).toBeEnabled();
     await expect
       .poll(() => page.evaluate(() => (window as any).__test.machine.cdromPresent()))
       .toBe(true);
-    await expect(status).toContainText("In drive D:");
-    await expect(status).toContainText("DIR");
-    await expect(status).toContainText("install/live CD");
   });
 
   test("ejecting empties the bay; inserting a new ISO loads it", async ({ livePage: page }) => {

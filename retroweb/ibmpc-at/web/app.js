@@ -164,40 +164,75 @@
     label.classList.add("empty");
     bay.querySelector('[data-role="eject"]').disabled = true;
   }
+  // Writes live only in memory, so a written disk is handed back as a download.
+  function saveFloppy(drive) {
+    if (!machine || !machine.floppyDirty(drive)) return;
+    const bay = bays[drive];
+    const label = bay.querySelector('[data-role="label"]');
+    const blob = new Blob([machine.floppyImage(drive)], { type: "application/octet-stream" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = (label.textContent || "disk").replace(/\.img$/i, "").replace(/[^\w.-]+/g, "_") + ".img";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    machine.clearFloppyDirty(drive);
+    bay.querySelector('[data-role="save"]').hidden = true;
+  }
+  async function insertFloppy(drive, name, data) {
+    saveFloppy(drive);
+    await withLoad("Loading floppy\u2026", async () => {
+      const bytes = await data;
+      pendingFloppy[drive] = { name, bytes };
+      if (machine) machine.mountFloppy(drive, bytes);
+      setBayLoaded(bays[drive], name);
+    });
+  }
   for (const bay of bays) {
     const drive = parseInt(bay.dataset.drive, 10);
     const fileInput = bay.querySelector('[data-role="file"]');
-    const ejectBtn = bay.querySelector('[data-role="eject"]');
-    const label = bay.querySelector('[data-role="label"]');
     fileInput.addEventListener("change", async () => {
       const f = fileInput.files[0];
       fileInput.value = "";
       if (!f) return;
-      await withLoad("Loading floppy\u2026", async () => {
-        const bytes = new Uint8Array(await f.arrayBuffer());
-        pendingFloppy[drive] = { name: f.name, bytes };
-        if (machine) machine.mountFloppy(drive, bytes);
-        setBayLoaded(bay, f.name);
-      });
+      await insertFloppy(drive, f.name, f.arrayBuffer().then((b) => new Uint8Array(b)));
     });
-    ejectBtn.addEventListener("click", () => {
-      // hand back modified images before ejecting
-      if (machine && machine.floppyDirty(drive)) {
-        const img = machine.floppyImage(drive);
-        const blob = new Blob([img], { type: "application/octet-stream" });
-        const a = document.createElement("a");
-        a.href = URL.createObjectURL(blob);
-        a.download = (label.textContent || "disk").replace(/[^\w.-]+/g, "_") + ".img";
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        setTimeout(() => URL.revokeObjectURL(a.href), 4000);
-      }
+    bay.querySelector('[data-role="save"]').addEventListener("click", () => saveFloppy(drive));
+    bay.querySelector('[data-role="eject"]').addEventListener("click", () => {
+      saveFloppy(drive);
       if (machine) machine.unmountFloppy(drive);
       pendingFloppy[drive] = null;
       setBayEmpty(bay, drive);
     });
   }
+
+  // A: is a 1.2MB drive, which also reads 360K media; B: is 360K only.
+  const driveTakes = [(k) => k === 1200 || k === 360, (k) => k === 360];
+  initDiskLibrary({
+    button: document.getElementById("libraryBtn"),
+    drives: [{ id: 0, name: "A:", accepts: driveTakes[0] }, { id: 1, name: "B:", accepts: driveTakes[1] }],
+    insert: (drive, label, bytes) => insertFloppy(drive, label, bytes),
+  });
+
+  const FLOPPY_K = { 1228800: 1200, 368640: 360 };
+  const emptyDrive = () => (pendingFloppy[0] ? (pendingFloppy[1] ? 0 : 1) : 0);
+  const diskDrop = initDiskDrop({
+    accept: /\.(img|ima)$/i,
+    message: () => `Drop a floppy image to put it in drive ${emptyDrive() ? "B" : "A"}:`,
+    onDrop: async (f) => {
+      const bytes = new Uint8Array(await f.arrayBuffer());
+      const k = FLOPPY_K[bytes.length];
+      if (!k) {
+        diskDrop.flash(`${f.name} isn't a 1.2MB or 360K floppy image.`);
+        return;
+      }
+      const fits = [0, 1].filter((d) => driveTakes[d](k));
+      const drive = fits.find((d) => !pendingFloppy[d]) ?? fits[0];
+      await insertFloppy(drive, f.name, bytes);
+    },
+    onReject: (f) => diskDrop.flash(`${f.name} isn't a floppy image. The drives take .img files.`),
+  });
 
   // ---- PC speaker (muted every page load) ----
   // AudioWorklet ring buffer: a main-thread stall holds the last sample instead of
@@ -391,6 +426,7 @@
       const drive = parseInt(bay.dataset.drive, 10);
       const led = bay.querySelector('[data-role="led"]');
       led.classList.toggle("on", machine.floppyPresent(drive) && machine.floppyMotorOn(drive));
+      bay.querySelector('[data-role="save"]').hidden = !(machine.floppyPresent(drive) && machine.floppyDirty(drive));
     }
     hddLed.classList.toggle("on", machine.hddBusy());
 

@@ -344,77 +344,88 @@
     label.classList.add("empty");
     bay.querySelector('[data-role="eject"]').disabled = true;
   }
+  const floppySaveBtn = floppyBay.querySelector('[data-role="save"]');
+  // Writes live only in memory, so a written disk is handed back as a download.
+  function saveFloppy() {
+    if (!machine || !machine.floppyDirty()) return;
+    const label = floppyBay.querySelector('[data-role="label"]');
+    const blob = new Blob([machine.floppyImage()], { type: "application/octet-stream" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = (label.textContent || "disk").replace(/\.img$/i, "").replace(/[^\w.-]+/g, "_") + ".img";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    machine.clearFloppyDirty();
+    floppySaveBtn.hidden = true;
+  }
+  async function insertFloppy(name, data) {
+    saveFloppy();
+    await withLoad("Loading floppy\u2026", async () => {
+      const bytes = await data;
+      pendingFloppy = { name, bytes };
+      if (machine) machine.mountFloppy(bytes);
+      setBayLoaded(floppyBay, name);
+    });
+  }
   {
     const fileInput = floppyBay.querySelector('[data-role="file"]');
     const ejectBtn = floppyBay.querySelector('[data-role="eject"]');
-    const label = floppyBay.querySelector('[data-role="label"]');
     fileInput.addEventListener("change", async () => {
       const f = fileInput.files[0];
       fileInput.value = "";
       if (!f) return;
-      await withLoad("Loading floppy\u2026", async () => {
-        const bytes = new Uint8Array(await f.arrayBuffer());
-        pendingFloppy = { name: f.name, bytes };
-        if (machine) machine.mountFloppy(bytes);
-        setBayLoaded(floppyBay, f.name);
-      });
+      await insertFloppy(f.name, f.arrayBuffer().then((b) => new Uint8Array(b)));
     });
+    floppySaveBtn.addEventListener("click", saveFloppy);
     ejectBtn.addEventListener("click", () => {
-      // Hand back the image before ejecting if the session wrote to it; those writes live only in memory.
-      if (machine && machine.floppyDirty()) {
-        const img = machine.floppyImage();
-        const blob = new Blob([img], { type: "application/octet-stream" });
-        const a = document.createElement("a");
-        a.href = URL.createObjectURL(blob);
-        a.download = (label.textContent || "disk").replace(/[^\w.-]+/g, "_") + ".img";
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        setTimeout(() => URL.revokeObjectURL(a.href), 4000);
-      }
+      saveFloppy();
       if (machine) machine.unmountFloppy();
       pendingFloppy = null;
       setBayEmpty(floppyBay, "empty (1.44MB, 3.5″)");
     });
   }
 
+  initDiskLibrary({
+    button: document.getElementById("libraryBtn"),
+    drives: [
+      { id: 0, name: "A:", accepts: (k) => k === 1440 || k === 720 },
+      { id: "cdrom", name: "D:", accepts: (k) => k === "cd" },
+    ],
+    insert: (drive, label, bytes) => (drive === "cdrom" ? insertCdrom(label, bytes) : insertFloppy(label, bytes)),
+  });
+
+  const FLOPPY_SIZES = [1474560, 737280];
+  const diskDrop = initDiskDrop({
+    accept: /\.(img|ima)$/i,
+    message: () => "Drop a floppy image to put it in drive A:",
+    onDrop: async (f) => {
+      const bytes = new Uint8Array(await f.arrayBuffer());
+      if (!FLOPPY_SIZES.includes(bytes.length)) {
+        diskDrop.flash(`${f.name} isn't a 1.44MB or 720K floppy image.`);
+        return;
+      }
+      await insertFloppy(f.name, bytes);
+    },
+    onReject: (f) => diskDrop.flash(`${f.name} isn't a floppy image. Drive A: takes .img files.`),
+  });
+
   // ---- CD-ROM drive (atapi_cdrom) ----
   // Read-only media, so no dirty-image path. Empty by default since C: already ships with FreeDOS;
-  // "Insert FreeDOS CD..." fetches the ~400MB .iso lazily (PC486_REVIEW.md).
-  // ---- freeware disks & drivers ----
-  // Fetches web/disks/ctmouse.img (disks/build-ctmouse-floppy.sh) into A: via the same path as a
-  // picked file. The button stays live: a real drive takes a diskette over a loaded one.
-  {
-    const btn = document.getElementById("ctmouseBtn");
-    const status = document.getElementById("ctmouseStatus");
-    btn.addEventListener("click", async () => {
-      status.textContent = "Fetching\u2026";
-      try {
-        await withLoad("Loading floppy\u2026", async () => {
-          const res = await fetch("disks/ctmouse.img");
-          if (!res.ok) throw new Error("HTTP " + res.status);
-          const bytes = new Uint8Array(await res.arrayBuffer());
-          pendingFloppy = { name: "ctmouse.img", bytes };
-          if (machine) machine.mountFloppy(bytes);
-          setBayLoaded(floppyBay, "ctmouse.img");
-        });
-        status.innerHTML =
-          "CuteMouse is a freeware DOS mouse driver. To load it every boot: " +
-          "<code>COPY CTMOUSE.EXE C:\\</code> then add " +
-          "<code>C:\\CTMOUSE /P</code> to <code>AUTOEXEC.BAT</code>.";
-      } catch (err) {
-        console.error("could not load the CuteMouse driver disk:", err);
-        status.textContent = "Could not fetch the driver disk -- see the console.";
-      }
+  // the Disk library fetches the ~400MB FreeDOS .iso lazily (PC486_REVIEW.md).
+  const cdromBay = document.querySelector('.at-bay[data-drive="cdrom"]');
+  async function insertCdrom(name, data) {
+    await withLoad("Loading CD-ROM\u2026", async () => {
+      const bytes = await data;
+      pendingCdrom = { name, bytes };
+      if (machine) machine.mountCdrom(bytes);
+      setBayLoaded(cdromBay, name);
     });
   }
-
-  const cdromBay = document.querySelector('.at-bay[data-drive="cdrom"]');
   {
     const fileInput = cdromBay.querySelector('[data-role="file"]');
     const ejectBtn = cdromBay.querySelector('[data-role="eject"]');
-    const loadFreedosBtn = document.getElementById("freedosCdBtn");
-    const freedosStatus = document.getElementById("freedosCdStatus");
     fileInput.addEventListener("change", async () => {
       const files = Array.from(fileInput.files);
       fileInput.value = "";
@@ -437,39 +448,7 @@
         return;
       }
       const f = files[0];
-      await withLoad("Loading CD-ROM\u2026", async () => {
-        const bytes = new Uint8Array(await f.arrayBuffer());
-        pendingCdrom = { name: f.name, bytes };
-        if (machine) machine.mountCdrom(bytes);
-        setBayLoaded(cdromBay, f.name);
-      });
-    });
-    loadFreedosBtn.addEventListener("click", async () => {
-      loadFreedosBtn.disabled = true;
-      const originalText = loadFreedosBtn.textContent;
-      loadFreedosBtn.textContent = "Loading\u2026";
-      freedosStatus.textContent = "Fetching\u2026 (~400MB)";
-      try {
-        await withLoad("Loading CD-ROM\u2026", async () => {
-          const res = await fetch("disks/freedos-cd.iso");
-          if (!res.ok) throw new Error("HTTP " + res.status);
-          const bytes = new Uint8Array(await res.arrayBuffer());
-          pendingCdrom = { name: "FreeDOS install/live CD", bytes };
-          if (machine) machine.mountCdrom(bytes);
-          setBayLoaded(cdromBay, pendingCdrom.name);
-        });
-        freedosStatus.innerHTML =
-          "In drive D:. At the prompt, type <code>D:</code> then <code>DIR</code> to browse. " +
-          "This is FreeDOS's official install/live CD. " +
-          "C: already boots without it; use this to install more packages or " +
-          "reinstall. Eject from the CD-ROM bay when done.";
-      } catch (err) {
-        console.error("could not load the FreeDOS CD:", err);
-        freedosStatus.textContent = "Could not fetch the FreeDOS CD -- see the console.";
-      } finally {
-        loadFreedosBtn.textContent = originalText;
-        loadFreedosBtn.disabled = false;
-      }
+      await insertCdrom(f.name, f.arrayBuffer().then((b) => new Uint8Array(b)));
     });
     ejectBtn.addEventListener("click", () => {
       if (machine) machine.ejectCdrom();
@@ -1583,6 +1562,7 @@
 
     floppyBay.querySelector('[data-role="led"]').classList.toggle(
       "on", machine.floppyPresent() && machine.floppyMotorOn());
+    floppySaveBtn.hidden = !(machine.floppyPresent() && machine.floppyDirty());
     cdromBay.querySelector('[data-role="led"]').classList.toggle("on", machine.cdromBusy());
     hddLed.classList.toggle("on", machine.hddBusy());
 

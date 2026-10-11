@@ -427,7 +427,7 @@ separate suite.
   `make -C retroweb/assembler6502/web test` (Playwright).
 - **IBM PC/AT** (`retroweb/ibmpc-at/`): `make -C retroweb/ibmpc-at check`
   (GoogleTest over the 80286 core + AT chipset), `make -C
-  retroweb/ibmpc-at/web ibmpcat.js roms hdd-image` (the shipped FreeDOS HDD
+  retroweb/ibmpc-at/web ibmpcat.js roms hdd-image library-images` (the shipped FreeDOS HDD
   image is a real, slow installer run the first time — see
   `IBM_PCAT_REVIEW.md` §11 — cached after that), `make -C
   retroweb/ibmpc-at/web test` (Playwright; `make test-install` once for
@@ -479,7 +479,7 @@ separate suite.
 - **486 DX2-66 Gaming PC** (`retroweb/pc486/`): `make -C retroweb/pc486 check`
   (GoogleTest over the 80486 core, chipset, EGA/VGA+VBE, WD1003, ATAPI
   CD-ROM, Sound Blaster 16 and its OPL3), `make -C retroweb/pc486/web
-  pc486.js roms hdd-image cdrom-image driver-images`, `make -C
+  pc486.js roms hdd-image cdrom-image driver-images library-images`, `make -C
   retroweb/pc486/web test-install test` (Playwright). The FreeDOS HDD image
   is a real, slow installer run the first time and cached after that (see
   `PC486_REVIEW.md` §11); the CuteMouse driver floppy the Drivers panel
@@ -487,6 +487,9 @@ separate suite.
   also uses mtools to build `legacy-hdd-fixture`, old-format 504MB C:
   images (git-ignored, under `web/tests/media/`) for the conversion tests in
   `hdd.spec.ts` (see `PC486_REVIEW.md` §37).
+  `library-images` (both PCs) builds the Disk library floppies from
+  `disks/library.json` via `retroweb/shared/dos-library/` (mtools, plus
+  pc486's pinned FreeDOS LiveCD); see that folder's README.
   `make -C retroweb/pc486/web pc486-perf.js` builds a *second* wasm with the
   emulator's own performance counters compiled in (`PC486_PERF`), which
   `?perf` loads for the Performance panel's Tier 2 — the shipped binary

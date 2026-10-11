@@ -1,0 +1,43 @@
+{
+  "disks": [
+    {
+      "id": "fdgames",
+      "title": "FreeDOS Games",
+      "year": 2022,
+      "publisher": "FreeDOS Project",
+      "type": "game",
+      "needs": "1.2MB drive A:",
+      "description": "Small games that run on a 286 with EGA: Senet, Hangman, Eliza, Zmiy and ViTetris. They run straight off the floppy.",
+      "license": "Free software (GPL, BSD or public domain, per program). See README.TXT on the disk.",
+      "help": "Run them straight from A:\n\n  A:\\SENET\\SENET          the ancient Egyptian board game\n  A:\\HANGMAN\\HANGMAN      hangman, in EGA graphics\n  A:\\ELIZA\\ELIZA          the 1960s chatbot\n  A:\\ZMIY\\ZMIY            a snake game\n  A:\\VITETRIS\\TETRIS16    Tetris. Load the ANSI driver first:\n                          DEVLOAD C:\\FREEDOS\\BIN\\NANSI.SYS\n\nTETRIS.EXE on the same disk wants a 386. Use TETRIS16 here.",
+      "images": [{ "file": "fdgames.img", "label": "1.2MB" }],
+      "build": { "format": 1200, "label": "FDGAMES", "packages": ["senet", "hangman", "eliza", "zmiy", "vitetris"] }
+    },
+    {
+      "id": "fdtools",
+      "title": "FreeDOS Editors and Tools",
+      "year": 2022,
+      "publisher": "FreeDOS Project",
+      "type": "utility",
+      "needs": "1.2MB drive A:",
+      "description": "Doszip Commander, a two-pane file manager, plus the e3 and Freemacs editors and the uHex hex editor.",
+      "license": "Free software (GPL or BSD, per program). See README.TXT on the disk.",
+      "help": "  A:\\DOSZIP\\DZ           Doszip Commander. F10 quits\n  A:\\E3\\E3 FILE.TXT       a small WordStar-style editor\n  A:\\UHEX\\UHEX FILE       hex editor\n\nFreemacs builds its .ED files the first time, so run it from\nits own directory and answer Y:\n\n  A:\n  CD \\FREEMACS\n  EMACS",
+      "images": [{ "file": "fdtools.img", "label": "1.2MB" }],
+      "build": { "format": 1200, "label": "FDTOOLS", "packages": ["doszip", "e3", "uhex", "freemacs"] }
+    },
+    {
+      "id": "keen1",
+      "title": "Commander Keen 1: Marooned on Mars",
+      "year": 1990,
+      "publisher": "id Software / Apogee",
+      "type": "game",
+      "needs": "EGA, hard disk",
+      "description": "The shareware episode, version 1.31, as Apogee put it on BBSes. One 360K disk with id's DEICE installer.",
+      "license": "Shareware. Apogee and id asked people to copy and pass on the unmodified episode.",
+      "help": "Put the disk in A: or B:, switch to that drive, and install:\n\n  A:\n  INSTALL\n\nPick drive C and let it make \\KEEN. Then:\n\n  C:\n  CD \\KEEN\n  KEEN1",
+      "images": [{ "file": "keen1.img", "label": "360K" }],
+      "build": { "format": 360, "label": "KEEN1", "shareware": "1keen.zip", "disks": [["INSTALL.BAT", "DEICE.EXE", "KEEN.DAT", "KEEN.1", "FILE_ID.DIZ"]] }
+    }
+  ]
+}

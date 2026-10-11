@@ -14,6 +14,7 @@
 <link rel="stylesheet" href="shared/fullscreen.css">
 <link rel="stylesheet" href="shared/focus-hint.css">
 <link rel="stylesheet" href="shared/footer.css">
+<link rel="stylesheet" href="shared/disk-drop.css">
 
 <link rel="stylesheet" href="vendor/xterm.css">
 
@@ -86,6 +87,7 @@
   :root[data-theme="modern"][data-mode="dark"] .help-doc pre { background: #17181d; border-color: #2c2f37; }
   :root[data-theme="modern"][data-mode="dark"] .help-doc h4 { color: #e8eaee; }
   :root[data-theme="modern"][data-mode="dark"] .disk-note { color: #9aa0aa; }
+  :root[data-theme="modern"][data-mode="dark"] .disk-meta { color: #9aa0aa; }
   :root[data-theme="modern"][data-mode="dark"] .preset-note { color: #ff7a7a; }
   :root[data-theme="modern"][data-mode="dark"] .dialog { box-shadow: 0 10px 44px rgba(0,0,0,.6); }
 
@@ -900,6 +902,8 @@
 
   /* the disk picker reuses .dialog; a couple of extras */
   .disk-note { color: #555; font-size: 12px; line-height: 1.5; margin-top: 8px; }
+  .disk-meta { color: #555; font-size: 12px; margin: 2px 0 6px; }
+  :root[data-theme="modern"] .disk-meta { color: #6b7280; }
   :root[data-theme="modern"] .disk-note { color: #6b7280; }
 
   /* preset bar --------------------------------------------------- */
@@ -1428,6 +1432,7 @@
       <p><b>Diskette library</b> &mdash; served from <tt>disks/</tt> :</p>
       <select id="diskList" size="6"><option disabled>loading catalog...</option></select>
       <p id="diskDesc" class="desc">&nbsp;</p>
+      <p id="diskMeta" class="disk-meta"></p>
 
       <hr class="rule">
 
@@ -1524,6 +1529,7 @@
 <script src="shared/winbtns.js"></script>
 <script src="shared/focus-hint.js"></script>
 <script src="shared/footer.js"></script>
+<script src="shared/disk-drop.js"></script>
 <script>
   // cache-bust the code that changes between builds (vendor libs stay cached)
   window.__V = String(Date.now());

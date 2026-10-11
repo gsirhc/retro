@@ -1,0 +1,78 @@
+/* Disk library dialog, built by disk-library.js. */
+#libraryDialog {
+  width: min(760px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+  padding: 16px 18px 14px;
+  background: var(--panel-bg);
+  color: var(--text);
+  border: var(--panel-border);
+  border-radius: var(--panel-radius);
+  box-sizing: border-box;
+}
+:root[data-theme="aurora"]:not([data-mode="dark"]) #libraryDialog { background: rgba(255, 252, 255, .96); }
+:root[data-theme="aurora"][data-mode="dark"] #libraryDialog { background: rgba(20, 17, 32, .96); }
+#libraryDialog::backdrop { background: rgba(0, 0, 0, .55); }
+#libraryDialog h2 {
+  margin: 0 0 10px;
+  font: bold 15px Arial, Helvetica, sans-serif;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--text);
+}
+#libraryDialog .lib-body {
+  display: grid;
+  grid-template-columns: minmax(180px, 2fr) 3fr;
+  gap: 12px;
+  min-height: 300px;
+}
+#libraryDialog .lib-list {
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  max-height: 60vh;
+  border: var(--field-border);
+  background: var(--field-bg);
+}
+#libraryDialog .lib-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 8px;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: 13px Arial, Helvetica, sans-serif;
+  text-align: left;
+  cursor: pointer;
+}
+#libraryDialog .lib-item[aria-selected="true"] { background: var(--titlebar-bg, #000080); color: var(--titlebar-fg, #fff); }
+#libraryDialog .lib-item-year { opacity: .75; }
+#libraryDialog .lib-detail { overflow-y: auto; max-height: 60vh; font-size: 13px; }
+#libraryDialog .lib-title { margin: 0 0 4px; font-size: 15px; }
+#libraryDialog .lib-meta, #libraryDialog .lib-license { color: var(--dim); font-size: 12px; margin: 0 0 8px; }
+#libraryDialog .lib-desc { margin: 0 0 8px; }
+#libraryDialog .lib-help {
+  margin: 8px 0;
+  padding: 6px 8px;
+  white-space: pre-wrap;
+  font: 12px "Courier New", monospace;
+  border: var(--field-border);
+  background: var(--field-bg);
+}
+#libraryDialog .lib-disk { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 4px 0; }
+#libraryDialog .lib-disk span { min-width: 90px; }
+#libraryDialog button:not(.lib-item) {
+  font: 12px Arial, Helvetica, sans-serif;
+  color: var(--btn-fg);
+  background: var(--btn-bg);
+  border: var(--btn-border);
+  border-radius: var(--btn-radius);
+  padding: 3px 10px;
+  cursor: pointer;
+}
+#libraryDialog .row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 10px; }
+#libraryDialog .lib-status { color: var(--dim); font-size: 12px; }
+@media (max-width: 560px) {
+  #libraryDialog .lib-body { grid-template-columns: 1fr; }
+  #libraryDialog .lib-list { max-height: 30vh; }
+}

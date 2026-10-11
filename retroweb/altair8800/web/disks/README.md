@@ -10,9 +10,13 @@ catalog; each entry is:
 | `file` | image file, fetched from `disks/` |
 | `description` | shown when the entry is selected, and atop its help |
 | `help` | multi-line text (use `\n`) for the drive's **?** button — how to run and quit this disk's programs |
-| `os` | `"cpm"` (default) or `"dos"` — picks which OS primer the **?** dialog appends |
+| `os` | `"cpm"` (default), `"dos"` or `"basic"` — picks which primer the **?** dialog appends |
+| `year`, `publisher` | shown in the picker and the **?** dialog (left out when unknown, e.g. compilations) |
+| `needs` | what it takes to run: RAM, drives, terminal type |
+| `license` | one line on its redistribution status, shown in the **?** dialog |
 
-An entry whose `file` is missing shows greyed-out "(not installed)". The **?**
+The picker only sends a `HEAD` per entry; an image is downloaded when it's
+inserted. An entry whose `file` is missing shows greyed-out "(unavailable)". The **?**
 button on a loaded drive opens a "How to use" dialog: the entry's `description`
 and `help`, then a general CP/M (or Altair DOS) primer.
 
@@ -26,7 +30,7 @@ won't boot here.)
 
 ## Where to get them
 
-`*.dsk` is git-ignored. The three shipped images come from Mike Douglas's
+`*.dsk` is git-ignored. The shipped images come from Mike Douglas's
 collection, mirrored at
 <https://github.com/dhansel/Altair8800/tree/master/disks>, fetched pinned
 (one commit, so this can't drift) and SHA-256 checked by `fetch-disks.sh`; CI
@@ -41,14 +45,34 @@ runs it before deploying to Pages.
 | `cpm63k.dsk`    | `DISK01.DSK` | CP/M 2.2 (bootable) |
 | `games.dsk`    | `DISK05.DSK` | CP/M game disk (boots CP/M) |
 | `altairdos.dsk`| `DISK02.DSK` | Altair DOS 1.0 |
+| `diskbasic.dsk`| `DISK03.DSK` | Altair Disk Extended BASIC 300-5-F (18 May 1979, bootable) |
+| `basicprg.dsk` | `DISK04.DSK` | ~75 Disk BASIC programs (not bootable) |
+| `supercalc.dsk`| `DISK06.DSK` | SuperCalc2 1.00, VT100 install (boots CP/M) |
+| `wordstar.dsk` | `DISK07.DSK` | WordStar 3.00, VT52 install (boots CP/M) |
+| `zork.dsk`     | `DISK08.DSK` | Zork I (r88/840726), II, III (boots CP/M) |
+| `cpm3boot.dsk` | `DISK13.DSK` | CP/M 3.0 non-banked, Altair 8" BIOS (bootable) |
+| `cpm3util.dsk` | `DISK14.DSK` | CP/M 3.0 utilities (also bootable) |
+
+`cpm3boot.dsk` and `cpm3util.dsk` are 337,664 bytes, 96 more than standard; the
+88-DCDD mounts the first 337,568 and the tail is unused.
 
 Redistribution:
 
 - **`cpm63k.dsk`** — freely redistributable (DRDOS Inc. / Bryan Sparks, 2001,
   reconfirmed 2022; <http://cpm.z80.de/license.html>).
-- **`games.dsk`** / **`altairdos.dsk`** — decades-old, unchallenged,
+- **`cpm3boot.dsk`** / **`cpm3util.dsk`** — the same CP/M grant covers CP/M 3.
+- **`games.dsk`** / **`altairdos.dsk`** / **`diskbasic.dsk`** /
+  **`basicprg.dsk`** — decades-old, unchallenged,
   effectively-orphaned hobbyist / MITS-era material (no formal release letter
-  for Altair DOS; MITS closed in 1979).
+  for Altair DOS or Disk BASIC; MITS closed in 1979). Disk BASIC has the same
+  standing as the 8K BASIC tapes in `../roms/`.
+- **`zork.dsk`** — Microsoft (owner via Activision/Infocom) released the
+  Zork I–III source under the MIT license in November 2025. The Infocom CP/M
+  interpreter (`ZORK?.COM`) is not part of that release.
+- **`wordstar.dsk`** / **`supercalc.dsk`** — commercial (MicroPro 1981,
+  Sorcim 1983) with no formal redistribution grant. Included at Chris's
+  call; they've circulated on vintage-computing archives (altairclone.com,
+  deramp.com) for decades.
 
 More MITS software (and the originals) live at
 <https://deramp.com/downloads/mits/> and <https://altairclone.com>.

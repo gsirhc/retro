@@ -18,7 +18,7 @@ EMFLAGS = -O2 -std=c++17 -lembind --no-entry \
 ibmpcat.js: $(SRC)
 	$(EMCC) $(EMFLAGS) $(SRC) -o $@
 
-.PHONY: shared roms hdd-image serve test test-smoke test-install coverage clean
+.PHONY: library-images shared roms hdd-image serve test test-smoke test-install coverage clean
 
 # Copied from retroweb/shared/ at build time; only web/ gets staged.
 SHARED = ../../shared
@@ -29,6 +29,7 @@ shared:
 	   $(SHARED)/focus-hint.css $(SHARED)/focus-hint.js \
 	   $(SHARED)/footer.css $(SHARED)/footer.js $(SHARED)/winbtns.js \
 	   $(SHARED)/pc-keyboard.css $(SHARED)/pc-keyboard.js \
+	   $(SHARED)/disk-drop.css $(SHARED)/disk-drop.js $(SHARED)/disk-library.css $(SHARED)/disk-library.js \
 	   shared/
 # Firmware and the HDD image come from the native-core Makefile (pinned and verified there).
 # hdd-image is a multi-minute installer run, so it only runs when the parent output is missing.
@@ -92,3 +93,9 @@ clean:
 	rm -f ibmpcat.js ibmpcat.wasm
 	rm -rf shared
 	rm -rf test-results playwright-report coverage .v8-coverage
+
+# Fetched at runtime, so it lives under web/ (nothing one level up is staged).
+library-images:
+	$(MAKE) -C $(CORE) library
+	mkdir -p disks/library
+	cp $(CORE)/disks/library/*.img $(CORE)/disks/library.json disks/library/

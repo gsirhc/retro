@@ -44,7 +44,7 @@ pc486-perf.js: $(SRC) $(HDRS)
 
 perf-build: pc486-perf.js
 
-.PHONY: shared roms hdd-image legacy-hdd-fixture cdrom-image driver-images perf-build serve test test-smoke test-install coverage clean
+.PHONY: library-images shared roms hdd-image legacy-hdd-fixture cdrom-image driver-images perf-build serve test test-smoke test-install coverage clean
 
 # Copied from retroweb/shared/ at build time, git-ignored.
 SHARED = ../../shared
@@ -55,6 +55,7 @@ shared:
 	   $(SHARED)/focus-hint.css $(SHARED)/focus-hint.js \
 	   $(SHARED)/footer.css $(SHARED)/footer.js $(SHARED)/winbtns.js \
 	   $(SHARED)/pc-keyboard.css $(SHARED)/pc-keyboard.js \
+	   $(SHARED)/disk-drop.css $(SHARED)/disk-drop.js $(SHARED)/disk-library.css $(SHARED)/disk-library.js \
 	   shared/
 
 roms:
@@ -164,3 +165,9 @@ clean:
 	rm -f pc486.js pc486.wasm
 	rm -rf shared
 	rm -rf test-results playwright-report coverage .v8-coverage tests/media
+
+# Fetched at runtime, so it lives under web/ (nothing one level up is staged).
+library-images:
+	$(MAKE) -C $(CORE) library
+	mkdir -p disks/library
+	cp $(CORE)/disks/library/*.img $(CORE)/disks/library.json disks/library/

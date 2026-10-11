@@ -173,6 +173,23 @@ TEST(ChipsetTest, TheVbeIndexAndDataPortsTakeAWholeWord) {
     EXPECT_EQ(bus.in16(bus.ctx, pc486::Ega::kVbeDataPort), 0xB0C4);
 }
 
+TEST(ChipsetTest, TheVbeLinearFrameBufferIsDecodedAboveRam) {
+    Chipset cs;
+    auto bus = cs.make_bus();
+    cs.io_out(0x92, 0x02);  // fast A20 on, as any DOS extender leaves it
+    const uint16_t idx = pc486::Ega::kVbeIndexPort, dat = pc486::Ega::kVbeDataPort;
+    bus.out16(bus.ctx, idx, pc486::Ega::kVbeRegBpp);    bus.out16(bus.ctx, dat, 8);
+    bus.out16(bus.ctx, idx, pc486::Ega::kVbeRegXres);   bus.out16(bus.ctx, dat, 640);
+    bus.out16(bus.ctx, idx, pc486::Ega::kVbeRegYres);   bus.out16(bus.ctx, dat, 480);
+    bus.out16(bus.ctx, idx, pc486::Ega::kVbeRegEnable); bus.out16(bus.ctx, dat, pc486::Ega::kVbeEnabled);
+    cs.mem_write(pc486::Ega::kVbeLfbBase + 0x12345, 0x9C);
+    EXPECT_EQ(cs.vga.vram[0x12345], 0x9C);
+    EXPECT_EQ(cs.mem_read(pc486::Ega::kVbeLfbBase + 0x12345), 0x9C);
+    uint8_t* page = cs.page_host(pc486::Ega::kVbeLfbBase + 0x12000, true);
+    ASSERT_NE(page, nullptr);
+    EXPECT_EQ(page[0x345], 0x9C);
+}
+
 TEST(ChipsetTest, TheRtcPeriodicInterruptArrivesOnIrq8) {
     Chipset cs;
     cs.io_out(0x20, 0x11); cs.io_out(0x21, 0x08); cs.io_out(0x21, 0x04); cs.io_out(0x21, 0x01);

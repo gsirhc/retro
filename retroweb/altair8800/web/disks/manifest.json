@@ -4,6 +4,10 @@
       "name": "CP/M 2.2 (MITS, 63K)",
       "file": "cpm63k.dsk",
       "os": "cpm",
+      "year": 1980,
+      "publisher": "Burcon Inc. / Digital Research",
+      "needs": "64K RAM, drive A:",
+      "license": "Free to redistribute (DRDOS Inc. CP/M license, 2001, reconfirmed 2022).",
       "description": "Bootable MITS/Altair CP/M 2.2 for a 63K system with the 88-2SIO console. Mike Douglas's DISK01 from altairclone.com.",
       "help": "A stock CP/M 2.2 system disk. Handy programs on it:\n\n  ED name.txt   line editor, very terse:\n                  I       start inserting text; end with Ctrl-Z\n                  E       save and exit       Q  quit, no save\n  ASM name      assemble name.ASM  ->  name.HEX\n  LOAD name     name.HEX  ->  name.COM\n  DDT name.COM  8080 debugger.  G runs,  Ctrl-C leaves it\n  DUMP name     hex-dump a file\n  MBASIC        Microsoft BASIC.  Leave it with:  SYSTEM\n  STAT          disk space and file sizes\n  PIP B:=A:*.*  copy every file from A: to B:"
     },
@@ -11,6 +15,9 @@
       "name": "CP/M Games",
       "file": "games.dsk",
       "os": "cpm",
+      "publisher": "Various",
+      "needs": "64K RAM, drive A:, a CRT terminal",
+      "license": "Old hobbyist games, freely passed around since the early 1980s.",
       "description": "CP/M game disk (dhansel DISK05). Boots CP/M on its own.",
       "help": "  CATCHUM       a Pac-Man clone           press Q to quit\n  LADDER        a climbing game            Ctrl-C to quit\n  OTHELLO       reversi against the computer\n  STARTRK.BAS   run with:  MBASIC STARTRK   (leave BASIC: SYSTEM)\n  LUNAR.BAS     run with:  MBASIC LUNAR\n\nSwitch the Terminal dropdown to \"DEC VT100\" first -- these move\nthe cursor around and expect a real CRT."
     },
@@ -18,8 +25,88 @@
       "name": "Altair DOS 1.0",
       "file": "altairdos.dsk",
       "os": "dos",
+      "year": 1977,
+      "publisher": "MITS",
+      "needs": "drive A:",
+      "license": "Orphaned. MITS closed in 1979 and nobody has claimed it since.",
       "description": "MITS Altair DOS 1.0 (dhansel DISK02) - the pre-CP/M MITS disk operating system.",
       "help": "MITS Altair DOS 1.0. The prompt is  .  (a period).\n  .DIR          list files\n  .MNT 0        mount the disk in drive 0\n  .name         run a program\nThis is here for historical interest; CP/M superseded it fast."
+    },
+    {
+      "name": "Altair Disk Extended BASIC 300-5-F",
+      "file": "diskbasic.dsk",
+      "os": "basic",
+      "year": 1979,
+      "publisher": "MITS / Microsoft",
+      "needs": "64K RAM, drive A:, sense switches down",
+      "license": "Same standing as the Altair BASIC tapes on this page. MITS is long gone and nobody objects.",
+      "description": "MITS Disk Extended BASIC, version 300-5-F from May 1979. It boots straight into BASIC, no CP/M. Mike Douglas's DISK03.",
+      "help": "Answer the cold-start questions:\n\n  MEMORY SIZE?            Return uses all of it\n  LINEPRINTER?            C, O, P or Q.  Any of them is fine\n  HIGHEST DISK NUMBER?    1 if you want drive B: too\n  HOW MANY FILES?         3\n  HOW MANY RANDOM FILES?  2\n\nThen at OK:\n\n  MOUNT 0       mount drive A:  (MOUNT 0,1 for both)\n  FILES         list files.  FILES 1 lists drive B:\n  LOAD \"NAME\"   load a program.  LOAD \"NAME\",1 from B:\n  RUN           run it\n  SAVE \"NAME\"   save it\n  UNLOAD        before you eject a disk\n\nPut the BASIC Programs disk in B: for something to run."
+    },
+    {
+      "name": "Disk BASIC Programs",
+      "file": "basicprg.dsk",
+      "os": "basic",
+      "publisher": "Various",
+      "needs": "Disk BASIC in A:, this disk in B:",
+      "license": "Type-in BASIC programs from the 1970s, freely passed around ever since.",
+      "description": "About 75 BASIC games and utilities for Disk BASIC: STARTREK, WUMPUS, LUNAR, HANGMAN, CHESS and more. Not bootable. Mike Douglas's DISK04.",
+      "help": "Not a boot disk. Boot Disk BASIC in drive A:, put this one in\nB:, answer 1 to HIGHEST DISK NUMBER?, then:\n\n  MOUNT 0,1\n  FILES 1                 list what's here\n  RUN \"STARTREK\",1         load and run a program from B:\n\nSome want a CRT. Switch the Terminal dropdown to \"DEC VT100\"\nfor the ones marked VT-100."
+    },
+    {
+      "name": "WordStar 3.00",
+      "file": "wordstar.dsk",
+      "os": "cpm",
+      "year": 1981,
+      "publisher": "MicroPro International",
+      "needs": "64K RAM, drive A:, DEC VT52 terminal",
+      "license": "Commercial software, no formal redistribution grant. Shared by vintage-computing archives for decades.",
+      "description": "The word processor that made CP/M worth owning. Boots CP/M with WordStar ready to go. Mike Douglas's DISK07.",
+      "help": "Set the Terminal dropdown to \"DEC VT52\" first. This copy is\ninstalled for a VT52.\n\n  WS            start WordStar\n  D             open a document file (type a name)\n  Ctrl-K D      save and go back to the menu\n  Ctrl-K Q      quit without saving\n  X             back to CP/M from the menu\n\nThe cursor diamond: Ctrl-E up, Ctrl-X down, Ctrl-S left,\nCtrl-D right."
+    },
+    {
+      "name": "SuperCalc2 1.00",
+      "file": "supercalc.dsk",
+      "os": "cpm",
+      "year": 1983,
+      "publisher": "Sorcim",
+      "needs": "64K RAM, drive A:, DEC VT100 terminal",
+      "license": "Commercial software, no formal redistribution grant. Shared by vintage-computing archives for decades.",
+      "description": "Sorcim's spreadsheet, installed for a VT100. Boots CP/M. Mike Douglas's DISK06.",
+      "help": "Set the Terminal dropdown to a DEC VT100 first.\n\n  SC2           start SuperCalc\n  Return        past the title screen\n  /             the command menu\n  ?             help\n  /Q Y          quit back to CP/M\n\nType a number or a formula into a cell and press Return.\nStart text with a quote mark (\")."
+    },
+    {
+      "name": "Zork I, II and III",
+      "file": "zork.dsk",
+      "os": "cpm",
+      "year": 1984,
+      "publisher": "Infocom",
+      "needs": "64K RAM, drive A:",
+      "license": "The Zork I-III source has been MIT licensed since November 2025. The Infocom CP/M interpreter isn't covered by that.",
+      "description": "All three Zorks for CP/M. Zork I is Revision 88, serial 840726. Boots CP/M. Mike Douglas's DISK08.",
+      "help": "  ZORK1         The Great Underground Empire\n  ZORK2         The Wizard of Frobozz\n  ZORK3         The Dungeon Master\n\nType in plain English:  OPEN MAILBOX,  GO NORTH,  TAKE LAMP.\n  SAVE / RESTORE    save your game to the disk\n  QUIT              back to CP/M\n\nAny terminal works, even the Teletype."
+    },
+    {
+      "name": "CP/M 3.0 (boot disk)",
+      "file": "cpm3boot.dsk",
+      "os": "cpm",
+      "year": 1982,
+      "publisher": "Digital Research",
+      "needs": "64K RAM, drive A:",
+      "license": "Free to redistribute (DRDOS Inc. CP/M license, 2001, reconfirmed 2022).",
+      "description": "CP/M Plus, non-banked, with an Altair 8\" floppy BIOS. Comes with MBASIC, SID, RMAC and LINK. Mike Douglas's DISK13.",
+      "help": "CP/M 3 is CP/M 2.2 with friendlier tools.\n\n  DIR           with options, e.g.  DIR [FULL]\n  TYPE name     show a text file, a page at a time\n  ERASE name    delete a file\n  RENAME        rename a file\n  SHOW          disk space\n  DEVICE        list and set the character devices\n  MBASIC        Microsoft BASIC.  SYSTEM leaves it\n\nREADME.TXT on this disk has Mike Douglas's notes.\nThe utilities disk goes in B: for more."
+    },
+    {
+      "name": "CP/M 3.0 (utilities)",
+      "file": "cpm3util.dsk",
+      "os": "cpm",
+      "year": 1982,
+      "publisher": "Digital Research",
+      "needs": "64K RAM, drive A: or B:",
+      "license": "Free to redistribute (DRDOS Inc. CP/M license, 2001, reconfirmed 2022).",
+      "description": "The second CP/M 3.0 disk: HELP, MAC, LIB, GENCOM, SET, DATE and the rest. Boots on its own too. Mike Douglas's DISK14.",
+      "help": "  HELP          CP/M 3's own help system.  HELP DIR, HELP SET...\n  MAC name      macro assembler\n  LIB           library manager\n  SET           file attributes and passwords\n  DATE          set or show the date\n  INITDIR       add date stamps to a disk"
     }
   ]
 }

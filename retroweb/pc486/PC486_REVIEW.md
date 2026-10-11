@@ -1992,6 +1992,29 @@ at `2N * 64KB`. Fixed by advertising the flag, honouring Enable bit
 `0x10` as a 32KB step (`vbe_bank_bytes()`), and rejecting past-end bank
 numbers for every depth the way Bochs does.
 
+### 7.5.3 Bug found live: the linear frame buffer the ROM advertises
+
+Wing (Allegro 3.9.32, DJGPP, from the Disk library) played its sound over a
+blank screen. Allegro's `GFX_AUTODETECT` prefers "VESA 2.0 (linear)", and the
+card ROM offers one: for every non-planar mode `vbe.c` (VGABIOS@12d978bd,
+around line 1990) puts `VBE_DISPI_LFB_PHYSICAL_ADDRESS` (`E000_0000h`) in
+`PhysBasePtr` and sets mode attribute bit 7. The card never decoded that
+address, so every pixel went nowhere, and Wing never checks
+`set_gfx_mode`'s result.
+
+`Ega::owns_mem` now also claims `E000_0000h` + VRAM size, and in an 8bpp
+DISPI mode that range is VRAM byte for byte, with no banking, which is how
+Bochs `vga.cc` backs the same firmware. Outside an SVGA mode it reads open
+bus and drops writes. `linear_page()` hands the CPU a direct pointer for it,
+invalidated by the mapping epoch like the A0000h window. Tests:
+`EgaTest.LinearFrameBufferAtE0000000IsTheWholeVramInAnSvgaMode`,
+`ChipsetTest.TheVbeLinearFrameBufferIsDecodedAboveRam`.
+
+`Chipset::mem_read`/`mem_write` mask an address to 20 bits while A20 is
+off. A real 486's A20M# only forces bit 20, so that mask is too broad above
+1MB; it doesn't matter here because a DOS extender turns A20 on first, but
+it is noted for a later pass.
+
 ### 7.6 The one thing that does not work, and why it is not a bug here
 
 `4F01` for mode **13h** returns `AX=0x014F` -- function supported, call
