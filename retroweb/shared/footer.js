@@ -30,3 +30,17 @@
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", mount);
   else mount();
 })();
+
+/* One extra line above the source link. Runs after mount, which footer.js queued first. */
+function addFooterNote(html) {
+  function add() {
+    var footer = document.getElementById("siteFooter");
+    if (!footer) return;
+    var p = document.createElement("p");
+    p.className = "site-footer-note";
+    p.innerHTML = html;
+    footer.insertBefore(p, footer.lastElementChild);
+  }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", add);
+  else add();
+}

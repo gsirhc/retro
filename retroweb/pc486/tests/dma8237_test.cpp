@@ -108,6 +108,21 @@ TEST(Dma8237Test, WithoutAutoinitializeAddressWrapsInsteadOfReloading) {
     EXPECT_EQ(dma.count(2), 0xFFFF);
 }
 
+TEST(Dma8237Test, TerminalCountMasksTheChannelUnlessAutoinitialize) {
+    Dma8237 dma(0x00, 1);
+    dma.reset();
+    dma.out(0x03, 0x00); dma.out(0x03, 0x00);  // ch1 count = 0 (1 byte)
+    dma.out(0x05, 0x00); dma.out(0x05, 0x00);  // ch2 count = 0 (1 byte)
+    dma.out(0x0B, 0x49);                       // ch1 single-cycle read
+    dma.out(0x0B, 0x5A);                       // ch2 autoinit read
+    dma.out(0x0A, 0x01);
+    dma.out(0x0A, 0x02);
+    EXPECT_TRUE(dma.advance(1));
+    EXPECT_TRUE(dma.channel_masked(1));
+    EXPECT_TRUE(dma.advance(2));
+    EXPECT_FALSE(dma.channel_masked(2));
+}
+
 TEST(Dma8237Test, AdvanceDecrementsAddressWhenModeBitFiveIsSet) {
     // Intel 8237A-5 data sheet, Mode Register: bit 5 selects address decrement.
     Dma8237 dma(0x00, 1);

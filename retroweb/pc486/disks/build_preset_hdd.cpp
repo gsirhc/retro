@@ -2,7 +2,7 @@
 // on this emulator from the library's install floppies, with injected keys and
 // screen-text matching, then runs the game once so it saves its own config.
 //
-// Usage: build_preset_hdd <doom|wolf3d> <bios> <vgabios> <base.img> <out.img> <disk1.img> [disk2.img]
+// Usage: build_preset_hdd <doom|wolf3d|tyrian> <bios> <vgabios> <base.img> <out.img> [disk1.img [disk2.img]]
 //
 // <base.img> is build-preset-hdd.sh's bare FreeDOS C:. PC486_TRACE=1 dumps every screen
 // change to stderr; PC486_BUDGET caps the run in cycles.
@@ -146,14 +146,23 @@ const std::map<std::string, std::vector<Step>> kPresets = {
                         "@DOWN @DOWN @DOWN @DOWN @WAIT=1 @ENTER @WAIT=3 y"},
         {"Thanks for playing", "@DONE"},
     }},
+    {"tyrian", {
+        {"C:\\>", "cd\\tyrian\n"},
+        // SETUP is drawn in VGA graphics: Music > FM Sound (the SB16's OPL3), Sound Effects >
+        // SoundBlaster > DMA 1, then EXIT and SAVE. Port and IRQ come from BLASTER.
+        {"C:\\TYRIAN>", "setup\n @WAIT=8 @ENTER @WAIT=2 @DOWN @WAIT=1 @ENTER @WAIT=2 "
+                         "@DOWN @WAIT=1 @DOWN @WAIT=1 @ENTER @WAIT=2 @DOWN @WAIT=1 @ENTER @WAIT=2 @ENTER @WAIT=2 "
+                         "@DOWN @WAIT=1 @DOWN @WAIT=1 @DOWN @WAIT=1 @DOWN @WAIT=1 @ENTER @WAIT=3"},
+        {"to play the game", "@DONE"},
+    }},
 };
 
 }  // namespace
 
 int main(int argc, char **argv) {
-    if (argc < 7 || !kPresets.count(argv[1])) {
+    if (argc < 6 || !kPresets.count(argv[1])) {
         std::fprintf(stderr,
-            "usage: %s <doom|wolf3d> <bios> <vgabios> <base.img> <out.img> <disk1.img> [disk2.img]\n",
+            "usage: %s <doom|wolf3d|tyrian> <bios> <vgabios> <base.img> <out.img> [disk1.img [disk2.img]]\n",
             argv[0]);
         return 2;
     }
@@ -173,9 +182,9 @@ int main(int argc, char **argv) {
     }
     const char *out_path = argv[5];
     auto hdd = ReadFile(argv[4]);
-    auto disk1 = ReadFile(argv[6]);
+    auto disk1 = argc > 6 ? ReadFile(argv[6]) : std::vector<uint8_t>{};
     auto disk2 = argc > 7 ? ReadFile(argv[7]) : std::vector<uint8_t>{};
-    if (hdd.size() != pc486::Wd1003::kImageBytes || disk1.empty() || (argc > 7 && disk2.empty())) {
+    if (hdd.size() != pc486::Wd1003::kImageBytes || (argc > 6 && disk1.empty()) || (argc > 7 && disk2.empty())) {
         std::fprintf(stderr, "cannot open the base C: or the install floppies\n");
         return 2;
     }

@@ -87,6 +87,25 @@
     display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;
   }
   .machines + .machines { margin-top: 30px; }
+  .section-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px 14px;
+    margin: 30px 0 14px;
+    padding-top: 18px;
+    border-top: var(--card-border);
+  }
+  .section-row .section-heading {
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+  .ready-note {
+    margin: 0;
+    color: var(--muted);
+    font-size: 13px;
+  }
 
   .machine-card {
     display: flex; flex-direction: column; padding: 0;
@@ -140,7 +159,10 @@
       </div>
     </header>
 
-    <h2 class="section-heading">Ready to Play</h2>
+    <div class="section-row">
+      <h2 class="section-heading">Ready to Play</h2>
+      <p class="ready-note">All shareware and freeware here remain the property of their respective owners. <a href="about.html#rights">More info</a>.</p>
+    </div>
     <div class="machines">
       <a class="machine-card" href="pc486/?disk=doom">
         <img class="shot" src="assets/doom-e1m1.jpg" width="286" height="128"
@@ -156,6 +178,11 @@
         <img class="shot" src="assets/keen1-mars.jpg" width="286" height="128"
              decoding="async" alt="Shareware Commander Keen 1 on the Mars map, on the IBM PC/AT">
         <span class="name">Commander Keen (Shareware)</span>
+      </a>
+      <a class="machine-card" href="pc486/?disk=tyrian">
+        <img class="shot" src="assets/tyrian-demo.jpg" width="286" height="128"
+             decoding="async" alt="Freeware Tyrian 2.1's attract demo, on the 486 DX2-66">
+        <span class="name">Tyrian (Freeware)</span>
       </a>
     </div>
 

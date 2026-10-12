@@ -59,6 +59,7 @@ test.describe("preset C: (?disk=keen1)", () => {
     await expect(page.locator("#hddResetBtn")).toHaveText("Reset to original Keen disk");
     await expect(page.locator("#hddBlankBtn")).toBeHidden();
     await expect(page.locator("#hddUploadBtn")).toBeHidden();
+    await expect(page.locator("#siteFooter .site-footer-note a")).toHaveAttribute("href", "../about.html#contact");
   });
 
   test("the visitor's own saved C: and the Keen C: never mount in each other's place", async ({ page }) => {

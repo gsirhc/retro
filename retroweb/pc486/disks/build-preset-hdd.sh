@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # Preset C: (?disk=<preset>): the factory image's MBR and boot sector over a fresh FAT16
 # with only the kernel, FreeCOM, HIMEMX and CTMOUSE, then the game's own installer run
-# onto it by build_preset_hdd, then an AUTOEXEC.BAT that starts the game.
+# onto it by build_preset_hdd (or, for a game shipped as its installed directory, the
+# directory copied over and its SETUP run), then an AUTOEXEC.BAT that starts the game.
 set -euo pipefail
 
 if [ $# -lt 7 ]; then
-    echo "usage: build-preset-hdd.sh <doom|wolf3d> <build_preset_hdd> <bios> <vgabios> <freedos-hdd.img> <out.img> <disk1.img> [disk2.img]" >&2
+    echo "usage: build-preset-hdd.sh <doom|wolf3d|tyrian> <build_preset_hdd> <bios> <vgabios> <freedos-hdd.img> <out.img> <disk1.img [disk2.img] | game.zip>" >&2
     exit 1
 fi
 PRESET=$1 TOOL=$2 BIOS=$3 VGA=$4 SRC=$5 OUT=$6
@@ -13,6 +14,7 @@ shift 6
 case "$PRESET" in
     doom)   LABEL=DOOM   SERIAL=1993D00D RUN='CD \\DOOMS\r\nDOOM\r\n' ;;
     wolf3d) LABEL=WOLF3D SERIAL=1992F3D0 RUN='CD \\WOLF1\r\nWOLF3D\r\n' ;;
+    tyrian) LABEL=TYRIAN SERIAL=1995E1C0 RUN='CD \\TYRIAN\r\nTYRIAN\r\n' ZIP=$1 ZIPDIR=TYRIAN; shift ;;
     *) echo "build-preset-hdd: unknown preset $PRESET" >&2; exit 1 ;;
 esac
 command -v mformat >/dev/null 2>&1 || { echo "build-preset-hdd: mtools not installed (brew install mtools)" >&2; exit 1; }
@@ -45,11 +47,28 @@ mcopy -m -i "$D" "$tmp/KERNEL.SYS" "$tmp/COMMAND.COM" "$tmp/CONFIG.SYS" "$tmp/AU
 mmd -i "$D" ::DOS
 mcopy -m -i "$D" "$tmp/HIMEMX.EXE" "$tmp/CTMOUSE.EXE" ::DOS
 
+# A game shipped as its installed directory goes straight onto C:
+if [ -n "${ZIP:-}" ]; then
+    mkdir "$tmp/zip"
+    unzip -q "$ZIP" -d "$tmp/zip"
+    dir=$(find "$tmp/zip" -mindepth 1 -maxdepth 1 -type d | head -1)
+    for f in "$dir"/*; do mv "$f" "$dir/$(basename "$f" | tr a-z A-Z)"; done
+    mmd -i "$D" "::$ZIPDIR"
+    mcopy -m -i "$D" "$dir"/* "::$ZIPDIR/"
+fi
+
 "$TOOL" "$PRESET" "$BIOS" "$VGA" "$BASE" "$OUT" "$@"
 
 printf "${AUTOEXEC}${RUN}" > "$tmp/AUTOEXEC.BAT"
 touch -t 199401010000 "$tmp/AUTOEXEC.BAT"
 mcopy -o -m -i "$OUT@@$PART_OFFSET" "$tmp/AUTOEXEC.BAT" ::AUTOEXEC.BAT
+
+# Music 192, effects 200: 16 bars each in the in-game menu (u16 at 14 and 16, OpenTyrian config.c)
+if [ "$PRESET" = tyrian ]; then
+    mcopy -m -i "$OUT@@$PART_OFFSET" ::TYRIAN/TYRIAN.CFG "$tmp/TYRIAN.CFG"
+    printf '\300\000\310\000' | dd of="$tmp/TYRIAN.CFG" bs=1 seek=14 conv=notrunc status=none
+    mcopy -o -m -i "$OUT@@$PART_OFFSET" "$tmp/TYRIAN.CFG" ::TYRIAN/TYRIAN.CFG
+fi
 python3 "$(dirname "$0")/zero-free-clusters.py" "$OUT" "$PART_OFFSET"
 
 echo "build-preset-hdd: wrote $OUT"

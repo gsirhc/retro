@@ -35,6 +35,13 @@
   `ibmpc-at/?test=1&fast=1&disk=keen1` starts a game; a frame read off
   `__test.frameCanvas` (320×200), top 143 rows resized to 286×128 (JPEG q90).
 
+- **`tyrian-demo.jpg`**: freeware Tyrian 2.1's attract demo, from *this
+  project's* 486 DX2-66 core booting the `?disk=tyrian` preset C: with FM
+  music and Sound Blaster effects on. A 320×200 frame rendered by
+  `RenderScreen` about 2.6 billion cycles after power-on, cropped to the
+  playfield below the INSERT COIN line (x 0–262, y 58–175) and resized to
+  286×128 (JPEG q90).
+
 - **`ibmpcat-panel.jpg`** — a screenshot of *this project's* rendered IBM
   PC/AT front panel (`#frontPanelCard .at-case`), captured from the emulator
   after auto-boot with a diskette inserted in drive A: (power LED lit,

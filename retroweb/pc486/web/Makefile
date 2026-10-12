@@ -77,7 +77,7 @@ disks/freedos-hdd.img.gz: disks/freedos-hdd.img
 
 hdd-image: disks/freedos-hdd.img disks/freedos-hdd.img.gz
 
-PRESETS = doom wolf3d
+PRESETS = doom wolf3d tyrian
 .PRECIOUS: $(CORE)/disks/%-hdd.img
 
 $(CORE)/disks/%-hdd.img:

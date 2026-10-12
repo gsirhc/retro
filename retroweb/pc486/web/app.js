@@ -1574,9 +1574,11 @@
   const kPresetHdds = {
     doom: { file: "disks/presets/doom-hdd.img", label: "DOOM shareware", reset: "Reset to original DOOM disk" },
     wolf3d: { file: "disks/presets/wolf3d-hdd.img", label: "Wolfenstein 3-D shareware", reset: "Reset to original Wolfenstein disk" },
+    tyrian: { file: "disks/presets/tyrian-hdd.img", label: "Tyrian 2.1 freeware", reset: "Reset to original Tyrian disk" },
   };
   const presetId = new URLSearchParams(location.search).get("disk");
   const presetHdd = Object.hasOwn(kPresetHdds, presetId) ? kPresetHdds[presetId] : null;
+  addFooterNote("All shareware and freeware here remain the property of their respective owners. <a href=\"../about.html#rights\">More info</a>.");
   const kFactoryHddFile = presetHdd ? presetHdd.file : "disks/freedos-hdd.img";
   const kFactoryHddLabel = presetHdd ? presetHdd.label : "FreeDOS (default)";
 

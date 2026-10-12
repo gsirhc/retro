@@ -88,6 +88,8 @@ bool Dma8237::advance(int channel) {
         if ((c.mode & 0x20) != 0) c.address = uint16_t(c.address - 1);
         else c.address = uint16_t(c.address + 1);
         c.count = uint16_t(c.count - 1);
+        // 8237A-5 "Mask Register": TC without autoinitialize sets the channel's mask bit
+        if (tc) c.masked = true;
     }
     return tc;
 }

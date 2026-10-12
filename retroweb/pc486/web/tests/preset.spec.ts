@@ -177,6 +177,7 @@ test.describe("preset C: (?disk=doom)", () => {
     await expect(page.locator("#hddStatus")).toHaveText(/Using: FreeDOS \(default\)/);
     await expect(page.locator("#hddBlankBtn")).toBeVisible();
     expect(await mountedVolumeLabel(page)).toBe("FREEDOS2022");
+    await expect(page.locator("#siteFooter .site-footer-note")).toHaveCount(0);
   });
 });
 
@@ -197,5 +198,23 @@ test.describe("preset C: (?disk=wolf3d)", () => {
     expect(await mountedVolumeLabel(page)).toBe("WOLF3D");
     await expect(page.locator("#hddStatus")).toHaveText(/Using: Wolfenstein 3-D shareware/);
     await expect(page.locator("#hddResetBtn")).toHaveText("Reset to original Wolfenstein disk");
+  });
+});
+
+test.describe("preset C: (?disk=tyrian)", () => {
+  test("the Tyrian image has Tyrian 2.1 with FM music, Sound Blaster effects and 16-bar volumes, and mounts with its own label", async ({ page }) => {
+    await bootLive(page, { params: "disk=tyrian" });
+    const r = await readPreset(page, "disks/presets/tyrian-hdd.img", "TYRIAN", ["TYRIAN.CFG"]);
+    expectBareFreeDos(r, "TYRIAN");
+    expect(r.game).toEqual(expect.arrayContaining(["TYRIAN.EXE", "FILE0001.EXE", "RTM.EXE", "DPMI16BI.OVL", "TYRIAN.CFG", "TYRIAN.SAV"]));
+    expect(r.autoexec).toMatch(/CD \\TYRIAN\r\nTYRIAN\r\n$/);
+    const cfg = Array.from(r.texts["TYRIAN.CFG"], (c) => c.charCodeAt(0));
+    expect(cfg).toEqual([0x01, 0x04, 0x00, 0x01, 0x00, 0x03, 0x02, 0x02, 0x00, 0x00, 0x01, 0x04, 0x05, 0x05, 0xc0, 0x00, 0xc8, 0x00, 0x00, 0x00, 0x48, 0x50, 0x4b, 0x4d, 0x39, 0x1c, 0x1d, 0x38]);
+    expect(await mountedVolumeLabel(page)).toBe("TYRIAN");
+    await expect(page.locator("#hddStatus")).toHaveText(/Using: Tyrian 2\.1 freeware/);
+    await expect(page.locator("#hddResetBtn")).toHaveText("Reset to original Tyrian disk");
+    const note = page.locator("#siteFooter .site-footer-note");
+    await expect(note).toContainText("Shareware and freeware here are the original releases, unmodified");
+    await expect(note.locator("a")).toHaveAttribute("href", "../about.html#contact");
   });
 });

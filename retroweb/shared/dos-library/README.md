@@ -6,8 +6,8 @@ Builds the floppies behind the **Disk library** button on `ibmpc-at` and
 Makefile's `library-images` copies them, with `library.json`, into
 `web/disks/library/`. Images are git-ignored and rebuilt by CI.
 
-- `fetch-shareware.sh` — the three shareware releases, pinned by SHA-256 into
-  `cache/`.
+- `fetch-shareware.sh` — the three shareware releases and freeware Tyrian
+  2.1, pinned by SHA-256 into `cache/`.
 - `build-library.py` — FAT12 images via mtools (`mformat`, `mmd`, `mcopy`).
   Formats: 360K, 1.2MB, 1.44MB. Volume serials are derived from the label so a
   rebuild is byte-stable apart from directory timestamps.
@@ -57,6 +57,30 @@ NetHack is left out: its `NETHACK.EXE` alone is larger than a 1.44MB disk.
 All three were released as shareware for free copying of the unmodified
 episode; id's `doom19s.txt` marks DOOM "Electronic Distribution is Permitted"
 and its installer says "PLEASE DISTRIBUTE!!!".
+
+**Freeware**, used only for pc486's `?disk=tyrian` preset C:, not a library
+disk:
+
+| file | source | notes |
+|---|---|---|
+| `tyrian21.zip` | <https://camanis.net/tyrian/tyrian21.zip> | Tyrian 2.1, Epic MegaGames / Eclipse, as an installed `TYRIAN\` directory, not an installer |
+
+Tyrian's license is less clean than the shareware above. Neither Jason
+Emery nor Epic left a license text with the freeware release. The closest
+sources are the OpenTyrian project, which Emery gave the Tyrian 2.1 source
+to, and its Camanis site, which hosts this zip:
+
+- [OpenTyrian FAQ](https://github.com/opentyrian/opentyrian/wiki/FAQ):
+  "Tyrian was, however, released as freeware (under no specific license)
+  by Jason Emery in August 2004."
+- [Camanis](https://www.camanis.net/): "Tyrian was released as freeware by
+  Jason Emery in 2004."
+
+Wikipedia and FreeBSD's port repeat the 2004 date. No original announcement
+turned up. The files themselves are the 1995 retail release unchanged, so
+`LICENSE.DOC`, `FILE_ID.DIZ`, the splash ("NOT LICENSED FOR COMMERCIAL
+DISTRIBUTION") and the exit screen ("This game is NOT shareware. Please
+enjoy it but don't copy it.") still carry the original terms.
 
 ## Disk swaps
 

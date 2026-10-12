@@ -7,7 +7,7 @@
 #   make vbe-check   run the VGA mode 13h / DAC / VESA end-to-end pixel proof
 #   make hdd-image   build the shipped FreeDOS HDD image (see below -- SLOW)
 #   make hdd-boot-check  cold-boot the finished HDD image standalone, report the screen
-#   make preset-hdds build the DOOM and Wolfenstein 3-D preset C:s (installers run on a bare FreeDOS)
+#   make preset-hdds build the DOOM, Wolfenstein 3-D and Tyrian preset C:s (on a bare FreeDOS)
 #   make render_screen   build the screen-to-BMP diagnostic tool (see below)
 #   make fm-trace-render build the OPL3 trace-to-WAV dev tool (see below)
 #   make wasm        build the WebAssembly module (needs emsdk -- see web/Makefile)
@@ -120,6 +120,10 @@ disks/build_preset_hdd: disks/build_preset_hdd.cpp $(CHIPSET_SRCS)
 disks/library/doom-1.img disks/library/doom-2.img disks/library/wolf3d.img:
 	$(MAKE) library
 
+TYRIAN_ZIP = ../shared/dos-library/cache/tyrian21.zip
+$(TYRIAN_ZIP):
+	bash ../shared/dos-library/fetch-shareware.sh
+
 PRESET_DEPS = disks/build_preset_hdd disks/build-preset-hdd.sh disks/zero-free-clusters.py disks/freedos-hdd.img
 PRESET_RUN = bash disks/build-preset-hdd.sh
 PRESET_ARGS = ./disks/build_preset_hdd roms/BIOS-bochs-legacy roms/VGABIOS-lgpl-latest.bin disks/freedos-hdd.img
@@ -132,7 +136,11 @@ disks/wolf3d-hdd.img: $(PRESET_DEPS) disks/library/wolf3d.img
 	$(PRESET_RUN) wolf3d $(PRESET_ARGS) $@.tmp disks/library/wolf3d.img
 	mv $@.tmp $@
 
-preset-hdds: bios disks/doom-hdd.img disks/wolf3d-hdd.img
+disks/tyrian-hdd.img: $(PRESET_DEPS) $(TYRIAN_ZIP)
+	$(PRESET_RUN) tyrian $(PRESET_ARGS) $@.tmp $(TYRIAN_ZIP)
+	mv $@.tmp $@
+
+preset-hdds: bios disks/doom-hdd.img disks/wolf3d-hdd.img disks/tyrian-hdd.img
 
 # --- boot the finished HDD image standalone (hdd_boot_check.cpp) ---
 hdd-boot-check: bios disks/hdd_boot_check

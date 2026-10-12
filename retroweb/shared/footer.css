@@ -13,6 +13,7 @@
 .site-footer p + p { margin-top: 2px; }
 .site-footer-about { margin: 0 0 8px !important; }
 .site-footer-about + p { margin-top: 0; }
+.site-footer-note a { color: var(--link); }
 .site-footer .source-link {
   color: var(--link);
   overflow-wrap: anywhere;

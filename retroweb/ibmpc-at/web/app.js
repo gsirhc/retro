@@ -439,6 +439,7 @@
   };
   const presetId = new URLSearchParams(location.search).get("disk");
   const presetHdd = Object.hasOwn(kPresetHdds, presetId) ? kPresetHdds[presetId] : null;
+  addFooterNote("All shareware and freeware here remain the property of their respective owners. <a href=\"../about.html#rights\">More info</a>.");
   const kFactoryHddLabel = presetHdd ? presetHdd.label : "factory FreeDOS (default)";
 
   // ---- hard disk persistence (IndexedDB) ----

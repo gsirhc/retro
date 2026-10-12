@@ -7090,11 +7090,11 @@ modifiers, function and navigation keys. `pckeyboard.spec.ts` covers the
 show/hide state, typing, latching, the Caps Lock lamp, map mode, and
 mapped clicks.
 
-## 50. Preset hard disks (`?disk=doom`, `?disk=wolf3d`)
+## 50. Preset hard disks (`?disk=doom`, `?disk=wolf3d`, `?disk=tyrian`)
 
 The landing page's **Ready to Play** cards open a machine with a ready-made
-C: in place of the factory FreeDOS one: `pc486/?disk=doom` and
-`pc486/?disk=wolf3d`.
+C: in place of the factory FreeDOS one: `pc486/?disk=doom`,
+`pc486/?disk=wolf3d` and `pc486/?disk=tyrian`.
 
 - **Bare FreeDOS base.** `disks/build-preset-hdd.sh <preset>` keeps the
   factory image's MBR and FreeDOS boot sector, formats a fresh FAT16 over
@@ -7104,7 +7104,8 @@ C: in place of the factory FreeDOS one: `pc486/?disk=doom` and
   boots it on this emulator and runs the game's own installer from the
   library floppies. Afterwards the script appends the game's directory and
   command to `AUTOEXEC.BAT`, and `disks/zero-free-clusters.py` zeroes the
-  clusters the deleted self-extractor left. `make preset-hdds` builds both.
+  clusters the deleted self-extractor left. `make preset-hdds` builds all
+  three.
 - **DOOM** (`\DOOMS`, about 2.8MB gzipped, about 75 s natively). Types
   `A:` / `INSTALL`, answers DEICE (drive C, `\DOOMS`, create it), swapping
   disk 2 in and disk 1 back as DEICE asks. `INSTALL.BAT` runs
@@ -7125,6 +7126,20 @@ C: in place of the factory FreeDOS one: `pc486/?disk=doom` and
   Wolf3D's own save writes `CONFIG.WL1` with `viewsize` 19, the widest the
   menu allows (304 pixels over the status bar). The sign-on screen still
   waits for a key on every boot, as it did on real machines.
+- **Tyrian 2.1** (`\TYRIAN`). Freeware, shipped as an installed
+  directory (`tyrian21.zip`, provenance and license caveat in
+  `shared/dos-library/README.md`), so the script unzips it straight onto
+  C: with its names uppercased (mtools would otherwise store the zip's
+  lowercase names as long-name entries). The harness then runs Tyrian's
+  own SETUP, which is drawn in VGA graphics, so it keys it blind: Music >
+  FM Sound (the SB16's OPL3), Sound Effects > SoundBlaster > DMA 1, EXIT
+  and SAVE. Port and IRQ come from `BLASTER`. SETUP writes the 28-byte
+  `TYRIAN.CFG` and `TYRIAN.SAV`. SETUP has no volume controls and
+  defaults to music 240, effects 128, so the script then sets music 192
+  and effects 200 (16 bars each in the in-game menu; the u16s at offsets
+  14 and 16 per OpenTyrian's `config.c`). `TYRIAN.EXE` is a loader that runs
+  `FILE0001.EXE` under Borland's RTM and `DPMI16BI`. With FM and SB both
+  on, the game needs the DMA fix in §51.
 - **Harness quirks.** SETUP ignores the grey arrow keys (the `E0`-prefixed
   ones, which INT 16h returns with AL=E0h), so the harness sends keypad
   arrows. SETUP's selection bar is attribute 7Fh; `@PICK=` arrows until
@@ -7140,8 +7155,31 @@ C: in place of the factory FreeDOS one: `pc486/?disk=doom` and
   else (64KB chunks, the factory fingerprint that replaces an untouched
   copy of an older image) works as for the factory C:. The Hard disk panel
   relabels Reset ("Reset to original DOOM disk", "Reset to original
-  Wolfenstein disk"), hides Upload and Mount blank, and downloads as
+  Wolfenstein disk", "Reset to original Tyrian disk"), hides Upload and
+  Mount blank, and downloads as
   `pc486-<preset>-hdd.img`. An unknown `?disk=` mounts the visitor's own C:.
 - **Tests.** `preset.spec.ts` checks each image's FAT16 layout, files,
   `AUTOEXEC.BAT` and saved config, that the page mounts it, and the
   IndexedDB isolation both ways (on DOOM). No test boots either game.
+
+## 51. 8237 terminal count masks a single-cycle channel
+
+The 8237A-5 data sheet ("Mask Register") sets a channel's mask bit when it
+reaches terminal count without autoinitialize. `Dma8237::advance` had
+counted through TC to 0xFFFF but left the channel unmasked, so
+`Chipset::service_sb_dma` kept feeding a DSP block longer than the DMA
+count straight past the end of the buffer.
+
+Tyrian 2.1 with FM music and Sound Blaster effects both on hit this. Its
+timer handler restarts a single-cycle block every tick, with DMA count
+0x179 and DSP length 0x17F. It then reads channel 1's address register as
+the play position and computes `0x17F - (addr & 0x1FF)`. After the
+6-byte overrun, that came out negative. Turbo Pascal raised runtime error
+201 inside the IRQ0 handler, IRQ0 was never EOI'd, and the game sat on a
+black palette after the Epic logo. With the mask bit set at TC, the
+address stops at the end of the block, as on real hardware.
+`Dma8237Test.TerminalCountMasksTheChannelUnlessAutoinitialize` covers it.
+
+The OCW2 decode in `Pic8259::out_impl` still treats every non-EOI command
+(0x40 no-op, 0xC0+n set priority, the rotate forms) as an EOI, since it
+doesn't check the EOI bit (bit 5). Nothing seen here depends on it.
