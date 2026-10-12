@@ -1,7 +1,7 @@
 # Arcade cabinets
 
 Requirements for arcade machines under `retroweb/` (Pac-Man, Frogger,
-Scramble, Galaxian, Galaga, Asteroids, and any new cabinet). Repo-wide principles still live in
+Scramble, Galaxian, Galaga, Asteroids, Centipede, and any new cabinet). Repo-wide principles still live in
 [`CLAUDE.md`](../CLAUDE.md); this file does not override them.
 
 ## High scores
@@ -28,6 +28,7 @@ the ROM actually keeps:
 | Scramble | `$4200` (10 × 3 BCD) + `$40A8` (displayed HI) |
 | Galaga | `$8A20` (0x2D) + `$83ED` (6). Factory top score is the 20000 character bytes, not zeros |
 | Asteroids | `$001D–$0051` (top-10 scores + initials) |
+| Centipede | EAROM `$1600–$163F` (64 B ER2055 image) |
 
 Scramble’s parent set has **numeric** scores only — no initials in the Konami
 ROM. Real PCBs have no battery; persist is a labelled departure, Reset is
@@ -39,9 +40,13 @@ hwtest stand-in (`?test=1` `__test` seam), never a copyrighted dump.
 
 ## Copyright
 
-Ship a from-scratch hardware self-test ROM only. Copyrighted sets are
-opt-in, size-checked (CRC labels hwtest vs user, not a whitelist), stored
-in browser IndexedDB, never fetched or uploaded.
+Ship a from-scratch hardware self-test ROM only. After the short diagnostic
+patterns it must hold a help screen — title, `SELF TEST OK`, then the
+copyright / load-your-own-set / browser-only copy — drawn with an original
+font for that board (tilemap, vector strokes, etc.), not dumped game gfx.
+Match the layout idea in Pac-Man's `roms/hwtest/gen_hwtest.py` `HELP_LINES`.
+Copyrighted sets are opt-in, size-checked (CRC labels hwtest vs user, not a
+whitelist), stored in browser IndexedDB, never fetched or uploaded.
 
 ## Fidelity and clocks
 
@@ -52,7 +57,7 @@ another emulator’s shortcuts as if they were hardware.
 ## New cabinet checklist
 
 - Browser WASM at the machine’s real clock.
-- GoogleTest board smoke.
+- GoogleTest board smoke plus a help-screen assertion on the hwtest ROM.
 - Playwright including `hiscore.spec.ts`, keyboard, DIP, ROM loader, footer/home.
 - `retroweb/Makefile` `site` / `_stage`; CI `<machine>-test` and `<machine>-web-test`.
 - Fixed Playwright port (do not collide with `make serve` on 8000).

@@ -389,6 +389,50 @@ jobs:
             retroweb/asteroids/web/test-results/
           retention-days: 7
 
+  # Centipede arcade board: GoogleTest over the 6502 + POKEY + machine
+  # (see retroweb/centipede/CENTIPEDE_REVIEW.md). Shared ISA is mos6502-test.
+  centipede-test:
+    needs: mos6502-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: make -C retroweb/centipede test-smoke
+
+  centipede-web-test:
+    needs: centipede-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: latest
+
+      - working-directory: retroweb/centipede/web
+        run: make wasm roms shared
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - working-directory: retroweb/centipede/web
+        run: npm ci
+
+      - working-directory: retroweb/centipede/web
+        run: npx playwright install --with-deps chromium
+
+      - working-directory: retroweb/centipede/web
+        run: make test-smoke
+
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: centipede-playwright-report
+          path: |
+            retroweb/centipede/web/playwright-report/
+            retroweb/centipede/web/test-results/
+          retention-days: 7
+
   # Frogger arcade board: GoogleTest suite over the dual Z80 + Galaxian
   # video + AY-3-8910 + machine (see retroweb/frogger/FROGGER_REVIEW.md).
   # Shared Z80 ISA is z80-test; Smoke.HwtestBoots* is the board smoke.
@@ -607,6 +651,8 @@ jobs:
         mos6502-test,
         asteroids-test,
         asteroids-web-test,
+        centipede-test,
+        centipede-web-test,
         frogger-test,
         frogger-web-test,
         scramble-test,
@@ -684,6 +730,9 @@ jobs:
         run: make wasm roms shared
 
       - working-directory: retroweb/asteroids/web
+        run: make wasm roms shared
+
+      - working-directory: retroweb/centipede/web
         run: make wasm roms shared
 
       # 486 DX2-66: BIOS/VGA-BIOS ROMs (fetched, checksummed) are cheap; the

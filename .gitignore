@@ -159,6 +159,13 @@ retroweb/asteroids/web/hwtest_roms.h
 retroweb/asteroids/web/roms/
 retroweb/asteroids/roms/user/
 retroweb/asteroids/web/shared/
+retroweb/centipede/tests/build/
+retroweb/centipede/web/centipede.js
+retroweb/centipede/web/centipede.wasm
+retroweb/centipede/web/hwtest_roms.h
+retroweb/centipede/web/roms/
+retroweb/centipede/roms/user/
+retroweb/centipede/web/shared/
 
 retroweb/shared/cpu/tests/build/
 retroweb/shared/cpu/zex/zexdoc.com

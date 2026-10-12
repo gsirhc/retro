@@ -41,7 +41,7 @@ function(add_unit_test name)
 endfunction()
 
 add_unit_test(dvg_test dvg_test.cpp ${ATARI}/dvg.cpp)
-add_unit_test(machine_test machine_test.cpp ${BOARD})
+add_unit_test(machine_test machine_test.cpp ${BOARD} ${WEB}/hwtest_roms.h)
 add_unit_test(smoke_test smoke_test.cpp ${BOARD} ${WEB}/hwtest_roms.h)
 
 include(GoogleTest)

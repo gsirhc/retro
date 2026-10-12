@@ -17,6 +17,8 @@ MACHINES = (
     "galaga",
     "galaxian",
     "scramble",
+    "asteroids",
+    "centipede",
     "pc486",
 )
 
@@ -30,10 +32,13 @@ WASM_TARGETS = {
     "galaga": ["wasm"],
     "galaxian": ["wasm"],
     "scramble": ["wasm"],
+    "asteroids": ["wasm"],
+    "centipede": ["wasm"],
     "pc486": ["pc486.js", "pc486-perf.js"],
 }
 
 ARCADE = ("pacman", "frogger", "galaga", "galaxian", "scramble")
+ATARI = ("asteroids", "centipede")
 GALAXIAN_HW = ("frogger", "scramble", "galaxian")
 NAMCO_WSG = ("pacman", "galaga")
 
@@ -46,6 +51,8 @@ GENERATED_JS = frozenset({
     "galaga.js",
     "galaxian.js",
     "scramble.js",
+    "asteroids.js",
+    "centipede.js",
     "pc486.js",
     "pc486-perf.js",
 })
@@ -116,6 +123,10 @@ def classify(rel):
             if ext in CPP_EXT:
                 return ("shared_cpp", "namco")
             return None
+        if rest.startswith("atari/"):
+            if ext in CPP_EXT:
+                return ("shared_cpp", "atari")
+            return None
         if rest.startswith("__pycache__/"):
             return None
         if ext in STATIC_EXT or rest.endswith(".py"):
@@ -133,6 +144,9 @@ def classify(rel):
         return None
     if rest.startswith("tests/") or rest.startswith("node_modules/"):
         return None
+    # hwtest generators feed wasm (hwtest_roms.h); other roms/media stay ignored.
+    if rest.startswith("roms/hwtest/") and ext == ".py":
+        return ("machine_cpp", machine)
     if rest.startswith("roms/") or rest.startswith("disks/") or rest.startswith("media/") or rest.startswith("tapes/"):
         return None
 
@@ -144,6 +158,9 @@ def classify(rel):
         if web_base in GENERATED_JS or web_base.endswith(".wasm"):
             return None
         if web_base.endswith(".js.map") or web_base.endswith(".wasm.map"):
+            return None
+        # Generated header from gen_hwtest.py — rebuilds via the wasm target.
+        if web_base == "hwtest_roms.h":
             return None
         web_ext = os.path.splitext(web_base)[1].lower()
         if web_ext in CPP_EXT:
@@ -186,11 +203,13 @@ def scan_mtimes():
 
 def machines_for_shared_cpp(kind):
     if kind == "cpu":
-        return list(ARCADE)
+        return list(ARCADE) + list(ATARI)
     if kind == "galaxian":
         return list(GALAXIAN_HW)
     if kind == "namco":
         return list(NAMCO_WSG)
+    if kind == "atari":
+        return list(ATARI)
     return []
 
 

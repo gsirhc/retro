@@ -1,4 +1,4 @@
-// MOS NMOS 6502 (Asteroids, Lunar Lander), not the W65C02S on the CG-OAC board.
+// MOS NMOS 6502 (Asteroids, Centipede, Lunar Lander), not the W65C02S on the CG-OAC board.
 // NMOS quirks (MCS6500 Hardware Manual; Visual6502 / Nesdev for illegals):
 //   - JMP ($xxFF) page-wrap bug (5 cycles)
 //   - RMW abs,X takes 7 cycles

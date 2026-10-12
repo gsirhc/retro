@@ -1,15 +1,16 @@
 import { test, expect } from "@playwright/test";
 
-// Self-test picture: sparse line art (roms/hwtest/gen_hwtest.py).
+// After ~1.5 s the hwtest holds the copyright help screen (roms/hwtest/gen_hwtest.py).
 
-test("self-test ROM draws a sparse vector diagnostic, not a full-screen fill", async ({ page }) => {
+test("self-test ROM draws the copyright help screen, not a full-screen fill", async ({ page }) => {
   await page.goto("/?test=1");
   await expect(page.locator("#romStatus")).toHaveText("Running test ROM");
 
+  // Asteroids frames++ on each NMI (~246 Hz); wait past the diagnostic hold.
   await page.waitForFunction(() => {
     const m = (window as any).__test?.machine;
-    return !!m && m.frames() > 2;
-  }, null, { timeout: 5000 });
+    return !!m && m.frames() > 420;
+  }, null, { timeout: 8000 });
 
   const stats = await page.evaluate(() => {
     const c = document.getElementById("screen") as HTMLCanvasElement;

@@ -1,0 +1,147 @@
+#include <gtest/gtest.h>
+
+#include "hwtest_roms.h"
+#include "machine.h"
+
+#include <algorithm>
+
+TEST(Machine, MirrorMasksTo14Bits) {
+    centipede::Machine m;
+    m.program[0] = 0xA5;
+    EXPECT_EQ(m.mem_read(0x2000), 0xA5);
+    EXPECT_EQ(m.mem_read(0x6000), 0xA5);
+    EXPECT_EQ(m.mem_read(0xA000), 0xA5);
+    EXPECT_EQ(m.mem_read(0xE000), 0xA5);
+}
+
+TEST(Machine, In1IdleIsActiveLowOnes) {
+    centipede::Machine m;
+    EXPECT_EQ(m.mem_read(0x0C01), 0xFF);
+    m.inputs.in1 = 0xFB;  // fire pressed
+    EXPECT_EQ(m.mem_read(0x0C01), 0xFB);
+}
+
+TEST(Machine, DswPortsAt0800) {
+    centipede::Machine m;
+    m.inputs.dsw1 = 0x12;
+    m.inputs.dsw2 = 0x34;
+    EXPECT_EQ(m.mem_read(0x0800), 0x12);
+    EXPECT_EQ(m.mem_read(0x0801), 0x34);
+}
+
+TEST(Machine, IrqAckClearsLine) {
+    centipede::Machine m;
+    m.cpu.irq_line = true;
+    m.mem_write(0x1800, 0x00);
+    EXPECT_FALSE(m.cpu.irq_line);
+}
+
+TEST(Machine, WatchdogKickPreventsReset) {
+    centipede::Machine m;
+    // Without kicks, 8 frames → reset. Kick every few lines via $2000.
+    for (int i = 0; i < 20; i++) {
+        m.mem_write(0x2000, 0);
+        m.run_cycles(centipede::kCyclesPerFrame);
+    }
+    EXPECT_FALSE(m.watchdog_reset);
+}
+
+TEST(Machine, PokeyRandomReads) {
+    centipede::Machine m;
+    // SKCTL reset → RANDOM is 0xFF.
+    m.mem_write(0x100F, 0x00);
+    EXPECT_EQ(m.mem_read(0x100A), 0xFF);
+}
+
+TEST(Machine, PokeyRandomLeavesInitMode) {
+    centipede::Machine m;
+    m.mem_write(0x100F, 0x00);  // init
+    m.mem_write(0x100F, 0x03);  // leave init — must re-seed the LFSR
+    m.run_cycles(200);
+    uint8_t a = m.mem_read(0x100A);
+    m.run_cycles(200);
+    uint8_t b = m.mem_read(0x100A);
+    m.run_cycles(200);
+    uint8_t c = m.mem_read(0x100A);
+    // Not stuck at the init-mode constant, and not a frozen LFSR.
+    EXPECT_FALSE(a == 0xFF && b == 0xFF && c == 0xFF);
+    EXPECT_FALSE(a == b && b == c);
+}
+
+TEST(Machine, PokeyPureToneIsSquare) {
+    // AUDC $AF = NOTPOLY5|PURE|vol — must toggle the latch, not sample poly.
+    atari::Pokey p;
+    p.reset();
+    p.write(0x0F, 0x03);
+    p.write(0x08, 0x00);
+    p.write(0x00, 0x20);
+    p.write(0x01, 0xAF);
+    std::vector<float> out;
+    p.mix(atari::Pokey::kClockHz / 20, 48000, out);
+    ASSERT_GT(out.size(), 200u);
+    int hi = 0, lo = 0, mid = 0;
+    for (float s : out) {
+        if (s > 0.08f) hi++;
+        else if (s < 0.02f) lo++;
+        else mid++;
+    }
+    EXPECT_LT(mid, int(out.size()) / 25);
+    EXPECT_GT(hi, int(out.size()) / 8);
+    EXPECT_GT(lo, int(out.size()) / 8);
+    // Edges should land on a regular grid (square), not poly-noise jitter.
+    int edges = 0;
+    bool high = out[0] > 0.05f;
+    for (size_t i = 1; i < out.size(); i++) {
+        bool h = out[i] > 0.05f;
+        if (h != high) {
+            edges++;
+            high = h;
+        }
+    }
+    EXPECT_GT(edges, 20);
+    EXPECT_LT(edges, int(out.size()) / 4);
+}
+
+TEST(Machine, EaromRoundTrip) {
+    centipede::Machine m;
+    m.mem_write(0x1603, 0xAB);
+    // CS1 + write: C1=0 (DB1=1), C2=1 (DB2=1), CS1=1 (DB3=1), rising CK.
+    m.mem_write(0x1680, 0x0E);
+    m.mem_write(0x1680, 0x0F);
+    EXPECT_EQ(m.earom[3], 0xAB);
+    // Address select + read: C1=1 (DB1=0), C2=0, CS1=1.
+    m.mem_write(0x1603, 0x00);
+    m.mem_write(0x1680, 0x08);
+    m.mem_write(0x1680, 0x09);
+    EXPECT_EQ(m.mem_read(0x1700), 0xAB);
+}
+
+TEST(Machine, Ls259FlipUsesD7) {
+    centipede::Machine m;
+    m.mem_write(0x1C07, 0x00);
+    EXPECT_FALSE(m.flipscreen);
+    m.mem_write(0x1C07, 0x80);
+    EXPECT_TRUE(m.flipscreen);
+}
+
+TEST(Machine, HwtestHelpScreenShowsCopyrightPrompt) {
+    centipede::RomSet s;
+    std::copy(centipede::hwtest::program.begin(), centipede::hwtest::program.end(),
+              s.program.begin());
+    std::copy(centipede::hwtest::gfx.begin(), centipede::hwtest::gfx.end(), s.gfx.begin());
+    centipede::Machine m;
+    m.load_roms(s);
+    m.reset();
+    m.run_cycles(centipede::kCyclesPerFrame * centipede::hwtest::kHelpWaitFrames);
+
+    for (size_t i = 0; i < centipede::hwtest::help_title_codes.size(); i++) {
+        EXPECT_EQ(m.videoram[unsigned(centipede::hwtest::help_title_offs[i])],
+                  centipede::hwtest::help_title_codes[i])
+            << "help title char " << i;
+    }
+    for (size_t i = 0; i < centipede::hwtest::help_copy_codes.size(); i++) {
+        EXPECT_EQ(m.videoram[unsigned(centipede::hwtest::help_copy_offs[i])],
+                  centipede::hwtest::help_copy_codes[i])
+            << "copyright line char " << i;
+    }
+}

@@ -1,6 +1,9 @@
 #include <gtest/gtest.h>
 
+#include "hwtest_roms.h"
 #include "machine.h"
+
+#include <algorithm>
 
 TEST(Machine, MirrorIgnoresA15) {
     asteroids::Machine m;
@@ -169,4 +172,21 @@ TEST(Machine, SmallSaucerSitsAbove750Hz) {
     m.audio.clear();
     m.run_cycles(asteroids::kCpuHz / 5);
     EXPECT_GT(rising_hz(m, m.audio_hz / 50), 700.0f);
+}
+
+TEST(Machine, HwtestHelpScreenShowsCopyrightPrompt) {
+    asteroids::RomSet s;
+    std::copy(asteroids::hwtest::program.begin(), asteroids::hwtest::program.end(),
+              s.program.begin());
+    std::copy(asteroids::hwtest::vector.begin(), asteroids::hwtest::vector.end(),
+              s.vector.begin());
+    asteroids::Machine m;
+    m.load_roms(s);
+    m.reset();
+    m.run_cycles(asteroids::kCyclesPerNmi * asteroids::hwtest::kHelpWaitNmis);
+
+    for (size_t i = 0; i < asteroids::hwtest::help_vector_prefix.size(); i++) {
+        EXPECT_EQ(m.vector_ram[i], asteroids::hwtest::help_vector_prefix[i])
+            << "help display-list byte " << i;
+    }
 }
