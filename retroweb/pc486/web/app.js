@@ -1578,7 +1578,7 @@
   };
   const presetId = new URLSearchParams(location.search).get("disk");
   const presetHdd = Object.hasOwn(kPresetHdds, presetId) ? kPresetHdds[presetId] : null;
-  addFooterNote("All shareware and freeware here remain the property of their respective owners. <a href=\"../about.html#rights\">More info</a>.");
+  addFooterNote("All shareware and freeware titles remain the property of their respective owners. <a href=\"../about.html#rights\">More info</a>.");
   const kFactoryHddFile = presetHdd ? presetHdd.file : "disks/freedos-hdd.img";
   const kFactoryHddLabel = presetHdd ? presetHdd.label : "FreeDOS (default)";
 
