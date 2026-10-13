@@ -16,7 +16,7 @@ const HOME = "http://localhost:8310/";
 test.describe("retroweb landing page", () => {
   test("lists the IBM PC/AT with a launch link to /ibmpc-at/", async ({ page }) => {
     await page.goto(HOME);
-    await expect(page).toHaveTitle(/Retro Computers & Games/);
+    await expect(page).toHaveTitle(/Retro In-browser Systems & Games/);
 
     const card = page.locator('a.machine-card[href="ibmpc-at/"]');
     await expect(card).toHaveAttribute("href", "ibmpc-at/");
@@ -57,10 +57,10 @@ test.describe("retroweb landing page", () => {
     await expect(page.locator("#siteFooter a.about-sign")).toHaveText("Help");
   });
 
-  test("the shared site footer credits RetroCG and the Help control goes to about.html", async ({ page }) => {
+  test("the shared site footer credits RISG and the Help control goes to about.html", async ({ page }) => {
     await page.goto(HOME);
     const footer = page.locator("#siteFooter");
-    await expect(footer).toContainText(/© 2026 RetroCG/);
+    await expect(footer).toContainText(/© 2026 RISG/);
     await expect(footer).toContainText(/old-ass computer/);
     const about = footer.locator("a.about-sign");
     await expect(about).toHaveAttribute("href", "about.html");
@@ -70,7 +70,7 @@ test.describe("retroweb landing page", () => {
     await expect(page).toHaveTitle(/About/i);
     await expect(page.locator("a.pb-close")).toHaveAttribute("href", "./");
     await page.locator("a.pb-close").click();
-    await expect(page).toHaveTitle(/Retro Computers & Games/);
+    await expect(page).toHaveTitle(/Retro In-browser Systems & Games/);
   });
 
   test("a stored retro8080.theme is honoured on load", async ({ page }) => {

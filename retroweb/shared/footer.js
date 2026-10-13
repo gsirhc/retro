@@ -20,7 +20,7 @@
       '<p class="site-footer-about">' +
       '<a class="about-sign" href="' + aboutHref() +
       '" title="Help" aria-label="Help">Help</a></p>' +
-      "<p>&copy; 2026 RetroCG - An indie project featuring old-ass computer " +
+      "<p>&copy; 2026 RISG - An indie project featuring old-ass computer " +
       "emulation you can use for free.</p>" +
       '<p>Source code available on <a class="source-link" href="' +
       SOURCE_HREF + '" target="_blank" rel="noopener noreferrer">GitHub</a></p>';

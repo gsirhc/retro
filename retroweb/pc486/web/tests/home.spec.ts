@@ -53,7 +53,7 @@ test.describe("retroweb landing page", () => {
     const tyrian = page.locator("a.machine-card[href='pc486/?disk=tyrian']");
     await expect(tyrian.locator(".name")).toHaveText("Tyrian (Freeware)");
     await expect(tyrian.locator("img.shot")).toHaveJSProperty("naturalWidth", 286);
-    await expect(page.locator(".ready-note a")).toHaveAttribute("href", "about.html#contact");
+    await expect(page.locator(".ready-note a")).toHaveAttribute("href", "about.html#rights");
   });
 
   test("the theme selector switches the page and persists to retro8080.theme", async ({ page }) => {

@@ -177,7 +177,7 @@ test.describe("preset C: (?disk=doom)", () => {
     await expect(page.locator("#hddStatus")).toHaveText(/Using: FreeDOS \(default\)/);
     await expect(page.locator("#hddBlankBtn")).toBeVisible();
     expect(await mountedVolumeLabel(page)).toBe("FREEDOS2022");
-    await expect(page.locator("#siteFooter .site-footer-note")).toHaveCount(0);
+    await expect(page.locator("#siteFooter .site-footer-note")).toHaveCount(1);
   });
 });
 
@@ -214,7 +214,7 @@ test.describe("preset C: (?disk=tyrian)", () => {
     await expect(page.locator("#hddStatus")).toHaveText(/Using: Tyrian 2\.1 freeware/);
     await expect(page.locator("#hddResetBtn")).toHaveText("Reset to original Tyrian disk");
     const note = page.locator("#siteFooter .site-footer-note");
-    await expect(note).toContainText("Shareware and freeware here are the original releases, unmodified");
-    await expect(note.locator("a")).toHaveAttribute("href", "../about.html#contact");
+    await expect(note).toContainText("All shareware and freeware titles remain the property of their respective owners");
+    await expect(note.locator("a")).toHaveAttribute("href", "../about.html#rights");
   });
 });
