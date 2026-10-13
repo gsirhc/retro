@@ -10,16 +10,19 @@ async function chooseTheme(page, theme, mode = "light") {
 
 
 const HOME = "http://localhost:8710/";
+const ARCADE = "http://localhost:8710/arcade/";
 
 test.describe("retroweb landing page", () => {
-  test("lists Scramble Arcade under an Arcade section, linking to /scramble/", async ({ page }) => {
+  test("lists Scramble Arcade on the arcade hub, not the home teaser", async ({ page }) => {
     await page.goto(HOME);
     await expect(page).toHaveTitle(/Retro Computers & Games/);
-
-    const card = page.locator('a.machine-card[href="scramble/"]');
-    await expect(card.locator(".name")).toHaveText(/Scramble Arcade/i);
+    await expect(page.locator('a.machine-card[href="scramble/"]')).toHaveCount(0);
     const headings = page.locator("h2.section-heading");
-    await expect(headings).toHaveText(["Ready to Play", "Arcade: Z-80 Powered", "Arcade: 6502 Powered", "Homebrew"]);
+    await expect(headings).toHaveText(["Ready to Play", "Arcade", "Homebrew"]);
+
+    await page.goto(ARCADE);
+    const card = page.locator('a.machine-card[href="../scramble/"]');
+    await expect(card.locator(".name")).toHaveText(/Scramble Arcade/i);
 
     const shot = card.locator("img.shot");
     await expect(shot).toHaveAttribute("src", /assets\/scramble-cabinet\.png$/);

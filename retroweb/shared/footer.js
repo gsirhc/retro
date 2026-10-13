@@ -1,5 +1,6 @@
-/* Injects the shared site footer. a.pb-close[href=../] marks a machine page,
-   so about.html is one level up; landing uses a disabled close span instead. */
+/* Injects the shared site footer. a.pb-close[href] starting with ../ marks a
+   machine page (or arcade hub), so about.html is one level up; landing uses a
+   disabled close span instead. */
 (function () {
   function aboutHref() {
     var close = document.querySelector("a.pb-close");

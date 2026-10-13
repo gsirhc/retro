@@ -12,13 +12,16 @@ async function chooseTheme(page, theme, mode = "light") {
 // Landing page on :9010. Shares the retro8080.theme key with the emulator.
 
 const HOME = "http://localhost:9010/";
+const ARCADE = "http://localhost:9010/arcade/";
 
 test.describe("retroweb landing page", () => {
-  test("lists Asteroids Arcade under an Arcade section, linking to /asteroids/", async ({ page }) => {
+  test("lists Asteroids Arcade on the arcade hub, not the home teaser", async ({ page }) => {
     await page.goto(HOME);
     await expect(page).toHaveTitle(/Retro Computers & Games/);
+    await expect(page.locator('a.machine-card[href="asteroids/"]')).toHaveCount(0);
 
-    const card = page.locator('a.machine-card[href="asteroids/"]');
+    await page.goto(ARCADE);
+    const card = page.locator('a.machine-card[href="../asteroids/"]');
     await expect(card.locator(".name")).toHaveText(/Asteroids Arcade/i);
 
     const shot = card.locator("img.shot");

@@ -1,6 +1,7 @@
 # retroweb — assemble and preview the deployed site.
 #
-#   make site        build _site/ : index.html at the root, the emulators at
+#   make site        build _site/ : index.html + about.html + arcade/ at the
+#                    root, the emulators at
 #                    /altair8800/, /assembler6502/, /ibmpc-at/, /pacman/,
 #                    /frogger/, /galaga/, /galaxian/, /scramble/, /asteroids/,
 #                    /centipede/, /pc486/ (dev-only files stripped) — what CI publishes
@@ -51,8 +52,9 @@ help:
 # server never finds its document root deleted out from under it
 site:
 	rm -rf _site.new
-	mkdir -p _site.new/altair8800 _site.new/assembler6502 _site.new/ibmpc-at _site.new/pacman _site.new/frogger _site.new/galaga _site.new/galaxian _site.new/scramble _site.new/asteroids _site.new/centipede _site.new/pc486
+	mkdir -p _site.new/altair8800 _site.new/assembler6502 _site.new/ibmpc-at _site.new/pacman _site.new/frogger _site.new/galaga _site.new/galaxian _site.new/scramble _site.new/asteroids _site.new/centipede _site.new/pc486 _site.new/arcade
 	cp index.html about.html _site.new/
+	cp arcade/index.html _site.new/arcade/
 	cp -Rp assets _site.new/ && rm -f _site.new/assets/README.md
 	mkdir -p _site.new/shared
 	cp shared/theme.css shared/pagebar.css shared/footer.css shared/footer.js \

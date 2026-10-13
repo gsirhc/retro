@@ -61,7 +61,11 @@ another emulator’s shortcuts as if they were hardware.
 - Playwright including `hiscore.spec.ts`, keyboard, DIP, ROM loader, footer/home.
 - `retroweb/Makefile` `site` / `_stage`; CI `<machine>-test` and `<machine>-web-test`.
 - Fixed Playwright port (do not collide with `make serve` on 8000).
-- Landing-page card (arcade tiles from `retroweb/shared/marquee.py`).
+- Arcade hub card in `retroweb/arcade/index.html` (marquee from
+  `retroweb/shared/marquee.py`, plus `data-name` / `data-year` / `data-cpu` /
+  `data-manufacturer` and a year · manufacturer · CPU meta line). Cabinets
+  are hub-only; the home page links in via the full-width neon
+  Enter the Arcade portal on `retroweb/index.html`.
 - `*_REVIEW.md` citation trail.
 
 ## Shared chips

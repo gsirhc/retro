@@ -10,16 +10,20 @@ async function chooseTheme(page, theme, mode = "light") {
 
 
 const HOME = "http://localhost:8910/";
+const ARCADE = "http://localhost:8910/arcade/";
 
 test.describe("retroweb landing page", () => {
-  test("lists Galaga Arcade under an Arcade section, linking to /galaga/", async ({ page }) => {
+  test("lists Galaga Arcade on the arcade hub; home has the full-width neon portal", async ({ page }) => {
     await page.goto(HOME);
     await expect(page).toHaveTitle(/Retro Computers & Games/);
-
-    const card = page.locator('a.machine-card[href="galaga/"]');
-    await expect(card.locator(".name")).toHaveText(/Galaga Arcade/i);
+    await expect(page.locator('a.machine-card[href="galaga/"]')).toHaveCount(0);
     const headings = page.locator("h2.section-heading");
-    await expect(headings).toHaveText(["Ready to Play", "Arcade: Z-80 Powered", "Arcade: 6502 Powered", "Homebrew"]);
+    await expect(headings).toHaveText(["Ready to Play", "Arcade", "Homebrew"]);
+    await expect(page.locator("a.arcade-portal")).toHaveAttribute("href", "arcade/");
+
+    await page.goto(ARCADE);
+    const card = page.locator('a.machine-card[href="../galaga/"]');
+    await expect(card.locator(".name")).toHaveText(/Galaga Arcade/i);
 
     const shot = card.locator("img.shot");
     await expect(shot).toHaveAttribute("src", /assets\/galaga-cabinet\.png$/);
@@ -30,19 +34,12 @@ test.describe("retroweb landing page", () => {
     expect(await shot.evaluate((img: HTMLImageElement) => img.naturalHeight)).toBe(128);
   });
 
-  test("arcade cards are alphabetical; computers stay Altair, IBM, then 486", async ({ page }) => {
+  test("computers stay Altair, IBM, then 486; Arcade is the neon portal only", async ({ page }) => {
     await page.goto(HOME);
-    const computers = await page.locator('h2.section-heading:has-text("Ready to Play") + .machines + .machines .name').allTextContents();
+    const computers = await page.locator('a.machine-card[href="altair8800/"], a.machine-card[href="ibmpc-at/"], a.machine-card[href="pc486/"]').locator(".name").allTextContents();
     expect(computers).toEqual(["MITS Altair 8800", "IBM PC/AT", "486 DX2-66 Gaming PC"]);
-    const arcade = await page.locator('h2.section-heading:has-text("Z-80") + .machines .name').allTextContents();
-    expect(arcade).toEqual([
-      "Frogger Arcade",
-      "Galaga Arcade",
-      "Galaxian Arcade",
-      "Ms. Pac-Man Arcade",
-      "Pac-Man Arcade",
-      "Scramble Arcade",
-    ]);
+    await expect(page.locator("h2.section-heading:has-text('Arcade') + a.arcade-portal .portal-neon")).toHaveText("Enter the Arcade");
+    await expect(page.locator('h2.section-heading:has-text("Arcade") + .machines')).toHaveCount(0);
   });
 
   test("the theme selector switches the page and persists to retro8080.theme", async ({ page }) => {

@@ -3,10 +3,12 @@
 The browser emulators and the landing page that lists them.
 
 - [`index.html`](index.html) — the landing page (site root). Machines are
-  grouped as 3-column tiles (computers, then **Arcade: Z-80 Powered**, then
-  Homebrew). Computer cards use screenshots of this project's own rendered
-  hardware; arcade cards are original 286×128 starfield titles in Courier
-  New — see [`assets/README.md`](assets/README.md) and
+  grouped as 3-column tiles (computers, a full-width neon **Enter the Arcade**
+  portal, then Homebrew). The full cabinet list lives at
+  [`arcade/`](arcade/) (`/arcade/`), sortable by name, year, CPU, or
+  manufacturer. Computer cards use screenshots of this project's own
+  rendered hardware; arcade cards are original 286×128 starfield titles in
+  Courier New — see [`assets/README.md`](assets/README.md) and
   [`shared/marquee.py`](shared/marquee.py). A Theme button opens a dialog
   for family (Windows 95 / Windows XP / Mid-1990s Web / Modern / Atmosphere) and appearance
   (Light / Dark / System). Choices persist in `retro8080.theme` and
@@ -120,6 +122,7 @@ FreeDOS hard disk and CD-ROM images, then **stages** the site so URLs are clean:
 ```
 _site/index.html      <- retroweb/index.html
 _site/about.html      <- retroweb/about.html
+_site/arcade/         <- retroweb/arcade/index.html
 _site/assets/         <- retroweb/assets/
 _site/shared/         <- retroweb/shared/theme.css, pagebar.css, footer.css, footer.js
 _site/altair8800/     <- retroweb/altair8800/web/    (dev-only files stripped)
@@ -166,7 +169,7 @@ MACHINE=pc486 make -C retroweb watch   # wasm rebuilds only for that machine
 
 Static edits restage in under a second; a C++ save waits on emscripten for
 that machine (or every arcade board, if you touched `shared/cpu`). Root
-`index.html` / `about.html` / `assets/` and `shared/` front-end files always
+`index.html` / `about.html` / `arcade/` / `assets/` and `shared/` front-end files always
 restage even with `MACHINE=` set.
 
 **If the preview keeps dropping** (terminal closed, laptop slept, a crash),
@@ -203,5 +206,6 @@ in the `lint` job; a failure blocks deploy.
 ## Adding a machine
 
 New subdir `retroweb/<machine>/` with its own project + `web/` front end; add a
-`.machine-card` to `index.html`; add a stage step to the `build` job in
-`.github/workflows/deploy-emulator.yml`.
+`.machine-card` to `index.html` (computers / Homebrew) or
+`arcade/index.html` (cabinets, with sort metadata); add a stage step to the
+`build` job in `.github/workflows/deploy-emulator.yml`.

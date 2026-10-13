@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Arcade</title>
+<link rel="icon" href="../assets/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="../assets/favicon-16.png">
+<link rel="apple-touch-icon" href="../assets/apple-touch-icon.png">
+<link rel="stylesheet" href="../shared/theme.css">
+<link rel="stylesheet" href="../shared/pagebar.css">
+<link rel="stylesheet" href="../shared/footer.css">
+<style>
+  :root { --title-font: 900 30px "Arial Black", Arial, sans-serif; }
+  :root[data-theme="winxp"] { --title-font: bold 28px Tahoma, "Segoe UI", sans-serif; }
+  :root[data-theme="web94"] { --title-font: bold 26px "Times New Roman", Times, serif; }
+  :root[data-theme="modern"] { --title-font: 700 28px/1.15 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  :root[data-theme="aurora"] { --title-font: 800 30px/1.15 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  :root[data-theme="aurora"] body {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+  }
+  :root[data-theme="aurora"] .pagebar { border-bottom: 1px solid rgba(168,140,255,.35); }
+  :root[data-theme="aurora"] .machine-card .shot { border-radius: 6px; }
+  :root[data-theme="aurora"] .machine-card:hover {
+    box-shadow: 0 6px 22px rgba(123,47,247,.35);
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--desktop);
+    color: var(--text);
+    font: 18px/1.5 var(--body-font);
+    min-height: 100vh;
+    padding: 28px 14px;
+  }
+  .page {
+    max-width: 780px;
+    margin: 0 auto;
+    background: var(--page-bg);
+    border: var(--page-border);
+    border-radius: var(--page-radius);
+    box-shadow: var(--page-shadow);
+  }
+  :root[data-theme="aurora"] .page { max-width: min(980px, 86vw); }
+  .inner { padding: 22px 26px 26px; }
+
+  header.brand-row {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 16px; flex-wrap: wrap; margin-bottom: 18px;
+  }
+  .brand { display: flex; align-items: center; gap: 14px; min-width: 0; }
+  .site-icon { width: 56px; height: 56px; flex: 0 0 auto; border-radius: 4px; }
+  .brand-text { min-width: 0; }
+  h1 {
+    margin: 0; font: var(--title-font); color: var(--title-color);
+    text-shadow: var(--title-shadow); letter-spacing: 2px;
+  }
+  .tagline { margin: 2px 0 0; color: var(--muted); }
+
+  .arcade-tools {
+    margin: 0 0 14px; padding-top: 14px; border-top: var(--card-border);
+  }
+  .arcade-legal {
+    margin: 0 0 12px; color: var(--muted); font-size: 13px; line-height: 1.45;
+  }
+  .sort-row {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px;
+  }
+  .sort-row label {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-size: 14px; color: var(--muted);
+  }
+  .sort-row select {
+    font: inherit; font-size: 14px; color: var(--text);
+    background: var(--card-bg); border: var(--card-border);
+    border-radius: var(--card-radius); padding: 4px 8px;
+  }
+
+  .section-heading {
+    margin: 30px 0 14px; padding-top: 18px; border-top: var(--card-border);
+    font: bold 17px Arial, Helvetica, sans-serif; color: var(--text);
+    letter-spacing: .5px; text-transform: uppercase;
+  }
+  :root[data-theme="winxp"] .section-heading { font: bold 15px Tahoma, "Segoe UI", sans-serif; letter-spacing: .4px; }
+  :root[data-theme="web94"] .section-heading { font: bold 19px "Times New Roman", Times, serif; letter-spacing: normal; text-transform: none; }
+  :root[data-theme="modern"] .section-heading { font: 700 14px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: var(--muted); }
+  :root[data-theme="aurora"] .section-heading { font: 700 14px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: var(--muted); }
+  #arcadeCatalog > .section-heading:first-child {
+    margin-top: 0;
+  }
+
+  .machines {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;
+  }
+
+  .machine-card {
+    display: flex; flex-direction: column; padding: 0;
+    text-decoration: none; color: inherit;
+    background: var(--card-bg); border: var(--card-border);
+    border-radius: var(--card-radius); overflow: hidden;
+    transition: transform .12s ease, box-shadow .12s ease;
+  }
+  .machine-card:hover { transform: translateY(-2px); }
+  :root[data-theme="modern"] .machine-card:hover {
+    box-shadow: 0 6px 20px rgba(16,24,40,.12);
+  }
+  :root:not([data-theme="modern"]) .machine-card:active { border-style: inset; }
+
+  .machine-card .shot {
+    display: block; width: 100%; height: auto; aspect-ratio: 286 / 128;
+    object-fit: cover; object-position: left center;
+  }
+  .machine-card .name {
+    display: block; padding: 8px 8px 2px; text-align: center;
+    font-weight: 700; font-size: 15px; letter-spacing: .3px;
+  }
+  .machine-card .meta {
+    display: block; padding: 0 8px 10px; text-align: center;
+    font-size: 12px; color: var(--muted);
+  }
+
+  a { color: var(--link); }
+</style>
+</head>
+<body>
+<script>try{var r=document.documentElement,t=localStorage.getItem("retro8080.theme")||"win",m=localStorage.getItem("retro8080.mode");if(t=="ai"||t=="systemaurora"){t="aurora";if(!m)m="system";}else if(t=="moderndark"){t="modern";if(!m)m="dark";}else if(t=="system"){t="modern";if(!m)m="system";}if(t!="win"&&t!="winxp"&&t!="web94"&&t!="modern"&&t!="aurora")t="win";if(m!="light"&&m!="dark"&&m!="system")m="light";var dark=m=="dark"||(m=="system"&&matchMedia("(prefers-color-scheme: dark)").matches);r.dataset.theme=t;if(dark)r.dataset.mode="dark";else delete r.dataset.mode;}catch(e){}</script>
+
+<div class="page">
+  <header class="pagebar">
+    <a class="pb-home" href="../">&#8592;&nbsp;All&nbsp;machines</a>
+    <span class="pb-title"><img class="pb-icon" src="../assets/favicon-32.png" alt="" aria-hidden="true"> ARCADE</span>
+    <span class="pb-name">Arcade</span>
+    <span class="pb-tag">Coin-ops in your browser</span>
+    <span class="pb-tools">
+      <label class="pb-theme">Theme
+        <button type="button" class="pb-theme-btn" id="pageThemeBtn">Windows 95</button>
+      </label>
+      <span class="pb-winbtns"><button type="button" class="pb-min" title="Minimize" aria-label="Minimize" aria-pressed="false">_</button><button type="button" class="pb-max" title="Maximize" aria-label="Maximize" disabled>&#9633;</button><a class="pb-close" href="../" title="back to all machines" aria-label="close — back to all machines">&times;</a></span>
+    </span>
+  </header>
+
+  <div class="inner">
+    <header class="brand-row">
+      <div class="brand">
+        <img class="site-icon" src="../assets/icon-512.png" width="56" height="56" decoding="async" alt="">
+        <div class="brand-text">
+          <h1>Arcade</h1>
+          <p class="tagline">Retro arcade cabinet hardware emulation for running the classics.</p>
+        </div>
+      </div>
+    </header>
+
+    <div class="arcade-tools">
+      <p class="arcade-legal">Arcade ROMs and graphics are still under copyright and are not included or downloaded here. Each cabinet ships a hardware self-test ROM. Load your own original set in the browser. <a href="../about.html#rights">More info</a>.</p>
+      <div class="sort-row">
+        <label>Sort by
+          <select id="arcadeSort" aria-label="Sort cabinets by">
+            <option value="name">Name</option>
+            <option value="year">Year</option>
+            <option value="cpu">CPU</option>
+            <option value="manufacturer">Manufacturer</option>
+          </select>
+        </label>
+      </div>
+    </div>
+
+    <div id="arcadeCatalog">
+      <div class="machines" id="arcadeGrid">
+        <a class="machine-card" href="../asteroids/"
+           data-name="Asteroids Arcade" data-year="1979" data-cpu="6502" data-manufacturer="Atari">
+          <img class="shot" src="../assets/asteroids-cabinet.png" width="286" height="128"
+               decoding="async" alt="Original Asteroids arcade tile, starfield and Courier New lettering">
+          <span class="name">Asteroids Arcade</span>
+          <span class="meta">1979 · Atari · 6502</span>
+        </a>
+        <a class="machine-card" href="../centipede/"
+           data-name="Centipede Arcade" data-year="1981" data-cpu="6502" data-manufacturer="Atari">
+          <img class="shot" src="../assets/centipede-cabinet.png" width="286" height="128"
+               decoding="async" alt="Original Centipede arcade tile, starfield and Courier New lettering">
+          <span class="name">Centipede Arcade</span>
+          <span class="meta">1981 · Atari · 6502</span>
+        </a>
+        <a class="machine-card" href="../frogger/"
+           data-name="Frogger Arcade" data-year="1981" data-cpu="Z80" data-manufacturer="Konami">
+          <img class="shot" src="../assets/frogger-cabinet.png" width="286" height="128"
+               decoding="async" alt="Original Frogger arcade tile, starfield and Courier New lettering">
+          <span class="name">Frogger Arcade</span>
+          <span class="meta">1981 · Konami · dual Z80</span>
+        </a>
+        <a class="machine-card" href="../galaga/"
+           data-name="Galaga Arcade" data-year="1981" data-cpu="Z80" data-manufacturer="Midway">
+          <img class="shot" src="../assets/galaga-cabinet.png" width="286" height="128"
+               decoding="async" alt="Original Galaga arcade tile, starfield and Courier New lettering">
+          <span class="name">Galaga Arcade</span>
+          <span class="meta">1981 · Midway · three Z80s</span>
+        </a>
+        <a class="machine-card" href="../galaxian/"
+           data-name="Galaxian Arcade" data-year="1979" data-cpu="Z80" data-manufacturer="Namco">
+          <img class="shot" src="../assets/galaxian-cabinet.png" width="286" height="128"
+               decoding="async" alt="Original Galaxian arcade tile, starfield and Courier New lettering">
+          <span class="name">Galaxian Arcade</span>
+          <span class="meta">1979 · Namco · Z80</span>
+        </a>
+        <a class="machine-card" href="../pacman/?game=mspacman"
+           data-name="Ms. Pac-Man Arcade" data-year="1982" data-cpu="Z80" data-manufacturer="Midway">
+          <img class="shot" src="../assets/mspacman-cabinet.png" width="286" height="128"
+               decoding="async" alt="Original Ms. Pac-Man arcade tile, starfield and Courier New lettering">
+          <span class="name">Ms. Pac-Man Arcade</span>
+          <span class="meta">1982 · Midway · Z80</span>
+        </a>
+        <a class="machine-card" href="../pacman/"
+           data-name="Pac-Man Arcade" data-year="1980" data-cpu="Z80" data-manufacturer="Namco">
+          <img class="shot" src="../assets/pacman-cabinet.png" width="286" height="128"
+               decoding="async" alt="Original Pac-Man arcade tile, starfield and Courier New lettering">
+          <span class="name">Pac-Man Arcade</span>
+          <span class="meta">1980 · Namco · Z80</span>
+        </a>
+        <a class="machine-card" href="../scramble/"
+           data-name="Scramble Arcade" data-year="1981" data-cpu="Z80" data-manufacturer="Konami">
+          <img class="shot" src="../assets/scramble-cabinet.png" width="286" height="128"
+               decoding="async" alt="Original Scramble arcade tile, starfield and Courier New lettering">
+          <span class="name">Scramble Arcade</span>
+          <span class="meta">1981 · Konami · dual Z80</span>
+        </a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="../shared/theme-picker.js"></script>
+<script>initThemePicker();</script>
+<script src="../shared/winbtns.js"></script>
+<script src="../shared/footer.js"></script>
+<script>
+(function () {
+  var KEY = "retroweb.arcadeSort";
+  var KEYS = { name: 1, year: 1, cpu: 1, manufacturer: 1 };
+  var sel = document.getElementById("arcadeSort");
+  var catalog = document.getElementById("arcadeCatalog");
+  if (!sel || !catalog) return;
+
+  var cards = Array.prototype.slice.call(catalog.querySelectorAll("a.machine-card"));
+
+  function sortCards(key) {
+    cards.sort(function (a, b) {
+      var av = a.getAttribute("data-" + key) || "";
+      var bv = b.getAttribute("data-" + key) || "";
+      if (key === "year") {
+        var an = parseInt(av, 10) || 0;
+        var bn = parseInt(bv, 10) || 0;
+        if (an !== bn) return an - bn;
+      } else if (av !== bv) {
+        return av < bv ? -1 : 1;
+      }
+      var aname = a.getAttribute("data-name") || "";
+      var bname = b.getAttribute("data-name") || "";
+      return aname < bname ? -1 : aname > bname ? 1 : 0;
+    });
+  }
+
+  function apply(key) {
+    if (!KEYS[key]) key = "name";
+    sel.value = key;
+    sortCards(key === "name" ? "name" : key);
+
+    while (catalog.firstChild) catalog.removeChild(catalog.firstChild);
+
+    if (key === "name") {
+      var grid = document.createElement("div");
+      grid.className = "machines";
+      grid.id = "arcadeGrid";
+      cards.forEach(function (c) { grid.appendChild(c); });
+      catalog.appendChild(grid);
+      return;
+    }
+
+    var groups = [];
+    var map = {};
+    cards.forEach(function (c) {
+      var g = c.getAttribute("data-" + key) || "";
+      if (!map[g]) {
+        map[g] = [];
+        groups.push(g);
+      }
+      map[g].push(c);
+    });
+    groups.forEach(function (g) {
+      var h = document.createElement("h2");
+      h.className = "section-heading";
+      h.textContent = g;
+      catalog.appendChild(h);
+      var grid = document.createElement("div");
+      grid.className = "machines";
+      map[g].forEach(function (c) { grid.appendChild(c); });
+      catalog.appendChild(grid);
+    });
+  }
+
+  var saved = "name";
+  try {
+    var v = localStorage.getItem(KEY);
+    if (v && KEYS[v]) saved = v;
+  } catch (e) {}
+  apply(saved);
+
+  sel.addEventListener("change", function () {
+    var key = sel.value;
+    if (!KEYS[key]) key = "name";
+    try { localStorage.setItem(KEY, key); } catch (e) {}
+    apply(key);
+  });
+})();
+</script>
+</body>
+</html>
