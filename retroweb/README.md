@@ -3,8 +3,8 @@
 The browser emulators and the landing page that lists them.
 
 - [`index.html`](index.html) — the landing page (site root). Machines are
-  grouped as 3-column tiles (computers, a full-width neon **Enter the Arcade**
-  portal, then Homebrew). The full cabinet list lives at
+  grouped as 3-column tiles (**Systems**, **Ready to Play**, a full-width neon
+  **Enter the Arcade** portal, then **Homebrew**). The full cabinet list lives at
   [`arcade/`](arcade/) (`/arcade/`), sortable by name, year, CPU, or
   manufacturer. Computer cards use screenshots of this project's own
   rendered hardware; arcade cards are original 286×128 starfield titles in

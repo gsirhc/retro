@@ -18,7 +18,7 @@ test.describe("retroweb landing page", () => {
     await expect(page).toHaveTitle(/Retro In-browser Systems & Games/);
     await expect(page.locator('a.machine-card[href="galaga/"]')).toHaveCount(0);
     const headings = page.locator("h2.section-heading");
-    await expect(headings).toHaveText(["Ready to Play", "Arcade", "Homebrew"]);
+    await expect(headings).toHaveText(["Systems", "Ready to Play", "Arcade", "Homebrew"]);
     await expect(page.locator("a.arcade-portal")).toHaveAttribute("href", "arcade/");
 
     await page.goto(ARCADE);

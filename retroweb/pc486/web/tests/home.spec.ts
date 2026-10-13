@@ -34,9 +34,13 @@ test.describe("retroweb landing page", () => {
 
   test("Ready to Play lists DOOM, Wolfenstein 3-D and Tyrian, each linking to its pc486 preset", async ({ page }) => {
     await page.goto(HOME);
-    await expect(page.locator(".section-heading").first()).toHaveText("Ready to Play");
-    const card = page.locator("a.machine-card").first();
-    await expect(card).toHaveAttribute("href", "pc486/?disk=doom");
+    await expect(page.locator("h2.section-heading")).toHaveText([
+      "Systems",
+      "Ready to Play",
+      "Arcade",
+      "Homebrew",
+    ]);
+    const card = page.locator('a.machine-card[href="pc486/?disk=doom"]');
     await expect(card.locator(".name")).toHaveText("Doom (Shareware)");
 
     const shot = card.locator("img.shot");
@@ -45,12 +49,11 @@ test.describe("retroweb landing page", () => {
     expect(await shot.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(286);
     expect(await shot.evaluate((img: HTMLImageElement) => img.naturalHeight)).toBe(128);
 
-    const wolf = page.locator("a.machine-card").nth(1);
-    await expect(wolf).toHaveAttribute("href", "pc486/?disk=wolf3d");
+    const wolf = page.locator('a.machine-card[href="pc486/?disk=wolf3d"]');
     await expect(wolf.locator(".name")).toHaveText("Wolfenstein 3D (Shareware)");
     await expect(wolf.locator("img.shot")).toHaveJSProperty("naturalWidth", 286);
 
-    const tyrian = page.locator("a.machine-card[href='pc486/?disk=tyrian']");
+    const tyrian = page.locator('a.machine-card[href="pc486/?disk=tyrian"]');
     await expect(tyrian.locator(".name")).toHaveText("Tyrian (Freeware)");
     await expect(tyrian.locator("img.shot")).toHaveJSProperty("naturalWidth", 286);
     await expect(page.locator(".ready-note a")).toHaveAttribute("href", "about.html#rights");

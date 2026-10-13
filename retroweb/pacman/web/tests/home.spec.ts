@@ -19,6 +19,7 @@ test.describe("retroweb landing page", () => {
     await page.goto(HOME);
     await expect(page).toHaveTitle(/Retro In-browser Systems & Games/);
     await expect(page.locator("h2.section-heading")).toHaveText([
+      "Systems",
       "Ready to Play",
       "Arcade",
       "Homebrew",
