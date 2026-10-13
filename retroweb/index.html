@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Retro In-browser Systems & Games</title>
+<title>Welcome to OAC Emulators</title>
 <link rel="icon" href="assets/favicon.ico" sizes="any">
 <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="assets/favicon-16.png">
@@ -75,7 +75,7 @@
   .tagline { margin: 2px 0 0; color: var(--muted); }
 
   .section-heading {
-    margin: 30px 0 14px; padding-top: 18px; border-top: var(--card-border);
+    margin: 0;
     font: bold 17px Arial, Helvetica, sans-serif; color: var(--text);
     letter-spacing: .5px; text-transform: uppercase;
   }
@@ -91,20 +91,29 @@
     display: flex;
     flex-wrap: wrap;
     align-items: baseline;
-    gap: 4px 14px;
+    gap: 2px 14px;
     margin: 30px 0 14px;
     padding-top: 18px;
     border-top: var(--card-border);
   }
-  .section-row .section-heading {
+  .section-row .section-heading { flex: 0 0 auto; }
+  .section-blurb {
     margin: 0;
-    padding: 0;
-    border: 0;
+    flex: 1 1 16em;
+    color: var(--muted);
+    font: 15px/1.35 Arial, Helvetica, sans-serif;
+  }
+  :root[data-theme="winxp"] .section-blurb { font: 15px/1.35 Tahoma, "Segoe UI", sans-serif; }
+  :root[data-theme="web94"] .section-blurb { font: 15px/1.35 "Times New Roman", Times, serif; }
+  :root[data-theme="modern"] .section-blurb,
+  :root[data-theme="aurora"] .section-blurb {
+    font: 15px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   }
   .ready-note {
-    margin: 0;
+    margin: 8px 0 0;
     color: var(--muted);
-    font-size: 13px;
+    font-size: 12px;
+    line-height: 1.35;
   }
 
   .machine-card {
@@ -130,6 +139,11 @@
     display: block; padding: 8px 8px 10px; text-align: center;
     font-weight: 700; font-size: 15px; letter-spacing: .3px;
   }
+  .machine-card .meta {
+    display: block; padding: 0 8px 10px; text-align: center;
+    font-size: 12px; color: var(--muted);
+  }
+  .machine-card:has(.meta) .name { padding-bottom: 2px; }
 
   /* Full-width arcade neon: script lettering on a starfield + crescent moon.
      Face stays dark in every theme; no card border so the night sky reads flush. */
@@ -267,7 +281,7 @@
 
 <div class="page">
   <header class="pagebar">
-    <span class="pb-title"><img class="pb-icon" src="assets/favicon-32.png" alt="" aria-hidden="true"> RISG</span>
+    <span class="pb-title"><img class="pb-icon" src="assets/favicon-32.png" alt="" aria-hidden="true"> OAC Emulators</span>
     <span class="pb-tools">
       <label class="pb-theme">Theme
         <button type="button" class="pb-theme-btn" id="pageThemeBtn">Windows 95</button>
@@ -281,13 +295,16 @@
       <div class="brand">
         <img class="site-icon" src="assets/icon-512.png" width="56" height="56" decoding="async" alt="">
         <div class="brand-text">
-          <h1>Retro In-browser Systems & Games</h1>
+          <h1>Welcome to OAC Emulators</h1>
           <p class="tagline">Vintage machines, running entirely in your browser.</p>
         </div>
       </div>
     </header>
 
-    <h2 class="section-heading">Systems</h2>
+    <div class="section-row">
+      <h2 class="section-heading">Systems</h2>
+      <p class="section-blurb">Era-correct full hardware systems you can use like the real thing.</p>
+    </div>
     <div class="machines">
       <a class="machine-card" href="altair8800/">
         <img class="shot" src="assets/altair-panel.jpg" width="286" height="128"
@@ -308,32 +325,40 @@
 
     <div class="section-row">
       <h2 class="section-heading">Ready to Play</h2>
-      <p class="ready-note">All shareware and freeware titles remain the property of their respective owners. <a href="about.html#rights">More info</a>.</p>
+      <p class="section-blurb">Quick to play titles you can run immediately.</p>
     </div>
     <div class="machines">
       <a class="machine-card" href="pc486/?disk=doom">
         <img class="shot" src="assets/doom-e1m1.jpg" width="286" height="128"
              decoding="async" alt="Shareware DOOM, looking out a window in E1M1, on the 486 DX2-66">
-        <span class="name">Doom (Shareware)</span>
+        <span class="name">Doom</span>
+        <span class="meta">486 DX2-66 Gaming PC</span>
       </a>
       <a class="machine-card" href="pc486/?disk=wolf3d">
         <img class="shot" src="assets/wolf3d-e1m1.jpg" width="286" height="128"
              decoding="async" alt="Shareware Wolfenstein 3-D, the first cell of E1M1, on the 486 DX2-66">
-        <span class="name">Wolfenstein 3D (Shareware)</span>
+        <span class="name">Wolfenstein 3D</span>
+        <span class="meta">486 DX2-66 Gaming PC</span>
       </a>
       <a class="machine-card" href="ibmpc-at/?disk=keen1">
         <img class="shot" src="assets/keen1-mars.jpg" width="286" height="128"
              decoding="async" alt="Shareware Commander Keen 1 on the Mars map, on the IBM PC/AT">
-        <span class="name">Commander Keen (Shareware)</span>
+        <span class="name">Commander Keen</span>
+        <span class="meta">IBM PC/AT</span>
       </a>
       <a class="machine-card" href="pc486/?disk=tyrian">
         <img class="shot" src="assets/tyrian-demo.jpg" width="286" height="128"
              decoding="async" alt="Freeware Tyrian 2.1's attract demo, on the 486 DX2-66">
-        <span class="name">Tyrian (Freeware)</span>
+        <span class="name">Tyrian</span>
+        <span class="meta">486 DX2-66 Gaming PC</span>
       </a>
     </div>
+    <p class="ready-note">All shareware and freeware titles remain the property of their respective owners. <a href="about.html#rights">More info</a>.</p>
 
-    <h2 class="section-heading">Arcade</h2>
+    <div class="section-row">
+      <h2 class="section-heading">Arcade</h2>
+      <p class="section-blurb">Faithful emulation of arcade cabinet hardware.</p>
+    </div>
     <a class="arcade-portal" href="arcade/" aria-label="Enter the Arcade">
       <span class="portal-face">
         <span class="portal-stars" aria-hidden="true"></span>
@@ -343,7 +368,10 @@
       </span>
     </a>
 
-    <h2 class="section-heading">Homebrew</h2>
+    <div class="section-row">
+      <h2 class="section-heading">Homebrew</h2>
+      <p class="section-blurb">The author's own hardware projects.</p>
+    </div>
     <div class="machines">
       <a class="machine-card" href="assembler6502/">
         <img class="shot" src="assets/cg-oac-6502-board.svg" width="286" height="128"

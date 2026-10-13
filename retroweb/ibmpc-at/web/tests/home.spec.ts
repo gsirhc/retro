@@ -16,7 +16,7 @@ const HOME = "http://localhost:8310/";
 test.describe("retroweb landing page", () => {
   test("lists the IBM PC/AT with a launch link to /ibmpc-at/", async ({ page }) => {
     await page.goto(HOME);
-    await expect(page).toHaveTitle(/Retro In-browser Systems & Games/);
+    await expect(page).toHaveTitle(/Welcome to OAC Emulators/);
 
     const card = page.locator('a.machine-card[href="ibmpc-at/"]');
     await expect(card).toHaveAttribute("href", "ibmpc-at/");
@@ -34,7 +34,8 @@ test.describe("retroweb landing page", () => {
   test("Ready to Play lists Commander Keen, linking to the PC/AT with ?disk=keen1", async ({ page }) => {
     await page.goto(HOME);
     const card = page.locator('a.machine-card[href="ibmpc-at/?disk=keen1"]');
-    await expect(card.locator(".name")).toHaveText("Commander Keen (Shareware)");
+    await expect(card.locator(".name")).toHaveText("Commander Keen");
+    await expect(card.locator(".meta")).toHaveText("IBM PC/AT");
     await expect(card.locator("img.shot")).toHaveAttribute("src", /assets\/keen1-mars\.jpg$/);
     await expect(card.locator("img.shot")).toHaveJSProperty("naturalWidth", 286);
   });
@@ -57,10 +58,10 @@ test.describe("retroweb landing page", () => {
     await expect(page.locator("#siteFooter a.about-sign")).toHaveText("Help");
   });
 
-  test("the shared site footer credits RISG and the Help control goes to about.html", async ({ page }) => {
+  test("the shared site footer credits oac-emu.dev and the Help control goes to about.html", async ({ page }) => {
     await page.goto(HOME);
     const footer = page.locator("#siteFooter");
-    await expect(footer).toContainText(/© 2026 RISG/);
+    await expect(footer).toContainText(/© 2026 oac-emu\.dev/);
     await expect(footer).toContainText(/old-ass computer/);
     const about = footer.locator("a.about-sign");
     await expect(about).toHaveAttribute("href", "about.html");
@@ -70,7 +71,7 @@ test.describe("retroweb landing page", () => {
     await expect(page).toHaveTitle(/About/i);
     await expect(page.locator("a.pb-close")).toHaveAttribute("href", "./");
     await page.locator("a.pb-close").click();
-    await expect(page).toHaveTitle(/Retro In-browser Systems & Games/);
+    await expect(page).toHaveTitle(/Welcome to OAC Emulators/);
   });
 
   test("a stored retro8080.theme is honoured on load", async ({ page }) => {

@@ -15,7 +15,7 @@ const ARCADE = "http://localhost:8810/arcade/";
 test.describe("retroweb landing page", () => {
   test("lists Galaxian Arcade on the arcade hub, not the home teaser", async ({ page }) => {
     await page.goto(HOME);
-    await expect(page).toHaveTitle(/Retro In-browser Systems & Games/);
+    await expect(page).toHaveTitle(/Welcome to OAC Emulators/);
     await expect(page.locator('a.machine-card[href="galaxian/"]')).toHaveCount(0);
     const headings = page.locator("h2.section-heading");
     await expect(headings).toHaveText(["Systems", "Ready to Play", "Arcade", "Homebrew"]);
@@ -37,7 +37,7 @@ test.describe("retroweb landing page", () => {
     await page.goto(HOME);
     const computers = await page.locator('a.machine-card[href="altair8800/"], a.machine-card[href="ibmpc-at/"], a.machine-card[href="pc486/"]').locator(".name").allTextContents();
     expect(computers).toEqual(["MITS Altair 8800", "IBM PC/AT", "486 DX2-66 Gaming PC"]);
-    await expect(page.locator("h2.section-heading:has-text('Arcade') + a.arcade-portal .portal-neon")).toHaveText("Enter the Arcade");
+    await expect(page.locator(".section-row:has(h2:text-is('Arcade')) + a.arcade-portal .portal-neon")).toHaveText("Enter the Arcade");
     await expect(page.locator('h2.section-heading:has-text("Arcade") + .machines')).toHaveCount(0);
   });
 
@@ -53,10 +53,10 @@ test.describe("retroweb landing page", () => {
     await expect(page.locator("#siteFooter a.about-sign")).toHaveText("Help");
   });
 
-  test("the shared site footer credits RISG and the Help control goes to about.html", async ({ page }) => {
+  test("the shared site footer credits oac-emu.dev and the Help control goes to about.html", async ({ page }) => {
     await page.goto(HOME);
     const footer = page.locator("#siteFooter");
-    await expect(footer).toContainText(/© 2026 RISG/);
+    await expect(footer).toContainText(/© 2026 oac-emu\.dev/);
     await expect(footer).toContainText(/old-ass computer/);
     const about = footer.locator("a.about-sign");
     await expect(about).toHaveAttribute("href", "about.html");
@@ -66,7 +66,7 @@ test.describe("retroweb landing page", () => {
     await expect(page).toHaveTitle(/About/i);
     await expect(page.locator("a.pb-close")).toHaveAttribute("href", "./");
     await page.locator("a.pb-close").click();
-    await expect(page).toHaveTitle(/Retro In-browser Systems & Games/);
+    await expect(page).toHaveTitle(/Welcome to OAC Emulators/);
   });
 
   test("Windows title-bar buttons: soft-minimize collapses the page; close is disabled", async ({ page }) => {

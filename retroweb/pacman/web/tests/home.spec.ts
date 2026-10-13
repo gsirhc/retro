@@ -17,7 +17,7 @@ const ARCADE = "http://localhost:8510/arcade/";
 test.describe("retroweb landing page", () => {
   test("Arcade section is a full-width Enter the Arcade portal; cabinets stay on the hub", async ({ page }) => {
     await page.goto(HOME);
-    await expect(page).toHaveTitle(/Retro In-browser Systems & Games/);
+    await expect(page).toHaveTitle(/Welcome to OAC Emulators/);
     await expect(page.locator("h2.section-heading")).toHaveText([
       "Systems",
       "Ready to Play",
@@ -50,10 +50,10 @@ test.describe("retroweb landing page", () => {
     await expect(page.locator("#siteFooter a.about-sign")).toHaveText("Help");
   });
 
-  test("the shared site footer credits RISG and the Help control goes to about.html", async ({ page }) => {
+  test("the shared site footer credits oac-emu.dev and the Help control goes to about.html", async ({ page }) => {
     await page.goto(HOME);
     const footer = page.locator("#siteFooter");
-    await expect(footer).toContainText(/© 2026 RISG/);
+    await expect(footer).toContainText(/© 2026 oac-emu\.dev/);
     await expect(footer).toContainText(/old-ass computer/);
     const about = footer.locator("a.about-sign");
     await expect(about).toHaveAttribute("href", "about.html");
@@ -63,7 +63,7 @@ test.describe("retroweb landing page", () => {
     await expect(page).toHaveTitle(/About/i);
     await expect(page.locator("a.pb-close")).toHaveAttribute("href", "./");
     await page.locator("a.pb-close").click();
-    await expect(page).toHaveTitle(/Retro In-browser Systems & Games/);
+    await expect(page).toHaveTitle(/Welcome to OAC Emulators/);
   });
 
   test("Windows title-bar buttons: soft-minimize collapses the page; close is disabled", async ({ page }) => {
