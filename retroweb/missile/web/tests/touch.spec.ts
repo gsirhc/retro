@@ -8,6 +8,16 @@ const in1 = (page: Page) => page.evaluate(() => (window as any).__test.machine.i
 const track = (page: Page) =>
   page.evaluate(() => { const m = (window as any).__test.machine; return { x: m.trackX(), y: m.trackY() }; });
 
+// The counters wrap every 8 frames, so a polled read can't tell direction; log each nudge.
+const recordTrack = (page: Page) => page.evaluate(() => {
+  const t = (window as any).__test;
+  const log: { x: number; y: number }[] = [];
+  (window as any).__trackLog = log;
+  const setY = t.machine.setTrackY.bind(t.machine);
+  t.machine.setTrackY = (v: number) => { setY(v); log.push({ ...t.trackPos }); };
+});
+const trackLog = (page: Page) => page.evaluate(() => (window as any).__trackLog as { x: number; y: number }[]);
+
 async function dragStick(page: Page, dx: number, dy: number) {
   const box = (await page.locator("#touchControls .touch-gate").boundingBox())!;
   const cx = box.x + box.width / 2;
@@ -56,11 +66,12 @@ test.describe("touch screen", () => {
   ];
   for (const [name, dx, dy, axis, dir] of cases) {
     test(`pushing the stick ${name} counts the ${axis} counter ${dir > 0 ? "up" : "down"}`, async ({ page }) => {
+      await recordTrack(page);
       await dragStick(page, dx, dy);
-      await expect.poll(async () => (await track(page))[axis]).not.toBe(0);
-      const v = (await track(page))[axis];
-      expect(dir > 0 ? v < 8 : v >= 8).toBe(true);
+      await expect.poll(async () => (await trackLog(page)).length).toBeGreaterThan(0);
       await page.mouse.up();
+      const v = (await trackLog(page))[0][axis];
+      expect(dir > 0 ? v > 0 && v < 8 : v > 8).toBe(true);
       const held = (await track(page))[axis];
       await page.waitForTimeout(150);
       expect((await track(page))[axis]).toBe(held);

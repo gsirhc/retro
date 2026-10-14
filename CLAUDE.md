@@ -299,6 +299,38 @@ stock GitHub runner, and deploy CI runs on PRs (a public repo's fork PRs
 must never reach the Mini). Gate a wall-clock-sensitive spec with
 `test.skip(!!process.env.SLOW_HOST, "…")`, never smoke.
 
+## Check tests as you change things
+
+Deploy CI runs smoke only, so a change that breaks a full spec stays
+hidden until the nightly goes red. Catching that is your job, not the
+nightly's. Treat tests as part of every change, not a step at the end.
+
+- **Find every spec the change touches, in every machine.** Shared files
+  (`retroweb/index.html`, `arcade/index.html`, `shared/`, a shared chip)
+  are asserted by many suites. Before finishing, grep all `web/tests/`
+  and native `tests/` for the text, selector, port, or value you changed
+  and update every hit. A landing-page title change once left one stale
+  `home.spec.ts` out of twelve.
+- **Run the affected full specs locally, not just smoke.** Smoke passing
+  says nothing about the spec you edited around. Say plainly which
+  suites you ran and which you didn't.
+- **Prove a new test can fail.** Put the old behaviour back, watch the
+  test go red, then restore it (sleep 1 and touch before rebuilding
+  native code). A test that passes either way isn't a test.
+- **Hunt for flakes before CI does.** A new or edited Playwright spec
+  that depends on timing, frames, or counters gets a stress run:
+  `npx playwright test <spec> --repeat-each 8 --workers 6 --retries=0`.
+  Never assert on a value that can wrap or race between two reads; record
+  the event in the page instead. CI runs `retries: 2`, so a flake shows
+  up as "flaky", not red, until it isn't.
+- **CI is Linux, you're on macOS.** Headless Chromium behaves differently
+  there (Linux grants pointer lock on click, for one). Pin any browser
+  behaviour a test depends on with a stub instead of trusting the local
+  default.
+- **When the nightly is red, read it.** `gh run list --workflow
+  nightly-full.yml` and `gh run view --job <id> --log-failed`. Fix the
+  cause, including flakes marked "flaky", not just the hard failures.
+
 ## Always delegate to a cheaper model when the task allows it
 
 **This is the default, not a suggestion, and it does not need asking about

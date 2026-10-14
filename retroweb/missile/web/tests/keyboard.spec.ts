@@ -4,6 +4,8 @@ import { test, expect, type Page } from "@playwright/test";
 
 test.describe("keyboard input", () => {
   test.beforeEach(async ({ page }) => {
+    // Linux headless Chromium grants pointer lock on click; macOS denies it.
+    await page.addInitScript(() => { Element.prototype.requestPointerLock = () => {}; });
     await page.goto("/?test=1");
     await page.waitForFunction(() => !!(window as any).__test?.machine);
     await page.locator("#screen").click();
@@ -15,6 +17,15 @@ test.describe("keyboard input", () => {
   const trackX = (page: Page) => m(page, "trackX");
   const trackY = (page: Page) => m(page, "trackY");
   const pos = (page: Page) => page.evaluate(() => (window as any).__test.trackPos);
+  // The counters wrap every 8 frames, so a polled read can't tell direction; log each nudge.
+  const recordTrack = (page: Page) => page.evaluate(() => {
+    const t = (window as any).__test;
+    const log: { x: number; y: number }[] = [];
+    (window as any).__trackLog = log;
+    const setY = t.machine.setTrackY.bind(t.machine);
+    t.machine.setTrackY = (v: number) => { setY(v); log.push({ ...t.trackPos }); };
+  });
+  const trackLog = (page: Page) => page.evaluate(() => (window as any).__trackLog as { x: number; y: number }[]);
 
   test("released state reads idle: IN0 0xFF, IN1 0x67, trackball 0", async ({ page }) => {
     expect(await in0(page)).toBe(0xff);
@@ -81,15 +92,18 @@ test.describe("keyboard input", () => {
   ];
   for (const [key, axis, dir] of trackCases) {
     test(`${key} counts the ${axis} counter ${dir > 0 ? "up" : "down"}`, async ({ page }) => {
+      await recordTrack(page);
       await page.keyboard.down(key);
-      await expect.poll(async () => (await pos(page))[axis]).not.toBe(0);
+      await expect.poll(async () => (await trackLog(page)).length).toBeGreaterThan(0);
       await page.keyboard.up(key);
-      const p = await pos(page);
-      const steps = dir > 0 ? p[axis] : (16 - p[axis]) & 0x0f;
-      expect(steps % 2).toBe(0);
-      expect(steps).toBeGreaterThan(0);
+      const log = await trackLog(page);
+      expect(log[0][axis]).toBe(dir > 0 ? 2 : 14);
       const other = axis === "x" ? "y" : "x";
-      expect(p[other]).toBe(0);
+      for (const p of log) {
+        expect(p[axis] % 2).toBe(0);
+        expect(p[other]).toBe(0);
+      }
+      const p = await pos(page);
       expect(await (axis === "x" ? trackX : trackY)(page)).toBe(p[axis]);
       expect(await (axis === "x" ? trackY : trackX)(page)).toBe(0);
     });

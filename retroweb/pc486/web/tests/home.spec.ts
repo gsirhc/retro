@@ -17,7 +17,7 @@ const HOME = "http://localhost:8410/";
 test.describe("retroweb landing page", () => {
   test("lists the 486 DX2-66 Gaming PC with a launch link to /pc486/", async ({ page }) => {
     await page.goto(HOME);
-    await expect(page).toHaveTitle(/RETRO/i);
+    await expect(page).toHaveTitle(/Welcome to OAC Emulators/);
 
     const card = page.locator('a.machine-card[href="pc486/"]');
     await expect(card).toHaveAttribute("href", "pc486/");
