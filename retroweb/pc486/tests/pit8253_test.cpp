@@ -443,4 +443,14 @@ TEST(Pit8253Test, CyclesToNextCountIsZeroBeforeTheClockRateIsKnown) {
     EXPECT_EQ(pit.cycles_to_next_count(), 0u);
 }
 
+TEST(Pit8253Test, Channel1RefreshRisesOncePerCount) {
+    // IBM POST: mode 2, count 18 (Technical Reference, System Timers).
+    Pit8253 pit;
+    pit.out(0x43, 0x54);
+    pit.out(0x41, 0x12);
+    int rises = 0;
+    for (uint64_t now = 1; now <= 1 + 18 * 100; ++now) pit.tick(now, kPitHz, &rises);
+    EXPECT_EQ(rises, 100);
+}
+
 }  // namespace

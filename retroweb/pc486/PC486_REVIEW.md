@@ -7183,3 +7183,26 @@ address stops at the end of the block, as on real hardware.
 The OCW2 decode in `Pic8259::out_impl` still treats every non-EOI command
 (0x40 no-op, 0xC0+n set priority, the rotate forms) as an EOI, since it
 doesn't check the EOI bit (bit 5). Nothing seen here depends on it.
+
+## 52. Port 61h refresh toggle follows PIT channel 1
+
+Port 61h bit 4 flipped once per `Chipset::service()` pass, and any port
+read reopens the service gate, so a loop polling `IN AL,61h` saw a flip on
+nearly every read. Real boards toggle it with each DRAM refresh request,
+which PIT channel 1 raises every ~15 µs (IBM PC/AT Technical Reference,
+port 61h and System Timers). Refresh-calibrated delay loops ran far short.
+
+`Pit8253::tick` reports channel 1's rising edges as ibmpc-at's does
+(IBM_PCAT_REVIEW.md §46.3), and the chipset toggles bit 4 on each one.
+`BIOS-bochs-legacy` never programs channel 1, so `Machine::start_refresh()`
+writes IBM's POST bytes (`OUT 43h,54h`, `OUT 41h,12h`) at power-on and on
+reset, the same stand-in ibmpc-at uses. The 471's refresh stays hidden
+(§48.5), so no bus clocks are stolen.
+
+`ChipsetTest.RefreshToggleFollowsChannelOneNotPortReads` polls port 61h
+every 40 cycles at 66 MHz across 100 refresh periods and expects 100 flips.
+The old per-pass toggle fails it, as it does the "no refresh until channel 1
+is programmed" check.
+`ChipsetTest.RefreshToggleCountsEveryRequestInOneServicePass` lands two
+requests in one service pass and expects bit 4 unchanged, then three and
+expects it flipped.

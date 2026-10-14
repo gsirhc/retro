@@ -255,3 +255,28 @@ test.describe("ROM set loader", () => {
     await expect(page.locator("#romStatus")).toHaveText("Running test ROM");
   });
 });
+
+test.describe("with IndexedDB blocked", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.addInitScript(() => {
+      IDBFactory.prototype.open = () => { throw new DOMException("blocked", "SecurityError"); };
+    });
+    await page.goto("/?test=1");
+    await page.waitForFunction(() => (window as any).__test);
+  });
+
+  test("the test ROM still boots and runs", async ({ page }) => {
+    const c0 = await page.evaluate(() => (window as any).__test.machine.totalCycles());
+    await expect.poll(() => page.evaluate(() => (window as any).__test.machine.totalCycles())).toBeGreaterThan(c0);
+    expect(await page.evaluate(() => (window as any).__test.usingUserRom)).toBe(false);
+  });
+
+  test("a loaded set runs for the session and Remove ROMs still reverts", async ({ page }) => {
+    await page.locator("#romFile").setInputFiles(userParts());
+    await expect.poll(() => page.evaluate(() => (window as any).__test.usingUserRom)).toBe(true);
+    await expect(page.locator("#romStatus")).toHaveText("Warning: Your ROM has been loaded but the browser blocked storage (IndexedDB).  It won't reload when you return.");
+    await page.locator("#removeRomBtn").click();
+    await expect.poll(() => page.evaluate(() => (window as any).__test.usingUserRom)).toBe(false);
+    await expect(page.locator("#romStatus")).toHaveText("Running test ROM");
+  });
+});

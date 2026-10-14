@@ -181,9 +181,11 @@ cpu80486::Bus Chipset::make_bus() {
 }
 
 void Chipset::service(uint64_t cpu_cycles, double cpu_hz) {
-    int ch0_rises = pit.tick(cpu_cycles, cpu_hz);
+    int refreshes = 0;
+    int ch0_rises = pit.tick(cpu_cycles, cpu_hz, &refreshes);
     for (int i = 0; i < ch0_rises; ++i) pic_master.raise(0);
-    refresh_toggle_ = !refresh_toggle_;
+    // Port 61h bit 4 toggles with each refresh request (IBM PC/AT Technical Reference, port 61h).
+    if (refreshes & 1) refresh_toggle_ = !refresh_toggle_;
     speaker.update(cpu_cycles, (port61_ & 0x02) != 0, pit.channel2_output());
 
     fdc.tick(cpu_cycles);

@@ -574,7 +574,8 @@ GalagaArcade().then(async (Module) => {
     setStatus("Running test ROM");
   }
 
-  const stored = await idbGet(ROM_KEY);
+  let stored = null;
+  try { stored = await idbGet(ROM_KEY); } catch {}
   if (stored) {
     try { applySet(stored, true); }
     catch (e) {
@@ -605,8 +606,10 @@ GalagaArcade().then(async (Module) => {
     }
     const set = identifySet(files, hwtestCrcs);
     if (!set) throw new Error("incomplete or wrong-sized ROM set");
-    await idbSet(ROM_KEY, set);
+    let saved = true;
+    try { await idbSet(ROM_KEY, set); } catch { saved = false; }
     applySet(set, false);
+    if (!saved) setStatus("Warning: Your ROM has been loaded but the browser blocked storage (IndexedDB).  It won't reload when you return.");
     hideRomError();
   }
 
@@ -627,7 +630,7 @@ GalagaArcade().then(async (Module) => {
 
 
   document.getElementById("removeRomBtn").addEventListener("click", async () => {
-    await idbDel(ROM_KEY);
+    try { await idbDel(ROM_KEY); } catch {}
     loadBuiltInRom();
   });
 

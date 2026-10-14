@@ -124,10 +124,41 @@ TEST(ChipsetTest, Port61GatesSpeakerAndReadsBackRefreshToggle) {
     auto bus = cs.make_bus();
     bus.out(bus.ctx, 0x61, 0x01);  // gate channel 2 on
     uint8_t before = bus.in(bus.ctx, 0x61);
+    EXPECT_EQ(before & 0x01, 0x01);
     cs.tick(1000, 1193182.0);
-    uint8_t after = bus.in(bus.ctx, 0x61);
-    EXPECT_NE(before & 0x10, after & 0x10);  // refresh toggle flipped by tick()
-    EXPECT_EQ(before & 0x01, 0x01);          // gate bit reads back as programmed
+    EXPECT_EQ(bus.in(bus.ctx, 0x61) & 0x10, before & 0x10) << "no refresh until channel 1 is programmed";
+}
+
+TEST(ChipsetTest, RefreshToggleFollowsChannelOneNotPortReads) {
+    Chipset cs;
+    auto bus = cs.make_bus();
+    bus.out(bus.ctx, 0x43, 0x54);  // channel 1, LSB, mode 2, count 18 (IBM POST)
+    bus.out(bus.ctx, 0x41, 18);
+    constexpr double kHz = 66000000.0;
+    const uint64_t span = uint64_t(100 * 18 * kHz / 1193182.0);
+    uint8_t prev = bus.in(bus.ctx, 0x61) & 0x10;
+    int flips = 0;
+    // A tight IN AL,61h loop reopens the service gate on every read.
+    for (uint64_t now = 40; now <= span; now += 40) {
+        cs.tick(now, kHz);
+        uint8_t bit = bus.in(bus.ctx, 0x61) & 0x10;
+        if (bit != prev) ++flips;
+        prev = bit;
+    }
+    EXPECT_GE(flips, 99);
+    EXPECT_LE(flips, 101);
+}
+
+TEST(ChipsetTest, RefreshToggleCountsEveryRequestInOneServicePass) {
+    Chipset cs;
+    auto bus = cs.make_bus();
+    bus.out(bus.ctx, 0x43, 0x54);
+    bus.out(bus.ctx, 0x41, 18);
+    uint8_t before = bus.in(bus.ctx, 0x61) & 0x10;
+    cs.tick(1 + 18 * 2, 1193182.0);  // load clock, then two requests
+    EXPECT_EQ(bus.in(bus.ctx, 0x61) & 0x10, before);
+    cs.tick(1 + 18 * 5, 1193182.0);  // three more
+    EXPECT_NE(bus.in(bus.ctx, 0x61) & 0x10, before);
 }
 
 TEST(ChipsetTest, DmaPageRegisterRoundTripsThroughPorts) {

@@ -4,8 +4,8 @@ The open gaps between this machine and a real 1993-94 DX2-66 board, plus
 the test gaps against the repo rules in `CLAUDE.md`. When an item is
 fixed, write it up in `PC486_REVIEW.md` as usual (fact, why it matters,
 what it fixed, source) and delete it here. Done so far: the PIT and PIC
-(§41), the VGA (§42, §43), the CPU edges C1-C14 (§44-§46), and cache,
-bus and pipeline timing (§47, §48).
+(§41), the VGA (§42, §43), the CPU edges C1-C14 (§44-§46), cache, bus
+and pipeline timing (§47, §48), and the port 61h refresh toggle (§52).
 
 Rough parity today: **~91%**.
 
@@ -36,11 +36,6 @@ page, a Playwright test, in the same commit.
 - **P7. No game port.** 201h on the SB16, the 558 one-shot timing
   model, and a Gamepad API / keyboard mapping on the page. Source: SB16
   hardware reference; IBM Game Control Adapter technical reference.
-- **P8. Port 61h bit 4 isn't driven by channel 1.** `Chipset::service`
-  flips the refresh toggle on every service pass. On an AT it follows
-  the refresh request from channel 1's OUT (about every 15 us with the
-  BIOS's count of 18), and BIOS delay loops count its edges. Source: IBM
-  PC/AT Technical Reference, port 61h.
 
 ## 2. VGA
 

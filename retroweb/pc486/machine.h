@@ -18,14 +18,23 @@ public:
         chipset.timing = &cache;
         chipset.timing_clock = &cpu.cycles;
         reset_cpu();
+        start_refresh();
         set_rep_yield();
         configure_factory_cmos();
     }
 
     void reset() {
         chipset.reset();
+        start_refresh();
         reset_cpu();
         // Reset pulses RESET to CPU and chipset; battery-backed CMOS is kept
+    }
+
+    // Channel 1 mode 2, count 18, as IBM's POST does (IBM PC/AT Technical
+    // Reference, BIOS listing); the stand-in BIOS never starts refresh.
+    void start_refresh() {
+        chipset.pit.out(0x43, 0x54);
+        chipset.pit.out(0x41, 0x12);
     }
 
     // Seeds CMOS with the factory configuration (memory, floppy, equipment, boot

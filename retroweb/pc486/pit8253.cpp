@@ -19,11 +19,15 @@ void Pit8253::reset() {
     pit_credit_ = 0.0;
     prev_cycles_ = 0;
     ch0_rises_ = 0;
+    ch1_rises_ = 0;
 }
 
 void Pit8253::set_output(int idx, bool level) {
     Channel &ch = ch_[idx];
-    if (idx == 0 && level && !ch.output) ++ch0_rises_;
+    if (level && !ch.output) {
+        if (idx == 0) ++ch0_rises_;
+        else if (idx == 1) ++ch1_rises_;
+    }
     ch.output = level;
 }
 
@@ -281,10 +285,12 @@ void Pit8253::step_channel(int idx) {
     }
 }
 
-int Pit8253::step_counts(int count) {
+int Pit8253::step_counts(int count, int *ch1_rises) {
     for (int i = 0; i < count; ++i) {
         for (int c = 0; c < 3; ++c) step_channel(c);
     }
+    if (ch1_rises) *ch1_rises += ch1_rises_;
+    ch1_rises_ = 0;
     int rises = ch0_rises_;
     ch0_rises_ = 0;
     return rises;

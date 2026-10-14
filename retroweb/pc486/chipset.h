@@ -93,8 +93,8 @@ public:
     uint8_t port61() const;
     void set_port61(uint8_t v);
 
-    // Advances the PIT and pulses IRQ0, flips the refresh toggle, and ticks the
-    // floppy, VGA, HDD and CD-ROM. Called once per CPU instruction.
+    // Advances the PIT and pulses IRQ0, toggles refresh per channel 1 edge, and
+    // ticks the floppy, VGA, HDD and CD-ROM. Called once per CPU instruction.
     // The service pass runs on the chipset's own slow clock (PIT 1.193182 MHz),
     // so next_service_ skips it until then. Any port access reopens the gate; A20
     // is checked on every call. Returns true when the full pass ran.

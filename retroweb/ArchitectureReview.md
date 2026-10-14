@@ -35,24 +35,30 @@ different fidelity levels for the same chip:
 - **8259 PIC.** ibmpc-at models the transparent request latch, two-cycle INTA,
   default IR7, and CAS-line cascading (`ibmpc-at/pic8259.h`). pc486 has a
   simpler edge-only `raise()`/`acknowledge()` model.
-- **8253 PIT.** ibmpc-at counts channel 1 refresh edges; pc486 dropped them
-  (see H2).
+- **8253 PIT.** Both now count channel 1 refresh edges (H2), so the two
+  differ only in namespace, the header comment, and pc486's
+  `cycles_to_next_count()` service-gate helper.
 
 **Fix:** a `shared/pc/` library parameterised by the genuine hardware
 differences (RTC 64 vs 128 bytes, default date, and so on), so a fidelity fix
 lands once.
 
-### H2. pc486 port 61h bit 4 (refresh toggle) is likely wrong
+### H2. pc486 port 61h bit 4 (refresh toggle). Fixed
 
-- `pc486/chipset.cpp:186` flips the bit once per `service()` pass, and
-  `chipset.cpp:109` reopens the service gate on every port read.
-- A BIOS or driver delay loop polling `in al,61h` therefore sees a flip on
-  nearly every read instead of every ~15 µs (PIT channel 1), so
-  refresh-calibrated delays run far too short.
-- ibmpc-at does it right (`ibmpc-at/chipset.cpp:153`).
-- The only test, `EXPECT_NE(before & 0x10, after & 0x10)` in
-  `pc486/tests/chipset_test.cpp:129`, passes either way. Add a test that
-  measures the flip rate.
+- `pc486/chipset.cpp` flipped the bit once per `service()` pass, and every
+  port read reopens the service gate, so a loop polling `in al,61h` saw a
+  flip on nearly every read instead of every ~15 µs.
+- **Fixed** (`pc486/PC486_REVIEW.md` §52). pc486's `Pit8253::tick` reports
+  channel 1's rising edges as ibmpc-at's does, the chipset toggles bit 4 on
+  each one, and `Machine::start_refresh()` programs channel 1 with IBM's
+  POST bytes, since the Bochs BIOS never does. PARITY item P8 is closed.
+- **Tests.** `ChipsetTest.RefreshToggleFollowsChannelOneNotPortReads`
+  measures the flip rate (100 flips over 100 refresh periods at 66 MHz,
+  polled every 40 cycles). `RefreshToggleCountsEveryRequestInOneServicePass`
+  checks that two requests in one pass leave the bit unchanged. Also
+  `Pit8253Test.Channel1RefreshRisesOncePerCount` and
+  `MachineTest.RefreshRunsFromPowerOnAndAfterReset`. The old toggle fails
+  both port 61h chipset tests.
 
 ### H3. Arcade front ends are mostly copy-paste, and a fix already didn't propagate
 
@@ -69,12 +75,19 @@ lands once.
 worklet, hiscore/DIP persistence, and the tick loop. Each machine keeps
 `roleOf`/`identifySet`, `applyKeys`, and its hiscore address and signature.
 
-### H4. All 7 arcades freeze if IndexedDB fails
+### H4. Arcades froze if IndexedDB failed. Fixed
 
-`const stored = await idbGet(ROM_KEY)` (for example
-`frogger/web/app.js:479`) is unguarded. If storage is blocked, the promise
-rejects before `requestAnimationFrame(tick)` and even the self-test ROM never
-runs. No test covers it. Wrap the call and fall back to the built-in ROM.
+`const stored = await idbGet(ROM_KEY)` was unguarded. If storage was
+blocked, the promise rejected before `requestAnimationFrame(tick)` and even
+the self-test ROM never ran.
+
+**Fixed** in all 8 arcades (missile included). The boot read falls back to
+the built-in ROM. The `idbSet` after an upload no longer turns a good set
+into "ROM rejected", and Remove ROMs reverts even if the delete fails. A
+loaded set then runs for the session only, and the status line warns
+that it won't reload. Each `rom.spec.ts` has a "with IndexedDB blocked"
+block that makes `IDBFactory.open` throw and checks that the CPU runs, an
+upload applies with that warning, and Remove ROMs reverts.
 
 ## Medium priority
 
@@ -168,8 +181,7 @@ Playwright strips types without checking them.
 
 ## Suggested order
 
-1. **H2 and H4.** Real bugs, small fixes. Add a refresh-rate test and a
-   blocked-IndexedDB test.
+1. ~~**H2 and H4.**~~ Done. See H2 and H4 above.
 2. **H3, with M1 and the galaga `idbSet` fix.** Extracting `arcade-core.js`
    makes the hiscore tests exercise the real code path.
 3. **M2, M3, M4, M7.** Cheap, and they tighten the guardrails.

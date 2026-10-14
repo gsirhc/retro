@@ -1,6 +1,6 @@
 // Intel 8254 PIT. Three 16-bit down-counters clocked at 1.193182 MHz (14.31818
 // MHz / 12), independent of the CPU clock. Channel 0 drives IRQ0 (BIOS divisor 0 =
-// 65536 gives the 18.206 Hz DOS tick). Channel 1 refresh is not modeled. Channel 2,
+// 65536 gives the 18.206 Hz DOS tick). Channel 1 requests DRAM refresh. Channel 2,
 // gated by port 0x61 bit 0, drives the speaker (pcspeaker.h). Gates 0 and 1 are tied high.
 // Ports 0x40-0x42 data, 0x43 control. All six modes, BCD, counter latch and
 // read-back follow Intel 8254 data sheet (231164), "Mode Definitions" and
@@ -24,9 +24,10 @@ public:
     void out(uint16_t port, uint8_t v);
 
     // Advances the PIT clock against the CPU's absolute cycle count (like
-    // CassetteACR::tick). Returns channel 0's rising edges for IRQ0. Inline: at
-    // 66 MHz most calls have no whole count to step; step_counts() does the rest.
-    int tick(uint64_t cpu_cycles, double cpu_hz) {
+    // CassetteACR::tick). Returns channel 0's rising edges for IRQ0 and adds
+    // channel 1's (refresh requests) to `ch1_rises`. Inline: at 66 MHz most calls
+    // have no whole count to step; step_counts() does the rest.
+    int tick(uint64_t cpu_cycles, double cpu_hz, int *ch1_rises = nullptr) {
         uint64_t d = cpu_cycles - prev_cycles_;
         prev_cycles_ = cpu_cycles;
     if (cpu_hz != ratio_hz_) {
@@ -38,7 +39,7 @@ public:
         int whole = int(pit_credit_);
         if (whole == 0) return 0;
         pit_credit_ -= whole;
-        return step_counts(whole);
+        return step_counts(whole, ch1_rises);
     }
 
     // CPU cycles until this counter can next advance (Chipset::tick). Floored,
@@ -90,6 +91,7 @@ private:
     double ratio_hz_ = 0.0, pit_per_cpu_cycle_ = 0.0, cpu_per_pit_count_ = 0.0;
 
     int ch0_rises_ = 0;  // channel 0 rising edges not yet handed to tick()'s caller
+    int ch1_rises_ = 0;
 
     void set_output(int idx, bool level);
     void write_count(int idx, uint32_t raw);
@@ -97,7 +99,7 @@ private:
     void latch_status(Channel &ch);
     void step_channel(int idx);
     // Steps all three channels `count` times, returning channel 0's rising edges.
-    int step_counts(int count);
+    int step_counts(int count, int *ch1_rises);
 };
 
 }  // namespace pc486

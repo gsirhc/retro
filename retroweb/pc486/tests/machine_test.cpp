@@ -51,6 +51,17 @@ TEST(MachineTest, FactoryCmosSurvivesAnExplicitResetCall) {
     EXPECT_EQ(m.chipset.cmos.peek(0x10), 0x40);
 }
 
+TEST(MachineTest, RefreshRunsFromPowerOnAndAfterReset) {
+    Machine m;
+    for (int pass = 0; pass < 2; ++pass) {
+        int rises = 0;
+        m.chipset.pit.tick(0, Machine::kCpuHz);
+        m.chipset.pit.tick(uint64_t(19 * Machine::kCpuHz / 1193182.0) + 1, Machine::kCpuHz, &rises);
+        EXPECT_EQ(rises, 1) << "pass " << pass;
+        m.reset();
+    }
+}
+
 TEST(MachineTest, RunCyclesAdvancesAtLeastTheRequestedAmount) {
     Machine m;
     m.reset();
