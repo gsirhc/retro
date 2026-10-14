@@ -28,12 +28,24 @@ function userSet() {
 }
 
 const SAMPLE = Array.from({ length: 51 }, (_, i) => (i === 4 ? 0x76 : i & 0xff));
-const SENTINEL = Array.from({ length: 51 }, () => 0x99);
+
+// POST writes the 20000 table at $8A20; the self-test fill can overwrite it, so plant it until the restore lands.
+async function postWritesFactoryTable(page: import("@playwright/test").Page) {
+  await page.waitForFunction(() => {
+    const t = (window as any).__test;
+    if (!t.hiscoreRestored) {
+      const factory = [0x00, 0x00, 0x00, 0x00, 0x02, 0x24];
+      for (let i = 0; i < factory.length; i++) t.machine.setRamByte(0x8A20 + i, factory[i]);
+    }
+    return t.hiscoreRestored;
+  }, null, { timeout: 15_000 });
+}
 
 test.describe("HIGH SCORE persist", () => {
   test.describe.configure({ mode: "serial" });
   test.beforeEach(async ({ page }) => {
     await page.goto("/?test=1");
+    await page.waitForFunction(() => (window as any).__test);
   });
 
   test("Reset is present and disabled on the self-test ROM", async ({ page }) => {
@@ -56,12 +68,18 @@ test.describe("HIGH SCORE persist", () => {
 
     await page.reload();
     await expect(page.locator("#romStatus")).toHaveText("Loaded stored ROM set");
+    expect(await page.evaluate(() => (window as any).__test.hiscoreRestored)).toBe(false);
 
-    const bytes = await page.evaluate(async () => {
-      await (window as any).__test.restoreHiscoreNow();
-      return (window as any).__test.readHiscore();
-    });
-    expect(bytes).toEqual(SAMPLE);
+    await postWritesFactoryTable(page);
+    expect(await page.evaluate(() => (window as any).__test.readHiscore())).toEqual(SAMPLE);
+  });
+
+  test("Remove ROMs disables Reset again", async ({ page }) => {
+    await page.locator("#romFile").setInputFiles(userSet());
+    await expect(page.locator("#resetHiscore")).toBeEnabled();
+    await page.locator("#removeRomBtn").click();
+    await expect(page.locator("#romStatus")).toHaveText("Running test ROM");
+    await expect(page.locator("#resetHiscore")).toBeDisabled();
   });
 
   test("Reset Cancel leaves the saved table in place", async ({ page }) => {
@@ -91,23 +109,15 @@ test.describe("HIGH SCORE persist", () => {
       await t.saveHiscoreNow(t.readHiscore());
     }, SAMPLE);
 
+    expect(Object.keys(await page.evaluate(() => (window as any).__test.savedHiscores()))).toHaveLength(1);
+
     await page.locator("#resetHiscore").click();
     await page.locator("#hiscoreResetOk").click();
     await expect(page.locator("#hiscoreResetHint")).toBeHidden();
-    // Confirm resets the board asynchronously; wait for the self-test fill to finish.
-    await expect.poll(() => page.evaluate(() => (window as any).__test.readHiscore()[4])).toBe(0);
-    const frames = await page.evaluate(() => (window as any).__test.machine.state().frames);
-    await expect.poll(() => page.evaluate(() => (window as any).__test.machine.state().frames)).toBeGreaterThan(frames + 2);
+    await expect.poll(async () => Object.keys(await page.evaluate(() => (window as any).__test.savedHiscores()))).toHaveLength(0);
 
-    const bytes = await page.evaluate(async (sent) => {
-      const t = (window as any).__test;
-      await t.restoreHiscoreNow();
-      const afterRestore = t.readHiscore();
-      t.writeHiscore(sent);
-      return { afterRestore, afterPoke: t.readHiscore() };
-    }, SENTINEL);
-    expect(bytes.afterRestore).not.toEqual(SAMPLE);
-    expect(bytes.afterPoke).toEqual(SENTINEL);
+    await postWritesFactoryTable(page);
+    expect(await page.evaluate(() => (window as any).__test.readHiscore())).not.toEqual(SAMPLE);
   });
 
   // POST junk at $8A20 must not count as restored; plant the factory 20000 prefix.

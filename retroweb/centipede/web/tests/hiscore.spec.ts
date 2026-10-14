@@ -92,6 +92,14 @@ test.describe("HIGH SCORE persist", () => {
     })).toBe(0x42);
   });
 
+  test("Remove ROMs disables Reset again", async ({ page }) => {
+    await page.locator("#romFile").setInputFiles(userSet());
+    await expect(page.locator("#resetHiscore")).toBeEnabled();
+    await page.locator("#removeRomBtn").click();
+    await expect(page.locator("#romStatus")).toHaveText("Running test ROM");
+    await expect(page.locator("#resetHiscore")).toBeDisabled();
+  });
+
   test("Reset Cancel leaves the saved table in place", async ({ page }) => {
     await page.locator("#romFile").setInputFiles(userSet());
     await expect(page.locator("#romStatus")).toHaveText("Loaded ROM set");

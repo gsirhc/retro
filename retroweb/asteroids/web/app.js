@@ -2,7 +2,6 @@
 
 const CPU_HZ = 1_512_000;
 const IDB_NAME = "retroweb-asteroids";
-const IDB_STORE = "roms";
 const ROM_KEY = "set";
 const TEST = new URLSearchParams(location.search).has("test");
 const DIP_KEY = "retroweb.asteroids.dips";
@@ -11,80 +10,6 @@ const DSW1_FACTORY = 0x12; // 1C/1C, x1 center, 3 lives (bit4), English
 // Work RAM range holding the high-score table, through the initials at $51.
 const HISCORE_ADDR = 0x1d;
 const HISCORE_LEN = 0x35;
-
-function crc32(bytes) {
-  let c = ~0;
-  for (let i = 0; i < bytes.length; i++) {
-    c ^= bytes[i];
-    for (let j = 0; j < 8; j++) c = (c >>> 1) ^ (0xEDB88320 & -(c & 1));
-  }
-  return (~c) >>> 0;
-}
-
-async function unzip(buf) {
-  const files = {};
-  const v = new DataView(buf);
-  let i = 0;
-  const u8 = new Uint8Array(buf);
-  while (i + 30 <= u8.length) {
-    if (v.getUint32(i, true) !== 0x04034b50) break;
-    const method = v.getUint16(i + 8, true);
-    const compSz = v.getUint32(i + 18, true);
-    const nameLen = v.getUint16(i + 26, true);
-    const extraLen = v.getUint16(i + 28, true);
-    const name = new TextDecoder().decode(u8.subarray(i + 30, i + 30 + nameLen));
-    const start = i + 30 + nameLen + extraLen;
-    const slice = u8.subarray(start, start + compSz);
-    let out;
-    if (method === 0) out = slice.slice();
-    else if (method === 8) {
-      const ds = new DecompressionStream("deflate-raw");
-      const stream = new Blob([slice]).stream().pipeThrough(ds);
-      out = new Uint8Array(await new Response(stream).arrayBuffer());
-    } else throw new Error("unsupported zip compression");
-    files[name.split("/").pop().toLowerCase()] = out;
-    i = start + compSz;
-  }
-  return files;
-}
-
-function idb() {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(IDB_NAME, 1);
-    req.onupgradeneeded = () => req.result.createObjectStore(IDB_STORE);
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
-}
-
-async function idbGet(key) {
-  const db = await idb();
-  return new Promise((resolve, reject) => {
-    const r = db.transaction(IDB_STORE, "readonly").objectStore(IDB_STORE).get(key);
-    r.onsuccess = () => resolve(r.result || null);
-    r.onerror = () => reject(r.error);
-  });
-}
-
-async function idbSet(key, val) {
-  const db = await idb();
-  return new Promise((resolve, reject) => {
-    const r = db.transaction(IDB_STORE, "readwrite").objectStore(IDB_STORE).put(val, key);
-    r.onsuccess = () => resolve();
-    r.onerror = () => reject(r.error);
-  });
-}
-
-async function idbDel(key) {
-  const db = await idb();
-  return new Promise((resolve, reject) => {
-    const r = db.transaction(IDB_STORE, "readwrite").objectStore(IDB_STORE).delete(key);
-    r.onsuccess = () => resolve();
-    r.onerror = () => reject(r.error);
-  });
-}
-
-function hexCrc(bytes) { return crc32(bytes).toString(16).padStart(8, "0"); }
 
 function concat3(parts) {
   const out = new Uint8Array(0x1800);
@@ -136,8 +61,8 @@ function identifySet(files, hwtestCrcs) {
 
   let kind = "user";
   if (hwtestCrcs &&
-      hexCrc(program) === hwtestCrcs.program &&
-      hexCrc(vector) === hwtestCrcs.vector) {
+      arcadeHexCrc(program) === hwtestCrcs.program &&
+      arcadeHexCrc(vector) === hwtestCrcs.vector) {
     kind = "hwtest";
   }
   return { kind, program, vector };
@@ -164,21 +89,11 @@ AsteroidsArcade().then(async (Module) => {
   const screen = document.getElementById("screen");
   const ctx = screen.getContext("2d", { alpha: false });
   const status = document.getElementById("romStatus");
-  const mute = document.getElementById("mute");
-  function isMuted() { return mute.getAttribute("aria-pressed") === "true"; }
-  mute.addEventListener("click", () => {
-    const next = !isMuted();
-    mute.setAttribute("aria-pressed", next ? "true" : "false");
-    mute.title = next ? "Unmute" : "Mute";
-    mute.setAttribute("aria-label", next ? "Unmute" : "Mute");
-  });
-  const resetHiscore = document.getElementById("resetHiscore");
-  const hiscoreResetHint = document.getElementById("hiscoreResetHint");
+  const store = arcadeStore(IDB_NAME);
+  const audio = arcadeAudio(machine, document.getElementById("mute"), "ast");
 
   let usingUserRom = false;
   let romKey = 0;
-  let hiscoreRestored = false;
-  let lastSavedHiscore = "";
   let selfTest = false;
   const keys = {};
   const coinUntil = { left: 0, center: 0, right: 0 };
@@ -320,68 +235,7 @@ AsteroidsArcade().then(async (Module) => {
     applyKeys();
   });
 
-  let audioCtx = null, audioNode = null;
-  async function ensureAudio() {
-    if (isMuted()) return;
-    if (audioCtx) {
-      if (audioCtx.state === "suspended") await audioCtx.resume();
-      return;
-    }
-    audioCtx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: "interactive" });
-    // Output device rate varies, don't assume 48 kHz.
-    machine.setAudioHz(audioCtx.sampleRate);
-    if (!audioCtx.audioWorklet) return;
-    const src = `registerProcessor("ast", class extends AudioWorkletProcessor {
-      constructor() {
-        super();
-        this.q = [];
-        this.i = 0;
-        this.port.onmessage = e => {
-          // Drop backlog so a main-thread stall cannot leave the sound behind the picture.
-          if (this.q.length > 2) { this.q = []; this.i = 0; }
-          this.q.push(e.data);
-        };
-      }
-      process(_, outputs) {
-        const o = outputs[0][0];
-        for (let i = 0; i < o.length; i++) {
-          if (this.q.length && this.i >= this.q[0].length) { this.q.shift(); this.i = 0; }
-          o[i] = this.q.length ? this.q[0][this.i++] : 0;
-        }
-        return true;
-      }
-    });`;
-    const url = URL.createObjectURL(new Blob([src], { type: "text/javascript" }));
-    await audioCtx.audioWorklet.addModule(url);
-    audioNode = new AudioWorkletNode(audioCtx, "ast");
-    audioNode.connect(audioCtx.destination);
-  }
-
-  document.addEventListener("click", () => { ensureAudio().catch(() => {}); }, { once: true });
-
-  function pumpAudio() {
-    if (!audioNode || isMuted()) {
-      machine.drainAudio();
-      return;
-    }
-    const samples = machine.drainAudio();
-    if (samples.length) audioNode.port.postMessage(samples, [samples.buffer]);
-  }
-
   function setStatus(t) { status.textContent = t; }
-
-  const romErrorHint = document.getElementById("romErrorHint");
-  document.getElementById("romErrorOk")?.addEventListener("click", () => romErrorHint?.close());
-  function showRomError() {
-    if (romErrorHint && !romErrorHint.open) romErrorHint.showModal();
-  }
-  function hideRomError() {
-    if (romErrorHint && romErrorHint.open) romErrorHint.close();
-  }
-
-  function syncHiscoreResetBtn() {
-    if (resetHiscore) resetHiscore.disabled = !usingUserRom;
-  }
 
   function readHiscore() {
     const b = [];
@@ -402,74 +256,29 @@ AsteroidsArcade().then(async (Module) => {
     return true;
   }
 
-  async function loadSavedHiscores() {
-    const all = await idbGet("hiscores");
-    if (!all || typeof all !== "object" || Array.isArray(all)) return {};
-    return { ...all };
-  }
-
-  function hiscoreKey() { return String(romKey >>> 0); }
-
-  async function saveHiscoreNow(bytes) {
-    const all = await loadSavedHiscores();
-    all[hiscoreKey()] = Array.from(bytes).slice(0, HISCORE_LEN);
-    await idbSet("hiscores", all);
-    lastSavedHiscore = bytes.join(",");
-  }
-
   // NMI runs at about 246 Hz. A few hundred frames is past the ROM's startup RAM clear.
   function postDone() {
     return machine.frames() >= 180 && hiscoreIsFactory(readHiscore());
   }
 
-  let restoreInFlight = false;
-  async function maybeRestoreHiscore() {
-    if (!usingUserRom || restoreInFlight || hiscoreRestored) return;
-    if (!postDone()) return;
-    restoreInFlight = true;
-    try {
-      const all = await loadSavedHiscores();
-      const saved = all[hiscoreKey()];
-      if (saved && saved.length >= HISCORE_LEN) writeHiscore(saved);
-      hiscoreRestored = true;
-      lastSavedHiscore = readHiscore().join(",");
-    } finally {
-      restoreInFlight = false;
-    }
-  }
-
-  let saveInFlight = false;
-  async function maybeSaveHiscore() {
-    if (!usingUserRom || saveInFlight || !hiscoreRestored) return;
-    const cur = readHiscore();
-    if (hiscoreIsFactory(cur)) return;
-    const key = cur.join(",");
-    if (key === lastSavedHiscore) return;
-    saveInFlight = true;
-    try { await saveHiscoreNow(cur); }
-    finally { saveInFlight = false; }
-  }
+  const hiscore = arcadeHiscore({
+    store,
+    len: HISCORE_LEN,
+    active: () => usingUserRom,
+    key: () => String(romKey >>> 0),
+    read: readHiscore,
+    write: writeHiscore,
+    isFactory: hiscoreIsFactory,
+    ready: postDone,
+  });
 
   async function resetHiscoreNow() {
     if (!usingUserRom) return;
-    hiscoreRestored = false;
-    lastSavedHiscore = readHiscore().join(",");
-    const all = await loadSavedHiscores();
-    delete all[hiscoreKey()];
-    await idbSet("hiscores", all);
+    await hiscore.forget();
     machine.reset();
     applyDips();
   }
-
-  resetHiscore.addEventListener("click", () => {
-    if (!usingUserRom) return;
-    if (hiscoreResetHint && !hiscoreResetHint.open) hiscoreResetHint.showModal();
-  });
-  document.getElementById("hiscoreResetCancel")?.addEventListener("click", () => hiscoreResetHint?.close());
-  document.getElementById("hiscoreResetOk")?.addEventListener("click", async () => {
-    hiscoreResetHint?.close();
-    await resetHiscoreNow();
-  });
+  const syncHiscoreResetBtn = arcadeHiscoreReset(() => usingUserRom, resetHiscoreNow);
 
   const dipCoinage = document.getElementById("dipCoinage");
   const dipRightMech = document.getElementById("dipRightMech");
@@ -489,26 +298,22 @@ AsteroidsArcade().then(async (Module) => {
     applyKeys();
   }
 
+  const dips = arcadePrefs(DIP_KEY);
   function saveDips() {
-    try {
-      localStorage.setItem(DIP_KEY, JSON.stringify({
-        dsw1: encodeDsw1(),
-        selfTest: !!dipSelfTest.checked,
-      }));
-    } catch {}
+    dips.save({
+      dsw1: encodeDsw1(),
+      selfTest: !!dipSelfTest.checked,
+    });
     applyDips();
   }
 
   function loadDips() {
     let dsw1 = DSW1_FACTORY;
-    try {
-      const raw = localStorage.getItem(DIP_KEY);
-      if (raw) {
-        const s = JSON.parse(raw);
-        if (typeof s.dsw1 === "number") dsw1 = s.dsw1 & 0xff;
-        dipSelfTest.checked = !!s.selfTest;
-      }
-    } catch {}
+    const s = dips.load();
+    if (s) {
+      if (typeof s.dsw1 === "number") dsw1 = s.dsw1 & 0xff;
+      dipSelfTest.checked = !!s.selfTest;
+    }
     dipCoinage.value = String(dsw1 & 0x03);
     dipRightMech.value = String(dsw1 & 0x0c);
     dipCenterMech.value = String(dsw1 & 0x20);
@@ -525,9 +330,8 @@ AsteroidsArcade().then(async (Module) => {
     if (!set || !set.program || !set.vector) throw new Error("incomplete ROM set");
     machine.loadRomSet(set.program, set.vector);
     usingUserRom = set.kind !== "hwtest";
-    romKey = crc32(set.program) ^ crc32(set.vector);
-    hiscoreRestored = false;
-    lastSavedHiscore = "";
+    romKey = arcadeCrc32(set.program) ^ arcadeCrc32(set.vector);
+    hiscore.rearm();
     syncHiscoreResetBtn();
     setStatus(label);
   }
@@ -541,83 +345,28 @@ AsteroidsArcade().then(async (Module) => {
   function loadBuiltInRom() {
     machine.loadHwtest();
     usingUserRom = false;
-    hiscoreRestored = false;
-    lastSavedHiscore = "";
+    hiscore.rearm();
     syncHiscoreResetBtn();
     setStatus("Running test ROM");
   }
 
-  let stored = null;
-  try { stored = await idbGet(ROM_KEY); } catch {}
-  if (stored) {
-    try { applySet(stored, "Loaded stored ROM set"); }
-    catch (e) {
-      loadBuiltInRom();
-      setStatus("Stored ROM unreadable. Using test ROM");
-      showRomError();
-    }
-  }
-
-  function bufOf(bytes) {
-    if (bytes instanceof ArrayBuffer) return bytes;
-    if (ArrayBuffer.isView(bytes)) {
-      return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
-    }
-    return bytes;
-  }
-
-  async function ingestRomFiles(items) {
-    const files = {};
-    for (const f of items) {
-      const name = f.name.toLowerCase();
-      const bytes = f.bytes instanceof Uint8Array
-        ? f.bytes
-        : new Uint8Array(await f.arrayBuffer());
-      if (name.endsWith(".zip")) Object.assign(files, await unzip(bufOf(bytes)));
-      else files[name] = bytes;
-    }
-    const set = identifySet(files, hwtestCrcs);
-    if (!set) throw new Error("incomplete or wrong-sized ROM set");
-    applySet(set, labelFor(set.kind));
-    try { await idbSet(ROM_KEY, set); } catch { setStatus("Warning: Your ROM has been loaded but the browser blocked storage (IndexedDB).  It won't reload when you return."); }
-    hideRomError();
-  }
-
-  document.getElementById("loadRomBtn").addEventListener("click", () => {
-    document.getElementById("romFile").click();
+  const roms = arcadeRomLoader({
+    store,
+    key: ROM_KEY,
+    identify: (files) => identifySet(files, hwtestCrcs),
+    apply: (set, stored) => applySet(set, stored ? "Loaded stored ROM set" : labelFor(set.kind)),
+    builtIn: loadBuiltInRom,
+    setStatus,
   });
+  await roms.boot();
 
-  document.getElementById("romFile").addEventListener("change", async (ev) => {
-    const list = [...ev.target.files];
-    ev.target.value = "";
-    try {
-      await ingestRomFiles(list);
-    } catch (e) {
-      setStatus("ROM rejected: " + e.message);
-      showRomError();
-    }
+  arcadeLoop({
+    machine,
+    hz: CPU_HZ,
+    audio,
+    hiscore,
+    blit,
   });
-
-  document.getElementById("removeRomBtn").addEventListener("click", async () => {
-    try { await idbDel(ROM_KEY); } catch {}
-    loadBuiltInRom();
-  });
-
-  let lastT = null;
-  function tick(t) {
-    if (lastT === null) lastT = t;
-    let dt = (t - lastT) / 1000;
-    lastT = t;
-    if (dt > 0.08) dt = 0.08;
-    const cycles = Math.floor(CPU_HZ * dt);
-    if (cycles > 0) machine.runCycles(cycles);
-    maybeRestoreHiscore().catch(() => {});
-    maybeSaveHiscore().catch(() => {});
-    blit();
-    pumpAudio();
-    requestAnimationFrame(tick);
-  }
-  requestAnimationFrame(tick);
 
   if (TEST) {
     window.__test = {
@@ -625,34 +374,28 @@ AsteroidsArcade().then(async (Module) => {
       touch,
       get status() { return status.textContent; },
       get usingUserRom() { return usingUserRom; },
-      mute,
-      get muted() { return isMuted(); },
+      mute: document.getElementById("mute"),
+      get muted() { return audio.isMuted(); },
       encodeDsw1,
       readHiscore,
       writeHiscore,
-      saveHiscoreNow,
-      maybeSaveHiscore,
+      saveHiscoreNow: hiscore.saveNow,
+      maybeSaveHiscore: hiscore.maybeSave,
       resetHiscoreNow,
-      get hiscoreRestored() { return hiscoreRestored; },
-      get hiscoreKey() { return hiscoreKey(); },
-      restoreHiscoreNow: async () => {
-        if (!usingUserRom) return false;
-        const all = await loadSavedHiscores();
-        const saved = all[hiscoreKey()];
-        if (saved && saved.length >= HISCORE_LEN) writeHiscore(saved);
-        hiscoreRestored = true;
-        lastSavedHiscore = readHiscore().join(",");
-        return true;
-      },
-      crc32,
+      get hiscoreRestored() { return hiscore.restored; },
+      get hiscoreKey() { return String(romKey >>> 0); },
+      restoreHiscoreNow: hiscore.restoreNow,
+      hiscoreReady: hiscore.ready,
+      savedHiscores: hiscore.loadAll,
+      crc32: arcadeCrc32,
       identifySet,
       hwtestCrcs,
       applySet,
       ROM_KEY,
-      loadSavedHiscores,
+      loadSavedHiscores: hiscore.loadAll,
       wipeStorage: async () => {
-        await idbDel("set");
-        await idbDel("hiscores");
+        await store.del("set");
+        await store.del("hiscores");
       },
     };
   }

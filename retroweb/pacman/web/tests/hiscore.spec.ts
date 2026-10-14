@@ -32,6 +32,7 @@ function userSet() {
 test.describe("HIGH SCORE persist", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto("/?test=1");
+    await page.waitForFunction(() => (window as any).__test);
   });
 
   test("Reset is present and disabled on the self-test ROM", async ({ page }) => {
@@ -54,12 +55,21 @@ test.describe("HIGH SCORE persist", () => {
 
     await page.reload();
     await expect(page.locator("#romStatus")).toHaveText("Loaded stored ROM set");
+    expect(await page.evaluate(() => (window as any).__test.hiscoreReady())).toBe(false);
 
     const bytes = await page.evaluate(async () => {
       await (window as any).__test.restoreHiscoreNow();
       return (window as any).__test.readHiscore();
     });
     expect(bytes).toEqual([0x00, 0x76, 0x00]);
+  });
+
+  test("Remove ROMs disables Reset again", async ({ page }) => {
+    await page.locator("#romFile").setInputFiles(userSet());
+    await expect(page.locator("#resetHiscore")).toBeEnabled();
+    await page.locator("#removeRomBtn").click();
+    await expect(page.locator("#romStatus")).toHaveText("Running test ROM");
+    await expect(page.locator("#resetHiscore")).toBeDisabled();
   });
 
   test("Reset Cancel leaves the saved TOP in place", async ({ page }) => {
@@ -91,13 +101,15 @@ test.describe("HIGH SCORE persist", () => {
       await t.saveHiscoreNow(t.readHiscore());
     });
 
+    expect(Object.keys(await page.evaluate(() => (window as any).__test.savedHiscores()))).toHaveLength(1);
+
     await page.locator("#resetHiscore").click();
     await page.locator("#hiscoreResetOk").click();
     await expect(page.locator("#hiscoreResetHint")).toBeHidden();
+    await expect.poll(async () => Object.keys(await page.evaluate(() => (window as any).__test.savedHiscores()))).toHaveLength(0);
 
     const bytes = await page.evaluate(async () => {
       const t = (window as any).__test;
-      await t.resetHiscoreNow();
       t.writeHiscore([0x99, 0x99, 0x99]);
       await t.restoreHiscoreNow();
       return t.readHiscore();

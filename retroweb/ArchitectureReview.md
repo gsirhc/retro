@@ -60,20 +60,29 @@ lands once.
   `MachineTest.RefreshRunsFromPowerOnAndAfterReset`. The old toggle fails
   both port 61h chipset tests.
 
-### H3. Arcade front ends are mostly copy-paste, and a fix already didn't propagate
+### H3. Arcade front ends were mostly copy-paste. Fixed
 
-- `crc32`, `unzip`, `idb`, and `idbGet` are byte-identical in all 7 `app.js`
-  files. frogger, scramble, and galaxian `app.js` are about 85% identical.
-- The audio worklet, hiscore persistence, DIP persistence, ROM ingest, and
-  tick loop repeat with small variations.
-- **Drift bug.** galaga's `idbSet` resolves on `tx.oncomplete`. The other six
-  resolve on the request's `onsuccess`, which fires before the transaction
-  commits, so a fast reload can lose the write. galaga's `rom.spec.ts` polls
-  IndexedDB to work around exactly this.
+`crc32`, `unzip` and the IndexedDB helpers were byte-identical in every
+arcade `app.js`, and the audio worklet, hiscore persistence, DIP
+persistence, ROM ingest and tick loop repeated with small variations. The
+copies had drifted:
 
-**Fix:** `shared/arcade-core.js` covering ROM ingest, IndexedDB, the audio
-worklet, hiscore/DIP persistence, and the tick loop. Each machine keeps
-`roleOf`/`identifySet`, `applyKeys`, and its hiscore address and signature.
+- galaga's `idbSet` resolved on `tx.oncomplete`; the other seven resolved on
+  the request's `onsuccess`, before the transaction commits.
+- pacman, asteroids, centipede and missile had dropped the audio `resume()`,
+  the drain before the worklet starts, and the "context running" check.
+
+**Fixed.** `shared/arcade-core.js` now holds the ROM file reader (zip, CRC),
+an IndexedDB store whose writes resolve on commit and that reuses one
+connection, the audio worklet (the complete variant), a HIGH SCORE
+persister, the reset dialog, the ROM loader, DIP prefs and the frame loop.
+All 8 cabinets use it. Each `app.js` keeps `roleOf`/`identifySet`,
+`applyKeys`, its HIGH SCORE address, POST gate and factory check, and any
+odd rule as a hook: Pac-Man's BCD TOP and tile painting, Centipede's
+EAROM restore at load, Missile's factory table from the program ROM.
+Together the eight `app.js` files went from 5,626 lines to 3,157, plus 353
+in the core. It's staged like `arcade-touch.js`, listed in eslint, and
+described in `.claude/arcade.md`.
 
 ### H4. Arcades froze if IndexedDB failed. Fixed
 
@@ -91,15 +100,44 @@ upload applies with that warning, and Remove ROMs reverts.
 
 ## Medium priority
 
-### M1. Hiscore tests exercise a test-only copy of the logic
+### M1. Hiscore tests exercised a test-only copy of the logic. Fixed
 
-- `__test.restoreHiscoreNow` (`frogger/web/app.js:566`) reimplements
-  `maybeRestoreHiscore` minus its POST factory-table gate ($83F1/$83FA). The
-  production gate is never exercised in a browser.
-- "Reset confirm clears the saved table" clicks OK and then calls
-  `resetHiscoreNow()` itself, so it can't fail if the button handler is
-  broken.
-- The same pattern is in frogger, scramble, and galaxian.
+`__test.restoreHiscoreNow` reimplemented the restore without its POST gate,
+so the gate was never exercised in a browser, and "Reset confirm" called
+`resetHiscoreNow()` itself after clicking OK.
+
+**Fixed.** `__test` now exposes the persister's own functions, so nothing is
+a test-only copy. Where the self-test ROM lets a test reach the gate, the
+round trip goes through it. Frogger, Scramble and Galaga write the factory
+table the way POST would. Galaxian, Asteroids and Missile wait for their
+own gate, and Galaxian and Asteroids also hold it shut with a non-zero
+table to prove the restore waits. Pac-Man's ~8 s gate keeps its existing
+real-gate test. Reset tests click OK and check that the saved table is gone
+from IndexedDB. Taking the gate out of the core's `maybeRestore` fails a
+test in seven cabinets. Centipede has no frame gate (its EAROM restores at
+load). An OK button that does nothing also fails.
+
+A stress run (`--repeat-each 6 --workers 6`) also found an older race. A
+spec that uploaded ROMs right after `goto` could beat the app's listeners,
+and the upload was dropped (5 of 132 failed on the committed frogger code).
+Every arcade `rom.spec.ts` and `hiscore.spec.ts` now waits for `__test`
+first, and all 954 runs pass.
+
+A second review pass found two more bugs, both older than the refactor:
+
+- **Centipede rejected a good user set when storage was blocked.** Its
+  EAROM restore at load read IndexedDB and threw, so the set showed "ROM
+  rejected". It now runs for the session with the storage warning.
+- **A save or Reset in flight when the ROM set changed used the new set's
+  key.** The old table was filed under the new set, or the new set's entry
+  was deleted instead. The persister now takes the key before it awaits.
+
+New tests cover both: a user set with storage blocked (all 8), the "Stored
+ROM unreadable" fallback (all 8), Remove ROMs disabling Reset (all 8), and,
+in frogger as the core's home, the store giving way to `deleteDatabase`
+and the two key races. Each one fails on the old code or under a mutation.
+One guard isn't covered: `saveNow` skips its `lastSaved`/`onSaved`
+bookkeeping when the set changed mid-save, and no test reaches that.
 
 ### M2. Wall-clock pacing bands are too loose
 
@@ -172,8 +210,8 @@ Playwright strips types without checking them.
 - **Flaky-test masking.** `retries: 2` on CI hides flakes, and there are about
   150 `waitForTimeout` calls (Altair 32, pc486 28). Prefer `expect.poll`, and
   report tests that only pass on retry.
-- **IndexedDB connections.** `idb()` opens a new connection on every call and
-  never closes it.
+- ~~**IndexedDB connections.**~~ Fixed with H3: `arcadeStore` keeps one
+  connection and closes it on `versionchange`.
 - **Comment style.** About 327 comments use `--`/`—` asides (mostly pc486
   tests), `shared/theme-init.js` has an 8-line banner, and
   `pc486/web/index.html` has 2 HTML comments. All break the repo's comment
@@ -182,8 +220,7 @@ Playwright strips types without checking them.
 ## Suggested order
 
 1. ~~**H2 and H4.**~~ Done. See H2 and H4 above.
-2. **H3, with M1 and the galaga `idbSet` fix.** Extracting `arcade-core.js`
-   makes the hiscore tests exercise the real code path.
+2. ~~**H3, with M1 and the galaga `idbSet` fix.**~~ Done. See H3 and M1 above.
 3. **M2, M3, M4, M7.** Cheap, and they tighten the guardrails.
 4. **H1, the `shared/pc/` merge.** The biggest job. Start with `pit8253` and
    `cmos_rtc`, which are nearly identical, then reconcile the PIC toward the

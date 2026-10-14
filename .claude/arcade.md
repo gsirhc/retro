@@ -10,7 +10,9 @@ Always persist the original program’s high-score **work RAM** when a user ROM
 is loaded. IndexedDB key `hiscores` in that machine’s existing database, map
 `programCrc → bytes`. Restore after POST has initialized the table (do not
 poke during reset/POST wipe). Snapshot on RAM change from `tick()`. Skip
-factory/zero bytes until restore has run.
+factory/zero bytes until restore has run. Use `arcadeHiscore` from
+`shared/arcade-core.js`; the cabinet supplies only `read`/`write`, the POST
+gate (`ready`), the factory check, and any odd restore/save rule as hooks.
 
 **Reset HIGH SCORE** (`#resetHiscore`) is the labelled way back to a
 power-cycle empty table: a `.site-dialog` confirm (Cancel / Reset, not
@@ -37,7 +39,10 @@ authentic zeros.
 
 Playwright `web/tests/hiscore.spec.ts` on every cabinet: persist across
 reload, Cancel keeps the bytes, confirm clears them. CI uses a CRC-patched
-hwtest stand-in (`?test=1` `__test` seam), never a copyrighted dump.
+hwtest stand-in (`?test=1` `__test` seam), never a copyrighted dump. Tests
+drive the real path: satisfy the POST gate the way the board would (write
+the factory table, or wait for it) and click the real Reset buttons. Never
+add a `__test` copy of restore or reset logic.
 
 ## Copyright
 
@@ -58,6 +63,10 @@ another emulator’s shortcuts as if they were hardware.
 ## New cabinet checklist
 
 - Browser WASM at the machine’s real clock.
+- Front end built on `shared/arcade-core.js` (ROM loader and IndexedDB
+  store, audio worklet, HIGH SCORE persister, DIP prefs, frame loop). The
+  cabinet's `app.js` keeps `roleOf`/`identifySet`, `applyKeys`, and its
+  HIGH SCORE address, gate and factory check.
 - GoogleTest board smoke plus a help-screen assertion on the hwtest ROM.
 - Playwright including `hiscore.spec.ts`, keyboard, DIP, ROM loader, footer/home.
 - Every wiring point in `CLAUDE.md` "Wiring a machine into the site",

@@ -79,11 +79,22 @@ export default [
         initDiskLibrary: "readonly",
         initPcKeyboard: "readonly",
         initArcadeTouch: "readonly",
+        arcadeCrc32: "readonly",
+        arcadeHexCrc: "readonly",
+        arcadeUnzip: "readonly",
+        arcadeReadRomFiles: "readonly",
+        arcadeStore: "readonly",
+        arcadePrefs: "readonly",
+        arcadeAudio: "readonly",
+        arcadeHiscore: "readonly",
+        arcadeHiscoreReset: "readonly",
+        arcadeRomLoader: "readonly",
+        arcadeLoop: "readonly",
       },
     },
   },
   {
-    files: ["shared/theme-picker.js", "shared/fullscreen.js", "shared/focus-hint.js", "shared/winbtns.js", "shared/pc-keyboard.js", "shared/arcade-touch.js", "shared/disk-drop.js", "shared/disk-library.js", "shared/footer.js"],
+    files: ["shared/theme-picker.js", "shared/fullscreen.js", "shared/focus-hint.js", "shared/winbtns.js", "shared/pc-keyboard.js", "shared/arcade-touch.js", "shared/arcade-core.js", "shared/disk-drop.js", "shared/disk-library.js", "shared/footer.js"],
     languageOptions: {
       globals: {
         ...globals.browser,
@@ -93,7 +104,7 @@ export default [
       "no-unused-vars": ["error", {
         argsIgnorePattern: "^_",
         caughtErrors: "none",
-        varsIgnorePattern: "^(_|initThemePicker|initFullscreen|initFocusHint|initDiskDrop|initDiskLibrary|initPcKeyboard|initArcadeTouch|arcadeTouchOnly|addFooterNote)$",
+        varsIgnorePattern: "^(_|initThemePicker|initFullscreen|initFocusHint|initDiskDrop|initDiskLibrary|initPcKeyboard|initArcadeTouch|arcadeTouchOnly|arcadeCrc32|arcadeHexCrc|arcadeUnzip|arcadeReadRomFiles|arcadeStore|arcadePrefs|arcadeAudio|arcadeHiscore|arcadeHiscoreReset|arcadeRomLoader|arcadeLoop|addFooterNote)$",
       }],
     },
   },

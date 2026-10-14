@@ -37,6 +37,7 @@ function sampleBytes(seed: number) {
 test.describe("HIGH SCORE persist", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto("/?test=1");
+    await page.waitForFunction(() => (window as any).__test);
   });
 
   test("Reset is present and disabled on the self-test ROM", async ({ page }) => {
@@ -61,11 +62,38 @@ test.describe("HIGH SCORE persist", () => {
     await page.reload();
     await expect(page.locator("#romStatus")).toHaveText("Loaded stored ROM set");
 
-    const restored = await page.evaluate(async () => {
-      await (window as any).__test.restoreHiscoreNow();
-      return (window as any).__test.readHiscore();
-    });
-    expect(restored).toEqual(bytes);
+    await expect.poll(() => page.evaluate(() => (window as any).__test.hiscoreRestored)).toBe(true);
+    expect(await page.evaluate(() => (window as any).__test.readHiscore())).toEqual(bytes);
+  });
+
+  test("the restore waits until the startup RAM clear leaves the scores empty", async ({ page }) => {
+    await page.locator("#romFile").setInputFiles(userSet());
+    await expect(page.locator("#romStatus")).toHaveText("Loaded ROM set");
+    const bytes = sampleBytes(0x76);
+    await page.evaluate(async (b) => {
+      const t = (window as any).__test;
+      t.writeHiscore(b);
+      await t.saveHiscoreNow(t.readHiscore());
+    }, bytes);
+
+    await page.reload();
+    await expect(page.locator("#romStatus")).toHaveText("Loaded stored ROM set");
+    const junk = sampleBytes(0x11);
+    await page.evaluate((b) => (window as any).__test.writeHiscore(b), junk);
+    await page.waitForFunction(() => (window as any).__test.machine.frames() > 360);
+    expect(await page.evaluate(() => (window as any).__test.hiscoreRestored)).toBe(false);
+
+    await page.evaluate(() => (window as any).__test.writeHiscore(new Array(0x35).fill(0)));
+    await expect.poll(() => page.evaluate(() => (window as any).__test.hiscoreRestored)).toBe(true);
+    expect(await page.evaluate(() => (window as any).__test.readHiscore())).toEqual(bytes);
+  });
+
+  test("Remove ROMs disables Reset again", async ({ page }) => {
+    await page.locator("#romFile").setInputFiles(userSet());
+    await expect(page.locator("#resetHiscore")).toBeEnabled();
+    await page.locator("#removeRomBtn").click();
+    await expect(page.locator("#romStatus")).toHaveText("Running test ROM");
+    await expect(page.locator("#resetHiscore")).toBeDisabled();
   });
 
   test("Reset Cancel leaves the saved table in place", async ({ page }) => {
@@ -97,19 +125,15 @@ test.describe("HIGH SCORE persist", () => {
       await t.saveHiscoreNow(t.readHiscore());
     }, bytes);
 
+    expect(Object.keys(await page.evaluate(() => (window as any).__test.savedHiscores()))).toHaveLength(1);
+
     await page.locator("#resetHiscore").click();
     await page.locator("#hiscoreResetOk").click();
     await expect(page.locator("#hiscoreResetHint")).toBeHidden();
 
-    const probe = sampleBytes(0x99);
-    const after = await page.evaluate(async (b) => {
-      const t = (window as any).__test;
-      await t.resetHiscoreNow();
-      t.writeHiscore(b);
-      await t.restoreHiscoreNow();
-      return t.readHiscore();
-    }, probe);
-    expect(after).toEqual(probe);
+    await expect.poll(async () => Object.keys(await page.evaluate(() => (window as any).__test.savedHiscores()))).toHaveLength(0);
+    await expect.poll(() => page.evaluate(() => (window as any).__test.hiscoreRestored)).toBe(true);
+    expect((await page.evaluate(() => (window as any).__test.readHiscore())).slice(0, 20)).toEqual(Array(20).fill(0));
   });
 
   test("attract rank bytes do not block persist", async ({ page }) => {
