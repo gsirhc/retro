@@ -433,6 +433,50 @@ jobs:
             retroweb/centipede/web/test-results/
           retention-days: 7
 
+  # Missile Command arcade board: GoogleTest over the 6502 + POKEY + machine
+  # (see retroweb/missile/MISSILE_REVIEW.md). Shared ISA is mos6502-test.
+  missile-test:
+    needs: mos6502-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: make -C retroweb/missile test-smoke
+
+  missile-web-test:
+    needs: missile-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: latest
+
+      - working-directory: retroweb/missile/web
+        run: make wasm roms shared
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - working-directory: retroweb/missile/web
+        run: npm ci
+
+      - working-directory: retroweb/missile/web
+        run: npx playwright install --with-deps chromium
+
+      - working-directory: retroweb/missile/web
+        run: make test-smoke
+
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: missile-playwright-report
+          path: |
+            retroweb/missile/web/playwright-report/
+            retroweb/missile/web/test-results/
+          retention-days: 7
+
   # Frogger arcade board: GoogleTest suite over the dual Z80 + Galaxian
   # video + AY-3-8910 + machine (see retroweb/frogger/FROGGER_REVIEW.md).
   # Shared Z80 ISA is z80-test; Smoke.HwtestBoots* is the board smoke.
@@ -653,6 +697,8 @@ jobs:
         asteroids-web-test,
         centipede-test,
         centipede-web-test,
+        missile-test,
+        missile-web-test,
         frogger-test,
         frogger-web-test,
         scramble-test,
@@ -733,6 +779,9 @@ jobs:
         run: make wasm roms shared
 
       - working-directory: retroweb/centipede/web
+        run: make wasm roms shared
+
+      - working-directory: retroweb/missile/web
         run: make wasm roms shared
 
       # 486 DX2-66: BIOS/VGA-BIOS ROMs (fetched, checksummed) are cheap; the

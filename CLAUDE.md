@@ -138,7 +138,7 @@ spec sheet or reference document. Every addition must:
   factory firmware — the same labelled-departure rule as any override above.
 
 Arcade cabinets (Pac-Man, Frogger, Scramble, Galaxian, Galaga, Asteroids,
-Centipede, and any new one) also follow [`.claude/arcade.md`](.claude/arcade.md).
+Centipede, Missile Command, and any new one) also follow [`.claude/arcade.md`](.claude/arcade.md).
 That includes the hwtest help screen after the diagnostic patterns (copyright /
 load-your-own copy), not only the self-test picture.
 
@@ -152,6 +152,32 @@ copy — do not edit content sections.
 staging + local preview) are shared across every machine — getting a new
 one to actually show up and run is a separate step from building the
 machine itself (see "Adding a new machine" above).
+
+**Wiring is part of the implementation, not a follow-up.** A new machine
+or cabinet isn't done until every one of these lists it, in the same
+change:
+
+- `retroweb/Makefile`: `_stage` build step, `site` mkdir + copy/strip
+  block, and the preview URL echo.
+- `retroweb/watch_site.py` (`make watch`): `MACHINES`, `WASM_TARGETS`,
+  `GENERATED_JS`, and the shared-chip tuple it uses (`ARCADE`, `ATARI`,
+  …) so a change to a shared core rebuilds it too.
+- CI: `<machine>-test` / `<machine>-web-test` in
+  `.github/workflows/deploy-emulator.yml` (smoke, in `build`'s `needs:`)
+  and `nightly-full.yml` (full).
+- `.gitignore` (build dir, wasm/js, `hwtest_roms.h`, `web/roms/`,
+  `web/shared/`, user ROMs), `retroweb/eslint.config.js` (generated JS
+  ignore + module global), `retroweb/lint-cpp.sh`, `retroweb/package.json`
+  `lint:html`.
+- The landing-page card, or for a cabinet the arcade hub card, its
+  marquee in `retroweb/shared/marquee.py`, and every spec that lists
+  the hub's cards (`retroweb/pacman/web/tests/home.spec.ts`).
+- This file: Playwright port list, CI job naming, Build/test bullet,
+  generated-file list, and any cabinet/CPU enumeration. Also
+  `.claude/arcade.md` for cabinets (lists + high-score RAM table).
+
+Verify with `make -C retroweb lint` and the new machine's own suites
+before calling it done.
 
 - **Landing-page card**: computers and Homebrew get a `.machine-card` `<a>`
   in `retroweb/index.html` (286×128 image in `retroweb/assets/`, name under
@@ -200,7 +226,7 @@ machine itself (see "Adding a new machine" above).
   *fixed* port for its own Playwright suite instead (`8100` altair8800,
   `8200` assembler6502, `8300`/`8310` ibmpc-at, `8500`/`8510` pacman,
   `8600`/`8610` frogger, `8700`/`8710` scramble, `8800`/`8810` galaxian,
-  `8900`/`8910` galaga, `9000`/`9010` asteroids, `9100`/`9110` centipede)
+  `8900`/`8910` galaga, `9000`/`9010` asteroids, `9100`/`9110` centipede, `9200`/`9210` missile)
   specifically so a hand-run `make serve` and an automated test run never
   collide.
 - **CI job naming**: `.github/workflows/deploy-emulator.yml` gives every
@@ -208,8 +234,8 @@ machine itself (see "Adding a new machine" above).
   exists, a `<machine>-web-test` job (`needs: <machine>-test`) — e.g.
   `altair8800-test`/`altair8800-web-test`, …, `pc486-test`/`pc486-web-test`
   (plus `z80-test` / `mos6502-test` for the shared CPUs). Pac-Man, Frogger,
-  Scramble, Galaxian, and Galaga native jobs `needs: z80-test`; Asteroids
-  and Centipede `needs: mos6502-test`. `lint` covers
+  Scramble, Galaxian, and Galaga native jobs `needs: z80-test`; Asteroids,
+  Centipede, and Missile Command `needs: mos6502-test`. `lint` covers
   `retroweb/` only. `build` lists every one of these in its own `needs:`
   so a red smoke job blocks deploy. Add a new machine's pair the same way.
   Deploy CI runs **smoke only**; the full suites run in
@@ -492,6 +518,13 @@ separate suite.
   from-scratch self-test ROM; a real Atari `centiped` set is opt-in and
   browser-local — see `CENTIPEDE_REVIEW.md`. The NMOS 6502 core and POKEY
   live in `retroweb/shared/cpu/` and `retroweb/shared/atari/`.
+- **Missile Command Arcade** (`retroweb/missile/`): `make -C retroweb/missile
+  check` (GoogleTest over the NMOS 6502 + POKEY + machine, including the
+  board smoke), `make -C retroweb/missile/web wasm roms`, `make -C
+  retroweb/missile/web test-install test` (Playwright). Ships a
+  from-scratch self-test ROM; a real Atari `missile` set is opt-in and
+  browser-local — see `MISSILE_REVIEW.md`. The NMOS 6502 core and POKEY
+  live in `retroweb/shared/cpu/` and `retroweb/shared/atari/`.
 - **486 DX2-66 Gaming PC** (`retroweb/pc486/`): `make -C retroweb/pc486 check`
   (GoogleTest over the 80486 core, chipset, EGA/VGA+VBE, WD1003, ATAPI
   CD-ROM, Sound Blaster 16 and its OPL3), `make -C retroweb/pc486/web
@@ -522,7 +555,7 @@ separate suite.
   files (`retro8080.js`/`.wasm`, `cgoac6502.js`/`.wasm`/`roms/*.bin`,
   `ibmpcat.js`/`.wasm`, `pacman.js`/`.wasm`, `frogger.js`/`.wasm`,
   `scramble.js`/`.wasm`, `galaxian.js`/`.wasm`, `galaga.js`/`.wasm`,
-  `asteroids.js`/`.wasm`, `centipede.js`/`.wasm`, disk/tape
+  `asteroids.js`/`.wasm`, `centipede.js`/`.wasm`, `missile.js`/`.wasm`, disk/tape
   images) are regenerated by CI, not committed — see each machine's `.gitignore`
   entries.
 - **Every control, device, terminal behaviour, and preset has an automated

@@ -166,6 +166,13 @@ retroweb/centipede/web/hwtest_roms.h
 retroweb/centipede/web/roms/
 retroweb/centipede/roms/user/
 retroweb/centipede/web/shared/
+retroweb/missile/tests/build/
+retroweb/missile/web/missile.js
+retroweb/missile/web/missile.wasm
+retroweb/missile/web/hwtest_roms.h
+retroweb/missile/web/roms/
+retroweb/missile/roms/user/
+retroweb/missile/web/shared/
 
 retroweb/shared/cpu/tests/build/
 retroweb/shared/cpu/zex/zexdoc.com

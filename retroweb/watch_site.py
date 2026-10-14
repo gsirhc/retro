@@ -19,6 +19,7 @@ MACHINES = (
     "scramble",
     "asteroids",
     "centipede",
+    "missile",
     "pc486",
 )
 
@@ -34,11 +35,12 @@ WASM_TARGETS = {
     "scramble": ["wasm"],
     "asteroids": ["wasm"],
     "centipede": ["wasm"],
+    "missile": ["wasm"],
     "pc486": ["pc486.js", "pc486-perf.js"],
 }
 
 ARCADE = ("pacman", "frogger", "galaga", "galaxian", "scramble")
-ATARI = ("asteroids", "centipede")
+ATARI = ("asteroids", "centipede", "missile")
 GALAXIAN_HW = ("frogger", "scramble", "galaxian")
 NAMCO_WSG = ("pacman", "galaga")
 
@@ -53,6 +55,7 @@ GENERATED_JS = frozenset({
     "scramble.js",
     "asteroids.js",
     "centipede.js",
+    "missile.js",
     "pc486.js",
     "pc486-perf.js",
 })

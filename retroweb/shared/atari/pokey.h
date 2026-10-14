@@ -1,4 +1,4 @@
-// Atari POKEY (Centipede and other Atari boards).
+// Atari POKEY (Centipede, Missile Command and other Atari boards).
 // Register map / poly RNG: Atari Hardware Manual; Altirra Hardware Reference;
 // MAME pokey.cpp for AUDF/AUDC packing and RANDOM polarity.
 
@@ -15,11 +15,13 @@ class Pokey {
 public:
     static constexpr int kClockHz = 1512000;  // 12.096 MHz / 8 on Centipede
 
+    void set_clock(int hz) { clock_hz_ = hz; }
+
     void reset();
     uint8_t read(uint8_t reg) const;
     void write(uint8_t reg, uint8_t v);
 
-    // Advance the chip by `cpu_cycles` at kClockHz and append samples.
+    // Advance the chip by `cpu_cycles` at the chip clock and append samples.
     void mix(int cpu_cycles, int out_hz, std::vector<float>& out);
 
     // 17-bit poly RANDOM (reads as ^0xFF; SKCTL reset yields 0xFF).
@@ -41,6 +43,7 @@ private:
     uint32_t poly4_ = 0xF;
 
     double sample_acc_ = 0;
+    int clock_hz_ = kClockHz;
 
     void recalc_periods();
     void tick_channel(int ch);

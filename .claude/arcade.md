@@ -1,7 +1,7 @@
 # Arcade cabinets
 
 Requirements for arcade machines under `retroweb/` (Pac-Man, Frogger,
-Scramble, Galaxian, Galaga, Asteroids, Centipede, and any new cabinet). Repo-wide principles still live in
+Scramble, Galaxian, Galaga, Asteroids, Centipede, Missile Command, and any new cabinet). Repo-wide principles still live in
 [`CLAUDE.md`](../CLAUDE.md); this file does not override them.
 
 ## High scores
@@ -29,6 +29,7 @@ the ROM actually keeps:
 | Galaga | `$8A20` (0x2D) + `$83ED` (6). Factory top score is the 20000 character bytes, not zeros |
 | Asteroids | `$001D–$0051` (top-10 scores + initials) |
 | Centipede | EAROM `$1600–$163F` (64 B ER2055 image) |
+| Missile Command | `$002C–$005B` (8 × initials + 3-byte BCD). Factory table is the ROM's own defaults, not zeros |
 
 Scramble’s parent set has **numeric** scores only — no initials in the Konami
 ROM. Real PCBs have no battery; persist is a labelled departure, Reset is
@@ -59,7 +60,9 @@ another emulator’s shortcuts as if they were hardware.
 - Browser WASM at the machine’s real clock.
 - GoogleTest board smoke plus a help-screen assertion on the hwtest ROM.
 - Playwright including `hiscore.spec.ts`, keyboard, DIP, ROM loader, footer/home.
-- `retroweb/Makefile` `site` / `_stage`; CI `<machine>-test` and `<machine>-web-test`.
+- Every wiring point in `CLAUDE.md` "Wiring a machine into the site",
+  including `retroweb/Makefile` `site` / `_stage`, `retroweb/watch_site.py`
+  (`make watch`), and CI `<machine>-test` / `<machine>-web-test`.
 - Fixed Playwright port (do not collide with `make serve` on 8000).
 - Arcade hub card in `retroweb/arcade/index.html` (marquee from
   `retroweb/shared/marquee.py`, plus `data-name` / `data-year` / `data-cpu` /

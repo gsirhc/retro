@@ -61,7 +61,7 @@ cppcheck --language=c++ --std=c++17 \
   --suppress='*:/usr/include/c++/*' \
   --template='{file}:{line}: {severity}: {id}: {message}' \
   -I altair8800 -I assembler6502 -I ibmpc-at -I pacman -I frogger \
-  -I galaxian -I scramble -I asteroids -I centipede \
+  -I galaxian -I scramble -I asteroids -I centipede -I missile \
   -I shared/cpu -I shared/galaxian -I shared/atari -I shared \
   -I "$gtest_inc" \
   --file-list="$files"

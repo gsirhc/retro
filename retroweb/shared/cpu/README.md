@@ -25,9 +25,9 @@ make check        # Z80 + 6502 GoogleTest + zexdoc + zexall + sst + Dormann
 
 ## NMOS 6502
 
-`cpu_mos6502.{h,cpp}` is the period MOS Technology 6502 used by Asteroids
-and Centipede (and future Atari boards). It is not the W65C02S in
-`assembler6502/` — NMOS quirks (JMP ($xxFF) wrap, RMW abs,X = 7, decimal
+`cpu_mos6502.{h,cpp}` is the period MOS Technology 6502 used by Asteroids,
+Centipede, and Missile Command (and future Atari boards). It is not the
+W65C02S in `assembler6502/` — NMOS quirks (JMP ($xxFF) wrap, RMW abs,X = 7, decimal
 N/Z/V from the binary path, D preserved on reset/IRQ) and the full
 undocumented opcode set are intentional.
 

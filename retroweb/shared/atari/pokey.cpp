@@ -155,7 +155,7 @@ void Pokey::write(uint8_t reg, uint8_t v) {
 
 void Pokey::mix(int cpu_cycles, int out_hz, std::vector<float>& out) {
     if (out_hz <= 0 || cpu_cycles <= 0) return;
-    const double cycles_per_sample = double(kClockHz) / double(out_hz);
+    const double cycles_per_sample = double(clock_hz_) / double(out_hz);
     for (int i = 0; i < cpu_cycles; i++) {
         step_polys();
         for (int ch = 0; ch < 4; ch++) tick_channel(ch);

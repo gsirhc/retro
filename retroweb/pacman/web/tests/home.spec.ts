@@ -100,6 +100,7 @@ test.describe("arcade hub", () => {
       "Frogger Arcade",
       "Galaga Arcade",
       "Galaxian Arcade",
+      "Missile Command Arcade",
       "Ms. Pac-Man Arcade",
       "Pac-Man Arcade",
       "Scramble Arcade",
@@ -129,6 +130,7 @@ test.describe("arcade hub", () => {
     expect(names).toEqual([
       "Asteroids Arcade",
       "Galaxian Arcade",
+      "Missile Command Arcade",
       "Pac-Man Arcade",
       "Centipede Arcade",
       "Frogger Arcade",
@@ -140,8 +142,8 @@ test.describe("arcade hub", () => {
     await sel.selectOption("cpu");
     await expect(page.locator("#arcadeCatalog > h2.section-heading")).toHaveText(["6502", "Z80"]);
     names = await page.locator("#arcadeCatalog a.machine-card .name").allTextContents();
-    expect(names.slice(0, 2)).toEqual(["Asteroids Arcade", "Centipede Arcade"]);
-    expect(names.slice(2)).toEqual([
+    expect(names.slice(0, 3)).toEqual(["Asteroids Arcade", "Centipede Arcade", "Missile Command Arcade"]);
+    expect(names.slice(3)).toEqual([
       "Frogger Arcade",
       "Galaga Arcade",
       "Galaxian Arcade",
@@ -158,6 +160,7 @@ test.describe("arcade hub", () => {
     expect(names).toEqual([
       "Asteroids Arcade",
       "Centipede Arcade",
+      "Missile Command Arcade",
       "Frogger Arcade",
       "Scramble Arcade",
       "Galaga Arcade",
