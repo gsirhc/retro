@@ -86,6 +86,7 @@ private:
     void service_video(int cycles);
     void kick_watchdog();
     void earom_control(uint8_t v);
+    void earom_update();
     uint32_t pen_rgb(int pen) const;
     uint8_t tile_pixel(uint8_t code, int x, int y) const;
     uint8_t sprite_pixel(uint8_t code, int x, int y) const;
@@ -97,10 +98,12 @@ private:
     bool irq_line_ = false;
     mutable bool playfield_touch_ = false;
 
-    // ER2055 latches (MAME earom_control_w bit packing).
+    // ER2055. C1=/DB1, C2=DB2, CS1=DB3; /CS2 is tied active.
     uint8_t earom_data_ = 0;
     uint8_t earom_addr_ = 0;
-    uint8_t earom_ctrl_ = 0;
+    bool earom_cs1_ = false;
+    bool earom_c1_ = true;
+    bool earom_c2_ = false;
     bool earom_clk_ = false;
 };
 

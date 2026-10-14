@@ -32,9 +32,11 @@ Fidelity rules follow `CLAUDE.md` and `.claude/arcade.md`.
   init with a non-zero poly seed (an all-zero 17-bit LFSR sticks); the
   mushroom field is planted from that RNG.
 - High-score EAROM (`$1600`–`$163F` data / `$1680` control / `$1700` read)
-  is a functional ER2055 (64×8). IndexedDB mirrors the EAROM image so a
-  browser refresh keeps scores the way the real chip does across power.
-  Reset HIGH SCORE clears the saved image and resets the board.
+  is an ER2055 (64×8). The ROM erases a cell to `$FF`, then AND-writes the
+  new byte (`WriteEaromInc`, MAME `er2055`); a plain store never lands.
+  Reads latch on CK's falling edge. IndexedDB mirrors the image so a
+  refresh keeps scores the way the chip does across power. Reset HIGH
+  SCORE clears the saved image and resets the board.
 
 ## ROM policy
 

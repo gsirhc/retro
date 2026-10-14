@@ -102,18 +102,34 @@ TEST(Machine, PokeyPureToneIsSquare) {
     EXPECT_LT(edges, int(out.size()) / 4);
 }
 
-TEST(Machine, EaromRoundTrip) {
+TEST(Machine, EaromEraseThenAndWrite) {
     centipede::Machine m;
+    // WriteEaromInc: deselect, latch the byte, then select erase ($06/$0E).
     m.mem_write(0x1603, 0xAB);
-    // CS1 + write: C1=0 (DB1=1), C2=1 (DB2=1), CS1=1 (DB3=1), rising CK.
+    m.mem_write(0x1680, 0x06);
     m.mem_write(0x1680, 0x0E);
-    m.mem_write(0x1680, 0x0F);
+    EXPECT_EQ(m.earom[3], 0xFF);
+    // Next call selects write ($02/$0A). The cell ANDs in the latched byte.
+    m.mem_write(0x1680, 0x02);
+    m.mem_write(0x1680, 0x0A);
     EXPECT_EQ(m.earom[3], 0xAB);
-    // Address select + read: C1=1 (DB1=0), C2=0, CS1=1.
+    // A write without a fresh erase can only clear bits.
+    m.mem_write(0x1603, 0x0F);
+    m.mem_write(0x1680, 0x02);
+    m.mem_write(0x1680, 0x0A);
+    EXPECT_EQ(m.earom[3], 0x0B);
+    // A zero cell stays zero if the erase is skipped.
+    m.mem_write(0x1604, 0xAB);
+    m.mem_write(0x1680, 0x02);
+    m.mem_write(0x1680, 0x0A);
+    EXPECT_EQ(m.earom[4], 0x00);
+    // ReadEarom latches on CK falling ($08, $09, $08), then reads $1700.
     m.mem_write(0x1603, 0x00);
     m.mem_write(0x1680, 0x08);
     m.mem_write(0x1680, 0x09);
-    EXPECT_EQ(m.mem_read(0x1700), 0xAB);
+    EXPECT_EQ(m.mem_read(0x1700), 0x00);
+    m.mem_write(0x1680, 0x08);
+    EXPECT_EQ(m.mem_read(0x1700), 0x0B);
 }
 
 TEST(Machine, Ls259FlipUsesD7) {

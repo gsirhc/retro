@@ -45,7 +45,9 @@ void Machine::reset() {
     cpu.irq_line = false;
     earom_data_ = 0;
     earom_addr_ = 0;
-    earom_ctrl_ = 0;
+    earom_cs1_ = false;
+    earom_c1_ = true;
+    earom_c2_ = false;
     earom_clk_ = false;
     audio.clear();
 }
@@ -64,20 +66,31 @@ void Machine::set_earom_bytes(const uint8_t* p, size_t n) {
 
 void Machine::kick_watchdog() { watchdog_frames_ = kWatchdogFrames; }
 
+void Machine::earom_update() {
+    // C1=0 C2=0 AND-writes; C1=0 C2=1 erases to $FF (MAME er2055 update_state).
+    if (earom_c1_) return;
+    uint8_t& cell = earom[earom_addr_ & 0x3F];
+    if (earom_c2_) cell = 0xFF;
+    else cell &= earom_data_;
+}
+
 void Machine::earom_control(uint8_t v) {
-    // CK=DB0, C1=/DB1, C2=DB2, CS1=DB3 (MAME earom_control_w).
-    bool clk = (v & 0x01) != 0;
+    // CK=DB0, C1=/DB1, C2=DB2, CS1=DB3, /CS2=GND (MAME centiped earom_control_w).
+    bool cs1 = (v & 0x08) != 0;
     bool c1 = (v & 0x02) == 0;
     bool c2 = (v & 0x04) != 0;
-    bool cs1 = (v & 0x08) != 0;
-    if (clk && !earom_clk_ && cs1) {
-        if (c1 && !c2)
-            earom_data_ = earom[earom_addr_ & 0x3F];
-        else if (!c1 && c2)
-            earom[earom_addr_ & 0x3F] = earom_data_;
-    }
+    bool clk = (v & 0x01) != 0;
+    bool ctrl_changed = cs1 != earom_cs1_ || c1 != earom_c1_ || c2 != earom_c2_;
+    earom_cs1_ = cs1;
+    earom_c1_ = c1;
+    earom_c2_ = c2;
+    if (cs1 && ctrl_changed) earom_update();
+    bool fell = earom_clk_ && !clk;
     earom_clk_ = clk;
-    earom_ctrl_ = v;
+    if (cs1 && fell) {
+        if (c1) earom_data_ = earom[earom_addr_ & 0x3F];
+        earom_update();
+    }
 }
 
 uint8_t Machine::mem_read(uint16_t addr) const {
