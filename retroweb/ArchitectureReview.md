@@ -285,15 +285,29 @@ not to serve a site over quota. **Fixed:** pc486 now ships only the
 520 MB, and `check_site.py` fails `make site` over 1 GB
 (`pc486/PC486_REVIEW.md` §54).
 
-### M6. Shared chip libraries have no tests of their own
+### M6. Shared chip libraries have no tests of their own. Fixed
 
-- `shared/cpu` and `shared/pc` have suites (`shared/pc/tests/`, built by
-  both PCs). `shared/galaxian`, `shared/atari`, and `shared/namco` don't;
-  their tests live inside consumer machines.
-- Some AY8910/I8255 tests are duplicated across frogger's and galaxian's
-  `device_test.cpp`.
-- POKEY is covered only by three tests in centipede's `machine_test.cpp`.
-  Centipede has 12 native tests in total, against galaga's 81.
+Every shared chip library now has a `tests/` folder, built by each machine
+that uses the chip, the way `shared/pc/tests/` is:
+
+- `shared/galaxian/tests/`: AY-3-8910, 8255, Konami sound, timer and video
+  (all three boards' modes), out of frogger's, scramble's and galaxian's
+  `device_test.cpp`. scramble's 3 AY-3-8910 tests and 1 8255 test were
+  copies of frogger's and are gone. galaxian keeps its board's discrete
+  sound in `sound_test.cpp`. frogger and scramble build all five, galaxian
+  the video.
+- `shared/namco/tests/wsg_test.cpp`: the WSG tests out of pacman, now also
+  run by galaga.
+- `shared/atari/tests/`: asteroids' DVG tests, and a new POKEY suite (15
+  tests, built by centipede and missile): divider periods at 64 kHz,
+  15 kHz and 1.79 MHz, linked pairs on both, volume-only, RANDOM in and out
+  of init mode, and the 17-bit poly's taps and length. A planted bug in
+  each was caught, except two that change nothing observable.
+
+The POKEY suite found a real bug: a linked 16-bit pair always counted
+AUDF+7, which is only right on the 1.79 MHz clock. On the 64/15 kHz base
+it's (AUDF+1) × 28 or 114 (MAME `pokey.cpp`, quoting the Atari manual), so
+a linked pair played about 28 times too high. Fixed in `pokey.cpp`.
 
 ### M7. TypeScript specs were never linted or typechecked. Fixed
 
@@ -367,9 +381,7 @@ backlog.
    too (6.5 MB for the 244 MB HDD). The site's size is item 11.
 6. ~~**CI and Makefile consolidation.**~~ Done. See "Build source lists" and
    "CI" above.
-7. **M6, tests for the shared chip libraries.** Give `shared/galaxian`,
-   `shared/atari` and `shared/namco` their own suites, the way `shared/pc`
-   has one, and drop the duplicated AY8910/I8255 tests.
+7. ~~**M6, tests for the shared chip libraries.**~~ Done. See M6 above.
 8. ~~**Flaky-test masking.**~~ Done. See "Flaky-test masking" above.
 9. **Terminal code and arcade wasm wrappers.** `shared/terminal.js`, one
    vendored xterm, and one RGBA conversion for the arcade `wasm_machine.cpp`

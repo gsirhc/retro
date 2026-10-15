@@ -33,7 +33,7 @@ test-smoke:
 	ctest --test-dir tests/build -R '^Smoke\.' --output-on-failure
 
 # --- C++ coverage (source-based, llvm-cov) --------------------------
-COV_TESTS = video_wsg_test machine_test smoke_test
+COV_TESTS = video_test wsg_test machine_test smoke_test
 COV_SRCS  = machine.cpp video.cpp ../shared/namco/wsg.cpp
 coverage:
 	cmake -S tests -B tests/build-cov -DCOVERAGE=ON >/dev/null

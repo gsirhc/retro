@@ -47,16 +47,17 @@ void Pokey::recalc_periods() {
         period_[i] = p;
         if (count_[i] > period_[i]) count_[i] = period_[i];
     }
-    // 16-bit join: ch1+ch2 / ch3+ch4 (AUDCTL bits 4 / 3).
+    // 16-bit join: ch1+ch2 / ch3+ch4 (AUDCTL bits 4 / 3). +7 only on 1.79 MHz,
+    // else AUDF+1 base clocks (MAME pokey.cpp, from the Atari manual).
     if (audctl_ & 0x10) {
-        int p = ((int(audf_[1]) << 8) | audf_[0]) + 7;
-        if (p < 1) p = 1;
+        int f = (int(audf_[1]) << 8) | audf_[0];
+        int p = (audctl_ & 0x40) ? f + 7 : (f + 1) * base;
         period_[0] = p;
         period_[1] = p;
     }
     if (audctl_ & 0x08) {
-        int p = ((int(audf_[3]) << 8) | audf_[2]) + 7;
-        if (p < 1) p = 1;
+        int f = (int(audf_[3]) << 8) | audf_[2];
+        int p = (audctl_ & 0x20) ? f + 7 : (f + 1) * base;
         period_[2] = p;
         period_[3] = p;
     }

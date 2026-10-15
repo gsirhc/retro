@@ -33,7 +33,7 @@ test-smoke:
 	ctest --test-dir tests/build -R '^Smoke\.' --output-on-failure
 
 # --- C++ coverage (source-based, llvm-cov) --------------------------
-COV_TESTS = device_test machine_test smoke_test
+COV_TESTS = ay8910_test i8255_test konami_sound_test timer_test video_test machine_test smoke_test
 COV_SRCS  = machine.cpp ../shared/galaxian/video.cpp ../shared/galaxian/ay8910.cpp ../shared/galaxian/konami_sound.cpp ../shared/galaxian/i8255.cpp ../shared/galaxian/timer.cpp
 coverage:
 	cmake -S tests -B tests/build-cov -DCOVERAGE=ON >/dev/null

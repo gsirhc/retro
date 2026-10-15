@@ -68,40 +68,6 @@ TEST(Machine, PokeyRandomLeavesInitMode) {
     EXPECT_FALSE(a == b && b == c);
 }
 
-TEST(Machine, PokeyPureToneIsSquare) {
-    // AUDC $AF = NOTPOLY5|PURE|vol — must toggle the latch, not sample poly.
-    atari::Pokey p;
-    p.reset();
-    p.write(0x0F, 0x03);
-    p.write(0x08, 0x00);
-    p.write(0x00, 0x20);
-    p.write(0x01, 0xAF);
-    std::vector<float> out;
-    p.mix(atari::Pokey::kClockHz / 20, 48000, out);
-    ASSERT_GT(out.size(), 200u);
-    int hi = 0, lo = 0, mid = 0;
-    for (float s : out) {
-        if (s > 0.08f) hi++;
-        else if (s < 0.02f) lo++;
-        else mid++;
-    }
-    EXPECT_LT(mid, int(out.size()) / 25);
-    EXPECT_GT(hi, int(out.size()) / 8);
-    EXPECT_GT(lo, int(out.size()) / 8);
-    // Edges should land on a regular grid (square), not poly-noise jitter.
-    int edges = 0;
-    bool high = out[0] > 0.05f;
-    for (size_t i = 1; i < out.size(); i++) {
-        bool h = out[i] > 0.05f;
-        if (h != high) {
-            edges++;
-            high = h;
-        }
-    }
-    EXPECT_GT(edges, 20);
-    EXPECT_LT(edges, int(out.size()) / 4);
-}
-
 TEST(Machine, EaromEraseThenAndWrite) {
     centipede::Machine m;
     // WriteEaromInc: deselect, latch the byte, then select erase ($06/$0E).

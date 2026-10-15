@@ -39,7 +39,8 @@ function(add_unit_test name)
   endif()
 endfunction()
 
-add_unit_test(video_wsg_test video_wsg_test.cpp ${CORE}/video.cpp ${SHARED}/namco/wsg.cpp)
+add_unit_test(video_test video_test.cpp ${CORE}/video.cpp)
+add_unit_test(wsg_test ${SHARED}/namco/tests/wsg_test.cpp ${SHARED}/namco/wsg.cpp)
 add_unit_test(machine_test machine_test.cpp
   ${CORE}/machine.cpp ${Z80}/cpu_z80.cpp ${CORE}/video.cpp ${SHARED}/namco/wsg.cpp)
 add_dependencies(machine_test hwtest_roms)
@@ -50,7 +51,8 @@ add_unit_test(play_test play_test.cpp
   ${CORE}/machine.cpp ${Z80}/cpu_z80.cpp ${CORE}/video.cpp ${SHARED}/namco/wsg.cpp)
 
 include(GoogleTest)
-gtest_discover_tests(video_wsg_test)
+gtest_discover_tests(video_test)
+gtest_discover_tests(wsg_test)
 gtest_discover_tests(machine_test)
 gtest_discover_tests(smoke_test)
 gtest_discover_tests(play_test PROPERTIES TIMEOUT 60)

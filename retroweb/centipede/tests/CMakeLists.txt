@@ -33,9 +33,11 @@ function(add_unit_test name)
   target_compile_options(${name} PRIVATE -Wall -Wextra)
 endfunction()
 
+add_unit_test(pokey_test ${ATARI}/tests/pokey_test.cpp ${ATARI}/pokey.cpp)
 add_unit_test(machine_test machine_test.cpp ${BOARD} ${WEB}/hwtest_roms.h)
 add_unit_test(smoke_test smoke_test.cpp ${BOARD} ${WEB}/hwtest_roms.h)
 
 include(GoogleTest)
+gtest_discover_tests(pokey_test)
 gtest_discover_tests(machine_test)
 gtest_discover_tests(smoke_test)

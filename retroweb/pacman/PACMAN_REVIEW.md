@@ -290,7 +290,7 @@ volumes were nonzero, the WASM audio pipeline was working) but sounded
 like crackling static — every write to a voice's own register also
 scrambled a neighboring voice's unrelated field, so no stable tone ever
 held for more than an instruction or two. `Wsg.RegisterMapMatchesRealHardwareOffsets`
-and `Wsg.OnlyVoiceZeroHasLowFrequencyNibble` in `tests/video_wsg_test.cpp`
+and `Wsg.OnlyVoiceZeroHasLowFrequencyNibble` in `shared/namco/tests/wsg_test.cpp`
 pin the corrected map; a native harness feeding the real ROM set and
 dumping `Machine::audio` to a WAV file (analyzed offline with a sliding
 FFT) confirmed the fix produces long, stable single-frequency stretches —

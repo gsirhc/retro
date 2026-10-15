@@ -608,6 +608,10 @@ separate suite.
   carries none of them, since they sit on the hottest paths there are.
   Deploy CI builds both binaries; nightly also re-runs the Performance
   panel against the shipped (non-`?perf`) binary — see `PC486_REVIEW.md` §23.
+- Shared chips keep their tests beside them (`shared/pc/tests/`,
+  `shared/galaxian/tests/`, `shared/atari/tests/`, `shared/namco/tests/`),
+  and every machine that uses a chip builds its tests in its own `make
+  check`. A new shared chip gets a `tests/` folder the same way.
 - Front ends live in each machine's own `web/`; generated wasm/ROM/media
   files (`retro8080.js`/`.wasm`, `cgoac6502.js`/`.wasm`/`roms/*.bin`,
   `ibmpcat.js`/`.wasm`, `pacman.js`/`.wasm`, `frogger.js`/`.wasm`,

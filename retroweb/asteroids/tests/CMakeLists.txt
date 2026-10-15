@@ -34,7 +34,7 @@ function(add_unit_test name)
   target_compile_options(${name} PRIVATE -Wall -Wextra)
 endfunction()
 
-add_unit_test(dvg_test dvg_test.cpp ${ATARI}/dvg.cpp)
+add_unit_test(dvg_test ${ATARI}/tests/dvg_test.cpp ${ATARI}/dvg.cpp)
 add_unit_test(machine_test machine_test.cpp ${BOARD} ${WEB}/hwtest_roms.h)
 add_unit_test(smoke_test smoke_test.cpp ${BOARD} ${WEB}/hwtest_roms.h)
 

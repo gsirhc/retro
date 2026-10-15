@@ -40,8 +40,11 @@ set(BOARD
   ${CORE}/machine.cpp ${Z80}/cpu_z80.cpp
   ${GAL}/video.cpp ${GAL}/ay8910.cpp ${GAL}/konami_sound.cpp ${GAL}/i8255.cpp ${GAL}/timer.cpp)
 
-add_unit_test(device_test device_test.cpp
-  ${GAL}/video.cpp ${GAL}/ay8910.cpp ${GAL}/konami_sound.cpp ${GAL}/i8255.cpp ${GAL}/timer.cpp)
+add_unit_test(ay8910_test ${GAL}/tests/ay8910_test.cpp ${GAL}/ay8910.cpp)
+add_unit_test(i8255_test ${GAL}/tests/i8255_test.cpp ${GAL}/i8255.cpp)
+add_unit_test(konami_sound_test ${GAL}/tests/konami_sound_test.cpp ${GAL}/konami_sound.cpp ${GAL}/ay8910.cpp)
+add_unit_test(timer_test ${GAL}/tests/timer_test.cpp ${GAL}/timer.cpp)
+add_unit_test(video_test ${GAL}/tests/video_test.cpp ${GAL}/video.cpp)
 add_unit_test(machine_test machine_test.cpp ${BOARD})
 add_dependencies(machine_test hwtest_roms)
 add_unit_test(smoke_test smoke_test.cpp ${BOARD})
@@ -51,7 +54,11 @@ target_compile_definitions(play_test PRIVATE
   CORE_USER_ROMS="${CORE}/roms/user")
 
 include(GoogleTest)
-gtest_discover_tests(device_test)
+gtest_discover_tests(ay8910_test)
+gtest_discover_tests(i8255_test)
+gtest_discover_tests(konami_sound_test)
+gtest_discover_tests(timer_test)
+gtest_discover_tests(video_test)
 gtest_discover_tests(machine_test)
 gtest_discover_tests(smoke_test)
 gtest_discover_tests(play_test PROPERTIES TIMEOUT 60)
