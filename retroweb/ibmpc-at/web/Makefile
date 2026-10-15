@@ -23,17 +23,7 @@ ibmpcat.js: $(SRC) $(HDRS)
 
 .PHONY: library-images shared roms hdd-image serve test test-smoke test-install coverage clean preset-images stage
 
-# Copied from retroweb/shared/ at build time; only web/ gets staged.
 SHARED = ../../shared
-shared:
-	mkdir -p shared
-	cp $(SHARED)/theme.css $(SHARED)/theme-init.js $(SHARED)/theme-picker.js $(SHARED)/pagebar.css \
-	   $(SHARED)/fullscreen.css $(SHARED)/fullscreen.js \
-	   $(SHARED)/focus-hint.css $(SHARED)/focus-hint.js \
-	   $(SHARED)/footer.css $(SHARED)/footer.js $(SHARED)/winbtns.js \
-	   $(SHARED)/pc-keyboard.css $(SHARED)/pc-keyboard.js \
-	   $(SHARED)/disk-drop.css $(SHARED)/disk-drop.js $(SHARED)/disk-library.css $(SHARED)/disk-library.js \
-	   shared/
 # Firmware and the HDD image come from the native-core Makefile (pinned and verified there).
 # hdd-image is a multi-minute installer run, so it only runs when the parent output is missing.
 roms:
@@ -101,10 +91,6 @@ coverage: ibmpcat.js roms shared
 	fi
 	COVERAGE=1 npx playwright test
 
-test-install:
-	npm ci
-	npx playwright install --with-deps chromium
-
 clean:
 	rm -f ibmpcat.js ibmpcat.wasm
 	rm -rf shared
@@ -116,8 +102,8 @@ library-images:
 	mkdir -p disks/library
 	cp $(CORE)/disks/library/*.img $(CORE)/disks/library.json disks/library/
 
-# What the deployed site serves; `make -C retroweb site` calls this with DEST.
 STAGE = index.html app.js ibmpcat.js ibmpcat.wasm assets disks roms shared
-stage:
-	../../stage_web.sh $(DEST) $(STAGE)
-	python3 ../../strip_fast_flag.py $(DEST)/app.js
+SHARED_EXTRA = $(SHARED_PC)
+STAGE_POST = python3 ../../strip_fast_flag.py $(DEST)/app.js
+
+include $(SHARED)/web.mk

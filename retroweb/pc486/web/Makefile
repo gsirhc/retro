@@ -47,18 +47,7 @@ perf-build: pc486-perf.js
 
 .PHONY: library-images shared roms hdd-image preset-images legacy-hdd-fixture driver-images perf-build serve test test-smoke test-install coverage clean stage
 
-# Copied from retroweb/shared/ at build time, git-ignored.
 SHARED = ../../shared
-shared:
-	mkdir -p shared
-	cp $(SHARED)/theme.css $(SHARED)/theme-init.js $(SHARED)/theme-picker.js $(SHARED)/pagebar.css \
-	   $(SHARED)/fullscreen.css $(SHARED)/fullscreen.js \
-	   $(SHARED)/focus-hint.css $(SHARED)/focus-hint.js \
-	   $(SHARED)/footer.css $(SHARED)/footer.js $(SHARED)/winbtns.js \
-	   $(SHARED)/pc-keyboard.css $(SHARED)/pc-keyboard.js \
-	   $(SHARED)/disk-drop.css $(SHARED)/disk-drop.js $(SHARED)/disk-library.css $(SHARED)/disk-library.js \
-	   shared/
-
 roms:
 	$(MAKE) -C $(CORE) bios
 	mkdir -p roms
@@ -161,10 +150,6 @@ coverage: pc486.js roms shared legacy-hdd-fixture
 	fi
 	COVERAGE=1 npx playwright test
 
-test-install:
-	npm ci
-	npx playwright install --with-deps chromium
-
 clean:
 	rm -f pc486.js pc486.wasm
 	rm -rf shared
@@ -176,9 +161,11 @@ library-images:
 	mkdir -p disks/library
 	cp $(CORE)/disks/library/*.img $(CORE)/disks/library.json disks/library/
 
-# What the deployed site serves; `make -C retroweb site` calls this with DEST.
 STAGE = index.html app.js pc486.js pc486.wasm pc486-perf.js pc486-perf.wasm hdd-convert.js hdd-worker.js assets disks roms shared
-stage:
-	../../stage_web.sh $(DEST) $(STAGE)
-	find $(DEST)/disks -name '*-hdd.img' -delete
-	python3 ../../strip_fast_flag.py $(DEST)/app.js
+SHARED_EXTRA = $(SHARED_PC)
+define STAGE_POST
+find $(DEST)/disks -name '*-hdd.img' -delete
+python3 ../../strip_fast_flag.py $(DEST)/app.js
+endef
+
+include $(SHARED)/web.mk

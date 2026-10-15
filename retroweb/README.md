@@ -91,7 +91,7 @@ chrome (`pagebar.css`), the fullscreen + "click to focus" mechanisms
 (`fullscreen.css`/`.js`, `focus-hint.css`/`.js`), and the site footer
 (`footer.css`/`.js`, including the theme-matched Help control that links to `about.html`).
 The landing page and `about.html` link `shared/` directly; each machine's
-own `web/Makefile` has a `shared` target that copies these files into that
+own `web/Makefile` gets a `shared` target from `shared/web.mk` that copies these files into that
 machine's own `web/shared/` (git-ignored, regenerated like the wasm build
 itself), because **only `web/` ever gets staged** — see "Adding a machine"
 below. Each
@@ -142,8 +142,8 @@ _site/pc486/          <- retroweb/pc486/web/         (its `stage` list)
 ```
 
 `_site/` is git-ignored, built by `make -C retroweb site` (CI runs the same
-target). Each machine's `web/Makefile` `stage` target lists exactly what
-ships; `check_site.py` fails the build if a source or tooling file gets in, or if a page, `fetch`, worker, or manifest refers to a file that didn't. Preview the whole site exactly as deployed:
+target). Each machine's `web/Makefile` `STAGE` lists exactly what
+ships (`shared/web.mk` runs it); `check_site.py` fails the build if a source or tooling file gets in, or if a page, `fetch`, worker, or manifest refers to a file that didn't. Preview the whole site exactly as deployed:
 
 ```sh
 make -C retroweb preview       # foreground, on :8000 — dies with the terminal

@@ -27,18 +27,7 @@ media:
 	bash roms/fetch-basic.sh
 	bash disks/fetch-disks.sh
 
-# Shared chrome is copied from retroweb/shared/ into web/shared/ (git-ignored),
-# since only web/ gets staged.
 SHARED = ../../shared
-shared:
-	mkdir -p shared
-	cp $(SHARED)/theme.css $(SHARED)/theme-init.js $(SHARED)/theme-picker.js $(SHARED)/pagebar.css \
-	   $(SHARED)/fullscreen.css $(SHARED)/fullscreen.js \
-	   $(SHARED)/focus-hint.css $(SHARED)/focus-hint.js \
-	   $(SHARED)/footer.css $(SHARED)/footer.js $(SHARED)/winbtns.js \
-	   $(SHARED)/disk-drop.css $(SHARED)/disk-drop.js \
-	   shared/
-
 serve: retro8080.js roms media shared
 	@echo "serving on http://localhost:8000  (Ctrl-C to stop)"
 	python3 -m http.server 8000
@@ -55,16 +44,12 @@ test-smoke: retro8080.js roms media shared
 coverage: retro8080.js roms media shared
 	COVERAGE=1 npx playwright test
 
-test-install:
-	npm ci
-	npx playwright install --with-deps chromium
-
 clean:
 	rm -f retro8080.js retro8080.wasm roms/echo.bin roms/hello.bin roms/killbits.bin
 	rm -rf shared
 	rm -rf test-results playwright-report coverage .v8-coverage
 
-# What the deployed site serves; `make -C retroweb site` calls this with DEST.
 STAGE = index.html app.js retro8080.js retro8080.wasm assets disks roms shared tapes vendor
-stage:
-	../../stage_web.sh $(DEST) $(STAGE)
+SHARED_EXTRA = disk-drop.css disk-drop.js
+
+include $(SHARED)/web.mk

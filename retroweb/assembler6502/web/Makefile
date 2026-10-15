@@ -49,14 +49,6 @@ examples-bin: $(EXAMPLE_BINS)
 
 # Shared front-end code, copied from retroweb/shared/ (git-ignored, regenerated)
 SHARED = ../../shared
-shared:
-	mkdir -p shared
-	cp $(SHARED)/theme.css $(SHARED)/theme-init.js $(SHARED)/theme-picker.js $(SHARED)/pagebar.css \
-	   $(SHARED)/fullscreen.css $(SHARED)/fullscreen.js \
-	   $(SHARED)/focus-hint.css $(SHARED)/focus-hint.js \
-	   $(SHARED)/footer.css $(SHARED)/footer.js $(SHARED)/winbtns.js \
-	   shared/
-
 serve: wasm roms examples-bin shared
 	@echo "serving on http://localhost:8000  (Ctrl-C to stop)"
 	python3 devserve.py 8000
@@ -71,16 +63,11 @@ test-smoke: wasm roms examples-bin shared
 coverage: wasm roms examples-bin shared
 	COVERAGE=1 npx playwright test
 
-test-install:
-	npm ci
-	npx playwright install --with-deps chromium
-
 clean:
 	rm -f cgoac6502.js cgoac6502.wasm roms/firmware.bin gen_example_bin examples/*.bin
 	rm -rf shared
 	rm -rf test-results playwright-report coverage .v8-coverage
 
-# What the deployed site serves; `make -C retroweb site` calls this with DEST.
 STAGE = index.html app.js cgoac6502.js cgoac6502.wasm lcdfont.js assets examples roms shared vendor
-stage:
-	../../stage_web.sh $(DEST) $(STAGE)
+
+include $(SHARED)/web.mk

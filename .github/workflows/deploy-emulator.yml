@@ -12,12 +12,14 @@ on:
       - "cpu6502/rom/**"
       - ".github/workflows/deploy-emulator.yml"
       - ".github/workflows/nightly-full.yml"
+      - ".github/workflows/arcade-web.yml"
   pull_request:
     paths:
       - "retroweb/**"
       - "cpu6502/rom/**"
       - ".github/workflows/deploy-emulator.yml"
       - ".github/workflows/nightly-full.yml"
+      - ".github/workflows/arcade-web.yml"
   workflow_dispatch:
 
 permissions:
@@ -47,7 +49,7 @@ jobs:
 
       - uses: mymindstorm/setup-emsdk@v14
         with:
-          version: latest
+          version: 6.0.12
 
       - working-directory: retroweb/altair8800/web
         run: make retro8080.js roms shared
@@ -95,7 +97,7 @@ jobs:
 
       - uses: mymindstorm/setup-emsdk@v14
         with:
-          version: latest
+          version: 6.0.12
 
       - working-directory: retroweb/assembler6502/web
         run: make wasm roms examples-bin shared
@@ -145,7 +147,7 @@ jobs:
 
       - uses: mymindstorm/setup-emsdk@v14
         with:
-          version: latest
+          version: 6.0.12
 
       - run: sudo apt-get update && sudo apt-get install -y nasm
 
@@ -201,38 +203,10 @@ jobs:
   # exercises the user-supplied ROM-set loader against fixture CRCs.
   pacman-web-test:
     needs: pacman-test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: mymindstorm/setup-emsdk@v14
-        with:
-          version: latest
-
-      - working-directory: retroweb/pacman/web
-        run: make wasm roms shared
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - working-directory: retroweb/pacman/web
-        run: npm ci
-
-      - working-directory: retroweb/pacman/web
-        run: npx playwright install --with-deps chromium
-
-      - working-directory: retroweb/pacman/web
-        run: make test-smoke
-
-      - if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: pacman-playwright-report
-          path: |
-            retroweb/pacman/web/playwright-report/
-            retroweb/pacman/web/test-results/
-          retention-days: 7
+    uses: ./.github/workflows/arcade-web.yml
+    with:
+      machine: pacman
+      target: test-smoke
 
   # 486 DX2-66 Gaming PC: GoogleTest suite over the 80486 core + chipset,
   # WD1003/ATAPI CD-ROM, floppy, VGA/VBE, PS/2 mouse and Sound Blaster 16
@@ -262,7 +236,7 @@ jobs:
 
       - uses: mymindstorm/setup-emsdk@v14
         with:
-          version: latest
+          version: 6.0.12
 
       - working-directory: retroweb/pc486/web
         run: make roms
@@ -356,38 +330,10 @@ jobs:
 
   asteroids-web-test:
     needs: asteroids-test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: mymindstorm/setup-emsdk@v14
-        with:
-          version: latest
-
-      - working-directory: retroweb/asteroids/web
-        run: make wasm roms shared
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - working-directory: retroweb/asteroids/web
-        run: npm ci
-
-      - working-directory: retroweb/asteroids/web
-        run: npx playwright install --with-deps chromium
-
-      - working-directory: retroweb/asteroids/web
-        run: make test-smoke
-
-      - if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: asteroids-playwright-report
-          path: |
-            retroweb/asteroids/web/playwright-report/
-            retroweb/asteroids/web/test-results/
-          retention-days: 7
+    uses: ./.github/workflows/arcade-web.yml
+    with:
+      machine: asteroids
+      target: test-smoke
 
   # Centipede arcade board: GoogleTest over the 6502 + POKEY + machine
   # (see retroweb/centipede/CENTIPEDE_REVIEW.md). Shared ISA is mos6502-test.
@@ -400,38 +346,10 @@ jobs:
 
   centipede-web-test:
     needs: centipede-test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: mymindstorm/setup-emsdk@v14
-        with:
-          version: latest
-
-      - working-directory: retroweb/centipede/web
-        run: make wasm roms shared
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - working-directory: retroweb/centipede/web
-        run: npm ci
-
-      - working-directory: retroweb/centipede/web
-        run: npx playwright install --with-deps chromium
-
-      - working-directory: retroweb/centipede/web
-        run: make test-smoke
-
-      - if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: centipede-playwright-report
-          path: |
-            retroweb/centipede/web/playwright-report/
-            retroweb/centipede/web/test-results/
-          retention-days: 7
+    uses: ./.github/workflows/arcade-web.yml
+    with:
+      machine: centipede
+      target: test-smoke
 
   # Missile Command arcade board: GoogleTest over the 6502 + POKEY + machine
   # (see retroweb/missile/MISSILE_REVIEW.md). Shared ISA is mos6502-test.
@@ -444,38 +362,10 @@ jobs:
 
   missile-web-test:
     needs: missile-test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: mymindstorm/setup-emsdk@v14
-        with:
-          version: latest
-
-      - working-directory: retroweb/missile/web
-        run: make wasm roms shared
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - working-directory: retroweb/missile/web
-        run: npm ci
-
-      - working-directory: retroweb/missile/web
-        run: npx playwright install --with-deps chromium
-
-      - working-directory: retroweb/missile/web
-        run: make test-smoke
-
-      - if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: missile-playwright-report
-          path: |
-            retroweb/missile/web/playwright-report/
-            retroweb/missile/web/test-results/
-          retention-days: 7
+    uses: ./.github/workflows/arcade-web.yml
+    with:
+      machine: missile
+      target: test-smoke
 
   # Frogger arcade board: GoogleTest suite over the dual Z80 + Galaxian
   # video + AY-3-8910 + machine (see retroweb/frogger/FROGGER_REVIEW.md).
@@ -489,38 +379,10 @@ jobs:
 
   frogger-web-test:
     needs: frogger-test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: mymindstorm/setup-emsdk@v14
-        with:
-          version: latest
-
-      - working-directory: retroweb/frogger/web
-        run: make wasm roms shared
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - working-directory: retroweb/frogger/web
-        run: npm ci
-
-      - working-directory: retroweb/frogger/web
-        run: npx playwright install --with-deps chromium
-
-      - working-directory: retroweb/frogger/web
-        run: make test-smoke
-
-      - if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: frogger-playwright-report
-          path: |
-            retroweb/frogger/web/playwright-report/
-            retroweb/frogger/web/test-results/
-          retention-days: 7
+    uses: ./.github/workflows/arcade-web.yml
+    with:
+      machine: frogger
+      target: test-smoke
 
   # Scramble arcade board: GoogleTest suite over the dual Z80 + Galaxian
   # video + two AY-3-8910s + PAL 6J (see retroweb/scramble/SCRAMBLE_REVIEW.md).
@@ -534,38 +396,10 @@ jobs:
 
   scramble-web-test:
     needs: scramble-test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: mymindstorm/setup-emsdk@v14
-        with:
-          version: latest
-
-      - working-directory: retroweb/scramble/web
-        run: make wasm roms shared
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - working-directory: retroweb/scramble/web
-        run: npm ci
-
-      - working-directory: retroweb/scramble/web
-        run: npx playwright install --with-deps chromium
-
-      - working-directory: retroweb/scramble/web
-        run: make test-smoke
-
-      - if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: scramble-playwright-report
-          path: |
-            retroweb/scramble/web/playwright-report/
-            retroweb/scramble/web/test-results/
-          retention-days: 7
+    uses: ./.github/workflows/arcade-web.yml
+    with:
+      machine: scramble
+      target: test-smoke
 
   # Galaga arcade board: GoogleTest suite over three Z80s + Namco video +
   # the shared wavetable chip + MB884x (see retroweb/galaga/GALAGA_REVIEW.md).
@@ -579,38 +413,10 @@ jobs:
 
   galaga-web-test:
     needs: galaga-test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: mymindstorm/setup-emsdk@v14
-        with:
-          version: latest
-
-      - working-directory: retroweb/galaga/web
-        run: make wasm roms shared
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - working-directory: retroweb/galaga/web
-        run: npm ci
-
-      - working-directory: retroweb/galaga/web
-        run: npx playwright install --with-deps chromium
-
-      - working-directory: retroweb/galaga/web
-        run: make test-smoke
-
-      - if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: galaga-playwright-report
-          path: |
-            retroweb/galaga/web/playwright-report/
-            retroweb/galaga/web/test-results/
-          retention-days: 7
+    uses: ./.github/workflows/arcade-web.yml
+    with:
+      machine: galaga
+      target: test-smoke
 
   # Galaxian arcade board: GoogleTest suite over the single Z80 + Galaxian
   # video + discrete sound (see retroweb/galaxian/GALAXIAN_REVIEW.md).
@@ -624,38 +430,10 @@ jobs:
 
   galaxian-web-test:
     needs: galaxian-test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: mymindstorm/setup-emsdk@v14
-        with:
-          version: latest
-
-      - working-directory: retroweb/galaxian/web
-        run: make wasm roms shared
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - working-directory: retroweb/galaxian/web
-        run: npm ci
-
-      - working-directory: retroweb/galaxian/web
-        run: npx playwright install --with-deps chromium
-
-      - working-directory: retroweb/galaxian/web
-        run: make test-smoke
-
-      - if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: galaxian-playwright-report
-          path: |
-            retroweb/galaxian/web/playwright-report/
-            retroweb/galaxian/web/test-results/
-          retention-days: 7
+    uses: ./.github/workflows/arcade-web.yml
+    with:
+      machine: galaxian
+      target: test-smoke
 
   # HTML (HTMLHint), JavaScript (ESLint), and C++ (cppcheck) under retroweb/.
   # A red run blocks deploy the same way a red test job does.
@@ -716,7 +494,7 @@ jobs:
 
       - uses: mymindstorm/setup-emsdk@v14
         with:
-          version: latest
+          version: 6.0.12
 
       # wasm module + generated ROM images
       - working-directory: retroweb/altair8800/web

@@ -161,13 +161,18 @@ or cabinet isn't done until every one of these lists it, in the same
 change:
 
 - `retroweb/Makefile`: `_stage` build step, `MACHINES`, and the preview
-  URL echo. The machine's own `web/Makefile` gets a `stage` target.
+  URL echo. The machine's own `web/Makefile` sets `STAGE` and ends with
+  `include $(SHARED)/web.mk` (`shared`, `test-install`, `stage`; files
+  beyond the base set go in `SHARED_EXTRA`, extra stage steps in
+  `STAGE_POST`). A cabinet's is just variables plus
+  `include $(SHARED)/arcade.mk`.
 - `retroweb/watch_site.py` (`make watch`): `MACHINES`, `WASM_TARGETS`,
   `GENERATED_JS`, and the shared-chip tuple it uses (`ARCADE`, `ATARI`,
   …) so a change to a shared core rebuilds it too.
 - CI: `<machine>-test` / `<machine>-web-test` in
   `.github/workflows/deploy-emulator.yml` (smoke, in `build`'s `needs:`)
-  and `nightly-full.yml` (full).
+  and `nightly-full.yml` (full). A cabinet's `-web-test` calls
+  `.github/workflows/arcade-web.yml` with its name.
 - `.gitignore` (build dir, wasm/js, `hwtest_roms.h`, `web/roms/`,
   `web/shared/`, user ROMs), `retroweb/eslint.config.js` (generated JS
   ignore + module global), `retroweb/lint-cpp.sh`, `retroweb/package.json`
@@ -200,7 +205,7 @@ before calling it done.
   tooling files (`*.py`, `*.sh`, `*.md`, `*.h`, `*.cpp`) from inside those
   folders. `retroweb/check_site.py` then fails the build if any dev file
   reached `_site/` or a page, `fetch`, worker, or manifest `file` points at
-  something that wasn't staged. For a new machine add its `stage` target, its name to
+  something that wasn't staged. For a new machine set its `STAGE` (via `shared/web.mk`), its name to
   `MACHINES`, and a build step (wasm + roms + any pinned media) in
   `_stage`. `make site SITE=<dir>` stages somewhere else, e.g. to compare
   output without touching a running preview.

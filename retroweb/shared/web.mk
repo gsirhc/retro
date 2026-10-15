@@ -1,0 +1,26 @@
+# Targets every machine's web/Makefile shares. Include it last, after STAGE and SHARED_EXTRA.
+SHARED ?= ../../shared
+SHARED_BASE = theme.css theme-init.js theme-picker.js pagebar.css \
+  fullscreen.css fullscreen.js focus-hint.css focus-hint.js \
+  footer.css footer.js winbtns.js
+SHARED_PC = pc-keyboard.css pc-keyboard.js disk-drop.css disk-drop.js \
+  disk-library.css disk-library.js
+SHARED_ARCADE = arcade-cab.css arcade-touch.js arcade-core.js \
+  cab-start-1p-yellow.png cab-start-2p-yellow.png \
+  cab-start-1p-white.png cab-start-2p-white.png
+
+.PHONY: shared test-install stage
+
+# Copied from retroweb/shared/ at build time; only web/ gets staged.
+shared:
+	mkdir -p shared
+	cp $(addprefix $(SHARED)/,$(SHARED_BASE) $(SHARED_EXTRA)) shared/
+
+test-install:
+	npm ci
+	npx playwright install --with-deps chromium
+
+# What the deployed site serves; `make -C retroweb site` calls this with DEST.
+stage:
+	../../stage_web.sh $(DEST) $(STAGE)
+	$(STAGE_POST)

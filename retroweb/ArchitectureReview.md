@@ -309,14 +309,23 @@ and a planted unused variable each fail `make lint`.
 
 ## Low priority
 
-- **Build source lists.** Each machine lists its sources three times (wasm
-  `SRC`/`HDR`, CMake `BOARD`, `COV_SRCS`), and the shared-file copy list
-  repeats in 11 web Makefiles. `frogger/web/Makefile` also defines `SHARED`
-  twice. A `shared/machine.mk` would remove most of this.
-- **CI.** About 22 hand-copied jobs in each of the two ~850-line workflows; a
-  reusable workflow or matrix would replace them. Builds aren't reproducible:
-  `setup-emsdk version: latest` is unpinned, and googletest is fetched by tag
-  with no `URL_HASH`, 12 times.
+- ~~**Build source lists.**~~ Mostly fixed. `shared/web.mk` holds the
+  shared-file lists (base, `SHARED_PC`, `SHARED_ARCADE`) and the `shared`,
+  `test-install` and `stage` targets for all 12 web Makefiles;
+  `shared/arcade.mk` is the whole cabinet web build, so an arcade's Makefile
+  is just its name, sources and ROM options. `make -n -B` output for every
+  target matches the old Makefiles, apart from the 6502 cabinets' `clean`
+  also removing coverage folders they never create. frogger's double
+  `SHARED` is gone. Left alone: a machine's sources still appear in its wasm
+  `SRC`, CMake `BOARD` and `COV_SRCS`; one list for Make and CMake would
+  need a generated file, which costs more than the duplication.
+- ~~**CI.**~~ Fixed. The 16 arcade Playwright jobs call
+  `.github/workflows/arcade-web.yml` (machine, `test-smoke` or `test`,
+  `fail-on-flaky`), taking the workflows from ~1,800 to ~1,400 lines. The
+  other jobs differ machine to machine and stay. emsdk is pinned to 6.0.12,
+  the version `latest` resolved to, and googletest comes from one
+  `shared/googletest.cmake` with a `URL_HASH`; a wrong hash fails the
+  configure. actionlint 1.7.12 passes all three workflows.
 - **Terminal code.** Altair and assembler6502 terminal filters (`vt52Filter`,
   `adm3aFilter`, …) have identical logic; only the comments differ. xterm is
   vendored twice, byte-identical. Candidates for `shared/terminal.js` and a
@@ -356,9 +365,8 @@ backlog.
    why.
 5. ~~**M5, disk images on GitHub Pages.**~~ Checked: production gzips them
    too (6.5 MB for the 244 MB HDD). The site's size is item 11.
-6. **CI and Makefile consolidation**, whenever convenient. The "Build source
-   lists" and "CI" low-priority items: a shared `machine.mk`, reusable
-   workflow jobs, pinned emsdk and googletest hashes.
+6. ~~**CI and Makefile consolidation.**~~ Done. See "Build source lists" and
+   "CI" above.
 7. **M6, tests for the shared chip libraries.** Give `shared/galaxian`,
    `shared/atari` and `shared/namco` their own suites, the way `shared/pc`
    has one, and drop the duplicated AY8910/I8255 tests.
