@@ -571,7 +571,7 @@ separate suite.
   (GoogleTest over the 80486 core, chipset, EGA/VGA+VBE, WD1003, ATAPI
   CD-ROM, Sound Blaster 16 and its OPL3, plus the `retroweb/shared/pc/`
   PIT, PIC, DMA, RTC and speaker), `make -C retroweb/pc486/web
-  pc486.js roms hdd-image cdrom-image driver-images library-images
+  pc486.js roms hdd-image driver-images library-images
   preset-images`, `make -C
   retroweb/pc486/web test-install test` (Playwright). The FreeDOS HDD image
   is a real, slow installer run the first time and cached after that (see

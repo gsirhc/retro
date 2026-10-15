@@ -466,7 +466,7 @@ jobs:
           enableCrossOsArchive: true
 
       - working-directory: retroweb/pc486/web
-        run: make pc486.js pc486-perf.js hdd-image cdrom-image driver-images library-images preset-images shared
+        run: make pc486.js pc486-perf.js hdd-image driver-images library-images preset-images shared
 
       - uses: actions/setup-node@v4
         with:

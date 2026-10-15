@@ -267,20 +267,29 @@ output is the old file list minus exactly those 14, byte-identical apart
 from the two PC `app.js` lines. `make site SITE=<dir>` stages anywhere.
 `.DS_Store` is ignored repo-wide and the committed one is untracked.
 
-### M5. Dev/prod parity for disk images, to verify
+### M5. Dev/prod parity for disk images. Checked, fine
 
-- `serve_nocache.py` transparently serves `*.img.gz` siblings; GitHub Pages
-  won't.
-- In a local `_site`, the pc486 HDD is a 6 MB `.gz` next to a 244 MB raw
-  image, and the staged pc486 tree is 1.4 GB, over Pages' documented 1 GB
-  site limit.
-- If production serves the raw image, real visitors download 244 MB where
-  local preview sends 6. Not yet checked against production.
+Production (GitHub Pages, `gsirhc.github.io/retro/`) gzips the raw images on
+the fly, the same as `serve_nocache.py` does locally. A request for
+`pc486/disks/freedos-hdd.img` with a browser's `Accept-Encoding` comes back
+`Content-Encoding: gzip`, 6,548,662 bytes on the wire, decoding to
+255,974,400, the full image. The preset disks are the same (DOOM: 2.8 MB).
+The ~400 MB FreeDOS CD was fetched only when picked from the Disk library,
+and no longer ships at all (PC486_REVIEW.md §55).
+
+The staged site is about 1.5 GB (pc486 1.4 GB: four 244 MB raw HDD images
+and the CD), over the 1 GB GitHub documents for a published site. Deploys
+succeed and the docs don't say it blocks one, but they reserve the right
+not to serve a site over quota. **Fixed:** pc486 now ships only the
+`.img.gz` files and decompresses them in `app.js`, so the site is about
+520 MB, and `check_site.py` fails `make site` over 1 GB
+(`pc486/PC486_REVIEW.md` §54).
 
 ### M6. Shared chip libraries have no tests of their own
 
-- `shared/cpu` has a suite. `shared/galaxian`, `shared/atari`, and
-  `shared/namco` don't; their tests live inside consumer machines.
+- `shared/cpu` and `shared/pc` have suites (`shared/pc/tests/`, built by
+  both PCs). `shared/galaxian`, `shared/atari`, and `shared/namco` don't;
+  their tests live inside consumer machines.
 - Some AY8910/I8255 tests are duplicated across frogger's and galaxian's
   `device_test.cpp`.
 - POKEY is covered only by three tests in centipede's `machine_test.cpp`.
@@ -327,10 +336,31 @@ and a planted unused variable each fail `make lint`.
 
 ## Suggested order
 
+Keep this list current. When an item lands, strike it through and point to
+the entry that records the fix. A new finding goes in its section above and
+gets a place here in the same change, so this list is always the whole
+backlog.
+
 1. ~~**H2 and H4.**~~ Done. See H2 and H4 above.
 2. ~~**H3, with M1 and the galaga `idbSet` fix.**~~ Done. See H3 and M1 above.
 3. ~~**M2, M3, M4, M7.**~~ Done. See those entries above.
 4. ~~**H1, the `shared/pc/` merge.**~~ Done for the chips both real boards
    carry (PIT, PIC, DMA, RTC, speaker). See H1 for what stays per machine and
    why.
-5. **CI and Makefile consolidation**, whenever convenient.
+5. ~~**M5, disk images on GitHub Pages.**~~ Checked: production gzips them
+   too (6.5 MB for the 244 MB HDD). The site's size is item 11.
+6. **CI and Makefile consolidation**, whenever convenient. The "Build source
+   lists" and "CI" low-priority items: a shared `machine.mk`, reusable
+   workflow jobs, pinned emsdk and googletest hashes.
+7. **M6, tests for the shared chip libraries.** Give `shared/galaxian`,
+   `shared/atari` and `shared/namco` their own suites, the way `shared/pc`
+   has one, and drop the duplicated AY8910/I8255 tests.
+8. **Flaky-test masking.** Replace `waitForTimeout` with `expect.poll`, and
+   report tests that only pass on retry.
+9. **Terminal code and arcade wasm wrappers.** `shared/terminal.js`, one
+   vendored xterm, and one RGBA conversion for the arcade `wasm_machine.cpp`
+   files.
+10. **Comment style.** The `--`/`—` asides, the `theme-init.js` banner, and
+    the HTML comments in `pc486/web/index.html`.
+11. ~~**Site size against Pages' 1 GB.**~~ Done: the HDD images ship as
+    `.img.gz` only, 1.5 GB down to about 520 MB (see M5).

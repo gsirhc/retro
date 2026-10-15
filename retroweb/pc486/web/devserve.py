@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# Local and Playwright server: LAN-reachable, no-store, serves the .gz sibling of
-# disks/freedos-hdd.img (~6MB instead of 256MB per load) like retroweb/serve_nocache.py.
+# Local and Playwright server: LAN-reachable, no-store, and a raw request gets its .gz sibling
+# as Content-Encoding: gzip, as GitHub Pages compresses on the fly (retroweb/serve_nocache.py).
 import http.server, os, sys
 
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
@@ -13,6 +13,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if (
             "gzip" in self.headers.get("Accept-Encoding", "")
             and not path.endswith(".gz")
+            and os.path.isfile(path)
             and os.path.isfile(path + ".gz")
         ):
             ctype = self.guess_type(path)

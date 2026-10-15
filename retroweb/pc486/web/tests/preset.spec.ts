@@ -49,7 +49,8 @@ async function mountedVolumeLabel(page: Page): Promise<string> {
 // the text of AUTOEXEC.BAT and named files in that directory.
 async function readPreset(page: Page, file: string, dir: string, texts: string[]) {
   return page.evaluate(async ({ file, dir, texts }) => {
-    const b = new Uint8Array(await (await fetch(file)).arrayBuffer());
+    const r = await fetch(file);
+    const b = new Uint8Array(await new Response(r.body!.pipeThrough(new DecompressionStream("gzip"))).arrayBuffer());
     const dv = new DataView(b.buffer);
     const part = dv.getUint32(454, true) * 512;
     const bps = dv.getUint16(part + 11, true);
@@ -98,7 +99,7 @@ function expectBareFreeDos(r: Awaited<ReturnType<typeof readPreset>>, dir: strin
 test.describe("preset C: (?disk=doom)", () => {
   test("the DOOM image is a 256MB FAT16 C: with DOOM installed and an AUTOEXEC.BAT that runs it", async ({ page }) => {
     await bootLive(page, { params: DOOM });
-    const r = await readPreset(page, "disks/presets/doom-hdd.img", "DOOMS", ["DEFAULT.CFG"]);
+    const r = await readPreset(page, "disks/presets/doom-hdd.img.gz", "DOOMS", ["DEFAULT.CFG"]);
     expectBareFreeDos(r, "DOOMS");
     expect(r.game).toEqual(expect.arrayContaining(["DOOM.EXE", "DOOM1.WAD", "SETUP.EXE", "DEFAULT.CFG"]));
     expect(r.game).not.toContain("DOOMS_19.EXE");
@@ -114,8 +115,9 @@ test.describe("preset C: (?disk=doom)", () => {
     const gets: string[] = [];
     page.on("request", (r) => { if (r.method() === "GET" && r.url().includes("-hdd.img")) gets.push(r.url()); });
     await bootLive(page, { params: DOOM });
-    expect(gets.some((u) => u.includes("disks/presets/doom-hdd.img"))).toBe(true);
+    expect(gets.some((u) => u.includes("disks/presets/doom-hdd.img.gz"))).toBe(true);
     expect(gets.some((u) => u.includes("freedos-hdd.img"))).toBe(false);
+    expect(gets.some((u) => new URL(u).pathname.endsWith("-hdd.img"))).toBe(false);
     expect(await mountedVolumeLabel(page)).toBe("DOOM");
     await expect(page.locator("#hddStatus")).toHaveText(/Using: DOOM shareware/);
     await expect(page.locator("#hddResetBtn")).toHaveText("Reset to original DOOM disk");
@@ -184,7 +186,7 @@ test.describe("preset C: (?disk=doom)", () => {
 test.describe("preset C: (?disk=wolf3d)", () => {
   test("the Wolfenstein image has Wolf3D installed, its saved view at full width, and mounts with its own label", async ({ page }) => {
     await bootLive(page, { params: "disk=wolf3d" });
-    const r = await readPreset(page, "disks/presets/wolf3d-hdd.img", "WOLF1", ["CONFIG.WL1"]);
+    const r = await readPreset(page, "disks/presets/wolf3d-hdd.img.gz", "WOLF1", ["CONFIG.WL1"]);
     expectBareFreeDos(r, "WOLF1");
     expect(r.game).toEqual(expect.arrayContaining(["WOLF3D.EXE", "VSWAP.WL1", "CONFIG.WL1"]));
     expect(r.game).not.toContain("WOLF3D1.EXE");
@@ -204,7 +206,7 @@ test.describe("preset C: (?disk=wolf3d)", () => {
 test.describe("preset C: (?disk=tyrian)", () => {
   test("the Tyrian image has Tyrian 2.1 with FM music, Sound Blaster effects and 16-bar volumes, and mounts with its own label", async ({ page }) => {
     await bootLive(page, { params: "disk=tyrian" });
-    const r = await readPreset(page, "disks/presets/tyrian-hdd.img", "TYRIAN", ["TYRIAN.CFG"]);
+    const r = await readPreset(page, "disks/presets/tyrian-hdd.img.gz", "TYRIAN", ["TYRIAN.CFG"]);
     expectBareFreeDos(r, "TYRIAN");
     expect(r.game).toEqual(expect.arrayContaining(["TYRIAN.EXE", "FILE0001.EXE", "RTM.EXE", "DPMI16BI.OVL", "TYRIAN.CFG", "TYRIAN.SAV"]));
     expect(r.autoexec).toMatch(/CD \\TYRIAN\r\nTYRIAN\r\n$/);

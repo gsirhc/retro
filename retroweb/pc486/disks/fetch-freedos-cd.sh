@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Fetch FreeDOS 1.3's official LiveCD ISO, this machine's default CD-ROM disc,
+# Fetch FreeDOS 1.3's official LiveCD ISO, the install source for the C: image,
 # from ibiblio.org (same source as fetch-freedos.sh). FD13-LiveCD.zip holds
 # FD13LIVE.iso (lowercase extension inside the zip), FD13BOOT.img (a 1.44MB
 # floppy to boot machines that can't El Torito, which then installs from the CD)

@@ -389,11 +389,8 @@
 
   initDiskLibrary({
     button: document.getElementById("libraryBtn"),
-    drives: [
-      { id: 0, name: "A:", accepts: (k) => k === 1440 || k === 720 },
-      { id: "cdrom", name: "D:", accepts: (k) => k === "cd" },
-    ],
-    insert: (drive, label, bytes) => (drive === "cdrom" ? insertCdrom(label, bytes) : insertFloppy(label, bytes)),
+    drives: [{ id: 0, name: "A:", accepts: (k) => k === 1440 || k === 720 }],
+    insert: (drive, label, bytes) => insertFloppy(label, bytes),
   });
 
   const FLOPPY_SIZES = [1474560, 737280];
@@ -412,8 +409,7 @@
   });
 
   // ---- CD-ROM drive (atapi_cdrom) ----
-  // Read-only media, so no dirty-image path. Empty by default since C: already ships with FreeDOS;
-  // the Disk library fetches the ~400MB FreeDOS .iso lazily (PC486_REVIEW.md).
+  // Read-only media, so no dirty-image path. Starts empty; C: already ships with FreeDOS.
   const cdromBay = document.querySelector('.at-bay[data-drive="cdrom"]');
   async function insertCdrom(name, data) {
     await withLoad("Loading CD-ROM\u2026", async () => {
@@ -1572,14 +1568,15 @@
 
   // ---- preset C: (?disk=doom, the home page's Ready to Play cards) ----
   const kPresetHdds = {
-    doom: { file: "disks/presets/doom-hdd.img", label: "DOOM shareware", reset: "Reset to original DOOM disk" },
-    wolf3d: { file: "disks/presets/wolf3d-hdd.img", label: "Wolfenstein 3-D shareware", reset: "Reset to original Wolfenstein disk" },
-    tyrian: { file: "disks/presets/tyrian-hdd.img", label: "Tyrian 2.1 freeware", reset: "Reset to original Tyrian disk" },
+    doom: { file: "disks/presets/doom-hdd.img.gz", label: "DOOM shareware", reset: "Reset to original DOOM disk" },
+    wolf3d: { file: "disks/presets/wolf3d-hdd.img.gz", label: "Wolfenstein 3-D shareware", reset: "Reset to original Wolfenstein disk" },
+    tyrian: { file: "disks/presets/tyrian-hdd.img.gz", label: "Tyrian 2.1 freeware", reset: "Reset to original Tyrian disk" },
   };
   const presetId = new URLSearchParams(location.search).get("disk");
   const presetHdd = Object.hasOwn(kPresetHdds, presetId) ? kPresetHdds[presetId] : null;
   addFooterNote("All shareware and freeware titles remain the property of their respective owners. <a href=\"../about.html#rights\">More info</a>.");
-  const kFactoryHddFile = presetHdd ? presetHdd.file : "disks/freedos-hdd.img";
+  // Only the gzip ships; the raw 256MB images would put the site over the host's 1GB.
+  const kFactoryHddFile = presetHdd ? presetHdd.file : "disks/freedos-hdd.img.gz";
   const kFactoryHddLabel = presetHdd ? presetHdd.label : "FreeDOS (default)";
 
   // ---- hard disk persistence (IndexedDB, hdd-worker.js) ----
@@ -1701,7 +1698,7 @@
   function factoryHddUrl() {
     return new URL(kFactoryHddFile, location.href).href;
   }
-  // Cheap identity of the server's freedos-hdd.img (ETag, else Last-Modified, plus Content-Length)
+  // Cheap identity of the server's freedos-hdd.img.gz (ETag, else Last-Modified, plus Content-Length)
   // to tell an untouched older C: from a current one without the body. One HEAD per page load.
   let factoryFingerprintPromise = null;
   function factoryFingerprint() {
@@ -1731,7 +1728,7 @@
         if (loadBusyDepth > 0) loadOverlayLabel.textContent = "Downloading hard disk…";
         const r = await fetch(kFactoryHddFile);
         if (!r.ok) throw new Error(kFactoryHddFile + " HTTP " + r.status);
-        const bytes = await r.arrayBuffer();
+        const bytes = await new Response(r.body.pipeThrough(new DecompressionStream("gzip"))).arrayBuffer();
         if (firmware) firmware.hdd = bytes;
         return bytes;
       })();

@@ -7237,3 +7237,54 @@ Tests: `OutputPortComesOutOfResetAtCfhWithA20Open`,
 `MachineTest.AFastResetThroughPort92KeepsTheA20Gate`. Each fails against
 the old behavior. Tests that need a closed gate now close it with D1h, DDh,
 as POST does.
+
+## 54. Only the gzipped hard disks ship
+
+The deployed site was about 1.5 GB, over the 1 GB GitHub documents for a
+Pages site. Four raw 256 MB C: images (FreeDOS and the three presets) made
+up 1 GB of it, and each gzips to 1-7 MB because a fresh FAT16 drive is
+mostly zeros. Pages already gzipped them on the wire, so visitors were
+downloading 6.5 MB either way. Only the storage counted against the limit.
+
+`app.js` now fetches `disks/freedos-hdd.img.gz` (or the preset's
+`.img.gz`) and decompresses it with `DecompressionStream("gzip")`. The
+`.gz` comes back as plain `application/gzip`, with no `Content-Encoding`,
+on Pages and on both dev servers, so nothing decompresses it twice. The
+dev servers map a raw request to its `.gz` sibling only when the raw file
+exists, so a request for an image that wasn't staged 404s as it does on
+Pages.
+`make stage` drops every `*-hdd.img`. The raw images stay in `web/disks/`
+locally, because the `.gz` and the legacy-disk test fixtures are built from
+them. The site is now about 520 MB. The 420 MB FreeDOS CD is most of what's
+left, and it doesn't compress (xz -9 gets it to 372 MB).
+
+The factory fingerprint is now the `.gz`'s ETag and length, so a visitor's
+untouched saved C: is replaced once by the same FreeDOS. A changed C: is
+kept, as for any new factory image.
+
+Tests: `hdd.spec.ts` "the factory C: is fetched as freedos-hdd.img.gz and
+decompressed in the page" fails if any `-hdd.img` is requested, and the
+DOOM preset test checks the same. `preset.spec.ts` reads the shipped `.gz`
+files. `check_site.py` resolves literal `disks/`, `roms/`, `tapes/`,
+`examples/` and `assets/` paths in staged JS, so a page that still names a
+raw image fails `make site`, and it fails any staged site over 1 GB.
+
+## 55. The FreeDOS CD no longer ships
+
+The FreeDOS 1.3 LiveCD was the Disk library's one CD entry, 420 MB of the
+520 MB site, and the only file big enough to matter against Pages' soft
+100 GB/month bandwidth (about 240 loads). It doesn't compress. C: already
+boots FreeDOS without it, so it's gone from `library.json` and from the
+web build (`cdrom-image` is removed). The ISO is still fetched and
+verified by `disks/fetch-freedos-cd.sh`, because the C: image install
+(§5) and the library floppies are built from it.
+
+The CD-ROM drive is unchanged and starts empty. A visitor inserts their own
+`.iso` or `.cue`/`.bin`. The Disk library is floppies only:
+`shared/disk-library.js` lost its `"media": "cd"` handling and pc486 offers
+it drive A: alone.
+
+Tests: `cdrom.spec.ts` "boots with the drive empty and fetches no disc"
+fails on any `.iso` request. `library.spec.ts` checks every library entry
+is served as a FAT12 floppy of its format, so a CD entry fails it. The
+on-demand LiveCD test and its `loadFreedosCdrom` helper are gone.

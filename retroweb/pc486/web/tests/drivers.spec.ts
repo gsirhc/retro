@@ -1,6 +1,6 @@
 import { test, expect } from "./fixtures";
 
-// The CuteMouse floppy and the FreeDOS CD live in the Disk library. INT 33h is a
+// The CuteMouse floppy lives in the Disk library. INT 33h is a
 // driver, not firmware, so the machine ships the diskette (PC486_REVIEW.md §10).
 test.describe("Freeware disks & drivers", () => {
   test("Removable media has the Disk library and no separate media buttons", async ({ page }) => {
@@ -11,14 +11,12 @@ test.describe("Freeware disks & drivers", () => {
     await expect(page.locator("#freedosCdBtn")).toHaveCount(0);
   });
 
-  test("the library offers CuteMouse for A: and the FreeDOS CD for D:", async ({ page }) => {
+  test("the library offers CuteMouse for A:", async ({ page }) => {
     await page.goto("/?test=1");
     await page.locator("#libraryBtn").click();
     await page.locator("#libraryDialog .lib-item", { hasText: "CuteMouse" }).click();
     await expect(page.locator("#libraryDialog .lib-disks button")).toHaveText(["Insert in A:"]);
     await expect(page.locator("#libraryDialog .lib-help")).toContainText("CTMOUSE /P");
-    await page.locator("#libraryDialog .lib-item", { hasText: "FreeDOS 1.3 LiveCD" }).click();
-    await expect(page.locator("#libraryDialog .lib-disks button")).toHaveText(["Insert in D:"]);
   });
 
   test("inserting the CuteMouse disk loads a real 1.44MB image into drive A:", async ({ livePage: page }) => {

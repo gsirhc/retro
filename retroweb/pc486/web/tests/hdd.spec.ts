@@ -225,6 +225,16 @@ test.describe("hard disk", () => {
     expect(await page.evaluate(() => (window as any).__test.machine.hddImage().length)).toBe(kHddImageBytes);
   });
 
+  // Only the .gz is deployed (stage drops the raw images), so the page must never ask for one.
+  test("the factory C: is fetched as freedos-hdd.img.gz and decompressed in the page", async ({ page }) => {
+    const paths: string[] = [];
+    page.on("request", (r) => { if (r.method() === "GET") paths.push(new URL(r.url()).pathname); });
+    await bootLive(page);
+    expect(paths).toContain("/disks/freedos-hdd.img.gz");
+    expect(paths.some((p) => p.endsWith("-hdd.img"))).toBe(false);
+    expect(await page.evaluate(() => (window as any).__test.machine.hddImage().length)).toBe(kHddImageBytes);
+  });
+
   test("Reset to factory FreeDOS and Mount blank drive are only usable while powered off, and update the status label", async ({
     livePage: page,
   }) => {

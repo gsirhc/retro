@@ -1,19 +1,6 @@
 {
   "disks": [
     {
-      "id": "freedoscd",
-      "title": "FreeDOS 1.3 LiveCD",
-      "year": 2022,
-      "publisher": "FreeDOS Project",
-      "type": "os",
-      "media": "cd",
-      "needs": "CD-ROM drive D:",
-      "description": "FreeDOS's official install and live CD, about 400MB. C: already boots without it. Use it to install more packages or to reinstall.",
-      "license": "Free software. FreeDOS's own release, unchanged.",
-      "help": "It goes in drive D:. At the prompt:\n\n  D:\n  DIR\n\nEject it from the CD-ROM bay when you're done.",
-      "images": [{ "file": "../freedos-cd.iso", "label": "CD" }]
-    },
-    {
       "id": "ctmouse",
       "title": "CuteMouse 2.1 driver",
       "publisher": "FreeDOS Project",

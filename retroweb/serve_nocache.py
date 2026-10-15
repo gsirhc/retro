@@ -146,12 +146,12 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.wfile.write(body)
 
     def send_head(self):
-        # serve <path>.gz with Content-Encoding: gzip when it exists and the client
-        # accepts gzip; fetch() decompresses transparently (see pc486/web/Makefile)
+        # A file with a .gz sibling goes out as Content-Encoding: gzip, as Pages compresses
+        # on the fly. Only a file that exists: Pages 404s one that wasn't deployed.
         if "gzip" in self.headers.get("Accept-Encoding", ""):
             path = self.translate_path(self.path)
             gz_path = path + ".gz"
-            if not os.path.isdir(path) and os.path.isfile(gz_path):
+            if os.path.isfile(path) and os.path.isfile(gz_path):
                 try:
                     f = open(gz_path, "rb")
                 except OSError:

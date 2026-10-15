@@ -1,4 +1,4 @@
-"""Fails if a staged site carries dev files, a test-only CPU speed path, or a dangling reference."""
+"""Fails if a staged site carries dev files, a test-only CPU speed path, a dangling reference, or tops 1 GB."""
 import json
 import os
 import re
@@ -9,13 +9,15 @@ DEV_EXT = (".py", ".pyc", ".sh", ".md", ".h", ".cpp", ".ts")
 FAST = re.compile(r"""\.(?:get|has)\(\s*["']fast["']\s*\)""")
 HTML_REF = re.compile(r"""\b(?:src|href)\s*=\s*["']([^"']*)["']""")
 JS_REF = re.compile(r"""(?:fetch|importScripts|locateFile)\(\s*["']([^"'`?#]+)|new Worker\([^)]*?["']([^"'?#]+\.js)""")
+PAGES_LIMIT = 10**9  # GitHub Pages: "may be no larger than 1 GB"
+MEDIA_REF = re.compile(r"""["']((?:disks|roms|tapes|examples|assets)/[\w./-]+\.[A-Za-z0-9]+)["']""")
 
 
 def dev_file(name):
     return name in DEV_NAMES or name.startswith("package") and name.endswith(".json") or name.endswith(DEV_EXT)
 
 
-def check(site):
+def check(site, limit=PAGES_LIMIT):
     site = os.path.abspath(site)
     if not os.path.isdir(site):
         return [f"{site} is not a directory"]
@@ -31,6 +33,7 @@ def check(site):
         elif not os.path.exists(path):
             errors.append(f"{where}: {ref} missing")
 
+    total = 0
     for root, dirs, files in os.walk(site):
         for name in dirs + files:
             if dev_file(name):
@@ -38,6 +41,7 @@ def check(site):
         for name in files:
             full = os.path.join(root, name)
             rel = os.path.relpath(full, site)
+            total += os.path.getsize(full)
             if name.endswith(".html"):
                 text = open(full, encoding="utf-8").read()
                 for ref in HTML_REF.findall(text):
@@ -51,6 +55,8 @@ def check(site):
                     errors.append(f"{rel}: test-only CPU multiplier staged")
                 for a, b in JS_REF.findall(text):
                     resolve(root, a or b, rel)
+                for ref in MEDIA_REF.findall(text):
+                    resolve(root, ref, rel)
             elif name.endswith(".json"):
                 try:
                     data = json.load(open(full, encoding="utf-8"))
@@ -66,6 +72,8 @@ def check(site):
                         stack.extend(v.values())
                     elif isinstance(v, list):
                         stack.extend(v)
+    if total > limit:
+        errors.append(f"site is {total:,} bytes, over the {limit:,} host limit")
     return errors
 
 
@@ -78,9 +86,11 @@ def selftest():
         "rm m/d/x.dsk": "x.dsk missing",
         "rm m/s.css": "s.css missing",
         "rm m/m.wasm": "m.wasm missing",
+        "rm m/disks/hdd.img.gz": "hdd.img.gz missing",
         "rm img.png": "img.png missing",
         "fast": "test-only CPU multiplier",
         "dev": "dev file staged",
+        "big": "over the",
     }
     for case, want in cases.items():
         with tempfile.TemporaryDirectory() as site:
@@ -89,13 +99,14 @@ def selftest():
                 "img.png": "",
                 "m/index.html": '<link href="s.css"><script src="app.js"></script>',
                 "m/s.css": "",
-                "m/app.js": 'fetch("r/a.bin"); fetch("d/" + n); new Worker(p ? "w.js?x" : "w.js");',
+                "m/app.js": 'fetch("r/a.bin"); fetch("d/" + n); new Worker(p ? "w.js?x" : "w.js"); const f = "disks/hdd.img.gz";',
                 "m/m.js": 'locateFile("m.wasm")',
                 "m/m.wasm": "",
                 "m/w.js": "",
                 "m/r/a.bin": "",
                 "m/d/list.json": '{"disks": [{"file": "x.dsk"}]}',
                 "m/d/x.dsk": "",
+                "m/disks/hdd.img.gz": "",
             }
             if case.startswith("rm "):
                 del files[case[3:]]
@@ -103,10 +114,12 @@ def selftest():
                 files["m/app.js"] += ' q.get("fast");'
             elif case == "dev":
                 files["m/notes.md"] = ""
+            elif case == "big":
+                files["m/r/a.bin"] = "x" * 2000
             for rel, text in files.items():
                 os.makedirs(os.path.dirname(os.path.join(site, rel)), exist_ok=True)
                 open(os.path.join(site, rel), "w").write(text)
-            errs = check(site)
+            errs = check(site, limit=1000)
             ok = not errs if want is None else any(want in e for e in errs)
             if not ok:
                 sys.exit(f"check_site selftest {case or 'clean'}: {errs}")

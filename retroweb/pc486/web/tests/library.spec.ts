@@ -23,7 +23,7 @@ test.describe("Disk library", () => {
     const report = await page.evaluate(async () => {
       const lib = await (await fetch("disks/library/library.json")).json();
       const out: { file: string; len: number; k: number; sig: boolean; sectors: number }[] = [];
-      for (const e of lib.disks.filter((d: any) => d.media !== "cd")) {
+      for (const e of lib.disks) {
         for (const img of e.images) {
           const b = new Uint8Array(await (await fetch("disks/library/" + img.file)).arrayBuffer());
           out.push({

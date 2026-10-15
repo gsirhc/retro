@@ -309,7 +309,7 @@ jobs:
       # Performance panel's ?perf loads. Building only the shipped one would
       # let the PC486_PERF paths rot unnoticed -- nothing else compiles them.
       - working-directory: retroweb/pc486/web
-        run: make pc486.js pc486-perf.js hdd-image cdrom-image driver-images shared
+        run: make pc486.js pc486-perf.js hdd-image driver-images shared
 
       - uses: actions/setup-node@v4
         with:
@@ -852,7 +852,7 @@ jobs:
           key: pc486-preset-hdds-${{ hashFiles('retroweb/pc486/Makefile', 'retroweb/pc486/*.h', 'retroweb/pc486/*.cpp', 'retroweb/shared/pc/*.h', 'retroweb/shared/pc/*.cpp', 'retroweb/pc486/disks/*.cpp', 'retroweb/pc486/disks/*.sh', 'retroweb/pc486/disks/*.py', 'retroweb/pc486/disks/library.json', 'retroweb/pc486/roms/*.sh', 'retroweb/shared/dos-library/*.py', 'retroweb/shared/dos-library/*.sh') }}
 
       - working-directory: retroweb/pc486/web
-        run: make pc486.js pc486-perf.js roms hdd-image cdrom-image driver-images library-images preset-images shared
+        run: make pc486.js pc486-perf.js roms hdd-image driver-images library-images preset-images shared
 
       # Disk library floppies; the FreeDOS packages come from pc486's LiveCD restored above.
       - working-directory: retroweb/ibmpc-at/web

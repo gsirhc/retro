@@ -1,7 +1,7 @@
 "use strict";
 // Disk library dialog for the PC machines, fed by disks/library/library.json.
 // opts: { button, drives: [{ id, name, accepts(format) }], insert(driveId, label, bytes) -> Promise }
-// format is a floppy size in K, or "cd" for an entry with "media": "cd".
+// format is a floppy size in K.
 function initDiskLibrary(opts) {
   const BASE = "disks/library/";
   const dlg = document.createElement("dialog");
@@ -27,7 +27,7 @@ function initDiskLibrary(opts) {
   let catalog = null;
   let current = null;
 
-  const formatOf = (entry) => entry.media === "cd" ? "cd" : (entry.build && entry.build.format) || entry.format || 1440;
+  const formatOf = (entry) => (entry.build && entry.build.format) || entry.format || 1440;
   const metaLine = (e) => [e.year, e.publisher, e.needs && "Needs " + e.needs].filter(Boolean).join("  ·  ");
 
   function select(i) {
@@ -46,7 +46,7 @@ function initDiskLibrary(opts) {
       row.className = "lib-disk";
       const name = document.createElement("span");
       name.textContent = current.images.length > 1 ? img.label
-        : fmt === "cd" ? "CD-ROM" : `${fmt >= 1000 ? fmt / 1000 + "MB" : fmt + "K"} diskette`;
+        : `${fmt >= 1000 ? fmt / 1000 + "MB" : fmt + "K"} diskette`;
       row.appendChild(name);
       for (const d of opts.drives) {
         if (!d.accepts(fmt)) continue;

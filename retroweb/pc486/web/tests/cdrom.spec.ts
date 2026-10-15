@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures";
-import { bootLive, bay, insertCdrom, insertCdromCue, ejectCdrom, loadFreedosCdrom } from "./helpers";
+import { bootLive, bay, insertCdrom, insertCdromCue, ejectCdrom } from "./helpers";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
@@ -24,7 +24,7 @@ function makeDataOnlyCueBin(dataBlocks: number): { cuePath: string; binPath: str
 }
 
 test.describe("CD-ROM drive", () => {
-  test("boots with the drive empty, and never fetches the FreeDOS CD unasked", async ({ page }) => {
+  test("boots with the drive empty and fetches no disc", async ({ page }) => {
     const requests: string[] = [];
     page.on("request", (req) => requests.push(req.url()));
 
@@ -38,20 +38,7 @@ test.describe("CD-ROM drive", () => {
 
     const isPresent = await page.evaluate(() => (window as any).__test.machine.cdromPresent());
     expect(isPresent).toBe(false);
-    expect(requests.some((u) => u.includes("freedos-cd.iso"))).toBe(false);
-  });
-
-  test("the Disk library fetches and mounts the FreeDOS CD on demand", async ({ livePage: page }) => {
-
-    const bayCd = bay(page, "cdrom");
-    await loadFreedosCdrom(page);
-    await expect(bayCd).toHaveClass(/loaded/, { timeout: 60_000 });
-    const label = bayCd.locator('[data-role="label"]');
-    await expect(label).toHaveText("FreeDOS 1.3 LiveCD");
-    await expect(bayCd.locator('[data-role="eject"]')).toBeEnabled();
-    await expect
-      .poll(() => page.evaluate(() => (window as any).__test.machine.cdromPresent()))
-      .toBe(true);
+    expect(requests.some((u) => /\.iso$/i.test(u))).toBe(false);
   });
 
   test("ejecting empties the bay; inserting a new ISO loads it", async ({ livePage: page }) => {

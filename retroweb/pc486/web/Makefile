@@ -45,7 +45,7 @@ pc486-perf.js: $(SRC) $(HDRS)
 
 perf-build: pc486-perf.js
 
-.PHONY: library-images shared roms hdd-image preset-images legacy-hdd-fixture cdrom-image driver-images perf-build serve test test-smoke test-install coverage clean stage
+.PHONY: library-images shared roms hdd-image preset-images legacy-hdd-fixture driver-images perf-build serve test test-smoke test-install coverage clean stage
 
 # Copied from retroweb/shared/ at build time, git-ignored.
 SHARED = ../../shared
@@ -71,8 +71,8 @@ disks/freedos-hdd.img: $(CORE)/disks/freedos-hdd.img
 	mkdir -p disks
 	cp $(CORE)/disks/freedos-hdd.img disks/
 
-# Mostly-empty FAT16 gzips to a few MB. serve_nocache.py serves the .gz sibling transparently
-# (Content-Encoding: gzip), so app.js fetch() is unchanged. freedos-cd.iso doesn't compress.
+# Mostly-empty FAT16 gzips to a few MB. Only the .gz ships (stage drops the raw image); app.js
+# decompresses it.
 disks/freedos-hdd.img.gz: disks/freedos-hdd.img
 	gzip -9 -k -f disks/freedos-hdd.img
 
@@ -105,14 +105,6 @@ tests/media/%.img.gz: tests/media/%.img
 
 legacy-hdd-fixture: tests/media/legacy-504.img tests/media/legacy-504.img.gz tests/media/legacy-504-full.img.gz
 
-# Default mounted CD-ROM: FreeDOS's official live CD (../disks/fetch-freedos-cd.sh).
-$(CORE)/disks/freedos-cd.iso:
-	$(MAKE) -C $(CORE) disks/freedos-cd.iso
-
-disks/freedos-cd.iso: $(CORE)/disks/freedos-cd.iso
-	mkdir -p disks
-	cp $(CORE)/disks/freedos-cd.iso disks/
-
 # Fetched at runtime, so it lives under web/ (nothing one level up is staged).
 $(CORE)/disks/ctmouse.img:
 	$(MAKE) -C $(CORE) disks/ctmouse.img
@@ -123,10 +115,8 @@ disks/ctmouse.img: $(CORE)/disks/ctmouse.img
 
 driver-images: disks/ctmouse.img
 
-cdrom-image: disks/freedos-cd.iso
-
 # Port 8000 like every machine; the Playwright suite uses 8400/8410.
-serve: pc486.js pc486-perf.js roms shared cdrom-image driver-images
+serve: pc486.js pc486-perf.js roms shared driver-images
 	@if [ ! -f disks/freedos-hdd.img ]; then \
 	  echo "disks/freedos-hdd.img not found -- run 'make hdd-image' first"; \
 	  echo "(NOT YET IMPLEMENTED for this machine -- see ../Makefile's MILESTONE 1 STATUS note)."; \
@@ -136,7 +126,7 @@ serve: pc486.js pc486-perf.js roms shared cdrom-image driver-images
 	python3 devserve.py 8000
 
 # Playwright suite. Needs the same roms and images as serve, plus npm ci once. Ports 8400/8410.
-test: pc486.js pc486-perf.js roms shared cdrom-image driver-images legacy-hdd-fixture
+test: pc486.js pc486-perf.js roms shared driver-images legacy-hdd-fixture
 	@if [ ! -f disks/freedos-hdd.img ]; then \
 	  echo "disks/freedos-hdd.img not found -- run 'make hdd-image' first"; \
 	  echo "(NOT YET IMPLEMENTED for this machine -- see ../Makefile's MILESTONE 1 STATUS note)."; \
@@ -144,14 +134,13 @@ test: pc486.js pc486-perf.js roms shared cdrom-image driver-images legacy-hdd-fi
 	fi
 	@if [ ! -f disks/freedos-hdd.img.gz ]; then \
 	  echo "disks/freedos-hdd.img.gz not found -- run 'make hdd-image' first"; \
-	  echo "(Playwright's devserve.py serves this sibling as Content-Encoding: gzip;"; \
-	  echo " without it every remount transfers the raw 256MB image.)"; \
+	  echo "(app.js loads this file; the raw image is not deployed.)"; \
 	  exit 1; \
 	fi
 	npx playwright test
 
 # Smoke: tests/smoke.spec.ts only, what deploy CI runs.
-test-smoke: pc486.js pc486-perf.js roms shared cdrom-image driver-images
+test-smoke: pc486.js pc486-perf.js roms shared driver-images
 	@if [ ! -f disks/freedos-hdd.img ]; then \
 	  echo "disks/freedos-hdd.img not found -- run 'make hdd-image' first"; \
 	  echo "(NOT YET IMPLEMENTED for this machine -- see ../Makefile's MILESTONE 1 STATUS note)."; \
@@ -159,14 +148,13 @@ test-smoke: pc486.js pc486-perf.js roms shared cdrom-image driver-images
 	fi
 	@if [ ! -f disks/freedos-hdd.img.gz ]; then \
 	  echo "disks/freedos-hdd.img.gz not found -- run 'make hdd-image' first"; \
-	  echo "(Playwright's devserve.py serves this sibling as Content-Encoding: gzip;"; \
-	  echo " without it every remount transfers the raw 256MB image.)"; \
+	  echo "(app.js loads this file; the raw image is not deployed.)"; \
 	  exit 1; \
 	fi
 	npx playwright test tests/smoke.spec.ts
 
 # Same suite, one worker, V8 coverage for app.js -> coverage/index.html (+ coverage/lcov.info)
-coverage: pc486.js roms shared cdrom-image legacy-hdd-fixture
+coverage: pc486.js roms shared legacy-hdd-fixture
 	@if [ ! -f disks/freedos-hdd.img ]; then \
 	  echo "disks/freedos-hdd.img not found -- run 'make hdd-image' first"; \
 	  exit 1; \
@@ -192,4 +180,5 @@ library-images:
 STAGE = index.html app.js pc486.js pc486.wasm pc486-perf.js pc486-perf.wasm hdd-convert.js hdd-worker.js assets disks roms shared
 stage:
 	../../stage_web.sh $(DEST) $(STAGE)
+	find $(DEST)/disks -name '*-hdd.img' -delete
 	python3 ../../strip_fast_flag.py $(DEST)/app.js
