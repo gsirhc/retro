@@ -1,5 +1,6 @@
 import js from "@eslint/js";
 import globals from "globals";
+import tseslint from "typescript-eslint";
 
 // Browser scripts, emscripten factories and xterm globals. Generated glue
 // (wasm .js, copied web/shared/, vendored xterm) is not source.
@@ -131,6 +132,15 @@ export default [
         caughtErrors: "none",
         varsIgnorePattern: "^(_|convertLegacyHdd)$",
       }],
+    },
+  },
+  ...tseslint.configs.recommended.map((c) => ({ ...c, files: ["**/*.ts"] })),
+  {
+    files: ["**/*.ts"],
+    languageOptions: { globals: { ...globals.node, ...globals.browser } },
+    rules: {
+      "@typescript-eslint/no-explicit-any": "off",
+      "@typescript-eslint/no-non-null-assertion": "off",
     },
   },
 ];

@@ -7,9 +7,6 @@ import {
   clickPaddle,
   panelStop,
   panelRun,
-  send,
-  screen,
-  pickCatalogItem,
 } from "./helpers";
 
 const leds = (page) => page.evaluate(() => (window as any).__test.leds());

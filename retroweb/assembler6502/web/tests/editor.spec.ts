@@ -44,9 +44,9 @@ test("type, LIST, ASM, and RUN a program entirely through the terminal", async (
   // JMP START loops forever, which proves the object code is real 65C02
   await typeLine(page, "RUN");
   await page.waitForTimeout(500);
-  const s1 = await page.evaluate(() => window.__machine.cycleCount());
+  const s1 = await page.evaluate(() => (window as any).__machine.cycleCount());
   await page.waitForTimeout(500);
-  const s2 = await page.evaluate(() => window.__machine.cycleCount());
+  const s2 = await page.evaluate(() => (window as any).__machine.cycleCount());
   expect(s2).toBeGreaterThan(s1);
 });
 
@@ -66,9 +66,9 @@ test("Ctrl-C breaks a genuinely hung (infinite-loop) program back to the shell",
 
   await typeLine(page, "RUN");
   await page.waitForTimeout(500);
-  const s1 = await page.evaluate(() => window.__machine.cycleCount());
+  const s1 = await page.evaluate(() => (window as any).__machine.cycleCount());
   await page.waitForTimeout(500);
-  const s2 = await page.evaluate(() => window.__machine.cycleCount());
+  const s2 = await page.evaluate(() => (window as any).__machine.cycleCount());
   expect(s2).toBeGreaterThan(s1);   // genuinely spinning, not stalled elsewhere
 
   const screenBefore = await page.locator("#screen .xterm-rows").innerText();

@@ -177,7 +177,7 @@ test.describe("front-panel lamps", () => {
       const t0 = performance.now();
       (function tick() {
         const { addr, addrBrightness } = (window as any).__test.leds();
-        const hi = [];
+        const hi: number[] = [];
         for (let b = 8; b < 16; b++) if ((addr >> b) & 1) hi.push(addrBrightness[b]);
         if (hi.length >= 2 && new Set(hi).size >= 2) return resolve(true);
         if (performance.now() - t0 > 4000) return resolve(false);

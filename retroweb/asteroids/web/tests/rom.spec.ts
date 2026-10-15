@@ -12,7 +12,7 @@ const HWTEST_FILES = [
 ];
 
 function buf(path: string, name: string, patch?: (b: Buffer) => Buffer) {
-  let buffer = readFileSync(path);
+  let buffer: Buffer = readFileSync(path);
   if (patch) buffer = patch(buffer);
   return { name, mimeType: "application/octet-stream", buffer };
 }

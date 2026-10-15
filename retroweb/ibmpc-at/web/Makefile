@@ -18,7 +18,7 @@ EMFLAGS = -O2 -std=c++17 -lembind --no-entry \
 ibmpcat.js: $(SRC)
 	$(EMCC) $(EMFLAGS) $(SRC) -o $@
 
-.PHONY: library-images shared roms hdd-image serve test test-smoke test-install coverage clean preset-images
+.PHONY: library-images shared roms hdd-image serve test test-smoke test-install coverage clean preset-images stage
 
 # Copied from retroweb/shared/ at build time; only web/ gets staged.
 SHARED = ../../shared
@@ -112,3 +112,9 @@ library-images:
 	$(MAKE) -C $(CORE) library
 	mkdir -p disks/library
 	cp $(CORE)/disks/library/*.img $(CORE)/disks/library.json disks/library/
+
+# What the deployed site serves; `make -C retroweb site` calls this with DEST.
+STAGE = index.html app.js ibmpcat.js ibmpcat.wasm assets disks roms shared
+stage:
+	../../stage_web.sh $(DEST) $(STAGE)
+	python3 ../../strip_fast_flag.py $(DEST)/app.js

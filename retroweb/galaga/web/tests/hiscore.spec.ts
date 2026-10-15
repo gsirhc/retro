@@ -16,7 +16,7 @@ const PARTS = [
 function userSet() {
   const files = PARTS.map((path) => {
     const name = path.split("/").pop()!;
-    let buffer = Buffer.from(readFileSync(path));
+    const buffer = Buffer.from(readFileSync(path));
     if (name === "main.bin") buffer[0] ^= 1;
     return { name, mimeType: "application/octet-stream" as const, buffer };
   });

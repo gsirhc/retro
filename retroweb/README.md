@@ -125,19 +125,23 @@ _site/about.html      <- retroweb/about.html
 _site/arcade/         <- retroweb/arcade/index.html
 _site/assets/         <- retroweb/assets/
 _site/shared/         <- retroweb/shared/theme.css, pagebar.css, footer.css, footer.js
-_site/altair8800/     <- retroweb/altair8800/web/    (dev-only files stripped)
-_site/assembler6502/  <- retroweb/assembler6502/web/ (dev-only files stripped)
-_site/ibmpc-at/       <- retroweb/ibmpc-at/web/      (dev-only files stripped)
-_site/pacman/         <- retroweb/pacman/web/        (dev-only files stripped)
-_site/frogger/        <- retroweb/frogger/web/       (dev-only files stripped)
-_site/galaga/         <- retroweb/galaga/web/        (dev-only files stripped)
-_site/galaxian/       <- retroweb/galaxian/web/      (dev-only files stripped)
-_site/scramble/       <- retroweb/scramble/web/      (dev-only files stripped)
-_site/pc486/          <- retroweb/pc486/web/         (dev-only files stripped)
+_site/altair8800/     <- retroweb/altair8800/web/    (its `stage` list)
+_site/assembler6502/  <- retroweb/assembler6502/web/ (its `stage` list)
+_site/ibmpc-at/       <- retroweb/ibmpc-at/web/      (its `stage` list)
+_site/pacman/         <- retroweb/pacman/web/        (its `stage` list)
+_site/frogger/        <- retroweb/frogger/web/       (its `stage` list)
+_site/galaga/         <- retroweb/galaga/web/        (its `stage` list)
+_site/galaxian/       <- retroweb/galaxian/web/      (its `stage` list)
+_site/scramble/       <- retroweb/scramble/web/      (its `stage` list)
+_site/asteroids/      <- retroweb/asteroids/web/     (its `stage` list)
+_site/centipede/      <- retroweb/centipede/web/     (its `stage` list)
+_site/missile/        <- retroweb/missile/web/       (its `stage` list)
+_site/pc486/          <- retroweb/pc486/web/         (its `stage` list)
 ```
 
 `_site/` is git-ignored, built by `make -C retroweb site` (CI runs the same
-target). Preview the whole site exactly as deployed:
+target). Each machine's `web/Makefile` `stage` target lists exactly what
+ships; `check_site.py` fails the build if a source or tooling file gets in, or if a page, `fetch`, worker, or manifest refers to a file that didn't. Preview the whole site exactly as deployed:
 
 ```sh
 make -C retroweb preview       # foreground, on :8000 — dies with the terminal

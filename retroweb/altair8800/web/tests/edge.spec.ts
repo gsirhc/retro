@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures";
-import { boot, screen, waitForScreen, send, stubSavePicker } from "./helpers";
+import { boot, screen, waitForScreen, send } from "./helpers";
 
 test.describe("error & fallback paths", () => {
   test("a missing roms/manifest.json leaves an empty but working reader", async ({ page }) => {

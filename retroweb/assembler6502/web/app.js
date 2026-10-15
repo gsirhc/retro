@@ -594,7 +594,6 @@ async function boot() {
     text = text.replace(/\r\n|\n/g, "\r");
     queueInput(encoder.encode("LOAD\r" + text));
   }
-  window.__testQueueLoad = runLoad; // TEMP DEBUG
 
   const PGM_LIB_KEY = "cgoac6502.programs";
   function loadPgmLib() { try { return JSON.parse(localStorage.getItem(PGM_LIB_KEY) || "{}"); } catch { return {}; } }

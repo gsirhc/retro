@@ -16,15 +16,14 @@ test.describe("real-speed smoke test", () => {
     // only needs the machine running, not booted
     await boot(page, { realtime: true, expectScreen: null });
 
-    const c0 = await page.evaluate(() => (window as any).__test.machine.totalCycles());
-    const t0 = Date.now();
+    const sample = () => page.evaluate(() => [(window as any).__test.machine.totalCycles(), performance.now()]);
+    const [c0, t0] = await sample();
     await page.waitForTimeout(2000);
-    const c1 = await page.evaluate(() => (window as any).__test.machine.totalCycles());
-    const t1 = Date.now();
+    const [c1, t1] = await sample();
 
     const cyclesPerSecond = (c1 - c0) / ((t1 - t0) / 1000);
-    // loose bounds for CI jitter, but far below the fast-test rate
+    // Slow CI runners only lower the rate; the frame clamp keeps a correct build under 1.1x.
     expect(cyclesPerSecond).toBeGreaterThan(4_000_000);
-    expect(cyclesPerSecond).toBeLessThan(12_000_000);
+    expect(cyclesPerSecond).toBeLessThan(8_800_000);
   });
 });

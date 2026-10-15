@@ -605,6 +605,7 @@
     if (new URLSearchParams(location.search).get("test") === "1") {
       window.__test = {
         machine, sendKey, screenEl, frameCanvas, keyboard,
+        cpuMultiplier: TEST_CPU_MULTIPLIER,
         get loadOverlayVisible() { return loadOverlayEl.classList.contains("visible"); },
         get loadOverlayText() { return loadOverlayLabel.textContent; },
         beginLoad, endLoad,

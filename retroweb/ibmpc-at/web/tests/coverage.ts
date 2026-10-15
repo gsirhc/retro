@@ -1,8 +1,9 @@
 // monocart-coverage-reports config. Opt-in via COVERAGE=1, app.js and shared/pc-keyboard.js.
+import type { CoverageReportOptions } from "monocart-coverage-reports";
 
 export const coverageEnabled = !!process.env.COVERAGE;
 
-export const coverageOptions = {
+export const coverageOptions: CoverageReportOptions = {
   name: "ibmpc-at app.js coverage",
   outputDir: "./coverage",
   reports: [

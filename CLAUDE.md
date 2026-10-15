@@ -89,7 +89,10 @@ Current sanctioned overrides:
   rather than the live UI: the flag defaults off (a bare page load, and
   `?test=1` alone, both stay real-speed), it's clearly named and commented
   at its one call site in `app.js`, and it never reaches a real visitor —
-  there is no control on the page that sets it. Every machine keeps at
+  there is no control on the page that sets it, and `make site` rewrites
+  it to a constant `1` in the deployed `app.js` (`retroweb/strip_fast_flag.py`,
+  which fails the build unless it matches exactly once; `check_site.py`
+  then fails it if any fast path is left). Every machine keeps at
   least one **smoke test** that deliberately omits the flag (real speed)
   specifically to verify the "genuine, wall-clock-paced clock" contract
   itself still holds (e.g. ibmpc-at's `tests/smoke.spec.ts` measures actual
@@ -157,8 +160,8 @@ machine itself (see "Adding a new machine" above).
 or cabinet isn't done until every one of these lists it, in the same
 change:
 
-- `retroweb/Makefile`: `_stage` build step, `site` mkdir + copy/strip
-  block, and the preview URL echo.
+- `retroweb/Makefile`: `_stage` build step, `MACHINES`, and the preview
+  URL echo. The machine's own `web/Makefile` gets a `stage` target.
 - `retroweb/watch_site.py` (`make watch`): `MACHINES`, `WASM_TARGETS`,
   `GENERATED_JS`, and the shared-chip tuple it uses (`ARCADE`, `ATARI`,
   …) so a change to a shared core rebuilds it too.
@@ -190,11 +193,17 @@ before calling it done.
   (Courier New on a starfield), not cabinet scans; the recipe is in
   `retroweb/assets/README.md`.
 - **Staging**: `retroweb/Makefile`'s `site` target copies `index.html`,
-  `about.html`, and `arcade/index.html` to `_site/`, then each machine's
-  `<machine>/web/` into `_site/<machine>/`, stripping dev-only files
-  (`Makefile`, `devserve.py`, `wasm_machine.cpp`, test tooling) — add a
-  `mkdir`/`cp -R`/strip block there for the new machine, and a build step
-  (wasm + roms + any pinned media) in the `_stage` target above it.
+  `about.html`, and `arcade/index.html` to `_site/`, then runs each
+  machine's own `make -C <machine>/web stage DEST=…`. That target lists
+  exactly what ships (`STAGE = index.html app.js <wasm> assets roms shared …`)
+  and copies it with `retroweb/stage_web.sh`, which also drops source and
+  tooling files (`*.py`, `*.sh`, `*.md`, `*.h`, `*.cpp`) from inside those
+  folders. `retroweb/check_site.py` then fails the build if any dev file
+  reached `_site/` or a page, `fetch`, worker, or manifest `file` points at
+  something that wasn't staged. For a new machine add its `stage` target, its name to
+  `MACHINES`, and a build step (wasm + roms + any pinned media) in
+  `_stage`. `make site SITE=<dir>` stages somewhere else, e.g. to compare
+  output without touching a running preview.
 - **Only `web/` ever gets staged** — the deployed site (and `make preview`,
   which serves the exact same `_site/`) has no access to anything one level
   up via `../`. Any asset a machine's page fetches at runtime (ROMs, disk

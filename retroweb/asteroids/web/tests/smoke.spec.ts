@@ -45,14 +45,13 @@ test("the guest CPU runs at real, wall-clock-paced 1.512 MHz -- not sped up", as
   await page.goto("/?test=1");
   await expect(page.locator("#romStatus")).toHaveText("Running test ROM");
 
-  const c0 = await page.evaluate(() => (window as any).__test.machine.totalCycles());
-  const t0 = Date.now();
+  const sample = () => page.evaluate(() => [(window as any).__test.machine.totalCycles(), performance.now()]);
+  const [c0, t0] = await sample();
   await page.waitForTimeout(2000);
-  const c1 = await page.evaluate(() => (window as any).__test.machine.totalCycles());
-  const t1 = Date.now();
+  const [c1, t1] = await sample();
 
   const cyclesPerSecond = (c1 - c0) / ((t1 - t0) / 1000);
-  // Loose tolerance for CI jitter.
+  // Slow CI runners only lower the rate; the frame clamp keeps a correct build under 1.1x.
   expect(cyclesPerSecond).toBeGreaterThan(750_000);
-  expect(cyclesPerSecond).toBeLessThan(2_300_000);
+  expect(cyclesPerSecond).toBeLessThan(1_663_000);
 });

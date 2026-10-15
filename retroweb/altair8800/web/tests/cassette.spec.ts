@@ -289,7 +289,7 @@ test.describe("88-ACR cassette deck", () => {
   test("the deck TAPE SPEED selector offers Realistic / 5x / 25x / 50x (no Max)", async ({ page }) => {
     await boot(page, { params: "preset=cassette" });
     await expect(page.locator("#acr .dev-speedlabel")).toHaveText("TAPE SPEED");
-    const opts = await page.$$eval("#acr .acr-speed option", (os) => os.map((o) => o.value));
+    const opts = await page.$$eval("#acr .acr-speed option", (os) => os.map((o) => (o as HTMLOptionElement).value));
     expect(opts).toEqual(["realistic", "x5", "x25", "x50"]);
 
     await page.selectOption("#acr .acr-speed", "x50");

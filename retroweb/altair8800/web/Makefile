@@ -17,7 +17,7 @@ EMFLAGS = -O2 -std=c++17 -lembind --no-entry \
 retro8080.js: $(SRC) $(HDR)
 	$(EMCC) $(EMFLAGS) $(SRC) -o $@
 
-.PHONY: shared roms media serve test test-smoke test-install clean
+.PHONY: shared roms media serve test test-smoke test-install clean stage
 roms: roms/echo.bin
 roms/echo.bin roms/hello.bin roms/killbits.bin: roms/gen_roms.py
 	python3 roms/gen_roms.py
@@ -63,3 +63,8 @@ clean:
 	rm -f retro8080.js retro8080.wasm roms/echo.bin roms/hello.bin roms/killbits.bin
 	rm -rf shared
 	rm -rf test-results playwright-report coverage .v8-coverage
+
+# What the deployed site serves; `make -C retroweb site` calls this with DEST.
+STAGE = index.html app.js retro8080.js retro8080.wasm assets disks roms shared tapes vendor
+stage:
+	../../stage_web.sh $(DEST) $(STAGE)

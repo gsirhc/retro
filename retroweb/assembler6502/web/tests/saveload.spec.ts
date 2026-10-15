@@ -84,7 +84,7 @@ test.describe("Save / Load", () => {
 
     const lines: string[] = await page.evaluate(() => {
       const buf = (window as any).__term.buffer.active;
-      const out = [];
+      const out: string[] = [];
       for (let y = 0; y < buf.length; y++) out.push(buf.getLine(y)?.translateToString(true) ?? "");
       return out;
     });

@@ -14,7 +14,7 @@ const PARTS = [
 ];
 
 function buf(path: string, name?: string, patch?: (b: Buffer) => Buffer) {
-  let buffer = readFileSync(path);
+  let buffer: Buffer = readFileSync(path);
   if (patch) buffer = patch(Buffer.from(buffer));
   return { name: name || path.split("/").pop()!, mimeType: "application/octet-stream", buffer };
 }

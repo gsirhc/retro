@@ -6,14 +6,13 @@ import { boot, send, screen, regs, waitForScreen } from "./helpers";
 test.describe("timing fidelity", () => {
   test("the 8080 runs at ~2 MHz of emulated time per wall-clock second", async ({ page }) => {
     await boot(page); // echo ROM spinning in its poll loop
-    const c0 = (await regs(page)).cycles;
-    const t0 = Date.now();
-    await page.waitForTimeout(1000);
-    const c1 = (await regs(page)).cycles;
-    const dt = (Date.now() - t0) / 1000;
-    const hz = (c1 - c0) / dt;
+    const sample = () => page.evaluate(() => [(window as any).__test.regs().cycles, performance.now()]);
+    const [c0, t0] = await sample();
+    await page.waitForTimeout(2000);
+    const [c1, t1] = await sample();
+    const hz = (c1 - c0) / ((t1 - t0) / 1000);
     expect(hz).toBeGreaterThan(1_700_000);
-    expect(hz).toBeLessThan(2_300_000);
+    expect(hz).toBeLessThan(2_200_000);
   });
 
   test("an ASR-33 (tty33) meters output at ~10 characters/second", async ({ page }) => {

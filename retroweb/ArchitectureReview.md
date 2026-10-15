@@ -139,32 +139,51 @@ and the two key races. Each one fails on the old code or under a mutation.
 One guard isn't covered: `saveNow` skips its `lastSaved`/`onSaved`
 bookkeeping when the set changed mid-save, and no test reaches that.
 
-### M2. Wall-clock pacing bands are too loose
+### M2. Wall-clock pacing bands were too loose. Fixed
 
-- The accepted range is roughly ±50%: arcades 1.5–4.5 MHz for a 3.072 MHz
-  clock, ibmpc-at 4–12 for 8, pc486 33–99 for 66.
-- A 1.4× regression passes. The 80 ms frame clamp means the emulator can't
-  legitimately run faster than real time, so the upper bound can be about
-  +10% while the lower bound stays loose for slow runners.
-- assembler6502 has no wall-clock pacing test at all.
+The bands accepted roughly ±50%, so a 1.4× regression passed, and
+assembler6502 had no pacing test. Every pacing test (8 arcades, both PCs,
+Altair) now samples cycles and `performance.now()` in one page call, so
+node round trips don't skew the window, and caps the rate at 1.1× the real
+clock. The frame clamp means a correct build can't exceed that. Lower
+bounds stay loose for slow runners. assembler6502's smoke gained a 1 MHz
+pacing test. 320 stress runs of the arcade pacing and seam specs passed.
 
-### M3. The fast-test flag conflicts with CLAUDE.md wording
+### M3. The fast-test flag reached the deployed site. Fixed
 
-- "Never speed these up" says the shipped emulator never runs fast "under any
-  URL… a real visitor can reach". ibmpc-at and pc486 ship `?test=1&fast=1`
-  (20×), which any visitor can type.
-- Either reword the rule ("no page control") or keep the flag out of the
-  deployed build.
-- Only Altair asserts that `window.__test` is absent without `?test`. No suite
-  checks that `?fast=1` alone stays at real speed.
+ibmpc-at and pc486 shipped `?test=1&fast=1` (20×), which any visitor could
+type. `make site` now rewrites that expression to a constant `1` in the
+deployed `app.js` (`strip_fast_flag.py`, which fails the build unless it
+matches exactly once). `check_site.py` then fails the build if any
+`.get("fast")` or `.has("fast")` is left in a staged `.js`. `make lint` runs the strip in
+check mode against both PCs, so editing the expression breaks CI before it
+breaks a deploy. Tests: every arcade and both PCs assert `__test` is
+absent without `?test`. The arcades wait for a painted frame and the PCs
+for the power LED, so the check can't pass just by running early. Both
+PCs assert `?fast=1` alone exposes no seam, and `?test=1&fast=2` runs at
+real speed with `__test.cpuMultiplier` 1 (a rate check alone can't catch
+pc486, whose host can't reach 20× of 66 MHz), while `?test=1&fast=1` reads 20. CLAUDE.md's override paragraph describes the strip.
 
-### M4. Site staging is a denylist and leaks dev files
+assembler6502 has no `__test`; it exposes `window.__machine` and
+`window.__term` to every visitor for the suite and debugging. Neither is a
+speed control, so they stay. A leftover `window.__testQueueLoad` (`TEMP
+DEBUG`, unused) is removed.
 
-- Currently shipped: `hwtest_roms.h` for all 7 arcades, `pc486/__pycache__/`,
-  and `altair8800/roms/gen_roms.py`.
-- `Makefile`'s `site` target repeats the same strip block 11 times. Move to an
-  allowlist or a per-machine `stage` target.
-- `.DS_Store` is committed at `retroweb/` and isn't git-ignored.
+### M4. Site staging was a denylist and leaked dev files. Fixed
+
+The deploy shipped 14 dev files: the 8 arcade `hwtest_roms.h` headers,
+`pc486/__pycache__/`, and Altair's ROM/disk/tape READMEs, fetch scripts and
+`gen_roms.py`. Each `web/Makefile` now has a `stage` target that lists
+exactly what ships, copied by `stage_web.sh`, which also drops source and
+tooling types from inside those folders. `check_site.py` fails the build if
+any dev file reaches `_site/`, or if a staged page's `src`/`href`, a JS
+`fetch`/`importScripts`/`new Worker`/`locateFile` literal, or a manifest
+`file` entry points at something that wasn't staged, so a `STAGE` list that
+misses a runtime file fails too. `make lint` runs its fixture self-test.
+`stage_web.sh` refuses a missing or relative `DEST`. Staged into a scratch directory, the new
+output is the old file list minus exactly those 14, byte-identical apart
+from the two PC `app.js` lines. `make site SITE=<dir>` stages anywhere.
+`.DS_Store` is ignored repo-wide and the committed one is untracked.
 
 ### M5. Dev/prod parity for disk images, to verify
 
@@ -185,10 +204,17 @@ bookkeeping when the set changed mid-save, and no test reaches that.
 - POKEY is covered only by three tests in centipede's `machine_test.cpp`.
   Centipede has 12 native tests in total, against galaga's 81.
 
-### M7. 208 TypeScript specs are never linted or typechecked
+### M7. TypeScript specs were never linted or typechecked. Fixed
 
-`eslint.config.js` covers `**/*.js` only, and there's no `tsc --noEmit`.
-Playwright strips types without checking them.
+`make lint` now runs `tsc` (`tsconfig.json`, strict minus `noImplicitAny`)
+and eslint with typescript-eslint's recommended rules over every spec,
+helper and Playwright config. The root `package.json` carries
+TypeScript 6.0, `@types/node`, `@playwright/test` and
+`monocart-coverage-reports`, so CI's lint job resolves every import. Getting
+to zero meant typing fixes only, no behaviour changes: coverage options,
+`HTMLOptionElement` casts, `Buffer` annotations, `(window as any).__machine`,
+plus unused imports and stale `eslint-disable` lines. A planted type error
+and a planted unused variable each fail `make lint`.
 
 ## Low priority
 
@@ -221,7 +247,7 @@ Playwright strips types without checking them.
 
 1. ~~**H2 and H4.**~~ Done. See H2 and H4 above.
 2. ~~**H3, with M1 and the galaga `idbSet` fix.**~~ Done. See H3 and M1 above.
-3. **M2, M3, M4, M7.** Cheap, and they tighten the guardrails.
+3. ~~**M2, M3, M4, M7.**~~ Done. See those entries above.
 4. **H1, the `shared/pc/` merge.** The biggest job. Start with `pit8253` and
    `cmos_rtc`, which are nearly identical, then reconcile the PIC toward the
    more faithful ibmpc-at model.

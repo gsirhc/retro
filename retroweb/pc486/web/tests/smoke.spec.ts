@@ -10,16 +10,15 @@ test.describe("real-speed smoke test", () => {
     // Let start-up settle first (wasm tier-up, the first C: write to IndexedDB).
     await page.waitForTimeout(1000);
 
-    const c0 = await page.evaluate(() => (window as any).__test.machine.totalCycles());
-    const t0 = Date.now();
+    const sample = () => page.evaluate(() => [(window as any).__test.machine.totalCycles(), performance.now()]);
+    const [c0, t0] = await sample();
     await page.waitForTimeout(2000);
-    const c1 = await page.evaluate(() => (window as any).__test.machine.totalCycles());
-    const t1 = Date.now();
+    const [c1, t1] = await sample();
 
     const cyclesPerSecond = (c1 - c0) / ((t1 - t0) / 1000);
-    // Generous tolerance for CI jitter; the check is ~66 MHz pacing, nowhere near the fast multiplier.
+    // Slow CI runners only lower the rate; the frame clamp keeps a correct build under 1.1x.
     expect(cyclesPerSecond).toBeGreaterThan(33_000_000);
-    expect(cyclesPerSecond).toBeLessThan(99_000_000);
+    expect(cyclesPerSecond).toBeLessThan(72_600_000);
   });
 
   // The throughput band above passed while the browser build was unusable (PC486_REVIEW.md §8): 59 M

@@ -5,7 +5,7 @@ import { test, expect, type Page } from "@playwright/test";
 test.describe("keyboard input", () => {
   test.beforeEach(async ({ page }) => {
     // Linux headless Chromium grants pointer lock on click; macOS denies it.
-    await page.addInitScript(() => { Element.prototype.requestPointerLock = () => {}; });
+    await page.addInitScript(() => { Element.prototype.requestPointerLock = () => Promise.resolve(); });
     await page.goto("/?test=1");
     await page.waitForFunction(() => !!(window as any).__test?.machine);
     await page.locator("#screen").click();

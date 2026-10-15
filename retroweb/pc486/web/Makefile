@@ -44,7 +44,7 @@ pc486-perf.js: $(SRC) $(HDRS)
 
 perf-build: pc486-perf.js
 
-.PHONY: library-images shared roms hdd-image preset-images legacy-hdd-fixture cdrom-image driver-images perf-build serve test test-smoke test-install coverage clean
+.PHONY: library-images shared roms hdd-image preset-images legacy-hdd-fixture cdrom-image driver-images perf-build serve test test-smoke test-install coverage clean stage
 
 # Copied from retroweb/shared/ at build time, git-ignored.
 SHARED = ../../shared
@@ -186,3 +186,9 @@ library-images:
 	$(MAKE) -C $(CORE) library
 	mkdir -p disks/library
 	cp $(CORE)/disks/library/*.img $(CORE)/disks/library.json disks/library/
+
+# What the deployed site serves; `make -C retroweb site` calls this with DEST.
+STAGE = index.html app.js pc486.js pc486.wasm pc486-perf.js pc486-perf.wasm hdd-convert.js hdd-worker.js assets disks roms shared
+stage:
+	../../stage_web.sh $(DEST) $(STAGE)
+	python3 ../../strip_fast_flag.py $(DEST)/app.js

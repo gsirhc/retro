@@ -42,7 +42,7 @@ EXAMPLE_BINS := $(EXAMPLE_SRCS:.asm=.bin)
 examples/%.bin: examples/%.asm gen_example_bin roms/firmware.bin
 	./gen_example_bin roms/firmware.bin $(CORE)/../../cpu6502/rom/tmp/firmware.lbl $< $@
 
-.PHONY: shared wasm roms examples-bin roms/firmware.bin serve test test-smoke test-install clean
+.PHONY: shared wasm roms examples-bin roms/firmware.bin serve test test-smoke test-install clean stage
 wasm: cgoac6502.js
 roms: roms/firmware.bin roms/entrypoints.js
 examples-bin: $(EXAMPLE_BINS)
@@ -79,3 +79,8 @@ clean:
 	rm -f cgoac6502.js cgoac6502.wasm roms/firmware.bin gen_example_bin examples/*.bin
 	rm -rf shared
 	rm -rf test-results playwright-report coverage .v8-coverage
+
+# What the deployed site serves; `make -C retroweb site` calls this with DEST.
+STAGE = index.html app.js cgoac6502.js cgoac6502.wasm lcdfont.js assets examples roms shared vendor
+stage:
+	../../stage_web.sh $(DEST) $(STAGE)

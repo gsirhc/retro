@@ -29,7 +29,7 @@
 #                    or a native test build that already fetched them).
 
 .PHONY: help site _stage preview preview-bg watch watch-bg preview-stop preview-status \
-        preview-install preview-uninstall preview-cert clean lint lint-js lint-html lint-cpp
+        preview-install preview-uninstall preview-cert clean lint lint-js lint-html lint-ts lint-cpp lint-staging
 
 PREVIEW_PORT  ?= 8000
 PREVIEW_PID   := /tmp/retroweb-preview.pid
@@ -50,89 +50,23 @@ help:
 
 # stage into a fresh dir, then swap it in atomically so a running preview
 # server never finds its document root deleted out from under it
+MACHINES = altair8800 assembler6502 ibmpc-at pacman frogger galaga galaxian scramble asteroids centipede missile pc486
+SITE ?= _site
+
 site:
-	rm -rf _site.new
-	mkdir -p _site.new/altair8800 _site.new/assembler6502 _site.new/ibmpc-at _site.new/pacman _site.new/frogger _site.new/galaga _site.new/galaxian _site.new/scramble _site.new/asteroids _site.new/centipede _site.new/missile _site.new/pc486 _site.new/arcade
-	cp index.html about.html _site.new/
-	cp arcade/index.html _site.new/arcade/
-	cp -Rp assets _site.new/ && rm -f _site.new/assets/README.md
-	mkdir -p _site.new/shared
+	rm -rf $(SITE).new
+	mkdir -p $(SITE).new/arcade $(SITE).new/shared
+	cp index.html about.html $(SITE).new/
+	cp arcade/index.html $(SITE).new/arcade/
+	cp -Rp assets $(SITE).new/ && rm -f $(SITE).new/assets/README.md
+	find $(SITE).new -name .DS_Store -delete
 	cp shared/theme.css shared/pagebar.css shared/footer.css shared/footer.js \
-	   shared/theme-picker.js shared/winbtns.js _site.new/shared/
-	cp -Rp altair8800/web/. _site.new/altair8800/
-	( cd _site.new/altair8800 && \
-	  rm -rf tests node_modules coverage test-results playwright-report \
-	         .playwright .v8-coverage && \
-	  rm -f Makefile README.md devserve.py wasm_machine.cpp \
-	        package.json package-lock.json playwright.config.ts )
-	cp -Rp assembler6502/web/. _site.new/assembler6502/
-	( cd _site.new/assembler6502 && \
-	  rm -rf tests node_modules coverage test-results playwright-report \
-	         .playwright .v8-coverage && \
-	  rm -f Makefile devserve.py wasm_machine.cpp gen_entrypoints.py \
-	        gen_example_bin.cpp gen_example_bin \
-	        package.json package-lock.json playwright.config.ts )
-	cp -Rp ibmpc-at/web/. _site.new/ibmpc-at/
-	( cd _site.new/ibmpc-at && \
-	  rm -rf tests node_modules coverage test-results playwright-report \
-	         .playwright .v8-coverage && \
-	  rm -f Makefile devserve.py wasm_machine.cpp \
-	        package.json package-lock.json playwright.config.ts )
-	cp -Rp pacman/web/. _site.new/pacman/
-	( cd _site.new/pacman && \
-	  rm -rf tests node_modules coverage test-results playwright-report \
-	         .playwright .v8-coverage && \
-	  rm -f Makefile devserve.py wasm_machine.cpp \
-	        package.json package-lock.json playwright.config.ts )
-	cp -Rp frogger/web/. _site.new/frogger/
-	( cd _site.new/frogger && \
-	  rm -rf tests node_modules coverage test-results playwright-report \
-	         .playwright .v8-coverage && \
-	  rm -f Makefile devserve.py wasm_machine.cpp \
-	        package.json package-lock.json playwright.config.ts )
-	cp -Rp galaga/web/. _site.new/galaga/
-	( cd _site.new/galaga && \
-	  rm -rf tests node_modules coverage test-results playwright-report \
-	         .playwright .v8-coverage && \
-	  rm -f Makefile devserve.py wasm_machine.cpp \
-	        package.json package-lock.json playwright.config.ts )
-	cp -Rp galaxian/web/. _site.new/galaxian/
-	( cd _site.new/galaxian && \
-	  rm -rf tests node_modules coverage test-results playwright-report \
-	         .playwright .v8-coverage && \
-	  rm -f Makefile devserve.py wasm_machine.cpp \
-	        package.json package-lock.json playwright.config.ts )
-	cp -Rp scramble/web/. _site.new/scramble/
-	( cd _site.new/scramble && \
-	  rm -rf tests node_modules coverage test-results playwright-report \
-	         .playwright .v8-coverage && \
-	  rm -f Makefile devserve.py wasm_machine.cpp \
-	        package.json package-lock.json playwright.config.ts )
-	cp -Rp asteroids/web/. _site.new/asteroids/
-	( cd _site.new/asteroids && \
-	  rm -rf tests node_modules coverage test-results playwright-report \
-	         .playwright .v8-coverage && \
-	  rm -f Makefile devserve.py wasm_machine.cpp \
-	        package.json package-lock.json playwright.config.ts )
-	cp -Rp centipede/web/. _site.new/centipede/
-	( cd _site.new/centipede && \
-	  rm -rf tests node_modules coverage test-results playwright-report \
-	         .playwright .v8-coverage && \
-	  rm -f Makefile devserve.py wasm_machine.cpp \
-	        package.json package-lock.json playwright.config.ts )
-	cp -Rp missile/web/. _site.new/missile/
-	( cd _site.new/missile && \
-	  rm -rf tests node_modules coverage test-results playwright-report \
-	         .playwright .v8-coverage && \
-	  rm -f Makefile devserve.py wasm_machine.cpp hwtest_roms.h \
-	        package.json package-lock.json playwright.config.ts )
-	cp -Rp pc486/web/. _site.new/pc486/
-	( cd _site.new/pc486 && \
-	  rm -rf tests node_modules coverage test-results playwright-report \
-	         .playwright .v8-coverage && \
-	  rm -f Makefile devserve.py wasm_machine.cpp \
-	        package.json package-lock.json playwright.config.ts )
-	rm -rf _site && mv _site.new _site
+	   shared/theme-picker.js shared/winbtns.js $(SITE).new/shared/
+	for m in $(MACHINES); do \
+	  $(MAKE) --no-print-directory -C $$m/web stage DEST=$(abspath $(SITE).new)/$$m || exit 1; \
+	done
+	python3 check_site.py $(SITE).new
+	rm -rf $(SITE) && mv $(SITE).new $(SITE)
 
 # build the emulator + fetch media, then stage — what both preview modes need
 _stage:
@@ -291,7 +225,16 @@ clean:
 	rm -rf _site _site.new
 
 # Source only: not _site, vendored xterm, copied web/shared, or test build trees.
-lint: lint-js lint-html lint-cpp
+lint: lint-js lint-html lint-ts lint-cpp lint-staging
+
+lint-ts:
+	@test -x node_modules/.bin/tsc || npm ci
+	npx tsc -p tsconfig.json
+
+lint-staging:
+	sh -n stage_web.sh
+	python3 check_site.py --selftest
+	python3 strip_fast_flag.py --check ibmpc-at/web/app.js pc486/web/app.js
 
 lint-js:
 	@test -x node_modules/.bin/eslint || npm ci

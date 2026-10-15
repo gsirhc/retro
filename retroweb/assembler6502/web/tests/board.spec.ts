@@ -26,16 +26,16 @@ test.describe("board controls", () => {
 
   test("detaching the LCD reproduces the genuine bare-board hang", async ({ page }) => {
     // Detached, reset_via's busy-poll never clears and the CPU spins in the
-    // lcdbusy loop (rom/via.s). Asserted on PC via window.__machine since the
+    // lcdbusy loop (rom/via.s). Asserted on PC via (window as any).__machine since the
     // scrollback keeps the first boot's banner. C++ twin: machine_test.cpp
     // DetachingTheLcdReproducesTheGenuineBareBoardHang.
     await page.uncheck("#lcdAttached");
     await page.click('#pcbSvg [data-ref="SW1"]');
     await page.waitForTimeout(1500);
     // cycleCount() keeps climbing while pc stays inside the lcdbusy loop body
-    const s1 = await page.evaluate(() => ({ pc: window.__machine.state().pc, c: window.__machine.cycleCount() }));
+    const s1 = await page.evaluate(() => ({ pc: (window as any).__machine.state().pc, c: (window as any).__machine.cycleCount() }));
     await page.waitForTimeout(500);
-    const s2 = await page.evaluate(() => ({ pc: window.__machine.state().pc, c: window.__machine.cycleCount() }));
+    const s2 = await page.evaluate(() => ({ pc: (window as any).__machine.state().pc, c: (window as any).__machine.cycleCount() }));
     expect(s2.c).toBeGreaterThan(s1.c);
     // range from tmp/firmware.lbl lcd_wait/lcd_instruction; update when code before via.s shifts
     expect(s1.pc).toBeGreaterThanOrEqual(0x80ae);
@@ -56,9 +56,9 @@ test.describe("board controls", () => {
     await expect(page.locator("#pcbLedD1")).not.toHaveClass(/led-power/);
     await expect(page.locator("#monitor")).toHaveClass(/powered-off/);
 
-    const before = await page.evaluate(() => window.__machine.cycleCount());
+    const before = await page.evaluate(() => (window as any).__machine.cycleCount());
     await page.waitForTimeout(500);
-    const after = await page.evaluate(() => window.__machine.cycleCount());
+    const after = await page.evaluate(() => (window as any).__machine.cycleCount());
     expect(after).toBe(before);   // genuinely frozen, not just visually dimmed
     await expect(page.locator("#screen .xterm-rows")).toContainText("0000:");   // nothing lost
 
@@ -68,6 +68,6 @@ test.describe("board controls", () => {
   });
 
   test("LCD is simply cleared at boot -- no menu banner any more", async ({ page }) => {
-    expect(await page.evaluate(() => window.__machine.lcdText())).toBe(" ".repeat(32));
+    expect(await page.evaluate(() => (window as any).__machine.lcdText())).toBe(" ".repeat(32));
   });
 });

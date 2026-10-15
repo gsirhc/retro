@@ -1,8 +1,9 @@
 // Shared monocart-coverage-reports config. Opt-in via COVERAGE=1 (`make coverage`); app.js only.
+import type { CoverageReportOptions } from "monocart-coverage-reports";
 
 export const coverageEnabled = !!process.env.COVERAGE;
 
-export const coverageOptions = {
+export const coverageOptions: CoverageReportOptions = {
   name: "retro8080 app.js coverage",
   outputDir: "./coverage",
   reports: [

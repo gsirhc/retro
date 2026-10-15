@@ -14,7 +14,6 @@ export async function coverageTeardown() {
   const s = report?.summary;
   if (s) {
     const pct = (m: any) => (m && typeof m.pct === "number" ? `${m.pct.toFixed(1)}%` : "n/a");
-    // eslint-disable-next-line no-console
     console.log(
       `\napp.js coverage — lines ${pct(s.lines)}  functions ${pct(s.functions)}  branches ${pct(s.branches)}` +
         `\n  full report: retroweb/altair8800/web/coverage/index.html\n`,

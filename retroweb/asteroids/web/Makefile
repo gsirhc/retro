@@ -21,7 +21,7 @@ asteroids.js: $(SRC) $(HDR)
 hwtest_roms.h: $(CORE)/roms/hwtest/gen_hwtest.py
 	python3 $(CORE)/roms/hwtest/gen_hwtest.py --dir roms --header hwtest_roms.h
 
-.PHONY: shared roms wasm serve test test-smoke test-install clean
+.PHONY: shared roms wasm serve test test-smoke test-install clean stage
 wasm: asteroids.js
 roms: hwtest_roms.h
 	python3 $(CORE)/roms/hwtest/gen_hwtest.py --dir roms --header hwtest_roms.h \
@@ -56,3 +56,8 @@ clean:
 	rm -f asteroids.js asteroids.wasm hwtest_roms.h
 	rm -rf roms shared
 	rm -rf test-results playwright-report
+
+# What the deployed site serves; `make -C retroweb site` calls this with DEST.
+STAGE = index.html app.js asteroids.js asteroids.wasm assets roms shared
+stage:
+	../../stage_web.sh $(DEST) $(STAGE)

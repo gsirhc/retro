@@ -1948,6 +1948,7 @@
     if (new URLSearchParams(location.search).get("test") === "1") {
       window.__test = {
         machine, sendKey, screenEl, fitScreen, frameCanvas, keyboard,
+        cpuMultiplier: TEST_CPU_MULTIPLIER,
         mapKey: keyboard.mapKey,
         get keymapRows() { return keyboard.keymapRows; },
         applyWasdPreset: keyboard.applyWasdPreset,

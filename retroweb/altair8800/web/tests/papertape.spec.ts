@@ -74,7 +74,7 @@ test.describe("paper-tape reader", () => {
     page,
   }) => {
     await boot(page, { params: "preset=cassette" });
-    const opts = await page.$$eval("#ptr .ptr-speed option", (os) => os.map((o) => o.value));
+    const opts = await page.$$eval("#ptr .ptr-speed option", (os) => os.map((o) => (o as HTMLOptionElement).value));
     expect(opts).toEqual(["realistic", "x5", "x25", "x50"]);
 
     await page.selectOption("#ptr .ptr-speed", "realistic");
