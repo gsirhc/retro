@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Help / About</title>
+<title>Help / About / FAQs</title>
 <link rel="icon" href="assets/favicon.ico" sizes="any">
 <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="assets/favicon-16.png">
@@ -52,8 +52,8 @@
 <div class="page">
   <header class="pagebar">
     <a class="pb-home" href="./">&#8592;&nbsp;All&nbsp;machines</a>
-    <span class="pb-title"><img class="pb-icon" src="assets/favicon-32.png" alt="" aria-hidden="true"> HELP_ABOUT</span>
-    <span class="pb-name">Help / About</span>
+    <span class="pb-title"><img class="pb-icon" src="assets/favicon-32.png" alt="" aria-hidden="true"> HELP_ABOUT_FA_QUs</span>
+    <span class="pb-name">Help / About / FAQs</span>
     <span class="pb-tag">Vintage machines, running entirely in your browser</span>
     <span class="pb-tools">
       <label class="pb-theme">Theme
@@ -64,14 +64,24 @@
   </header>
 
   <div class="inner">
-    <h1>Help / About</h1>
-
+    <h1>Help / About / FAQs</h1>
     <p>
-      This site emulates "Old Ass Computers" running entirely in your browser.
+      This site emulates computer and game hardware running entirely in your browser.
       The emulator cores are written from scratch in C++ and compiled to a WebAssembly module.    
       The module is downloaded to the browser, allowing the emulator to execute all hardware 
       simulation locally.  There are no virtual machines or third-party emulator engines involved.
     </p>
+
+    <h2>Site Goals</h2>
+    <p>This site adheres to the following goals to ensure purity and accuracy:</p>
+    <ul>
+      <li>All hardware emulation must be able to run in a web browser</li>
+      <li>Hardware emulation is accurate down to the individual CPU instruction</li>
+      <li>All emulators must be written from scratch</li>
+      <li>The core systems must function at real-time speeds</li>
+      <li>Only period-correct storage devices can be used to load software</li>
+      <li>The systems must be thoroughly tested with unit and end-to-end automation</li>
+    </ul>
 
     <h2 id="rights">Commercial Software vs. Shareware / Freeware</h2>
     <p>
@@ -88,15 +98,6 @@
       contact me below.
     </p>
 
-    <h2>What is the point of the arcade emulators?</h2>
-    <p>
-      Yeah, it's a pain that the arcades don't come with the games, and that you have to supply your 
-      own ROMs (see above). The arcade emulators are faithful recreations of the hardware, running 
-      entirely in the browser. So, unlike other arcade emulators, you don't have to install anything on 
-      your computer to play the real games.  This point really is that this site focuses on the hardware 
-      enulation.  What users do it with is entirely up to them.
-    </p>
-
     <h2>Browser Support</h2>
     <p>
       Chromium-based browsers are recommended as most testing is done in Chrome.  However, the site 
@@ -108,8 +109,8 @@
     <p>
       The emulators should run on any modern desktop, laptop, tablet or even smartphone.  The heavier 
       emulators, such as the 486, may suffer performance issues on lower-end or older devices.
-      Since the emulators run in the browser, you should ensure you have at least 1GB of available RAM 
-      after the browser is loaded.
+      Since the emulators run in the browser, you should ensure that your system has at least 1GB of 
+      available RAM after the browser is loaded.
     </p>
     
     <h2>Removable Media Formats</h2>
@@ -122,7 +123,7 @@
     
     <h2>Hard Drives</h2>
     <p>
-      Hard disk images are stored in your browser's IndexedDB and changes are saved every 
+      Emulator hard disk images are stored in your browser's IndexedDB and changes are saved every 
       few seconds so you don't have to worry about losing your data.  To be sure your hard drive is synced, 
       power off the machine before navigating away from the page.  It's also recommended that you download 
       your hard drive images periodically as a backup.
@@ -134,29 +135,22 @@
       so they persist across sessions.  You can reset your high scores at any time.
     </p>
 
-    <h2>Site Goals</h2>
-    <ul>
-      <li>All hardware emulation must be able to run in a web browser</li>
-      <li>Hardware emulation is accurate down to the individual CPU instruction</li>
-      <li>All emulatators must be written from scratch</li>
-      <li>The core systems must function at real-time speeds</li>
-      <li>Only period-correct storage devices can be used to load software</li>
-      <li>The systems must be thoroughly tested with unit and end-to-end automation</li>
-    </ul>
-
-    <h2>Can you embed this site or use the code for your own project?</h2>
+    <h2>What is the point of the arcade emulators?</h2>
     <p>
-      Technically yes because I run under the MIT license.  So you must follow the license terms.  
-      I would prefer you don't sell a product with my site or code as I provide it for free.  
-      However, if you would like to collaborate on a project, please contact me below.
+      Yeah, it's a pain that the arcades don't come with the games, and that you have to supply your 
+      own ROMs (see above). The arcade emulators are faithful recreations of the hardware, running 
+      entirely in the browser. So, unlike other arcade emulators, you don't have to install anything on 
+      your computer to play the real games.  The point really is that this site focuses on the hardware 
+      emulation.  What users do with it is entirely up to them.
     </p>
 
-    <h2>Found a bug?</h2>
+    <h2>Found a bug or can't get it working?</h2>
     <p>
       Contact me below!  Please provide as much detail as possible to help get a conversation started.  Any 
       feedback is welcome so don't hesitate to reach out.
     </p>
-    <p>I could also use your help testing!  Contact me if you'd like to get involved.  Any help is much appreciated.
+    <p>
+      I could also use your help testing!  Contact me if you'd like to get involved.  Any help is much appreciated.
     </p>
 
     <h2>About Me</h2>
@@ -164,8 +158,9 @@
       Hello, I'm Chris, the creator of this site.  I've been a professional software engineer for over 
       25 years and a computer geek for much longer than that.  In recent years I've dabbled in retro computing 
       but never acquired era-correct hardware as it seems expensive and prone to failure.  So, I set out to 
-      create this site so I could relive the retro days as closely as possible without the headaches of the 
-      real thing.
+      create this site to emulate "old-ass computer" (OAC) hardware that I remember using back in the day.  
+      It started out as a project for myself then I figured why not put it out there for others to use?  So
+      here it is.
     </p>
 
     <h2 id="contact">Contact Me</h2>
