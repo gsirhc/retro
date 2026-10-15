@@ -55,41 +55,65 @@ TEST(I8042Test, ResetDeliversUnsolicitedKeyboardBatByte) {
     EXPECT_EQ(kbc.in(0x60), 0xAA);
 }
 
-TEST(I8042Test, A20DisabledByDefault) {
-    I8042 kbc;
-    kbc.reset();
-    EXPECT_FALSE(kbc.a20_enabled());
+void CloseKbcA20(I8042& kbc) {
+    kbc.out(0x64, 0xD1);
+    kbc.out(0x60, 0xDD);
 }
 
-TEST(I8042Test, WriteOutputPortEnablesA20) {
+TEST(I8042Test, OutputPortComesOutOfResetAtCfhWithA20Open) {
     I8042 kbc;
     kbc.reset();
-    kbc.out(0x64, 0xD1);  // write output port
+    EXPECT_TRUE(kbc.a20_enabled());
+    kbc.out(0x64, 0xD0);
+    EXPECT_EQ(kbc.in(0x60), 0xCF);
+    EXPECT_FALSE(kbc.reset_requested());
+}
+
+TEST(I8042Test, WriteOutputPortGatesA20) {
+    I8042 kbc;
+    kbc.reset();
+    CloseKbcA20(kbc);
+    EXPECT_FALSE(kbc.a20_enabled());
+    kbc.out(0x64, 0xD1);
     kbc.out(0x60, 0x03);  // A20 on, reset line high
     EXPECT_TRUE(kbc.a20_enabled());
     EXPECT_FALSE(kbc.reset_requested());
 }
 
-// port 0x92 Fast A20 Gate; HIMEM.SYS tries it first (OSDev Wiki, "A20 Line"). Same A20 line as the 8042.
+TEST(I8042Test, SelfTestPutsTheOutputPortBackToCfh) {
+    I8042 kbc;
+    kbc.reset();
+    CloseKbcA20(kbc);
+    kbc.out(0x64, 0xAA);
+    EXPECT_EQ(kbc.in(0x60), 0x55);
+    EXPECT_TRUE(kbc.a20_enabled());
+    kbc.out(0x64, 0xD0);
+    EXPECT_EQ(kbc.in(0x60), 0xCF);
+}
+
 TEST(I8042Test, FastA20PortEnablesA20) {
     I8042 kbc;
     kbc.reset();
     EXPECT_TRUE(kbc.owns_fast_a20(0x92));
-    EXPECT_FALSE(kbc.a20_enabled());
-    kbc.fast_a20_out(0x02);  // A20 on, no reset
+    EXPECT_EQ(kbc.fast_a20_in(), 0x00);
+    CloseKbcA20(kbc);
+    kbc.fast_a20_out(0x02);
     EXPECT_TRUE(kbc.a20_enabled());
     EXPECT_FALSE(kbc.reset_requested());
     EXPECT_EQ(kbc.fast_a20_in(), 0x02);
 }
 
-TEST(I8042Test, FastA20PortAndOutputPortShareTheSameA20State) {
+TEST(I8042Test, FastA20PortIsOredWithTheKbcGate) {
     I8042 kbc;
     kbc.reset();
-    kbc.out(0x64, 0xD1);
-    kbc.out(0x60, 0x02);
+    kbc.fast_a20_out(0x00);
+    EXPECT_TRUE(kbc.a20_enabled()) << "port 92h low can't close a gate the KBC holds open";
+    CloseKbcA20(kbc);
+    EXPECT_FALSE(kbc.a20_enabled());
+    kbc.fast_a20_out(0x02);
     EXPECT_TRUE(kbc.a20_enabled());
-    EXPECT_EQ(kbc.fast_a20_in(), 0x02);  // same state via port 0x92
-    // fast-path disable is visible to the slow read-back
+    kbc.out(0x64, 0xD0);
+    EXPECT_EQ(kbc.in(0x60), 0xDD) << "the KBC's own latch is unchanged";
     kbc.fast_a20_out(0x00);
     EXPECT_FALSE(kbc.a20_enabled());
 }
@@ -97,9 +121,30 @@ TEST(I8042Test, FastA20PortAndOutputPortShareTheSameA20State) {
 TEST(I8042Test, FastA20PortBitZeroTriggersReset) {
     I8042 kbc;
     kbc.reset();
-    kbc.fast_a20_out(0x03);  // A20 and reset set
-    EXPECT_TRUE(kbc.a20_enabled());
+    kbc.fast_a20_out(0x03);
     EXPECT_TRUE(kbc.reset_requested());
+    EXPECT_EQ(kbc.fast_a20_in(), 0x03);
+}
+
+TEST(I8042Test, FastResetNeedsBitZeroWrittenBackToZeroFirst) {
+    I8042 kbc;
+    kbc.reset();
+    kbc.fast_a20_out(0x01);
+    ASSERT_TRUE(kbc.reset_requested());
+    kbc.clear_reset_request();
+    kbc.fast_a20_out(0x01);
+    EXPECT_FALSE(kbc.reset_requested());
+    kbc.fast_a20_out(0x00);
+    kbc.fast_a20_out(0x01);
+    EXPECT_TRUE(kbc.reset_requested());
+}
+
+TEST(I8042Test, ResetClearsPort92) {
+    I8042 kbc;
+    kbc.reset();
+    kbc.fast_a20_out(0x03);
+    kbc.reset();
+    EXPECT_EQ(kbc.fast_a20_in(), 0x00);
 }
 
 TEST(I8042Test, OutputPortBitZeroLowTriggersReset) {

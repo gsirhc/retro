@@ -1,16 +1,18 @@
 // Intel 8042 keyboard controller, AT wiring, with the PS/2 auxiliary (mouse)
 // port every 486-class board carries. Ports 0x60 (data), 0x64 (status/command).
 // Motherboard jobs:
-// - Output Port bit 1 gates A20. It starts disabled (wrap at 1MB like an 8086);
-//   BIOS enables it with 0xD1 early in POST. chipset.h reads a20_enabled().
+// - Output Port bit 1 gates A20. The KBC writes CFh to it at reset, so A20
+//   starts open (IBM AT KBC firmware disassembly, pcjs.org 8042_INTERN.TXT;
+//   QEMU pckbd.c agrees). POST closes it. chipset.h reads a20_enabled().
 // - Output Port bit 0 driven low, or command 0xFE, pulses CPU RESET.
 //   reset_requested() surfaces it to Machine, which calls cpu.reset().
 // The AUX port is a PS/2 feature: the 5170's KBC firmware ignores
 // 0xA7/0xA8/0xD2/0xD3/0xD4 (OS/2 Museum's AT KBC ROM disassembly), so this
 // models a PS/2-superset KBC (PC486_REVIEW.md §10).
-// Port 0x92 (Fast A20 Gate) is modeled here because it drives the same A20
-// signal. Bit 1 is the gate, bit 0 fast-resets on a 1 write (OSDev Wiki, "A20
-// Line"). HIMEM.SYS tries it first (PC486_REVIEW.md §19.6).
+// Port 0x92 (Fast A20 Gate) is modeled here because it shares the A20 line:
+// its bit 1 is ORed with the KBC's, bit 0 pulses reset on a 0-to-1 write, and
+// both reset low (Intel 82378 SIO data sheet, Port 92 Register and ALT_A20).
+// HIMEM.SYS tries it first (PC486_REVIEW.md §19.6).
 // Commands: self-test, interface test, read/write command byte, enable/disable
 // keyboard and AUX, write to AUX or either output buffer, read/write output
 // port, pulse line 0. Typematic default 500 ms / 10.9 cps (set by 0xF3). LED
@@ -31,14 +33,11 @@ public:
     uint8_t in(uint16_t port) const;
     void out(uint16_t port, uint8_t v);
 
-    // Port 0x92 shares the 8042 output port's A20 bit (one physical line), so it
-    // reads/writes output_port_ bit 1 directly. Bit 0 is a write-only reset trigger
-    // that self-clears and is not stored.
     bool owns_fast_a20(uint16_t port) const { return port == 0x92; }
-    uint8_t fast_a20_in() const { return output_port_ & 0x02; }
+    uint8_t fast_a20_in() const { return port92_; }
     void fast_a20_out(uint8_t v) {
-        output_port_ = uint8_t((output_port_ & ~0x02) | (v & 0x02));
-        if (v & 0x01) reset_requested_ = true;
+        if ((v & 0x01) && !(port92_ & 0x01)) reset_requested_ = true;
+        port92_ = uint8_t(v & 0x03);
     }
 
     // A byte landed with its IRQ enabled. Latched until cleared, since a read of
@@ -54,7 +53,7 @@ public:
     bool irq12_pending() const { return irq12_pending_; }
     void clear_irq12() { irq12_pending_ = false; }
 
-    bool a20_enabled() const { return (output_port_ & 0x02) != 0; }
+    bool a20_enabled() const { return ((output_port_ | port92_) & 0x02) != 0; }
 
     // 0xED argument: bit 0 Scroll Lock, bit 1 Num Lock, bit 2 Caps Lock.
     uint8_t leds() const { return leds_; }
@@ -112,7 +111,8 @@ private:
     mutable bool output_full_ = false;
     mutable bool output_is_aux_ = false;  // status bit 5 (AUXB) for the byte in output_buf_
     uint8_t command_byte_ = 0x00;
-    uint8_t output_port_ = 0x00;  // bit 1 (A20) starts disabled
+    uint8_t output_port_ = 0xCF;
+    uint8_t port92_ = 0x00;
     bool kbd_enabled_ = true;
     bool system_flag_ = false;
     bool last_was_command_ = false;

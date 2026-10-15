@@ -223,7 +223,8 @@ TEST(MachineTest, CpuAccessesInTheVgaWindowStillGoToTheCardAndNotRam) {
 TEST(MachineTest, OpeningA20MidRunRetargetsAnAlreadyResolvedPage) {
     Machine m;
     // gate closed: store aliases to 000100; after the 8042 A20 sequence it lands at 100100
-    RunRealMode(m, {0xB8, 0xFF, 0xFF, 0x8E, 0xD8,
+    RunRealMode(m, {0xB0, 0xD1, 0xE6, 0x64, 0xB0, 0xDD, 0xE6, 0x60,  // close it, as POST does
+                    0xB8, 0xFF, 0xFF, 0x8E, 0xD8,
                     0xC6, 0x06, 0x10, 0x01, 0xAA,
                     0xB0, 0xD1, 0xE6, 0x64,   // MOV AL,D1 / OUT 64,AL
                     0xB0, 0xDF, 0xE6, 0x60,  // A20 on, reset line high
@@ -231,6 +232,18 @@ TEST(MachineTest, OpeningA20MidRunRetargetsAnAlreadyResolvedPage) {
     ASSERT_TRUE(m.chipset.kbc.a20_enabled());
     EXPECT_EQ(m.chipset.mem[0x000100], 0xAA);
     EXPECT_EQ(m.chipset.mem[0x100100], 0xBB);
+}
+
+TEST(MachineTest, AFastResetThroughPort92KeepsTheA20Gate) {
+    // ALT_RST resets the CPU only; the Port 92 register keeps its bits (Intel 82378 SIO data sheet).
+    Machine m;
+    m.chipset.mem[0xFFFF0] = 0xF4;  // HLT at the reset vector
+    RunRealMode(m, {0xB0, 0xD1, 0xE6, 0x64, 0xB0, 0xDD, 0xE6, 0x60,  // KBC gate closed
+                    0xB0, 0x03, 0xE6, 0x92,                          // ALT_A20 on, ALT_RST
+                    0xF4});
+    EXPECT_EQ(m.cpu.cs, 0xF000) << "the CPU went through reset";
+    EXPECT_EQ(m.chipset.kbc.fast_a20_in(), 0x03);
+    EXPECT_TRUE(m.chipset.kbc.a20_enabled()) << "held open by port 92h alone";
 }
 
 TEST(MachineTest, CodeThatPatchesItselfAheadOfEipExecutesThePatchedByte) {

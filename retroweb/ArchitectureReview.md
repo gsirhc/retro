@@ -120,9 +120,10 @@ old code out of 1.06 billion, in about 1.8% more CPU time (6.57-6.69 s
 against 6.38-6.62 s, four runs each; 4-6% before the inline). The shipped
 wasm is built `-flto`.
 
-**To verify.** The two 8042 models disagree on A20 at power-on: ibmpc-at
-opens it (MCS-48 port pins come out of reset high), pc486 closes it. Check
-pc486's against a 486-era KBC firmware (AMI or Phoenix) before changing it.
+**A20 at power-on. Fixed.** pc486's 8042 reset its output port to 00h, so A20
+started closed. A real KBC writes CFh at reset, so it starts open, and port
+92h is a separate latch ORed with the KBC's gate, not the same bit
+(`pc486/PC486_REVIEW.md` §53). ibmpc-at already started open.
 
 ### H2. pc486 port 61h bit 4 (refresh toggle). Fixed
 

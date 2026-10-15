@@ -7205,3 +7205,35 @@ is programmed" check.
 `ChipsetTest.RefreshToggleCountsEveryRequestInOneServicePass` lands two
 requests in one service pass and expects bit 4 unchanged, then three and
 expects it flipped.
+
+## 53. A20 is open at power-on, and port 92h has its own latch
+
+§6.5 called a closed A20 gate at power-on correct hardware behavior. It
+isn't. The 8042 writes CFh to its output port (P2) at reset and again in
+the AAh self-test, so A20GATE comes up high and the gate is open until POST
+closes it (IBM AT KBC ROM disassembly, pcjs.org `8042_INTERN.TXT`; QEMU's
+`pckbd.c` resets `outport` to the same CFh). 486-era KBC firmware clones
+that interface. The old reset value, 00h, also held bit 0 (CPU reset) low
+and made command D0h read back 00h.
+
+Port 92h was folded into the KBC's A20 bit. On a real board it is a
+separate register whose ALT_A20 bit is ORed with A20GATE: writing it high
+opens A20 "regardless of the state of A20GATE", and A20 is masked only when
+both are low. It resets to 0, reads back its own bits, and bit 0 pulses
+ALT_RST only on a write of 1 after it was written back to 0 (Intel 82378
+SIO data sheet, 290571-001, Port 92 Register and ALT_A20; PIIX4 290562-001
+gives the same truth table). An ALT_RST resets the CPU, not the register.
+
+`i8042.cpp` now resets the output port to CFh, AAh restores it, and
+`port92_` is its own latch. What a guest sees after POST is unchanged,
+since the BIOS sets the gate itself: the native FreeDOS boot reaches `C:\>`
+as before.
+
+Tests: `OutputPortComesOutOfResetAtCfhWithA20Open`,
+`SelfTestPutsTheOutputPortBackToCfh`, `FastA20PortIsOredWithTheKbcGate`,
+`FastResetNeedsBitZeroWrittenBackToZeroFirst`, `ResetClearsPort92`,
+`ChipsetTest.A20IsOpenAtPowerOn`,
+`ChipsetTest.ResetReopensAClosedGateAndRetargetsResolvedPages`, and
+`MachineTest.AFastResetThroughPort92KeepsTheA20Gate`. Each fails against
+the old behavior. Tests that need a closed gate now close it with D1h, DDh,
+as POST does.

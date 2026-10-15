@@ -55,10 +55,18 @@ TEST(ChipsetTest, TheBiosRomAnswersAgainAtTheTopOfFourGigabytes) {
     EXPECT_EQ(bus.read(bus.ctx, 0xFFDFFFF0u), 0xFF) << "nothing answers below the top 2MB";
 }
 
+TEST(ChipsetTest, A20IsOpenAtPowerOn) {
+    Chipset cs;
+    auto bus = cs.make_bus();
+    bus.write(bus.ctx, 0x000010, 0x77);
+    EXPECT_EQ(bus.read(bus.ctx, 0x100010), 0x00);
+}
+
 TEST(ChipsetTest, A20DisabledWrapsAt1MB) {
     Chipset cs;
     auto bus = cs.make_bus();
-    // A20 starts disabled (i8042.h): 0x100010 aliases 0x10
+    bus.out(bus.ctx, 0x64, 0xD1);
+    bus.out(bus.ctx, 0x60, 0xDD);  // closed, as POST leaves it
     bus.write(bus.ctx, 0x000010, 0x77);
     EXPECT_EQ(bus.read(bus.ctx, 0x100010), 0x77);
 }
@@ -94,14 +102,29 @@ TEST(ChipsetTest, PageHostHandsOverPlainRamAndRefusesDeviceOrRomPages) {
 
 TEST(ChipsetTest, PageHostFollowsTheA20GateAndBumpsItsEpochWhenTheGateMoves) {
     Chipset cs;
+    auto bus = cs.make_bus();
+    bus.out(bus.ctx, 0x64, 0xD1);
+    bus.out(bus.ctx, 0x60, 0xDD);
     const uint32_t before = *cs.map_epoch();
     // gate closed: a page above 1MB aliases down
     EXPECT_EQ(cs.page_host(0x100000, false), cs.mem.data());
-    auto bus = cs.make_bus();
     bus.out(bus.ctx, 0x64, 0xD1);
     bus.out(bus.ctx, 0x60, 0xDF);  // A20 on, reset line high
     ASSERT_TRUE(cs.kbc.a20_enabled());
     EXPECT_NE(*cs.map_epoch(), before);  // resolved pages are now stale
+    EXPECT_EQ(cs.page_host(0x100000, false), cs.mem.data() + 0x100000);
+}
+
+TEST(ChipsetTest, ResetReopensAClosedGateAndRetargetsResolvedPages) {
+    Chipset cs;
+    auto bus = cs.make_bus();
+    bus.out(bus.ctx, 0x64, 0xD1);
+    bus.out(bus.ctx, 0x60, 0xDD);
+    ASSERT_EQ(cs.page_host(0x100000, false), cs.mem.data());
+    const uint32_t before = *cs.map_epoch();
+    cs.reset();
+    EXPECT_TRUE(cs.kbc.a20_enabled());
+    EXPECT_NE(*cs.map_epoch(), before);
     EXPECT_EQ(cs.page_host(0x100000, false), cs.mem.data() + 0x100000);
 }
 
@@ -114,7 +137,7 @@ TEST(ChipsetTest, MapEpochAlsoMovesForARomLoadAndForAGateChangeMadeOutsideIoOut)
     // a host poke bypasses io_out; tick() catches it
     e0 = *cs.map_epoch();
     cs.kbc.out(0x64, 0xD1);
-    cs.kbc.out(0x60, 0xDF);
+    cs.kbc.out(0x60, 0xDD);
     cs.tick(1000, 1193182.0);
     EXPECT_NE(*cs.map_epoch(), e0);
 }

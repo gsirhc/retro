@@ -39,7 +39,7 @@ void Chipset::reset() {
     sb.reset();
     mpu.reset();
     update_irq_lines();
-    note_a20();  // kbc.reset() closes the gate again
+    note_a20();  // kbc.reset() reopens the gate
     // mem, rom_ and cmos survive reset.
 }
 

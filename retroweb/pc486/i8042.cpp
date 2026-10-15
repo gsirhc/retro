@@ -28,7 +28,8 @@ void I8042::reset() {
     output_full_ = false;
     output_is_aux_ = false;
     command_byte_ = 0x00;
-    output_port_ = 0x00;
+    output_port_ = 0xCF;
+    port92_ = 0x00;
     kbd_enabled_ = true;
     system_flag_ = false;
     last_was_command_ = false;
@@ -132,7 +133,7 @@ void I8042::out(uint16_t port, uint8_t v) {
             case 0xA7: command_byte_ |= 0x20; break;                   // disable AUX interface (clock line low)
             case 0xA8: command_byte_ &= ~0x20; pump_output(); break;   // enable AUX interface
             case 0xA9: push_ctrl(0x00); break;                          // AUX interface test: 0x00 = no error
-            case 0xAA: push_ctrl(0x55); system_flag_ = true; break;     // self-test: 0x55 = passed
+            case 0xAA: push_ctrl(0x55); system_flag_ = true; output_port_ = 0xCF; break;  // 55h = passed; P2 back to CFh
             case 0xAB: push_ctrl(0x00); break;                          // interface test: 0x00 = no error
             case 0xAD: kbd_enabled_ = false; break;                    // disable keyboard
             case 0xAE: kbd_enabled_ = true; break;                     // enable keyboard

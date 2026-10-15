@@ -276,9 +276,8 @@ void emit_code16(Asm &a) {
     a.db({0xFA});                                // cli
     a.db({0x31, 0xC0});                          // xor ax,ax
     a.db({0x8E, 0xD8});                          // mov ds,ax
-    // Open A20 through the 8042 (D1h then DFh to the output port). It is closed at
-    // power-on and masks addresses to 20 bits; without it a store to linear 7MB
-    // landed at 0. Chipset behavior, not CPU (cpu80486.h).
+    // Open A20 through the 8042 (D1h then DFh to the output port), as software
+    // must once POST has closed it. Closed, the chipset masks addresses to 20 bits.
     a.db({0xB0, 0xD1});                          // mov al,0xD1
     a.db({0xE6, 0x64});                          // out 0x64,al
     a.db({0xB0, 0xDF});                          // mov al,0xDF
