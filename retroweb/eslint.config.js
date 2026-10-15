@@ -141,6 +141,16 @@ export default [
     rules: {
       "@typescript-eslint/no-explicit-any": "off",
       "@typescript-eslint/no-non-null-assertion": "off",
+      "no-restricted-syntax": ["error",
+        {
+          selector: "CallExpression[callee.property.name='waitForTimeout']",
+          message: "Wait on a condition (expect, expect.poll, waitForFunction), not a fixed time.",
+        },
+        {
+          selector: "NewExpression[callee.name='Promise'] CallExpression[callee.name='setTimeout']",
+          message: "A setTimeout sleep is waitForTimeout by another name. Wait on a condition.",
+        },
+      ],
     },
   },
 ];

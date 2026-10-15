@@ -25,12 +25,14 @@ test.describe("Audio latency", () => {
     await page.waitForFunction(() => (window as any).__test);
     await page.locator("body").click({ position: { x: 5, y: 5 } });
     await page.waitForFunction(() => (window as any).__queued.length > 5);
+    // The worklet reports every 40 process calls, ~107 ms at 48 kHz.
     for (let k = 0; k < 8; k++) {
       await page.evaluate(() => { const t = performance.now(); while (performance.now() - t < 60) {} });
-      await page.waitForTimeout(200);
+      const n = await page.evaluate(() => (window as any).__queued.length);
+      await page.waitForFunction((k) => (window as any).__queued.length >= k, n + 2);
     }
     await page.evaluate(() => { (window as any).__queued = []; });
-    await page.waitForTimeout(1000);
+    await page.waitForFunction(() => (window as any).__queued.length >= 9);
     const maxMs = await page.evaluate(() => { const w = window as any; return Math.max(...w.__queued) / w.__rate * 1000; });
     expect(maxMs).toBeLessThan(60);
   });

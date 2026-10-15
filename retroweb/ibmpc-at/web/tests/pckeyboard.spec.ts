@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures";
-import { boot, boardKey, focusScreen, openKeyboard, screenText, setPowerSwitch, waitForScreen } from "./helpers";
+import { boot, boardKey, focusScreen, openKeyboard, screenText, setPowerSwitch, waitForScreen, emuWait } from "./helpers";
 
 // The drawn IBM Enhanced Keyboard (shared/pc-keyboard.js) on the AT: collapse state, latched
 // modifiers, the lock lights, and map mode.
@@ -97,9 +97,8 @@ test.describe("map mode", () => {
     await expect(boardKey(page, "KeyM").locator(".kbd-map-txt")).toHaveText("\u2192N");
     await focusScreen(page);
     await page.keyboard.down("KeyM");
-    await page.waitForTimeout(60);
+    await emuWait(page, 60);
     await page.keyboard.up("KeyM");
-    // fast=1 makes the 60 ms hold long enough for typematic, so n may repeat.
     await waitForScreen(page, /C:\\>n+\s*$/i);
   });
 

@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures";
-import { boot, waitForScreen } from "./helpers";
+import { boot, waitForScreen, guestRun } from "./helpers";
 
 const shape = (page) =>
   page.evaluate(() => {
@@ -88,7 +88,7 @@ test.describe("era presets", () => {
     page,
   }) => {
     await boot(page, { params: "preset=cassette" });
-    await page.waitForTimeout(500);
+    await guestRun(page, 500);
     expect(await page.evaluate(() => (window as any).__test.screen())).not.toMatch(/MEMORY SIZE/i);
     expect(await page.evaluate(() => (window as any).__test.tape.phase)).toBe("idle");
     expect(await page.evaluate(() => (window as any).__test.paperTape.entry)).not.toBe(null);

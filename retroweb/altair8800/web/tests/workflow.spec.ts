@@ -1,16 +1,31 @@
 import { test, expect } from "./fixtures";
-import { boot, waitForScreen, send, setSwitches } from "./helpers";
+import { boot, waitForScreen, send, setSwitches, settle } from "./helpers";
 
 const clearScreen = (page) => page.evaluate(() => (window as any).__test.term.clear());
 const tapeStatus = (page) => page.evaluate(() => (window as any).__test.machine.tapeStatus());
 const screen = (page) => page.evaluate(() => (window as any).__test.screen());
 
-// Stock CP/M 2.2 has no type-ahead: send a command, let the echo land, then wait for the next
-// bare prompt (A> from the CCP, Ok from MBASIC).
+// Stock CP/M 2.2 has no type-ahead: send a command, then wait for the CPU's own output since the
+// send to end in a fresh prompt (A> from the CCP, Ok from MBASIC). The raw stream is used because
+// a CRT has no scrollback, so counting prompts on screen is unreliable.
 async function runCpm(page, cmd: string) {
+  await page.evaluate(() => {
+    const w = window as any;
+    if (w.__rawOut !== undefined) return;
+    w.__rawOut = "";
+    const m = w.__test.machine;
+    const orig = m.readOutput.bind(m);
+    m.readOutput = () => {
+      const r = orig();
+      for (const b of r) w.__rawOut += String.fromCharCode(b & 0x7f);
+      return r;
+    };
+  });
+  const before = await page.evaluate(() => (window as any).__rawOut.length);
   await send(page, cmd + "\r");
-  await page.waitForTimeout(1200); // let the echo push past the previous prompt
-  await waitForScreen(page, /(A>|Ok)[ \t]*$/m, 45_000);
+  await expect
+    .poll(async () => (await page.evaluate((n) => (window as any).__rawOut.slice(n), before)), { timeout: 45_000 })
+    .toMatch(/(A>|Ok)[ \t\r\n]*$/);
 }
 
 // End-to-end preset smoke tests: load media off the real devices (AUTO-LOAD / PLAY / BOOT), then
@@ -31,11 +46,12 @@ test.describe("preset workflows — an expert session, end to end", () => {
     await page.click("#ptr .ptr-load");
     await expect.poll(() => leds(page).then((l) => l.addr & 0xff00), { timeout: 12_000 }).toBeGreaterThan(0);
     const marching = new Set<number>();
-    for (let i = 0; i < 8; i++) {
-      marching.add((await leds(page)).addr & 0xff00);
-      await page.waitForTimeout(120);
-    }
-    expect(marching.size).toBeGreaterThan(2); // the bit is sweeping, not frozen
+    await expect
+      .poll(async () => {
+        marching.add((await leds(page)).addr & 0xff00);
+        return marching.size;
+      })
+      .toBeGreaterThan(2); // the bit is sweeping, not frozen
 
     // the game reads the sense switches -- setting all of A8..A15 makes it XOR
     // extra bits in, so the single marching bit becomes a spray of them
@@ -83,7 +99,7 @@ test.describe("preset workflows — an expert session, end to end", () => {
     // 2. load Super Star Trek off the cassette: type the command, then press PLAY
     await clearScreen(page);
     await send(page, 'CLOAD "S"\r');
-    await page.waitForTimeout(200);
+    await settle(page, 200);
     await page.click("#acr .acr-key.play");
     await expect
       .poll(() => tapeStatus(page).then((s) => s.pos), { timeout: 30_000 })

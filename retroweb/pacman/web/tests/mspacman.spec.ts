@@ -52,7 +52,8 @@ test.describe("Ms. Pac-Man aux board page", () => {
   test("the built-in self-test help screen names Ms. Pac-Man", async ({ page }) => {
     await page.goto("/?game=mspacman&test=1");
     await page.waitForFunction(() => (window as any).__test);
-    await page.waitForTimeout(4500);
+    await page.waitForFunction(() => (window as any).__test?.machine.totalCycles() >= 13_824_000);
+    await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
     const title = await page.evaluate(() => {
       const m = (window as any).__test.machine;
       const vramOff = (col: number, row: number) => {

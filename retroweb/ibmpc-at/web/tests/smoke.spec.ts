@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures";
-import { boot, typeStr, waitForScreen } from "./helpers";
+import { boot, typeStr, waitForScreen, wallWait } from "./helpers";
 
 test.describe("boot smoke test", () => {
   test("boots FreeDOS to C:\\> and runs a typed command", async ({ page }) => {
@@ -18,7 +18,7 @@ test.describe("real-speed smoke test", () => {
 
     const sample = () => page.evaluate(() => [(window as any).__test.machine.totalCycles(), performance.now()]);
     const [c0, t0] = await sample();
-    await page.waitForTimeout(2000);
+    await wallWait(page, 2000);
     const [c1, t1] = await sample();
 
     const cyclesPerSecond = (c1 - c0) / ((t1 - t0) / 1000);

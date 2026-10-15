@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures";
-import { boot, waitForScreen, setPowerSwitch, typeStr } from "./helpers";
+import { boot, waitForScreen, setPowerSwitch, typeStr, emuWait, rafTicks } from "./helpers";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
@@ -25,9 +25,10 @@ test.describe("hard disk", () => {
     await boot(page);
     expect(await ledOn()).toBeGreaterThan(0);
 
-    await page.waitForTimeout(1000);
+    await emuWait(page, 1000);
     await resetLed();
-    await page.waitForTimeout(1500);
+    await emuWait(page, 1500);
+    await rafTicks(page);
     expect(await ledOn()).toBe(0);
 
     await typeStr(page, "DIR C:\\FREEDOS\\BIN");
@@ -83,7 +84,8 @@ test.describe("hard disk", () => {
     await page.waitForFunction(() => !!(window as any).__test?.machine, null, {
       timeout: 15000,
     });
-    await page.waitForTimeout(3000);
+    // 60 emulated seconds, well past the ~45 s POST that would reach a prompt
+    await emuWait(page, 60_000);
 
     expect(
       await page.evaluate(() => (window as any).__test.machine.textScreen())

@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { runFor, settle } from "./helpers";
 
 // End-to-end demo: enter the shell (SHELL_ENTRY from window.CGOAC_ENTRYPOINTS),
 // type a program, LIST, ASM, RUN.
@@ -8,7 +9,7 @@ import { test, expect } from "@playwright/test";
 async function typeLine(page: import("@playwright/test").Page, text: string) {
   await page.keyboard.type(text, { delay: 100 });
   await page.keyboard.press("Enter");
-  await page.waitForTimeout(300);
+  await settle(page, 300);
 }
 
 test("type, LIST, ASM, and RUN a program entirely through the terminal", async ({ page }) => {
@@ -43,9 +44,9 @@ test("type, LIST, ASM, and RUN a program entirely through the terminal", async (
 
   // JMP START loops forever, which proves the object code is real 65C02
   await typeLine(page, "RUN");
-  await page.waitForTimeout(500);
+  await runFor(page, 500);
   const s1 = await page.evaluate(() => (window as any).__machine.cycleCount());
-  await page.waitForTimeout(500);
+  await runFor(page, 500);
   const s2 = await page.evaluate(() => (window as any).__machine.cycleCount());
   expect(s2).toBeGreaterThan(s1);
 });
@@ -65,9 +66,9 @@ test("Ctrl-C breaks a genuinely hung (infinite-loop) program back to the shell",
   await expect(page.locator("#screen .xterm-rows")).toContainText("Ok", { timeout: 20000 });
 
   await typeLine(page, "RUN");
-  await page.waitForTimeout(500);
+  await runFor(page, 500);
   const s1 = await page.evaluate(() => (window as any).__machine.cycleCount());
-  await page.waitForTimeout(500);
+  await runFor(page, 500);
   const s2 = await page.evaluate(() => (window as any).__machine.cycleCount());
   expect(s2).toBeGreaterThan(s1);   // genuinely spinning, not stalled elsewhere
 
@@ -76,11 +77,10 @@ test("Ctrl-C breaks a genuinely hung (infinite-loop) program back to the shell",
 
   // xterm.js sends ETX ($03) for Ctrl-C with no selection, which NMI_HANDLER recognizes
   await page.keyboard.press("Control+C");
-  await page.waitForTimeout(1000);
 
-  const screenAfter = await page.locator("#screen .xterm-rows").innerText();
-  const promptsAfter = (screenAfter.match(/>/g) || []).length;
-  expect(promptsAfter).toBeGreaterThan(promptsBefore);   // a fresh ">" landed
+  await expect
+    .poll(async () => ((await page.locator("#screen .xterm-rows").innerText()).match(/>/g) || []).length)
+    .toBeGreaterThan(promptsBefore);   // a fresh ">" landed
 
   // LIST still works
   await typeLine(page, "LIST");
@@ -111,7 +111,6 @@ test("backspace erases the character, not just the cursor", async ({ page }) => 
 
   await page.keyboard.type("10 LDA", { delay: 100 });
   await page.keyboard.press("Backspace");   // erase the trailing 'A'
-  await page.waitForTimeout(300);
 
   // READCHAR's BS echo, then READLINE_ECHO's space and second BS
   await expect

@@ -93,15 +93,14 @@ test.describe("floppy drive", () => {
   test("load overlay shows while a floppy image is being read", async ({ livePage: page }) => {
     await expect(page.locator("#loadOverlay")).not.toHaveClass(/visible/);
 
-    // Delay File.arrayBuffer so the overlay is observable; a 4KB image finishes in one turn.
+    // Hold File.arrayBuffer until released so the overlay is observable; a 4KB image finishes in one turn.
     await page.evaluate(() => {
       const orig = File.prototype.arrayBuffer;
+      let release!: () => void;
+      const gate = new Promise<void>((r) => { release = r; });
+      (window as any).__releaseRead = release;
       File.prototype.arrayBuffer = function () {
-        return new Promise((resolve, reject) => {
-          setTimeout(() => {
-            orig.call(this).then(resolve, reject);
-          }, 400);
-        });
+        return gate.then(() => orig.call(this));
       };
     });
 
@@ -109,6 +108,7 @@ test.describe("floppy drive", () => {
     const done = insertFloppy(page, imagePath);
     await expect(page.locator("#loadOverlay")).toHaveClass(/visible/);
     await expect(page.locator("#loadOverlayLabel")).toHaveText(/Loading floppy/);
+    await page.evaluate(() => (window as any).__releaseRead());
     await done;
     await expect(page.locator("#loadOverlay")).not.toHaveClass(/visible/);
   });

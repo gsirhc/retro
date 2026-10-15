@@ -373,6 +373,7 @@ async function boot() {
   const encoder = new TextEncoder();
   const inQ = [];
   function queueInput(bytes) { for (const b of bytes) inQ.push(b); }
+  window.__inputPending = () => inQ.length + m.serialPending();   // Playwright: typed bytes not yet consumed by the ROM
   // named so the fullscreen escBtn can feed a synthetic "\x1b" through the same
   // path (the browser eats Escape in fullscreen)
   function handleTermData(data) {

@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures";
-import { boot, screen, waitForScreen, send } from "./helpers";
+import { boot, screen, waitForScreen, send, frames } from "./helpers";
 
 test.describe("error & fallback paths", () => {
   test("a missing roms/manifest.json leaves an empty but working reader", async ({ page }) => {
@@ -152,7 +152,7 @@ test.describe("error & fallback paths", () => {
     await expect(page.locator("#acr .acr-save")).toBeVisible({ timeout: 15_000 });
     await page.click("#acr .acr-save");
     // dirty flag stays set (nothing was written); button still shown
-    await page.waitForTimeout(300);
+    await frames(page, 15);
     expect(await page.evaluate(() => (window as any).__test.machine.tapeDirty())).toBe(true);
   });
 

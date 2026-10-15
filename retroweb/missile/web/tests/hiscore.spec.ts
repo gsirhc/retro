@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { frames } from "./helpers";
 import { readFileSync } from "fs";
 
 // HIGH SCORE lives in work RAM at $2C-$5B (24 initials, 24 BCD). It persists for a user ROM and Reset clears it.
@@ -175,7 +176,7 @@ test.describe("HIGH SCORE persist", () => {
 
   test("the self-test ROM never touches the saved tables", async ({ page }) => {
     await page.evaluate(() => (window as any).__test.machine.setRamByte(0x30, 0x11));
-    await page.waitForTimeout(300);
+    await frames(page, 18);
     const all = await page.evaluate(() => (window as any).__test.loadSavedHiscores());
     expect(Object.keys(all)).toEqual([]);
   });

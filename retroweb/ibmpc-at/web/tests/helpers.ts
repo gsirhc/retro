@@ -34,17 +34,46 @@ export async function waitForScreen(page: Page, re: RegExp, timeout = 120_000): 
     .toMatch(re);
 }
 
-/** One key's make and break together, then a wait. The keyboard paces the two bytes. */
-export async function tap(page: Page, code: string, gapMs = 40): Promise<void> {
-  // a wall-clock hold under fast=1 outlasts the 500ms typematic delay
+const CPU_HZ = 8_000_000;
+
+/** Wait until the guest has run `ms` of emulated time. */
+export async function emuWait(page: Page, ms: number): Promise<void> {
+  const target = await page.evaluate(
+    (n) => (window as any).__test.machine.totalCycles() + n,
+    (ms * CPU_HZ) / 1000,
+  );
+  await page.waitForFunction((t) => (window as any).__test.machine.totalCycles() >= t, target);
+}
+
+/** Real elapsed time on the page's own clock. Only for measuring wall-clock rates. */
+export async function wallWait(page: Page, ms: number): Promise<void> {
+  const target = await page.evaluate((n) => performance.now() + n, ms);
+  await page.waitForFunction((t) => performance.now() >= t, target);
+}
+
+/** Let the page run n animation frames, so a negative check sees a UI that had its chance to update. */
+export async function rafTicks(page: Page, n = 3): Promise<void> {
+  await page.evaluate(
+    (count) =>
+      new Promise<void>((resolve) => {
+        const step = (left: number) => (left === 0 ? resolve() : requestAnimationFrame(() => step(left - 1)));
+        step(count);
+      }),
+    n,
+  );
+}
+
+/** One key's make and break together, then emulated time for the keyboard to clock both bytes out and INT 9 to take them (2 x 825us frames). */
+export async function tap(page: Page, code: string, gapMs = 20): Promise<void> {
+  // emulated time, not wall: a wall-clock hold under fast=1 outlasts the 500ms typematic delay
   await page.evaluate((c) => {
     (window as any).__test.sendKey(c, false);
     (window as any).__test.sendKey(c, true);
   }, code);
-  await page.waitForTimeout(gapMs);
+  await emuWait(page, gapMs);
 }
 
-export async function pressEnter(page: Page, gapMs = 40): Promise<void> {
+export async function pressEnter(page: Page, gapMs = 20): Promise<void> {
   await tap(page, "Enter", gapMs);
 }
 
@@ -71,19 +100,19 @@ export async function typeStr(
   str: string,
   opts: { gapMs?: number; pressEnterAfter?: boolean } = {},
 ): Promise<void> {
-  const gapMs = opts.gapMs ?? 40;
+  const gapMs = opts.gapMs ?? 20;
   for (const raw of str.toUpperCase()) {
     const shiftedKey = SHIFTED_CHAR_TO_KEY[raw];
     const key = shiftedKey ?? CHAR_TO_KEY[raw];
     if (!key) throw new Error(`typeStr: no SET1 key mapping for character ${JSON.stringify(raw)}`);
     if (shiftedKey) {
       await page.evaluate((c) => (window as any).__test.sendKey(c, false), "ShiftLeft");
-      await page.waitForTimeout(gapMs);
+      await emuWait(page, gapMs);
     }
     await tap(page, key, gapMs);
     if (shiftedKey) {
       await page.evaluate((c) => (window as any).__test.sendKey(c, true), "ShiftLeft");
-      await page.waitForTimeout(gapMs);
+      await emuWait(page, gapMs);
     }
   }
   if (opts.pressEnterAfter !== false) await pressEnter(page, gapMs);

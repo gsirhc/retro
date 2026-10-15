@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { frames } from "./helpers";
 import { readFileSync } from "fs";
 
 // HIGH SCORE lives in the 64-byte EAROM. It persists for a user ROM and Reset EAROM clears it.
@@ -173,7 +174,7 @@ test.describe("HIGH SCORE persist", () => {
 
   test("the self-test ROM never touches the saved tables", async ({ page }) => {
     await page.evaluate(() => (window as any).__test.machine.setEaromByte(0, 0x11));
-    await page.waitForTimeout(300);
+    await frames(page, 18);
     const all = await page.evaluate(() => (window as any).__test.loadSavedHiscores());
     expect(Object.keys(all)).toEqual([]);
   });

@@ -7,7 +7,8 @@ test("self-test ROM ends on a copyright / load-it-yourself help screen", async (
   await expect(page.locator("#romStatus")).toHaveText("Running test ROM");
 
   // 90+90 frames at ~60.6 Hz is ~3 s.
-  await page.waitForTimeout(4500);
+  await page.waitForFunction(() => (window as any).__test?.machine.totalCycles() >= 13_824_000);
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
 
   const stats = await page.evaluate(() => {
     const c = document.getElementById("screen") as HTMLCanvasElement;

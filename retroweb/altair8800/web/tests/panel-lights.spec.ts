@@ -164,11 +164,12 @@ test.describe("front-panel lamps", () => {
     // the single bit marches across A8..A15 -- visible on every frame (the blur)
     await expect.poll(async () => (await leds(page)).addr & 0xff00, { timeout: 12_000 }).toBeGreaterThan(0);
     const seen = new Set<number>();
-    for (let i = 0; i < 8; i++) {
-      seen.add((await leds(page)).addr & 0xff00);
-      await page.waitForTimeout(150);
-    }
-    expect(seen.size).toBeGreaterThan(2); // marching, not frozen
+    await expect
+      .poll(async () => {
+        seen.add((await leds(page)).addr & 0xff00);
+        return seen.size;
+      })
+      .toBeGreaterThan(2); // marching, not frozen
 
     // brightness, not just on/off: D's bit takes four LDAX D every ~48 T-states, so when D rotates the
     // outgoing bit (touched for a sliver of one frame) must read dimmer. Needs per-bit hit counts

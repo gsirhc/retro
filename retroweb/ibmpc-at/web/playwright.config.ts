@@ -11,12 +11,13 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
+  failOnFlakyTests: !!process.env.FAIL_ON_FLAKY,
   // One worker: each page runs a real-time 8 MHz core, and parallel boots starve each other.
   // Coverage also aggregates per worker.
   workers: process.env.COVERAGE ? 1 : process.env.CI ? 2 : 3,
   globalSetup: process.env.COVERAGE ? "./tests/coverage.setup.ts" : undefined,
   globalTeardown: process.env.COVERAGE ? "./tests/coverage.global.ts" : undefined,
-  reporter: process.env.CI ? [["list"], ["html", { open: "never" }]] : [["list"]],
+  reporter: process.env.CI ? [["list"], ["github"], ["html", { open: "never" }]] : [["list"]],
 
   // POST + FreeDOS boot takes tens of real seconds, more under contention.
   timeout: 120_000,

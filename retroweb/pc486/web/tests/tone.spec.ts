@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures";
-import { bootLive } from "./helpers";
+import { bootLive, wallWait } from "./helpers";
 
 // CT1745 mixer tone controls (Creative's SB Series Hardware Programming Guide, ch. 4): 44h/45h
 // Treble L/R, 46h/47h Bass L/R, 4 bits in the high nibble, default 8<<4. 0-7 is -14 to 0 dB,
@@ -110,7 +110,7 @@ test.describe("Sound Blaster 16 audio ring", () => {
       .not.toBeNull();
     // It zeroes its counters each report, so the first covers the ring filling and shows starvation.
     // What matters is that it settles and stays settled.
-    await page.waitForTimeout(1500);
+    await wallWait(page, 1500);
     const ringMs = await page.evaluate(() => (window as any).__test.sbRingMs);
     expect(ringMs).toBeGreaterThan(50);
     expect(ringMs).toBeLessThanOrEqual(130);

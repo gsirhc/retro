@@ -33,12 +33,10 @@ test.describe("PC speaker", () => {
     );
 
     await page.locator("#speakerEnabled").check();
-    await page.waitForTimeout(200);
 
-    const cycles2 = await page.evaluate(
-      () => (window as any).__test.machine.totalCycles()
-    );
-    expect(cycles2).toBeGreaterThan(cycles1);
+    await expect
+      .poll(() => page.evaluate(() => (window as any).__test.machine.totalCycles()))
+      .toBeGreaterThan(cycles1);
     await waitForScreen(page, /C:\\>/);
   });
 

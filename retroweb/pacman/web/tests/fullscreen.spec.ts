@@ -46,9 +46,7 @@ test.describe("fullscreen", () => {
     await page.locator("#fullscreenBtn").click();
     await expect.poll(() => page.evaluate(() => !!document.fullscreenElement)).toBe(true);
     const c0 = await page.evaluate(() => (window as any).__test.machine.totalCycles());
-    await page.waitForTimeout(300);
-    const c1 = await page.evaluate(() => (window as any).__test.machine.totalCycles());
-    expect(c1).toBeGreaterThan(c0);
+    await expect.poll(() => page.evaluate(() => (window as any).__test.machine.totalCycles())).toBeGreaterThan(c0);
   });
 
   test("the title-bar maximize button enters fullscreen like the bezel control", async ({ page }) => {

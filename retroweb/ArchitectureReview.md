@@ -324,9 +324,16 @@ and a planted unused variable each fail `make lint`.
 - **Arcade wasm wrappers.** `frameBuffer()` copies each frame three times, and
   the RGBA conversion repeats in all 7 `wasm_machine.cpp` files. `hwtest_set()`
   is duplicated between `smoke_test.cpp` and `wasm_machine.cpp`.
-- **Flaky-test masking.** `retries: 2` on CI hides flakes, and there are about
-  150 `waitForTimeout` calls (Altair 32, pc486 28). Prefer `expect.poll`, and
-  report tests that only pass on retry.
+- ~~**Flaky-test masking.**~~ Fixed. All 165 fixed-time sleeps (161
+  `waitForTimeout`, 4 `setTimeout` promises) wait on a condition instead:
+  web-first assertions, `expect.poll`, emulated cycles or frames, audio
+  blocks. Only the real-speed and audio-latency checks wait on
+  `performance.now()`, since wall time is what they measure. ESLint
+  (`no-restricted-syntax` in `eslint.config.js`) fails either sleep. Every
+  Playwright config has `failOnFlakyTests: !!process.env.FAIL_ON_FLAKY`; the
+  nightly sets it, so a pass-on-retry fails there, and deploy CI's `github`
+  reporter annotates it. Removing the sleeps also exposed a race in the Z80
+  arcades' help and smoke specs, which read `__test` before the page made it.
 - ~~**IndexedDB connections.**~~ Fixed with H3: `arcadeStore` keeps one
   connection and closes it on `versionchange`.
 - **Comment style.** About 327 comments use `--`/`—` asides (mostly pc486
@@ -355,8 +362,7 @@ backlog.
 7. **M6, tests for the shared chip libraries.** Give `shared/galaxian`,
    `shared/atari` and `shared/namco` their own suites, the way `shared/pc`
    has one, and drop the duplicated AY8910/I8255 tests.
-8. **Flaky-test masking.** Replace `waitForTimeout` with `expect.poll`, and
-   report tests that only pass on retry.
+8. ~~**Flaky-test masking.**~~ Done. See "Flaky-test masking" above.
 9. **Terminal code and arcade wasm wrappers.** `shared/terminal.js`, one
    vendored xterm, and one RGBA conversion for the arcade `wasm_machine.cpp`
    files.

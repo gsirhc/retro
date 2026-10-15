@@ -1,4 +1,5 @@
 import { test, expect, Page } from "@playwright/test";
+import { frames } from "./helpers";
 
 // Touch control panel (shared/arcade-touch.js): shown only on a touch screen with no mouse. The
 // stick rolls the trackball the way the arrow keys do, and the three buttons are the launchers on IN1 bits 2, 1, 0.
@@ -73,14 +74,14 @@ test.describe("touch screen", () => {
       const v = (await trackLog(page))[0][axis];
       expect(dir > 0 ? v > 0 && v < 8 : v > 8).toBe(true);
       const held = (await track(page))[axis];
-      await page.waitForTimeout(150);
+      await frames(page, 9);
       expect((await track(page))[axis]).toBe(held);
     });
   }
 
   test("a small nudge inside the dead zone does nothing", async ({ page }) => {
     await dragStick(page, 0.1, 0.1);
-    await page.waitForTimeout(200);
+    await frames(page, 12);
     expect(await track(page)).toEqual({ x: 0, y: 0 });
     await page.mouse.up();
   });

@@ -9,7 +9,7 @@ test("Esc on the drawn keyboard reaches the guest", async ({ livePage: page }) =
   await expect(esc).toHaveAttribute("aria-disabled", "false");
   const before = await page.evaluate(() => (window as any).__test.machine.totalCycles());
   await esc.click();
-  await page.waitForTimeout(150);
-  const after = await page.evaluate(() => (window as any).__test.machine.totalCycles());
-  expect(Number(after - before)).toBeGreaterThan(0);
+  await expect
+    .poll(() => page.evaluate(() => (window as any).__test.machine.totalCycles()))
+    .toBeGreaterThan(before);
 });

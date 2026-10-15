@@ -12,6 +12,10 @@ on:
 permissions:
   contents: read
 
+# A Playwright test that passes only on retry fails the nightly.
+env:
+  FAIL_ON_FLAKY: "1"
+
 concurrency:
   group: nightly-full-${{ github.ref }}
   cancel-in-progress: false

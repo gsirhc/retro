@@ -18,7 +18,7 @@ const profile = (page) =>
 
 async function selectTerm(page, key: string) {
   await page.selectOption("#termProfile", key);
-  await page.waitForTimeout(150);
+  await page.waitForFunction((k) => localStorage.getItem("retro8080.term") === k, key);
 }
 
 test.describe("terminal profiles", () => {

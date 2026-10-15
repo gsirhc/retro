@@ -9,9 +9,10 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
+  failOnFlakyTests: !!process.env.FAIL_ON_FLAKY,
   // Each page runs a real-time-paced core, but this board is cheap to emulate, so parallelism is generous.
   workers: process.env.CI ? 2 : 4,
-  reporter: process.env.CI ? [["list"], ["html", { open: "never" }]] : [["list"]],
+  reporter: process.env.CI ? [["list"], ["github"], ["html", { open: "never" }]] : [["list"]],
 
   timeout: 30_000,
   expect: { timeout: 10_000 },

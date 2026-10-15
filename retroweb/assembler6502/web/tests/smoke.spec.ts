@@ -31,7 +31,7 @@ test("the CPU runs at real, wall-clock-paced 1 MHz -- not sped up", async ({ pag
 
   const sample = () => page.evaluate(() => [(window as any).__machine.cycleCount(), performance.now()]);
   const [c0, t0] = await sample();
-  await page.waitForTimeout(2000);
+  await page.waitForFunction((t) => performance.now() >= t, t0 + 2000);
   const [c1, t1] = await sample();
 
   const cyclesPerSecond = (c1 - c0) / ((t1 - t0) / 1000);

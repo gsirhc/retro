@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures";
-import { bootLive } from "./helpers";
+import { bootLive, emuWait, rafTicks } from "./helpers";
 
 // `?audiotrace` records one row per audio post so a real game session's pacing can be replayed.
 // Opt-in, like `?fmtrace`. See PC486_REVIEW.md section 31.
@@ -24,9 +24,18 @@ test.describe("audio trace", () => {
       w(0x60, 0xFF); w(0x63, 0xF0); w(0x80, 0x00); w(0x83, 0x00);
       w(0xC0, 0x31); w(0xA0, 0x98); w(0xB0, 0x31);
     });
-    await page.waitForTimeout(1000);
+    await expect
+      .poll(() => page.evaluate(() => (window as any).__test.sbRingMs), { timeout: 15000 })
+      .not.toBeNull();
     expect(await page.evaluate(() => (window as any).__audio.start(5000))).toBe("recording");
-    await page.waitForTimeout(1500);
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const s = (window as any).__audio.summary();
+          return typeof s === "string" ? 0 : s.rows;
+        }),
+      )
+      .toBeGreaterThan(10);
     const rows = await page.evaluate(() => (window as any).__audio.stop());
     expect(rows).toBeGreaterThan(10);
 
@@ -45,7 +54,8 @@ test.describe("audio trace", () => {
     await expect
       .poll(() => page.evaluate(() => (window as any).__test.audioState))
       .toBe("running");
-    await page.waitForTimeout(500);
+    await emuWait(page, 500);
+    await rafTicks(page);
     expect(await page.evaluate(() => (window as any).__audio.summary()))
       .toBe("no rows -- is sound enabled?");
   });

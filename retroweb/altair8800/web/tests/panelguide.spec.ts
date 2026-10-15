@@ -130,7 +130,8 @@ test.describe("front-panel bootstrap guide", () => {
     expect(await scrollTop()).toBeGreaterThan(100);
 
     await page.click("#pgKeyin");
-    await page.waitForTimeout(400); // at least one rebuild has happened by now
+    // a step has landed, so the listing has been rebuilt at least once
+    await expect(page.locator("#panelGuide .pg-listing table tr.done").first()).toBeVisible();
     expect(await scrollTop()).toBeGreaterThan(100); // still scrolled, not snapped to 0
   });
 

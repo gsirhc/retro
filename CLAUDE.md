@@ -330,8 +330,17 @@ nightly's. Treat tests as part of every change, not a step at the end.
   that depends on timing, frames, or counters gets a stress run:
   `npx playwright test <spec> --repeat-each 8 --workers 6 --retries=0`.
   Never assert on a value that can wrap or race between two reads; record
-  the event in the page instead. CI runs `retries: 2`, so a flake shows
-  up as "flaky", not red, until it isn't.
+  the event in the page instead. Deploy CI runs `retries: 2` and marks a
+  pass-on-retry "flaky" with a GitHub annotation; the nightly sets
+  `FAIL_ON_FLAKY=1` (`failOnFlakyTests`), so the same test fails it.
+- **Never use `waitForTimeout`.** Not in a spec, not in a helper, and not
+  as a `new Promise((r) => setTimeout(r, ms))` sleep. Wait on what you
+  expect: a web-first `expect(locator)` assertion, `expect.poll`, or
+  `page.waitForFunction` on page state. When the guest has to run for a
+  while, wait on emulated progress (a cycle or frame counter passing a
+  target), not wall time. Only a test that measures the wall-clock rate
+  itself (the real-speed smoke) waits on `performance.now()` inside
+  `waitForFunction`. `make -C retroweb lint` fails on either sleep.
 - **CI is Linux, you're on macOS.** Headless Chromium behaves differently
   there (Linux grants pointer lock on click, for one). Pin any browser
   behaviour a test depends on with a stub instead of trusting the local

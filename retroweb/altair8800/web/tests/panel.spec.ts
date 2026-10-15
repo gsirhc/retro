@@ -7,6 +7,7 @@ import {
   clickPaddle,
   panelStop,
   panelRun,
+  frames,
 } from "./helpers";
 
 const leds = (page) => page.evaluate(() => (window as any).__test.leds());
@@ -86,7 +87,7 @@ test.describe("front panel", () => {
     await panelStop(page);
     expect(await page.evaluate(() => (window as any).__test.running)).toBe(false);
     const pcStopped = (await regs(page)).pc;
-    await page.waitForTimeout(200);
+    await frames(page, 12);
     expect((await regs(page)).pc).toBe(pcStopped); // frozen while stopped
     await panelRun(page);
     expect(await page.evaluate(() => (window as any).__test.running)).toBe(true);

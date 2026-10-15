@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures";
-import { boot, screenText, setPowerSwitch, waitForScreen, focusScreen } from "./helpers";
+import { boot, screenText, setPowerSwitch, waitForScreen, focusScreen, rafTicks } from "./helpers";
 
 // Auto-boot on load and the power switch.
 
@@ -29,7 +29,7 @@ test.describe("boot and power", () => {
     await expect(page.locator("#powerLed")).not.toHaveClass(/power-on/);
     // window.__test.machine still points at the old instance, so check that the cycle count stops.
     const framesLater = await page.evaluate(() => (window as any).__test.machine.totalCycles());
-    await page.waitForTimeout(300);
+    await rafTicks(page, 20);
     const stillFramesLater = await page.evaluate(() => (window as any).__test.machine.totalCycles());
     expect(stillFramesLater).toBe(framesLater);
 

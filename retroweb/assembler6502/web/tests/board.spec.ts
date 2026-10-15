@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { frames, runFor } from "./helpers";
 
 test.describe("board controls", () => {
   test.beforeEach(async ({ page }) => {
@@ -31,10 +32,13 @@ test.describe("board controls", () => {
     // DetachingTheLcdReproducesTheGenuineBareBoardHang.
     await page.uncheck("#lcdAttached");
     await page.click('#pcbSvg [data-ref="SW1"]');
-    await page.waitForTimeout(1500);
+    await page.waitForFunction(() => {
+      const pc = (window as any).__machine.state().pc;
+      return pc >= 0x80ae && pc <= 0x80d0;
+    });
     // cycleCount() keeps climbing while pc stays inside the lcdbusy loop body
     const s1 = await page.evaluate(() => ({ pc: (window as any).__machine.state().pc, c: (window as any).__machine.cycleCount() }));
-    await page.waitForTimeout(500);
+    await runFor(page, 500);
     const s2 = await page.evaluate(() => ({ pc: (window as any).__machine.state().pc, c: (window as any).__machine.cycleCount() }));
     expect(s2.c).toBeGreaterThan(s1.c);
     // range from tmp/firmware.lbl lcd_wait/lcd_instruction; update when code before via.s shifts
@@ -57,7 +61,7 @@ test.describe("board controls", () => {
     await expect(page.locator("#monitor")).toHaveClass(/powered-off/);
 
     const before = await page.evaluate(() => (window as any).__machine.cycleCount());
-    await page.waitForTimeout(500);
+    await frames(page, 30);
     const after = await page.evaluate(() => (window as any).__machine.cycleCount());
     expect(after).toBe(before);   // genuinely frozen, not just visually dimmed
     await expect(page.locator("#screen .xterm-rows")).toContainText("0000:");   // nothing lost

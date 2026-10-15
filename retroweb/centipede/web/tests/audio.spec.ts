@@ -27,10 +27,10 @@ test.describe("Audio latency", () => {
     await page.waitForFunction(() => (window as any).__queued.length > 5);
     for (let k = 0; k < 8; k++) {
       await page.evaluate(() => { const t = performance.now(); while (performance.now() - t < 60) {} });
-      await page.waitForTimeout(200);
+      await page.waitForFunction((t) => performance.now() >= t, await page.evaluate(() => performance.now() + 200));
     }
     await page.evaluate(() => { (window as any).__queued = []; });
-    await page.waitForTimeout(1000);
+    await page.waitForFunction((t) => performance.now() >= t, await page.evaluate(() => performance.now() + 1000));
     const maxMs = await page.evaluate(() => { const w = window as any; return Math.max(...w.__queued) / w.__rate * 1000; });
     expect(maxMs).toBeLessThan(60);
   });

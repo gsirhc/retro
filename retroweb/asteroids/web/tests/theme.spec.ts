@@ -105,8 +105,6 @@ test.describe("page theme", () => {
     await page.goto("/?test=1");
     await chooseTheme(page, "modern", "dark");
     const c0 = await page.evaluate(() => (window as any).__test.machine.totalCycles());
-    await page.waitForTimeout(300);
-    const c1 = await page.evaluate(() => (window as any).__test.machine.totalCycles());
-    expect(c1).toBeGreaterThan(c0);
+    await expect.poll(() => page.evaluate(() => (window as any).__test.machine.totalCycles())).toBeGreaterThan(c0);
   });
 });

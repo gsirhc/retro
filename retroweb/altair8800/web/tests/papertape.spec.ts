@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures";
-import { boot, waitForScreen, screen, memAt, pickCatalogItem, hasCatalogItem } from "./helpers";
+import { boot, waitForScreen, screen, memAt, pickCatalogItem, hasCatalogItem, wallWait } from "./helpers";
 
 async function openReader(page) {
   await page.click("#ptr .ptr-window");
@@ -82,14 +82,14 @@ test.describe("paper-tape reader", () => {
     const fed = () => page.evaluate(() => (window as any).__test.tape.lead + (window as any).__test.tape.pos);
 
     // creeping in at ~10 B/s
-    await page.waitForTimeout(1500);
+    await wallWait(page, 1500);
     expect(await fed()).toBeLessThan(120);
 
     // flip to 50x mid-read -> the feed rate jumps to ~500 B/s
     await page.selectOption("#ptr .ptr-speed", "x50");
     const a = await fed();
-    await page.waitForTimeout(2000);
-    const rate = ((await fed()) - a) / 2;
+    const ta = await wallWait(page, 2000);
+    const rate = ((await fed()) - a) / ((await page.evaluate(() => performance.now())) - ta) * 1000;
     expect(rate).toBeGreaterThan(200); // nothing like the ~10 it was
   });
 
@@ -153,13 +153,12 @@ test.describe("the reader's START button (authentic hand-load path)", () => {
 
     await page.click("#ptr .ptr-start");
     await expect(page.locator("#ptr")).toHaveClass(/reading/);
-    const t0 = Date.now();
-    await page.waitForTimeout(2500);
-    const fed = await page.evaluate(() => {
+    const t0 = await wallWait(page, 2500);
+    const [fed, t1] = await page.evaluate(() => {
       const t = (window as any).__test.tape;
-      return t.lead + t.pos;
+      return [t.lead + t.pos, performance.now()];
     });
-    const rate = fed / ((Date.now() - t0) / 1000);
+    const rate = fed / ((t1 - t0) / 1000);
     expect(rate).toBeGreaterThan(4);
     expect(rate).toBeLessThan(25); // paced, not dumped — and the FIFO didn't freeze it
   });

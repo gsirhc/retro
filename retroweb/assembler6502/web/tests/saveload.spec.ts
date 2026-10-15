@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { settle } from "./helpers";
 
 // Save/Load and Help panels, driven through the real shell (SHELL_ENTRY)
 // the way a human typing "<addr>R" then SAVE/LOAD/LIST would.
@@ -39,7 +40,7 @@ test.describe("Save / Load", () => {
   async function typeLine(page: import("@playwright/test").Page, text: string) {
     await page.keyboard.type(text, { delay: 60 });
     await page.keyboard.press("Enter");
-    await page.waitForTimeout(250);
+    await settle(page, 250);
   }
   async function enterProgram(page: import("@playwright/test").Page, lines: string[]) {
     const E = await page.evaluate(() => (window as any).CGOAC_ENTRYPOINTS);
@@ -80,14 +81,20 @@ test.describe("Save / Load", () => {
     await enterProgram(page, ["LDA #$58", "JSR $8003"]);
     await expect(page.locator("#screen .xterm-rows")).toContainText("LDA #$58", { timeout: 20000 });
     await typeLine(page, "SAVE");
-    await page.waitForTimeout(500);
 
-    const lines: string[] = await page.evaluate(() => {
+    const termLines = (): Promise<string[]> => page.evaluate(() => {
       const buf = (window as any).__term.buffer.active;
       const out: string[] = [];
       for (let y = 0; y < buf.length; y++) out.push(buf.getLine(y)?.translateToString(true) ?? "");
       return out;
     });
+    await expect
+      .poll(async () => {
+        const t = (await termLines()).join("\n");
+        return /^Ok$/m.test(t.slice(t.lastIndexOf("SAVE")));
+      })
+      .toBe(true);
+    const lines = await termLines();
     const okLine = lines.findIndex((l) => l.trim() === "Ok");
     expect(okLine, `Ok should be alone on its own row -- got:\n${lines.join("\n")}`).toBeGreaterThanOrEqual(0);
     expect(lines.some((l) => l.includes("LDA #$58"))).toBe(true);
@@ -99,6 +106,7 @@ test.describe("Save / Load", () => {
   });
 
   test("Load (from the shelf) replaces the program with the saved one", async ({ page }) => {
+    await installOutputSpy(page);
     await enterProgram(page, ["LDA #$2A", "STA $50"]);
     await page.fill("#pgmName", "shelved.asm");
     await page.click("#pgmSave");
@@ -109,8 +117,10 @@ test.describe("Save / Load", () => {
     // Save and Load share this popup (setPgmMode); a chip click overwrites its
     // slot in Save mode, so switch to Load first
     await page.click("#loadBtn");
+    const beforeLoad = (await getRawOut(page)).length;
     await page.click('.chip-lib button:has-text("shelved.asm")');
-    await page.waitForTimeout(1500);
+    await expect.poll(async () => (await getRawOut(page)).slice(beforeLoad), { timeout: 20000 }).toContain("STA $50");
+    await settle(page, 300);
 
     await typeLine(page, "LIST");
     await expect(page.locator("#screen .xterm-rows")).toContainText("LDA #$2A", { timeout: 20000 });
@@ -192,7 +202,12 @@ test.describe("Save / Load", () => {
     // polling the raw output spy. Locators scope to .xterm-rows to exclude
     // xterm's "WWWW" measurement span (CGOAC6502_REVIEW.md).
     await expect.poll(async () => (await getRawOut(page)).slice(beforeLoad), { timeout: 20000 }).toContain("Ok");
-    await page.waitForTimeout(300);
+    await expect
+      .poll(async () => {
+        const r = await getRawOut(page);
+        return r.slice(r.lastIndexOf(">LOAD")).includes("STA $50");
+      })
+      .toBe(true);
 
     const raw = await getRawOut(page);
     const loadReply = raw.slice(raw.lastIndexOf(">LOAD"));
@@ -208,14 +223,17 @@ test.describe("Save / Load", () => {
   test("importing a file loads it into the program, normalizing LF line endings", async ({ page }) => {
     // plain LF-separated file with no line numbers, exercising DO_LOAD's
     // auto-numbering (runLoad() normalizes it). The shell must already be entered.
+    await installOutputSpy(page);
     await enterProgram(page, []);
+    const beforeImport = (await getRawOut(page)).length;
     await page.setInputFiles("#pgmFile", {
       name: "imported.asm",
       mimeType: "text/plain",
       buffer: Buffer.from("LDX #$05\nSTX $60\n"),
     });
     await expect(page.locator("#pgmStatus")).toContainText("imported.asm", { timeout: 20000 });
-    await page.waitForTimeout(1500);
+    await expect.poll(async () => (await getRawOut(page)).slice(beforeImport), { timeout: 20000 }).toContain("STX $60");
+    await settle(page, 300);
 
     await typeLine(page, "LIST");
     // PRINT_ENTRY pads unlabeled lines: number, a space, an 8-wide blank label (editor.s)

@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
+import { frames } from "./helpers";
 
 // IN0 and IN1 are active-low (idle 0xFF / 0x67). The trackball is two 4-bit counters, 2 counts per 1/60 s while a key is held.
 
@@ -111,11 +112,17 @@ test.describe("keyboard input", () => {
 
   test("the counter wraps at 4 bits and holds its value once the key is up", async ({ page }) => {
     await page.keyboard.down("ArrowRight");
-    await page.waitForTimeout(300);
+    await page.waitForFunction(() => {
+      const w = window as any;
+      const x = w.__test.trackPos.x;
+      w.__wrapSteps = (w.__wrapSteps ?? 0) + ((x - (w.__wrapPrev ?? x)) & 0x0f);
+      w.__wrapPrev = x;
+      return w.__wrapSteps >= 16;
+    });
     await page.keyboard.up("ArrowRight");
     const a = await pos(page);
     expect(a.x).toBeLessThan(16);
-    await page.waitForTimeout(150);
+    await frames(page, 9);
     expect(await pos(page)).toEqual(a);
     expect(await trackX(page)).toBe(a.x);
   });

@@ -10,11 +10,12 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
+  failOnFlakyTests: !!process.env.FAIL_ON_FLAKY,
   // coverage aggregates per-worker
   workers: process.env.COVERAGE ? 1 : process.env.CI ? 2 : undefined,
   globalSetup: process.env.COVERAGE ? "./tests/coverage.setup.ts" : undefined,
   globalTeardown: process.env.COVERAGE ? "./tests/coverage.global.ts" : undefined,
-  reporter: process.env.CI ? [["list"], ["html", { open: "never" }]] : [["list"]],
+  reporter: process.env.CI ? [["list"], ["github"], ["html", { open: "never" }]] : [["list"]],
 
   // listing injection runs the CPU at a real 2 MHz; some specs need ~20 s
   timeout: 60_000,

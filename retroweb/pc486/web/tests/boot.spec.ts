@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures";
-import { screenText, setPowerSwitch, clickReset, waitForScreen, focusScreen } from "./helpers";
+import { screenText, setPowerSwitch, clickReset, waitForScreen, focusScreen, rafTicks } from "./helpers";
 
 // Auto-boot-on-load, the power switch, and the front-panel Reset button (a later clone-era
 // convention; the genuine 5170 had none).
@@ -25,7 +25,7 @@ test.describe("boot and power", () => {
     await expect(page.locator("#clockDisplay .sevenseg i.on")).toHaveCount(0);
     // RAM is gone when power is cut. The observable signal is the cycle count stopping.
     const framesLater = await page.evaluate(() => (window as any).__test.machine.totalCycles());
-    await page.waitForTimeout(300);
+    await rafTicks(page, 20);
     const stillFramesLater = await page.evaluate(() => (window as any).__test.machine.totalCycles());
     expect(stillFramesLater).toBe(framesLater);
 

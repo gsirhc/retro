@@ -31,12 +31,10 @@ test.describe("PS/2 mouse", () => {
     );
 
     await page.locator("#mouseCaptureEnabled").check();
-    await page.waitForTimeout(200);
 
-    const cycles2 = await page.evaluate(
-      () => (window as any).__test.machine.totalCycles()
-    );
-    expect(cycles2).toBeGreaterThan(cycles1);
+    await expect
+      .poll(() => page.evaluate(() => (window as any).__test.machine.totalCycles()))
+      .toBeGreaterThan(cycles1);
   });
 
   test("injectMouseEvent is callable via the embind API regardless of the UI capture state", async ({

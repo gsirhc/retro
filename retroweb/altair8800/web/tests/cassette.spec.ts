@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures";
-import { boot, waitForScreen, send, stubSavePicker, pickCatalogItem, panelStop, clickPaddle } from "./helpers";
+import { boot, waitForScreen, send, settle, stubSavePicker, pickCatalogItem, panelStop, clickPaddle } from "./helpers";
 
 const tapeStatus = (page) => page.evaluate(() => (window as any).__test.machine.tapeStatus());
 const counter = (page) =>
@@ -21,7 +21,7 @@ async function cmd(page, line: string) {
 // enter a numbered program line (BASIC prints nothing back)
 async function typeLine(page, line: string) {
   await send(page, line + "\r");
-  await page.waitForTimeout(150);
+  await settle(page, 150);
 }
 
 test.describe("88-ACR cassette deck", () => {
@@ -62,7 +62,7 @@ test.describe("88-ACR cassette deck", () => {
     await boot(page, { params: "preset=cassette" });
     await autoloadBasic(page);
     await send(page, 'CLOAD "S"\r');
-    await page.waitForTimeout(200);
+    await settle(page, 200);
     await page.click("#acr .acr-key.play");
     // the tape reads through and BASIC returns to OK
     await expect.poll(() => tapeStatus(page).then((s) => s.pos), { timeout: 30_000 }).toBeGreaterThan(1000);
@@ -78,7 +78,7 @@ test.describe("88-ACR cassette deck", () => {
     await slow(page, "x25"); // a real byte-rate, not the ?test Max
     await clearScreen(page);
     await send(page, 'CLOAD "S"\r');
-    await page.waitForTimeout(300);
+    await settle(page, 300);
     await page.click("#acr .acr-key.play");
     // the head advances at ~750 B/s and BASIC actually keeps up -- no hang
     await expect.poll(() => tapeStatus(page).then((s) => s.pos), { timeout: 15_000 }).toBeGreaterThan(3000);
@@ -141,18 +141,20 @@ test.describe("88-ACR cassette deck", () => {
 
     await cmd(page, "NEW");
     await typeLine(page, '10 PRINT "AAA"');
+    await clearScreen(page);
     await page.click("#acr .acr-key.rec");
     await send(page, 'CSAVE "A"\r');
     await expect.poll(() => tapeStatus(page).then((s) => s.len)).toBeGreaterThan(0);
-    await page.waitForTimeout(400);
+    await waitForScreen(page, /CSAVE "A"[\s\S]*\bOK\b/, 20_000); // CSAVE finished
     await page.click("#acr .acr-key.stop");
     const afterA = (await tapeStatus(page)).len;
 
     await cmd(page, "NEW");
     await typeLine(page, '20 PRINT "BBB"');
+    await clearScreen(page);
     await page.click("#acr .acr-key.rec");
     await send(page, 'CSAVE "B"\r');
-    await page.waitForTimeout(600);
+    await waitForScreen(page, /CSAVE "B"[\s\S]*\bOK\b/, 20_000);
     await page.click("#acr .acr-key.stop");
     const afterB = (await tapeStatus(page)).len;
     expect(afterB).toBeGreaterThan(afterA); // B was appended, A is still there
@@ -160,19 +162,21 @@ test.describe("88-ACR cassette deck", () => {
     // read both back: REW, CLOAD "A" (from the top), then CLOAD "B" (head now past A)
     await page.click("#acr .acr-key.rew");
     await cmd(page, "NEW");
+    await clearScreen(page);
     await send(page, 'CLOAD "A"\r');
-    await page.waitForTimeout(150);
+    await settle(page, 150);
     await page.click("#acr .acr-key.play");
-    await page.waitForTimeout(1500);
+    await waitForScreen(page, /CLOAD "A"[\s\S]*\bOK\b/, 20_000); // CLOAD returned
     await page.click("#acr .acr-key.stop");
     await cmd(page, "LIST");
     expect(await page.evaluate(() => (window as any).__test.screen())).toMatch(/10 PRINT "AAA"/);
 
     await cmd(page, "NEW");
+    await clearScreen(page);
     await send(page, 'CLOAD "B"\r');
-    await page.waitForTimeout(150);
+    await settle(page, 150);
     await page.click("#acr .acr-key.play");
-    await page.waitForTimeout(1500);
+    await waitForScreen(page, /CLOAD "B"[\s\S]*\bOK\b/, 20_000);
     await page.click("#acr .acr-key.stop");
     await cmd(page, "LIST");
     expect(await page.evaluate(() => (window as any).__test.screen())).toMatch(/20 PRINT "BBB"/);
@@ -189,7 +193,7 @@ test.describe("88-ACR cassette deck", () => {
     await page.evaluate(() => (window as any).__test.cassette.eject(true));
     await page.evaluate(() => (window as any).__test.cassette.blank());
     await send(page, 'CSAVE "T"\r');
-    await page.waitForTimeout(1200);
+    await settle(page, 1200);
     expect((await tapeStatus(page)).len).toBe(0); // nothing recorded -- REC wasn't down
     await expect(page.locator("#acr .acr-save")).toBeHidden();
 

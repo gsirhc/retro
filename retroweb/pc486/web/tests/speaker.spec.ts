@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures";
-import { bootLive } from "./helpers";
+import { bootLive, rafTicks } from "./helpers";
 
 // The speaker checkbox is muted by default. Enable Sound is remembered in retro8080.pc486.ui;
 // browsers still need a gesture. The C++ device tracks speaker state independent of the checkbox.
@@ -51,12 +51,10 @@ test.describe("PC speaker", () => {
     );
 
     await page.locator("#speakerEnabled").check();
-    await page.waitForTimeout(200);
 
-    const cycles2 = await page.evaluate(
-      () => (window as any).__test.machine.totalCycles()
-    );
-    expect(cycles2).toBeGreaterThan(cycles1);
+    await expect
+      .poll(() => page.evaluate(() => (window as any).__test.machine.totalCycles()))
+      .toBeGreaterThan(cycles1);
   });
 
   test("the underlying speaker device is queryable via the embind API regardless of the UI mute state", async ({
@@ -113,14 +111,17 @@ test.describe("PC speaker", () => {
 
     await bootLive(page);
     await page.locator("#speakerEnabled").check();
-    // Give ensureAudioStarted's async work a moment to throw if the guard were missing.
-    await page.waitForTimeout(300);
+    // The guard returns after the context resumes; an unguarded addModule would throw by now.
+    await expect
+      .poll(() => page.evaluate(() => (window as any).__test.audioState))
+      .toBe("running");
+    await rafTicks(page);
 
     expect(pageErrors).toEqual([]);
     // Emulation keeps running regardless.
     const cycles1 = await page.evaluate(() => (window as any).__test.machine.totalCycles());
-    await page.waitForTimeout(200);
-    const cycles2 = await page.evaluate(() => (window as any).__test.machine.totalCycles());
-    expect(cycles2).toBeGreaterThan(cycles1);
+    await expect
+      .poll(() => page.evaluate(() => (window as any).__test.machine.totalCycles()))
+      .toBeGreaterThan(cycles1);
   });
 });

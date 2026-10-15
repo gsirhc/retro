@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures";
-import { bootLive } from "./helpers";
+import { bootLive, wallWait } from "./helpers";
 
 // Real-speed pacing check. Every other spec boots under `?test=1&fast=1` (app.js
 // TEST_CPU_MULTIPLIER); this one passes `realtime: true` to confirm the wall-clock-paced 66 MHz holds.
@@ -8,11 +8,11 @@ test.describe("real-speed smoke test", () => {
     // Skip the slow live-prompt wait; the machine only needs to be running.
     await bootLive(page, { realtime: true });
     // Let start-up settle first (wasm tier-up, the first C: write to IndexedDB).
-    await page.waitForTimeout(1000);
+    await wallWait(page, 1000);
 
     const sample = () => page.evaluate(() => [(window as any).__test.machine.totalCycles(), performance.now()]);
     const [c0, t0] = await sample();
-    await page.waitForTimeout(2000);
+    await wallWait(page, 2000);
     const [c1, t1] = await sample();
 
     const cyclesPerSecond = (c1 - c0) / ((t1 - t0) / 1000);
@@ -35,7 +35,7 @@ test.describe("real-speed smoke test", () => {
       }).observe({ entryTypes: ["longtask"] });
     });
     await bootLive(page, { realtime: true });
-    await page.waitForTimeout(15_000);
+    await wallWait(page, 15_000);
 
     const tasks: { at: number; dur: number }[] = await page.evaluate(
       () => (window as any).__longTasks

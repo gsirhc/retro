@@ -41,15 +41,27 @@ export async function resetLivePage(page: Page): Promise<void> {
   await page.evaluate(() => {
     try { localStorage.setItem("retro8080.fsEscHintSeen", "2"); } catch {}
   }).catch(() => {});
-  const hintWasOpen = await page.evaluate(() => {
-    const hint = document.getElementById("fsEscHint") as HTMLDialogElement | null;
-    if (!hint?.open) return false;
-    hint.close();
-    return true;
-  }).catch(() => false);
+  const hintWasOpen = await page.evaluate(
+    () => !!(document.getElementById("fsEscHint") as HTMLDialogElement | null)?.open,
+  ).catch(() => false);
   if (hintWasOpen) {
-    // close() schedules enterFullscreen(); give it a beat, then exit below.
-    await page.waitForTimeout(200);
+    // close() requests fullscreen; wait for that request to settle, then exit below.
+    await page.evaluate(async () => {
+      const bezel = document.getElementById("bezel") as any;
+      const orig = bezel.requestFullscreen;
+      let req: Promise<void> | undefined;
+      bezel.requestFullscreen = function (...args: unknown[]) {
+        req = orig.apply(this, args);
+        return req;
+      };
+      const hint = document.getElementById("fsEscHint") as HTMLDialogElement;
+      // the close event is queued, and fullscreen.js's listener (which requests fullscreen) runs before this one
+      const closed = new Promise<void>((resolve) => hint.addEventListener("close", () => resolve(), { once: true }));
+      hint.close();
+      await closed;
+      await req?.catch(() => {});
+      bezel.requestFullscreen = orig;
+    });
   }
   const inFs = await page.evaluate(
     () => !!(document.fullscreenElement || (document as any).webkitFullscreenElement),
@@ -152,16 +164,51 @@ export async function waitForScreen(page: Page, re: RegExp, timeout = 120_000): 
     .toMatch(re);
 }
 
-/** Send one key's make then break, each byte on its own wait (the 8042's single-byte output register). */
-export async function tap(page: Page, code: string, gapMs = 40): Promise<void> {
-  await page.evaluate((c) => (window as any).__test.sendKey(c, false), code);
-  await page.waitForTimeout(gapMs);
-  await page.evaluate((c) => (window as any).__test.sendKey(c, true), code);
-  await page.waitForTimeout(gapMs);
+/** Real elapsed time on the page's own clock. Only for measuring wall-clock rates and real-time audio. */
+export async function wallWait(page: Page, ms: number): Promise<void> {
+  const target = await page.evaluate((n) => performance.now() + n, ms);
+  await page.waitForFunction((t) => performance.now() >= t, target);
 }
 
-export async function pressEnter(page: Page, gapMs = 40): Promise<void> {
-  await tap(page, "Enter", gapMs);
+/** Let the page run n animation frames, so a negative check sees a UI that had its chance to update. */
+export async function rafTicks(page: Page, n = 3): Promise<void> {
+  await page.evaluate(
+    (count) =>
+      new Promise<void>((resolve) => {
+        const step = (left: number) => (left === 0 ? resolve() : requestAnimationFrame(() => step(left - 1)));
+        step(count);
+      }),
+    n,
+  );
+}
+
+/** Wait until the guest has run `ms` of emulated time. */
+export async function emuWait(page: Page, ms: number): Promise<void> {
+  const target = await page.evaluate((n) => {
+    const m = (window as any).__test.machine;
+    return m.totalCycles() + (n * m.cpuHz()) / 1000;
+  }, ms);
+  await page.waitForFunction((t) => (window as any).__test.machine.totalCycles() >= t, target);
+}
+
+/** Wait until every queued scan code has been sent and the guest has read the 8042's output register. */
+export async function keysDrained(page: Page): Promise<void> {
+  await page.waitForFunction(() => {
+    const t = (window as any).__test;
+    return !t.scancodesPending && (!t.machine || (t.machine.portIn(0x64) & 1) === 0);
+  });
+}
+
+/** Send one key's make then break, each byte waiting until the guest has taken it (the 8042's single-byte output register). */
+export async function tap(page: Page, code: string): Promise<void> {
+  await page.evaluate((c) => (window as any).__test.sendKey(c, false), code);
+  await keysDrained(page);
+  await page.evaluate((c) => (window as any).__test.sendKey(c, true), code);
+  await keysDrained(page);
+}
+
+export async function pressEnter(page: Page): Promise<void> {
+  await tap(page, "Enter");
 }
 
 const CHAR_TO_KEY: Record<string, string> = {
@@ -186,24 +233,23 @@ const SHIFTED_CHAR_TO_KEY: Record<string, string> = {
 export async function typeStr(
   page: Page,
   str: string,
-  opts: { gapMs?: number; pressEnterAfter?: boolean } = {},
+  opts: { pressEnterAfter?: boolean } = {},
 ): Promise<void> {
-  const gapMs = opts.gapMs ?? 40;
   for (const raw of str.toUpperCase()) {
     const shiftedKey = SHIFTED_CHAR_TO_KEY[raw];
     const key = shiftedKey ?? CHAR_TO_KEY[raw];
     if (!key) throw new Error(`typeStr: no SET1 key mapping for character ${JSON.stringify(raw)}`);
     if (shiftedKey) {
       await page.evaluate((c) => (window as any).__test.sendKey(c, false), "ShiftLeft");
-      await page.waitForTimeout(gapMs);
+      await keysDrained(page);
     }
-    await tap(page, key, gapMs);
+    await tap(page, key);
     if (shiftedKey) {
       await page.evaluate((c) => (window as any).__test.sendKey(c, true), "ShiftLeft");
-      await page.waitForTimeout(gapMs);
+      await keysDrained(page);
     }
   }
-  if (opts.pressEnterAfter !== false) await pressEnter(page, gapMs);
+  if (opts.pressEnterAfter !== false) await pressEnter(page);
 }
 
 /** Click the CRT so it (re)gains keyboard focus. */

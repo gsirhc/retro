@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures";
-import { boot, screenText, waitForScreen, focusScreen, clickCtrlAltDel, typeStr, setPowerSwitch, tap, openKeyboard, boardKey } from "./helpers";
+import { boot, screenText, waitForScreen, focusScreen, clickCtrlAltDel, typeStr, setPowerSwitch, tap, openKeyboard, boardKey, emuWait } from "./helpers";
 
 // Physical DOM keys -> SET1 scan codes -> 8042, the drawn keyboard, and Ctrl+Alt+Del.
 
@@ -9,7 +9,7 @@ test.describe("keyboard", () => {
     await focusScreen(page);
     await page.keyboard.type("dir", { delay: 40 });
     await page.keyboard.down("Enter");
-    await page.waitForTimeout(60);
+    await emuWait(page, 60);
     await page.keyboard.up("Enter");
     await waitForScreen(page, /COMMAND/);
     // the prompt returns once DIR finishes, proving the line was actually
@@ -109,9 +109,9 @@ test.describe("keyboard", () => {
     await page.evaluate(() => (window as any).__test.sendKey("KeyA", false));
     await waitForScreen(page, /C:\\>a{6,}/i, 10_000);
     await page.evaluate(() => (window as any).__test.sendKey("KeyA", true));
-    await page.waitForTimeout(200);
+    await emuWait(page, 200);
     const after = await screenText(page);
-    await page.waitForTimeout(500);
+    await emuWait(page, 500);
     expect(await screenText(page)).toBe(after);
     await tap(page, "Escape");
   });
@@ -124,7 +124,7 @@ test.describe("keyboard", () => {
         el.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyB", repeat: true, bubbles: true }));
       }
     });
-    await page.waitForTimeout(500);
+    await emuWait(page, 500);
     expect(await screenText(page)).not.toMatch(/C:\\>b/i);
   });
 
@@ -134,9 +134,9 @@ test.describe("keyboard", () => {
     await page.keyboard.down("KeyA");
     await waitForScreen(page, /C:\\>a{3,}/i, 10_000);
     await page.locator("#fullscreenBtn").focus();
-    await page.waitForTimeout(200);
+    await emuWait(page, 200);
     const after = await screenText(page);
-    await page.waitForTimeout(500);
+    await emuWait(page, 500);
     expect(await screenText(page)).toBe(after);
     await page.keyboard.up("KeyA");
   });

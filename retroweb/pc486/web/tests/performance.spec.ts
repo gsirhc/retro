@@ -140,7 +140,7 @@ test.describe("Performance panel", () => {
       .poll(() => page.evaluate(() => (window as any).__test.audioState), { timeout: 30_000 })
       .toBe("running");
     const out = page.locator("#perfReadout");
-    await expect(out).toContainText("ring", { timeout: 30_000 });
+    await expect(out).toContainText(/ring\s+\d+ ms of \d+ target/, { timeout: 30_000 });
     const text = (await out.textContent())!;
     // Depth, starvation and what the pump feeds. The target comes with the stats, so follow it
     // instead of pinning a literal.

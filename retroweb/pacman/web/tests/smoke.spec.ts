@@ -10,7 +10,7 @@ test("boots the test ROM, paints a non-black frame, no console errors", async ({
   await expect(page.locator("#romStatus")).toHaveText("Running test ROM");
 
   // Let a few frames run so the ROM's tile fill, sprite and signature execute.
-  await page.waitForTimeout(500);
+  await page.waitForFunction(() => (window as any).__test?.machine.totalCycles() >= 1_536_000);
 
   const nonBlack = await page.evaluate(() => {
     const c = document.getElementById("screen") as HTMLCanvasElement;
@@ -42,7 +42,7 @@ test("the guest CPU runs at real, wall-clock-paced 3.072 MHz -- not sped up", as
 
   const sample = () => page.evaluate(() => [(window as any).__test.machine.totalCycles(), performance.now()]);
   const [c0, t0] = await sample();
-  await page.waitForTimeout(2000);
+  await page.waitForFunction((t) => performance.now() >= t, t0 + 2000);
   const [c1, t1] = await sample();
 
   const cyclesPerSecond = (c1 - c0) / ((t1 - t0) / 1000);

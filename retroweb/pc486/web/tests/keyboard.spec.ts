@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures";
-import { screenText, waitForScreen, focusScreen, clickCtrlAltDel, typeStr, setPowerSwitch, tap, openKeyboard, boardKey } from "./helpers";
+import { screenText, waitForScreen, focusScreen, clickCtrlAltDel, typeStr, setPowerSwitch, tap, openKeyboard, boardKey, keysDrained } from "./helpers";
 
 // Real keyboard path (DOM key events -> SET1 scan codes -> 8042), the F-key panel (a labelled
 // substitute for keys a Mac lacks), and the Ctrl+Alt+Del combo. The real-gap timing avoids the
@@ -36,13 +36,13 @@ test.describe("keyboard", () => {
     // down()/up() with a real wait. A human can't release a key in 0ms. DIR finds COMMAND.COM in C:'s root.
     for (const key of ["KeyD", "KeyI", "KeyR"]) {
       await page.keyboard.down(key);
-      await page.waitForTimeout(60);
+      await keysDrained(page);
       await page.keyboard.up(key);
-      await page.waitForTimeout(60);
+      await keysDrained(page);
     }
     // Enter needs the same make/break gap; without it Enter's make code was dropped.
     await page.keyboard.down("Enter");
-    await page.waitForTimeout(60);
+    await keysDrained(page);
     await page.keyboard.up("Enter");
     await waitForScreen(page, /COMMAND/);
     // The prompt returning proves the line was submitted, not just echoed.
@@ -177,12 +177,14 @@ test.describe("keyboard", () => {
     // A power cycle does not re-arm it; it stays dismissed in localStorage.
     await setPowerSwitch(page, false);
     await setPowerSwitch(page, true);
+    await page.waitForFunction(() => !!(window as any).__test?.machine);
     expect(await noticeVisible()).toBe(false);
 
     // Clearing localStorage (a new visitor) brings it back on the next power-on.
     await page.evaluate(() => localStorage.clear());
     await setPowerSwitch(page, false);
     await setPowerSwitch(page, true);
+    await page.waitForFunction(() => !!(window as any).__test?.machine);
     expect(await noticeVisible()).toBe(true);
   });
 });

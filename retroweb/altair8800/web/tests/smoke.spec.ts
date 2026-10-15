@@ -25,7 +25,7 @@ test.describe("smoke", () => {
 
   test("the test seam is absent without ?test", async ({ page }) => {
     await page.goto("/");
-    await page.waitForTimeout(500);
+    await expect(page.locator("#deviceChips")).toBeVisible(); // the 200 ms start-up applyPreset has run
     expect(await page.evaluate(() => (window as any).__test)).toBeUndefined();
   });
 

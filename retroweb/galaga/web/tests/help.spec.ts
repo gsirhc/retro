@@ -3,7 +3,8 @@ import { test, expect } from "@playwright/test";
 test("self-test ROM ends on a copyright / load-it-yourself help screen", async ({ page }) => {
   await page.goto("/?test=1");
   await expect(page.locator("#romStatus")).toHaveText("Running test ROM");
-  await page.waitForTimeout(4500);
+  await page.waitForFunction(() => (window as any).__test?.machine.totalCycles() >= 13_824_000);
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
 
   const stats = await page.evaluate(() => {
     const c = document.getElementById("screen") as HTMLCanvasElement;

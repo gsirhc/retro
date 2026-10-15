@@ -7,12 +7,13 @@ export default defineConfig({
   testMatch: /.*\.spec\.ts$/,
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 2 : 1,
+  retries: process.env.CI ? 2 : 0,
+  failOnFlakyTests: !!process.env.FAIL_ON_FLAKY,
   // The 1MHz core is wall-clock paced, so CPU contention slows the emulated
   // boot. CI's 2-vCPU runners flake with parallel workers (CGOAC6502_REVIEW.md
   // #14.c/#14.d), so CI runs serially.
   workers: process.env.CI ? 1 : 3,
-  reporter: process.env.CI ? [["list"], ["html", { open: "never" }]] : [["list"]],
+  reporter: process.env.CI ? [["list"], ["github"], ["html", { open: "never" }]] : [["list"]],
 
   // Assembling and timed burns take real seconds; boot needs headroom under contention.
   timeout: 90_000,

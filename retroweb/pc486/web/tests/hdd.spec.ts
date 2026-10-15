@@ -266,7 +266,7 @@ test.describe("hard disk", () => {
     await page.waitForFunction(() => !!(window as any).__test?.machine, null, {
       timeout: 15000,
     });
-    await page.waitForTimeout(3000);
+    await page.waitForFunction(() => /bootable/.test((window as any).__test.machine.textScreen()));
 
     expect(
       await page.evaluate(() => (window as any).__test.machine.textScreen())

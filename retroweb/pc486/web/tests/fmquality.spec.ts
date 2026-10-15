@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures";
-import { bootLive } from "./helpers";
+import { bootLive, wallWait, rafTicks } from "./helpers";
 
 // Measures what the card puts on the wire. A pure OPL3 sine must stay pure through resampling.
 // The buffer has to be sized in the guest timebase it is filled from; sizing it from wall-clock
@@ -74,7 +74,8 @@ test.describe("FM output quality", () => {
       w(0xC0, 0x31);
       w(0xA0, 0x98); w(0xB0, 0x31);
     });
-    await page.waitForTimeout(1500);
+    // lets the ring lead settle on the audio thread's real clock
+    await wallWait(page, 1500);
 
     const capture = async (load: boolean) => {
       await page.evaluate(() => (window as any).__test.startSbCapture(48000));
@@ -83,10 +84,8 @@ test.describe("FM output quality", () => {
         // through. A load that drops the guest below real time starves the audio.
         for (let i = 0; i < 50; i++) {
           await page.evaluate(() => { const e = performance.now() + 8; while (performance.now() < e); });
-          await page.waitForTimeout(12);
+          await rafTicks(page, 1);
         }
-      } else {
-        await page.waitForTimeout(1000);
       }
       // The capture comes from the audio thread, so it is what reached the device.
       await expect

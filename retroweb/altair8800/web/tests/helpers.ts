@@ -15,6 +15,11 @@ export async function boot(
   await page.waitForFunction(() => !!(window as any).__test?.machine, null, {
     timeout: 15_000,
   });
+  // app.js re-applies the saved terminal profile once the fonts load; let that land first
+  await page.evaluate(async () => {
+    await document.fonts.ready;
+    await new Promise((r) => requestAnimationFrame(r));
+  });
   // the built-in echo ROM (or a preset) is running once state() responds
   await page.waitForFunction(() => {
     try {
@@ -248,4 +253,45 @@ export async function stubSavePicker(page: Page): Promise<void> {
       }),
     });
   });
+}
+
+/** Wait until the page has run `ms` of emulated 2 MHz time. */
+export async function guestRun(page: Page, ms: number): Promise<void> {
+  const target = (await page.evaluate(() => (window as any).__test.machine.cycleCount())) + ms * 2000;
+  await page.waitForFunction((t) => (window as any).__test.machine.cycleCount() >= t, target);
+}
+
+/** Wait until the guest has taken every byte sent to the 2SIO, then `ms` more of emulated time. */
+export async function settle(page: Page, ms = 0): Promise<void> {
+  await page.waitForFunction(() => (window as any).__test.machine.rxPending() === 0);
+  if (ms) await guestRun(page, ms);
+}
+
+/** Wait for `n` animation frames in the page. */
+export function frames(page: Page, n: number): Promise<void> {
+  return page.evaluate(
+    (n) =>
+      new Promise<void>((resolve) => {
+        const tick = () => (n-- > 0 ? requestAnimationFrame(tick) : resolve());
+        tick();
+      }),
+    n,
+  );
+}
+
+/** Wait `ms` of real time, measured on the page's own clock. Returns the page's performance.now() at the start. */
+export async function wallWait(page: Page, ms: number): Promise<number> {
+  const t0 = await page.evaluate(() => performance.now());
+  await page.waitForFunction((t) => performance.now() >= t, t0 + ms);
+  return t0;
+}
+
+/** Emulated CPU cycles per real second over a `ms` window, both read on the page's clock. */
+export async function measureHz(page: Page, ms: number): Promise<number> {
+  const sample = () =>
+    page.evaluate(() => [(window as any).__test.regs().cycles, performance.now()]);
+  const [c0, t0] = await sample();
+  await page.waitForFunction((t) => performance.now() >= t, t0 + ms);
+  const [c1, t1] = await sample();
+  return (c1 - c0) / ((t1 - t0) / 1000);
 }

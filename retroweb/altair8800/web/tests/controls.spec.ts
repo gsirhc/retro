@@ -19,7 +19,7 @@ test.describe("terminal I/O options", () => {
     await page.uncheck("#crlf");
     const y1 = await cursorY(page);
     await send(page, "P\rQ"); // CR just returns the carriage; Q overprints P
-    await page.waitForTimeout(200);
+    await expect.poll(() => screen(page)).toMatch(/Q\w*\s*$/);
     expect(await cursorY(page)).toBe(y1);
   });
 

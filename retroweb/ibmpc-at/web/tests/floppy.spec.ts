@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures";
-import { boot, bay, insertFloppy, ejectFloppy, typeStr, pressEnter, screenText, waitForScreen } from "./helpers";
+import { boot, bay, insertFloppy, ejectFloppy, typeStr, pressEnter, screenText, waitForScreen, emuWait, rafTicks } from "./helpers";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
@@ -112,15 +112,14 @@ test.describe("floppy drives", () => {
     await boot(page);
     await expect(page.locator("#loadOverlay")).not.toHaveClass(/visible/);
 
-    // delay arrayBuffer so the overlay is observable
+    // hold arrayBuffer until released so the overlay is observable
     await page.evaluate(() => {
       const orig = File.prototype.arrayBuffer;
+      let release!: () => void;
+      const gate = new Promise<void>((r) => { release = r; });
+      (window as any).__releaseRead = release;
       File.prototype.arrayBuffer = function () {
-        return new Promise((resolve, reject) => {
-          setTimeout(() => {
-            orig.call(this).then(resolve, reject);
-          }, 400);
-        });
+        return gate.then(() => orig.call(this));
       };
     });
 
@@ -128,6 +127,7 @@ test.describe("floppy drives", () => {
     const done = insertFloppy(page, 0, imagePath);
     await expect(page.locator("#loadOverlay")).toHaveClass(/visible/);
     await expect(page.locator("#loadOverlayLabel")).toHaveText(/Loading floppy/);
+    await page.evaluate(() => (window as any).__releaseRead());
     await done;
     await expect(page.locator("#loadOverlay")).not.toHaveClass(/visible/);
   });
@@ -145,7 +145,8 @@ test.describe("floppy drives", () => {
       }).observe(led, { attributes: true, attributeFilter: ["class"] });
     });
     await insertFloppy(page, 0, makeBlankImage(1228800));
-    await page.waitForTimeout(1000);
+    await emuWait(page, 1000);
+    await rafTicks(page);
     expect(await page.evaluate(() => (window as any).__ledA)).toBe(0);
 
     await typeStr(page, "DIR A:");

@@ -189,7 +189,7 @@ test.describe("page chrome, persistence, URL params", () => {
 
   test("a keypress skips to the end of the slow ?help printout", async ({ page }) => {
     await boot(page, { params: "help&term=tty33" }); // metered at 110 baud
-    await page.waitForTimeout(500);
+    await waitForScreen(page, /\S/, 15_000); // the manual has started printing
     await page.evaluate(() => (window as any).__test.term.focus());
     await page.keyboard.press("Space");
     // the whole manual lands at once instead of trickling for ~30 s

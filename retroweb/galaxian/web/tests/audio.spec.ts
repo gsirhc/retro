@@ -1,4 +1,12 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
+
+// One audio block is posted per frame, ~60 per second.
+const blocks = (page: Page, n: number) => page.evaluate((k) => new Promise<void>((done) => {
+  const w = window as any;
+  const end = w.__audioBlocks + k;
+  const tick = () => (w.__audioBlocks >= end ? done() : requestAnimationFrame(tick));
+  tick();
+}), n);
 
 test.describe("Audio level", () => {
   test.beforeEach(async ({ page }) => {
@@ -23,14 +31,14 @@ test.describe("Audio level", () => {
 
   test("an FS voice reaches the speaker at the discrete mixer level", async ({ page }) => {
     await page.evaluate(() => { (window as any).__audioPeak = 0; });
-    await page.waitForTimeout(300);
+    await blocks(page, 18);
     const idle = await page.evaluate(() => (window as any).__audioPeak);
     await page.evaluate(() => {
       const m = (window as any).__test.machine;
       m.setMemByte(0x6800, 1);
       (window as any).__audioPeak = 0;
     });
-    await page.waitForTimeout(500);
+    await blocks(page, 30);
     const peak = await page.evaluate(() => (window as any).__audioPeak);
     expect(idle).toBeLessThan(1e-3);
     expect(peak).toBeGreaterThan(0.11);

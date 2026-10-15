@@ -1,16 +1,12 @@
 import { test, expect } from "./fixtures";
-import { boot, send, screen, regs, waitForScreen } from "./helpers";
+import { boot, send, screen, waitForScreen, guestRun, wallWait, measureHz } from "./helpers";
 
 // Executable realism checks. ?test runs media loads at Max, but the CPU clock and terminal baud are never sped up.
 
 test.describe("timing fidelity", () => {
   test("the 8080 runs at ~2 MHz of emulated time per wall-clock second", async ({ page }) => {
     await boot(page); // echo ROM spinning in its poll loop
-    const sample = () => page.evaluate(() => [(window as any).__test.regs().cycles, performance.now()]);
-    const [c0, t0] = await sample();
-    await page.waitForTimeout(2000);
-    const [c1, t1] = await sample();
-    const hz = (c1 - c0) / ((t1 - t0) / 1000);
+    const hz = await measureHz(page, 2000);
     expect(hz).toBeGreaterThan(1_700_000);
     expect(hz).toBeLessThan(2_200_000);
   });
@@ -19,7 +15,7 @@ test.describe("timing fidelity", () => {
     await boot(page, { params: "term=tty33" });
     // echo ROM: send 60 chars, watch them trickle onto the paper roll
     await send(page, "ABCDEFGHIJ".repeat(6));
-    await page.waitForTimeout(1200);
+    await wallWait(page, 1200);
     const mid = (await screen(page)).replace(/\s/g, "").length;
     expect(mid).toBeGreaterThan(3);
     expect(mid).toBeLessThan(30); // nowhere near all 60 yet
@@ -43,10 +39,18 @@ test.describe("timing fidelity", () => {
       test(`${key} (${baud} baud)`, async ({ page }) => {
         await boot(page, { params: `term=${key}` });
         const text = "ABCDEFGHIJ".repeat(30); // 300 chars -- well under one screen, no scroll-loss risk
-        await send(page, text);
-        await page.waitForTimeout(150);
-        const mid = (await screen(page)).replace(/\s/g, "").length;
-        expect(mid, key).toBeLessThan(text.length); // hasn't all landed instantly
+        // ms from the send until every char is on screen, sampled per frame in the page
+        const landedMs = await page.evaluate((text) => new Promise<number>((resolve) => {
+          const t0 = performance.now();
+          const m = (window as any).__test.machine;
+          for (let i = 0; i < text.length; i++) m.sendByte(text.charCodeAt(i));
+          (function tick() {
+            const n = (window as any).__test.screen().replace(/\s/g, "").length;
+            if (n >= text.length) resolve(performance.now() - t0);
+            else requestAnimationFrame(tick);
+          })();
+        }), text);
+        expect(landedMs, key).toBeGreaterThan(150); // hasn't all landed instantly
         await expect
           .poll(() => screen(page).then((s) => s.replace(/\s/g, "").length), { timeout: 15_000 })
           .toBeGreaterThanOrEqual(text.length);
@@ -73,15 +77,12 @@ test.describe("timing fidelity", () => {
     await page.click("#ptrThread");
     await page.click("#ptr .ptr-load");
 
-    const fed = () =>
-      page.evaluate(() => {
-        const t = (window as any).__test.tape;
-        return t.lead + t.pos;
-      });
-    const t0 = Date.now();
-    await page.waitForTimeout(3000);
-    const bytes = await fed();
-    const rate = bytes / ((Date.now() - t0) / 1000);
+    const t0 = await wallWait(page, 3000);
+    const [bytes, t1] = await page.evaluate(() => {
+      const t = (window as any).__test.tape;
+      return [t.lead + t.pos, performance.now()];
+    });
+    const rate = bytes / ((t1 - t0) / 1000);
     expect(rate).toBeGreaterThan(3);
     expect(rate).toBeLessThan(30); // definitely not the whole 8 KB
   });
@@ -122,15 +123,11 @@ test.describe("timing fidelity", () => {
   test("the load-time turbo does not survive a keypress", async ({ page }) => {
     await boot(page, { params: "preset=stock" });
     await page.click("#ptr .ptr-load"); // cold-starts 4K BASIC with turbo on
-    await page.waitForTimeout(500);
+    await guestRun(page, 500);
     await send(page, " "); // a byte from the "keyboard"
     // once BASIC is at OK the loader has released turbo; the clock is back to 2 MHz
     await expect
-      .poll(async () => {
-        const c0 = (await regs(page)).cycles;
-        await page.waitForTimeout(300);
-        return ((await regs(page)).cycles - c0) / 0.3;
-      }, { timeout: 40_000 })
+      .poll(() => measureHz(page, 300), { timeout: 40_000 })
       .toBeLessThan(2_400_000);
   });
 });

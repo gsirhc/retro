@@ -303,13 +303,10 @@ test.describe("front panel jewelry", () => {
     await expect(btn).toHaveAttribute("aria-pressed", "false");
     await expect(led).not.toHaveClass(/turbo-on/);
     await expect.poll(state).toEqual({ turbo: false, hz: 66000000 });
-    const progress = await page.evaluate(async () => {
-      const m = (window as any).__test.machine;
-      const c0 = m.totalCycles();
-      await new Promise((r) => setTimeout(r, 200));
-      return m.totalCycles() - c0;
-    });
-    expect(progress).toBeGreaterThan(0);
+    const c0 = await page.evaluate(() => (window as any).__test.machine.totalCycles());
+    await expect
+      .poll(() => page.evaluate((c) => (window as any).__test.machine.totalCycles() - c, c0))
+      .toBeGreaterThan(0);
 
     await btn.click();
     await expect(led).toHaveClass(/turbo-on/);

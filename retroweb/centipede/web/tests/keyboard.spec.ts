@@ -1,9 +1,12 @@
 import { test, expect } from "@playwright/test";
+import { frames } from "./helpers";
 
 // IN1 is active-low (idle 0xFF). The trackball is a 4-bit counter plus a sign bit, one step per 1/60 s while a key is held.
 
 test.describe("keyboard input", () => {
   test.beforeEach(async ({ page }) => {
+    // Linux headless Chromium grants pointer lock on click; macOS denies it.
+    await page.addInitScript(() => { Element.prototype.requestPointerLock = () => Promise.resolve(); });
     await page.goto("/?test=1");
     await page.waitForFunction(() => !!(window as any).__test?.machine);
     await page.locator("#screen").click();
@@ -95,13 +98,13 @@ test.describe("keyboard input", () => {
 
   test("the counter steps by 2 and holds its value once the key is up", async ({ page }) => {
     await page.keyboard.down("ArrowLeft");
-    await page.waitForTimeout(150);
+    await expect.poll(async () => (await pos(page)).x).toBeGreaterThan(0);
     await page.keyboard.up("ArrowLeft");
     const a = await pos(page);
     expect(a.x).toBeGreaterThan(0);
     expect(a.x % 2).toBe(0);
     expect(await trackX(page)).toBe(a.x & 0x0f);
-    await page.waitForTimeout(150);
+    await frames(page, 9);
     expect(await pos(page)).toEqual(a);
   });
 
@@ -109,7 +112,7 @@ test.describe("keyboard input", () => {
     await page.keyboard.down("ArrowRight");
     await expect.poll(() => trackX(page)).toBeGreaterThanOrEqual(0x80);
     await page.keyboard.up("ArrowRight");
-    await page.waitForTimeout(100);
+    await frames(page, 6);
     expect((await trackX(page)) & 0x80).toBe(0x80);
   });
 

@@ -17,8 +17,7 @@ test("boots the test ROM, writes the CEN1 RAM signature, paints a non-black fram
            m.ramByte(2) === 0x4e && m.ramByte(3) === 0x31; // 'C' 'E' 'N' '1'
   }, null, { timeout: 5000 });
 
-  await page.waitForTimeout(500);
-  const nonBlack = await page.evaluate(() => {
+  const nonBlack = () => page.evaluate(() => {
     const c = document.getElementById("screen") as HTMLCanvasElement;
     const data = c.getContext("2d")!.getImageData(0, 0, c.width, c.height).data;
     for (let i = 0; i < data.length; i += 4) {
@@ -26,7 +25,7 @@ test("boots the test ROM, writes the CEN1 RAM signature, paints a non-black fram
     }
     return false;
   });
-  expect(nonBlack).toBe(true);
+  await expect.poll(nonBlack).toBe(true);
 
   expect(errors).toEqual([]);
 });
@@ -47,7 +46,7 @@ test("the guest CPU runs at real, wall-clock-paced 1.512 MHz -- not sped up", as
 
   const sample = () => page.evaluate(() => [(window as any).__test.machine.totalCycles(), performance.now()]);
   const [c0, t0] = await sample();
-  await page.waitForTimeout(2000);
+  await page.waitForFunction((t) => performance.now() >= t, t0 + 2000);
   const [c1, t1] = await sample();
 
   const cyclesPerSecond = (c1 - c0) / ((t1 - t0) / 1000);

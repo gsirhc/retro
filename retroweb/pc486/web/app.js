@@ -1945,6 +1945,7 @@
     if (new URLSearchParams(location.search).get("test") === "1") {
       window.__test = {
         machine, sendKey, screenEl, fitScreen, frameCanvas, keyboard,
+        get scancodesPending() { return scancodePumping || scancodeQueue.length > 0; },
         cpuMultiplier: TEST_CPU_MULTIPLIER,
         mapKey: keyboard.mapKey,
         get keymapRows() { return keyboard.keymapRows; },

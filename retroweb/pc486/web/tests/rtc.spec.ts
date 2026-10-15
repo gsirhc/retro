@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures";
-import { bootLive } from "./helpers";
+import { bootLive, wallWait } from "./helpers";
 
 // Battery-backed RTC: power-on reads the visitor's local clock, then keeps it in guest time.
 async function readRtc(page: any) {
@@ -28,10 +28,10 @@ test.describe("real-time clock", () => {
 
     test.skip(!!process.env.SLOW_HOST, "host can't hold real 66 MHz; pace checked on the self-hosted runner");
     // Same start-up settle as smoke.spec.ts before measuring the clock's pace.
-    await page.waitForTimeout(1000);
+    await wallWait(page, 1000);
     const settled = await readRtc(page);
     const before = settled.min * 60 + settled.sec;
-    await page.waitForTimeout(2500);
+    await wallWait(page, 2500);
     const later = await readRtc(page);
     const elapsed = (later.min * 60 + later.sec - before + 3600) % 3600;
     expect(elapsed).toBeGreaterThanOrEqual(2);

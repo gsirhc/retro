@@ -13,6 +13,7 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   // One retry clears a flake; more turns a stuck boot into a multi-minute stall.
   retries: process.env.CI ? 1 : 0,
+  failOnFlakyTests: !!process.env.FAIL_ON_FLAKY,
   // The guest is host-bound near 66 MHz even with fast=1 (PC486_REVIEW.md §8.6). Each worker mounts
   // the 256MB HDD once, so extra workers split the CPU. Default 1 on CI, 2 locally; PW_WORKERS=N overrides.
   workers: process.env.COVERAGE
@@ -23,7 +24,7 @@ export default defineConfig({
 
   globalSetup: process.env.COVERAGE ? "./tests/coverage.setup.ts" : undefined,
   globalTeardown: process.env.COVERAGE ? "./tests/coverage.global.ts" : undefined,
-  reporter: process.env.CI ? [["list"], ["html", { open: "never" }]] : [["list"]],
+  reporter: process.env.CI ? [["list"], ["github"], ["html", { open: "never" }]] : [["list"]],
 
   // FreeDOS to C:\> is host-bound wall clock; tests that don't need the prompt use bootLive().
   timeout: 90_000,

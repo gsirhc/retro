@@ -10,6 +10,7 @@ import {
   regs,
   hasCatalogItem,
   pickCatalogItem,
+  guestRun,
 } from "./helpers";
 
 test.describe("88-DCDD disk cabinet", () => {
@@ -143,7 +144,7 @@ test.describe("88-DCDD disk cabinet", () => {
     expect(byte).not.toBe(0);   // real garbage, not a clean NOP field
 
     await panelRun(page);
-    await page.waitForTimeout(2000);   // real wall-clock time to run, wander, halt -- whatever it does
+    await guestRun(page, 2000);   // run, wander, halt -- whatever it does
     expect(await bannerCount()).toBe(1);   // still just the one boot -- no reprint
   });
 
@@ -216,22 +217,25 @@ test.describe("88-DCDD disk cabinet", () => {
     await boot(page, { params: "preset=cpm" });
     const before = await page.evaluate(() => (window as any).__test.machine.diskStatus().track0);
     // watch the drive-A lamp element for the "busy" class while CP/M loads
-    const watch = page.evaluate(async () => {
+    await page.evaluate(() => {
       const a = document.querySelector("#dcdd .dcdd-bay:first-child .dcdd-lamp")!;
       const b = document.querySelector("#dcdd .dcdd-bay:nth-child(2) .dcdd-lamp")!;
-      let sawBusyA = false, sawBusyB = false;
-      for (let i = 0; i < 400; i++) {
-        if (a.classList.contains("busy") || a.classList.contains("sel")) sawBusyA = true;
-        if (b.classList.contains("busy")) sawBusyB = true;
-        await new Promise((r) => setTimeout(r, 15));
-      }
-      return { sawBusyA, sawBusyB };
+      const seen = { sawBusyA: false, sawBusyB: false };
+      const look = () => {
+        if (a.classList.contains("busy") || a.classList.contains("sel")) seen.sawBusyA = true;
+        if (b.classList.contains("busy")) seen.sawBusyB = true;
+      };
+      new MutationObserver(look).observe(document.querySelector("#dcdd")!, {
+        subtree: true, attributes: true, attributeFilter: ["class"],
+      });
+      look();
+      (window as any).__lampSeen = seen;
     });
     await page.click("#dcdd .dcdd-boot");
-    const { sawBusyA, sawBusyB } = await watch;
+    await waitForScreen(page, /A>/, 30_000);
+    const { sawBusyA, sawBusyB } = await page.evaluate(() => (window as any).__lampSeen);
     expect(sawBusyA).toBe(true);
     expect(sawBusyB).toBe(false);   // the idle drive's lamp stays dark
-    await waitForScreen(page, /A>/, 30_000);
     const after = await page.evaluate(() => (window as any).__test.machine.diskStatus().track0);
     expect(after).toBeGreaterThan(before);
   });
