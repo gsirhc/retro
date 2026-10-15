@@ -501,7 +501,8 @@ separate suite.
   `cpu6502/rom/` source), `make -C retroweb/assembler6502/web wasm roms`,
   `make -C retroweb/assembler6502/web test` (Playwright).
 - **IBM PC/AT** (`retroweb/ibmpc-at/`): `make -C retroweb/ibmpc-at check`
-  (GoogleTest over the 80286 core + AT chipset), `make -C
+  (GoogleTest over the 80286 core + AT chipset, including the
+  `retroweb/shared/pc/` chips it shares with pc486), `make -C
   retroweb/ibmpc-at/web ibmpcat.js roms hdd-image library-images preset-images` (the shipped FreeDOS HDD
   image is a real, slow installer run the first time — see
   `IBM_PCAT_REVIEW.md` §11 — cached after that; `preset-images` builds the
@@ -568,7 +569,8 @@ separate suite.
   live in `retroweb/shared/cpu/` and `retroweb/shared/atari/`.
 - **486 DX2-66 Gaming PC** (`retroweb/pc486/`): `make -C retroweb/pc486 check`
   (GoogleTest over the 80486 core, chipset, EGA/VGA+VBE, WD1003, ATAPI
-  CD-ROM, Sound Blaster 16 and its OPL3), `make -C retroweb/pc486/web
+  CD-ROM, Sound Blaster 16 and its OPL3, plus the `retroweb/shared/pc/`
+  PIT, PIC, DMA, RTC and speaker), `make -C retroweb/pc486/web
   pc486.js roms hdd-image cdrom-image driver-images library-images
   preset-images`, `make -C
   retroweb/pc486/web test-install test` (Playwright). The FreeDOS HDD image

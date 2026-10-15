@@ -25,23 +25,104 @@ others. That's the main thing to address.
 
 ## High priority
 
-### H1. ibmpc-at and pc486 fork the whole PC chipset, and the forks diverge
+### H1. ibmpc-at and pc486 fork the whole PC chipset. Partly fixed
 
-About 14 files are duplicated: `pic8259`, `pit8253`, `dma8237`, `fdc765`,
-`i8042`, `cmos_rtc`, `wd1003`, `ega`, `chipset`, and others. Some differ only
-by namespace (`cmos_rtc.cpp` is a 10-line diff). Others have drifted to
-different fidelity levels for the same chip:
+About 14 files were duplicated: `pic8259`, `pit8253`, `dma8237`, `fdc765`,
+`i8042`, `cmos_rtc`, `wd1003`, `ega`, `chipset`, and others. Some differed
+only by namespace. Others had drifted to different fidelity levels for the
+same chip.
 
-- **8259 PIC.** ibmpc-at models the transparent request latch, two-cycle INTA,
-  default IR7, and CAS-line cascading (`ibmpc-at/pic8259.h`). pc486 has a
-  simpler edge-only `raise()`/`acknowledge()` model.
-- **8253 PIT.** Both now count channel 1 refresh edges (H2), so the two
-  differ only in namespace, the header comment, and pc486's
-  `cycles_to_next_count()` service-gate helper.
+**Shared: the chips both real boards carry.** A 1993 486 board folds the AT's
+8254, two 8259As and two 8237As into its chipset ICs, but clones their
+registers and behaviour exactly, which is what "AT-compatible" means. Those
+now live once in `shared/pc/` (namespace `pc`):
 
-**Fix:** a `shared/pc/` library parameterised by the genuine hardware
-differences (RTC 64 vs 128 bytes, default date, and so on), so a fidelity fix
-lands once.
+- `pit8253`: Intel 8254. The two copies differed only in namespace; the
+  shared one keeps pc486's inline `tick()` and `cycles_to_next_count()`.
+- `pic8259`: Intel 8259A, ibmpc-at's model (see below). It caches its INT
+  answer, since pc486 asks before every instruction.
+- `dma8237`: Intel 8237A-5, ibmpc-at's model (see below).
+- `cmos_rtc`: MC146818. `CmosRtc(ram_bytes, year, weekday)` covers the real
+  difference: the 5170's MC146818A has 64 bytes, a 486 board's DS12887-class
+  part 128. Each board keeps its own power-on date (1986, 1994).
+- `pcspeaker`: the port 61h / channel 2 AND gate, the same on both.
+
+Each machine keeps a one-line alias header (`ibmpc-at/pic8259.h` and so on),
+the frogger pattern, so no include changed. The tests moved to
+`shared/pc/tests/` as the union of both suites, and both machines'
+`tests/CMakeLists.txt` build and run them, so a change is checked against
+both. `watch_site.py` rebuilds both PCs on a `shared/pc/` change, and the CI
+HDD and preset-image cache keys hash `shared/pc/` too.
+
+**Not shared, on purpose: the parts the real boards don't have in common.**
+Same file names, different hardware, so a merge would blur two real machines
+into one.
+
+- `ega`/`ega_render`: the AT's EGA vs the 486's VGA with VBE.
+- `i8042`: both are 8042-compatible, but a 486 board's controller adds the
+  PS/2 aux (mouse) port.
+- `fdc765`: the AT's 1.2MB/360KB uPD765 setup vs a 1.44MB drive.
+- `wd1003`: the AT's WD1003 MFM card vs IDE/ATA with ATAPI on the second
+  channel. ATA is a superset of the WD1003 registers, not the same card.
+- `chipset`, `machine`, `bios_host`, `render_screen`: board glue.
+
+**What pc486 was missing.** These were gaps in pc486's own code, not
+differences in the 486 hardware, so the shared chips fix them.
+
+- **8259A PIC.** pc486 had a pulse model: `raise()` latched IRR until INTA,
+  and `chipset.cpp` turned each device into a pulse with its own
+  `*_irq_prev_` edge flag. Against the 8259A data sheet it was missing:
+  - the transparent request latch (Figure 9). A request that drops before
+    INTA is withdrawn. pc486 still delivered it, so a key the BIOS read by
+    polling port 60h with interrupts off came back later as a stray IRQ1;
+  - default IR7 when the request vanishes between INTA cycles;
+  - level-triggered mode (ICW1 LTIM);
+  - rotating priority (OCW2 rotate on EOI, set priority, rotate in AEOI);
+  - special mask mode and special fully nested mode;
+  - ICW1 clearing the IMR, and buffered-mode and MCS-80/85 handling of ICW4;
+  - the two-cycle INTA with the slave selected by its ICW3 ID on the CAS
+    lines (pc486 peeked at the master's winner instead).
+- **8237A DMA.** Against the 8237A-5 data sheet:
+  - master clear (and reset) wiped address, count and mode, which the chip
+    keeps, and the page registers, which are separate 74LS612 glue the 8237
+    can't reach;
+  - the temporary register (read at 0Dh) returned FFh;
+  - terminal count didn't clear the channel's software request bit;
+  - the mask register read back at 0Fh, where the 8237A's is write-only.
+
+pc486's chipset now drives each IRQ line to its device's level, as
+ibmpc-at's does (`update_irq_lines`), and samples them at reset as a real
+board does from power-on. Its 8042 exposes IRQ1/IRQ12 as levels that follow
+the output buffer, and drops the line for a moment between queued bytes,
+since a port 60h read can refill the buffer in the same call. The Sound
+Blaster's line follows mixer register 80h.
+
+**Tests.** `AcknowledgedRequestLeavesIntLow` and
+`HigherPriorityLinePreemptsOneInService` (PIC), three DMA cases from pc486's
+old suite, `DS12887HasAllHundredTwentyEightBytes` and
+`PowerOnDateIsTheBoardsOwn` (RTC), pc486's `cycles_to_next_count` cases, and
+`ChipsetTest.KeyboardByteReadByPollingWithdrawsIrq1`. Mutation-checked: the
+old latched IRQ1, no low pulse between keyboard or mouse bytes, no line
+sample at reset, the SB16's IRQ2 on master IR2, a skipped INT-cache refresh
+in `out()` or `inta1()`, an RTC that ignores `ram_bytes`, and a fixed 1986
+power-on date each fail a test. pc486's existing chipset tests pass
+unchanged apart from `raise()` becoming `set_line()`, and the STI test moved
+to IR3, which nothing on that board drives.
+
+`ChipsetTest.RtcIsThe5170sSixtyFourByteMc146818a` and
+`RtcIsAHundredTwentyEightByteDs12887` pin each board's RTC parameters;
+before them, swapping the two boards' sizes and dates passed every test.
+
+**Cost.** pc486's service pass now resamples every IRQ line, so
+`set_line()`'s no-change check is inline. A native `-O3` cold boot to
+`C:\>` (`disks/hdd_boot_check`) reaches the prompt within 184 cycles of the
+old code out of 1.06 billion, in about 1.8% more CPU time (6.57-6.69 s
+against 6.38-6.62 s, four runs each; 4-6% before the inline). The shipped
+wasm is built `-flto`.
+
+**To verify.** The two 8042 models disagree on A20 at power-on: ibmpc-at
+opens it (MCS-48 port pins come out of reset high), pc486 closes it. Check
+pc486's against a 486-era KBC firmware (AMI or Phoenix) before changing it.
 
 ### H2. pc486 port 61h bit 4 (refresh toggle). Fixed
 
@@ -248,7 +329,7 @@ and a planted unused variable each fail `make lint`.
 1. ~~**H2 and H4.**~~ Done. See H2 and H4 above.
 2. ~~**H3, with M1 and the galaga `idbSet` fix.**~~ Done. See H3 and M1 above.
 3. ~~**M2, M3, M4, M7.**~~ Done. See those entries above.
-4. **H1, the `shared/pc/` merge.** The biggest job. Start with `pit8253` and
-   `cmos_rtc`, which are nearly identical, then reconcile the PIC toward the
-   more faithful ibmpc-at model.
+4. ~~**H1, the `shared/pc/` merge.**~~ Done for the chips both real boards
+   carry (PIT, PIC, DMA, RTC, speaker). See H1 for what stays per machine and
+   why.
 5. **CI and Makefile consolidation**, whenever convenient.

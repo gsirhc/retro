@@ -23,7 +23,7 @@
 CXX      ?= c++
 CXXFLAGS ?= -std=c++17 -O2 -Wall -Wextra
 
-CHIPSET_SRCS = machine.cpp chipset.cpp cpu80486.cpp cache486.cpp pic8259.cpp pit8253.cpp i8042.cpp cmos_rtc.cpp dma8237.cpp fdc765.cpp ega.cpp wd1003.cpp atapi_cdrom.cpp pcspeaker.cpp soundblaster.cpp opl3.cpp mpu401.cpp
+CHIPSET_SRCS = machine.cpp chipset.cpp cpu80486.cpp cache486.cpp ../shared/pc/pic8259.cpp ../shared/pc/pit8253.cpp i8042.cpp ../shared/pc/cmos_rtc.cpp ../shared/pc/dma8237.cpp fdc765.cpp ega.cpp wd1003.cpp atapi_cdrom.cpp ../shared/pc/pcspeaker.cpp soundblaster.cpp opl3.cpp mpu401.cpp
 UNIT_TESTS = cpu80486_test cpu80486_timing_test cache486_test pic8259_test pit8253_test i8042_test cmos_rtc_test dma8237_test chipset_test machine_test fdc765_test ega_test ega_render_test wd1003_test atapi_cdrom_test pcspeaker_test soundblaster_test mpu401_test opl3_test
 
 .PHONY: help test test-smoke bios bios-check pm-check vbe-check library hdd-image hdd-boot-check preset-hdds wasm serve coverage check clean fm-trace-render
@@ -165,13 +165,13 @@ coverage:
 	    LLVM_PROFILE_FILE=$$t.profraw ./$$t >/dev/null; done; \
 	  objs=""; for t in $(UNIT_TESTS); do objs="$$objs -object $$t"; done; objs=$${objs# -object}; \
 	  $(LLVM_PROFDATA) merge -sparse *.profraw -o cov.profdata; \
-	  srcs="$(CURDIR)/cpu80486.cpp $(CURDIR)/cpu80486.h $(CURDIR)/cache486.cpp $(CURDIR)/cache486.h $(CURDIR)/pic8259.cpp $(CURDIR)/pic8259.h \
-	    $(CURDIR)/pit8253.cpp $(CURDIR)/pit8253.h $(CURDIR)/i8042.cpp $(CURDIR)/i8042.h \
-	    $(CURDIR)/cmos_rtc.cpp $(CURDIR)/cmos_rtc.h $(CURDIR)/dma8237.cpp $(CURDIR)/dma8237.h \
+	  srcs="$(CURDIR)/cpu80486.cpp $(CURDIR)/cpu80486.h $(CURDIR)/cache486.cpp $(CURDIR)/cache486.h $(CURDIR)/../shared/pc/pic8259.cpp $(CURDIR)/../shared/pc/pic8259.h \
+	    $(CURDIR)/../shared/pc/pit8253.cpp $(CURDIR)/../shared/pc/pit8253.h $(CURDIR)/i8042.cpp $(CURDIR)/i8042.h \
+	    $(CURDIR)/../shared/pc/cmos_rtc.cpp $(CURDIR)/../shared/pc/cmos_rtc.h $(CURDIR)/../shared/pc/dma8237.cpp $(CURDIR)/../shared/pc/dma8237.h \
 	    $(CURDIR)/fdc765.cpp $(CURDIR)/fdc765.h $(CURDIR)/ega.cpp $(CURDIR)/ega.h \
 	    $(CURDIR)/ega_render.cpp $(CURDIR)/ega_render.h \
 	    $(CURDIR)/wd1003.cpp $(CURDIR)/wd1003.h $(CURDIR)/atapi_cdrom.cpp $(CURDIR)/atapi_cdrom.h \
-	    $(CURDIR)/pcspeaker.cpp $(CURDIR)/pcspeaker.h \
+	    $(CURDIR)/../shared/pc/pcspeaker.cpp $(CURDIR)/../shared/pc/pcspeaker.h \
 	    $(CURDIR)/soundblaster.cpp $(CURDIR)/soundblaster.h \
 	    $(CURDIR)/opl3.cpp $(CURDIR)/opl3.h \
 	    $(CURDIR)/mpu401.cpp $(CURDIR)/mpu401.h \
@@ -186,5 +186,5 @@ test-smoke: test
 check: test pm-check vbe-check
 
 clean:
-	rm -rf tests/build tests/build-cov tests/coverage-cpp bios_host pm_stub_check vbe_mode13_check disks/build_freedos_hdd disks/build_preset_hdd disks/hdd_boot_check disks/boom_run_check render_screen fm_trace_render
+	rm -rf tests/build tests/build-cov tests/coverage-cpp bios_host pm_stub_check vbe_mode13_check disks/build_freedos_hdd disks/build_preset_hdd disks/hdd_boot_check render_screen fm_trace_render
 	$(MAKE) -C web clean

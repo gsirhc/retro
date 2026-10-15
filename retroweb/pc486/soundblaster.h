@@ -55,7 +55,7 @@
 // --- chipset wiring ---
 // Like fdc765.h, this never touches memory or the DMA controller. chipset.cpp
 // moves bytes via transfer_ready()/transfer_length()/transfer_buffer()/
-// finish_transfer() and raises irq_line() on the 0->1 edge of irq_pending().
+// finish_transfer() and drives irq_line() from irq_pending().
 // - A 16-bit transfer runs on DMA2 channel 5 (index 1), whose address and count
 //   count WORDS: the 8237 drives A1-A16 and the page register A17-A23. Physical
 //   address is (uint32_t(dma2.page(1)) << 16) | (uint32_t(dma2.address(1)) << 1),

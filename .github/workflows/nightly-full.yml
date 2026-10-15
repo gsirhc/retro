@@ -230,7 +230,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: retroweb/ibmpc-at/disks/freedos-hdd.img
-          key: ibmpcat-hdd-${{ hashFiles('retroweb/ibmpc-at/*.h', 'retroweb/ibmpc-at/*.cpp', 'retroweb/ibmpc-at/disks/*.cpp', 'retroweb/ibmpc-at/disks/*.sh', 'retroweb/ibmpc-at/roms/*.sh', 'retroweb/ibmpc-at/roms/egabios/*') }}
+          key: ibmpcat-hdd-${{ hashFiles('retroweb/ibmpc-at/*.h', 'retroweb/ibmpc-at/*.cpp', 'retroweb/shared/pc/*.h', 'retroweb/shared/pc/*.cpp', 'retroweb/ibmpc-at/disks/*.cpp', 'retroweb/ibmpc-at/disks/*.sh', 'retroweb/ibmpc-at/roms/*.sh', 'retroweb/ibmpc-at/roms/egabios/*') }}
           enableCrossOsArchive: true
 
       - name: Build IBM PC/AT FreeDOS HDD image
@@ -265,7 +265,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: retroweb/ibmpc-at/disks/keen1-hdd.img
-          key: ibmpcat-preset-hdds-${{ hashFiles('retroweb/ibmpc-at/*.h', 'retroweb/ibmpc-at/*.cpp', 'retroweb/ibmpc-at/disks/*.cpp', 'retroweb/ibmpc-at/disks/*.sh', 'retroweb/ibmpc-at/disks/library.json', 'retroweb/ibmpc-at/roms/*.sh', 'retroweb/ibmpc-at/roms/egabios/*', 'retroweb/pc486/disks/zero-free-clusters.py', 'retroweb/shared/dos-library/*.py', 'retroweb/shared/dos-library/*.sh') }}
+          key: ibmpcat-preset-hdds-${{ hashFiles('retroweb/ibmpc-at/*.h', 'retroweb/ibmpc-at/*.cpp', 'retroweb/shared/pc/*.h', 'retroweb/shared/pc/*.cpp', 'retroweb/ibmpc-at/disks/*.cpp', 'retroweb/ibmpc-at/disks/*.sh', 'retroweb/ibmpc-at/disks/library.json', 'retroweb/ibmpc-at/roms/*.sh', 'retroweb/ibmpc-at/roms/egabios/*', 'retroweb/pc486/disks/zero-free-clusters.py', 'retroweb/shared/dos-library/*.py', 'retroweb/shared/dos-library/*.sh') }}
           enableCrossOsArchive: true
 
       - name: Build IBM PC/AT preset hard disks
@@ -277,7 +277,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: retroweb/ibmpc-at/disks/keen1-hdd.img
-          key: ibmpcat-preset-hdds-${{ hashFiles('retroweb/ibmpc-at/*.h', 'retroweb/ibmpc-at/*.cpp', 'retroweb/ibmpc-at/disks/*.cpp', 'retroweb/ibmpc-at/disks/*.sh', 'retroweb/ibmpc-at/disks/library.json', 'retroweb/ibmpc-at/roms/*.sh', 'retroweb/ibmpc-at/roms/egabios/*', 'retroweb/pc486/disks/zero-free-clusters.py', 'retroweb/shared/dos-library/*.py', 'retroweb/shared/dos-library/*.sh') }}
+          key: ibmpcat-preset-hdds-${{ hashFiles('retroweb/ibmpc-at/*.h', 'retroweb/ibmpc-at/*.cpp', 'retroweb/shared/pc/*.h', 'retroweb/shared/pc/*.cpp', 'retroweb/ibmpc-at/disks/*.cpp', 'retroweb/ibmpc-at/disks/*.sh', 'retroweb/ibmpc-at/disks/library.json', 'retroweb/ibmpc-at/roms/*.sh', 'retroweb/ibmpc-at/roms/egabios/*', 'retroweb/pc486/disks/zero-free-clusters.py', 'retroweb/shared/dos-library/*.py', 'retroweb/shared/dos-library/*.sh') }}
           enableCrossOsArchive: true
 
       - working-directory: retroweb/ibmpc-at/web
@@ -419,7 +419,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: retroweb/pc486/disks/freedos-hdd.img
-          key: pc486-hdd-${{ hashFiles('retroweb/pc486/*.h', 'retroweb/pc486/*.cpp', 'retroweb/pc486/disks/*.cpp', 'retroweb/pc486/disks/*.sh', 'retroweb/pc486/roms/*.sh') }}
+          key: pc486-hdd-${{ hashFiles('retroweb/pc486/*.h', 'retroweb/pc486/*.cpp', 'retroweb/shared/pc/*.h', 'retroweb/shared/pc/*.cpp', 'retroweb/pc486/disks/*.cpp', 'retroweb/pc486/disks/*.sh', 'retroweb/pc486/roms/*.sh') }}
           enableCrossOsArchive: true
 
       - name: Build pc486 FreeDOS HDD image
@@ -431,7 +431,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: retroweb/pc486/disks/freedos-hdd.img
-          key: pc486-hdd-${{ hashFiles('retroweb/pc486/*.h', 'retroweb/pc486/*.cpp', 'retroweb/pc486/disks/*.cpp', 'retroweb/pc486/disks/*.sh', 'retroweb/pc486/roms/*.sh') }}
+          key: pc486-hdd-${{ hashFiles('retroweb/pc486/*.h', 'retroweb/pc486/*.cpp', 'retroweb/shared/pc/*.h', 'retroweb/shared/pc/*.cpp', 'retroweb/pc486/disks/*.cpp', 'retroweb/pc486/disks/*.sh', 'retroweb/pc486/roms/*.sh') }}
           enableCrossOsArchive: true
 
       # Both binaries: the shipped one and the instrumented twin the
@@ -447,7 +447,7 @@ jobs:
             retroweb/pc486/disks/doom-hdd.img
             retroweb/pc486/disks/wolf3d-hdd.img
             retroweb/pc486/disks/tyrian-hdd.img
-          key: pc486-preset-hdds-${{ hashFiles('retroweb/pc486/Makefile', 'retroweb/pc486/*.h', 'retroweb/pc486/*.cpp', 'retroweb/pc486/disks/*.cpp', 'retroweb/pc486/disks/*.sh', 'retroweb/pc486/disks/*.py', 'retroweb/pc486/disks/library.json', 'retroweb/pc486/roms/*.sh', 'retroweb/shared/dos-library/*.py', 'retroweb/shared/dos-library/*.sh') }}
+          key: pc486-preset-hdds-${{ hashFiles('retroweb/pc486/Makefile', 'retroweb/pc486/*.h', 'retroweb/pc486/*.cpp', 'retroweb/shared/pc/*.h', 'retroweb/shared/pc/*.cpp', 'retroweb/pc486/disks/*.cpp', 'retroweb/pc486/disks/*.sh', 'retroweb/pc486/disks/*.py', 'retroweb/pc486/disks/library.json', 'retroweb/pc486/roms/*.sh', 'retroweb/shared/dos-library/*.py', 'retroweb/shared/dos-library/*.sh') }}
           enableCrossOsArchive: true
 
       - name: Build pc486 preset hard disks
@@ -462,7 +462,7 @@ jobs:
             retroweb/pc486/disks/doom-hdd.img
             retroweb/pc486/disks/wolf3d-hdd.img
             retroweb/pc486/disks/tyrian-hdd.img
-          key: pc486-preset-hdds-${{ hashFiles('retroweb/pc486/Makefile', 'retroweb/pc486/*.h', 'retroweb/pc486/*.cpp', 'retroweb/pc486/disks/*.cpp', 'retroweb/pc486/disks/*.sh', 'retroweb/pc486/disks/*.py', 'retroweb/pc486/disks/library.json', 'retroweb/pc486/roms/*.sh', 'retroweb/shared/dos-library/*.py', 'retroweb/shared/dos-library/*.sh') }}
+          key: pc486-preset-hdds-${{ hashFiles('retroweb/pc486/Makefile', 'retroweb/pc486/*.h', 'retroweb/pc486/*.cpp', 'retroweb/shared/pc/*.h', 'retroweb/shared/pc/*.cpp', 'retroweb/pc486/disks/*.cpp', 'retroweb/pc486/disks/*.sh', 'retroweb/pc486/disks/*.py', 'retroweb/pc486/disks/library.json', 'retroweb/pc486/roms/*.sh', 'retroweb/shared/dos-library/*.py', 'retroweb/shared/dos-library/*.sh') }}
           enableCrossOsArchive: true
 
       - working-directory: retroweb/pc486/web

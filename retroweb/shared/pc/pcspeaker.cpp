@@ -1,6 +1,6 @@
 #include "pcspeaker.h"
 
-namespace pc486 {
+namespace pc {
 
 void PcSpeaker::reset() {
     level_ = false;
@@ -13,4 +13,4 @@ std::vector<PcSpeaker::Edge> PcSpeaker::drain_edges() {
     return out;
 }
 
-}  // namespace pc486
+}  // namespace pc

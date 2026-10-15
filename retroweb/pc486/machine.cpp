@@ -74,9 +74,8 @@ void Machine::run_cycles(int64_t cycles) {
         // AT boards decode the shutdown cycle and pulse RESET (IBM AT Technical
         // Reference, "Shutdown"); memory and CMOS survive.
         if (cpu.shutdown()) reset_cpu();
-        // INTA only starts if IF permits. Guarding poll_interrupt() with the inline
-        // has_interrupt() is exact: with no unmasked pending line its only effect is
-        // lower(2) on a clear IR2 (PC486_REVIEW.md §8).
+        // INTA only starts if IF permits. The inline has_interrupt() guard is exact,
+        // since service() keeps the cascade current (PC486_REVIEW.md §8).
         if (cpu.flag(cpu80486::FLAG_IF) && !cpu.interrupt_shadow() && chipset.has_interrupt()) {
             int vec = chipset.poll_interrupt();
             if (vec >= 0) cpu.interrupt(uint8_t(vec));

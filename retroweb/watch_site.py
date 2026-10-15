@@ -43,6 +43,7 @@ ARCADE = ("pacman", "frogger", "galaga", "galaxian", "scramble")
 ATARI = ("asteroids", "centipede", "missile")
 GALAXIAN_HW = ("frogger", "scramble", "galaxian")
 NAMCO_WSG = ("pacman", "galaga")
+PC_CHIPS = ("ibmpc-at", "pc486")
 
 GENERATED_JS = frozenset({
     "retro8080.js",
@@ -132,6 +133,10 @@ def classify(rel):
             if ext in CPP_EXT:
                 return ("shared_cpp", "atari")
             return None
+        if rest.startswith("pc/"):
+            if ext in CPP_EXT:
+                return ("shared_cpp", "pc")
+            return None
         if rest.startswith("__pycache__/"):
             return None
         if ext in STATIC_EXT or rest.endswith(".py"):
@@ -215,6 +220,8 @@ def machines_for_shared_cpp(kind):
         return list(NAMCO_WSG)
     if kind == "atari":
         return list(ATARI)
+    if kind == "pc":
+        return list(PC_CHIPS)
     return []
 
 

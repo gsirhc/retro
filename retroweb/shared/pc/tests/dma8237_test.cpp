@@ -1,10 +1,10 @@
 #include <gtest/gtest.h>
 
-#include "dma8237.h"
+#include "../dma8237.h"
 
 namespace {
 
-using ibmpcat::Dma8237;
+using pc::Dma8237;
 
 TEST(Dma8237Test, ResetMasksEveryChannel) {
     Dma8237 dma(0x00, 1);
@@ -199,6 +199,39 @@ TEST(Dma8237Test, Dma2OddPortsAliasTheEvenOnes) {
     dma2.out(0xC5, 0x22);
     dma2.out(0xD8, 0);
     EXPECT_EQ(dma2.in(0xC4), 0x11);
+}
+
+TEST(Dma8237Test, DecrementWrapsWithinTheSixteenBitCounter) {
+    Dma8237 dma(0x00, 1);
+    dma.reset();
+    dma.out(0x04, 0x00); dma.out(0x04, 0x00);
+    dma.out(0x05, 0x01); dma.out(0x05, 0x00);
+    dma.out(0x0B, 0x22);
+    bool tc;
+    EXPECT_EQ(dma.transfer(2, &tc), 0);
+    EXPECT_EQ(dma.address(2), 0xFFFF) << "the page register never borrows";
+}
+
+TEST(Dma8237Test, TerminalCountStatusIsPerChannel) {
+    Dma8237 dma(0x00, 1);
+    dma.reset();
+    dma.out(0x01, 0x00); dma.out(0x01, 0x00);
+    dma.out(0x07, 0x01); dma.out(0x07, 0x00);
+    bool tc0, tc3;
+    dma.transfer(0, &tc0);
+    dma.transfer(3, &tc3);
+    EXPECT_TRUE(tc0);
+    EXPECT_FALSE(tc3);
+    EXPECT_EQ(dma.in(0x08) & 0x0F, 0x01);
+}
+
+TEST(Dma8237Test, RequestBitShowsWhileTheChannelIsMasked) {
+    Dma8237 dma(0x00, 1);
+    dma.reset();
+    dma.set_dreq(2, true);
+    EXPECT_TRUE(dma.channel_masked(2));
+    EXPECT_EQ(dma.in(0x08) & 0xF0, 0x40);
+    EXPECT_EQ(dma.in(0x08) & 0xF0, 0x40) << "request bits are live, not latched by the read";
 }
 
 }  // namespace

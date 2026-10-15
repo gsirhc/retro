@@ -25,11 +25,6 @@ void Chipset::reset() {
     next_service_ = 0;
     port61_ = 0;
     refresh_toggle_ = false;
-    fdc_irq_prev_ = false;
-    hdd_irq_prev_ = false;
-    cdrom_irq_prev_ = false;
-    sb_irq_prev_ = false;
-    rtc_irq_prev_ = false;
     pic_master.reset();
     pic_slave.reset();
     pit.reset();
@@ -43,6 +38,7 @@ void Chipset::reset() {
     speaker.reset();
     sb.reset();
     mpu.reset();
+    update_irq_lines();
     note_a20();  // kbc.reset() closes the gate again
     // mem, rom_ and cmos survive reset.
 }
@@ -183,7 +179,11 @@ cpu80486::Bus Chipset::make_bus() {
 void Chipset::service(uint64_t cpu_cycles, double cpu_hz) {
     int refreshes = 0;
     int ch0_rises = pit.tick(cpu_cycles, cpu_hz, &refreshes);
-    for (int i = 0; i < ch0_rises; ++i) pic_master.raise(0);
+    // Each rising edge sets IRR even if OUT fell again inside this step.
+    for (int i = 0; i < ch0_rises; ++i) {
+        pic_master.set_line(0, false);
+        pic_master.set_line(0, true);
+    }
     // Port 61h bit 4 toggles with each refresh request (IBM PC/AT Technical Reference, port 61h).
     if (refreshes & 1) refresh_toggle_ = !refresh_toggle_;
     speaker.update(cpu_cycles, (port61_ & 0x02) != 0, pit.channel2_output());
@@ -208,22 +208,12 @@ void Chipset::service(uint64_t cpu_cycles, double cpu_hz) {
         // The block lands at once, so its bus holds do too.
         for (std::size_t i = 0; i < len; ++i)
             dma_timing(uint32_t(addr + i) & (kRamSize - 1), 1, !fdc.transfer_is_write());
-        for (std::size_t i = 0; i < len; ++i) dma1.advance(2);
+        bool tc;
+        for (std::size_t i = 0; i < len; ++i) dma1.transfer(2, &tc);
         fdc.finish_transfer(len);
     }
-    // Edge-triggered: raise only on the 0->1 transition.
-    bool fdc_irq_now = fdc.irq_pending();
-    if (fdc_irq_now && !fdc_irq_prev_) pic_master.raise(6);
-    fdc_irq_prev_ = fdc_irq_now;
 
-    // IRQ1 and IRQ12 are level-checked, not edge-detected. i8042's in(0x60)
-    // refills the output register inside the call that cleared it, so a queued
-    // second byte never shows an edge and its interrupt would be lost.
     kbc.tick(cpu_cycles, cpu_hz);
-    if (kbc.irq1_pending()) { pic_master.raise(1); kbc.clear_irq1(); }
-    if (kbc.irq12_pending()) { pic_slave.raise(4); kbc.clear_irq12(); }
-
-    // IRQ5 (Sound Blaster) is edge-triggered, one per completed block/command.
     sb.tick(cpu_cycles);
     // DREQ follows the jumpered channel every tick so a masked channel shows a pending request.
     {
@@ -235,41 +225,35 @@ void Chipset::service(uint64_t cpu_cycles, double cpu_hz) {
     }
     // Skips the out-of-line call unless a block is waiting.
     if (sb.transfer_ready()) service_sb_dma();
-    bool sb_irq_now = sb.irq_pending();
-    if (sb_irq_now && !sb_irq_prev_) {
-        // Mixer register 80h picks the line (SBPG 2-6); -1 means none.
-        switch (sb.irq_line()) {
-            case 2:
-                // "IRQ2" is wired to global IRQ9 (slave IR1) since the AT cascade takes master
-                // IR2 (IBM 5170 Technical Reference).
-                pic_slave.raise(1);
-                break;
-            case 5: pic_master.raise(5); break;
-            case 7: pic_master.raise(7); break;
-            case 10: pic_slave.raise(2); break;  // global IRQ10 = slave line 2
-            default: break;                      // no line selected
-        }
-    }
-    sb_irq_prev_ = sb_irq_now;
-
-    // IRQ14 (hard disk) and IRQ15 (CD-ROM) are slave lines 6 and 7.
     hdd.tick(cpu_cycles);
-    bool hdd_irq_now = hdd.irq_pending();
-    if (hdd_irq_now && !hdd_irq_prev_) pic_slave.raise(6);
-    hdd_irq_prev_ = hdd_irq_now;
-
     cdrom.tick(cpu_cycles);
-    bool cdrom_irq_now = cdrom.irq_pending();
-    if (cdrom_irq_now && !cdrom_irq_prev_) pic_slave.raise(7);
-    cdrom_irq_prev_ = cdrom_irq_now;
-
-    // IRQ8 (RTC, slave line 0): inverted active-low output, so a new flag is a rising edge.
     cmos.tick(cpu_cycles, cpu_hz);
-    bool rtc_irq_now = cmos.irq_pending();
-    if (rtc_irq_now && !rtc_irq_prev_) pic_slave.raise(0);
-    rtc_irq_prev_ = rtc_irq_now;
+    update_irq_lines();
 
     next_service_ = cpu_cycles + pit.cycles_to_next_count();
+}
+
+void Chipset::update_irq_lines() {
+    pic_master.set_line(0, pit.channel0_output());
+    // A byte landing drops the line for a moment first, as the 8042 does
+    // between bytes, so a refill inside one 0x60 read still makes an edge.
+    if (kbc.irq1_pending()) { pic_master.set_line(1, false); kbc.clear_irq1(); }
+    if (kbc.irq12_pending()) { pic_slave.set_line(4, false); kbc.clear_irq12(); }
+    pic_master.set_line(1, kbc.irq1_line());
+    pic_slave.set_line(4, kbc.irq12_line());
+    pic_master.set_line(6, fdc.irq_pending());
+    // Mixer register 80h picks the SB16's line (SBPG 2-6). Its "IRQ2" is bus
+    // IRQ2, which the AT routes to IRQ9 (IBM 5170 Technical Reference).
+    int sb_line = sb.irq_pending() ? sb.irq_line() : -1;
+    pic_master.set_line(5, sb_line == 5);
+    pic_master.set_line(7, sb_line == 7);
+    pic_slave.set_line(1, sb_line == 2);
+    pic_slave.set_line(2, sb_line == 10);
+    // The MC146818's active-low IRQ is inverted onto IRQ8.
+    pic_slave.set_line(0, cmos.irq_pending());
+    pic_slave.set_line(6, hdd.irq_pending());
+    pic_slave.set_line(7, cdrom.irq_pending());
+    sync_cascade();
 }
 
 void Chipset::service_sb_dma() {
@@ -301,7 +285,8 @@ void Chipset::service_sb_dma() {
                 buf[i] = mem[phys & (kRamSize - 1)];
                 buf[i + 1] = mem[(phys + 1) & (kRamSize - 1)];
             }
-            dma.advance(idx);
+            bool tc;
+            dma.transfer(idx, &tc);
         }
         moved = len;
     } else {
@@ -312,7 +297,8 @@ void Chipset::service_sb_dma() {
             dma_timing(phys & (kRamSize - 1), 1, sb.transfer_is_input());
             if (sb.transfer_is_input()) mem[phys & (kRamSize - 1)] = buf[i];
             else buf[i] = mem[phys & (kRamSize - 1)];
-            dma.advance(idx);
+            bool tc;
+            dma.transfer(idx, &tc);
         }
         moved = len;
     }
@@ -320,14 +306,26 @@ void Chipset::service_sb_dma() {
 }
 
 int Chipset::poll_interrupt() {
-    if (pic_slave.has_interrupt()) pic_master.raise(2);
-    else pic_master.lower(2);
+    sync_cascade();
     if (!pic_master.has_interrupt()) return -1;
-    if (pic_master.peek_highest_pending() == 2) {
-        pic_master.acknowledge();  // completes the master's own INTA side effects; vector discarded
-        return pic_slave.acknowledge();
+    int level = pic_master.inta1();
+    uint8_t vec;
+    if (pic_master.cascades(level)) {
+        // Only the slave whose ID matches the CAS lines drives the bus.
+        if (pic_slave.slave_id() == level) {
+            int slave_level = pic_slave.inta1();
+            vec = pic_slave.inta2(slave_level);
+        } else {
+            vec = 0xFF;
+        }
+        pic_master.inta2(level);
+    } else {
+        vec = pic_master.inta2(level);
     }
-    return pic_master.acknowledge();
+    // INT goes inactive after the second INTA (8259A data sheet, "Interrupt Sequence").
+    pic_master.set_line(2, false);
+    sync_cascade();
+    return vec;
 }
 
 }  // namespace pc486

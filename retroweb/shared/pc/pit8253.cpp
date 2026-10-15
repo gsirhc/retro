@@ -1,6 +1,6 @@
 #include "pit8253.h"
 
-namespace ibmpcat {
+namespace pc {
 
 namespace {
 
@@ -296,4 +296,4 @@ int Pit8253::step_counts(int count, int *ch1_rises) {
     return rises;
 }
 
-}  // namespace ibmpcat
+}  // namespace pc

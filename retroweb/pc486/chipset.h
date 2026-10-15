@@ -61,11 +61,11 @@ public:
     // Marks [addr, addr+len) read-only and copies `data` in.
     void load_rom(uint32_t addr, const uint8_t *data, std::size_t len);
 
-    Pic8259 pic_master{0x20};
-    Pic8259 pic_slave{0xA0};
+    Pic8259 pic_master{0x20, true};
+    Pic8259 pic_slave{0xA0, false};
     Pit8253 pit;
     I8042 kbc;
-    CmosRtc cmos;
+    CmosRtc cmos{128, 1994, 7};  // DS12887 class; 1 January 1994 was a Saturday
     Dma8237 dma1{0x00, 1};
     Dma8237 dma2{0xC0, 2};
     Fdc765 fdc;
@@ -111,7 +111,9 @@ public:
 
     // One INTA cycle, cascading through the slave on IR2. Returns -1 if none pending.
     int poll_interrupt();
-    bool has_interrupt() const { return pic_master.has_interrupt() || pic_slave.has_interrupt(); }
+    bool has_interrupt() const { return pic_master.has_interrupt(); }
+    // The slave's INT drives master IR2.
+    void sync_cascade() { pic_master.set_line(2, pic_slave.has_interrupt()); }
 
     // Port 0x80: BIOS POST code.
     uint8_t last_post_code() const { return last_post_code_; }
@@ -161,13 +163,8 @@ private:
     bool refresh_toggle_ = false;
     uint8_t last_post_code_ = 0x00;
     std::string debug_console_;
-    // Edge-triggered ISA IRQs; re-raising every tick causes an interrupt storm.
-    bool fdc_irq_prev_ = false;
-    bool hdd_irq_prev_ = false;   // IRQ14 (hard disk, slave PIC line 6)
-    bool cdrom_irq_prev_ = false; // IRQ15 (CD-ROM, slave PIC line 7)
     uint32_t vga_map_prev_ = 0xFFFFFFFFu;
-    bool sb_irq_prev_ = false;    // Sound Blaster, line picked by mixer 80h (IRQ5 default)
-    bool rtc_irq_prev_ = false;   // RTC, IRQ8
+    void update_irq_lines();
 
     // Moves one Sound Blaster DMA block (8-bit ch1 or 16-bit ch5) per completed paced wait.
     void io_out_impl(uint16_t port, uint8_t v);

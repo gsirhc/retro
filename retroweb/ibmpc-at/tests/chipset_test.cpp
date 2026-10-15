@@ -558,4 +558,14 @@ TEST(ChipsetTest, FormatTrackTakesItsIdsByDmaAndRaisesIrq6) {
     EXPECT_EQ(cs.fdc.drives[0].image[15 * 512], 0x11);
 }
 
+TEST(ChipsetTest, RtcIsThe5170sSixtyFourByteMc146818a) {
+    Chipset cs;
+    cs.cmos.out(0x70, 0x09);
+    EXPECT_EQ(cs.cmos.in(0x71), 0x86);
+    cs.cmos.out(0x70, 0x1B);
+    cs.cmos.out(0x71, 0xF2);
+    cs.cmos.out(0x70, 0x5B);
+    EXPECT_EQ(cs.cmos.in(0x71), 0xF2) << "six address bits, so 0x5B is 0x1B";
+}
+
 }  // namespace

@@ -1,10 +1,10 @@
 #include <gtest/gtest.h>
 
-#include "pic8259.h"
+#include "../pic8259.h"
 
 namespace {
 
-using ibmpcat::Pic8259;
+using pc::Pic8259;
 
 // AT BIOS master init: ICW1=0x11, ICW2=0x08 (base), ICW3=0x04 (slave on IR2), ICW4=0x01.
 void InitMaster(Pic8259& pic, uint8_t icw4 = 0x01) {
@@ -53,6 +53,15 @@ TEST(Pic8259Test, LowerIrqNumberHasHigherPriority) {
     Pulse(pic, 3);
     Pulse(pic, 1);
     EXPECT_EQ(Ack(pic), 0x08 + 1);
+}
+
+TEST(Pic8259Test, AcknowledgedRequestLeavesIntLow) {
+    Pic8259 pic(0x20, true);
+    InitMaster(pic);
+    Pulse(pic, 3);
+    ASSERT_TRUE(pic.has_interrupt());
+    EXPECT_EQ(Ack(pic), 0x08 + 3);
+    EXPECT_FALSE(pic.has_interrupt());
 }
 
 TEST(Pic8259Test, InServiceBlocksEqualAndLowerLevels) {
@@ -349,6 +358,21 @@ TEST(Pic8259Test, Mcs80ModeVectorIsTheCallsLowAddressByte) {
     pic.set_line(3, false);
     Pulse(pic, 3);
     EXPECT_EQ(Ack(pic), 0xD8);
+}
+
+TEST(Pic8259Test, HigherPriorityLinePreemptsOneInService) {
+    Pic8259 pic(0x20, true);
+    InitMaster(pic);
+    Pulse(pic, 6);
+    EXPECT_EQ(Ack(pic), 0x08 + 6);
+    Pulse(pic, 0);
+    EXPECT_EQ(Ack(pic), 0x08 + 0);
+    pic.out(0x20, 0x20);  // clears IR0, the highest in service
+    EXPECT_FALSE(pic.has_interrupt());
+    Pulse(pic, 7);
+    EXPECT_FALSE(pic.has_interrupt()) << "IR6 is still in service and outranks IR7";
+    pic.out(0x20, 0x20);
+    EXPECT_TRUE(pic.has_interrupt());
 }
 
 }  // namespace

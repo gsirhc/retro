@@ -13,10 +13,11 @@ EMCC_PERF_FLAGS = -DPC486_PERF
 endif
 
 CORE = ..
+PC = ../../shared/pc
 SRC = wasm_machine.cpp $(CORE)/machine.cpp $(CORE)/chipset.cpp $(CORE)/cpu80486.cpp $(CORE)/cache486.cpp \
-      $(CORE)/pic8259.cpp $(CORE)/pit8253.cpp $(CORE)/i8042.cpp $(CORE)/cmos_rtc.cpp \
-      $(CORE)/dma8237.cpp $(CORE)/fdc765.cpp $(CORE)/ega.cpp $(CORE)/ega_render.cpp \
-      $(CORE)/wd1003.cpp $(CORE)/atapi_cdrom.cpp $(CORE)/pcspeaker.cpp \
+      $(PC)/pic8259.cpp $(PC)/pit8253.cpp $(CORE)/i8042.cpp $(PC)/cmos_rtc.cpp \
+      $(PC)/dma8237.cpp $(CORE)/fdc765.cpp $(CORE)/ega.cpp $(CORE)/ega_render.cpp \
+      $(CORE)/wd1003.cpp $(CORE)/atapi_cdrom.cpp $(PC)/pcspeaker.cpp \
       $(CORE)/soundblaster.cpp \
       $(CORE)/opl3.cpp \
       $(CORE)/mpu401.cpp
@@ -33,7 +34,7 @@ EMFLAGS = -O3 -flto -std=c++17 -lembind --no-entry -fwasm-exceptions -sSUPPORT_L
   -sFILESYSTEM=0
 
 # Headers count: hot paths are inline in the .h files, so a stale module hides header-only changes.
-HDRS = $(wildcard $(CORE)/*.h)
+HDRS = $(wildcard $(CORE)/*.h $(PC)/*.h)
 
 pc486.js: $(SRC) $(HDRS)
 	$(EMCC) $(EMFLAGS) $(SRC) -o $@

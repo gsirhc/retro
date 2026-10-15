@@ -242,7 +242,7 @@ TEST(ChipsetTest, MasterPicInterruptDeliveredDirectly) {
     cs.pic_master.out(0x21, 0x04);
     cs.pic_master.out(0x21, 0x01);
     cs.pic_master.out(0x21, 0x00);  // unmask all
-    cs.pic_master.raise(1);         // e.g. keyboard IRQ1
+    cs.pic_master.set_line(1, true);  // e.g. keyboard IRQ1
     EXPECT_EQ(cs.poll_interrupt(), 0x08 + 1);
 }
 
@@ -352,6 +352,26 @@ TEST(ChipsetTest, KeyboardIrq1ReachesThePic) {
     cs.tick(0, 66000000.0);
     EXPECT_TRUE(cs.pic_master.has_interrupt());
     EXPECT_EQ(cs.poll_interrupt(), 0x08 + 1);  // vector_base(8) + IR1
+}
+
+TEST(ChipsetTest, KeyboardByteReadByPollingWithdrawsIrq1) {
+    // IRQ1 follows OBF, and the 8259A's request latch is transparent (data sheet Figure 9).
+    Chipset cs;
+    cs.pic_master.out(0x20, 0x11);
+    cs.pic_master.out(0x21, 0x08);
+    cs.pic_master.out(0x21, 0x04);
+    cs.pic_master.out(0x21, 0x01);
+    cs.pic_master.out(0x21, 0xFD);  // IRQ1 only
+    cs.kbc.out(0x64, 0x60); cs.kbc.out(0x60, 0x01);
+    cs.kbc.in(0x60);
+
+    cs.kbc.inject_scancode(0x1E);
+    cs.tick(0, 66000000.0);
+    ASSERT_TRUE(cs.pic_master.has_interrupt());
+    EXPECT_EQ(cs.io_in(0x60), 0x1E);
+    cs.tick(1, 66000000.0);
+    EXPECT_FALSE(cs.pic_master.has_interrupt());
+    EXPECT_EQ(cs.poll_interrupt(), -1);
 }
 
 TEST(ChipsetTest, SecondQueuedKeyboardByteStillReachesThePic) {
@@ -655,7 +675,7 @@ TEST(ChipsetTest, SoundBlasterHonoursTheMixerSelectedIrqLine) {
         cs.io_out(0x226, 1);
         cs.io_out(0x226, 0);
         ASSERT_EQ(cs.io_in(0x22A), 0xAA);
-        // flush sb_irq_prev_ edge state first; it only catches up on the next tick()
+        // the last round's IRQ is still pending; let the PICs sample it before the line moves
         cs.tick(cycles += 64, 66000000.0);
         cs.io_out(0x224, 0x80);
         cs.io_out(0x225, mixer80);
@@ -698,7 +718,7 @@ TEST(ChipsetTest, SlaveInterruptCascadesThroughMasterIr2) {
     cs.pic_slave.out(0xA1, 0x02);
     cs.pic_slave.out(0xA1, 0x01);
     cs.pic_slave.out(0xA1, 0x00);
-    cs.pic_slave.raise(0);  // e.g. IRQ8 (RTC)
+    cs.pic_slave.set_line(0, true);  // e.g. IRQ8 (RTC)
     EXPECT_EQ(cs.poll_interrupt(), 0x70);
 }
 
@@ -716,4 +736,16 @@ TEST(ChipsetTest, Mpu401AnswersItsOwnPortsThroughTheBusDecode) {
     cs.io_out(0x331, 0x3F);
     EXPECT_EQ(cs.io_in(0x330), 0xFE);
     EXPECT_TRUE(cs.mpu.uart_mode());
+}
+
+TEST(ChipsetTest, RtcIsAHundredTwentyEightByteDs12887) {
+    Chipset cs;
+    cs.io_out(0x70, 0x09);
+    EXPECT_EQ(cs.io_in(0x71), 0x94);
+    cs.io_out(0x70, 0x1B);
+    cs.io_out(0x71, 0xF2);
+    cs.io_out(0x70, 0x5B);
+    cs.io_out(0x71, 0x00);
+    cs.io_out(0x70, 0x1B);
+    EXPECT_EQ(cs.io_in(0x71), 0xF2) << "0x5B is its own byte";
 }

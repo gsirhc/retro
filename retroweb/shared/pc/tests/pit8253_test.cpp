@@ -5,11 +5,11 @@
 
 #include <string>
 
-#include "pit8253.h"
+#include "../pit8253.h"
 
 namespace {
 
-using pc486::Pit8253;
+using pc::Pit8253;
 constexpr double kPitHz = 1193182.0;
 
 // Steps the PIT one clock at a time, tracking the absolute clock count.
@@ -416,10 +416,32 @@ TEST(Pit8253Test, ControlWordThatRaisesChannel0OutCountsAsAnEdge) {
     EXPECT_EQ(c.step(), 1);
 }
 
+TEST(Pit8253Test, Mode2CountZeroReadsBackElapsedClocksFrom65536) {
+    // The Zen timer's scheme: mode 2, count 0, latch, negate (Abrash, PZTIMER.ASM).
+    Pit8253 pit;
+    Clock c{pit};
+    pit.out(0x43, 0x34);
+    pit.out(0x40, 0x00);
+    pit.out(0x40, 0x00);
+    c.step(1 + 500);
+    pit.out(0x43, 0x00);
+    EXPECT_EQ(uint16_t(-ReadCount(pit, 0x40)), 500);
+}
+
+TEST(Pit8253Test, Channel1RefreshRisesOncePerCount) {
+    // IBM POST: mode 2, count 18 (Technical Reference, System Timers).
+    Pit8253 pit;
+    pit.out(0x43, 0x54);
+    pit.out(0x41, 0x12);
+    int rises = 0;
+    for (uint64_t now = 1; now <= 1 + 18 * 100; ++now) pit.tick(now, kPitHz, &rises);
+    EXPECT_EQ(rises, 100);
+}
+
 // ---- tick() pacing ----
 
 TEST(Pit8253Test, CyclesToNextCountIsTheGapToTheNextWholeTimerClock) {
-    // The chipset skips its service pass until this many CPU cycles pass (PC486_REVIEW.md §16).
+    // pc486's chipset skips its service pass until this many CPU cycles pass.
     // At 66 MHz one count is ~55.3 CPU cycles, floored.
     constexpr double kCpuHz = 66000000.0;
     Pit8253 pit;
@@ -441,16 +463,6 @@ TEST(Pit8253Test, CyclesToNextCountIsTheGapToTheNextWholeTimerClock) {
 TEST(Pit8253Test, CyclesToNextCountIsZeroBeforeTheClockRateIsKnown) {
     Pit8253 pit;
     EXPECT_EQ(pit.cycles_to_next_count(), 0u);
-}
-
-TEST(Pit8253Test, Channel1RefreshRisesOncePerCount) {
-    // IBM POST: mode 2, count 18 (Technical Reference, System Timers).
-    Pit8253 pit;
-    pit.out(0x43, 0x54);
-    pit.out(0x41, 0x12);
-    int rises = 0;
-    for (uint64_t now = 1; now <= 1 + 18 * 100; ++now) pit.tick(now, kPitHz, &rises);
-    EXPECT_EQ(rises, 100);
 }
 
 }  // namespace

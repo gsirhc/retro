@@ -1,6 +1,6 @@
 #include "dma8237.h"
 
-namespace ibmpcat {
+namespace pc {
 
 void Dma8237::master_clear() {
     command_ = 0;
@@ -89,4 +89,4 @@ uint16_t Dma8237::transfer(int channel, bool* tc) {
     return used;
 }
 
-}  // namespace ibmpcat
+}  // namespace pc

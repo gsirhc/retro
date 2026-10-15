@@ -63,7 +63,7 @@ public:
 
     // Diagnostic hook before each instruction, CPU at its CS:EIP. Function pointer
     // plus ctx, not std::function: this loop runs 66M times a second (§8). Null
-    // costs about 1% (PC486_REVIEW.md §5.4, §6.5, §9; disks/boom_run_check.cpp).
+    // costs about 1% (PC486_REVIEW.md §5.4, §6.5, §9).
     void (*on_instruction)(void *ctx, Machine &m) = nullptr;
     void *on_instruction_ctx = nullptr;
 

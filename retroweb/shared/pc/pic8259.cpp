@@ -1,6 +1,6 @@
 #include "pic8259.h"
 
-namespace ibmpcat {
+namespace pc {
 
 void Pic8259::reset() {
     armed_ = uint8_t(~lines_);
@@ -14,16 +14,17 @@ void Pic8259::reset() {
     rotate_aeoi_ = false;
     read_isr_ = false;
     poll_ = false;
+    update();
 }
 
-void Pic8259::set_line(int irq, bool level) {
-    uint8_t bit = uint8_t(1 << irq);
+void Pic8259::change_line(uint8_t bit, bool level) {
     if (level) {
         lines_ = uint8_t(lines_ | bit);
     } else {
         lines_ = uint8_t(lines_ & ~bit);
         armed_ = uint8_t(armed_ | bit);
     }
+    update();
 }
 
 int Pic8259::resolve() const {
@@ -66,6 +67,7 @@ int Pic8259::inta1() {
     int level = resolve();
     if (level < 0) return 7;
     set_isr(level);
+    update();
     return level;
 }
 
@@ -83,6 +85,7 @@ uint8_t Pic8259::inta2(int level) {
     if (aeoi() && (icw4_ & 0x01)) {
         int done = non_specific_eoi();
         if (rotate_aeoi_ && done >= 0) lowest_ = done;
+        update();
     }
     return vec;
 }
@@ -94,6 +97,7 @@ uint8_t Pic8259::in(uint16_t port) {
         int level = resolve();
         if (level < 0) return 0x00;
         set_isr(level);
+        update();
         return uint8_t(0x80 | level);
     }
     if (port == uint16_t(base_ + 1)) return imr_;
@@ -101,6 +105,11 @@ uint8_t Pic8259::in(uint16_t port) {
 }
 
 void Pic8259::out(uint16_t port, uint8_t v) {
+    out_impl(port, v);
+    update();
+}
+
+void Pic8259::out_impl(uint16_t port, uint8_t v) {
     if (port == base_) {
         if (v & 0x10) {
             // ICW1 resets edge sense, IMR, priority, slave address, SMM and the status
@@ -158,4 +167,4 @@ void Pic8259::out(uint16_t port, uint8_t v) {
     }
 }
 
-}  // namespace ibmpcat
+}  // namespace pc

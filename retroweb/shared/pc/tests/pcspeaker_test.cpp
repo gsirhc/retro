@@ -1,10 +1,10 @@
 #include <gtest/gtest.h>
 
-#include "pcspeaker.h"
+#include "../pcspeaker.h"
 
 namespace {
 
-using ibmpcat::PcSpeaker;
+using pc::PcSpeaker;
 
 TEST(PcSpeakerTest, SignalIsAndOfSpeakerDataEnableAndPitChannel2Output) {
     PcSpeaker sp;

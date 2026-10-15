@@ -157,7 +157,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: retroweb/ibmpc-at/disks/freedos-hdd.img
-          key: ibmpcat-hdd-${{ hashFiles('retroweb/ibmpc-at/*.h', 'retroweb/ibmpc-at/*.cpp', 'retroweb/ibmpc-at/disks/*.cpp', 'retroweb/ibmpc-at/disks/*.sh', 'retroweb/ibmpc-at/roms/*.sh', 'retroweb/ibmpc-at/roms/egabios/*') }}
+          key: ibmpcat-hdd-${{ hashFiles('retroweb/ibmpc-at/*.h', 'retroweb/ibmpc-at/*.cpp', 'retroweb/shared/pc/*.h', 'retroweb/shared/pc/*.cpp', 'retroweb/ibmpc-at/disks/*.cpp', 'retroweb/ibmpc-at/disks/*.sh', 'retroweb/ibmpc-at/roms/*.sh', 'retroweb/ibmpc-at/roms/egabios/*') }}
 
       - name: Build IBM PC/AT FreeDOS HDD image
         if: steps.ibmpcat-hdd.outputs.cache-hit != 'true'
@@ -292,7 +292,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: retroweb/pc486/disks/freedos-hdd.img
-          key: pc486-hdd-${{ hashFiles('retroweb/pc486/*.h', 'retroweb/pc486/*.cpp', 'retroweb/pc486/disks/*.cpp', 'retroweb/pc486/disks/*.sh', 'retroweb/pc486/roms/*.sh') }}
+          key: pc486-hdd-${{ hashFiles('retroweb/pc486/*.h', 'retroweb/pc486/*.cpp', 'retroweb/shared/pc/*.h', 'retroweb/shared/pc/*.cpp', 'retroweb/pc486/disks/*.cpp', 'retroweb/pc486/disks/*.sh', 'retroweb/pc486/roms/*.sh') }}
 
       - name: Build pc486 FreeDOS HDD image
         if: steps.pc486-hdd.outputs.cache-hit != 'true'
@@ -303,7 +303,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: retroweb/pc486/disks/freedos-hdd.img
-          key: pc486-hdd-${{ hashFiles('retroweb/pc486/*.h', 'retroweb/pc486/*.cpp', 'retroweb/pc486/disks/*.cpp', 'retroweb/pc486/disks/*.sh', 'retroweb/pc486/roms/*.sh') }}
+          key: pc486-hdd-${{ hashFiles('retroweb/pc486/*.h', 'retroweb/pc486/*.cpp', 'retroweb/shared/pc/*.h', 'retroweb/shared/pc/*.cpp', 'retroweb/pc486/disks/*.cpp', 'retroweb/pc486/disks/*.sh', 'retroweb/pc486/roms/*.sh') }}
 
       # Both binaries: the shipped one and the instrumented twin the
       # Performance panel's ?perf loads. Building only the shipped one would
@@ -747,7 +747,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: retroweb/ibmpc-at/disks/freedos-hdd.img
-          key: ibmpcat-hdd-${{ hashFiles('retroweb/ibmpc-at/*.h', 'retroweb/ibmpc-at/*.cpp', 'retroweb/ibmpc-at/disks/*.cpp', 'retroweb/ibmpc-at/disks/*.sh', 'retroweb/ibmpc-at/roms/*.sh', 'retroweb/ibmpc-at/roms/egabios/*') }}
+          key: ibmpcat-hdd-${{ hashFiles('retroweb/ibmpc-at/*.h', 'retroweb/ibmpc-at/*.cpp', 'retroweb/shared/pc/*.h', 'retroweb/shared/pc/*.cpp', 'retroweb/ibmpc-at/disks/*.cpp', 'retroweb/ibmpc-at/disks/*.sh', 'retroweb/ibmpc-at/roms/*.sh', 'retroweb/ibmpc-at/roms/egabios/*') }}
 
       - name: Build IBM PC/AT FreeDOS HDD image
         if: steps.ibmpcat-hdd.outputs.cache-hit != 'true'
@@ -812,7 +812,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: retroweb/pc486/disks/freedos-hdd.img
-          key: pc486-hdd-${{ hashFiles('retroweb/pc486/*.h', 'retroweb/pc486/*.cpp', 'retroweb/pc486/disks/*.cpp', 'retroweb/pc486/disks/*.sh', 'retroweb/pc486/roms/*.sh') }}
+          key: pc486-hdd-${{ hashFiles('retroweb/pc486/*.h', 'retroweb/pc486/*.cpp', 'retroweb/shared/pc/*.h', 'retroweb/shared/pc/*.cpp', 'retroweb/pc486/disks/*.cpp', 'retroweb/pc486/disks/*.sh', 'retroweb/pc486/roms/*.sh') }}
 
       - name: Build pc486 FreeDOS HDD image
         if: steps.pc486-hdd.outputs.cache-hit != 'true'
@@ -823,7 +823,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: retroweb/pc486/disks/freedos-hdd.img
-          key: pc486-hdd-${{ hashFiles('retroweb/pc486/*.h', 'retroweb/pc486/*.cpp', 'retroweb/pc486/disks/*.cpp', 'retroweb/pc486/disks/*.sh', 'retroweb/pc486/roms/*.sh') }}
+          key: pc486-hdd-${{ hashFiles('retroweb/pc486/*.h', 'retroweb/pc486/*.cpp', 'retroweb/shared/pc/*.h', 'retroweb/shared/pc/*.cpp', 'retroweb/pc486/disks/*.cpp', 'retroweb/pc486/disks/*.sh', 'retroweb/pc486/roms/*.sh') }}
 
       # Preset C:s (?disk=doom, ?disk=wolf3d, ?disk=tyrian): each game's own installer run onto a
       # bare FreeDOS from the library's floppies (disks/build_preset_hdd.cpp).
@@ -835,7 +835,7 @@ jobs:
             retroweb/pc486/disks/doom-hdd.img
             retroweb/pc486/disks/wolf3d-hdd.img
             retroweb/pc486/disks/tyrian-hdd.img
-          key: pc486-preset-hdds-${{ hashFiles('retroweb/pc486/Makefile', 'retroweb/pc486/*.h', 'retroweb/pc486/*.cpp', 'retroweb/pc486/disks/*.cpp', 'retroweb/pc486/disks/*.sh', 'retroweb/pc486/disks/*.py', 'retroweb/pc486/disks/library.json', 'retroweb/pc486/roms/*.sh', 'retroweb/shared/dos-library/*.py', 'retroweb/shared/dos-library/*.sh') }}
+          key: pc486-preset-hdds-${{ hashFiles('retroweb/pc486/Makefile', 'retroweb/pc486/*.h', 'retroweb/pc486/*.cpp', 'retroweb/shared/pc/*.h', 'retroweb/shared/pc/*.cpp', 'retroweb/pc486/disks/*.cpp', 'retroweb/pc486/disks/*.sh', 'retroweb/pc486/disks/*.py', 'retroweb/pc486/disks/library.json', 'retroweb/pc486/roms/*.sh', 'retroweb/shared/dos-library/*.py', 'retroweb/shared/dos-library/*.sh') }}
 
       - name: Build pc486 preset hard disks
         if: steps.pc486-preset-hdds.outputs.cache-hit != 'true'
@@ -849,7 +849,7 @@ jobs:
             retroweb/pc486/disks/doom-hdd.img
             retroweb/pc486/disks/wolf3d-hdd.img
             retroweb/pc486/disks/tyrian-hdd.img
-          key: pc486-preset-hdds-${{ hashFiles('retroweb/pc486/Makefile', 'retroweb/pc486/*.h', 'retroweb/pc486/*.cpp', 'retroweb/pc486/disks/*.cpp', 'retroweb/pc486/disks/*.sh', 'retroweb/pc486/disks/*.py', 'retroweb/pc486/disks/library.json', 'retroweb/pc486/roms/*.sh', 'retroweb/shared/dos-library/*.py', 'retroweb/shared/dos-library/*.sh') }}
+          key: pc486-preset-hdds-${{ hashFiles('retroweb/pc486/Makefile', 'retroweb/pc486/*.h', 'retroweb/pc486/*.cpp', 'retroweb/shared/pc/*.h', 'retroweb/shared/pc/*.cpp', 'retroweb/pc486/disks/*.cpp', 'retroweb/pc486/disks/*.sh', 'retroweb/pc486/disks/*.py', 'retroweb/pc486/disks/library.json', 'retroweb/pc486/roms/*.sh', 'retroweb/shared/dos-library/*.py', 'retroweb/shared/dos-library/*.sh') }}
 
       - working-directory: retroweb/pc486/web
         run: make pc486.js pc486-perf.js roms hdd-image cdrom-image driver-images library-images preset-images shared
@@ -865,7 +865,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: retroweb/ibmpc-at/disks/keen1-hdd.img
-          key: ibmpcat-preset-hdds-${{ hashFiles('retroweb/ibmpc-at/*.h', 'retroweb/ibmpc-at/*.cpp', 'retroweb/ibmpc-at/disks/*.cpp', 'retroweb/ibmpc-at/disks/*.sh', 'retroweb/ibmpc-at/disks/library.json', 'retroweb/ibmpc-at/roms/*.sh', 'retroweb/ibmpc-at/roms/egabios/*', 'retroweb/pc486/disks/zero-free-clusters.py', 'retroweb/shared/dos-library/*.py', 'retroweb/shared/dos-library/*.sh') }}
+          key: ibmpcat-preset-hdds-${{ hashFiles('retroweb/ibmpc-at/*.h', 'retroweb/ibmpc-at/*.cpp', 'retroweb/shared/pc/*.h', 'retroweb/shared/pc/*.cpp', 'retroweb/ibmpc-at/disks/*.cpp', 'retroweb/ibmpc-at/disks/*.sh', 'retroweb/ibmpc-at/disks/library.json', 'retroweb/ibmpc-at/roms/*.sh', 'retroweb/ibmpc-at/roms/egabios/*', 'retroweb/pc486/disks/zero-free-clusters.py', 'retroweb/shared/dos-library/*.py', 'retroweb/shared/dos-library/*.sh') }}
 
       - name: Build IBM PC/AT preset hard disks
         if: steps.ibmpcat-preset-hdds.outputs.cache-hit != 'true'
@@ -876,7 +876,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: retroweb/ibmpc-at/disks/keen1-hdd.img
-          key: ibmpcat-preset-hdds-${{ hashFiles('retroweb/ibmpc-at/*.h', 'retroweb/ibmpc-at/*.cpp', 'retroweb/ibmpc-at/disks/*.cpp', 'retroweb/ibmpc-at/disks/*.sh', 'retroweb/ibmpc-at/disks/library.json', 'retroweb/ibmpc-at/roms/*.sh', 'retroweb/ibmpc-at/roms/egabios/*', 'retroweb/pc486/disks/zero-free-clusters.py', 'retroweb/shared/dos-library/*.py', 'retroweb/shared/dos-library/*.sh') }}
+          key: ibmpcat-preset-hdds-${{ hashFiles('retroweb/ibmpc-at/*.h', 'retroweb/ibmpc-at/*.cpp', 'retroweb/shared/pc/*.h', 'retroweb/shared/pc/*.cpp', 'retroweb/ibmpc-at/disks/*.cpp', 'retroweb/ibmpc-at/disks/*.sh', 'retroweb/ibmpc-at/disks/library.json', 'retroweb/ibmpc-at/roms/*.sh', 'retroweb/ibmpc-at/roms/egabios/*', 'retroweb/pc486/disks/zero-free-clusters.py', 'retroweb/shared/dos-library/*.py', 'retroweb/shared/dos-library/*.sh') }}
 
       - working-directory: retroweb/ibmpc-at/web
         run: make preset-images

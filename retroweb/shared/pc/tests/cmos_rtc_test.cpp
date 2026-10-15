@@ -1,56 +1,59 @@
-// GoogleTest suite for the MC146818-compatible RTC + CMOS.
-
 #include <gtest/gtest.h>
 
-#include "cmos_rtc.h"
+#include "../cmos_rtc.h"
 
 namespace {
 
-using pc486::CmosRtc;
+using pc::CmosRtc;
 
-constexpr double kHz = 66000000.0;
-constexpr uint64_t kSecond = 66000000;
+constexpr double kHz = 8000000.0;
+constexpr uint64_t kSecond = 8000000;
 
 uint8_t Read(CmosRtc &c, uint8_t reg) { c.out(0x70, reg); return c.in(0x71); }
 void Write(CmosRtc &c, uint8_t reg, uint8_t v) { c.out(0x70, reg); c.out(0x71, v); }
 
 TEST(CmosRtcTest, ResetLeavesBatteryValidFlagSet) {
-    CmosRtc cmos;
+    CmosRtc cmos(64, 1986, 4);
     EXPECT_EQ(Read(cmos, 0x0D) & 0x80, 0x80);
 }
 
 TEST(CmosRtcTest, AddressDataRoundTrip) {
-    CmosRtc cmos;
+    CmosRtc cmos(64, 1986, 4);
     Write(cmos, 0x15, 0x42);
     EXPECT_EQ(Read(cmos, 0x15), 0x42);
 }
 
 TEST(CmosRtcTest, HighBitOfAddressPortSetsNmiMask) {
-    CmosRtc cmos;
+    CmosRtc cmos(64, 1986, 4);
     EXPECT_FALSE(cmos.nmi_masked());
     cmos.out(0x70, 0x80 | 0x0D);
     EXPECT_TRUE(cmos.nmi_masked());
     EXPECT_EQ(cmos.in(0x71) & 0x80, 0x80) << "the low 7 bits still select the register";
 }
 
-TEST(CmosRtcTest, AllHundredTwentyEightBytesAreDistinct) {
-    CmosRtc cmos;
+TEST(CmosRtcTest, SixtyFourBytesAliasAbove3Fh) {
+    CmosRtc cmos(64, 1986, 4);
     Write(cmos, 0x1B, 0xF2);
-    Write(cmos, 0x5B, 0x00);
-    EXPECT_EQ(Read(cmos, 0x1B), 0xF2) << "0x5B must not alias the disk geometry at 0x1B";
-    Write(cmos, 0x7F, 0x99);
-    EXPECT_EQ(Read(cmos, 0x7F), 0x99);
+    EXPECT_EQ(Read(cmos, 0x5B), 0xF2) << "the 5170's MC146818A decodes six address bits";
+}
+
+TEST(CmosRtcTest, PowerOnRunsInBcdTwentyFourHourMode) {
+    CmosRtc cmos(64, 1986, 4);
+    EXPECT_EQ(Read(cmos, 0x0A), 0x26);
+    EXPECT_EQ(Read(cmos, 0x0B), 0x02);
+    EXPECT_EQ(Read(cmos, 0x09), 0x86);
+    EXPECT_EQ(Read(cmos, 0x32), 0x19);
 }
 
 TEST(CmosRtcTest, PokeAndPeekBypassThePortProtocol) {
-    CmosRtc cmos;
+    CmosRtc cmos(64, 1986, 4);
     cmos.poke(0x12, 0x28);
     EXPECT_EQ(cmos.peek(0x12), 0x28);
     EXPECT_EQ(Read(cmos, 0x12), 0x28);
 }
 
 TEST(CmosRtcTest, SetTimeLoadsBcdCalendarAndCentury) {
-    CmosRtc cmos;
+    CmosRtc cmos(64, 1986, 4);
     cmos.set_time(2026, 10, 4, 15, 42, 7, 1);
     EXPECT_EQ(Read(cmos, 0x00), 0x07);
     EXPECT_EQ(Read(cmos, 0x02), 0x42);
@@ -63,7 +66,7 @@ TEST(CmosRtcTest, SetTimeLoadsBcdCalendarAndCentury) {
 }
 
 TEST(CmosRtcTest, SetTimeFollowsBinaryAndTwelveHourModes) {
-    CmosRtc cmos;
+    CmosRtc cmos(64, 1986, 4);
     Write(cmos, 0x0B, 0x04);  // binary, 12-hour
     cmos.set_time(1994, 1, 1, 15, 30, 0, 7);
     EXPECT_EQ(Read(cmos, 0x04), 0x83) << "3 PM: hour 3 with the PM bit";
@@ -71,7 +74,7 @@ TEST(CmosRtcTest, SetTimeFollowsBinaryAndTwelveHourModes) {
 }
 
 TEST(CmosRtcTest, TheClockAdvancesOneSecondPerSecondOfGuestTime) {
-    CmosRtc cmos;
+    CmosRtc cmos(64, 1986, 4);
     cmos.set_time(1994, 1, 1, 0, 0, 0, 7);
     cmos.tick(kSecond / 2, kHz);
     EXPECT_EQ(Read(cmos, 0x00), 0x00);
@@ -82,14 +85,14 @@ TEST(CmosRtcTest, TheClockAdvancesOneSecondPerSecondOfGuestTime) {
 }
 
 TEST(CmosRtcTest, TheCrystalNotTheCpuClockSetsTheRate) {
-    CmosRtc cmos;
+    CmosRtc cmos(64, 1986, 4);
     cmos.set_time(1994, 1, 1, 0, 0, 0, 7);
     cmos.tick(33000000 + 1000, 33000000.0);  // a 33 MHz CPU: half the cycles per second
     EXPECT_EQ(Read(cmos, 0x00), 0x01);
 }
 
 TEST(CmosRtcTest, UpdateInProgressRisesJustBeforeTheUpdate) {
-    CmosRtc cmos;
+    CmosRtc cmos(64, 1986, 4);
     cmos.tick(kSecond - kSecond / 1000, kHz);  // 1 ms before the update
     EXPECT_NE(Read(cmos, 0x0A) & 0x80, 0) << "UIP covers the 244 us lead plus the 1984 us update";
     cmos.tick(kSecond + 1000, kHz);
@@ -99,7 +102,7 @@ TEST(CmosRtcTest, UpdateInProgressRisesJustBeforeTheUpdate) {
 }
 
 TEST(CmosRtcTest, MidnightOnNewYearsEveRollsEveryField) {
-    CmosRtc cmos;
+    CmosRtc cmos(64, 1986, 4);
     cmos.set_time(1999, 12, 31, 23, 59, 59, 7);
     cmos.tick(kSecond + 1000, kHz);
     EXPECT_EQ(Read(cmos, 0x00), 0x00);
@@ -113,7 +116,7 @@ TEST(CmosRtcTest, MidnightOnNewYearsEveRollsEveryField) {
 }
 
 TEST(CmosRtcTest, FebruaryHasTwentyNineDaysEveryFourthYear) {
-    CmosRtc cmos;
+    CmosRtc cmos(64, 1986, 4);
     cmos.set_time(1996, 2, 28, 23, 59, 59, 4);
     cmos.tick(kSecond + 1000, kHz);
     EXPECT_EQ(Read(cmos, 0x07), 0x29);
@@ -124,7 +127,7 @@ TEST(CmosRtcTest, FebruaryHasTwentyNineDaysEveryFourthYear) {
 }
 
 TEST(CmosRtcTest, TwelveHourModeRollsElevenPmToTwelveAm) {
-    CmosRtc cmos;
+    CmosRtc cmos(64, 1986, 4);
     Write(cmos, 0x0B, 0x00);  // BCD, 12-hour
     cmos.set_time(1994, 1, 1, 23, 59, 59, 7);
     EXPECT_EQ(Read(cmos, 0x04), 0x91);
@@ -133,7 +136,7 @@ TEST(CmosRtcTest, TwelveHourModeRollsElevenPmToTwelveAm) {
 }
 
 TEST(CmosRtcTest, PeriodicFlagRaisesIrq8OnlyWhenEnabled) {
-    CmosRtc cmos;
+    CmosRtc cmos(64, 1986, 4);
     cmos.tick(kSecond / 1000, kHz);  // past one 1024 Hz period
     EXPECT_FALSE(cmos.irq_pending()) << "PF sets, but PIE is off";
     EXPECT_EQ(Read(cmos, 0x0C), 0x40);
@@ -145,7 +148,7 @@ TEST(CmosRtcTest, PeriodicFlagRaisesIrq8OnlyWhenEnabled) {
 }
 
 TEST(CmosRtcTest, UpdateEndedAndAlarmInterrupts) {
-    CmosRtc cmos;
+    CmosRtc cmos(64, 1986, 4);
     cmos.set_time(1994, 1, 1, 6, 30, 0, 7);
     Write(cmos, 0x01, 0x02);  // alarm at second 2
     Write(cmos, 0x03, 0xC0);  // any minute
@@ -158,7 +161,7 @@ TEST(CmosRtcTest, UpdateEndedAndAlarmInterrupts) {
 }
 
 TEST(CmosRtcTest, SetBitFreezesTheClockAndClearsUie) {
-    CmosRtc cmos;
+    CmosRtc cmos(64, 1986, 4);
     cmos.set_time(1994, 1, 1, 0, 0, 0, 7);
     Write(cmos, 0x0B, 0x80 | 0x10 | 0x02);
     EXPECT_EQ(Read(cmos, 0x0B) & 0x10, 0);
@@ -171,7 +174,7 @@ TEST(CmosRtcTest, SetBitFreezesTheClockAndClearsUie) {
 }
 
 TEST(CmosRtcTest, RegistersCAndDAreReadOnly) {
-    CmosRtc cmos;
+    CmosRtc cmos(64, 1986, 4);
     Write(cmos, 0x0C, 0xF0);
     EXPECT_EQ(Read(cmos, 0x0C), 0x00);
     Write(cmos, 0x0D, 0x00);
@@ -179,12 +182,32 @@ TEST(CmosRtcTest, RegistersCAndDAreReadOnly) {
 }
 
 TEST(CmosRtcTest, StoppingTheDividerHoldsTheTime) {
-    CmosRtc cmos;
+    CmosRtc cmos(64, 1986, 4);
     cmos.set_time(1994, 1, 1, 0, 0, 0, 7);
     Write(cmos, 0x0A, 0x76);  // divider held in reset
     cmos.tick(5 * kSecond, kHz);
     EXPECT_EQ(Read(cmos, 0x00), 0x00);
     EXPECT_EQ(Read(cmos, 0x0C) & 0x40, 0) << "no periodic flag without the time base";
+}
+
+TEST(CmosRtcTest, DS12887HasAllHundredTwentyEightBytes) {
+    CmosRtc cmos(128, 1994, 7);
+    Write(cmos, 0x1B, 0xF2);
+    Write(cmos, 0x5B, 0x00);
+    EXPECT_EQ(Read(cmos, 0x1B), 0xF2) << "0x5B must not alias the disk geometry at 0x1B";
+    Write(cmos, 0x7F, 0x99);
+    EXPECT_EQ(Read(cmos, 0x7F), 0x99);
+    cmos.poke(0xFF, 0x42);
+    EXPECT_EQ(cmos.peek(0x7F), 0x42);
+}
+
+TEST(CmosRtcTest, PowerOnDateIsTheBoardsOwn) {
+    CmosRtc cmos(128, 1994, 7);
+    EXPECT_EQ(Read(cmos, 0x09), 0x94);
+    EXPECT_EQ(Read(cmos, 0x32), 0x19);
+    EXPECT_EQ(Read(cmos, 0x08), 0x01);
+    EXPECT_EQ(Read(cmos, 0x07), 0x01);
+    EXPECT_EQ(Read(cmos, 0x06), 0x07) << "1 January 1994 was a Saturday";
 }
 
 }  // namespace

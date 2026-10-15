@@ -35,6 +35,8 @@ void I8042::reset() {
     reset_requested_ = false;
     irq1_pending_ = false;
     irq12_pending_ = false;
+    irq1_line_ = false;
+    irq12_line_ = false;
     queue_head_ = 0;
     queue_count_ = 0;
     typematic_ = 0x2B;
@@ -71,9 +73,9 @@ void I8042::pump_output() const {
     // Command byte bit 0 enables IRQ1, bit 1 IRQ12. The source port picks the line.
     if (q.irq) {
         if (q.aux) {
-            if (command_byte_ & 0x02) irq12_pending_ = true;
+            if (command_byte_ & 0x02) irq12_pending_ = irq12_line_ = true;
         } else {
-            if (command_byte_ & 0x01) irq1_pending_ = true;
+            if (command_byte_ & 0x01) irq1_pending_ = irq1_line_ = true;
         }
     }
 }
@@ -96,6 +98,8 @@ uint8_t I8042::in(uint16_t port) const {
         // Interrupt lines follow OBF: a read clears both, a queued byte re-asserts as it lands
         irq1_pending_ = false;
         irq12_pending_ = false;
+        irq1_line_ = false;
+        irq12_line_ = false;
         uint8_t v = output_buf_;
         pump_output();
         // Line free: a stream-mode mouse with banked movement starts its next packet here

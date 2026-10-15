@@ -79,9 +79,7 @@ The browser emulators and the landing page that lists them.
   WebAssembly front end in `pc486/web/`. Ships pre-loaded with FreeDOS 1.3 on its virtual hard disk
   (installed by actually running the real, unmodified FreeDOS 1.3 installer
   end to end — see `pc486/disks/build_freedos_hdd.cpp`) — boots straight to
-  a `C:\>` prompt, and its `C:\GAMES` directory has BOOM (a real DJGPP/
-  CWSDPMI DOS Doom source port) actually running and rendering through the
-  full protected-mode/VGA stack. **Milestones 1-4 complete** — see
+  a `C:\>` prompt. **Milestones 1-4 complete** — see
   [`PC486_REVIEW.md`](pc486/PC486_REVIEW.md).
 
 ## Shared front-end code
@@ -110,6 +108,10 @@ the CPU is wired.
 [`shared/galaxian/`](shared/galaxian/) is the AY / 8255 / Galaxian video /
 Konami timer shared by Frogger, Scramble, and Galaxian (Galaxian the game
 uses the video with `Board::Galaxian`; it has no AY or 8255).
+[`shared/pc/`](shared/pc/) is the 8254 PIT, the 8259A PICs, the 8237A DMA
+controllers, the MC146818 RTC and the speaker gate shared by the IBM PC/AT
+and the 486. Each PC's own `tests/CMakeLists.txt` builds and runs
+`shared/pc/tests/`, so both suites cover it.
 
 ## The deployed site
 

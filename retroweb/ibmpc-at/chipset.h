@@ -64,7 +64,7 @@ public:
     Pic8259 pic_slave{0xA0, false};
     Pit8253 pit;
     I8042 kbc;
-    CmosRtc cmos;
+    CmosRtc cmos{64, 1986, 4};  // MC146818A; 1 January 1986 was a Wednesday
     Dma8237 dma1{0x00, 1};
     Dma8237 dma2{0xC0, 2};
     Fdc765 fdc;

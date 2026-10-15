@@ -41,8 +41,13 @@ public:
         if (v & 0x01) reset_requested_ = true;
     }
 
+    // A byte landed with its IRQ enabled. Latched until cleared, since a read of
+    // 0x60 can refill the buffer in the same call and the line never drops.
     bool irq1_pending() const { return irq1_pending_; }
     void clear_irq1() { irq1_pending_ = false; }
+    // The IRQ1/IRQ12 pins: high from that byte landing until 0x60 is read.
+    bool irq1_line() const { return irq1_line_; }
+    bool irq12_line() const { return irq12_line_; }
 
     // IRQ12, the AUX line. Driven by the output buffer only while the byte came
     // from the mouse (status bit 5, AUXB) and command-byte bit 1 enables it.
@@ -114,6 +119,8 @@ private:
     bool reset_requested_ = false;
     mutable bool irq1_pending_ = false;
     mutable bool irq12_pending_ = false;
+    mutable bool irq1_line_ = false;
+    mutable bool irq12_line_ = false;
 
     uint8_t typematic_ = 0x2B;   // 500 ms delay, 10.9 cps: the power-on default
     uint8_t kbd_arg_cmd_ = 0;    // a keyboard command (0xED/0xF0/0xF3) awaiting its argument

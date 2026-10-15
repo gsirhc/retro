@@ -2,7 +2,7 @@
 
 #include <algorithm>
 
-namespace ibmpcat {
+namespace pc {
 
 namespace {
 
@@ -24,7 +24,7 @@ void CmosRtc::reset() {
     ram_[kRegA] = 0x26;  // 32.768 kHz time base, 1024 Hz periodic rate
     ram_[kRegB] = kHour24;
     ram_[kRegD] = 0x80;  // VRT: battery and RAM valid
-    set_time(1986, 1, 1, 0, 0, 0, 4);
+    set_time(year_, 1, 1, 0, 0, 0, weekday_);
     credit_ = 0.0;
     second_start_ = 0.0;
     next_periodic_ = periodic_ticks();
@@ -51,7 +51,7 @@ void CmosRtc::set_time(int year, int month, int day, int hour, int minute, int s
 
 uint8_t CmosRtc::in(uint16_t port) {
     if (port == 0x70) return 0xFF;  // address latch is write-only on real hardware
-    uint8_t reg = addr_ & 0x3F;
+    uint8_t reg = addr_ & mask_;
     if (reg == kRegA) return uint8_t((ram_[kRegA] & 0x7F) | (uip_ ? 0x80 : 0x00));
     if (reg == kRegC) {
         uint8_t v = ram_[kRegC];
@@ -67,7 +67,7 @@ void CmosRtc::out(uint16_t port, uint8_t v) {
         nmi_masked_ = (v & 0x80) != 0;
         return;
     }
-    uint8_t reg = addr_ & 0x3F;
+    uint8_t reg = addr_ & mask_;
     if (reg == kRegC || reg == kRegD) return;  // read-only
     if (reg == kRegA) {
         bool was = running();
@@ -202,4 +202,4 @@ void CmosRtc::run_update() {
     }
 }
 
-}  // namespace ibmpcat
+}  // namespace pc

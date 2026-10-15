@@ -27,31 +27,32 @@ function(add_unit_test name)
 endfunction()
 
 set(CORE ${CMAKE_CURRENT_SOURCE_DIR}/..)
+set(PC ${CORE}/../shared/pc)
 add_unit_test(cpu80486_test cpu80486_test.cpp ${CORE}/cpu80486.cpp ${CORE}/cache486.cpp)
 add_unit_test(cpu80486_timing_test cpu80486_timing_test.cpp ${CORE}/cpu80486.cpp ${CORE}/cache486.cpp)
 add_unit_test(cache486_test cache486_test.cpp ${CORE}/cache486.cpp)
-add_unit_test(pic8259_test  pic8259_test.cpp  ${CORE}/pic8259.cpp)
-add_unit_test(pit8253_test  pit8253_test.cpp  ${CORE}/pit8253.cpp)
+add_unit_test(pic8259_test  ${PC}/tests/pic8259_test.cpp  ${PC}/pic8259.cpp)
+add_unit_test(pit8253_test  ${PC}/tests/pit8253_test.cpp  ${PC}/pit8253.cpp)
 add_unit_test(i8042_test    i8042_test.cpp    ${CORE}/i8042.cpp)
-add_unit_test(cmos_rtc_test cmos_rtc_test.cpp ${CORE}/cmos_rtc.cpp)
-add_unit_test(dma8237_test  dma8237_test.cpp  ${CORE}/dma8237.cpp)
+add_unit_test(cmos_rtc_test ${PC}/tests/cmos_rtc_test.cpp ${PC}/cmos_rtc.cpp)
+add_unit_test(dma8237_test  ${PC}/tests/dma8237_test.cpp  ${PC}/dma8237.cpp)
 add_unit_test(chipset_test  chipset_test.cpp
-  ${CORE}/chipset.cpp ${CORE}/cache486.cpp ${CORE}/pic8259.cpp ${CORE}/pit8253.cpp
-  ${CORE}/i8042.cpp ${CORE}/cmos_rtc.cpp ${CORE}/dma8237.cpp ${CORE}/fdc765.cpp ${CORE}/ega.cpp
-  ${CORE}/wd1003.cpp ${CORE}/atapi_cdrom.cpp ${CORE}/pcspeaker.cpp ${CORE}/soundblaster.cpp ${CORE}/opl3.cpp
+  ${CORE}/chipset.cpp ${CORE}/cache486.cpp ${PC}/pic8259.cpp ${PC}/pit8253.cpp
+  ${CORE}/i8042.cpp ${PC}/cmos_rtc.cpp ${PC}/dma8237.cpp ${CORE}/fdc765.cpp ${CORE}/ega.cpp
+  ${CORE}/wd1003.cpp ${CORE}/atapi_cdrom.cpp ${PC}/pcspeaker.cpp ${CORE}/soundblaster.cpp ${CORE}/opl3.cpp
   ${CORE}/mpu401.cpp)
 add_unit_test(machine_test  machine_test.cpp
   ${CORE}/machine.cpp ${CORE}/chipset.cpp ${CORE}/cpu80486.cpp ${CORE}/cache486.cpp
-  ${CORE}/pic8259.cpp ${CORE}/pit8253.cpp ${CORE}/i8042.cpp
-  ${CORE}/cmos_rtc.cpp ${CORE}/dma8237.cpp ${CORE}/fdc765.cpp ${CORE}/ega.cpp
-  ${CORE}/wd1003.cpp ${CORE}/atapi_cdrom.cpp ${CORE}/pcspeaker.cpp ${CORE}/soundblaster.cpp ${CORE}/opl3.cpp
+  ${PC}/pic8259.cpp ${PC}/pit8253.cpp ${CORE}/i8042.cpp
+  ${PC}/cmos_rtc.cpp ${PC}/dma8237.cpp ${CORE}/fdc765.cpp ${CORE}/ega.cpp
+  ${CORE}/wd1003.cpp ${CORE}/atapi_cdrom.cpp ${PC}/pcspeaker.cpp ${CORE}/soundblaster.cpp ${CORE}/opl3.cpp
   ${CORE}/mpu401.cpp)
 add_unit_test(fdc765_test   fdc765_test.cpp  ${CORE}/fdc765.cpp)
 add_unit_test(ega_test      ega_test.cpp     ${CORE}/ega.cpp)
 add_unit_test(ega_render_test ega_render_test.cpp ${CORE}/ega.cpp ${CORE}/ega_render.cpp)
 add_unit_test(wd1003_test   wd1003_test.cpp  ${CORE}/wd1003.cpp)
 add_unit_test(atapi_cdrom_test atapi_cdrom_test.cpp ${CORE}/atapi_cdrom.cpp)
-add_unit_test(pcspeaker_test pcspeaker_test.cpp ${CORE}/pcspeaker.cpp)
+add_unit_test(pcspeaker_test ${PC}/tests/pcspeaker_test.cpp ${PC}/pcspeaker.cpp)
 add_unit_test(soundblaster_test soundblaster_test.cpp ${CORE}/soundblaster.cpp ${CORE}/opl3.cpp)
 add_unit_test(opl3_test        opl3_test.cpp        ${CORE}/opl3.cpp)
 add_unit_test(mpu401_test      mpu401_test.cpp      ${CORE}/mpu401.cpp)

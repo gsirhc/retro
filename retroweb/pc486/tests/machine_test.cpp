@@ -134,12 +134,12 @@ TEST(MachineTest, AnInterruptPendingAtStiWaitsOneInstruction) {
     m.chipset.pic_master.out(0x21, 0x08);
     m.chipset.pic_master.out(0x21, 0x04);
     m.chipset.pic_master.out(0x21, 0x01);
-    m.chipset.pic_master.out(0x21, 0xFD);  // unmask IRQ1 only
-    m.chipset.pic_master.raise(1);         // already pending when STI runs
+    m.chipset.pic_master.out(0x21, 0xF7);  // unmask IRQ3 only
+    m.chipset.pic_master.set_line(3, true);  // no device here drives IR3; pending when STI runs
 
     auto &mem = m.chipset.mem;
-    mem[9 * 4 + 0] = 0x00; mem[9 * 4 + 1] = 0x50;  // IVT[9] -> 0000:5000
-    mem[9 * 4 + 2] = 0x00; mem[9 * 4 + 3] = 0x00;
+    mem[11 * 4 + 0] = 0x00; mem[11 * 4 + 1] = 0x50;  // IVT[0Bh] -> 0000:5000
+    mem[11 * 4 + 2] = 0x00; mem[11 * 4 + 3] = 0x00;
     // Handler: MOV AL,[1235h] ; MOV [1236h],AL ; MOV byte [1234h],1 ; IRET
     const uint8_t handler[] = {0xA0, 0x35, 0x12, 0xA2, 0x36, 0x12, 0xC6, 0x06, 0x34, 0x12, 0x01, 0xCF};
     for (std::size_t i = 0; i < sizeof handler; ++i) mem[0x5000 + i] = handler[i];

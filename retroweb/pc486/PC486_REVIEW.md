@@ -4804,10 +4804,9 @@ JEMMEX-free path, unchanged from §5.10.
 BOOM no longer ships, so `make boom-check` (§9-§13's proof that this core
 runs genuine third-party protected-mode software) is retired as a
 Makefile target -- there is no `C:\GAMES\BOOM` left on the shipped image
-for it to run. `disks/boom_run_check.cpp` itself is left in place,
-buildable by hand, for anyone who builds a Full-package image locally and
-wants to re-run that proof; it is simply no longer wired to `make` or to
-the shipped asset. `web/tests/zzbench.spec.ts`, a Playwright benchmark
+for it to run. `disks/boom_run_check.cpp` was later deleted too; git
+history has it for anyone who builds a Full-package image and wants to
+re-run that proof. `web/tests/zzbench.spec.ts`, a Playwright benchmark
 that also launched BOOM and was already self-labeled scratch code ("not
 part of the suite, deleted before the work lands"), is deleted outright
 rather than retargeted, since it never was meant to survive as shipped
