@@ -42,6 +42,11 @@
   playfield below the INSERT COIN line (x 0–262, y 58–175) and resized to
   286×128 (JPEG q90).
 
+  These four are the shipped Ready to Play tiles. The landing page's
+  Thumbnails dropdown (Original by default) can swap in libretro-thumbnails'
+  DOS screenshot, title screen, or box art (`data-art`, cropped by
+  `data-<style>-y`), fetched by the visitor's browser. None of it is staged.
+
 - **`ibmpcat-panel.jpg`** — a screenshot of *this project's* rendered IBM
   PC/AT front panel (`#frontPanelCard .at-case`), captured from the emulator
   after auto-boot with a diskette inserted in drive A: (power LED lit,
@@ -80,6 +85,14 @@
   Built by `retroweb/shared/marquee.py` (`python3 retroweb/shared/marquee.py
   retroweb/assets`; atlas rebuild `--rebuild-atlas`). Also invoked from
   each machine's `gen_hwtest.py`.
+
+  These are the only arcade tiles that ship. The hub's Thumbnails dropdown
+  (Original by default) has the visitor's browser load each card's `data-art`
+  image from libretro-thumbnails
+  (`thumbnails.libretro.com/MAME/{Named_Snaps,Named_Titles,Named_Boxarts}/<MAME description>.png`),
+  or its `data-marquee` marquee from the Arcade Database
+  (`adb.arcadeitalia.net/media/mame.current/marquees/<set>.png`).
+  None of that art is committed or staged.
 
 - **`pc486-panel.jpg`** — a screenshot of *this project's* rendered 486
   front-panel turbo cluster (`#frontPanelCard .at-case` with `.at-drives`

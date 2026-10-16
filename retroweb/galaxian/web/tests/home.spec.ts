@@ -13,7 +13,7 @@ const HOME = "http://localhost:8810/";
 const ARCADE = "http://localhost:8810/arcade/";
 
 test.describe("retroweb landing page", () => {
-  test("lists Galaxian Arcade on the arcade hub, not the home teaser", async ({ page }) => {
+  test("lists Galaxian on the arcade hub, not the home teaser", async ({ page }) => {
     await page.goto(HOME);
     await expect(page).toHaveTitle(/Welcome to OAC Emulators/);
     await expect(page.locator('a.machine-card[href="galaxian/"]')).toHaveCount(0);
@@ -22,7 +22,7 @@ test.describe("retroweb landing page", () => {
 
     await page.goto(ARCADE);
     const card = page.locator('a.machine-card[href="../galaxian/"]');
-    await expect(card.locator(".name")).toHaveText(/Galaxian Arcade/i);
+    await expect(card.locator(".name")).toHaveText("Galaxian");
 
     const shot = card.locator("img.shot");
     await expect(shot).toHaveAttribute("src", /assets\/galaxian-cabinet\.png$/);

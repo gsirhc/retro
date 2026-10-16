@@ -95,18 +95,18 @@ test.describe("arcade hub", () => {
     await expect(page.locator("#arcadeCatalog > h2.section-heading")).toHaveCount(0);
     const names = await page.locator("#arcadeCatalog a.machine-card .name").allTextContents();
     expect(names).toEqual([
-      "Asteroids Arcade",
-      "Centipede Arcade",
-      "Frogger Arcade",
-      "Galaga Arcade",
-      "Galaxian Arcade",
-      "Missile Command Arcade",
-      "Ms. Pac-Man Arcade",
-      "Pac-Man Arcade",
-      "Scramble Arcade",
+      "Asteroids",
+      "Centipede",
+      "Frogger",
+      "Galaga",
+      "Galaxian",
+      "Missile Command",
+      "Ms. Pac-Man",
+      "Pac-Man",
+      "Scramble",
     ]);
     const pac = page.locator('a.machine-card[href="../pacman/"]');
-    await expect(pac.locator(".name")).toHaveText(/Pac-Man Arcade/i);
+    await expect(pac.locator(".name")).toHaveText("Pac-Man");
     const shot = pac.locator("img.shot");
     await expect(shot).toHaveAttribute("src", /assets\/pacman-cabinet\.png$/);
     await expect(shot).toHaveJSProperty("complete", true);
@@ -114,7 +114,7 @@ test.describe("arcade hub", () => {
     expect(await shot.evaluate((img: HTMLImageElement) => img.naturalHeight)).toBe(128);
 
     const ms = page.locator('a.machine-card[href="../pacman/?game=mspacman"]');
-    await expect(ms.locator(".name")).toHaveText(/Ms\. Pac-Man Arcade/i);
+    await expect(ms.locator(".name")).toHaveText("Ms. Pac-Man");
   });
 
   test("Sort by Year / CPU / Manufacturer groups with section headings and persists", async ({ page }) => {
@@ -128,28 +128,28 @@ test.describe("arcade hub", () => {
     ]);
     let names = await page.locator("#arcadeCatalog a.machine-card .name").allTextContents();
     expect(names).toEqual([
-      "Asteroids Arcade",
-      "Galaxian Arcade",
-      "Missile Command Arcade",
-      "Pac-Man Arcade",
-      "Centipede Arcade",
-      "Frogger Arcade",
-      "Galaga Arcade",
-      "Scramble Arcade",
-      "Ms. Pac-Man Arcade",
+      "Asteroids",
+      "Galaxian",
+      "Missile Command",
+      "Pac-Man",
+      "Centipede",
+      "Frogger",
+      "Galaga",
+      "Scramble",
+      "Ms. Pac-Man",
     ]);
 
     await sel.selectOption("cpu");
     await expect(page.locator("#arcadeCatalog > h2.section-heading")).toHaveText(["6502", "Z80"]);
     names = await page.locator("#arcadeCatalog a.machine-card .name").allTextContents();
-    expect(names.slice(0, 3)).toEqual(["Asteroids Arcade", "Centipede Arcade", "Missile Command Arcade"]);
+    expect(names.slice(0, 3)).toEqual(["Asteroids", "Centipede", "Missile Command"]);
     expect(names.slice(3)).toEqual([
-      "Frogger Arcade",
-      "Galaga Arcade",
-      "Galaxian Arcade",
-      "Ms. Pac-Man Arcade",
-      "Pac-Man Arcade",
-      "Scramble Arcade",
+      "Frogger",
+      "Galaga",
+      "Galaxian",
+      "Ms. Pac-Man",
+      "Pac-Man",
+      "Scramble",
     ]);
 
     await sel.selectOption("manufacturer");
@@ -158,15 +158,15 @@ test.describe("arcade hub", () => {
     ]);
     names = await page.locator("#arcadeCatalog a.machine-card .name").allTextContents();
     expect(names).toEqual([
-      "Asteroids Arcade",
-      "Centipede Arcade",
-      "Missile Command Arcade",
-      "Frogger Arcade",
-      "Scramble Arcade",
-      "Galaga Arcade",
-      "Ms. Pac-Man Arcade",
-      "Galaxian Arcade",
-      "Pac-Man Arcade",
+      "Asteroids",
+      "Centipede",
+      "Missile Command",
+      "Frogger",
+      "Scramble",
+      "Galaga",
+      "Ms. Pac-Man",
+      "Galaxian",
+      "Pac-Man",
     ]);
 
     await page.reload();
@@ -175,7 +175,155 @@ test.describe("arcade hub", () => {
       "Atari", "Konami", "Midway", "Namco",
     ]);
     names = await page.locator("#arcadeCatalog a.machine-card .name").allTextContents();
-    expect(names[0]).toBe("Asteroids Arcade");
-    expect(names[names.length - 1]).toBe("Pac-Man Arcade");
+    expect(names[0]).toBe("Asteroids");
+    expect(names[names.length - 1]).toBe("Pac-Man");
+  });
+});
+
+test.describe("arcade hub real art", () => {
+  const LIBRETRO = "https://thumbnails.libretro.com/MAME/";
+  const DIRS = { snap: "Named_Snaps", title: "Named_Titles", boxart: "Named_Boxarts" };
+  const ART: Record<string, string> = {
+    "../asteroids/": "Asteroids%20(rev%204).png",
+    "../centipede/": "Centipede%20(revision%204).png",
+    "../frogger/": "Frogger.png",
+    "../galaga/": "Galaga%20(Midway%20set%201).png",
+    "../galaxian/": "Galaxian%20(Namco%20set%201).png",
+    "../missile/": "Missile%20Command%20(rev%203).png",
+    "../pacman/?game=mspacman": "Ms.%20Pac-Man.png",
+    "../pacman/": "Pac-Man%20(Midway).png",
+    "../scramble/": "Scramble.png",
+  };
+  const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGNgYGAAAAAEAAH2FzhVAAAAAElFTkSuQmCC", "base64");
+
+  async function stub(page, fail: string[] = []) {
+    const hits: string[] = [];
+    const handler = (route) => {
+      const url = route.request().url();
+      hits.push(url);
+      if (fail.some((f) => url.endsWith(f))) return route.abort();
+      return route.fulfill({ status: 200, contentType: "image/png", body: PNG });
+    };
+    await page.route("https://thumbnails.libretro.com/**", handler);
+    await page.route("https://adb.arcadeitalia.net/**", handler);
+    return hits;
+  }
+
+  test("Original by default and fetches nothing from libretro", async ({ page }) => {
+    const hits = await stub(page);
+    await page.goto(ARCADE);
+    await expect(page.locator("#arcadeArt")).toHaveValue("");
+    await expect(page.locator("#arcadeArt option")).toHaveText(["Original", "Screenshot", "Title screen", "Box art", "Marquee"]);
+    await expect(page.locator("a.machine-card.art")).toHaveCount(0);
+    for (const href of Object.keys(ART)) {
+      await expect(page.locator(`a.machine-card[href="${href}"] img.shot`)).toHaveAttribute("src", /^\.\.\/assets\/[a-z]+-cabinet\.png$/);
+    }
+    expect(hits).toEqual([]);
+  });
+
+  for (const [mode, dir] of Object.entries(DIRS)) {
+    test(`${mode} loads each cabinet's libretro ${dir} image`, async ({ page }) => {
+      const hits = await stub(page);
+      await page.goto(ARCADE);
+      await page.locator("#arcadeArt").selectOption(mode);
+      for (const [href, file] of Object.entries(ART)) {
+        const card = page.locator(`a.machine-card[href="${href}"]`);
+        await expect(card).toHaveClass(/\bart\b/);
+        const shot = card.locator("img.shot");
+        await expect(shot).toHaveAttribute("src", LIBRETRO + dir + "/" + file);
+        await expect(shot).toHaveJSProperty("complete", true);
+        await expect(shot).toHaveAttribute("referrerpolicy", "no-referrer");
+      }
+      await expect.poll(() => new Set(hits).size).toBe(9);
+      expect(hits.every((h) => h.startsWith(LIBRETRO + dir + "/"))).toBe(true);
+      expect(await page.evaluate(() => localStorage.getItem("retroweb.arcadeArt"))).toBe(mode);
+    });
+  }
+
+  test("marquee loads each cabinet's Arcade Database marquee fitted whole", async ({ page }) => {
+    const ADB = "https://adb.arcadeitalia.net/media/mame.current/marquees/";
+    const SETS: Record<string, string> = {
+      "../asteroids/": "asteroid", "../centipede/": "centiped", "../frogger/": "frogger",
+      "../galaga/": "galaga", "../galaxian/": "galaxian", "../missile/": "missile",
+      "../pacman/?game=mspacman": "mspacman", "../pacman/": "pacman", "../scramble/": "scramble",
+    };
+    const hits = await stub(page);
+    await page.goto(ARCADE);
+    await page.locator("#arcadeArt").selectOption("marquee");
+    for (const [href, set] of Object.entries(SETS)) {
+      const card = page.locator(`a.machine-card[href="${href}"]`);
+      await expect(card).toHaveClass(/\bart\b.*\bmarquee\b|\bmarquee\b.*\bart\b/);
+      const shot = card.locator("img.shot");
+      await expect(shot).toHaveAttribute("src", ADB + set + ".png");
+      await expect(shot).toHaveJSProperty("complete", true);
+      expect(await shot.evaluate((img) => getComputedStyle(img).objectFit + " " + getComputedStyle(img).objectPosition)).toBe("contain 50% 50%");
+    }
+    await expect.poll(() => new Set(hits).size).toBe(9);
+    expect(hits.every((h) => h.startsWith(ADB))).toBe(true);
+
+    await page.locator("#arcadeArt").selectOption("snap");
+    await expect(page.locator("a.machine-card.marquee")).toHaveCount(0);
+    await expect(page.locator("a.machine-card.art")).toHaveCount(9);
+  });
+
+  test("a saved style hides the original tiles until the artwork arrives, so they never flash", async ({ page }) => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => { release = r; });
+    await page.route("https://thumbnails.libretro.com/**", async (route) => {
+      await gate;
+      await route.fulfill({ status: 200, contentType: "image/png", body: PNG });
+    });
+    await page.goto(ARCADE);
+    await expect(page.locator("html")).not.toHaveClass(/art-pending/);
+    await page.evaluate(() => localStorage.setItem("retroweb.arcadeArt", "title"));
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(page.locator("html")).toHaveClass(/art-pending/);
+    const shot = page.locator('a.machine-card[href="../frogger/"] img.shot');
+    await expect(shot).toHaveAttribute("src", /^https:\/\/thumbnails\.libretro\.com\//);
+    expect(await shot.evaluate((img) => getComputedStyle(img).visibility)).toBe("hidden");
+    release();
+    await expect(shot).toHaveClass(/art-ready/);
+    expect(await shot.evaluate((img) => getComputedStyle(img).visibility)).toBe("visible");
+  });
+
+  test("choice persists across reload, survives sorting, and Original restores the starfield tiles", async ({ page }) => {
+    const hits = await stub(page);
+    await page.goto(ARCADE);
+    await page.locator("#arcadeArt").selectOption("boxart");
+    await page.reload();
+    await expect(page.locator("#arcadeArt")).toHaveValue("boxart");
+    await expect(page.locator('a.machine-card[href="../frogger/"] img.shot')).toHaveAttribute("src", LIBRETRO + "Named_Boxarts/Frogger.png");
+    const pos = (href: string) => page.locator(`a.machine-card[href="${href}"] img.shot`).evaluate((img) => getComputedStyle(img).objectFit + " " + getComputedStyle(img).objectPosition);
+    expect(await pos("../pacman/")).toBe("cover 50% 100%");
+    expect(await pos("../asteroids/")).toBe("cover 50% 50%");
+    expect(await pos("../galaga/")).toBe("cover 50% 0%");
+
+    await page.locator("#arcadeSort").selectOption("year");
+    await expect(page.locator('a.machine-card[href="../galaga/"] img.shot')).toHaveAttribute("src", LIBRETRO + "Named_Boxarts/" + ART["../galaga/"]);
+
+    await page.locator("#arcadeArt").selectOption("title");
+    await expect(page.locator('a.machine-card[href="../galaga/"] img.shot')).toHaveAttribute("src", LIBRETRO + "Named_Titles/" + ART["../galaga/"]);
+    expect(await pos("../pacman/")).toBe("cover 50% 50%");
+
+    const before = hits.length;
+    await page.locator("#arcadeArt").selectOption("");
+    await expect(page.locator("a.machine-card.art")).toHaveCount(0);
+    await expect(page.locator('a.machine-card[href="../pacman/"] img.shot')).toHaveAttribute("src", "../assets/pacman-cabinet.png");
+    await expect(page.locator("a.machine-card img.shot[src^='../assets/']")).toHaveCount(9);
+    expect(await pos("../pacman/")).toBe("cover 0% 50%");
+    expect(await page.evaluate(() => localStorage.getItem("retroweb.arcadeArt"))).toBe("");
+    expect(hits.length).toBe(before);
+  });
+
+  test("an image that fails to load falls back to that cabinet's starfield tile", async ({ page }) => {
+    await stub(page, ["Named_Boxarts/Scramble.png"]);
+    await page.goto(ARCADE);
+    await page.locator("#arcadeArt").selectOption("boxart");
+    const scramble = page.locator('a.machine-card[href="../scramble/"]');
+    await expect(scramble.locator("img.shot")).toHaveAttribute("src", "../assets/scramble-cabinet.png");
+    await expect(scramble).not.toHaveClass(/\bart\b/);
+    expect(await scramble.locator("img.shot").evaluate((img) => getComputedStyle(img).objectPosition)).toBe("0% 50%");
+    await expect(page.locator('a.machine-card[href="../frogger/"] img.shot')).toHaveAttribute("src", LIBRETRO + "Named_Boxarts/Frogger.png");
+    await expect(page.locator("a.machine-card.art")).toHaveCount(8);
   });
 });

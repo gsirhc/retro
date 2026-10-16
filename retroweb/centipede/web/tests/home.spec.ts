@@ -15,14 +15,14 @@ const HOME = "http://localhost:9110/";
 const ARCADE = "http://localhost:9110/arcade/";
 
 test.describe("retroweb landing page", () => {
-  test("lists Centipede Arcade on the arcade hub, not the home teaser", async ({ page }) => {
+  test("lists Centipede on the arcade hub, not the home teaser", async ({ page }) => {
     await page.goto(HOME);
     await expect(page).toHaveTitle(/Welcome to OAC Emulators/);
     await expect(page.locator('a.machine-card[href="centipede/"]')).toHaveCount(0);
 
     await page.goto(ARCADE);
     const card = page.locator('a.machine-card[href="../centipede/"]');
-    await expect(card.locator(".name")).toHaveText(/Centipede Arcade/i);
+    await expect(card.locator(".name")).toHaveText("Centipede");
 
     const shot = card.locator("img.shot");
     await expect(shot).toHaveAttribute("src", /assets\/centipede-cabinet\.png$/);

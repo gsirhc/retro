@@ -11,6 +11,7 @@
 <link rel="stylesheet" href="shared/theme.css">
 <link rel="stylesheet" href="shared/pagebar.css">
 <link rel="stylesheet" href="shared/footer.css">
+<script>try{if(localStorage.getItem("retroweb.readyArt"))document.documentElement.classList.add("art-pending");}catch(e){}</script>
 <style>
   /* ---- page themes: default = Windows 95; winxp = Luna; web94 = mid-90s
      Mosaic web; modern / aurora = clean layouts. Light and dark palettes
@@ -97,6 +98,15 @@
     border-top: var(--card-border);
   }
   .section-row .section-heading { flex: 0 0 auto; }
+  .art-pick {
+    display: inline-flex; align-items: center; gap: 8px; margin-left: auto;
+    font-size: 14px; color: var(--muted);
+  }
+  .art-pick select {
+    font: inherit; font-size: 14px; color: var(--text);
+    background: var(--card-bg); border: var(--card-border);
+    border-radius: var(--card-radius); padding: 4px 8px;
+  }
   .section-blurb {
     margin: 0;
     flex: 1 1 16em;
@@ -135,6 +145,8 @@
     display: block; width: 100%; height: auto; aspect-ratio: 286 / 128;
     object-fit: cover; object-position: left center;
   }
+  .machine-card.art .shot { object-fit: cover; object-position: center; background: #000; }
+  .art-pending .machine-card[data-art] .shot:not(.art-ready) { visibility: hidden; }
   .machine-card .name {
     display: block; padding: 8px 8px 10px; text-align: center;
     font-weight: 700; font-size: 15px; letter-spacing: .3px;
@@ -326,34 +338,42 @@
     <div class="section-row">
       <h2 class="section-heading">Ready to Play</h2>
       <p class="section-blurb">Quick to play titles you can run immediately.</p>
+      <label class="art-pick">Thumbnails
+        <select id="readyArt" aria-label="Thumbnail art">
+          <option value="">Original</option>
+          <option value="snap">Screenshot</option>
+          <option value="title">Title screen</option>
+          <option value="boxart">Box art</option>
+        </select>
+      </label>
     </div>
     <div class="machines">
-      <a class="machine-card" href="pc486/?disk=doom">
-        <img class="shot" src="assets/doom-e1m1.jpg" width="286" height="128"
+      <a class="machine-card" href="pc486/?disk=doom" data-art="DOOM (1993)" data-title-y="0%" data-boxart-y="0%">
+        <img class="shot" referrerpolicy="no-referrer" src="assets/doom-e1m1.jpg" width="286" height="128"
              decoding="async" alt="Shareware DOOM, looking out a window in E1M1, on the 486 DX2-66">
         <span class="name">Doom</span>
         <span class="meta">486 DX2-66 Gaming PC</span>
       </a>
-      <a class="machine-card" href="pc486/?disk=wolf3d">
-        <img class="shot" src="assets/wolf3d-e1m1.jpg" width="286" height="128"
+      <a class="machine-card" href="pc486/?disk=wolf3d" data-art="Wolfenstein 3D (1992)" data-title-y="0%" data-boxart-y="0%">
+        <img class="shot" referrerpolicy="no-referrer" src="assets/wolf3d-e1m1.jpg" width="286" height="128"
              decoding="async" alt="Shareware Wolfenstein 3-D, the first cell of E1M1, on the 486 DX2-66">
         <span class="name">Wolfenstein 3D</span>
         <span class="meta">486 DX2-66 Gaming PC</span>
       </a>
-      <a class="machine-card" href="ibmpc-at/?disk=keen1">
-        <img class="shot" src="assets/keen1-mars.jpg" width="286" height="128"
+      <a class="machine-card" href="ibmpc-at/?disk=keen1" data-art="Commander Keen 1 - Marooned on Mars (1990)" data-title-y="0%" data-boxart-y="0%">
+        <img class="shot" referrerpolicy="no-referrer" src="assets/keen1-mars.jpg" width="286" height="128"
              decoding="async" alt="Shareware Commander Keen 1 on the Mars map, on the IBM PC/AT">
         <span class="name">Commander Keen</span>
         <span class="meta">IBM PC/AT</span>
       </a>
-      <a class="machine-card" href="pc486/?disk=tyrian">
-        <img class="shot" src="assets/tyrian-demo.jpg" width="286" height="128"
+      <a class="machine-card" href="pc486/?disk=tyrian" data-art="Tyrian (1995)" data-title-y="0%" data-boxart-y="0%">
+        <img class="shot" referrerpolicy="no-referrer" src="assets/tyrian-demo.jpg" width="286" height="128"
              decoding="async" alt="Freeware Tyrian 2.1's attract demo, on the 486 DX2-66">
         <span class="name">Tyrian</span>
         <span class="meta">486 DX2-66 Gaming PC</span>
       </a>
     </div>
-    <p class="ready-note">All shareware and freeware titles remain the property of their respective owners. <a href="about.html#rights">More info</a>.</p>
+    <p class="ready-note">All shareware and freeware titles and their artwork remain the property of their respective owners. Thumbnail artwork loads from <a href="https://www.libretro.com/">libretro</a> and isn't hosted here. <a href="about.html#rights">More info</a>.</p>
 
     <div class="section-row">
       <h2 class="section-heading">Arcade</h2>
@@ -385,6 +405,8 @@
 <script src="shared/theme-picker.js"></script>
 <script>initThemePicker();</script>
 <script src="shared/winbtns.js"></script>
+<script src="shared/thumb-art.js"></script>
+<script>initThumbArt(document.getElementById("readyArt"), Array.prototype.slice.call(document.querySelectorAll("a.machine-card[data-art]")), "retroweb.readyArt", "DOS");</script>
 <script src="shared/footer.js"></script>
 </body>
 </html>

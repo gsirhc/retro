@@ -99,7 +99,7 @@ export default [
     },
   },
   {
-    files: ["shared/theme-picker.js", "shared/fullscreen.js", "shared/focus-hint.js", "shared/winbtns.js", "shared/pc-keyboard.js", "shared/arcade-touch.js", "shared/arcade-core.js", "shared/disk-drop.js", "shared/disk-library.js", "shared/footer.js", "shared/terminal.js"],
+    files: ["shared/theme-picker.js", "shared/fullscreen.js", "shared/focus-hint.js", "shared/winbtns.js", "shared/pc-keyboard.js", "shared/arcade-touch.js", "shared/arcade-core.js", "shared/disk-drop.js", "shared/disk-library.js", "shared/footer.js", "shared/terminal.js", "shared/thumb-art.js"],
     languageOptions: {
       globals: {
         ...globals.browser,
@@ -109,7 +109,7 @@ export default [
       "no-unused-vars": ["error", {
         argsIgnorePattern: "^_",
         caughtErrors: "none",
-        varsIgnorePattern: "^(_|initThemePicker|initFullscreen|initFocusHint|initDiskDrop|initDiskLibrary|initPcKeyboard|initArcadeTouch|arcadeTouchOnly|arcadeCrc32|arcadeHexCrc|arcadeUnzip|arcadeReadRomFiles|arcadeStore|arcadePrefs|arcadeAudio|arcadeHiscore|arcadeHiscoreReset|arcadeRomLoader|arcadeLoop|addFooterNote|termDumbFilter|termVt52Filter|termAdm3aFilter)$",
+        varsIgnorePattern: "^(_|initThemePicker|initFullscreen|initFocusHint|initDiskDrop|initDiskLibrary|initPcKeyboard|initArcadeTouch|arcadeTouchOnly|arcadeCrc32|arcadeHexCrc|arcadeUnzip|arcadeReadRomFiles|arcadeStore|arcadePrefs|arcadeAudio|arcadeHiscore|arcadeHiscoreReset|arcadeRomLoader|arcadeLoop|addFooterNote|initThumbArt|termDumbFilter|termVt52Filter|termAdm3aFilter)$",
       }],
     },
   },

@@ -59,7 +59,9 @@ test.describe("retroweb landing page", () => {
     await expect(tyrian.locator(".name")).toHaveText("Tyrian");
     await expect(tyrian.locator(".meta")).toHaveText("486 DX2-66 Gaming PC");
     await expect(tyrian.locator("img.shot")).toHaveJSProperty("naturalWidth", 286);
-    await expect(page.locator(".ready-note a")).toHaveAttribute("href", "about.html#rights");
+    await expect(page.locator(".ready-note a")).toHaveText(["libretro", "More info"]);
+    await expect(page.locator(".ready-note a").first()).toHaveAttribute("href", "https://www.libretro.com/");
+    await expect(page.locator(".ready-note a").last()).toHaveAttribute("href", "about.html#rights");
   });
 
   test("the theme selector switches the page and persists to retro8080.theme", async ({ page }) => {
@@ -99,4 +101,107 @@ test.describe("retroweb landing page", () => {
     await expect(page.locator(".inner")).toBeVisible();
   });
 
+});
+
+test.describe("Ready to Play thumbnails", () => {
+  const DOS = "https://thumbnails.libretro.com/DOS/";
+  const DIRS = { snap: "Named_Snaps", title: "Named_Titles", boxart: "Named_Boxarts" };
+  const ART: Record<string, string> = {
+    "pc486/?disk=doom": "DOOM%20(1993).png",
+    "pc486/?disk=wolf3d": "Wolfenstein%203D%20(1992).png",
+    "ibmpc-at/?disk=keen1": "Commander%20Keen%201%20-%20Marooned%20on%20Mars%20(1990).png",
+    "pc486/?disk=tyrian": "Tyrian%20(1995).png",
+  };
+  const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGNgYGAAAAAEAAH2FzhVAAAAAElFTkSuQmCC", "base64");
+
+  async function stub(page, fail: string[] = []) {
+    const hits: string[] = [];
+    await page.route("https://thumbnails.libretro.com/**", (route) => {
+      const url = route.request().url();
+      hits.push(url);
+      if (fail.some((f) => url.endsWith(f))) return route.abort();
+      return route.fulfill({ status: 200, contentType: "image/png", body: PNG });
+    });
+    return hits;
+  }
+
+  const fit = (page, href: string) => page.locator(`a.machine-card[href="${href}"] img.shot`).evaluate((img) => getComputedStyle(img).objectFit + " " + getComputedStyle(img).objectPosition);
+
+  test("Original by default and fetches nothing from libretro", async ({ page }) => {
+    const hits = await stub(page);
+    await page.goto(HOME);
+    await expect(page.locator("#readyArt")).toHaveValue("");
+    await expect(page.locator("#readyArt option")).toHaveText(["Original", "Screenshot", "Title screen", "Box art"]);
+    await expect(page.locator("a.machine-card.art")).toHaveCount(0);
+    await expect(page.locator('a.machine-card[href="pc486/?disk=doom"] img.shot')).toHaveAttribute("src", "assets/doom-e1m1.jpg");
+    expect(hits).toEqual([]);
+  });
+
+  for (const [mode, dir] of Object.entries(DIRS)) {
+    test(`${mode} loads each title's libretro DOS ${dir} image`, async ({ page }) => {
+      const hits = await stub(page);
+      await page.goto(HOME);
+      await page.locator("#readyArt").selectOption(mode);
+      for (const [href, file] of Object.entries(ART)) {
+        const card = page.locator(`a.machine-card[href="${href}"]`);
+        await expect(card).toHaveClass(/\bart\b/);
+        const shot = card.locator("img.shot");
+        await expect(shot).toHaveAttribute("src", DOS + dir + "/" + file);
+        await expect(shot).toHaveJSProperty("complete", true);
+        await expect(shot).toHaveAttribute("referrerpolicy", "no-referrer");
+        expect(await fit(page, href)).toBe(mode === "snap" ? "cover 50% 50%" : "cover 50% 0%");
+      }
+      await expect.poll(() => new Set(hits).size).toBe(4);
+      expect(hits.every((h) => h.startsWith(DOS + dir + "/"))).toBe(true);
+      expect(await page.evaluate(() => localStorage.getItem("retroweb.readyArt"))).toBe(mode);
+      expect(await page.evaluate(() => localStorage.getItem("retroweb.arcadeArt"))).toBeNull();
+    });
+  }
+
+  test("a saved style hides the original tiles until the artwork arrives, so they never flash", async ({ page }) => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => { release = r; });
+    await page.route("https://thumbnails.libretro.com/**", async (route) => {
+      await gate;
+      await route.fulfill({ status: 200, contentType: "image/png", body: PNG });
+    });
+    await page.goto(HOME);
+    await expect(page.locator("html")).not.toHaveClass(/art-pending/);
+    await page.evaluate(() => localStorage.setItem("retroweb.readyArt", "title"));
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(page.locator("html")).toHaveClass(/art-pending/);
+    const shot = page.locator('a.machine-card[href="pc486/?disk=doom"] img.shot');
+    await expect(shot).toHaveAttribute("src", /^https:\/\/thumbnails\.libretro\.com\//);
+    expect(await shot.evaluate((img) => getComputedStyle(img).visibility)).toBe("hidden");
+    release();
+    await expect(shot).toHaveClass(/art-ready/);
+    expect(await shot.evaluate((img) => getComputedStyle(img).visibility)).toBe("visible");
+  });
+
+  test("choice persists across reload and Original restores the emulator captures", async ({ page }) => {
+    const hits = await stub(page);
+    await page.goto(HOME);
+    await page.locator("#readyArt").selectOption("title");
+    await page.reload();
+    await expect(page.locator("#readyArt")).toHaveValue("title");
+    await expect(page.locator('a.machine-card[href="pc486/?disk=wolf3d"] img.shot')).toHaveAttribute("src", DOS + "Named_Titles/" + ART["pc486/?disk=wolf3d"]);
+
+    const before = hits.length;
+    await page.locator("#readyArt").selectOption("");
+    await expect(page.locator("a.machine-card.art")).toHaveCount(0);
+    await expect(page.locator('a.machine-card[href="pc486/?disk=tyrian"] img.shot')).toHaveAttribute("src", "assets/tyrian-demo.jpg");
+    expect(await fit(page, "pc486/?disk=tyrian")).toBe("cover 0% 50%");
+    expect(hits.length).toBe(before);
+  });
+
+  test("an image that fails to load falls back to that title's emulator capture", async ({ page }) => {
+    await stub(page, ["Named_Boxarts/Tyrian%20(1995).png"]);
+    await page.goto(HOME);
+    await page.locator("#readyArt").selectOption("boxart");
+    const tyrian = page.locator('a.machine-card[href="pc486/?disk=tyrian"]');
+    await expect(tyrian.locator("img.shot")).toHaveAttribute("src", "assets/tyrian-demo.jpg");
+    await expect(tyrian).not.toHaveClass(/\bart\b/);
+    expect(await fit(page, "pc486/?disk=tyrian")).toBe("cover 0% 50%");
+    await expect(page.locator("a.machine-card.art")).toHaveCount(3);
+  });
 });

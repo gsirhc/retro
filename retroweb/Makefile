@@ -61,7 +61,7 @@ site:
 	cp -Rp assets $(SITE).new/ && rm -f $(SITE).new/assets/README.md
 	find $(SITE).new -name .DS_Store -delete
 	cp shared/theme.css shared/pagebar.css shared/footer.css shared/footer.js \
-	   shared/theme-picker.js shared/winbtns.js $(SITE).new/shared/
+	   shared/theme-picker.js shared/winbtns.js shared/thumb-art.js $(SITE).new/shared/
 	for m in $(MACHINES); do \
 	  $(MAKE) --no-print-directory -C $$m/web stage DEST=$(abspath $(SITE).new)/$$m || exit 1; \
 	done

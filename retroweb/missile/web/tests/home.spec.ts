@@ -15,14 +15,14 @@ const HOME = "http://localhost:9210/";
 const ARCADE = "http://localhost:9210/arcade/";
 
 test.describe("retroweb landing page", () => {
-  test("lists Missile Command Arcade on the arcade hub, not the home teaser", async ({ page }) => {
+  test("lists Missile Command on the arcade hub, not the home teaser", async ({ page }) => {
     await page.goto(HOME);
     await expect(page).toHaveTitle(/Welcome to OAC Emulators/);
     await expect(page.locator('a.machine-card[href="missile/"]')).toHaveCount(0);
 
     await page.goto(ARCADE);
     const card = page.locator('a.machine-card[href="../missile/"]');
-    await expect(card.locator(".name")).toHaveText(/Missile Command Arcade/i);
+    await expect(card.locator(".name")).toHaveText("Missile Command");
 
     const shot = card.locator("img.shot");
     await expect(shot).toHaveAttribute("src", /assets\/missile-cabinet\.png$/);

@@ -15,14 +15,14 @@ const HOME = "http://localhost:9010/";
 const ARCADE = "http://localhost:9010/arcade/";
 
 test.describe("retroweb landing page", () => {
-  test("lists Asteroids Arcade on the arcade hub, not the home teaser", async ({ page }) => {
+  test("lists Asteroids on the arcade hub, not the home teaser", async ({ page }) => {
     await page.goto(HOME);
     await expect(page).toHaveTitle(/Welcome to OAC Emulators/);
     await expect(page.locator('a.machine-card[href="asteroids/"]')).toHaveCount(0);
 
     await page.goto(ARCADE);
     const card = page.locator('a.machine-card[href="../asteroids/"]');
-    await expect(card.locator(".name")).toHaveText(/Asteroids Arcade/i);
+    await expect(card.locator(".name")).toHaveText("Asteroids");
 
     const shot = card.locator("img.shot");
     await expect(shot).toHaveAttribute("src", /assets\/asteroids-cabinet\.png$/);

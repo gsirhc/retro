@@ -11,6 +11,7 @@
 <link rel="stylesheet" href="../shared/theme.css">
 <link rel="stylesheet" href="../shared/pagebar.css">
 <link rel="stylesheet" href="../shared/footer.css">
+<script>try{if(localStorage.getItem("retroweb.arcadeArt"))document.documentElement.classList.add("art-pending");}catch(e){}</script>
 <style>
   :root { --title-font: 900 30px "Arial Black", Arial, sans-serif; }
   :root[data-theme="winxp"] { --title-font: bold 28px Tahoma, "Segoe UI", sans-serif; }
@@ -63,7 +64,8 @@
     margin: 0 0 14px; padding-top: 14px; border-top: var(--card-border);
   }
   .arcade-legal {
-    margin: 0 0 12px; color: var(--muted); font-size: 13px; line-height: 1.45;
+    margin: 22px 0 0; padding-top: 14px; border-top: var(--card-border);
+    color: var(--muted); font-size: 13px; line-height: 1.45;
   }
   .sort-row {
     display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px;
@@ -112,6 +114,9 @@
     display: block; width: 100%; height: auto; aspect-ratio: 286 / 128;
     object-fit: cover; object-position: left center;
   }
+  .machine-card.art .shot { object-fit: cover; object-position: center; background: #000; }
+  .art-pending .machine-card[data-art] .shot:not(.art-ready) { visibility: hidden; }
+  .machine-card.art.marquee .shot { object-fit: contain; }
   .machine-card .name {
     display: block; padding: 8px 8px 2px; text-align: center;
     font-weight: 700; font-size: 15px; letter-spacing: .3px;
@@ -153,11 +158,6 @@
     </header>
 
     <div class="arcade-tools">
-      <p class="arcade-legal">So why are the games and the real graphics thumbnails not included? The ROM 
-        sets and the original graphics are still under copyright, so shipping them here would infringe on that. 
-        However, just like other arcade emulators, you can load original ROM sets you legally own. All ROMs 
-        stays in your browser and are never uploaded.
-        <a href="../about.html#rights">More info</a>.</p>
       <div class="sort-row">
         <label>Sort by
           <select id="arcadeSort" aria-label="Sort cabinets by">
@@ -167,76 +167,92 @@
             <option value="manufacturer">Manufacturer</option>
           </select>
         </label>
+        <label>Thumbnails
+          <select id="arcadeArt" aria-label="Thumbnail art">
+            <option value="">Original</option>
+            <option value="snap">Screenshot</option>
+            <option value="title">Title screen</option>
+            <option value="boxart">Box art</option>
+            <option value="marquee">Marquee</option>
+          </select>
+        </label>
       </div>
     </div>
 
     <div id="arcadeCatalog">
       <div class="machines" id="arcadeGrid">
         <a class="machine-card" href="../asteroids/"
-           data-name="Asteroids Arcade" data-year="1979" data-cpu="6502" data-manufacturer="Atari">
-          <img class="shot" src="../assets/asteroids-cabinet.png" width="286" height="128"
+           data-name="Asteroids" data-art="Asteroids (rev 4)" data-marquee="asteroid" data-boxart-y="50%" data-year="1979" data-cpu="6502" data-manufacturer="Atari">
+          <img class="shot" referrerpolicy="no-referrer" src="../assets/asteroids-cabinet.png" width="286" height="128"
                decoding="async" alt="Original Asteroids arcade tile, starfield and Courier New lettering">
-          <span class="name">Asteroids Arcade</span>
+          <span class="name">Asteroids</span>
           <span class="meta">1979 · Atari · 6502</span>
         </a>
         <a class="machine-card" href="../centipede/"
-           data-name="Centipede Arcade" data-year="1981" data-cpu="6502" data-manufacturer="Atari">
-          <img class="shot" src="../assets/centipede-cabinet.png" width="286" height="128"
+           data-name="Centipede" data-art="Centipede (revision 4)" data-marquee="centiped" data-boxart-y="50%" data-year="1981" data-cpu="6502" data-manufacturer="Atari">
+          <img class="shot" referrerpolicy="no-referrer" src="../assets/centipede-cabinet.png" width="286" height="128"
                decoding="async" alt="Original Centipede arcade tile, starfield and Courier New lettering">
-          <span class="name">Centipede Arcade</span>
+          <span class="name">Centipede</span>
           <span class="meta">1981 · Atari · 6502</span>
         </a>
         <a class="machine-card" href="../frogger/"
-           data-name="Frogger Arcade" data-year="1981" data-cpu="Z80" data-manufacturer="Konami">
-          <img class="shot" src="../assets/frogger-cabinet.png" width="286" height="128"
+           data-name="Frogger" data-art="Frogger" data-marquee="frogger" data-boxart-y="0%" data-year="1981" data-cpu="Z80" data-manufacturer="Konami">
+          <img class="shot" referrerpolicy="no-referrer" src="../assets/frogger-cabinet.png" width="286" height="128"
                decoding="async" alt="Original Frogger arcade tile, starfield and Courier New lettering">
-          <span class="name">Frogger Arcade</span>
+          <span class="name">Frogger</span>
           <span class="meta">1981 · Konami · dual Z80</span>
         </a>
         <a class="machine-card" href="../galaga/"
-           data-name="Galaga Arcade" data-year="1981" data-cpu="Z80" data-manufacturer="Midway">
-          <img class="shot" src="../assets/galaga-cabinet.png" width="286" height="128"
+           data-name="Galaga" data-art="Galaga (Midway set 1)" data-marquee="galaga" data-boxart-y="0%" data-year="1981" data-cpu="Z80" data-manufacturer="Midway">
+          <img class="shot" referrerpolicy="no-referrer" src="../assets/galaga-cabinet.png" width="286" height="128"
                decoding="async" alt="Original Galaga arcade tile, starfield and Courier New lettering">
-          <span class="name">Galaga Arcade</span>
+          <span class="name">Galaga</span>
           <span class="meta">1981 · Midway · three Z80s</span>
         </a>
         <a class="machine-card" href="../galaxian/"
-           data-name="Galaxian Arcade" data-year="1979" data-cpu="Z80" data-manufacturer="Namco">
-          <img class="shot" src="../assets/galaxian-cabinet.png" width="286" height="128"
+           data-name="Galaxian" data-art="Galaxian (Namco set 1)" data-marquee="galaxian" data-boxart-y="0%" data-year="1979" data-cpu="Z80" data-manufacturer="Namco">
+          <img class="shot" referrerpolicy="no-referrer" src="../assets/galaxian-cabinet.png" width="286" height="128"
                decoding="async" alt="Original Galaxian arcade tile, starfield and Courier New lettering">
-          <span class="name">Galaxian Arcade</span>
+          <span class="name">Galaxian</span>
           <span class="meta">1979 · Namco · Z80</span>
         </a>
         <a class="machine-card" href="../missile/"
-           data-name="Missile Command Arcade" data-year="1980" data-cpu="6502" data-manufacturer="Atari">
-          <img class="shot" src="../assets/missile-cabinet.png" width="286" height="128"
+           data-name="Missile Command" data-art="Missile Command (rev 3)" data-marquee="missile" data-boxart-y="0%" data-year="1980" data-cpu="6502" data-manufacturer="Atari">
+          <img class="shot" referrerpolicy="no-referrer" src="../assets/missile-cabinet.png" width="286" height="128"
                decoding="async" alt="Original Missile Command arcade tile, starfield and Courier New lettering">
-          <span class="name">Missile Command Arcade</span>
+          <span class="name">Missile Command</span>
           <span class="meta">1980 · Atari · 6502</span>
         </a>
         <a class="machine-card" href="../pacman/?game=mspacman"
-           data-name="Ms. Pac-Man Arcade" data-year="1982" data-cpu="Z80" data-manufacturer="Midway">
-          <img class="shot" src="../assets/mspacman-cabinet.png" width="286" height="128"
+           data-name="Ms. Pac-Man" data-art="Ms. Pac-Man" data-marquee="mspacman" data-boxart-y="0%" data-year="1982" data-cpu="Z80" data-manufacturer="Midway">
+          <img class="shot" referrerpolicy="no-referrer" src="../assets/mspacman-cabinet.png" width="286" height="128"
                decoding="async" alt="Original Ms. Pac-Man arcade tile, starfield and Courier New lettering">
-          <span class="name">Ms. Pac-Man Arcade</span>
+          <span class="name">Ms. Pac-Man</span>
           <span class="meta">1982 · Midway · Z80</span>
         </a>
         <a class="machine-card" href="../pacman/"
-           data-name="Pac-Man Arcade" data-year="1980" data-cpu="Z80" data-manufacturer="Namco">
-          <img class="shot" src="../assets/pacman-cabinet.png" width="286" height="128"
+           data-name="Pac-Man" data-art="Pac-Man (Midway)" data-marquee="pacman" data-boxart-y="100%" data-year="1980" data-cpu="Z80" data-manufacturer="Namco">
+          <img class="shot" referrerpolicy="no-referrer" src="../assets/pacman-cabinet.png" width="286" height="128"
                decoding="async" alt="Original Pac-Man arcade tile, starfield and Courier New lettering">
-          <span class="name">Pac-Man Arcade</span>
+          <span class="name">Pac-Man</span>
           <span class="meta">1980 · Namco · Z80</span>
         </a>
         <a class="machine-card" href="../scramble/"
-           data-name="Scramble Arcade" data-year="1981" data-cpu="Z80" data-manufacturer="Konami">
-          <img class="shot" src="../assets/scramble-cabinet.png" width="286" height="128"
+           data-name="Scramble" data-art="Scramble" data-marquee="scramble" data-boxart-y="0%" data-year="1981" data-cpu="Z80" data-manufacturer="Konami">
+          <img class="shot" referrerpolicy="no-referrer" src="../assets/scramble-cabinet.png" width="286" height="128"
                decoding="async" alt="Original Scramble arcade tile, starfield and Courier New lettering">
-          <span class="name">Scramble Arcade</span>
+          <span class="name">Scramble</span>
           <span class="meta">1981 · Konami · dual Z80</span>
         </a>
       </div>
     </div>
+    <p class="arcade-legal">So why aren't the games and the real thumbnails included? The ROM
+      sets and the original graphics are still under copyright, so shipping them here would infringe on that.
+      However, just like other arcade emulators, you can load original ROM sets you legally own. All ROMs
+      stay in your browser and are never uploaded. You can load real artwork by selecting a thumbnail
+      style. This site's server doesn't host artwork however your browser downloads it from
+      <a href="https://www.libretro.com/">libretro</a> and the <a href="https://adb.arcadeitalia.net/">Arcade Database</a>, the same sources arcade frontends use.
+      <a href="../about.html#rights">More info</a>.</p>
   </div>
 </div>
 
@@ -324,5 +340,7 @@
   });
 })();
 </script>
+<script src="../shared/thumb-art.js"></script>
+<script>initThumbArt(document.getElementById("arcadeArt"), Array.prototype.slice.call(document.querySelectorAll("a.machine-card[data-art]")), "retroweb.arcadeArt", "MAME");</script>
 </body>
 </html>

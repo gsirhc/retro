@@ -13,7 +13,7 @@ const HOME = "http://localhost:8710/";
 const ARCADE = "http://localhost:8710/arcade/";
 
 test.describe("retroweb landing page", () => {
-  test("lists Scramble Arcade on the arcade hub, not the home teaser", async ({ page }) => {
+  test("lists Scramble on the arcade hub, not the home teaser", async ({ page }) => {
     await page.goto(HOME);
     await expect(page).toHaveTitle(/Welcome to OAC Emulators/);
     await expect(page.locator('a.machine-card[href="scramble/"]')).toHaveCount(0);
@@ -22,7 +22,7 @@ test.describe("retroweb landing page", () => {
 
     await page.goto(ARCADE);
     const card = page.locator('a.machine-card[href="../scramble/"]');
-    await expect(card.locator(".name")).toHaveText(/Scramble Arcade/i);
+    await expect(card.locator(".name")).toHaveText("Scramble");
 
     const shot = card.locator("img.shot");
     await expect(shot).toHaveAttribute("src", /assets\/scramble-cabinet\.png$/);
