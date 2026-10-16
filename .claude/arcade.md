@@ -68,7 +68,9 @@ another emulator’s shortcuts as if they were hardware.
   cabinet's `app.js` keeps `roleOf`/`identifySet`, `applyKeys`, and its
   HIGH SCORE address, gate and factory check.
 - GoogleTest board smoke plus a help-screen assertion on the hwtest ROM.
-- Playwright including `hiscore.spec.ts`, keyboard, DIP, ROM loader, footer/home.
+- Playwright including `hiscore.spec.ts`, keyboard, DIP, ROM loader, home, and
+  the shared specs in `retroweb/shared/arcade-tests/` (theme, seam, fullscreen,
+  focus hint, footer, mute, ROM storage) via a `web/tests/cabinet.ts` fixture.
 - Every wiring point in `CLAUDE.md` "Wiring a machine into the site",
   including `retroweb/Makefile` `site` / `_stage`, `retroweb/watch_site.py`
   (`make watch`), and CI `<machine>-test` / `<machine>-web-test`.

@@ -21,7 +21,7 @@ roms: hwtest_roms.h
 
 serve: $(NAME).js roms shared
 	@echo "serving on http://localhost:8000  (Ctrl-C to stop)"
-	python3 devserve.py 8000
+	python3 ../../serve_nocache.py 8000 .
 
 test: $(NAME).js roms shared
 	npx playwright test
@@ -32,10 +32,11 @@ test-smoke: $(NAME).js roms shared
 
 clean:
 	rm -f $(NAME).js $(NAME).wasm hwtest_roms.h
-	rm -rf roms shared
+	rm -rf roms shared tests/shared
 	rm -rf test-results playwright-report coverage .v8-coverage
 
 SHARED_EXTRA = $(SHARED_ARCADE)
+SHARED_TESTS = $(wildcard $(SHARED)/arcade-tests/*.spec.ts)
 STAGE = index.html app.js $(NAME).js $(NAME).wasm assets roms shared
 
 include $(SHARED)/web.mk

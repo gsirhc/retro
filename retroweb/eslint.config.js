@@ -12,6 +12,7 @@ export default [
       "_site/**",
       "_site.new/**",
       "**/web/shared/**",
+      "**/web/tests/shared/**",
       "**/tests/build/**",
       "**/tests/build-cov/**",
       "**/tests/coverage-cpp/**",

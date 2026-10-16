@@ -165,7 +165,10 @@ change:
   `include $(SHARED)/web.mk` (`shared`, `test-install`, `stage`; files
   beyond the base set go in `SHARED_EXTRA`, extra stage steps in
   `STAGE_POST`). A cabinet's is just variables plus
-  `include $(SHARED)/arcade.mk`.
+  `include $(SHARED)/arcade.mk`, which also copies the shared arcade
+  specs (`retroweb/shared/arcade-tests/`) into its `web/tests/shared/`;
+  the cabinet supplies `web/tests/cabinet.ts` (ROM database name, hwtest
+  files, the byte that makes a user set).
 - `retroweb/watch_site.py` (`make watch`): `MACHINES`, `WASM_TARGETS`,
   `GENERATED_JS`, and the shared-chip tuple it uses (`ARCADE`, `ATARI`,
   …) so a change to a shared core rebuilds it too.
@@ -174,7 +177,7 @@ change:
   and `nightly-full.yml` (full). A cabinet's `-web-test` calls
   `.github/workflows/arcade-web.yml` with its name.
 - `.gitignore` (build dir, wasm/js, `hwtest_roms.h`, `web/roms/`,
-  `web/shared/`, user ROMs), `retroweb/eslint.config.js` (generated JS
+  `web/shared/`, `web/tests/shared/`, user ROMs), `retroweb/eslint.config.js` (generated JS
   ignore + module global), `retroweb/lint-cpp.sh`, `retroweb/package.json`
   `lint:html`.
 - The landing-page card, or for a cabinet the arcade hub card, its
@@ -237,13 +240,17 @@ before calling it done.
   bug this repo hit once already — see `retroweb/ibmpc-at/IBM_PCAT_REVIEW.md`
   §15). `preview-install` loads it as a launchd agent so it survives sleep/
   logout/reboot; `preview-stop`/`preview-status`/`preview-uninstall` manage it.
-- **Each machine's own `web/Makefile`** should default its *own* `make serve`
+- **Each machine's own `web/Makefile`** serves with `serve_nocache.py` too
+  (`python3 ../../serve_nocache.py PORT .`, as does its Playwright
+  config), so the suites run against the same server as `make preview`.
+  It should default its *own* `make serve`
   to port `8000` too (matching every machine — you only ever run one
   machine's dev server standalone at a time) and reserve a separate,
-  *fixed* port for its own Playwright suite instead (`8100` altair8800,
-  `8200` assembler6502, `8300`/`8310` ibmpc-at, `8500`/`8510` pacman,
-  `8600`/`8610` frogger, `8700`/`8710` scramble, `8800`/`8810` galaxian,
-  `8900`/`8910` galaga, `9000`/`9010` asteroids, `9100`/`9110` centipede, `9200`/`9210` missile)
+  *fixed* port for its own Playwright suite instead (`8100`/`8110` altair8800,
+  `8200` assembler6502, `8300`/`8310` ibmpc-at, `8400`/`8410` pc486,
+  `8500`/`8510` pacman, `8600`/`8610` frogger, `8700`/`8710` scramble,
+  `8800`/`8810` galaxian, `8900`/`8910` galaga, `9000`/`9010` asteroids,
+  `9100`/`9110` centipede, `9200`/`9210` missile)
   specifically so a hand-run `make serve` and an automated test run never
   collide.
 - **CI job naming**: `.github/workflows/deploy-emulator.yml` gives every

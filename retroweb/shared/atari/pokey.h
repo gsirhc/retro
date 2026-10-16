@@ -34,6 +34,7 @@ private:
     uint8_t skctl_ = 0;
 
     std::array<int, 4> period_{};
+    std::array<int, 4> wrap_{};  // linked low channel: clocks between borrows after the first
     std::array<int, 4> count_{};
     std::array<bool, 4> out_{};
 
@@ -46,6 +47,7 @@ private:
     int clock_hz_ = kClockHz;
 
     void recalc_periods();
+    bool joined_high(int ch) const;
     void tick_channel(int ch);
     void step_polys();
     float sample() const;

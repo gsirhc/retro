@@ -2,6 +2,7 @@
 
 #include "pokey.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <vector>
 
@@ -19,6 +20,21 @@ int rise_spacing(atari::Pokey& p, int cycles) {
         }
     }
     return spacing;
+}
+
+// Chip clocks between successive output edges, sampled once per clock.
+std::vector<int> edge_gaps(atari::Pokey& p, int cycles) {
+    std::vector<float> out;
+    p.mix(cycles, atari::Pokey::kClockHz, out);
+    std::vector<int> gaps;
+    int last = -1;
+    for (size_t i = 1; i < out.size(); i++) {
+        if ((out[i - 1] > 0.0f) != (out[i] > 0.0f)) {
+            if (last >= 0) gaps.push_back(int(i) - last);
+            last = int(i);
+        }
+    }
+    return gaps;
 }
 
 atari::Pokey running() {
@@ -122,6 +138,39 @@ TEST(Pokey, LinkedChannelsThreeAndFourOnTheBaseClock) {
     p.write(0x06, 0x01);
     p.write(0x07, 0xAF);
     EXPECT_EQ(rise_spacing(p, 60000), 2 * (0x0102 + 1) * 28);
+}
+
+// MAME pokey.cpp: a linked low channel borrows at its own AUDF, then every
+// 256 clocks as its counter wraps; the high channel's borrow reloads both.
+TEST(Pokey, LinkedLowChannelBorrowsAtItsOwnRateOnTheBaseClock) {
+    auto p = running();
+    p.write(0x08, 0x10);
+    p.write(0x00, 0x02);
+    p.write(0x01, 0xAF);
+    p.write(0x02, 0x02);
+    auto gaps = edge_gaps(p, 40000);
+    ASSERT_GE(gaps.size(), 6u);
+    for (size_t i = 0; i + 2 < gaps.size(); i += 3) {
+        SCOPED_TRACE(i);
+        std::vector<int> run(gaps.begin() + i, gaps.begin() + i + 3);
+        std::vector<int> want{256 * 28, 256 * 28, 3 * 28};
+        if (run != want) {
+            std::rotate(want.begin(), want.begin() + 1, want.end());
+            if (run != want) std::rotate(want.begin(), want.begin() + 1, want.end());
+        }
+        EXPECT_EQ(run, want);
+    }
+}
+
+TEST(Pokey, LinkedLowChannelOnTheFastClockWrapsEvery256) {
+    auto p = running();
+    p.write(0x08, 0x50);
+    p.write(0x00, 0x10);
+    p.write(0x01, 0xAF);
+    p.write(0x02, 0x01);
+    auto gaps = edge_gaps(p, 4000);
+    ASSERT_GE(gaps.size(), 4u);
+    for (size_t i = 1; i < gaps.size(); i++) EXPECT_EQ(gaps[i - 1] + gaps[i], 0x110 + 7) << i;
 }
 
 TEST(Pokey, VolumeOnlyHoldsTheLevel) {

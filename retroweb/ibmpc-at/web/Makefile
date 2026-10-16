@@ -61,7 +61,7 @@ serve: ibmpcat.js roms shared
 	  exit 1; \
 	fi
 	@echo "serving on http://localhost:8000  (Ctrl-C to stop)"
-	python3 devserve.py 8000
+	python3 ../../serve_nocache.py 8000 .
 
 # Playwright suite. Needs the same roms/hdd-image as serve, plus npm ci once.
 # Ports 8300/8310 keep it clear of serve's 8000.

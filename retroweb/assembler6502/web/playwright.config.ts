@@ -29,7 +29,7 @@ export default defineConfig({
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
 
   webServer: {
-    command: `python3 devserve.py ${PORT}`,
+    command: `python3 ../../serve_nocache.py ${PORT} .`,
     url: `http://localhost:${PORT}/`,
     reuseExistingServer: !process.env.CI,
     timeout: 20_000,

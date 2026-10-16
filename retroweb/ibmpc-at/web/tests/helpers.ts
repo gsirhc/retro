@@ -63,18 +63,22 @@ export async function rafTicks(page: Page, n = 3): Promise<void> {
   );
 }
 
-/** One key's make and break together, then emulated time for the keyboard to clock both bytes out and INT 9 to take them (2 x 825us frames). */
-export async function tap(page: Page, code: string, gapMs = 20): Promise<void> {
-  // emulated time, not wall: a wall-clock hold under fast=1 outlasts the 500ms typematic delay
+/** Wait until the guest has read every queued key byte from the 8042. */
+export async function keysDrained(page: Page): Promise<void> {
+  await page.waitForFunction(() => !(window as any).__test.machine.keysPending());
+}
+
+/** One key's make and break together; the keyboard buffers both, so no typematic repeat starts. */
+export async function tap(page: Page, code: string): Promise<void> {
   await page.evaluate((c) => {
     (window as any).__test.sendKey(c, false);
     (window as any).__test.sendKey(c, true);
   }, code);
-  await emuWait(page, gapMs);
+  await keysDrained(page);
 }
 
-export async function pressEnter(page: Page, gapMs = 20): Promise<void> {
-  await tap(page, "Enter", gapMs);
+export async function pressEnter(page: Page): Promise<void> {
+  await tap(page, "Enter");
 }
 
 const CHAR_TO_KEY: Record<string, string> = {
@@ -98,24 +102,23 @@ const SHIFTED_CHAR_TO_KEY: Record<string, string> = {
 export async function typeStr(
   page: Page,
   str: string,
-  opts: { gapMs?: number; pressEnterAfter?: boolean } = {},
+  opts: { pressEnterAfter?: boolean } = {},
 ): Promise<void> {
-  const gapMs = opts.gapMs ?? 20;
   for (const raw of str.toUpperCase()) {
     const shiftedKey = SHIFTED_CHAR_TO_KEY[raw];
     const key = shiftedKey ?? CHAR_TO_KEY[raw];
     if (!key) throw new Error(`typeStr: no SET1 key mapping for character ${JSON.stringify(raw)}`);
     if (shiftedKey) {
       await page.evaluate((c) => (window as any).__test.sendKey(c, false), "ShiftLeft");
-      await emuWait(page, gapMs);
+      await keysDrained(page);
     }
-    await tap(page, key, gapMs);
+    await tap(page, key);
     if (shiftedKey) {
       await page.evaluate((c) => (window as any).__test.sendKey(c, true), "ShiftLeft");
-      await emuWait(page, gapMs);
+      await keysDrained(page);
     }
   }
-  if (opts.pressEnterAfter !== false) await pressEnter(page, gapMs);
+  if (opts.pressEnterAfter !== false) await pressEnter(page);
 }
 
 /** Click the CRT so it (re)gains keyboard focus. */

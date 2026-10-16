@@ -15,6 +15,11 @@ SHARED_ARCADE = arcade-cab.css arcade-touch.js arcade-core.js \
 shared:
 	mkdir -p shared
 	cp -R $(addprefix $(SHARED)/,$(SHARED_BASE) $(SHARED_EXTRA)) shared/
+ifneq ($(SHARED_TESTS),)
+	rm -rf tests/shared
+	mkdir -p tests/shared
+	cp $(SHARED_TESTS) tests/shared/
+endif
 
 test-install:
 	npm ci

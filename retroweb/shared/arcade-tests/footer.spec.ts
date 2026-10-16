@@ -1,7 +1,5 @@
 import { test, expect } from "@playwright/test";
 
-// Shared site footer.
-
 test("site footer is present and the Help control points at ../about.html", async ({ page }) => {
   await page.goto("/?test=1");
   const footer = page.locator("#siteFooter");

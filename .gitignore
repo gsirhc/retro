@@ -39,6 +39,7 @@ retroweb/_site/
 retroweb/_site.new/
 # local TLS cert for `make preview` (see retroweb/Makefile's preview-cert)
 retroweb/.preview-tls/
+retroweb/.tools/
 
 retroweb/altair8800/emu8080
 retroweb/altair8800/tests/build/
@@ -150,6 +151,7 @@ retroweb/altair8800/web/shared/
 retroweb/assembler6502/web/shared/
 retroweb/ibmpc-at/web/shared/
 retroweb/pacman/web/shared/
+retroweb/pacman/web/tests/shared/
 
 retroweb/asteroids/tests/build/
 retroweb/asteroids/web/asteroids.js
@@ -158,6 +160,7 @@ retroweb/asteroids/web/hwtest_roms.h
 retroweb/asteroids/web/roms/
 retroweb/asteroids/roms/user/
 retroweb/asteroids/web/shared/
+retroweb/asteroids/web/tests/shared/
 retroweb/centipede/tests/build/
 retroweb/centipede/web/centipede.js
 retroweb/centipede/web/centipede.wasm
@@ -165,6 +168,7 @@ retroweb/centipede/web/hwtest_roms.h
 retroweb/centipede/web/roms/
 retroweb/centipede/roms/user/
 retroweb/centipede/web/shared/
+retroweb/centipede/web/tests/shared/
 retroweb/missile/tests/build/
 retroweb/missile/web/missile.js
 retroweb/missile/web/missile.wasm
@@ -172,6 +176,7 @@ retroweb/missile/web/hwtest_roms.h
 retroweb/missile/web/roms/
 retroweb/missile/roms/user/
 retroweb/missile/web/shared/
+retroweb/missile/web/tests/shared/
 
 retroweb/shared/cpu/tests/build/
 retroweb/shared/cpu/zex/zexdoc.com
@@ -192,6 +197,7 @@ retroweb/frogger/web/hwtest_roms.h
 retroweb/frogger/web/roms/
 retroweb/frogger/roms/user/
 retroweb/frogger/web/shared/
+retroweb/frogger/web/tests/shared/
 
 retroweb/galaga/tests/build/
 retroweb/galaga/tests/build-cov/
@@ -202,6 +208,7 @@ retroweb/galaga/web/hwtest_roms.h
 retroweb/galaga/web/roms/
 retroweb/galaga/roms/user/
 retroweb/galaga/web/shared/
+retroweb/galaga/web/tests/shared/
 retroweb/galaxian/tests/build/
 retroweb/galaxian/tests/build-cov/
 retroweb/galaxian/tests/coverage-cpp/
@@ -211,6 +218,7 @@ retroweb/galaxian/web/hwtest_roms.h
 retroweb/galaxian/web/roms/
 retroweb/galaxian/roms/user/
 retroweb/galaxian/web/shared/
+retroweb/galaxian/web/tests/shared/
 
 retroweb/scramble/tests/build/
 retroweb/scramble/tests/build-cov/
@@ -221,6 +229,7 @@ retroweb/scramble/web/hwtest_roms.h
 retroweb/scramble/web/roms/
 retroweb/scramble/roms/user/
 retroweb/scramble/web/shared/
+retroweb/scramble/web/tests/shared/
 
 retroweb/pc486/web/shared/
 retroweb/ibmpc-at/disks/library/

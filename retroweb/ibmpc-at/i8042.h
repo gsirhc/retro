@@ -51,6 +51,8 @@ public:
     uint8_t leds() const { return leds_; }
     bool scanning() const { return scanning_; }
     int buffered() const { return int(fifo_.size()); }
+    // Bytes still on their way to the guest: buffered, on the link, or unread at port 0x60.
+    bool keys_pending() const { return !fifo_.empty() || xfer_active_ || output_full_; }
 
     static constexpr int kBufferSize = 16;
     // 11-bit frame at the midpoint of the 10-16.7 kHz keyboard clock (Chapweske, AT-PS/2 interface)

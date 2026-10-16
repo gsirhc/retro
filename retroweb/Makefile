@@ -22,14 +22,14 @@
 #                    (or use `make watch` / `make watch-bg` instead)
 #   make preview-uninstall  remove that agent
 #   make clean       remove _site/
-#   make lint        ESLint, HTMLHint, and cppcheck on this tree.
+#   make lint        ESLint, HTMLHint, tsc, cppcheck, and actionlint.
 #                    JS/HTML need `npm ci` here (the lint target installs
 #                    them if node_modules is missing). C++ needs cppcheck
 #                    on PATH and gtest headers (libgtest-dev / googletest,
 #                    or a native test build that already fetched them).
 
 .PHONY: help site _stage preview preview-bg watch watch-bg preview-stop preview-status \
-        preview-install preview-uninstall preview-cert clean lint lint-js lint-html lint-ts lint-cpp lint-staging
+        preview-install preview-uninstall preview-cert clean lint lint-js lint-html lint-ts lint-cpp lint-staging lint-actions
 
 PREVIEW_PORT  ?= 8000
 PREVIEW_PID   := /tmp/retroweb-preview.pid
@@ -225,7 +225,7 @@ clean:
 	rm -rf _site _site.new
 
 # Source only: not _site, vendored xterm, copied web/shared, or test build trees.
-lint: lint-js lint-html lint-ts lint-cpp lint-staging
+lint: lint-js lint-html lint-ts lint-cpp lint-staging lint-actions
 
 lint-ts:
 	@test -x node_modules/.bin/tsc || npm ci
@@ -246,3 +246,7 @@ lint-html:
 
 lint-cpp:
 	sh lint-cpp.sh
+
+lint-actions:
+	@sh fetch-actionlint.sh >/dev/null
+	cd .. && retroweb/.tools/actionlint-1.7.12/actionlint

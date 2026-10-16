@@ -49,72 +49,44 @@ Suggested fix: move ibmpc-at onto the same worker and patch path, sharing
 `hdd-worker.js` through `SHARED_PC` with the database name and model as
 parameters. The pc486 storage handling above then covers ibmpc-at too.
 
-### M2. Twelve `devserve.py` copies in five variants
+### ~~M2. Twelve `devserve.py` copies in five variants~~ Done
 
-Every `web/` has its own dev server, and Playwright starts it
-(`python3 devserve.py ${PORT}`). The copies have drifted:
+Every Playwright config (both its servers) and every `make serve` run
+`python3 ../../serve_nocache.py PORT DIR`, and the twelve `devserve.py`
+copies are gone. Every suite now gets no-store and the gzip-sibling rule
+(raw file must exist) the same way `make preview` and Pages do.
 
-- frogger, galaga, galaxian and scramble take `--https`, which nothing passes.
-- Only pc486's serves a `.gz` sibling as `Content-Encoding: gzip`, the way
-  Pages and `serve_nocache.py` do. The other eleven suites test against a
-  server that doesn't match production or `make preview`.
-- altair8800 and assembler6502 each have their own one-off copy.
+### ~~M3. Arcade Playwright specs are copy-paste~~ Done
 
-`serve_nocache.py PORT DIR` already does all of it (no-store, gzip siblings,
-optional TLS). Point each Playwright config and `make serve` at it
-(`python3 ../../serve_nocache.py ${PORT} .`, a dev-only path that never
-ships), and delete the copies. Keep its gzip rule as it is: a raw request
-gets the `.gz` sibling only when the raw file exists too, because Pages 404s
-an undeployed raw file. That rule is what lets pc486's specs catch a page
-that names a raw HDD image.
+`theme`, `seam`, `fullscreen`, `focus-hint`, `footer` and `mute` live once
+in `shared/arcade-tests/`, plus `storage.spec.ts`: the arcade-core blocks
+from each `rom.spec.ts` (stored set unreadable, the open store giving way
+to `deleteDatabase`, IndexedDB blocked). `arcade.mk` sets `SHARED_TESTS`
+and `make shared` copies them into each cabinet's git-ignored
+`web/tests/shared/`. Each cabinet's `web/tests/cabinet.ts` gives the ROM
+database name, the hwtest files (`rom.spec.ts` imports them too) and the
+byte flipped to make a user set.
 
-### M3. Arcade Playwright specs are copy-paste
-
-H3 moved the arcade front ends onto `shared/arcade-core.js`, but their
-specs stayed eight copies each, about 2,000 lines that test the same
-shared code:
-
-| Spec | Copies | Lines | Variants |
-|------|--------|-------|----------|
-| `theme.spec.ts` | 8 | 880 | 1 |
-| `seam.spec.ts` | 8 | 104 | 1 |
-| `fullscreen.spec.ts` | 8 | 529 | 3 |
-| `focus-hint.spec.ts` | 8 | 208 | 2 |
-| `footer.spec.ts` | 8 | 152 | 2 |
-| `mute.spec.ts` | 8 | 163 | 2 |
-
-Plus the arcade-core blocks inside each `rom.spec.ts` and `hiscore.spec.ts`
-(IndexedDB blocked, stored ROM unreadable, Remove ROMs). The copies have
-already drifted: seven cabinets' `fullscreen.spec.ts` check that the canvas
-stays centred in the bezel, and asteroids' doesn't. A change to
-arcade-core means eight edits, and missing one passes.
-
-Suggested fix, the same move as `arcade-web.yml` for CI: shared specs in
-`shared/arcade-tests/`, copied into each cabinet's `web/tests/shared/` by
-`make shared` (git-ignored, like `web/shared/`), reading per-cabinet values
-(aspect ratio, HIGH SCORE address, POST gate) from a small fixture each
-cabinet keeps. Cabinet-specific specs (`keyboard`, `dip`, `coindoor`,
-`touch`, `help`, `smoke`) stay local.
+The drift is gone with the copies: asteroids' fullscreen gets the centring
+check, every cabinet gets the `deleteDatabase` test (only frogger had it),
+and every cabinet's blocked-storage case loads a real user set as galaga's
+did. Galaga's "hwtest ROM stays silent" moved to its `audio.spec.ts`.
+The `hiscore.spec.ts` blocks stay per cabinet: they depend on each board's
+HIGH SCORE layout and gate.
 
 ## Low priority
 
-- **CLAUDE.md port list.** It lists every Playwright port except pc486's
-  `8400`/`8410` and Altair's `8110` (its landing-page server for
-  `home.spec.ts`).
-- **ibmpc-at typing helpers wait on time, not the guest.** pc486's
-  `tap`/`typeStr` wait until the guest has read each scan code
-  (`scancodesPending`, 8042 OBF). ibmpc-at's wait a fixed slice of emulated
-  time per key, because its wasm exposes no keyboard-controller state. Expose
-  it (and a `scancodesPending` getter) and switch the helpers over, ideally
-  with the PC front-end item below.
-- **POKEY linked low channel.** In 16-bit mode `pokey.cpp` gives both
-  channels the 16-bit period, so the low channel sounds at that rate. In MAME
-  `pokey.cpp` the low channel keeps borrowing at its own 8-bit rate and only
-  clocks the high one. Centipede and Missile don't appear to link channels,
-  so nothing audible changes today, but it's a known departure.
-- **actionlint isn't run.** All three workflows pass actionlint 1.7.12 and it
-  caught a planted input typo, but nothing runs it. Add it to `make lint` (a
-  pinned, checksummed binary like the other fetched tools) or a CI step.
+- ~~**CLAUDE.md port list.**~~ Done: `8110` and `8400`/`8410` added.
+- ~~**ibmpc-at typing helpers wait on time, not the guest.**~~ Done: the
+  8042's `keys_pending()` (FIFO, link transfer or unread port 0x60 byte) is
+  exposed as `keysPending`, and `tap`/`typeStr` wait on it. No JS queue is
+  needed, the keyboard buffers make and break itself.
+- ~~**POKEY linked low channel.**~~ Done: a linked low channel borrows at
+  its own AUDF, then every 256 clocks, and the high channel's borrow reloads
+  both (MAME `pokey.cpp` `step_one_clock`).
+- ~~**actionlint isn't run.**~~ Done: `make lint` runs a pinned,
+  SHA-256-checked actionlint 1.7.12 (`fetch-actionlint.sh`, cached in
+  `retroweb/.tools/`). Clean with and without shellcheck on PATH.
 - **PC front-end overlap.** About 80 lines are byte-identical between
   `ibmpc-at/web/app.js` and `pc486/web/app.js`: the load overlay
   (`beginLoad`, `endLoad`, `withLoad`, `paintLoadOverlay`), frame sizing
@@ -132,9 +104,8 @@ backlog.
 
 1. **M1**, ~~the PC storage warning and blocked-storage specs~~ (done, see
    M1), then ibmpc-at onto the worker.
-2. **M2**, one dev server. Small, and it makes M3's specs run against the
-   same server as production.
-3. **M3**, shared arcade specs.
-4. **Low**: the CLAUDE.md port list (one line); PC front-end overlap and the
-   ibmpc-at typing helpers with M1; actionlint in `make lint`; the POKEY
-   linked low channel.
+2. ~~**M2**, one dev server.~~ Done, see M2.
+3. ~~**M3**, shared arcade specs.~~ Done, see M3.
+4. **Low**: ~~the CLAUDE.md port list~~, ~~the ibmpc-at typing helpers~~,
+   ~~actionlint in `make lint`~~, ~~the POKEY linked low channel~~ (done, see
+   Low). The PC front-end overlap waits for M1's worker move.

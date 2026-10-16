@@ -1,11 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { readFileSync } from "fs";
-
-const HWTEST_FILES = [
-  "roms/program.bin",
-  "roms/gfx.bin",
-  "roms/6l.bpr",
-];
+import { HWTEST_FILES } from "./cabinet";
 
 function buf(path: string, name: string, patch?: (b: Buffer) => Buffer) {
   let buffer: Buffer = readFileSync(path);
@@ -162,62 +157,5 @@ test.describe("ROM set loader", () => {
       buffer: zip,
     });
     await expect(page.locator("#romStatus")).toHaveText("Hardware test ROM");
-  });
-});
-
-test("an unreadable stored set falls back to the test ROM and says so", async ({ page }) => {
-  await page.goto("/?test=1");
-  await page.waitForFunction(() => (window as any).__test);
-  await page.evaluate(() => new Promise((resolve, reject) => {
-    const req = indexedDB.open("retroweb-galaxian", 1);
-    req.onupgradeneeded = () => req.result.createObjectStore("roms");
-    req.onsuccess = () => {
-      const tx = req.result.transaction("roms", "readwrite");
-      tx.objectStore("roms").put({ kind: "user" }, (window as any).__test.ROM_KEY);
-      tx.oncomplete = () => { req.result.close(); resolve(null); };
-      tx.onerror = () => reject(tx.error);
-    };
-    req.onerror = () => reject(req.error);
-  }));
-  await page.reload();
-  await page.waitForFunction(() => (window as any).__test);
-  await expect(page.locator("#romStatus")).toHaveText("Stored ROM unreadable. Using test ROM");
-  await expect(page.locator("#romErrorHint")).toBeVisible();
-  expect(await page.evaluate(() => (window as any).__test.usingUserRom)).toBe(false);
-});
-
-test.describe("with IndexedDB blocked", () => {
-  test.beforeEach(async ({ page }) => {
-    await page.addInitScript(() => {
-      IDBFactory.prototype.open = () => { throw new DOMException("blocked", "SecurityError"); };
-    });
-    await page.goto("/?test=1");
-    await page.waitForFunction(() => (window as any).__test);
-  });
-
-  test("the test ROM still boots and runs", async ({ page }) => {
-    const c0 = await page.evaluate(() => (window as any).__test.machine.totalCycles());
-    await expect.poll(() => page.evaluate(() => (window as any).__test.machine.totalCycles())).toBeGreaterThan(c0);
-    expect(await page.evaluate(() => (window as any).__test.usingUserRom)).toBe(false);
-  });
-
-  test("a user set loads for the session with the same warning", async ({ page }) => {
-    await page.locator("#romFile").setInputFiles(hwtestNamed({}, (b) => {
-      const out = Buffer.from(b);
-      out[0] ^= 1;
-      return out;
-    }));
-    await expect(page.locator("#romStatus")).toHaveText("Warning: Your ROM has been loaded but the browser blocked storage (IndexedDB).  It won't reload when you return.");
-    expect(await page.evaluate(() => (window as any).__test.usingUserRom)).toBe(true);
-    const c0 = await page.evaluate(() => (window as any).__test.machine.totalCycles());
-    await expect.poll(() => page.evaluate(() => (window as any).__test.machine.totalCycles())).toBeGreaterThan(c0);
-  });
-
-  test("a loaded set runs for the session and Remove ROMs still reverts", async ({ page }) => {
-    await page.locator("#romFile").setInputFiles(HWTEST_FILES);
-    await expect(page.locator("#romStatus")).toHaveText("Warning: Your ROM has been loaded but the browser blocked storage (IndexedDB).  It won't reload when you return.");
-    await page.locator("#removeRomBtn").click();
-    await expect(page.locator("#romStatus")).toHaveText("Running test ROM");
-    await page.waitForFunction(() => !!(window as any).__test?.machine);
   });
 });

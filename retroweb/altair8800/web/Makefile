@@ -30,7 +30,7 @@ media:
 SHARED = ../../shared
 serve: retro8080.js roms media shared
 	@echo "serving on http://localhost:8000  (Ctrl-C to stop)"
-	python3 -m http.server 8000
+	python3 ../../serve_nocache.py 8000 .
 
 # Playwright suite; `make test-install` once for the runner and Chromium
 test: retro8080.js roms media shared

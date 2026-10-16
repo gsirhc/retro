@@ -46,3 +46,16 @@ test.describe("Audio level", () => {
     expect(peak).toBeLessThan(0.25);
   });
 });
+
+test("hwtest ROM stays silent", async ({ page }) => {
+  await page.goto("/?test=1");
+  await page.waitForFunction(() => (window as any).__test);
+  const heard = await page.evaluate(() => {
+    const m = (window as any).__test.machine;
+    m.runCycles(3072000 * 4);
+    const s = m.drainAudio();
+    for (let i = 0; i < s.length; i++) if (s[i] !== 0) return true;
+    return false;
+  });
+  expect(heard).toBe(false);
+});

@@ -27,7 +27,7 @@ export default defineConfig({
 
   webServer: [
     {
-      command: `python3 devserve.py ${PORT}`,
+      command: `python3 ../../serve_nocache.py ${PORT} .`,
       url: `http://localhost:${PORT}/`,
       reuseExistingServer: !process.env.CI,
       timeout: 20_000,
@@ -35,7 +35,7 @@ export default defineConfig({
       stderr: "pipe",
     },
     {
-      command: `python3 -m http.server ${HOME_PORT} -d ../..`,
+      command: `python3 ../../serve_nocache.py ${HOME_PORT} ../..`,
       url: `http://localhost:${HOME_PORT}/`,
       reuseExistingServer: !process.env.CI,
       timeout: 20_000,

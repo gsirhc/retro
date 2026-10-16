@@ -155,6 +155,21 @@ TEST_F(I8042Test, BytesWaitInTheKeyboardInsteadOfOverwritingOneAnother) {
     EXPECT_EQ(Drain(), (std::vector<uint8_t>{0x48, 0xE0, 0xC8, 0x1E, 0x9E}));
 }
 
+TEST_F(I8042Test, KeysPendingUntilTheGuestReadsTheLastByte) {
+    Drain();
+    EXPECT_FALSE(kbc.keys_pending());
+    kbc.inject_scancode(0x1E);
+    kbc.inject_scancode(0x9E);
+    EXPECT_TRUE(kbc.keys_pending());
+    Frame();
+    kbc.in(0x60);
+    EXPECT_TRUE(kbc.keys_pending()) << "the break code is still in the keyboard";
+    Frame();
+    EXPECT_TRUE(kbc.keys_pending()) << "the break code is unread at port 0x60";
+    EXPECT_EQ(kbc.in(0x60), 0x9E);
+    EXPECT_FALSE(kbc.keys_pending());
+}
+
 TEST_F(I8042Test, Irq1DropsBetweenBytesSoEveryByteIsANewEdge) {
     Drain();
     kbc.out(0x64, 0x60);

@@ -112,7 +112,7 @@ serve: pc486.js pc486-perf.js roms shared driver-images
 	  exit 1; \
 	fi
 	@echo "serving on http://localhost:8000  (Ctrl-C to stop)"
-	python3 devserve.py 8000
+	python3 ../../serve_nocache.py 8000 .
 
 # Playwright suite. Needs the same roms and images as serve, plus npm ci once. Ports 8400/8410.
 test: pc486.js pc486-perf.js roms shared driver-images legacy-hdd-fixture

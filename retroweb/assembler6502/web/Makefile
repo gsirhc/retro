@@ -51,7 +51,7 @@ examples-bin: $(EXAMPLE_BINS)
 SHARED = ../../shared
 serve: wasm roms examples-bin shared
 	@echo "serving on http://localhost:8000  (Ctrl-C to stop)"
-	python3 devserve.py 8000
+	python3 ../../serve_nocache.py 8000 .
 
 test: wasm roms examples-bin shared
 	npx playwright test
