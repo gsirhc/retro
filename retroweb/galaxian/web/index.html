@@ -194,7 +194,7 @@
 
     <div class="panel">
       <h2>ROM sockets</h2>
-      <p class="legal" id="romLegal">This page ships a hardware self-test ROM, not Namco Galaxian. Those ROMs are still under copyright and are <strong>not</strong> included or downloaded. Load a complete original-board set (MAME <code>galaxian</code> zip, or the loose chips). Each chip is identified by its usual name and checked by size, not a particular CRC. Extra files are ignored. The set stays in this browser.</p>
+      <p class="legal" id="romLegal">This page ships a hardware self-test ROM, not Namco Galaxian. Those ROMs are still under copyright and are not included or downloaded. Load the ROMs yourself: galaxian.zip, or the loose chips. Each chip is identified by its usual name and checked by size, not a particular CRC. Extra files are ignored. The set stays in this browser.</p>
       <div class="row">
         <button type="button" id="loadRomBtn">Load ROM set…</button>
         <input id="romFile" type="file" accept=".zip,.bin,.u,.v,.w,.y,.bpr" multiple hidden>
@@ -248,11 +248,9 @@
 
 <dialog class="site-dialog" id="romErrorHint">
   <h2>ROM set not loaded</h2>
-  <p id="romErrorCopy">Need a complete original-board set: a MAME <code>galaxian</code>
-    zip, or the loose chips (10K program, 4K graphics, 32-byte
-    color PROM). Usual names like <code>galmidw.u</code> / <code>1h.bin</code> /
-    <code>6l.bpr</code>. Each chip is checked by size, not a particular CRC.
-    Extra files are ignored.</p>
+  <p id="romErrorCopy">That isn't a complete set. galaxian.zip needs the
+    program, graphics, and the color PROM. Loose chips use names like
+    galmidw.u, 1h.bin, or 6l.bpr.</p>
   <div class="row">
     <button type="button" id="romErrorOk" autofocus>OK</button>
   </div>

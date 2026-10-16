@@ -197,7 +197,7 @@
 
     <div class="panel">
       <h2>ROM sockets</h2>
-      <p class="legal" id="romLegal">This page ships a hardware self-test ROM, not Atari Asteroids. Those ROMs are still under copyright and are <strong>not</strong> included or downloaded. Load a complete original-board set (MAME <code>asteroid</code> zip, or the loose chips: program <code>035145</code>/<code>035144</code>/<code>035143</code> plus vector <code>035127</code>). Each chip is identified by its usual name and checked by size, not a particular CRC. Extra files are ignored. The set stays in this browser.</p>
+      <p class="legal" id="romLegal">This page ships a hardware self-test ROM, not Atari Asteroids. Those ROMs are still under copyright and are not included or downloaded. Load the ROMs yourself: asteroid.zip, or the loose chips: program 035145, 035144, 035143 plus vector 035127. Each chip is identified by its usual name and checked by size, not a particular CRC. Extra files are ignored. The set stays in this browser.</p>
       <div class="row">
         <button type="button" id="loadRomBtn">Load ROM set…</button>
         <input id="romFile" type="file" accept=".zip,.bin,.ef2,.h2,.j2,.np3" multiple hidden>
@@ -262,12 +262,9 @@
 
 <dialog class="site-dialog" id="romErrorHint">
   <h2>ROM set not loaded</h2>
-  <p id="romErrorCopy">Need a complete original-board set: a MAME <code>asteroid</code>
-    zip, or the loose chips (6K program as three 2K chips <code>035145</code>/
-    <code>035144</code>/<code>035143</code>, or one <code>program.bin</code>; plus
-    the 2K vector ROM <code>035127</code>, or <code>vector.bin</code>). Usual names
-    like <code>035145-04e.ef2</code> / <code>035127-02.np3</code>.
-    Each chip is checked by size, not a particular CRC. Extra files are ignored.</p>
+  <p id="romErrorCopy">That isn't a complete set. asteroid.zip needs the
+    program and the vector ROM. Loose chips use names like 035145-04e.ef2 or
+    035127-02.np3, or program.bin and vector.bin.</p>
   <div class="row">
     <button type="button" id="romErrorOk" autofocus>OK</button>
   </div>

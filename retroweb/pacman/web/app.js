@@ -144,11 +144,11 @@ function applyChrome() {
   }
   const legal = document.getElementById("romLegal");
   if (legal) {
-    legal.innerHTML = "This page ships a hardware self-test ROM, not Namco/Midway Ms. Pac-Man. Those ROMs are still under copyright and are <strong>not</strong> included or downloaded. Load a complete original conversion-kit set (MAME <code>mspacman</code> zip, or the loose chips: Pac-Man program 6e/6f/6h/6j, aux board <code>u5</code>/<code>u6</code>/<code>u7</code>, and Ms. Pac-Man 5e/5f graphics). Each chip is identified by its usual name and checked by size, not a particular CRC. Extra files are ignored. The set stays in this browser.";
+    legal.textContent = "This page ships a hardware self-test ROM, not Namco/Midway Ms. Pac-Man. Those ROMs are still under copyright and are not included or downloaded. Load the ROMs yourself: mspacman.zip, or the loose chips: Pac-Man program 6e, 6f, 6h, 6j, aux board u5, u6, u7, and Ms. Pac-Man 5e and 5f graphics. Each chip is identified by its usual name and checked by size, not a particular CRC. Extra files are ignored. The set stays in this browser.";
   }
   const err = document.getElementById("romErrorCopy");
   if (err) {
-    err.innerHTML = "Need a complete Ms. Pac-Man conversion-kit set: a MAME <code>mspacman</code> zip, or the loose chips (Pac-Man 16K program or four 4K banks, aux board U5 2K + U6/U7 4K, 4K tiles, 4K sprites, color and wave PROMs). Usual names like <code>pacman.6e</code> / <code>u5</code> / <code>5e</code> / <code>82s123.7f</code>. Each chip is checked by size, not a particular CRC. Extra files are ignored.";
+    err.textContent = "That isn't a complete set. mspacman.zip needs the Pac-Man program, aux board U5, U6, and U7, tiles, sprites, and the color and wave PROMs. Loose chips use names like pacman.6e, u5, 5e, or 82s123.7f.";
   }
   const ghosts = document.getElementById("dipGhostsRow");
   if (ghosts) ghosts.hidden = true;

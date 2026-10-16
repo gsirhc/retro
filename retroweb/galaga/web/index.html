@@ -194,7 +194,7 @@
 
     <div class="panel">
       <h2>ROM sockets</h2>
-      <p class="legal" id="romLegal">This page ships a hardware self-test ROM, not Midway Galaga. Those ROMs are still under copyright and are <strong>not</strong> included or downloaded. Load a complete original-board set (MAME <code>galagamw</code> zip, or the loose chips). Each chip is identified by its usual name and checked by size, not a particular CRC. Extra files are ignored. The set stays in this browser. If <code>51xx.bin</code> or <code>54xx.bin</code> is missing or the wrong size, that chip falls back to HLE and the line above says so.</p>
+      <p class="legal" id="romLegal">This page ships a hardware self-test ROM, not Midway Galaga. Those ROMs are still under copyright and are not included or downloaded. Load the ROMs yourself: galagamw.zip, or the loose chips. Each chip is identified by its usual name and checked by size, not a particular CRC. Extra files are ignored. The set stays in this browser. If 51xx.bin or 54xx.bin is missing or the wrong size, that chip falls back to HLE and the line above says so.</p>
       <div class="row">
         <button type="button" id="loadRomBtn">Load ROM set…</button>
         <input id="romFile" type="file" accept=".zip,.bin" multiple hidden>
@@ -290,12 +290,9 @@
 
 <dialog class="site-dialog" id="romErrorHint">
   <h2>ROM set not loaded</h2>
-  <p id="romErrorCopy">Need a complete original-board set: a MAME <code>galagamw</code>
-    zip, or the loose chips (<code>3200a.bin</code> through <code>3500d.bin</code>,
-    <code>3600e.bin</code>, <code>3700g.bin</code>, <code>2600j.bin</code>,
-    <code>2800l.bin</code> + <code>2700k.bin</code>, and the four PROMs).
-    Each chip is checked by size, not a particular CRC. Extra files are ignored.
-    <code>51xx.bin</code> and <code>54xx.bin</code> are optional.</p>
+  <p id="romErrorCopy">That isn't a complete set. galagamw.zip needs
+    3200a.bin through 3500d.bin, 3600e.bin, 3700g.bin, 2600j.bin, 2800l.bin
+    and 2700k.bin, and the four PROMs.</p>
   <div class="row">
     <button type="button" id="romErrorOk" autofocus>OK</button>
   </div>

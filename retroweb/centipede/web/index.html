@@ -192,7 +192,7 @@
 
     <div class="panel">
       <h2>ROM sockets</h2>
-      <p class="legal" id="romLegal">This page ships a hardware self-test ROM, not Atari Centipede. Those ROMs are still under copyright and are <strong>not</strong> included or downloaded. Load a complete original-board set (MAME <code>centiped</code> zip, or the loose chips: program <code>136001-307</code>, <code>308</code>, <code>309</code>, <code>310</code> plus graphics <code>211</code> and <code>212</code>). Each chip is identified by its usual name and checked by size, not a particular CRC. Extra files are ignored. The set stays in this browser.</p>
+      <p class="legal" id="romLegal">This page ships a hardware self-test ROM, not Atari Centipede. Those ROMs are still under copyright and are not included or downloaded. Load the ROMs yourself: centiped.zip, or the loose chips: program 136001-307, 308, 309, 310 plus graphics 211 and 212. Each chip is identified by its usual name and checked by size, not a particular CRC. Extra files are ignored. The set stays in this browser.</p>
       <div class="row">
         <button type="button" id="loadRomBtn">Load ROM set…</button>
         <input id="romFile" type="file" accept=".zip,.bin,.d1,.e1,.fh1,.j1,.f7,.hj7,.307,.308,.309,.310,.211,.212" multiple hidden>
@@ -259,11 +259,9 @@
 
 <dialog class="site-dialog" id="romErrorHint">
   <h2>ROM set not loaded</h2>
-  <p id="romErrorCopy">Need a complete original-board set: a MAME <code>centiped</code>
-    zip, or the loose chips (8K program as four 2K chips <code>136001-307.d1</code>,
-    <code>308.e1</code>, <code>309.fh1</code>, <code>310.j1</code>, or one <code>program.bin</code>;
-    plus the 4K graphics as <code>136001-211.f7</code> and <code>212.hj7</code>, or <code>gfx.bin</code>).
-    Each chip is checked by size, not a particular CRC. Extra files are ignored.</p>
+  <p id="romErrorCopy">That isn't a complete set. centiped.zip needs the
+    program and the graphics. Loose chips use names like 136001-307.d1 or
+    136001-211.f7, or program.bin and gfx.bin.</p>
   <div class="row">
     <button type="button" id="romErrorOk" autofocus>OK</button>
   </div>

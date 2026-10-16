@@ -189,7 +189,7 @@
 
     <div class="panel">
       <h2>ROM sockets</h2>
-      <p class="legal" id="romLegal">This page ships a hardware self-test ROM, not Atari Missile Command. Those ROMs are still under copyright and are <strong>not</strong> included or downloaded. Load a complete original-board set (MAME <code>missile</code> zip, or the six loose program chips <code>035820-02</code>, <code>035821-02</code>, <code>035822-03e</code>, <code>035823-02</code>, <code>035824-02</code> and <code>035825-02</code>). The <code>035826-01</code> PROM is optional. Each chip is identified by its usual name and checked by size, not a particular CRC. Extra files are ignored. The set stays in this browser.</p>
+      <p class="legal" id="romLegal">This page ships a hardware self-test ROM, not Atari Missile Command. Those ROMs are still under copyright and are not included or downloaded. Load the ROMs yourself: missile.zip, or the six loose program chips 035820-02, 035821-02, 035822-03e, 035823-02, 035824-02 and 035825-02. The 035826-01 PROM is optional. Each chip is identified by its usual name and checked by size, not a particular CRC. Extra files are ignored. The set stays in this browser.</p>
       <div class="row">
         <button type="button" id="loadRomBtn">Load ROM set…</button>
         <input id="romFile" type="file" accept=".zip,.bin,.h1,.jk1,.kl1,.lm1,.np1,.r1,.l6" multiple hidden>
@@ -292,12 +292,9 @@
 
 <dialog class="site-dialog" id="romErrorHint">
   <h2>ROM set not loaded</h2>
-  <p id="romErrorCopy">Need a complete original-board set: a MAME <code>missile</code>
-    zip, or the six loose 2K program chips <code>035820-02.h1</code>,
-    <code>035821-02.jk1</code>, <code>035822-03e.kl1</code>, <code>035823-02.lm1</code>,
-    <code>035824-02.np1</code>, <code>035825-02.r1</code>, or one 12K <code>program.bin</code>.
-    The 32-byte PROM <code>035826-01.l6</code> is optional.
-    Each chip is checked by size, not a particular CRC. Extra files are ignored.</p>
+  <p id="romErrorCopy">That isn't a complete set. missile.zip needs the
+    six program chips. Loose chips use names like 035820-02.h1 or
+    035825-02.r1, or one program.bin.</p>
   <div class="row">
     <button type="button" id="romErrorOk" autofocus>OK</button>
   </div>

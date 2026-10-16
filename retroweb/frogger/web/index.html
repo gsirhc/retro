@@ -194,7 +194,7 @@
 
     <div class="panel">
       <h2>ROM sockets</h2>
-      <p class="legal" id="romLegal">This page ships a hardware self-test ROM, not Konami Frogger. Those ROMs are still under copyright and are <strong>not</strong> included or downloaded. Load a complete original-board set (MAME <code>frogger</code> zip, or the loose chips). Each chip is identified by its usual name and checked by size, not a particular CRC. Extra files are ignored. The set stays in this browser.</p>
+      <p class="legal" id="romLegal">This page ships a hardware self-test ROM, not Konami Frogger. Those ROMs are still under copyright and are not included or downloaded. Load the ROMs yourself: frogger.zip, or the loose chips. Each chip is identified by its usual name and checked by size, not a particular CRC. Extra files are ignored. The set stays in this browser.</p>
       <div class="row">
         <button type="button" id="loadRomBtn">Load ROM set…</button>
         <input id="romFile" type="file" accept=".zip,.bin,.26,.27,.606,.607,.608,.609,.610" multiple hidden>
@@ -242,11 +242,9 @@
 
 <dialog class="site-dialog" id="romErrorHint">
   <h2>ROM set not loaded</h2>
-  <p id="romErrorCopy">Need a complete original-board set: a MAME <code>frogger</code>
-    zip, or the loose chips (16K program, 6K sound, 4K graphics, 32-byte
-    color PROM). Usual names like <code>frogger.26</code> / <code>frogger.608</code> /
-    <code>pr-91.6l</code>. Each chip is checked by size, not a particular CRC.
-    Extra files are ignored.</p>
+  <p id="romErrorCopy">That isn't a complete set. frogger.zip needs the
+    program, sound, graphics, and the color PROM. Loose chips use names like
+    frogger.26, frogger.608, or pr-91.6l.</p>
   <div class="row">
     <button type="button" id="romErrorOk" autofocus>OK</button>
   </div>

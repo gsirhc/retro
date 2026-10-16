@@ -91,8 +91,8 @@ test.describe("ROM set loader", () => {
     });
     const dlg = page.locator("#romErrorHint");
     await expect(dlg).toBeVisible();
-    await expect(dlg).toContainText(/complete original-board set/i);
-    await expect(dlg).toContainText(/checked by size, not a particular CRC/i);
+    await expect(dlg).toContainText(/isn't a complete set/i);
+    await expect(dlg).toContainText(/centiped\.zip/);
     await expect(page.locator("#romStatus")).toContainText("ROM rejected");
     expect(await page.evaluate(() => (window as any).__test.usingUserRom)).toBe(false);
 
@@ -137,8 +137,8 @@ test.describe("ROM set loader", () => {
 
   test("tells the visitor which sets are allowed", async ({ page }) => {
     const legal = page.locator(".legal").first();
-    await expect(legal).toContainText(/complete original-board set/i);
-    await expect(legal).toContainText(/centiped/i);
+    await expect(legal).toContainText(/Load the ROMs yourself/i);
+    await expect(legal).toContainText(/centiped\.zip/);
     await expect(legal).toContainText(/checked by size, not a particular CRC/i);
   });
 
