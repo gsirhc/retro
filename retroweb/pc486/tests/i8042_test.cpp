@@ -668,7 +668,7 @@ TEST(I8042Test, ResendRepeatsTheLastPacketAndLeavesCountersAlone) {
     InitMouse(kbc);
     kbc.inject_mouse_event(6, 0, I8042::kMouseLeft);
     Packet first = ReadPacket(kbc);
-    SendAux(kbc, 0xFE);  // "that last one was garbled -- say it again"
+    SendAux(kbc, 0xFE);  // "that last one was garbled, say it again"
     Packet again = ReadPacket(kbc);
     EXPECT_EQ(again.b0, first.b0);
     EXPECT_EQ(again.b1, first.b1);
@@ -707,7 +707,7 @@ TEST(I8042Test, MouseCommandsClearTheMovementCounters) {
     SendAux(kbc, 0xF5);  // reporting off, so counts just accumulate
     ReadAux(kbc);
     kbc.inject_mouse_event(40, 40, 0);
-    SendAux(kbc, 0xE6);  // set scaling 1:1 -- clears the counters
+    SendAux(kbc, 0xE6);  // set scaling 1:1, clears the counters
     ReadAux(kbc);
     SendAux(kbc, 0xEB);  // read data
     ReadAux(kbc);

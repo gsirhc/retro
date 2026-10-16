@@ -90,7 +90,7 @@ uint8_t Disk88::in(uint8_t port) {
             } else if (credit_ >= 1) {
                 credit_ -= 1;
                 if (++sector_ > 31) sector_ = 0;
-            }                         // else: not a full sector-time yet -- report the same one
+            }                         // else: not a full sector-time yet, report the same one
             bufpos_ = 255;
             uint8_t stat = static_cast<uint8_t>((sector_ << 1) & 0x3E);
             stat |= 0xC0;                               // unused hi bits read 1; bit0 (T)=0 => "true"

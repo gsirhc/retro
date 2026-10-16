@@ -4,7 +4,7 @@ namespace atari {
 
 namespace {
 
-// AUDC bits — MAME src/devices/sound/pokey.h (NOTPOLY5/POLY4/PURE).
+// AUDC bits, MAME src/devices/sound/pokey.h (NOTPOLY5/POLY4/PURE).
 constexpr uint8_t kVolMask = 0x0F;
 constexpr uint8_t kVolOnly = 0x10;
 constexpr uint8_t kPure = 0x20;
@@ -23,7 +23,7 @@ void Pokey::reset() {
     period_.fill(28);
     count_.fill(28);
     out_.fill(false);
-    // Non-zero seeds — an all-zero 17-bit LFSR stays stuck, and Centipede's
+    // Non-zero seeds, an all-zero 17-bit LFSR stays stuck, and Centipede's
     // mushroom field is planted from RANDOM (MAME pokey.cpp starts filled).
     poly17_ = 0x1FFFF;
     poly9_ = 0x1FF;
@@ -38,7 +38,7 @@ void Pokey::recalc_periods() {
     int base = (audctl_ & 0x01) ? 114 : 28;
     for (int i = 0; i < 4; i++) {
         int p = int(audf_[i]) + 4;
-        // 1.79 MHz clock select on ch 1/3 (AUDCTL bits 6/5) — rare in Centipede.
+        // 1.79 MHz clock select on ch 1/3 (AUDCTL bits 6/5), rare in Centipede.
         if ((i == 0 && (audctl_ & 0x40)) || (i == 2 && (audctl_ & 0x20)))
             p = int(audf_[i]) + 4;
         else

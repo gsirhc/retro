@@ -63,7 +63,7 @@ TEST(Dma8237Test, Dma2UsesDoubledPortStride) {
     dma2.reset();
     dma2.out(0xC4, 0x78);  // channel 2 address low byte, at base+4*stride
     dma2.out(0xC4, 0x56);
-    dma2.out(0xD8, 0);     // clear byte pointer -- reg 12 at base+12*stride = 0xC0+24=0xD8
+    dma2.out(0xD8, 0);     // clear byte pointer, reg 12 at base+12*stride = 0xC0+24=0xD8
     EXPECT_EQ(dma2.in(0xC4), 0x78);
     EXPECT_EQ(dma2.in(0xC4), 0x56);
 }

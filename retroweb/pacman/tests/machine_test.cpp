@@ -2,6 +2,7 @@
 
 #include "machine.h"
 #include "hwtest_roms.h"
+#include "hwtest_set.h"
 
 #include <algorithm>
 #include <iterator>
@@ -9,22 +10,12 @@
 
 namespace {
 
-pacman::RomSet test_set() {
-    pacman::RomSet s;
-    std::copy(pacman::hwtest::program.begin(), pacman::hwtest::program.end(), s.program.begin());
-    std::copy(pacman::hwtest::tiles.begin(), pacman::hwtest::tiles.end(), s.tiles.begin());
-    std::copy(pacman::hwtest::sprites.begin(), pacman::hwtest::sprites.end(), s.sprites.begin());
-    std::copy(pacman::hwtest::color_prom.begin(), pacman::hwtest::color_prom.end(), s.color_prom.begin());
-    std::copy(pacman::hwtest::lookup_prom.begin(), pacman::hwtest::lookup_prom.end(), s.lookup_prom.begin());
-    std::copy(pacman::hwtest::wave_prom.begin(), pacman::hwtest::wave_prom.end(), s.wave_prom.begin());
-    return s;
-}
 
 // The self-test leaves the WSG disabled. A low voice-0 frequency reads as
 // a tick, so the help screens stay quiet.
 TEST(Machine, HwtestStaysSilent) {
     pacman::Machine m;
-    m.load_roms(test_set());
+    m.load_roms(pacman::hwtest_set());
     m.reset();
     m.audio.clear();
     m.run_cycles(pacman::kCpuHz / 2);
@@ -36,7 +27,7 @@ TEST(Machine, HwtestStaysSilent) {
 
 TEST(Machine, JoystickEchoesToRam) {
     pacman::Machine m;
-    m.load_roms(test_set());
+    m.load_roms(pacman::hwtest_set());
     m.reset();
     m.inputs.in0 = 0xFE;  // up pressed (active low)
     m.run_cycles(pacman::kCpuHz / 20);
@@ -55,7 +46,7 @@ TEST(Machine, OutPort0LatchesInterruptVector) {
         0x3E, 0x40,        // LD A,$40
         0xD3, 0x00,        // OUT ($00),A
         0x3E, 0x01,        // LD A,1
-        0x32, 0x00, 0x50,  // LD ($5000),A -- machine-level irq_enable
+        0x32, 0x00, 0x50,  // LD ($5000),A, machine-level irq_enable
         0xFB,              // EI
         0x76,              // HALT
     };
@@ -88,7 +79,7 @@ int vram_off(int col, int row) {
 // "PAC-MAN ARCADE" (gen_hwtest.py HELP_TITLE). Upright (col, row) is native (row, 27-col).
 TEST(Machine, HwtestHelpScreenShowsCopyrightPrompt) {
     pacman::Machine m;
-    m.load_roms(test_set());
+    m.load_roms(pacman::hwtest_set());
     m.reset();
     m.run_cycles(pacman::kCpuPerFrame * 200);  // past both 90-frame waits
 
@@ -116,7 +107,7 @@ TEST(Machine, HwtestHelpScreenShowsCopyrightPrompt) {
 }
 
 TEST(Machine, MsPacmanHwtestHelpScreenShowsMsPacManTitle) {
-    pacman::RomSet s = test_set();
+    pacman::RomSet s = pacman::hwtest_set();
     std::copy(pacman::hwtest::mspacman_program.begin(),
               pacman::hwtest::mspacman_program.end(), s.program.begin());
     pacman::Machine m;

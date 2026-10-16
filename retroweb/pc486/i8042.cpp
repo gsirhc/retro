@@ -345,7 +345,7 @@ void I8042::aux_write(uint8_t v) {
             aux_respond(resp, 3);
             break;
         }
-        case 0xFE:  // Resend -- repeat the last thing the mouse sent
+        case 0xFE:  // Resend, repeat the last thing the mouse sent
             if (mouse_.last_packet_len > 0) {
                 // Not through aux_respond(): a resend must not become the thing a further
                 // resend repeats, and it doesn't clear the counters
@@ -384,7 +384,7 @@ void I8042::aux_write(uint8_t v) {
             mouse_.mode = MouseMode::kWrap;
             aux_respond(ack, 1);
             break;
-        case 0xEC:  // Reset wrap mode -- back to whatever mode preceded it
+        case 0xEC:  // Reset wrap mode, back to whatever mode preceded it
             if (mouse_.mode == MouseMode::kWrap) mouse_.mode = mouse_.mode_before_wrap;
             aux_respond(ack, 1);
             break;

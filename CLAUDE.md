@@ -221,6 +221,9 @@ before calling it done.
   site footer — see `retroweb/shared/`) follows the same rule: it's copied into each
   machine's own `web/shared/` (git-ignored, regenerated) by a `shared`
   target in that machine's own `web/Makefile`, never referenced via `../`.
+  The terminal machines share `shared/terminal.js` (output filters) and
+  `shared/vendor/` (xterm, fonts) the same way; the cabinets' wasm
+  wrappers share `shared/arcade_frame.h`.
   A machine's own color-token *values* and anything that genuinely differs
   stay local to its `index.html`, layered on top via the cascade — only the
   parts that are actually identical move to `retroweb/shared/`.

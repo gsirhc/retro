@@ -68,6 +68,7 @@ clean:
 	rm -rf shared
 	rm -rf test-results playwright-report coverage .v8-coverage
 
-STAGE = index.html app.js cgoac6502.js cgoac6502.wasm lcdfont.js assets examples roms shared vendor
+STAGE = index.html app.js cgoac6502.js cgoac6502.wasm lcdfont.js assets examples roms shared
+SHARED_EXTRA = terminal.js vendor
 
 include $(SHARED)/web.mk

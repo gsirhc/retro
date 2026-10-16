@@ -72,7 +72,7 @@ test.describe("88-ACR cassette deck", () => {
   });
 
   test('CLOAD "S" at a throttled speed (25x) loads the whole 17 KB program', async ({ page }) => {
-    test.slow(); // a deliberately real byte-rate read -- runs at 2 MHz, not Max
+    test.slow(); // a deliberately real byte-rate read, runs at 2 MHz, not Max
     await boot(page, { params: "preset=cassette" });
     await autoloadBasic(page);
     await slow(page, "x25"); // a real byte-rate, not the ?test Max
@@ -80,9 +80,9 @@ test.describe("88-ACR cassette deck", () => {
     await send(page, 'CLOAD "S"\r');
     await settle(page, 300);
     await page.click("#acr .acr-key.play");
-    // the head advances at ~750 B/s and BASIC actually keeps up -- no hang
+    // the head advances at ~750 B/s and BASIC actually keeps up, no hang
     await expect.poll(() => tapeStatus(page).then((s) => s.pos), { timeout: 15_000 }).toBeGreaterThan(3000);
-    await waitForScreen(page, /\bOK\b/, 60_000); // CLOAD returned -- it did not hang
+    await waitForScreen(page, /\bOK\b/, 60_000); // CLOAD returned, it did not hang
     await page.click("#acr .acr-key.stop");
     // the real Super Star Trek listing came off the tape (list just its header)
     await clearScreen(page);
@@ -194,7 +194,7 @@ test.describe("88-ACR cassette deck", () => {
     await page.evaluate(() => (window as any).__test.cassette.blank());
     await send(page, 'CSAVE "T"\r');
     await settle(page, 1200);
-    expect((await tapeStatus(page)).len).toBe(0); // nothing recorded -- REC wasn't down
+    expect((await tapeStatus(page)).len).toBe(0); // nothing recorded, REC wasn't down
     await expect(page.locator("#acr .acr-save")).toBeHidden();
 
     // now press REC and save again
@@ -231,7 +231,7 @@ test.describe("88-ACR cassette deck", () => {
 
   test("F.FWD winds the tape forward, paced by TAPE SPEED", async ({ page }) => {
     await boot(page, { params: "preset=cassette" });
-    await slow(page); // realistic -- a timed wind, not an instant seek
+    await slow(page); // realistic, a timed wind, not an instant seek
     await page.click("#acr .acr-key.ff");
     await expect(page.locator("#acr .acr-key.ff")).toHaveClass(/down/);
     await expect(page.locator("#acr")).toHaveClass(/winding/);
@@ -281,7 +281,7 @@ test.describe("88-ACR cassette deck", () => {
     await expect
       .poll(() => tapeStatus(page).then((s) => s.pos), { timeout: 20_000 })
       .toBeGreaterThan(16 * 1000);
-    // counter is a 3-digit value that wrapped -- it is not pinned at 999
+    // counter is a 3-digit value that wrapped, it is not pinned at 999
     await expect.poll(() => counter(page)).not.toBe("999");
     await page.click("#acr .acr-key.stop");
 

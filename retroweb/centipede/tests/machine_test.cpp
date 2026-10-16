@@ -56,7 +56,7 @@ TEST(Machine, PokeyRandomReads) {
 TEST(Machine, PokeyRandomLeavesInitMode) {
     centipede::Machine m;
     m.mem_write(0x100F, 0x00);  // init
-    m.mem_write(0x100F, 0x03);  // leave init — must re-seed the LFSR
+    m.mem_write(0x100F, 0x03);  // leave init, must re-seed the LFSR
     m.run_cycles(200);
     uint8_t a = m.mem_read(0x100A);
     m.run_cycles(200);

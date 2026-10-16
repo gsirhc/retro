@@ -128,7 +128,7 @@ void Fdc765::out(uint16_t port, uint8_t v) {
                 if (params_received_ >= param_count_needed_) run_command();
             }
             break;
-        case 0x3F7: break;  // Configuration Control Register (data rate select) -- not modeled
+        case 0x3F7: break;  // Configuration Control Register (data rate select), not modeled
         default: break;
     }
 }
@@ -147,7 +147,7 @@ void Fdc765::start_command(uint8_t first_byte) {
         case 0x0A: param_count_needed_ = 1; break;                     // READ ID
         case 0x0D: param_count_needed_ = 5; break;                     // FORMAT TRACK
         case 0x0F: param_count_needed_ = 2; break;                     // SEEK
-        default: param_count_needed_ = 0; break;                       // unknown -- no-op
+        default: param_count_needed_ = 0; break;                       // unknown, no-op
     }
     if (param_count_needed_ == 0) run_command();
     else phase_ = Phase::kCommand;
@@ -182,7 +182,7 @@ void Fdc765::begin_transfer(bool is_write) {
 void Fdc765::run_command() {
     uint8_t base = uint8_t(cmd_ & 0x1F);
     switch (base) {
-        case 0x03:  // SPECIFY: step-rate/head-load timings -- accepted, not used (see file header)
+        case 0x03:  // SPECIFY: step-rate/head-load timings, accepted, not used (see file header)
             phase_ = Phase::kIdle;
             break;
         case 0x04: {  // SENSE DRIVE STATUS
@@ -194,7 +194,7 @@ void Fdc765::run_command() {
             phase_ = Phase::kResult;
             break;
         }
-        case 0x07: case 0x0F: {  // RECALIBRATE / SEEK -- implied-seek commands
+        case 0x07: case 0x0F: {  // RECALIBRATE / SEEK, implied-seek commands
             int drive = params_[0] & 1;
             int new_cyl = (base == 0x07) ? 0 : params_[1];
             int steps = std::abs(new_cyl - drives[drive].current_cylinder);
@@ -214,7 +214,7 @@ void Fdc765::run_command() {
                 result_[1] = uint8_t(drives[seek_drive_].current_cylinder);  // PCN
                 seek_pending_irq_ = false;
             } else {
-                result_[0] = 0x80;  // invalid command -- no interrupt was actually pending
+                result_[0] = 0x80;  // invalid command, no interrupt was actually pending
                 result_[1] = 0;
             }
             result_count_ = 2; result_sent_ = 0;
@@ -235,7 +235,7 @@ void Fdc765::run_command() {
         }
         case 0x05: case 0x09: begin_transfer(true); break;
         case 0x06: case 0x0C: begin_transfer(false); break;
-        case 0x0D: {  // FORMAT TRACK -- accepted, not actually reformatted (see file header)
+        case 0x0D: {  // FORMAT TRACK, accepted, not actually reformatted (see file header)
             for (int i = 0; i < 7; ++i) result_[i] = 0;
             result_count_ = 7; result_sent_ = 0;
             phase_ = Phase::kResult;

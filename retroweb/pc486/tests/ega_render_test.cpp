@@ -241,11 +241,11 @@ TEST(EgaRenderTest, CursorIsHiddenWhenBlinkPhaseIsOffOrTheDisableBitIsSet) {
     ASSERT_FALSE(ega.cursor_blink_phase_on());
     RenderTextScreen(ega, rgba_blink_off, w, h);
     std::size_t p = PixelIndex(0, 0);
-    EXPECT_EQ(rgba_blink_off[p + 0], 0);  // background -- no cursor this phase
+    EXPECT_EQ(rgba_blink_off[p + 0], 0);  // background, no cursor this phase
 
     AdvanceFrames(ega, now, 8);  // back to the on half
     ASSERT_TRUE(ega.cursor_blink_phase_on());
-    ega.out(0x3D4, 0x0A); ega.out(0x3D5, 0x20);  // bit 5 -- cursor disabled outright
+    ega.out(0x3D4, 0x0A); ega.out(0x3D5, 0x20);  // bit 5, cursor disabled outright
     std::vector<uint8_t> rgba_disabled;
     RenderTextScreen(ega, rgba_disabled, w, h);
     EXPECT_EQ(rgba_disabled[p + 0], 0);
@@ -298,7 +298,7 @@ TEST(EgaRenderTest, CgaGraphics4DecodesPlane0ThenPlane1AsFourPixelsEach) {
     EXPECT_EQ(rgba[px(2) + 1], 0xFF);
     EXPECT_EQ(rgba[px(2) + 2], 0xFF);
     EXPECT_EQ(rgba[px(3) + 0], 0x00);  // black -> all channels clear
-    EXPECT_EQ(rgba[px(4) + 0], 0xFF);  // white again -- plane 1's byte, first pixel
+    EXPECT_EQ(rgba[px(4) + 0], 0xFF);  // white again, plane 1's byte, first pixel
     EXPECT_EQ(rgba[px(5) + 0], 0x00);  // black
     EXPECT_EQ(rgba[px(6) + 2], 0xAA);  // blue
     EXPECT_EQ(rgba[px(7) + 1], 0xAA);  // green
@@ -392,7 +392,7 @@ TEST(EgaRenderTest, RenderScreenDispatchesToTheRightModeAtTheRightResolution) {
     EXPECT_EQ(vga256_frame.width, 320);
     EXPECT_EQ(vga256_frame.height, 200);
 
-    SetGraphicsMode(ega, true, 3);  // no such shift mode on real VGA -- placeholder frame
+    SetGraphicsMode(ega, true, 3);  // no such shift mode on real VGA, placeholder frame
     RenderedFrame placeholder;
     RenderScreen(ega, placeholder);
     EXPECT_EQ(placeholder.width, kTextRenderWidth);
@@ -474,7 +474,7 @@ TEST(EgaRenderTest, Vga256DecodesOneBytePerPixelThroughTheLiveDac) {
     // Chain-4: flat offset is the VRAM index. Write through mem_write.
     ega.mem_write(0xA0000 + 0, 7);          // (0,0)
     ega.mem_write(0xA0000 + 319, 200);      // (319,0)
-    ega.mem_write(0xA0000 + 320, 200);      // (0,1) -- one scan line down
+    ega.mem_write(0xA0000 + 320, 200);      // (0,1), one scan line down
 
     std::vector<uint8_t> rgba;
     int w = 0, h = 0;

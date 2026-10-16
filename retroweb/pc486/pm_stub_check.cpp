@@ -48,9 +48,9 @@ constexpr uint32_t kCode16Base = 0x00010000; // real-mode CS 1000h, and GDT sele
 constexpr uint32_t kCode32     = 0x00020000; // the 32-bit protected-mode code
 
 // Linear addresses the stub touches
-constexpr uint32_t kFarStore   = 0x00700000;  // 7MB -- beyond any real-mode reach
-constexpr uint32_t kAliasLin   = 0x00800000;  // 8MB -- mapped onto kAliasFrame
-constexpr uint32_t kFaultLin   = 0x00C00000;  // 12MB -- unmapped until the #PF handler acts
+constexpr uint32_t kFarStore   = 0x00700000;  // 7MB, beyond any real-mode reach
+constexpr uint32_t kAliasLin   = 0x00800000;  // 8MB, mapped onto kAliasFrame
+constexpr uint32_t kFaultLin   = 0x00C00000;  // 12MB, unmapped until the #PF handler acts
 
 // Result slot offsets from kResults
 enum Result {
@@ -182,7 +182,7 @@ void emit_pm32(Asm &a) {
     a.db({0x0F, 0x22, 0xD8});                    // mov cr3,eax
     a.db({0x0F, 0x20, 0xC0});                    // mov eax,cr0
     a.db({0x0D}); a.dd(0x80000000u);             // or eax,0x80000000
-    a.db({0x0F, 0x22, 0xC0});                    // mov cr0,eax  -- paging live
+    a.db({0x0F, 0x22, 0xC0});                    // mov cr0,eax , paging live
     a.db({0xB8}); a.dd(kAliasMagic);             // mov eax,magic
     a.db({0xA3}); a.dd(kAliasLin);               // mov [8MB],eax   (virtual alias)
     a.db({0xA1}); a.dd(kAliasLin);               // mov eax,[8MB]
@@ -219,7 +219,7 @@ void emit_pm32(Asm &a) {
     // --- step 8: leave protected mode the way a DOS extender does ---------
     a.label("pm_done");
     a.db({0x0F, 0x20, 0xC0});                    // mov eax,cr0
-    a.db({0x25}); a.dd(0x7FFFFFFFu);             // and eax,0x7FFFFFFF  -- PG off first
+    a.db({0x25}); a.dd(0x7FFFFFFFu);             // and eax,0x7FFFFFFF , PG off first
     a.db({0x0F, 0x22, 0xC0});                    // mov cr0,eax
     // Drop into a 16-bit code segment before clearing PE so CS.D is 0 when real
     // mode resumes. The 0x66 prefix narrows the offset to 16 bits, since 32 is the D=1 default.
@@ -257,8 +257,8 @@ void emit_pm32(Asm &a) {
     a.label("task2_entry");
     a.db({0xB8}); a.dd(kTask2Magic);             // mov eax,magic
     a.db({0xA3}); a.dd(res + R_TASK2);           // mov [res+TASK2],eax
-    a.db({0xB8}); a.dd(0x22222222u);             // mov eax,0x22222222 -- clobber EAX
-    a.db({0xCF});                                // iretd -- NT is set, so this is a task return
+    a.db({0xB8}); a.dd(0x22222222u);             // mov eax,0x22222222, clobber EAX
+    a.db({0xCF});                                // iretd, NT is set, so this is a task return
 
     // --- constants and in-memory operands --------------------------------
     while (a.bytes.size() % 8) a.db(0x90);
@@ -285,14 +285,14 @@ void emit_code16(Asm &a) {
     a.db({0x0F, 0x01, 0x16}); a.dw(kGdtPtr);     // lgdt [0500h]
     a.db({0x0F, 0x01, 0x1E}); a.dw(kIdtPtr);     // lidt [0506h]
     a.db({0x0F, 0x20, 0xC0});                    // mov eax,cr0
-    a.db({0x0C, 0x01});                          // or al,1        -- set PE
+    a.db({0x0C, 0x01});                          // or al,1       , set PE
     a.db({0x0F, 0x22, 0xC0});                    // mov cr0,eax
     // 32-bit far jump: the 0x66 prefix widens the offset, the only way a 16-bit segment reaches a 32-bit entry
     a.db({0x66, 0xEA}); a.dd(kCode32); a.dw(0x0008);  // jmp far 0x08:pm_entry
 
     a.label("back16");                           // entered as 0x18:offset
     a.db({0x0F, 0x20, 0xC0});                    // mov eax,cr0
-    a.db({0x24, 0xFE});                          // and al,0xFE    -- clear PE
+    a.db({0x24, 0xFE});                          // and al,0xFE   , clear PE
     a.db({0x0F, 0x22, 0xC0});                    // mov cr0,eax
     a.db({0xEA}); a.dw(a.addr("back_real") - kCode16Base); a.dw(0x1000);  // jmp far 1000h:back_real
 

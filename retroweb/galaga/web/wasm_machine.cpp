@@ -9,28 +9,14 @@
 #include <vector>
 
 #include "../machine.h"
+#include "arcade_frame.h"
 #include "hwtest_roms.h"
+#include "../hwtest_set.h"
 
 using emscripten::val;
 
 namespace {
 
-galaga::RomSet hwtest_set() {
-    galaga::RomSet s;
-    auto copy = [](const auto& src, auto& dst) {
-        std::copy(src.begin(), src.end(), dst.begin());
-    };
-    copy(galaga::hwtest::main, s.main);
-    copy(galaga::hwtest::sub, s.sub);
-    copy(galaga::hwtest::sound, s.sound);
-    copy(galaga::hwtest::tiles, s.tiles);
-    copy(galaga::hwtest::sprites, s.sprites);
-    copy(galaga::hwtest::palette, s.palette);
-    copy(galaga::hwtest::char_lut, s.char_lut);
-    copy(galaga::hwtest::sprite_lut, s.sprite_lut);
-    copy(galaga::hwtest::wave, s.wave);
-    return s;
-}
 
 void copy_val(val src, uint8_t* dst, size_t n) {
     if (src.isNull() || src.isUndefined()) return;
@@ -49,14 +35,14 @@ size_t val_len(val src) {
 class Machine {
 public:
     Machine() {
-        m_.load_roms(hwtest_set());
+        m_.load_roms(galaga::hwtest_set());
         m_.reset();
     }
 
     void reset() { m_.reset(); }
 
     void loadHwtest() {
-        m_.load_roms(hwtest_set());
+        m_.load_roms(galaga::hwtest_set());
         m_.reset();
     }
 
@@ -88,20 +74,8 @@ public:
     int runCycles(int n) { return m_.run_cycles(n); }
 
     val frameBuffer() {
-        std::array<uint32_t, galaga::kUprightW * galaga::kUprightH> rgb{};
-        m_.render(rgb.data());
-        const int n = galaga::kUprightW * galaga::kUprightH * 4;
-        val out = val::global("Uint8ClampedArray").new_(n);
-        std::vector<uint8_t> rgba(static_cast<size_t>(n));
-        for (int i = 0; i < galaga::kUprightW * galaga::kUprightH; i++) {
-            uint32_t p = rgb[unsigned(i)];
-            rgba[unsigned(i * 4 + 0)] = uint8_t(p >> 16);
-            rgba[unsigned(i * 4 + 1)] = uint8_t(p >> 8);
-            rgba[unsigned(i * 4 + 2)] = uint8_t(p);
-            rgba[unsigned(i * 4 + 3)] = 255;
-        }
-        out.call<void>("set", val(emscripten::typed_memory_view(rgba.size(), rgba.data())));
-        return out;
+        m_.render(frame_.clear());
+        return frame_.rgba();
     }
 
     void setIn0(int v) { m_.inputs.in0 = uint8_t(v); }
@@ -160,6 +134,7 @@ public:
 
 private:
     galaga::Machine m_;
+    arcade::RgbaFrame<galaga::kUprightW, galaga::kUprightH> frame_;
 };
 
 EMSCRIPTEN_BINDINGS(galaga) {

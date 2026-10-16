@@ -2317,7 +2317,7 @@ int Cpu::grp2_shift(uint8_t op) {  // 0xC0/0xD0/0xD2: 8-bit  0xC1/0xD1/0xD3: 16/
     if (by_imm) return rm.is_mem ? 4 : 2;
     return rm.is_mem ? 4 : 3;  // by CL
 }
-int Cpu::grp3_unary(uint8_t op) {  // 0xF6: r/m8  0xF7: r/m16/32 -- TEST/NOT/NEG/MUL/IMUL/DIV/IDIV
+int Cpu::grp3_unary(uint8_t op) {  // 0xF6: r/m8  0xF7: r/m16/32, TEST/NOT/NEG/MUL/IMUL/DIV/IDIV
     RM rm = decode_modrm();
     int alu = last_reg_;
     bool wide = (op == 0xF7);
@@ -2468,7 +2468,7 @@ int Cpu::grp5(uint8_t op) {  // 0xFE: INC/DEC r/m8   0xFF: INC/DEC/CALL/JMP/PUSH
         return rm.is_mem ? 3 : 1;
     }
     switch (alu) {
-        case 0: {  // INC -- never touches CF
+        case 0: {  // INC, never touches CF
             bool cf = flag(FLAG_CF);
             if (opsize32_) { uint32_t r = add32(rm_read32(rm), 1, false); set_flag(FLAG_CF, cf); rm_write32(rm, r); }
             else { uint16_t r = add16(rm_read16(rm), 1, false); set_flag(FLAG_CF, cf); rm_write16(rm, r); }
@@ -2615,7 +2615,7 @@ int Cpu::grp0f00() {  // SLDT/STR/LLDT/LTR/VERR/VERW r/m16
 int Cpu::grp0f01() {  // SGDT/SIDT/LGDT/LIDT/SMSW/LMSW/INVLPG
     RM rm = decode_modrm();
     switch (last_reg_) {
-        case 0: case 1: {  // SGDT / SIDT m16&32 -- legal in real mode
+        case 0: case 1: {  // SGDT / SIDT m16&32, legal in real mode
             if (!rm.is_mem) raise(EXC_UD);
             const DescTableReg &t = (last_reg_ == 0) ? gdtr_ : idtr_;
             ac_check_whole(rm.seg, rm.off, 4);   // GDTR/IDTR image: 4 (Intel 80486 PRM, "Alignment Check")
@@ -2624,7 +2624,7 @@ int Cpu::grp0f01() {  // SGDT/SIDT/LGDT/LIDT/SMSW/LMSW/INVLPG
             ac_skip_ = false;
             return 10;
         }
-        case 2: case 3: {  // LGDT / LIDT m16&32 -- legal in real mode
+        case 2: case 3: {  // LGDT / LIDT m16&32, legal in real mode
             if (!rm.is_mem) raise(EXC_UD);
             if (protected_mode() && cpl() != 0) raise_err(EXC_GP, 0);
             uint16_t limit = read16(rm.seg, rm.off);
@@ -2638,7 +2638,7 @@ int Cpu::grp0f01() {  // SGDT/SIDT/LGDT/LIDT/SMSW/LMSW/INVLPG
             t.base = base;
             return 11;
         }
-        case 4:  // SMSW r/m16 -- the low 16 bits of CR0, legal in real mode
+        case 4:  // SMSW r/m16, the low 16 bits of CR0, legal in real mode
             rm_write16(rm, uint16_t(cr_[0] & 0xFFFFu));
             return rm.is_mem ? 3 : 2;
         case 6: {  // LMSW r/m16
@@ -2714,7 +2714,7 @@ int Cpu::mov_control_reg(uint8_t op2) {
             if (op2 == 0x21) { set_reg32(gpr, read_dr(idx)); return 10; }
             write_dr(idx, get_reg32(gpr));
             return 11;
-        case 0x24: set_reg32(gpr, 0); return 4;           // MOV r32, TRn -- no cache/TLB test interface
+        case 0x24: set_reg32(gpr, 0); return 4;           // MOV r32, TRn, no cache/TLB test interface
         default: return 6;                                // MOV TRn, r32
     }
 }
@@ -2865,7 +2865,7 @@ int Cpu::two_byte() {
                                          : (v ^ (1u << bit));
                 if (opsize32_) rm_write32(rm, nv); else rm_write16(rm, uint16_t(nv));
             }
-            if (sub == 4) return 3;                      // BT r/m,imm8 -- 3 for both reg and mem
+            if (sub == 4) return 3;                      // BT r/m,imm8, 3 for both reg and mem
             return rm.is_mem ? 8 : 6;                    // BTS/BTR/BTC r/m,imm8
         }
 
@@ -3483,7 +3483,7 @@ int Cpu::esc_op(uint8_t op) {
                         return kFldenv;
                     }
                     case 5: fpu_cw_ = read16(rm.seg, rm.off); return kFldcw;          // FLDCW
-                    case 6: {  // FNSTENV -- the 14/28-byte environment
+                    case 6: {  // FNSTENV, the 14/28-byte environment
                         bool env32 = opsize32_;
                         uint32_t o = rm.off;
                         ac_check_whole(rm.seg, o, env32 ? 4 : 2);
@@ -3539,7 +3539,7 @@ int Cpu::esc_op(uint8_t op) {
                 case 0xE0: fpu_reg_[fpu_top_].sign_exp = uint16_t(fpu_reg_[fpu_top_].sign_exp ^ 0x8000u); return kFchs;   // FCHS
                 case 0xE1: fpu_reg_[fpu_top_].sign_exp = uint16_t(fpu_reg_[fpu_top_].sign_exp & 0x7FFFu); return kFsimple; // FABS
                 case 0xE4: fpu_compare(fpu_get(0), 0.0L, false); return kFCom;           // FTST
-                case 0xE5: {  // FXAM -- classifies ST(0) into C3/C2/C0 with C1 = sign
+                case 0xE5: {  // FXAM, classifies ST(0) into C3/C2/C0 with C1 = sign
                     fpu_sw_ &= ~(kFswC0 | kFswC1 | kFswC2 | kFswC3);
                     const Float80 &f = fpu_reg_[fpu_top_];
                     if (f.sign_exp & 0x8000u) fpu_sw_ |= kFswC1;
@@ -3638,7 +3638,7 @@ int Cpu::esc_op(uint8_t op) {
                     case 0: fpu_push(static_cast<long double>(int32_t(read32(rm.seg, rm.off)))); return kFild;  // FILD m32int
                     case 2: store_int(4); return kFist;                                            // FIST m32int
                     case 3: store_int(4); fpu_pop(); return kFist;                                 // FISTP m32int
-                    case 5: {  // FLD m80real -- the one load that is bit-exact by construction
+                    case 5: {  // FLD m80real, the one load that is bit-exact by construction
                         Float80 f = load_m80();
                         int next = (fpu_top_ - 1) & 7;
                         if (((fpu_tw_ >> (next * 2)) & 3u) != 3u) { fpu_stack_fault(true); fpu_top_ = next; fpu_reg_[next] = Float80{kIndefiniteSig, kIndefiniteExp}; }
@@ -3667,7 +3667,7 @@ int Cpu::esc_op(uint8_t op) {
                     case 0: fpu_push(load_m64()); return kFldMem64;                       // FLD m64
                     case 2: store_m64(fpu_get(0)); return kFstMem64;                      // FST m64
                     case 3: store_m64(fpu_get(0)); fpu_pop(); return kFstMem64;            // FSTP m64
-                    case 4: {  // FRSTOR -- environment plus all eight registers
+                    case 4: {  // FRSTOR, environment plus all eight registers
                         bool env32 = opsize32_;
                         uint32_t o = rm.off;
                         ac_check_whole(rm.seg, o, env32 ? 4 : 2);
@@ -3687,7 +3687,7 @@ int Cpu::esc_op(uint8_t op) {
                         ac_skip_ = false;
                         return kFrstor;
                     }
-                    case 6: {  // FNSAVE -- environment plus all eight registers, then reset
+                    case 6: {  // FNSAVE, environment plus all eight registers, then reset
                         bool env32 = opsize32_;
                         uint32_t o = rm.off;
                         ac_check_whole(rm.seg, o, env32 ? 4 : 2);
@@ -3981,7 +3981,7 @@ int Cpu::step_inner() {
             case kPfxSegCs: seg_override_ = SEG_CS; break;
             case kPfxSegSs: seg_override_ = SEG_SS; break;
             case kPfxSegDs: seg_override_ = SEG_DS; break;
-            case kPfxSegFs: seg_override_ = SEG_FS; break;  // FS: -- 386 addition, native on a 486
+            case kPfxSegFs: seg_override_ = SEG_FS; break;  // FS:, 386 addition, native on a 486
             case kPfxSegGs: seg_override_ = SEG_GS; break;  // GS:
             case kPfxOpsize: opsize32_ = !dflt32; break;    // operand-size override (toggles CS.D)
             case kPfxAddrsize: addrsize32_ = !dflt32; break; // address-size override (toggles CS.D)
@@ -4365,7 +4365,7 @@ int Cpu::step_inner() {
         }
         case 0xD8: case 0xD9: case 0xDA: case 0xDB:
         case 0xDC: case 0xDD: case 0xDE: case 0xDF:
-            c += esc_op(op);  // x87 ESC space -- the on-die FPU
+            c += esc_op(op);  // x87 ESC space, the on-die FPU
             break;
 
         case 0xE0: case 0xE1: case 0xE2: case 0xE3: c += loop_group(op); break;

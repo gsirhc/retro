@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "hwtest_roms.h"
+#include "hwtest_set.h"
 #include "machine.h"
 
 #include <algorithm>
@@ -11,14 +12,6 @@
 
 namespace {
 
-galaxian::RomSet test_set() {
-    galaxian::RomSet s;
-    std::copy(galaxian::hwtest::program.begin(), galaxian::hwtest::program.end(), s.program.begin());
-    std::copy(galaxian::hwtest::gfx.begin(), galaxian::hwtest::gfx.end(), s.gfx.begin());
-    std::copy(galaxian::hwtest::color_prom.begin(), galaxian::hwtest::color_prom.end(),
-              s.color_prom.begin());
-    return s;
-}
 
 }  // namespace
 
@@ -190,7 +183,7 @@ TEST(Machine, UnusedLatchesDoNothing) {
 
 TEST(Machine, JoystickEchoesToRam) {
     galaxian::Machine m;
-    m.load_roms(test_set());
+    m.load_roms(galaxian::hwtest_set());
     m.reset();
     m.inputs.in0 = 0x1C;
     m.run_cycles(galaxian::kCpuHz / 20);
@@ -199,7 +192,7 @@ TEST(Machine, JoystickEchoesToRam) {
 
 TEST(Machine, HwtestStaysSilent) {
     galaxian::Machine m;
-    m.load_roms(test_set());
+    m.load_roms(galaxian::hwtest_set());
     m.reset();
     m.audio.clear();
     m.run_cycles(galaxian::kCpuHz * 4);
@@ -211,7 +204,7 @@ TEST(Machine, HwtestStaysSilent) {
 
 TEST(Machine, HwtestHelpScreenShowsCopyrightPrompt) {
     galaxian::Machine m;
-    m.load_roms(test_set());
+    m.load_roms(galaxian::hwtest_set());
     m.reset();
     m.run_cycles(galaxian::kCpuHz * 4);
     std::array<uint32_t, galaxian::kUprightW * galaxian::kUprightH> rgb{};

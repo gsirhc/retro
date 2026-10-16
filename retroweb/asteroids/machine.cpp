@@ -8,7 +8,7 @@ namespace asteroids {
 namespace {
 
 uint16_t mirror(uint16_t addr) {
-    // A15 ignored — $8000–$FFFF aliases $0000–$7FFF.
+    // A15 ignored, $8000–$FFFF aliases $0000–$7FFF.
     return addr & 0x7FFF;
 }
 

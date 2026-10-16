@@ -37,7 +37,7 @@ TEST(PcSpeakerTest, DrainEdgesReturnsAndClearsTheLog) {
     sp.reset();
     sp.update(1, true, true);
     EXPECT_EQ(sp.drain_edges().size(), 1u);
-    EXPECT_TRUE(sp.drain_edges().empty());  // already drained -- nothing left
+    EXPECT_TRUE(sp.drain_edges().empty());  // already drained, nothing left
 }
 
 TEST(PcSpeakerTest, DigitizedPlaybackRelaysSpeakerDataEnableWhenPitIsParked) {
@@ -72,7 +72,7 @@ TEST(PcSpeakerTest, OverflowDropsTheOldestEdgeNotTheNewest) {
     sp.reset();
     constexpr int kMaxEdges = 1 << 16;
     for (int i = 0; i < kMaxEdges + 5; ++i) {
-        sp.update(uint64_t(i), (i % 2) == 0, true);  // alternates every call -- always an edge
+        sp.update(uint64_t(i), (i % 2) == 0, true);  // alternates every call, always an edge
     }
     auto edges = sp.drain_edges();
     EXPECT_EQ(edges.size(), std::size_t(kMaxEdges));

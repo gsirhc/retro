@@ -8,7 +8,7 @@
 <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="assets/favicon-16.png">
 <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
-<link rel="stylesheet" href="vendor/xterm.css">
+<link rel="stylesheet" href="shared/vendor/xterm.css">
 <script src="shared/theme-init.js"></script>
 <link rel="stylesheet" href="shared/theme.css">
 <link rel="stylesheet" href="shared/pagebar.css">
@@ -18,17 +18,17 @@
 <style>
   @font-face {
     font-family: "VT323";
-    src: url("vendor/fonts/vt323.woff2") format("woff2");
+    src: url("shared/vendor/fonts/vt323.woff2") format("woff2");
     font-display: swap;
   }
   @font-face {
     font-family: "Courier Prime";
-    src: url("vendor/fonts/courierprime-400.woff2") format("woff2");
+    src: url("shared/vendor/fonts/courierprime-400.woff2") format("woff2");
     font-weight: 400; font-display: swap;
   }
   @font-face {
     font-family: "Courier Prime";
-    src: url("vendor/fonts/courierprime-700.woff2") format("woff2");
+    src: url("shared/vendor/fonts/courierprime-700.woff2") format("woff2");
     font-weight: 700; font-display: swap;
   }
 
@@ -76,7 +76,7 @@
 
   h1 { margin: 4px 0 0; text-align: center; font: var(--h1-font); letter-spacing: .5px; color: var(--h1-color); text-shadow: var(--h1-shadow); }
   :root[data-theme="modern"] h1 {
-    /* the title now lives in the pagebar -- keep it for a11y, hide visually */
+    /* the title lives in the pagebar, keep it for a11y, hide visually */
     position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
     overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
   }
@@ -141,12 +141,12 @@
   #lcdCanvas.detached { opacity: .2; }
 
 
-  /* ---- terminal -- the CRT/bezel is photoreal hardware, not page chrome */
+  /* ---- terminal, the CRT/bezel is photoreal hardware, not page chrome */
   .term-bar { margin-bottom: 10px; }
   .term-bar-spacer { flex: 1 1 auto; }
   .fp-toggle { font-size: 11px; padding: 3px 10px; }
 
-  /* ---- floating popups (Save/Load, Help) -- draggable by their own title
+  /* ---- floating popups (Save/Load, Help), draggable by their own title
      bar, closeable, position remembered across reloads. Same mechanism as
      retroweb/altair8800/web/app.js's front-panel bootstrap guide (pgDrag/
      pgFloat), themed with this page's own tokens instead of that guide's
@@ -189,7 +189,7 @@
     box-shadow: inset 0 0 0 1px #000, inset 0 4px 12px rgba(0,0,0,.9), inset 0 -3px 8px rgba(0,0,0,.8), 0 1px 1px rgba(255,255,255,.28);
   }
   #screen { width: 760px; height: 420px; background: #000; overflow: hidden; }
-  /* Power (J1, terminal-header-adjacent PCB control) toggled off -- the
+  /* Power (J1, terminal-header-adjacent PCB control) toggled off, the
      board's still there, it just isn't running; see app.js's own comment
      by the click handler for why this pauses in place rather than resetting. */
   .monitor.powered-off .bezel { filter: brightness(.12) saturate(.3); transition: filter .15s; }
@@ -221,7 +221,7 @@
   .monitor.crt .power-led { display: block; }
   .toolbar label:has(input:disabled) { opacity: .5; }
 
-  /* ---- Save/Load's named-program shelf -- same localStorage-backed
+  /* ---- Save/Load's named-program shelf, same localStorage-backed
      button-list pattern the ROM programmer's retired chip library used. */
   .chip-lib { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
   .chip-lib button.chip { font-size: 11px; padding: 3px 8px; }
@@ -239,7 +239,7 @@
   .os-table td:last-child { white-space: normal; }
   .os-table th { color: var(--dim); font-weight: 400; text-transform: uppercase; font-size: 10px; letter-spacing: .04em; }
 
-  /* ---- PCB graphic -- traced from the real KiCad layout (see the Python
+  /* ---- PCB graphic, traced from the real KiCad layout (see the Python
      generator that produced this SVG's shapes/labels: gen_pcb_svg3.py,
      reading cpu6502/pcb/pcb6502/FullBoard/pcb6502.kicad_pcb's actual
      footprint positions/rotations). Always the real board's green, in
@@ -865,8 +865,8 @@
   </div>
 </div>
 
-<script src="vendor/xterm.js"></script>
-<script src="vendor/xterm-addon-fit.js"></script>
+<script src="shared/vendor/xterm.js"></script>
+<script src="shared/vendor/xterm-addon-fit.js"></script>
 <script src="lcdfont.js"></script>
 <script src="cgoac6502.js"></script>
 <script src="roms/entrypoints.js"></script>
@@ -875,6 +875,7 @@
 <script src="shared/winbtns.js"></script>
 <script src="shared/focus-hint.js"></script>
 <script src="shared/footer.js"></script>
+<script src="shared/terminal.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

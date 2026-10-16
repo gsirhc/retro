@@ -53,7 +53,7 @@ enum Slot {
     S_VBE_INFO   = kResults + 0x00,  // AX from 4F00
     S_SET_MODE   = kResults + 0x02,  // AX from 4F02
     S_CUR_MODE_AX= kResults + 0x04,  // AX from 4F03
-    S_CUR_MODE_BX= kResults + 0x06,  // BX from 4F03 -- the current VBE mode
+    S_CUR_MODE_BX= kResults + 0x06,  // BX from 4F03, the current VBE mode
     S_MODE_INFO  = kResults + 0x08,  // AX from 4F01
     S_DAC_STATE  = kResults + 0x0A,  // 0x3C7 read back (DAC State register)
     S_DAC_R      = kResults + 0x0B,  // entry 32 read back through 0x3C9
@@ -272,7 +272,7 @@ std::vector<uint8_t> BuildBootSector() {
 
     a.mov_ax(0xA000);
     a.mov_es_ax();
-    a.mov_di(uint16_t(kSvga2Width));  // row 1, column 0 -- proves the stride, not just offset 0
+    a.mov_di(uint16_t(kSvga2Width));  // row 1, column 0, proves the stride, not just offset 0
     a.mov_al(77);
     a.stosb();
     a.mov_di(uint16_t(kSvga2Width));

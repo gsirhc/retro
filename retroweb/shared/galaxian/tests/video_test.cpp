@@ -62,7 +62,7 @@ TEST(Video, ScrollNibblesSwapEnteringTheAdder) {
     std::array<uint32_t, galaxian::kUprightW * galaxian::kUprightH> out{};
     v.advance(galaxian::kCpuPerFrame);
     v.render(out.data());
-    // native (200, 16): sy = 16+1 = 17 → row 2, ty 1 — no pixel on row 1
+    // native (200, 16): sy = 16+1 = 17 → row 2, ty 1, no pixel on row 1
     EXPECT_EQ(out[200 * galaxian::kUprightW + 223] & 0x00FFFFFF, 0u);
     v.gfx[0x800 + 2 * 8 + 1] = 0x80;  // tile 2 row 1, native-left bit
     v.advance(galaxian::kCpuPerFrame);

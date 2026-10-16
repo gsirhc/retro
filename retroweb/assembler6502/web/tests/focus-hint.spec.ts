@@ -14,12 +14,12 @@ test.describe("focus hint", () => {
     // this page's own boot flow calls term.focus() right away (see app.js),
     // same as altair8800's, so the hint starts out hidden.
     expect(await hintVisible()).toBe(false);
-    // clicking any other control blurs the terminal -- the hint returns
+    // clicking any other control blurs the terminal, the hint returns
     await page.locator("#fullscreenBtn").focus();
     expect(await hintVisible()).toBe(true);
     await page.evaluate(() => (window as any).__term.focus());
     expect(await hintVisible()).toBe(false);
-    // nothing to type into once powered off -- hidden regardless of focus
+    // nothing to type into once powered off, hidden regardless of focus
     await page.locator("#fullscreenBtn").focus();
     expect(await hintVisible()).toBe(true);
     await page.click('#pcbSvg [data-ref="J1"]');

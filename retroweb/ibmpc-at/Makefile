@@ -3,10 +3,10 @@
 #   make test        build + run the GoogleTest suite
 #   make bios        fetch + verify the freely-licensed BIOS, assemble the EGA BIOS (needs nasm)
 #   make bios-check   boot the real BIOS against this chipset natively, report progress
-#   make hdd-image   build the shipped FreeDOS HDD image (see below -- SLOW)
+#   make hdd-image   build the shipped FreeDOS HDD image (see below, SLOW)
 #   make preset-hdds build the Commander Keen preset C: (Apogee's installer run on a bare FreeDOS)
 #   make render_screen   build the screen-to-BMP diagnostic tool (see below)
-#   make wasm        build the WebAssembly module (needs emsdk -- see web/Makefile)
+#   make wasm        build the WebAssembly module (needs emsdk, see web/Makefile)
 #   make serve       build the wasm module + serve the browser front end
 #   make coverage    build + run the unit tests with llvm-cov, print a report
 #   make test-smoke  GoogleTest (what deploy CI runs; same as test today)

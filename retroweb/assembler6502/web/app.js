@@ -13,7 +13,7 @@ function fail(msg) {
   }
 }
 
-/* v8 ignore start -- last-resort global error nets */
+/* v8 ignore start, last-resort global error nets */
 window.addEventListener("error", (e) => fail(e.message + "\n" + (e.error?.stack || "")));
 window.addEventListener("unhandledrejection", (e) => fail("promise rejected: " + (e.reason?.stack || e.reason)));
 /* v8 ignore stop */
@@ -105,63 +105,6 @@ async function boot() {
   addEventListener("resize", sizeScreen);
 
   // ---- terminal profiles ----
-  function dumbFilter() {
-    let state = "ground";
-    const KEEP_C0 = new Set([0x07, 0x08, 0x09, 0x0a, 0x0d]);
-    return (bytes) => {
-      const out = [];
-      for (const b of bytes) {
-        if (state === "esc") { state = (b === 0x5b) ? "csi" : "ground"; continue; }
-        if (state === "csi") { if (b >= 0x40 && b <= 0x7e) state = "ground"; continue; }
-        if (b === 0x1b) { state = "esc"; continue; }
-        if (b < 0x20 && !KEEP_C0.has(b)) continue;
-        out.push(b);
-      }
-      return out;
-    };
-  }
-  function vt52Filter() {
-    let state = "ground", row = 0;
-    const CSI_LETTER = new Set(["A", "B", "C", "D", "H", "J", "K"]);
-    return (bytes) => {
-      const out = [];
-      const push = (s) => { for (let i = 0; i < s.length; i++) out.push(s.charCodeAt(i)); };
-      for (const b of bytes) {
-        const c = String.fromCharCode(b);
-        if (state === "Y1") { row = b - 0x20; state = "Y2"; continue; }
-        if (state === "Y2") { push(`\x1b[${row + 1};${b - 0x20 + 1}H`); state = "ground"; continue; }
-        if (state === "esc") {
-          state = "ground";
-          if (CSI_LETTER.has(c)) { push("\x1b[" + c); continue; }
-          if (c === "I") { push("\x1bM"); continue; }
-          if (c === "Y") { state = "Y1"; continue; }
-          continue;
-        }
-        if (b === 0x1b) { state = "esc"; continue; }
-        out.push(b);
-      }
-      return out;
-    };
-  }
-  function adm3aFilter() {
-    let state = "ground", row = 0;
-    return (bytes) => {
-      const out = [];
-      const push = (s) => { for (let i = 0; i < s.length; i++) out.push(s.charCodeAt(i)); };
-      for (const b of bytes) {
-        if (state === "eq1") { row = b - 0x20; state = "eq2"; continue; }
-        if (state === "eq2") { push(`\x1b[${row + 1};${b - 0x20 + 1}H`); state = "ground"; continue; }
-        if (state === "esc") { state = (b === 0x3d) ? "eq1" : "ground"; continue; }
-        if (b === 0x1b) { state = "esc"; continue; }
-        if (b === 0x0b) { push("\x1b[A"); continue; }
-        if (b === 0x0c) { push("\x1b[C"); continue; }
-        if (b === 0x1a) { push("\x1b[H\x1b[2J"); continue; }
-        out.push(b);
-      }
-      return out;
-    };
-  }
-
   const TERM_PROFILES = {
     modern: { label: "Modern (xterm)",
       font: 'ui-monospace, Menlo, Consolas, "DejaVu Sans Mono", monospace',
@@ -178,27 +121,27 @@ async function boot() {
     vt52: { label: "DEC VT52",
       font: '"VT323", "Courier New", monospace', size: 19,
       fg: "#4dff4d", bg: "#061006", dim: "#1c8c1c", br: "#b6ffb6",
-      crt: "scanheavy", cursor: "block", blink: false, glow: 3, filter: vt52Filter },
+      crt: "scanheavy", cursor: "block", blink: false, glow: 3, filter: termVt52Filter },
     adm3a: { label: "Lear Siegler ADM-3A",
       font: '"VT323", "Courier New", monospace', size: 19,
       fg: "#39ff9c", bg: "#03100b", dim: "#1c8c5c", br: "#a6ffce",
-      crt: "scan", cursor: "underline", blink: true, glow: 2, filter: adm3aFilter },
+      crt: "scan", cursor: "underline", blink: true, glow: 2, filter: termAdm3aFilter },
     glasstty: { label: "Glass TTY",
       font: '"VT323", "Courier New", monospace', size: 19,
       fg: "#c8ffc8", bg: "#020802", dim: "#5c9c5c", br: "#ecffec",
-      crt: "scan", cursor: "block", blink: true, glow: 2, filter: dumbFilter },
+      crt: "scan", cursor: "block", blink: true, glow: 2, filter: termDumbFilter },
     tty33: { label: "Teletype ASR-33",
       font: '"Courier Prime", "Courier New", monospace', size: 15,
       fg: "#242424", bg: "#efe8d6", dim: "#7a7261", br: "#000000",
       crt: "paper", cursor: "underline", blink: false, glow: 0,
-      scrollback: 5000, filter: dumbFilter, forceCaps: true },
+      scrollback: 5000, filter: termDumbFilter, forceCaps: true },
   };
 
   let termFilter = null;
   function applyProfile(key) {
     const p = TERM_PROFILES[key] || TERM_PROFILES.modern;
     termFilter = p.filter ? p.filter() : null;
-    // the ASR-33 is mechanically incapable of lowercase -- not the user's choice
+    // the ASR-33 is mechanically incapable of lowercase, not the user's choice
     caps.disabled = !!p.forceCaps;
     if (p.forceCaps) caps.checked = true;
     term.options.fontFamily = p.font;
@@ -251,7 +194,7 @@ async function boot() {
   await Promise.all([
     document.fonts?.load('20px "VT323"'),
     document.fonts?.load('15px "Courier Prime"'),
-    /* v8 ignore next -- font-load rejection is swallowed */
+    /* v8 ignore next, font-load rejection is swallowed */
   ].filter(Boolean)).catch(() => {});
   await applyProfile(termSelect.value);
   termSelect.addEventListener("change", () => applyProfile(termSelect.value));
@@ -278,7 +221,7 @@ async function boot() {
       document.getElementById(id).addEventListener("click", () => { popup.hidden = false; place(); });
     }
     popup.querySelector(".fp-x").addEventListener("click", () => { popup.hidden = true; });
-    /* v8 ignore start -- drag body runs inside synthesized mouse events, not attributed by coverage */
+    /* v8 ignore start, drag body runs inside synthesized mouse events, not attributed by coverage */
     drag.addEventListener("mousedown", (e) => {
       if (e.target.closest(".fp-x")) return;
       e.preventDefault();
@@ -539,7 +482,7 @@ async function boot() {
     poweredOn = !poweredOn;
     pcbLedD1.classList.toggle("led-power", poweredOn);
     monitorEl.classList.toggle("powered-off", !poweredOn);
-    updateFocusHint();   // nothing to type into once powered off -- hide it
+    updateFocusHint();   // nothing to type into once powered off, hide it
   });
 
   // ---- Help panel: shell address from roms/entrypoints.js (generated) ----

@@ -148,7 +148,7 @@ void Wd1003::run_command(uint8_t cmd) {
     }
     switch (cmd) {
         case 0xEC: do_identify(); break;
-        case 0x91:  // INITIALIZE DEVICE PARAMETERS -- accepted; this system's geometry is already fixed
+        case 0x91:  // INITIALIZE DEVICE PARAMETERS, accepted; this system's geometry is already fixed
             status_ = ST_DRDY | ST_DSC;
             irq_pending_ = !nien_;
             break;
@@ -254,7 +254,7 @@ void Wd1003::finish_read_or_write() {
     xfer_active_ = false;
     if (xfer_offset_ < 0 || std::size_t(xfer_offset_) + xfer_len_ > d.image.size()) {
         status_ = ST_DRDY | ST_DSC | ST_ERR;
-        error_ = 0x10;  // IDNF (ID not found) -- closest real error code for an out-of-range CHS request
+        error_ = 0x10;  // IDNF (ID not found), closest real error code for an out-of-range CHS request
         irq_pending_ = !nien_;
         return;
     }

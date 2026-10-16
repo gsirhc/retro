@@ -150,7 +150,7 @@ void Chipset::io_out_impl(uint16_t port, uint8_t v) {
     if (port == 0xE9) { debug_console_.push_back(char(v)); return; }
     int controller, channel;
     if (page_port_map(port, controller, channel)) { (controller == 1 ? dma1 : dma2).set_page(channel, v); return; }
-    // unmapped port -- real hardware: write vanishes (open bus)
+    // unmapped port, real hardware: write vanishes (open bus)
 }
 
 uint16_t Chipset::io_in16(uint16_t port) {

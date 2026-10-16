@@ -223,7 +223,7 @@ TEST_F(Cpu80486Test, ThirtyTwoBitDivUsesEdxEaxAsTheDividend) {
 }
 
 // ---------------------------------------------------------------------------
-// FS / GS -- 386 additions a 486 genuinely has, usable in real mode
+// FS / GS, 386 additions a 486 genuinely has, usable in real mode
 // ---------------------------------------------------------------------------
 
 TEST_F(Cpu80486Test, MovLoadsFsAndGs) {
@@ -311,7 +311,7 @@ TEST_F(Cpu80486Test, Addr32ScaledIndexWithDisp32AndNoBase) {
 
 TEST_F(Cpu80486Test, Addr32EbpBaseDefaultsToStackSegment) {
     cpu->ss = 0x3000;
-    cpu->ds = 0x1000;  // decoy -- must not be used
+    cpu->ds = 0x1000;  // decoy, must not be used
     cpu->ebp = 0x20;
     poke16((0x3000u << 4) + 0x30, 0x4321);
     poke16((0x1000u << 4) + 0x30, 0x9999);
@@ -322,7 +322,7 @@ TEST_F(Cpu80486Test, Addr32EbpBaseDefaultsToStackSegment) {
 TEST_F(Cpu80486Test, Addr32PlainBaseRegisterDefaultsToDataSegment) {
     // modrm 00 = [EAX], the inline fast path (PC486_REVIEW.md §16)
     cpu->ds = 0x2000;
-    cpu->ss = 0x3000;  // decoy -- only ESP/EBP bases default to SS
+    cpu->ss = 0x3000;  // decoy, only ESP/EBP bases default to SS
     cpu->eax = 0x40;
     poke16((0x2000u << 4) + 0x40, 0xABCD);
     poke16((0x3000u << 4) + 0x40, 0x9999);
@@ -353,7 +353,7 @@ TEST_F(Cpu80486Test, Addr32EspBaseDefaultsToStackSegmentAndIndexFourMeansNoIndex
 TEST_F(Cpu80486Test, Addr32SibEbpBaseWithDisplacementDefaultsToStackSegment) {
     // an EBP base defaults to SS, including through the inline SIB path
     cpu->ss = 0x3000;
-    cpu->ds = 0x1000;  // decoy -- must not be used
+    cpu->ds = 0x1000;  // decoy, must not be used
     cpu->ebp = 0x20;
     cpu->edx = 0x04;
     poke16((0x3000u << 4) + 0x34, 0x7654);
@@ -424,7 +424,7 @@ TEST_F(Cpu80486Test, Addr32SelectsEcxAsTheLoopCounter) {
     cpu->ecx = 0x00010000u;  // CX == 0, but ECX != 0
     run({0x67, 0xE3, 0xFE});  // JECXZ $-2
     EXPECT_EQ(cpu->eip, 3u) << "JECXZ must test the full ECX, not CX";
-    run({0xE3, 0xFE});        // JCXZ $-2 -- CX is zero, so this one is taken
+    run({0xE3, 0xFE});        // JCXZ $-2, CX is zero, so this one is taken
     EXPECT_EQ(cpu->eip, 0u);
 }
 
@@ -589,7 +589,7 @@ TEST_F(Cpu80486Test, ShiftGroupWithThirtyTwoBitOperands) {
     EXPECT_EQ(cpu->ebx, 0u);
     EXPECT_TRUE(CF());
     cpu->ebx = 0x80000000u;
-    run({0x66, 0xD1, 0xFB});        // SAR EBX, 1 -- sign-propagating at 32 bits
+    run({0x66, 0xD1, 0xFB});        // SAR EBX, 1, sign-propagating at 32 bits
     EXPECT_EQ(cpu->ebx, 0xC0000000u);
 }
 
@@ -888,7 +888,7 @@ TEST_F(Cpu80486Test, AaaAndAasAdjustAllOfAxOnA286OrLater) {
 }
 
 // ---------------------------------------------------------------------------
-// AC (Alignment Check), EFLAGS bit 18 -- the pre-CPUID 386-vs-486 probe
+// AC (Alignment Check), EFLAGS bit 18, the pre-CPUID 386-vs-486 probe
 // ---------------------------------------------------------------------------
 
 TEST_F(Cpu80486Test, PopfdAndPushfdRoundTripTheAcBit) {
@@ -1339,7 +1339,7 @@ TEST_F(Cpu80486DebugTest, AWriteWatchpointTrapsAfterTheWriteAndIgnoresReads) {
 TEST_F(Cpu80486DebugTest, AReadWriteWatchpointMatchesAnAccessThatOverlapsIt) {
     set_dr(2, 0x0305);        // LEN 4 aligns this down to 0304h-0307h
     set_dr(7, 0x0F000010u);   // L2, RW2=11 (reads or writes), LEN2=11 (four bytes)
-    run({0xA1, 0x03, 0x03});  // MOV AX, [0303h] -- touches 0303h-0304h
+    run({0xA1, 0x03, 0x03});  // MOV AX, [0303h], touches 0303h-0304h
     EXPECT_EQ(cpu->eip, 0x0400u);
     EXPECT_EQ(cpu->dr(6) & 0xFu, 0x4u) << "DR6.B2";
 }
@@ -1443,7 +1443,7 @@ TEST_F(Cpu80486Test, ReservedEncodingsRaiseInvalidOpcodeAtTheFaultingInstruction
 }
 
 // ---------------------------------------------------------------------------
-// Shared 8086-legacy subset -- still this core's bread and butter under DOS
+// Shared 8086-legacy subset, still this core's bread and butter under DOS
 // ---------------------------------------------------------------------------
 
 TEST_F(Cpu80486Test, IncDoesNotAffectCarry) {
@@ -1726,7 +1726,7 @@ TEST_F(Cpu80486Test, InterruptWakesAHaltedCpu) {
     cpu->ss = 0; cpu->esp = 0x8000;
     run({0xF4});  // HLT
     EXPECT_TRUE(cpu->halted);
-    cpu->step();  // still halted -- just idling
+    cpu->step();  // still halted, just idling
     EXPECT_TRUE(cpu->halted);
     cpu->interrupt(0x08);
     EXPECT_FALSE(cpu->halted);
@@ -2042,7 +2042,7 @@ TEST_F(Cpu80486PmTest, ThirtyTwoBitCodeSegmentMakesThirtyTwoBitOperandsTheDefaul
 TEST_F(Cpu80486PmTest, ThePrefixTogglesTheDefaultRatherThanSelectingThirtyTwoBits) {
     enter_pm32();
     cpu->eax = 0xFFFFFFFFu;
-    pm_run({0x66, 0xB8, 0x34, 0x12});          // mov ax,1234h  -- 0x66 *narrows* here
+    pm_run({0x66, 0xB8, 0x34, 0x12});          // mov ax,1234h , 0x66 *narrows* here
     EXPECT_EQ(cpu->eax, 0xFFFF1234u);
     EXPECT_EQ(cpu->eip, pm_code_ + 4);
 }
@@ -2075,7 +2075,7 @@ TEST_F(Cpu80486PmTest, AnAccessInsideTheLimitIsFine) {
     enter_pm32();
     w32(0x0FFC, 0xA5A5A5A5u);
     pm_run({0x66, 0xB8, uint8_t(kSmall), 0x00, 0x8E, 0xC0,
-            0x26, 0xA1, 0xFC, 0x0F, 0x00, 0x00}, 3);  // es: mov eax,[0FFCh] -- the last dword
+            0x26, 0xA1, 0xFC, 0x0F, 0x00, 0x00}, 3);  // es: mov eax,[0FFCh], the last dword
     EXPECT_EQ(cpu->eax, 0xA5A5A5A5u);
     EXPECT_TRUE(faults.empty()) << "offset 0FFCh..0FFFh is exactly the limit";
 }
@@ -2115,11 +2115,11 @@ TEST_F(Cpu80486PmTest, ExpandDownSegmentInvertsTheLimitCheck) {
     enter_pm32();
     // expand-down segments are valid from limit+1 upward (PRM, Expand-Down Data Segments)
     pm_run({0x66, 0xB8, uint8_t(kDown), 0x00, 0x8E, 0xC0}, 2);
-    put(pm_code_ + 6, {0x26, 0xA1, 0x00, 0x20, 0x00, 0x00});   // es: mov eax,[2000h] -- above the limit: valid
+    put(pm_code_ + 6, {0x26, 0xA1, 0x00, 0x20, 0x00, 0x00});   // es: mov eax,[2000h], above the limit: valid
     cpu->eip = pm_code_ + 6;
     cpu->step();
     EXPECT_TRUE(faults.empty()) << "offset 2000h is above limit 0FFFh, so it is inside an expand-down segment";
-    put(pm_code_ + 12, {0x26, 0xA1, 0x00, 0x08, 0x00, 0x00});  // es: mov eax,[0800h] -- below: invalid
+    put(pm_code_ + 12, {0x26, 0xA1, 0x00, 0x08, 0x00, 0x00});  // es: mov eax,[0800h], below: invalid
     cpu->eip = pm_code_ + 12;
     cpu->step();
     expect_fault(cpu80486::EXC_GP, 0);
@@ -2157,7 +2157,7 @@ TEST_F(Cpu80486PmTest, MovToCsIsAnInvalidOpcode) {
     enter_pm32();
     set_gate(cpu80486::EXC_UD, gate_desc(kCode32, kData, 0x8E));
     put(kData, {0xF4});   // hlt, so reaching the handler is unmistakable
-    pm_run({0x8E, 0xC8}, 2);   // mov cs,ax -- then one more step for the handler
+    pm_run({0x8E, 0xC8}, 2);   // mov cs,ax, then one more step for the handler
     expect_fault(cpu80486::EXC_UD, 0);
     EXPECT_TRUE(cpu->halted) << "the #UD handler must actually have run";
 }
@@ -2396,7 +2396,7 @@ TEST_F(Cpu80486PagingTest, PageFaultErrorCodeDistinguishesWritesAndProtectionVio
     enter_pm32();
     build_page_tables();
     enable_paging();
-    paged_run({0xA3, 0x00, 0x00, 0x40, 0x00}, 1);   // mov [00400000h],eax -- a write
+    paged_run({0xA3, 0x00, 0x00, 0x40, 0x00}, 1);   // mov [00400000h],eax, a write
     expect_fault(cpu80486::EXC_PF, 0x00000002u, "bit1 set: the access was a write");
     faults.clear();
     cpu->halted = false;   // the first fault had no gate, so it shut the CPU down
@@ -2675,7 +2675,7 @@ TEST_F(Cpu80486PmTest, AVectorPastTheIdtLimitIsAGeneralProtectionFault) {
     enter_pm32();
     // shrink the IDT to 16 vectors, ask for 40h
     w16(kIdtPtr, 0x7F);
-    pm_run({0x0F, 0x01, 0x1E, 0x00, 0x00}, 0);   // (assembled but not run -- see below)
+    pm_run({0x0F, 0x01, 0x1E, 0x00, 0x00}, 0);   // (assembled but not run; see below)
     // LIDT needs a 32-bit operand form to reach kIdtPtr as disp32
     put(pm_code_, {0x0F, 0x01, 0x1D, uint8_t(kIdtPtr), uint8_t(kIdtPtr >> 8), 0x00, 0x00,
                    0xCD, 0x40});
@@ -2712,7 +2712,7 @@ TEST_F(Cpu80486PmTest, AFaultRestoresTheStackPointerSoTheInstructionCanRestart) 
             0xBC, 0x02, 0x00, 0x00, 0x00}, 3);   // mov esp,2
     ASSERT_TRUE(faults.empty());
     ASSERT_EQ(cpu->esp, 2u);
-    put(pm_code_ + 11, {0x50});   // push eax -- four bytes will not fit below offset 2
+    put(pm_code_ + 11, {0x50});   // push eax, four bytes will not fit below offset 2
     cpu->eip = pm_code_ + 11;
     cpu->step();
     expect_fault(cpu80486::EXC_SS, 0);
@@ -2813,7 +2813,7 @@ TEST_F(Cpu80486PmTest, FarCallToATssNestsAndIretdReturnsThroughTheBackLink) {
     enter_pm32();
     for (uint32_t i = 0; i < 104; i += 4) w32(kTss2 + i, 0);
     put(kData, {0xB8, 0x55, 0x00, 0x00, 0x00,   // mov eax,55h
-                0xCF});                          // iretd -- NT is set, so a task return
+                0xCF});                          // iretd, NT is set, so a task return
     w32(kTss2 + 28, kPageDir);
     w32(kTss2 + 32, kData);
     w32(kTss2 + 36, 0x00000202u);
@@ -2902,8 +2902,8 @@ TEST_F(Cpu80486PmTest, PortIoAboveIoplConsultsTheTssPermissionBitmap) {
     w8(kTss + 0x68 + (0x60 / 8), 0x00);         // ports 60h-67h permitted
     pm_run({0x66, 0xB8, uint8_t(kTssSel), 0x00, 0x0F, 0x00, 0xD8}, 2);
     ASSERT_TRUE(faults.empty());
-    put(kData + 0x400, {0xE4, 0x60,     // in al,60h  -- permitted
-                        0xE4, 0x70});   // in al,70h  -- denied
+    put(kData + 0x400, {0xE4, 0x60,     // in al,60h , permitted
+                        0xE4, 0x70});   // in al,70h , denied
     put(pm_code_ + 7, {0x68, uint8_t(kStack3 | 3), 0x00, 0x00, 0x00,
                        0x68, 0x00, 0x7C, 0x00, 0x00,
                        0x68, 0x02, 0x02, 0x00, 0x00,
@@ -2933,9 +2933,9 @@ TEST_F(Cpu80486PmTest, InsAndOutsTakeThePortPermissionCheck) {
     put(kData + 0x400, {0x16, 0x07,                     // push ss / pop es
                         0xBF, 0x00, 0x70, 0x00, 0x00,   // mov edi,7000h
                         0xBA, 0x60, 0x00, 0x00, 0x00,   // mov edx,60h
-                        0x6C,                           // insb -- permitted
+                        0x6C,                           // insb, permitted
                         0xBA, 0x70, 0x00, 0x00, 0x00,   // mov edx,70h
-                        0x6C});                         // insb -- denied
+                        0x6C});                         // insb, denied
     put(pm_code_ + 7, {0x68, uint8_t(kStack3 | 3), 0x00, 0x00, 0x00,
                        0x68, 0x00, 0x7C, 0x00, 0x00,
                        0x68, 0x02, 0x02, 0x00, 0x00,
@@ -3015,7 +3015,7 @@ TEST_F(Cpu80486PmTest, ClearingProtectionEnableReturnsToRealModeWithSixteenBitDe
     put(kData, {0x0F, 0x20, 0xC0,       // mov eax,cr0
                 0x24, 0xFE,             // and al,0FEh
                 0x0F, 0x22, 0xC0,       // mov cr0,eax
-                0xB8, 0x34, 0x12});     // mov ax,1234h -- 16-bit now: only 3 bytes
+                0xB8, 0x34, 0x12});     // mov ax,1234h, 16-bit now: only 3 bytes
     cpu->eax = 0xFFFFFFFFu;
     pm_run({0x66, 0xEA, uint8_t(kData), uint8_t(kData >> 8), uint8_t(kCode16), 0x00}, 1);
     ASSERT_TRUE(faults.empty());
@@ -3235,8 +3235,8 @@ TEST_F(Cpu80486V86Test, AV86TaskRunsItsEightyEightySixAddressesThroughThePageTab
 TEST_F(Cpu80486V86Test, EnteringV86ClearsTheStalePrefetchWindow) {
     enter_pm32();
     // the monitor's prefetch window covers page 3000h-3FFFh; a surviving window would run linear 3100h instead of 0F000h + 3100h
-    put(0x3100, {0xB0, 0xA5});                 // mov al,0A5h -- must NOT run
-    put(v86_lin(kV86Off), {0xB0, 0x5A});       // mov al,5Ah  -- the real V86 instruction
+    put(0x3100, {0xB0, 0xA5});                 // mov al,0A5h, must NOT run
+    put(v86_lin(kV86Off), {0xB0, 0x5A});       // mov al,5Ah , the real V86 instruction
     enter_v86();
     ASSERT_TRUE(faults.empty()) << fault_desc();
     ASSERT_EQ(cpu->eip, kV86Off);
@@ -3336,7 +3336,7 @@ TEST_F(Cpu80486V86Test, HltTrapsToTheMonitorWhichCanSkipIt) {
                 0xCF});                        // iretd
     enter_v86();
     ASSERT_TRUE(faults.empty()) << fault_desc();
-    v86_code({0xF4,            // hlt -- must #GP, never actually halt
+    v86_code({0xF4,            // hlt, must #GP, never actually halt
               0xB0, 0x5A,      // mov al,5Ah
               0xEB, 0xFE});    // jmp $
     cpu->step();               // HLT -> #GP -> monitor
@@ -3394,7 +3394,7 @@ TEST_F(Cpu80486V86Test, PushfAndPopfAtIoplThreeRunAndCannotChangeIoplOrVm) {
     enter_v86(kIopl3);
     ASSERT_TRUE(faults.empty()) << fault_desc();
     v86_code({0x9C,          // pushf
-              0x9D});        // popf -- pops back what pushf wrote
+              0x9D});        // popf, pops back what pushf wrote
     cpu->step();
     EXPECT_TRUE(faults.empty()) << fault_desc();
     EXPECT_EQ(cpu->esp, kV86Sp - 2) << "a 16-bit push onto the 8086 stack";
@@ -3417,7 +3417,7 @@ TEST_F(Cpu80486V86Test, PopfdAtIoplThreeCannotDropOutOfV86) {
     enter_v86(kIopl3);
     ASSERT_TRUE(faults.empty()) << fault_desc();
     v86_code({0x66, 0x9C,          // pushfd
-              0x66, 0x9D});        // popfd -- pops back what pushfd wrote
+              0x66, 0x9D});        // popfd, pops back what pushfd wrote
     cpu->step();
     EXPECT_TRUE(faults.empty()) << fault_desc();
     EXPECT_EQ(cpu->esp, kV86Sp - 4) << "a 32-bit push onto the 8086 stack";
@@ -3439,7 +3439,7 @@ TEST_F(Cpu80486V86Test, OutsideV86ARingThreePushfStillDoesNotFault) {
     put(kData, {0xF4});
     set_gate(cpu80486::EXC_GP, gate_desc(kCode32, kData, 0x8E));
     put(kData + 0x400, {0x9C,                                // pushfd
-                        0x68, 0x02, 0x00, 0x00, 0x00,        // push 0002h -- IOPL 0
+                        0x68, 0x02, 0x00, 0x00, 0x00,        // push 0002h, IOPL 0
                         0x9D});                              // popfd
     pm_run({0x68, uint8_t(kStack3 | 3), 0x00, 0x00, 0x00,
             0x68, 0x00, 0x7C, 0x00, 0x00,
@@ -3512,8 +3512,8 @@ TEST_F(Cpu80486V86Test, PortIoInV86AlwaysConsultsTheBitmapEvenAtIoplThree) {
     // in V86 IN/OUT ignore IOPL; only the map decides (PRM 15.5)
     enter_v86(kIopl3);
     ASSERT_TRUE(faults.empty()) << fault_desc();
-    v86_code({0xE4, 0x60,    // in al,60h -- bit clear, granted
-              0xE4, 0x70});  // in al,70h -- bit set, denied
+    v86_code({0xE4, 0x60,    // in al,60h, bit clear, granted
+              0xE4, 0x70});  // in al,70h, bit set, denied
     cpu->step();
     EXPECT_TRUE(faults.empty()) << fault_desc();
     cpu->step();
@@ -3596,13 +3596,13 @@ TEST_F(Cpu80486V86Test, AMonitorEmulatesThreeTrappedInstructionsAndTheTaskRunsOn
     put(kData, {0x43,                          // inc ebx
                 0x83, 0x44, 0x24, 0x04, 0x02,  // add dword [esp+4],2
                 0x83, 0xC4, 0x04,              // add esp,4
-                0xCF});                        // iretd -- back into V86
+                0xCF});                        // iretd, back into V86
     enter_v86();
     ASSERT_TRUE(faults.empty()) << fault_desc();
     cpu->ebx = 0;
-    v86_code({0x2E, 0xFA,     // cs: cli   -- IOPL-sensitive
-              0xE4, 0x70,     // in al,70h -- denied by the I/O permission map
-              0xCD, 0x21,     // int 21h   -- IOPL-sensitive
+    v86_code({0x2E, 0xFA,     // cs: cli  , IOPL-sensitive
+              0xE4, 0x70,     // in al,70h, denied by the I/O permission map
+              0xCD, 0x21,     // int 21h  , IOPL-sensitive
               0xB0, 0x5A,     // mov al,5Ah
               0xEB, 0xFE});   // jmp $
     for (int i = 0; i < 20; ++i) cpu->step();
@@ -3640,7 +3640,7 @@ protected:
 
 TEST_F(Cpu80486AlignTest, AMisalignedWordAtCplThreeRaisesAlignmentCheck) {
     enter_v86_aligned(true, true);
-    v86_code({0xA1, 0x00, 0x50,     // mov ax,[5000h] -- aligned
+    v86_code({0xA1, 0x00, 0x50,     // mov ax,[5000h], aligned
               0xA1, 0x01, 0x50});   // mov ax,[5001h]
     cpu->step();
     EXPECT_TRUE(faults.empty()) << fault_desc();

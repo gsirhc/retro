@@ -267,7 +267,7 @@ void RenderVga256Screen(const Ega &ega, std::vector<uint8_t> &rgba, int &width, 
 
         if (chain4) {
             stride = ega.crtc_row_byte_stride();
-            if (stride <= 0) stride = width;  // never programmed yet -- see RenderEgaNative16Screen
+            if (stride <= 0) stride = width;  // never programmed yet; see RenderEgaNative16Screen
             base = ega.start_byte_offset() + uint32_t(ega.crtc_byte_pan() * ega.crtc_address_unit_bytes());
         } else {
             // Unchained: the byte/word/dword bits only scaled the chain-4 flat address,

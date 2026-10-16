@@ -247,7 +247,7 @@ TEST_F(Opl3Test, StatusBitsFourThroughZeroAlwaysReadZero) {
 
 TEST_F(Opl3Test, Bank1WritesAreInertUntilNewIsSet) {
     EXPECT_FALSE(opl.opl3_mode());
-    Reg(1, 0x04, 0x3F);  // four-op enable bits, bank 1 -- must not land
+    Reg(1, 0x04, 0x3F);  // four-op enable bits, bank 1, must not land
     EXPECT_EQ(opl.reg(0x104), 0x00);
     Reg(0, 0x20, 0x01);  // a bank-0 register as a control, must land fine
     EXPECT_EQ(opl.reg(0x20), 0x01);
@@ -361,7 +361,7 @@ TEST_F(Opl3Test, InstantAttackReachesFullVolumeOnTheVeryFirstFewFramesWhenEffect
         Opl3 chip;
         chip.reset();
         auto w = [&](uint8_t r, uint8_t v) { chip.write_address(0, r); chip.write_data(0, v); };
-        w(0x20, 0x01);                             // modulator: MULT=1, AR=0 -- stays silent
+        w(0x20, 0x01);                             // modulator: MULT=1, AR=0, stays silent
         w(0x23, 0x21);                              // carrier: EGT hold, MULT=1
         w(0x43, 0x00);                               // carrier TL=0 (loudest), KSL=0
         w(0x63, uint8_t((ar << 4) | 0x00));          // carrier AR=ar, DR=0
@@ -403,7 +403,7 @@ TEST_F(Opl3Test, FullyIdleOperatorAttacksNormallyAgainOnASubsequentKeyOn) {
     ASSERT_GT(peak1, 0);
 
     KeyOff();
-    AdvanceMicroseconds(100000.0);  // far past release -- fully idle
+    AdvanceMicroseconds(100000.0);  // far past release, fully idle
     opl.drain_samples();
     ASSERT_FALSE(opl.active());
 
@@ -422,7 +422,7 @@ TEST_F(Opl3Test, RetriggeringMidReleaseResumesFromThereInsteadOfDippingToSilence
     Opl3 chip;
     chip.reset();
     auto w = [&](uint8_t r, uint8_t v) { chip.write_address(0, r); chip.write_data(0, v); };
-    w(0x20, 0x01);   // modulator: MULT=1, AR=0 -- stays silent
+    w(0x20, 0x01);   // modulator: MULT=1, AR=0, stays silent
     w(0x23, 0x21);   // carrier: EGT hold, MULT=1
     w(0x43, 0x00);   // carrier TL=0, KSL=0
     w(0x63, 0xF0);   // carrier AR=15 (instant, for a reliable fast start), DR=0
@@ -481,7 +481,7 @@ TEST_F(Opl3Test, DecayAttenuationAtAFixedElapsedTimeRoughlyDoublesForOneStepOfTh
     auto make_chip = [](Opl3 &chip, uint8_t dr, uint8_t sl) {
         chip.reset();
         auto w = [&](uint8_t r, uint8_t v) { chip.write_address(0, r); chip.write_data(0, v); };
-        w(0x20, 0x01);                             // modulator: MULT=1, AR=0 -- stays silent
+        w(0x20, 0x01);                             // modulator: MULT=1, AR=0, stays silent
         w(0x23, 0x21);                              // carrier: EGT hold, MULT=1
         w(0x43, 0x00);                               // carrier TL=0, KSL=0
         w(0x63, uint8_t(0xF0 | (dr & 0x0F)));        // carrier AR=15 (instant), DR=dr
@@ -510,7 +510,7 @@ TEST_F(Opl3Test, DecayAttenuationAtAFixedElapsedTimeRoughlyDoublesForOneStepOfTh
 
     auto db_down_at = [&](uint8_t dr, double ms) -> double {
         Opl3 chip;
-        make_chip(chip, dr, 15);  // SL=15 -- decay runs the complete range
+        make_chip(chip, dr, 15);  // SL=15, decay runs the complete range
         uint64_t cycles = 0;
         peak_over_ms(chip, cycles, std::max(0.0, ms - 4.0));  // skip ahead, discarding
         int32_t at_t = peak_over_ms(chip, cycles, 4.0);       // >1 cycle, ending at t=ms
@@ -745,7 +745,7 @@ TEST_F(Opl3Test, FullScaleModulationMatchesAnEightPiModulationIndex) {
     Opl3 chip;
     auto w = [&](uint8_t r, uint8_t v) { chip.write_address(0, r); chip.write_data(0, v); };
     w(0x20, uint8_t(0x20 | 1));   // modulator: EGT hold, MULT=1 (x1)
-    w(0x23, uint8_t(0x20 | 15));  // carrier: EGT hold, MULT=15 (x15) -- a 15:1 carrier:modulator ratio
+    w(0x23, uint8_t(0x20 | 15));  // carrier: EGT hold, MULT=15 (x15), a 15:1 carrier:modulator ratio
     const uint8_t kModulatorTl = 24;  // 24 * 0.75dB = 18dB atten, amplitude ~10^(-18/20)
     w(0x40, kModulatorTl);
     w(0x43, 0x00);                 // carrier TL: loudest
@@ -888,7 +888,7 @@ TEST_F(Opl3Test, KeyScaleLevelMatchesDocumentedDbPerOctaveSteps) {
         Opl3 chip;
         chip.reset();
         auto w = [&](uint8_t r, uint8_t v) { chip.write_address(0, r); chip.write_data(0, v); };
-        w(0x20, 0x01);                          // modulator: MULT=1, AR=0 -- never attacks, stays silent
+        w(0x20, 0x01);                          // modulator: MULT=1, AR=0, never attacks, stays silent
         w(0x23, 0x21);                          // carrier: EGT hold, MULT=1
         w(0x43, uint8_t((ksl << 6) | 0x00));    // carrier KSL + TL=0 (loudest)
         w(0x63, 0xF0);                           // carrier AR=15 (fastest attack), DR=0
@@ -926,13 +926,13 @@ TEST_F(Opl3Test, KeyScaleRateOnVersusOffChangesTheDecayRateAtAFixedNote) {
         Opl3 chip;
         chip.reset();
         auto w = [&](uint8_t r, uint8_t v) { chip.write_address(0, r); chip.write_data(0, v); };
-        w(0x20, 0x01);                                 // modulator: MULT=1, AR=0 -- never attacks, stays silent
+        w(0x20, 0x01);                                 // modulator: MULT=1, AR=0, never attacks, stays silent
         w(0x23, uint8_t(0x21 | (ksr ? 0x10 : 0x00)));  // carrier: EGT hold, MULT=1, KSR
         w(0x43, 0x00);                                   // carrier TL: loudest, KSL=0
         w(0x63, 0xF4);                                   // carrier AR=15 (fastest attack), DR=4
         w(0x83, 0xF0);                                   // carrier SL=15 (decay runs to full silence), RR=0
         w(0xC0, 0x30);                                    // pan both channels on
-        w(0x08, 0x00);                                    // NTS=0 -- selects fnum bit 9 for key scaling
+        w(0x08, 0x00);                                    // NTS=0, selects fnum bit 9 for key scaling
         w(0xA0, 0xFF);
         w(0xB0, uint8_t(0x20 | (7 << 2) | 0x02));  // KON, BLOCK=7, fnum hi bits: bit9=1,bit8=0 -> ksn=15
         uint64_t cycles = 0;
@@ -1004,7 +1004,7 @@ TEST_F(Opl3Test, RhythmVoiceSumsAtTwiceAMelodicChannelsAmplitude) {
         w(uint8_t(0x80 + m), 0x0F); w(uint8_t(0x80 + c), 0x0F);  // SL=0, fastest release
         w(0xC6, 0x30);  // CNT=0 (FM), both pan bits on
         w(0xA6, 0xAE);
-        w(0xB6, 0x12);  // block=4, fnum hi=2 -- no KON here; see below
+        w(0xB6, 0x12);  // block=4, fnum hi=2, no KON here; see below
         if (rhythm) w(0xBD, 0x30);  // rhythm enable + bass-drum key (bypasses channel 6's own KON)
         else w(0xB6, 0x32);         // channel 6's own KON, same block/fnum
         uint64_t cycles = 0;

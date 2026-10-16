@@ -4,14 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>486 DX2-66 Gaming PC</title>
-<!-- Site icon: see ../../assets/README.md for provenance/regeneration --
-     this is a committed copy (only web/ ever gets staged). -->
 <link rel="icon" href="assets/favicon.ico" sizes="any">
 <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="assets/favicon-16.png">
 <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
-<!-- apply the shared site theme before first paint, so there's no flash of
-     the wrong theme (matches retroweb/index.html's own inline snippet) -->
 <script src="shared/theme-init.js"></script>
 <link rel="stylesheet" href="shared/theme.css">
 <link rel="stylesheet" href="shared/pagebar.css">
@@ -123,7 +119,7 @@
   .filebtn[hidden] { display: none; }
   .filebtn input[type=file] { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; }
 
-  /* ---- CRT monitor -- photoreal hardware, not page chrome, in every theme */
+  /* ---- CRT monitor, photoreal hardware, not page chrome, in every theme */
   .monitor { width: max-content; max-width: 100%; margin: 0 auto; }
   .monitor .bezel {
     position: relative; padding: 16px 18px;
@@ -218,7 +214,7 @@
     gap: 8px;
   }
   :root[data-theme="modern"] .tower-panel { width: 100%; flex: 0 0 auto; }
-  /* 3.5" bay is ~101.6/146 of a 5.25" face -- keep that ratio in the tower column. */
+  /* 3.5" bay is ~101.6/146 of a 5.25" face, keep that ratio in the tower column. */
   :root[data-theme="modern"] .at-bay.bay-35 { width: calc(100% / 1.46); }
   :root[data-theme="modern"] .at-bay.bay-525 {
     flex: 0 1 auto;
@@ -375,13 +371,13 @@
     opacity: 1; visibility: visible;
     transition-delay: .4s;
   }
-  /* Sound / mouse / key-map mirrors -- live in the bezel so they stay
+  /* Sound / mouse / key-map mirrors, live in the bezel so they stay
      reachable once fullscreen covers the page chrome. KEYS toggles
      every key mapping on or off. */
   .bezel-btn[aria-pressed="true"] {
     opacity: 1; background: rgba(255,255,255,.22); color: #fff;
   }
-  /* Bezel chrome is flat overlays, not Win95 panel buttons -- don't inherit
+  /* Bezel chrome is flat overlays, not Win95 panel buttons, don't inherit
      the page's inset / translateY :active treatment. */
   #bezel .bezel-btn:active:not(:disabled) {
     border: none; transform: none;
@@ -419,7 +415,7 @@
     display: flex; flex-direction: column; align-items: stretch; align-self: stretch; gap: 8px;
   }
 
-  /* Recessed dark-green button island -- the classic tower "turbo panel". */
+  /* Recessed dark-green button island, the classic tower "turbo panel". */
   .tower-panel {
     background: linear-gradient(180deg, #2a4a2a 0%, #1a331a 55%, #122412 100%);
     border-radius: 3px;
@@ -516,7 +512,7 @@
     padding: 12px 12px 14px;
   }
 
-  /* Green seven-segment clock readout -- tracks Turbo (66 / 33). Digit
+  /* Green seven-segment clock readout, tracks Turbo (66 / 33). Digit
      geometry: a=top, b=top-right, c=bottom-right, d=bottom, e=bottom-left,
      f=top-left, g=middle. "6" = a/c/d/e/f/g; "3" = a/b/c/d/g. */
   .sevenseg-group { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
@@ -581,7 +577,7 @@
       0 1px 0 rgba(255,255,255,.25);
   }
 
-  /* Large vertical throw rocker -- typical mid/full-tower mains switch of
+  /* Large vertical throw rocker, typical mid/full-tower mains switch of
      the 386/486 era. Mounted inside the green island on the right
      (replacing the decorative keylock). Off: bottom paddle out; On: top out. */
   .power-rocker {
@@ -651,7 +647,7 @@
     border-radius: 2px; padding: 8px 10px;
     box-shadow: inset 0 0 0 1px #f2ecd8, inset 0 0 0 2px #8f886f, 0 2px 5px rgba(0,0,0,.3);
   }
-  /* Horizontal bay seam -- the score line between modular 5.25"/3.5" trays. */
+  /* Horizontal bay seam, the score line between modular 5.25"/3.5" trays. */
   .bay-rail {
     flex: 0 0 auto; height: 4px; border-radius: 1px;
     background:
@@ -789,7 +785,7 @@
   .at-bay[data-drive="cdrom"] .drive-letter { flex: 0 0 auto; line-height: 1.2; }
   .at-bay[data-drive="cdrom"] .drive-label { flex: 1 1 auto; }
 
-  /* Blank 5.25" cover -- flat plate matching the CD face height (no ctl row). */
+  /* Blank 5.25" cover, flat plate matching the CD face height (no ctl row). */
   .at-bay.bay-blank {
     box-sizing: border-box;
     padding: 8px 10px;
@@ -820,7 +816,7 @@
       inset 0 -1px 2px rgba(0,0,0,.18),
       0 1px 2px rgba(0,0,0,.25);
   }
-  /* Recessed flap well -- wide upper opening with a center finger notch.
+  /* Recessed flap well, wide upper opening with a center finger notch.
      The well is the insert hit-target (hand cursor); file input is overlaid. */
   .floppy-insert {
     position: absolute; left: 5px; right: 5px; top: 4px; height: 24px;

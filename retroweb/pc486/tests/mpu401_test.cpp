@@ -47,8 +47,8 @@ TEST(Mpu401Test, EnterUartModeSetsFlagAndAcknowledges) {
 TEST(Mpu401Test, UnrecognizedCommandProducesNoAcknowledge) {
     Mpu401 mpu;
     mpu.reset();
-    mpu.out(0x331, 0x01);  // not 0FFh or 03Fh -- an Intelligent-mode command this card doesn't support
-    EXPECT_EQ(mpu.in(0x331) & 0x80, 0x80);  // still "no input available" -- nothing came of it
+    mpu.out(0x331, 0x01);  // not 0FFh or 03Fh, an Intelligent-mode command this card doesn't support
+    EXPECT_EQ(mpu.in(0x331) & 0x80, 0x80);  // still "no input available", nothing came of it
 }
 
 TEST(Mpu401Test, ResetExitsUartMode) {
@@ -67,7 +67,7 @@ TEST(Mpu401Test, UartModeDataWritesAreAcceptedAndInputNeverArrives) {
     mpu.reset();
     mpu.out(0x331, 0x3F);  // Enter UART mode
     mpu.in(0x330);         // drain its ack
-    mpu.out(0x330, 0x90);  // MIDI Note On, status byte -- goes nowhere, nothing attached
+    mpu.out(0x330, 0x90);  // MIDI Note On, status byte, goes nowhere, nothing attached
     mpu.out(0x330, 0x40);
     mpu.out(0x330, 0x7F);
     // No MIDI device is attached, so input never becomes available.

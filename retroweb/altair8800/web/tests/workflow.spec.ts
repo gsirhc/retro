@@ -41,7 +41,7 @@ test.describe("preset workflows — an expert session, end to end", () => {
     await boot(page, { params: "preset=baremetal" });
     await expect(page.locator("#ptr")).toHaveClass(/loaded/, { timeout: 10_000 });
 
-    // load the game tape and let it run -- the lit bit sweeps up the address
+    // load the game tape and let it run, the lit bit sweeps up the address
     // lamps and keeps moving
     await page.click("#ptr .ptr-load");
     await expect.poll(() => leds(page).then((l) => l.addr & 0xff00), { timeout: 12_000 }).toBeGreaterThan(0);
@@ -53,7 +53,7 @@ test.describe("preset workflows — an expert session, end to end", () => {
       })
       .toBeGreaterThan(2); // the bit is sweeping, not frozen
 
-    // the game reads the sense switches -- setting all of A8..A15 makes it XOR
+    // the game reads the sense switches, setting all of A8..A15 makes it XOR
     // extra bits in, so the single marching bit becomes a spray of them
     await setSwitches(page, 0xff00);
     await expect
@@ -62,7 +62,7 @@ test.describe("preset workflows — an expert session, end to end", () => {
         return hi.toString(2).split("1").length - 1; // bits set
       }, { timeout: 5000 })
       .toBeGreaterThan(1);
-    // (the winning move -- match one switch to the moving bit -- is covered
+    // (the winning move, match one switch to the moving bit, is covered
     //  deterministically in panel-lights.spec.ts)
   });
 
@@ -71,7 +71,7 @@ test.describe("preset workflows — an expert session, end to end", () => {
     await expect(page.locator("#ptr")).toHaveClass(/loaded/);
 
     // AUTO-LOAD keys the serial bootstrap, reads the tape, and answers
-    // MEMORY SIZE? / TERMINAL WIDTH? / SIN? -- exactly the cold-start ritual
+    // MEMORY SIZE? / TERMINAL WIDTH? / SIN?, exactly the cold-start ritual
     await page.click("#ptr .ptr-load");
     await waitForScreen(page, /\bOK\b/, 90_000);
 

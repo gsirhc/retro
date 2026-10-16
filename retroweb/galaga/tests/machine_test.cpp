@@ -673,7 +673,7 @@ TEST(Machine, SubAndSoundCpusRunInLockStepWithMain) {
 TEST(Mb88, LoadImmediateAddAndCall) {
     Mb88 cpu;
     cpu.reset();
-    // LI 5; AI 3; CALL page0 $20; JMP $00  — at $20: LI 9; RTS
+    // LI 5; AI 3; CALL page0 $20; JMP $00 , at $20: LI 9; RTS
     cpu.rom[0] = 0x95;
     cpu.rom[1] = 0x73;
     cpu.rom[2] = 0x60;

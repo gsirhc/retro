@@ -1,26 +1,19 @@
 #include <gtest/gtest.h>
 
 #include "hwtest_roms.h"
+#include "hwtest_set.h"
 #include "machine.h"
 
 #include <array>
 
 namespace {
 
-asteroids::RomSet test_set() {
-    asteroids::RomSet s;
-    std::copy(asteroids::hwtest::program.begin(), asteroids::hwtest::program.end(),
-              s.program.begin());
-    std::copy(asteroids::hwtest::vector.begin(), asteroids::hwtest::vector.end(),
-              s.vector.begin());
-    return s;
-}
 
 }  // namespace
 
 TEST(Smoke, HwtestBootsSignatureWatchdogAndPaints) {
     asteroids::Machine m;
-    m.load_roms(test_set());
+    m.load_roms(asteroids::hwtest_set());
     m.reset();
     m.run_cycles(asteroids::kCpuHz / 10);
     EXPECT_EQ(m.mem_read(0), 'A');

@@ -5,12 +5,12 @@
 #   make bios-check   boot the real BIOS against this chipset natively, report progress
 #   make pm-check    run the protected-mode/paging/FPU end-to-end stub proof
 #   make vbe-check   run the VGA mode 13h / DAC / VESA end-to-end pixel proof
-#   make hdd-image   build the shipped FreeDOS HDD image (see below -- SLOW)
+#   make hdd-image   build the shipped FreeDOS HDD image (see below, SLOW)
 #   make hdd-boot-check  cold-boot the finished HDD image standalone, report the screen
 #   make preset-hdds build the DOOM, Wolfenstein 3-D and Tyrian preset C:s (on a bare FreeDOS)
 #   make render_screen   build the screen-to-BMP diagnostic tool (see below)
 #   make fm-trace-render build the OPL3 trace-to-WAV dev tool (see below)
-#   make wasm        build the WebAssembly module (needs emsdk -- see web/Makefile)
+#   make wasm        build the WebAssembly module (needs emsdk; see web/Makefile)
 #   make serve       build the wasm module + serve the browser front end
 #   make coverage    build + run the unit tests with llvm-cov, print a report
 #   make test-smoke  GoogleTest (what deploy CI runs)

@@ -340,13 +340,19 @@ and a planted unused variable each fail `make lint`.
   the version `latest` resolved to, and googletest comes from one
   `shared/googletest.cmake` with a `URL_HASH`; a wrong hash fails the
   configure. actionlint 1.7.12 passes all three workflows.
-- **Terminal code.** Altair and assembler6502 terminal filters (`vt52Filter`,
-  `adm3aFilter`, …) have identical logic; only the comments differ. xterm is
-  vendored twice, byte-identical. Candidates for `shared/terminal.js` and a
-  shared vendor folder.
-- **Arcade wasm wrappers.** `frameBuffer()` copies each frame three times, and
-  the RGBA conversion repeats in all 7 `wasm_machine.cpp` files. `hwtest_set()`
-  is duplicated between `smoke_test.cpp` and `wasm_machine.cpp`.
+- ~~**Terminal code.**~~ Fixed. The three filters live in `shared/terminal.js`
+  (`termDumbFilter`, `termVt52Filter`, `termAdm3aFilter`); each machine keeps
+  its own profiles, which differ (baud, bell). xterm and the fonts are one
+  copy in `shared/vendor/`, copied to `web/shared/vendor/` by `make shared`.
+  Altair's `termfilters.spec.ts` fails on a planted ADM-3A bug in the shared
+  file.
+- ~~**Arcade wasm wrappers.**~~ Fixed. `shared/arcade_frame.h` keeps one RGBA
+  buffer per machine and hands the page a view of it, so a frame is rendered,
+  converted and copied once into ImageData instead of also going through a
+  fresh `std::vector` and a fresh JS array. The 6502 cabinets, which render
+  RGBA already, return a view of their buffer. Each cabinet's `hwtest_set()`
+  is in its own `hwtest_set.h`, shared by `wasm_machine.cpp` and the tests
+  (every test copy was identical to the wrapper's).
 - ~~**Flaky-test masking.**~~ Fixed. All 165 fixed-time sleeps (161
   `waitForTimeout`, 4 `setTimeout` promises) wait on a condition instead:
   web-first assertions, `expect.poll`, emulated cycles or frames, audio
@@ -359,10 +365,13 @@ and a planted unused variable each fail `make lint`.
   arcades' help and smoke specs, which read `__test` before the page made it.
 - ~~**IndexedDB connections.**~~ Fixed with H3: `arcadeStore` keeps one
   connection and closes it on `versionchange`.
-- **Comment style.** About 327 comments use `--`/`—` asides (mostly pc486
-  tests), `shared/theme-init.js` has an 8-line banner, and
-  `pc486/web/index.html` has 2 HTML comments. All break the repo's comment
-  rules.
+- ~~**Comment style.**~~ Fixed. 386 comment lines with `--`/`—` asides are
+  rewritten (pc486 174, Altair and assembler6502 114, the rest 93); a
+  comments-stripped diff of all 118 touched files shows no code change.
+  `shared/theme-init.js` has a one-line banner, and `pc486/web/index.html`
+  has no HTML comments (their facts are in `assets/README.md` and CLAUDE.md
+  "Theme bootstrap"). `v8 ignore next, …` still parses: monocart reads the
+  text after `next` with `parseInt`.
 
 ## Suggested order
 
@@ -383,10 +392,8 @@ backlog.
    "CI" above.
 7. ~~**M6, tests for the shared chip libraries.**~~ Done. See M6 above.
 8. ~~**Flaky-test masking.**~~ Done. See "Flaky-test masking" above.
-9. **Terminal code and arcade wasm wrappers.** `shared/terminal.js`, one
-   vendored xterm, and one RGBA conversion for the arcade `wasm_machine.cpp`
-   files.
-10. **Comment style.** The `--`/`—` asides, the `theme-init.js` banner, and
-    the HTML comments in `pc486/web/index.html`.
+9. ~~**Terminal code and arcade wasm wrappers.**~~ Done. See "Terminal code"
+   and "Arcade wasm wrappers" above.
+10. ~~**Comment style.**~~ Done. See "Comment style" above.
 11. ~~**Site size against Pages' 1 GB.**~~ Done: the HDD images ship as
     `.img.gz` only, 1.5 GB down to about 520 MB (see M5).

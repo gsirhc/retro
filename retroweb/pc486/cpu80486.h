@@ -49,7 +49,7 @@ enum Flag : uint32_t {
     FLAG_DF   = 1u << 10,  // direction (string ops)
     FLAG_OF   = 1u << 11,  // overflow
     FLAG_IOPL = 3u << 12,  // I/O privilege level (2 bits)
-    FLAG_NT   = 1u << 14,  // nested task -- set by a CALL-driven task switch
+    FLAG_NT   = 1u << 14,  // nested task, set by a CALL-driven task switch
     FLAG_RF   = 1u << 16,  // resume: suppresses instruction breakpoints for one instruction
     // Loadable only by IRETD from CPL 0 or a task switch (Intel 80386 PRM,
     // "Entering and Leaving Virtual 8086 Mode"), so kIretdMask carries it and
@@ -68,9 +68,9 @@ enum Cr0Bit : uint32_t {
     CR0_MP = 1u << 1,   // monitor coprocessor (gates WAIT on TS)
     CR0_EM = 1u << 2,   // emulate coprocessor: every ESC opcode traps #NM
     CR0_TS = 1u << 3,   // task switched: first FPU op after a task switch traps #NM
-    CR0_ET = 1u << 4,   // extension type -- fixed 1 on a 486
+    CR0_ET = 1u << 4,   // extension type, fixed 1 on a 486
     CR0_NE = 1u << 5,   // numeric error: 1 = #MF, 0 = external FERR#/IRQ13
-    CR0_WP = 1u << 16,  // write protect -- a genuine 486 addition (see paging)
+    CR0_WP = 1u << 16,  // write protect, a genuine 486 addition (see paging)
     CR0_AM = 1u << 18,  // alignment mask
     CR0_NW = 1u << 29,  // not write-through
     CR0_CD = 1u << 30,  // cache disable
@@ -644,7 +644,7 @@ private:
         uint32_t off;       // valid when is_mem
         bool     is_mem;
         uint8_t  reg;       // valid when !is_mem
-        uint8_t  seg;       // valid when is_mem -- a SEG_* index
+        uint8_t  seg;       // valid when is_mem, a SEG_* index
         bool     disp;      // the address carried a displacement
     };
     // Decodes ModR/M, SIB and displacement at CS:EIP, advancing EIP. The

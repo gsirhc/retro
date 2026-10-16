@@ -49,7 +49,7 @@ clean:
 	rm -rf shared
 	rm -rf test-results playwright-report coverage .v8-coverage
 
-STAGE = index.html app.js retro8080.js retro8080.wasm assets disks roms shared tapes vendor
-SHARED_EXTRA = disk-drop.css disk-drop.js
+STAGE = index.html app.js retro8080.js retro8080.wasm assets disks roms shared tapes
+SHARED_EXTRA = disk-drop.css disk-drop.js terminal.js vendor
 
 include $(SHARED)/web.mk

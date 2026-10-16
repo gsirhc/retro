@@ -38,7 +38,7 @@ test.describe("timing fidelity", () => {
     for (const [key, baud] of Object.entries(BAUD)) {
       test(`${key} (${baud} baud)`, async ({ page }) => {
         await boot(page, { params: `term=${key}` });
-        const text = "ABCDEFGHIJ".repeat(30); // 300 chars -- well under one screen, no scroll-loss risk
+        const text = "ABCDEFGHIJ".repeat(30); // 300 chars, well under one screen, no scroll-loss risk
         // ms from the send until every char is on screen, sampled per frame in the page
         const landedMs = await page.evaluate((text) => new Promise<number>((resolve) => {
           const t0 = performance.now();

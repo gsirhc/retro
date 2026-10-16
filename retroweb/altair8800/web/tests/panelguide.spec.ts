@@ -83,7 +83,7 @@ test.describe("front-panel bootstrap guide", () => {
   });
 
   test("'Key the loader in for me' switches the machine on first if it's off", async ({ page }) => {
-    // no boot() -- its power-on convenience is exactly what's under test here
+    // no boot(), its power-on convenience is exactly what's under test here
     await page.goto("/?test=1&preset=stock");
     await page.waitForFunction(() => (window as any).__test?.applyingPreset === false);
     const batDown = () =>
@@ -99,7 +99,7 @@ test.describe("front-panel bootstrap guide", () => {
   test("'Reset checklist' unchecks every row so you can key it in again", async ({ page }) => {
     await boot(page, { params: "preset=stock" });
     await page.click("#pgToggle");
-    await expect(page.locator("#pgReset")).toHaveCount(0); // nothing done yet -- no control to show
+    await expect(page.locator("#pgReset")).toHaveCount(0); // nothing done yet, no control to show
 
     await page.click("#pgKeyin");
     await expect(page.locator("#pgKeyin")).toBeEnabled({ timeout: 10_000 });
@@ -374,7 +374,7 @@ test.describe("front-panel bootstrap guide", () => {
 
     await panelRun(page); // loader starts polling the 2SIO
 
-    // swap in the 4K BASIC tape and Feed it -- the flow the user hit
+    // swap in the 4K BASIC tape and Feed it
     await page.click("#ptr .ptr-window");
     await pickCatalogItem(page, "#ptrList", /4K BASIC 4\.0/);
     await page.click("#ptrThread");

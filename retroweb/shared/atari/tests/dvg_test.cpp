@@ -11,7 +11,7 @@ TEST(Dvg, LabsVecHaltDrawsBox) {
     mem[0] = 0xA000 | 312;
     mem[1] = 0x9000 | 312;
     auto vec = [](int dx, int dy) {
-        uint16_t wy = 0x0000;  // local scale 0 — global is already 9 from LABS
+        uint16_t wy = 0x0000;  // local scale 0, global is already 9 from LABS
         if (dy < 0) wy |= 0x400 | uint16_t(-dy);
         else wy |= uint16_t(dy);
         uint16_t wx = 0xF000;

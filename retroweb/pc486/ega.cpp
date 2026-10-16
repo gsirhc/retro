@@ -17,7 +17,7 @@ void Ega::reset() {
     prev_cycles_ = 0;
     retrace_credit_ = 0.0;
     frame_count_ = 0;
-    recompute_timing_();  // registers are all 0 here -- lands on the implausible-rate fallback below
+    recompute_timing_();  // registers are all 0 here, lands on the implausible-rate fallback below
     dac_.fill(0);
     dac_write_index_ = dac_read_index_ = dac_write_sub_ = dac_read_sub_ = dac_state_ = 0;
     dac_mask_ = 0xFF;  // real power-on default: every pixel bit reaches the DAC
@@ -110,7 +110,7 @@ uint8_t Ega::in(uint16_t port) {
         }
         case 0x3C0: return attr_flip_flop_addr_ ? attr_index_ : uint8_t(0xFF);
         case 0x3C1: return attr_[attr_index_ % attr_.size()];
-        case 0x3C2: return 0x00;  // Input Status 0 -- not modeled meaningfully
+        case 0x3C2: return 0x00;  // Input Status 0, not modeled meaningfully
         case 0x3C6: return dac_mask_;                 // PEL Mask
         case 0x3C7: return dac_state_;                // DAC State (3 = read mode, 0 = write mode)
         case 0x3C8: return dac_write_index_;          // PEL Address Write Mode reads back its index
@@ -139,7 +139,7 @@ void Ega::out(uint16_t port, uint8_t v) {
             else attr_[attr_index_ % attr_.size()] = v;
             attr_flip_flop_addr_ = !attr_flip_flop_addr_;
             break;
-        case 0x3C2: misc_output_ = v; recompute_timing_(); break;  // bit 2 picks the dot clock -- see recompute_timing_()
+        case 0x3C2: misc_output_ = v; recompute_timing_(); break;  // bit 2 picks the dot clock; see recompute_timing_()
         case 0x3C6: dac_mask_ = v; break;                        // PEL Mask
         case 0x3C7:                                              // PEL Address Read Mode
             dac_read_index_ = v; dac_read_sub_ = 0; dac_state_ = 0x03; break;
@@ -287,7 +287,7 @@ uint8_t *Ega::linear_page(uint32_t page_base, bool write) {
 
 uint32_t Ega::window_offset(uint32_t addr) const {
     switch (gc_memory_mapping()) {
-        case 0:  // 128K @ A0000 -- spans this device's whole claimed range
+        case 0:  // 128K @ A0000, spans this device's whole claimed range
             return addr - 0xA0000;
         case 1:  // 64K @ A0000 (the standard EGA graphics-mode mapping)
             if (addr > 0xAFFFF) return kOutOfWindow;
@@ -321,7 +321,7 @@ uint8_t Ega::mem_read(uint32_t addr) const {
         return lin == kOutOfWindow ? uint8_t(0xFF) : vram[lin];
     }
     uint32_t off = window_offset(addr);
-    if (off == kOutOfWindow) return 0xFF;  // not decoded by the active window -- open bus
+    if (off == kOutOfWindow) return 0xFF;  // not decoded by the active window, open bus
 
     // Odd/even chaining drops the address low bit from the per-plane offset;
     // Chain 4 drops two and takes priority.

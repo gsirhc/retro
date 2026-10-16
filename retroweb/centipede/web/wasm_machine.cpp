@@ -9,20 +9,14 @@
 #include <vector>
 
 #include "../machine.h"
+#include "arcade_frame.h"
 #include "hwtest_roms.h"
+#include "../hwtest_set.h"
 
 using emscripten::val;
 
 namespace {
 
-centipede::RomSet hwtest_set() {
-    centipede::RomSet s;
-    std::copy(centipede::hwtest::program.begin(), centipede::hwtest::program.end(),
-              s.program.begin());
-    std::copy(centipede::hwtest::gfx.begin(), centipede::hwtest::gfx.end(),
-              s.gfx.begin());
-    return s;
-}
 
 void copy_val(val src, uint8_t* dst, size_t n) {
     auto v = emscripten::convertJSArrayToNumberVector<uint8_t>(src);
@@ -35,14 +29,14 @@ void copy_val(val src, uint8_t* dst, size_t n) {
 class Machine {
 public:
     Machine() {
-        m_.load_roms(hwtest_set());
+        m_.load_roms(centipede::hwtest_set());
         m_.reset();
     }
 
     void reset() { m_.reset(); }
 
     void loadHwtest() {
-        m_.load_roms(hwtest_set());
+        m_.load_roms(centipede::hwtest_set());
         m_.reset();
     }
 
@@ -63,11 +57,7 @@ public:
     val frameBuffer() {
         static std::array<uint32_t, centipede::kUprightW * centipede::kUprightH> rgb{};
         m_.render(rgb.data());
-        const int n = centipede::kUprightW * centipede::kUprightH * 4;
-        val out = val::global("Uint8ClampedArray").new_(n);
-        auto* p = reinterpret_cast<uint8_t*>(rgb.data());
-        out.call<void>("set", val(emscripten::typed_memory_view(size_t(n), p)));
-        return out;
+        return arcade::rgba_view(rgb.data(), rgb.size());
     }
 
     int screenWidth() const { return centipede::kUprightW; }

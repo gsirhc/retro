@@ -376,7 +376,7 @@ int Cpu::step() {
 
         // ---- Jumps / calls ----------------------------------------------
         case 0x4C: pc = am_abs(); c = 3; break;                                 // JMP abs
-        case 0x6C: {                                                            // JMP (abs) -- 65C02 fixes the NMOS page-wrap bug
+        case 0x6C: {                                                            // JMP (abs), 65C02 fixes the NMOS page-wrap bug
             uint16_t ptr = fetch16();
             pc = uint16_t(rb(ptr)) | (uint16_t(rb(uint16_t(ptr + 1))) << 8);
             c = 6; break;

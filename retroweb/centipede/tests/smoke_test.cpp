@@ -1,26 +1,19 @@
 #include <gtest/gtest.h>
 
 #include "hwtest_roms.h"
+#include "hwtest_set.h"
 #include "machine.h"
 
 #include <array>
 
 namespace {
 
-centipede::RomSet test_set() {
-    centipede::RomSet s;
-    std::copy(centipede::hwtest::program.begin(), centipede::hwtest::program.end(),
-              s.program.begin());
-    std::copy(centipede::hwtest::gfx.begin(), centipede::hwtest::gfx.end(),
-              s.gfx.begin());
-    return s;
-}
 
 }  // namespace
 
 TEST(Smoke, HwtestBootsSignatureWatchdogAndPaints) {
     centipede::Machine m;
-    m.load_roms(test_set());
+    m.load_roms(centipede::hwtest_set());
     m.reset();
     m.run_cycles(centipede::kCpuHz / 10);
     EXPECT_EQ(m.mem_read(0), 'C');

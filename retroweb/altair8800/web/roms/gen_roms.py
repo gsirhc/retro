@@ -14,7 +14,7 @@ def write(name, data):
 
 
 # ---------------------------------------------------------------------------
-# echo.bin — identical to the core's built-in default ROM.
+# echo.bin: identical to the core's built-in default ROM.
 #   reset ACIA ch A, set 8N1, then loop: read a byte when RDRF, echo when TDRE.
 # ---------------------------------------------------------------------------
 ECHO = [
@@ -28,7 +28,7 @@ ECHO = [
 ]
 
 # ---------------------------------------------------------------------------
-# hello.bin — print a greeting to the console, then HLT.
+# hello.bin: print a greeting to the console, then HLT.
 #   0000 MVI A,03h / OUT 10h          master reset
 #   0004 MVI A,11h / OUT 10h          8N1
 #   0008 LXI H,001Fh                  -> msg
@@ -52,7 +52,7 @@ HELLO = [
 ] + list(MSG)
 
 # ---------------------------------------------------------------------------
-# killbits.bin — "Kill the Bit", Dean McDaniel, MITS, 1975. A bit sweeps across
+# killbits.bin: "Kill the Bit", Dean McDaniel, MITS, 1975. A bit sweeps across
 # the A8..A15 address lamps; flip the matching sense switch to knock it out.
 # Freely published; the canonical 24-byte listing.
 #   0000 LXI H,0 / MVI D,80h / LXI B,000Eh

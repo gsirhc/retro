@@ -79,7 +79,7 @@ TEST(MachineTest, TimerInterruptWakesHaltedCpuAndRunsHandler) {
     mem[0x5000 + 4] = 0xCF;
     mem[0x1234] = 0;
 
-    // Main program at CS:IP = 0:0 -- STI ; HLT.
+    // Main program at CS:IP = 0:0, STI ; HLT.
     mem[0] = 0xFB;
     mem[1] = 0xF4;
     m.cpu.cs = 0;

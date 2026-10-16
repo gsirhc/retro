@@ -8,7 +8,7 @@ namespace centipede {
 namespace {
 
 uint16_t mirror(uint16_t addr) {
-    // A14/A15 ignored — map is 14-bit (MAME global_mask 0x3fff).
+    // A14/A15 ignored, map is 14-bit (MAME global_mask 0x3fff).
     return addr & 0x3FFF;
 }
 
@@ -211,7 +211,7 @@ int Machine::run_cycles(int n) {
     while (done < n) {
         playfield_touch_ = false;
         int c = cpu.step();
-        // Playfield RAM steals the bus — half clock (MAME / schematics).
+        // Playfield RAM steals the bus, half clock (MAME / schematics).
         if (playfield_touch_) c *= 2;
         if (c < 1) c = 1;
         service_video(c);

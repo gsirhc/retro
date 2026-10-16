@@ -93,7 +93,7 @@ test.describe("front-panel lamps", () => {
 
     await expect.poll(async () => (await status(page)).HLTA).toBe(true);
     const st = await status(page);
-    expect(st.MEMR).toBe(false); // bus idle -- nothing fetching
+    expect(st.MEMR).toBe(false); // bus idle, nothing fetching
     expect(st.M1).toBe(false);
     expect(st.WAIT).toBe(true); // halted counts as waiting
   });
@@ -114,11 +114,11 @@ test.describe("front-panel lamps", () => {
     await clickPaddle(page, /EXAMINE/, "up");
 
     // status() reads DOM classes set once per rendered frame; poll
-    await clickPaddle(page, /SINGLE STEP/); // MVI A,42h -- reads only
+    await clickPaddle(page, /SINGLE STEP/); // MVI A,42h, reads only
     await expect.poll(() => status(page).then((s) => s.WO)).toBe(true);
     await expect.poll(() => status(page).then((s) => s.MEMR)).toBe(true);
 
-    await clickPaddle(page, /SINGLE STEP/); // STA 2000h -- ends on a write
+    await clickPaddle(page, /SINGLE STEP/); // STA 2000h, ends on a write
     await expect.poll(() => status(page).then((s) => s.WO)).toBe(false);
     await expect.poll(() => status(page).then((s) => s.MEMR)).toBe(false);
     expect(await memAt(page, 0x2000)).toBe(0x42);   // the write actually landed
@@ -161,7 +161,7 @@ test.describe("front-panel lamps", () => {
     await expect(page.locator("#ptr")).toHaveClass(/loaded/, { timeout: 10_000 });
     await page.click("#ptr .ptr-load");
 
-    // the single bit marches across A8..A15 -- visible on every frame (the blur)
+    // the single bit marches across A8..A15, visible on every frame (the blur)
     await expect.poll(async () => (await leds(page)).addr & 0xff00, { timeout: 12_000 }).toBeGreaterThan(0);
     const seen = new Set<number>();
     await expect
@@ -188,7 +188,7 @@ test.describe("front-panel lamps", () => {
     expect(sawDifferingBrightness).toBe(true);
 
     // stop, read the bit, aim the matching sense switch under it, step it out
-    // (IN 0FFh / XRA D / RRC / MOV D,A -- the XOR clears D)
+    // (IN 0FFh / XRA D / RRC / MOV D,A, the XOR clears D)
     await panelStop(page);
     const d = (await regs(page)).d;
     expect(d).toBeGreaterThan(0);

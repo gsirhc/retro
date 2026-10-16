@@ -18,7 +18,7 @@
         }
       } catch {}
     }
-    /* v8 ignore next -- only if every HEAD request fails / lacks Last-Modified */
+    /* v8 ignore next, only if every HEAD request fails / lacks Last-Modified */
     el.textContent = "unknown";
   })();
 
@@ -1511,7 +1511,7 @@
     if (lastT === null) lastT = t;
     let dtSeconds = (t - lastT) / 1000;
     lastT = t;
-    dtSeconds = Math.min(dtSeconds, 0.25);  // clamp a backgrounded-tab gap -- no runaway catch-up burst
+    dtSeconds = Math.min(dtSeconds, 0.25);  // clamp a backgrounded-tab gap, no runaway catch-up burst
 
     // The DX2's real 66 MHz, Turbo on or off. TEST_CPU_MULTIPLIER is 1 outside `?test=1&fast=1`.
     cycleCredit += dtSeconds * cpuHz * TEST_CPU_MULTIPLIER;

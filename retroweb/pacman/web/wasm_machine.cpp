@@ -7,22 +7,14 @@
 #include <vector>
 
 #include "../machine.h"
+#include "arcade_frame.h"
 #include "hwtest_roms.h"
+#include "../hwtest_set.h"
 
 using emscripten::val;
 
 namespace {
 
-pacman::RomSet hwtest_set() {
-    pacman::RomSet s;
-    std::copy(pacman::hwtest::program.begin(), pacman::hwtest::program.end(), s.program.begin());
-    std::copy(pacman::hwtest::tiles.begin(), pacman::hwtest::tiles.end(), s.tiles.begin());
-    std::copy(pacman::hwtest::sprites.begin(), pacman::hwtest::sprites.end(), s.sprites.begin());
-    std::copy(pacman::hwtest::color_prom.begin(), pacman::hwtest::color_prom.end(), s.color_prom.begin());
-    std::copy(pacman::hwtest::lookup_prom.begin(), pacman::hwtest::lookup_prom.end(), s.lookup_prom.begin());
-    std::copy(pacman::hwtest::wave_prom.begin(), pacman::hwtest::wave_prom.end(), s.wave_prom.begin());
-    return s;
-}
 
 void copy_val(val src, uint8_t* dst, size_t n) {
     auto v = emscripten::convertJSArrayToNumberVector<uint8_t>(src);
@@ -35,7 +27,7 @@ void copy_val(val src, uint8_t* dst, size_t n) {
 class Machine {
 public:
     Machine() {
-        m_.load_roms(hwtest_set());
+        m_.load_roms(pacman::hwtest_set());
         m_.reset();
     }
 
@@ -44,12 +36,12 @@ public:
     }
 
     void loadHwtest() {
-        m_.load_roms(hwtest_set());
+        m_.load_roms(pacman::hwtest_set());
         m_.reset();
     }
 
     void loadMsHwtest() {
-        pacman::RomSet s = hwtest_set();
+        pacman::RomSet s = pacman::hwtest_set();
         std::copy(pacman::hwtest::mspacman_program.begin(),
                   pacman::hwtest::mspacman_program.end(), s.program.begin());
         m_.load_roms(s);
@@ -88,20 +80,8 @@ public:
     int runCycles(int n) { return m_.run_cycles(n); }
 
     val frameBuffer() {
-        std::array<uint32_t, pacman::kUprightW * pacman::kUprightH> rgb{};
-        m_.render(rgb.data());
-        const int n = pacman::kUprightW * pacman::kUprightH * 4;
-        val out = val::global("Uint8ClampedArray").new_(n);
-        std::vector<uint8_t> rgba(static_cast<size_t>(n));
-        for (int i = 0; i < pacman::kUprightW * pacman::kUprightH; i++) {
-            uint32_t p = rgb[unsigned(i)];
-            rgba[unsigned(i * 4 + 0)] = uint8_t(p >> 16);
-            rgba[unsigned(i * 4 + 1)] = uint8_t(p >> 8);
-            rgba[unsigned(i * 4 + 2)] = uint8_t(p);
-            rgba[unsigned(i * 4 + 3)] = 255;
-        }
-        out.call<void>("set", val(emscripten::typed_memory_view(rgba.size(), rgba.data())));
-        return out;
+        m_.render(frame_.clear());
+        return frame_.rgba();
     }
 
     void setIn0(int v) { m_.inputs.in0 = uint8_t(v); }
@@ -156,6 +136,7 @@ public:
 
 private:
     pacman::Machine m_;
+    arcade::RgbaFrame<pacman::kUprightW, pacman::kUprightH> frame_;
     int cpu_pc() const { return m_.cpu.pc; }
 };
 

@@ -26,7 +26,7 @@ void Machine::configure_factory_cmos() {
     c.poke(0x1B, 0xDD);  // cylinders low  (733 = 0x2DD)
     c.poke(0x1C, 0x02);  // cylinders high
     c.poke(0x1D, 5);     // heads
-    c.poke(0x1E, 0xFF);  // write precomp low  -- 0xFFFF = "none", this drive doesn't need it
+    c.poke(0x1E, 0xFF);  // write precomp low , 0xFFFF = "none", this drive doesn't need it
     c.poke(0x1F, 0xFF);  // write precomp high
     c.poke(0x20, 0x00);  // control byte (heads <= 8, no special flags)
     c.poke(0x21, 0xDD);  // landing zone low  (733, same as max cylinder)

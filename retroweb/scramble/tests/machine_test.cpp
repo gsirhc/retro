@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "hwtest_roms.h"
+#include "hwtest_set.h"
 #include "machine.h"
 
 #include <algorithm>
@@ -10,15 +11,6 @@
 
 namespace {
 
-scramble::RomSet test_set() {
-    scramble::RomSet s;
-    std::copy(scramble::hwtest::program.begin(), scramble::hwtest::program.end(), s.program.begin());
-    std::copy(scramble::hwtest::sound.begin(), scramble::hwtest::sound.end(), s.sound.begin());
-    std::copy(scramble::hwtest::gfx.begin(), scramble::hwtest::gfx.end(), s.gfx.begin());
-    std::copy(scramble::hwtest::color_prom.begin(), scramble::hwtest::color_prom.end(),
-              s.color_prom.begin());
-    return s;
-}
 
 }  // namespace
 
@@ -272,7 +264,7 @@ TEST(Machine, Pal6JSeesBitSetResetWrites) {
 
 TEST(Machine, JoystickEchoesToRam) {
     scramble::Machine m;
-    m.load_roms(test_set());
+    m.load_roms(scramble::hwtest_set());
     m.reset();
     m.inputs.in0 = 0xDF;
     m.run_cycles(scramble::kCpuHz / 20);
@@ -281,7 +273,7 @@ TEST(Machine, JoystickEchoesToRam) {
 
 TEST(Machine, HwtestStaysSilent) {
     scramble::Machine m;
-    m.load_roms(test_set());
+    m.load_roms(scramble::hwtest_set());
     m.reset();
     m.audio.clear();
     m.run_cycles(scramble::kCpuHz * 4);
@@ -304,7 +296,7 @@ TEST(Machine, SoundCpuTracksMainClock) {
 
 TEST(Machine, HwtestHelpScreenShowsCopyrightPrompt) {
     scramble::Machine m;
-    m.load_roms(test_set());
+    m.load_roms(scramble::hwtest_set());
     m.reset();
     m.run_cycles(scramble::kCpuHz * 4);
     std::array<uint32_t, scramble::kUprightW * scramble::kUprightH> rgb{};

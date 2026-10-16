@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "hwtest_roms.h"
+#include "hwtest_set.h"
 #include "machine.h"
 
 #include <algorithm>
@@ -10,15 +11,6 @@
 
 namespace {
 
-frogger::RomSet test_set() {
-    frogger::RomSet s;
-    std::copy(frogger::hwtest::program.begin(), frogger::hwtest::program.end(), s.program.begin());
-    std::copy(frogger::hwtest::sound.begin(), frogger::hwtest::sound.end(), s.sound.begin());
-    std::copy(frogger::hwtest::gfx.begin(), frogger::hwtest::gfx.end(), s.gfx.begin());
-    std::copy(frogger::hwtest::color_prom.begin(), frogger::hwtest::color_prom.end(),
-              s.color_prom.begin());
-    return s;
-}
 
 }  // namespace
 
@@ -216,7 +208,7 @@ TEST(Machine, FlipLatches) {
 
 TEST(Machine, JoystickEchoesToRam) {
     frogger::Machine m;
-    m.load_roms(test_set());
+    m.load_roms(frogger::hwtest_set());
     m.reset();
     m.inputs.in0 = 0xDF;  // left pressed
     m.run_cycles(frogger::kCpuHz / 20);
@@ -225,7 +217,7 @@ TEST(Machine, JoystickEchoesToRam) {
 
 TEST(Machine, HwtestStaysSilent) {
     frogger::Machine m;
-    m.load_roms(test_set());
+    m.load_roms(frogger::hwtest_set());
     m.reset();
     m.audio.clear();
     m.run_cycles(frogger::kCpuHz * 4);
@@ -249,7 +241,7 @@ TEST(Machine, SoundCpuTracksMainClock) {
 
 TEST(Machine, HwtestHelpScreenShowsCopyrightPrompt) {
     frogger::Machine m;
-    m.load_roms(test_set());
+    m.load_roms(frogger::hwtest_set());
     m.reset();
     m.run_cycles(frogger::kCpuHz * 4);
     std::array<uint32_t, frogger::kUprightW * frogger::kUprightH> rgb{};

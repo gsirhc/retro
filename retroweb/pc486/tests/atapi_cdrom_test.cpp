@@ -274,7 +274,7 @@ TEST_F(AtapiCdromTest, SoftResetReassertsAtapiSignature) {
     cd.out(0x174, 0x11);
     cd.out(0x175, 0x22);
     cd.out(0x376, 0x04);  // assert SRST
-    cd.out(0x376, 0x00);  // release it -- real hardware resets on this edge
+    cd.out(0x376, 0x00);  // release it, real hardware resets on this edge
     EXPECT_EQ(cd.in(0x172), 0x01);
     EXPECT_EQ(cd.in(0x173), 0x01);
     EXPECT_EQ(cd.in(0x174), 0x14);
@@ -285,7 +285,7 @@ TEST_F(AtapiCdromTest, SoftResetReassertsAtapiSignature) {
 TEST_F(AtapiCdromTest, DeviceZeroRespondsForTheAbsentDeviceOneWithZeroes) {
     // ATA/ATAPI-6 Table 18: with device 1 selected, a packet device returns 00h for the task file and status.
     // ATAPICDD.SYS probes device 1 by read-back and would otherwise find a phantom slave.
-    cd.out(0x176, 0xB0);  // select device 1 -- permanently unpopulated
+    cd.out(0x176, 0xB0);  // select device 1, permanently unpopulated
     cd.out(0x172, 0x55);
     cd.out(0x173, 0xAA);
     EXPECT_EQ(cd.in(0x172), 0x00) << "the scratch probe must not read back";
@@ -403,7 +403,7 @@ TEST_F(AtapiCdromTest, DeviceResetRestoresTheSignatureAndRaisesNoInterrupt) {
 
 TEST_F(AtapiCdromTest, UnsupportedAtaCommandIsAborted) {
     SelectDevice0();
-    cd.out(0x177, 0x20);  // READ SECTORS -- an ATA disk command, meaningless here
+    cd.out(0x177, 0x20);  // READ SECTORS, an ATA disk command, meaningless here
     EXPECT_TRUE(CheckCondition());
     EXPECT_TRUE(cd.in(0x171) & 0x04) << "ABRT";
 }
@@ -948,7 +948,7 @@ TEST_F(AtapiCdromTest, BusyReflectsAnInFlightCommand) {
 }
 
 TEST_F(AtapiCdromTest, DiscSurvivesAReset) {
-    // A reset does not open the tray -- the disc is still in the drive.
+    // A reset does not open the tray, the disc is still in the drive.
     MountDisc(16);
     cd.reset();
     EXPECT_TRUE(cd.media_present());

@@ -89,7 +89,7 @@ function pcKeyboardIsTouchOnly() {
   try {
     return matchMedia("(pointer: coarse)").matches && !matchMedia("(any-pointer: fine)").matches;
   } catch {
-    /* v8 ignore next -- only if matchMedia itself is missing */
+    /* v8 ignore next, only if matchMedia itself is missing */
     return false;
   }
 }

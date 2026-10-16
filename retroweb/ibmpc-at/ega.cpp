@@ -90,7 +90,7 @@ void Ega::out(uint16_t port, uint8_t v) {
 
 uint32_t Ega::window_offset(uint32_t addr) const {
     switch (gc_memory_mapping()) {
-        case 0:  // 128K @ A0000 -- spans this device's whole claimed range
+        case 0:  // 128K @ A0000, spans this device's whole claimed range
             return addr - 0xA0000;
         case 1:  // 64K @ A0000 (the standard EGA graphics-mode mapping)
             if (addr > 0xAFFFF) return kOutOfWindow;

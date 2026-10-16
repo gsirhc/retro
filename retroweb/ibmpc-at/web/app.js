@@ -18,7 +18,7 @@
         }
       } catch {}
     }
-    /* v8 ignore next -- only if every HEAD request fails / lacks Last-Modified */
+    /* v8 ignore next, only if every HEAD request fails / lacks Last-Modified */
     el.textContent = "unknown";
   })();
 

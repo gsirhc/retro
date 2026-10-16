@@ -1,18 +1,9 @@
-// Anti-FOUC theme bootstrap -- shared verbatim by every machine page (and
-// mirrored by the inline copies in retroweb/index.html and about.html,
-// which can't load an external script this early without adding their own
-// network round trip).
-// Runs synchronously, before any themed element is painted, so there's no
-// flash of the wrong theme on reload. Kept a single tiny file rather than
-// folded into theme-picker.js so it can be inlined at the very top of
-// <head>/<body> with nothing else to block on.
-// Storage is retro8080.theme (win|winxp|web94|modern|aurora) + retro8080.mode
-// (light|dark|system). Old composite theme values (moderndark, system,
-// systemaurora, ai) still resolve here; theme-picker.js rewrites them.
+// Theme bootstrap, run before first paint. Inlined copies: index.html, about.html, arcade/index.html.
 try {
   var r = document.documentElement;
   var t = localStorage.getItem("retro8080.theme") || "win";
   var m = localStorage.getItem("retro8080.mode");
+  // pre-split composite values; theme-picker.js rewrites them
   if (t == "ai" || t == "systemaurora") { t = "aurora"; if (!m) m = "system"; }
   else if (t == "moderndark") { t = "modern"; if (!m) m = "dark"; }
   else if (t == "system") { t = "modern"; if (!m) m = "system"; }

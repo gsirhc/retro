@@ -149,10 +149,10 @@ test.describe("keyboard", () => {
     expect(await hintVisible()).toBe(true);
     await focusScreen(page);
     expect(await hintVisible()).toBe(false);
-    // clicking any other control blurs the screen -- the hint returns
+    // clicking any other control blurs the screen, the hint returns
     await page.locator("#fullscreenBtn").focus();
     expect(await hintVisible()).toBe(true);
-    // nothing to type into once powered off -- hidden regardless of focus
+    // nothing to type into once powered off, hidden regardless of focus
     await setPowerSwitch(page, false);
     expect(await hintVisible()).toBe(false);
   });

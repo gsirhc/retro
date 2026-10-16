@@ -233,7 +233,7 @@ TEST(Video, SpriteFlipBitsAreXBit0YBit1) {
     EXPECT_NE(out[32 * pacman::kUprightW + (pacman::kVisH - 1)], 0u)
         << "bit 0 set should X-flip native x=17 to x=32";
 
-    v.spriteram[0] = 0x02;   // bit 1 set (Y flip only) -- X must stay put
+    v.spriteram[0] = 0x02;   // bit 1 set (Y flip only), X must stay put
     out.fill(0);
     v.advance(2 * pacman::kCpuPerFrame);
     v.render(out.data());
@@ -261,7 +261,7 @@ TEST(Video, SpriteWithAllPensMatchingPenZeroDoesNotOccludeSpriteBehindIt) {
     v.sprite_xy[0] = 30;
     v.sprite_xy[1] = 255;
     v.spriteram[0] = 0;             // code 0, no flip
-    v.spriteram[1] = 6;             // color 6 -- pens 0 and 1 both resolve to black
+    v.spriteram[1] = 6;             // color 6, pens 0 and 1 both resolve to black
 
     std::array<uint32_t, pacman::kUprightW * pacman::kUprightH> out{};
     v.advance(2 * pacman::kCpuPerFrame);
@@ -283,7 +283,7 @@ TEST(Video, UnflippedSpriteKeepsBottomEdgeAtBottom) {
     v.sprite_rom[8 + 7] = 0x08;  // sprite code 0, local pixel (px=0,py=7) lit (kColByte[0]=8, base_y=7)
     v.sprite_xy[0] = 30 + 7;     // sy = 7 with slot 0's extra line, so this pixel lands at native y=14
     v.sprite_xy[1] = 255;        // sx = 272 - 255 = 17
-    v.spriteram[0] = 0;          // no flip -- ghosts always leave this 0
+    v.spriteram[0] = 0;          // no flip, ghosts always leave this 0
     v.spriteram[1] = 0;
     std::array<uint32_t, pacman::kUprightW * pacman::kUprightH> out{};
     v.advance(2 * pacman::kCpuPerFrame);

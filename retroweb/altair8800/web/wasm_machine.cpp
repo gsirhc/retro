@@ -124,7 +124,7 @@ public:
     // Real S-100 RAM powers up indeterminate, not 0x00. Fixed seed keeps it
     // reproducible. Reseeds the echo ROM afterward, since PC=0 is already running.
     void randomizeMemory() {
-        uint32_t x = 0x1975A17A;   // MITS Altair, 1975 -- arbitrary fixed seed
+        uint32_t x = 0x1975A17A;   // MITS Altair, 1975, arbitrary fixed seed
         for (auto &b : mem_) {
             x ^= x << 13; x ^= x >> 17; x ^= x << 5;   // xorshift32
             b = static_cast<uint8_t>(x);

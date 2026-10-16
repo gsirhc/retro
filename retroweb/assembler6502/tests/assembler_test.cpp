@@ -99,7 +99,7 @@ TEST(Assembler, ResolvesAForwardLabelReference) {
     std::string out;
     Machine m = bootIntoShell(out);
 
-    // JMP SKIP     4C 05 04   (SKIP not yet defined -- pass 1 must record it)
+    // JMP SKIP     4C 05 04   (SKIP not yet defined, pass 1 must record it)
     // LDA #$FF     A9 FF
     // SKIP: NOP    EA
     out.clear();
@@ -119,7 +119,7 @@ TEST(Assembler, AssemblesAbsoluteIndexedAndAccumulatorModes) {
 
     // LDA $1234,X   BD 34 12
     // STA $1234,Y   99 34 12
-    // ASL A          0A   (accumulator -- bare mnemonic, no operand)
+    // ASL A          0A   (accumulator, bare mnemonic, no operand)
     // STZ $20,X      74 20
     out.clear();
     assemble(m, { "LDA $1234,X", "STA $1234,Y", "ASL", "STZ $20,X" });

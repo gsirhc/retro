@@ -165,7 +165,7 @@ uint8_t Cpu::get_r(int idx) {
         case 3: return e;
         case 4: return h;
         case 5: return l;
-        case 6: return rb(hl());   // "M" — memory at HL
+        case 6: return rb(hl());   // "M", memory at HL
         case 7: return a;
     }
     return 0;

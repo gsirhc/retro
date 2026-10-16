@@ -127,7 +127,7 @@ test.describe("the reader's START button (authentic hand-load path)", () => {
     await page.click("#ptr .ptr-start");
     await expect(page.locator("#ptr")).toHaveClass(/reading/);
     expect(await page.evaluate(() => (window as any).__test.tape.raw)).toBe(true);
-    expect(await memAt(page, org)).toBe(0xa5); // untouched — no clear, no bootstrap
+    expect(await memAt(page, org)).toBe(0xa5); // untouched, no clear, no bootstrap
   });
 
   test("with a loader already running, START streams the tape into it", async ({ page }) => {
@@ -141,7 +141,7 @@ test.describe("the reader's START button (authentic hand-load path)", () => {
     await page.evaluate(() => (window as any).__test.setRunning(true));
     await page.click("#ptr .ptr-start");
     // the hand-keyed loader catches the tape; 4K BASIC cold-starts.
-    // it answers no prompts itself — MEMORY SIZE? is as far as it gets unaided.
+    // it answers no prompts itself, MEMORY SIZE? is as far as it gets unaided.
     await waitForScreen(page, /MEMORY SIZE\?/i, 40_000);
   });
 
@@ -160,7 +160,7 @@ test.describe("the reader's START button (authentic hand-load path)", () => {
     });
     const rate = fed / ((t1 - t0) / 1000);
     expect(rate).toBeGreaterThan(4);
-    expect(rate).toBeLessThan(25); // paced, not dumped — and the FIFO didn't freeze it
+    expect(rate).toBeLessThan(25); // paced, not dumped, and the FIFO didn't freeze it
   });
 
   test("START with no loader overruns the 88-2SIO and still spools to the end", async ({ page }) => {
@@ -201,7 +201,7 @@ test.describe("the reader's START button (authentic hand-load path)", () => {
     await page.evaluate((a) => (window as any).__test.machine.writeByte(a, 0xa5), org);
 
     await page.click("#ptr .ptr-load"); // AUTO-LOAD (?test forces Max speed)
-    await expect.poll(() => memAt(page, org), { timeout: 8000 }).toBe(0x21); // LXI H — makeBootstrap
+    await expect.poll(() => memAt(page, org), { timeout: 8000 }).toBe(0x21); // LXI H, makeBootstrap
     expect(await page.evaluate(() => (window as any).__test.tape.raw)).toBe(false);
   });
 });

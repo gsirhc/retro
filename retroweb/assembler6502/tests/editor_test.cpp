@@ -137,7 +137,7 @@ TEST(Editor, DelAlsoErasesDestructivelyAndDoesNotCorruptTheStoredLine) {
 
     out.clear();
     type(m, "10 LDA");
-    m.type_char(0x7F);   // DEL -- the real browser Backspace byte
+    m.type_char(0x7F);   // DEL, the real browser Backspace byte
     m.run_cycles(50000);
 
     // READCHAR echoes the raw $7F, READLINE_ECHO supplies the leading BS, then
@@ -350,7 +350,7 @@ TEST(Editor, EditShowsTheLineThenReplacesItWithFreshlyTypedText) {
     m.run_cycles(300000);
     EXPECT_NE(out.find("10         LDA #$2A"), std::string::npos) << "did not show the old line: " << out;
 
-    typeLine(m, "LDA #$FF");    // the retyped replacement -- no number needed
+    typeLine(m, "LDA #$FF");    // the retyped replacement, no number needed
 
     out.clear();
     typeLine(m, "LIST");
@@ -368,7 +368,7 @@ TEST(Editor, EditWithBlankRetypeDeletesTheLine) {
 
     type(m, "EDIT 10\r");
     m.run_cycles(300000);
-    typeLine(m, "");             // blank retype -- delete
+    typeLine(m, "");             // blank retype, delete
 
     out.clear();
     typeLine(m, "LIST");

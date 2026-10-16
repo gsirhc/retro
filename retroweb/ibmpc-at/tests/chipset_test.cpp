@@ -23,7 +23,7 @@ TEST(ChipsetTest, RomRegionRejectsWrites) {
     auto bus = cs.make_bus();
     EXPECT_EQ(bus.read(0xF0000), 0x11);
     bus.write(0xF0000, 0xFF);
-    EXPECT_EQ(bus.read(0xF0000), 0x11);  // unchanged -- ROM ignores writes
+    EXPECT_EQ(bus.read(0xF0000), 0x11);  // unchanged, ROM ignores writes
 }
 
 TEST(ChipsetTest, A20DisabledWrapsAt1MB) {
@@ -81,7 +81,7 @@ TEST(ChipsetTest, Port61GatesSpeakerAndReadsBackRefreshToggle) {
 TEST(ChipsetTest, RefreshFollowsChannelOneAndStealsFiveClocksEach) {
     Chipset cs;
     auto bus = cs.make_bus();
-    bus.out(0x43, 0x54);  // channel 1, LSB, mode 2 -- IBM's POST
+    bus.out(0x43, 0x54);  // channel 1, LSB, mode 2, IBM's POST
     bus.out(0x41, 18);
     uint8_t before = bus.in(0x61) & 0x10;
     cs.tick(19, 1193182.0);  // one PIT clock per CPU cycle: the load clock plus one 15 us period

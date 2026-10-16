@@ -66,7 +66,7 @@ public:
     bool bonus = false;
 
     uint8_t lamps = 0;   // LMPSCNS at $3200 (lamps + RAMSEL + coin counters)
-    bool ramsel = false; // OUT latch bit 2 — swaps $0200/$0300 banks
+    bool ramsel = false; // OUT latch bit 2, swaps $0200/$0300 banks
 
     Machine();
     void reset();

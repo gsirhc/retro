@@ -26,7 +26,7 @@ namespace pc486 {
 
 class Wd1003 {
 public:
-    // WD Caviar AC2250's translated (BIOS setup) geometry -- see mount().
+    // WD Caviar AC2250's translated (BIOS setup) geometry; see mount().
     static constexpr int kCylinders = 1010;
     static constexpr int kHeads = 9;
     static constexpr int kSectorsPerTrack = 55;

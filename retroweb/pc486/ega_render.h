@@ -13,7 +13,7 @@
 namespace pc486 {
 
 constexpr int kTextRenderWidth = 640;
-constexpr int kTextRenderHeight = 350;  // the classic 14-line/row default -- see RenderTextScreen
+constexpr int kTextRenderHeight = 350;  // the classic 14-line/row default; see RenderTextScreen
 
 // Renders the text-mode screen. Glyphs come from VRAM plane 2 (32 bytes per
 // character), colors from the Attribute Controller palette via the DAC.

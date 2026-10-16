@@ -48,7 +48,7 @@ TEST_F(Interrupt, IgnoredWhileDisabled) {
     load({DI});
     cpu->step();                          // DI: int_enabled = false
     EXPECT_EQ(cpu->interrupt(RST7), 0);   // not serviced
-    EXPECT_EQ(cpu->pc, 1);                // untouched -- still just after DI
+    EXPECT_EQ(cpu->pc, 1);                // untouched, still just after DI
 }
 
 TEST_F(Interrupt, TakenWhileEnabled) {
@@ -107,7 +107,7 @@ TEST_F(Interrupt, EiDelaysOneInstruction) {
     cpu->step();                          // EI retires, delay window open
     EXPECT_EQ(cpu->interrupt(RST7), 0)    // requested immediately after EI: too soon
         << "an interrupt right after EI must wait for the next instruction";
-    EXPECT_TRUE(cpu->int_enabled);        // still enabled -- just not yet acceptable
+    EXPECT_TRUE(cpu->int_enabled);        // still enabled, just not yet acceptable
 
     cpu->step();                          // the instruction *following* EI retires
     EXPECT_EQ(cpu->interrupt(RST7), 11)   // now it's taken

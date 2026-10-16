@@ -76,9 +76,9 @@ int main(int argc, char** argv) {
     for (std::size_t i = 0; i < image.size(); ++i)
         g_mem[0x0100 + i] = static_cast<uint8_t>(image[i]);
 
-    g_mem[0x0000] = 0xD3;  // OUT 0x00,A — warm boot
+    g_mem[0x0000] = 0xD3;  // OUT 0x00,A, warm boot
     g_mem[0x0001] = 0x00;
-    g_mem[0x0005] = 0xD3;  // OUT 0x01,A — BDOS
+    g_mem[0x0005] = 0xD3;  // OUT 0x01,A, BDOS
     g_mem[0x0006] = 0x01;
     g_mem[0x0007] = 0xC9;  // RET
 

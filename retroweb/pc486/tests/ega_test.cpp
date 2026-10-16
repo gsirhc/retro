@@ -83,7 +83,7 @@ uint64_t MeasureRetraceWindowCycles(Ega &ega, uint64_t &cursor, uint64_t span) {
         prev = now;
     }
     cursor = end + 1;
-    return result;  // 0 means no full pulse was seen within span -- caller asserts on that
+    return result;  // 0 means no full pulse was seen within span, caller asserts on that
 }
 
 TEST(EgaTest, TextModeMemoryReadWriteRoundTrip) {
@@ -216,7 +216,7 @@ TEST(EgaTest, ReadMode1ColorCompareMatchesOnlyCaredAboutPlanes) {
     ega.out(0x3CE, 0x05); ega.out(0x3CF, 0x08);  // Graphics Mode: read mode 1
     EXPECT_EQ(ega.mem_read(0xA0000), 0xFF);       // every bit matches on the one cared-about plane
 
-    ega.out(0x3CE, 0x02); ega.out(0x3CF, 0x00);  // now want plane0 = 0 -- no longer matches
+    ega.out(0x3CE, 0x02); ega.out(0x3CF, 0x00);  // now want plane0 = 0, no longer matches
     EXPECT_EQ(ega.mem_read(0xA0000), 0x00);
 }
 
@@ -230,7 +230,7 @@ TEST(EgaTest, OddEvenChainingRoutesCharacterGeneratorWritesToPlanes2And3) {
     ega.out(0x3CE, 0x05); ega.out(0x3CF, 0x00);  // Graphics Mode: write mode 0
     ega.out(0x3CE, 0x06); ega.out(0x3CF, 0x04);  // Misc: 64K @ A0000 window
     ega.out(0x3CE, 0x08); ega.out(0x3CF, 0xFF);  // Bit Mask: all bits pass through
-    ega.mem_write(0xA0000, 0x7E);                 // even address -- reaches plane 2
+    ega.mem_write(0xA0000, 0x7E);                 // even address, reaches plane 2
 
     ega.out(0x3CE, 0x04); ega.out(0x3CF, 0x02);  // Read Map Select: plane 2
     EXPECT_EQ(ega.mem_read(0xA0000), 0x7E);
@@ -260,7 +260,7 @@ TEST(EgaTest, CursorShapeRegistersReportStartEndAndDisableBit) {
     EXPECT_EQ(ega.cursor_start_scanline(), 13);
     EXPECT_EQ(ega.cursor_end_scanline(), 14);
 
-    ega.out(0x3D4, 0x0A); ega.out(0x3D5, 0x20);  // bit 5 set -- cursor off
+    ega.out(0x3D4, 0x0A); ega.out(0x3D5, 0x20);  // bit 5 set, cursor off
     EXPECT_TRUE(ega.cursor_disabled());
 }
 
@@ -268,7 +268,7 @@ TEST(EgaTest, AttrPaletteReportsTheLiveRegisterMaskedToSixBits) {
     Ega ega;
     ega.reset();
     ega.out(0x3C0, 0x05);  // index = palette register 5
-    ega.out(0x3C0, 0xFF);  // data -- only the low 6 bits are a real EGA color
+    ega.out(0x3C0, 0xFF);  // data, only the low 6 bits are a real EGA color
     EXPECT_EQ(ega.attr_palette(5), 0x3F);
     // Untouched registers read back 0.
     EXPECT_EQ(ega.attr_palette(6), 0x00);
@@ -450,10 +450,10 @@ TEST(EgaTest, Chain4StillHonorsTheSequencerMapMask) {
     ega.out(0x3C4, 0x02); ega.out(0x3C5, 0x05);  // Map Mask: planes 0 and 2 only
     for (int i = 0; i < 4; ++i) ega.mem_write(0xA0000 + uint32_t(i), 0xAA);
 
-    EXPECT_EQ(ega.vram[0], 0xAA);  // plane 0 -- enabled
-    EXPECT_EQ(ega.vram[1], 0x00);  // plane 1 -- masked off
-    EXPECT_EQ(ega.vram[2], 0xAA);  // plane 2 -- enabled
-    EXPECT_EQ(ega.vram[3], 0x00);  // plane 3 -- masked off
+    EXPECT_EQ(ega.vram[0], 0xAA);  // plane 0, enabled
+    EXPECT_EQ(ega.vram[1], 0x00);  // plane 1, masked off
+    EXPECT_EQ(ega.vram[2], 0xAA);  // plane 2, enabled
+    EXPECT_EQ(ega.vram[3], 0x00);  // plane 3, masked off
 }
 
 TEST(EgaTest, Chain4TakesPriorityOverOddEvenChaining) {
@@ -575,7 +575,7 @@ TEST(EgaTest, SvgaWindowIsFlatLinearMemorySlidByTheBankRegister) {
     Ega ega;
     ega.reset();
     SetupChain4(ega);
-    ega.out(0x3C4, 0x02); ega.out(0x3C5, 0x01);  // Map Mask: plane 0 only -- must not matter
+    ega.out(0x3C4, 0x02); ega.out(0x3C5, 0x01);  // Map Mask: plane 0 only, must not matter
     ega.out16(Ega::kVbeIndexPort, Ega::kVbeRegBpp); ega.out16(Ega::kVbeDataPort, 8);
     ega.out16(Ega::kVbeIndexPort, Ega::kVbeRegXres); ega.out16(Ega::kVbeDataPort, 640);
     ega.out16(Ega::kVbeIndexPort, Ega::kVbeRegYres); ega.out16(Ega::kVbeDataPort, 400);

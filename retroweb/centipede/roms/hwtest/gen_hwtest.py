@@ -236,7 +236,7 @@ def build_program(diag: bytes, help_scr: bytes) -> bytes:
     put(0xA9, 0x00)
     put(0x85, 0x30)  # IRQ counter lo (keep $00–$03 = CEN1)
     put(0x85, 0x31)
-    put(0x58)  # CLI — IRQ bumps $30/$31 for the wait
+    put(0x58)  # CLI, IRQ bumps $30/$31 for the wait
 
     put_jsr(0)
     jsr_diag_at = org() - 2

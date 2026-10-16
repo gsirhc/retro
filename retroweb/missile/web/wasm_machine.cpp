@@ -9,18 +9,14 @@
 #include <vector>
 
 #include "../machine.h"
+#include "arcade_frame.h"
 #include "hwtest_roms.h"
+#include "../hwtest_set.h"
 
 using emscripten::val;
 
 namespace {
 
-missile::RomSet hwtest_set() {
-    missile::RomSet s;
-    std::copy(missile::hwtest::program.begin(), missile::hwtest::program.end(),
-              s.program.begin());
-    return s;
-}
 
 void copy_val(val src, uint8_t* dst, size_t n) {
     auto v = emscripten::convertJSArrayToNumberVector<uint8_t>(src);
@@ -33,12 +29,12 @@ void copy_val(val src, uint8_t* dst, size_t n) {
 class Machine {
 public:
     Machine() {
-        m_.load_roms(hwtest_set());
+        m_.load_roms(missile::hwtest_set());
     }
 
     void reset() { m_.reset(); }
 
-    void loadHwtest() { m_.load_roms(hwtest_set()); }
+    void loadHwtest() { m_.load_roms(missile::hwtest_set()); }
 
     void loadRomSet(val prog, val prom) {
         missile::RomSet s;
@@ -59,11 +55,7 @@ public:
     val frameBuffer() {
         static std::array<uint32_t, missile::kFbW * missile::kFbH> rgb{};
         m_.render(rgb.data());
-        const int n = missile::kFbW * missile::kFbH * 4;
-        val out = val::global("Uint8ClampedArray").new_(n);
-        auto* p = reinterpret_cast<uint8_t*>(rgb.data());
-        out.call<void>("set", val(emscripten::typed_memory_view(size_t(n), p)));
-        return out;
+        return arcade::rgba_view(rgb.data(), rgb.size());
     }
 
     int screenWidth() const { return missile::kFbW; }

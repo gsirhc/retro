@@ -69,9 +69,9 @@ TEST_F(Cpu80486TimingTest, MovIsOneCycleInEveryDirection) {
 
 TEST_F(Cpu80486TimingTest, AluGroupSplitsByWhetherItWritesMemoryBack) {
     cpu->ebx = 0x50;
-    EXPECT_EQ(runCycles({0x01, 0xD8}), 1);  // ADD AX,BX      -- reg,reg
-    EXPECT_EQ(runCycles({0x03, 0x07}), 2);  // ADD AX,[BX]    -- reg,mem
-    EXPECT_EQ(runCycles({0x01, 0x07}), 3);  // ADD [BX],AX    -- mem,reg (read-modify-write)
+    EXPECT_EQ(runCycles({0x01, 0xD8}), 1);  // ADD AX,BX     , reg,reg
+    EXPECT_EQ(runCycles({0x03, 0x07}), 2);  // ADD AX,[BX]   , reg,mem
+    EXPECT_EQ(runCycles({0x01, 0x07}), 3);  // ADD [BX],AX   , mem,reg (read-modify-write)
     EXPECT_EQ(runCycles({0x05, 0x00, 0x00}), 1);  // ADD AX,imm16
 }
 
@@ -81,7 +81,7 @@ TEST_F(Cpu80486TimingTest, CmpAgainstMemoryIsCheaperThanAddBecauseItNeverWritesB
     EXPECT_EQ(runCycles({0x39, 0x07}), 2);        // CMP [BX],AX
     EXPECT_EQ(runCycles({0x83, 0x3F, 0x00}), 2);  // CMP word [BX],0
     EXPECT_EQ(runCycles({0x80, 0x07, 0x01}), 3);  // ADD byte [BX],1
-    EXPECT_EQ(runCycles({0x83, 0xF8, 0x00}), 1);  // CMP AX,0 -- register operand
+    EXPECT_EQ(runCycles({0x83, 0xF8, 0x00}), 1);  // CMP AX,0, register operand
 }
 
 TEST_F(Cpu80486TimingTest, TestIsReadOnlyAndSoCostsTwoAgainstMemory) {
@@ -104,20 +104,20 @@ TEST_F(Cpu80486TimingTest, BaseIndexDisplacementAddressingCostsOneExtraClock) {
     // table legend: base+index+disp = +1, all others none
     cpu->ebx = 0x50;
     cpu->esi = 0x02;
-    EXPECT_EQ(runCycles({0x8B, 0x00}), 1);        // MOV AX,[BX+SI]    -- base+index, no disp
-    EXPECT_EQ(runCycles({0x8B, 0x40, 0x04}), 2);  // MOV AX,[BX+SI+4]  -- +1
-    EXPECT_EQ(runCycles({0x8B, 0x47, 0x04}), 1);  // MOV AX,[BX+4]     -- base+disp, no penalty
+    EXPECT_EQ(runCycles({0x8B, 0x00}), 1);        // MOV AX,[BX+SI]   , base+index, no disp
+    EXPECT_EQ(runCycles({0x8B, 0x40, 0x04}), 2);  // MOV AX,[BX+SI+4] , +1
+    EXPECT_EQ(runCycles({0x8B, 0x47, 0x04}), 1);  // MOV AX,[BX+4]    , base+disp, no penalty
 }
 
 TEST_F(Cpu80486TimingTest, Addr32SibChargesTheSameEffectiveAddressPenalty) {
     // same legend on SIB forms the decoder resolves inline: MOV 1 + 1 for 0x67 + penalty
     cpu->eax = 0x50;
     cpu->ebx = 0x02;
-    EXPECT_EQ(runCycles({0x67, 0x8B, 0x04, 0x98}), 2);        // MOV AX,[EAX+EBX*4]     -- base+index, no disp
-    EXPECT_EQ(runCycles({0x67, 0x8B, 0x44, 0x98, 0x04}), 3);  // MOV AX,[EAX+EBX*4+4]   -- +1
-    EXPECT_EQ(runCycles({0x67, 0x8B, 0x44, 0x20, 0x04}), 2);  // MOV AX,[EAX+4]         -- base+disp, no index
+    EXPECT_EQ(runCycles({0x67, 0x8B, 0x04, 0x98}), 2);        // MOV AX,[EAX+EBX*4]    , base+index, no disp
+    EXPECT_EQ(runCycles({0x67, 0x8B, 0x44, 0x98, 0x04}), 3);  // MOV AX,[EAX+EBX*4+4]  , +1
+    EXPECT_EQ(runCycles({0x67, 0x8B, 0x44, 0x20, 0x04}), 2);  // MOV AX,[EAX+4]        , base+disp, no index
     EXPECT_EQ(runCycles({0x67, 0x8B, 0x04, 0x9D, 0x00, 0x03, 0x00, 0x00}),
-              2);                                            // MOV AX,[EBX*4+300h]    -- index+disp, no base
+              2);                                            // MOV AX,[EBX*4+300h]   , index+disp, no base
 }
 
 TEST_F(Cpu80486TimingTest, LeaLandsOnItsPublishedOneToTwoRange) {
@@ -140,7 +140,7 @@ TEST_F(Cpu80486TimingTest, MultiplyCostsTheCeilingWhenTheTopBitIsSet) {
     cpu->ebx = 0xFFFFFFFFu;
     EXPECT_EQ(runCycles({0xF6, 0xE3}), 18);         // MUL BL, BL=FFh
     EXPECT_EQ(runCycles({0xF7, 0xE3}), 26);         // MUL BX, BX=FFFFh
-    EXPECT_EQ(runCycles({0x66, 0xF7, 0xE3}), 43);   // MUL EBX -- 42 + 1 prefix
+    EXPECT_EQ(runCycles({0x66, 0xF7, 0xE3}), 43);   // MUL EBX, 42 + 1 prefix
 }
 
 TEST_F(Cpu80486TimingTest, MultiplyCostRisesWithTheMultipliersSignificantBits) {
@@ -159,7 +159,7 @@ TEST_F(Cpu80486TimingTest, TwoAndThreeOperandImulUseTheSameEarlyOutModel) {
     cpu->ebx = 0xFFFF;
     EXPECT_EQ(runCycles({0x0F, 0xAF, 0xC3}), 26);              // IMUL AX,BX
     EXPECT_EQ(runCycles({0x69, 0xC3, 0x07, 0x00}), 13);        // IMUL AX,BX,7
-    EXPECT_EQ(runCycles({0x66, 0x69, 0xC3, 0x07, 0x00, 0x00, 0x00}), 14);  // IMUL EAX,EBX,7 -- 13 + 1 prefix
+    EXPECT_EQ(runCycles({0x66, 0x69, 0xC3, 0x07, 0x00, 0x00, 0x00}), 14);  // IMUL EAX,EBX,7, 13 + 1 prefix
 }
 
 // --- DIV/IDIV ---
@@ -168,14 +168,14 @@ TEST_F(Cpu80486TimingTest, DivideCostsScaleSharplyWithOperandWidth) {
     cpu->eax = 4; cpu->edx = 0; cpu->ebx = 2;
     EXPECT_EQ(runCycles({0xF6, 0xF3}), 16);        // DIV BL
     EXPECT_EQ(runCycles({0xF7, 0xF3}), 24);        // DIV BX
-    EXPECT_EQ(runCycles({0x66, 0xF7, 0xF3}), 41);  // DIV EBX -- 40 + 1 prefix
+    EXPECT_EQ(runCycles({0x66, 0xF7, 0xF3}), 41);  // DIV EBX, 40 + 1 prefix
 }
 
 TEST_F(Cpu80486TimingTest, SignedDivideCostsMoreThanUnsignedAndAddsOneForMemory) {
     cpu->eax = 4; cpu->edx = 0; cpu->ebx = 2;
     EXPECT_EQ(runCycles({0xF6, 0xFB}), 19);        // IDIV BL
     EXPECT_EQ(runCycles({0xF7, 0xFB}), 27);        // IDIV BX
-    EXPECT_EQ(runCycles({0x66, 0xF7, 0xFB}), 44);  // IDIV EBX -- 43 + 1 prefix
+    EXPECT_EQ(runCycles({0x66, 0xF7, 0xFB}), 44);  // IDIV EBX, 43 + 1 prefix
     cpu->ebx = 0x50;
     mem[0x50] = 2; mem[0x51] = 0;
     cpu->eax = 4; cpu->edx = 0;
@@ -190,15 +190,15 @@ TEST_F(Cpu80486TimingTest, PlainShiftsAndRotatesDoNotScaleWithTheCount) {
     cpu->ebx = 0x50;
     EXPECT_EQ(runCycles({0xD0, 0xE0}), 3);        // SHL AL,1
     EXPECT_EQ(runCycles({0xD0, 0x27}), 4);        // SHL byte [BX],1
-    EXPECT_EQ(runCycles({0xD2, 0xE0}), 3);        // SHL AL,CL -- CL=31, still 3
-    EXPECT_EQ(runCycles({0xC0, 0xE0, 0x03}), 2);  // SHL AL,3  -- imm8 form is the cheap one
+    EXPECT_EQ(runCycles({0xD2, 0xE0}), 3);        // SHL AL,CL, CL=31, still 3
+    EXPECT_EQ(runCycles({0xC0, 0xE0, 0x03}), 2);  // SHL AL,3 , imm8 form is the cheap one
     EXPECT_EQ(runCycles({0xC0, 0x27, 0x03}), 4);  // SHL byte [BX],3
 }
 
 TEST_F(Cpu80486TimingTest, RotateThroughCarryStaysIterativeAndSaturates) {
     // published RCL/RCR by count: 8-30 (register), 9-31 (memory)
     cpu->ecx = 5;
-    EXPECT_EQ(runCycles({0xD0, 0xD0}), 3);   // RCL AL,1 -- the separate by-1 case
+    EXPECT_EQ(runCycles({0xD0, 0xD0}), 3);   // RCL AL,1, the separate by-1 case
     EXPECT_EQ(runCycles({0xD2, 0xD0}), 12);  // RCL AL,CL with CL=5 -> 7+5
     cpu->ecx = 0x1F;                          // CL = 31
     EXPECT_EQ(runCycles({0xD2, 0xD0}), 30);  // saturates at the published ceiling
@@ -278,7 +278,7 @@ TEST_F(Cpu80486TimingTest, LoopAndJcxzChargePublishedTakenAndNotTakenCosts) {
     EXPECT_EQ(runCycles({0xE2, 0xFE}), 6);  // LOOP not taken
     cpu->ecx = 2;
     cpu->set_flag(FLAG_ZF, true);
-    EXPECT_EQ(runCycles({0xE1, 0xFE}), 9);  // LOOPE taken -- more expensive than LOOP
+    EXPECT_EQ(runCycles({0xE1, 0xFE}), 9);  // LOOPE taken, more expensive than LOOP
     cpu->ecx = 1;
     EXPECT_EQ(runCycles({0xE1, 0xFE}), 6);  // LOOPE not taken
     cpu->ecx = 0;
@@ -293,7 +293,7 @@ TEST_F(Cpu80486TimingTest, ConditionalBranchesCostOneNotTakenAndThreeTaken) {
     EXPECT_EQ(runCycles({0x74, 0x02}), 1);  // JZ rel8, not taken
     cpu->set_flag(FLAG_ZF, true);
     EXPECT_EQ(runCycles({0x74, 0x02}), 3);  // JZ rel8, taken
-    EXPECT_EQ(runCycles({0x0F, 0x84, 0x02, 0x00}), 3);  // JZ rel16, taken -- same cost
+    EXPECT_EQ(runCycles({0x0F, 0x84, 0x02, 0x00}), 3);  // JZ rel16, taken, same cost
 }
 
 TEST_F(Cpu80486TimingTest, JumpsAndCallsChargeTheirPublishedCosts) {
@@ -318,15 +318,15 @@ TEST_F(Cpu80486TimingTest, ReturnsChargeTheirPublishedCosts) {
     cpu->esp = 0x100;
     EXPECT_EQ(runCycles({0xCB}), 13);             // RETF
     cpu->esp = 0x100;
-    EXPECT_EQ(runCycles({0xCA, 0x04, 0x00}), 14); // RETF imm16 -- one more than plain RETF
+    EXPECT_EQ(runCycles({0xCA, 0x04, 0x00}), 14); // RETF imm16, one more than plain RETF
 }
 
 TEST_F(Cpu80486TimingTest, InterruptEntryAndReturnChargeTheirPublishedCosts) {
     cpu->esp = 0x200;
     EXPECT_EQ(runCycles({0xCC}), 26);        // INT 3
     cpu->esp = 0x200;
-    EXPECT_EQ(runCycles({0xCD, 0x21}), 30);  // INT 21h -- the immediate costs more
-    EXPECT_EQ(runCycles({0xCE}), 3);         // INTO, OF clear -- not taken
+    EXPECT_EQ(runCycles({0xCD, 0x21}), 30);  // INT 21h, the immediate costs more
+    EXPECT_EQ(runCycles({0xCE}), 3);         // INTO, OF clear, not taken
     cpu->esp = 0x200;
     cpu->set_flag(FLAG_OF, true);
     EXPECT_EQ(runCycles({0xCE}), 28);        // INTO taken
@@ -355,7 +355,7 @@ TEST_F(Cpu80486TimingTest, StackInstructionsChargeTheirPublishedCosts) {
     cpu->esp = 0x200;
     EXPECT_EQ(runCycles({0xFF, 0x37}), 4);        // PUSH word [BX]
     cpu->esp = 0x200;
-    EXPECT_EQ(runCycles({0x8F, 0x07}), 6);        // POP word [BX] -- the expensive one
+    EXPECT_EQ(runCycles({0x8F, 0x07}), 6);        // POP word [BX], the expensive one
     cpu->esp = 0x200;
     EXPECT_EQ(runCycles({0x06}), 3);              // PUSH ES
     cpu->esp = 0x200;
@@ -370,9 +370,9 @@ TEST_F(Cpu80486TimingTest, PushaPopaPushfPopf) {
     cpu->esp = 0x200;
     EXPECT_EQ(runCycles({0x9C}), 4);   // PUSHF
     cpu->esp = 0x200;
-    EXPECT_EQ(runCycles({0x9D}), 9);   // POPF -- more than twice PUSHF
+    EXPECT_EQ(runCycles({0x9D}), 9);   // POPF, more than twice PUSHF
     cpu->esp = 0x200;
-    EXPECT_EQ(runCycles({0x66, 0x9C}), 5);  // PUSHFD -- 4 + 1 prefix
+    EXPECT_EQ(runCycles({0x66, 0x9C}), 5);  // PUSHFD, 4 + 1 prefix
 }
 
 TEST_F(Cpu80486TimingTest, EnterFollowsItsPublishedNestingLevelFormula) {
@@ -430,7 +430,7 @@ TEST_F(Cpu80486TimingTest, XaddAndCmpxchgChargeTheirPublishedCosts) {
     cpu->ebx = 0x50;
     EXPECT_EQ(runCycles({0x0F, 0xC1, 0xD8}), 3);  // XADD AX,BX
     EXPECT_EQ(runCycles({0x0F, 0xC1, 0x0F}), 4);  // XADD [BX],CX
-    EXPECT_EQ(runCycles({0x0F, 0xB1, 0xD9}), 6);  // CMPXCHG CX,BX -- register form
+    EXPECT_EQ(runCycles({0x0F, 0xB1, 0xD9}), 6);  // CMPXCHG CX,BX, register form
 }
 
 TEST_F(Cpu80486TimingTest, CmpxchgAgainstMemorySplitsThePublishedSevenToTenRange) {
@@ -459,10 +459,10 @@ TEST_F(Cpu80486TimingTest, MovzxMovsxAndSetccChargeTheirPublishedCosts) {
 TEST_F(Cpu80486TimingTest, BitScanCostTracksHowManyBitsWereExamined) {
     // published BSF 6-42 / BSR 6-103; floor plus one clock per bit examined
     cpu->ebx = 0x0100;
-    EXPECT_EQ(runCycles({0x0F, 0xBC, 0xC3}), 6 + 9);   // BSF AX,BX -- bits 0..8 examined
-    EXPECT_EQ(runCycles({0x0F, 0xBD, 0xC3}), 6 + 8);   // BSR AX,BX -- bits 15..8 examined
+    EXPECT_EQ(runCycles({0x0F, 0xBC, 0xC3}), 6 + 9);   // BSF AX,BX, bits 0..8 examined
+    EXPECT_EQ(runCycles({0x0F, 0xBD, 0xC3}), 6 + 8);   // BSR AX,BX, bits 15..8 examined
     cpu->ebx = 0;
-    EXPECT_EQ(runCycles({0x0F, 0xBC, 0xC3}), 6 + 16);  // zero source -- the whole width scanned
+    EXPECT_EQ(runCycles({0x0F, 0xBC, 0xC3}), 6 + 16);  // zero source, the whole width scanned
 }
 
 TEST_F(Cpu80486TimingTest, BitTestGroupSplitsReadOnlyFromReadModifyWrite) {
@@ -491,7 +491,7 @@ TEST_F(Cpu80486TimingTest, MiscInstructionsChargeTheirPublishedCosts) {
     cpu->ebx = 0x50;
     EXPECT_EQ(runCycles({0x90}), 1);        // NOP
     EXPECT_EQ(runCycles({0xF4}), 4);        // HLT
-    cpu->halted = false;                    // HLT really does halt -- clear it before going on
+    cpu->halted = false;                    // HLT really does halt, clear it before going on
     EXPECT_EQ(runCycles({0x93}), 3);        // XCHG AX,BX
     EXPECT_EQ(runCycles({0x87, 0x07}), 5);  // XCHG AX,[BX]
     EXPECT_EQ(runCycles({0x98}), 3);        // CBW
@@ -745,7 +745,7 @@ TEST_F(Cpu80486TimingTest, FpuControlAndTranscendentalCosts) {
     EXPECT_EQ(runCycles({0xD9, 0x26, 0x00, 0x02}), 44);  // FLDENV
     EXPECT_EQ(runCycles({0xDD, 0x36, 0x00, 0x02}), 154); // FNSAVE
     EXPECT_EQ(runCycles({0xDD, 0x26, 0x00, 0x02}), 131); // FRSTOR
-    EXPECT_EQ(runCycles({0x9B}), 1);                     // FWAIT -- published 1-3
+    EXPECT_EQ(runCycles({0x9B}), 1);                     // FWAIT, published 1-3
 }
 
 }  // namespace

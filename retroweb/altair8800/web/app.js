@@ -66,13 +66,13 @@ function fail(msg) {
     screen.innerHTML =
       '<pre style="color:#ff6b6b;white-space:pre-wrap;padding:12px;margin:0;' +
       'font:13px/1.5 ui-monospace,monospace">' +
-      /* v8 ignore next -- html-escape, only exercised if a fail() message has <>& */
+      /* v8 ignore next, html-escape, only exercised if a fail() message has <>& */
       String(msg).replace(/[<>&]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" }[c])) +
       "</pre>";
   }
 }
 
-/* v8 ignore start -- last-resort global error nets */
+/* v8 ignore start, last-resort global error nets */
 window.addEventListener("error", (e) => fail(e.message + "\n" + (e.error?.stack || "")));
 window.addEventListener("unhandledrejection", (e) => fail("promise rejected: " + (e.reason?.stack || e.reason)));
 /* v8 ignore stop */
@@ -135,7 +135,7 @@ async function boot() {
 
   // On a CRT (no scrollback) xterm turns wheel events into arrow keys; stop that so the
   // page scrolls. The Teletype keeps normal wheel scrolling.
-  /* v8 ignore start -- scroll-lock guard, only runs on a real wheel event */
+  /* v8 ignore start, scroll-lock guard, only runs on a real wheel event */
   screenEl.addEventListener("wheel", (e) => {
     if (!monitorEl.classList.contains("scrolls")) e.stopImmediatePropagation();
   }, { capture: true });
@@ -201,7 +201,7 @@ async function boot() {
   }
   addEventListener("resize", sizeScreen);
   // the column can change width without a window resize (Modern side-by-side, panel reflow)
-  /* v8 ignore start -- ResizeObserver callback, layout-driven */
+  /* v8 ignore start, ResizeObserver callback, layout-driven */
   if (termBox && window.ResizeObserver) {
     let pending = false;
     new ResizeObserver(() => {
@@ -231,78 +231,6 @@ async function boot() {
   // CAPS LOCK (ALPHA-LOCK) is a manual toggle, default on; profiles don't touch it
   const caps = document.getElementById("caps");
 
-  // --- per-profile output filters -------------------------------------
-  // xterm is always a full VT100+ parser. Each profile's `filter` is a stateful byte
-  // transform (state spans metered chunks) approximating a period terminal; profiles
-  // without one pass through. See ALTAIR_REVIEW.md §4.
-
-  // ASR-33 / Glass TTY: no escape handling. Only CR LF BS BEL HT pass; ESC and ESC[...final
-  // are swallowed. BS needs no translation (xterm moves left, like overstrike).
-  function dumbFilter() {
-    let state = "ground";                 // ground | esc | csi
-    const KEEP_C0 = new Set([0x07, 0x08, 0x09, 0x0a, 0x0d]); // BEL BS HT LF CR
-    return (bytes) => {
-      const out = [];
-      for (const b of bytes) {
-        if (state === "esc") { state = (b === 0x5b) ? "csi" : "ground"; continue; }
-        if (state === "csi") { if (b >= 0x40 && b <= 0x7e) state = "ground"; continue; }
-        if (b === 0x1b) { state = "esc"; continue; }
-        if (b < 0x20 && !KEEP_C0.has(b)) continue;
-        out.push(b);
-      }
-      return out;
-    };
-  }
-
-  // DEC VT52: direct address (ESC Y row col, each +32) becomes an ANSI CUP, cursor moves
-  // gain the CSI "[", keypad-mode and identify sequences are dropped.
-  function vt52Filter() {
-    let state = "ground";                 // ground | esc | Y1 (row byte pending)
-    let row = 0;
-    const CSI_LETTER = new Set(["A", "B", "C", "D", "H", "J", "K"]); // same letter in both sets
-    return (bytes) => {
-      const out = [];
-      const push = (s) => { for (let i = 0; i < s.length; i++) out.push(s.charCodeAt(i)); };
-      for (const b of bytes) {
-        const c = String.fromCharCode(b);
-        if (state === "Y1") { row = b - 0x20; state = "Y2"; continue; }
-        if (state === "Y2") { push(`\x1b[${row + 1};${b - 0x20 + 1}H`); state = "ground"; continue; }
-        if (state === "esc") {
-          state = "ground";
-          if (CSI_LETTER.has(c)) { push("\x1b[" + c); continue; }
-          if (c === "I") { push("\x1bM"); continue; }        // reverse line feed
-          if (c === "Y") { state = "Y1"; continue; }          // direct cursor address
-          continue;                                            // Z / = / > / F / G: drop
-        }
-        if (b === 0x1b) { state = "esc"; continue; }
-        out.push(b);
-      }
-      return out;
-    };
-  }
-
-  // Lear Siegler ADM-3A: bare control codes (^K up, ^L right, ^Z clear+home; ^H and ^J need
-  // no translation) and ESC = row col (each +32), as WordStar's ADM-3A driver emits.
-  function adm3aFilter() {
-    let state = "ground";                 // ground | esc | eq1
-    let row = 0;
-    return (bytes) => {
-      const out = [];
-      const push = (s) => { for (let i = 0; i < s.length; i++) out.push(s.charCodeAt(i)); };
-      for (const b of bytes) {
-        if (state === "eq1") { row = b - 0x20; state = "eq2"; continue; }
-        if (state === "eq2") { push(`\x1b[${row + 1};${b - 0x20 + 1}H`); state = "ground"; continue; }
-        if (state === "esc") { state = (b === 0x3d) ? "eq1" : "ground"; continue; }  // only ESC =
-        if (b === 0x1b) { state = "esc"; continue; }
-        if (b === 0x0b) { push("\x1b[A"); continue; }   // ^K: cursor up
-        if (b === 0x0c) { push("\x1b[C"); continue; }   // ^L: cursor right (not form-feed here)
-        if (b === 0x1a) { push("\x1b[H\x1b[2J"); continue; } // ^Z: clear screen, home
-        out.push(b);
-      }
-      return out;
-    };
-  }
-
   const TERM_PROFILES = {
     modern: { label: "Modern (xterm)",
       font: 'ui-monospace, Menlo, Consolas, "DejaVu Sans Mono", monospace',
@@ -320,23 +248,23 @@ async function boot() {
       font: '"VT323", "Courier New", monospace', size: 19,
       fg: "#4dff4d", bg: "#061006", dim: "#1c8c1c", br: "#b6ffb6",
       crt: "scanheavy", baud: 4800, cursor: "block", blink: false, glow: 3,
-      filter: vt52Filter },
+      filter: termVt52Filter },
     adm3a: { label: "Lear Siegler ADM-3A",
       font: '"VT323", "Courier New", monospace', size: 19,
       fg: "#39ff9c", bg: "#03100b", dim: "#1c8c5c", br: "#a6ffce",
       crt: "scan", baud: 9600, cursor: "underline", blink: true, glow: 2,
-      filter: adm3aFilter },
+      filter: termAdm3aFilter },
     glasstty: { label: "Glass TTY",
       font: '"VT323", "Courier New", monospace', size: 19,
       fg: "#c8ffc8", bg: "#020802", dim: "#5c9c5c", br: "#ecffec",
       crt: "scan", baud: 300, cursor: "block", blink: true, glow: 2,
-      filter: dumbFilter },
+      filter: termDumbFilter },
     tty33: { label: "Teletype ASR-33",
       font: '"Courier Prime", "Courier New", monospace', size: 15,
       fg: "#242424", bg: "#efe8d6", dim: "#7a7261", br: "#000000",
       crt: "paper", baud: 110, cursor: "underline", blink: false,
       glow: 0, bell: "ding", scrollback: 5000,   // paper roll -> scroll back
-      filter: dumbFilter, forceCaps: true },
+      filter: termDumbFilter, forceCaps: true },
   };
 
   let bellMode = "flash";
@@ -347,7 +275,7 @@ async function boot() {
     // data + 1 stop); the ASR-33 used 2 stop bits, so 110 baud is exactly 10 cps.
     baudCps = p.baud ? p.baud / (key === "tty33" ? 11 : 10) : 0;
     bellMode = p.bell || "flash";
-    termFilter = p.filter ? p.filter() : null;   // fresh state -- a mid-escape switch shouldn't leak
+    termFilter = p.filter ? p.filter() : null;   // fresh state, a mid-escape switch shouldn't leak
     // the ASR-33 is mechanically incapable of lowercase; not the user's choice
     caps.disabled = !!p.forceCaps;
     if (p.forceCaps) caps.checked = true;
@@ -355,7 +283,7 @@ async function boot() {
     term.options.fontSize = p.size;
     term.options.cursorStyle = p.cursor;
     term.options.cursorBlink = p.blink;
-    // a CRT has no scrollback -- only a Teletype's paper does
+    // a CRT has no scrollback, only a Teletype's paper does
     term.options.scrollback = p.scrollback || 0;
     term.options.theme = {
       background: p.bg, foreground: p.fg,
@@ -404,7 +332,7 @@ async function boot() {
   try {
     Module = await Retro8080(V ? { locateFile: (p) => p + "?v=" + V } : {});
   } catch (err) {
-    /* v8 ignore next -- wasm instantiation failure path */
+    /* v8 ignore next, wasm instantiation failure path */
     return fail("wasm module failed to instantiate:\n" + (err?.stack || err));
   }
   const machine = new Module.Machine();
@@ -416,7 +344,7 @@ async function boot() {
   // named so the fullscreen escBtn can feed a synthetic "\x1b" through this path; the
   // browser eats a real Escape keydown in fullscreen (see shared/fullscreen.js)
   function handleTermData(data) {
-    turbo = false;            // the player is here now — back to authentic 2 MHz
+    turbo = false;            // the player is here now, back to authentic 2 MHz
     // a keypress skips to the end of a slow how-to printout
     if (printingManual) {
       writeFiltered(outQ.splice(0));
@@ -460,7 +388,7 @@ async function boot() {
     // CR -> CR/LF only for a bare CR: not before an LF or another CR (4K BASIC ends lines
     // CR CR LF as head-return padding). crlfPending spans batch boundaries.
     const notBareCr = (c) => c === 0x0a || c === 0x0d;
-    /* v8 ignore next 4 -- a CR landing exactly on a readOutput() batch boundary */
+    /* v8 ignore next 4, a CR landing exactly on a readOutput() batch boundary */
     if (crlfPending) {
       if (crlf.checked && !notBareCr(out[0] & 0x7f)) outQ.push(0x0a);
       crlfPending = false;
@@ -482,7 +410,7 @@ async function boot() {
   }
 
   function pumpTerminal(dtMs) {
-    /* v8 ignore next 4 -- baud restored when a metered how-to finishes on its own */
+    /* v8 ignore next 4, baud restored when a metered how-to finishes on its own */
     if (printingManual && outQ.length === 0) {
       printingManual = false;
       baudCps = baudSaved;
@@ -502,7 +430,7 @@ async function boot() {
     if (out.length) term.write(new Uint8Array(out));
   }
 
-  function flushTerminal() {           // used by SINGLE STEP — show it now
+  function flushTerminal() {           // used by SINGLE STEP, show it now
     pullSerial();
     if (outQ.length) writeFiltered(outQ.splice(0));
   }
@@ -554,7 +482,7 @@ async function boot() {
     // centre the block in the screen
     const rows = term.rows || 24;
     // on a narrow terminal drop blank separator lines until it fits (no scrollback)
-    /* v8 ignore next 5 -- only runs when the manual is taller than the screen */
+    /* v8 ignore next 5, only runs when the manual is taller than the screen */
     while (lines.length > rows) {
       const i = lines.indexOf("");
       if (i < 0) break;
@@ -596,7 +524,7 @@ async function boot() {
   Promise.all([
     document.fonts?.load('20px "VT323"'),
     document.fonts?.load('15px "Courier Prime"'),
-    /* v8 ignore next -- font-load rejection is swallowed */
+    /* v8 ignore next, font-load rejection is swallowed */
   ].filter(Boolean)).catch(() => {}).finally(() => applyProfile(savedTerm));
 
   // --- page theme (Win95 / mid-90s Mosaic web / Modern / Dark Modern) ---
@@ -620,7 +548,7 @@ async function boot() {
         }
       } catch {}
     }
-    /* v8 ignore next -- only if every HEAD request fails / lacks Last-Modified */
+    /* v8 ignore next, only if every HEAD request fails / lacks Last-Modified */
     el.textContent = "unknown";
   })();
 
@@ -714,7 +642,7 @@ async function boot() {
     return d;
   };
   // octal grouping (address + switches): bit 15 alone, then five groups of 3.
-  // Grid column for a bit — must match the .fp-cols template in the CSS.
+  // Grid column for a bit, must match the .fp-cols template in the CSS.
   const GROUPS = [[15], [14, 13, 12], [11, 10, 9], [8, 7, 6], [5, 4, 3], [2, 1, 0]];
   const bitCol = (b) => {
     let col = 2;                       // track 1 is the lead
@@ -724,7 +652,7 @@ async function boot() {
       if (i >= 0) return col + i;
       col += g.length;
     }
-    /* v8 ignore next -- unreachable: every bit 0..15 is in GROUPS */
+    /* v8 ignore next, unreachable: every bit 0..15 is in GROUPS */
     return col;
   };
   const gridLed = (label, b, store, row) => {
@@ -787,12 +715,12 @@ async function boot() {
     const powerCell = el("fp-power paddle", `<div class="fp-cap">OFF</div>`);
     const powerBat = el("bat");         // up = ON like every Altair paddle
     powerCell.title = "power OFF / ON";
-    powerBat.classList.toggle("down", !powered);   // down = OFF -- starts off
+    powerBat.classList.toggle("down", !powered);   // down = OFF, starts off
     powerCell.addEventListener("click", () => {
       powered = !powered;
       powerBat.classList.toggle("down", !powered);   // down = OFF
       if (!powered) setRunning(false);
-      updateFocusHint();   // nothing to type into once powered off -- hide it
+      updateFocusHint();   // nothing to type into once powered off, hide it
       updateLoadButtonsPowered();
     });
     powerCell.appendChild(powerBat);
@@ -1616,7 +1544,7 @@ async function boot() {
       const prev = hint.textContent;
       hint.textContent = "— " + msg + " —";
       hint.style.color = "#ff8a6a";
-      /* v8 ignore next -- flash text restores itself after 1.6 s */
+      /* v8 ignore next, flash text restores itself after 1.6 s */
       setTimeout(() => { hint.textContent = prev; hint.style.color = ""; }, 1600);
     },
 
@@ -1716,7 +1644,7 @@ async function boot() {
 
   // --- MITS 88-ACR cassette deck --------------------------
   // bytes/sec. Realistic is the real 300 baud; `max` (0 = unlimited) isn't in
-  // the picker -- it's what ?test=1 uses.
+  // the picker, it's what ?test=1 uses.
   const TAPE_SPEEDS = { realistic: 30, x5: 150, x25: 750, x50: 1500, max: 0 };
   const TAPE_SPEED_KEYS = ["realistic", "x5", "x25", "x50"];
 
@@ -1831,7 +1759,7 @@ async function boot() {
     // transport keys: CLOAD pulls bytes only while PLAY is down, CSAVE records only while REC is down
     transport(action) {
       if (action === "eject") { this.eject(); return; }
-      // no status text -- the keys and the head bar show what the tape is doing
+      // no status text, the keys and the head bar show what the tape is doing
       this.setDeck(action);       // "play" | "rec" | "ff" | "rew" | "stop"
       this.poll();
     },
@@ -1902,7 +1830,7 @@ async function boot() {
 
     insert(bytes, name, cload) {
       machine.mountTape(bytes || new Uint8Array(0));
-      this.setDeck("stop");                 // threaded, transport stopped -- press PLAY
+      this.setDeck("stop");                 // threaded, transport stopped, press PLAY
       this.name = name || "TAPE";
       this.cload = cload || null;
       this.counterZero = 0;
@@ -1987,7 +1915,7 @@ async function boot() {
       if (this.prog)
         this.prog.style.width = Math.min(100, (100 * st.pos) / Math.max(1, st.cap)) + "%";
 
-      // SAVE appears once you've recorded onto the tape (CSAVE) -- unsaved work
+      // SAVE appears once you've recorded onto the tape (CSAVE), unsaved work
       const dirty = !!(machine.tapeDirty && machine.tapeDirty());
       this.saveBtn.classList.toggle("hidden", !dirty);
       this.saveBtn.classList.toggle("dirty", dirty);
@@ -2324,7 +2252,7 @@ exactly as it did in 1975.`;
   // write pointer). Realistic is the 10 B/s ASR-33 reader (8K BASIC takes ~14 minutes).
   // A 0xE000 ROM build sits above RAM and can't stream, so it drops in.
   // bytes/sec. Realistic is the real ASR-33 reader; `max` (0 = unlimited) isn't
-  // in the picker -- it's what ?test=1 uses.
+  // in the picker, it's what ?test=1 uses.
   const PAPER_SPEEDS = { realistic: 10, x5: 50, x25: 250, x50: 500, max: 0 };
   const PAPER_SPEED_KEYS = ["realistic", "x5", "x25", "x50"];
   const TAPE_LEADER = 128;                                  // blank frames before the data
@@ -2345,7 +2273,7 @@ exactly as it did in 1975.`;
       0xd2, ...A(SKIP),                // 9   JNC  SKIP
       0xdb, 0x11,                      // 12  IN   11h
       0xb7,                            // 14  ORA  A          ; leader null?
-      0xca, ...A(SKIP),                // 15  JZ   SKIP       ; yes -- keep spooling
+      0xca, ...A(SKIP),                // 15  JZ   SKIP       ; yes, keep spooling
       0x77,                            // 18  STORE: MOV M,A
       0x23,                            // 19  INX  H
       0x1b,                            // 20  DCX  D
@@ -2445,7 +2373,7 @@ exactly as it did in 1975.`;
           // Pace the feed while the loader keeps up, so a per-frame CPU burst doesn't miss bytes. Once
           // the FIFO stays jammed (or a raw START has no loader), overrun the 2SIO and shed bytes.
           if (!this.flooding && machine.rxPending && machine.rxPending() > 400) break;
-          if (this.lead < TAPE_LEADER) {          // blank leader spooling through -- nothing loads yet
+          if (this.lead < TAPE_LEADER) {          // blank leader spooling through, nothing loads yet
             this.lead++;
             machine.sendByte(0);
           } else {
@@ -2669,12 +2597,12 @@ exactly as it did in 1975.`;
     },
 
     // how a threaded tape actually loads
-    //   opts.speed  -- override the LOAD SPEED selector for this one load
-    //   opts.then   -- callback once loaded (and BASIC is at OK), gets {feed,waitFor}
+    //   opts.speed:  override the LOAD SPEED selector for this one load
+    //   opts.then:   callback once loaded (and BASIC is at OK), gets {feed,waitFor}
     load(opts = {}) {
       const e = this.entry;
       if (!e || !e.bytes) { this.flash("thread a tape first"); return; }
-      // the 0xE000 ROM build can't stream -- drop it in and cold-start
+      // the 0xE000 ROM build can't stream, drop it in and cold-start
       if (e.basicRom) { coldStart8k(e.bytes, { then: opts.then }); return; }
       const load  = parseHex(e.load, 0);
       const start = parseHex(e.start, load);
@@ -2711,7 +2639,7 @@ exactly as it did in 1975.`;
       if (!h) return;
       const prev = h.innerHTML;
       h.textContent = "— " + msg + " —";
-      /* v8 ignore next -- flash text restores itself after 1.4 s */
+      /* v8 ignore next, flash text restores itself after 1.4 s */
       setTimeout(() => { h.innerHTML = prev; }, 1400);
     },
   };
@@ -2741,7 +2669,7 @@ exactly as it did in 1975.`;
       await waitFor(/\bOK\b/);
       if (opts.then) await opts.then({ feed, waitFor, dead });
     } catch (e) {
-      /* v8 ignore next -- cold-start prompt wait timed out / was cancelled */
+      /* v8 ignore next, cold-start prompt wait timed out / was cancelled */
       if (!dead()) term.write("\r\n\x1b[0m[loader: " + e.message + "]\r\n");
     }
     if (loaderToken === me) { coldStartWatch = false; turbo = false; }
@@ -2823,7 +2751,7 @@ exactly as it did in 1975.`;
   paperTape.build();
   paperTape.setVisible(false);
   buildPanelGuide(false);          // now that paperTape / PRESETS exist
-  updateLoadButtonsPowered();      // starts powered off -- grey the load shortcuts out
+  updateLoadButtonsPowered();      // starts powered off, grey the load shortcuts out
 
   ptrList.addEventListener("change", () => {
     const r = paperTape._picks[Number(ptrList.value)];

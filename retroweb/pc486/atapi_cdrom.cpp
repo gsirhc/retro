@@ -606,7 +606,7 @@ void AtapiCdrom::execute_packet() {
     }
 
     switch (op) {
-        case 0x00:  // TEST UNIT READY (SPC §7.25) -- status only, no data
+        case 0x00:  // TEST UNIT READY (SPC §7.25), status only, no data
             require_media();
             break;
         case 0x03: cmd_request_sense(); break;                        // SPC §7.20
@@ -624,7 +624,7 @@ void AtapiCdrom::execute_packet() {
         case 0x47: if (require_media()) cmd_play_audio_msf(); break;   // MMC §10.8.9
         case 0x4B: cmd_pause_resume(); break;                          // MMC §10.8.7
         case 0x4E: cmd_stop_play_scan(); break;                        // MMC §10.8.24
-        case 0x55: cmd_mode_select10(); return;                        // Data-OUT -- see below
+        case 0x55: cmd_mode_select10(); return;                        // Data-OUT; see below
         case 0x5A: cmd_mode_sense10(); break;                          // MMC §6.1.6 / SPC §7.10
         default:
             // MODE SENSE(6)/MODE SELECT(6) don't exist for ATAPI CD-ROM (SFF-8020i).
@@ -808,7 +808,7 @@ void AtapiCdrom::append_audio_control_page(std::vector<uint8_t> *out) const {
     p[0] = 0x0E;  // page code, PS = 0
     p[1] = 0x0E;  // page length: 14 more bytes
     p[2] = 0x04;  // Immed = 1 (mandatory); SOTC = 0 (play to transfer length, not track boundary)
-    put_be16(p + 6, 75);  // logical blocks per second of audio playback -- Red Book's fixed rate
+    put_be16(p + 6, 75);  // logical blocks per second of audio playback, Red Book's fixed rate
     for (int port = 0; port < 4; ++port) {
         p[8 + port * 2] = audio_ports_[port].channel_selection & 0x0F;
         p[9 + port * 2] = audio_ports_[port].volume;
@@ -848,7 +848,7 @@ void AtapiCdrom::cmd_mode_sense10() {
         p[7] = 0x03;
         put_be16(p + 8, 353);   // maximum read speed, KB/s: 2x = 2 x 176.4
         put_be16(p + 10, 256);  // number of volume levels: one per attenuation byte
-        put_be16(p + 12, 256);  // buffer size, KB -- a period 2x drive's cache
+        put_be16(p + 12, 256);  // buffer size, KB, a period 2x drive's cache
         put_be16(p + 14, 353);  // current read speed
     }
     put_be16(s.data() + 0, uint16_t(s.size() - 2));  // mode data length

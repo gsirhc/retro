@@ -129,7 +129,7 @@ test.describe("front panel", () => {
   test("the machine starts powered off, like a real Altair you've just walked up to", async ({
     page,
   }) => {
-    await page.goto("/?test=1");   // no boot() helper -- its power-on convenience is the thing under test
+    await page.goto("/?test=1");   // no boot() helper, its power-on convenience is the thing under test
     await page.waitForFunction(() => !!(window as any).__test?.machine, null, { timeout: 15_000 });
     expect(await page.evaluate(() => (window as any).__test.running)).toBe(false);
     const batDown = () =>
@@ -140,7 +140,7 @@ test.describe("front panel", () => {
         const l = await leds(page);
         return l.addr + l.data + Object.values(l.status).filter(Boolean).length;
       })
-      .toBe(0);   // every lamp dark -- nothing is running to light them
+      .toBe(0);   // every lamp dark, nothing is running to light them
 
     // flip it on: the built-in echo ROM starts running, same as any other preset
     await page.evaluate(() => {
@@ -172,7 +172,7 @@ test.describe("front panel", () => {
       await clickPaddle(page, label, "up");
       await clickPaddle(page, label, "down");
     }
-    // nothing changed -- they're placeholders on the real panel too
+    // nothing changed, they're placeholders on the real panel too
     expect(await page.evaluate(() => (window as any).__test.running)).toBe(true);
     expect(Math.abs((await regs(page)).pc - pc)).toBeLessThan(0x100);
   });

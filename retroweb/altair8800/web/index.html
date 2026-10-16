@@ -16,22 +16,22 @@
 <link rel="stylesheet" href="shared/footer.css">
 <link rel="stylesheet" href="shared/disk-drop.css">
 
-<link rel="stylesheet" href="vendor/xterm.css">
+<link rel="stylesheet" href="shared/vendor/xterm.css">
 
 <style>
   @font-face {
     font-family: "VT323";
-    src: url("vendor/fonts/vt323.woff2") format("woff2");
+    src: url("shared/vendor/fonts/vt323.woff2") format("woff2");
     font-display: swap;
   }
   @font-face {
     font-family: "Courier Prime";
-    src: url("vendor/fonts/courierprime-400.woff2") format("woff2");
+    src: url("shared/vendor/fonts/courierprime-400.woff2") format("woff2");
     font-weight: 400; font-display: swap;
   }
   @font-face {
     font-family: "Courier Prime";
-    src: url("vendor/fonts/courierprime-700.woff2") format("woff2");
+    src: url("shared/vendor/fonts/courierprime-700.woff2") format("woff2");
     font-weight: 700; font-display: swap;
   }
 
@@ -170,7 +170,7 @@
     text-shadow: var(--h1-shadow);
   }
   .tagline { text-align: var(--center); font-style: italic; margin: 4px 0 0; }
-  /* the ~ * ~ line is a deliberate period touch — retro themes only */
+  /* the ~ * ~ line is a deliberate period touch, retro themes only */
   .modern-only { display: none; }
   :root[data-theme="modern"] .retro-only { display: none; }
   :root[data-theme="modern"] .modern-only { display: block; }
@@ -180,7 +180,7 @@
 
   hr.rule { border: 0; border-top: var(--rule); margin: 12px 0; }
 
-  /* ===== Mid-1990s Web — NCSA Mosaic / early-Netscape page chrome =========
+  /* ===== Mid-1990s Web, NCSA Mosaic / early-Netscape page chrome =========
      Every rule is scoped to [data-theme="web94"], so nothing here touches the
      Windows 95 or Modern themes. Only the page chrome is period-dressed; the
      emulated hardware keeps its photoreal look in every theme. */
@@ -309,7 +309,7 @@
   }
   .bezel.crt-paper { background: #d9d0b8; }
 
-  /* the glass -- flat, seated into the surround */
+  /* the glass, flat, seated into the surround */
   #screen {
     width: 792px; height: 460px;
     background: #000;
@@ -387,7 +387,7 @@
   }
   .bell-flash { filter: brightness(2.4) contrast(1.2); }
 
-  /* Minimal .row utility -- only used by #fsEscHint's own button row (see
+  /* Minimal .row utility, only used by #fsEscHint's own button row (see
      shared/fullscreen.css's #fsEscHint .row rule); ibmpc-at defines a
      fuller version of this same class for its many form rows, which this
      page doesn't otherwise need. */
@@ -407,7 +407,7 @@
     text-shadow: 0 1px 0 rgba(255,255,255,.55);
   }
 
-  /* register readout -- a strip inside the front-panel box, under the panel */
+  /* register readout, a strip inside the front-panel box, under the panel */
   .statusline {
     width: max-content; max-width: 100%;
     margin: 14px auto 2px;
@@ -606,7 +606,7 @@
   .fp-tag.data  { right: 6px; bottom: 9px; text-align: right; line-height: 1.15; }
   .fp-switches .fp-cap { color: #333; height: auto; margin-bottom: 5px; }
 
-  /* ball-in-slot toggle — click anywhere on the column to flip it */
+  /* ball-in-slot toggle, click anywhere on the column to flip it */
   .bat {
     position: relative; width: 22px; height: 40px; cursor: pointer;
   }
@@ -618,7 +618,7 @@
     box-shadow: inset 0 2px 4px rgba(0,0,0,.92), inset 0 -1px 2px rgba(0,0,0,.7),
                 0 1px 0 rgba(255,255,255,.14);
   }
-  .bat::after {                      /* the ball — TOP = on/up (no .down class) */
+  .bat::after {                      /* the ball, TOP = on/up (no .down class) */
     content: ""; position: absolute; left: 50%; top: 1px;
     width: 18px; height: 18px; transform: translateX(-50%);
     border-radius: 50%;
@@ -634,8 +634,8 @@
   .bat.momentary.flick-dn::after { top: 21px; }
 
   /* the paddle throws vertically: ON up, OFF down (as on the real machine) */
-  .fp-power .fp-cap,      /* "OFF" — under the paddle, where a switch number sits */
-  .fp-power .fp-num {     /* "ON"  — floats just above the paddle */
+  .fp-power .fp-cap,      /* "OFF", under the paddle, where a switch number sits */
+  .fp-power .fp-num {     /* "ON", floats just above the paddle */
     color: #333; height: auto; font: 8px Arial, sans-serif; line-height: 1;
   }
   .fp-power .fp-cap { order: 2; margin: 3px 0 0; }
@@ -644,7 +644,7 @@
     margin: 0 0 3px;
   }
 
-  /* control slider row — spread evenly across the panel width */
+  /* control slider row, spread evenly across the panel width */
   .fp-ctl {
     display: flex; align-items: flex-start; justify-content: space-between;
     padding: 6px var(--col) 0 var(--lead); margin-top: 6px;
@@ -700,7 +700,7 @@
   }
   .pg-toggle:active { border-style: inset; }
   :root[data-theme="modern"] .pg-toggle:hover { background: #f4f5f7; }
-  /* a movable floating panel -- starts on the right so the front panel and
+  /* a movable floating panel, starts on the right so the front panel and
      the guide are both visible without scrolling */
   .pg-body {
     position: fixed; z-index: 60; top: 76px; right: 16px;
@@ -1074,7 +1074,7 @@
     background: #d9d3c1; border: 1px solid #8f8768; border-radius: 2px; color: #33302a;
   }
   .acr-save:hover { background: #e6e0cf; }
-  .acr-save.dirty {           /* unsaved recording -- draw the eye */
+  .acr-save.dirty {           /* unsaved recording, draw the eye */
     background: #f0d98a; border-color: #a8912f; color: #3a2f0a;
     box-shadow: 0 0 5px 1px rgba(240,200,90,.7);
   }
@@ -1215,7 +1215,7 @@
   .workspace,
   .ws-machine,
   .ws-devices { display: contents; }
-  .ws-terminal { display: block; }   /* always a real box — sizeScreen measures it */
+  .ws-terminal { display: block; }   /* always a real box, sizeScreen measures it */
 
   :root[data-theme="modern"] .workspace {
     display: flex; flex-direction: column; gap: 16px;
@@ -1522,14 +1522,15 @@
   </div>
 </div>
 
-<script src="vendor/xterm.js"></script>
-<script src="vendor/xterm-addon-fit.js"></script>
+<script src="shared/vendor/xterm.js"></script>
+<script src="shared/vendor/xterm-addon-fit.js"></script>
 <script src="shared/theme-picker.js"></script>
 <script src="shared/fullscreen.js"></script>
 <script src="shared/winbtns.js"></script>
 <script src="shared/focus-hint.js"></script>
 <script src="shared/footer.js"></script>
 <script src="shared/disk-drop.js"></script>
+<script src="shared/terminal.js"></script>
 <script>
   // cache-bust the code that changes between builds (vendor libs stay cached)
   window.__V = String(Date.now());

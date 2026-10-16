@@ -139,7 +139,7 @@ void Fdc765::start_command(uint8_t first_byte) {
         case 0x0A: param_count_needed_ = 1; break;                     // READ ID
         case 0x0D: param_count_needed_ = 5; break;                     // FORMAT TRACK
         case 0x0F: param_count_needed_ = 2; break;                     // SEEK
-        default: param_count_needed_ = 0; break;                       // unknown -- no-op
+        default: param_count_needed_ = 0; break;                       // unknown, no-op
     }
     if (param_count_needed_ == 0) run_command();
     else phase_ = Phase::kCommand;
@@ -187,7 +187,7 @@ void Fdc765::run_command() {
             phase_ = Phase::kResult;
             break;
         }
-        case 0x07: case 0x0F: {  // RECALIBRATE / SEEK -- implied-seek commands
+        case 0x07: case 0x0F: {  // RECALIBRATE / SEEK, implied-seek commands
             int drive = params_[0] & 1;
             int new_cyl = (base == 0x07) ? 0 : params_[1];
             int steps = std::abs(new_cyl - drives[drive].current_cylinder);

@@ -19,7 +19,7 @@
   overflow-wrap: anywhere;
 }
 
-/* Win95 dialog Help button is the default — grey 3D, 12px MS Sans. */
+/* Win95 dialog Help button is the default, grey 3D, 12px MS Sans. */
 .site-footer .about-sign {
   display: inline-block;
   min-width: 75px;

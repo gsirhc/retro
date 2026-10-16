@@ -33,7 +33,7 @@ test.describe("terminal I/O options", () => {
 
   test("the terminal bell flashes the bezel, then clears", async ({ page }) => {
     await boot(page); // echo ROM echoes the BEL back -> xterm fires onBell
-    // the flash class lasts only 90 ms -- watch for it with an observer
+    // the flash class lasts only 90 ms, watch for it with an observer
     await page.evaluate(() => {
       (window as any).__flashed = false;
       const b = document.querySelector(".bezel")!;

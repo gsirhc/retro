@@ -85,7 +85,7 @@ test.describe("88-DCDD disk cabinet", () => {
     const img = await page.evaluate(() => {
       const m = (window as any).__test.machine;
       const b = m.diskImage(1);
-      const dirBase = 2 * 32 * 137;   // track 2, sector 0 -- the CP/M directory
+      const dirBase = 2 * 32 * 137;   // track 2, sector 0, the CP/M directory
       return { len: b.length, dirEmpty: b[dirBase + 3] === 0xe5 && b[dirBase + 130] === 0xe5, dirty: m.diskDirty(1) };
     });
     expect(img).toEqual({ len: 337568, dirEmpty: true, dirty: false });
@@ -135,7 +135,7 @@ test.describe("88-DCDD disk cabinet", () => {
       ((await screen(page)).match(/Copyright 1980 by Burcon Inc\./g) || []).length;
     expect(await bannerCount()).toBe(1);   // the one, real cold boot
 
-    // only A15 -- genuinely never-written RAM, never touched by the loaded OS
+    // only A15, genuinely never-written RAM, never touched by the loaded OS
     await panelStop(page);
     await setSwitches(page, 0x8000);
     await clickPaddle(page, /EXAMINE/, "up");
@@ -144,8 +144,8 @@ test.describe("88-DCDD disk cabinet", () => {
     expect(byte).not.toBe(0);   // real garbage, not a clean NOP field
 
     await panelRun(page);
-    await guestRun(page, 2000);   // run, wander, halt -- whatever it does
-    expect(await bannerCount()).toBe(1);   // still just the one boot -- no reprint
+    await guestRun(page, 2000);   // run, wander, halt, whatever it does
+    expect(await bannerCount()).toBe(1);   // still just the one boot, no reprint
   });
 
   test("the boot PROM window is read-only even at 64 KB RAM", async ({ page }) => {
@@ -154,7 +154,7 @@ test.describe("88-DCDD disk cabinet", () => {
 
     await page.evaluate(() => {
       const m = (window as any).__test.machine;
-      // MVI A,0AAh ; STA 0FF00h ; HLT -- runs through the CPU, so the write goes
+      // MVI A,0AAh ; STA 0FF00h ; HLT, runs through the CPU, so the write goes
       // through the bus (unlike writeByte(), which pokes mem_[] directly)
       m.loadBytes(new Uint8Array([0x3e, 0xaa, 0x32, 0x00, 0xff, 0x76]), 0x0000);
       m.setPC(0);

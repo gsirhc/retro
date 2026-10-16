@@ -3,6 +3,7 @@
 #include <gtest/gtest.h>
 
 #include "hwtest_roms.h"
+#include "hwtest_set.h"
 #include "machine.h"
 
 #include <algorithm>
@@ -10,20 +11,12 @@
 
 namespace {
 
-galaxian::RomSet test_set() {
-    galaxian::RomSet s;
-    std::copy(galaxian::hwtest::program.begin(), galaxian::hwtest::program.end(), s.program.begin());
-    std::copy(galaxian::hwtest::gfx.begin(), galaxian::hwtest::gfx.end(), s.gfx.begin());
-    std::copy(galaxian::hwtest::color_prom.begin(), galaxian::hwtest::color_prom.end(),
-              s.color_prom.begin());
-    return s;
-}
 
 }  // namespace
 
 TEST(Smoke, HwtestBootsSignatureWatchdogAndPaints) {
     galaxian::Machine m;
-    m.load_roms(test_set());
+    m.load_roms(galaxian::hwtest_set());
     m.reset();
     m.run_cycles(galaxian::kCpuHz / 10);
     EXPECT_EQ(m.ram[0], 'T');

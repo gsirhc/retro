@@ -899,7 +899,7 @@ TEST_F(SoundBlasterTest, AssertingResetAloneHaltsPlaybackWithoutWaitingForTheZer
     MixerWrite(0x30, 0x55);
     Cmd({0xE4, 0x3C});  // test register
 
-    sb.out(kReset, 1);  // assert only -- no 0 follows yet
+    sb.out(kReset, 1);  // assert only, no 0 follows yet
     EXPECT_FALSE(sb.playing());
     EXPECT_FALSE(sb.transfer_ready());
     EXPECT_FALSE(RunUntilTransfer(512, 4000)) << "a held-in-reset card must not keep requesting bytes";

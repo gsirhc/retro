@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "hwtest_roms.h"
+#include "hwtest_set.h"
 #include "machine.h"
 
 #include <algorithm>
@@ -8,12 +9,6 @@
 
 namespace {
 
-missile::RomSet test_set() {
-    missile::RomSet s;
-    std::copy(missile::hwtest::program.begin(), missile::hwtest::program.end(),
-              s.program.begin());
-    return s;
-}
 
 void run_frames(missile::Machine& m, int n) {
     for (int i = 0; i < n; i++) m.run_cycles(missile::kCyclesPerFrame);
@@ -30,7 +25,7 @@ void expect_probe(const missile::Machine& m, const std::array<int, N>& offs,
 
 TEST(Smoke, HwtestBootsSignatureWatchdogAndPaints) {
     missile::Machine m;
-    m.load_roms(test_set());
+    m.load_roms(missile::hwtest_set());
     m.reset();
     m.run_cycles(missile::kCpuHz / 10);
     EXPECT_EQ(m.mem_read(0xF0), 'M');
@@ -50,7 +45,7 @@ TEST(Smoke, HwtestBootsSignatureWatchdogAndPaints) {
 
 TEST(Smoke, HwtestHoldsHelpScreen) {
     missile::Machine m;
-    m.load_roms(test_set());
+    m.load_roms(missile::hwtest_set());
     m.reset();
     run_frames(m, 30);
     uint8_t probe = m.vram[size_t(missile::hwtest::kMadselProbeOff)];
@@ -69,7 +64,7 @@ TEST(Smoke, HwtestHoldsHelpScreen) {
 
 TEST(Smoke, HwtestHiscoreStandInLands) {
     missile::Machine m;
-    m.load_roms(test_set());
+    m.load_roms(missile::hwtest_set());
     m.reset();
     run_frames(m, missile::hwtest::kHelpWaitFrames);
     const auto& rom = missile::hwtest::program;

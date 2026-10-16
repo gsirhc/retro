@@ -71,7 +71,7 @@ TEST_F(DiskTest, MountAndPresence) {
 }
 
 TEST_F(DiskTest, DeselectedStatusReadsAllFalse) {
-    d.mount(0, img.data(), img.size());    // needs media -- an empty drive never reports
+    d.mount(0, img.data(), img.size());    // needs media, an empty drive never reports
     EXPECT_EQ(d.in(SEL), 0xFF);            // ready either (EmptyDriveNeverReportsReady, §3.2c)
     d.out(SEL, 0x00);
     EXPECT_NE(d.in(SEL), 0xFF);            // a selected, mounted drive reports something
@@ -81,7 +81,7 @@ TEST_F(DiskTest, DeselectedStatusReadsAllFalse) {
 
 // no media means no index pulses, so the drive never reads ready (§3.2c)
 TEST_F(DiskTest, EmptyDriveNeverReportsReady) {
-    d.out(SEL, 0x00);                       // select drive 0 -- nothing mounted
+    d.out(SEL, 0x00);                       // select drive 0, nothing mounted
     EXPECT_EQ(d.in(SEL), 0xFF);             // unlike a mounted drive, reads all-false
     d.out(CTL, FN_HEAD_LOAD);               // try to load the head anyway
     // track-0 is a carriage sensor and may read true with no media

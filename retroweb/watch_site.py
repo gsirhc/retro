@@ -169,7 +169,7 @@ def classify(rel):
             return None
         if web_base.endswith(".js.map") or web_base.endswith(".wasm.map"):
             return None
-        # Generated header from gen_hwtest.py — rebuilds via the wasm target.
+        # Generated header from gen_hwtest.py, rebuilds via the wasm target.
         if web_base == "hwtest_roms.h":
             return None
         web_ext = os.path.splitext(web_base)[1].lower()

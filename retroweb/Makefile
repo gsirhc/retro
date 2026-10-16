@@ -1,12 +1,12 @@
-# retroweb — assemble and preview the deployed site.
+# retroweb, assemble and preview the deployed site.
 #
 #   make site        build _site/ : index.html + about.html + arcade/ at the
 #                    root, the emulators at
 #                    /altair8800/, /assembler6502/, /ibmpc-at/, /pacman/,
 #                    /frogger/, /galaga/, /galaxian/, /scramble/, /asteroids/,
-#                    /centipede/, /missile/, /pc486/ (dev-only files stripped) — what CI publishes
+#                    /centipede/, /missile/, /pc486/ (dev-only files stripped), what CI publishes
 #   make preview     stage _site/ (wasm + media first) and serve it over
-#                    HTTPS on :8000 in the FOREGROUND — dies when the
+#                    HTTPS on :8000 in the FOREGROUND, dies when the
 #                    terminal closes or on Ctrl-C
 #   make preview-bg  same, but detached: survives the terminal, logs to
 #                    /tmp/retroweb-preview.log; stop it with `make preview-stop`
@@ -38,7 +38,7 @@ PREVIEW_LABEL := dev.retroweb.preview
 PLIST         := $(HOME)/Library/LaunchAgents/$(PREVIEW_LABEL).plist
 # system python is always present and new enough for `http.server -d/-b`
 PY            := /usr/bin/python3
-# Optional: MACHINE=pc486 make watch — limit wasm rebuilds to one emulator
+# Optional: MACHINE=pc486 make watch, limit wasm rebuilds to one emulator
 WATCH_ARGS    := --watch $(if $(MACHINE),--machine=$(MACHINE),)
 
 PREVIEW_CERT_DIR := .preview-tls
@@ -68,7 +68,7 @@ site:
 	python3 check_site.py $(SITE).new
 	rm -rf $(SITE) && mv $(SITE).new $(SITE)
 
-# build the emulator + fetch media, then stage — what both preview modes need
+# build the emulator + fetch media, then stage, what both preview modes need
 _stage:
 	$(MAKE) -C altair8800/web retro8080.js roms media shared
 	$(MAKE) -C assembler6502/web wasm roms examples-bin shared

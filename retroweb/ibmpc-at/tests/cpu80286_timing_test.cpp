@@ -69,7 +69,7 @@ TEST_F(Cpu80286TimingTest, MulMemory16BitCosts24Cycles) {
     EXPECT_EQ(runCycles({0xF7, 0x27}), 24);
 }
 TEST_F(Cpu80286TimingTest, ImulSingleOperandRegisterCosts21Cycles) {
-    // F7 /5: IMUL AX -- same cost class as MUL on real 80286
+    // F7 /5: IMUL AX, same cost class as MUL on real 80286
     EXPECT_EQ(runCycles({0xF7, 0xE8}), 21);
 }
 TEST_F(Cpu80286TimingTest, DivRegister8BitCosts14Cycles) {
@@ -219,7 +219,7 @@ TEST_F(Cpu80286TimingTest, RepMovsbWithZeroCountStillChargesTheBaseCost) {
 }
 TEST_F(Cpu80286TimingTest, RepStosbScalesWithCount) {
     cpu->cx = 20;
-    // F3 AA: REP STOSB -- 2 (prefix) + 4 + 3*20 = 66
+    // F3 AA: REP STOSB, 2 (prefix) + 4 + 3*20 = 66
     EXPECT_EQ(runCycles({0xF3, 0xAA}), 66);
 }
 TEST_F(Cpu80286TimingTest, RepeCmpsbStopsEarlyAndCostsOnlyTheIterationsThatRan) {
@@ -227,7 +227,7 @@ TEST_F(Cpu80286TimingTest, RepeCmpsbStopsEarlyAndCostsOnlyTheIterationsThatRan) 
     cpu->si = 0x100; cpu->di = 0x200; cpu->cx = 10;
     for (int i = 0; i < 10; ++i) { mem[0x100 + i] = 5; mem[0x200 + i] = 5; }
     mem[0x102] = 9;  // third byte differs
-    // F3 A6: REPE CMPSB -- 2 (prefix) + 5 + 9*3 = 34
+    // F3 A6: REPE CMPSB, 2 (prefix) + 5 + 9*3 = 34
     EXPECT_EQ(runCycles({0xF3, 0xA6}), 34);
     EXPECT_EQ(cpu->cx, 7);  // 10 - 3 actually consumed
 }
@@ -235,12 +235,12 @@ TEST_F(Cpu80286TimingTest, RepScasbScalesWithCount) {
     cpu->di = 0x300; cpu->cx = 4;
     cpu->ax = 0;  // AL=0
     for (int i = 0; i < 4; ++i) mem[0x300 + i] = 0xFF;  // never matches -> runs all 4
-    // F2 AE: REPNE SCASB (stop on match; never matches here) -- 2 (prefix) + 5 + 8*4 = 39
+    // F2 AE: REPNE SCASB (stop on match; never matches here), 2 (prefix) + 5 + 8*4 = 39
     EXPECT_EQ(runCycles({0xF2, 0xAE}), 39);
 }
 TEST_F(Cpu80286TimingTest, RepLodsbScalesWithCount) {
     cpu->cx = 12;
-    // F3 AC: REP LODSB -- 2 (prefix) + 5 + 4*12 = 55 (80C286 data sheet)
+    // F3 AC: REP LODSB, 2 (prefix) + 5 + 4*12 = 55 (80C286 data sheet)
     EXPECT_EQ(runCycles({0xF3, 0xAC}), 55);
 }
 
@@ -274,7 +274,7 @@ TEST_F(Cpu80286TimingTest, ShiftCostUsesTheMaskedCount) {
 }
 TEST_F(Cpu80286TimingTest, ShiftByImm8MemoryScalesWithCount) {
     cpu->bx = 0x50;
-    // C0 /4, imm8=3: SHL byte [BX],3 -- 8 + 3 = 11
+    // C0 /4, imm8=3: SHL byte [BX],3, 8 + 3 = 11
     EXPECT_EQ(runCycles({0xC0, 0x27, 0x03}), 11);
 }
 
@@ -282,11 +282,11 @@ TEST_F(Cpu80286TimingTest, ShiftByImm8MemoryScalesWithCount) {
 
 TEST_F(Cpu80286TimingTest, LoopTakenCosts10Cycles) {
     cpu->cx = 2;
-    EXPECT_EQ(runCycles({0xE2, 0xFE}), 10);  // LOOP $ (rel=-2, back to self) -- taken since cx becomes 1
+    EXPECT_EQ(runCycles({0xE2, 0xFE}), 10);  // LOOP $ (rel=-2, back to self), taken since cx becomes 1
 }
 TEST_F(Cpu80286TimingTest, LoopNotTakenCosts4Cycles) {
     cpu->cx = 1;
-    EXPECT_EQ(runCycles({0xE2, 0xFE}), 4);  // cx becomes 0 -- not taken
+    EXPECT_EQ(runCycles({0xE2, 0xFE}), 4);  // cx becomes 0, not taken
 }
 TEST_F(Cpu80286TimingTest, LoopneAndLoopeNotTakenCost4Cycles) {
     cpu->cx = 1;
@@ -329,7 +329,7 @@ TEST_F(Cpu80286TimingTest, EnterLevel1Costs15Cycles) {
 }
 TEST_F(Cpu80286TimingTest, EnterLevel3CostsPerTheLexFormula) {
     cpu->sp = 0x200;
-    // ENTER 4,3 -- 12 + 4*(3-1) = 20
+    // ENTER 4,3, 12 + 4*(3-1) = 20
     EXPECT_EQ(runCycles({0xC8, 0x04, 0x00, 0x03}), 20);
 }
 TEST_F(Cpu80286TimingTest, LeaveCosts5Cycles) {
@@ -347,10 +347,10 @@ TEST_F(Cpu80286TimingTest, Int3Costs25Cycles) {
 }
 TEST_F(Cpu80286TimingTest, IntNnCosts25Cycles) {
     cpu->sp = 0x200;
-    EXPECT_EQ(runCycles({0xCD, 0x21}), 25);  // INT 21h -- same floor+tax as INT3
+    EXPECT_EQ(runCycles({0xCD, 0x21}), 25);  // INT 21h, same floor+tax as INT3
 }
 TEST_F(Cpu80286TimingTest, IntoNotTakenCosts3Cycles) {
-    EXPECT_EQ(runCycles({0xCE}), 3);  // OF clear by default -- not taken, no queue flush
+    EXPECT_EQ(runCycles({0xCE}), 3);  // OF clear by default, not taken, no queue flush
 }
 TEST_F(Cpu80286TimingTest, IntoTakenCosts26Cycles) {
     cpu->sp = 0x200;
@@ -398,10 +398,10 @@ TEST_F(Cpu80286TimingTest, MovDisplacementFromAlCosts3Cycles) {
 
 TEST_F(Cpu80286TimingTest, JccShortTakenCosts9Cycles) {
     cpu->flags |= FLAG_ZF;
-    EXPECT_EQ(runCycles({0x74, 0x02}), 9);  // JZ rel8, taken -- floor 7 (7-10) + tax
+    EXPECT_EQ(runCycles({0x74, 0x02}), 9);  // JZ rel8, taken, floor 7 (7-10) + tax
 }
 TEST_F(Cpu80286TimingTest, JccShortNotTakenCosts3Cycles) {
-    EXPECT_EQ(runCycles({0x74, 0x02}), 3);  // JZ rel8, not taken -- no flush, unaffected
+    EXPECT_EQ(runCycles({0x74, 0x02}), 3);  // JZ rel8, not taken, no flush, unaffected
 }
 TEST_F(Cpu80286TimingTest, JmpShortCosts9Cycles) {
     EXPECT_EQ(runCycles({0xEB, 0x00}), 9);  // floor 7 (7-10) + tax
@@ -428,7 +428,7 @@ TEST_F(Cpu80286TimingTest, RetCosts13Cycles) {
 TEST_F(Cpu80286TimingTest, RetImm16Costs13Cycles) {
     cpu->sp = 0x100;
     mem[0x100] = 0x00; mem[0x101] = 0x00;
-    EXPECT_EQ(runCycles({0xC2, 0x04, 0x00}), 13);  // RET 4 -- floor 11 (11-14) + tax
+    EXPECT_EQ(runCycles({0xC2, 0x04, 0x00}), 13);  // RET 4, floor 11 (11-14) + tax
 }
 TEST_F(Cpu80286TimingTest, RetfCosts17Cycles) {
     cpu->sp = 0x100;
@@ -440,7 +440,7 @@ TEST_F(Cpu80286TimingTest, RetfImm16Costs17Cycles) {
     cpu->sp = 0x100;
     mem[0x100] = 0x00; mem[0x101] = 0x00;
     mem[0x102] = 0x00; mem[0x103] = 0x00;
-    EXPECT_EQ(runCycles({0xCA, 0x04, 0x00}), 17);  // RETF 4 -- floor 15 (15-18) + tax
+    EXPECT_EQ(runCycles({0xCA, 0x04, 0x00}), 17);  // RETF 4, floor 15 (15-18) + tax
 }
 
 // --- AT bus timing: wait states and the prefetch queue ---

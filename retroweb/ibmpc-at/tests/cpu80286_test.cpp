@@ -118,7 +118,7 @@ TEST_F(Cpu80286Test, MovMemDirectAddressing) {
 }
 
 TEST_F(Cpu80286Test, LeaLoadsEffectiveAddressNotContents) {
-    mem[0x1234] = 0xAA;  // decoy -- LEA must not read memory contents
+    mem[0x1234] = 0xAA;  // decoy, LEA must not read memory contents
     run({0x8D, 0x06, 0x34, 0x12});  // LEA AX, [1234h]
     EXPECT_EQ(cpu->ax, 0x1234);
 }
@@ -189,7 +189,7 @@ TEST_F(Cpu80286Test, IncRegDoesNotAffectCarry) {
     cpu->set_flag(cpu80286::FLAG_CF, true);
     run({0x40});  // INC AX -> 0x0100
     EXPECT_EQ(cpu->ax, 0x0100);
-    EXPECT_TRUE(CF());  // INC never touches CF -- classic 8086/286 quirk
+    EXPECT_TRUE(CF());  // INC never touches CF, classic 8086/286 quirk
 }
 
 TEST_F(Cpu80286Test, DecRegDoesNotAffectCarry) {
@@ -417,7 +417,7 @@ TEST_F(Cpu80286Test, BoundWithinRangeDoesNotFault) {
     mem[0x0202] = 0x0A; mem[0x0203] = 0x00;  // upper bound = 10
     cpu->ax = 5;
     run({0x62, 0x06, 0x00, 0x02});  // BOUND AX, [0200h]
-    EXPECT_EQ(cpu->cs, 0);  // no interrupt taken -- CS unchanged
+    EXPECT_EQ(cpu->cs, 0);  // no interrupt taken, CS unchanged
 }
 
 TEST_F(Cpu80286Test, BoundOutOfRangeTriggersInterruptFive) {
@@ -511,8 +511,8 @@ TEST_F(Cpu80286Test, IntThenIretRestoresFlagsCsIp) {
     mem[0x21 * 4 + 2] = 0x00; mem[0x21 * 4 + 3] = 0x20;
     cpu->ss = 0; cpu->sp = 0xA000;
     cpu->set_flag(cpu80286::FLAG_IF, true);
-    load({0xCD, 0x21}, 0);                          // at CS:0 -- INT 21h
-    mem[(0x2000u << 4) + 0x1000] = 0xCF;             // at 2000:1000 -- IRET
+    load({0xCD, 0x21}, 0);                          // at CS:0, INT 21h
+    mem[(0x2000u << 4) + 0x1000] = 0xCF;             // at 2000:1000, IRET
     cpu->ip = 0;
     cpu->step();  // INT 21h
     EXPECT_EQ(cpu->cs, 0x2000);
@@ -605,7 +605,7 @@ TEST_F(Cpu80286Test, OpSize32MovImmediateLoadsFullThirtyTwoBits) {
 
 TEST_F(Cpu80286Test, OpSize16WritePreservesUpperHalfOfFullRegister) {
     cpu->ax = 0xDEAD0000;
-    run({0xB8, 0x34, 0x12});  // MOV AX, 1234h (no 0x66 -- 16-bit form)
+    run({0xB8, 0x34, 0x12});  // MOV AX, 1234h (no 0x66, 16-bit form)
     EXPECT_EQ(cpu->ax, 0xDEAD1234u);
 }
 

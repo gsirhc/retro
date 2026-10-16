@@ -3,9 +3,10 @@
 WebAssembly build of the 8080 core + Altair 88-2SIO board, wired to an
 [xterm.js](https://xtermjs.org/) terminal.
 
-`vendor/` holds xterm 5.3.0 + the fit addon and two bitmap fonts (VT323,
-Courier Prime — both OFL), checked in so the page needs no network at runtime.
-Refresh xterm with:
+`retroweb/shared/vendor/` holds xterm 5.3.0 + the fit addon and two bitmap fonts
+(VT323, Courier Prime, both OFL), checked in so the page needs no network at runtime.
+The 6502 Assembler uses the same copy; `make shared` puts it in `web/shared/vendor/`.
+Refresh xterm from `retroweb/shared/` with:
 
 ```sh
 curl -Lo vendor/xterm.js            https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js

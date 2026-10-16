@@ -231,7 +231,7 @@ TEST(EgaTest, MapMaskGatesWhichPlanesActuallyStore) {
 
     ega.out(0x3CE, 0x04); ega.out(0x3CF, 0x00); EXPECT_EQ(ega.mem_read(0xA0000), 0x00);
     ega.out(0x3CE, 0x04); ega.out(0x3CF, 0x01); EXPECT_EQ(ega.mem_read(0xA0000), 0x00);
-    // Planes 2 and 3 weren't in the mask -- their earlier 0xFF survives.
+    // Planes 2 and 3 weren't in the mask, their earlier 0xFF survives.
     ega.out(0x3CE, 0x04); ega.out(0x3CF, 0x02); EXPECT_EQ(ega.mem_read(0xA0000), 0xFF);
     ega.out(0x3CE, 0x04); ega.out(0x3CF, 0x03); EXPECT_EQ(ega.mem_read(0xA0000), 0xFF);
 }
@@ -249,7 +249,7 @@ TEST(EgaTest, ReadMode1ColorCompareMatchesOnlyCaredAboutPlanes) {
     ega.out(0x3CE, 0x05); ega.out(0x3CF, 0x08);  // Graphics Mode: read mode 1
     EXPECT_EQ(ega.mem_read(0xA0000), 0xFF);       // every bit matches on the one cared-about plane
 
-    ega.out(0x3CE, 0x02); ega.out(0x3CF, 0x00);  // now want plane0 = 0 -- no longer matches
+    ega.out(0x3CE, 0x02); ega.out(0x3CF, 0x00);  // now want plane0 = 0, no longer matches
     EXPECT_EQ(ega.mem_read(0xA0000), 0x00);
 }
 
@@ -262,7 +262,7 @@ TEST(EgaTest, OddEvenChainingRoutesCharacterGeneratorWritesToPlanes2And3) {
     ega.out(0x3CE, 0x05); ega.out(0x3CF, 0x00);  // Graphics Mode: write mode 0
     ega.out(0x3CE, 0x06); ega.out(0x3CF, 0x04);  // Misc: 64K @ A0000 window
     ega.out(0x3CE, 0x08); ega.out(0x3CF, 0xFF);  // Bit Mask: all bits pass through
-    ega.mem_write(0xA0000, 0x7E);                 // even address -- reaches plane 2
+    ega.mem_write(0xA0000, 0x7E);                 // even address, reaches plane 2
 
     ega.out(0x3CE, 0x04); ega.out(0x3CF, 0x02);  // Read Map Select: plane 2
     EXPECT_EQ(ega.mem_read(0xA0000), 0x7E);
@@ -299,7 +299,7 @@ TEST(EgaTest, AttrPaletteReportsTheLiveRegisterMaskedToSixBits) {
     Ega ega;
     ega.reset();
     ega.out(0x3C0, 0x05);  // index = palette register 5
-    ega.out(0x3C0, 0xFF);  // data -- only the low 6 bits are a real EGA color
+    ega.out(0x3C0, 0xFF);  // data, only the low 6 bits are a real EGA color
     EXPECT_EQ(ega.attr_palette(5), 0x3F);
     // Untouched registers still read back their reset value (0).
     EXPECT_EQ(ega.attr_palette(6), 0x00);

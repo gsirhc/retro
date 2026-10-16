@@ -107,7 +107,7 @@ private:
     uint8_t sector_number_ = 0x01;
     uint16_t byte_count_ = 0xEB14;  // low = 0x14, high = 0xEB: the ATAPI signature
     uint8_t drive_head_ = 0xA0;     // bits 5,7 always 1, same legacy fact as wd1003's
-    uint8_t status_ = 0x00;         // DRDY deliberately clear after reset -- see header
+    uint8_t status_ = 0x00;         // DRDY deliberately clear after reset; see header
 
     bool nien_ = false;   // Device Control bit 1: interrupts masked to the host
     bool srst_prev_ = false;

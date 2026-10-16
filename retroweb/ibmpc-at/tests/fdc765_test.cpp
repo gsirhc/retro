@@ -42,7 +42,7 @@ TEST_F(Fdc765Test, SpecifyIsAcceptedWithoutResult) {
     fdc.out(0x3F5, 0x03);  // SPECIFY
     fdc.out(0x3F5, 0xDF);  // SRT/HUT
     fdc.out(0x3F5, 0x02);  // HLT/ND
-    EXPECT_EQ(fdc.in(0x3F4) & 0x10, 0x00);  // FDC busy cleared -- command completed immediately
+    EXPECT_EQ(fdc.in(0x3F4) & 0x10, 0x00);  // FDC busy cleared, command completed immediately
     EXPECT_EQ(fdc.in(0x3F4) & 0x80, 0x80);  // RQM: ready for the next command
 }
 
@@ -144,9 +144,9 @@ TEST_F(Fdc765Test, InterruptClearsOnFirstResultByteNotTheWholePhase) {
     fdc.finish_transfer(512);
     ASSERT_TRUE(fdc.irq_pending());
 
-    fdc.in(0x3F5);  // read only ST0 -- 6 more result bytes are still unread
+    fdc.in(0x3F5);  // read only ST0, 6 more result bytes are still unread
     EXPECT_FALSE(fdc.irq_pending());
-    EXPECT_TRUE(fdc.in(0x3F4) & 0x10);  // controller still busy -- result phase isn't fully drained yet
+    EXPECT_TRUE(fdc.in(0x3F4) & 0x10);  // controller still busy, result phase isn't fully drained yet
 }
 
 TEST_F(Fdc765Test, DiskChangeLineSetByMountAndClearedBySeek) {
@@ -154,10 +154,10 @@ TEST_F(Fdc765Test, DiskChangeLineSetByMountAndClearedBySeek) {
     auto img = MakeImage(80, 2, 15);
     fdc.mount(0, img.data(), img.size());
     PowerOnMotorAndSelect(0);
-    EXPECT_TRUE(fdc.in(0x3F7) & 0x80);  // just mounted -- changed
+    EXPECT_TRUE(fdc.in(0x3F7) & 0x80);  // just mounted, changed
 
     fdc.out(0x3F5, 0x07); fdc.out(0x3F5, 0x00);  // RECALIBRATE drive 0
-    EXPECT_FALSE(fdc.in(0x3F7) & 0x80);  // stepped -- change acknowledged
+    EXPECT_FALSE(fdc.in(0x3F7) & 0x80);  // stepped, change acknowledged
 
     // Swapping media again re-asserts it, independent of the prior seek.
     auto img2 = MakeImage(80, 2, 15);

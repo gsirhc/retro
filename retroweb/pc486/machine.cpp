@@ -43,7 +43,7 @@ void Machine::configure_factory_cmos() {
     c.poke(0x1B, uint8_t(Wd1003::kCylinders & 0xFF));  // cylinders low  (1010 = 0x3F2)
     c.poke(0x1C, uint8_t(Wd1003::kCylinders >> 8));    // cylinders high
     c.poke(0x1D, Wd1003::kHeads);
-    c.poke(0x1E, 0xFF);  // write precomp low  -- 0xFFFF = "none"
+    c.poke(0x1E, 0xFF);  // write precomp low , 0xFFFF = "none"
     c.poke(0x1F, 0xFF);  // write precomp high
     // Control byte bit 3 is the Phoenix/AMI "more than 8 heads" flag; 9 heads
     // needs it. Unverified against a boot.

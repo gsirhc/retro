@@ -126,7 +126,7 @@
      above) -- shared verbatim across every machine page. */
 
 
-  /* ---- CRT monitor -- photoreal hardware, not page chrome, in every theme */
+  /* ---- CRT monitor, photoreal hardware, not page chrome, in every theme */
   .monitor { width: max-content; max-width: 100%; margin: 0 auto; }
   .monitor .bezel {
     position: relative; padding: 16px 18px;
@@ -135,7 +135,7 @@
                 inset 0 -3px 8px rgba(0,0,0,.8), 0 1px 1px rgba(255,255,255,.28);
     display: flex; justify-content: center; align-items: center;
   }
-  /* base size matches altair8800's own #screen width -- "maximize the
+  /* base size matches altair8800's own #screen width, "maximize the
      screen" per request; actual pixel content is still whatever
      resolution the current mode really is (640x350 text, 320x200 CGA
      graphics, etc. -- see app.js), just displayed larger. */
@@ -240,10 +240,10 @@
     background: #100f0d; border-radius: 1px;
     box-shadow: inset 0 0 0 1px #000, inset 0 1px 3px rgba(0,0,0,.9), 0 1px 0 rgba(255,255,255,.3);
   }
-  /* square, not round -- matching the real indicator lights, not a
+  /* square, not round, matching the real indicator lights, not a
      generic round "LED" look */
   .at-indicators .drive-led { width: 8px; height: 8px; border-radius: 1px; }
-  /* the case's own ventilation slats -- decorative, matching the real
+  /* the case's own ventilation slats, decorative, matching the real
      machine's left-side grille. Inset with a wider left/bottom margin
      than top/right, matching the real bezel's own plain-plastic border
      around the vent field (most visible along the bottom and the left
@@ -255,7 +255,7 @@
     box-shadow: inset 0 0 0 1px #8f886f, inset 0 2px 5px rgba(0,0,0,.3);
   }
 
-  /* rocker power switch -- a real physical toggle, not a checkbox look */
+  /* rocker power switch, a real physical toggle, not a checkbox look */
   .at-switch-group { display: inline-flex; align-items: center; gap: 7px; cursor: pointer; }
   .at-switch-group input { position: absolute; opacity: 0; width: 1px; height: 1px; }
   .at-switch {
@@ -281,7 +281,7 @@
     display: flex; flex-direction: column; gap: 0; justify-content: center;
     margin-left: auto;
   }
-  /* Recessed cutout the two faceplates sit in -- same warm beige family
+  /* Recessed cutout the two faceplates sit in, same warm beige family
      as .at-case / .at-vents, just a shade darker so it reads as a well. */
   .at-drive-stack {
     display: flex; flex-direction: column; gap: 0;
@@ -320,7 +320,7 @@
       inset 0 1px 0 rgba(255,255,255,.28),
       inset 0 -1px 0 rgba(0,0,0,.18);
   }
-  /* Wide, shallow finger pocket sitting just above the slot -- left of
+  /* Wide, shallow finger pocket sitting just above the slot, left of
      center, same proportions as the real latch recess in the photo. */
   .floppy-latch-well {
     position: absolute; left: 16%; top: 8px; z-index: 3;
@@ -429,7 +429,7 @@
     background: radial-gradient(circle at 40% 35%, #ffb199, #ff2200 60%, #b32200 100%);
     box-shadow: 0 0 8px 3px rgba(255,60,20,.85), inset 0 0 1px rgba(0,0,0,.5);
   }
-  /* the power LED glows green, not red, when lit -- distinct at a glance
+  /* the power LED glows green, not red, when lit, distinct at a glance
      from every activity LED */
   .drive-led.power-on {
     background: radial-gradient(circle at 40% 35%, #baffc8, #33cc55 55%, #147a2c);

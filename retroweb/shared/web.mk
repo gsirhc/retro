@@ -14,7 +14,7 @@ SHARED_ARCADE = arcade-cab.css arcade-touch.js arcade-core.js \
 # Copied from retroweb/shared/ at build time; only web/ gets staged.
 shared:
 	mkdir -p shared
-	cp $(addprefix $(SHARED)/,$(SHARED_BASE) $(SHARED_EXTRA)) shared/
+	cp -R $(addprefix $(SHARED)/,$(SHARED_BASE) $(SHARED_EXTRA)) shared/
 
 test-install:
 	npm ci

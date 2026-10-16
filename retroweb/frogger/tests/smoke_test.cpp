@@ -3,6 +3,7 @@
 #include <gtest/gtest.h>
 
 #include "hwtest_roms.h"
+#include "hwtest_set.h"
 #include "machine.h"
 
 #include <algorithm>
@@ -10,21 +11,12 @@
 
 namespace {
 
-frogger::RomSet test_set() {
-    frogger::RomSet s;
-    std::copy(frogger::hwtest::program.begin(), frogger::hwtest::program.end(), s.program.begin());
-    std::copy(frogger::hwtest::sound.begin(), frogger::hwtest::sound.end(), s.sound.begin());
-    std::copy(frogger::hwtest::gfx.begin(), frogger::hwtest::gfx.end(), s.gfx.begin());
-    std::copy(frogger::hwtest::color_prom.begin(), frogger::hwtest::color_prom.end(),
-              s.color_prom.begin());
-    return s;
-}
 
 }  // namespace
 
 TEST(Smoke, HwtestBootsSignatureWatchdogAndPaints) {
     frogger::Machine m;
-    m.load_roms(test_set());
+    m.load_roms(frogger::hwtest_set());
     m.reset();
     m.run_cycles(frogger::kCpuHz / 10);
     EXPECT_EQ(m.ram[0], 'T');

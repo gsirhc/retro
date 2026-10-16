@@ -135,7 +135,7 @@ void CassetteACR::out(uint8_t port, uint8_t value) {
     if (port == 0x07) {                        // write a byte onto the tape
         if (!rec_armed_ || !motor_) return;    // need PLAY + REC, like the real interlock
         if (mode_ != kRecording && pos_ == tape_.size() && pos_ != 0) {
-            // appending after an earlier program -- leave a blank gap first
+            // appending after an earlier program, leave a blank gap first
             tape_.resize(tape_.size() + kGapBytes, 0);
             pos_ = tape_.size();
         }

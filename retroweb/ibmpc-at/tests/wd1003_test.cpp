@@ -73,9 +73,9 @@ TEST_F(Wd1003Test, FloatedSignatureIsATwoReadWindowNotAPersistentState) {
     // master's value (IBM_PCAT_REVIEW.md).
     hdd.out(0x1F6, 0xB0);  // select drive 1 (slave, never mounted)
     hdd.out(0x3F6, 0x04);  // assert SRST
-    hdd.out(0x3F6, 0x00);  // release it -- arms the two-read floating window
+    hdd.out(0x3F6, 0x00);  // release it, arms the two-read floating window
     // Status was never floated.
-    EXPECT_TRUE(hdd.in(0x1F7) & 0x40);  // DRDY -- the real master, not floating
+    EXPECT_TRUE(hdd.in(0x1F7) & 0x40);  // DRDY, the real master, not floating
 
     hdd.in(0x1F4);  // consume both floating reads, exactly as ata_detect() does
     hdd.in(0x1F5);
@@ -161,7 +161,7 @@ TEST_F(Wd1003Test, WriteSectorsAcceptsDataImmediatelyThenCommitsSynchronously) {
     for (int i = 0; i < 255; ++i) hdd.data_out16(0xABCD);
     EXPECT_TRUE(hdd.in(0x1F7) & 0x08);  // still mid-transfer: DRQ still set, not yet BSY/done
     hdd.data_out16(0xABCD);  // the 256th and last word completes the sector
-    EXPECT_TRUE(hdd.in(0x3F6) & 0x40);  // DRDY, done -- synchronously, no tick() needed
+    EXPECT_TRUE(hdd.in(0x3F6) & 0x40);  // DRDY, done, synchronously, no tick() needed
     EXPECT_FALSE(hdd.in(0x3F6) & 0x80);  // and NOT still BSY
     EXPECT_TRUE(hdd.irq_pending());
 }
@@ -195,7 +195,7 @@ TEST_F(Wd1003Test, AbsentSlaveDriveOnlyRefusesToExecuteCommands) {
 
     hdd.out(0x1F7, 0xEC);  // IDENTIFY DEVICE sent to the "absent" drive
     EXPECT_FALSE(hdd.irq_pending());  // nothing answers -> no command actually ran
-    EXPECT_FALSE(hdd.in(0x1F7) & 0x08);  // and DRQ never got set -- no IDENTIFY data to read
+    EXPECT_FALSE(hdd.in(0x1F7) & 0x08);  // and DRQ never got set, no IDENTIFY data to read
 
     // Drive 0 runs the same command, so the gate is per command issue.
     hdd.out(0x1F6, 0xA0);

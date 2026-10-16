@@ -9,20 +9,14 @@
 #include <vector>
 
 #include "../machine.h"
+#include "arcade_frame.h"
 #include "hwtest_roms.h"
+#include "../hwtest_set.h"
 
 using emscripten::val;
 
 namespace {
 
-asteroids::RomSet hwtest_set() {
-    asteroids::RomSet s;
-    std::copy(asteroids::hwtest::program.begin(), asteroids::hwtest::program.end(),
-              s.program.begin());
-    std::copy(asteroids::hwtest::vector.begin(), asteroids::hwtest::vector.end(),
-              s.vector.begin());
-    return s;
-}
 
 void copy_val(val src, uint8_t* dst, size_t n) {
     auto v = emscripten::convertJSArrayToNumberVector<uint8_t>(src);
@@ -35,14 +29,14 @@ void copy_val(val src, uint8_t* dst, size_t n) {
 class Machine {
 public:
     Machine() {
-        m_.load_roms(hwtest_set());
+        m_.load_roms(asteroids::hwtest_set());
         m_.reset();
     }
 
     void reset() { m_.reset(); }
 
     void loadHwtest() {
-        m_.load_roms(hwtest_set());
+        m_.load_roms(asteroids::hwtest_set());
         m_.reset();
     }
 
@@ -60,12 +54,7 @@ public:
         // static: 4MB is far past the wasm stack.
         static std::array<uint32_t, asteroids::kFbW * asteroids::kFbH> rgb{};
         m_.render(rgb.data());
-        const int n = asteroids::kFbW * asteroids::kFbH * 4;
-        val out = val::global("Uint8ClampedArray").new_(n);
-        auto* p = reinterpret_cast<uint8_t*>(rgb.data());
-        // One bulk copy, a per-byte val::set() loop starves the cycle budget.
-        out.call<void>("set", val(emscripten::typed_memory_view(size_t(n), p)));
-        return out;
+        return arcade::rgba_view(rgb.data(), rgb.size());
     }
 
     // Packed [x0,y0,x1,y1,intensity, ...] in DVG space (y up).

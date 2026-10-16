@@ -196,7 +196,7 @@ TEST(Cassette, FastSpeedDeliversManyBytesPerTick) {
     c.tick(33333);                               // one 60 fps frame at 2 MHz
     int got = 0;
     while ((c.in(STAT) & ST_RDA) == 0 && got < 400) { c.in(DATA); ++got; }
-    EXPECT_GT(got, 15);                          // ~25 bytes -- not frame-capped at 1
+    EXPECT_GT(got, 15);                          // ~25 bytes, not frame-capped at 1
 }
 
 TEST(Cassette, UnlimitedSpeedNeverGates) {
@@ -233,7 +233,7 @@ TEST(Cassette, RecordAppendsForMultipleFiles) {
     std::vector<uint8_t> b = {0xB0, 0xB1};
     for (uint8_t v : a) tapeWrite(c, v);
     c.setRecordArm(false);                       // STOP
-    c.setRecordArm(true);                        // REC again -- head still past A
+    c.setRecordArm(true);                        // REC again, head still past A
     for (uint8_t v : b) tapeWrite(c, v);
 
     const auto &tape = c.data();
@@ -301,7 +301,7 @@ TEST(Cassette, PlayRunsOffTheEndAndStops) {
         c.tick(t);
     EXPECT_EQ(c.pos(), c.capacity());
     EXPECT_EQ(c.transport(), CassetteACR::kStop);   // motor released itself
-    EXPECT_EQ(c.in(0x07), 0);                       // nothing feeds -- transport is stopped
+    EXPECT_EQ(c.in(0x07), 0);                       // nothing feeds, transport is stopped
 }
 
 // RESET zeroes the CPU cycle counter that feeds tick(); the deck must keep rolling

@@ -31,7 +31,7 @@ atari::Pokey running() {
 }  // namespace
 
 TEST(Pokey, PureToneIsSquare) {
-    // AUDC $AF = NOTPOLY5|PURE|vol — must toggle the latch, not sample poly.
+    // AUDC $AF = NOTPOLY5|PURE|vol, must toggle the latch, not sample poly.
     atari::Pokey p;
     p.reset();
     p.write(0x0F, 0x03);

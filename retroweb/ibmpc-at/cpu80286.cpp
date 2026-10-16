@@ -929,7 +929,7 @@ int Cpu::grp2_shift(uint8_t op) {  // 0xC0/0xD0/0xD2: 8-bit  0xC1/0xD1/0xD3: 16-
     if (op == 0xD0 || op == 0xD1) return rm.is_mem ? 7 : 2;
     return rm.is_mem ? (8 + count) : (5 + count);
 }
-int Cpu::grp3_unary(uint8_t op) {  // 0xF6: r/m8  0xF7: r/m16 -- TEST/NOT/NEG/MUL/IMUL/DIV/IDIV
+int Cpu::grp3_unary(uint8_t op) {  // 0xF6: r/m8  0xF7: r/m16, TEST/NOT/NEG/MUL/IMUL/DIV/IDIV
     RM rm = decode_modrm();
     int alu = last_reg_;
     bool wide = (op == 0xF7);
@@ -1135,7 +1135,7 @@ int Cpu::step() {
             case 0x36: seg_override_ = SEG_SS; break;
             case 0x3E: seg_override_ = SEG_DS; break;
             case 0x66: if (!firmware()) ud(); opsize32_ = true; break;  // 386 operand-size override
-            case 0xF0: break;             // LOCK -- no-op, this core has no other bus master
+            case 0xF0: break;             // LOCK, no-op, this core has no other bus master
             case 0xF1: break;             // LOCK alias on the 286, tested on hardware (rep lodsb, "Intel 286 secrets")
             case 0xF2: rep_ = REP_NZ; break;
             case 0xF3: rep_ = REP_Z; break;
@@ -1247,13 +1247,13 @@ int Cpu::execute(uint8_t op, int c) {
                 }
                 c += 3;
             } else if (op2 == 0xB6 || op2 == 0xB7) {
-                // MOVZX r16/32, r/m8 (0xB6) or r/m16 (0xB7) -- 386 addition.
+                // MOVZX r16/32, r/m8 (0xB6) or r/m16 (0xB7), 386 addition.
                 RM rm2 = decode_modrm();
                 if (op2 == 0xB6) { uint8_t v = rm_read8(rm2); if (opsize32_) set_reg32(last_reg_, v); else set_reg16(last_reg_, v); }
                 else { uint16_t v = rm_read16(rm2); if (opsize32_) set_reg32(last_reg_, v); else set_reg16(last_reg_, v); }
                 c += 3;
             } else if (op2 == 0xBE || op2 == 0xBF) {
-                // MOVSX r16/32, r/m8 (0xBE) or r/m16 (0xBF) -- 386 addition.
+                // MOVSX r16/32, r/m8 (0xBE) or r/m16 (0xBF), 386 addition.
                 RM rm2 = decode_modrm();
                 if (op2 == 0xBE) { int8_t v = int8_t(rm_read8(rm2)); if (opsize32_) set_reg32(last_reg_, uint32_t(int32_t(v))); else set_reg16(last_reg_, uint16_t(int16_t(v))); }
                 else { int16_t v = int16_t(rm_read16(rm2)); if (opsize32_) set_reg32(last_reg_, uint32_t(int32_t(v))); else set_reg16(last_reg_, uint16_t(v)); }
