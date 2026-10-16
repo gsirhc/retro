@@ -5,7 +5,6 @@ ATARI = ../../shared/atari
 NAME = missile
 EXPORT_NAME = MissileArcade
 SRC = wasm_machine.cpp $(CORE)/machine.cpp $(CPU)/cpu_mos6502.cpp $(ATARI)/pokey.cpp
-HDR = wasm_machine.cpp $(CORE)/machine.h $(CPU)/cpu_mos6502.h $(ATARI)/pokey.h hwtest_roms.h
 INCLUDES = -I$(CPU) -I$(ATARI)
 
 include $(SHARED)/arcade.mk

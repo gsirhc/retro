@@ -16,8 +16,9 @@ EMFLAGS = -O2 -std=c++17 -lembind --no-entry \
   -sALLOW_MEMORY_GROWTH=1 \
   -sFILESYSTEM=0
 
-cgoac6502.js: $(SRC) $(HDR)
+cgoac6502.js: $(SRC)
 	$(EMCC) $(EMFLAGS) $(SRC) -o $@
+	$(call write_deps,$(SRC))
 
 # Default ROM, built from cpu6502/rom/. Phony, since it has no prerequisites to timestamp against.
 roms/firmware.bin:
@@ -64,7 +65,7 @@ coverage: wasm roms examples-bin shared
 	COVERAGE=1 npx playwright test
 
 clean:
-	rm -f cgoac6502.js cgoac6502.wasm roms/firmware.bin gen_example_bin examples/*.bin
+	rm -f cgoac6502.js cgoac6502.wasm cgoac6502.d roms/firmware.bin gen_example_bin examples/*.bin
 	rm -rf shared
 	rm -rf test-results playwright-report coverage .v8-coverage
 

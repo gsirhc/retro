@@ -67,7 +67,7 @@ public:
     CmosRtc cmos{64, 1986, 4};  // MC146818A; 1 January 1986 was a Wednesday
     Dma8237 dma1{0x00, 1};
     Dma8237 dma2{0xC0, 2};
-    Fdc765 fdc;
+    Fdc765 fdc{8000000.0, pc::kDrive12M, pc::kDrive360K};
     Ega ega;
     Wd1003 hdd;
     PcSpeaker speaker;

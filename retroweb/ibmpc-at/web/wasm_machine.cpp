@@ -5,6 +5,7 @@
 //   m.loadRom(0xC0000, egaBiosBytes);    // egabios.bin extension ROM
 //   m.mountHdd(hddBytes);                // C: image, chosen before power-on
 //   m.hddDirty() / m.clearHddDirty() / m.hddImage()  // persist C: across power cycles
+//   m.hddDirtyPatches()                  // [{offset, bytes}, ...] only what changed
 //   m.mountFloppy(0, imgBytes);          // drive A:
 //   m.runCycles(66667);                  // one frame at 8 MHz
 //   const frame = m.renderFrame(); // RGBA; then renderWidth()/renderHeight()
@@ -126,6 +127,21 @@ public:
             out.call<void>("set", val(emscripten::typed_memory_view(img.size(), img.data())));
         return out;
     }
+    // The byte ranges dirty_ranges() reports, each as its own Uint8Array (wd1003.h).
+    val hddDirtyPatches() {
+        auto ranges = m_.chipset.hdd.dirty_ranges(0);
+        const std::vector<uint8_t> &img = m_.chipset.hdd.image(0);
+        val out = val::array();
+        for (const auto &r : ranges) {
+            val entry = val::object();
+            entry.set("offset", r.offset);
+            val bytes = val::global("Uint8Array").new_(r.length);
+            bytes.call<void>("set", val(emscripten::typed_memory_view(r.length, img.data() + r.offset)));
+            entry.set("bytes", bytes);
+            out.call<val>("push", entry);
+        }
+        return out;
+    }
 
     // ---- PC speaker ----
     // drains the (cpu_cycle, level) edges since the last call; cycles/8e6 is seconds
@@ -206,6 +222,7 @@ EMSCRIPTEN_BINDINGS(ibmpcat_machine) {
         .function("hddDirty", &WasmMachine::hddDirty)
         .function("clearHddDirty", &WasmMachine::clearHddDirty)
         .function("hddImage", &WasmMachine::hddImage)
+        .function("hddDirtyPatches", &WasmMachine::hddDirtyPatches)
         .function("speakerLevel", &WasmMachine::speakerLevel)
         .function("speakerEdges", &WasmMachine::speakerEdges)
         .function("textScreen", &WasmMachine::textScreen);

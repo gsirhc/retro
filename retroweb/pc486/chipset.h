@@ -68,7 +68,7 @@ public:
     CmosRtc cmos{128, 1994, 7};  // DS12887 class; 1 January 1994 was a Saturday
     Dma8237 dma1{0x00, 1};
     Dma8237 dma2{0xC0, 2};
-    Fdc765 fdc;
+    Fdc765 fdc{66000000.0, pc::kDrive144M, pc::kDrive144M};  // B: unpopulated
     // VGA card; the class is still named Ega.
     Ega vga;
     // Primary IDE channel (0x1F0, IRQ14).

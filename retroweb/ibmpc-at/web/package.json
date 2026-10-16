@@ -9,7 +9,7 @@
     "coverage": "COVERAGE=1 playwright test"
   },
   "devDependencies": {
-    "@playwright/test": "^1.62.0",
+    "@playwright/test": "1.63.0",
     "monocart-coverage-reports": "^2.13.0"
   }
 }

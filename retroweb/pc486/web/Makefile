@@ -16,7 +16,7 @@ CORE = ..
 PC = ../../shared/pc
 SRC = wasm_machine.cpp $(CORE)/machine.cpp $(CORE)/chipset.cpp $(CORE)/cpu80486.cpp $(CORE)/cache486.cpp \
       $(PC)/pic8259.cpp $(PC)/pit8253.cpp $(CORE)/i8042.cpp $(PC)/cmos_rtc.cpp \
-      $(PC)/dma8237.cpp $(CORE)/fdc765.cpp $(CORE)/ega.cpp $(CORE)/ega_render.cpp \
+      $(PC)/dma8237.cpp $(PC)/fdc765.cpp $(CORE)/ega.cpp $(CORE)/ega_render.cpp \
       $(CORE)/wd1003.cpp $(CORE)/atapi_cdrom.cpp $(PC)/pcspeaker.cpp \
       $(CORE)/soundblaster.cpp \
       $(CORE)/opl3.cpp \
@@ -33,15 +33,14 @@ EMFLAGS = -O3 -flto -std=c++17 -lembind --no-entry -fwasm-exceptions -sSUPPORT_L
   -sALLOW_MEMORY_GROWTH=1 \
   -sFILESYSTEM=0
 
-# Headers count: hot paths are inline in the .h files, so a stale module hides header-only changes.
-HDRS = $(wildcard $(CORE)/*.h $(PC)/*.h)
-
-pc486.js: $(SRC) $(HDRS)
+pc486.js: $(SRC)
 	$(EMCC) $(EMFLAGS) $(SRC) -o $@
+	$(call write_deps,$(EMCC_PERF_FLAGS) $(SRC))
 
 # Instrumented twin: same sources and export name, counters compiled in, chosen by ?perf.
-pc486-perf.js: $(SRC) $(HDRS)
+pc486-perf.js: $(SRC)
 	$(EMCC) $(EMFLAGS) -DPC486_PERF $(SRC) -o $@
+	$(call write_deps,-DPC486_PERF $(SRC))
 
 perf-build: pc486-perf.js
 
@@ -151,7 +150,7 @@ coverage: pc486.js roms shared legacy-hdd-fixture
 	COVERAGE=1 npx playwright test
 
 clean:
-	rm -f pc486.js pc486.wasm
+	rm -f pc486.js pc486.wasm pc486.d pc486-perf.d
 	rm -rf shared
 	rm -rf test-results playwright-report coverage .v8-coverage tests/media
 
@@ -161,7 +160,7 @@ library-images:
 	mkdir -p disks/library
 	cp $(CORE)/disks/library/*.img $(CORE)/disks/library.json disks/library/
 
-STAGE = index.html app.js pc486.js pc486.wasm pc486-perf.js pc486-perf.wasm hdd-convert.js hdd-worker.js assets disks roms shared
+STAGE = index.html app.js pc486.js pc486.wasm pc486-perf.js pc486-perf.wasm assets disks roms shared
 SHARED_EXTRA = $(SHARED_PC)
 define STAGE_POST
 find $(DEST)/disks -name '*-hdd.img' -delete

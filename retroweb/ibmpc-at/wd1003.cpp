@@ -96,6 +96,7 @@ void Wd1003::mount(int drive, const uint8_t *data, std::size_t len) {
     d.image.assign(data, data + len);
     d.present = true;
     d.dirty = false;
+    d.dirty_page.assign((len + Drive::kDirtyPageSize - 1) / Drive::kDirtyPageSize, false);
     d.bad_sectors.clear();
     d.ecc_override.clear();
     d.layout.clear();
@@ -451,7 +452,7 @@ void Wd1003::finish_write() {
             if (ecc != data_ecc(src)) d.ecc_override[first + i] = ecc;
         }
     }
-    if (good > 0) d.dirty = true;
+    if (good > 0) d.mark_dirty(xfer_offset_, std::size_t(good) * Drive::kBytesPerSector);
     complete(bad < 0 ? 0 : ERR_BB);
 }
 
@@ -486,6 +487,7 @@ void Wd1003::finish_format() {
             slot_of[std::size_t(r - 1)] = i;
             long off = d.offset_for(cyl, head, r);
             std::fill(d.image.begin() + off, d.image.begin() + off + Drive::kBytesPerSector, uint8_t(0));
+            d.mark_dirty(off, Drive::kBytesPerSector);
             if (flag & 0x80) d.bad_sectors.insert(track + r - 1);
         }
         d.layout[track_index] = {slot_of, std::max(count, 1)};

@@ -1,111 +1,78 @@
 # retroweb Architecture Review
 
-Second pass over all 12 machines, `shared/`, the Makefiles, and the CI
-workflows. The first review's items (PC chipset merge, arcade-core, site
-staging, fast-flag strip, shared chip tests, CI and Makefile consolidation,
-sleep removal, comment style, site size) all landed and are no longer
-listed. Findings come from reading and diffing source; no tests or builds
-were run for this review.
+The open backlog from three passes over all 12 machines, `shared/`, the
+Makefiles, `watch_site.py` and the CI workflows. Finished items are
+removed; their history is in git and each machine's review doc. Nothing
+here is broken today. These are cleanups.
 
 ## Medium priority
 
-### M1. ibmpc-at's C: persistence lags pc486's
+### M5. Thirteen npm projects
 
-`ibmpc-at/web/app.js` (`openHddDb`, `saveHdd`, `persistHddIfDirty`):
+Each machine's `web/` has its own `package.json`, lockfile and ~18-22 MB
+`node_modules`, plus `retroweb/package.json` for lint. All thirteen pin
+`@playwright/test` to `1.63.0`, so versions agree, but a bump means
+thirteen `npm install`s and CI runs `npm ci` per job.
 
-- Every 5 s while C: is dirty, the whole 31.9 MB image goes to IndexedDB
-  with a `put()` on the main thread. The structured clone runs on the same
-  thread that paces the 80286, so a DOS session that writes to disk gets a
-  hitch every 5 s. pc486 already solved this: a worker owns storage and
-  only the written sectors go across (`hdd-worker.js`, `hddDirtyPatches()`).
-- `openHddDb()` opens a new connection on every load, save and clear, and
-  never closes one. The arcades fixed the same pattern with H3 (one
-  connection, closed on `versionchange`).
-- ~~`persistHddIfDirty()` clears the dirty flag before `saveHdd()` has
-  committed, so a failed write is never retried.~~ Done: a failed save is
-  retried a minute later (`hddRetryAt`), and the label changes only once
-  the write commits.
+Suggested fix: make `retroweb/` an npm workspace root (`"workspaces":
+["*/web"]`), one lockfile. `make test-install` and the CI `npm ci` steps
+then run once from `retroweb/`.
 
-Both PCs, done:
+### M7. The machine list lives in too many places
 
-- ~~A failed save only reaches `console.error` and the label says "saved"
-  before the write starts.~~ The label now changes only after the write
-  commits. A failed read or write shows "Changes to C: won't be there when
-  you return" (`HDD_STORAGE_BLOCKED`). pc486 also guards the startup read
-  and the blank, seed and upload writes, retries a failed patch save as a
-  full image (its dirty sectors are already consumed), and `hdd-worker.js`
-  drops a rejected `openDb()` so storage that comes back gets used.
-- ~~No "with IndexedDB blocked" case.~~ `tests/hddstorage.spec.ts` in both
-  suites: the factory C: boots with storage blocked and warns, and a
-  refused save warns, never shows "saved", and is retried once storage
-  works. pc486 injects the block into the worker with `page.route`.
-- ibmpc-at only: the "Barebones FreeDOS" notice from pc486 shows over the
-  factory C: (`tests/bootnotice.spec.ts`).
+Adding a machine means touching about a dozen lists (CLAUDE.md's wiring
+checklist). Two of them repeat whole build recipes rather than names:
 
-Remaining: the whole-image main-thread `put()` and the per-call
-connections.
+- `retroweb/Makefile` `_stage` and `deploy-emulator.yml`'s `build` job
+  each spell out every machine's targets (`ibmpcat.js roms hdd-image
+  library-images preset-images shared`, ...). They match today but are
+  maintained separately.
+- `make preview`'s URL echo is a third copy of `MACHINES`.
 
-Suggested fix: move ibmpc-at onto the same worker and patch path, sharing
-`hdd-worker.js` through `SHARED_PC` with the database name and model as
-parameters. The pc486 storage handling above then covers ibmpc-at too.
+The `build` job also recompiles every wasm module that the `*-web-test`
+jobs just built and tested, so the deployed binary is a second build of
+the tested one.
 
-### ~~M2. Twelve `devserve.py` copies in five variants~~ Done
-
-Every Playwright config (both its servers) and every `make serve` run
-`python3 ../../serve_nocache.py PORT DIR`, and the twelve `devserve.py`
-copies are gone. Every suite now gets no-store and the gzip-sibling rule
-(raw file must exist) the same way `make preview` and Pages do.
-
-### ~~M3. Arcade Playwright specs are copy-paste~~ Done
-
-`theme`, `seam`, `fullscreen`, `focus-hint`, `footer` and `mute` live once
-in `shared/arcade-tests/`, plus `storage.spec.ts`: the arcade-core blocks
-from each `rom.spec.ts` (stored set unreadable, the open store giving way
-to `deleteDatabase`, IndexedDB blocked). `arcade.mk` sets `SHARED_TESTS`
-and `make shared` copies them into each cabinet's git-ignored
-`web/tests/shared/`. Each cabinet's `web/tests/cabinet.ts` gives the ROM
-database name, the hwtest files (`rom.spec.ts` imports them too) and the
-byte flipped to make a user set.
-
-The drift is gone with the copies: asteroids' fullscreen gets the centring
-check, every cabinet gets the `deleteDatabase` test (only frogger had it),
-and every cabinet's blocked-storage case loads a real user set as galaga's
-did. Galaga's "hwtest ROM stays silent" moved to its `audio.spec.ts`.
-The `hiscore.spec.ts` blocks stay per cabinet: they depend on each board's
-HIGH SCORE layout and gate.
+Suggested fix: a `site-deps` target in `shared/web.mk` (default `wasm
+roms shared`, overridden in the PC and terminal Makefiles). `_stage`
+becomes a loop over `MACHINES`, CI's `build` job calls `make -C retroweb
+_stage` (keeping its cache steps for the slow PC images in front), and the
+URL echo loops too. Shipping the tested artifacts is optional on top.
 
 ## Low priority
 
-- ~~**CLAUDE.md port list.**~~ Done: `8110` and `8400`/`8410` added.
-- ~~**ibmpc-at typing helpers wait on time, not the guest.**~~ Done: the
-  8042's `keys_pending()` (FIFO, link transfer or unread port 0x60 byte) is
-  exposed as `keysPending`, and `tap`/`typeStr` wait on it. No JS queue is
-  needed, the keyboard buffers make and break itself.
-- ~~**POKEY linked low channel.**~~ Done: a linked low channel borrows at
-  its own AUDF, then every 256 clocks, and the high channel's borrow reloads
-  both (MAME `pokey.cpp` `step_one_clock`).
-- ~~**actionlint isn't run.**~~ Done: `make lint` runs a pinned,
-  SHA-256-checked actionlint 1.7.12 (`fetch-actionlint.sh`, cached in
-  `retroweb/.tools/`). Clean with and without shellcheck on PATH.
-- **PC front-end overlap.** About 80 lines are byte-identical between
+- **PC front-end overlap.** About 100 lines are near-identical between
   `ibmpc-at/web/app.js` and `pc486/web/app.js`: the load overlay
   (`beginLoad`, `endLoad`, `withLoad`, `paintLoadOverlay`), frame sizing
   (`fitScreen`, `setFrameSize`, `presentFrame`, `clearScreenToBlack`),
-  `setBayLoaded` and `refreshFkeyControls`. Small enough to leave, but if
-  M1 shares the HDD worker, these could go in a `shared/pc-front.js` in the
-  same change.
+  `setBayLoaded`, `refreshFkeyControls`, and the `hdd-worker.js` client
+  and save queue. These could go in a `shared/pc-front.js`.
+- **Forked PC chips.** `wd1003`, `i8042` and `ega` stay separate copies
+  (IDE vs MFM, the PS/2 aux port and VGA are real differences). When a
+  protocol fix lands in one, check the other's copy in the same change.
+- **ibmpc-at reaches into pc486.** `ibmpc-at/Makefile` and
+  `disks/build-preset-hdd.sh` use `../pc486/disks/zero-free-clusters.py`
+  and pc486's FreeDOS CD (`$(MAKE) -C ../pc486 disks/freedos-cd.iso`).
+  Move the script to `shared/dos-library/` and the CD fetch beside it, so
+  neither PC builds out of the other's folder.
+- **CI cache keys repeated.** The PC image cache keys (`ibmpcat-hdd`,
+  `pc486-hdd`, `pc486-cd`, both `*-preset-hdds`) are spelled out about 20
+  times across restore/save pairs in both workflows. They agree today. A
+  composite action per image, like `.github/actions/fetch-altair-media`,
+  would define each key once.
+- **Theme bootstrap sync.** `shared/theme-init.js` and its three inlined
+  copies (`index.html`, `about.html`, `arcade/index.html`) match today,
+  but nothing checks it. A `lint-staging` step that minifies the shared
+  file and compares it to each inline `<script>` would hold them together.
 
-## Suggested order
+## Not planned
 
-Keep this list current. When an item lands, strike it through and point to
-the entry that records the fix. A new finding goes in its section above and
-gets a place here in the same change, so this list is always the whole
-backlog.
+- **Arcade page scaffolding.** Each cabinet's `app.js` repeats keys, coin
+  door, DIPs and `window.__test` around `arcade-core.js`, and each
+  `index.html` inlines ~110 lines of CSS. The per-cabinet code is where the
+  boards really differ, and the shared specs in `shared/arcade-tests/`
+  already guard the common surface.
 
-1. **M1**, ~~the PC storage warning and blocked-storage specs~~ (done, see
-   M1), then ibmpc-at onto the worker.
-2. ~~**M2**, one dev server.~~ Done, see M2.
-3. ~~**M3**, shared arcade specs.~~ Done, see M3.
-4. **Low**: ~~the CLAUDE.md port list~~, ~~the ibmpc-at typing helpers~~,
-   ~~actionlint in `make lint`~~, ~~the POKEY linked low channel~~ (done, see
-   Low). The PC front-end overlap waits for M1's worker move.
+## Next review
+
+Bugs and fidelity only, not refactors or duplication.

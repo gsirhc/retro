@@ -40,6 +40,7 @@ retroweb/_site.new/
 # local TLS cert for `make preview` (see retroweb/Makefile's preview-cert)
 retroweb/.preview-tls/
 retroweb/.tools/
+retroweb/*/web/*.d
 
 retroweb/altair8800/emu8080
 retroweb/altair8800/tests/build/

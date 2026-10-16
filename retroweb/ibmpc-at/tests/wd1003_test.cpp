@@ -410,6 +410,33 @@ TEST_F(Wd1003CommandTest, FormatTrackStartsAtIndexAndZeroesTheTrack) {
     EXPECT_TRUE(hdd.dirty(0));
 }
 
+TEST_F(Wd1003CommandTest, DirtyRangesCoverOnlyTheWrittenSectorsUntilCleared) {
+    EXPECT_TRUE(hdd.dirty_ranges(0).empty());
+    Chs(10, 2, 4, 2);
+    hdd.out(0x1F7, 0x30);
+    for (int i = 0; i < 512; ++i) hdd.data_out16(0x7777);
+    auto ranges = hdd.dirty_ranges(0);
+    ASSERT_EQ(ranges.size(), 1u);
+    long off = hdd.drives[0].offset_for(10, 2, 4);
+    EXPECT_LE(long(ranges[0].offset), off);
+    EXPECT_GE(long(ranges[0].offset + ranges[0].length), off + 1024);
+    EXPECT_LE(ranges[0].length, 2u * Wd1003::Drive::kDirtyPageSize);
+    hdd.clear_dirty(0);
+    EXPECT_FALSE(hdd.dirty(0));
+    EXPECT_TRUE(hdd.dirty_ranges(0).empty());
+}
+
+TEST_F(Wd1003CommandTest, FormatTrackMarksTheZeroedSectorsDirty) {
+    uint8_t table[34] = {};
+    for (int i = 0; i < 17; ++i) table[i * 2 + 1] = uint8_t(i + 1);
+    Format(3, 1, table);
+    long first = hdd.drives[0].offset_for(3, 1, 1), last = hdd.drives[0].offset_for(3, 1, 17) + 512;
+    uint32_t covered = 0;
+    for (const auto& r : hdd.dirty_ranges(0))
+        if (long(r.offset) < last && long(r.offset + r.length) > first) covered += r.length;
+    EXPECT_GE(long(covered), last - first);
+}
+
 TEST_F(Wd1003CommandTest, OneToOneInterleaveMissesTheNextSectorWhileTheHostDrains) {
     uint8_t table[34] = {};
     for (int i = 0; i < 16; ++i) table[i * 2 + 1] = uint8_t(i + 1);

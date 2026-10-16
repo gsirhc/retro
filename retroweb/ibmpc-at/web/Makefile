@@ -7,7 +7,7 @@ CORE = ..
 PC = ../../shared/pc
 SRC = wasm_machine.cpp $(CORE)/machine.cpp $(CORE)/chipset.cpp $(CORE)/cpu80286.cpp \
       $(PC)/pic8259.cpp $(PC)/pit8253.cpp $(CORE)/i8042.cpp $(PC)/cmos_rtc.cpp \
-      $(PC)/dma8237.cpp $(CORE)/fdc765.cpp $(CORE)/ega.cpp $(CORE)/ega_render.cpp \
+      $(PC)/dma8237.cpp $(PC)/fdc765.cpp $(CORE)/ega.cpp $(CORE)/ega_render.cpp \
       $(CORE)/wd1003.cpp $(PC)/pcspeaker.cpp
 
 EMFLAGS = -O2 -std=c++17 -lembind --no-entry \
@@ -16,10 +16,9 @@ EMFLAGS = -O2 -std=c++17 -lembind --no-entry \
   -sALLOW_MEMORY_GROWTH=1 \
   -sFILESYSTEM=0
 
-HDRS = $(wildcard $(CORE)/*.h $(PC)/*.h)
-
-ibmpcat.js: $(SRC) $(HDRS)
+ibmpcat.js: $(SRC)
 	$(EMCC) $(EMFLAGS) $(SRC) -o $@
+	$(call write_deps,$(SRC))
 
 .PHONY: library-images shared roms hdd-image serve test test-smoke test-install coverage clean preset-images stage
 
@@ -92,7 +91,7 @@ coverage: ibmpcat.js roms shared
 	COVERAGE=1 npx playwright test
 
 clean:
-	rm -f ibmpcat.js ibmpcat.wasm
+	rm -f ibmpcat.js ibmpcat.wasm ibmpcat.d
 	rm -rf shared
 	rm -rf test-results playwright-report coverage .v8-coverage
 

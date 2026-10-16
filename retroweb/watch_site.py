@@ -39,12 +39,6 @@ WASM_TARGETS = {
     "pc486": ["pc486.js", "pc486-perf.js"],
 }
 
-ARCADE = ("pacman", "frogger", "galaga", "galaxian", "scramble")
-ATARI = ("asteroids", "centipede", "missile")
-GALAXIAN_HW = ("frogger", "scramble", "galaxian")
-NAMCO_WSG = ("pacman", "galaga")
-PC_CHIPS = ("ibmpc-at", "pc486")
-
 GENERATED_JS = frozenset({
     "retro8080.js",
     "cgoac6502.js",
@@ -95,7 +89,7 @@ def _should_skip_dir(name):
 
 def classify(rel):
     """Return a change tag or None if ignored: root_static, shared_front,
-    (shared_cpp, machine), (machine_static, machine), (machine_cpp, machine)."""
+    (shared_cpp,), (machine_static, machine), (machine_cpp, machine)."""
     rel = rel.replace("\\", "/")
     if rel.startswith("_site/") or rel == "_site":
         return None
@@ -117,26 +111,8 @@ def classify(rel):
     # retroweb/shared/
     if rel.startswith("shared/"):
         rest = rel[len("shared/"):]
-        if rest.startswith("cpu/"):
-            if ext in CPP_EXT:
-                return ("shared_cpp", "cpu")
-            return None
-        if rest.startswith("galaxian/"):
-            if ext in CPP_EXT:
-                return ("shared_cpp", "galaxian")
-            return None
-        if rest.startswith("namco/"):
-            if ext in CPP_EXT:
-                return ("shared_cpp", "namco")
-            return None
-        if rest.startswith("atari/"):
-            if ext in CPP_EXT:
-                return ("shared_cpp", "atari")
-            return None
-        if rest.startswith("pc/"):
-            if ext in CPP_EXT:
-                return ("shared_cpp", "pc")
-            return None
+        if ext in CPP_EXT:
+            return ("shared_cpp",)
         if rest.startswith("__pycache__/"):
             return None
         if ext in STATIC_EXT or rest.endswith(".py"):
@@ -211,20 +187,6 @@ def scan_mtimes():
     return out
 
 
-def machines_for_shared_cpp(kind):
-    if kind == "cpu":
-        return list(ARCADE) + list(ATARI)
-    if kind == "galaxian":
-        return list(GALAXIAN_HW)
-    if kind == "namco":
-        return list(NAMCO_WSG)
-    if kind == "atari":
-        return list(ATARI)
-    if kind == "pc":
-        return list(PC_CHIPS)
-    return []
-
-
 class ChangeSet:
     def __init__(self):
         self.root_static = False
@@ -241,8 +203,8 @@ class ChangeSet:
         elif kind == "shared_front":
             self.shared_front = True
         elif kind == "shared_cpp":
-            for m in machines_for_shared_cpp(tag[1]):
-                self.wasm_machines.add(m)
+            # every machine's make decides from its .d files whether the change reaches it
+            self.wasm_machines.update(WASM_TARGETS)
         elif kind == "machine_static":
             self.static_machines.add(tag[1])
         elif kind == "machine_cpp":

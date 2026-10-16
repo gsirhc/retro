@@ -124,7 +124,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - working-directory: retroweb/altair8800/web
         run: npm ci
@@ -172,7 +172,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - working-directory: retroweb/assembler6502/web
         run: npm ci
@@ -289,7 +289,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - working-directory: retroweb/ibmpc-at/web
         run: make test-install
@@ -447,7 +447,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - working-directory: retroweb/pc486/web
         run: make test-install

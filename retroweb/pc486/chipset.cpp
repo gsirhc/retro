@@ -192,8 +192,10 @@ void Chipset::service(uint64_t cpu_cycles, double cpu_hz) {
     vga.tick(cpu_cycles);
     // Once the paced FDC transfer wait has elapsed, copy the block in one step
     // through DMA1 channel 2. DMA bypasses the A20 gate.
-    dma1.set_dreq(2, fdc.transfer_ready());
-    if (fdc.transfer_ready() && !dma1.channel_masked(2)) {
+    // DOR bit 3 gates DRQ as well as INT (WD1003-WA2 OEM manual, FDMAEN).
+    bool drq = fdc.transfer_ready() && fdc.dma_enabled();
+    dma1.set_dreq(2, drq);
+    if (drq && !dma1.channel_masked(2)) {
         uint16_t dma_len16 = uint16_t(dma1.count(2) + 1);  // 8237 count register is programmed as N-1
         std::size_t len = std::min(fdc.transfer_length(), std::size_t(dma_len16));
         uint32_t addr = (uint32_t(dma1.page(2)) << 16) | dma1.address(2);

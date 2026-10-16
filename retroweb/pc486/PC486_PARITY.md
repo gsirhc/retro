@@ -70,9 +70,9 @@ page, a Playwright test, in the same commit.
   MULTIPLE (with SET MULTIPLE MODE), SET FEATURES, EXECUTE DIAGNOSTIC,
   RECALIBRATE and the power commands. Source: ATA-1 (X3.221) and the
   WD Caviar AC2250 manual.
-- **S2. FORMAT TRACK leaves old sector data.** It should fill the
-  track's sectors with the format filler byte. Source: NEC uPD765 data
-  sheet, FORMAT A TRACK.
+- ~~**S2. FORMAT TRACK leaves old sector data.**~~ Done (PC486_REVIEW.md
+  §56): the floppy controller is `shared/pc/fdc765`, ibmpc-at's version,
+  which fills the named sectors after one revolution.
 
 ## 5. Keyboard
 

@@ -31,12 +31,12 @@ add_unit_test(cmos_rtc_test ${PC}/tests/cmos_rtc_test.cpp ${PC}/cmos_rtc.cpp)
 add_unit_test(dma8237_test  ${PC}/tests/dma8237_test.cpp  ${PC}/dma8237.cpp)
 add_unit_test(chipset_test  chipset_test.cpp
   ${CORE}/chipset.cpp ${PC}/pic8259.cpp ${PC}/pit8253.cpp
-  ${CORE}/i8042.cpp ${PC}/cmos_rtc.cpp ${PC}/dma8237.cpp ${CORE}/fdc765.cpp ${CORE}/ega.cpp ${CORE}/wd1003.cpp ${PC}/pcspeaker.cpp)
+  ${CORE}/i8042.cpp ${PC}/cmos_rtc.cpp ${PC}/dma8237.cpp ${PC}/fdc765.cpp ${CORE}/ega.cpp ${CORE}/wd1003.cpp ${PC}/pcspeaker.cpp)
 add_unit_test(machine_test  machine_test.cpp
   ${CORE}/machine.cpp ${CORE}/chipset.cpp ${CORE}/cpu80286.cpp
   ${PC}/pic8259.cpp ${PC}/pit8253.cpp ${CORE}/i8042.cpp
-  ${PC}/cmos_rtc.cpp ${PC}/dma8237.cpp ${CORE}/fdc765.cpp ${CORE}/ega.cpp ${CORE}/wd1003.cpp ${PC}/pcspeaker.cpp)
-add_unit_test(fdc765_test   fdc765_test.cpp  ${CORE}/fdc765.cpp)
+  ${PC}/cmos_rtc.cpp ${PC}/dma8237.cpp ${PC}/fdc765.cpp ${CORE}/ega.cpp ${CORE}/wd1003.cpp ${PC}/pcspeaker.cpp)
+add_unit_test(fdc765_test   ${PC}/tests/fdc765_test.cpp  ${PC}/fdc765.cpp)
 add_unit_test(ega_test      ega_test.cpp     ${CORE}/ega.cpp)
 add_unit_test(ega_render_test ega_render_test.cpp ${CORE}/ega.cpp ${CORE}/ega_render.cpp)
 add_unit_test(wd1003_test   wd1003_test.cpp  ${CORE}/wd1003.cpp)
@@ -44,7 +44,7 @@ add_unit_test(pcspeaker_test ${PC}/tests/pcspeaker_test.cpp ${PC}/pcspeaker.cpp)
 add_unit_test(egabios_test  egabios_test.cpp
   ${CORE}/machine.cpp ${CORE}/chipset.cpp ${CORE}/cpu80286.cpp
   ${PC}/pic8259.cpp ${PC}/pit8253.cpp ${CORE}/i8042.cpp
-  ${PC}/cmos_rtc.cpp ${PC}/dma8237.cpp ${CORE}/fdc765.cpp ${CORE}/ega.cpp ${CORE}/ega_render.cpp ${CORE}/wd1003.cpp ${PC}/pcspeaker.cpp)
+  ${PC}/cmos_rtc.cpp ${PC}/dma8237.cpp ${PC}/fdc765.cpp ${CORE}/ega.cpp ${CORE}/ega_render.cpp ${CORE}/wd1003.cpp ${PC}/pcspeaker.cpp)
 target_compile_definitions(egabios_test PRIVATE EGABIOS_PATH="${CORE}/roms/egabios/egabios.bin")
 
 include(GoogleTest)

@@ -1,19 +1,20 @@
 "use strict";
 // Owns C:'s IndexedDB storage off the main thread. Jobs run in arrival order, so a load sees
 // every earlier save. C: is stored as 64KB chunks keyed "c2:<index>"; all-zero chunks have no record.
-importScripts("hdd-convert.js");
-
-// A preset C: (?disk=doom) has its own database, so the visitor's own C: is never touched.
-const PRESET = new URLSearchParams(self.location.search).get("disk");
-const DB_NAME = PRESET ? "pc486-hdd-" + PRESET : "pc486-hdd", STORE = "hdd";
+// ?db= names the database (a preset C: has its own), ?model= the drive, ?convert=1 loads the
+// legacy converter. Without one a legacy whole-image record is the same size and kept as is.
+const params = new URLSearchParams(self.location.search);
+if (params.get("convert") === "1") importScripts("hdd-convert.js");
+const convertLegacy = self.convertLegacyHdd || ((u8) => u8);
+const DB_NAME = params.get("db"), STORE = "hdd";
 const META_KEY = "c2-meta";
 const CHUNK = 65536;
-const MODEL = "AC2250";
+const MODEL = params.get("model");
 const chunkKey = (i) => "c2:" + String(i).padStart(5, "0");
 const chunkIndex = (key) => parseInt(key.slice(3), 10);
 const CHUNK_RANGE = IDBKeyRange.bound("c2:", "c2:￿");
 
-// Keys from the 504MB builds.
+// Keys from the whole-image builds (pc486's 504MB C:, ibmpc-at's single record).
 const LEGACY_KEY = "c-drive";
 const LEGACY_CHUNK_META = "hdd-meta";
 const LEGACY_FACTORY_KEY = "factory-base";
@@ -156,7 +157,7 @@ const ops = {
     if (!legacy) return { result: { status: "none" } };
     let img;
     try {
-      img = convertLegacyHdd(legacy, (fraction) => self.postMessage({ progress: { phase: "convert", fraction } }));
+      img = convertLegacy(legacy, (fraction) => self.postMessage({ progress: { phase: "convert", fraction } }));
     } catch (err) {
       return { result: { status: "legacy-unconverted", code: err.code || "format", reason: err.message } };
     }
@@ -167,7 +168,7 @@ const ops = {
   async convert({ buffer }) {
     let img;
     try {
-      img = convertLegacyHdd(new Uint8Array(buffer), (fraction) => self.postMessage({ progress: { phase: "convert", fraction } }));
+      img = convertLegacy(new Uint8Array(buffer), (fraction) => self.postMessage({ progress: { phase: "convert", fraction } }));
     } catch (err) {
       return { result: { ok: false, code: err.code || "format", reason: err.message } };
     }

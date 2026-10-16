@@ -1,5 +1,5 @@
 # web/Makefile body for the arcade cabinets. Set CORE, SHARED, NAME, EXPORT_NAME,
-# SRC, HDR, INCLUDES and ROM_ARGS, then include this. Needs Emscripten on PATH.
+# SRC, INCLUDES and ROM_ARGS, then include this. Needs Emscripten on PATH.
 EMCC ?= em++
 EMFLAGS = -O2 -std=c++17 -lembind --no-entry \
   -sMODULARIZE=1 -sEXPORT_NAME=$(EXPORT_NAME) \
@@ -8,8 +8,11 @@ EMFLAGS = -O2 -std=c++17 -lembind --no-entry \
   -sFILESYSTEM=0 \
   -sSTACK_SIZE=1MB
 
-$(NAME).js: $(SRC) $(HDR)
-	$(EMCC) $(EMFLAGS) -I. -I$(CORE) $(INCLUDES) -I$(SHARED) $(SRC) -o $@
+INC = -I. -I$(CORE) $(INCLUDES) -I$(SHARED)
+
+$(NAME).js: $(SRC) hwtest_roms.h
+	$(EMCC) $(EMFLAGS) $(INC) $(SRC) -o $@
+	$(call write_deps,$(INC) $(SRC))
 
 hwtest_roms.h: $(CORE)/roms/hwtest/gen_hwtest.py
 	python3 $(CORE)/roms/hwtest/gen_hwtest.py --dir roms --header hwtest_roms.h
@@ -31,7 +34,7 @@ test-smoke: $(NAME).js roms shared
 	npx playwright test tests/smoke.spec.ts
 
 clean:
-	rm -f $(NAME).js $(NAME).wasm hwtest_roms.h
+	rm -f $(NAME).js $(NAME).wasm $(NAME).d hwtest_roms.h
 	rm -rf roms shared tests/shared
 	rm -rf test-results playwright-report coverage .v8-coverage
 

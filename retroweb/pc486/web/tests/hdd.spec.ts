@@ -189,7 +189,7 @@ const chunkKeys = async (page: Page) => (await idbKeys(page)).filter((k) => k.st
 async function installHddCall(page: Page): Promise<void> {
   await page.evaluate(() => {
     (window as any).__hddCall = (op: string, args: unknown, transfer: Transferable[] = []) => {
-      const w = new Worker("hdd-worker.js");
+      const w = new Worker("shared/hdd-worker.js?convert=1&model=AC2250&db=pc486-hdd");
       return new Promise((resolve, reject) => {
         w.onmessage = (e) => {
           if (e.data.progress) return;
@@ -467,7 +467,7 @@ test.describe("hard disk storage and conversion", () => {
 
   test("the converter refuses disks it can't read, with a reason", async ({ page }) => {
     await page.goto("/?test=1");
-    await page.addScriptTag({ url: "hdd-convert.js" });
+    await page.addScriptTag({ url: "shared/hdd-convert.js" });
     const results = await page.evaluate(() => {
       const convert = (window as any).convertLegacyHdd;
       const tryIt = (img: Uint8Array) => {

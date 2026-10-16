@@ -7288,3 +7288,23 @@ Tests: `cdrom.spec.ts` "boots with the drive empty and fetches no disc"
 fails on any `.iso` request. `library.spec.ts` checks every library entry
 is served as a FAT12 floppy of its format, so a CD entry fails it. The
 on-demand LiveCD test and its `loadFreedosCdrom` helper are gone.
+
+## 56. One floppy controller for both PCs
+
+`fdc765` moved to `shared/pc/`, taking ibmpc-at's version: FORMAT TRACK
+fills the sectors its IDs name after one revolution (closes
+PC486_PARITY.md S2), 0x3F7 latches the data rate, RESET drops INT and
+DRQ, and DOR bit 3 gates both INT and DRQ (WD1003-WA2 OEM manual,
+FDMAEN). pc486's chipset gates DRQ on it too; two chipset tests that
+wrote DOR `14h` now write `1Ch`, as a BIOS does.
+
+What differs between the machines is the drive, a `pc::DriveType`
+passed to the constructor with the CPU clock: sectors per track on HD
+media (15 or 18), DD cylinders (40 or 80), DD step time, spindle RPM
+(one FORMAT revolution: 360 on the AT's 1.2MB drive, 300 on 360KB and
+3.5"), and the 3.5" disk-change rule (TEAC FD-235HF: eject asserts
+DSKCHG, a step only clears it with a disk in). pc486 keeps its inline
+`tick()` and `set_cpu_hz()` for Turbo, which now scales the DD step time
+too. The tests live in `shared/pc/tests/fdc765_test.cpp`, with a 3.5"
+fixture for the 486's drive, and both machines run them.
+

@@ -6,7 +6,6 @@
 EMCC ?= em++
 
 SRC = wasm_machine.cpp ../i8080.cpp ../serial2sio.cpp ../disk88.cpp ../cassette.cpp
-HDR = ../i8080.h ../serial2sio.h ../ringbuffer.h ../disk88.h ../disk_bootrom.h ../cassette.h
 
 EMFLAGS = -O2 -std=c++17 -lembind --no-entry \
   -sMODULARIZE=1 -sEXPORT_NAME=Retro8080 \
@@ -14,8 +13,9 @@ EMFLAGS = -O2 -std=c++17 -lembind --no-entry \
   -sALLOW_MEMORY_GROWTH=1 \
   -sFILESYSTEM=0
 
-retro8080.js: $(SRC) $(HDR)
+retro8080.js: $(SRC)
 	$(EMCC) $(EMFLAGS) $(SRC) -o $@
+	$(call write_deps,$(SRC))
 
 .PHONY: shared roms media serve test test-smoke test-install clean stage
 roms: roms/echo.bin
@@ -45,7 +45,7 @@ coverage: retro8080.js roms media shared
 	COVERAGE=1 npx playwright test
 
 clean:
-	rm -f retro8080.js retro8080.wasm roms/echo.bin roms/hello.bin roms/killbits.bin
+	rm -f retro8080.js retro8080.wasm retro8080.d roms/echo.bin roms/hello.bin roms/killbits.bin
 	rm -rf shared
 	rm -rf test-results playwright-report coverage .v8-coverage
 

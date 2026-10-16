@@ -1,6 +1,6 @@
 #!/bin/sh
 # cppcheck over retroweb source. Headers are C++ (a bare .h is C to cppcheck).
-# Each machine is its own program, so a repeated Machine class is not an ODR bug.
+# One cppcheck run per machine, plus shared/.
 set -eu
 cd "$(dirname "$0")"
 
@@ -42,26 +42,37 @@ esac
 
 files=$(mktemp)
 trap 'rm -rf "$files" ${gtest_tmp:+"$gtest_tmp"}' EXIT
-find . \( \
-    -path ./_site -o -path ./_site.new -o -path ./node_modules \
-    -o -path '*/tests/build' -o -path '*/tests/build-cov' -o -path '*/tests/coverage-cpp' \
-    -o -path '*/vendor' -o -path '*/web/shared' \
-  \) -prune -o -type f \( -name '*.cpp' -o -name '*.h' -o -name '*.hpp' \) \
-  ! -name 'hwtest_roms.h' -print | sort >"$files"
 
-cppcheck --language=c++ --std=c++17 \
-  --enable=warning,performance,portability \
-  --error-exitcode=1 --inline-suppr --quiet \
-  --max-configs=1 \
-  --suppress=missingIncludeSystem \
-  --suppress=ctuOneDefinitionRuleViolation \
-  --suppress=toomanyconfigs \
-  --suppress='*:*/gtest/*' \
-  --suppress='*:/usr/include/*' \
-  --suppress='*:/usr/include/c++/*' \
-  --template='{file}:{line}: {severity}: {id}: {message}' \
-  -I altair8800 -I assembler6502 -I ibmpc-at -I pacman -I frogger \
-  -I galaxian -I scramble -I asteroids -I centipede -I missile \
-  -I shared/cpu -I shared/galaxian -I shared/atari -I shared \
-  -I "$gtest_inc" \
-  --file-list="$files"
+# One run per machine with only its own headers on the path, so a bare
+# #include "ega.h" can't resolve to another machine's copy.
+shared="-I shared -I shared/cpu -I shared/galaxian -I shared/atari -I shared/namco -I shared/pc"
+status=0
+check() {
+  dir=$1
+  shift
+  find "$dir" \( \
+      -path '*/tests/build' -o -path '*/tests/build-cov' -o -path '*/tests/coverage-cpp' \
+      -o -path '*/vendor' -o -path '*/web/shared' -o -path '*/node_modules' \
+    \) -prune -o -type f \( -name '*.cpp' -o -name '*.h' -o -name '*.hpp' \) \
+    ! -name 'hwtest_roms.h' -print | sort >"$files"
+  # shellcheck disable=SC2086
+  cppcheck --language=c++ --std=c++17 \
+    --enable=warning,performance,portability \
+    --error-exitcode=1 --inline-suppr --quiet \
+    --max-configs=1 \
+    --suppress=missingIncludeSystem \
+    --suppress=toomanyconfigs \
+    --suppress='*:*/gtest/*' \
+    --suppress='*:/usr/include/*' \
+    --suppress='*:/usr/include/c++/*' \
+    --template='{file}:{line}: {severity}: {id}: {message}' \
+    "$@" $shared -I "$gtest_inc" \
+    --file-list="$files" || status=1
+}
+
+for m in altair8800 assembler6502 ibmpc-at pc486 pacman frogger galaxian scramble \
+    galaga asteroids centipede missile; do
+  check "$m" -I "$m"
+done
+check shared
+exit $status

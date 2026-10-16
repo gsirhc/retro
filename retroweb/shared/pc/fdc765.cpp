@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <cstdlib>
 
-namespace ibmpcat {
+namespace pc {
 
 void Fdc765::reset() {
     phase_ = Phase::kIdle;
@@ -30,31 +30,42 @@ void Fdc765::reset() {
 
 void Fdc765::mount(int drive, const uint8_t *data, std::size_t len) {
     Drive &d = drives[drive & 1];
+    const DriveType &t = types_[drive & 1];
     d.image.assign(data, data + len);
     d.present = true;
     d.dirty = false;
     d.write_protected = false;
     d.current_cylinder = 0;
     d.disk_changed = true;  // DSKCHG asserted when media is swapped
-    // Geometry follows the image size: a 1.2MB drive also reads 360KB media. A
-    // wrong geometry makes the DMA path silently move zero bytes instead of
-    // returning a controller error.
-    if (len <= 368640) {
-        // 360KB: 40 cyl / 2 head / 9 sec/track, 250 kbit/s, ~6ms/track step.
-        d.cylinders = 40; d.heads = 2; d.sectors_per_track = 9;
+    // Geometry follows the image size: an HD drive also reads DD media. A wrong
+    // geometry makes the DMA path silently move zero bytes instead of returning
+    // a controller error.
+    if (len <= std::size_t(t.dd_cylinders) * 2 * 9 * Drive::kBytesPerSector) {
+        // 360KB or 720KB: 9 sec/track, 250 kbit/s.
+        d.cylinders = t.dd_cylinders; d.heads = 2; d.sectors_per_track = 9;
         d.bytes_per_sec = 31250.0;
-        d.cycles_per_track_step = 0.006 * kCpuHz;
+        d.cycles_per_track_step = t.dd_step_s * cpu_hz_;
     } else {
-        // 1.2MB: 80 cyl / 2 head / 15 sec/track, 500 kbit/s, ~3ms/track step.
-        d.cylinders = 80; d.heads = 2; d.sectors_per_track = 15;
+        // 1.2MB or 1.44MB: 80 cyl, 500 kbit/s, ~3ms/track step.
+        d.cylinders = 80; d.heads = 2; d.sectors_per_track = t.hd_sectors;
         d.bytes_per_sec = 62500.0;
-        d.cycles_per_track_step = 0.003 * kCpuHz;
+        d.cycles_per_track_step = 0.003 * cpu_hz_;
     }
 }
 void Fdc765::unmount(int drive) {
     Drive &d = drives[drive & 1];
     d.image.clear();
     d.present = false;
+    if (types_[drive & 1].dskchg_needs_disk) d.disk_changed = true;
+}
+
+void Fdc765::set_cpu_hz(double hz) {
+    if (!(hz > 0.0) || hz == cpu_hz_) return;
+    const double scale = hz / cpu_hz_;
+    if (seeking_) seek_target_ = seek_credit_ + (seek_target_ - seek_credit_) * scale;
+    if (xfer_active_) xfer_target_ = xfer_credit_ + (xfer_target_ - xfer_credit_) * scale;
+    for (auto &d : drives) d.cycles_per_track_step *= scale;
+    cpu_hz_ = hz;
 }
 
 uint8_t Fdc765::msr() const {
@@ -160,7 +171,7 @@ void Fdc765::begin_transfer(bool is_write) {
     xfer_drive_ = drive;
     transfer_is_write_ = is_write;
     xfer_credit_ = 0.0;
-    xfer_target_ = double(transfer_len_) / d.bytes_per_sec * kCpuHz;
+    xfer_target_ = double(transfer_len_) / d.bytes_per_sec * cpu_hz_;
     xfer_active_ = true;
     transfer_ready_ = false;
     formatting_ = false;
@@ -193,7 +204,7 @@ void Fdc765::run_command() {
             int steps = std::abs(new_cyl - drives[drive].current_cylinder);
             drives[drive].current_cylinder = new_cyl;
             // DSKCHG clears once the drive steps.
-            drives[drive].disk_changed = false;
+            if (drives[drive].present || !types_[drive].dskchg_needs_disk) drives[drive].disk_changed = false;
             seek_drive_ = drive;
             seeking_ = true;
             seek_credit_ = 0.0;
@@ -235,23 +246,6 @@ void Fdc765::run_command() {
     }
 }
 
-void Fdc765::tick(uint64_t cpu_cycles) {
-    uint64_t d = cpu_cycles - prev_cycles_;
-    prev_cycles_ = cpu_cycles;
-    if (seeking_) {
-        seek_credit_ += double(d);
-        if (seek_credit_ >= seek_target_) {
-            seeking_ = false;
-            seek_pending_irq_ = true;
-            irq_pending_ = true;
-        }
-    }
-    if (xfer_active_) {
-        xfer_credit_ += double(d);
-        if (xfer_credit_ >= xfer_target_) transfer_ready_ = true;
-    }
-}
-
 // FORMAT A TRACK: DMA supplies C, H, R, N per sector; data fields get the D byte (NEC uPD765A data sheet).
 void Fdc765::begin_format() {
     int drive = params_[0] & 1;
@@ -264,8 +258,7 @@ void Fdc765::begin_format() {
     transfer_is_write_ = true;
     formatting_ = true;
     xfer_credit_ = 0.0;
-    // index to index: A: spins at 360 RPM, B: at 300
-    xfer_target_ = kCpuHz / (drive == 0 ? 6.0 : 5.0);
+    xfer_target_ = cpu_hz_ * 60.0 / types_[drive].rpm;  // index to index
     xfer_active_ = true;
     transfer_ready_ = false;
     phase_ = Phase::kExecution;
@@ -313,4 +306,4 @@ void Fdc765::finish_transfer(std::size_t actual_len) {
     }
 }
 
-}  // namespace ibmpcat
+}  // namespace pc

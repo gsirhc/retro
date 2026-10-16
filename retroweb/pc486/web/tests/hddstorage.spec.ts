@@ -36,7 +36,7 @@ async function setBlocked(page: Page, blocked: boolean): Promise<void> {
 // True when the worker's stored C: matches the running machine's byte for byte.
 function storedMatchesMachine(page: Page): Promise<boolean> {
   return page.evaluate(() => new Promise<boolean>((resolve, reject) => {
-    const w = new Worker("hdd-worker.js");
+    const w = new Worker("shared/hdd-worker.js?convert=1&model=AC2250&db=pc486-hdd");
     w.onmessage = (e) => {
       if (e.data.progress) return;
       w.terminate();

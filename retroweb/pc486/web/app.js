@@ -1583,7 +1583,8 @@
   // The Machine is discarded on power-off, so C: is mirrored to IndexedDB. The worker owns that
   // database so saves, loads and the 504MB conversion stay off this thread.
   const hddWorker = (() => {
-    const worker = new Worker(presetHdd ? "hdd-worker.js?disk=" + presetId : "hdd-worker.js");
+    const db = presetHdd ? "pc486-hdd-" + presetId : "pc486-hdd";
+    const worker = new Worker("shared/hdd-worker.js?convert=1&model=AC2250&db=" + db);
     const pending = new Map();
     let nextId = 1;
     const api = {

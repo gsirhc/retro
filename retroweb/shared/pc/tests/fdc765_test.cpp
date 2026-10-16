@@ -7,7 +7,7 @@
 
 namespace {
 
-using ibmpcat::Fdc765;
+using pc::Fdc765;
 
 std::vector<uint8_t> MakeImage(std::size_t cyl, int heads, int spt) {
     std::vector<uint8_t> img(cyl * heads * spt * 512, 0);
@@ -18,7 +18,7 @@ std::vector<uint8_t> MakeImage(std::size_t cyl, int heads, int spt) {
 
 class Fdc765Test : public ::testing::Test {
 protected:
-    Fdc765 fdc;
+    Fdc765 fdc{8e6, pc::kDrive12M, pc::kDrive360K};
     void SetUp() override { fdc.reset(); }
 
     void PowerOnMotorAndSelect(int drive) {
@@ -27,6 +27,25 @@ protected:
         uint8_t bit = drive == 0 ? 0x10 : 0x20;
         fdc.out(0x3F2, uint8_t(0x04 | 0x08 | bit | drive));
         fdc.clear_irq();
+    }
+};
+
+// The 486's single 3.5" drive.
+class Fdc765Drive35Test : public Fdc765Test {
+protected:
+    Fdc765Drive35Test() { fdc = Fdc765(66e6, pc::kDrive144M, pc::kDrive144M); }
+
+    uint64_t Format(int cyl, int head, int sectors, uint8_t fill) {
+        const uint8_t cmd[] = {0x4D, uint8_t(head << 2), 0x02, uint8_t(sectors), 0x6C, fill};
+        for (uint8_t b : cmd) fdc.out(0x3F5, b);
+        uint64_t c = 0;
+        for (; c < 100'000'000 && !fdc.transfer_ready(); c += 1000) fdc.tick(c);
+        uint8_t* ids = fdc.transfer_image_ptr();
+        for (int i = 0; i < sectors; ++i) {
+            ids[i * 4] = uint8_t(cyl); ids[i * 4 + 1] = uint8_t(head); ids[i * 4 + 2] = uint8_t(i + 1); ids[i * 4 + 3] = 2;
+        }
+        fdc.finish_transfer(std::size_t(sectors) * 4);
+        return c;
     }
 };
 
@@ -348,6 +367,73 @@ TEST_F(Fdc765Test, ResetDuringATransferAbandonsIt) {
     for (uint64_t c = 0; c < 1'000'000; c += 100) fdc.tick(c);
     EXPECT_FALSE(fdc.transfer_ready());
     EXPECT_EQ(fdc.in(0x3F4), 0x80);
+}
+
+TEST_F(Fdc765Drive35Test, A144MDiskHas18SectorsAndA720KDisk80Tracks) {
+    auto hd = MakeImage(80, 2, 18);
+    fdc.mount(0, hd.data(), hd.size());
+    EXPECT_EQ(fdc.drives[0].sectors_per_track, 18);
+    EXPECT_EQ(fdc.drives[0].cylinders, 80);
+    auto dd = MakeImage(80, 2, 9);
+    fdc.mount(0, dd.data(), dd.size());
+    EXPECT_EQ(fdc.drives[0].sectors_per_track, 9);
+    EXPECT_EQ(fdc.drives[0].cylinders, 80);
+}
+
+TEST_F(Fdc765Drive35Test, EjectingADiskAssertsDiskChangeAndAnEmptyBayKeepsIt) {
+    auto img = MakeImage(80, 2, 18);
+    fdc.mount(0, img.data(), img.size());
+    PowerOnMotorAndSelect(0);
+    fdc.out(0x3F5, 0x07); fdc.out(0x3F5, 0x00);  // RECALIBRATE drive 0
+    ASSERT_FALSE(fdc.in(0x3F7) & 0x80);
+
+    fdc.unmount(0);
+    EXPECT_FALSE(fdc.mounted(0));
+    EXPECT_TRUE(fdc.in(0x3F7) & 0x80) << "ejecting is a media change";
+
+    fdc.out(0x3F5, 0x07); fdc.out(0x3F5, 0x00);
+    EXPECT_TRUE(fdc.in(0x3F7) & 0x80) << "a step with no disk in the drive does not reset DSKCHG";
+
+    fdc.mount(0, img.data(), img.size());
+    fdc.out(0x3F5, 0x07); fdc.out(0x3F5, 0x00);
+    EXPECT_FALSE(fdc.in(0x3F7) & 0x80);
+}
+
+TEST_F(Fdc765Test, EjectingA525DiskLeavesDiskChangeAlone) {
+    auto img = MakeImage(80, 2, 15);
+    fdc.mount(0, img.data(), img.size());
+    PowerOnMotorAndSelect(0);
+    fdc.out(0x3F5, 0x07); fdc.out(0x3F5, 0x00);
+    ASSERT_FALSE(fdc.in(0x3F7) & 0x80);
+    fdc.unmount(0);
+    EXPECT_FALSE(fdc.in(0x3F7) & 0x80);
+}
+
+TEST_F(Fdc765Drive35Test, FormatTrackFillsAll18SectorsInOne300RpmRevolution) {
+    auto img = MakeImage(80, 2, 18);
+    fdc.mount(0, img.data(), img.size());
+    PowerOnMotorAndSelect(0);
+    uint64_t took = Format(0, 1, 18, 0xF6);
+    EXPECT_NEAR(double(took), 66e6 / 5.0, 2000.0);
+    EXPECT_EQ(fdc.in(0x3F5), 0x00);
+    const auto& d = fdc.drives[0];
+    for (int r = 1; r <= 18; ++r) EXPECT_EQ(d.image[std::size_t(d.offset_for(0, 1, r))], 0xF6) << r;
+    EXPECT_EQ(d.image[std::size_t(d.offset_for(0, 0, 1))], 0x00);
+    EXPECT_TRUE(fdc.dirty(0));
+}
+
+TEST_F(Fdc765Drive35Test, ATurboClockChangeKeepsAPendingSeekInWallClockTime) {
+    auto img = MakeImage(80, 2, 18);
+    fdc.mount(0, img.data(), img.size());
+    PowerOnMotorAndSelect(0);
+    fdc.out(0x3F5, 0x0F); fdc.out(0x3F5, 0x00); fdc.out(0x3F5, 0x0A);  // SEEK cylinder 10: 30ms
+    fdc.tick(0);
+    fdc.tick(uint64_t(0.015 * 66e6));
+    ASSERT_FALSE(fdc.irq_pending());
+    fdc.set_cpu_hz(33e6);
+    uint64_t c = uint64_t(0.015 * 66e6);
+    for (; c < 100'000'000 && !fdc.irq_pending(); c += 1000) fdc.tick(c);
+    EXPECT_NEAR(double(c) - 0.015 * 66e6, 0.015 * 33e6, 2000.0);
 }
 
 }  // namespace

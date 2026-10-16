@@ -114,17 +114,16 @@ export default [
     },
   },
   {
-    // pc486's IndexedDB worker, which loads the converter with importScripts.
-    files: ["pc486/web/hdd-worker.js"],
+    // The PCs' IndexedDB worker; pc486's converter arrives by importScripts.
+    files: ["shared/hdd-worker.js"],
     languageOptions: {
       globals: {
         ...globals.worker,
-        convertLegacyHdd: "readonly",
       },
     },
   },
   {
-    files: ["pc486/web/hdd-convert.js"],
+    files: ["shared/hdd-convert.js"],
     languageOptions: {
       globals: {
         ...globals.worker,

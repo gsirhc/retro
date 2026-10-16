@@ -442,66 +442,60 @@
   addFooterNote("All shareware and freeware titles remain the property of their respective owners. <a href=\"../about.html#rights\">More info</a>.");
   const kFactoryHddLabel = presetHdd ? presetHdd.label : "factory FreeDOS (default)";
 
-  // ---- hard disk persistence (IndexedDB) ----
-  // the Machine is discarded on power-off, so C: is stored here (one record)
-  // a preset C: has its own database, so the visitor's own C: is never touched
-  const HDD_DB_NAME = presetHdd ? "ibmpcat-hdd-" + presetId : "ibmpcat-hdd", HDD_STORE = "hdd", HDD_KEY = "c-drive";
-  function openHddDb() {
-    return new Promise((resolve, reject) => {
-      const req = indexedDB.open(HDD_DB_NAME, 1);
-      req.onupgradeneeded = () => req.result.createObjectStore(HDD_STORE);
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => reject(req.error);
-    });
-  }
+  // ---- hard disk persistence (IndexedDB, shared/hdd-worker.js) ----
+  // The Machine is discarded on power-off, so C: is mirrored to IndexedDB, written sectors only.
+  // A preset C: has its own database, so the visitor's own C: is never touched.
+  const hddWorker = (() => {
+    const db = presetHdd ? "ibmpcat-hdd-" + presetId : "ibmpcat-hdd";
+    const worker = new Worker("shared/hdd-worker.js?model=WD1003&db=" + db);
+    const pending = new Map();
+    let nextId = 1;
+    worker.onmessage = (e) => {
+      const m = e.data;
+      if (m.progress) return;
+      const p = pending.get(m.id);
+      pending.delete(m.id);
+      if (m.ok) p.resolve(m.result);
+      else p.reject(new Error(m.error));
+    };
+    worker.onerror = (e) => {
+      console.error("hard disk worker failed:", e.message);
+      for (const p of pending.values()) p.reject(new Error(e.message));
+      pending.clear();
+    };
+    return {
+      call(op, args, transfer) {
+        const id = nextId++;
+        return new Promise((resolve, reject) => {
+          pending.set(id, { resolve, reject });
+          worker.postMessage({ id, op, args }, transfer || []);
+        });
+      },
+    };
+  })();
   const HDD_STORAGE_BLOCKED = "Warning: the browser blocked storage (IndexedDB). Changes to C: won't be there when you return.";
   let hddStorageOk = true;
+  function hddStorageFailed(what, err) {
+    console.error(what, err);
+    hddStorageOk = false;
+    refreshHddControls();
+  }
+  // A save from the single-record builds loads too; the worker rewrites it as chunks.
   async function loadSavedHdd() {
     try {
-      const db = await openHddDb();
-      return await new Promise((resolve, reject) => {
-        const tx = db.transaction(HDD_STORE, "readonly");
-        const req = tx.objectStore(HDD_STORE).get(HDD_KEY);
-        req.onsuccess = () => resolve(req.result || null);
-        req.onerror = () => reject(req.error);
-      });
+      const r = await hddWorker.call("load");
+      return r.status === "saved" || r.status === "converted" ? new Uint8Array(r.buffer) : null;
     } catch (err) {
-      console.error("could not read saved hard disk, using factory default:", err);
-      hddStorageOk = false;
+      hddStorageFailed("could not read saved hard disk, using factory default:", err);
       return null;
     }
   }
-  // Resolves true once the write commits, false if storage refused it.
-  async function saveHdd(bytes) {
-    try {
-      const db = await openHddDb();
-      await new Promise((resolve, reject) => {
-        const tx = db.transaction(HDD_STORE, "readwrite");
-        tx.objectStore(HDD_STORE).put(bytes, HDD_KEY);
-        tx.oncomplete = resolve;
-        tx.onerror = () => reject(tx.error);
-        tx.onabort = () => reject(tx.error);
-      });
-      hddStorageOk = true;
-    } catch (err) {
-      console.error("could not save hard disk changes:", err);
-      hddStorageOk = false;
-    }
-    refreshHddControls();
-    return hddStorageOk;
-  }
-  async function clearSavedHdd() {
-    try {
-      const db = await openHddDb();
-      await new Promise((resolve, reject) => {
-        const tx = db.transaction(HDD_STORE, "readwrite");
-        tx.objectStore(HDD_STORE).delete(HDD_KEY);
-        tx.oncomplete = resolve;
-        tx.onerror = () => reject(tx.error);
-      });
-    } catch (err) {
-      console.error("could not clear saved hard disk:", err);
-    }
+  let hddPersistChain = Promise.resolve();
+  function queueHddOp(what, op, args, transfer) {
+    hddPersistChain = hddPersistChain.then(() => hddWorker.call(op, args, transfer)).catch((err) => {
+      hddStorageFailed(what, err);
+    });
+    return hddPersistChain;
   }
 
   // ---- power switch ----
@@ -539,14 +533,14 @@
     savedHdd = null;
     hddLabel = kFactoryHddLabel + " -- takes effect next power-on";
     refreshHddControls();
-    clearSavedHdd();
+    queueHddOp("could not clear saved hard disk:", "clear");
   });
   hddBlankBtn.addEventListener("click", () => {
     if (!firmware) return;
     savedHdd = new Uint8Array(firmware.hdd.byteLength);  // all zero, unformatted
     hddLabel = "blank drive, unformatted (FDISK/FORMAT and install your own OS) -- takes effect next power-on";
     refreshHddControls();
-    saveHdd(savedHdd);
+    queueHddOp("could not save blank hard disk:", "blank", { length: savedHdd.byteLength });
   });
   // download C: as a file
   hddDownloadBtn.addEventListener("click", () => {
@@ -578,7 +572,8 @@
       savedHdd = bytes;
       hddLabel = "uploaded image (" + f.name + ") -- takes effect next power-on";
       refreshHddControls();
-      await saveHdd(savedHdd);
+      const copy = savedHdd.slice().buffer;
+      await queueHddOp("could not store uploaded hard disk:", "replace", { buffer: copy, modified: true }, [copy]);
     });
   });
 
@@ -635,31 +630,54 @@
         get loadOverlayText() { return loadOverlayLabel.textContent; },
         beginLoad, endLoad,
         persistHdd: () => persistHddIfDirty(),
+        whenHddSaved: () => hddPersistChain,
         // Skips the one-minute wait before retrying a failed save.
         retryHddSave: () => { hddRetryAt = 0; return persistHddIfDirty(); },
       };
     }
   }
 
-  // Mirrors C: to IndexedDB if written since the last mirror. A failed save is retried, at most
-  // once a minute, since the dirty flag was already cleared for it.
+  // A failed save already took its sectors out of the dirty set, so the next attempt stores the
+  // whole image, at most once a minute while storage keeps refusing.
+  let hddNeedsFull = false;
   let hddRetryAt = Infinity;
-  function persistHddIfDirty() {
-    if (!machine) return Promise.resolve();
-    if (!machine.hddDirty() && performance.now() < hddRetryAt) return Promise.resolve();
-    savedHdd = machine.hddImage();
-    machine.clearHddDirty();
+  let hddWrittenThisSession = false;
+  function queueHddSave(m, patches) {
+    const full = hddNeedsFull;
     hddRetryAt = Infinity;
-    return saveHdd(savedHdd).then((ok) => {
-      if (!ok) hddRetryAt = performance.now() + 60_000;
-      hddLabel = ok ? "saved state (changes from this session)" : "changes from this session";
+    hddPersistChain = hddPersistChain.then(async () => {
+      const r = full ? { needFull: true } : await hddWorker.call("patch", { patches }, patches.map((p) => p.bytes.buffer));
+      // Nothing stored to patch yet: store the whole image.
+      if (r.needFull) {
+        const img = m.hddImage();
+        await hddWorker.call("replace", { buffer: img.buffer, modified: true }, [img.buffer]);
+      }
+      hddNeedsFull = false;
+      hddStorageOk = true;
+      hddLabel = "saved state (changes from this session)";
       refreshHddControls();
+    }).catch((err) => {
+      hddNeedsFull = true;
+      hddRetryAt = performance.now() + 60_000;
+      hddLabel = "changes from this session";
+      hddStorageFailed("could not save hard disk changes:", err);
     });
+    return hddPersistChain;
+  }
+  function persistHddIfDirty() {
+    if (!machine) return hddPersistChain;
+    if (!machine.hddDirty() && !(hddNeedsFull && performance.now() >= hddRetryAt)) return hddPersistChain;
+    const patches = machine.hddDirtyPatches();
+    machine.clearHddDirty();
+    hddWrittenThisSession = true;
+    return queueHddSave(machine, patches);
   }
 
   function powerOff() {
     if (!poweredOn) return;
     persistHddIfDirty();
+    if (hddWrittenThisSession) savedHdd = machine.hddImage();  // what the next power-on mounts
+    hddWrittenThisSession = false;
     poweredOn = false;
     machine = null;      // RAM is gone on power cut
     powerLed.classList.remove("power-on");

@@ -20,6 +20,7 @@
 #ifndef IBMPCAT_WD1003_H
 #define IBMPCAT_WD1003_H
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <map>
@@ -46,6 +47,16 @@ public:
             return ((long(cyl) * heads + head) * sectors_per_track + (sector - 1)) * kBytesPerSector;
         }
         long capacity_sectors() const { return long(cylinders) * heads * sectors_per_track; }
+
+        // Pages of `image` written since clear_dirty(); see dirty_ranges().
+        static constexpr std::size_t kDirtyPageSize = 4096;
+        std::vector<bool> dirty_page;
+        void mark_dirty(long offset, std::size_t len) {
+            dirty = true;
+            std::size_t last = (std::size_t(offset) + len - 1) / kDirtyPageSize;
+            for (std::size_t p = std::size_t(offset) / kDirtyPageSize; p <= last && p < dirty_page.size(); ++p)
+                dirty_page[p] = true;
+        }
     };
     Drive drives[2];  // 0 = C: (the only populated drive), 1 = D: (always absent)
 
@@ -78,7 +89,30 @@ public:
     // can persist writes across a power cycle.
     const std::vector<uint8_t> &image(int drive) const { return drives[drive & 1].image; }
     bool dirty(int drive) const { return drives[drive & 1].dirty; }
-    void clear_dirty(int drive) { drives[drive & 1].dirty = false; }
+    void clear_dirty(int drive) {
+        Drive &d = drives[drive & 1];
+        d.dirty = false;
+        std::fill(d.dirty_page.begin(), d.dirty_page.end(), false);
+    }
+
+    // Byte ranges changed since clear_dirty(), coalesced into runs, so the
+    // front end stores only what was written.
+    struct DirtyRange { uint32_t offset, length; };
+    std::vector<DirtyRange> dirty_ranges(int drive) const {
+        std::vector<DirtyRange> out;
+        const Drive &d = drives[drive & 1];
+        std::size_t i = 0, n = d.dirty_page.size();
+        while (i < n) {
+            if (!d.dirty_page[i]) { ++i; continue; }
+            std::size_t j = i;
+            while (j < n && d.dirty_page[j]) ++j;
+            uint32_t off = uint32_t(i * Drive::kDirtyPageSize);
+            uint32_t end = uint32_t(std::min<std::size_t>(j * Drive::kDirtyPageSize, d.image.size()));
+            out.push_back({off, end - off});
+            i = j;
+        }
+        return out;
+    }
 
 private:
     enum Status : uint8_t {

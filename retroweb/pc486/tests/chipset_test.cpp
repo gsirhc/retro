@@ -275,7 +275,7 @@ TEST(ChipsetTest, FloppyDmaTransferCopiesRealBytesIntoMemory) {
     std::vector<uint8_t> img(80 * 2 * 18 * 512, 0);
     img[512] = 0x77;  // sector 2 (1-based), first byte
     cs.fdc.mount(0, img.data(), img.size());
-    cs.fdc.out(0x3F2, 0x14);  // DOR: ~RESET high, motor A on, drive 0 select
+    cs.fdc.out(0x3F2, 0x1C);  // DOR: ~RESET high, motor A on, DMA/IRQ enable, drive 0
     cs.dma1.out(0x0A, 0x02);  // unmask channel 2
     cs.dma1.out(0x04, 0x00); cs.dma1.out(0x04, 0x20);  // address = 0x2000
     cs.dma1.out(0x05, 0xFF); cs.dma1.out(0x05, 0x01);  // count = 0x01FF (512 bytes)
@@ -312,7 +312,7 @@ TEST(ChipsetTest, FloppyDmaHoldsTheBusAndSnoopsTheL1) {
     std::vector<uint8_t> img(80 * 2 * 18 * 512, 0);
     img[512] = 0x77;
     cs.fdc.mount(0, img.data(), img.size());
-    cs.fdc.out(0x3F2, 0x14);
+    cs.fdc.out(0x3F2, 0x1C);
     cs.dma1.out(0x0A, 0x02);
     cs.dma1.out(0x04, 0x00); cs.dma1.out(0x04, 0x20);
     cs.dma1.out(0x05, 0xFF); cs.dma1.out(0x05, 0x01);

@@ -169,9 +169,10 @@ change:
   specs (`retroweb/shared/arcade-tests/`) into its `web/tests/shared/`;
   the cabinet supplies `web/tests/cabinet.ts` (ROM database name, hwtest
   files, the byte that makes a user set).
-- `retroweb/watch_site.py` (`make watch`): `MACHINES`, `WASM_TARGETS`,
-  `GENERATED_JS`, and the shared-chip tuple it uses (`ARCADE`, `ATARI`,
-  …) so a change to a shared core rebuilds it too.
+- `retroweb/watch_site.py` (`make watch`): `MACHINES`, `WASM_TARGETS` and
+  `GENERATED_JS`. A C++ change under `shared/` runs every machine's wasm
+  target and make's `.d` files decide which actually rebuild, so the wasm
+  rule must end with `$(call write_deps,…)` (`shared/web.mk`).
 - CI: `<machine>-test` / `<machine>-web-test` in
   `.github/workflows/deploy-emulator.yml` (smoke, in `build`'s `needs:`)
   and `nightly-full.yml` (full). A cabinet's `-web-test` calls
@@ -594,7 +595,7 @@ separate suite.
 - **486 DX2-66 Gaming PC** (`retroweb/pc486/`): `make -C retroweb/pc486 check`
   (GoogleTest over the 80486 core, chipset, EGA/VGA+VBE, WD1003, ATAPI
   CD-ROM, Sound Blaster 16 and its OPL3, plus the `retroweb/shared/pc/`
-  PIT, PIC, DMA, RTC and speaker), `make -C retroweb/pc486/web
+  PIT, PIC, DMA, RTC, speaker and floppy controller), `make -C retroweb/pc486/web
   pc486.js roms hdd-image driver-images library-images
   preset-images`, `make -C
   retroweb/pc486/web test-install test` (Playwright). The FreeDOS HDD image
