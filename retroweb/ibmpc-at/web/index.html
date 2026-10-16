@@ -146,6 +146,18 @@
      tube, just bigger. */
   :root[data-theme="modern"] .monitor { width: 100%; }
   :root[data-theme="modern"] #screen { width: 100%; max-width: 1400px; margin: 0 auto; }
+  /* pointer-events: none so the focusing click reaches the canvas underneath. */
+  .boot-notice {
+    position: absolute; left: 50%; top: 50%; z-index: 7; max-width: 320px;
+    transform: translate(-50%,-50%) scale(.97); text-align: center; pointer-events: none;
+    background: rgba(230,126,34,.85); color: #fff; border-radius: 5px;
+    padding: 12px 16px; box-shadow: 0 4px 18px rgba(0,0,0,.5);
+    opacity: 0; visibility: hidden; transition: opacity .2s ease, transform .2s ease;
+  }
+  .boot-notice.visible { opacity: 1; visibility: visible; transform: translate(-50%,-50%) scale(1); }
+  .boot-notice strong { display: block; font-size: 13px; letter-spacing: .03em; margin-bottom: 4px; }
+  .boot-notice p { margin: 0; font-size: 12px; font-weight: 600; line-height: 1.4; }
+  .boot-notice .dismiss-hint { display: block; margin-top: 6px; font-size: 10px; font-weight: 400; opacity: .85; text-transform: uppercase; letter-spacing: .04em; }
   /* Covers the screen while a large image is fetched or read (first-visit
      HDD download, floppy insert) so a multi-second hang is not silent. */
   .load-overlay {
@@ -471,6 +483,13 @@
         <div class="bezel" id="bezel">
           <canvas id="screen" width="640" height="350" tabindex="0" aria-label="EGA display -- click to type"></canvas>
           <div class="focus-hint" id="focusHint" aria-hidden="true">Click to focus</div>
+          <div class="boot-notice" id="bootNotice" aria-hidden="true">
+            <strong>Barebones FreeDOS</strong>
+            <p>FreeDOS is installed by default. It has no games, apps or tools.
+              See the Hard disk section to make your own C:, and the Floppy
+              drives section to load software.</p>
+            <span class="dismiss-hint">Click or press any key to dismiss</span>
+          </div>
           <div class="load-overlay" id="loadOverlay" aria-hidden="true" role="status">
             <div class="load-spinner" aria-hidden="true"></div>
             <span class="load-label" id="loadOverlayLabel">Loading&hellip;</span>

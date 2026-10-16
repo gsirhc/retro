@@ -28,6 +28,8 @@ function openDb() {
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
     });
+    // A refused open is retried on the next call, so storage that comes back is used.
+    dbPromise.catch(() => { dbPromise = null; });
   }
   return dbPromise;
 }

@@ -454,6 +454,8 @@
       req.onerror = () => reject(req.error);
     });
   }
+  const HDD_STORAGE_BLOCKED = "Warning: the browser blocked storage (IndexedDB). Changes to C: won't be there when you return.";
+  let hddStorageOk = true;
   async function loadSavedHdd() {
     try {
       const db = await openHddDb();
@@ -465,9 +467,11 @@
       });
     } catch (err) {
       console.error("could not read saved hard disk, using factory default:", err);
+      hddStorageOk = false;
       return null;
     }
   }
+  // Resolves true once the write commits, false if storage refused it.
   async function saveHdd(bytes) {
     try {
       const db = await openHddDb();
@@ -476,10 +480,15 @@
         tx.objectStore(HDD_STORE).put(bytes, HDD_KEY);
         tx.oncomplete = resolve;
         tx.onerror = () => reject(tx.error);
+        tx.onabort = () => reject(tx.error);
       });
+      hddStorageOk = true;
     } catch (err) {
       console.error("could not save hard disk changes:", err);
+      hddStorageOk = false;
     }
+    refreshHddControls();
+    return hddStorageOk;
   }
   async function clearSavedHdd() {
     try {
@@ -518,7 +527,7 @@
     hddUploadInput.closest(".filebtn").hidden = true;
   }
   function refreshHddControls() {
-    hddStatus.textContent = "Using: " + hddLabel;
+    hddStatus.textContent = "Using: " + hddLabel + (hddStorageOk ? "" : ". " + HDD_STORAGE_BLOCKED);
     // C: only changes at the next power-on
     hddResetBtn.disabled = !firmware || poweredOn;
     hddBlankBtn.disabled = !firmware || poweredOn;
@@ -582,8 +591,21 @@
     }
   }
 
+  // Shown only over the factory C:, until the screen first gains focus.
+  const BOOT_NOTICE_KEY = "retro8080.ibmpcatBootNoticeDismissed";
+  const bootNoticeEl = document.getElementById("bootNotice");
+  function hideBootNotice() { bootNoticeEl.classList.remove("visible"); }
+  function dismissBootNotice() {
+    hideBootNotice();
+    try { localStorage.setItem(BOOT_NOTICE_KEY, "1"); } catch {}
+  }
+  document.addEventListener("focusin", () => {
+    if (screenEl.contains(document.activeElement)) dismissBootNotice();
+  });
+
   function powerOn() {
     if (poweredOn || !firmware) return;
+    const factoryC = !presetHdd && !savedHdd;
     if (!machine) {
       machine = new firmware.Module.Machine();
       machine.loadRom(0x100000 - firmware.bios.byteLength, new Uint8Array(firmware.bios));
@@ -602,6 +624,9 @@
     refreshHddControls();
     refreshFkeyControls();
     updateFocusHint();
+    let noticeDismissed = false;
+    try { noticeDismissed = localStorage.getItem(BOOT_NOTICE_KEY) === "1"; } catch {}
+    if (factoryC && !noticeDismissed) bootNoticeEl.classList.add("visible");
     if (new URLSearchParams(location.search).get("test") === "1") {
       window.__test = {
         machine, sendKey, screenEl, frameCanvas, keyboard,
@@ -609,18 +634,27 @@
         get loadOverlayVisible() { return loadOverlayEl.classList.contains("visible"); },
         get loadOverlayText() { return loadOverlayLabel.textContent; },
         beginLoad, endLoad,
+        persistHdd: () => persistHddIfDirty(),
+        // Skips the one-minute wait before retrying a failed save.
+        retryHddSave: () => { hddRetryAt = 0; return persistHddIfDirty(); },
       };
     }
   }
 
-  // Mirrors C: to IndexedDB if written since the last mirror.
+  // Mirrors C: to IndexedDB if written since the last mirror. A failed save is retried, at most
+  // once a minute, since the dirty flag was already cleared for it.
+  let hddRetryAt = Infinity;
   function persistHddIfDirty() {
-    if (!machine || !machine.hddDirty()) return;
+    if (!machine) return Promise.resolve();
+    if (!machine.hddDirty() && performance.now() < hddRetryAt) return Promise.resolve();
     savedHdd = machine.hddImage();
     machine.clearHddDirty();
-    hddLabel = "saved state (changes from this session)";
-    refreshHddControls();
-    saveHdd(savedHdd);
+    hddRetryAt = Infinity;
+    return saveHdd(savedHdd).then((ok) => {
+      if (!ok) hddRetryAt = performance.now() + 60_000;
+      hddLabel = ok ? "saved state (changes from this session)" : "changes from this session";
+      refreshHddControls();
+    });
   }
 
   function powerOff() {
@@ -636,6 +670,7 @@
     refreshHddControls();
     refreshFkeyControls();
     updateFocusHint();
+    hideBootNotice();
   }
 
   // ---- bezel Esc ----

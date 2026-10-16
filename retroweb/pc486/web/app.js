@@ -1741,6 +1741,14 @@
   // The saved C: as {bytes, status, modified}, or null to use the factory image. An untouched C:
   // seeded from an older freedos-hdd.img is dropped.
   async function loadSavedHdd() {
+    try {
+      return await loadStoredHdd();
+    } catch (err) {
+      hddStorageFailed("could not read saved hard disk, using factory default:", err);
+      return null;
+    }
+  }
+  async function loadStoredHdd() {
     const info = await hddWorker.call("info");
     legacyHddNote = info.legacy ? kLegacyHddNote : null;
     if (info.kind === "none" || (info.kind === "legacy" && legacyConvertFailed)) return null;
@@ -1774,8 +1782,16 @@
     hddBlankBtn.hidden = true;
     hddUploadInput.closest(".filebtn").hidden = true;
   }
+  const HDD_STORAGE_BLOCKED = "Warning: the browser blocked storage (IndexedDB). Changes to C: won't be there when you return.";
+  let hddStorageOk = true;
+  function hddStorageFailed(what, err) {
+    console.error(what, err);
+    hddStorageOk = false;
+    refreshHddControls();
+  }
   function refreshHddControls() {
-    hddStatus.textContent = "Using: " + hddLabel + (legacyHddNote ? ". " + legacyHddNote : "");
+    hddStatus.textContent = "Using: " + hddLabel + (legacyHddNote ? ". " + legacyHddNote : "") +
+      (hddStorageOk ? "" : ". " + HDD_STORAGE_BLOCKED);
     hddLegacyDownloadBtn.hidden = !legacyHddNote;
     // A fixed disk can't be swapped while running; these only affect the next power-on.
     hddResetBtn.disabled = !firmware || poweredOn;
@@ -1805,7 +1821,7 @@
     refreshHddControls();
     // Zeroed, like a drive fresh from the factory.
     hddPersistChain = hddPersistChain.then(() => hddWorker.call("blank", { length: kHddImageBytes })).catch((err) => {
-      console.error("could not save blank hard disk:", err);
+      hddStorageFailed("could not save blank hard disk:", err);
     });
   });
   function downloadBytes(bytes, name) {
@@ -1845,32 +1861,39 @@
     if (!f || !firmware) return;
     await withLoad("Loading hard disk…", async () => {
       const buf = await f.arrayBuffer();
-      // The AC2250 geometry is fixed in CMOS, not derived from the image. A wrong size would fail
-      // (wd1003.cpp reports IDNF) but refusing up front gives a clearer reason.
-      if (buf.byteLength === kLegacyHddImageBytes) {
-        loadOverlayLabel.textContent = "Converting hard disk to 256MB…";
-        const r = await hddWorker.call("convert", { buffer: buf }, [buf]);
-        if (!r.ok) {
-          alert(r.code === "full"
-            ? "That 504MB image has more on it than fits in 256MB. Not mounted."
-            : "That 504MB image couldn't be converted (" + r.reason + "). Not mounted.");
-          return;
-        }
-        hddLabel = "converted from 504MB (" + f.name + "). Takes effect at next power-on";
-      } else if (buf.byteLength === kHddImageBytes) {
-        await hddWorker.call("replace", { buffer: buf, modified: true }, [buf]);
-        hddLabel = "uploaded image (" + f.name + "). Takes effect at next power-on";
-      } else {
-        alert("That file is " + buf.byteLength + " bytes. This machine's hard disk is a 256MB " +
-              "WD Caviar AC2250, exactly " + kHddImageBytes + " bytes. An older 504MB pc486 " +
-              "image (" + kLegacyHddImageBytes + " bytes) gets converted. Not mounted.");
-        return;
+      try {
+        await mountUploadedHdd(f, buf);
+      } catch (err) {
+        hddStorageFailed("could not store uploaded hard disk:", err);
       }
-      pendingHdd = null;
-      legacyHddNote = null;
-      refreshHddControls();
     });
   });
+  async function mountUploadedHdd(f, buf) {
+    // The AC2250 geometry is fixed in CMOS, not derived from the image. A wrong size would fail
+    // (wd1003.cpp reports IDNF) but refusing up front gives a clearer reason.
+    if (buf.byteLength === kLegacyHddImageBytes) {
+      loadOverlayLabel.textContent = "Converting hard disk to 256MB…";
+      const r = await hddWorker.call("convert", { buffer: buf }, [buf]);
+      if (!r.ok) {
+        alert(r.code === "full"
+          ? "That 504MB image has more on it than fits in 256MB. Not mounted."
+          : "That 504MB image couldn't be converted (" + r.reason + "). Not mounted.");
+        return;
+      }
+      hddLabel = "converted from 504MB (" + f.name + "). Takes effect at next power-on";
+    } else if (buf.byteLength === kHddImageBytes) {
+      await hddWorker.call("replace", { buffer: buf, modified: true }, [buf]);
+      hddLabel = "uploaded image (" + f.name + "). Takes effect at next power-on";
+    } else {
+      alert("That file is " + buf.byteLength + " bytes. This machine's hard disk is a 256MB " +
+            "WD Caviar AC2250, exactly " + kHddImageBytes + " bytes. An older 504MB pc486 " +
+            "image (" + kLegacyHddImageBytes + " bytes) gets converted. Not mounted.");
+      return;
+    }
+    pendingHdd = null;
+    legacyHddNote = null;
+    refreshHddControls();
+  }
 
   async function powerOn() {
     if (poweredOn || !firmware) return;
@@ -1907,7 +1930,7 @@
         factoryHddPromise = null;
         hddPersistChain = hddPersistChain.then(() => hddWorker.call("replace",
           { buffer: buf, factoryFp: currentFactoryFingerprint, modified: false }, [buf])).catch((err) => {
-          console.error("could not save hard disk:", err);
+          hddStorageFailed("could not save hard disk:", err);
         });
       }
       if (pendingFloppy) {
@@ -1981,6 +2004,8 @@
         // Mark C: the visitor's own even when clean; a fast boot may never dirty the image.
         forcePersistHdd: () => persistHddSnapshot(),
         whenHddSaved: () => hddPersistChain,
+        // Skips the one-minute wait before retrying a failed save.
+        retryHddSave: () => { hddRetryAt = 0; return persistHddIfDirty(); },
       };
     }
   }
@@ -1990,24 +2015,36 @@
   // that dies with the tab. Returns a promise that settles when the worker write completes (or
   // at once if clean); callers about to tear the page down must await it.
   let hddPersistChain = Promise.resolve();
+  // A failed save already took its sectors out of the dirty set, so the next attempt stores the
+  // whole image, at most once a minute while storage keeps refusing.
+  let hddNeedsFull = false;
+  let hddRetryAt = Infinity;
   function queueHddSave(m, patches) {
-    hddLabel = "saved (this session)";
-    refreshHddControls();
-    const transfer = patches.map((p) => p.bytes.buffer);
+    const full = hddNeedsFull;
+    const transfer = full ? [] : patches.map((p) => p.bytes.buffer);
+    hddRetryAt = Infinity;
     hddPersistChain = hddPersistChain.then(async () => {
-      const r = await hddWorker.call("patch", { patches }, transfer);
+      const r = full ? { needFull: true } : await hddWorker.call("patch", { patches }, transfer);
       // Nothing stored to patch yet: store the whole image.
       if (r.needFull) {
         const img = m.hddImage();
         await hddWorker.call("replace", { buffer: img.buffer, modified: true }, [img.buffer]);
       }
+      hddNeedsFull = false;
+      hddStorageOk = true;
+      hddLabel = "saved (this session)";
+      refreshHddControls();
     }).catch((err) => {
-      console.error("could not save hard disk changes:", err);
+      hddNeedsFull = true;
+      hddRetryAt = performance.now() + 60_000;
+      hddLabel = "changes from this session";
+      hddStorageFailed("could not save hard disk changes:", err);
     });
     return hddPersistChain;
   }
   function persistHddIfDirty() {
-    if (!machine || !machine.hddDirty()) return hddPersistChain;
+    if (!machine) return hddPersistChain;
+    if (!machine.hddDirty() && !(hddNeedsFull && performance.now() >= hddRetryAt)) return hddPersistChain;
     // Only the sectors written this session (wd1003.h dirty_ranges()).
     const patches = machine.hddDirtyPatches();
     machine.clearHddDirty();
