@@ -69,6 +69,7 @@ test.describe("HIGH SCORE persist", () => {
     await expect(page.locator("#resetHiscore")).toBeEnabled();
     await page.locator("#removeRomBtn").click();
     await expect(page.locator("#romStatus")).toHaveText("Running test ROM");
+    await page.waitForFunction(() => !!(window as any).__test?.machine);
     await expect(page.locator("#resetHiscore")).toBeDisabled();
   });
 
@@ -193,6 +194,7 @@ test.describe("HIGH SCORE attract display (real ROM)", () => {
     await page.reload();
     await page.waitForFunction(() => (window as any).__test);
     await expect(page.locator("#romStatus")).toHaveText("Running test ROM");
+    await page.waitForFunction(() => !!(window as any).__test?.machine);
 
     await page.locator("#romFile").setInputFiles(rom!.zip);
     await expect(page.locator("#romStatus")).toHaveText(

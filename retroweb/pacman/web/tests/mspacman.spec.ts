@@ -46,6 +46,7 @@ test.describe("Ms. Pac-Man aux board page", () => {
     expect(await page.evaluate(() => (window as any).__test.MSPAC)).toBe(true);
     expect(await page.evaluate(() => (window as any).__test.machine.dsw1())).toBe(0xC9);
     await expect(page.locator("#romStatus")).toHaveText("Running test ROM");
+    await page.waitForFunction(() => !!(window as any).__test?.machine);
     expect(await page.evaluate(() => (window as any).__test.machine.auxBoard())).toBe(false);
   });
 

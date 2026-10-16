@@ -9,6 +9,7 @@ test("boots the test ROM, writes the MIS1 RAM signature, paints a non-black fram
 
   await page.goto("/?test=1");
   await expect(page.locator("#romStatus")).toHaveText("Running test ROM");
+  await page.waitForFunction(() => !!(window as any).__test?.machine);
 
   await page.waitForFunction(() => {
     const m = (window as any).__test?.machine;
@@ -43,6 +44,7 @@ test("the monitor is a 4:3 tube and fills about 75% of the viewport height when 
 test("the guest CPU runs at real, wall-clock-paced 1.171875 MHz, not sped up", async ({ page }) => {
   await page.goto("/?test=1");
   await expect(page.locator("#romStatus")).toHaveText("Running test ROM");
+  await page.waitForFunction(() => !!(window as any).__test?.machine);
 
   const sample = () => page.evaluate(() => [(window as any).__test.machine.totalCycles(), performance.now()]);
   const [c0, t0] = await sample();

@@ -123,9 +123,11 @@ test.describe("ROM set loader", () => {
 
     await page.locator("#removeRomBtn").click();
     await expect(page.locator("#romStatus")).toHaveText("Running test ROM");
+    await page.waitForFunction(() => !!(window as any).__test?.machine);
 
     await page.reload();
     await expect(page.locator("#romStatus")).toHaveText("Running test ROM");
+    await page.waitForFunction(() => !!(window as any).__test?.machine);
   });
 
   test("an incomplete set (missing members) is rejected", async ({ page }) => {
@@ -241,5 +243,6 @@ test.describe("with IndexedDB blocked", () => {
     await expect(page.locator("#romStatus")).toHaveText("Warning: Your ROM has been loaded but the browser blocked storage (IndexedDB).  It won't reload when you return.");
     await page.locator("#removeRomBtn").click();
     await expect(page.locator("#romStatus")).toHaveText("Running test ROM");
+    await page.waitForFunction(() => !!(window as any).__test?.machine);
   });
 });

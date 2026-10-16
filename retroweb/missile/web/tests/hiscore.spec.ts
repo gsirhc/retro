@@ -108,6 +108,7 @@ test.describe("HIGH SCORE persist", () => {
     await expect(page.locator("#resetHiscore")).toBeEnabled();
     await page.locator("#removeRomBtn").click();
     await expect(page.locator("#romStatus")).toHaveText("Running test ROM");
+    await page.waitForFunction(() => !!(window as any).__test?.machine);
     await expect(page.locator("#resetHiscore")).toBeDisabled();
   });
 

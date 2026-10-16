@@ -5,6 +5,7 @@ import { test, expect } from "@playwright/test";
 test("self-test ROM draws the copyright help screen, not a full-screen fill", async ({ page }) => {
   await page.goto("/?test=1");
   await expect(page.locator("#romStatus")).toHaveText("Running test ROM");
+  await page.waitForFunction(() => !!(window as any).__test?.machine);
 
   // Asteroids frames++ on each NMI (~246 Hz); wait past the diagnostic hold.
   await page.waitForFunction(() => {

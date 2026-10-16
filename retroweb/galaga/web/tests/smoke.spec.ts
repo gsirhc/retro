@@ -9,6 +9,7 @@ test("boots the test ROM, paints a non-black frame, no console errors", async ({
 
   await page.goto("/?test=1");
   await expect(page.locator("#romStatus")).toHaveText("Running test ROM");
+  await page.waitForFunction(() => !!(window as any).__test?.machine);
   await page.waitForFunction(() => (window as any).__test?.machine.totalCycles() >= 1_536_000);
 
   const nonBlack = await page.evaluate(() => {
@@ -36,6 +37,7 @@ test("the monitor fills about 75% of the viewport height when not fullscreen", a
 test("the guest CPU runs at real, wall-clock-paced 3.072 MHz -- not sped up", async ({ page }) => {
   await page.goto("/?test=1");
   await expect(page.locator("#romStatus")).toHaveText("Running test ROM");
+  await page.waitForFunction(() => !!(window as any).__test?.machine);
 
   const sample = () => page.evaluate(() => [(window as any).__test.machine.totalCycles(), performance.now()]);
   const [c0, t0] = await sample();

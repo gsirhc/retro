@@ -5,6 +5,7 @@ import { test, expect } from "@playwright/test";
 test("self-test ROM paints the copyright help screen, not a blank or all-white frame", async ({ page }) => {
   await page.goto("/?test=1");
   await expect(page.locator("#romStatus")).toHaveText("Running test ROM");
+  await page.waitForFunction(() => !!(window as any).__test?.machine);
 
   await page.waitForFunction(() => {
     const m = (window as any).__test?.machine;

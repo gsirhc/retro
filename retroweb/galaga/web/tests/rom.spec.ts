@@ -115,12 +115,14 @@ test.describe("ROM set loader", () => {
   test("re-loading the generated hardware self-test ROM stays on the test line", async ({ page }) => {
     await page.locator("#romFile").setInputFiles(PARTS);
     await expect(page.locator("#romStatus")).toHaveText("Running test ROM");
+    await page.waitForFunction(() => !!(window as any).__test?.machine);
     expect(await page.evaluate(() => (window as any).__test.usingUserRom)).toBe(false);
   });
 
   test("an accepted set is persisted in IndexedDB and restored on reload", async ({ page }) => {
     await page.locator("#romFile").setInputFiles(PARTS);
     await expect(page.locator("#romStatus")).toHaveText("Running test ROM");
+    await page.waitForFunction(() => !!(window as any).__test?.machine);
     // Wait for the write to commit before reloading.
     await expect.poll(() => page.evaluate(() => new Promise((resolve) => {
       const req = indexedDB.open("retroweb-galaga", 1);
@@ -149,12 +151,15 @@ test.describe("ROM set loader", () => {
     }));
     await page.locator("#romFile").setInputFiles(PARTS);
     await expect(page.locator("#romStatus")).toHaveText("Running test ROM");
+    await page.waitForFunction(() => !!(window as any).__test?.machine);
     await expect.poll(stored).toBe("hwtest");
     await page.locator("#removeRomBtn").click();
     await expect.poll(stored).toBe("");
     await expect(page.locator("#romStatus")).toHaveText("Running test ROM");
+    await page.waitForFunction(() => !!(window as any).__test?.machine);
     await page.reload();
     await expect(page.locator("#romStatus")).toHaveText("Running test ROM");
+    await page.waitForFunction(() => !!(window as any).__test?.machine);
   });
 
   test("an incomplete set is rejected", async ({ page }) => {
@@ -253,6 +258,7 @@ test.describe("ROM set loader", () => {
     });
     await page.locator("#romFile").setInputFiles(files);
     await expect(page.locator("#romStatus")).toHaveText("Running test ROM");
+    await page.waitForFunction(() => !!(window as any).__test?.machine);
   });
 });
 
@@ -307,5 +313,6 @@ test.describe("with IndexedDB blocked", () => {
     await page.locator("#removeRomBtn").click();
     await expect.poll(() => page.evaluate(() => (window as any).__test.usingUserRom)).toBe(false);
     await expect(page.locator("#romStatus")).toHaveText("Running test ROM");
+    await page.waitForFunction(() => !!(window as any).__test?.machine);
   });
 });
