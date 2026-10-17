@@ -57,13 +57,23 @@ test.describe("preset C: (?disk=keen1)", () => {
     expect(await mountedVolumeLabel(page)).toBe("KEEN");
     await expect(page.locator("#hddStatus")).toHaveText(/Using: Commander Keen 1 shareware/);
     await expect(page.locator("#hddResetBtn")).toHaveText("Reset to original Keen disk");
+    await expect(page.locator(".inner h1")).toHaveText("Commander Keen");
+    await expect(page.locator(".inner .tagline")).toHaveText("IBM PC/AT");
     await expect(page.locator("#hddBlankBtn")).toBeHidden();
     await expect(page.locator("#hddUploadBtn")).toBeHidden();
     await expect(page.locator("#siteFooter .site-footer-note a")).toHaveAttribute("href", "../about.html#rights");
   });
 
+  test("the Keen title is in place before app.js runs, so the machine name never flashes", async ({ page }) => {
+    await page.route("**/app.js", (route) => route.abort());
+    await page.goto("/?disk=keen1", { waitUntil: "domcontentloaded" });
+    expect(await page.evaluate(() => [document.querySelector(".inner h1")!.textContent, document.querySelector(".inner .tagline")!.textContent])).toEqual(["Commander Keen", "IBM PC/AT"]);
+  });
+
   test("the visitor's own saved C: and the Keen C: never mount in each other's place", async ({ page }) => {
     await boot(page, { expectScreen: null });
+    await expect(page.locator(".inner h1")).toHaveText("IBM PC/AT");
+    await expect(page.locator(".inner .tagline")).toHaveText(/^A real-mode 80286/);
     await page.evaluate(async () => {
       const img = new Uint8Array(await (await fetch("disks/freedos-hdd.img")).arrayBuffer());
       const lba = img[454] | (img[455] << 8) | (img[456] << 16) | (img[457] << 24);

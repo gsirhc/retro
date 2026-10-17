@@ -476,6 +476,16 @@
   <div class="inner">
     <h1>IBM PC/AT</h1>
     <p class="tagline">A real-mode 80286, booted to FreeDOS, running entirely in your browser.</p>
+    <script>
+      (() => {
+        const titles = { keen1: "Commander Keen" };
+        const id = new URLSearchParams(location.search).get("disk");
+        if (!Object.hasOwn(titles, id)) return;
+        const h1 = document.querySelector(".inner h1");
+        document.querySelector(".inner .tagline").textContent = h1.textContent;
+        h1.textContent = titles[id];
+      })();
+    </script>
     <hr class="rule">
 
     <div class="panel" id="displayCard">

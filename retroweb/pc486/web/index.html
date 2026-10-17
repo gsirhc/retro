@@ -956,6 +956,16 @@
   <div class="inner">
     <h1>486 DX2-66 Gaming PC</h1>
     <p class="tagline">80486DX2, 66 MHz, 32 MB RAM, 256 MB HDD, VGA, Sound Blaster 16, 2x CD-ROM.</p>
+    <script>
+      (() => {
+        const titles = { doom: "Doom", wolf3d: "Wolfenstein 3D", duke3d: "Duke Nukem 3D", rott: "Rise of the Triad", tyrian: "Tyrian" };
+        const id = new URLSearchParams(location.search).get("disk");
+        if (!Object.hasOwn(titles, id)) return;
+        const h1 = document.querySelector(".inner h1");
+        document.querySelector(".inner .tagline").textContent = h1.textContent;
+        h1.textContent = titles[id];
+      })();
+    </script>
     <hr class="rule">
 
     <div class="machine-deck">

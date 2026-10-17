@@ -121,6 +121,8 @@ test.describe("preset C: (?disk=doom)", () => {
     expect(await mountedVolumeLabel(page)).toBe("DOOM");
     await expect(page.locator("#hddStatus")).toHaveText(/Using: DOOM shareware/);
     await expect(page.locator("#hddResetBtn")).toHaveText("Reset to original DOOM disk");
+    await expect(page.locator(".inner h1")).toHaveText("Doom");
+    await expect(page.locator(".inner .tagline")).toHaveText("486 DX2-66 Gaming PC");
     await expect(page.locator("#hddBlankBtn")).toBeHidden();
     await expect(page.locator("#hddUploadBtn")).toBeHidden();
     await expect(page.locator("#hddDownloadBtn")).toBeVisible();
@@ -180,6 +182,8 @@ test.describe("preset C: (?disk=doom)", () => {
     await expect(page.locator("#hddBlankBtn")).toBeVisible();
     expect(await mountedVolumeLabel(page)).toBe("FREEDOS2022");
     await expect(page.locator("#siteFooter .site-footer-note")).toHaveCount(1);
+    await expect(page.locator(".inner h1")).toHaveText("486 DX2-66 Gaming PC");
+    await expect(page.locator(".inner .tagline")).toHaveText(/^80486DX2, 66 MHz/);
   });
 });
 
@@ -200,6 +204,16 @@ test.describe("preset C: (?disk=wolf3d)", () => {
     expect(await mountedVolumeLabel(page)).toBe("WOLF3D");
     await expect(page.locator("#hddStatus")).toHaveText(/Using: Wolfenstein 3-D shareware/);
     await expect(page.locator("#hddResetBtn")).toHaveText("Reset to original Wolfenstein disk");
+    await expect(page.locator(".inner h1")).toHaveText("Wolfenstein 3D");
+    await expect(page.locator(".inner .tagline")).toHaveText("486 DX2-66 Gaming PC");
+  });
+});
+
+test.describe("preset page heading", () => {
+  test("the game title is in place before app.js runs, so the machine name never flashes", async ({ page }) => {
+    await page.route("**/app.js", (route) => route.abort());
+    await page.goto("/?disk=duke3d", { waitUntil: "domcontentloaded" });
+    expect(await page.evaluate(() => [document.querySelector(".inner h1")!.textContent, document.querySelector(".inner .tagline")!.textContent])).toEqual(["Duke Nukem 3D", "486 DX2-66 Gaming PC"]);
   });
 });
 
@@ -219,6 +233,8 @@ test.describe("preset C: (?disk=duke3d)", () => {
     expect(await mountedVolumeLabel(page)).toBe("DUKE3D");
     await expect(page.locator("#hddStatus")).toHaveText(/Using: Duke Nukem 3D shareware/);
     await expect(page.locator("#hddResetBtn")).toHaveText("Reset to original Duke Nukem disk");
+    await expect(page.locator(".inner h1")).toHaveText("Duke Nukem 3D");
+    await expect(page.locator(".inner .tagline")).toHaveText("486 DX2-66 Gaming PC");
   });
 });
 
@@ -238,6 +254,8 @@ test.describe("preset C: (?disk=rott)", () => {
     expect(await mountedVolumeLabel(page)).toBe("ROTT");
     await expect(page.locator("#hddStatus")).toHaveText(/Using: Rise of the Triad shareware/);
     await expect(page.locator("#hddResetBtn")).toHaveText("Reset to original Rise of the Triad disk");
+    await expect(page.locator(".inner h1")).toHaveText("Rise of the Triad");
+    await expect(page.locator(".inner .tagline")).toHaveText("486 DX2-66 Gaming PC");
   });
 });
 
@@ -253,6 +271,8 @@ test.describe("preset C: (?disk=tyrian)", () => {
     expect(await mountedVolumeLabel(page)).toBe("TYRIAN");
     await expect(page.locator("#hddStatus")).toHaveText(/Using: Tyrian 2\.1 freeware/);
     await expect(page.locator("#hddResetBtn")).toHaveText("Reset to original Tyrian disk");
+    await expect(page.locator(".inner h1")).toHaveText("Tyrian");
+    await expect(page.locator(".inner .tagline")).toHaveText("486 DX2-66 Gaming PC");
     const note = page.locator("#siteFooter .site-footer-note");
     await expect(note).toContainText("All shareware and freeware titles remain the property of their respective owners");
     await expect(note.locator("a")).toHaveAttribute("href", "../about.html#rights");
