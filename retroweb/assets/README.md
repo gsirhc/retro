@@ -37,6 +37,13 @@
   (JPEG q90). Its card sets `data-title-y="30%"` so the libretro title
   screen shows the logo, not just the mushroom cloud.
 
+- **`rott-demo.jpg`**: shareware Rise of the Triad's attract demo, two
+  guards on a rooftop walkway with the dual pistols up, from *this
+  project's* 486 DX2-66 core booting the `?disk=rott` preset C:. A 320×200
+  frame rendered by `RenderScreen` about 7.6 billion cycles after power-on,
+  rows 22 to 164 (between the score bar and the health bar) resized to
+  286×128 (JPEG q90). Its card also sets `data-title-y="30%"`.
+
 - **`keen1-mars.jpg`**: shareware Commander Keen 1 on the Mars overworld map,
   with Keen and the Bean-with-Bacon Megarocket, from *this project's* IBM
   PC/AT running the `?disk=keen1` preset C:. Space at the title on
@@ -50,7 +57,7 @@
   playfield below the INSERT COIN line (x 0–262, y 58–175) and resized to
   286×128 (JPEG q90).
 
-  These five are the shipped Ready to Play tiles. The landing page's
+  These six are the shipped Ready to Play tiles. The landing page's
   Thumbnails dropdown (Original by default) can swap in libretro-thumbnails'
   DOS screenshot, title screen, or box art (`data-art`, cropped by
   `data-<style>-y`), fetched by the visitor's browser. None of it is staged.

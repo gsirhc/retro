@@ -5,6 +5,7 @@
 #   1wolf14.zip  Wolfenstein 3-D 1.4 shareware, id/Apogee (DEICE set)
 #   doom19s.zip  DOOM 1.9 shareware, id's two-disk install set
 #   3dduke13.zip Duke Nukem 3D 1.3D shareware, 3D Realms' own release
+#   1rott13.zip  Rise of the Triad 1.3 shareware, Apogee's own release
 #   tyrian21.zip Tyrian 2.1, reported freeware since 2004 (README.md, Provenance)
 #   ./fetch-shareware.sh            # fetch what's missing / wrong
 #   ./fetch-shareware.sh --force
@@ -19,6 +20,7 @@ FILES='
 1wolf14.zip  7755d3e6cc8897e9628fa1c13fe24d9657d901af2c3793ae258381431dcc69f2  https://www.gamers.org/pub/games/wolf3d/official/1wolf14.zip
 doom19s.zip  cacf0142b31ca1af00796b4a0339e07992ac5f21bc3f81e7532fe1b5e1b486e6  https://ftp.gwdg.de/pub/misc/ftp.idsoftware.com/idstuff/doom/doom19s.zip
 3dduke13.zip c67efd179022bc6d9bde54f404c707cbcbdc15423c20be72e277bc2bdddf3d0e  https://archive.org/download/3dduke13/3dduke13.zip
+1rott13.zip  eea67a85845d52fa0ee7272e3ae24b79769ed1e8bdff7b1360904078bc51ad1e  https://icculus.org/rott/share/1rott13.zip
 tyrian21.zip 7790d09a2a3addcd33c66ef063d5900eb81cc9c342f4807eb8356364dd1d9277  https://camanis.net/tyrian/tyrian21.zip
 '
 

@@ -2,7 +2,7 @@
 // on this emulator from the library's install floppies, with injected keys and
 // screen-text matching, then runs the game once so it saves its own config.
 //
-// Usage: build_preset_hdd <doom|wolf3d|duke3d|tyrian> <bios> <vgabios> <base.img> <out.img> [disk1.img [disk2.img]]
+// Usage: build_preset_hdd <doom|wolf3d|duke3d|rott|tyrian> <bios> <vgabios> <base.img> <out.img> [disk1.img [disk2.img]]
 //
 // <base.img> is build-preset-hdd.sh's bare FreeDOS C:. PC486_TRACE=1 dumps every screen
 // change to stderr; PC486_BUDGET caps the run in cycles.
@@ -175,6 +175,27 @@ const std::map<std::string, std::vector<Step>> kPresets = {
         {"Save current setup and exit setup program", "@ENTER"},
         {"C:\\DUKE3D>", "@DONE"},
     }},
+    {"rott", {
+        // Apogee's download, unzipped to a scratch directory like Duke's
+        {"C:\\>", "cd\\1rott13\n"},
+        {"C:\\1ROTT13>", "install\n"},
+        {"(c) 1995 Apogee Software", "@ENTER"},
+        {"8.1Mb of Hard Drive Space Required", "@ENTER"},
+        {"install this game to, and press [Enter].", "@ENTER"},
+        {"Thanks for installing the shareware episode", "@ENTER"},
+        {"C:\\ROTT>", "setup\n"},
+        // Bar shares 1Fh with the title. SNDSETUP is VGA graphics, keyed blind: FX SB > Custom > SB16,
+        // detected port/DMAs/IRQ, 8 voices, stereo, 16-bit; music SB (OPL3); Quit, save.
+        {"Start a game of ROTT over the modem", "@HL=1F @PICK=Rise_of_the_Triad_Setup_Configure_Sounds @ENTER @WAIT=8 "
+                                                "@ENTER @WAIT=3 @DOWN @WAIT=1 @DOWN @WAIT=1 @ENTER @WAIT=3 @DOWN @WAIT=1 @ENTER @WAIT=3 "
+                                                "@ENTER @WAIT=3 @ENTER @WAIT=3 @ENTER @WAIT=3 @ENTER @WAIT=3 @ENTER @WAIT=3 "
+                                                "@DOWN @WAIT=1 @DOWN @WAIT=1 @DOWN @WAIT=1 @DOWN @WAIT=1 @ENTER @WAIT=3 "
+                                                "@DOWN @WAIT=1 @ENTER @WAIT=3 @DOWN @WAIT=1 @ENTER @WAIT=3 "
+                                                "@DOWN @WAIT=1 @ENTER @WAIT=3 @DOWN @WAIT=1 @DOWN @WAIT=1 @ENTER @WAIT=3 "
+                                                "@DOWN @WAIT=1 @DOWN @WAIT=1 @DOWN @WAIT=1 @ENTER @WAIT=3 @ENTER @WAIT=5"},
+        {"Configure sound and music for ROTT", "@PICK=Rise_of_the_Triad_Setup_Quit_Setup @ENTER"},
+        {"C:\\ROTT>", "@DONE"},
+    }},
     {"tyrian", {
         {"C:\\>", "cd\\tyrian\n"},
         // SETUP is drawn in VGA graphics: Music > FM Sound (the SB16's OPL3), Sound Effects >
@@ -191,7 +212,7 @@ const std::map<std::string, std::vector<Step>> kPresets = {
 int main(int argc, char **argv) {
     if (argc < 6 || !kPresets.count(argv[1])) {
         std::fprintf(stderr,
-            "usage: %s <doom|wolf3d|duke3d|tyrian> <bios> <vgabios> <base.img> <out.img> [disk1.img [disk2.img]]\n",
+            "usage: %s <doom|wolf3d|duke3d|rott|tyrian> <bios> <vgabios> <base.img> <out.img> [disk1.img [disk2.img]]\n",
             argv[0]);
         return 2;
     }

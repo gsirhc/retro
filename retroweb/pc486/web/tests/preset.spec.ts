@@ -222,6 +222,25 @@ test.describe("preset C: (?disk=duke3d)", () => {
   });
 });
 
+test.describe("preset C: (?disk=rott)", () => {
+  test("the ROTT image has the shareware episode installed by Apogee's INSTALL, SB16 sound and FM music saved by SNDSETUP, and mounts with its own label", async ({ page }) => {
+    await bootLive(page, { params: "disk=rott" });
+    const r = await readPreset(page, "disks/presets/rott-hdd.img.gz", "ROTT", ["SOUND.ROT"]);
+    expectBareFreeDos(r, "ROTT");
+    expect(r.top).not.toContain("1ROTT13");
+    expect(r.game).toEqual(expect.arrayContaining(["ROTT.EXE", "HUNTBGIN.WAD", "SETUP.EXE", "SNDSETUP.EXE", "VENDOR.DOC", "SETUP.ROT", "SOUND.ROT"]));
+    expect(r.sizes["HUNTBGIN.WAD"]).toBe(6436871);
+    expect(r.autoexec).toMatch(/CD \\ROTT\r\nROTT\r\n$/);
+    const cfg = r.texts["SOUND.ROT"];
+    for (const [key, value] of [["MusicMode", "2"], ["FXMode", "2"], ["NumVoices", "8"], ["NumChannels", "2"], ["NumBits", "16"], ["SBType", "6"], ["SBPort", "$220"], ["SBIrq", "5"], ["SBDma8", "1"], ["SBDma16", "5"]]) {
+      expect(cfg).toMatch(new RegExp("^" + key + " +" + value.replace("$", "\\$") + "\r$", "m"));
+    }
+    expect(await mountedVolumeLabel(page)).toBe("ROTT");
+    await expect(page.locator("#hddStatus")).toHaveText(/Using: Rise of the Triad shareware/);
+    await expect(page.locator("#hddResetBtn")).toHaveText("Reset to original Rise of the Triad disk");
+  });
+});
+
 test.describe("preset C: (?disk=tyrian)", () => {
   test("the Tyrian image has Tyrian 2.1 with FM music, Sound Blaster effects and 16-bar volumes, and mounts with its own label", async ({ page }) => {
     await bootLive(page, { params: "disk=tyrian" });

@@ -7089,11 +7089,12 @@ modifiers, function and navigation keys. `pckeyboard.spec.ts` covers the
 show/hide state, typing, latching, the Caps Lock lamp, map mode, and
 mapped clicks.
 
-## 50. Preset hard disks (`?disk=doom`, `?disk=wolf3d`, `?disk=duke3d`, `?disk=tyrian`)
+## 50. Preset hard disks (`?disk=doom`, `?disk=wolf3d`, `?disk=duke3d`, `?disk=rott`, `?disk=tyrian`)
 
 The landing page's **Ready to Play** cards open a machine with a ready-made
 C: in place of the factory FreeDOS one: `pc486/?disk=doom`,
-`pc486/?disk=wolf3d`, `pc486/?disk=duke3d` and `pc486/?disk=tyrian`.
+`pc486/?disk=wolf3d`, `pc486/?disk=duke3d`, `pc486/?disk=rott` and
+`pc486/?disk=tyrian`.
 
 - **Bare FreeDOS base.** `disks/build-preset-hdd.sh <preset>` keeps the
   factory image's MBR and FreeDOS boot sector, formats a fresh FAT16 over
@@ -7104,7 +7105,7 @@ C: in place of the factory FreeDOS one: `pc486/?disk=doom`,
   library floppies. Afterwards the script appends the game's directory and
   command to `AUTOEXEC.BAT`, and `disks/zero-free-clusters.py` zeroes the
   clusters the deleted self-extractor left. `make preset-hdds` builds all
-  four.
+  five.
 - **DOOM** (`\DOOMS`, about 2.8MB gzipped, about 75 s natively). Types
   `A:` / `INSTALL`, answers DEICE (drive C, `\DOOMS`, create it), swapping
   disk 2 in and disk 1 back as DEICE asks. `INSTALL.BAT` runs
@@ -7141,6 +7142,25 @@ C: in place of the factory FreeDOS one: `pc486/?disk=doom`,
   run Duke Nukem 3D 1 times" counter starts with the visitor. The
   `DUKE3D.GRP` is the 11,035,779-byte shareware one. Duke depends on the
   Input Status 1 and CRTC timing fixes from 22fafe9 (`ega_test.cpp`).
+- **Rise of the Triad 1.3 shareware** (`\ROTT`, about 4.0MB gzipped,
+  about 85 s natively). Apogee's own download, `1rott13.zip`
+  (`INSTALL.EXE`, `ROTTSW13.SHR`, `FILE_ID.DIZ`; pinned in
+  `shared/dos-library/`), installed the same way as Duke: unzipped into a
+  scratch `C:\1ROTT13`, the same Apogee installer with its defaults
+  (`C:\ROTT`), scratch directory deleted after. ROTT's text-mode SETUP
+  draws its bar in 1Fh, the same attribute as its title row, so `@PICK=`
+  matches the title plus the entry ("Rise of the Triad Setup Configure
+  Sounds"). Configure Sounds runs `SNDSETUP.EXE`, which is drawn in VGA
+  graphics, so the harness keys it blind like Tyrian's: Sound FX Sound
+  Blaster > Custom Setup > "Sound Blaster 16 or AWE32" (SNDSETUP's own
+  pick), 220h, DMA 1, HDMA 5 and IRQ 5 as preselected, 8 voices, stereo,
+  16-bit; music Sound Blaster (the OPL3); Quit, Yes. "Use Current
+  Settings" would save type "Sound Blaster or compatible", so it takes the
+  custom path. Back in SETUP, Quit Setup. `SOUND.ROT` holds the result;
+  `SETUP.ROT`, `CONFIG.ROT`, `BATTLE.ROT` and `SCORES.ROT` are SETUP's
+  defaults. The game isn't launched. The `HUNTBGIN.WAD` is the
+  6,436,871-byte shareware one. Arrow counts in SETUP's text menu proved
+  unreliable from one build to the next, which is why it uses `@PICK=`.
 - **Tyrian 2.1** (`\TYRIAN`). Freeware, shipped as an installed
   directory (`tyrian21.zip`, provenance and license caveat in
   `shared/dos-library/README.md`), so the script unzips it straight onto
@@ -7174,7 +7194,8 @@ C: in place of the factory FreeDOS one: `pc486/?disk=doom`,
   copy of an older image) works as for the factory C:. The Hard disk panel
   relabels Reset ("Reset to original DOOM disk", "Reset to original
   Wolfenstein disk", "Reset to original Duke Nukem disk", "Reset to
-  original Tyrian disk"), hides Upload and
+  original Rise of the Triad disk", "Reset to original Tyrian disk"),
+  hides Upload and
   Mount blank, and downloads as
   `pc486-<preset>-hdd.img`. An unknown `?disk=` mounts the visitor's own C:.
 - **Tests.** `preset.spec.ts` checks each image's FAT16 layout, files,

@@ -6,7 +6,7 @@ Builds the floppies behind the **Disk library** button on `ibmpc-at` and
 Makefile's `library-images` copies them, with `library.json`, into
 `web/disks/library/`. Images are git-ignored and rebuilt by CI.
 
-- `fetch-shareware.sh` — the four shareware releases and freeware Tyrian
+- `fetch-shareware.sh` — the five shareware releases and freeware Tyrian
   2.1, pinned by SHA-256 into `cache/`.
 - `build-library.py` — FAT12 images via mtools (`mformat`, `mmd`, `mcopy`).
   Formats: 360K, 1.2MB, 1.44MB. Volume serials are derived from the label so a
@@ -58,17 +58,21 @@ All three were released as shareware for free copying of the unmodified
 episode; id's `doom19s.txt` marks DOOM "Electronic Distribution is Permitted"
 and its installer says "PLEASE DISTRIBUTE!!!".
 
-**Shareware**, used only for pc486's `?disk=duke3d` preset C:, not a library
-disk (about 5.8MB, more than a floppy holds):
+**Shareware**, used only for pc486's `?disk=duke3d` and `?disk=rott` preset
+C:s, not library disks (each more than a floppy holds):
 
 | file | source | notes |
 |---|---|---|
+| `1rott13.zip` | <https://icculus.org/rott/share/1rott13.zip> | Rise of the Triad: The HUNT Begins 1.3 shareware, Apogee's own release: `INSTALL.EXE`, `ROTTSW13.SHR`, `FILE_ID.DIZ`, dated 1 Aug 1995. MD5 `0fafd6b629eab80278fc726e31f9cf41` matches the one Linux packagers of the icculus port publish. A repack split into `ROT13BBS._1`–`._3` floppy pieces also circulates (dosgamesarchive.com) and isn't used |
 | `3dduke13.zip` | <https://archive.org/download/3dduke13/3dduke13.zip> | Duke Nukem 3D 1.3D shareware, 3D Realms' own release: `INSTALL.EXE`, `DN3DSW13.SHR`, `LICENSE.TXT`, `FILE_ID.DIZ`, dated 24 Apr 1996. A repack split into `DUKE3DS._1`–`._5` floppy pieces also circulates (dosgamesarchive.com); it has no `LICENSE.TXT` and isn't used |
 
 3D Realms' `LICENSE.TXT` lets individuals give copies away free and lets free
 WWW and FTP sites "make the Game available for downloading", provided every
 file is included unmodified. The installer copies `LICENSE.TXT` into
-`C:\DUKE3D` with the game.
+`C:\DUKE3D` with the game. Apogee's ROTT `VENDOR.DOC`, installed into
+`C:\ROTT`, encourages everyone "to copy, upload and generally pass around
+this Program without charging for it", on the same unmodified-files
+condition.
 
 **Freeware**, used only for pc486's `?disk=tyrian` preset C:, not a library
 disk:

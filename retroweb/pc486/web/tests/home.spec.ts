@@ -32,7 +32,7 @@ test.describe("retroweb landing page", () => {
     expect(await shot.evaluate((img: HTMLImageElement) => img.naturalHeight)).toBe(128);
   });
 
-  test("Ready to Play lists DOOM, Wolfenstein 3-D, Duke Nukem 3D and Tyrian, each linking to its pc486 preset", async ({ page }) => {
+  test("Ready to Play lists DOOM, Wolfenstein 3-D, Duke Nukem 3D, Rise of the Triad and Tyrian, each linking to its pc486 preset", async ({ page }) => {
     await page.goto(HOME);
     await expect(page.locator("h2.section-heading")).toHaveText([
       "Systems",
@@ -60,7 +60,13 @@ test.describe("retroweb landing page", () => {
     await expect(duke.locator(".meta")).toHaveText("486 DX2-66 Gaming PC");
     await expect(duke.locator("img.shot")).toHaveAttribute("src", /assets\/duke3d-e1l1\.jpg$/);
     await expect(duke.locator("img.shot")).toHaveJSProperty("naturalWidth", 286);
-    await expect(page.locator("a.machine-card[data-art] .name")).toHaveText(["Doom", "Wolfenstein 3D", "Duke Nukem 3D", "Commander Keen", "Tyrian"]);
+
+    const rott = page.locator('a.machine-card[href="pc486/?disk=rott"]');
+    await expect(rott.locator(".name")).toHaveText("Rise of the Triad");
+    await expect(rott.locator(".meta")).toHaveText("486 DX2-66 Gaming PC");
+    await expect(rott.locator("img.shot")).toHaveAttribute("src", /assets\/rott-demo\.jpg$/);
+    await expect(rott.locator("img.shot")).toHaveJSProperty("naturalWidth", 286);
+    await expect(page.locator("a.machine-card[data-art] .name")).toHaveText(["Doom", "Wolfenstein 3D", "Duke Nukem 3D", "Rise of the Triad", "Commander Keen", "Tyrian"]);
 
     const tyrian = page.locator('a.machine-card[href="pc486/?disk=tyrian"]');
     await expect(tyrian.locator(".name")).toHaveText("Tyrian");
@@ -117,10 +123,11 @@ test.describe("Ready to Play thumbnails", () => {
     "pc486/?disk=doom": "DOOM%20(1993).png",
     "pc486/?disk=wolf3d": "Wolfenstein%203D%20(1992).png",
     "pc486/?disk=duke3d": "Duke%20Nukem%203D%20(1996).png",
+    "pc486/?disk=rott": "Rise%20of%20the%20Triad%20-%20Dark%20War%20(1994).png",
     "ibmpc-at/?disk=keen1": "Commander%20Keen%201%20-%20Marooned%20on%20Mars%20(1990).png",
     "pc486/?disk=tyrian": "Tyrian%20(1995).png",
   };
-  const TITLE_Y: Record<string, string> = { "pc486/?disk=duke3d": "30%" };
+  const TITLE_Y: Record<string, string> = { "pc486/?disk=duke3d": "30%", "pc486/?disk=rott": "30%" };
   const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGNgYGAAAAAEAAH2FzhVAAAAAElFTkSuQmCC", "base64");
 
   async function stub(page, fail: string[] = []) {
