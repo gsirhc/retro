@@ -609,10 +609,11 @@ separate suite.
   `library-images` (both PCs) builds the Disk library floppies from
   `disks/library.json` via `retroweb/shared/dos-library/` (mtools, plus
   pc486's pinned FreeDOS LiveCD); see that folder's README.
-  `preset-images` builds the `?disk=doom`, `?disk=wolf3d` and
-  `?disk=tyrian` C:s behind the landing page's Ready to Play cards: each
-  game's real installer (or, for Tyrian, its own SETUP) run headless onto
-  a bare FreeDOS, then DOOM and Wolf3D run once to save their widest view
+  `preset-images` builds the `?disk=doom`, `?disk=wolf3d`, `?disk=duke3d`
+  and `?disk=tyrian` C:s behind the landing page's Ready to Play cards:
+  each game's real installer (or, for Tyrian, its own SETUP) run headless
+  onto a bare FreeDOS, then DOOM and Wolf3D run once to save their widest
+  view and Duke's SETUP saves Sound Blaster sound and music
   (`PC486_REVIEW.md` §50).
   `make -C retroweb/pc486/web pc486-perf.js` builds a *second* wasm with the
   emulator's own performance counters compiled in (`PC486_PERF`), which

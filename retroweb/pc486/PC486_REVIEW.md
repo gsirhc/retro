@@ -7089,11 +7089,11 @@ modifiers, function and navigation keys. `pckeyboard.spec.ts` covers the
 show/hide state, typing, latching, the Caps Lock lamp, map mode, and
 mapped clicks.
 
-## 50. Preset hard disks (`?disk=doom`, `?disk=wolf3d`, `?disk=tyrian`)
+## 50. Preset hard disks (`?disk=doom`, `?disk=wolf3d`, `?disk=duke3d`, `?disk=tyrian`)
 
 The landing page's **Ready to Play** cards open a machine with a ready-made
 C: in place of the factory FreeDOS one: `pc486/?disk=doom`,
-`pc486/?disk=wolf3d` and `pc486/?disk=tyrian`.
+`pc486/?disk=wolf3d`, `pc486/?disk=duke3d` and `pc486/?disk=tyrian`.
 
 - **Bare FreeDOS base.** `disks/build-preset-hdd.sh <preset>` keeps the
   factory image's MBR and FreeDOS boot sector, formats a fresh FAT16 over
@@ -7104,7 +7104,7 @@ C: in place of the factory FreeDOS one: `pc486/?disk=doom`,
   library floppies. Afterwards the script appends the game's directory and
   command to `AUTOEXEC.BAT`, and `disks/zero-free-clusters.py` zeroes the
   clusters the deleted self-extractor left. `make preset-hdds` builds all
-  three.
+  four.
 - **DOOM** (`\DOOMS`, about 2.8MB gzipped, about 75 s natively). Types
   `A:` / `INSTALL`, answers DEICE (drive C, `\DOOMS`, create it), swapping
   disk 2 in and disk 1 back as DEICE asks. `INSTALL.BAT` runs
@@ -7125,6 +7125,22 @@ C: in place of the factory FreeDOS one: `pc486/?disk=doom`,
   Wolf3D's own save writes `CONFIG.WL1` with `viewsize` 19, the widest the
   menu allows (304 pixels over the status bar). The sign-on screen still
   waits for a key on every boot, as it did on real machines.
+- **Duke Nukem 3D 1.3D shareware** (`\DUKE3D`, about 6.2MB gzipped,
+  about 52 s natively). 3D Realms' own download, `3dduke13.zip`
+  (`INSTALL.EXE`, `DN3DSW13.SHR`, `LICENSE.TXT`, `FILE_ID.DIZ`; pinned in
+  `shared/dos-library/`). The set is about 5.8MB, too big for a library
+  floppy, so the script unzips it into a scratch `C:\3DDUKE13`, the way
+  a downloader would, and deletes that directory after the run. The
+  harness runs `INSTALL`, takes its defaults (the one episode, `C:\DUKE3D`),
+  and the installer leaves DOS in `C:\DUKE3D`. It then runs 3D Realms'
+  SETUP: Sound FX Sound Blaster, where SETUP reads 220h / IRQ 5 / DMA 1 /
+  HDMA 5 / type "Sound Blaster 16 or AWE32" from `BLASTER`; 8 voices,
+  16-bit, stereo, 22kHz; music Sound Blaster (the OPL3); screen 320x200;
+  controller already Keyboard and Mouse, since CuteMouse is loaded. Esc
+  and Yes save `DUKE3D.CFG` without launching, so the game's "You have
+  run Duke Nukem 3D 1 times" counter starts with the visitor. The
+  `DUKE3D.GRP` is the 11,035,779-byte shareware one. Duke depends on the
+  Input Status 1 and CRTC timing fixes from 22fafe9 (`ega_test.cpp`).
 - **Tyrian 2.1** (`\TYRIAN`). Freeware, shipped as an installed
   directory (`tyrian21.zip`, provenance and license caveat in
   `shared/dos-library/README.md`), so the script unzips it straight onto
@@ -7143,7 +7159,10 @@ C: in place of the factory FreeDOS one: `pc486/?disk=doom`,
   ones, which INT 16h returns with AL=E0h), so the harness sends keypad
   arrows. SETUP's selection bar is attribute 7Fh; `@PICK=` arrows until
   the bar holds exactly the wanted entry ("Sound Blaster" and "Sound
-  Blaster AWE32" are both in the music list). Each key is held about
+  Blaster AWE32" are both in the music list). Duke's SETUP draws its bar
+  in F1h, so `@HL=F1` switches the match; its popup lists leave the
+  F1h entry of the menu underneath on screen, so those go by arrow
+  counts instead of `@PICK=`. Each key is held about
   120ms: Wolf3D's menus poll the key-state table once a frame and miss a
   4ms tap. A step answers a screen once it differs from the screen the
   previous step answered, since a held key lets DOS print the next prompt
@@ -7154,12 +7173,13 @@ C: in place of the factory FreeDOS one: `pc486/?disk=doom`,
   else (64KB chunks, the factory fingerprint that replaces an untouched
   copy of an older image) works as for the factory C:. The Hard disk panel
   relabels Reset ("Reset to original DOOM disk", "Reset to original
-  Wolfenstein disk", "Reset to original Tyrian disk"), hides Upload and
+  Wolfenstein disk", "Reset to original Duke Nukem disk", "Reset to
+  original Tyrian disk"), hides Upload and
   Mount blank, and downloads as
   `pc486-<preset>-hdd.img`. An unknown `?disk=` mounts the visitor's own C:.
 - **Tests.** `preset.spec.ts` checks each image's FAT16 layout, files,
   `AUTOEXEC.BAT` and saved config, that the page mounts it, and the
-  IndexedDB isolation both ways (on DOOM). No test boots either game.
+  IndexedDB isolation both ways (on DOOM). No test boots a game.
 
 ## 51. 8237 terminal count masks a single-cycle channel
 

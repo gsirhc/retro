@@ -203,6 +203,25 @@ test.describe("preset C: (?disk=wolf3d)", () => {
   });
 });
 
+test.describe("preset C: (?disk=duke3d)", () => {
+  test("the Duke image has the shareware episode installed by 3D Realms' INSTALL, SB16 sound and FM music saved by SETUP, and mounts with its own label", async ({ page }) => {
+    await bootLive(page, { params: "disk=duke3d" });
+    const r = await readPreset(page, "disks/presets/duke3d-hdd.img.gz", "DUKE3D", ["DUKE3D.CFG"]);
+    expectBareFreeDos(r, "DUKE3D");
+    expect(r.top).not.toContain("3DDUKE13");
+    expect(r.game).toEqual(expect.arrayContaining(["DUKE3D.EXE", "DUKE3D.GRP", "SETUP.EXE", "DUKE3D.CFG"]));
+    expect(r.sizes["DUKE3D.GRP"]).toBe(11035779);
+    expect(r.autoexec).toMatch(/CD \\DUKE3D\r\nDUKE3D\r\n$/);
+    const cfg = r.texts["DUKE3D.CFG"];
+    for (const line of ["FXDevice = 0", "MusicDevice = 0", "NumBits = 16", "NumChannels = 2", "MixRate = 22000", "BlasterType = 6", "ControllerType = 1", "ScreenWidth = 320"]) {
+      expect(cfg).toContain(line + "\r\n");
+    }
+    expect(await mountedVolumeLabel(page)).toBe("DUKE3D");
+    await expect(page.locator("#hddStatus")).toHaveText(/Using: Duke Nukem 3D shareware/);
+    await expect(page.locator("#hddResetBtn")).toHaveText("Reset to original Duke Nukem disk");
+  });
+});
+
 test.describe("preset C: (?disk=tyrian)", () => {
   test("the Tyrian image has Tyrian 2.1 with FM music, Sound Blaster effects and 16-bar volumes, and mounts with its own label", async ({ page }) => {
     await bootLive(page, { params: "disk=tyrian" });

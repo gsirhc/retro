@@ -32,7 +32,7 @@ test.describe("retroweb landing page", () => {
     expect(await shot.evaluate((img: HTMLImageElement) => img.naturalHeight)).toBe(128);
   });
 
-  test("Ready to Play lists DOOM, Wolfenstein 3-D and Tyrian, each linking to its pc486 preset", async ({ page }) => {
+  test("Ready to Play lists DOOM, Wolfenstein 3-D, Duke Nukem 3D and Tyrian, each linking to its pc486 preset", async ({ page }) => {
     await page.goto(HOME);
     await expect(page.locator("h2.section-heading")).toHaveText([
       "Systems",
@@ -54,6 +54,13 @@ test.describe("retroweb landing page", () => {
     await expect(wolf.locator(".name")).toHaveText("Wolfenstein 3D");
     await expect(wolf.locator(".meta")).toHaveText("486 DX2-66 Gaming PC");
     await expect(wolf.locator("img.shot")).toHaveJSProperty("naturalWidth", 286);
+
+    const duke = page.locator('a.machine-card[href="pc486/?disk=duke3d"]');
+    await expect(duke.locator(".name")).toHaveText("Duke Nukem 3D");
+    await expect(duke.locator(".meta")).toHaveText("486 DX2-66 Gaming PC");
+    await expect(duke.locator("img.shot")).toHaveAttribute("src", /assets\/duke3d-e1l1\.jpg$/);
+    await expect(duke.locator("img.shot")).toHaveJSProperty("naturalWidth", 286);
+    await expect(page.locator("a.machine-card[data-art] .name")).toHaveText(["Doom", "Wolfenstein 3D", "Duke Nukem 3D", "Commander Keen", "Tyrian"]);
 
     const tyrian = page.locator('a.machine-card[href="pc486/?disk=tyrian"]');
     await expect(tyrian.locator(".name")).toHaveText("Tyrian");
@@ -109,9 +116,11 @@ test.describe("Ready to Play thumbnails", () => {
   const ART: Record<string, string> = {
     "pc486/?disk=doom": "DOOM%20(1993).png",
     "pc486/?disk=wolf3d": "Wolfenstein%203D%20(1992).png",
+    "pc486/?disk=duke3d": "Duke%20Nukem%203D%20(1996).png",
     "ibmpc-at/?disk=keen1": "Commander%20Keen%201%20-%20Marooned%20on%20Mars%20(1990).png",
     "pc486/?disk=tyrian": "Tyrian%20(1995).png",
   };
+  const TITLE_Y: Record<string, string> = { "pc486/?disk=duke3d": "30%" };
   const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGNgYGAAAAAEAAH2FzhVAAAAAElFTkSuQmCC", "base64");
 
   async function stub(page, fail: string[] = []) {
@@ -149,9 +158,9 @@ test.describe("Ready to Play thumbnails", () => {
         await expect(shot).toHaveAttribute("src", DOS + dir + "/" + file);
         await expect(shot).toHaveJSProperty("complete", true);
         await expect(shot).toHaveAttribute("referrerpolicy", "no-referrer");
-        expect(await fit(page, href)).toBe(mode === "snap" ? "cover 50% 50%" : "cover 50% 0%");
+        expect(await fit(page, href)).toBe(mode === "snap" ? "cover 50% 50%" : "cover 50% " + (mode === "title" && TITLE_Y[href] || "0%"));
       }
-      await expect.poll(() => new Set(hits).size).toBe(4);
+      await expect.poll(() => new Set(hits).size).toBe(Object.keys(ART).length);
       expect(hits.every((h) => h.startsWith(DOS + dir + "/"))).toBe(true);
       expect(await page.evaluate(() => localStorage.getItem("retroweb.readyArt"))).toBe(mode);
       expect(await page.evaluate(() => localStorage.getItem("retroweb.arcadeArt"))).toBeNull();
@@ -202,6 +211,6 @@ test.describe("Ready to Play thumbnails", () => {
     await expect(tyrian.locator("img.shot")).toHaveAttribute("src", "assets/tyrian-demo.jpg");
     await expect(tyrian).not.toHaveClass(/\bart\b/);
     expect(await fit(page, "pc486/?disk=tyrian")).toBe("cover 0% 50%");
-    await expect(page.locator("a.machine-card.art")).toHaveCount(3);
+    await expect(page.locator("a.machine-card.art")).toHaveCount(Object.keys(ART).length - 1);
   });
 });

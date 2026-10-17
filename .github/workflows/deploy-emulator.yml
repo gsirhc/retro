@@ -603,8 +603,8 @@ jobs:
           path: retroweb/pc486/disks/freedos-hdd.img
           key: pc486-hdd-${{ hashFiles('retroweb/pc486/*.h', 'retroweb/pc486/*.cpp', 'retroweb/shared/pc/*.h', 'retroweb/shared/pc/*.cpp', 'retroweb/pc486/disks/*.cpp', 'retroweb/pc486/disks/*.sh', 'retroweb/pc486/roms/*.sh') }}
 
-      # Preset C:s (?disk=doom, ?disk=wolf3d, ?disk=tyrian): each game's own installer run onto a
-      # bare FreeDOS from the library's floppies (disks/build_preset_hdd.cpp).
+      # Preset C:s (?disk=doom, ?disk=wolf3d, ?disk=duke3d, ?disk=tyrian): each game's own installer
+      # run onto a bare FreeDOS from the library's floppies or the publisher's zip (disks/build_preset_hdd.cpp).
       - name: Restore pc486 preset hard disks
         id: pc486-preset-hdds
         uses: actions/cache/restore@v4
@@ -612,6 +612,7 @@ jobs:
           path: |
             retroweb/pc486/disks/doom-hdd.img
             retroweb/pc486/disks/wolf3d-hdd.img
+            retroweb/pc486/disks/duke3d-hdd.img
             retroweb/pc486/disks/tyrian-hdd.img
           key: pc486-preset-hdds-${{ hashFiles('retroweb/pc486/Makefile', 'retroweb/pc486/*.h', 'retroweb/pc486/*.cpp', 'retroweb/shared/pc/*.h', 'retroweb/shared/pc/*.cpp', 'retroweb/pc486/disks/*.cpp', 'retroweb/pc486/disks/*.sh', 'retroweb/pc486/disks/*.py', 'retroweb/pc486/disks/library.json', 'retroweb/pc486/roms/*.sh', 'retroweb/shared/dos-library/*.py', 'retroweb/shared/dos-library/*.sh') }}
 
@@ -626,6 +627,7 @@ jobs:
           path: |
             retroweb/pc486/disks/doom-hdd.img
             retroweb/pc486/disks/wolf3d-hdd.img
+            retroweb/pc486/disks/duke3d-hdd.img
             retroweb/pc486/disks/tyrian-hdd.img
           key: pc486-preset-hdds-${{ hashFiles('retroweb/pc486/Makefile', 'retroweb/pc486/*.h', 'retroweb/pc486/*.cpp', 'retroweb/shared/pc/*.h', 'retroweb/shared/pc/*.cpp', 'retroweb/pc486/disks/*.cpp', 'retroweb/pc486/disks/*.sh', 'retroweb/pc486/disks/*.py', 'retroweb/pc486/disks/library.json', 'retroweb/pc486/roms/*.sh', 'retroweb/shared/dos-library/*.py', 'retroweb/shared/dos-library/*.sh') }}
 

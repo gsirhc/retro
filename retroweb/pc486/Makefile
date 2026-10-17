@@ -113,7 +113,7 @@ library: disks/freedos-cd.iso disks/ctmouse.img
 	python3 $(DOSLIB)/build-library.py --library disks/library.json --iso disks/freedos-cd.iso --out disks/library
 	cp disks/ctmouse.img disks/library/
 
-# --- preset C:s (?disk=doom, ?disk=wolf3d), from the library's install floppies ---
+# --- preset C:s (?disk=doom, ?disk=wolf3d, ?disk=duke3d), from the library's install floppies or the publisher's zip ---
 disks/build_preset_hdd: disks/build_preset_hdd.cpp $(CHIPSET_SRCS)
 	$(CXX) $(CXXFLAGS) -o $@ disks/build_preset_hdd.cpp $(CHIPSET_SRCS)
 
@@ -121,7 +121,8 @@ disks/library/doom-1.img disks/library/doom-2.img disks/library/wolf3d.img:
 	$(MAKE) library
 
 TYRIAN_ZIP = ../shared/dos-library/cache/tyrian21.zip
-$(TYRIAN_ZIP):
+DUKE3D_ZIP = ../shared/dos-library/cache/3dduke13.zip
+$(TYRIAN_ZIP) $(DUKE3D_ZIP):
 	bash ../shared/dos-library/fetch-shareware.sh
 
 PRESET_DEPS = disks/build_preset_hdd disks/build-preset-hdd.sh disks/zero-free-clusters.py disks/freedos-hdd.img
@@ -136,11 +137,15 @@ disks/wolf3d-hdd.img: $(PRESET_DEPS) disks/library/wolf3d.img
 	$(PRESET_RUN) wolf3d $(PRESET_ARGS) $@.tmp disks/library/wolf3d.img
 	mv $@.tmp $@
 
+disks/duke3d-hdd.img: $(PRESET_DEPS) $(DUKE3D_ZIP)
+	$(PRESET_RUN) duke3d $(PRESET_ARGS) $@.tmp $(DUKE3D_ZIP)
+	mv $@.tmp $@
+
 disks/tyrian-hdd.img: $(PRESET_DEPS) $(TYRIAN_ZIP)
 	$(PRESET_RUN) tyrian $(PRESET_ARGS) $@.tmp $(TYRIAN_ZIP)
 	mv $@.tmp $@
 
-preset-hdds: bios disks/doom-hdd.img disks/wolf3d-hdd.img disks/tyrian-hdd.img
+preset-hdds: bios disks/doom-hdd.img disks/wolf3d-hdd.img disks/duke3d-hdd.img disks/tyrian-hdd.img
 
 # --- boot the finished HDD image standalone (hdd_boot_check.cpp) ---
 hdd-boot-check: bios disks/hdd_boot_check

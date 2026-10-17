@@ -29,6 +29,14 @@
   a frame read off `__test.frameCanvas`, cropped inside the view border down
   to the bottom of the view and resized to 286×128 (JPEG q90).
 
+- **`duke3d-e1l1.jpg`**: shareware Duke Nukem 3D's attract demo, a Pig Cop
+  in the E1L1 adult bookstore, from *this project's* 486 DX2-66 core booting
+  the `?disk=duke3d` preset C:. A 320×200 frame rendered by `RenderScreen`
+  about 4.8 billion cycles after power-on, rows 20 to 162 (below the
+  UNREGISTERED SHAREWARE tag, above the status bar) resized to 286×128
+  (JPEG q90). Its card sets `data-title-y="30%"` so the libretro title
+  screen shows the logo, not just the mushroom cloud.
+
 - **`keen1-mars.jpg`**: shareware Commander Keen 1 on the Mars overworld map,
   with Keen and the Bean-with-Bacon Megarocket, from *this project's* IBM
   PC/AT running the `?disk=keen1` preset C:. Space at the title on
@@ -42,7 +50,7 @@
   playfield below the INSERT COIN line (x 0–262, y 58–175) and resized to
   286×128 (JPEG q90).
 
-  These four are the shipped Ready to Play tiles. The landing page's
+  These five are the shipped Ready to Play tiles. The landing page's
   Thumbnails dropdown (Original by default) can swap in libretro-thumbnails'
   DOS screenshot, title screen, or box art (`data-art`, cropped by
   `data-<style>-y`), fetched by the visitor's browser. None of it is staged.

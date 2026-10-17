@@ -1570,6 +1570,7 @@
   const kPresetHdds = {
     doom: { file: "disks/presets/doom-hdd.img.gz", label: "DOOM shareware", reset: "Reset to original DOOM disk" },
     wolf3d: { file: "disks/presets/wolf3d-hdd.img.gz", label: "Wolfenstein 3-D shareware", reset: "Reset to original Wolfenstein disk" },
+    duke3d: { file: "disks/presets/duke3d-hdd.img.gz", label: "Duke Nukem 3D shareware", reset: "Reset to original Duke Nukem disk" },
     tyrian: { file: "disks/presets/tyrian-hdd.img.gz", label: "Tyrian 2.1 freeware", reset: "Reset to original Tyrian disk" },
   };
   const presetId = new URLSearchParams(location.search).get("disk");

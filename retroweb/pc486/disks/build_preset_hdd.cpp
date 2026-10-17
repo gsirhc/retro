@@ -2,7 +2,7 @@
 // on this emulator from the library's install floppies, with injected keys and
 // screen-text matching, then runs the game once so it saves its own config.
 //
-// Usage: build_preset_hdd <doom|wolf3d|tyrian> <bios> <vgabios> <base.img> <out.img> [disk1.img [disk2.img]]
+// Usage: build_preset_hdd <doom|wolf3d|duke3d|tyrian> <bios> <vgabios> <base.img> <out.img> [disk1.img [disk2.img]]
 //
 // <base.img> is build-preset-hdd.sh's bare FreeDOS C:. PC486_TRACE=1 dumps every screen
 // change to stderr; PC486_BUDGET caps the run in cycles.
@@ -107,7 +107,7 @@ constexpr uint8_t kScanUp = 0x48, kScanDown = 0x50, kScanEnter = 0x1C, kScanEsc 
 // the one the previous step answered, and it has then been still for kSettle.
 struct Step {
     std::string wait_for;
-    std::string send;  // tokens: @ENTER @ESC @SPACE @F10 @UP @DOWN @WAIT=seconds @PICK=Menu_entry @DISK1 @DISK2 @DONE, else literal keys
+    std::string send;  // tokens: @ENTER @ESC @SPACE @F10 @UP @DOWN @WAIT=seconds @PICK=Menu_entry @HL=attr @DISK1 @DISK2 @DONE, else literal keys
 };
 
 // Booting with A: empty, then inserting disk 1 at the prompt, keeps the BIOS on C:
@@ -146,6 +146,35 @@ const std::map<std::string, std::vector<Step>> kPresets = {
                         "@DOWN @DOWN @DOWN @DOWN @WAIT=1 @ENTER @WAIT=3 y"},
         {"Thanks for playing", "@DONE"},
     }},
+    {"duke3d", {
+        // 3D Realms' download unzipped to a scratch directory, as its INSTALL.EXE expects
+        {"C:\\>", "cd\\3dduke13\n"},
+        {"C:\\3DDUKE13>", "install\n"},
+        {"(c) 1996 3D Realms", "@ENTER"},
+        {"12.8Mb of Hard Drive Space Required", "@ENTER"},
+        {"install this game to, and press [Enter].", "@ENTER"},
+        {"Thanks for installing the shareware episode", "@ENTER"},
+        // SETUP's bar is F1, and a popup list leaves the menu under it in F1 too, so lists go by arrows
+        {"C:\\DUKE3D>", "setup\n"},
+        {"Duke Nukem 3D Setup Version 1.3D", "@HL=F1 @PICK=Sound_Setup @ENTER"},
+        {"Current Sound FX Card ( None )", "@PICK=Choose_Sound_FX_Card @ENTER"},
+        // Sound Blaster; port, IRQ, DMAs and type 16 come from BLASTER. Then 8 voices, 16-bit, stereo, 22kHz.
+        {"You don't want any digital sound", "@DOWN @WAIT=1 @DOWN @WAIT=1 @ENTER"},
+        {"Use These Settings and Continue...", "@ENTER"},
+        {"Number of Voices", "@ENTER"},
+        {"Number of Mixing Bits", "@DOWN @WAIT=1 @ENTER"},
+        {"Number of Channels", "@ENTER"},
+        {"Mixing Rate", "@DOWN @WAIT=1 @DOWN @WAIT=1 @ENTER"},
+        {"Current Sound FX Card ( Sound Blaster )", "@DOWN @WAIT=1 @ENTER"},
+        {"You don't want music", "@DOWN @WAIT=1 @DOWN @WAIT=1 @ENTER"},
+        {"Current Music Card ( Sound Blaster )", "@ESC"},
+        {"Setup sound and music for Duke Nukem 3D", "@DOWN @WAIT=1 @ENTER"},
+        {"VESA modes (SVGA/VESA 2.0)", "@ENTER"},
+        // Saved without a launch, so the game's own run counter starts at 1
+        {"Setup screen modes for Duke Nukem 3D", "@ESC"},
+        {"Save current setup and exit setup program", "@ENTER"},
+        {"C:\\DUKE3D>", "@DONE"},
+    }},
     {"tyrian", {
         {"C:\\>", "cd\\tyrian\n"},
         // SETUP is drawn in VGA graphics: Music > FM Sound (the SB16's OPL3), Sound Effects >
@@ -162,7 +191,7 @@ const std::map<std::string, std::vector<Step>> kPresets = {
 int main(int argc, char **argv) {
     if (argc < 6 || !kPresets.count(argv[1])) {
         std::fprintf(stderr,
-            "usage: %s <doom|wolf3d|tyrian> <bios> <vgabios> <base.img> <out.img> [disk1.img [disk2.img]]\n",
+            "usage: %s <doom|wolf3d|duke3d|tyrian> <bios> <vgabios> <base.img> <out.img> [disk1.img [disk2.img]]\n",
             argv[0]);
         return 2;
     }
@@ -194,6 +223,7 @@ int main(int argc, char **argv) {
     std::size_t step_idx = 0;
     bool done = false;
     uint64_t still_since = 0;
+    uint8_t highlight = kHighlight;
     const uint64_t kSettle = 130'000'000;  // ~2s emulated, also covers DOS's disk-swap timing check
 
     const uint64_t kChunk = 500'000;
@@ -238,12 +268,13 @@ int main(int argc, char **argv) {
             else if (tok == "@SPACE") SendKey(m, 0x39);
             else if (tok.rfind("@WAIT=", 0) == 0) m.run_cycles(int64_t(std::stoi(tok.substr(6))) * 66'000'000);
             else if (tok == "@ESC") SendKey(m, kScanEsc);
+            else if (tok.rfind("@HL=", 0) == 0) highlight = uint8_t(std::stoi(tok.substr(4), nullptr, 16));
             else if (tok.rfind("@PICK=", 0) == 0) {
                 std::string want = tok.substr(6);
                 for (char &c : want) if (c == '_') c = ' ';
                 int tries = 0;
                 // Keypad arrows: SETUP ignores the E0-prefixed grey ones (INT 16h AL=E0h)
-                while (Trim(CellsWithAttr(m, kHighlight)) != want && tries++ < 16) {
+                while (Trim(CellsWithAttr(m, highlight)) != want && tries++ < 16) {
                     SendKey(m, tries <= 8 ? kScanUp : kScanDown);
                     m.run_cycles(20'000'000);
                 }

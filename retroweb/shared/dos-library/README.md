@@ -6,7 +6,7 @@ Builds the floppies behind the **Disk library** button on `ibmpc-at` and
 Makefile's `library-images` copies them, with `library.json`, into
 `web/disks/library/`. Images are git-ignored and rebuilt by CI.
 
-- `fetch-shareware.sh` — the three shareware releases and freeware Tyrian
+- `fetch-shareware.sh` — the four shareware releases and freeware Tyrian
   2.1, pinned by SHA-256 into `cache/`.
 - `build-library.py` — FAT12 images via mtools (`mformat`, `mmd`, `mcopy`).
   Formats: 360K, 1.2MB, 1.44MB. Volume serials are derived from the label so a
@@ -57,6 +57,18 @@ NetHack is left out: its `NETHACK.EXE` alone is larger than a 1.44MB disk.
 All three were released as shareware for free copying of the unmodified
 episode; id's `doom19s.txt` marks DOOM "Electronic Distribution is Permitted"
 and its installer says "PLEASE DISTRIBUTE!!!".
+
+**Shareware**, used only for pc486's `?disk=duke3d` preset C:, not a library
+disk (about 5.8MB, more than a floppy holds):
+
+| file | source | notes |
+|---|---|---|
+| `3dduke13.zip` | <https://archive.org/download/3dduke13/3dduke13.zip> | Duke Nukem 3D 1.3D shareware, 3D Realms' own release: `INSTALL.EXE`, `DN3DSW13.SHR`, `LICENSE.TXT`, `FILE_ID.DIZ`, dated 24 Apr 1996. A repack split into `DUKE3DS._1`–`._5` floppy pieces also circulates (dosgamesarchive.com); it has no `LICENSE.TXT` and isn't used |
+
+3D Realms' `LICENSE.TXT` lets individuals give copies away free and lets free
+WWW and FTP sites "make the Game available for downloading", provided every
+file is included unmodified. The installer copies `LICENSE.TXT` into
+`C:\DUKE3D` with the game.
 
 **Freeware**, used only for pc486's `?disk=tyrian` preset C:, not a library
 disk:
