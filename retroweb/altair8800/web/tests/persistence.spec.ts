@@ -144,11 +144,12 @@ test.describe("page chrome, persistence, URL params", () => {
     await boot(page, { params: "preset=cassette" });
     await expect(page.locator(".preset-bar #pgToggle")).toBeVisible();
     await expect(page.locator(".preset-bar #pgToggle")).toContainText("Load it yourself");
-    const dev = (await page.locator("#ptr").boundingBox())!;
-    const bp = (await page.locator("#backplane").boundingBox())!;
-    const foot = (await page.locator(".footer").boundingBox())!;
-    expect(bp.y).toBeGreaterThan(dev.y);   // below the devices
-    expect(bp.y).toBeLessThan(foot.y);     // ...just above the footer
+    // one read per poll, so all three rects come from the same settled layout
+    await expect.poll(() => page.evaluate(() => {
+      const y = (sel: string) => document.querySelector(sel)!.getBoundingClientRect().y;
+      const bp = y("#backplane");
+      return { belowDevices: bp > y("#ptr"), aboveFooter: bp < y(".footer") };
+    })).toEqual({ belowDevices: true, aboveFooter: true });
   });
 
   test("the terminal settings bar sits above the monitor in every other layout", async ({ page }) => {

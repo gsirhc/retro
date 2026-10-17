@@ -126,7 +126,7 @@ test.describe("88-ACR cassette deck", () => {
     const before = await tapeStatus(page);
     await clickPaddle(page, /RESET/, "up");
     const after = await tapeStatus(page);
-    expect(after.pos).toBe(before.pos);          // head didn't rewind
+    expect(after.pos).toBeGreaterThanOrEqual(before.pos); // didn't rewind (tape rolls during the click)
     await expect(page.locator("#acr .acr-key.play")).toHaveClass(/down/); // still playing
     await expect.poll(() => tapeStatus(page).then((s) => s.pos), { timeout: 8000 })
       .toBeGreaterThan(after.pos);                // ...and still rolling

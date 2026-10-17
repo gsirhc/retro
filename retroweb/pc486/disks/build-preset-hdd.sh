@@ -55,7 +55,10 @@ if [ -n "${ZIP:-}" ]; then
     unzip -q "$ZIP" -d "$tmp/zip"
     dir=$(find "$tmp/zip" -mindepth 1 -maxdepth 1 -type d | head -1)
     [ -n "$dir" ] || dir="$tmp/zip"
-    for f in "$dir"/*; do mv "$f" "$dir/$(basename "$f" | tr a-z A-Z)"; done
+    for f in "$dir"/*; do
+        up="$dir/$(basename "$f" | tr a-z A-Z)"
+        [ "$f" = "$up" ] || mv "$f" "$up"
+    done
     mmd -i "$D" "::$ZIPDIR"
     mcopy -m -i "$D" "$dir"/* "::$ZIPDIR/"
 fi
