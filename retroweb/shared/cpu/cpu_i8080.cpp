@@ -1,4 +1,4 @@
-#include "i8080.h"
+#include "cpu_i8080.h"
 
 namespace i8080 {
 

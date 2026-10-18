@@ -4,7 +4,7 @@
 #                    root, the emulators at
 #                    /altair8800/, /assembler6502/, /ibmpc-at/, /pacman/,
 #                    /frogger/, /galaga/, /galaxian/, /scramble/, /asteroids/,
-#                    /centipede/, /missile/, /pc486/ (dev-only files stripped), what CI publishes
+#                    /centipede/, /missile/, /invaders/, /pc486/ (dev-only files stripped), what CI publishes
 #   make preview     stage _site/ (wasm + media first) and serve it over
 #                    HTTPS on :8000 in the FOREGROUND, dies when the
 #                    terminal closes or on Ctrl-C
@@ -50,7 +50,7 @@ help:
 
 # stage into a fresh dir, then swap it in atomically so a running preview
 # server never finds its document root deleted out from under it
-MACHINES = altair8800 assembler6502 ibmpc-at pacman frogger galaga galaxian scramble asteroids centipede missile pc486
+MACHINES = altair8800 assembler6502 ibmpc-at pacman frogger galaga galaxian scramble asteroids centipede missile invaders pc486
 SITE ?= _site
 
 site:
@@ -81,6 +81,7 @@ _stage:
 	$(MAKE) -C asteroids/web wasm roms shared
 	$(MAKE) -C centipede/web wasm roms shared
 	$(MAKE) -C missile/web wasm roms shared
+	$(MAKE) -C invaders/web wasm roms shared
 	$(MAKE) -C pc486/web pc486.js pc486-perf.js roms hdd-image driver-images library-images preset-images shared
 	$(MAKE) site
 
@@ -134,6 +135,7 @@ preview: _stage preview-cert
 	@echo "  https://0.0.0.0:$(PREVIEW_PORT)/asteroids/   the Asteroids arcade emulator"
 	@echo "  https://0.0.0.0:$(PREVIEW_PORT)/centipede/   the Centipede arcade emulator"
 	@echo "  https://0.0.0.0:$(PREVIEW_PORT)/missile/     the Missile Command arcade emulator"
+	@echo "  https://0.0.0.0:$(PREVIEW_PORT)/invaders/    the Space Invaders arcade emulator"
 	@echo "  https://0.0.0.0:$(PREVIEW_PORT)/pc486/       the 486 DX2-66 emulator"
 	@echo "  (foreground — leave this terminal open; Ctrl-C to stop)"
 	@echo

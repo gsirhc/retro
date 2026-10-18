@@ -11,7 +11,8 @@ each machine is a subdirectory.
 |---|---|---|
 | **MITS Altair 8800** (Intel 8080, CP/M 2.2, Altair BASIC) | [`retroweb/altair8800/`](retroweb/altair8800/) | `/altair8800/` |
 
-The Altair project is a C++ 8080 core (`i8080`, 88-2SIO, 88-ACR cassette,
+The Altair project is the shared C++ 8080 core (`retroweb/shared/cpu/cpu_i8080`, also
+used by Space Invaders) plus 88-2SIO, 88-ACR cassette,
 88-DCDD floppy) with a GoogleTest suite, compiled to WebAssembly and wired to an
 xterm.js front end in `retroweb/altair8800/web/`. See its
 [README](retroweb/altair8800/README.md).

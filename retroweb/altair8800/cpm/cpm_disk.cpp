@@ -3,7 +3,7 @@
 // Extra arguments are typed at each subsequent "A>".
 //   run: ./cpm/cpm_disk DISK01.DSK [DIR STAT ...]
 
-#include "../i8080.h"
+#include "cpu_i8080.h"
 #include "../serial2sio.h"
 #include "../disk88.h"
 #include "../disk_bootrom.h"

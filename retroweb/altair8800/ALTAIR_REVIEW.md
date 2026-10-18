@@ -54,7 +54,7 @@ scope or sequencing, not a correction of the review's facts.
 `M1` (opcode fetch vs. a plain operand read) and `STACK` (a push/pop vs. any
 other memory access) need the CPU core itself to say what an access is *for* —
 the `Bus`'s four callbacks say *what kind* of access (read/write/in/out) but
-not *why*. That's a real decoder-level change (tagging every one of `i8080.cpp`'s
+not *why*. That's a real decoder-level change (tagging every one of `cpu_i8080.cpp`'s
 opcode handlers with its access's purpose), touching the one part of this
 codebase proven correct by 8080EXM, for a payoff that's arguably invisible
 regardless: both are sub-frame pulses (a handful of T-states within a ~10-18
@@ -176,14 +176,14 @@ aluop <b,c,d,e,h,l,m,a>.......  PASS! crc is:cf762c86
 
 Source inspection agrees with the empirical result:
 
-- **`sub`/`cmp` auxiliary carry** — `retroweb/altair8800/i8080.cpp:59` uses
+- **`sub`/`cmp` auxiliary carry** — `retroweb/shared/cpu/cpu_i8080.cpp:59` uses
   `~(a ^ v ^ r) & 0x10`, i.e. the *inverted borrow*. This is 8080 semantics (the
   half-carry out of the internal `A + ~v + 1`), not Z80 semantics. Correct, and
   correct with borrow-in too.
-- **`ana` AC quirk** — `i8080.cpp:74` sets AC from `(a | v) & 0x08`, the 8080
+- **`ana` AC quirk** — `cpu_i8080.cpp:74` sets AC from `(a | v) & 0x08`, the 8080
   behaviour, not the 8085's always-1. Correct.
 - **`dcr` AC** — `(v & 0xF) != 0`, matching `v + 0xFF`'s half-carry. Correct.
-- **`daa`** — `i8080.cpp:112` uses `a > 0x99` for the high-nibble correction.
+- **`daa`** — `cpu_i8080.cpp:112` uses `a > 0x99` for the high-nibble correction.
   Worked through the boundary cases (`0x9A`, `0xFA`, AC-set-with-low-nibble ≤ 9,
   `0x99` with AC): exactly equivalent to the Intel manual's "if the most
   significant 4 bits are **now** greater than 9" wording, including carry-out
@@ -197,7 +197,7 @@ Source inspection agrees with the empirical result:
 - **Rotates** touch only carry. `CMA` touches nothing. `STC`/`CMC` touch only
   carry. `INR`/`DCR` preserve carry. `DAD` touches only carry. All correct.
 
-**Cycle table (`i8080.cpp:11-28`) — verified entry by entry against the Intel
+**Cycle table (`cpu_i8080.cpp:11-28`) — verified entry by entry against the Intel
 8080 datasheet.** Spot points worth recording: HLT = 7, XTHL = 18,
 SHLD/LHLD = 16, STA/LDA = 13, MVI M / INR M / DCR M = 10, conditional RET 5
 (not taken) / 11 (taken), conditional CALL 11 / 17, PCHL = 5, SPHL = 5,
@@ -205,7 +205,7 @@ XCHG = 5, EI/DI = 4, IN/OUT = 10. **No errors found.**
 
 ### 2.2 Finding — `EI` takes effect immediately
 
-`retroweb/altair8800/i8080.cpp:411`
+`retroweb/shared/cpu/cpu_i8080.cpp:411`
 
 ```cpp
 case 0xFB: int_enabled = true; break;          // EI
@@ -224,7 +224,7 @@ following instruction retires.
 
 ### 2.3 Finding — the entire interrupt path is dead code
 
-`retroweb/altair8800/i8080.cpp:213` (`Cpu::interrupt`)
+`retroweb/shared/cpu/cpu_i8080.cpp:213` (`Cpu::interrupt`)
 `retroweb/altair8800/serial2sio.h:61` (`on_irq`)
 `retroweb/altair8800/serial2sio.cpp:47, :91` (fires `on_irq`)
 
@@ -249,7 +249,7 @@ address derived from `opcode & 0x38`.
 
 ### 2.4 Minor — `Cpu::reset()` clears every register
 
-`retroweb/altair8800/i8080.cpp:27`
+`retroweb/shared/cpu/cpu_i8080.cpp:27`
 
 A real 8080 RESET forces only `PC = 0`. `A`, `F`, `BC`, `DE`, `HL`, `SP` are
 indeterminate after reset — this is why Altair software always initialises `SP`
@@ -1005,13 +1005,13 @@ Ordered by owner priority and impact. Each item names the decision behind it.
 
 | Finding | Location |
 |---|---|
-| Cycle table | `i8080.cpp:11-28` |
-| `Cpu::reset()` clears all registers | `i8080.cpp:27` |
-| `sub` AC (inverted borrow) | `i8080.cpp:59` |
-| `ana` AC quirk | `i8080.cpp:74` |
-| `daa` | `i8080.cpp:112` |
-| `Cpu::interrupt()` — no caller | `i8080.cpp:213` |
-| `EI` — no delay | `i8080.cpp:411` |
+| Cycle table | `cpu_i8080.cpp:11-28` |
+| `Cpu::reset()` clears all registers | `cpu_i8080.cpp:27` |
+| `sub` AC (inverted borrow) | `cpu_i8080.cpp:59` |
+| `ana` AC quirk | `cpu_i8080.cpp:74` |
+| `daa` | `cpu_i8080.cpp:112` |
+| `Cpu::interrupt()` — no caller | `cpu_i8080.cpp:213` |
+| `EI` — no delay | `cpu_i8080.cpp:411` |
 | 512-byte FIFOs | `serial2sio.h:44` |
 | `on_irq` fired but never assigned | `serial2sio.cpp:47`, `:91` |
 | `Disk88::reset()` homes heads | `disk88.cpp:26` |

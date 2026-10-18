@@ -48,9 +48,7 @@ retroweb/altair8800/tests/build-cov/
 retroweb/altair8800/tests/coverage-cpp/
 retroweb/altair8800/web/retro8080.js
 retroweb/altair8800/web/retro8080.wasm
-retroweb/altair8800/cpm/cpm_host
 retroweb/altair8800/cpm/cpm_disk
-retroweb/altair8800/cpm/*.COM
 retroweb/altair8800/cpm/*.dsk
 retroweb/altair8800/cpm/*.DSK
 retroweb/altair8800/web/disks/*.dsk
@@ -182,6 +180,17 @@ retroweb/missile/roms/user/
 retroweb/missile/web/shared/
 retroweb/missile/web/tests/shared/
 
+retroweb/invaders/tests/build/
+retroweb/invaders/tests/build-cov/
+retroweb/invaders/tests/coverage-cpp/
+retroweb/invaders/web/invaders.js
+retroweb/invaders/web/invaders.wasm
+retroweb/invaders/web/hwtest_roms.h
+retroweb/invaders/web/roms/
+retroweb/invaders/roms/user/
+retroweb/invaders/web/shared/
+retroweb/invaders/web/tests/shared/
+
 retroweb/shared/cpu/tests/build/
 retroweb/shared/cpu/zex/zexdoc.com
 retroweb/shared/cpu/zex/zex_host
@@ -191,6 +200,10 @@ retroweb/shared/cpu/sst/v1/
 retroweb/shared/cpu/sst/z80-sst.tar.gz
 retroweb/shared/cpu/dormann/dormann_host
 retroweb/shared/cpu/dormann/6502_functional_test.bin
+retroweb/shared/cpu/cpm/cpm_host
+retroweb/shared/cpu/cpm/*.COM
+retroweb/shared/cpu/tests/build-cov/
+retroweb/shared/cpu/tests/coverage-i8080/
 
 retroweb/frogger/tests/build/
 retroweb/frogger/tests/build-cov/

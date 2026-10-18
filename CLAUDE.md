@@ -141,7 +141,7 @@ spec sheet or reference document. Every addition must:
   factory firmware — the same labelled-departure rule as any override above.
 
 Arcade cabinets (Pac-Man, Frogger, Scramble, Galaxian, Galaga, Asteroids,
-Centipede, Missile Command, and any new one) also follow [`.claude/arcade.md`](.claude/arcade.md).
+Centipede, Missile Command, Space Invaders, and any new one) also follow [`.claude/arcade.md`](.claude/arcade.md).
 That includes the hwtest help screen after the diagnostic patterns (copyright /
 load-your-own copy), not only the self-test picture.
 
@@ -252,16 +252,17 @@ before calling it done.
   `8200` assembler6502, `8300`/`8310` ibmpc-at, `8400`/`8410` pc486,
   `8500`/`8510` pacman, `8600`/`8610` frogger, `8700`/`8710` scramble,
   `8800`/`8810` galaxian, `8900`/`8910` galaga, `9000`/`9010` asteroids,
-  `9100`/`9110` centipede, `9200`/`9210` missile)
+  `9100`/`9110` centipede, `9200`/`9210` missile, `9300`/`9310` invaders)
   specifically so a hand-run `make serve` and an automated test run never
   collide.
 - **CI job naming**: `.github/workflows/deploy-emulator.yml` gives every
   machine a `<machine>-test` (native smoke) and, once its Playwright suite
   exists, a `<machine>-web-test` job (`needs: <machine>-test`) — e.g.
   `altair8800-test`/`altair8800-web-test`, …, `pc486-test`/`pc486-web-test`
-  (plus `z80-test` / `mos6502-test` for the shared CPUs). Pac-Man, Frogger,
-  Scramble, Galaxian, and Galaga native jobs `needs: z80-test`; Asteroids,
-  Centipede, and Missile Command `needs: mos6502-test`. `lint` covers
+  (plus `z80-test` / `mos6502-test` / `i8080-test` for the shared CPUs).
+  Pac-Man, Frogger, Scramble, Galaxian, and Galaga native jobs `needs:
+  z80-test`; Asteroids, Centipede, and Missile Command `needs:
+  mos6502-test`; Altair 8800 and Space Invaders `needs: i8080-test`. `lint` covers
   `retroweb/` only. `build` lists every one of these in its own `needs:`
   so a red smoke job blocks deploy. Add a new machine's pair the same way.
   Deploy CI runs **smoke only**; the full suites run in
@@ -289,12 +290,14 @@ enough to gate Pages deploys. The full fidelity suites are slower
   `realtime: true` cases) — the contract in "Never speed these up".
 - Arcade native: the existing `TEST(Smoke, …)` board smoke only.
 - Shared Z80: the named ISA and bus-timing GoogleTest suites only (not
-  zexdoc, zexall, or SingleStepTests).
+  zexdoc, zexall, or SingleStepTests). Shared 8080: the `I8080*`
+  GoogleTest suites only (not the CP/M diagnostics).
 
 **What is nightly / local full** (not deploy CI):
 
 - Every other Playwright spec (controls, media, themes, home card, …).
-- Long native exercisers: Altair CP/M diagnostics + disk boot, Klaus
+- Long native exercisers: the 8080 CP/M diagnostics (`make -C
+  retroweb/shared/cpu i8080diag`), the Altair CP/M disk boot, Klaus
   Dormann 6502/65C02, Frank Cringle's zexdoc and zexall, SingleStepTests/z80,
   pc486 `pm-check` /
   `vbe-check`, pc486 Performance panel against the shipped (non-`?perf`)
@@ -520,7 +523,11 @@ separate suite.
   `make -C retroweb/altair8800/web test` (Playwright; needs Node +
   `npx playwright install chromium`). Coverage: `make -C
   retroweb/altair8800/web coverage` (app.js, V8/monocart), `make -C
-  retroweb/altair8800 coverage` (i8080/disk88/cassette, llvm-cov).
+  retroweb/altair8800 coverage` (disk88/cassette, llvm-cov). The 8080 core
+  is `retroweb/shared/cpu/cpu_i8080` (shared with Space Invaders); its
+  GoogleTest suite and the 8080PRE/TST8080/CPUTEST/8080EXM diagnostics run
+  from `make -C retroweb/shared/cpu test-smoke-i8080` / `i8080diag`, coverage
+  from `coverage-i8080`.
 - **6502 Assembler** (`retroweb/assembler6502/`): `make -C
   retroweb/assembler6502 check` (GoogleTest + Klaus Dormann 6502/65C02
   functional suites; needs `cc65` on PATH to build the real ROM from
@@ -593,6 +600,14 @@ separate suite.
   from-scratch self-test ROM; a real Atari `missile` set is opt-in and
   browser-local — see `MISSILE_REVIEW.md`. The NMOS 6502 core and POKEY
   live in `retroweb/shared/cpu/` and `retroweb/shared/atari/`.
+- **Space Invaders Arcade** (`retroweb/invaders/`): `make -C retroweb/invaders
+  check` (GoogleTest over the Midway 8080 board, MB14241 shifter, beam-timed
+  RST 1/RST 2 interrupts, and the discrete + SN76477 sound, including the
+  board smoke), `make -C retroweb/invaders/web wasm roms`, `make -C
+  retroweb/invaders/web test-install test` (Playwright). Ships a from-scratch
+  self-test ROM; a real Midway `invaders` set is opt-in and browser-local —
+  see `INVADERS_REVIEW.md`. The 8080 core is `retroweb/shared/cpu/cpu_i8080`,
+  shared with the Altair.
 - **486 DX2-66 Gaming PC** (`retroweb/pc486/`): `make -C retroweb/pc486 check`
   (GoogleTest over the 80486 core, chipset, EGA/VGA+VBE, WD1003, ATAPI
   CD-ROM, Sound Blaster 16 and its OPL3, plus the `retroweb/shared/pc/`
@@ -629,7 +644,8 @@ separate suite.
   files (`retro8080.js`/`.wasm`, `cgoac6502.js`/`.wasm`/`roms/*.bin`,
   `ibmpcat.js`/`.wasm`, `pacman.js`/`.wasm`, `frogger.js`/`.wasm`,
   `scramble.js`/`.wasm`, `galaxian.js`/`.wasm`, `galaga.js`/`.wasm`,
-  `asteroids.js`/`.wasm`, `centipede.js`/`.wasm`, `missile.js`/`.wasm`, disk/tape
+  `asteroids.js`/`.wasm`, `centipede.js`/`.wasm`, `missile.js`/`.wasm`,
+  `invaders.js`/`.wasm`, disk/tape
   images) are regenerated by CI, not committed — see each machine's `.gitignore`
   entries.
 - **Every control, device, terminal behaviour, and preset has an automated
@@ -638,7 +654,7 @@ separate suite.
   alters behaviour adds or updates a test in the same commit. Deploy CI
   runs **smoke** only and **does not deploy a red build**; the full suites
   run nightly (see "Smoke vs full" above). Coverage targets exist for
-  altair8800 and the five Z80 arcades (`make -C retroweb/<arcade>
+  altair8800, the five Z80 arcades and invaders (`make -C retroweb/<arcade>
   coverage`, board code only); none of them gate CI. Use `/* v8 ignore next */` only
   for genuinely unreachable defensive paths, never to hide an untested
   feature.

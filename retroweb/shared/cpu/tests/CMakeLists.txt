@@ -8,6 +8,8 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/../../googletest.cmake)
 
 enable_testing()
 
+option(COVERAGE "instrument the 8080 test binary for llvm-cov" OFF)
+
 set(CORE ${CMAKE_CURRENT_SOURCE_DIR}/..)
 
 add_executable(cpu_z80_test cpu_z80_test.cpp ${CORE}/cpu_z80.cpp)
@@ -20,6 +22,16 @@ target_include_directories(cpu_mos6502_test PRIVATE ${CORE})
 target_link_libraries(cpu_mos6502_test PRIVATE GTest::gtest_main)
 target_compile_options(cpu_mos6502_test PRIVATE -Wall -Wextra)
 
+add_executable(cpu_i8080_test cpu_i8080_test.cpp cpu_i8080_interrupt_test.cpp ${CORE}/cpu_i8080.cpp)
+target_include_directories(cpu_i8080_test PRIVATE ${CORE})
+target_link_libraries(cpu_i8080_test PRIVATE GTest::gtest_main)
+target_compile_options(cpu_i8080_test PRIVATE -Wall -Wextra)
+if(COVERAGE)
+  target_compile_options(cpu_i8080_test PRIVATE -O0 -g -fprofile-instr-generate -fcoverage-mapping)
+  target_link_options(cpu_i8080_test PRIVATE -fprofile-instr-generate -fcoverage-mapping)
+endif()
+
 include(GoogleTest)
 gtest_discover_tests(cpu_z80_test)
 gtest_discover_tests(cpu_mos6502_test)
+gtest_discover_tests(cpu_i8080_test)

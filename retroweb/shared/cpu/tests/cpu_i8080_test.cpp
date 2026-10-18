@@ -4,7 +4,7 @@
 
 #include <gtest/gtest.h>
 
-#include "i8080.h"
+#include "cpu_i8080.h"
 
 #include <array>
 #include <cstdint>
@@ -17,7 +17,7 @@ constexpr uint8_t ADD_B = 0x80, ADC_B = 0x88, SUB_B = 0x90, SBB_B = 0x98;
 constexpr uint8_t ADD_A = 0x87, SUB_A = 0x97;
 constexpr uint8_t ADI = 0xC6, ACI = 0xCE, SUI = 0xD6, SBI = 0xDE;
 
-class Arith : public ::testing::Test {
+class I8080Arith : public ::testing::Test {
 protected:
     std::array<uint8_t, 0x10000> mem{};
     std::unique_ptr<i8080::Cpu> cpu;
@@ -55,7 +55,7 @@ protected:
 // ADD
 // ---------------------------------------------------------------------------
 
-TEST_F(Arith, AddBasicNoFlags) {
+TEST_F(I8080Arith, AddBasicNoFlags) {
     cpu->a = 0x14;
     cpu->b = 0x22;
     run({ADD_B});
@@ -66,7 +66,7 @@ TEST_F(Arith, AddBasicNoFlags) {
     EXPECT_TRUE(P());          // 0x36 = 0b0011'0110 -> 4 one-bits -> even
 }
 
-TEST_F(Arith, AddZeroResultSetsZeroAndParity) {
+TEST_F(I8080Arith, AddZeroResultSetsZeroAndParity) {
     cpu->a = 0x00;
     cpu->b = 0x00;
     run({ADD_B});
@@ -77,7 +77,7 @@ TEST_F(Arith, AddZeroResultSetsZeroAndParity) {
     EXPECT_FALSE(CY());
 }
 
-TEST_F(Arith, AddWrapSetsCarryZeroAndAux) {
+TEST_F(I8080Arith, AddWrapSetsCarryZeroAndAux) {
     cpu->a = 0xFF;
     cpu->b = 0x01;
     run({ADD_B});
@@ -89,7 +89,7 @@ TEST_F(Arith, AddWrapSetsCarryZeroAndAux) {
     EXPECT_TRUE(P());
 }
 
-TEST_F(Arith, AddIntoBit7SetsSignClearsParity) {
+TEST_F(I8080Arith, AddIntoBit7SetsSignClearsParity) {
     cpu->a = 0x7F;
     cpu->b = 0x01;
     run({ADD_B});
@@ -102,7 +102,7 @@ TEST_F(Arith, AddIntoBit7SetsSignClearsParity) {
 }
 
 // Worked example from the programming manual: 0x2E + 0x6C = 0x9A.
-TEST_F(Arith, AddManualExample) {
+TEST_F(I8080Arith, AddManualExample) {
     cpu->a = 0x2E;
     cpu->b = 0x6C;
     run({ADD_B});
@@ -114,7 +114,7 @@ TEST_F(Arith, AddManualExample) {
     EXPECT_TRUE(AC());         // 0xE + 0xC -> carry out of bit 3
 }
 
-TEST_F(Arith, AddAccumulatorToItself) {
+TEST_F(I8080Arith, AddAccumulatorToItself) {
     cpu->a = 0xC0;
     run({ADD_A});             // ADD A: A += A
     EXPECT_EQ(cpu->a, 0x80);
@@ -124,7 +124,7 @@ TEST_F(Arith, AddAccumulatorToItself) {
     EXPECT_FALSE(P());
 }
 
-TEST_F(Arith, AddClearsStaleCarry) {
+TEST_F(I8080Arith, AddClearsStaleCarry) {
     setCarry(true);
     cpu->a = 0x01;
     cpu->b = 0x01;
@@ -133,7 +133,7 @@ TEST_F(Arith, AddClearsStaleCarry) {
     EXPECT_FALSE(CY());       // ADD ignores carry-in and recomputes carry-out
 }
 
-TEST_F(Arith, AdiImmediate) {
+TEST_F(I8080Arith, AdiImmediate) {
     cpu->a = 0x14;
     run({ADI, 0x42});
     EXPECT_EQ(cpu->a, 0x56);
@@ -146,7 +146,7 @@ TEST_F(Arith, AdiImmediate) {
 // ADC
 // ---------------------------------------------------------------------------
 
-TEST_F(Arith, AdcAddsCarryIn) {
+TEST_F(I8080Arith, AdcAddsCarryIn) {
     cpu->a = 0x14;
     cpu->b = 0x01;
     setCarry(true);
@@ -155,7 +155,7 @@ TEST_F(Arith, AdcAddsCarryIn) {
     EXPECT_FALSE(CY());
 }
 
-TEST_F(Arith, AdcWithoutCarryIn) {
+TEST_F(I8080Arith, AdcWithoutCarryIn) {
     cpu->a = 0x14;
     cpu->b = 0x01;
     setCarry(false);
@@ -163,7 +163,7 @@ TEST_F(Arith, AdcWithoutCarryIn) {
     EXPECT_EQ(cpu->a, 0x15);
 }
 
-TEST_F(Arith, AdcCarryInProducesCarryOut) {
+TEST_F(I8080Arith, AdcCarryInProducesCarryOut) {
     cpu->a = 0xFF;
     cpu->b = 0x00;
     setCarry(true);
@@ -175,7 +175,7 @@ TEST_F(Arith, AdcCarryInProducesCarryOut) {
 }
 
 // Programming manual example: 0x42 + 0x3D + carry = 0x80.
-TEST_F(Arith, AdcManualExample) {
+TEST_F(I8080Arith, AdcManualExample) {
     cpu->a = 0x42;
     cpu->b = 0x3D;
     setCarry(true);
@@ -188,7 +188,7 @@ TEST_F(Arith, AdcManualExample) {
     EXPECT_TRUE(AC());        // 0x2 + 0xD + 1 -> carry out of bit 3
 }
 
-TEST_F(Arith, AciImmediateWithCarry) {
+TEST_F(I8080Arith, AciImmediateWithCarry) {
     cpu->a = 0x00;
     setCarry(true);
     run({ACI, 0xFF});
@@ -201,7 +201,7 @@ TEST_F(Arith, AciImmediateWithCarry) {
 // SUB
 // ---------------------------------------------------------------------------
 
-TEST_F(Arith, SubBasic) {
+TEST_F(I8080Arith, SubBasic) {
     cpu->a = 0x22;
     cpu->b = 0x11;
     run({SUB_B});
@@ -212,7 +212,7 @@ TEST_F(Arith, SubBasic) {
     EXPECT_TRUE(P());          // 0x11 -> two bits -> even
 }
 
-TEST_F(Arith, SubEqualOperandsSetsZero) {
+TEST_F(I8080Arith, SubEqualOperandsSetsZero) {
     cpu->a = 0x3E;
     cpu->b = 0x3E;
     run({SUB_B});
@@ -224,7 +224,7 @@ TEST_F(Arith, SubEqualOperandsSetsZero) {
 }
 
 // Programming manual: SUB A zeroes A, clears carry, sets Z and P, leaves AC set.
-TEST_F(Arith, SubAccumulatorFromItself) {
+TEST_F(I8080Arith, SubAccumulatorFromItself) {
     cpu->a = 0x3E;
     run({SUB_A});
     EXPECT_EQ(cpu->a, 0x00);
@@ -235,7 +235,7 @@ TEST_F(Arith, SubAccumulatorFromItself) {
     EXPECT_TRUE(AC());
 }
 
-TEST_F(Arith, SubUnderflowSetsCarryAndSign) {
+TEST_F(I8080Arith, SubUnderflowSetsCarryAndSign) {
     cpu->a = 0x05;
     cpu->b = 0x10;
     run({SUB_B});
@@ -247,7 +247,7 @@ TEST_F(Arith, SubUnderflowSetsCarryAndSign) {
 }
 
 // Programming manual SUI example: 0x00 - 0x01 = 0xFF with a borrow.
-TEST_F(Arith, SuiZeroMinusOne) {
+TEST_F(I8080Arith, SuiZeroMinusOne) {
     cpu->a = 0x00;
     run({SUI, 0x01});
     EXPECT_EQ(cpu->a, 0xFF);
@@ -262,7 +262,7 @@ TEST_F(Arith, SuiZeroMinusOne) {
 // SBB
 // ---------------------------------------------------------------------------
 
-TEST_F(Arith, SbbSubtractsBorrowIn) {
+TEST_F(I8080Arith, SbbSubtractsBorrowIn) {
     cpu->a = 0x10;
     cpu->b = 0x02;
     setCarry(true);
@@ -273,7 +273,7 @@ TEST_F(Arith, SbbSubtractsBorrowIn) {
     EXPECT_FALSE(S());
 }
 
-TEST_F(Arith, SbbWithoutBorrowIn) {
+TEST_F(I8080Arith, SbbWithoutBorrowIn) {
     cpu->a = 0x10;
     cpu->b = 0x02;
     setCarry(false);
@@ -281,7 +281,7 @@ TEST_F(Arith, SbbWithoutBorrowIn) {
     EXPECT_EQ(cpu->a, 0x0E);
 }
 
-TEST_F(Arith, SbbBorrowInProducesBorrowOut) {
+TEST_F(I8080Arith, SbbBorrowInProducesBorrowOut) {
     cpu->a = 0x00;
     cpu->b = 0x00;
     setCarry(true);
@@ -294,7 +294,7 @@ TEST_F(Arith, SbbBorrowInProducesBorrowOut) {
 }
 
 // Programming manual SBB example: 0x04 - 0x02 - carry = 0x01.
-TEST_F(Arith, SbbManualExample) {
+TEST_F(I8080Arith, SbbManualExample) {
     cpu->a = 0x04;
     cpu->b = 0x02;
     setCarry(true);
@@ -307,7 +307,7 @@ TEST_F(Arith, SbbManualExample) {
     EXPECT_TRUE(AC());
 }
 
-TEST_F(Arith, SbiImmediate) {
+TEST_F(I8080Arith, SbiImmediate) {
     cpu->a = 0x20;
     setCarry(true);
     run({SBI, 0x10});
@@ -321,7 +321,7 @@ TEST_F(Arith, SbiImmediate) {
 // Flag-focused parameterised checks
 // ---------------------------------------------------------------------------
 
-TEST_F(Arith, ParityIsEvenParityOfResult) {
+TEST_F(I8080Arith, ParityIsEvenParityOfResult) {
     struct Case { uint8_t addend; uint8_t result; bool parityFlag; };
     const Case cases[] = {
         {0x00, 0x00, true},    // 0 one-bits
@@ -344,7 +344,7 @@ TEST_F(Arith, ParityIsEvenParityOfResult) {
     }
 }
 
-TEST_F(Arith, SignFlagTracksBit7) {
+TEST_F(I8080Arith, SignFlagTracksBit7) {
     cpu->a = 0x7F;
     cpu->b = 0x00;
     run({ADD_B});
@@ -357,7 +357,7 @@ TEST_F(Arith, SignFlagTracksBit7) {
     EXPECT_TRUE(S());
 }
 
-TEST_F(Arith, ZeroFlagOnlyWhenAllBitsClear) {
+TEST_F(I8080Arith, ZeroFlagOnlyWhenAllBitsClear) {
     cpu->a = 0x01;
     cpu->b = 0xFF;
     run({ADD_B});             // 0x100 -> 0x00
@@ -370,7 +370,7 @@ TEST_F(Arith, ZeroFlagOnlyWhenAllBitsClear) {
     EXPECT_FALSE(Z());
 }
 
-TEST_F(Arith, CarryFlagIsBorrowForSubtraction) {
+TEST_F(I8080Arith, CarryFlagIsBorrowForSubtraction) {
     cpu->a = 0x00;
     cpu->b = 0x01;
     run({SUB_B});

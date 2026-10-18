@@ -52,6 +52,7 @@ jobs:
           fi
 
   altair8800-test:
+    needs: i8080-test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -59,38 +60,14 @@ jobs:
       # native echo demo + GoogleTest unit suite
       - run: make -C retroweb/altair8800 check
 
-      # the diagnostic COMs + CP/M disk this job downloads (pins live in this
-      # file, so key the cache on it) -- a cache hit skips both fetch steps
+      # the CP/M disk this job downloads (pin lives in this file, so key the
+      # cache on it); a cache hit skips the fetch step
       - name: Cache test images
         id: test-images
         uses: actions/cache@v4
         with:
-          path: |
-            retroweb/altair8800/cpm/8080PRE.COM
-            retroweb/altair8800/cpm/TST8080.COM
-            retroweb/altair8800/cpm/CPUTEST.COM
-            retroweb/altair8800/cpm/8080EXM.COM
-            retroweb/altair8800/cpm/cpm22.dsk
+          path: retroweb/altair8800/cpm/cpm22.dsk
           key: test-images-${{ hashFiles('.github/workflows/nightly-full.yml') }}
-
-      # public-domain 8080 diagnostics (kept out of the repo), pinned + checksummed
-      - name: Fetch 8080 diagnostic images
-        if: steps.test-images.outputs.cache-hit != 'true'
-        working-directory: retroweb/altair8800/cpm
-        run: |
-          base=https://raw.githubusercontent.com/superzazu/8080/c5d403ce7ac967b6ec4980a45b5447d8880888b0/cpu_tests
-          for f in 8080PRE.COM TST8080.COM CPUTEST.COM 8080EXM.COM; do
-            curl -sSfL -o "$f" "$base/$f"
-          done
-          sha256sum -c <<'EOF'
-          18eb3c79cba42c0718f160be6a1853cb64cdce7aa47d65780189a57bdd98c4e0  8080PRE.COM
-          9561c6fb6c99efe3de00eb77e4044fd102151058b39ac2d7bce10483838a08e7  TST8080.COM
-          e61a9a75348c774486c2207080ea4effbf6c2367fdace31b0731081a4144030b  CPUTEST.COM
-          6e3286e11bb1a8f47b8ee1280b4a067be813193363e3223c99b0d21912f44aeb  8080EXM.COM
-          EOF
-
-      # 8080PRE / TST8080 / CPUTEST / 8080EXM via the CP/M host (exits non-zero on failure)
-      - run: make -C retroweb/altair8800 cpm
 
       # a real Altair CP/M 2.2 disk (kept out of the repo), pinned + checksummed
       - name: Fetch a CP/M diskette image
@@ -514,7 +491,27 @@ jobs:
         if: steps.sst.outputs.cache-hit != 'true'
         run: make -C retroweb/shared/cpu sst/v1/00.json
 
-      - run: make -C retroweb/shared/cpu check
+      - run: make -C retroweb/shared/cpu test zexdoc zexall sst dormann
+
+  # Shared Intel 8080 ISA + 8080PRE / TST8080 / CPUTEST / 8080EXM through the
+  # CP/M host. Altair 8800 and Space Invaders `needs:` this job.
+  i8080-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache 8080 diagnostics
+        id: i8080diag
+        uses: actions/cache@v4
+        with:
+          path: retroweb/shared/cpu/cpm/*.COM
+          key: i8080diag-${{ hashFiles('retroweb/shared/cpu/Makefile') }}
+
+      - name: Fetch 8080 diagnostics
+        if: steps.i8080diag.outputs.cache-hit != 'true'
+        run: make -C retroweb/shared/cpu cpm/8080PRE.COM cpm/TST8080.COM cpm/CPUTEST.COM cpm/8080EXM.COM
+
+      - run: make -C retroweb/shared/cpu test i8080diag
 
   # Shared NMOS 6502 ISA + Klaus Dormann. Asteroids `needs:` this job.
   mos6502-test:
@@ -652,6 +649,24 @@ jobs:
     uses: ./.github/workflows/arcade-web.yml
     with:
       machine: galaxian
+      target: test
+      fail-on-flaky: true
+
+  # Space Invaders arcade board: GoogleTest suite over the 8080 + MB14241
+  # shifter + discrete sound (see retroweb/invaders/INVADERS_REVIEW.md).
+  # Shared 8080 ISA is i8080-test; Smoke.Hwtest* is the board smoke.
+  invaders-test:
+    needs: i8080-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: make -C retroweb/invaders check
+
+  invaders-web-test:
+    needs: invaders-test
+    uses: ./.github/workflows/arcade-web.yml
+    with:
+      machine: invaders
       target: test
       fail-on-flaky: true
 

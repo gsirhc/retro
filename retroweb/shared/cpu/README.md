@@ -1,5 +1,19 @@
 # Shared CPU cores
 
+## Intel 8080
+
+`cpu_i8080.{h,cpp}` is the Intel 8080 used by the Altair 8800 and Space
+Invaders. All I/O goes through `Bus` callbacks. `Cpu::interrupt(opcode)`
+takes the RST byte the board jams onto the bus and honours the EI delay.
+The Altair's own review covers its flag and timing sources
+([`ALTAIR_REVIEW.md`](../../altair8800/ALTAIR_REVIEW.md)).
+
+```sh
+make test-smoke-i8080   # I8080* GoogleTest (deploy CI i8080-test)
+make i8080diag          # 8080PRE, TST8080, CPUTEST, 8080EXM through cpm/cpm_host
+make coverage-i8080     # llvm-cov over the GoogleTest suite plus the diagnostics
+```
+
 ## Z80
 
 `cpu_z80.{h,cpp}` is the Zilog Z80 used by Pac-Man, Frogger, Scramble,
@@ -20,7 +34,7 @@ make test-smoke   # Z80 GoogleTest only (deploy CI z80-test)
 make zexdoc       # Frank Cringle's documented-opcode exerciser
 make zexall       # Frank Cringle's full exerciser, undocumented flags included
 make sst          # SingleStepTests/z80: 1,604,000 cases, bus timing per T-state
-make check        # Z80 + 6502 GoogleTest + zexdoc + zexall + sst + Dormann
+make check        # Z80 + 6502 + 8080 GoogleTest + zexdoc + zexall + sst + Dormann + 8080 diagnostics
 ```
 
 ## NMOS 6502
@@ -36,6 +50,6 @@ make test-smoke-mos6502   # Mos6502.* GoogleTest (deploy CI mos6502-test)
 make dormann              # Klaus Dormann 6502_functional_test.bin
 ```
 
-`zexdoc.com`, `zexall.com`, the SingleStepTests tarball, and the Dormann
-`.bin` are fetched, pinned, and checksummed.
+`zexdoc.com`, `zexall.com`, the SingleStepTests tarball, the Dormann
+`.bin` and the 8080 diagnostic `.COM`s are fetched, pinned, and checksummed.
 They are not committed.

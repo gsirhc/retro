@@ -2,7 +2,7 @@
 
 #include <gtest/gtest.h>
 
-#include "i8080.h"
+#include "cpu_i8080.h"
 
 #include <array>
 #include <cstdint>
@@ -17,7 +17,7 @@ constexpr uint8_t DI   = 0xF3;
 constexpr uint8_t HLT  = 0x76;
 constexpr uint8_t RST7 = 0xFF;   // the conventional Altair 88-2SIO vector: RST 7 (0x38)
 
-class Interrupt : public ::testing::Test {
+class I8080Interrupt : public ::testing::Test {
 protected:
     std::array<uint8_t, 0x10000> mem{};
     std::unique_ptr<i8080::Cpu> cpu;
@@ -44,14 +44,14 @@ protected:
     }
 };
 
-TEST_F(Interrupt, IgnoredWhileDisabled) {
+TEST_F(I8080Interrupt, IgnoredWhileDisabled) {
     load({DI});
     cpu->step();                          // DI: int_enabled = false
     EXPECT_EQ(cpu->interrupt(RST7), 0);   // not serviced
     EXPECT_EQ(cpu->pc, 1);                // untouched, still just after DI
 }
 
-TEST_F(Interrupt, TakenWhileEnabled) {
+TEST_F(I8080Interrupt, TakenWhileEnabled) {
     load({NOP, NOP});
     cpu->int_enabled = true;              // enabled with no EI delay in the way
     cpu->sp = 0x2000;
@@ -61,7 +61,7 @@ TEST_F(Interrupt, TakenWhileEnabled) {
     EXPECT_EQ(popWord(), 0x1234);         // return address pushed
 }
 
-TEST_F(Interrupt, VectorIsOpcodeAndTriplet) {
+TEST_F(I8080Interrupt, VectorIsOpcodeAndTriplet) {
     // RST n = 11rrr111; the vector is opcode & 0x38
     struct { uint8_t opcode; uint16_t vector; } cases[] = {
         {0xC7, 0x00}, {0xCF, 0x08}, {0xD7, 0x10}, {0xDF, 0x18},
@@ -76,13 +76,13 @@ TEST_F(Interrupt, VectorIsOpcodeAndTriplet) {
     }
 }
 
-TEST_F(Interrupt, ClearsIntEnabledOnAccept) {
+TEST_F(I8080Interrupt, ClearsIntEnabledOnAccept) {
     cpu->int_enabled = true;
     cpu->interrupt(RST7);
     EXPECT_FALSE(cpu->int_enabled);       // a real 8080 disables further nesting until EI again
 }
 
-TEST_F(Interrupt, WakesHalt) {
+TEST_F(I8080Interrupt, WakesHalt) {
     load({HLT});
     cpu->step();                          // executes HLT -> cpu->halted = true
     ASSERT_TRUE(cpu->halted);
@@ -92,7 +92,7 @@ TEST_F(Interrupt, WakesHalt) {
     EXPECT_EQ(cpu->pc, 0x38);
 }
 
-TEST_F(Interrupt, DisabledAndHaltedStaysHalted) {
+TEST_F(I8080Interrupt, DisabledAndHaltedStaysHalted) {
     // HLT with DI never wakes (until RESET)
     load({HLT});
     cpu->step();
@@ -102,7 +102,7 @@ TEST_F(Interrupt, DisabledAndHaltedStaysHalted) {
 }
 
 // EI/RET idiom: no interrupt is taken until the instruction after EI retires
-TEST_F(Interrupt, EiDelaysOneInstruction) {
+TEST_F(I8080Interrupt, EiDelaysOneInstruction) {
     load({EI, NOP, NOP});
     cpu->step();                          // EI retires, delay window open
     EXPECT_EQ(cpu->interrupt(RST7), 0)    // requested immediately after EI: too soon
@@ -114,7 +114,7 @@ TEST_F(Interrupt, EiDelaysOneInstruction) {
         << "the delay should be over after exactly one more instruction";
 }
 
-TEST_F(Interrupt, EiThenHaltSatisfiesTheDelayOnHaltsOwnRetirement) {
+TEST_F(I8080Interrupt, EiThenHaltSatisfiesTheDelayOnHaltsOwnRetirement) {
     // HLT's own retirement satisfies the EI delay
     load({EI, HLT});
     cpu->step();                          // EI

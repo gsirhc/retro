@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Space Invaders Arcade</title>
+<link rel="icon" href="assets/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="assets/favicon-16.png">
+<link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+<script src="shared/theme-init.js"></script>
+<link rel="stylesheet" href="shared/theme.css">
+<link rel="stylesheet" href="shared/pagebar.css">
+<link rel="stylesheet" href="shared/fullscreen.css">
+<link rel="stylesheet" href="shared/focus-hint.css">
+<link rel="stylesheet" href="shared/footer.css">
+<link rel="stylesheet" href="shared/arcade-cab.css">
+<style>
+  :root {
+    --page-max:  960px;
+    --body-pad:  18px 12px;
+    --inner-pad: 14px 22px 22px;
+    --h1-font:   900 32px "Arial Black", Arial, sans-serif;
+  }
+  :root[data-theme="web94"] {
+    --body-pad:  26px 16px;
+    --h1-font:   bold 26px "Times New Roman", Times, serif;
+  }
+  :root[data-theme="modern"] {
+    --body-pad:  36px 20px;
+    --inner-pad: 22px 30px 30px;
+    --h1-font:   700 28px/1.15 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  :root[data-theme="aurora"] {
+    --h1-font:   800 30px/1.15 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  :root[data-theme="winxp"] {
+    --h1-font:   bold 28px Tahoma, "Segoe UI", sans-serif;
+  }
+
+  :root[data-theme="aurora"] .pagebar { border-bottom: 1px solid rgba(168,140,255,.35); }
+
+  h1 { margin: 4px 0 0; text-align: center; font: var(--h1-font); letter-spacing: .5px; color: var(--h1-color); text-shadow: var(--h1-shadow); }
+  :root[data-theme="modern"] h1 {
+    position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
+    overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+  }
+  .tagline { text-align: center; color: var(--dim); font-size: 14px; margin: 4px 0 0; }
+  :root[data-theme="modern"] .tagline { display: none; }
+  hr.rule { border: 0; border-top: var(--rule); margin: 12px 0; }
+  :root[data-theme="modern"] hr.rule { display: none; }
+
+  .inner { padding: var(--inner-pad); }
+
+  .panel {
+    background: var(--panel-bg); border: var(--panel-border); border-radius: var(--panel-radius);
+    padding: 14px 16px 16px;
+  }
+  .panel + .panel { margin-top: 18px; }
+  .panel h2 {
+    font: bold 14px Arial, Helvetica, sans-serif;
+    text-transform: uppercase; letter-spacing: .06em; color: var(--dim);
+    margin: 0 0 10px;
+  }
+
+  button, select, input[type=file] {
+    font: 14px Arial, Helvetica, sans-serif; color: var(--btn-fg); background: var(--btn-bg);
+    border: var(--btn-border); padding: 4px 10px; cursor: pointer;
+  }
+
+  .monitor { display: flex; justify-content: center; width: 100%; }
+  .bezel {
+    position: relative;
+    background: #1a1a1a;
+    border: 8px solid #2a2a2a;
+    border-radius: 6px;
+    padding: 10px;
+    box-shadow: inset 0 0 0 1px #111;
+    width: min(100%, calc(75vh * 224 / 260 + 36px));
+    width: min(100%, calc(75dvh * 224 / 260 + 36px));
+  }
+  #screen {
+    display: block;
+    width: 100%;
+    height: auto;
+    aspect-ratio: 224 / 260;
+    image-rendering: pixelated;
+    background: #000;
+    outline: none;
+  }
+  .bezel-btn {
+    font: 12px Arial, Helvetica, sans-serif; color: #ccc; background: #333;
+    border: 1px solid #555; padding: 2px 6px; cursor: pointer;
+  }
+  .keys { color: var(--dim); font-size: 14px; margin-top: 10px; text-align: center; }
+
+  .cab-face {
+    --cab-face-bg: linear-gradient(180deg, #34343a 0%, #222226 42%, #121214 100%);
+    --cab-face-inset: inset 0 0 0 2px #56565e, inset 0 0 0 3px #0a0a0c,
+                      inset 0 3px 6px rgba(255,255,255,.25), inset 0 -8px 14px rgba(0,0,0,.35),
+                      0 10px 24px rgba(0,0,0,.35);
+  }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
+  #romStatus { font-size: 14px; color: var(--dim); }
+  .legal { font-size: 13px; color: var(--dim); margin: 8px 0 0; line-height: 1.4; }
+  .dip-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 10px 14px;
+    margin-top: 10px;
+  }
+  .dip-grid label {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font: 14px Arial, Helvetica, sans-serif;
+    color: var(--dim);
+  }
+  .dip-grid label[hidden] { display: none; }
+  :root:not([data-theme]) body { background: #0e0f12; color: #d8dbe2; }
+</style>
+</head>
+<body>
+<div class="page">
+  <header class="pagebar">
+    <a class="pb-home" href="../arcade/">&#8592;&nbsp;Arcade</a>
+    <span class="pb-title"><img class="pb-icon" src="assets/favicon-32.png" alt="" aria-hidden="true"> SPACE INVADERS</span>
+    <span class="pb-name">Space Invaders Arcade</span>
+    <span class="pb-tag">8080 &middot; 1.9968&nbsp;MHz &middot; running entirely in your browser</span>
+    <span class="pb-tools">
+      <label class="pb-theme">Theme
+        <button type="button" class="pb-theme-btn" id="pageThemeBtn">Windows 95</button>
+      </label>
+      <span class="pb-winbtns"><button type="button" class="pb-min" title="Minimize" aria-label="Minimize" aria-pressed="false">_</button><button type="button" class="pb-max" title="Maximize" aria-label="Maximize">&#9633;</button><a class="pb-close" href="../arcade/" title="back to Arcade" aria-label="close, back to Arcade">&times;</a></span>
+    </span>
+  </header>
+
+  <div class="inner">
+    <h1>Space Invaders Arcade</h1>
+    <p class="tagline">Midway Space Invaders (1978) board. 8080 at 1.9968 MHz, a black and white bitmap under color gels, discrete analog sound.</p>
+    <hr class="rule">
+
+    <div class="panel" id="displayCard">
+      <div class="monitor" id="monitor">
+        <div class="bezel" id="bezel">
+          <canvas id="screen" width="224" height="260" tabindex="0" aria-label="Arcade monitor. Click to play"></canvas>
+          <div class="crt-overlay"></div>
+          <div class="focus-hint" id="focusHint" aria-hidden="true">Click to focus</div>
+          <div class="bezel-controls">
+            <button type="button" id="fullscreenBtn" class="bezel-btn" title="Fullscreen" aria-label="Fullscreen">&#x26F6;</button>
+          </div>
+        </div>
+      </div>
+      <p class="keys">Arrows / AD move &nbsp;·&nbsp; <kbd>Z</kbd>/<kbd>Space</kbd> fire &nbsp;·&nbsp; click a 25¢ slot or <kbd>5</kbd> coin &nbsp;·&nbsp; <kbd>1</kbd> 1P start &nbsp;·&nbsp; <kbd>2</kbd> 2P start</p>
+      <div class="cab-face">
+        <div class="touch-controls" id="touchControls" hidden></div>
+        <div class="cab-starts" role="group" aria-label="Start buttons">
+          <button type="button" class="cab-start" data-start="1" aria-label="1 Player start">
+            <img class="cab-start-img" src="shared/cab-start-1p-white.png" width="80" height="80" alt="" draggable="false">
+          </button>
+          <button type="button" class="cab-start" data-start="2" aria-label="2 Player start">
+            <img class="cab-start-img" src="shared/cab-start-2p-white.png" width="80" height="80" alt="" draggable="false">
+          </button>
+        </div>
+        <div class="coin-door" id="coinDoor" role="group" aria-label="Coin slots">
+          <button type="button" class="cd-mech" data-coin aria-label="Insert coin, 25 cents">
+            <span class="cd-lamp">25¢</span>
+            <span class="cd-throat" aria-hidden="true"></span>
+          </button>
+          <button type="button" id="mute" class="cd-mute" aria-pressed="false" aria-label="Mute" title="Mute">
+            <svg class="cd-mute-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path class="cd-mute-body" d="M3 9h4l5-4v14l-5-4H3V9z"/>
+              <path class="cd-mute-waves" d="M16.2 8.2a4.5 4.5 0 0 1 0 7.6"/>
+              <path class="cd-mute-waves" d="M18.8 5.5a8 8 0 0 1 0 13"/>
+              <path class="cd-mute-slash" d="M5 5l14 14"/>
+            </svg>
+          </button>
+          <button type="button" class="cd-mech" data-coin aria-label="Insert coin, 25 cents">
+            <span class="cd-throat" aria-hidden="true"></span>
+            <span class="cd-lamp">25¢</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>ROM sockets</h2>
+      <p class="legal" id="romLegal">This page ships a hardware self-test ROM, not Space Invaders. Those ROMs are still under copyright and are not included or downloaded. Load the ROMs yourself: invaders.zip, or the four loose chips (invaders.h, .g, .f and .e). Each chip is identified by its usual name and checked by size, not a particular CRC. Extra files are ignored. The set stays in this browser.</p>
+      <div class="row">
+        <button type="button" id="loadRomBtn">Load ROM set…</button>
+        <input id="romFile" type="file" accept=".zip,.bin,.h,.g,.f,.e,.h1,.g1,.f1,.e1" multiple hidden>
+        <button type="button" id="removeRomBtn">Remove ROMs</button>
+        <button type="button" id="resetHiscore" disabled>Reset HIGH SCORE</button>
+        <span id="romStatus">Running test ROM</span>
+      </div>
+      <p class="legal">
+        HIGH SCORE is kept in this browser after refresh. The real board has no
+        battery and loses it when you pull the plug. Reset clears the saved table
+        and restarts the cabinet.
+      </p>
+    </div>
+
+    <div class="panel" id="dipPanel">
+      <h2>DIP switches</h2>
+      <p class="legal" id="dipLegal">Set board DIP switches just like on the real arcade cabinet.</p>
+      <div class="dip-grid">
+        <label>Lives
+          <select id="dipLives">
+            <option value="0" selected>3</option>
+            <option value="1">4</option>
+            <option value="2">5</option>
+            <option value="3">6</option>
+          </select>
+        </label>
+        <label>Extra base at
+          <select id="dipBonus">
+            <option value="0" selected>1500</option>
+            <option value="8">1000</option>
+          </select>
+        </label>
+        <label>Coin info
+          <select id="dipCoinInfo">
+            <option value="0" selected>Shown</option>
+            <option value="128">Hidden</option>
+          </select>
+        </label>
+      </div>
+    </div>
+  </div>
+</div>
+
+<dialog class="site-dialog" id="romErrorHint">
+  <h2>ROM set not loaded</h2>
+  <p id="romErrorCopy">That isn't a complete set. invaders.zip needs all
+    four program ROMs. Loose chips use names like invaders.h or
+    invaders.e.</p>
+  <div class="row">
+    <button type="button" id="romErrorOk" autofocus>OK</button>
+  </div>
+</dialog>
+<dialog class="site-dialog" id="hiscoreResetHint">
+  <h2>Reset HIGH SCORE</h2>
+  <p>The real board loses it when you pull the plug. Clear the saved table
+    and restart the cabinet?</p>
+  <div class="row">
+    <button type="button" id="hiscoreResetCancel" autofocus>Cancel</button>
+    <button type="button" id="hiscoreResetOk">Reset</button>
+  </div>
+</dialog>
+<script src="invaders.js"></script>
+<script src="shared/theme-picker.js"></script>
+<script src="shared/fullscreen.js"></script>
+<script src="shared/winbtns.js"></script>
+<script src="shared/focus-hint.js"></script>
+<script src="shared/footer.js"></script>
+<script src="shared/arcade-touch.js"></script>
+<script src="shared/arcade-core.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

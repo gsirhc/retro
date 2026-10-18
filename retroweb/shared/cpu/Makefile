@@ -1,19 +1,23 @@
-# Shared CPU cores: Zilog Z80 (Pac-Man family) and MOS NMOS 6502 (Asteroids).
+# Shared CPU cores: Zilog Z80 (Pac-Man family), MOS NMOS 6502 (Asteroids),
+# Intel 8080 (Altair 8800, Space Invaders).
 #
-#   make test               GoogleTest for Z80 + MOS 6502
+#   make test               GoogleTest for Z80 + MOS 6502 + 8080
 #   make test-smoke         Z80 ISA only (deploy CI z80-test)
 #   make test-smoke-mos6502 MOS 6502 ISA only (deploy CI mos6502-test)
+#   make test-smoke-i8080   8080 ISA only (deploy CI i8080-test)
 #   make zexdoc             Frank Cringle's documented Z80 exerciser
 #   make zexall             Frank Cringle's full Z80 exerciser (undocumented flags)
 #   make sst                SingleStepTests/z80: every opcode, MEMPTR/Q, bus timing
 #   make dormann            Klaus Dormann's 6502 functional test (NMOS)
-#   make check              test + zexdoc + zexall + sst + dormann (nightly)
+#   make i8080diag          8080PRE, TST8080, CPUTEST, 8080EXM via the CP/M host
+#   make coverage-i8080     8080 GoogleTest + diagnostics, llvm-cov report
+#   make check              test + zexdoc + zexall + sst + dormann + i8080diag (nightly)
 #   make clean
 
 CXX      ?= c++
 CXXFLAGS ?= -std=c++17 -O2 -Wall -Wextra
 
-.PHONY: help test test-smoke test-smoke-mos6502 zexdoc zexall sst dormann check clean
+.PHONY: help test test-smoke test-smoke-mos6502 test-smoke-i8080 zexdoc zexall sst dormann i8080diag coverage-i8080 check clean
 
 help:
 	@sed -n 's/^#   //p' $(MAKEFILE_LIST)
@@ -32,6 +36,11 @@ test-smoke-mos6502:
 	cmake -S tests -B tests/build
 	cmake --build tests/build -j
 	ctest --test-dir tests/build -R '^Mos6502\.' --output-on-failure
+
+test-smoke-i8080:
+	cmake -S tests -B tests/build
+	cmake --build tests/build -j
+	ctest --test-dir tests/build -R '^I8080' --output-on-failure
 
 # Frank Cringle's zexdoc, documented Z80 opcodes only. Pinned + checksummed.
 ZEXDOC_COMMIT = 1c418fa0d719abab9273131113defbe276101d95
@@ -93,8 +102,50 @@ dormann/dormann_host: dormann/dormann_host.cpp cpu_mos6502.cpp cpu_mos6502.h
 dormann: dormann/dormann_host dormann/6502_functional_test.bin
 	./dormann/dormann_host dormann/6502_functional_test.bin 3469
 
-check: test zexdoc zexall sst dormann
+# Public-domain 8080 diagnostics, pinned + checksummed (superzazu/8080 cpu_tests).
+I8080_DIAG_BASE = https://raw.githubusercontent.com/superzazu/8080/c5d403ce7ac967b6ec4980a45b5447d8880888b0/cpu_tests
+I8080_DIAGS = 8080PRE TST8080 CPUTEST 8080EXM
+SHA_8080PRE = 18eb3c79cba42c0718f160be6a1853cb64cdce7aa47d65780189a57bdd98c4e0
+SHA_TST8080 = 9561c6fb6c99efe3de00eb77e4044fd102151058b39ac2d7bce10483838a08e7
+SHA_CPUTEST = e61a9a75348c774486c2207080ea4effbf6c2367fdace31b0731081a4144030b
+SHA_8080EXM = 6e3286e11bb1a8f47b8ee1280b4a067be813193363e3223c99b0d21912f44aeb
+
+cpm/%.COM:
+	curl -sSfL -o $@ $(I8080_DIAG_BASE)/$*.COM
+	echo "$(SHA_$*)  $@" | shasum -a 256 -c
+
+cpm/cpm_host: cpm/cpm_host.cpp cpu_i8080.cpp cpu_i8080.h
+	$(CXX) $(CXXFLAGS) -o $@ cpm/cpm_host.cpp cpu_i8080.cpp
+
+# 8080PRE first (smoke), 8080EXM last (~15 s); stops at the first failure
+i8080diag: cpm/cpm_host $(I8080_DIAGS:%=cpm/%.COM)
+	@for c in $(I8080_DIAGS); do \
+	  echo "=== cpm/$$c.COM ==="; ./cpm/cpm_host cpm/$$c.COM || exit $$?; \
+	done
+
+# llvm tools: xcrun on macOS, PATH on Linux
+LLVM_PROFDATA ?= xcrun llvm-profdata
+LLVM_COV      ?= xcrun llvm-cov
+COVFLAGS = -std=c++17 -O0 -g -fprofile-instr-generate -fcoverage-mapping
+
+coverage-i8080: $(I8080_DIAGS:%=cpm/%.COM)
+	cmake -S tests -B tests/build-cov -DCOVERAGE=ON >/dev/null
+	cmake --build tests/build-cov -j --target cpu_i8080_test >/dev/null
+	$(CXX) $(COVFLAGS) -o tests/build-cov/cpm_host_cov cpm/cpm_host.cpp cpu_i8080.cpp
+	@set -e; cd tests/build-cov && rm -f *.profraw cov.profdata; \
+	  LLVM_PROFILE_FILE=unit.profraw ./cpu_i8080_test >/dev/null; \
+	  for c in $(I8080_DIAGS); do \
+	    LLVM_PROFILE_FILE=cpm_$$c.profraw ./cpm_host_cov ../../cpm/$$c.COM >/dev/null; done; \
+	  $(LLVM_PROFDATA) merge -sparse *.profraw -o cov.profdata; \
+	  srcs="$(CURDIR)/cpu_i8080.cpp $(CURDIR)/cpu_i8080.h"; \
+	  $(LLVM_COV) report cpu_i8080_test -object cpm_host_cov -instr-profile=cov.profdata $$srcs; \
+	  $(LLVM_COV) show cpu_i8080_test -object cpm_host_cov -instr-profile=cov.profdata -format=html -output-dir=../coverage-i8080 $$srcs >/dev/null; \
+	  echo "  html: retroweb/shared/cpu/tests/coverage-i8080/index.html"
+
+check: test zexdoc zexall sst dormann i8080diag
 
 clean:
 	rm -rf tests/build zex/zex_host zex/zexdoc.com zex/zexall.com sst/sst_host sst/v1
 	rm -f dormann/dormann_host dormann/6502_functional_test.bin
+	rm -rf tests/build-cov tests/coverage-i8080
+	rm -f cpm/cpm_host cpm/*.COM

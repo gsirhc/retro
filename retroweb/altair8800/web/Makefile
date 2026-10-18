@@ -5,7 +5,7 @@
 # Use em++, not emcc: embind needs libc++abi typeinfo the C driver won't link.
 EMCC ?= em++
 
-SRC = wasm_machine.cpp ../i8080.cpp ../serial2sio.cpp ../disk88.cpp ../cassette.cpp
+SRC = wasm_machine.cpp ../../shared/cpu/cpu_i8080.cpp ../serial2sio.cpp ../disk88.cpp ../cassette.cpp
 
 EMFLAGS = -O2 -std=c++17 -lembind --no-entry \
   -sMODULARIZE=1 -sEXPORT_NAME=Retro8080 \
@@ -14,8 +14,8 @@ EMFLAGS = -O2 -std=c++17 -lembind --no-entry \
   -sFILESYSTEM=0
 
 retro8080.js: $(SRC)
-	$(EMCC) $(EMFLAGS) $(SRC) -o $@
-	$(call write_deps,$(SRC))
+	$(EMCC) $(EMFLAGS) -I../../shared/cpu $(SRC) -o $@
+	$(call write_deps,-I../../shared/cpu $(SRC))
 
 .PHONY: shared roms media serve test test-smoke test-install clean stage
 roms: roms/echo.bin

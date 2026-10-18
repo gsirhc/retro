@@ -8,7 +8,7 @@
 #include <cstdint>
 #include <vector>
 
-#include "../i8080.h"
+#include "cpu_i8080.h"
 #include "../serial2sio.h"
 #include "../disk88.h"
 #include "../disk_bootrom.h"

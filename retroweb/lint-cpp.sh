@@ -71,7 +71,7 @@ check() {
 }
 
 for m in altair8800 assembler6502 ibmpc-at pc486 pacman frogger galaxian scramble \
-    galaga asteroids centipede missile; do
+    galaga asteroids centipede missile invaders; do
   check "$m" -I "$m"
 done
 check shared

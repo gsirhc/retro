@@ -20,6 +20,7 @@ MACHINES = (
     "asteroids",
     "centipede",
     "missile",
+    "invaders",
     "pc486",
 )
 
@@ -36,6 +37,7 @@ WASM_TARGETS = {
     "asteroids": ["wasm"],
     "centipede": ["wasm"],
     "missile": ["wasm"],
+    "invaders": ["wasm"],
     "pc486": ["pc486.js", "pc486-perf.js"],
 }
 
@@ -51,6 +53,7 @@ GENERATED_JS = frozenset({
     "asteroids.js",
     "centipede.js",
     "missile.js",
+    "invaders.js",
     "pc486.js",
     "pc486-perf.js",
 })

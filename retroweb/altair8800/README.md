@@ -11,7 +11,7 @@ Run from this directory — no arguments, `package.json`-style:
 | Command | What it does |
 |---|---|
 | `make demo`  or `scripts/demo`  | build + run the native serial-echo demo |
-| `make test`  or `scripts/test`  | build + run the GoogleTest suite (8080 arithmetic + 88-DCDD) |
+| `make test`  or `scripts/test`  | build + run the GoogleTest suite (88-DCDD + 88-ACR) |
 | `make cpmdisk DISK=x.dsk`        | boot a CP/M diskette image on the emulated 88-DCDD |
 | `make serve` or `scripts/serve` | build the wasm module + serve the browser UI on `:8000` |
 | `make wasm`   | build `web/retro8080.{js,wasm}` only |
@@ -23,7 +23,7 @@ Run from this directory — no arguments, `package.json`-style:
 
 | Path | |
 |---|---|
-| `i8080.{h,cpp}` | the CPU core — registers, flags, `step()` decoder, `Bus` callbacks |
+| `../shared/cpu/cpu_i8080.{h,cpp}` | the CPU core, shared with Space Invaders, tested there |
 | `serial2sio.{h,cpp}` / `ringbuffer.h` | 88-2SIO board, ring-buffered RX/TX on ports `0x10`–`0x13` |
 | `cassette.{h,cpp}` | MITS 88-ACR audio-cassette interface, ports `0x06`/`0x07` (BASIC `CSAVE`/`CLOAD`) |
 | `disk88.{h,cpp}` | MITS 88-DCDD 8-inch floppy controller, ports `0x08`–`0x0A` |

@@ -72,7 +72,7 @@ few genuinely unreachable defensive paths (missing xterm, wasm-instantiate
 failure, oversized-manual reflow) — not untested features.
 
 For the C++ core: `make -C retroweb/altair8800 coverage` (llvm-cov over
-`i8080.cpp` / `disk88.cpp` / `cassette.cpp`, driven by the GoogleTest suites
+`cpu_i8080.cpp` / `disk88.cpp` / `cassette.cpp`, driven by the GoogleTest suites
 plus the 8080 diagnostic COMs).
 
 The page exposes an inspection seam under `?test=1` (`window.__test`): it hands

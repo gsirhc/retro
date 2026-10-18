@@ -2,7 +2,7 @@
 // A .COM loads at 0x0100. BDOS functions 2 and 9 are emulated by trapping an OUT
 // planted at the BDOS entry (0x0005) and warm-boot vector (0x0000).
 
-#include "../i8080.h"
+#include "../cpu_i8080.h"
 
 #include <array>
 #include <cctype>

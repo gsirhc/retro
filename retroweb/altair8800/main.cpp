@@ -1,6 +1,6 @@
 // Minimal harness: flat 64K RAM with an 88-2SIO on ports 0x10-0x13 running an echo program.
 
-#include "i8080.h"
+#include "cpu_i8080.h"
 #include "serial2sio.h"
 
 #include <array>

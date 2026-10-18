@@ -1,7 +1,7 @@
 // Intel 8080 CPU core, host-agnostic: all I/O goes through the Bus callbacks.
 
-#ifndef EMULATOR8080_I8080_H
-#define EMULATOR8080_I8080_H
+#ifndef SHARED_CPU_I8080_H
+#define SHARED_CPU_I8080_H
 
 #include <cstdint>
 #include <functional>
@@ -107,4 +107,4 @@ private:
 
 } // namespace i8080
 
-#endif // EMULATOR8080_I8080_H
+#endif // SHARED_CPU_I8080_H

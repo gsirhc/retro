@@ -32,9 +32,10 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Smoke: demo + GoogleTest. CP/M diagnostics + disk boot are nightly
-  # (nightly-full.yml). See CLAUDE.md "Smoke vs full".
+  # Smoke: demo + GoogleTest. CP/M disk boot is nightly (nightly-full.yml).
+  # Shared 8080 ISA is i8080-test. See CLAUDE.md "Smoke vs full".
   altair8800-test:
+    needs: i8080-test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -312,6 +313,13 @@ jobs:
       - uses: actions/checkout@v4
       - run: make -C retroweb/shared/cpu test-smoke
 
+  # Shared Intel 8080 ISA smoke. The CP/M diagnostics are nightly (`make i8080diag`).
+  i8080-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: make -C retroweb/shared/cpu test-smoke-i8080
+
   # Shared NMOS 6502 ISA smoke. Klaus Dormann is nightly (`make dormann`).
   mos6502-test:
     runs-on: ubuntu-latest
@@ -435,6 +443,23 @@ jobs:
       machine: galaxian
       target: test-smoke
 
+  # Space Invaders arcade board: GoogleTest suite over the 8080 + MB14241
+  # shifter + discrete sound (see retroweb/invaders/INVADERS_REVIEW.md).
+  # Shared 8080 ISA is i8080-test; Smoke.Hwtest* is the board smoke.
+  invaders-test:
+    needs: i8080-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: make -C retroweb/invaders test-smoke
+
+  invaders-web-test:
+    needs: invaders-test
+    uses: ./.github/workflows/arcade-web.yml
+    with:
+      machine: invaders
+      target: test-smoke
+
   # HTML (HTMLHint), JavaScript (ESLint), and C++ (cppcheck) under retroweb/.
   # A red run blocks deploy the same way a red test job does.
   lint:
@@ -471,6 +496,7 @@ jobs:
         pc486-web-test,
         z80-test,
         mos6502-test,
+        i8080-test,
         asteroids-test,
         asteroids-web-test,
         centipede-test,
@@ -485,6 +511,8 @@ jobs:
         galaxian-web-test,
         galaga-test,
         galaga-web-test,
+        invaders-test,
+        invaders-web-test,
       ]
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
@@ -560,6 +588,8 @@ jobs:
         run: make wasm roms shared
 
       - working-directory: retroweb/missile/web
+        run: make wasm roms shared
+      - working-directory: retroweb/invaders/web
         run: make wasm roms shared
 
       # 486 DX2-66: BIOS/VGA-BIOS ROMs (fetched, checksummed) are cheap; the

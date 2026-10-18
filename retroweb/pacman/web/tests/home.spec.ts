@@ -90,7 +90,7 @@ test.describe("arcade hub", () => {
     await page.reload();
   });
 
-  test("lists eight cabinets in Name order by default, including Pac-Man and Ms. Pac-Man", async ({ page }) => {
+  test("lists ten cabinets in Name order by default, including Pac-Man and Ms. Pac-Man", async ({ page }) => {
     await expect(page).toHaveTitle(/Arcade/);
     await expect(page.locator(".tagline a")).toHaveText("More info");
     await expect(page.locator(".tagline a")).toHaveAttribute("href", "../about.html#rights");
@@ -106,6 +106,7 @@ test.describe("arcade hub", () => {
       "Ms. Pac-Man",
       "Pac-Man",
       "Scramble",
+      "Space Invaders",
     ]);
     const pac = page.locator('a.machine-card[href="../pacman/"]');
     await expect(pac.locator(".name")).toHaveText("Pac-Man");
@@ -126,10 +127,11 @@ test.describe("arcade hub", () => {
     await sel.selectOption("year");
     expect(await page.evaluate(() => localStorage.getItem("retroweb.arcadeSort"))).toBe("year");
     await expect(page.locator("#arcadeCatalog > h2.section-heading")).toHaveText([
-      "1979", "1980", "1981", "1982",
+      "1978", "1979", "1980", "1981", "1982",
     ]);
     let names = await page.locator("#arcadeCatalog a.machine-card .name").allTextContents();
     expect(names).toEqual([
+      "Space Invaders",
       "Asteroids",
       "Galaxian",
       "Missile Command",
@@ -142,10 +144,11 @@ test.describe("arcade hub", () => {
     ]);
 
     await sel.selectOption("cpu");
-    await expect(page.locator("#arcadeCatalog > h2.section-heading")).toHaveText(["6502", "Z80"]);
+    await expect(page.locator("#arcadeCatalog > h2.section-heading")).toHaveText(["6502", "8080", "Z80"]);
     names = await page.locator("#arcadeCatalog a.machine-card .name").allTextContents();
     expect(names.slice(0, 3)).toEqual(["Asteroids", "Centipede", "Missile Command"]);
-    expect(names.slice(3)).toEqual([
+    expect(names[3]).toBe("Space Invaders");
+    expect(names.slice(4)).toEqual([
       "Frogger",
       "Galaga",
       "Galaxian",
@@ -167,6 +170,7 @@ test.describe("arcade hub", () => {
       "Scramble",
       "Galaga",
       "Ms. Pac-Man",
+      "Space Invaders",
       "Galaxian",
       "Pac-Man",
     ]);
@@ -195,6 +199,7 @@ test.describe("arcade hub real art", () => {
     "../pacman/?game=mspacman": "Ms.%20Pac-Man.png",
     "../pacman/": "Pac-Man%20(Midway).png",
     "../scramble/": "Scramble.png",
+    "../invaders/": "Space%20Invaders%20_%20Space%20Invaders%20M.png",
   };
   const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGNgYGAAAAAEAAH2FzhVAAAAAElFTkSuQmCC", "base64");
 
@@ -236,7 +241,7 @@ test.describe("arcade hub real art", () => {
         await expect(shot).toHaveJSProperty("complete", true);
         await expect(shot).toHaveAttribute("referrerpolicy", "no-referrer");
       }
-      await expect.poll(() => new Set(hits).size).toBe(9);
+      await expect.poll(() => new Set(hits).size).toBe(10);
       expect(hits.every((h) => h.startsWith(LIBRETRO + dir + "/"))).toBe(true);
       expect(await page.evaluate(() => localStorage.getItem("retroweb.arcadeArt"))).toBe(mode);
     });
@@ -248,6 +253,7 @@ test.describe("arcade hub real art", () => {
       "../asteroids/": "asteroid", "../centipede/": "centiped", "../frogger/": "frogger",
       "../galaga/": "galaga", "../galaxian/": "galaxian", "../missile/": "missile",
       "../pacman/?game=mspacman": "mspacman", "../pacman/": "pacman", "../scramble/": "scramble",
+      "../invaders/": "invaders",
     };
     const hits = await stub(page);
     await page.goto(ARCADE);
@@ -260,12 +266,12 @@ test.describe("arcade hub real art", () => {
       await expect(shot).toHaveJSProperty("complete", true);
       expect(await shot.evaluate((img) => getComputedStyle(img).objectFit + " " + getComputedStyle(img).objectPosition)).toBe("contain 50% 50%");
     }
-    await expect.poll(() => new Set(hits).size).toBe(9);
+    await expect.poll(() => new Set(hits).size).toBe(10);
     expect(hits.every((h) => h.startsWith(ADB))).toBe(true);
 
     await page.locator("#arcadeArt").selectOption("snap");
     await expect(page.locator("a.machine-card.marquee")).toHaveCount(0);
-    await expect(page.locator("a.machine-card.art")).toHaveCount(9);
+    await expect(page.locator("a.machine-card.art")).toHaveCount(10);
   });
 
   test("a saved style hides the original tiles until the artwork arrives, so they never flash", async ({ page }) => {
@@ -311,7 +317,7 @@ test.describe("arcade hub real art", () => {
     await page.locator("#arcadeArt").selectOption("");
     await expect(page.locator("a.machine-card.art")).toHaveCount(0);
     await expect(page.locator('a.machine-card[href="../pacman/"] img.shot')).toHaveAttribute("src", "../assets/pacman-cabinet.png");
-    await expect(page.locator("a.machine-card img.shot[src^='../assets/']")).toHaveCount(9);
+    await expect(page.locator("a.machine-card img.shot[src^='../assets/']")).toHaveCount(10);
     expect(await pos("../pacman/")).toBe("cover 0% 50%");
     expect(await page.evaluate(() => localStorage.getItem("retroweb.arcadeArt"))).toBe("");
     expect(hits.length).toBe(before);
@@ -326,6 +332,6 @@ test.describe("arcade hub real art", () => {
     await expect(scramble).not.toHaveClass(/\bart\b/);
     expect(await scramble.locator("img.shot").evaluate((img) => getComputedStyle(img).objectPosition)).toBe("0% 50%");
     await expect(page.locator('a.machine-card[href="../frogger/"] img.shot')).toHaveAttribute("src", LIBRETRO + "Named_Boxarts/Frogger.png");
-    await expect(page.locator("a.machine-card.art")).toHaveCount(8);
+    await expect(page.locator("a.machine-card.art")).toHaveCount(9);
   });
 });

@@ -5,9 +5,8 @@ faking just enough of CP/M to see console output. It's the standard way to run
 the classic 8080 test suites.
 
 ```sh
-make cpm                       # from retroweb/altair8800/  (builds, runs TST8080.COM if present)
+make i8080diag                  # from retroweb/shared/cpu/ (fetches, builds, runs all four)
 ./cpm/cpm_host cpm/TST8080.COM  # or run a specific image
-./scripts/cpm                   # same, no-arg
 ```
 
 ## How the CP/M calls are mocked
@@ -32,9 +31,9 @@ The real `RET` at `0x0007` then returns to the instruction after the program's
 
 ## Getting the test binaries
 
-These are public-domain 8080 diagnostics (not redistributed here). Common
-sources: the `superzazu/8080` repo's `cpu_tests/` directory, or the
-`altairclone.com` / Udo Munk `z80pack` collections.
+These are public-domain 8080 diagnostics (not redistributed here). The
+Makefile fetches them from the `superzazu/8080` repo's `cpu_tests/` at a
+pinned commit and checks each SHA-256.
 
 | File | Notes |
 |---|---|
@@ -42,8 +41,6 @@ sources: the `superzazu/8080` repo's `cpu_tests/` directory, or the
 | `TST8080.COM`  | Microcosm Associates 8080/8085 CPU diagnostic, v1.0 |
 | `CPUTEST.COM`  | Supersoft diagnostics — longer |
 | `8080EXM.COM`  | exhaustive; checks every flag combination (slow) |
-
-Drop them in this directory.
 
 ## Expected output — TST8080.COM
 

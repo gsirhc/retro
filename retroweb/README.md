@@ -138,6 +138,7 @@ _site/scramble/       <- retroweb/scramble/web/      (its `stage` list)
 _site/asteroids/      <- retroweb/asteroids/web/     (its `stage` list)
 _site/centipede/      <- retroweb/centipede/web/     (its `stage` list)
 _site/missile/        <- retroweb/missile/web/       (its `stage` list)
+_site/invaders/       <- retroweb/invaders/web/      (its `stage` list)
 _site/pc486/          <- retroweb/pc486/web/         (its `stage` list)
 ```
 
