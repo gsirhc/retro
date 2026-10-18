@@ -44,6 +44,16 @@ test.describe("retroweb landing page", () => {
     await expect(card.locator("img.shot")).toHaveJSProperty("naturalHeight", 128);
   });
 
+  test("Ready to Play lists CP/M, linking to the Altair with ?disk=cpm", async ({ page }) => {
+    await page.goto(HOME);
+    const card = page.locator('a.machine-card[href="altair8800/?disk=cpm"]');
+    await expect(card.locator(".name")).toHaveText("CP/M");
+    await expect(card.locator(".meta")).toHaveText("MITS Altair 8800");
+    await expect(card.locator("img.shot")).toHaveAttribute("src", /assets\/altair-cpm\.jpg$/);
+    await expect(card.locator("img.shot")).toHaveJSProperty("naturalWidth", 286);
+    await expect(card.locator("img.shot")).toHaveJSProperty("naturalHeight", 128);
+  });
+
   test("the theme selector switches the page and persists to retro8080.theme", async ({ page }) => {
     await page.goto(HOME);
     const root = page.locator("html");

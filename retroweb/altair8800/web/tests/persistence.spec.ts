@@ -96,6 +96,23 @@ test.describe("page chrome, persistence, URL params", () => {
     }
   });
 
+  test("every theme caps the front panel, terminal, drives and bus at the Windows 95 width", async ({ page }) => {
+    await page.setViewportSize({ width: 1500, height: 900 }); // below the side-by-side breakpoint
+    for (const t of ["win", "winxp", "web94", "modern", "aurora"]) {
+      await boot(page, { params: `theme=${t}&preset=cpm` });
+      await expect(page.locator("#dcdd")).toBeVisible();
+      await expect(page.locator("#backplane")).toBeVisible();
+      const w = async (s: string) => (await page.locator(s).boundingBox())!.width;
+      const [panel, term, monitor, drives, bus] =
+        await Promise.all([w("#altair"), w(".ws-terminal"), w(".monitor"), w("#dcdd"), w("#backplane")]);
+      expect(panel, t).toBeLessThanOrEqual(870);
+      expect(term, t).toBeLessThanOrEqual(870);
+      expect(drives, t).toBe(panel);
+      expect(bus, t).toBe(panel);
+      expect(monitor, t).toBeGreaterThan(840);   // fills the column, not shrunk to its content
+    }
+  });
+
   test("Modern, wide screen: terminal left of the panel, its settings folded into the PRESET bar", async ({ page }) => {
     await page.setViewportSize({ width: 1600, height: 1000 });
     await boot(page, { params: "theme=modern&preset=cassette" });
@@ -111,10 +128,8 @@ test.describe("page chrome, persistence, URL params", () => {
   test("footer link list is on every theme; Mid-1990s Web dresses it Mosaic-style", async ({ page }) => {
     await boot(page, { params: "theme=web94" });
     const links = page.locator(".footer-links");
-    await expect(links).toContainText("Home");
     await expect(links).toContainText("BASIC Manual");
-    await expect(links.getByRole("link", { name: "Source" }))
-      .toHaveAttribute("href", /github\.com\/gsirhc\/retro\/tree\/main\/retroweb\/altair8800/);
+    await expect(links.getByRole("link")).toHaveText(["BASIC Manual", "Altair Manual"]);
     // web94: raw underlined blue links, "Page last modified"
     await expect(links.locator("a").first()).toHaveCSS("text-decoration-line", "underline");
     await expect(links.locator("a").first()).toHaveCSS("color", "rgb(0, 0, 255)");

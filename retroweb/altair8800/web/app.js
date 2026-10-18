@@ -1346,12 +1346,12 @@ async function boot() {
       this.setSpeed(this.speed);
     },
 
-    setSpeed(key) {
+    setSpeed(key, persist = true) {
       this.speed = DISK_SPEEDS[key] != null ? key : "realistic";
       if (this.speedSel) this.speedSel.value = this.speed;
       if (typeof machine.setDiskSpeed === "function") machine.setDiskSpeed(DISK_SPEEDS[this.speed]);
       // don't persist the internal "max" (?test=1) as a user choice
-      if (DISK_SPEED_KEYS.includes(this.speed))
+      if (persist && DISK_SPEED_KEYS.includes(this.speed))
         try { localStorage.setItem("retro8080.diskspeed", this.speed); } catch {}
     },
 
@@ -2864,17 +2864,29 @@ exactly as it did in 1975.`;
     } });
   }
 
+  // ?disk=cpm, the home page's Ready to Play card: boot CP/M with the drive at 50x for this visit only
+  function quickBootCpm() {
+    if (!machine.diskPresent?.(0)) return;   // preset already flagged the missing diskette
+    disk.setSpeed("x50", false);
+    ensurePowered();
+    disk.boot();
+  }
+
   // restore / apply an era preset (URL wins over the stored choice); a custom build ("") still
   // runs applyPreset so its load devices get set up
   buildBackplane([]);
   const quickTape = new URLSearchParams(location.search).get("tape");
-  let startPreset = quickTape === "startrek" ? "cassette" : new URLSearchParams(location.search).get("preset");
+  const quickDisk = new URLSearchParams(location.search).get("disk");
+  let startPreset = quickTape === "startrek" ? "cassette"
+    : quickDisk === "cpm" ? "cpm"
+    : new URLSearchParams(location.search).get("preset");
   try { if (startPreset == null) startPreset = localStorage.getItem("retro8080.preset"); } catch {}
   if (startPreset == null || !PRESETS[startPreset]) startPreset = "";
   presetSelect.value = startPreset;
   setTimeout(async () => {   // let the wasm + fonts settle
     await applyPreset(startPreset);
     if (quickTape === "startrek") quickPlayStarTrek();
+    else if (quickDisk === "cpm") quickBootCpm();
   }, 200);
 
 }

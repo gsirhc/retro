@@ -105,6 +105,16 @@ test.describe("88-DCDD disk cabinet", () => {
     await waitForScreen(page, /A>/, 30_000);
   });
 
+  test("?disk=cpm boots CP/M to A> with the drive at 50x", async ({ page }) => {
+    await page.goto("/");
+    await page.evaluate(() => localStorage.setItem("retro8080.diskspeed", "realistic"));
+    await page.goto("/?test=1&disk=cpm");
+    await expect(page.locator("#preset")).toHaveValue("cpm");
+    await expect(page.locator("#dcdd .dcdd-speed")).toHaveValue("x50");
+    await waitForScreen(page, /A>/, 30_000);
+    expect(await page.evaluate(() => localStorage.getItem("retro8080.diskspeed"))).toBe("realistic");
+  });
+
   test("front-panel hand boot: switches 0FF00h / EXAMINE / RUN reaches A>", async ({ page }) => {
     await boot(page, { params: "preset=cpm" });
     await expect(page.locator("#dcdd .dcdd-bay").first()).toHaveClass(/loaded/);

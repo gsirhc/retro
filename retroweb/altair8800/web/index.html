@@ -44,6 +44,7 @@
      those vary with this page's content, not with the theme. */
   :root {
     --page-max:  920px;
+    --machine-max: 870px;   /* the Windows 95 column: 920px page less its frame and padding */
     --body-pad:  18px 12px;
     --inner-pad: 14px 22px 22px;
     --h1-font:   900 36px "Arial Black", Arial, sans-serif;
@@ -1216,6 +1217,15 @@
   .ws-machine,
   .ws-devices { display: contents; }
   .ws-terminal { display: block; }   /* always a real box, sizeScreen measures it */
+  .altair,
+  .ws-terminal,
+  .ws-devices > *,
+  .backplane {
+    width: 100%;
+    max-width: var(--machine-max);
+    margin-left: auto;
+    margin-right: auto;
+  }
 
   :root[data-theme="modern"] .workspace {
     display: flex; flex-direction: column; gap: 16px;
@@ -1376,9 +1386,7 @@
 
     <div class="footer">
       <p><i><span class="fb-built">Last built </span><span class="fb-mod">Page last modified: </span><span id="buildDate">&hellip;</span></i></p>
-      <p class="footer-links">[&nbsp;<a href="../">Home</a>
-        | <a href="https://github.com/gsirhc/retro/tree/main/retroweb/altair8800" target="_blank" rel="noopener">Source</a>
-        | <a href="https://archive.org/details/bitsavers_mitsAltairceJul77_9357641" target="_blank" rel="noopener">BASIC&nbsp;Manual</a>
+      <p class="footer-links">[&nbsp;<a href="https://archive.org/details/bitsavers_mitsAltairceJul77_9357641" target="_blank" rel="noopener">BASIC&nbsp;Manual</a>
         | <a href="https://altairclone.com/downloads/manuals/Altair%208800%20Operator's%20Manual.pdf" target="_blank" rel="noopener">Altair&nbsp;Manual</a>&nbsp;]</p>
     </div>
   </div>

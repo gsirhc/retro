@@ -65,11 +65,19 @@
   the scan box and status column (x 0–1112, y 378–876 of 1556×922) resized
   to 286×128 (JPEG q90).
 
-  These seven are the shipped Ready to Play tiles. The landing page's
+- **`altair-cpm.jpg`**: CP/M 2.2 (the MITS 63K build) after a `DIR` of the
+  boot diskette, from *this project's* Altair 8800 running the `?disk=cpm`
+  quick play (CP/M preset, BOOT with the 88-DCDD at 50×). Load
+  `altair8800/?test=1&disk=cpm`, type `DIR` at A>, then screenshot
+  `#screen` at 2× device scale; the listing from `A>DIR` to the next A>
+  (x 0–932, y 226–643 of 1556×922) resized to 286×128 (JPEG q90).
+
+  These eight are the shipped Ready to Play tiles. The landing page's
   Thumbnails dropdown (Original by default) can swap in libretro-thumbnails'
   DOS screenshot, title screen, or box art (`data-art`, cropped by
-  `data-<style>-y`), fetched by the visitor's browser. Star Trek has no
-  `data-art` (it isn't a DOS title), so it always shows its own tile. None
+  `data-<style>-y`), fetched by the visitor's browser. Star Trek and CP/M
+  have no `data-art` (they aren't DOS titles), so they always show their own
+  tiles. None
   of it is staged.
 
 - **`ibmpcat-panel.jpg`** — a screenshot of *this project's* rendered IBM
