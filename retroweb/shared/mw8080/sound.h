@@ -1,15 +1,17 @@
-// Midway Space Invaders (1978) sound board: discrete analog + SN76477, MAME mw8080bw_a.cpp invaders_discrete.
-//
-// OUT 3 and OUT 5 latch the sound bits. The board runs in CPU T-states.
+// Space Invaders sound board: discrete analog + SN76477. Midway parts from MAME mw8080bw_a.cpp
+// invaders_discrete, Taito PV game board parts from Taito schematic PVR00001.
 
-#ifndef INVADERS_SOUND_H
-#define INVADERS_SOUND_H
+#ifndef SHARED_MW8080_SOUND_H
+#define SHARED_MW8080_SOUND_H
+
+#include "board.h"
 
 #include <cstdint>
 
-namespace invaders {
+namespace mw8080 {
 
-constexpr int kCpuHz = 1996800;  // 19.968 MHz / 10 (MAME MW8080BW_CPU_CLOCK)
+enum class SoundBoard { Midway, TaitoPv };
+
 constexpr int kSampleRate = 48000;  // discrete and SN76477 step rate (MAME stream rate)
 
 namespace circuit {
@@ -144,6 +146,7 @@ struct Sn76477 {
     void enable_w(bool state);
     double step();
 
+    double v_pin_ = 0;
     bool enable_ = true;
     bool one_shot_running_ = false;
     double slf_cap_voltage_ = 0, vco_cap_voltage_ = 0;
@@ -151,11 +154,20 @@ struct Sn76477 {
     double slf_charge_ = 0, slf_discharge_ = 0, vco_step_ = 0;
 };
 
+// PVR00001 output stage: each AMP line through 1uF, a 50K trimmer and 47K into the summing amp.
+struct TaitoMixer {
+    void init();
+    double step(const double (&in)[7]);
+
+    double v_cap_[7]{};
+    double v_cap_out_ = 0;
+};
+
 }  // namespace circuit
 
 class Sound {
 public:
-    Sound() { reset(); }
+    explicit Sound(SoundBoard board = SoundBoard::Midway) : board_(board) { reset(); }
 
     void reset();
     void port3_w(uint8_t v);
@@ -176,6 +188,7 @@ public:
 private:
     void tick();
 
+    SoundBoard board_;
     uint8_t p3_ = 0;
     uint8_t p5_ = 0;
 
@@ -211,9 +224,10 @@ private:
     circuit::Tvca missile_tvca_;
 
     circuit::Mixer mixer_;
+    circuit::TaitoMixer taito_mixer_;
     circuit::Sn76477 sn_;
 };
 
-}  // namespace invaders
+}  // namespace mw8080
 
 #endif

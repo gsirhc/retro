@@ -670,6 +670,24 @@ jobs:
       target: test
       fail-on-flaky: true
 
+  # Lunar Rescue arcade board: GoogleTest suite over the colour PROM, red
+  # latch and Taito sound wiring (see retroweb/lunarrescue/LUNARRESCUE_REVIEW.md).
+  # The shared mw8080 board runs in invaders-test; Smoke.Hwtest* is the board smoke.
+  lunarrescue-test:
+    needs: i8080-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: make -C retroweb/lunarrescue check
+
+  lunarrescue-web-test:
+    needs: lunarrescue-test
+    uses: ./.github/workflows/arcade-web.yml
+    with:
+      machine: lunarrescue
+      target: test
+      fail-on-flaky: true
+
   # HTML (HTMLHint), JavaScript (ESLint), and C++ (cppcheck) under retroweb/.
   lint:
     runs-on: ubuntu-latest

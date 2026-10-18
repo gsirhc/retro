@@ -190,6 +190,16 @@ retroweb/invaders/web/roms/
 retroweb/invaders/roms/user/
 retroweb/invaders/web/shared/
 retroweb/invaders/web/tests/shared/
+retroweb/lunarrescue/tests/build/
+retroweb/lunarrescue/tests/build-cov/
+retroweb/lunarrescue/tests/coverage-cpp/
+retroweb/lunarrescue/web/lunarrescue.js
+retroweb/lunarrescue/web/lunarrescue.wasm
+retroweb/lunarrescue/web/hwtest_roms.h
+retroweb/lunarrescue/web/roms/
+retroweb/lunarrescue/roms/user/
+retroweb/lunarrescue/web/shared/
+retroweb/lunarrescue/web/tests/shared/
 
 retroweb/shared/cpu/tests/build/
 retroweb/shared/cpu/zex/zexdoc.com

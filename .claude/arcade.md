@@ -1,7 +1,7 @@
 # Arcade cabinets
 
 Requirements for arcade machines under `retroweb/` (Pac-Man, Frogger,
-Scramble, Galaxian, Galaga, Asteroids, Centipede, Missile Command, Space Invaders, and any new cabinet). Repo-wide principles still live in
+Scramble, Galaxian, Galaga, Asteroids, Centipede, Missile Command, Space Invaders, Lunar Rescue, and any new cabinet). Repo-wide principles still live in
 [`CLAUDE.md`](../CLAUDE.md); this file does not override them.
 
 ## High scores
@@ -33,6 +33,7 @@ the ROM actually keeps:
 | Centipede | EAROM `$1600–$163F` (64 B ER2055 image) |
 | Missile Command | `$002C–$005B` (8 × initials + 3-byte BCD). Factory table is the ROM's own defaults, not zeros |
 | Space Invaders | `$20F4–$20F5` (2 BCD HI-SCORE, low byte first). init zeroes it; it shows from the next coin-up |
+| Lunar Rescue | `$20CF` (10), `$20DB` (1), `$20F4–$20F5` (MAME hiscore.dat). Factory is ten `$1B`, `$0A`, then `00 05` |
 
 Scramble’s parent set has **numeric** scores only — no initials in the Konami
 ROM. Real PCBs have no battery; persist is a labelled departure, Reset is
@@ -89,7 +90,8 @@ another emulator’s shortcuts as if they were hardware.
 ## Shared chips
 
 Z80 in `retroweb/shared/cpu/`. NMOS MOS 6502 also in `retroweb/shared/cpu/`
-(`cpu_mos6502`), and the Intel 8080 (`cpu_i8080`, shared with the Altair 8800). Galaxian-family video / AY-3-8910 / i8255 in
+(`cpu_mos6502`), and the Intel 8080 (`cpu_i8080`, shared with the Altair 8800). The Midway/Taito
+8080 B&W board and its discrete sound board in `retroweb/shared/mw8080/`. Galaxian-family video / AY-3-8910 / i8255 in
 `retroweb/shared/galaxian/` when it is the same silicon. Atari DVG in
 `retroweb/shared/atari/`. A new related game does not fork those cores.
 

@@ -460,6 +460,23 @@ jobs:
       machine: invaders
       target: test-smoke
 
+  # Lunar Rescue arcade board: GoogleTest suite over the colour PROM, red
+  # latch and Taito sound wiring (see retroweb/lunarrescue/LUNARRESCUE_REVIEW.md).
+  # The shared mw8080 board runs in invaders-test; Smoke.Hwtest* is the board smoke.
+  lunarrescue-test:
+    needs: i8080-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: make -C retroweb/lunarrescue test-smoke
+
+  lunarrescue-web-test:
+    needs: lunarrescue-test
+    uses: ./.github/workflows/arcade-web.yml
+    with:
+      machine: lunarrescue
+      target: test-smoke
+
   # HTML (HTMLHint), JavaScript (ESLint), and C++ (cppcheck) under retroweb/.
   # A red run blocks deploy the same way a red test job does.
   lint:
@@ -513,6 +530,8 @@ jobs:
         galaga-web-test,
         invaders-test,
         invaders-web-test,
+        lunarrescue-test,
+        lunarrescue-web-test,
       ]
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
@@ -590,6 +609,8 @@ jobs:
       - working-directory: retroweb/missile/web
         run: make wasm roms shared
       - working-directory: retroweb/invaders/web
+        run: make wasm roms shared
+      - working-directory: retroweb/lunarrescue/web
         run: make wasm roms shared
 
       # 486 DX2-66: BIOS/VGA-BIOS ROMs (fetched, checksummed) are cheap; the

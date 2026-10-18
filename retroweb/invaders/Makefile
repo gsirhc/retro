@@ -33,8 +33,8 @@ test-smoke:
 	ctest --test-dir tests/build -R '^Smoke\.' --output-on-failure
 
 # --- C++ coverage (source-based, llvm-cov) --------------------------
-COV_TESTS = sound_test machine_test smoke_test
-COV_SRCS  = machine.cpp sound.cpp
+COV_TESTS = sound_test board_test machine_test smoke_test
+COV_SRCS  = machine.cpp ../shared/mw8080/board.cpp ../shared/mw8080/sound.cpp
 coverage:
 	cmake -S tests -B tests/build-cov -DCOVERAGE=ON >/dev/null
 	cmake --build tests/build-cov -j >/dev/null

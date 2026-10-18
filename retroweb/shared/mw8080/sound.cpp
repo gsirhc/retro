@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace invaders {
+namespace mw8080 {
 namespace circuit {
 namespace {
 
@@ -520,7 +520,43 @@ double Sn76477::step() {
         if (vco_out_) v_out = std::min(kOutCenter + center_to_peak * kOutPosGain[idx], kOutHighClip);
         else v_out = std::max(kOutCenter + center_to_peak * kOutNegGain[idx], kOutLowClip);
     }
+    v_pin_ = v_out;
     return (v_out - kOutLowClip) / (kOutCenter - kOutLowClip) - 1;
+}
+
+// --- Taito PV output stage ---
+
+namespace {
+// UFO, trigger, flash, target hit, extend play, step, UFO hit series resistors (PVR00001)
+constexpr double kTaitoR[7] = {K(47), K(150), K(2), K(47), K(220), K(68), K(47)};
+constexpr double kTaitoPot = K(50);   // VR1-VR7, B-50K
+constexpr double kTaitoWiper = 0.5;  // trimmers assumed at mid travel
+// 100K parallel with VR8 (50K, AC-coupled by 1uF) at mid travel
+constexpr double kTaitoFeedback = 1.0 / (1.0 / K(100) + 1.0 / K(25));
+}  // namespace
+
+void TaitoMixer::init() {
+    for (double& v : v_cap_) v = 0;
+    v_cap_out_ = 0;
+}
+
+double TaitoMixer::step(const double (&in)[7]) {
+    double sum = 0;
+    for (int n = 0; n < 7; n++) {
+        // trigger also has 0.001uF in series ahead of the 1uF
+        const double c = n == 1 ? 1.0 / (1.0 / U(0.001) + 1.0 / U(1)) : U(1);
+        const double rs = kTaitoR[n];
+        v_cap_[n] += (in[n] - v_cap_[n]) * rc_exp((rs + kTaitoPot) * c);
+        // wiper Thevenin source into 47K at the summing amp's virtual ground
+        const double lower = kTaitoPot * kTaitoWiper, upper = rs + kTaitoPot - lower;
+        const double v_th = (in[n] - v_cap_[n]) * lower / (rs + kTaitoPot);
+        const double r_th = lower * upper / (lower + upper);
+        sum += v_th / (r_th + K(47));
+    }
+    sum *= kTaitoFeedback;
+    // 0.1uF into the MB3712's 47K
+    v_cap_out_ += (sum - v_cap_out_) * rc_exp(K(47) * U(0.1));
+    return sum - v_cap_out_;
 }
 
 }  // namespace circuit
@@ -530,6 +566,7 @@ namespace {
 using namespace circuit;
 
 constexpr double kOutputGain = 2500.0 / 32768.0;  // DISCRETE_OUTPUT gain 2500 into a 16-bit stream
+constexpr double kTaitoGain = 1.0;  // 1 V at the summing amp output is full scale
 
 // R70, R64, R61, R63, R62, C21
 const OscInfo kSaucerOsc = {kOsc1, kOutCap, M(1), K(470), K(100), K(120), M(1), 0, 0, 0, U(0.1), 12};
@@ -546,23 +583,27 @@ const Astable555Info kBonus555 = {false, 5, 5.0, 5.0 - 1.2};
 
 // R49, R51, R48, R50, R52, C18, C20
 const OneShotInfo kHit1sht = {M(4.7), K(100), M(1), M(1), M(2.2), U(0.1), P(470), 0, 12};
-// R37, R41, R38, R40, R39, C16
+// R37, R41, R38, R40, R39, C16; Taito PVR00001 draws 0.22uF
 const OscInfo kHitOsc = {kOsc1, kOutCap, M(1), K(10), K(100), K(120), M(1), 0, 0, 0, U(0.1), 12};
+const OscInfo kHitOscTaito = {kOsc1, kOutCap, M(1), K(10), K(100), K(120), M(1), 0, 0, 0, U(0.22), 12};
 // R42, R43, R44, R46, R45, C16
 const OscInfo kHitVco = {kVco1, kOutCap, M(1), K(470), K(680), M(1), M(1), 0, 0, 0, P(330), 12};
 const OpAmpInfo kHitD3_10 = {0, K(10), M(1), 0, U(0.47), 0, 12};
 const OpAmpInfo kHitD3_4 = {K(470), K(680), M(2.7), K(680), 0, 0, 12};
 
-// R90, R88, R91, R89, R92, C24, C25
+// R90, R88, R91, R89, R92, C24, C25; C24 is not legible on PVR00001
 const OneShotInfo kExpl1sht = {M(4.7), K(100), M(1), M(1), M(2.2), U(2.2), P(470), 0, 12};
 // R80, R79, R82, R93, R83, C26
 const TvcaInfo kExplTvca = {M(2.7), K(680), K(680), K(10), K(680), U(1), 12.0 - kVbe, 12};
 
-// R32, R30, R31, R33, R34, C12, C15
+// R32, R30, R31, R33, R34, C12, C15; Taito C12 0.22uF (PVR00001, MAME note)
 const OneShotInfo kMissile1sht = {M(4.7), K(100), M(1), M(1), M(2.2), U(1), P(470), 0, 12};
+const OneShotInfo kMissile1shtTaito = {M(4.7), K(100), M(1), M(1), M(2.2), U(0.22), P(470), 0, 12};
 const OpAmpInfo kMissileB3 = {0, K(10), M(1.5), 0, U(0.22), 0, 12};
 // (R29||R11)+R12, R16, R17, R19, R16, R14, R13, C58
 const OscInfo kMissileOsc = {kVco3, kOutSqw, 1.0 / (1.0 / M(1) + 1.0 / K(330)) + M(1.5), M(1), K(560), M(2.2), M(1), M(4.7), M(3.3), 0, P(330), 12};
+// PVR00001 draws C58 as 300pF and R13 as 3.3M
+const OscInfo kMissileOscTaito = {kVco3, kOutSqw, 1.0 / (1.0 / M(1) + 1.0 / K(330)) + M(1.5), M(1), K(560), M(2.2), M(1), M(4.7), M(3.3), 0, P(300), 12};
 const OpAmpInfo kMissileA3 = {K(560), K(470), M(2.7), K(560), 0, 0, 12};
 // R25, R23, R26, R1k, R60, C14
 const TvcaInfo kMissileTvca = {M(2.7), K(560), K(560), K(1), K(560), U(0.1), 5, 12};
@@ -570,6 +611,7 @@ const TvcaInfo kMissileTvca = {M(2.7), K(560), K(560), K(1), K(560), U(0.1), 5, 
 }  // namespace
 
 void Sound::reset() {
+    const bool taito = board_ == SoundBoard::TaitoPv;
     p3_ = p5_ = 0;
     cycle_acc_ = 0;
     ticks_ = 0;
@@ -595,27 +637,31 @@ void Sound::reset() {
     fleet_555_out_ = fleet_555_.step(true, thump_r_[0], K(75));
 
     bonus_555_.init(kBonus555, U(1));
-    bonus_sqw_.init(480, 1, 50, 1.0 / 2);
+    // Taito gates the 960 Hz video-chain tap (PVR00001)
+    bonus_sqw_.init(taito ? 960 : 480, 1, 50, 1.0 / 2);
 
     hit_1sht_.init(kHit1sht);
     hit_d3_10_.init(kHitD3_10);
     hit_d3_4_.init(kHitD3_4);
-    hit_osc_.init(kHitOsc);
+    hit_osc_.init(taito ? kHitOscTaito : kHitOsc);
     hit_vco_.init(kHitVco);
 
     expl_1sht_.init(kExpl1sht);
     expl_tvca_.init(kExplTvca);
-    expl_rc1_.init(K(5.6), U(0.1));
-    expl_rc2_.init(K(5.6) + K(6.8), U(0.1));
+    // R84 is 560 ohms on PVR00001
+    const double r84 = taito ? 560 : K(5.6);
+    expl_rc1_.init(r84, U(0.1));
+    expl_rc2_.init(r84 + K(6.8), U(0.1));
 
-    missile_1sht_.init(kMissile1sht);
+    missile_1sht_.init(taito ? kMissile1shtTaito : kMissile1sht);
     missile_b3_.init(kMissileB3);
     missile_a3_.init(kMissileA3);
     missile_cr_.init(M(1) + K(330), U(0.1));
-    missile_osc_.init(kMissileOsc);
+    missile_osc_.init(taito ? kMissileOscTaito : kMissileOsc);
     missile_tvca_.init(kMissileTvca);
 
     mixer_.init();
+    taito_mixer_.init();
     sn_.init();
 }
 
@@ -683,12 +729,16 @@ void Sound::tick() {
     const double n77 = missile_a3_.step(n76, n73);
     const double n_missile = missile_tvca_.step(missile_en, n77);
 
-    const double in[6] = {n_saucer, n_fleet, n_bonus, n_hit, n_expl, n_missile};
-    const double discrete = mixer_.step(in) * kOutputGain;
     const double sn = sn_.step();
-
-    // each source routed to the mono speaker at 0.5
-    double out = 0.5 * discrete + 0.5 * sn;
+    double out;
+    if (board_ == SoundBoard::TaitoPv) {
+        const double in[7] = {sn_.v_pin_, n_missile, n_expl, n_hit, n_bonus, n_fleet, n_saucer};
+        out = taito_mixer_.step(in) * kTaitoGain;
+    } else {
+        const double in[6] = {n_saucer, n_fleet, n_bonus, n_hit, n_expl, n_missile};
+        // each source routed to the mono speaker at 0.5
+        out = 0.5 * mixer_.step(in) * kOutputGain + 0.5 * sn;
+    }
     out = std::min(std::max(out, -1.0), 1.0);
     if (!amp_enabled()) out = 0;
 
@@ -697,4 +747,4 @@ void Sound::tick() {
     ticks_++;
 }
 
-}  // namespace invaders
+}  // namespace mw8080

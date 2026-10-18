@@ -45,7 +45,7 @@ trap 'rm -rf "$files" ${gtest_tmp:+"$gtest_tmp"}' EXIT
 
 # One run per machine with only its own headers on the path, so a bare
 # #include "ega.h" can't resolve to another machine's copy.
-shared="-I shared -I shared/cpu -I shared/galaxian -I shared/atari -I shared/namco -I shared/pc"
+shared="-I shared -I shared/cpu -I shared/galaxian -I shared/atari -I shared/namco -I shared/pc -I shared/mw8080"
 status=0
 check() {
   dir=$1
@@ -71,7 +71,7 @@ check() {
 }
 
 for m in altair8800 assembler6502 ibmpc-at pc486 pacman frogger galaxian scramble \
-    galaga asteroids centipede missile invaders; do
+    galaga asteroids centipede missile invaders lunarrescue; do
   check "$m" -I "$m"
 done
 check shared

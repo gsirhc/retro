@@ -12,10 +12,11 @@ option(COVERAGE "instrument the unit-test binaries for llvm-cov" OFF)
 
 set(CORE ${CMAKE_CURRENT_SOURCE_DIR}/..)
 set(CPU ${CMAKE_CURRENT_SOURCE_DIR}/../../shared/cpu)
+set(MW ${CMAKE_CURRENT_SOURCE_DIR}/../../shared/mw8080)
 
 function(add_unit_test name)
   add_executable(${name} ${ARGN})
-  target_include_directories(${name} PRIVATE ${CORE} ${CPU} ${CMAKE_CURRENT_BINARY_DIR})
+  target_include_directories(${name} PRIVATE ${CORE} ${CPU} ${MW} ${CMAKE_CURRENT_SOURCE_DIR}/../../shared ${CMAKE_CURRENT_BINARY_DIR})
   target_link_libraries(${name} PRIVATE GTest::gtest_main)
   target_compile_options(${name} PRIVATE -Wall -Wextra)
   if(COVERAGE)
@@ -34,9 +35,10 @@ add_custom_command(
 )
 add_custom_target(hwtest_roms DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/hwtest_roms.h)
 
-set(BOARD ${CORE}/machine.cpp ${CORE}/sound.cpp ${CPU}/cpu_i8080.cpp)
+set(BOARD ${CORE}/machine.cpp ${MW}/board.cpp ${MW}/sound.cpp ${CPU}/cpu_i8080.cpp)
 
-add_unit_test(sound_test sound_test.cpp ${CORE}/sound.cpp)
+add_unit_test(sound_test ${MW}/tests/sound_test.cpp ${MW}/sound.cpp)
+add_unit_test(board_test ${MW}/tests/board_test.cpp ${MW}/board.cpp ${CPU}/cpu_i8080.cpp)
 add_unit_test(machine_test machine_test.cpp ${BOARD})
 add_dependencies(machine_test hwtest_roms)
 add_unit_test(smoke_test smoke_test.cpp ${BOARD})
@@ -47,6 +49,7 @@ target_compile_definitions(play_test PRIVATE
 
 include(GoogleTest)
 gtest_discover_tests(sound_test)
+gtest_discover_tests(board_test)
 gtest_discover_tests(machine_test)
 gtest_discover_tests(smoke_test)
 gtest_discover_tests(play_test PROPERTIES TIMEOUT 60)

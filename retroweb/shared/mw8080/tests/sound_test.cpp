@@ -16,9 +16,9 @@ constexpr uint8_t kInvaderHit = 0x08;
 constexpr uint8_t kBonusBase = 0x10;
 constexpr uint8_t kSaucerHit = 0x10;
 
-constexpr int kRate = invaders::kSampleRate;
+constexpr int kRate = mw8080::kSampleRate;
 
-std::vector<float> run(invaders::Sound& s, double seconds) {
+std::vector<float> run(mw8080::Sound& s, double seconds) {
     std::vector<float> out;
     uint64_t end = s.ticks() + uint64_t(seconds * kRate);
     while (s.ticks() < end) {
@@ -36,8 +36,8 @@ double rms(const std::vector<float>& v, double from_s = 0, double to_s = 1e9) {
     return b > a ? std::sqrt(sum / double(b - a)) : 0.0;
 }
 
-invaders::Sound quiet_board() {
-    invaders::Sound s;
+mw8080::Sound quiet_board() {
+    mw8080::Sound s;
     s.port3_w(kAmp);
     s.port5_w(0);
     run(s, 0.5);
@@ -46,7 +46,7 @@ invaders::Sound quiet_board() {
 
 // Fleet 555 output edges per second at the given thump data.
 double fleet_hz(uint8_t data) {
-    invaders::Sound s = quiet_board();
+    mw8080::Sound s = quiet_board();
     s.port5_w(data);
     run(s, 0.3);
     bool high = s.fleet_555() > 1.7;
@@ -72,8 +72,8 @@ double fleet_expected_hz(double r1) {
 }  // namespace
 
 TEST(Sound, ClockRatioGivesExactSampleRate) {
-    invaders::Sound s;
-    s.advance(invaders::kCpuHz);
+    mw8080::Sound s;
+    s.advance(mw8080::kCpuHz);
     EXPECT_EQ(s.ticks(), uint64_t(kRate));
 }
 
@@ -84,7 +84,7 @@ TEST(Sound, IdleIsSilent) {
 }
 
 TEST(Sound, PowerOnLatchIsMuted) {
-    invaders::Sound s;
+    mw8080::Sound s;
     EXPECT_FALSE(s.amp_enabled());
     s.port3_w(kExplosion);
     s.port5_w(0x0f);
@@ -93,7 +93,7 @@ TEST(Sound, PowerOnLatchIsMuted) {
 }
 
 TEST(Sound, AmpEnableBitMutesTheBoard) {
-    invaders::Sound s = quiet_board();
+    mw8080::Sound s = quiet_board();
     s.port5_w(0x01);
     auto on = run(s, 0.5);
     EXPECT_GT(rms(on, 0.2), 0.1);
@@ -106,7 +106,7 @@ TEST(Sound, AmpEnableBitMutesTheBoard) {
 }
 
 TEST(Sound, FlipScreenBitIsReadableAndSilent) {
-    invaders::Sound s = quiet_board();
+    mw8080::Sound s = quiet_board();
     EXPECT_FALSE(s.flip_screen());
     s.port5_w(0x20);
     EXPECT_TRUE(s.flip_screen());
@@ -115,7 +115,7 @@ TEST(Sound, FlipScreenBitIsReadableAndSilent) {
 }
 
 TEST(Sound, MissileIsAudibleAndTimesOutWhileHeld) {
-    invaders::Sound s = quiet_board();
+    mw8080::Sound s = quiet_board();
     s.port3_w(kAmp | kMissile);
     auto out = run(s, 1.5);
     EXPECT_GT(rms(out, 0.1, 0.5), 0.008);
@@ -123,7 +123,7 @@ TEST(Sound, MissileIsAudibleAndTimesOutWhileHeld) {
 }
 
 TEST(Sound, MissileStopsWhenReleased) {
-    invaders::Sound s = quiet_board();
+    mw8080::Sound s = quiet_board();
     s.port3_w(kAmp | kMissile);
     auto held = run(s, 0.3);
     s.port3_w(kAmp);
@@ -132,7 +132,7 @@ TEST(Sound, MissileStopsWhenReleased) {
 }
 
 TEST(Sound, ExplosionIsNoiseAndFallsOff) {
-    invaders::Sound s = quiet_board();
+    mw8080::Sound s = quiet_board();
     s.port3_w(kAmp | kExplosion);
     auto out = run(s, 0.3);
     EXPECT_GT(rms(out, 0.05), 0.1);
@@ -143,7 +143,7 @@ TEST(Sound, ExplosionIsNoiseAndFallsOff) {
 }
 
 TEST(Sound, ExplosionIsBroadbandNoiseNotATone) {
-    invaders::Sound s = quiet_board();
+    mw8080::Sound s = quiet_board();
     s.port3_w(kAmp | kExplosion);
     auto out = run(s, 0.4);
     int crossings = 0;
@@ -154,7 +154,7 @@ TEST(Sound, ExplosionIsBroadbandNoiseNotATone) {
 }
 
 TEST(Sound, InvaderHitIsAudibleAndFallsOff) {
-    invaders::Sound s = quiet_board();
+    mw8080::Sound s = quiet_board();
     s.port3_w(kAmp | kInvaderHit);
     auto out = run(s, 1.0);
     EXPECT_GT(rms(out, 0.05, 0.25), 0.015);
@@ -162,7 +162,7 @@ TEST(Sound, InvaderHitIsAudibleAndFallsOff) {
 }
 
 TEST(Sound, InvaderHitReleaseStopsIt) {
-    invaders::Sound s = quiet_board();
+    mw8080::Sound s = quiet_board();
     s.port3_w(kAmp | kInvaderHit);
     auto held = run(s, 0.2);
     s.port3_w(kAmp);
@@ -171,7 +171,7 @@ TEST(Sound, InvaderHitReleaseStopsIt) {
 }
 
 TEST(Sound, BonusBaseIsAnInterruptedTone) {
-    invaders::Sound s = quiet_board();
+    mw8080::Sound s = quiet_board();
     s.port3_w(kAmp | kBonusBase);
     auto out = run(s, 1.0);
     EXPECT_GT(rms(out, 0.2), 0.02);
@@ -190,7 +190,7 @@ TEST(Sound, BonusBaseIsAnInterruptedTone) {
 }
 
 TEST(Sound, SaucerHitIsAudibleAndSweepsDown) {
-    invaders::Sound s = quiet_board();
+    mw8080::Sound s = quiet_board();
     s.port5_w(kSaucerHit);
     auto out = run(s, 1.0);
     EXPECT_GT(rms(out, 0.2), 0.03);
@@ -201,7 +201,7 @@ TEST(Sound, SaucerHitIsAudibleAndSweepsDown) {
 }
 
 TEST(Sound, FleetThumpIsAudible) {
-    invaders::Sound s = quiet_board();
+    mw8080::Sound s = quiet_board();
     s.port5_w(0x01);
     auto out = run(s, 0.5);
     EXPECT_GT(rms(out, 0.2), 0.1);
@@ -229,7 +229,7 @@ TEST(Sound, FleetBitsInParallelRaiseThePitch) {
 }
 
 TEST(Sound, UfoIsAudibleAndStopsWhenBitClears) {
-    invaders::Sound s = quiet_board();
+    mw8080::Sound s = quiet_board();
     s.port3_w(kAmp | kUfo);
     auto out = run(s, 0.5);
     EXPECT_GT(rms(out, 0.1), 0.1);
@@ -239,7 +239,7 @@ TEST(Sound, UfoIsAudibleAndStopsWhenBitClears) {
 }
 
 TEST(Sound, UfoWarbleFollowsTheSlfTriangle) {
-    invaders::Sound s = quiet_board();
+    mw8080::Sound s = quiet_board();
     s.port3_w(kAmp | kUfo);
     run(s, 0.1);
     // Rising VCO edges per 20 ms window: the VCO pitch tracks the 1 uF / 120k SLF ramp.
@@ -269,7 +269,7 @@ TEST(Sound, UfoWarbleFollowsTheSlfTriangle) {
 }
 
 TEST(Sound, UfoSlfRunsAtAbout7Hz) {
-    invaders::Sound s = quiet_board();
+    mw8080::Sound s = quiet_board();
     int peaks = 0;
     bool high = false;
     const int total = kRate * 2;
@@ -283,7 +283,7 @@ TEST(Sound, UfoSlfRunsAtAbout7Hz) {
 }
 
 TEST(Sound, ResetSilencesEverything) {
-    invaders::Sound s = quiet_board();
+    mw8080::Sound s = quiet_board();
     s.port3_w(kAmp | kExplosion | kUfo | kBonusBase);
     s.port5_w(0x0f | kSaucerHit);
     run(s, 0.3);
@@ -297,12 +297,82 @@ TEST(Sound, ResetSilencesEverything) {
 }
 
 TEST(Sound, MixReturnsTheMeanSincePreviousCall) {
-    invaders::Sound s = quiet_board();
+    mw8080::Sound s = quiet_board();
     s.port5_w(0x01);
     run(s, 0.3);
-    s.advance(invaders::kCpuHz / 100);
+    s.advance(mw8080::kCpuHz / 100);
     float coarse = s.mix();
     EXPECT_LE(std::fabs(coarse), 1.0f);
     s.advance(0);
     EXPECT_EQ(s.mix(), 0.0f);
+}
+
+namespace {
+
+mw8080::Sound quiet_taito() {
+    mw8080::Sound s(mw8080::SoundBoard::TaitoPv);
+    s.port3_w(kAmp);
+    s.port5_w(0);
+    run(s, 0.5);
+    return s;
+}
+
+int crossings(const std::vector<float>& v, double from_s) {
+    int n = 0;
+    for (size_t i = size_t(from_s * kRate) + 1; i < v.size(); i++) {
+        if (v[i - 1] < 0 && v[i] >= 0) n++;
+    }
+    return n;
+}
+
+// Seconds until a 20 ms window falls below a tenth of the first loud one.
+double decay_time(const std::vector<float>& v) {
+    const double first = rms(v, 0.02, 0.04);
+    for (double t = 0.04; t + 0.02 <= double(v.size()) / kRate; t += 0.01) {
+        if (rms(v, t, t + 0.02) < first * 0.1) return t;
+    }
+    return 1e9;
+}
+
+}  // namespace
+
+TEST(TaitoSound, EverySourceReachesTheSpeaker) {
+    const uint8_t p3[] = {kUfo, kMissile, kExplosion, kInvaderHit, kBonusBase};
+    for (uint8_t bit : p3) {
+        mw8080::Sound s = quiet_taito();
+        s.port3_w(kAmp | bit);
+        EXPECT_GT(rms(run(s, 0.3), 0.05), 0.01) << "OUT 3 bit " << int(bit);
+    }
+    const uint8_t p5[] = {0x01, kSaucerHit};
+    for (uint8_t bit : p5) {
+        mw8080::Sound s = quiet_taito();
+        s.port5_w(bit);
+        EXPECT_GT(rms(run(s, 0.3), 0.05), 0.01) << "OUT 5 bit " << int(bit);
+    }
+}
+
+TEST(TaitoSound, IdleIsSilentAndSx5Mutes) {
+    mw8080::Sound s = quiet_taito();
+    EXPECT_LT(rms(run(s, 0.3)), 1e-3);
+    s.port3_w(kInvaderHit);
+    EXPECT_EQ(rms(run(s, 0.3)), 0.0);
+}
+
+TEST(TaitoSound, ExtendPlayGatesTheFasterTap) {
+    mw8080::Sound midway = quiet_board();
+    mw8080::Sound taito = quiet_taito();
+    midway.port3_w(kAmp | kBonusBase);
+    taito.port3_w(kAmp | kBonusBase);
+    const double ratio = double(crossings(run(taito, 1.0), 0.2)) / crossings(run(midway, 1.0), 0.2);
+    EXPECT_NEAR(ratio, 2.0, 0.3) << "960 Hz on PVR00001, 480 Hz on Midway";
+}
+
+TEST(TaitoSound, TriggerOneShotIsShorter) {
+    mw8080::Sound midway = quiet_board();
+    mw8080::Sound taito = quiet_taito();
+    midway.port3_w(kAmp | kMissile);
+    taito.port3_w(kAmp | kMissile);
+    const double tm = decay_time(run(midway, 1.5));
+    const double tt = decay_time(run(taito, 1.5));
+    EXPECT_LT(tt, tm * 0.5) << "C12 0.22uF against Midway's 1uF";
 }

@@ -33,7 +33,15 @@ cocktail stick to map.
 - The V counter steps when H overflows inside HBLANK, so each line starts at
   H=0 (MAME header, "Vertical sync chain").
 
-## 3. CPU
+## 3. Board split
+
+The board shared with Taito's Lunar Rescue (CPU, memory, I/O decode, MB14241,
+interrupts, beam, watchdog) is `retroweb/shared/mw8080/board.{h,cpp}`, the
+sound board `retroweb/shared/mw8080/sound.{h,cpp}` with `SoundBoard::Midway`.
+`machine.{h,cpp}` here adds the idle inputs, the audio stream and the B&W
+render. Tests for the shared parts sit in `shared/mw8080/tests/`.
+
+## 3a. CPU
 
 `retroweb/shared/cpu/cpu_i8080.{h,cpp}`, the Altair's core, moved there so
 both machines run one 8080. ISA coverage is the `I8080*` GoogleTest suites
@@ -78,7 +86,7 @@ INTE pin, which is what MAME's `interrupt_trigger` does (assert if
 `m_int_enable`, else clear). INTA clears it. The vector is sampled at INTA as
 `0xC7 | 64V << 4 | !64V << 3`: RST 1 (`$CF`) at line 96, RST 2 (`$D7`) at 224.
 An acknowledge that slips past line 160 reads RST 2, as on the board.
-`Machine::run_cycles` samples INT after each instruction, once the beam has
+`Board::run_cycles` samples INT after each instruction, once the beam has
 caught up.
 
 ## 8. Video
@@ -100,7 +108,7 @@ caught up.
 255 frames without OUT 6 (MAME `WATCHDOG_TIMER … 255 * MW8080BW_60HZ`). Only
 the CPU is reset. RAM, the beam and the sound latches carry on.
 
-## 10. Sound (`sound.cpp`)
+## 10. Sound (`shared/mw8080/sound.cpp`)
 
 MAME `invaders_audio_device` and the `invaders_discrete` netlist, module by
 module at a 48 kHz step:
