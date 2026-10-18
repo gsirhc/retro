@@ -44,6 +44,13 @@
   rows 22 to 164 (between the score bar and the health bar) resized to
   286×128 (JPEG q90). Its card also sets `data-title-y="30%"`.
 
+- **`pinball-android.jpg`**: shareware Epic Pinball 2.1's attract demo on
+  the Super Android table, the Super Android logo, the ball and both
+  flippers, from *this project's* 486 DX2-66 core booting the
+  `?disk=pinball` preset C:. A 320×240 mode X frame rendered by
+  `RenderScreen` about 9 billion cycles after power-on, rows 77 to 219
+  (above the split-screen strip) resized to 286×128 (JPEG q90).
+
 - **`keen1-mars.jpg`**: shareware Commander Keen 1 on the Mars overworld map,
   with Keen and the Bean-with-Bacon Megarocket, from *this project's* IBM
   PC/AT running the `?disk=keen1` preset C:. Space at the title on

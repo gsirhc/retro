@@ -7089,12 +7089,12 @@ modifiers, function and navigation keys. `pckeyboard.spec.ts` covers the
 show/hide state, typing, latching, the Caps Lock lamp, map mode, and
 mapped clicks.
 
-## 50. Preset hard disks (`?disk=doom`, `?disk=wolf3d`, `?disk=duke3d`, `?disk=rott`, `?disk=tyrian`)
+## 50. Preset hard disks (`?disk=doom`, `?disk=wolf3d`, `?disk=duke3d`, `?disk=rott`, `?disk=pinball`, `?disk=tyrian`)
 
 The landing page's **Ready to Play** cards open a machine with a ready-made
 C: in place of the factory FreeDOS one: `pc486/?disk=doom`,
-`pc486/?disk=wolf3d`, `pc486/?disk=duke3d`, `pc486/?disk=rott` and
-`pc486/?disk=tyrian`.
+`pc486/?disk=wolf3d`, `pc486/?disk=duke3d`, `pc486/?disk=rott`,
+`pc486/?disk=pinball` and `pc486/?disk=tyrian`.
 
 - **Bare FreeDOS base.** `disks/build-preset-hdd.sh <preset>` keeps the
   factory image's MBR and FreeDOS boot sector, formats a fresh FAT16 over
@@ -7105,7 +7105,7 @@ C: in place of the factory FreeDOS one: `pc486/?disk=doom`,
   library floppies. Afterwards the script appends the game's directory and
   command to `AUTOEXEC.BAT`, and `disks/zero-free-clusters.py` zeroes the
   clusters the deleted self-extractor left. `make preset-hdds` builds all
-  five.
+  six.
 - **DOOM** (`\DOOMS`, about 2.8MB gzipped, about 75 s natively). Types
   `A:` / `INSTALL`, answers DEICE (drive C, `\DOOMS`, create it), swapping
   disk 2 in and disk 1 back as DEICE asks. `INSTALL.BAT` runs
@@ -7161,6 +7161,24 @@ C: in place of the factory FreeDOS one: `pc486/?disk=doom`,
   defaults. The game isn't launched. The `HUNTBGIN.WAD` is the
   6,436,871-byte shareware one. Arrow counts in SETUP's text menu proved
   unreliable from one build to the next, which is why it uses `@PICK=`.
+- **Epic Pinball 2.1 shareware** (`\PINBALL`, about 1.2MB gzipped, about
+  20 s natively). Epic MegaGames' own release, `epicpn21.zip` (PKZIP 2.0,
+  56 files, the Super Android table; pinned in `shared/dos-library/`).
+  Epic shipped it as the playable directory with no installer, so the
+  script unzips it straight onto `C:\PINBALL` like Tyrian. The zip has no
+  `CONFIG.PIN`, `HISCORE.PIN` or `SOUNDCRD.INF`, so it's untouched by
+  anyone's SETUP; the archive.org `epinball.ZIP` and the v1.1 `pinball.zip`
+  both carry an uploader's saved config and aren't used. The harness runs
+  Epic's text-mode SETUP (the MASI sound system): Select Sound Card >
+  "Sound Blaster 16 (Stereo)", Yes to "BLASTER settings are ok", SETUP's
+  own preselected playback quality (High, 486-33, 20100 Hz), Exit and
+  Save. SETUP's bar is attribute 70h, the same as its title and footer
+  rows, so it goes by arrow counts in fixed lists. SETUP patches the
+  220h port, IRQ, DMA and rate into `MDRV004R.MUS` and writes
+  `SOUNDCRD.INF` naming it. The game isn't launched, so no `CONFIG.PIN`
+  or high-score table is saved. The 2.1 menu goes straight to the table's
+  attract demo; in play the split screen (Line Compare 441 in its
+  320x240 mode X) shows the "BALL 1 PLAYER 1" strip under the table.
 - **Tyrian 2.1** (`\TYRIAN`). Freeware, shipped as an installed
   directory (`tyrian21.zip`, provenance and license caveat in
   `shared/dos-library/README.md`), so the script unzips it straight onto
@@ -7194,7 +7212,8 @@ C: in place of the factory FreeDOS one: `pc486/?disk=doom`,
   copy of an older image) works as for the factory C:. The Hard disk panel
   relabels Reset ("Reset to original DOOM disk", "Reset to original
   Wolfenstein disk", "Reset to original Duke Nukem disk", "Reset to
-  original Rise of the Triad disk", "Reset to original Tyrian disk"),
+  original Rise of the Triad disk", "Reset to original Epic Pinball
+  disk", "Reset to original Tyrian disk"),
   hides Upload and
   Mount blank, and downloads as
   `pc486-<preset>-hdd.img`. An unknown `?disk=` mounts the visitor's own C:.

@@ -2,7 +2,7 @@
 // on this emulator from the library's install floppies, with injected keys and
 // screen-text matching, then runs the game once so it saves its own config.
 //
-// Usage: build_preset_hdd <doom|wolf3d|duke3d|rott|tyrian> <bios> <vgabios> <base.img> <out.img> [disk1.img [disk2.img]]
+// Usage: build_preset_hdd <doom|wolf3d|duke3d|rott|pinball|tyrian> <bios> <vgabios> <base.img> <out.img> [disk1.img [disk2.img]]
 //
 // <base.img> is build-preset-hdd.sh's bare FreeDOS C:. PC486_TRACE=1 dumps every screen
 // change to stderr; PC486_BUDGET caps the run in cycles.
@@ -196,6 +196,18 @@ const std::map<std::string, std::vector<Step>> kPresets = {
         {"Configure sound and music for ROTT", "@PICK=Rise_of_the_Triad_Setup_Quit_Setup @ENTER"},
         {"C:\\ROTT>", "@DONE"},
     }},
+    {"pinball", {
+        // Epic's zip is the installed directory. SETUP's bar shares 70h with its title rows, so arrows.
+        // Sound Blaster 16, BLASTER's settings, SETUP's own quality pick (High), Exit and Save.
+        {"C:\\>", "cd\\pinball\n"},
+        {"C:\\PINBALL>", "setup\n"},
+        {"Epic Pinball Setup", "@ENTER"},
+        {"Select Your Sound Card", "@DOWN @WAIT=1 @DOWN @WAIT=1 @DOWN @WAIT=1 @DOWN @WAIT=1 @DOWN @WAIT=1 @ENTER"},
+        {"BLASTER settings are ok.  Accept them?", "@ENTER"},
+        {"Select Playback Quality", "@ENTER"},
+        {"Epic Pinball Setup", "@DOWN @WAIT=1 @DOWN @WAIT=1 @ENTER"},
+        {"Please type PINBALL to begin.", "@DONE"},
+    }},
     {"tyrian", {
         {"C:\\>", "cd\\tyrian\n"},
         // SETUP is drawn in VGA graphics: Music > FM Sound (the SB16's OPL3), Sound Effects >
@@ -212,7 +224,7 @@ const std::map<std::string, std::vector<Step>> kPresets = {
 int main(int argc, char **argv) {
     if (argc < 6 || !kPresets.count(argv[1])) {
         std::fprintf(stderr,
-            "usage: %s <doom|wolf3d|duke3d|rott|tyrian> <bios> <vgabios> <base.img> <out.img> [disk1.img [disk2.img]]\n",
+            "usage: %s <doom|wolf3d|duke3d|rott|pinball|tyrian> <bios> <vgabios> <base.img> <out.img> [disk1.img [disk2.img]]\n",
             argv[0]);
         return 2;
     }

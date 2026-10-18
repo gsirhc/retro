@@ -6,7 +6,7 @@ Builds the floppies behind the **Disk library** button on `ibmpc-at` and
 Makefile's `library-images` copies them, with `library.json`, into
 `web/disks/library/`. Images are git-ignored and rebuilt by CI.
 
-- `fetch-shareware.sh` — the five shareware releases and freeware Tyrian
+- `fetch-shareware.sh` — the six shareware releases and freeware Tyrian
   2.1, pinned by SHA-256 into `cache/`.
 - `build-library.py` — FAT12 images via mtools (`mformat`, `mmd`, `mcopy`).
   Formats: 360K, 1.2MB, 1.44MB. Volume serials are derived from the label so a
@@ -58,12 +58,13 @@ All three were released as shareware for free copying of the unmodified
 episode; id's `doom19s.txt` marks DOOM "Electronic Distribution is Permitted"
 and its installer says "PLEASE DISTRIBUTE!!!".
 
-**Shareware**, used only for pc486's `?disk=duke3d` and `?disk=rott` preset
-C:s, not library disks (each more than a floppy holds):
+**Shareware**, used only for pc486's `?disk=duke3d`, `?disk=rott` and
+`?disk=pinball` preset C:s, not library disks:
 
 | file | source | notes |
 |---|---|---|
 | `1rott13.zip` | <https://icculus.org/rott/share/1rott13.zip> | Rise of the Triad: The HUNT Begins 1.3 shareware, Apogee's own release: `INSTALL.EXE`, `ROTTSW13.SHR`, `FILE_ID.DIZ`, dated 1 Aug 1995. MD5 `0fafd6b629eab80278fc726e31f9cf41` matches the one Linux packagers of the icculus port publish. A repack split into `ROT13BBS._1`–`._3` floppy pieces also circulates (dosgamesarchive.com) and isn't used |
+| `epicpn21.zip` | <https://image.dosgamesarchive.com/games/epicpn21.zip> | Epic Pinball 2.1 shareware (Super Android), Epic MegaGames' own PKZIP 2.0 release as the playable directory, no installer; 56 files, newest `LICENSE.DOC`/`VENDOR.DOC` dated May 1995. No `CONFIG.PIN`, `HISCORE.PIN` or `SOUNDCRD.INF`, so no one's SETUP has touched it. The archive.org `epinball.ZIP` (2.1) and Fatal Distractions `pinball.zip` (1.1, the original Android table) both include an uploader's saved config and aren't used |
 | `3dduke13.zip` | <https://archive.org/download/3dduke13/3dduke13.zip> | Duke Nukem 3D 1.3D shareware, 3D Realms' own release: `INSTALL.EXE`, `DN3DSW13.SHR`, `LICENSE.TXT`, `FILE_ID.DIZ`, dated 24 Apr 1996. A repack split into `DUKE3DS._1`–`._5` floppy pieces also circulates (dosgamesarchive.com); it has no `LICENSE.TXT` and isn't used |
 
 3D Realms' `LICENSE.TXT` lets individuals give copies away free and lets free
@@ -72,7 +73,12 @@ file is included unmodified. The installer copies `LICENSE.TXT` into
 `C:\DUKE3D` with the game. Apogee's ROTT `VENDOR.DOC`, installed into
 `C:\ROTT`, encourages everyone "to copy, upload and generally pass around
 this Program without charging for it", on the same unmodified-files
-condition.
+condition. Epic's `LICENSE.DOC` (Limited Distribution License) lets anyone
+"make and distribute copies of the Program to your friends, family" and
+requires it be distributed "in its original, unaltered form, with all
+files included unmodified". The whole directory goes onto C: as shipped;
+the only changes are the ones Epic's own SETUP makes when the harness
+runs it.
 
 **Freeware**, used only for pc486's `?disk=tyrian` preset C:, not a library
 disk:

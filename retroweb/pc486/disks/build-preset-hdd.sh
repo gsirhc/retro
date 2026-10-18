@@ -6,7 +6,7 @@
 set -euo pipefail
 
 if [ $# -lt 7 ]; then
-    echo "usage: build-preset-hdd.sh <doom|wolf3d|duke3d|rott|tyrian> <build_preset_hdd> <bios> <vgabios> <freedos-hdd.img> <out.img> <disk1.img [disk2.img] | game.zip>" >&2
+    echo "usage: build-preset-hdd.sh <doom|wolf3d|duke3d|rott|pinball|tyrian> <build_preset_hdd> <bios> <vgabios> <freedos-hdd.img> <out.img> <disk1.img [disk2.img] | game.zip>" >&2
     exit 1
 fi
 PRESET=$1 TOOL=$2 BIOS=$3 VGA=$4 SRC=$5 OUT=$6
@@ -16,6 +16,7 @@ case "$PRESET" in
     wolf3d) LABEL=WOLF3D SERIAL=1992F3D0 RUN='CD \\WOLF1\r\nWOLF3D\r\n' ;;
     duke3d) LABEL=DUKE3D SERIAL=1996D3D0 RUN='CD \\DUKE3D\r\nDUKE3D\r\n' ZIP=$1 ZIPDIR=3DDUKE13 SCRATCH=1; shift ;;
     rott)   LABEL=ROTT   SERIAL=1994D07E RUN='CD \\ROTT\r\nROTT\r\n' ZIP=$1 ZIPDIR=1ROTT13 SCRATCH=1; shift ;;
+    pinball) LABEL=PINBALL SERIAL=1994E91C RUN='CD \\PINBALL\r\nPINBALL\r\n' ZIP=$1 ZIPDIR=PINBALL; shift ;;
     tyrian) LABEL=TYRIAN SERIAL=1995E1C0 RUN='CD \\TYRIAN\r\nTYRIAN\r\n' ZIP=$1 ZIPDIR=TYRIAN; shift ;;
     *) echo "build-preset-hdd: unknown preset $PRESET" >&2; exit 1 ;;
 esac

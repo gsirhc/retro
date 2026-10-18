@@ -32,7 +32,7 @@ test.describe("retroweb landing page", () => {
     expect(await shot.evaluate((img: HTMLImageElement) => img.naturalHeight)).toBe(128);
   });
 
-  test("Ready to Play lists DOOM, Wolfenstein 3-D, Duke Nukem 3D, Rise of the Triad and Tyrian, each linking to its pc486 preset", async ({ page }) => {
+  test("Ready to Play lists DOOM, Wolfenstein 3-D, Duke Nukem 3D, Rise of the Triad, Epic Pinball and Tyrian, each linking to its pc486 preset", async ({ page }) => {
     await page.goto(HOME);
     await expect(page.locator("h2.section-heading")).toHaveText([
       "Systems",
@@ -66,7 +66,13 @@ test.describe("retroweb landing page", () => {
     await expect(rott.locator(".meta")).toHaveText("486 DX2-66 Gaming PC");
     await expect(rott.locator("img.shot")).toHaveAttribute("src", /assets\/rott-demo\.jpg$/);
     await expect(rott.locator("img.shot")).toHaveJSProperty("naturalWidth", 286);
-    await expect(page.locator("a.machine-card[data-art] .name")).toHaveText(["Doom", "Wolfenstein 3D", "Duke Nukem 3D", "Rise of the Triad", "Commander Keen", "Tyrian"]);
+
+    const pinball = page.locator('a.machine-card[href="pc486/?disk=pinball"]');
+    await expect(pinball.locator(".name")).toHaveText("Epic Pinball");
+    await expect(pinball.locator(".meta")).toHaveText("486 DX2-66 Gaming PC");
+    await expect(pinball.locator("img.shot")).toHaveAttribute("src", /assets\/pinball-android\.jpg$/);
+    await expect(pinball.locator("img.shot")).toHaveJSProperty("naturalWidth", 286);
+    await expect(page.locator("a.machine-card[data-art] .name")).toHaveText(["Doom", "Wolfenstein 3D", "Duke Nukem 3D", "Rise of the Triad", "Epic Pinball", "Commander Keen", "Tyrian"]);
 
     const tyrian = page.locator('a.machine-card[href="pc486/?disk=tyrian"]');
     await expect(tyrian.locator(".name")).toHaveText("Tyrian");
@@ -121,6 +127,7 @@ test.describe("Ready to Play thumbnails", () => {
     "pc486/?disk=wolf3d": "Wolfenstein%203D%20(1992).png",
     "pc486/?disk=duke3d": "Duke%20Nukem%203D%20(1996).png",
     "pc486/?disk=rott": "Rise%20of%20the%20Triad%20-%20Dark%20War%20(1994).png",
+    "pc486/?disk=pinball": "Epic%20Pinball%20-%20The%20Complete%20Collection%20(1995).png",
     "ibmpc-at/?disk=keen1": "Commander%20Keen%201%20-%20Marooned%20on%20Mars%20(1990).png",
     "pc486/?disk=tyrian": "Tyrian%20(1995).png",
   };

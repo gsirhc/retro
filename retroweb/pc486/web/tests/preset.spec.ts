@@ -259,6 +259,29 @@ test.describe("preset C: (?disk=rott)", () => {
   });
 });
 
+test.describe("preset C: (?disk=pinball)", () => {
+  test("the Epic Pinball image has Epic's shareware 2.1 directory with SETUP's Sound Blaster driver saved, and mounts with its own label", async ({ page }) => {
+    await bootLive(page, { params: "disk=pinball" });
+    const r = await readPreset(page, "disks/presets/pinball-hdd.img.gz", "PINBALL", ["SOUNDCRD.INF", "MDRV004R.MUS", "FILE_ID.DIZ"]);
+    expectBareFreeDos(r, "PINBALL");
+    expect(r.game).toEqual(expect.arrayContaining(["PINBALL.EXE", "EP1.EXE", "SETUP.EXE", "LICENSE.DOC", "VENDOR.DOC", "SOUNDCRD.INF"]));
+    expect(r.game).not.toContain("CONFIG.PIN");
+    expect(r.game).not.toContain("HISCORE.PIN");
+    expect(r.sizes["EP1.EXE"]).toBe(251771);
+    expect(r.texts["FILE_ID.DIZ"]).toContain("EPIC PINBALL: Super Android");
+    expect(r.autoexec).toMatch(/CD \\PINBALL\r\nPINBALL\r\n$/);
+    expect(r.texts["SOUNDCRD.INF"]).toContain("MASISBSERIES");
+    expect(r.texts["SOUNDCRD.INF"]).toContain("MDRV004R.MUS");
+    const drv = Array.from(r.texts["MDRV004R.MUS"], (c) => c.charCodeAt(0));
+    expect(drv[587] | (drv[588] << 8)).toBe(0x220);
+    expect(drv[611] | (drv[612] << 8)).toBe(20100);
+    expect(await mountedVolumeLabel(page)).toBe("PINBALL");
+    await expect(page.locator("#hddStatus")).toHaveText(/Using: Epic Pinball shareware/);
+    await expect(page.locator("#hddResetBtn")).toHaveText("Reset to original Epic Pinball disk");
+    await expect(page.locator(".inner h1")).toHaveText("Epic Pinball");
+  });
+});
+
 test.describe("preset C: (?disk=tyrian)", () => {
   test("the Tyrian image has Tyrian 2.1 with FM music, Sound Blaster effects and 16-bar volumes, and mounts with its own label", async ({ page }) => {
     await bootLive(page, { params: "disk=tyrian" });

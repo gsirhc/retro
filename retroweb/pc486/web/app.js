@@ -1572,6 +1572,7 @@
     wolf3d: { file: "disks/presets/wolf3d-hdd.img.gz", label: "Wolfenstein 3-D shareware", reset: "Reset to original Wolfenstein disk" },
     duke3d: { file: "disks/presets/duke3d-hdd.img.gz", label: "Duke Nukem 3D shareware", reset: "Reset to original Duke Nukem disk" },
     rott: { file: "disks/presets/rott-hdd.img.gz", label: "Rise of the Triad shareware", reset: "Reset to original Rise of the Triad disk" },
+    pinball: { file: "disks/presets/pinball-hdd.img.gz", label: "Epic Pinball shareware", reset: "Reset to original Epic Pinball disk" },
     tyrian: { file: "disks/presets/tyrian-hdd.img.gz", label: "Tyrian 2.1 freeware", reset: "Reset to original Tyrian disk" },
   };
   const presetId = new URLSearchParams(location.search).get("disk");
