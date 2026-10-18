@@ -47,9 +47,6 @@ runs it before deploying to Pages.
 | `altairdos.dsk`| `DISK02.DSK` | Altair DOS 1.0 |
 | `diskbasic.dsk`| `DISK03.DSK` | Altair Disk Extended BASIC 300-5-F (18 May 1979, bootable) |
 | `basicprg.dsk` | `DISK04.DSK` | ~75 Disk BASIC programs (not bootable) |
-| `supercalc.dsk`| `DISK06.DSK` | SuperCalc2 1.00, VT100 install (boots CP/M) |
-| `wordstar.dsk` | `DISK07.DSK` | WordStar 3.00, VT52 install (boots CP/M) |
-| `zork.dsk`     | `DISK08.DSK` | Zork I (r88/840726), II, III (boots CP/M) |
 | `cpm3boot.dsk` | `DISK13.DSK` | CP/M 3.0 non-banked, Altair 8" BIOS (bootable) |
 | `cpm3util.dsk` | `DISK14.DSK` | CP/M 3.0 utilities (also bootable) |
 
@@ -66,13 +63,6 @@ Redistribution:
   effectively-orphaned hobbyist / MITS-era material (no formal release letter
   for Altair DOS or Disk BASIC; MITS closed in 1979). Disk BASIC has the same
   standing as the 8K BASIC tapes in `../roms/`.
-- **`zork.dsk`** — Microsoft (owner via Activision/Infocom) released the
-  Zork I–III source under the MIT license in November 2025. The Infocom CP/M
-  interpreter (`ZORK?.COM`) is not part of that release.
-- **`wordstar.dsk`** / **`supercalc.dsk`** — commercial (MicroPro 1981,
-  Sorcim 1983) with no formal redistribution grant. Included at Chris's
-  call; they've circulated on vintage-computing archives (altairclone.com,
-  deramp.com) for decades.
 
 More MITS software (and the originals) live at
 <https://deramp.com/downloads/mits/> and <https://altairclone.com>.

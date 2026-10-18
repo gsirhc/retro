@@ -92,6 +92,8 @@ test.describe("arcade hub", () => {
 
   test("lists eight cabinets in Name order by default, including Pac-Man and Ms. Pac-Man", async ({ page }) => {
     await expect(page).toHaveTitle(/Arcade/);
+    await expect(page.locator(".tagline a")).toHaveText("More info");
+    await expect(page.locator(".tagline a")).toHaveAttribute("href", "../about.html#rights");
     await expect(page.locator("#arcadeCatalog > h2.section-heading")).toHaveCount(0);
     const names = await page.locator("#arcadeCatalog a.machine-card .name").allTextContents();
     expect(names).toEqual([

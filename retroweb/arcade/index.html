@@ -59,13 +59,10 @@
     text-shadow: var(--title-shadow); letter-spacing: 2px;
   }
   .tagline { margin: 2px 0 0; color: var(--muted); }
+  .tagline .more { font-size: 12px; }
 
   .arcade-tools {
     margin: 0 0 14px; padding-top: 14px; border-top: var(--card-border);
-  }
-  .arcade-legal {
-    margin: 22px 0 0; padding-top: 14px; border-top: var(--card-border);
-    color: var(--muted); font-size: 13px; line-height: 1.45;
   }
   .sort-row {
     display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px;
@@ -152,7 +149,7 @@
         <img class="site-icon" src="../assets/icon-512.png" width="56" height="56" decoding="async" alt="">
         <div class="brand-text">
           <h1>Arcade</h1>
-          <p class="tagline">Faithful recreations of classic arcade cabinet hardware.  BYOG (Bring Your Own Games)</p>
+          <p class="tagline">Faithful recreations of classic arcade cabinet hardware.  BYOR (Bring Your Own ROMs) <span class="more"><a href="../about.html#rights">More info</a>.</span></p>
         </div>
       </div>
     </header>
@@ -246,9 +243,6 @@
         </a>
       </div>
     </div>
-    <p class="arcade-legal">So why aren't the games and the real thumbnails included? The ROM
-      sets and the original graphics are still under copyright, so shipping them here would infringe on that.
-      <a href="../about.html#rights">More info</a>.</p>
   </div>
 </div>
 

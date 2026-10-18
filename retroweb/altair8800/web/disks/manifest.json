@@ -54,39 +54,6 @@
       "help": "Not a boot disk. Boot Disk BASIC in drive A:, put this one in\nB:, answer 1 to HIGHEST DISK NUMBER?, then:\n\n  MOUNT 0,1\n  FILES 1                 list what's here\n  RUN \"STARTREK\",1         load and run a program from B:\n\nSome want a CRT. Switch the Terminal dropdown to \"DEC VT100\"\nfor the ones marked VT-100."
     },
     {
-      "name": "WordStar 3.00",
-      "file": "wordstar.dsk",
-      "os": "cpm",
-      "year": 1981,
-      "publisher": "MicroPro International",
-      "needs": "64K RAM, drive A:, DEC VT52 terminal",
-      "license": "Commercial software, no formal redistribution grant. Shared by vintage-computing archives for decades.",
-      "description": "The word processor that made CP/M worth owning. Boots CP/M with WordStar ready to go. Mike Douglas's DISK07.",
-      "help": "Set the Terminal dropdown to \"DEC VT52\" first. This copy is\ninstalled for a VT52.\n\n  WS            start WordStar\n  D             open a document file (type a name)\n  Ctrl-K D      save and go back to the menu\n  Ctrl-K Q      quit without saving\n  X             back to CP/M from the menu\n\nThe cursor diamond: Ctrl-E up, Ctrl-X down, Ctrl-S left,\nCtrl-D right."
-    },
-    {
-      "name": "SuperCalc2 1.00",
-      "file": "supercalc.dsk",
-      "os": "cpm",
-      "year": 1983,
-      "publisher": "Sorcim",
-      "needs": "64K RAM, drive A:, DEC VT100 terminal",
-      "license": "Commercial software, no formal redistribution grant. Shared by vintage-computing archives for decades.",
-      "description": "Sorcim's spreadsheet, installed for a VT100. Boots CP/M. Mike Douglas's DISK06.",
-      "help": "Set the Terminal dropdown to a DEC VT100 first.\n\n  SC2           start SuperCalc\n  Return        past the title screen\n  /             the command menu\n  ?             help\n  /Q Y          quit back to CP/M\n\nType a number or a formula into a cell and press Return.\nStart text with a quote mark (\")."
-    },
-    {
-      "name": "Zork I, II and III",
-      "file": "zork.dsk",
-      "os": "cpm",
-      "year": 1984,
-      "publisher": "Infocom",
-      "needs": "64K RAM, drive A:",
-      "license": "The Zork I-III source has been MIT licensed since November 2025. The Infocom CP/M interpreter isn't covered by that.",
-      "description": "All three Zorks for CP/M. Zork I is Revision 88, serial 840726. Boots CP/M. Mike Douglas's DISK08.",
-      "help": "  ZORK1         The Great Underground Empire\n  ZORK2         The Wizard of Frobozz\n  ZORK3         The Dungeon Master\n\nType in plain English:  OPEN MAILBOX,  GO NORTH,  TAKE LAMP.\n  SAVE / RESTORE    save your game to the disk\n  QUIT              back to CP/M\n\nAny terminal works, even the Teletype."
-    },
-    {
       "name": "CP/M 3.0 (boot disk)",
       "file": "cpm3boot.dsk",
       "os": "cpm",

@@ -51,11 +51,11 @@ test.describe("88-DCDD disk library", () => {
   test("the picker shows year, publisher and what the disk needs", async ({ page }) => {
     await boot(page, { params: "preset=cpm" });
     await page.click("#dcdd .dcdd-bay:nth-child(2) .dcdd-slot");
-    await pickCatalogItem(page, "#diskList", /WordStar/);
+    await pickCatalogItem(page, "#diskList", /CP\/M 2\.2/);
     await expect(page.locator("#diskMeta")).toHaveText(
-      "1981  ·  MicroPro International  ·  Needs 64K RAM, drive A:, DEC VT52 terminal",
+      "1980  ·  Burcon Inc. / Digital Research  ·  Needs 64K RAM, drive A:",
     );
-    await expect(page.locator("#diskDesc")).toContainText("word processor");
+    await expect(page.locator("#diskDesc")).toContainText("CP/M 2.2");
   });
 
   test("opening the catalog fetches no disk image until one is inserted", async ({ page }) => {
@@ -65,11 +65,11 @@ test.describe("88-DCDD disk library", () => {
       if (r.method() === "GET" && /\/disks\/.*\.dsk$/.test(r.url())) gets.push(r.url());
     });
     await page.click("#dcdd .dcdd-bay:nth-child(2) .dcdd-slot");
-    await pickCatalogItem(page, "#diskList", /Zork/);
+    await pickCatalogItem(page, "#diskList", /Disk Extended BASIC/);
     expect(gets).toEqual([]);
     await page.click("#diskInsert");
     await expect.poll(() => gets.length).toBe(1);
-    expect(gets[0]).toMatch(/zork\.dsk$/);
+    expect(gets[0]).toMatch(/diskbasic\.dsk$/);
   });
 
   test("the ? dialog shows the license and the Disk BASIC primer", async ({ page }) => {
@@ -112,26 +112,6 @@ test.describe("88-DCDD disk library", () => {
     await answer(page, /KILL "ZZTEST"\s+OK\s*$/, "UNLOAD");
     await waitForScreen(page, /UNLOAD\s+OK\s*$/, 30_000);
     expect(await screen(page)).not.toMatch(/SYNTAX ERROR|SN ERROR/i);
-  });
-
-  test("WordStar comes up on a VT52", async ({ page }) => {
-    await bootFromLibrary(page, /WordStar/);
-    await page.selectOption("#termProfile", "vt52");
-    await answer(page, /A>\s*$/, "WS");
-    await waitForScreen(page, /N O - F I L E\s+M E N U/, 60_000);
-  });
-
-  test("SuperCalc2 starts", async ({ page }) => {
-    await bootFromLibrary(page, /SuperCalc2/);
-    await page.selectOption("#termProfile", "vt100g");
-    await answer(page, /A>\s*$/, "SC2");
-    await waitForScreen(page, /SuperCalc2[\s\S]*SORCIM/, 60_000);
-  });
-
-  test("Zork I starts West of House", async ({ page }) => {
-    await bootFromLibrary(page, /Zork/);
-    await answer(page, /A>\s*$/, "ZORK1");
-    await waitForScreen(page, /Revision 88 \/ Serial number 840726[\s\S]*West of House/, 60_000);
   });
 
   test("CP/M 3.0 boots from either disk", async ({ page }) => {

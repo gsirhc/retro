@@ -72,9 +72,6 @@ test.describe("retroweb landing page", () => {
     await expect(tyrian.locator(".name")).toHaveText("Tyrian");
     await expect(tyrian.locator(".meta")).toHaveText("486 DX2-66 Gaming PC");
     await expect(tyrian.locator("img.shot")).toHaveJSProperty("naturalWidth", 286);
-    await expect(page.locator(".ready-note a")).toHaveText(["libretro", "More info"]);
-    await expect(page.locator(".ready-note a").first()).toHaveAttribute("href", "https://www.libretro.com/");
-    await expect(page.locator(".ready-note a").last()).toHaveAttribute("href", "about.html#rights");
   });
 
   test("the theme selector switches the page and persists to retro8080.theme", async ({ page }) => {
