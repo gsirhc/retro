@@ -57,10 +57,20 @@
   playfield below the INSERT COIN line (x 0–262, y 58–175) and resized to
   286×128 (JPEG q90).
 
-  These six are the shipped Ready to Play tiles. The landing page's
+- **`altair-startrek.jpg`**: Super Star Trek's opening short range scan on
+  the VT100, from *this project's* Altair 8800 running the `?tape=startrek`
+  quick play (8K BASIC off paper tape, Star Trek off the 88-ACR cassette,
+  both at 50×). Load `altair8800/?test=1&tape=startrek`, answer Y at
+  PRESS Y TO ACCEPT COMMAND?, then screenshot `#screen` at 2× device scale;
+  the scan box and status column (x 0–1112, y 378–876 of 1556×922) resized
+  to 286×128 (JPEG q90).
+
+  These seven are the shipped Ready to Play tiles. The landing page's
   Thumbnails dropdown (Original by default) can swap in libretro-thumbnails'
   DOS screenshot, title screen, or box art (`data-art`, cropped by
-  `data-<style>-y`), fetched by the visitor's browser. None of it is staged.
+  `data-<style>-y`), fetched by the visitor's browser. Star Trek has no
+  `data-art` (it isn't a DOS title), so it always shows its own tile. None
+  of it is staged.
 
 - **`ibmpcat-panel.jpg`** — a screenshot of *this project's* rendered IBM
   PC/AT front panel (`#frontPanelCard .at-case`), captured from the emulator

@@ -1786,13 +1786,13 @@ async function boot() {
         if (k) k.disabled = !loaded;
     },
 
-    setSpeed(key) {
+    setSpeed(key, persist = true) {
       this.speed = TAPE_SPEEDS[key] != null ? key : "realistic";
       if (this.speedSel) this.speedSel.value = this.speed;
       if (typeof machine.setTapeSpeed === "function")
         machine.setTapeSpeed(TAPE_SPEEDS[this.speed]);
       // don't persist the internal "max" (?test=1) as a user choice
-      if (TAPE_SPEED_KEYS.includes(this.speed))
+      if (persist && TAPE_SPEED_KEYS.includes(this.speed))
         try { localStorage.setItem("retro8080.tapespeed", this.speed); } catch {}
     },
 
@@ -2510,11 +2510,11 @@ exactly as it did in 1975.`;
       this.syncButtons();
     },
 
-    setSpeed(key) {
+    setSpeed(key, persist = true) {
       this.speed = PAPER_SPEEDS[key] != null ? key : "realistic";
       if (this.speedSel) this.speedSel.value = this.speed;
       // don't persist the internal "max" (?test=1) as a user choice
-      if (PAPER_SPEED_KEYS.includes(this.speed))
+      if (persist && PAPER_SPEED_KEYS.includes(this.speed))
         try { localStorage.setItem("retro8080.paperspeed", this.speed); } catch {}
       // if a tape is reading right now, change its rate on the fly
       if (tape.phase === "feeding" || tape.phase === "draining") {
@@ -2841,14 +2841,41 @@ exactly as it did in 1975.`;
 
   if (location.search.includes("help")) setTimeout(printManual, 300);
 
+  // ?tape=startrek, the home page's Ready to Play card. Both tapes run at 50x for this visit only;
+  // the selectors show it and the saved speed is untouched.
+  function quickPlayStarTrek() {
+    if (!paperTape.entry || !machine.tapeLoaded?.()) return;   // preset already flagged the missing tape
+    paperTape.setSpeed("x50", false);
+    cassette.setSpeed("x50", false);
+    // this Star Trek draws with ANSI cursor codes the preset's ADM-3A can't parse
+    termSelect.value = "vt100g";
+    applyProfile("vt100g");
+    ensurePowered();
+    paperTape.load({ then: async ({ feed, waitFor }) => {
+      turbo = false;   // the game itself runs at 2 MHz
+      rxWatch = "";
+      feed('CLOAD "S"\r');
+      await waitFor(/CLOAD "S"/);
+      cassette.transport("play");
+      rxWatch = "";
+      await waitFor(/\bOK\b/, 30 * 60 * 1000);
+      cassette.transport("stop");
+      feed("RUN\r");
+    } });
+  }
+
   // restore / apply an era preset (URL wins over the stored choice); a custom build ("") still
   // runs applyPreset so its load devices get set up
   buildBackplane([]);
-  let startPreset = new URLSearchParams(location.search).get("preset");
+  const quickTape = new URLSearchParams(location.search).get("tape");
+  let startPreset = quickTape === "startrek" ? "cassette" : new URLSearchParams(location.search).get("preset");
   try { if (startPreset == null) startPreset = localStorage.getItem("retro8080.preset"); } catch {}
   if (startPreset == null || !PRESETS[startPreset]) startPreset = "";
   presetSelect.value = startPreset;
-  setTimeout(() => applyPreset(startPreset), 200);   // let the wasm + fonts settle
+  setTimeout(async () => {   // let the wasm + fonts settle
+    await applyPreset(startPreset);
+    if (quickTape === "startrek") quickPlayStarTrek();
+  }, 200);
 
 }
 

@@ -34,6 +34,16 @@ test.describe("retroweb landing page", () => {
     expect(await shot.evaluate((img: HTMLImageElement) => img.naturalHeight)).toBe(128);
   });
 
+  test("Ready to Play lists Star Trek, linking to the Altair with ?tape=startrek", async ({ page }) => {
+    await page.goto(HOME);
+    const card = page.locator('a.machine-card[href="altair8800/?tape=startrek"]');
+    await expect(card.locator(".name")).toHaveText("Star Trek");
+    await expect(card.locator(".meta")).toHaveText("MITS Altair 8800");
+    await expect(card.locator("img.shot")).toHaveAttribute("src", /assets\/altair-startrek\.jpg$/);
+    await expect(card.locator("img.shot")).toHaveJSProperty("naturalWidth", 286);
+    await expect(card.locator("img.shot")).toHaveJSProperty("naturalHeight", 128);
+  });
+
   test("the theme selector switches the page and persists to retro8080.theme", async ({ page }) => {
     await page.goto(HOME);
     const root = page.locator("html");

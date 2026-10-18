@@ -90,6 +90,25 @@ test.describe("88-ACR cassette deck", () => {
     await waitForScreen(page, /LEEDOM|MODIFICATIONS/i, 20_000);
   });
 
+  test("?tape=startrek loads BASIC and Star Trek at 50x, then RUNs it", async ({ page }) => {
+    test.slow(); // 50x tape reads and the game's own setup, all at a real 2 MHz
+    await page.goto("/");
+    await page.evaluate(() => {
+      localStorage.setItem("retro8080.paperspeed", "realistic");
+      localStorage.setItem("retro8080.tapespeed", "realistic");
+    });
+    await page.goto("/?test=1&tape=startrek");
+    await expect(page.locator("#preset")).toHaveValue("cassette");
+    await expect(page.locator("#ptr .ptr-speed")).toHaveValue("x50");
+    await expect(page.locator("#acr .acr-speed")).toHaveValue("x50");
+    await expect(page.locator("#termProfile")).toHaveValue("vt100g");
+    await waitForScreen(page, /ENTERPRISE|KLINGON/i, 150_000);
+    expect((await tapeStatus(page)).pos).toBeGreaterThan(16_000);
+    await expect(page.locator("#acr .acr-key.play")).not.toHaveClass(/down/);
+    const saved = await page.evaluate(() => [localStorage.getItem("retro8080.paperspeed"), localStorage.getItem("retro8080.tapespeed")]);
+    expect(saved).toEqual(["realistic", "realistic"]);
+  });
+
   test("PLAY just plays — the tape rolls even with no CLOAD pending", async ({ page }) => {
     await boot(page, { params: "preset=cassette" });
     await autoloadBasic(page);
