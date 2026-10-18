@@ -73,4 +73,20 @@ first 24 bytes copy BASIC down to `0x0000` and `JMP 0`. Because it sits above
 RAM it can't be streamed — the reader drops it straight in and cold-starts it.
 Kept as an "instant" option.
 
+### Redistribution
+
+Altair BASIC is Microsoft's copyright and has never had a formal open license.
+Two 2025 releases are why this site ships it anyway:
+
+- For Microsoft's 50th anniversary, Bill Gates published the full Altair BASIC
+  source listing himself, with no license attached
+  ([Hackster](https://hackster.io/news/bill-gates-goes-nostalgic-celebrates-microsoft-s-50th-by-releasing-the-altair-basic-source-code-5cd5b0c92a4b)).
+- In September 2025 Microsoft released 6502 BASIC 1.1, a direct descendant of
+  the Altair code, under the MIT license
+  ([microsoft/BASIC-M6502](https://github.com/microsoft/BASIC-M6502),
+  [announcement](https://opensource.microsoft.com/blog/?p=98109)).
+
+Neither covers these 8080 binaries in so many words. Disk Extended BASIC
+(`../disks/diskbasic.dsk`) has the same standing.
+
 To add any other program, drop its binary here and add a `manifest.json` entry.
