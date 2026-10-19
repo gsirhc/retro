@@ -80,8 +80,8 @@ another emulator’s shortcuts as if they were hardware.
 - Fixed Playwright port (do not collide with `make serve` on 8000).
 - Arcade hub card in `retroweb/arcade/index.html` (marquee from
   `retroweb/shared/marquee.py`, plus `data-name` / `data-year` / `data-cpu` /
-  `data-manufacturer`, `data-art` (the set's MAME description, as named in
-  libretro-thumbnails), `data-marquee` (the MAME set whose Arcade
+  `data-manufacturer`, `data-art` (the set's title, as named in
+  libretro-thumbnails), `data-marquee` (the set name whose Arcade
   Database marquee is the cleanest scan of that cabinet's), `data-boxart-y` (the box art crop that keeps
   its logo in frame) and a year · manufacturer · CPU meta line). Cabinets
   are hub-only; the home page links in via the full-width neon
