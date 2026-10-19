@@ -29,7 +29,7 @@ test.describe("Audio level", () => {
     await page.waitForFunction(() => (window as any).__audioBlocks > 10);
   });
 
-  test("the 54XX explosion reaches the speaker at MAME's level", async ({ page }) => {
+  test("the 54XX explosion reaches the speaker", async ({ page }) => {
     await page.evaluate(() => { (window as any).__audioPeak = 0; });
     await blocks(page, 18);
     const idle = await page.evaluate(() => (window as any).__audioPeak);

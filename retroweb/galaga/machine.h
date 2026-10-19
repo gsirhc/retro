@@ -1,6 +1,6 @@
 // Midway Galaga (1981) board: three Z80s, Namco 06XX/51XX/54XX, WSG.
 //
-// CPU-board decode shared by all three Z80s (coinop.org GalagaMap), 3.072 MHz each.
+// CPU-board decode shared by all three Z80s (coinop.org GalagaMap, Midway CPU-board schematic), 3.072 MHz each.
 // 51XX/54XX run their mask ROM if the user supplies a 1024-byte image; otherwise the
 // 06XX bus answers the command protocol directly (a labelled departure).
 
@@ -25,9 +25,9 @@ struct Inputs {
     // 1 = pressed. The 51XX R ports see the contacts active-low.
     uint8_t in0 = 0;  // bit1 right, bit3 left (cocktail bits 5 and 7 unmapped)
     uint8_t in1 = 0;  // fire, starts, coins, service
-    // Midway factory defaults; labels from the Midway manual.
-    uint8_t dsw_a = 0xF7;  // physical SWB. Bit 6 is unused and open.
-    uint8_t dsw_b = 0x97;  // physical SWA: 1C/1C, 20k/70k, 3 lives
+    // Midway manual figure 3. $6800 d0 is DIP 6K, d1 is DIP 6J (CPU-board schematic).
+    uint8_t dsw_a = 0xF7;  // DIP 6J. Switch 7 is not used and open.
+    uint8_t dsw_b = 0x97;  // DIP 6K: 1C/1C, 20k/70k, 3 lives
 };
 
 struct RomSet {

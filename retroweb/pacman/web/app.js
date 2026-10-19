@@ -10,7 +10,7 @@ const DSW1_FACTORY = 0xC9;
 const HISCORE_ADDR = 0x4E88;
 const HISCORE_LEN = 3;
 
-const MAME_PACMAN = {
+const SET_PACMAN = {
   "pacman.6e": 0xc1e6ab10,
   "pacman.6f": 0x1a6fb2d4,
   "pacman.6h": 0xbcdd1beb,
@@ -22,7 +22,7 @@ const MAME_PACMAN = {
   "82s126.1m": 0xa9cc86bf,
 };
 
-const MAME_MSPACMAN = {
+const SET_MSPACMAN = {
   "5e": 0x5c281d01,
   "5f": 0x615af909,
   "u5": 0xf45fbbcd,
@@ -36,7 +36,7 @@ function concat4(parts) {
   return out;
 }
 
-// Board locations as named in MAME. 82s126.3m is a timing PROM, ignore it.
+// Chips by board location. 82s126.3m is a timing PROM, ignore it.
 const CHIP_RE = /(?:^|[._-])(6e|6f|6h|6j|5e|5f|7f|4a|1m|u5|u6|u7)(?:[^a-z0-9]|$)/i;
 const IGNORE_RE = /(?:^|[._-])3m(?:[^a-z0-9]|$)/i;
 const SIZE = {
@@ -92,26 +92,26 @@ function identifySet(files, hwtestCrcs) {
       arcadeHexCrc(wave) === hwtestCrcs["82s126.1m"]) {
     kind = "hwtest";
   } else if (
-    arcadeCrc32(color) === MAME_PACMAN["82s123.7f"] &&
-    arcadeCrc32(lookup) === MAME_PACMAN["82s126.4a"] &&
-    arcadeCrc32(wave) === MAME_PACMAN["82s126.1m"] &&
-    arcadeCrc32(program.subarray(0, 0x1000)) === MAME_PACMAN["pacman.6e"] &&
-    arcadeCrc32(program.subarray(0x1000, 0x2000)) === MAME_PACMAN["pacman.6f"] &&
-    arcadeCrc32(program.subarray(0x2000, 0x3000)) === MAME_PACMAN["pacman.6h"] &&
-    arcadeCrc32(program.subarray(0x3000, 0x4000)) === MAME_PACMAN["pacman.6j"]
+    arcadeCrc32(color) === SET_PACMAN["82s123.7f"] &&
+    arcadeCrc32(lookup) === SET_PACMAN["82s126.4a"] &&
+    arcadeCrc32(wave) === SET_PACMAN["82s126.1m"] &&
+    arcadeCrc32(program.subarray(0, 0x1000)) === SET_PACMAN["pacman.6e"] &&
+    arcadeCrc32(program.subarray(0x1000, 0x2000)) === SET_PACMAN["pacman.6f"] &&
+    arcadeCrc32(program.subarray(0x2000, 0x3000)) === SET_PACMAN["pacman.6h"] &&
+    arcadeCrc32(program.subarray(0x3000, 0x4000)) === SET_PACMAN["pacman.6j"]
   ) {
     if (aux &&
-        arcadeCrc32(tiles) === MAME_MSPACMAN["5e"] &&
-        arcadeCrc32(sprites) === MAME_MSPACMAN["5f"] &&
-        arcadeCrc32(u5) === MAME_MSPACMAN.u5 &&
-        arcadeCrc32(u6) === MAME_MSPACMAN.u6 &&
-        arcadeCrc32(u7) === MAME_MSPACMAN.u7) {
-      kind = "mame-mspacman";
+        arcadeCrc32(tiles) === SET_MSPACMAN["5e"] &&
+        arcadeCrc32(sprites) === SET_MSPACMAN["5f"] &&
+        arcadeCrc32(u5) === SET_MSPACMAN.u5 &&
+        arcadeCrc32(u6) === SET_MSPACMAN.u6 &&
+        arcadeCrc32(u7) === SET_MSPACMAN.u7) {
+      kind = "set-mspacman";
     } else if (
-      arcadeCrc32(tiles) === MAME_PACMAN["pacman.5e"] &&
-      arcadeCrc32(sprites) === MAME_PACMAN["pacman.5f"]
+      arcadeCrc32(tiles) === SET_PACMAN["pacman.5e"] &&
+      arcadeCrc32(sprites) === SET_PACMAN["pacman.5f"]
     ) {
-      kind = "mame-pacman";
+      kind = "set-pacman";
     }
   }
   return { kind, program, tiles, sprites, color, lookup, wave, u5, u6, u7, aux };
@@ -119,8 +119,8 @@ function identifySet(files, hwtestCrcs) {
 
 function labelFor(kind) {
   if (kind === "hwtest") return "Hardware test ROM";
-  if (kind === "mame-pacman") return "Midway pacman ROM set";
-  if (kind === "mame-mspacman") return "Midway mspacman ROM set";
+  if (kind === "set-pacman") return "Midway pacman ROM set";
+  if (kind === "set-mspacman") return "Midway mspacman ROM set";
   return "Loaded ROM set";
 }
 

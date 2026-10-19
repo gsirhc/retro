@@ -5,7 +5,7 @@
 namespace pacman {
 namespace {
 
-// U5/U6/U7 address and data lines are wired scrambled (US 4,525,599, MAME init_mspacman).
+// U5/U6/U7 lines are wired scrambled (US 4,525,599 describes the scheme, not these orders).
 uint16_t bitswap(uint16_t val, const int* bits, int n) {
     uint16_t out = 0;
     for (int i = 0; i < n; i++)
@@ -135,11 +135,11 @@ uint8_t Machine::mem_read(uint16_t addr) {
         if (aux_board && aux_decode) return aux_decrypted_[addr];
         return program[lo];
     }
-    // A13 is not decoded above $4000 (MAME mirror 0xa000).
+    // A13 is not decoded above $4000 (Lomont, Pac-Man hardware notes v0.1: $6000 mirrors $4000).
     const uint16_t m = lo & 0x5FFF;
     if (m < 0x4400) return video.videoram[m - 0x4000];
     if (m < 0x4800) return video.colorram[m - 0x4400];
-    // No RAM at $4800-$4BFF; the floating bus reads $BF (MAME pacman_read_nop).
+    // No RAM at $4800-$4BFF; undriven bus reads $BF.
     if (m < 0x4C00) return 0xBF;
     if (m < 0x5000) return ram[m - 0x4C00];
     switch ((m >> 6) & 3) {
@@ -169,13 +169,13 @@ void Machine::mem_write(uint16_t addr, uint8_t v) {
         if (m >= 0x4FF0) video.spriteram[m - 0x4FF0] = v;
         return;
     }
-    // A8-A11 are not decoded in the I/O page (MAME mirror 0xaf00).
+    // A8-A11 are not decoded in the I/O page.
     const uint16_t io = m & 0x50FF;
     if (io < 0x5040) {
-        // 74LS259 main latch, repeated every 8 bytes (MAME mirror 0xaf38).
+        // 74LS259 main latch, repeated every 8 bytes.
         switch (io & 7) {
             case 0:
-                // Clearing the mask also clears the held vblank request (MAME irq_mask_w).
+                // Clearing the mask also clears the held vblank request.
                 irq_enable = (v & 1) != 0;
                 if (!irq_enable) cpu.set_int(false);
                 return;

@@ -11,12 +11,12 @@ Machine::Machine() : main(make_bus(0)), sub(make_bus(1)), sound(make_bus(2)) {
     };
     mcu51_.read_r = [this](int n) { return r_nibble(n); };
     mcu51_.write_o = [this](uint8_t v, uint8_t) { mcu51_.o_output = v; };
-    // P2/P3 drive the coin meters, active low (MAME galaga out()).
+    // P2/P3 drive the coin meters, active low.
     mcu51_.write_p = [this](uint8_t v) {
         coin_counter_w(1, !(v & 0x04));
         coin_counter_w(0, !(v & 0x08));
     };
-    // K and R0 read the latched 06XX command; O nibbles and R1 drive the three DACs (MAME namco54).
+    // K and R0 read the latched 06XX command; O nibbles and R1 drive the three DACs.
     mcu54_.read_k = [this] { return uint8_t(mcu54_cmd_ >> 4); };
     mcu54_.read_r = [this](int) { return uint8_t(mcu54_cmd_ & 0x0f); };
     mcu54_.write_o = [this](uint8_t v, uint8_t) {
@@ -216,7 +216,7 @@ uint8_t Machine::io06_read() {
         if (mcu51_hle) result = uint8_t(result & mcu51_hle_read());
         else result = uint8_t(result & mcu51_.o_output);
     }
-    // The 54XX only listens; nothing drives the bus for it (MAME galaga n06xx has no read<3>).
+    // The 54XX only listens; nothing drives the bus for it.
     return result;
 }
 
@@ -252,7 +252,7 @@ void Machine::io06_write(uint8_t v) {
 }
 
 void Machine::io06_ctrl(uint8_t v) {
-    // MAME namco06 ctrl_w_sync: a zero divider stops the clock and leaves R/W latched.
+    // A zero divider stops the clock and leaves R/W latched.
     io_ctrl_ = v;
     if ((v & 0xE0) == 0) {
         io_timer_state_ = false;
@@ -266,7 +266,7 @@ void Machine::io06_ctrl(uint8_t v) {
 }
 
 void Machine::io06_edge() {
-    // MAME namco06 nmi_generate: R/W, chip selects and NMI follow the falling edge; a read skips its first NMI.
+    // R/W, chip selects and NMI follow the falling edge; a read skips its first NMI.
     io_timer_state_ = !io_timer_state_;
     if (io_timer_state_) io_rw_ = (io_ctrl_ & 0x10) != 0;
     bool nmi = io_timer_state_ && !io_stretch_;
@@ -314,7 +314,7 @@ void Machine::mem_write(int cpu, uint16_t addr, uint8_t v) {
     if (addr >= 0x6820 && addr < 0x6828) {
         int bit = addr & 7;
         bool on = (v & 1) != 0;
-        // Clearing a mask also clears its held vblank IRQ (MAME irq1_clear_w / irq2_clear_w).
+        // Clearing a mask also clears its held vblank IRQ (coinop.org GalagaMap: $6820/$6821 clear IRQ1/IRQ2).
         if (bit == 0) {
             irq1_enable = on;
             if (!on) main.set_int(false);

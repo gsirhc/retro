@@ -12,7 +12,6 @@ constexpr int kStarOffsetX = 16;
 constexpr int kStarLimitX = kStarOffsetX + kStarFieldW;
 
 // SCROLL_X index → extra LFSR clocks in the pre-visible interval.
-// Hildinger starfield_05xx notes.
 constexpr int kSpeedXOffset[8] = {0, 1, 2, 3, -4, -3, -2, -1};
 
 }  // namespace
@@ -62,7 +61,7 @@ void Video::advance(int cpu_cycles) {
 }
 
 uint8_t Video::tile_pixel(uint8_t code, int x, int y) const {
-    // Namco charlayout_2bpp: high nibble is plane 0, low is plane 1.
+    // High nibble is plane 0, low is plane 1 (same packing as Pac-Man, Lomont).
     const uint8_t* t = &tile_rom[(unsigned(code) * 16) & (tile_rom.size() - 1)];
     uint8_t byte = (x < 4) ? t[y + 8] : t[y];
     int xb = x & 3;
@@ -78,7 +77,7 @@ uint32_t Video::prom_rgb(uint8_t idx) const {
 }
 
 uint32_t Video::star_rgb(uint8_t color6) const {
-    // 05XX RGB ladder from the PROM (Hildinger); R and G have a 1k pulldown, B does not.
+    // 05XX colour ladder; R and G have a 1k pulldown, B does not.
     int r = ((color6 & 1) ? 0x47 : 0) + ((color6 & 2) ? 0x97 : 0);
     int g = ((color6 & 4) ? 0x47 : 0) + ((color6 & 8) ? 0x97 : 0);
     int b = ((color6 & 16) ? 0x47 : 0) + ((color6 & 32) ? 0x97 : 0);
@@ -88,13 +87,13 @@ uint32_t Video::star_rgb(uint8_t color6) const {
 }
 
 uint16_t Video::next_star_lfsr(uint16_t lfsr) {
-    // 16-bit Fibonacci LFSR, taps 16/13/11/6 (Hildinger RE of the 05XX).
+    // 16-bit Fibonacci LFSR, taps 16/13/11/6.
     uint16_t bit = uint16_t((lfsr ^ (lfsr >> 3) ^ (lfsr >> 5) ^ (lfsr >> 10)) & 1);
     return uint16_t((lfsr >> 1) | (bit << 15));
 }
 
 void Video::frame_start() {
-    // The 05XX samples its controls as vblank ends (MAME screen_vblank_galaga). Low $A005 clears and reseeds.
+    // The 05XX samples its controls as vblank ends. Low $A005 clears and reseeds.
     stars_on_ = star_latch[5] != 0;
     if (!stars_on_) {
         star_lfsr_ = kStarSeed;
@@ -132,7 +131,7 @@ void Video::hblank_setup(int line) {
 
     if (!ram1 || !ram2 || !ram3) return;
     // 04XX: X is 10 bits, register 0 is 40 px left of the visible origin. Y is one line late
-    // and wraps by 32. Later sprites overwrite earlier ones (MAME draw_sprites order).
+    // and wraps by 32. Later sprites overwrite earlier ones.
     static constexpr int kOffs[2][2] = {{0, 1}, {2, 3}};
     static constexpr int kCol[4] = {0, 8, 16, 24};
     for (int i = 0; i < 64; i++) {
@@ -165,7 +164,7 @@ void Video::hblank_setup(int line) {
                 uint8_t byte = t[kCol[px >> 2] + base_y];
                 int xb = px & 3;
                 uint8_t pen = uint8_t((((byte >> (7 - xb)) & 1) << 1) | ((byte >> (3 - xb)) & 1));
-                // A pen is clear when its LUT entry is 0x0F (MAME transpen_mask(..., 0x0f)).
+                // A pen is clear when its LUT entry is 0x0F.
                 uint8_t li = sprite_lut[unsigned((color << 2) | pen)] & 0x0F;
                 if (li == 0x0F) continue;
                 sprite_line_[unsigned(x)] = prom_rgb(li) | (1u << 24);
@@ -184,7 +183,7 @@ void Video::paint(int line, int x0, int x1) {
         int ty = flip ? kVisH - 1 - line : line;
         int r = (ty >> 3) + 2;
         int c = (tx >> 3) - 2;
-        // hcnt bit 8 selects the side strips (galaga.vhd).
+        // hcnt bit 8 selects the side strips.
         int offs = ((c & 0x20) ? (r + ((c & 0x1f) << 5)) : (c + (r << 5))) & 0x3ff;
         uint8_t code = uint8_t((videoram[unsigned(offs)] & 0x7f) | (flip ? 0x80 : 0));
         uint8_t attr = videoram[unsigned(0x400 + offs)];

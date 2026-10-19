@@ -31,7 +31,7 @@ TEST(Wsg, SilentWhenDisabled) {
     EXPECT_GT(wsg_peak(w), 0);
 }
 
-// Real register map (MAME namco.cpp pacman_sound_w): only 0x05/0x0a/0x0f
+// Real register map (Lomont, Pac-Man hardware notes v0.1, table 7): only 0x05/0x0a/0x0f
 // (waveform), 0x10-0x15 (ch0), 0x16-0x1a (ch1), 0x1b-0x1f (ch2) are wired.
 TEST(Wsg, RegisterMapMatchesRealHardwareOffsets) {
     namco::Wsg w;

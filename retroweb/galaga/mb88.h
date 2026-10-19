@@ -1,5 +1,5 @@
 // Fujitsu MB8843 / MB8844 (Namco 51XX / 54XX).
-// Timing and flags follow MB8840 as cross-checked against MAME mb88xx.cpp.
+// Instruction set and cycle counts per the Fujitsu MB8840/MB8840H series datasheet, Jan 1987.
 
 #ifndef GALAGA_MB88_H
 #define GALAGA_MB88_H

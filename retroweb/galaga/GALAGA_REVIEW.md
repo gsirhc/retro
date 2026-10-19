@@ -1,11 +1,22 @@
 # Galaga arcade board — design notes
 
-Citation trail for the Midway Galaga (1981) emulator. The write-up used
-while coding the map is coinop.org GalagaMap
-(https://www.coinop.org/kdl/GameTech/GalagaMap.html). MAME `galaga.cpp`,
-`namco06.cpp`, `namco51.cpp`, `namco54.cpp`, and `mb88xx.cpp` are
-cross-checks of addresses, clocks, and the 06XX command bytes, not the
-behavior source. The Midway schematic is the authority when those disagree.
+Citation trail for the Midway Galaga (1981) emulator. Primary sources:
+
+- Midway *Galaga Parts and Operating Manual* (Oct 1981), DIP switch
+  figure 3, pp. 2-4 and 2-5 (arcade-museum.com `Galaga.pdf`).
+- Namco *Galaga* English operator's manual, self-test and option switch
+  pages (arcade-museum.com `NamcoGalagaEng.pdf`).
+- Midway Galaga schematic (arcade-museum.com `galaga3.pdf`), CPU board
+  and video board sheets: crystal, watchdog counter, DIP multiplexers,
+  07XX divider.
+- coinop.org GalagaMap, a 1996 memory map write-up
+  (https://www.coinop.org/kdl/GameTech/GalagaMap.html).
+- Fujitsu MB8840/MB8840H series datasheet, January 1987.
+- Chris Lomont, *Pac-Man Emulation Guide* v0.1, for the Pac-Man hardware
+  Galaga shares (tile packing, WSG).
+
+Facts with none of these behind them are marked Unsourced below. The
+behaviour is kept as is until a primary source turns up.
 
 ## 0. Status
 
@@ -32,52 +43,60 @@ schematic says what it clocks.
 
 ## 2. Clocks
 
-Master crystal 18.432 MHz (schematic; same figure MAME uses).
+Master crystal 18.432 MHz (Midway schematic, CPU board: XTAL1 18.432 MHz).
 
 - Each Z80: 18.432 / 6 = 3.072 MHz. Live page stays at that rate.
 - 51XX and 54XX: 1.536 MHz input. One instruction is that clock / 6, so
   one instruction per 12 Z80 T-states. The real core runs only after
   `$6823` releases reset and a 1024-byte image was loaded.
-- Raster, same numbers as Pac-Man and confirmed against MAME's screen raw
-  parameters: 384×264 total, visible 288×224, about 60.606 Hz,
-  50688 T-states per frame. Upright cabinet is rotated, canvas 224×288.
+- Raster, same numbers as Pac-Man (Namco Pac-Man wiki, Video: 384×264,
+  6.144 MHz pixel clock). Visible 288×224, about 60.606 Hz, 50688 T-states
+  per frame. Galaga's own counter chain is Unsourced beyond the 07XX
+  outputs on the schematic. Upright cabinet is rotated, canvas 224×288.
   No rotation control.
 
 The three Z80s share RAM through the 08XX bus controllers. This core gives
 each CPU its own slot at 18.432/6 and advances sub and sound by the same
 T-state count as each main instruction, so they do not wait on each other.
-MAME's 6000 Hz scheduling quantum is not the hardware model.
 
 ## 3. Memory map
 
 Private program ROM `$0000–$3FFF` per CPU. Shared otherwise.
 
 - `$6800–$6807` — DIP read. The address offset selects the switch bit.
-  Bit 0 of the byte is physical SWA (MAME `DSWB`); bit 1 is physical SWB
-  (MAME `DSWA`). Factory defaults are SWB `0xF7` (2-credit game = 2
-  players, easy, demo sounds on, freeze off, rack test off, unused
-  switch open, upright) and SWA `0x97` (1 coin / 1 credit, bonus
-  20K/70K/every 70K, 3 lives). SWB bit 6 is MAME's unused SWB:7 and
-  reads 1 when open. galagamw's sub CPU (`$0ECA`) resets if that bit
-  is clear.
-  `$6800` with those defaults reads `0x03`.
+  Bit 0 of the byte is DIP 6K and bit 1 is DIP 6J (schematic: the 5K
+  multiplexer on 6K drives DB0, 4K on 6J drives DB1; coinop.org GalagaMap
+  agrees). A closed (ON) switch reads 0. Midway figure 3 gives every
+  setting. Code defaults are 6K `0x97` (1 coin / 1 credit, bonus
+  20K/70K/every 70K, 3 lives) and 6J `0xF7` (2 players, easiest rank,
+  attract sound on, freeze off, rack advance off, switch 7 not used and
+  open). The Midway pages don't mark which setting ships, so the
+  defaults are Unsourced, though the Namco self-test page shows 1 coin /
+  1 game, 3 ships and 20,000 / 70,000 bonus. Switch 7 of 6J reads 1 when
+  open. The sub ROM at `$0ECA` is `LD A,($6806); AND 2; RET NZ`, so that
+  bit is read there; what runs when it is clear is not traced. Switch 8 of 6J is the one-way /
+  two-way coin counter in the Midway manual, while the page's Cabinet
+  control sits on it. `$6800` with the defaults reads `0x03`.
 - `$6800–$681F` — wavetable sound writes, the same 32 nibbles as Pac-Man,
   clocked at 3.072 MHz / 32 = 96 kHz. The generator lives in
-  `retroweb/shared/namco/` so the silicon is not forked. Galaga leaves
-  the chip enabled; no separate enable bit was found.
+  `retroweb/shared/namco/` so the silicon is not forked. coinop.org lists
+  `$6800`+`xx00` as the sound PROM write and `xx01` as the sound RAM
+  write. Galaga leaves the chip enabled; no separate enable bit was found.
 - `$6820–$6827` — 74LS259. Bit 0 IRQ1 enable, bit 1 IRQ2 enable, bit 2
   sound-NMI disable (write 1 turns the NMI off; the enable is active-low
   NMION), bit 3 releases sub CPU + sound CPU + 51XX + 54XX. Power-on
   holds that bit at 0, so sub and sound stay in reset until the main
   program writes 1.
-- `$6830` — watchdog reset. 8 vblanks.
+- `$6830` — watchdog reset. 8 vblanks (schematic: 74LS393 at 6A clocked by
+  VBLANK, cleared by WDR, QD resets the board).
 - `$7000–$70FF` / `$7100` — 06XX data and control. Control bits 0–3 are
   chip selects (bit 0 = 51XX, bit 3 = 54XX), bit 4 is read/!write, bits
   7:5 are the clock divider. A non-zero divider arms an NMI to the main
   CPU. Period is `(64 << shift)` Z80 cycles. The device clock is
-  master/6/64. Startup traffic cross-checked against the namco06 header:
-  `10` + `FF`, then `71` (read 3) or `A1` (write 4) or `A8` (write 12),
-  each closed with `10`.
+  master/6/64. The control register layout, the clock divider period and
+  the startup traffic (`10` + `FF`, then `71`, `A1` or `A8`, each closed
+  with `10`) are Unsourced. Searched: the Midway schematic shows the 06XX
+  as a block only, coinop.org says its function is unknown.
 - `$8000–$87FF` — tilemap RAM. Code, then color at `+$400`.
 - `$8800–$8BFF`, `$9000–$93FF`, `$9800–$9BFF` — shared work RAM, 1K banks
   mirrored through the 2K window (`& 0x3FF`). Sprite registers sit at
@@ -100,26 +119,25 @@ side are the hcnt(8)=0 score strips: memory rows 0 and 1 on the native
 right (the bottom of the upright screen) and rows 30 and 31 on the
 native left (the top), walked by the vertical counter. A credit line
 stored across row 1 therefore reads horizontally along the bottom.
-greyrogue `galaga.vhd` `bgtile_addr` is the source; MAME `tilemap_scan`
-is the cross-check. A tile pen is clear when its LUT entry ORed with 0x10
+The scan is the Pac-Man map (Lomont figure 7) with the same two-row
+strips; that Galaga uses the same decode is Unsourced. A tile pen is clear when its LUT entry ORed with 0x10
 is 0x1F. 2bpp nibble packing matches
 the Namco character layout (high nibble plane 0, low nibble plane 1).
 Sprites: 64 × 2 bytes. Each 16×16 picture is four columns at bytes
 0, 8, 16 and 24. Attribute bit
-0 flip H, bit 1 flip V, bit 2 2×H, bit 3 2×V (greyrogue `galaga.vhd`
-`spdata` is the cross-check). X is 10 bits: the position byte plus two
+0 flip H, bit 1 flip V, bit 2 2×H, bit 3 2×V (Unsourced). X is 10 bits: the position byte plus two
 bits in the following register, and register 0 is 40 pixels left of the
 visible origin. Y counts down from its register. A 2× sprite is the next
-three codes. A sprite pen is clear when its LUT entry is 0x0F (MAME
-`transpen_mask(..., 0x0f)`). Later sprites overwrite earlier ones. MAME
-`video/galaga.cpp` `draw_sprites` is the cross-check. See §8 for the
-raster renderer and flip.
+three codes. A sprite pen is clear when its LUT entry is 0x0F, and later sprites
+overwrite earlier ones (both Unsourced). See §8 for the raster renderer and flip.
 
 Stars are the Namco 05XX: a 16-bit Fibonacci LFSR (taps 16/13/11/6)
 that paints a hit into the centre 256 pixels when bits match
 `FA14`/`7800`. Speed is latches 0–2, blink sets are 3–4 (with set B
-forced into {2,3}), enable is latch 5. Hildinger's RE notes (in MAME
-`starfield_05xx.cpp`) are the source. Draw order is stars, then sprites,
+forced into {2,3}), enable is latch 5. The LFSR taps, hit pattern,
+speed offsets and colour ladder are Unsourced: no schematic or
+published analysis of the 05XX turned up (searched the Midway schematic,
+arcade hardware wikis, forum threads). Draw order is stars, then sprites,
 then tiles, so the score strips stay on top. Character colours OR `0x10`
 into the PROM index. Palette resistor weights are the Pac-Man
 82S123-style weights; confirm them against the Midway schematic before
@@ -128,13 +146,16 @@ treating a color as exact.
 ## 5. 51XX and 54XX
 
 51XX is a Fujitsu MB8843, 54XX an MB8844. Both: 10-bit PC (1K ROM), 6-bit
-data (64 nibbles). The core is `retroweb/galaga/mb88.cpp`. Opcode behavior
-is cross-checked against MAME `mb88xx.cpp` (Ernesto Corvi). The ST flag
-is inverted versus a normal Z flag. External IRQ vectors to `$02`, the
-timer to `$04`. The timer prescale of 32 is included (MAME marks it a
-guess and uses it to match PCB recordings). The internal serial clock
-shifts S once per instruction cycle (MAME's `SERIAL_PRESCALE 6`, also
-marked a guess); see §8. Stack is 4×16-bit. `st` resets to 1 so a conditional jump is
+data (64 nibbles). The core is `retroweb/galaga/mb88.cpp`. From the
+Fujitsu datasheet: 70 instructions on the MB8843 (69 on the MB8844), one
+cycle for one-byte instructions and two for EN, DIS, CALL, JPL and JPA,
+an instruction cycle of 6 clocks, four subroutine levels, 1K×8 ROM,
+64×4 RAM, external interrupt before timer before serial, and an internal
+shift clock of 1/6 of the clock generator. The opcode map in `mb88.cpp`
+matches Table 6. Unsourced: the ST flag rules, the interrupt vectors
+(`$02` external, `$04` timer, `$06` serial), the timer prescale of 32,
+three extra cycles to take an interrupt, and the ST value after reset.
+The datasheet in hand has none of them. Stack is 4×16-bit. `st` resets to 1 so a conditional jump is
 taken after reset.
 
 CRC values `c2f57ef8` (51xx) and `ee7357e0` (54xx) are a cross-check only,
@@ -166,8 +187,14 @@ what CI tests.
 
 ## 6. High score
 
-MAME `plugins/hiscore/hiscore.dat`, `galagamw` in the `galaga` group:
-`$8A20` for `0x2D` bytes and `$83ED` for 6 bytes. IndexedDB `hiscores` in
+Table at `$8A20` for `0x2D` bytes and the score strip at `$83ED` for 6
+bytes, re-derived from the main program ROM (a local dump, not the repo):
+the POST routine at `$0310` is `LD DE,$8A20; LD A,5` then five times
+`LD HL,$02B9; LD C,6; LDIR`, followed by a loop that builds five
+3-byte entries from the initials at `$02BF`, 30 + 15 = `0x2D` bytes. The
+routine at `$00D6` does `LD DE,$83ED; LD HL,$02B9; LD BC,5; LDIR`, so the
+score digits start at `$83ED`; the sixth saved byte is the entry's `$24`
+terminator. IndexedDB `hiscores` in
 `retroweb-galaga`, keyed by program CRC. Restore once Midway has written
 the factory `00 00 00 00 02 24` prefix (" 20000") at `$8A20` — irq1 comes
 up ~100 frames earlier while that region still holds POST junk, so a
@@ -175,8 +202,7 @@ frame-count gate alone would mark the table "already restored" and skip
 the IndexedDB poke forever. All-zero still counts as pre-table (not
 ready). A save is not written over the factory prefix. Reset HIGH SCORE
 is the labelled clear and is disabled on the self-test. The factory
-prefix is the published reset table; confirmed against a local
-`galagamw` POST (~frame 863).
+prefix is the six bytes at `$02B9` in the main ROM.
 
 ## 7. Front end
 
@@ -198,7 +224,7 @@ Items GA1-GA5, B1-B3 and X4 from `shared/cpu/Z80_ARCADE_PARITY.md`.
   the next line's sprite and star buffers: 256 RNG clocks per visible
   line, the pre-visible count (with the SCROLL_X offset) as the frame
   starts, and the post count at vblank. Controls are sampled as vblank
-  ends (MAME `screen_vblank_galaga`). `render()` only copies the frame.
+  ends. `render()` only copies the frame.
   `Video.StarfieldAdvancesWithTheBeamNotRender`.
 - **Sprite transparency (GA2).** LUT entry 0x0F, not pen 0.
   `Video.SpritePenIsClearOnlyWhenItsLutEntryIs0F`.
@@ -208,7 +234,7 @@ Items GA1-GA5, B1-B3 and X4 from `shared/cpu/Z80_ARCADE_PARITY.md`.
   set (`code | 0x80`), whose nibbles are stored reversed. The shifter
   outputs each nibble in screen order, so the two together give a full
   mirror. The old code mirrored tile positions only, and didn't mask the
-  code to 7 bits. MAME `get_tile_info`. `Video.FlipUsesSecondCharSetAndInvertedCounters`.
+  code to 7 bits. `Video.FlipUsesSecondCharSetAndInvertedCounters`.
 - **51XX HLE coinage and credits (GA3).** *Fact:* the 51XX counts coins
   against the coinage the game sends with command `01`; zero coins means
   free play; START spends 1 or 2 credits and starts a game. *Why:* the HLE
@@ -230,18 +256,18 @@ Items GA1-GA5, B1-B3 and X4 from `shared/cpu/Z80_ARCADE_PARITY.md`.
 - **MB88 serial clock (GA5).** The real 51XX/54XX program enables serial
   mode (PIO `$64`) and polls SF. With SI unconnected, S shifts in 0 once
   per instruction cycle and SF sets after four. Serial IRQ vectors to
-  `$06`. MAME `mb88xx.cpp` `serial_timer`. MAME's prescale of 6 is its own
-  guess; the datasheet figure is still wanted. `Mb88.InternalSerialClockSetsSfAfterFourShifts`,
+  `$06` (Unsourced). The shift period is the datasheet's 1/6 of the clock
+  generator, one instruction cycle. `Mb88.InternalSerialClockSetsSfAfterFourShifts`,
   `Mb88.SerialInterruptVectorsTo06`.
 - **Held IRQs.** Main and sub vblank IRQs hold /INT until `$6820`/`$6821`
-  D0 is written 0 (MAME `irq1_clear_w`/`irq2_clear_w`); the 06XX and
+  D0 is written 0 (coinop.org: `$6820`/`$6821` clear IRQ1/IRQ2); the 06XX and
   sound NMIs are edges. `Machine.VblankIrqHoldsUntilMaskCleared`.
 - **Timing tests (X4).** `Video.SoundNmiEdgesAtLines64And192`,
   `Machine.Io06NmiPeriodIs64ShiftedByControlBits`,
   `Machine.SubAndSoundCpusRunInLockStepWithMain`.
 - **Watchdog keeps RAM (B1)**, `Machine.WatchdogResetKeepsRam`.
 - **Coin counters (B3).** The 51XX P port drives them, active low: P3 is
-  counter 1, P2 counter 2 (MAME `galaga_state_base::out`). The real 51XX
+  counter 1, P2 counter 2 (Unsourced). The real 51XX
   image clicks them itself. The HLE clicks the chute's counter once per
   coin it accepts. `Io.Real51xxDrivesCoinMetersActiveLowOnP`,
   `Mcu51Hle.CoinMetersClickOncePerCoin`. The genuine image pulses P3 low
@@ -259,26 +285,26 @@ Items GA1-GA5, B1-B3 and X4 from `shared/cpu/Z80_ARCADE_PARITY.md`.
 
 - **MB88 instruction timing.** The board ran one MB88 instruction per
   instruction-cycle slot. EN, DIS, CALL, JPL and JPA take two cycles, and
-  taking an interrupt costs three more (MAME `mb88xx.cpp` `oc++`,
-  `burn_cycles(3)`). `step()` now returns every cycle it burns, and the
+  taking an interrupt costs three more (the two-cycle list is the
+  datasheet's, the three extra cycles are Unsourced). `step()` now returns every cycle it burns, and the
   board waits them out. `Io.McuSpendsTwoSlotsOnTwoCycleInstructions`.
 - **06XX R/W latch.** At real MCU speed the genuine 51XX stalled at
   startup until the watchdog fired. Our K3 read the R/W bit straight from
   the control register, so the stop write ($10) after a command flipped it
-  to "read" while the 51XX was still taking that byte. MAME
-  `namco06.cpp` latches R/W on the 06XX clock's falling edge and leaves it
-  alone when the divider is 0. The clock also restarts on the next 06XX
+  to "read" while the 51XX was still taking that byte. R/W is now latched
+  on the 06XX clock's falling edge and left alone when the divider is 0
+  (Unsourced). The clock also restarts on the next 06XX
   tick (64 T-states), not half a period later.
   `Io.ReadWriteLineLatchesOnTheClockEdge`,
   `Io.Mcu51SeesTheLatchedReadWriteLineOnK3`,
   `Io.ClockRestartsOnTheNext06xxTick`. With both fixes the genuine 51XX
   reaches the same CREDIT 2 / PLAYER 1 screens as the HLE. Only the
   starfield phase differs.
-- **The 54XX isn't readable.** MAME's galaga config gives the 06XX no
-  read callback for it, so the bus reads `$FF`. We echoed its command
-  latch. `Io.Reading54xxGivesTheOpenBus`.
+- **The 54XX isn't readable.** The bus reads `$FF` for it (Unsourced).
+  We echoed its command latch. `Io.Reading54xxGivesTheOpenBus`.
 - **MB88 ISA suite.** `mb88_test.cpp` checks every opcode, the timer, and
-  interrupt entry and return against MAME `mb88xx.cpp`.
+  interrupt entry and return. The opcode map and cycle counts follow the
+  datasheet's Tables 5 and 6; flag results beyond those are Unsourced.
 - Also tested now: the real 54XX's K/R0 command and O/R1 DACs, the HLE
   54XX argument counts and volume, the HLE 51XX credit-mode reply, sprite
   RAM banks 2 and 3, IRQ2 masking, and the `$6823` reset line.

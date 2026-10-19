@@ -5,7 +5,7 @@ const IDB_NAME = "retroweb-galaga";
 const TEST = new URLSearchParams(location.search).has("test");
 const DIP_KEY = "retroweb.galaga.dips";
 const ROM_KEY = "set";
-// MAME hiscore.dat galaga group (galagamw): work RAM then the score strip.
+// Work RAM table, then the score strip.
 const HISCORE = [
   { addr: 0x8A20, len: 0x2D },
   { addr: 0x83ED, len: 6 },
@@ -180,7 +180,7 @@ GalagaArcade().then(async (Module) => {
     if (down("Digit2") || down("Numpad2")) n1 |= 0x08;
     machine.setIn0(n0);
     machine.setIn1(n1);
-    // SWB bit 6 is open, reads 1. galagamw's sub CPU resets at $0ECA when $6806 bit 1 is clear.
+    // DIP 6J switch 7 is open, reads 1. The sub ROM tests $6806 bit 1 at $0ECA.
     const a = (Number(dipCredits.value) & 0x01) |
             (Number(dipDifficulty.value) & 0x06) |
             (Number(dipDemo.value) & 0x08) |

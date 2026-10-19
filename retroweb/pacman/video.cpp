@@ -41,7 +41,7 @@ void Video::advance(int cpu_cycles) {
 }
 
 // ROM packs 4 pixels per byte: high nibble = plane 0 (pixel low bit), low
-// nibble = plane 1 (pixel high bit). Layout from MAME pacman.cpp tilelayout/spritelayout.
+// nibble = plane 1 (pixel high bit) (Lomont, Pac-Man hardware notes v0.1, tile and sprite ROM).
 uint8_t Video::tile_pixel(uint8_t code, int x, int y) const {
     const uint8_t* t = &tile_rom[unsigned(code) * 16];
     uint8_t byte = (x < 4) ? t[y + 8] : t[y];
@@ -69,7 +69,7 @@ uint32_t Video::lookup_rgb(uint8_t attr, uint8_t pix) const {
 }
 
 int Video::vram_offset(int col, int row) const {
-    // 36x28 tilemap, MAME pacman_scan_rows.
+    // 36x28 tilemap scan (Lomont, Pac-Man hardware notes v0.1, figure 7).
     int c = col - 2;
     int r = row + 2;
     if (c & 0x20)
@@ -80,12 +80,12 @@ int Video::vram_offset(int col, int row) const {
 void Video::hblank_setup(int line) {
     sprite_line_.fill(0);
     if (line >= kVisH) return;
-    // Lower slots win, as MAME draws 7..0 last-on-top.
+    // Lower slots win (Lomont: lower numbered sprites overwrite higher).
     for (int i = 0; i < 8; i++) {
         uint8_t b0 = spriteram[unsigned(i * 2)];
         uint8_t color = uint8_t(spriteram[unsigned(i * 2 + 1)] & 0x1F);
         int sx = 272 - int(sprite_xy[unsigned(i * 2 + 1)]);
-        // Slots 0-2 land a line later, like the Galaxian line buffer (MAME m_xoffsethack).
+        // Slots 0-2 land a line later.
         int sy = int(sprite_xy[unsigned(i * 2)]) - 31 + (i < 3 ? 1 : 0);
         int row = line - sy;
         if (row < 0 || row >= 16) continue;
@@ -96,10 +96,10 @@ void Video::hblank_setup(int line) {
             int base = sx - wrap * 256;
             for (int px = 0; px < 16; px++) {
                 int x = base + (fx ? 15 - px : px);
-                // Sprites never reach the two score columns at each end (MAME spriteclip).
+                // Sprites never reach the two score columns at each end (Lomont).
                 if (x < 16 || x > 271 || sprite_line_[unsigned(x)]) continue;
                 uint8_t pix = sprite_pixel(code, px, fy ? 15 - row : row);
-                // A pen is clear when its lookup entry selects colour 0 (MAME transpen_mask).
+                // A pen is clear when its lookup entry selects colour 0 (Lomont: colour 0 is transparent).
                 if ((lookup_prom[unsigned((color << 2) | pix)] & 0x0F) == 0) continue;
                 sprite_line_[unsigned(x)] = lookup_rgb(color, pix) | (1u << 24);
             }
@@ -125,7 +125,7 @@ void Video::paint(int line, int x0, int x1) {
 }
 
 void Video::render(uint32_t* out) const {
-    // MAME ROT90 = FLIP_X | SWAP_XY: dst(x = (H-1) - native_y, y = native_x).
+    // Monitor is rotated 90 degrees: dst(x = (H-1) - native_y, y = native_x).
     for (int ny = 0; ny < kVisH; ny++) {
         for (int nx = 0; nx < kVisW; nx++) {
             out[nx * kUprightW + (kVisH - 1) - ny] = frame_[unsigned(ny * kVisW + nx)];

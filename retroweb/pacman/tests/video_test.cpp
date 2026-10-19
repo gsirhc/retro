@@ -58,8 +58,8 @@ TEST(Video, LookupRgbUsesPromDac) {
     EXPECT_EQ(rgb & 0xFF, 0);
 }
 
-// ROT90 = FLIP_X | SWAP_XY (MAME gamedrv.h): native (16,0) lands at upright (223,16).
-TEST(Video, Rot90MatchesMameFlipXSwapXy) {
+// Monitor rotated 90 degrees: native (16,0) lands at upright (223,16).
+TEST(Video, Rot90FlipsXAndSwapsXy) {
     pacman::Video v;
     v.reset();
     v.color_prom[31] = 0xFF;   // bright, distinguishable from black
@@ -76,9 +76,9 @@ TEST(Video, Rot90MatchesMameFlipXSwapXy) {
     EXPECT_EQ(out[271 * pacman::kUprightW + 0], 0u) << "mirrored-the-other-way location must stay dark";
 }
 
-// MAME draw_sprites feeds ram2[i] into sy (ram2[i] - 31) and ram2[i+1] into
-// sx (272 - ram2[i+1]).
-TEST(Video, SpritePositionMatchesMameRegisterRoles) {
+// Even position byte gives native y (byte - 31), odd gives native x (272 - byte);
+// the visible limits (31,16) to (239,256) are in Lomont's Pac-Man hardware notes v0.1, figure 10.
+TEST(Video, SpritePositionRegisterRoles) {
     pacman::Video v;
     v.reset();
     v.color_prom[31] = 0xFF;
@@ -211,7 +211,7 @@ TEST(Video, MidFrameFlipTakesEffectAtTheBeam) {
     EXPECT_EQ(out[unsigned(32 * pacman::kUprightW + (pacman::kVisH - 1 - 200))], 0u);
 }
 
-// Bit 0 of the sprite's first RAM byte is X flip, bit 1 is Y flip (MAME pacman_v.cpp).
+// Bit 0 of the sprite's first RAM byte is X flip, bit 1 is Y flip (Lomont, Pac-Man hardware notes v0.1, table 6).
 TEST(Video, SpriteFlipBitsAreXBit0YBit1) {
     pacman::Video v;
     v.reset();
@@ -242,7 +242,7 @@ TEST(Video, SpriteFlipBitsAreXBit0YBit1) {
         << "bit 1 alone must not X-flip the sprite";
 }
 
-// MAME transpen_mask: any pen whose lookup entry is colour 0 is transparent. The ROM
+// Any pen whose lookup entry is colour 0 is transparent. The ROM
 // hides Pac-Man during the ghost-eaten pause with an all-black color, and an
 // opaque silhouette would blot out the score sprite beneath.
 TEST(Video, SpriteWithAllPensMatchingPenZeroDoesNotOccludeSpriteBehindIt) {

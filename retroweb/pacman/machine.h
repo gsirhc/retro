@@ -17,14 +17,14 @@
 namespace pacman {
 
 constexpr int kCpuHz = 3072000;
-// Vblanks without a $50C0 kick before /RESET (MAME pacman set_vblank_count(16)).
+// Vblanks without a $50C0 kick before /RESET (74LS161 at 9C counts vblanks, carry resets).
 constexpr int kWatchdogFrames = 16;
 
 struct Inputs {
     // Active-low bits as the cabinet presents them (1 = released).
     uint8_t in0 = 0xFF;
     uint8_t in1 = 0xFF;
-    // DSW1 at $5080, factory 0xC9 (service manual, MAME pacman):
+    // DSW1 at $5080, factory 0xC9 (Lomont, Pac-Man hardware notes v0.1, table 10):
     //   1:0 coinage  01=1C/1C  11=2C/1C  10=1C/2C  00=free
     //   3:2 lives    00=1  01=2  10=3  11=5
     //   5:4 bonus    00=10k  01=15k  10=20k  11=none

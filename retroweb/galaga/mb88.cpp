@@ -86,7 +86,7 @@ void Mb88::out_o(uint8_t index) {
 
 void Mb88::burn(int cycles) {
     cycles_ += cycles;
-    // Internal serial clock: one shift of S per instruction cycle, SI into bit 3 (MAME mb88xx, SERIAL_PRESCALE 6 "guess").
+    // Internal serial clock: one shift of S per instruction cycle, SI into bit 3 (MB8840 datasheet p.1-11: internal shift clock is 1/6 of the clock generator).
     if ((pio & 0x30) == 0x20) {
         for (int i = 0; i < cycles && !sf; i++) {
             sb = uint8_t((sb >> 1) | ((read_si && read_si()) ? 8 : 0));

@@ -13,9 +13,9 @@ using namespace galaga;
 
 TEST(Map, DipBitsAndSharedRam) {
     Machine m;
-    // Factory: DSWB bit0 = 1, DSWA bit0 = 1 → $6800 reads 0b11.
+    // Factory: switch 1 open on both DIP 6K (d0) and 6J (d1) → $6800 reads 0b11.
     EXPECT_EQ(m.mem_read(0x6800), 0x03);
-    // Unused SWB bit 6 reads 1. The sub CPU resets if this bit is clear.
+    // 6J switch 7 (not used) reads 1 when open. The sub CPU resets if this bit is clear.
     EXPECT_EQ(m.mem_read(0x6806), 0x02);
     m.inputs.dsw_b = 0x00;
     m.inputs.dsw_a = 0x80;
@@ -249,7 +249,7 @@ TEST(Io, HleExplosionPlaysThroughTheDacNetworkAndDecays) {
     m.run_cycles(kCpuHz / 10);
     float peak = 0;
     for (float s : m.audio) peak = std::max(peak, std::fabs(s));
-    EXPECT_NEAR(peak, 0.18f, 0.05f) << "MAME's absolute scale";
+    EXPECT_NEAR(peak, 0.18f, 0.05f) << "54XX explosion level";
     m.run_cycles(kCpuHz / 2);
     EXPECT_EQ(m.dac54(0), 0);
     m.audio.clear();

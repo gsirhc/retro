@@ -169,7 +169,7 @@ std::optional<pacman::RomSet> load_zip(const fs::path& zip) {
     std::error_code ec;
     fs::create_directories(tmp.p, ec);
     if (ec) return std::nullopt;
-    // MAME zips are deflate, python3 avoids a zlib dependency.
+    // Dump zips are deflate, python3 avoids a zlib dependency.
     const std::string cmd = "python3 -c 'import zipfile,sys; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])' " +
                             sh_quote(zip.string()) + " " + sh_quote(tmp.p.string());
     if (std::system(cmd.c_str()) != 0) return std::nullopt;
@@ -228,7 +228,7 @@ bool score_nonzero(pacman::Machine& m) {
 
 }  // namespace
 
-// Optional, skips without a dump. Drop a MAME pacman/puckman zip in roms/user/
+// Optional, skips without a dump. Drop a pacman/puckman zip in roms/user/
 // or set PACMAN_ROM.
 TEST(Machine, UserRomInsertsCoinStartsAndEatsAPellet) {
     std::optional<pacman::RomSet> set;
@@ -240,7 +240,7 @@ TEST(Machine, UserRomInsertsCoinStartsAndEatsAPellet) {
     } else {
         set = load_path(default_user_dir(), /*want_aux=*/false);
         if (!set) {
-            GTEST_SKIP() << "no user ROM set — unzip a MAME pacman/puckman set into "
+            GTEST_SKIP() << "no user ROM set — unzip a pacman/puckman set into "
                             "roms/user/ or set PACMAN_ROM to a zip/directory "
                             "(CI skips this on purpose; see PACMAN_REVIEW.md §8)";
         }
@@ -309,7 +309,7 @@ TEST(Machine, UserRomInsertsCoinStartsAndEatsAPellet) {
     EXPECT_TRUE(score_nonzero(m)) << "P1 score at $4E80 stayed 0 — no pellet eaten";
 }
 
-// Same playthrough against a MAME mspacman zip. Needs the aux board chips.
+// Same playthrough against a mspacman zip. Needs the aux board chips.
 TEST(Machine, UserMsPacmanRomInsertsCoinStartsAndEatsAPellet) {
     std::optional<pacman::RomSet> set;
     if (const char* env = std::getenv("MSPACMAN_ROM"); env && *env) {
@@ -320,7 +320,7 @@ TEST(Machine, UserMsPacmanRomInsertsCoinStartsAndEatsAPellet) {
     } else {
         set = load_path(default_user_dir(), /*want_aux=*/true);
         if (!set || !set->aux_board) {
-            GTEST_SKIP() << "no Ms. Pac-Man aux ROMs — unzip a MAME mspacman set into "
+            GTEST_SKIP() << "no Ms. Pac-Man aux ROMs — unzip a mspacman set into "
                             "roms/user/ or set MSPACMAN_ROM (CI skips this on purpose)";
         }
     }

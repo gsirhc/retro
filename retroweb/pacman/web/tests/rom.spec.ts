@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 import { readFileSync } from "fs";
 import { HWTEST_FILES } from "./cabinet";
 
-// Members map by MAME/board names and must be original chip size. CRC32 only
+// Members map by standard dump names and must be original chip size. CRC32 only
 // labels the self-test ROM vs a user dump.
 
 function buf(path: string, name: string, patch?: (b: Buffer) => Buffer) {

@@ -15,8 +15,7 @@ void Wsg::write(int offset, uint8_t nibble) {
     regs[unsigned(offset) & 31] = uint8_t(nibble & 0x0F);
 }
 
-// Register map (MAME namco.cpp pacman_sound_w; Midway pacman writes to
-// $5045/$504a/$504f and the $4e8c->$5050 LDIR):
+// Register map (Lomont, Pac-Man hardware notes v0.1, table 7):
 //   0x05/0x0a/0x0f:   ch0/1/2 waveform select
 //   0x10:             ch0 low frequency nibble only; voices 1 and 2 have no
 //                     wire there, so their bottom nibble is hardwired 0
@@ -46,7 +45,7 @@ float Wsg::mix_counters() const {
         // Top 5 of the 20-bit accumulator index the 32-sample wave.
         uint8_t phase = uint8_t((counter_[v] >> (20 - 5)) & 31);
         uint8_t idx = uint8_t((voice_wave(v) << 5) | phase);
-        // PROM samples are unsigned 4-bit biased by 8 (MAME waveform_r)
+        // PROM samples are unsigned 4-bit; centred on 8
         int s = int(wave_prom[idx] & 0x0F) - 8;
         acc += float(s) * float(vol);
     }

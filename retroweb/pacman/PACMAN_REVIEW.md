@@ -58,9 +58,11 @@ latch is set (any access to `$3FF8–$3FFF`), `$3000–$3FFF` and
 the original Pac-Man map. The latch powers on clear; Pac-Man's IM 2
 vector table sits in `$3FF8–$3FFF`, so the first vblank IRQ both enables
 Ms. Pac-Man and reads U7's vector. Z80 RESET (watchdog) does not clear
-the PAL. Bit-flip orders and the forty patch addresses are a cross-check
-of MAME `init_mspacman` / `mspacman_install_patches`, not a behavior
-source. Covered by `Machine.Aux*` / `Machine.Im2VectorFetchEnablesAuxDecode`
+the PAL. The patent describes the scheme (PROM-mapped address and data
+swaps, trap detection on address values) but gives no line orders, so the
+bit orders and the forty patch addresses are Unsourced. They are checked
+only against the real dump: the decoded U5/U6/U7 contents run as the
+Ms. Pac-Man program in `play_test`. Covered by `Machine.Aux*` / `Machine.Im2VectorFetchEnablesAuxDecode`
 and `web/tests/mspacman.spec.ts`.
 
 ## 2. Clocks (never sped up on the live page)
@@ -75,18 +77,15 @@ and `web/tests/mspacman.spec.ts`.
   cabinet's monitor is physically rotated, so the emulator renders
   **224×288** and that's the canvas size `web/index.html` ships (no software
   "rotation setting" — a real Pac-Man cabinet has no such option either).
-  Every `pacman.cpp` driver in MAME tags the game `ROT90`, defined as
-  `FLIP_X | SWAP_XY` (`src/emu/gamedrv.h`): swap the axes, then mirror the
-  result's X — i.e. `upright((kVisH-1) - y, x) = native(x, y)`, not the
-  "plain" 90°-CCW transpose `Video::render` shipped with initially (which
-  came out visibly upside-down against a real ROM set — the two differ by
-  a further 180°, not just handedness).
+  The tube is rotated 90 degrees: swap the axes, then mirror the
+  result's X, i.e. `upright((kVisH-1) - y, x) = native(x, y)`. A plain
+  transpose comes out upside-down against a real ROM set.
 - **Vblank IRQ is a held line**, gated by bit 0 of `$5000` (`machine.cpp`'s
   `irq_enable`). Vblank starts at raster line 224 of 264
   (`kVBlankLine = kVisH = 224`). The beam is advanced by the Z80's own
   `Bus::tick`, so the edge lands at the exact T-state; `run_cycles` then
   asserts `/INT` with `Cpu::set_int(true)`, and only a `$5000` write of 0
-  drops it (MAME `vblank_irq` / `irq_mask_w`). A request raised while the
+  drops it (Namco Pac-Man wiki, Memory Mapped I/O: a low write clears /IRQ). A request raised while the
   CPU has interrupts off waits instead of being lost, and an ISR that
   never clears `$5000` re-enters after every `RETI`, as on the board. See §10.
 - No visitor-facing turbo, per `CLAUDE.md`. `?test=1` only adds the `__test`
@@ -127,16 +126,15 @@ RAM survives that pulse (`Machine.WatchdogResetKeepsRam`).
 
 ## 4. Memory map (Midway Pac-Man service manual / schematics)
 
-Cross-checked against MAME's `mame/drivers/pacman.cpp` decode only to catch
-transcription mistakes — same rule as SIMH vs. real 88-DCDD in `CLAUDE.md`:
-MAME's implementation choices aren't themselves a behavior source.
+Sources: Lomont, *Pac-Man Emulation Guide* v0.1 (October 2008), table 1,
+and the Namco Pac-Man wiki at obscure.nesdev.org (Memory Map, Memory Mapped I/O).
 
 | Range | Contents |
 |---|---|
 | `$0000–$3FFF` | Program ROM (16K) |
 | `$4000–$43FF` | Video RAM (tile codes, 32×28 visible via `vram_offset`'s row/col decode) |
 | `$4400–$47FF` | Color RAM (per-tile palette attribute) |
-| `$4800–$4BFF` | Nothing. No RAM is fitted; reads see the floating bus (`$BF`) |
+| `$4800–$4BFF` | Nothing. No RAM is fitted (wiki: unused); reads return `$BF`, value Unsourced |
 | `$4C00–$4FEF` | Work RAM (1K with the sprite RAM) |
 | `$4FF0–$4FFF` | Sprite RAM (8 sprites × 2 bytes: code/flip/attr, color) |
 | `$5000` | Interrupt enable (bit 0) |
@@ -148,9 +146,10 @@ MAME's implementation choices aren't themselves a behavior source.
 | `$5000/$5040/$5080/$50C0` (A6-A7) | IN0 / IN1 / DSW1 / DSW2 reads |
 | `$50C0–$50FF` (write) | Watchdog reset kick |
 
-A13 isn't decoded above `$4000`, so `$6000–$7FFF` mirror `$4000–$5FFF`.
-The I/O page ignores A8-A11, and the 74LS259 latch at `$5000–$5007`
-repeats every 8 bytes up to `$503F`.
+A13 isn't decoded above `$4000`, so `$6000–$7FFF` mirror `$4000–$5FFF`
+(wiki Memory Map). The I/O page repeats every `$100` (wiki: `$5100–$5FFF`
+mirror `$5000–$50FF`), and the 74LS259 latch at `$5000–$5007` repeats every
+8 bytes up to `$503F` (wiki Memory Mapped I/O).
 
 `machine.cpp`'s `mem_read`/`mem_write` implement exactly this decode. The
 stock PCB leaves Z80 A15 unconnected, so `$8000–$FFFF` mirror
@@ -164,9 +163,9 @@ score/maze area — the remaining 4 columns are the off-screen "wraparound"
 columns used by the tilemap's own row/col scan) plus 8 hardware sprites,
 16×16, 2bpp, per the real Namco sprite generator. Both ROMs pack 4 pixels
 per byte (not 8 rows of 1bpp per bit-plane): a byte's high nibble is one bit
-plane, low nibble the other, one byte per 4-pixel-wide column slice, ported
-from MAME's `tilelayout`/`spritelayout` `gfx_layout` structs
-(`src/mame/pacman/pacman.cpp`, `pengo.cpp`) — `Video::tile_pixel`/
+plane, low nibble the other, one byte per 4-pixel-wide column slice, per
+Lomont (Tile ROM and Sprite ROM sections, table 4 and the sprite pixel
+ordering grid) — `Video::tile_pixel`/
 `sprite_pixel`'s comments spell out the byte/nibble addressing. Verified
 against the real `pacman.5e`/`.5f` ROMs by decoding the "NAMCO" credit tiles
 and the Pac-Man/ghost sprites into recognizable glyphs; the naive row-major
@@ -189,24 +188,23 @@ pixel→RGB table) is genuine Midway hardware, not an emulator simplification.
 `vram_offset`'s row/col-swizzle (`col -= 2; row += 2`, then bit-0x20-gated
 either `row + ((col&0x1F)<<5)` or `col + (row<<5)`) reproduces the real
 board's non-linear VRAM address decode — the tilemap isn't stored in raster
-(row-major) order in VRAM; MAME's `pacman_state::pacman_scan_rows` (a
-cross-check, not the source) reflects the same schematic-derived decode.
+(row-major) order in VRAM; Lomont's figure 7 gives the offset of every
+cell and `vram_offset` reproduces it.
 
 Sprite coordinate transform (`sy = ram2[i] - 31; sx = 272 - ram2[i+1]`)
-matches Midway's sprite shifter, cross-checked against MAME's
-`draw_sprites`. Flip screen does not touch it: the game writes flipped
+reproduces Lomont's visible limits: the lowest fully visible position is
+(31,16) and the highest (239,256), figure 10. Flip screen does not touch it: the game writes flipped
 coordinates itself in cocktail mode (see §10). This was a genuine bring-up bug
 (get it wrong and Pac-Man/ghosts still render, just bunched at the wrong
 position, e.g. at the ghost house instead of each character's own start
-spot) -- `Video.SpritePositionMatchesMameRegisterRoles` is the regression
+spot) -- `Video.SpritePositionRegisterRoles` is the regression
 test, verified against real gameplay (level-start layout) via a native
 trace harness before landing.
 
 Flip bits: bit 0 of the sprite's first RAM byte is X flip, bit 1 is Y
-flip -- MAME's own `fx = spriteram[offs] & 1` / `fy = spriteram[offs] & 2`
-local-variable names (`src/mame/pacman/pacman_v.cpp`), taken literally.
-Both bits apply in *native* (pre-rotation, landscape) space, before the
-ROT90 (`FLIP_X | SWAP_XY`) transform swaps the axes for the upright
+flip (Lomont, table 6 lists the two flip bits together with the 6-bit
+sprite number above them). Both bits apply in *native* (pre-rotation,
+landscape) space, before the 90 degree rotation swaps the axes for the upright
 cabinet: native Y-flip ends up moving a sprite along the upright screen's
 *horizontal* axis (`render`'s `dx` depends on native y) and native X-flip
 along its *vertical* axis (`dy = native x`). This axis swap is what made
@@ -217,7 +215,7 @@ vertical case (up/down walking) with the mouth opening backwards -- and
 independently guessing a fix for *that* by flipping one bit's polarity in
 isolation fixed Pac-Man but flipped every ghost upside down (ghosts always
 leave both bits 0, so any wrong-axis fix that isn't a no-op at bit=0 will
-visibly break them). The bug only fully resolves by using MAME's literal
+visibly break them). The bug only fully resolves by using the
 bit-to-axis pairing unchanged and letting the existing rotation transform
 account for the axis swap, rather than re-deriving new bit semantics by
 eye per axis. `Video.SpriteFlipBitsAreXBit0YBit1` and
@@ -226,11 +224,9 @@ eye per axis. `Video.SpriteFlipBitsAreXBit0YBit1` and
 against real gameplay (walking in all four joystick directions, ghosts
 staying dome-up) via a native trace harness before landing.
 
-Sprite transparency isn't "pen index 0 is transparent" -- MAME's
-`draw_sprites` resolves it per color group via
-`device_palette_interface::transpen_mask(gfx, color, 0)`, which treats
-*any* pen whose lookup-PROM entry selects colour 0 as transparent, not
-just literal pen 0. The ROM depends on this: it
+Sprite transparency isn't "pen index 0 is transparent". Lomont says colour 0
+in sprite images is transparent, and that colour is the lookup-PROM output, so
+*any* pen whose lookup entry selects colour 0 is clear, not just literal pen 0. The ROM depends on this: it
 hides Pac-Man during the "you ate a ghost" freeze not by changing his
 sprite code or moving him off-screen, but by pointing him at a color group
 whose whole four-pen row resolves to black (confirmed by reading the real
@@ -250,9 +246,8 @@ is the regression test.
 
 Three voices, each a 20-bit phase accumulator driving a 32-sample lookup
 into one of 8 waveforms in a 256-byte wave PROM (`82s126.1m`; the second
-PROM MAME's own `pacman.cpp` ships in the same "namco" ROM region,
-`82s126.3m`, is commented `// Timing - not used` in that driver's
-`ROM_START(pacman)` and is correctly not loaded here either), 4-bit volume
+sound-region PROM, `82s126.3m`, is not loaded here. Lomont lists both as sound ROMs,
+and the 96 kHz clock and 8 selectable waves only use the first 256 nibbles), 4-bit volume
 per voice. Sample clock 3.072 MHz / 32 = 96 kHz (`Wsg::advance`'s
 `wsg_hz`), resampled to the host's `AudioContext` rate with a zero-order
 hold — a simple but audible-artifact-free choice documented inline; a
@@ -265,11 +260,9 @@ guess, but it's wrong, and it's wrong in a way that doesn't fail loudly:
 every individual register write still lands somewhere in the 32-byte
 array, so nothing crashes or reads out of bounds, it just corrupts a
 different voice's field than the one the game meant to set. The real
-board's layout (MAME `src/devices/sound/namco.cpp`,
-`namco_wsg_device::pacman_sound_w`'s own "pacman register map" comment;
-independently confirmed by the Midway pacman disassembly's waveform
-writes to `$5045`/`$504a`/`$504f` and its 16-byte `$4e8c`->`$5050` `LDIR`
-of packed frequency+volume data) is:
+board's layout (Lomont, table 7; the Namco Pac-Man wiki, Memory Mapped I/O,
+agrees: waveform selects at `$5045`/`$504a`/`$504f`, pitch and volume at
+`$5050-$505F`) is:
 
 | Offset | Field |
 |---|---|
@@ -297,8 +290,8 @@ FFT) confirmed the fix produces long, stable single-frequency stretches —
 consistent with the siren/waka-waka tones — rather than the broadband,
 frame-to-frame-incoherent spectrum a wrong overlapping map produces.
 
-The WSG PROM sample nibble is decoded as an unsigned 4-bit value biased by
-8 (`(nibble & 0xf) - 8`, per MAME's `waveform_r`), not a symmetric
+The WSG PROM sample nibble is decoded as an unsigned 4-bit value centred on 8
+(`(nibble & 0xf) - 8`; the centring is Unsourced), not a symmetric
 ±7.5 scale, and the three voices are then summed and normalized like a
 resistor-mixed output, not individually clamped per voice.
 
@@ -316,8 +309,7 @@ counts its own pulses (`Machine::coin_counter`, §10).
 
 Factory-typical DIP defaults (1 coin / 1 credit, 3 lives, 10000-point
 bonus, normal difficulty, normal ghost names — `Inputs::dsw1 = 0xC9`)
-match the Midway service manual, cross-checked against MAME
-`INPUT_PORTS_START(pacman)` only for transcription. DSW1 is `$5080`:
+match Lomont's table 10 (service manual not in hand). DSW1 is `$5080`:
 
 | Bits | Function | `0xC9` factory |
 |---|---|---|
@@ -352,7 +344,7 @@ reload that keeps DSW1 + those two IN bits.
 ## 8. Test ROM vs. copyrighted ROMs
 
 Ships a from-scratch hardware self-test ROM (`roms/hwtest/gen_hwtest.py`) —
-a small Python assembler, not a Pac-Man disassembly or MAME clone ROM. On
+a small Python assembler, not a Pac-Man disassembly. On
 a cold boot (and after "Remove ROMs") it runs two short cabinet-style
 test patterns — a crosshatch, then color bars, about 1.5 s each — then
 holds a help screen in an original 8×8 arcade font (the glyphs are
@@ -377,7 +369,7 @@ single byte of Namco's code or graphics. The in-page copy
 
 A real Midway `pacman` or `mspacman` ROM set is opt-in and client-side
 only: `web/app.js` accepts a `.zip` or loose chips, maps members by the
-usual MAME/board names (`pacman.6e`, `puckman.6e`, `u5`, `82s123.7f`, …
+standard dump file names (`pacman.6e`, `puckman.6e`, `u5`, `82s123.7f`, …
 — the socket ids on the real PCB / aux board), and accepts any dump
 whose sizes match the original chips (16K program or four 4K banks, 4K
 tiles, 4K sprites, 32-byte color PROM, 256-byte lookup, 256-byte wave;
@@ -396,7 +388,7 @@ opens `#romErrorHint` (a shared `.site-dialog` in `web/index.html` /
 
 Two native GoogleTests in `tests/play_test.cpp` are the suite that
 actually plays the games. CI has no Namco dump, so both `GTEST_SKIP`.
-Locally, drop a MAME zip (or the loose chips) in `roms/user/`
+Locally, drop a dump zip (or the loose chips) in `roms/user/`
 (gitignored) — `pacman`/`puckman` for Pac-Man, `mspacman` (6e–6j plus
 aux U5/U6/U7) for Ms. Pac-Man — or point `PACMAN_ROM` / `MSPACMAN_ROM`
 at that zip or directory, then `make check`. After 8 s of POST/attract
@@ -427,9 +419,8 @@ a credit into Namco's program.
   for the cabinet's operator bank; the bit values themselves match the
   real ports. Cocktail-cabinet player-2 joystick (IN1 bits 0–3) is not
   mapped. Covered by `dip.spec.ts` and the two `Machine.Dsw1*` tests.
-- **Lockout coil.** MAME leaves Pac-Man's `$5006` lockout output
-  unconnected (commented out in `pacman.cpp`), so it isn't modeled here
-  either. The `$5007` coin counter is.
+- **Lockout coil.** The Namco Pac-Man wiki lists `$5006` as connected to
+  nothing, so it isn't modeled here either. The `$5007` coin counter is.
 - **VRAM wait states (parity P6).** Unverified either way. If the
   Midway sync-bus logic holds /WAIT on CPU access to video RAM during
   active display, the game runs slightly fast here. `Bus::wait` is ready
@@ -464,31 +455,29 @@ Items P1-P5, B1-B3 and X5 from `shared/cpu/Z80_ARCADE_PARITY.md`.
   `$5000` is written 0. *Why:* the old one-shot `interrupt()` dropped a
   request that arrived with interrupts off. *What:* `set_int` on the edge,
   cleared by `$5000 = 0`. The self-test ROM's ISR now clears and re-arms
-  `$5000`, as the real ROM's does. *Source:* MAME `vblank_irq`/`irq_mask_w`.
+  `$5000`, as the real ROM's does. *Source:* Namco Pac-Man wiki, Memory Mapped I/O.
   `Machine.VblankIrqIsHeldUntil5000IsCleared`,
   `Machine.VblankIrqFiresOncePerFrameWhenAcknowledged`,
   `Machine.VblankIrqWaitsOutADisabledCpu`.
 - **Sprite clip (P2).** Sprites draw only in native x 16-271, never over
-  the two score columns. MAME `spriteclip(2*8, 34*8-1, ...)`.
+  the two score columns (Lomont: no sprite on the top or bottom two rows).
   `Video.SpritesClipToTheMazeColumns`.
-- **Slots 0-2 one line later (P3).** MAME applies `m_xoffsethack = 1` to
-  sprites 0-2 and calls it a placement fix. It is the same effect as the
-  Galaxian line buffer, where the first three sprites are set up on the
-  other side of the V increment. Ported, cross-checked only, not
-  schematic-verified. `Video.SlotsZeroToTwoSitOneLineLater`.
+- **Slots 0-2 one line later (P3).** Sprites 0-2 draw one line below
+  the others. Unsourced: no primary source found (searched the Namco
+  Pac-Man wiki Video page, Lomont). Behaviour kept.
+  `Video.SlotsZeroToTwoSitOneLineLater`.
 - **Wraparound (P4).** Each sprite also draws at `sx - 256`.
   `Video.SpritesWrapAt256`.
-- **Watchdog 16 (P5).** MAME `set_vblank_count(16)`.
+- **Watchdog 16 (P5).** 74LS161 at 9C counts vblanks, carry resets (Lomont, Watchdog Timer).
 - **Raster rendering (B2).** `Video::advance` paints each span as the
   beam crosses it and loads a sprite line buffer in HBLANK, so a mid-frame
   write lands where the beam is. Lower slots win the buffer.
   `Video.MidFrameFlipTakesEffectAtTheBeam`, `Video.LowerSlotWinsTheLineBuffer`.
 - **Cocktail flip.** Found on the way. `$5003` flips the tilemap in X and
-  Y and leaves sprites alone; the renderer used to borrow birdiy's
-  inverted sprite registers (`m_inv_spr`) and never flipped tiles. MAME
-  `flipscreen_w`, `draw_sprites`. `Video.FlipScreenFlipsOnlyTheTilemap`.
-- **Transparency by lookup index.** `transpen_mask(..., 0)` compares the
-  lookup entry, not the RGB. Same visible result on the real PROMs.
+  Y and leaves sprites alone; the renderer used to flip sprites and never flipped tiles. Lomont,
+  Flip Screen. `Video.FlipScreenFlipsOnlyTheTilemap`.
+- **Transparency by lookup index.** Compares the lookup entry, not the
+  RGB. Same visible result on the real PROMs.
 - **Watchdog keeps RAM (B1).** A watchdog trip pulses /RESET; work RAM,
   VRAM and sprite RAM keep their contents. `Machine.WatchdogResetKeepsRam`.
 - **Coin counter (B3).** `$5007` D0 rising edges count
@@ -497,25 +486,25 @@ Items P1-P5, B1-B3 and X5 from `shared/cpu/Z80_ARCADE_PARITY.md`.
 Real `pacman` and `mspacman` sets still boot, take a coin and eat a
 pellet (`play_test`), checked against frames dumped from the real ROMs.
 
-## 11. Memory map against MAME (2026-10-09)
+## 11. Memory map gaps (2026-10-09)
 
 Found while closing the coverage gaps. `make -C retroweb/pacman coverage`
 reports the board code.
 
-- **No RAM at `$4800–$4BFF`.** The board has 1K of work RAM at `$4C00`.
-  We mapped 2K from `$4800`. Reads there now return `$BF` and writes go
-  nowhere. MAME `pacman_read_nop` returns `$BF` and notes that Ms.
-  Pac-Man reads that empty range, which sometimes inverts the maze. MAME
-  calls the exact value inconclusive, so `$BF` is MAME's measurement,
-  not a schematic fact. `Machine.NoRamAt4800TheFloatingBusReadsBF`.
-- **Mirrors.** MAME `pacman_map` and `mspacman_map`: `mirror(0xa000)` on
-  the RAM blocks, `mirror(0xaf00)` on the I/O page, `mirror(0xaf38)` on
-  the latch, and `mirror(0xaf3f)` on the ports and the watchdog. We had
-  only the A15 mirror. `Machine.A13AndA15MirrorTheRamBlocks`,
+- **No RAM at `$4800–$4BFF`.** The board has 1K of work RAM at `$4C00`
+  (Namco Pac-Man wiki, Memory Map: `$4800-$4BFF` unused; Lomont's table 1
+  shows RAM from `$4800`, the two disagree and the wiki matches the 1K
+  chip count). We mapped 2K from `$4800`. Reads there now return `$BF`
+  and writes go nowhere. The `$BF` value is Unsourced.
+  `Machine.NoRamAt4800TheFloatingBusReadsBF`.
+- **Mirrors.** Wiki Memory Map and Memory Mapped I/O: `$6000-$7FFF` mirror
+  `$4000-$5FFF`, the I/O page repeats every `$100`, the latch every 8
+  bytes, and the ports and watchdog every 64. We had only the A15 mirror.
+  `Machine.A13AndA15MirrorTheRamBlocks`,
   `Machine.IoPageIgnoresA8ToA11`, `Machine.WatchdogKicksAnywhereIn50C0To50FF`.
-- **Latch bits 2, 4, 5 and 6 do nothing.** MAME leaves them unconnected.
-  Its comment notes that the code writes LEDs and a lockout that no Pac-Man
-  or Puckman board has. `Machine.LatchBitsWithNoHardwareDoNothing`.
+- **Latch bits 2, 4, 5 and 6 do nothing.** The wiki lists them as connected
+  to nothing. Lomont calls `$5004-$5006` lamps and a lockout that Pac-Man
+  does not use. `Machine.LatchBitsWithNoHardwareDoNothing`.
 - **WSG through the bus.** `$5001` and `$5040–$505F` had no test.
   `Machine.SoundChipSitsAt5040AndIsEnabledBy5001`. The WSG tests now drive
   the real `advance()` path, and the test-only `mix_at` mixer is gone.
