@@ -200,6 +200,16 @@ retroweb/lunarrescue/web/roms/
 retroweb/lunarrescue/roms/user/
 retroweb/lunarrescue/web/shared/
 retroweb/lunarrescue/web/tests/shared/
+retroweb/battlezone/tests/build/
+retroweb/battlezone/tests/build-cov/
+retroweb/battlezone/tests/coverage-cpp/
+retroweb/battlezone/web/battlezone.js
+retroweb/battlezone/web/battlezone.wasm
+retroweb/battlezone/web/hwtest_roms.h
+retroweb/battlezone/web/roms/
+retroweb/battlezone/roms/user/
+retroweb/battlezone/web/shared/
+retroweb/battlezone/web/tests/shared/
 
 retroweb/shared/cpu/tests/build/
 retroweb/shared/cpu/zex/zexdoc.com

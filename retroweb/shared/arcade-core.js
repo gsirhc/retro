@@ -139,16 +139,27 @@ function arcadeAudio(machine, muteBtn, processorName) {
         super();
         this.q = [];
         this.i = 0;
+        this.n = 0;
+        // Backlog cap in samples, not chunks: a 120 Hz display posts half-size chunks.
+        this.max = Math.round(sampleRate * 0.05);
         this.port.onmessage = e => {
-          // Drop backlog so a main-thread stall cannot leave the sound behind the picture.
-          if (this.q.length > 2) { this.q = []; this.i = 0; }
           this.q.push(e.data);
+          this.n += e.data.length;
+          // Trim the oldest backlog so a main-thread stall cannot leave the sound behind the picture.
+          let over = this.n - this.i - this.max;
+          while (over > 0 && this.q.length > 1) {
+            const left = this.q[0].length - this.i;
+            if (left > over) { this.i += over; break; }
+            over -= left;
+            this.n -= this.q.shift().length;
+            this.i = 0;
+          }
         };
       }
       process(_, outputs) {
         const o = outputs[0][0];
         for (let i = 0; i < o.length; i++) {
-          if (this.q.length && this.i >= this.q[0].length) { this.q.shift(); this.i = 0; }
+          if (this.q.length && this.i >= this.q[0].length) { this.n -= this.q.shift().length; this.i = 0; }
           o[i] = this.q.length ? this.q[0][this.i++] : 0;
         }
         return true;

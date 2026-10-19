@@ -140,6 +140,7 @@ _site/centipede/      <- retroweb/centipede/web/     (its `stage` list)
 _site/missile/        <- retroweb/missile/web/       (its `stage` list)
 _site/invaders/       <- retroweb/invaders/web/      (its `stage` list)
 _site/lunarrescue/    <- retroweb/lunarrescue/web/   (its `stage` list)
+_site/battlezone/     <- retroweb/battlezone/web/    (its `stage` list)
 _site/pc486/          <- retroweb/pc486/web/         (its `stage` list)
 ```
 

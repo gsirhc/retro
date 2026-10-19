@@ -5,7 +5,7 @@
 namespace mw8080 {
 
 Board::Board() : cpu(make_bus()) {
-    reset();
+    Board::reset();
 }
 
 i8080::Bus Board::make_bus() {

@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Battlezone Arcade</title>
+<link rel="icon" href="assets/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="assets/favicon-16.png">
+<link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+<script src="shared/theme-init.js"></script>
+<link rel="stylesheet" href="shared/theme.css">
+<link rel="stylesheet" href="shared/pagebar.css">
+<link rel="stylesheet" href="shared/fullscreen.css">
+<link rel="stylesheet" href="shared/focus-hint.css">
+<link rel="stylesheet" href="shared/footer.css">
+<link rel="stylesheet" href="shared/arcade-cab.css">
+<style>
+  :root {
+    --page-max:  960px;
+    --body-pad:  18px 12px;
+    --inner-pad: 14px 22px 22px;
+    --h1-font:   900 32px "Arial Black", Arial, sans-serif;
+  }
+  :root[data-theme="web94"] {
+    --body-pad:  26px 16px;
+    --h1-font:   bold 26px "Times New Roman", Times, serif;
+  }
+  :root[data-theme="modern"] {
+    --body-pad:  36px 20px;
+    --inner-pad: 22px 30px 30px;
+    --h1-font:   700 28px/1.15 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  :root[data-theme="aurora"] {
+    --h1-font:   800 30px/1.15 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  :root[data-theme="winxp"] {
+    --h1-font:   bold 28px Tahoma, "Segoe UI", sans-serif;
+  }
+
+  :root[data-theme="aurora"] .pagebar { border-bottom: 1px solid rgba(168,140,255,.35); }
+
+  h1 { margin: 4px 0 0; text-align: center; font: var(--h1-font); letter-spacing: .5px; color: var(--h1-color); text-shadow: var(--h1-shadow); }
+  :root[data-theme="modern"] h1 {
+    position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
+    overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+  }
+  .tagline { text-align: center; color: var(--dim); font-size: 14px; margin: 4px 0 0; }
+  :root[data-theme="modern"] .tagline { display: none; }
+  hr.rule { border: 0; border-top: var(--rule); margin: 12px 0; }
+  :root[data-theme="modern"] hr.rule { display: none; }
+
+  .inner { padding: var(--inner-pad); }
+
+  .panel {
+    background: var(--panel-bg); border: var(--panel-border); border-radius: var(--panel-radius);
+    padding: 14px 16px 16px;
+  }
+  .panel + .panel { margin-top: 18px; }
+  .panel h2 {
+    font: bold 14px Arial, Helvetica, sans-serif;
+    text-transform: uppercase; letter-spacing: .06em; color: var(--dim);
+    margin: 0 0 10px;
+  }
+
+  button, select, input[type=file] {
+    font: 14px Arial, Helvetica, sans-serif; color: var(--btn-fg); background: var(--btn-bg);
+    border: var(--btn-border); padding: 4px 10px; cursor: pointer;
+  }
+
+  .monitor { display: flex; justify-content: center; width: 100%; }
+  .bezel {
+    position: relative;
+    background: #1a1a1a;
+    border: 8px solid #2a2a2a;
+    border-radius: 6px;
+    padding: 10px;
+    box-shadow: inset 0 0 0 1px #111;
+      width: min(100%, calc(75vh * 4 / 3 + 36px));
+    width: min(100%, calc(75dvh * 4 / 3 + 36px));
+  }
+  #screen {
+    display: block;
+    width: 100%;
+    height: auto;
+    aspect-ratio: 4 / 3;
+    background: #000;
+    outline: none;
+  }
+  .bezel-btn {
+    font: 12px Arial, Helvetica, sans-serif; color: #ccc; background: #333;
+    border: 1px solid #555; padding: 2px 6px; cursor: pointer;
+  }
+  .keys { color: var(--dim); font-size: 14px; margin-top: 10px; text-align: center; }
+
+  .cab-face {
+    --cab-face-bg: linear-gradient(180deg, #2f3a2f 0%, #1c241c 42%, #0d110d 100%);
+    --cab-face-inset: inset 0 0 0 2px #46524a, inset 0 0 0 3px #060806,
+                      inset 0 3px 6px rgba(255,255,255,.12), inset 0 -8px 14px rgba(0,0,0,.3),
+                      0 10px 24px rgba(0,0,0,.4);
+  }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
+  #romStatus { font-size: 14px; color: var(--dim); }
+  .legal { font-size: 13px; color: var(--dim); margin: 8px 0 0; line-height: 1.4; }
+  .dip-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 10px 14px;
+    margin-top: 10px;
+  }
+  .dip-grid label {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font: 14px Arial, Helvetica, sans-serif;
+    color: var(--dim);
+  }
+  .dip-grid label.checkbox-label {
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+  }
+  .cab-start.lamp-on .cab-start-img { filter: drop-shadow(0 0 6px rgba(255,240,170,.95)) brightness(1.25); }
+  .cab-starts { justify-content: center; }
+  #diagStep { align-self: flex-end; }
+  :root:not([data-theme]) body { background: #0e0f12; color: #d8dbe2; }
+</style>
+</head>
+<body>
+<div class="page">
+  <header class="pagebar">
+    <a class="pb-home" href="../arcade/">&#8592;&nbsp;Arcade</a>
+    <span class="pb-title"><img class="pb-icon" src="assets/favicon-32.png" alt="" aria-hidden="true"> BATTLEZONE</span>
+    <span class="pb-name">Battlezone Arcade</span>
+    <span class="pb-tag">6502 &middot; 1.5&nbsp;MHz &middot; running entirely in your browser</span>
+    <span class="pb-tools">
+      <label class="pb-theme">Theme
+        <button type="button" class="pb-theme-btn" id="pageThemeBtn">Windows 95</button>
+      </label>
+      <span class="pb-winbtns"><button type="button" class="pb-min" title="Minimize" aria-label="Minimize" aria-pressed="false">_</button><button type="button" class="pb-max" title="Maximize" aria-label="Maximize">&#9633;</button><a class="pb-close" href="../arcade/" title="back to Arcade" aria-label="close, back to Arcade">&times;</a></span>
+    </span>
+  </header>
+
+  <div class="inner">
+    <h1>Battlezone Arcade</h1>
+    <p class="tagline">Atari Battlezone (1980) board. MOS 6502 at 1.5 MHz, analog vector generator, Math Box, POKEY and discrete sound.</p>
+    <hr class="rule">
+
+    <div class="panel" id="displayCard">
+      <div class="monitor" id="monitor">
+        <div class="bezel" id="bezel">
+          <canvas id="screen" width="1024" height="768" tabindex="0" aria-label="Vector monitor. Click to play"></canvas>
+          <div class="crt-overlay"></div>
+          <div class="focus-hint" id="focusHint" aria-hidden="true">Click to focus</div>
+          <div class="bezel-controls">
+            <button type="button" id="fullscreenBtn" class="bezel-btn" title="Fullscreen" aria-label="Fullscreen">&#x26F6;</button>
+          </div>
+        </div>
+      </div>
+      <p class="keys">Left lever <kbd>W</kbd> / <kbd>S</kbd> &nbsp;·&nbsp; right lever <kbd>I</kbd> / <kbd>K</kbd> &nbsp;·&nbsp; arrows push both levers at once &nbsp;·&nbsp; Space or Z fire &nbsp;·&nbsp; click a 25¢ slot or <kbd>5</kbd> / <kbd>6</kbd> coin &nbsp;·&nbsp; <kbd>1</kbd> start</p>
+      <div class="cab-face">
+        <div class="touch-controls" id="touchControls" hidden></div>
+        <div class="cab-starts" role="group" aria-label="Start button">
+          <button type="button" class="cab-start" data-start="1" aria-label="Start">
+            <img class="cab-start-img" src="shared/cab-start-1p-white.png" width="80" height="80" alt="" draggable="false">
+          </button>
+        </div>
+        <div class="coin-door" id="coinDoor" role="group" aria-label="Coin slots">
+          <button type="button" class="cd-mech" data-coin="left" aria-label="Insert coin, left slot, 25 cents">
+            <span class="cd-lamp">25¢</span>
+            <span class="cd-throat" aria-hidden="true"></span>
+          </button>
+          <button type="button" id="mute" class="cd-mute" aria-pressed="false" aria-label="Mute" title="Mute">
+            <svg class="cd-mute-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path class="cd-mute-body" d="M3 9h4l5-4v14l-5-4H3V9z"/>
+              <path class="cd-mute-waves" d="M16.2 8.2a4.5 4.5 0 0 1 0 7.6"/>
+              <path class="cd-mute-waves" d="M18.8 5.5a8 8 0 0 1 0 13"/>
+              <path class="cd-mute-slash" d="M5 5l14 14"/>
+            </svg>
+          </button>
+          <button type="button" class="cd-mech" data-coin="right" aria-label="Insert coin, right slot, 25 cents">
+            <span class="cd-throat" aria-hidden="true"></span>
+            <span class="cd-lamp">25¢</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>ROM sockets</h2>
+      <p class="legal" id="romLegal">This page ships a hardware self-test ROM, not Atari Battlezone. Those ROMs are still under copyright and are not included or downloaded. Load the ROMs yourself: bzone.zip or bzonea.zip, or the loose chips. That's program 036409 to 036414, vector 036421 and 036422, and the Math Box PROMs 036174 to 036180. Each chip is identified by its part number and checked by size, not a particular CRC. The vector state PROM 036408 and any extra files are ignored. The set stays in this browser.</p>
+      <div class="row">
+        <button type="button" id="loadRomBtn">Load ROM set…</button>
+        <input id="romFile" type="file" accept=".zip,.bin,.e1,.h1,.j1,.k1,.lm1,.n1,.a3,.bc3,.b1,.m1,.l1,.f1,.k7" multiple hidden>
+        <button type="button" id="removeRomBtn">Remove ROMs</button>
+        <button type="button" id="resetHiscore" disabled>Reset HIGH SCORE</button>
+        <span id="romStatus">Running test ROM</span>
+      </div>
+      <p class="legal">
+        HIGH SCORE is kept in this browser after refresh. The real board has no
+        battery and loses it when you pull the plug. Reset clears the saved table
+        and restarts the cabinet.
+      </p>
+    </div>
+
+    <div class="panel" id="dipPanel">
+      <h2>DIP switches</h2>
+      <p class="legal" id="dipLegal">Set board DIP switches just like on the real arcade cabinet. These persist in this browser the same way physical switches survive a power cycle.</p>
+      <div class="dip-grid">
+        <label>Tanks
+          <select id="dipLives">
+            <option value="0">2</option>
+            <option value="1" selected>3</option>
+            <option value="2">4</option>
+            <option value="3">5</option>
+          </select>
+        </label>
+        <label>Missile appears at
+          <select id="dipMissile">
+            <option value="0">5000</option>
+            <option value="4" selected>10000</option>
+            <option value="8">20000</option>
+            <option value="12">30000</option>
+          </select>
+        </label>
+        <label>Bonus tank
+          <select id="dipBonus">
+            <option value="16" selected>15000 and 100000</option>
+            <option value="32">25000 and 100000</option>
+            <option value="48">50000 and 100000</option>
+            <option value="0">None</option>
+          </select>
+        </label>
+        <label>Language
+          <select id="dipLanguage">
+            <option value="0" selected>English</option>
+            <option value="64">German</option>
+            <option value="128">French</option>
+            <option value="192">Spanish</option>
+          </select>
+        </label>
+        <label>Coinage
+          <select id="dipCoinage">
+            <option value="0">Free play</option>
+            <option value="1">1 coin / 2 credits</option>
+            <option value="2">1 coin / 1 credit</option>
+            <option value="3" selected>2 coins / 1 credit</option>
+          </select>
+        </label>
+        <label>Right coin mech
+          <select id="dipRightMech">
+            <option value="0" selected>x1</option>
+            <option value="4">x4</option>
+            <option value="8">x5</option>
+            <option value="12">x6</option>
+          </select>
+        </label>
+        <label>Left coin mech
+          <select id="dipLeftMech">
+            <option value="0" selected>x1</option>
+            <option value="16">x2</option>
+          </select>
+        </label>
+        <label>Bonus coins
+          <select id="dipBonusCoins">
+            <option value="0" selected>None</option>
+            <option value="32">3 credits / 2 coins</option>
+            <option value="64">5 credits / 4 coins</option>
+            <option value="96">6 credits / 4 coins</option>
+            <option value="128">6 credits / 5 coins</option>
+          </select>
+        </label>
+        <label class="checkbox-label">Self-test switch
+          <input type="checkbox" id="dipSelfTest">
+        </label>
+        <button type="button" id="diagStep" title="Steps through the self-test screens. F1 does the same.">Diag step</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<dialog class="site-dialog" id="romErrorHint">
+  <h2>ROM set not loaded</h2>
+  <p id="romErrorCopy">That isn't a complete set. Battlezone needs the six
+    program chips, both vector chips and all seven Math Box PROMs. Loose chips
+    use names like 036414-02.e1 or 036175-01.m1.</p>
+  <div class="row">
+    <button type="button" id="romErrorOk" autofocus>OK</button>
+  </div>
+</dialog>
+<dialog class="site-dialog" id="hiscoreResetHint">
+  <h2>Reset HIGH SCORE</h2>
+  <p>The real board loses it when you pull the plug. Clear the saved table
+    and restart the cabinet?</p>
+  <div class="row">
+    <button type="button" id="hiscoreResetCancel" autofocus>Cancel</button>
+    <button type="button" id="hiscoreResetOk">Reset</button>
+  </div>
+</dialog>
+<script src="battlezone.js"></script>
+<script src="shared/theme-picker.js"></script>
+<script src="shared/fullscreen.js"></script>
+<script src="shared/winbtns.js"></script>
+<script src="shared/focus-hint.js"></script>
+<script src="shared/footer.js"></script>
+<script src="shared/arcade-touch.js"></script>
+<script src="shared/arcade-core.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

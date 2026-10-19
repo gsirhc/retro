@@ -7,7 +7,7 @@ namespace lunarrescue {
 Machine::Machine() {
     // port 6 goes nowhere on lrescue (MAME lrescue_io_map)
     watchdog_enabled = false;
-    reset();
+    Machine::reset();
 }
 
 void Machine::reset() {

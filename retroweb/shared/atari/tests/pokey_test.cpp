@@ -3,6 +3,7 @@
 #include "pokey.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <vector>
 
@@ -253,4 +254,47 @@ TEST(Pokey, SeventeenBitPolyFeedsBackFromTaps17And12) {
         b.push_back(~p.random() & 1);
     }
     for (size_t t = 17; t < b.size(); t++) EXPECT_EQ(b[t], b[t - 17] ^ b[t - 12]) << t;
+}
+
+TEST(Pokey, AllpotReadsThePotLines) {
+    atari::Pokey p;
+    p.reset();
+    EXPECT_EQ(p.read(0x08), 0xFF);
+    p.allpot = 0x35;
+    EXPECT_EQ(p.read(0x08), 0x35);
+    EXPECT_EQ(p.read(0x18), 0x35);
+}
+
+TEST(Pokey, RcOutputIdlesNearTheRail) {
+    auto p = running();
+    p.set_output_rc(10e3, 0.015e-6, 5.0);
+    std::vector<float> out;
+    p.mix(5000, 48000, out);
+    ASSERT_FALSE(out.empty());
+    EXPECT_NEAR(out.back(), 5.0 * 500e3 / 510e3, 0.01);
+}
+
+TEST(Pokey, RcOutputFullVolumePullsThePinLow) {
+    auto p = running();
+    p.set_output_rc(10e3, 0.015e-6, 5.0);
+    p.write(0x01, 0x1F);
+    std::vector<float> out;
+    p.mix(5000, 48000, out);
+    ASSERT_FALSE(out.empty());
+    EXPECT_NEAR(out.back(), 0.879, 0.01);
+}
+
+TEST(Pokey, RcOutputAveragesAToneAboveNyquist) {
+    auto p = running();
+    p.set_output_rc(10e3, 0.015e-6, 5.0);
+    p.write(0x00, 0);
+    p.write(0x01, 0xAF);
+    std::vector<float> out;
+    p.mix(150000, 48000, out);
+    ASSERT_GT(out.size(), 1000u);
+    double mean = 0, var = 0;
+    for (size_t i = 500; i < out.size(); i++) mean += out[i];
+    mean /= double(out.size() - 500);
+    for (size_t i = 500; i < out.size(); i++) var += (out[i] - mean) * (out[i] - mean);
+    EXPECT_LT(std::sqrt(var / double(out.size() - 500)), 0.09);
 }

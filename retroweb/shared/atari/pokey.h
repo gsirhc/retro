@@ -16,6 +16,11 @@ public:
     static constexpr int kClockHz = 1512000;  // 12.096 MHz / 8 on Centipede
 
     void set_clock(int hz) { clock_hz_ = hz; }
+    // AUDIO pin into a pull-up and cap; mix() then yields pin volts (MAME pokey.cpp RC_LOWPASS).
+    void set_output_rc(double r_pullup, double cap, double vref);
+
+    // P0-P7 as read back through ALLPOT ($08); Battlezone wires switches here.
+    uint8_t allpot = 0xFF;
 
     void reset();
     uint8_t read(uint8_t reg) const;
@@ -46,11 +51,20 @@ private:
     double sample_acc_ = 0;
     int clock_hz_ = kClockHz;
 
+    bool rc_ = false;
+    double r_pullup_ = 0, cap_ = 0, vref_ = 0;
+    double rc_v_ = 0, rc_sum_ = 0;
+    int rc_n_ = 0;
+    uint16_t rc_raw_ = 0xFFFF;
+    double rc_v0_ = 0, rc_mult_ = 0;
+
     void recalc_periods();
     bool joined_high(int ch) const;
     void tick_channel(int ch);
     void step_polys();
     float sample() const;
+    uint16_t out_raw() const;
+    void rc_target(uint16_t raw);
 };
 
 }  // namespace atari

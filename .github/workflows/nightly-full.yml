@@ -688,6 +688,22 @@ jobs:
       target: test
       fail-on-flaky: true
 
+  # Battlezone arcade board (see retroweb/battlezone/BATTLEZONE_REVIEW.md).
+  battlezone-test:
+    needs: mos6502-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: make -C retroweb/battlezone check
+
+  battlezone-web-test:
+    needs: battlezone-test
+    uses: ./.github/workflows/arcade-web.yml
+    with:
+      machine: battlezone
+      target: test
+      fail-on-flaky: true
+
   # HTML (HTMLHint), JavaScript (ESLint), and C++ (cppcheck) under retroweb/.
   lint:
     runs-on: ubuntu-latest

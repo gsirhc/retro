@@ -477,6 +477,23 @@ jobs:
       machine: lunarrescue
       target: test-smoke
 
+  # Battlezone arcade board: GoogleTest over the AVG, the Math Box 2901s, the
+  # discrete sound board and the machine (see retroweb/battlezone/BATTLEZONE_REVIEW.md).
+  # Shared ISA is mos6502-test; Smoke.Hwtest* is the board smoke.
+  battlezone-test:
+    needs: mos6502-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: make -C retroweb/battlezone test-smoke
+
+  battlezone-web-test:
+    needs: battlezone-test
+    uses: ./.github/workflows/arcade-web.yml
+    with:
+      machine: battlezone
+      target: test-smoke
+
   # HTML (HTMLHint), JavaScript (ESLint), and C++ (cppcheck) under retroweb/.
   # A red run blocks deploy the same way a red test job does.
   lint:
@@ -532,6 +549,8 @@ jobs:
         invaders-web-test,
         lunarrescue-test,
         lunarrescue-web-test,
+        battlezone-test,
+        battlezone-web-test,
       ]
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
@@ -611,6 +630,8 @@ jobs:
       - working-directory: retroweb/invaders/web
         run: make wasm roms shared
       - working-directory: retroweb/lunarrescue/web
+        run: make wasm roms shared
+      - working-directory: retroweb/battlezone/web
         run: make wasm roms shared
 
       # 486 DX2-66: BIOS/VGA-BIOS ROMs (fetched, checksummed) are cheap; the

@@ -3,7 +3,7 @@
 namespace invaders {
 
 Machine::Machine() {
-    reset();
+    Machine::reset();
 }
 
 void Machine::reset() {

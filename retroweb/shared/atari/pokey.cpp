@@ -1,5 +1,7 @@
 #include "pokey.h"
 
+#include <cmath>
+
 namespace atari {
 
 namespace {
@@ -30,6 +32,13 @@ void Pokey::reset() {
     poly5_ = 0x1F;
     poly4_ = 0xF;
     sample_acc_ = 0;
+    rc_raw_ = 0xFFFF;
+    rc_sum_ = 0;
+    rc_n_ = 0;
+    if (rc_) {
+        rc_target(0);
+        rc_v_ = rc_v0_;
+    }
     recalc_periods();
 }
 
@@ -124,6 +133,7 @@ uint8_t Pokey::read(uint8_t reg) const {
         if ((skctl_ & 0x03) == 0) return 0xFF;
         return random();
     }
+    if (reg == 0x08) return allpot;
     return 0xFF;
 }
 
@@ -161,16 +171,63 @@ void Pokey::write(uint8_t reg, uint8_t v) {
     }
 }
 
+uint16_t Pokey::out_raw() const {
+    uint16_t raw = 0;
+    for (int i = 0; i < 4; i++) {
+        uint8_t vol = audc_[i] & kVolMask;
+        if ((audc_[i] & kVolOnly) || out_[i]) raw = uint16_t(raw | (vol << (4 * i)));
+    }
+    return raw;
+}
+
+void Pokey::set_output_rc(double r_pullup, double cap, double vref) {
+    rc_ = true;
+    r_pullup_ = r_pullup;
+    cap_ = cap;
+    vref_ = vref;
+    rc_raw_ = 0xFFFF;
+    rc_target(0);
+    rc_v_ = rc_v0_;
+}
+
+void Pokey::rc_target(uint16_t raw) {
+    // Volume bits switch in 90k/26.5k/8.05k/3.4k to ground, 8M when off (MAME vol_init).
+    static constexpr double kBit[4] = {90000, 26500, 8050, 3400};
+    static constexpr double kOff = 8e6;
+    if (raw == rc_raw_) return;
+    rc_raw_ = raw;
+    double g = 0;
+    for (int ch = 0; ch < 4; ch++) {
+        int nib = (raw >> (4 * ch)) & 0xF;
+        for (int b = 0; b < 4; b++) g += (nib & (1 << b)) ? 1.0 / kBit[b] : 1.0 / kOff;
+    }
+    const double r = 1.0 / g;
+    rc_v0_ = r / (r + r_pullup_) * vref_;
+    rc_mult_ = 1.0 - std::exp(-(r + r_pullup_) / (cap_ * r_pullup_ * r) / double(clock_hz_));
+}
+
 void Pokey::mix(int cpu_cycles, int out_hz, std::vector<float>& out) {
     if (out_hz <= 0 || cpu_cycles <= 0) return;
     const double cycles_per_sample = double(clock_hz_) / double(out_hz);
     for (int i = 0; i < cpu_cycles; i++) {
         step_polys();
         for (int ch = 0; ch < 4; ch++) tick_channel(ch);
+        if (rc_) {
+            rc_target(out_raw());
+            rc_v_ += (rc_v0_ - rc_v_) * rc_mult_;
+            rc_sum_ += rc_v_;
+            rc_n_++;
+        }
         sample_acc_ += 1.0;
         while (sample_acc_ >= cycles_per_sample) {
             sample_acc_ -= cycles_per_sample;
-            out.push_back(sample());
+            if (rc_) {
+                out.push_back(float(rc_n_ ? rc_sum_ / rc_n_ : rc_v_));
+                rc_sum_ = 0;
+                rc_n_ = 0;
+            } else {
+                out.push_back(sample());
+            }
         }
     }
 }
