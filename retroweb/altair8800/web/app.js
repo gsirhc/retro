@@ -1264,9 +1264,8 @@ async function boot() {
   }
 
   // --- MITS 88-DCDD disk drive cabinet --------------------
-  // Rotation is timed (ALTAIR_REVIEW.md §3.2d): ~166 ms/rev over 32 sectors, ~193/sec "Realistic";
-  // same LOAD SPEED pattern as the paper tape and cassette.
-  const DISK_SPEEDS = { realistic: 193, x5: 965, x25: 4825, x50: 9650, max: 0 };
+  // sectors/sec: 360 rpm x 32 sectors is the real FD-400; the multiples only shorten waits
+  const DISK_SPEEDS = { realistic: 192, x5: 960, x25: 4800, x50: 9600, max: 0 };
   const DISK_SPEED_KEYS = ["realistic", "x5", "x25", "x50"];
 
   const disk = {

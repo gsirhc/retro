@@ -87,7 +87,7 @@ test.describe("timing fidelity", () => {
     expect(rate).toBeLessThan(30); // definitely not the whole 8 KB
   });
 
-  // ALTAIR_REVIEW.md §3.2d: Realistic gates IN 0x09's sector advance to ~193/sec (~166 ms/rev).
+  // Realistic is the real 360 rpm drive with its 40 ms head load and 10 ms steps (§3.2).
   // ?test forces Max; this test selects Realistic to prove the throttle. A CP/M cold boot takes
   // ~1.8 s of CPU alone, so the floor sits well above that.
   test("disk at 'Realistic' measurably slows a CP/M boot", async ({ page }) => {

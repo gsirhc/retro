@@ -33,11 +33,13 @@ Run from this directory — no arguments, `package.json`-style:
 | `tests/` | GoogleTest suite (CMake + FetchContent) |
 | `web/` | Emscripten wrapper, xterm.js front end (`vendor/` holds xterm) |
 
-`disk88.{h,cpp}` and `disk_bootrom.h` are derived from Charles E. Owen's
-`altair_dsk.c` / `altair_cpu.c` in [SIMH](https://github.com/simh/simh)
-(permissive license); see the file headers. The controller's track-0 status
-line is corrected to follow the head instead of latching (SIMH's behaviour),
-which is what real 8-inch CP/M BIOSes need to find head-home.
+`disk88.{h,cpp}` is written from MITS's own 88-DCDD documentation (the
+"Altair Disk Controller I/O Information" pages and the controller schematics)
+and Pertec's FD-400 operating and service manual: 360 rpm rotation, a byte
+every 32 µs, the head-load, step and settle timing, and a track-0 line that
+follows the head. `disk_bootrom.h` is the DBL PROM image; its RAM-resident code
+matches a dumped DBL 3.3 PROM (deramp.com `DBL33.PRN`). See `ALTAIR_REVIEW.md`
+§3.2 for the sources and what is still unsourced.
 
 ## Toolchain
 

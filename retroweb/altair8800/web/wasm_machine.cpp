@@ -208,7 +208,7 @@ public:
     // Cassette transfer rate: 30 = the real 300 baud, 150 = 5x, 0 = unlimited.
     void setTapeSpeed(int bytesPerSec) { cassette_.setSpeed(bytesPerSec); }
 
-    // Disk rotation rate: 193 = "Realistic" (~166 ms/rev over 32 sectors), 0 = unlimited.
+    // Disk rotation rate: 192 = "Realistic" (360 rpm, 32 sectors), 0 = unlimited.
     void setDiskSpeed(int sectorsPerSec) { disk_.setSpeed(sectorsPerSec); }
 
     int stepOne() { return cpu_.step(); }
@@ -272,7 +272,11 @@ private:
         bus.in    = [this](uint8_t port) -> uint8_t {
             last_bus_op_ = BusOp::kIoIn;
             if (sio_.owns(port))      return sio_.in(port);
-            if (disk_.owns(port))     return disk_.in(port);
+            if (disk_.owns(port)) {
+                disk_.clock(cpu_.cycles);
+                disk_.setInte(cpu_.int_enabled);
+                return disk_.in(port);
+            }
             if (cassette_.owns(port)) return cassette_.in(port);
             if (port == 0xFF)         return sense_;   // Altair front-panel sense switches
             return 0xFF;                               // unmapped port: floating bus
@@ -280,7 +284,7 @@ private:
         bus.out   = [this](uint8_t port, uint8_t v) {
             last_bus_op_ = BusOp::kIoOut;
             if (sio_.owns(port))      { sio_.out(port, v);      return; }
-            if (disk_.owns(port))     { disk_.out(port, v);     return; }
+            if (disk_.owns(port))     { disk_.clock(cpu_.cycles); disk_.out(port, v); return; }
             if (cassette_.owns(port)) { cassette_.out(port, v); return; }
         };
         return bus;

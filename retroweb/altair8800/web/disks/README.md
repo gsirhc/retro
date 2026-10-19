@@ -23,9 +23,10 @@ and `help`, then a general CP/M (or Altair DOS) primer.
 ## Format
 
 Standard MITS 8-inch images are **337,568 bytes** — 77 tracks × 32 sectors ×
-137 bytes, a flat physical-sector dump. This is the format SIMH's `AltairZ80`
-and David Hansel's Altair8800 simulator use, so images from those ecosystems
-work as-is. (Mini-disk / Tarbell / Cromemco images are *not* this format and
+137 bytes, a flat physical-sector dump: each sector is the 137 bytes the
+controller reads after the sync bit, in the layout MITS documents in the Disk
+BASIC manual (Appendix H). Images from the usual community collections work
+as-is. (Mini-disk / Tarbell / Cromemco images are *not* this format and
 won't boot here.)
 
 ## Where to get them

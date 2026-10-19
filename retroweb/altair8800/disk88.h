@@ -1,9 +1,5 @@
-// MITS Altair 88-DCDD 8-inch floppy controller, up to 16 Pertec FD-400 drives
-// on ports 0x08..0x0A (octal 10/11/12). Status bits are active low.
-// A diskette is 77 tracks x 32 sectors x 137 bytes, a flat dump that includes
-// the on-disk sector framing. Logic ported from Charles E. Owen's altair_dsk.c
-// (SIMH). Rotation timing is opt-in via setSpeed()/tick(); callers that never
-// call tick() get instant sector advance.
+// MITS 88-DCDD floppy controller and Pertec FD-400 drives, ports 0x08..0x0A
+// (MITS "Altair Floppy Disk Drive and Controller Hardware Documentation", 1977).
 
 #ifndef EMULATOR8080_DISK88_H
 #define EMULATOR8080_DISK88_H
@@ -21,6 +17,7 @@ public:
     static constexpr int      kSectors    = 32;
     static constexpr int      kSectorLen  = 137;
     static constexpr std::size_t kImageSize = std::size_t(kTracks) * kSectors * kSectorLen;
+    static constexpr int      kRealSectorsPerSec = 192;   // 360 rpm x 32 hard sectors
 
     Disk88() { reset(); }
 
@@ -30,30 +27,28 @@ public:
 
     void reset();
 
-    // Sectors/sec credited toward the next IN 0x09 advance; 0 = unlimited.
-    // Real 88-DCDD: ~166 ms/rev over 32 sectors, ~193/sec.
-    void setSpeed(int sectorsPerSec) {
-        cycles_per_sector_ = sectorsPerSec > 0 ? (2000000ull / static_cast<uint64_t>(sectorsPerSec)) : 0;
-        credit_ = 0;
-    }
+    // Disk rotation rate in sectors/sec: kRealSectorsPerSec is the real drive,
+    // a multiple of it shortens rotational and seek waits only, 0 = unlimited.
+    void setSpeed(int sectorsPerSec);
+    // CPU cycle count at the next in()/out(); a timed drive needs it first.
+    void clock(uint64_t cpuCycles) { pending_cy_ = cpuCycles; has_pending_ = true; }
     void tick(uint64_t cpuCycles);
+    void setInte(bool on) { inte_ = on; }
 
-    // ---- host / front-end side ----------------------------------------
     // `len` should be kImageSize; short images are padded, long ones truncated.
     // Returns false if the drive index is out of range.
-    bool mount(int drive, const uint8_t *data, std::size_t len);
+    bool mount(int drive, const uint8_t* data, std::size_t len);
     void unmount(int drive);
     bool mounted(int drive) const {
         return drive >= 0 && drive < kDrives && !drives_[drive].image.empty();
     }
-    // The (possibly modified) image, for persisting writes back to the picker.
-    const std::vector<uint8_t> &image(int drive) const { return drives_[drive].image; }
+    const std::vector<uint8_t>& image(int drive) const { return drives_[drive].image; }
 
     int      selectedDrive() const { return selected_; }
-    bool     headLoaded()    const { return selected_ >= 0 && (flags_ & 0x04); }
+    bool     headLoaded()    const { return selected_ >= 0 && head_loaded_; }
     int      track(int drive) const { return (drive >= 0 && drive < kDrives) ? drives_[drive].track : 0; }
-    uint64_t ioTicks()   const { return io_ticks_; }    // bumps on every data byte
-    uint64_t stepTicks() const { return step_ticks_; }  // bumps on every head step
+    uint64_t ioTicks()   const { return io_ticks_; }
+    uint64_t stepTicks() const { return step_ticks_; }
     bool     dirty(int drive) const {
         return drive >= 0 && drive < kDrives && drives_[drive].dirty_since_mount;
     }
@@ -63,27 +58,67 @@ public:
 
 private:
     struct Drive {
-        std::vector<uint8_t> image;             // empty => no diskette
-        int  track = 0;
-        bool dirty_since_mount = false;
+        std::vector<uint8_t> image;
+        int     track = 0;
+        int64_t moved_at = -(int64_t(1) << 40);
+        bool    dirty_since_mount = false;
     };
 
-    void flushWrite();                          // commit the sector buffer to the image
+    bool timed() const { return rate_ > 0; }
+    bool enabled() const { return selected_ >= 0; }
+    void clear();
+    void advance(bool scalable);
+    void move_to(int64_t target);
+    bool in_transfer() const;
+    int64_t next_event() const;
+    int  read_index() const;
+    bool nrda() const;
+    bool move_ok() const;
+    bool head_ready() const;
+    bool track0() const;
+    void step(bool in);
+    void start_write();
+    void end_write(bool fill);
+    void put(int drive, int track, int sector, int pos, uint8_t v);
+    uint8_t get(int drive, int track, int sector, int pos) const;
 
     Drive   drives_[kDrives];
-    int     selected_ = -1;                     // -1 => controller disabled
-    uint8_t flags_    = 0;                      // status, stored 1=true (returned inverted)
-    int     sector_   = -1;                     // current sector, -1 => "not yet indexed"
-    int     bufpos_   = 255;                    // read/write pointer inside sector_buf_
-    bool    write_dirty_ = false;               // sector_buf_ holds bytes not yet flushed
-    uint8_t sector_buf_[kSectorLen + 1] = {0};
+    int     selected_    = -1;
+    bool    head_loaded_ = false;
+    bool    inte_        = false;
+
+    double   rate_        = 0;
+    int64_t  now_         = 0;
+    uint64_t last_cy_     = 0;
+    bool     has_last_    = false;
+    uint64_t pending_cy_  = 0;
+    bool     has_pending_ = false;
+
+    int64_t step_at_      = -(int64_t(1) << 40);
+    int64_t head_mh_until_ = 0;
+    int64_t settle_until_  = 0;
+    int64_t write_end_at_  = -(int64_t(1) << 40);
+    int64_t xfer_sector_   = -1;
+
+    int64_t rd_sector_ = -1;
+    int     rd_index_  = -1;
+    uint8_t rd_latch_  = 0;
+
+    bool    w_active_ = false;
+    int     w_drive_  = 0;
+    int64_t w_sector_ = 0;
+    int64_t w_first_  = 0;
+    int     w_slot_   = 0;
+    uint8_t w_latch_  = 0;
+    bool    w_fresh_  = false;
+    bool    w_any_    = false;
+
+    int     u_sector_ = kSectors - 1;
+    bool    u_valid_  = false;
+    int     u_pos_    = 0;
 
     uint64_t io_ticks_   = 0;
     uint64_t step_ticks_ = 0;
-
-    double   credit_            = 1e9;   // sector-advance credit; huge => unlimited by default
-    uint64_t prev_tick_cy_      = 0;
-    uint64_t cycles_per_sector_ = 0;      // 0 = unlimited
 };
 
 } // namespace altair

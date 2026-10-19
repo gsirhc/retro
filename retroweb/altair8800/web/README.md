@@ -388,13 +388,15 @@ cabinet (or do it from the panel: `EXAMINE` `0xFF00`, `RUN`). `machine.bootDisk(
 drops the 256-byte MITS bootstrap PROM at `0xFF00` and starts there; it reads
 track 0 of drive A and hands off to the diskette's cold-start loader.
 
-**LOAD SPEED** in the cabinet's top bar paces rotation: a real 88-DCDD spins
-at ~166 ms/revolution over 32 sectors (~193 sectors/sec), which `IN 0x09`
-(the sector-position register) now gates on -- **Realistic** is the default,
-matching the paper-tape/cassette pattern (5×/25×/50× for the impatient, an
-internal **Max** for `?test=1`). A cold CP/M boot at Realistic runs a couple
-of seconds longer than at Max; the CPU itself still always runs at real
-2 MHz regardless. See `ALTAIR_REVIEW.md` §3.2d.
+**LOAD SPEED** in the cabinet's top bar sets how fast the diskette turns.
+**Realistic** is the default and is the real drive: 360 rpm, 32 sectors of
+~5.2 ms, a byte every 32 µs, 40 ms to load the head and 10 ms per step, all
+timed against the 2 MHz CPU clock, so a BIOS that can't keep up with the data
+loses bytes exactly as it would on the real thing. 5×/25×/50× shorten the
+rotational and seek waits only; once the controller starts handing a sector's
+bytes over they still come every 32 µs. An internal **Max** (for `?test=1`)
+makes every wait zero and hands bytes over as fast as the CPU asks. The CPU
+itself always runs at real 2 MHz. See `ALTAIR_REVIEW.md` §3.2.
 
 Standard MITS images are 337,568 bytes (77 × 32 × 137). `*.dsk` is git-ignored;
 the three shipped disks (CP/M, the games disk, Altair DOS) are fetched pinned

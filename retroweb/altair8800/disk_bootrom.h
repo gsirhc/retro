@@ -1,5 +1,5 @@
-// MITS 88-DCDD disk bootstrap PROM (the "DBL"), 256 bytes at 0xFF00.
-// Byte-identical to bootrom[] in SIMH altair_cpu.c (Charles E. Owen).
+// MITS 88-DCDD disk bootstrap PROM (the "DBL"), 256 bytes at 0xFF00, run from a
+// RAM copy at 4C00h; 4C00h-4CD3h match a dumped DBL 3.3 PROM (deramp.com DBL33.PRN).
 
 #ifndef EMULATOR8080_DISK_BOOTROM_H
 #define EMULATOR8080_DISK_BOOTROM_H

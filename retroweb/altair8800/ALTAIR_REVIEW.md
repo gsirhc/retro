@@ -31,7 +31,7 @@ scope or sequencing, not a correction of the review's facts.
 | # | Item | Status |
 |---|---|---|
 | §5.4 | "~716 bytes free" | **Resolved empirically** — booted `stock` with Auto-load and read the ROM's own banner. It prints `716 BYTES FREE`, and `4K BASIC 4.0 / COPYRIGHT MITS 1976` — which also answers §5.3's version-number question: not invented, it's what the ROM itself prints. No doc changes needed. |
-| §7.1 | CLAUDE.md's track-0 example | **Fixed.** Replaced with the `ANA` auxiliary-carry quirk as the "keep a real hardware quirk" example, and stated the SIMH-artifact-vs-hardware-quirk distinction explicitly so it doesn't drift back. |
+| §7.1 | CLAUDE.md's track-0 example | **Fixed.** Replaced with the `ANA` auxiliary-carry quirk as the "keep a real hardware quirk" example, and stated the distinction between a real hardware quirk and another emulator's shortcut explicitly so it doesn't drift back. |
 | §3.5 | Boot PROM writable at 64 KB | **Fixed.** `bus.read`/`bus.write` now check the ROM window before the RAM ceiling, and `bus.write` drops writes into it. New disk.spec.ts test drives an `STA` through the CPU (not `writeByte()`, which bypasses the bus) to prove it. |
 | §6.8 | Test-seam guard | **Fixed** — real `URLSearchParams` parse instead of `.includes("test")`. |
 | §6.7 | `make cpm` not in `make check` | **Fixed** — `check: demo test cpm`; no-ops harmlessly if `cpm/*.COM` aren't fetched locally. |
@@ -44,9 +44,9 @@ scope or sequencing, not a correction of the review's facts.
 | §3.2b | `Disk88::reset()` homes the head | **Fixed.** RESET now only deselects the controller and clears its latches (`selected_`, `flags_`, `sector_`, `bufpos_`, `write_dirty_`); the head-homing loop is gone. New GoogleTest `DiskTest.ResetDoesNotHomeTheHead`, plus a Playwright test that boots CP/M (which seeks off track 0), hits RESET, and confirms the track is unchanged while the controller does deselect. |
 | §3.4a/b | Cassette transport frozen while stopped; RESET rewinds the tape | **Fixed.** `Machine::reboot()` no longer calls `cassette_.reset()` at all (the deck isn't on the bus RESET reaches). The frozen-transport bug needed more than removing a call, though: `cassette_.tick()` was paced entirely by `cpu_.cycles`, which never advances while the CPU is stopped. New `Machine::tickCassette(dtMs, running)`, called every rendered frame regardless of run state: while running it still paces off `cpu_.cycles` exactly as before (so 25×/50× and turbo stay correct); while not, it advances a separate `idle_cycles_` counter by real elapsed time at 2 MHz-equivalent, added to `cpu_.cycles` before the same `cassette_.tick()` call — so the two paces splice with no jump when RUN resumes. Two new Playwright tests: PLAY keeps winding with the CPU on STOP, and RESET touches neither tape position nor transport state. **Follow-up regression, found 2026-09-11 via CI (not this review):** `Cpu::reset()` (called by `Machine::reboot()`, i.e. the RESET paddle) zeroes `cpu_.cycles` back to 0 — so `cpu_.cycles` isn't just "frozen" during a reset the way this fix assumed, it *goes backward* from `cassette_.tick()`'s point of view. `tick()`'s `uint64_t d = cpuCycles - prev_tick_cy_` underflowed on that backward jump, turning it into an astronomically large spurious "elapsed time" that yanked the head to `capacity()` in one tick — the exact bug this fix's own "RESET touches neither tape position" test exists to catch, just not reliably (whether the underflowing math actually moved `pos_` measurably depended on how many cycles had elapsed before the reset). Fixed in `CassetteACR::tick()`: a `cpuCycles < prev_tick_cy_` guard resyncs the baseline and treats that tick as zero elapsed time, instead of underflowing. New GoogleTest `TickToleratesCpuCycleCounterGoingBackwardOnReset`. |
 | §2.2, §2.3 | `EI` delay, interrupt wiring | **Fixed.** `Cpu::ei_delay_` blocks `interrupt()` for exactly one retiring instruction after `EI` (counted down at the top of `step()`, not decremented by HALT's own idle cycles). `sio_.on_irq` now fires `cpu_.interrupt(0xFF)` (RST 7, the conventional Altair 2SIO vector) in `Machine`'s constructor. New `tests/interrupt_test.cpp` (8 cases): DI-ignored, EI-taken, HALT-wakes, HALT-stays-halted-while-disabled, INTE-cleared-on-accept, the vector for all 8 RST n, the EI delay itself, and EI-immediately-followed-by-HLT. Full Playwright suite re-run afterward specifically to check no bundled software's dormant interrupt-enable now misbehaves — none does (nothing in `disks/`/`roms/` was found to exercise this path; it's correct but, as flagged below, still unproven against real software). |
-| §3.2a | 138th byte per sector | **Fixed** — `in(0x0A)`'s fill-buffer bound corrected from `kSectorLen + 1` to `kSectorLen`, so a 138th read re-delivers the sector from byte 0 (SIMH parity) instead of a phantom always-zero byte. New GoogleTest. |
-| §3.2c | Empty drive reports healthy | **Fixed** — `OUT 0x08` (select) no longer sets the SIMH-0x1A "enabled" bits for an unmounted drive; `OUT 0x09`'s `FN_HEAD_LOAD` no longer sets `F_HEAD`/`F_NRDA` for one either. An empty, selected drive now reads all-false, and a boot/read attempt against it gets a clean "not ready" rather than a fabricated all-zero sector. Two new GoogleTests (one replaces a test that had encoded the old, buggy expectation). |
-| §3.2d | 88-DCDD has no rotation timing | **Fixed** — `Disk88::tick()`/`setSpeed()` gate `IN 0x09`'s sector advance on a sectors/sec credit, same shape as `CassetteACR`'s byte credit; default (never called) is unlimited, so every pre-existing caller (native harnesses, GoogleTest) is unaffected. Browser build adds a LOAD SPEED selector to the disk cabinet (Realistic ≈193/sec ≈166 ms/rev / 5×/25×/50×/Max-under-`?test=1`), matching the paper-tape/cassette pattern exactly. New fidelity test proves Realistic measurably slows a CP/M boot. |
+| §3.2a | 138th byte per sector | **Superseded by the 2026-10-18 rebuild (§3.2).** Reads past byte 137 return the zero tail the write circuit lays down to the end of the sector (MITS 88-DCDD manual p.135), `0x00`. GoogleTest `ReadsPastByte137ReturnTheZeroTail`. |
+| §3.2c | Empty drive reports healthy | **Fixed, then rebuilt (§3.2).** A drive with no diskette can't be enabled (MITS 88-DCDD manual p.133 note a), so selecting it leaves the controller disabled and every port floats to `0xFF`. GoogleTests `EmptyDriveCannotBeEnabled` and `DisabledControllerFloatsAllPorts`. |
+| §3.2d | 88-DCDD has no rotation timing | **Fixed** — `Disk88::tick()`/`setSpeed()` gate `IN 0x09`'s sector advance on a sectors/sec credit, same shape as `CassetteACR`'s byte credit; default (never called) is unlimited, so every pre-existing caller (native harnesses, GoogleTest) is unaffected. Browser build adds a LOAD SPEED selector to the disk cabinet (Realistic ≈193/sec ≈166 ms/rev / 5×/25×/50×/Max-under-`?test=1`), matching the paper-tape/cassette pattern exactly. New fidelity test proves Realistic measurably slows a CP/M boot. **Superseded by the 2026-10-18 rebuild (§3.2):** Realistic is now the real 360 rpm drive with its head and step timing, not a sector-advance credit. |
 | §3.6a | Status lamps (MEMR/M1/etc.) from real machine-cycle status | **Partially fixed — see the note below on what's still approximated.** `MEMR`/`WO`/`INP`/`OUT` now reflect which `Bus` callback fired last (tracked in `wasm_machine.cpp`, no CPU-core change needed since `read`/`write`/`in`/`out` were already four separate callbacks); `INT` lights when `cpu_.interrupt()` was actually served since the last poll. `HLDA`/`PROT` were already correct as permanently off (no DMA peripheral; PROTECT is a documented no-op) — not bugs, just mislabelled as such in the original finding. `M1`/`STACK` remain approximated; see below for why. |
 
 ### What's still approximated in §3.6a, and why
@@ -135,8 +135,8 @@ is not an inference.
   and cited against the actual 8K BASIC ROM.
 - CI boots a real, pinned MITS CP/M 2.2 diskette on the emulated 88-DCDD and
   runs `DIR`/`STAT`, and blocks the deploy on failure.
-- Provenance is cited in file headers (SIMH `altair_dsk.c` / `altair_cpu.c`, the
-  ROM-derived cassette polarity) exactly as CLAUDE.md requires.
+- Provenance is cited in file headers (the ROM-derived cassette polarity)
+  exactly as CLAUDE.md requires.
 - Architecture is clean: a host-agnostic CPU behind a `Bus` struct, peripherals
   as independent `owns()/in()/out()` units, an embind wrapper that composes them.
   The same `Disk88` runs under the native `cpm_disk` harness and in the browser.
@@ -153,7 +153,7 @@ is not an inference.
    of the bare-metal preset doesn't work. **Owner independently noticed this.** (§3.6)
 5. The 88-DCDD has no rotation or step timing at all — the one unlabelled speed
    departure in the project. (§3.2)
-6. CLAUDE.md and the code contradict each other on the SIMH track-0 latch. (§7.1)
+6. CLAUDE.md and the code contradict each other on the track-0 line. (§7.1)
 7. Preset era/hardware anachronisms, and an unverified BASIC version number. (§5)
 8. Test gaps: no `serial2sio` unit test, no T-state assertions, five of seven
    terminal baud rates unmetered. (§6)
@@ -302,81 +302,99 @@ throttle does engage; for anything shorter than 512 characters it never does.
 **Minor:** master reset does not flush the RX FIFO, so `RDRF` can survive a
 master reset. A real 6850 master reset clears the receiver.
 
-### 3.2 88-DCDD floppy controller (ports 0x08–0x0A) — faithful SIMH port, three confirmed deviations
+### 3.2 88-DCDD floppy controller (ports 0x08–0x0A)
 
 `retroweb/altair8800/disk88.{h,cpp}`
 
-The port is faithful to Charles E. Owen's `altair_dsk.c`: the `0x1A` enable
-flags, the active-low status inversion, the sector register advancing one sector
-per read and returning `((sector << 1) & 0x3E) | 0xC0`, the 137-byte sector
-buffer, head load/unload, step in/out with clamping, and write-on-`0x80`
-followed by a null-filled flush. `disk_bootrom.h` is byte-identical to SIMH's
-`bootrom[]`. 337,568-byte images = 77 × 32 × 137 is correct.
+**Rebuilt 2026-10-18 from primary sources.** The controller was rewritten from
+scratch against MITS's and Pertec's own documentation; nothing was carried
+over from the earlier implementation. Sources:
 
-Three deviations were **confirmed empirically** with an ad-hoc harness built
-against `disk88.cpp`:
+- MITS, *Altair Floppy Disk Drive and Controller Hardware Documentation*
+  (1977, deramp.com `Altair Floppy (88-DCDD) Manual.pdf`): "Altair Disk
+  Controller I/O Information", printed pp.133–136 (ports, every status and
+  control bit, timing); the one-shot timing table, p.128 and the following
+  page; Disk Controller Board #1 sheets 1–2 and Board #2 sheets 1–2.
+- Pertec, *FD400/FD5x0/FD5x1 Operating and Service Manual* 600500 (Mar 1977,
+  bitsavers `pdf/pertec/floppy/600500_FD400-5x0-5x1_Mar77.pdf`): Table 1-1
+  (360 rpm, 250 kbit/s, 10 ms adjacent-track seek, 40 ms head load, 77
+  tracks) and §2.6.3 (the track 0 switch and its 40 ms hold-off).
+- MITS, *Altair 8800 BASIC Reference Manual* 4.1 (Jul 1977, bitsavers),
+  Appendix H: the 137-byte sector layouts and MITS's own read/write routines,
+  which poll NRDA/ENWD and move two bytes per poll at 32 µs/byte.
 
-**(a) `in(0x0A)` returns 138 bytes per sector, not 137.**
-`retroweb/altair8800/disk88.cpp:91` — `if (bufpos_ < kSectorLen + 1)` lets index
-137 through, and the fill loop always zeroes that index. Measured against an
-image filled with `0xAB`: byte 137 and byte 275 come back `0x00`. SIMH refills
-at 137. Harmless in practice (every real BIOS reads exactly 137 bytes then
-re-reads the sector register), but it is an emulator-specific artifact — real
-hardware would deliver the next physical bytes off the rotating disk, and SIMH
-re-delivers the same sector. Untested.
+What the model does, each point checked against those pages:
 
-**(b) `reset()` snaps every drive's head to track 0.**
-`retroweb/altair8800/disk88.cpp:26` — `for (Drive &d : drives_) d.track = 0;`
-Measured: step in twice → track 2 → `reset()` → track 0. A real bus reset
-deselects the controller and clears its latches; **it does not move the heads.**
-This can mask a BIOS whose head-home routine is broken, which is precisely the
-class of bug the track-0 fix in §7.1 was made to expose.
+- **Ports.** `OUT 010` selects (D0–D3 drive, D7 clears the controller);
+  `IN 010` status; `OUT 011` control (D0 step in, D1 step out, D2 head load,
+  D3 head unload, D4/D5 interrupt enable/disable, D6 head current, D7 write
+  enable); `IN 011` sector position; `OUT/IN 012` data (pp.133–136).
+- **Polarity.** Status is true = 0 (p.134). D3 and D4 are "not used, = 0"
+  (on Board #1 sheet 2 their 8T97 inputs are grounded). D5 is the bus INTE,
+  inverted, which the machine now feeds in with `setInte()`.
+- **Enable.** A drive with no diskette can't be enabled (p.133 note a), and
+  every port then floats to `0xFF`, "all false" (p.134). Taking the diskette
+  out of the selected drive clears the controller ("disk control also
+  cleared by opening door", p.133).
+- **Sector position.** Valid only while head status is true (p.134 D2,
+  p.136). D0 is SR0, sector true, low for 30 µs at the start of each sector;
+  D1–D5 the sector number. D6/D7 aren't driven by Board #1 (only DI0–DI5 have
+  8T97 drivers on the sector strobe) so they read 1.
+- **Rotation.** 360 rpm, 32 hard sectors, 5.208 ms each. Read data starts
+  140 µs after SR0 and arrives every 32 µs; NRDA sets per byte and an `IN 012`
+  clears it, so a reader that falls behind loses bytes. After byte 137 the
+  disk holds the zero tail the write circuit lays down to the end of the
+  sector (p.135 step 6), so further reads return `0x00`.
+- **Writes.** Write enable after SR0; ENWD first true 280 µs after SR0, then
+  every 32 µs, cleared by `OUT 012`. A byte not refreshed in time is written
+  again (p.136 note a). The write stops at the end of the sector (p.135 step 7),
+  and move head stays false for the 475 µs trim-erase tail.
+- **Head.** Head status is true 40 ms after a head-load command, and 40 ms
+  after any step with the head loaded (p.134 D2; the settle one-shot on Board
+  #2 sheet 2 is retriggered by every head-load command, so Disk BASIC pays the
+  40 ms on each `SECGET`). Move head is false 40 ms after head load and, after
+  a step, false 10 ms, true 1 ms, false 20 ms (p.134 D1; step inhibit 1, repeat
+  step OK and step inhibit 2 one-shots).
+- **Track 0** comes from the FD-400's track 0 switch, so it follows the head in
+  both directions, and the drive holds it false until 40 ms after the last
+  step (FD-400 §2.6.3.1). The same switch makes a step out at track 0 a no-op.
+- **RESET** clears the controller and leaves the heads where they are; bus
+  RESET sends no step pulses.
+
+**LOAD SPEED.** Realistic (192 sectors/s) is the real drive above, paced on
+the CPU cycle count at every port access. 5×/25×/50× scale rotation and the
+seek/settle waits only between transfers: once a sector's data starts moving
+(NRDA reported, a byte read, or write enable) the rest of that sector runs at
+the real 32 µs/byte, and a fast-forward never skips past a sector start or the
+first read byte. Max (`?test=1`, and every native harness that never calls
+`clock()`) is timeless: each `IN 011` brings the next sector under the head,
+bytes come as fast as they're read, and every wait is zero.
+
+Verified: `cpm63k`, `games`, `cpm3boot` boot to `A>` and CP/M `SAVE`/`DIR`/
+`STAT`/`ERA` round-trip at Realistic, 5×, 50× and Max; Disk BASIC
+`SAVE`/`LOAD`/`RUN`/`KILL` the same; Altair DOS boots. Images written at
+Realistic and at Max are byte-identical.
+
+**Boot PROM (`disk_bootrom.h`), open.** No MITS-published listing of the DBL
+was found (the BASIC 4.1 manual only says how to run it from 177400 octal).
+The closest primary source is Mike Douglas's disassembly of a dumped DBL 3.3
+PROM (deramp.com `software/roms/orginal_roms/DBL33.PRN`, `DBL33.HEX`). The
+code our PROM copies to RAM, `4C00h`–`4CD3h`, matches it byte for byte. The
+rest differs: our copy stub at `FF00h` runs `LDAX D`/`MOV M,A` from `FF18h`
+for `0E6h` bytes where the dump runs `MOV A,M`/`STAX D` from `FF27h` for
+`0D4h`; the dump's cassette bootstrap at `FF13h`–`FF26h` is missing here
+(five zero bytes at `FF13h`, then the RAM code from `FF18h`); and our image
+copies 18 extra bytes (`84 00 4C 24 16 56 16`, then 11 zeros) into the sector
+buffer at `4CD4h`, which the first sector read overwrites. Boots work
+either way. The bytes are unchanged pending the owner's call.
+
+**Not modelled:** the sector interrupt (D4/D5 latch it, but the INT/VI7
+jumper output isn't wired to the CPU; no MITS software found uses it), write
+protect (an FD-400 option MITS media don't use), and per-drive spindle phase
+(all drives share one rotation).
 
 > **Owner decision (#8):** RESET should behave realistically.
-
-**(c) Selecting an empty drive reports a healthy drive.**
-`retroweb/altair8800/disk88.cpp:124` — `flags_ = F_MOVE | 0x08 | 0x10` is set
-unconditionally on select, without checking whether a diskette is mounted.
-Measured: selecting an unmounted drive returns status `0xA5` (= `~0x5A`:
-enabled, head-move OK, at track 0) — indistinguishable from a loaded drive.
-`in(0x09)` then advances the sector register and `in(0x0A)` returns zeros. On
-real hardware an empty drive produces no index pulses, so the sector register
-never becomes valid and NRDA never comes true. The practical difference: a boot
-attempt on an empty drive fails as a checksum error rather than as "no disk".
-
-**(d) No rotation or step timing whatsoever — the one unlabelled speed departure.**
-
-`disk88.h` states plainly: *"there is no rotation timing model — reading the
-sector-position port simply advances to the next sector."* That is justified as
-SIMH parity, and it is the right *correctness* choice (it is what the MITS boot
-PROM and CP/M BIOS are written against). But it is a *correctness* argument, not
-a *speed* argument, and the speed consequence is large:
-
-- Real 88-DCDD: ~166 ms per revolution, 32 sectors → ~5.2 ms/sector, plus ~10 ms
-  per track step. A CP/M `DIR` audibly takes a moment; the drive makes noise.
-- Here: reads complete as fast as the CPU can poll `IN 0x09`. Effectively instant.
-
-Measured against CLAUDE.md's three rules for overrides:
-1. *"the default is always the realistic behavior"* — **fails**, there is no
-   realistic mode.
-2. *"the override is clearly labelled as a departure"* — partially; it is
-   documented in the header but not surfaced in the UI.
-3. *"it's opt-in (a control the user chooses)"* — **fails**, there is no control.
-
-Note also that CLAUDE.md's `?test=1` clause says tests may force *"paper-tape /
-cassette / **floppy** load speed to `Max`"* — but there is no floppy speed
-selector to force, and `app.js`'s test seam only calls
-`paperTape.setSpeed("max")` and `cassette.setSpeed("max")`.
-
-> **Owner decision (#2):** report as a potential issue. (No implementation
-> decision taken.)
-
-**Options, if it is ever addressed:** add a `LOAD SPEED` selector to the disk
-cabinet matching the paper-tape and cassette pattern (Realistic / 5× / 25× / 50×,
-Realistic default, internal `Max` for `?test=1`), gating `in(0x09)` and
-`in(0x0A)` on a CPU-cycle credit exactly the way `CassetteACR::credit_` does.
-Realistic would make a CP/M cold boot take a couple of seconds and a `DIR` a
-noticeable beat — which is what the real machine did.
+> **Owner decision (#2):** report as a potential issue.
 
 ### 3.3 Paper tape — not a bus device at all
 
@@ -829,40 +847,27 @@ the accuracy problems live (§5.1), those deserve assertions too.
 
 ## 7. Documentation discrepancies
 
-### 7.1 CLAUDE.md contradicts the code on the SIMH track-0 latch
+### 7.1 CLAUDE.md contradicts the code on the track-0 line
 
 > **Owner decision (#1):** report this discrepancy.
 
-`CLAUDE.md:17` instructs:
+At review time `CLAUDE.md` gave a latching 88-DCDD track-0 status (set by a
+step out that reaches track 0, never cleared by a step in) as an example of a
+quirk to keep, while `disk88.cpp` and the README had the line follow the head.
 
-> *"keep the quirk, including documented bugs that software depends on (e.g. the
-> SIMH 88-DCDD track-0 latch)."*
+**The code is right and the example was wrong.** On the real machine the track
+0 status (status D6, MITS 88-DCDD manual p.134) is the FD-400's TRACK 0
+interface line, which Pertec's manual (§2.6.3) defines as "a function of the
+position of the magnetic head assembly": a switch on the carriage, so it
+follows the head in both directions. The only hold-off is the drive's own,
+which keeps the line false until 40 ms after the last step (§2.6.3.1). A
+latching line isn't period behaviour; it came from another emulator's
+implementation, and it breaks a BIOS whose head-home routine trusts the line.
 
-`retroweb/altair8800/disk88.cpp:143` does the opposite, deliberately:
-
-```cpp
-// The track-0 line is a physical sensor: keep it honest rather than
-// latch it like SIMH does (a stale flag breaks BIOSes whose head-home
-// routine trusts it, e.g. Burcon CP/M's seek0).
-```
-
-and `retroweb/altair8800/README.md` documents the same deviation:
-
-> *"The controller's track-0 status line is corrected to follow the head instead
-> of latching (SIMH's behaviour), which is what real 8-inch CP/M BIOSes need to
-> find head-home."*
-
-**The code is right and CLAUDE.md's example is wrong.** SIMH's `altair_dsk.c`
-only ever *sets* the track-0 flag (on a step-out that hits zero) and never
-clears it on a step-in — that is a SIMH artifact, not a MITS hardware behaviour.
-Real 88-DCDD hardware reads track 0 from a physical opto sensor, so the line
-follows the head in both directions. Following the real hardware is the correct
-call under CLAUDE.md's own "realism is the default" rule; it is only the
-*example* that is stale.
-
-**Work item:** correct `CLAUDE.md:17` — replace the track-0 latch with a genuine
-"keep the bug" example, or reword to make clear that SIMH artifacts are not
-themselves period behaviour. Leave `disk88.cpp` and the README alone.
+**Resolved.** `CLAUDE.md` now uses the 8080 `ANA` auxiliary-carry quirk as its
+example. The rebuilt controller (§3.2) models the FD-400 switch and its 40 ms
+hold-off; `Track0LineFollowsHead` and `Track0ReportsOnlyAfterTheHeadSettles`
+pin it.
 
 ### 7.2 Smaller doc inconsistencies
 
@@ -990,7 +995,7 @@ Ordered by owner priority and impact. Each item names the decision behind it.
 | `retroweb/altair8800/serial2sio.{h,cpp}` | 88-2SIO, ports 0x10–0x13, ring-buffered |
 | `retroweb/altair8800/ringbuffer.h` | fixed-capacity SPSC byte ring |
 | `retroweb/altair8800/cassette.{h,cpp}` | 88-ACR, ports 0x06/0x07 |
-| `retroweb/altair8800/disk88.{h,cpp}` | 88-DCDD, ports 0x08–0x0A, SIMH-derived |
+| `retroweb/altair8800/disk88.{h,cpp}` | 88-DCDD, ports 0x08–0x0A, from the MITS and Pertec manuals |
 | `retroweb/altair8800/disk_bootrom.h` | 256-byte MITS DBL boot PROM at 0xFF00 |
 | `retroweb/altair8800/main.cpp` | native echo harness |
 | `retroweb/altair8800/cpm/cpm_host.cpp` | CP/M BDOS shim for the diagnostic `.COM`s |
