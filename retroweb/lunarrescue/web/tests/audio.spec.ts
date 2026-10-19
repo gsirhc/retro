@@ -48,8 +48,8 @@ test.describe("Audio level", () => {
 
   test("OUT 3 bit 0 runs the SN76477 thrust through its trimmer", async ({ page }) => {
     const peak = await peakAfter(page, 3, 0x21);
-    expect(peak).toBeGreaterThan(0.03);
-    expect(peak).toBeLessThan(0.1);
+    expect(peak).toBeGreaterThan(0.002);
+    expect(peak).toBeLessThan(0.005);
   });
 
   test("OUT 3 bit 5 low mutes the amplifier", async ({ page }) => {
@@ -57,12 +57,12 @@ test.describe("Audio level", () => {
   });
 
   test("OUT 5 step data drives the step 555", async ({ page }) => {
-    expect(await peakAfter(page, 5, 0x01)).toBeGreaterThan(0.05);
+    expect(await peakAfter(page, 5, 0x01)).toBeGreaterThan(0.015);
   });
 
-  test("OUT 3 bit 3 alien hit is the loudest single sound", async ({ page }) => {
+  test("OUT 3 bit 3 target hit sounds through its trimmer", async ({ page }) => {
     const peak = await peakAfter(page, 3, 0x28);
-    expect(peak).toBeGreaterThan(0.3);
-    expect(peak).toBeLessThan(0.8);
+    expect(peak).toBeGreaterThan(0.06);
+    expect(peak).toBeLessThan(0.16);
   });
 });

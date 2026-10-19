@@ -1,4 +1,4 @@
-// Midway/Taito 8080 B&W board: 8080, 1-bit bitmap, beam-timed RST 1/RST 2, MB14241 (MAME mw8080bw.cpp).
+// Midway/Taito 8080 B&W board: 8080, 1-bit bitmap, beam-timed RST 1/RST 2, MB14241.
 
 #ifndef SHARED_MW8080_BOARD_H
 #define SHARED_MW8080_BOARD_H
@@ -10,7 +10,7 @@
 
 namespace mw8080 {
 
-constexpr int kCpuHz = 1996800;  // 19.968 MHz / 10 (MAME MW8080BW_CPU_CLOCK)
+constexpr int kCpuHz = 1996800;  // 19.968 MHz / 10
 // 256 shifted pixels plus the 4 the shift register flushes after HBLANK (MW8080BW_HPIXCOUNT).
 constexpr int kNativeW = 260;
 constexpr int kNativeH = 224;
@@ -33,7 +33,7 @@ struct Inputs {
     uint8_t in2 = 0;
 };
 
-// Fujitsu MB14241 barrel shifter (MAME mb14241.cpp).
+// Fujitsu MB14241 barrel shifter.
 struct Mb14241 {
     uint16_t data = 0;
     uint8_t count = 0;

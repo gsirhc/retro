@@ -8,371 +8,720 @@
 
 namespace {
 
-constexpr uint8_t kAmp = 0x20;
-constexpr uint8_t kUfo = 0x01;
-constexpr uint8_t kMissile = 0x02;
-constexpr uint8_t kExplosion = 0x04;
-constexpr uint8_t kInvaderHit = 0x08;
-constexpr uint8_t kBonusBase = 0x10;
-constexpr uint8_t kSaucerHit = 0x10;
+using mw8080::Sound;
+using mw8080::SoundBoard;
+using mw8080::kSampleRate;
 
-constexpr int kRate = mw8080::kSampleRate;
+constexpr double kDt = 1.0 / kSampleRate;
+// LM3900: inputs one VBE up, output swing 0.09 V to V+ less one VBE (AN-72).
+constexpr double kVbe = 0.5;
+constexpr double kVoh = 11.5;
+constexpr double kVol = 0.09;
+constexpr double kBias12 = (12.0 - kVbe);
 
-std::vector<float> run(mw8080::Sound& s, double seconds) {
-    std::vector<float> out;
-    uint64_t end = s.ticks() + uint64_t(seconds * kRate);
-    while (s.ticks() < end) {
-        s.advance(42);
-        out.push_back(s.mix());
+// Taito trimmer: 50K at mid travel, 47K from the wiper into the bus.
+constexpr double kTrimIn = 25e3 + 25e3 * 47e3 / (25e3 + 47e3);
+constexpr double kTrimRatio = 25e3 / (25e3 + 47e3);
+
+void tick(Sound& s) {
+    const uint64_t t = s.ticks();
+    s.advance(41);
+    while (s.ticks() == t) s.advance(1);
+}
+
+template <typename F>
+void run(Sound& s, double seconds, F each) {
+    const int n = int(seconds * kSampleRate);
+    for (int i = 0; i < n; i++) {
+        tick(s);
+        each(i);
     }
-    return out;
 }
 
-double rms(const std::vector<float>& v, double from_s = 0, double to_s = 1e9) {
-    size_t a = size_t(from_s * kRate);
-    size_t b = std::min(v.size(), size_t(to_s * kRate));
-    double sum = 0;
-    for (size_t i = a; i < b; i++) sum += double(v[i]) * v[i];
-    return b > a ? std::sqrt(sum / double(b - a)) : 0.0;
+void run(Sound& s, double seconds) {
+    run(s, seconds, [](int) {});
 }
 
-mw8080::Sound quiet_board() {
-    mw8080::Sound s;
-    s.port3_w(kAmp);
-    s.port5_w(0);
+double peak_mix(Sound& s, double seconds) {
+    s.mix();
+    double peak = 0;
+    run(s, seconds, [&](int) { peak = std::max(peak, double(std::fabs(s.mix()))); });
+    return peak;
+}
+
+template <typename F>
+double rising_edges_per_second(Sound& s, double seconds, F level) {
+    bool prev = level();
+    int edges = 0;
+    run(s, seconds, [&](int) {
+        const bool now = level();
+        if (now && !prev) edges++;
+        prev = now;
+    });
+    return edges / seconds;
+}
+
+// Rising-edge times in samples.
+template <typename F>
+std::vector<int> rising_edges(Sound& s, double seconds, F level) {
+    std::vector<int> at;
+    bool prev = level();
+    run(s, seconds, [&](int i) {
+        const bool now = level();
+        if (now && !prev) at.push_back(i);
+        prev = now;
+    });
+    return at;
+}
+
+Sound powered(SoundBoard b) {
+    Sound s(b);
+    s.port3_w(0x20);
     run(s, 0.5);
     return s;
 }
 
-// Fleet 555 output edges per second at the given thump data.
-double fleet_hz(uint8_t data) {
-    mw8080::Sound s = quiet_board();
-    s.port5_w(data);
-    run(s, 0.3);
-    bool high = s.fleet_555() > 1.7;
-    int edges = 0;
-    uint64_t start = s.ticks(), end = start + kRate * 2;
-    while (s.ticks() < end) {
-        s.advance(42);
-        bool now = s.fleet_555() > 1.7;
-        if (now && !high) edges++;
-        high = now;
-    }
-    return edges / 2.0;
-}
-
-// R1 and R2 charge to 4.4 V (5 V less the diode), thresholds 1/3 and 2/3 of 5 V.
-double fleet_expected_hz(double r1) {
-    const double r2 = 75e3, c = 0.1e-6;
-    double t_charge = (r1 + r2) * c * std::log((4.4 - 5.0 / 3) / (4.4 - 10.0 / 3));
-    double t_discharge = r2 * c * std::log(2.0);
-    return 1.0 / (t_charge + t_discharge);
-}
-
-}  // namespace
+// --- Sound: clocking, gating, mixing ---
 
 TEST(Sound, ClockRatioGivesExactSampleRate) {
-    mw8080::Sound s;
+    Sound s;
     s.advance(mw8080::kCpuHz);
-    EXPECT_EQ(s.ticks(), uint64_t(kRate));
+    EXPECT_EQ(s.ticks(), uint64_t(kSampleRate));
 }
 
 TEST(Sound, IdleIsSilent) {
-    auto s = quiet_board();
-    auto out = run(s, 1.0);
-    EXPECT_LT(rms(out), 1e-3);
-}
-
-TEST(Sound, PowerOnLatchIsMuted) {
-    mw8080::Sound s;
-    EXPECT_FALSE(s.amp_enabled());
-    s.port3_w(kExplosion);
-    s.port5_w(0x0f);
-    auto out = run(s, 0.3);
-    EXPECT_EQ(rms(out), 0.0);
+    for (SoundBoard b : {SoundBoard::Midway, SoundBoard::TaitoPv}) {
+        Sound s = powered(b);
+        run(s, 1.0);
+        s.mix();
+        EXPECT_LT(peak_mix(s, 0.5), 1e-3);
+    }
 }
 
 TEST(Sound, AmpEnableBitMutesTheBoard) {
-    mw8080::Sound s = quiet_board();
-    s.port5_w(0x01);
-    auto on = run(s, 0.5);
-    EXPECT_GT(rms(on, 0.2), 0.1);
-    s.port3_w(0);
-    auto off = run(s, 0.2);
-    EXPECT_EQ(rms(off), 0.0);
-    s.port3_w(kAmp);
-    auto back = run(s, 0.3);
-    EXPECT_GT(rms(back), 0.1);
+    for (SoundBoard b : {SoundBoard::Midway, SoundBoard::TaitoPv}) {
+        Sound s(b);
+        s.port3_w(0x05);
+        EXPECT_FALSE(s.amp_enabled());
+        EXPECT_EQ(peak_mix(s, 0.5), 0.0);
+        s.port3_w(0x25);
+        EXPECT_TRUE(s.amp_enabled());
+        EXPECT_GT(peak_mix(s, 0.5), 0.01);
+    }
 }
 
 TEST(Sound, FlipScreenBitIsReadableAndSilent) {
-    mw8080::Sound s = quiet_board();
-    EXPECT_FALSE(s.flip_screen());
+    Sound s = powered(SoundBoard::Midway);
+    run(s, 1.0);
     s.port5_w(0x20);
     EXPECT_TRUE(s.flip_screen());
-    auto out = run(s, 0.5);
-    EXPECT_LT(rms(out, 0.2), 1e-3);
-}
-
-TEST(Sound, MissileIsAudibleAndTimesOutWhileHeld) {
-    mw8080::Sound s = quiet_board();
-    s.port3_w(kAmp | kMissile);
-    auto out = run(s, 1.5);
-    EXPECT_GT(rms(out, 0.1, 0.5), 0.008);
-    EXPECT_LT(rms(out, 1.2, 1.5), rms(out, 0.1, 0.5) * 0.1);
-}
-
-TEST(Sound, MissileStopsWhenReleased) {
-    mw8080::Sound s = quiet_board();
-    s.port3_w(kAmp | kMissile);
-    auto held = run(s, 0.3);
-    s.port3_w(kAmp);
-    auto after = run(s, 0.5);
-    EXPECT_LT(rms(after, 0.3), rms(held, 0.1) * 0.1);
-}
-
-TEST(Sound, ExplosionIsNoiseAndFallsOff) {
-    mw8080::Sound s = quiet_board();
-    s.port3_w(kAmp | kExplosion);
-    auto out = run(s, 0.3);
-    EXPECT_GT(rms(out, 0.05), 0.1);
-    s.port3_w(kAmp);
-    auto tail = run(s, 2.5);
-    EXPECT_GT(rms(tail, 0, 0.2), 0.05) << "C26 keeps the burst going after the trigger drops";
-    EXPECT_LT(rms(tail, 2.0, 2.5), rms(out, 0.05) * 0.05);
-}
-
-TEST(Sound, ExplosionIsBroadbandNoiseNotATone) {
-    mw8080::Sound s = quiet_board();
-    s.port3_w(kAmp | kExplosion);
-    auto out = run(s, 0.4);
-    int crossings = 0;
-    for (size_t i = size_t(0.1 * kRate) + 1; i < out.size(); i++) {
-        if ((out[i - 1] < 0) != (out[i] < 0)) crossings++;
-    }
-    EXPECT_GT(crossings, 40) << "LFSR noise at 7515 Hz crosses the mixer's midline often";
-}
-
-TEST(Sound, InvaderHitIsAudibleAndFallsOff) {
-    mw8080::Sound s = quiet_board();
-    s.port3_w(kAmp | kInvaderHit);
-    auto out = run(s, 1.0);
-    EXPECT_GT(rms(out, 0.05, 0.25), 0.015);
-    EXPECT_LT(rms(out, 0.8, 1.0), rms(out, 0.05, 0.25) * 0.1);
-}
-
-TEST(Sound, InvaderHitReleaseStopsIt) {
-    mw8080::Sound s = quiet_board();
-    s.port3_w(kAmp | kInvaderHit);
-    auto held = run(s, 0.2);
-    s.port3_w(kAmp);
-    auto after = run(s, 0.4);
-    EXPECT_LT(rms(after, 0.2), rms(held, 0.05) * 0.1);
-}
-
-TEST(Sound, BonusBaseIsAnInterruptedTone) {
-    mw8080::Sound s = quiet_board();
-    s.port3_w(kAmp | kBonusBase);
-    auto out = run(s, 1.0);
-    EXPECT_GT(rms(out, 0.2), 0.02);
-    // R94/R95/C34 555 at ~7.4 Hz gates the 480 Hz square, 33 ms off per cycle.
-    int quiet = 0, loud = 0;
-    for (double t = 0.2; t + 0.02 <= 1.0; t += 0.02) {
-        double w = rms(out, t, t + 0.02);
-        if (w < 0.025) quiet++;
-        if (w > 0.035) loud++;
-    }
-    EXPECT_GT(quiet, 4);
-    EXPECT_GT(loud, 20);
-    s.port3_w(kAmp);
-    auto after = run(s, 0.5);
-    EXPECT_LT(rms(after, 0.2), 1e-3);
-}
-
-TEST(Sound, SaucerHitIsAudibleAndSweepsDown) {
-    mw8080::Sound s = quiet_board();
-    s.port5_w(kSaucerHit);
-    auto out = run(s, 1.0);
-    EXPECT_GT(rms(out, 0.2), 0.03);
-    s.port5_w(0);
-    auto tail = run(s, 2.0);
-    EXPECT_GT(rms(tail, 0, 0.2), 0.02) << "C23 holds the sweep after the latch clears";
-    EXPECT_LT(rms(tail, 1.5, 2.0), rms(out, 0.2) * 0.05);
-}
-
-TEST(Sound, FleetThumpIsAudible) {
-    mw8080::Sound s = quiet_board();
-    s.port5_w(0x01);
-    auto out = run(s, 0.5);
-    EXPECT_GT(rms(out, 0.2), 0.1);
-}
-
-TEST(Sound, FleetDataZeroStopsTheThump) {
-    EXPECT_EQ(fleet_hz(0), 0.0);
-}
-
-TEST(Sound, FleetNotesFallInPitchAcrossTheFourBits) {
-    double f0 = fleet_hz(0x01), f1 = fleet_hz(0x02), f2 = fleet_hz(0x04), f3 = fleet_hz(0x08);
-    EXPECT_GT(f0, f1);
-    EXPECT_GT(f1, f2);
-    EXPECT_GT(f2, f3);
-    EXPECT_NEAR(f0, fleet_expected_hz(40e3), 2.0);
-    EXPECT_NEAR(f1, fleet_expected_hz(68e3), 2.0);
-    EXPECT_NEAR(f2, fleet_expected_hz(82e3), 2.0);
-    EXPECT_NEAR(f3, fleet_expected_hz(100e3), 2.0);
-}
-
-TEST(Sound, FleetBitsInParallelRaiseThePitch) {
-    double both = fleet_hz(0x03);
-    EXPECT_GT(both, fleet_hz(0x01));
-    EXPECT_NEAR(both, fleet_expected_hz(1.0 / (1.0 / 40e3 + 1.0 / 68e3)), 2.0);
-}
-
-TEST(Sound, UfoIsAudibleAndStopsWhenBitClears) {
-    mw8080::Sound s = quiet_board();
-    s.port3_w(kAmp | kUfo);
-    auto out = run(s, 0.5);
-    EXPECT_GT(rms(out, 0.1), 0.1);
-    s.port3_w(kAmp);
-    auto off = run(s, 0.2);
-    EXPECT_LT(rms(off), 1e-6);
-}
-
-TEST(Sound, UfoWarbleFollowsTheSlfTriangle) {
-    mw8080::Sound s = quiet_board();
-    s.port3_w(kAmp | kUfo);
-    run(s, 0.1);
-    // Rising VCO edges per 20 ms window: the VCO pitch tracks the 1 uF / 120k SLF ramp.
-    const int win = kRate / 50;
-    std::vector<int> edges;
-    bool prev = s.ufo_vco();
-    int n = 0, tick = 0;
-    double slf_lo = 9, slf_hi = 0;
-    for (int k = 0; k < kRate; k++) {
-        s.advance(42);
-        bool now = s.ufo_vco();
-        if (now && !prev) n++;
-        prev = now;
-        slf_lo = std::min(slf_lo, s.ufo_slf_voltage());
-        slf_hi = std::max(slf_hi, s.ufo_slf_voltage());
-        if (++tick == win) {
-            edges.push_back(n);
-            n = 0;
-            tick = 0;
-        }
-    }
-    auto [mn, mx] = std::minmax_element(edges.begin(), edges.end());
-    EXPECT_GT(*mn, 5);
-    EXPECT_GT(*mx, *mn * 3) << "pitch sweeps roughly 800 Hz to 5 kHz";
-    EXPECT_LT(slf_lo, 0.4);
-    EXPECT_GT(slf_hi, 2.3);
-}
-
-TEST(Sound, UfoSlfRunsAtAbout7Hz) {
-    mw8080::Sound s = quiet_board();
-    int peaks = 0;
-    bool high = false;
-    const int total = kRate * 2;
-    for (int k = 0; k < total; k++) {
-        s.advance(42);
-        bool now = s.ufo_slf_voltage() > 2.3;
-        if (now && !high) peaks++;
-        high = now;
-    }
-    EXPECT_NEAR(peaks / 2.0, 7.2, 1.0);
-}
-
-TEST(Sound, ResetSilencesEverything) {
-    mw8080::Sound s = quiet_board();
-    s.port3_w(kAmp | kExplosion | kUfo | kBonusBase);
-    s.port5_w(0x0f | kSaucerHit);
-    run(s, 0.3);
-    s.reset();
-    EXPECT_FALSE(s.amp_enabled());
-    s.port3_w(kAmp);
-    s.port5_w(0);
-    auto out = run(s, 0.8);
-    EXPECT_LT(rms(out, 0.3), 1e-3);
-    EXPECT_EQ(s.ticks(), uint64_t(0.8 * kRate));
+    EXPECT_LT(peak_mix(s, 0.3), 1e-3);
 }
 
 TEST(Sound, MixReturnsTheMeanSincePreviousCall) {
-    mw8080::Sound s = quiet_board();
+    Sound s = powered(SoundBoard::Midway);
     s.port5_w(0x01);
-    run(s, 0.3);
-    s.advance(mw8080::kCpuHz / 100);
-    float coarse = s.mix();
-    EXPECT_LE(std::fabs(coarse), 1.0f);
-    s.advance(0);
-    EXPECT_EQ(s.mix(), 0.0f);
-}
-
-namespace {
-
-mw8080::Sound quiet_taito() {
-    mw8080::Sound s(mw8080::SoundBoard::TaitoPv);
-    s.port3_w(kAmp);
-    s.port5_w(0);
-    run(s, 0.5);
-    return s;
-}
-
-int crossings(const std::vector<float>& v, double from_s) {
+    run(s, 0.2);
+    s.mix();
+    double sum = 0;
     int n = 0;
-    for (size_t i = size_t(from_s * kRate) + 1; i < v.size(); i++) {
-        if (v[i - 1] < 0 && v[i] >= 0) n++;
+    Sound twin = s;
+    for (int i = 0; i < 400; i++) {
+        tick(twin);
+        sum += twin.mix();
+        n++;
     }
-    return n;
+    for (int i = 0; i < 400; i++) tick(s);
+    EXPECT_NEAR(s.mix(), sum / n, 1e-6);
+    EXPECT_EQ(s.mix(), s.mix());
 }
 
-// Seconds until a 20 ms window falls below a tenth of the first loud one.
-double decay_time(const std::vector<float>& v) {
-    const double first = rms(v, 0.02, 0.04);
-    for (double t = 0.04; t + 0.02 <= double(v.size()) / kRate; t += 0.01) {
-        if (rms(v, t, t + 0.02) < first * 0.1) return t;
-    }
-    return 1e9;
+TEST(Sound, ResetSilencesEverything) {
+    Sound s = powered(SoundBoard::Midway);
+    s.port3_w(0x3F);
+    s.port5_w(0x1F);
+    run(s, 0.3);
+    s.reset();
+    EXPECT_FALSE(s.amp_enabled());
+    EXPECT_EQ(s.ticks(), 0u);
+    s.port3_w(0x20);
+    run(s, 1.0);
+    s.mix();
+    EXPECT_LT(peak_mix(s, 0.3), 1e-3);
 }
 
-}  // namespace
+TEST(Sound, ExplosionAtFullEnvelopeReachesTheAmpRails) {
+    Sound s = powered(SoundBoard::Midway);
+    s.port3_w(0x24);
+    double lo = 0, hi = 0;
+    run(s, 0.6, [&](int) {
+        lo = std::min(lo, s.amp_out());
+        hi = std::max(hi, s.amp_out());
+    });
+    // R105 100K against R104 220K biases the output at 5.7 V.
+    const double dc = kVbe + 100e3 * kBias12 / 220e3;
+    EXPECT_GT(hi - lo, 0.8 * (kVoh - kVol));
+    EXPECT_LE(hi, kVoh - dc + 1e-9);
+    EXPECT_GE(lo, kVol - dc - 1e-9);
+}
 
-TEST(TaitoSound, EverySourceReachesTheSpeaker) {
-    const uint8_t p3[] = {kUfo, kMissile, kExplosion, kInvaderHit, kBonusBase};
-    for (uint8_t bit : p3) {
-        mw8080::Sound s = quiet_taito();
-        s.port3_w(kAmp | bit);
-        EXPECT_GT(rms(run(s, 0.3), 0.05), 0.01) << "OUT 3 bit " << int(bit);
+// --- Noise generator ---
+
+TEST(Noise, BitRateFollowsTheCmosClock) {
+    Sound s;
+    // A random bit rises on a quarter of the clocks; clock 1/(2 ln3 R113 C46).
+    const double clock = 1.0 / (2 * std::log(3.0) * 56e3 * 0.001e-6);
+    EXPECT_NEAR(rising_edges_per_second(s, 4.0, [&] { return s.noise(); }), clock / 4, clock / 4 * 0.05);
+}
+
+TEST(Noise, NeverLocksUp) {
+    Sound s;
+    int ones = 0, n = 0;
+    run(s, 3.0, [&](int) {
+        ones += s.noise();
+        n++;
+    });
+    EXPECT_NEAR(double(ones) / n, 0.5, 0.03);
+}
+
+// --- SN76477 ---
+
+mw8080::analog::Sn76477 midway_sn() {
+    mw8080::analog::Sn76477 sn{120e3, 1e-6, 39e3, 0.047e-6, 150e3, 10e3};
+    sn.reset();
+    return sn;
+}
+
+TEST(Sn76477, SlfFrequencyIsDatasheetEquationOne) {
+    auto sn = midway_sn();
+    int edges = 0;
+    bool prev = sn.slf_rising;
+    const int n = 10 * kSampleRate;
+    for (int i = 0; i < n; i++) {
+        sn.step(kDt);
+        if (sn.slf_rising && !prev) edges++;
+        prev = sn.slf_rising;
     }
-    const uint8_t p5[] = {0x01, kSaucerHit};
-    for (uint8_t bit : p5) {
-        mw8080::Sound s = quiet_taito();
-        s.port5_w(bit);
-        EXPECT_GT(rms(run(s, 0.3), 0.05), 0.01) << "OUT 5 bit " << int(bit);
+    EXPECT_NEAR(edges / 10.0, 0.64 / (120e3 * 1e-6), 0.1);
+}
+
+TEST(Sn76477, SlfIsAnEqualSidedTriangleBetweenTheTripPoints) {
+    auto sn = midway_sn();
+    while (!sn.slf_rising) sn.step(kDt);
+    while (sn.slf_rising) sn.step(kDt);
+    double lo = 9, hi = 0;
+    int up = 0, down = 0;
+    for (int cycles = 0; cycles < 10;) {
+        const bool was = sn.slf_rising;
+        sn.step(kDt);
+        lo = std::min(lo, sn.v_slf);
+        hi = std::max(hi, sn.v_slf);
+        (sn.slf_rising ? up : down)++;
+        if (!sn.slf_rising && was) cycles++;
     }
+    EXPECT_NEAR(lo, 0.35, 0.01);
+    EXPECT_NEAR(hi, 2.5, 0.01);
+    EXPECT_NEAR(double(up) / down, 1.0, 0.01);
+}
+
+TEST(Sn76477, VcoSweepsBetweenTheSlfEndsTenToOneLaw) {
+    auto sn = midway_sn();
+    const double f_min = 0.64 / (39e3 * 0.047e-6);
+    // f = f_min (2.5 + V0) / (V + V0), V0 = 2.5 / 9 puts 0 V at 10 f_min.
+    const double v0 = 2.5 / 9;
+    int last = -1;
+    bool prev = sn.vco_out;
+    int checked = 0;
+    for (int i = 0; i < 2 * kSampleRate; i++) {
+        sn.step(kDt);
+        if (sn.vco_out && !prev) {
+            if (last >= 0) {
+                const double f = double(kSampleRate) / (i - last);
+                const double want = f_min * (2.5 + v0) / (sn.v_slf + v0);
+                EXPECT_NEAR(f, want, want * 0.08) << "slf " << sn.v_slf;
+                checked++;
+            }
+            last = i;
+        }
+        prev = sn.vco_out;
+    }
+    EXPECT_GT(checked, 1000);
+}
+
+TEST(Sn76477, OutputPulseHeightIsDatasheetEquationEight) {
+    auto sn = midway_sn();
+    sn.inhibit_w(false);
+    double lo = 0, hi = -1;
+    for (int i = 0; i < kSampleRate / 10; i++) {
+        const double v = sn.step(kDt);
+        lo = std::min(lo, v);
+        hi = std::max(hi, v);
+    }
+    EXPECT_NEAR(lo, -3.4 * 10e3 / 150e3, 1e-9);
+    EXPECT_EQ(hi, 0.0);
+}
+
+TEST(Sn76477, Pin9HighInhibitsAndOneShotLatchHoldsWithoutRos) {
+    auto sn = midway_sn();
+    auto active = [&] {
+        double lo = 0;
+        for (int i = 0; i < kSampleRate / 20; i++) lo = std::min(lo, sn.step(kDt));
+        return lo < 0;
+    };
+    sn.inhibit = false;
+    EXPECT_FALSE(active());
+    sn.inhibit_w(true);
+    sn.inhibit_w(false);
+    EXPECT_TRUE(active());
+    sn.inhibit_w(true);
+    EXPECT_FALSE(active());
+    sn.inhibit_w(false);
+    EXPECT_TRUE(active());
+    for (int i = 0; i < 20 * kSampleRate; i++) sn.step(kDt);
+    EXPECT_TRUE(active());
+}
+
+TEST(Sound, UfoBitDrivesTheSn76477ThroughR125) {
+    Sound s = powered(SoundBoard::Midway);
+    double lo = 0;
+    run(s, 0.2, [&](int) { lo = std::min(lo, s.source_current(Sound::kUfo)); });
+    EXPECT_EQ(lo, 0.0);
+    s.port3_w(0x21);
+    run(s, 0.2, [&](int) { lo = std::min(lo, s.source_current(Sound::kUfo)); });
+    EXPECT_NEAR(lo, -3.4 * 10e3 / 150e3 / 47e3, 1e-9);
+    s.port3_w(0x20);
+    run(s, 0.01);
+    double now = 0;
+    run(s, 0.2, [&](int) { now = std::min(now, s.source_current(Sound::kUfo)); });
+    EXPECT_EQ(now, 0.0);
+}
+
+TEST(Sound, UfoSlfAndVcoUseR120C35AndR121C36) {
+    for (SoundBoard b : {SoundBoard::Midway, SoundBoard::TaitoPv}) {
+        Sound s(b);
+        s.port3_w(0x21);
+        EXPECT_NEAR(rising_edges_per_second(s, 6.0, [&] { return s.ufo_slf_voltage() > 1.4; }), 0.64 / (120e3 * 1e-6), 0.2);
+        const double f_min = 0.64 / (39e3 * 0.047e-6);
+        int last = -1, checked = 0;
+        bool prev = s.ufo_vco();
+        run(s, 1.0, [&](int i) {
+            const bool now = s.ufo_vco();
+            if (now && !prev) {
+                if (last >= 0 && s.ufo_slf_voltage() > 2.3) {
+                    const double f = double(kSampleRate) / (i - last);
+                    const double want = f_min * (2.5 + 2.5 / 9) / (s.ufo_slf_voltage() + 2.5 / 9);
+                    EXPECT_NEAR(f, want, want * 0.05);
+                    checked++;
+                }
+                last = i;
+            }
+            prev = now;
+        });
+        EXPECT_GT(checked, 20);
+    }
+}
+
+// --- Norton one-shot ---
+
+mw8080::analog::NortonOneShot missile_one_shot(double c) {
+    mw8080::analog::NortonOneShot os{4.7e6, 1e6, 1e6, c, 2.2e6, 100e3, 470e-12};
+    os.reset();
+    return os;
+}
+
+// Cap charges toward the R33/R31 Thevenin point and trips when R31 adds enough
+// current to outweigh R34's feedback.
+double one_shot_period(const mw8080::analog::NortonOneShot& os, double v0) {
+    const double v_th = (kVoh * os.r_in + kVbe * os.r_out) / (os.r_in + os.r_out);
+    const double tau = os.c * os.r_in * os.r_out / (os.r_in + os.r_out);
+    const double v_trip = kVbe + os.r_in * ((kVoh - kVbe) / os.r_fb - kBias12 / os.r_bias);
+    return tau * std::log((v_th - v0) / (v_th - v_trip));
+}
+
+double measure_one_shot(mw8080::analog::NortonOneShot& os, double v_high, double* v0) {
+    for (int i = 0; i < kSampleRate; i++) os.step(0, kDt);
+    *v0 = os.v_cap;
+    int n = 0;
+    os.step(v_high, kDt);
+    EXPECT_TRUE(os.high);
+    while (os.high && n < 20 * kSampleRate) {
+        os.step(v_high, kDt);
+        n++;
+    }
+    return double(n + 1) / kSampleRate;
+}
+
+TEST(NortonOneShot, PeriodFollowsTheTimingCapCharge) {
+    for (double c : {1e-6, 0.22e-6, 2.2e-6, 0.1e-6}) {
+        auto os = missile_one_shot(c);
+        double v0 = 0;
+        const double t = measure_one_shot(os, 5.0, &v0);
+        const double want = one_shot_period(os, v0);
+        EXPECT_NEAR(t, want, want * 0.01 + 2.0 / kSampleRate) << "C " << c;
+    }
+}
+
+TEST(NortonOneShot, HeldLineFiresOnceAndNeedsAFreshEdge) {
+    auto os = missile_one_shot(0.1e-6);
+    double v0 = 0;
+    measure_one_shot(os, 5.0, &v0);
+    for (int i = 0; i < kSampleRate; i++) {
+        os.step(5.0, kDt);
+        ASSERT_FALSE(os.high);
+    }
+    os.step(0, kDt);
+    for (int i = 0; i < kSampleRate / 100; i++) os.step(0, kDt);
+    os.step(5.0, kDt);
+    EXPECT_TRUE(os.high);
+}
+
+TEST(Sound, TaitoTriggerOneShotIsShorterByItsC12) {
+    auto midway = missile_one_shot(1e-6);
+    auto taito = missile_one_shot(0.22e-6);
+    double v0m = 0, v0t = 0;
+    const double tm = measure_one_shot(midway, 5.0, &v0m);
+    const double tt = measure_one_shot(taito, 12.0, &v0t);
+    EXPECT_NEAR(tt / tm, 0.22, 0.01);
+
+    auto duration = [](SoundBoard b) {
+        Sound s = powered(b);
+        s.port3_w(0x22);
+        int n = 0;
+        run(s, 1.0, [&](int) { n += s.missile_one_shot() > 5; });
+        return double(n) / kSampleRate;
+    };
+    EXPECT_NEAR(duration(SoundBoard::TaitoPv) / duration(SoundBoard::Midway), 0.22, 0.02);
+}
+
+// --- Norton oscillators ---
+
+struct RampLimits {
+    double hi, lo, up, down;
+};
+
+RampLimits ramp_limits(const mw8080::analog::NortonRamp& r, double i_extra) {
+    const double i_ref = kBias12 / r.r_ref;
+    return {
+        kVbe + r.r_cmp * (i_ref + (kVoh - kVbe) / r.r_hys),
+        kVbe + r.r_cmp * (i_ref + (kVol - kVbe) / r.r_hys),
+        ((kVoh - kVbe) / r.r_sq - kBias12 / r.r_bias - i_extra) / r.c,
+        (kBias12 / r.r_bias + i_extra) / r.c,
+    };
+}
+
+double ramp_hz(mw8080::analog::NortonRamp r, double i_extra, double seconds) {
+    r.reset();
+    for (int i = 0; i < kSampleRate; i++) r.step(i_extra, kDt);
+    int edges = 0;
+    bool prev = r.high;
+    const int n = int(seconds * kSampleRate);
+    for (int i = 0; i < n; i++) {
+        r.step(i_extra, kDt);
+        if (r.high && !prev) edges++;
+        prev = r.high;
+    }
+    return edges / seconds;
+}
+
+TEST(NortonRamp, SawAndTriangleFollowTheirChargeCurrents) {
+    // C16 R37 R41 R39 R40 R38, C21 R70 R64 R62 R63 R61
+    for (const mw8080::analog::NortonRamp& r : {mw8080::analog::NortonRamp{0.1e-6, 1e6, 10e3, 1e6, 120e3, 100e3},
+                                               mw8080::analog::NortonRamp{0.22e-6, 1e6, 10e3, 1e6, 120e3, 100e3},
+                                               mw8080::analog::NortonRamp{0.1e-6, 1e6, 470e3, 1e6, 120e3, 100e3}}) {
+        const RampLimits l = ramp_limits(r, 0);
+        const double want = 1.0 / ((l.hi - l.lo) / l.up + (l.hi - l.lo) / l.down);
+        EXPECT_NEAR(ramp_hz(r, 0, 20), want, want * 0.02) << "C " << r.c << " Rsq " << r.r_sq;
+    }
+}
+
+TEST(NortonRamp, ExtraInputCurrentTradesRiseForFall) {
+    // C10 R13 R16 R18 R19 R17 with R14/R12 currents
+    const mw8080::analog::NortonRamp r{330e-12, 3.3e6, 1e6, 1e6, 2.2e6, 560e3};
+    for (double i_extra : {0.0, 1e-6, 2e-6}) {
+        const RampLimits l = ramp_limits(r, i_extra);
+        const double want = 1.0 / ((l.hi - l.lo) / l.up + (l.hi - l.lo) / l.down);
+        EXPECT_NEAR(ramp_hz(r, i_extra, 2), want, want * 0.03) << i_extra;
+    }
+}
+
+TEST(NortonVco, FrequencyIsLinearInTheControlVoltage) {
+    // C17 R42 R43 R44 R46 R45
+    mw8080::analog::NortonVco v{330e-12, 1e6, 470e3, 680e3, 1e6, 1e6};
+    const double hi = kVbe + v.r_in * (kBias12 / v.r_ref - (kVol - kVbe) / v.r_hys);
+    const double lo = kVbe + v.r_in * (kBias12 / v.r_ref - (kVoh - kVbe) / v.r_hys);
+    for (double vin : {2.0, 5.0, 10.0}) {
+        v.reset();
+        const double i = vin - kVbe;
+        const double up = i * (1 / v.r_plus - 1 / v.r_minus) / v.c;
+        const double down = i / v.r_minus / v.c;
+        const double want = 1.0 / ((hi - lo) / up + (hi - lo) / down);
+        int edges = 0;
+        bool prev = v.high;
+        for (int k = 0; k < kSampleRate; k++) {
+            v.step(vin, kDt);
+            if (v.high && !prev) edges++;
+            prev = v.high;
+        }
+        EXPECT_NEAR(edges, want, want * 0.04) << vin;
+    }
+}
+
+TEST(Sound, HitSawRunsSlowerOnTaitoByItsCap) {
+    auto saw_hz = [](SoundBoard b) {
+        Sound s(b);
+        run(s, 0.5);
+        return rising_edges_per_second(s, 4.0, [&] { return s.hit3_saw() > 6.0; });
+    };
+    const double midway = saw_hz(SoundBoard::Midway);
+    EXPECT_NEAR(saw_hz(SoundBoard::TaitoPv) / midway, 0.1 / 0.22, 0.03);
+    EXPECT_NEAR(midway, 12.0, 0.6);
+}
+
+// A linear VCO's cycle count is k times the integral of its input above VBE.
+template <typename Ramp, typename Vco>
+void expect_vco_tracks(Sound& s, Ramp ramp, Vco vco, double c) {
+    const double hi = kVbe + 680e3 * (kBias12 / 1e6 - (kVol - kVbe) / 1e6);
+    const double lo = kVbe + 680e3 * (kBias12 / 1e6 - (kVoh - kVbe) / 1e6);
+    const double k = 1.0 / ((hi - lo) * c * (1 / (1 / 470e3 - 1 / 1e6) + 1e6));
+    int last = -1, checked = 0;
+    double area = 0;
+    bool prev = vco() > 4.0;
+    run(s, 1.0, [&](int i) {
+        area += (ramp() - kVbe) * kDt;
+        const bool now = vco() > 4.0;
+        if (now && !prev) {
+            if (last >= 0) {
+                const double cycles = k * area;
+                EXPECT_NEAR(cycles, 1.0, 0.05 + 2.0 * k * (ramp() - kVbe) * kDt) << "at " << i;
+                checked++;
+            }
+            last = i;
+            area = 0;
+        }
+        prev = now;
+    });
+    EXPECT_GT(checked, 100);
+}
+
+TEST(Sound, HitVcosAreSweptByTheirRamps) {
+    for (SoundBoard b : {SoundBoard::Midway, SoundBoard::TaitoPv}) {
+        Sound s(b);
+        expect_vco_tracks(s, [&] { return s.hit3_saw(); }, [&] { return s.hit3_vco(); }, 330e-12);  // C17
+        expect_vco_tracks(s, [&] { return s.hit5_tri(); }, [&] { return s.hit5_vco(); }, 470e-12);  // C22
+    }
+}
+
+// --- Missile ---
+
+TEST(Sound, MissileSoundsWhileHeldAndStopsWithC14) {
+    Sound s = powered(SoundBoard::Midway);
+    s.port3_w(0x22);
+    double peak = 0;
+    run(s, 0.2, [&](int) { peak = std::max(peak, std::fabs(s.source_current(Sound::kMissile))); });
+    EXPECT_GT(peak, 1e-6);
+    s.port3_w(0x20);
+    // R60 C14 bleed, 56 ms
+    run(s, 0.4);
+    double after = 0;
+    run(s, 0.2, [&](int) { after = std::max(after, std::fabs(s.source_current(Sound::kMissile))); });
+    EXPECT_LT(after, peak * 0.01);
+}
+
+TEST(Sound, MissilePitchRampFallsAtR36OverC13) {
+    Sound s = powered(SoundBoard::Midway);
+    s.port3_w(0x22);
+    while (s.missile_one_shot() < 5) tick(s);
+    while (s.missile_one_shot() > 5) tick(s);
+    run(s, 0.01);
+    const double a = s.missile_pitch();
+    run(s, 0.1);
+    EXPECT_NEAR((a - s.missile_pitch()) / 0.1, kBias12 / 1.5e6 / 0.22e-6, 1.0);
+}
+
+// --- Explosion ---
+
+TEST(Sound, ExplosionEnvelopeBleedsThroughR83IntoC26) {
+    Sound s = powered(SoundBoard::Midway);
+    s.port3_w(0x24);
+    run(s, 1.0);
+    const double a = s.explosion_env();
+    run(s, 0.68);
+    EXPECT_NEAR((s.explosion_env() - kVbe) / (a - kVbe), std::exp(-1.0), 0.02);
+}
+
+TEST(Sound, ExplosionIsNoiseThatFallsOff) {
+    Sound s = powered(SoundBoard::Midway);
+    s.port3_w(0x24);
+    auto rms = [&](double t) {
+        double sum = 0;
+        int n = 0;
+        run(s, t, [&](int) {
+            sum += s.source_current(Sound::kExplosion) * s.source_current(Sound::kExplosion);
+            n++;
+        });
+        return std::sqrt(sum / n);
+    };
+    const double early = rms(0.3);
+    run(s, 1.5);
+    EXPECT_GT(early, 4 * rms(0.3));
+}
+
+// --- OUT 3 bit 3 and OUT 5 bit 4 hits ---
+
+TEST(Sound, Hit3EnvelopeFallsAtR137OverC19) {
+    Sound s = powered(SoundBoard::Midway);
+    s.port3_w(0x28);
+    double top = 0;
+    run(s, 0.1, [&](int) { top = std::max(top, s.hit3_env()); });
+    EXPECT_NEAR(top, kVoh, 0.01);
+    const double a = s.hit3_env();
+    run(s, 0.1);
+    EXPECT_NEAR((a - s.hit3_env()) / 0.1, kBias12 / 1e6 / 0.47e-6, 0.5);
+}
+
+TEST(Sound, Hit5EnvelopeRisesAndFallsWithTheBit) {
+    Sound s = powered(SoundBoard::Midway);
+    s.port5_w(0x10);
+    run(s, 0.01);
+    double a = s.hit5_env();
+    run(s, 0.05);
+    // 1K + R72 against R71, into C23
+    EXPECT_NEAR((s.hit5_env() - a) / 0.05, (kBias12 / 101e3 - kBias12 / 1e6) / 1e-6, 2.0);
+    run(s, 0.2);
+    s.port5_w(0x00);
+    a = s.hit5_env();
+    run(s, 0.2);
+    EXPECT_NEAR((a - s.hit5_env()) / 0.2, kBias12 / 1e6 / 1e-6, 0.3);
+}
+
+TEST(Sound, HitsAreSilentUntilTriggered) {
+    for (SoundBoard b : {SoundBoard::Midway, SoundBoard::TaitoPv}) {
+        Sound s = powered(b);
+        double hit3 = 0, hit5 = 0;
+        run(s, 0.3, [&](int) {
+            hit3 = std::max(hit3, s.source_current(Sound::kHit3));
+            hit5 = std::max(hit5, s.source_current(Sound::kHit5));
+        });
+        EXPECT_LT(hit3, 1e-6);
+        EXPECT_LT(hit5, 1e-6);
+        s.port3_w(0x28);
+        s.port5_w(0x10);
+        double lo3 = 1, hi3 = 0, lo5 = 1, hi5 = 0;
+        run(s, 0.3, [&](int) {
+            lo3 = std::min(lo3, s.source_current(Sound::kHit3));
+            hi3 = std::max(hi3, s.source_current(Sound::kHit3));
+            lo5 = std::min(lo5, s.source_current(Sound::kHit5));
+            hi5 = std::max(hi5, s.source_current(Sound::kHit5));
+        });
+        EXPECT_GT(hi3 - lo3, 5e-6);
+        EXPECT_GT(hi5 - lo5, 5e-6);
+    }
+}
+
+// --- Fleet / step ---
+
+double fleet_hz(double r_ladder) {
+    const double r_a = 1e3 + r_ladder, r_b = 75e3, c = 0.1e-6, vs = 5.0 - 0.6;
+    const double t_hi = (r_a + r_b) * c * std::log((vs - 5.0 / 3) / (vs - 10.0 / 3));
+    return 1.0 / (t_hi + r_b * c * std::log(2.0));
+}
+
+TEST(Sound, FleetNotesFollowTheLadderResistors) {
+    const double ladder[4] = {40e3, 68e3, 82e3, 100e3};  // R126+R127, R128, R129, R130
+    for (int bit = 0; bit < 4; bit++) {
+        Sound s = powered(SoundBoard::Midway);
+        s.port5_w(uint8_t(1 << bit));
+        run(s, 0.1);
+        const double f = rising_edges_per_second(s, 4.0, [&] { return s.fleet_555() > 1.7; });
+        EXPECT_NEAR(f, fleet_hz(ladder[bit]), fleet_hz(ladder[bit]) * 0.02) << bit;
+    }
+}
+
+TEST(Sound, FleetBitsInParallelRaiseThePitch) {
+    Sound s = powered(SoundBoard::Midway);
+    s.port5_w(0x0F);
+    run(s, 0.1);
+    EXPECT_GT(rising_edges_per_second(s, 2.0, [&] { return s.fleet_555() > 1.7; }), fleet_hz(40e3) * 1.1);
+}
+
+TEST(Sound, FleetDataZeroParksThe556) {
+    Sound s = powered(SoundBoard::Midway);
+    s.port5_w(0x01);
+    run(s, 0.2);
+    s.port5_w(0x00);
+    run(s, 0.05);
+    EXPECT_EQ(rising_edges_per_second(s, 1.0, [&] { return s.fleet_555() > 1.7; }), 0.0);
+    EXPECT_GT(s.fleet_555(), 1.7);
+    s.mix();
+    run(s, 1.0);
+    s.mix();
+    EXPECT_LT(peak_mix(s, 0.3), 1e-3);
+}
+
+TEST(Sound, FleetThumpIsTheLoudestRegularSound) {
+    Sound s = powered(SoundBoard::Midway);
+    s.port5_w(0x01);
+    EXPECT_GT(peak_mix(s, 0.2), 0.4);
+}
+
+// --- Bonus / extend play ---
+
+TEST(Sound, BonusGatesTheTapWithTheSlow556) {
+    for (SoundBoard b : {SoundBoard::Midway, SoundBoard::TaitoPv}) {
+        Sound s = powered(b);
+        EXPECT_EQ(rising_edges_per_second(s, 0.2, [&] { return s.bonus_out() > 1.7; }), 0.0);
+        s.port3_w(0x30);
+        run(s, 0.5);
+        // R94 + R95 charge, R95 discharge, C34
+        const double t_hi = (100e3 + 47e3) * 1e-6 * std::log(2.0), t_lo = 47e3 * 1e-6 * std::log(2.0);
+        const std::vector<int> on = rising_edges(s, 4.0, [&] { return s.bonus_out() > 1.7 || s.ticks() == 0; });
+        int bursts = 0;
+        for (size_t i = 1; i < on.size(); i++) bursts += on[i] - on[i - 1] > kSampleRate / 100;
+        EXPECT_NEAR(bursts / 4.0, 1.0 / (t_hi + t_lo), 0.4);
+        const double tone = b == SoundBoard::Midway ? 480 : 960;
+        EXPECT_NEAR(double(on.size()) / 4.0, tone * t_hi / (t_hi + t_lo), tone * 0.04);
+        s.port3_w(0x20);
+        run(s, 0.01);
+        EXPECT_EQ(rising_edges_per_second(s, 0.3, [&] { return s.bonus_out() > 1.7; }), 0.0);
+    }
+}
+
+// --- Taito PV mixer ---
+
+TEST(TaitoSound, EverySourceReachesTheBusThroughItsTrimmer) {
+    Sound s = powered(SoundBoard::TaitoPv);
+    s.port3_w(0x3F);
+    s.port5_w(0x11);
+    double lo[Sound::kSources]{}, hi[Sound::kSources]{};
+    run(s, 0.5, [&](int) {
+        for (int i = 0; i < Sound::kSources; i++) {
+            lo[i] = std::min(lo[i], s.source_current(i));
+            hi[i] = std::max(hi[i], s.source_current(i));
+        }
+    });
+    for (int i = 0; i < Sound::kSources; i++) EXPECT_GT(hi[i] - lo[i], 1e-8) << i;
+    // SN76477 through 47K, then VR1 and its 47K
+    EXPECT_NEAR(lo[Sound::kUfo], -3.4 * 10e3 / 150e3 / (47e3 + kTrimIn) * kTrimRatio, 1e-12);
 }
 
 TEST(TaitoSound, IdleIsSilentAndSx5Mutes) {
-    mw8080::Sound s = quiet_taito();
-    EXPECT_LT(rms(run(s, 0.3)), 1e-3);
-    s.port3_w(kInvaderHit);
-    EXPECT_EQ(rms(run(s, 0.3)), 0.0);
+    Sound s = powered(SoundBoard::TaitoPv);
+    run(s, 1.0);
+    s.mix();
+    EXPECT_LT(peak_mix(s, 0.3), 1e-3);
+    s.port3_w(0x08);
+    EXPECT_EQ(peak_mix(s, 0.3), 0.0);
 }
 
-TEST(TaitoSound, ExtendPlayGatesTheFasterTap) {
-    mw8080::Sound midway = quiet_board();
-    mw8080::Sound taito = quiet_taito();
-    midway.port3_w(kAmp | kBonusBase);
-    taito.port3_w(kAmp | kBonusBase);
-    const double ratio = double(crossings(run(taito, 1.0), 0.2)) / crossings(run(midway, 1.0), 0.2);
-    EXPECT_NEAR(ratio, 2.0, 0.3) << "960 Hz on PVR00001, 480 Hz on Midway";
+TEST(TaitoSound, TrimmersMakeTheBoardQuieterThanMidwayForTheStep) {
+    auto peak = [](SoundBoard b) {
+        Sound s = powered(b);
+        s.port5_w(0x01);
+        return peak_mix(s, 0.2);
+    };
+    // 68K plus the trimmer into the bus, against R134 10K
+    const double want = (10e3 / (68e3 + kTrimIn)) * kTrimRatio;
+    EXPECT_NEAR(peak(SoundBoard::TaitoPv) / peak(SoundBoard::Midway), want, want * 0.15);
 }
 
-TEST(TaitoSound, TriggerOneShotIsShorter) {
-    mw8080::Sound midway = quiet_board();
-    mw8080::Sound taito = quiet_taito();
-    midway.port3_w(kAmp | kMissile);
-    taito.port3_w(kAmp | kMissile);
-    const double tm = decay_time(run(midway, 1.5));
-    const double tt = decay_time(run(taito, 1.5));
-    EXPECT_LT(tt, tm * 0.5) << "C12 0.22uF against Midway's 1uF";
-}
+}  // namespace

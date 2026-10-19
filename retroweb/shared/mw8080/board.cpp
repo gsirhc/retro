@@ -35,7 +35,7 @@ void Board::reset() {
     frames = 0;
 }
 
-// A15 is not decoded (MAME main_map).
+// A15 is not decoded.
 uint8_t Board::mem_read(uint16_t addr) const {
     addr &= 0x7FFF;
     if (addr < 0x2000) return program[addr];
@@ -50,7 +50,7 @@ void Board::mem_write(uint16_t addr, uint8_t v) {
     else if (addr >= 0x6000) ram[addr - 0x6000] = v;
 }
 
-// Only A0–A2 decode (MAME invaders_state::io_map).
+// Only A0–A2 decode.
 uint8_t Board::port_in(uint8_t port) const {
     switch (port & 3) {
         case 0: return inputs.in0;
@@ -75,7 +75,7 @@ uint8_t Board::vcounter(int line) {
     return line < kVblankLine ? uint8_t(line + 0x20) : uint8_t(line - kVblankLine + 0xDA);
 }
 
-// 0xC7 | 64V << 4 | !64V << 3, sampled at INTA (MAME mw8080bw.cpp interrupt notes).
+// 0xC7 | 64V << 4 | !64V << 3, sampled at INTA.
 uint8_t Board::rst_vector(int line) {
     const uint8_t v = vcounter(line);
     return uint8_t(0xC7 | ((v & 0x40) >> 2) | ((~v & 0x40) >> 3));

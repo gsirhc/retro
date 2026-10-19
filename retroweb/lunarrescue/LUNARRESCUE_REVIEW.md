@@ -70,48 +70,61 @@ both fire and the retro rocket.
 
 ## 5. Sound
 
-MAME plays samples. The real board is the Taito PV game board's discrete
-section (PVR00001), the same topology as Midway's `invaders_discrete` with
-Taito's part values. `shared/mw8080/sound.cpp` runs it with
-`SoundBoard::TaitoPv`.
+The real board is the Taito PV game board's sound section (schematic
+PVR00001, 7/19/79, sheet 5 of `tcsi-sp.pdf`). It is the Midway 739 sound
+circuit with Taito part values and a trimmer mixer, so
+`shared/mw8080/sound.cpp` runs the same model with `SoundBoard::TaitoPv`
+(see `invaders/INVADERS_REVIEW.md` §10 for the circuit walk-through).
 
-Port map (latch SX0–SX10 on the schematic; MAME's sample names in brackets):
+Port map (latch SX0–SX10 on the schematic):
 
-- OUT 3: 0 SN76477 enable, active-low pin [thrust], 1 trigger one-shot
-  [shot], 2 flash / explosion [death] and screen red, 3 target hit [alien
-  hit], 4 extend play [bonus ship], 5 amplifier enable.
-- OUT 5: 0–3 step ladder into the step 555 [footsteps, bonus count, and the
-  "bitstream" tunes, which are bit 3 toggling the 555], 4 UFO hit [shooting
-  star], 5 flip (n/c upright).
+- OUT 3: 0 SN76477 (IC32) enable through the IC20 inverter, 1 TRIGGER
+  SOUND, 2 FLASH (also the red screen), 3 TARGET HIT, 4 EXTEND PLAY,
+  5 amplifier enable.
+- OUT 5: 0–3 STEP ladder into the IC17 556, 4 UFO HIT, 5 flip (n/c
+  upright).
 
-Taito deltas from Midway, read off PVR00001:
+Taito deltas, read off PVR00001:
 
-| Part | Midway | Taito |
+| Block | Midway 739 | Taito PV |
 |---|---|---|
-| Trigger one-shot C12 | 1 µF | 0.22 µF |
-| Trigger VCO cap | 330 pF | 300 pF |
-| Target-hit oscillator cap | 0.1 µF | 0.22 µF |
-| Flash output R84 | 5.6K | 560 Ω |
-| Extend play gate | 480 Hz tap | 960 Hz tap |
-| Mixer | resistor summing into one op amp | 1 µF → B-50K trimmer VR1–VR7 → 47K → 1 µF → Norton amp |
+| Trigger one-shot cap | C12 1 µF | 0.22 µF (about 75 ms instead of 0.33 s) |
+| Trigger oscillator cap | C10 330 pF | 300 pF |
+| Trigger / flash / target / UFO-hit pull-ups | 1K to +5 V | 1K to +12 V |
+| Target-hit sawtooth cap | C16 0.1 µF | 0.22 µF (about 5.4 Hz) |
+| Flash ladder first resistor | R84 5.6K | 560 Ω |
+| VCO slope switch | 4016 | 2SC872 with 33K base resistor |
+| Extend-play tone | 480 Hz line | 960 Hz line |
+| Outputs | R125 47K, R28 150K, R86 2K, R59 200K, R136 150K, R134 10K, R78 | 47K, 0.001 µF + 150K, 2K, 47K, 220K, 68K, 47K |
+| Mixer | straight into the summing amp | 1 µF → VR1–VR7 → 47K → 1 µF → IC33 |
 
-Output series resistances into the trimmers: UFO 47K, trigger 0.001 µF +
-150K, flash 2K, target hit 47K, extend play 220K, step 68K, UFO hit 47K.
-The summing amp's AC feedback is 100K in parallel with VR8 (50K, in series
-with 1 µF); SX5 mutes it through a diode. Then 0.1 µF / 47K into the MB3712.
+IC33 is the same summing stage as Midway's L2-3: 100K feedback, VR8 (50K)
+plus 1 µF, 220K bias from a 2K/10 µF filtered +12 V, SX5 muting it through a
+diode. Its swing about the bias point is the browser sample. IC34 MB3712
+follows it.
 
-Assumptions, each a single constant in `sound.cpp`:
+Sources: PVR00001; the Midway 739 logic schematic for the values PVR00001
+does not show; TI SN76477 data sheet and application guide; TI LM3900 data
+sheet and National AN-72; TI NE555 data sheet; TI CD4006B data sheet.
 
-- Every trimmer sits at mid travel (`kTaitoWiper`). Operators set these by
-  ear, so the real balance varies by cabinet. At mid travel the UFO / thrust
-  is quieter than the hits, as the series values imply.
-- `kTaitoGain`: 1 V at the summing amp output is full scale. The loudest
-  single sound (target hit) peaks near 0.55.
-- The flash capacitor C24 is not legible on the scan. Midway's 2.2 µF is
-  kept.
-- MAME's note that Taito boards use 2.2M for R13 is not on this sheet, which
-  shows 3.3M. 3.3M is used.
-- The second 1 µF after each 47K is a ~3 Hz high-pass and is not modelled.
+Assumptions:
+
+- VR1–VR7 have no value on the sheet: 50K like VR8, every wiper at mid
+  travel. Each source then reaches the bus through about 41K and a 0.35
+  current split, so the board is quieter than the Midway one. Operators set
+  these by ear.
+- VR8 at mid travel.
+- SN76477 pins 11, 17, 18 and 20 are illegible on the scan; Midway's
+  R123 150K, C36 0.047 µF, R121 39K and R120 120K are used. Pin 21's 1 µF,
+  pin 10's 100K and pin 12's 10K are legible and match.
+- The flash one-shot capacitor is illegible; Midway's C24 2.2 µF is used.
+- No resistor is drawn between NOISE and IC27 pin 11; Midway's R79 680K is
+  used, since a direct CMOS drive would hold the flash on regardless of SX2.
+- The trigger noise network and the 4006 register follow Midway's wiring;
+  the visible values (0.1 µF, 1M, 330K, 1.5M, 56K, 560K, 0.001 µF) match.
+- The UFO / thrust SN76477 comes out very quiet at mid trimmer (about 0.003
+  peak), following from equation 8 of the SN76477 data sheet and the
+  trimmer split.
 
 ## 6. HIGH SCORE
 

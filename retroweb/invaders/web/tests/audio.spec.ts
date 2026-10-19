@@ -48,8 +48,9 @@ test.describe("Audio level", () => {
 
   test("OUT 3 bit 0 runs the SN76477 saucer at its mixer level", async ({ page }) => {
     const peak = await peakAfter(page, 3, 0x21);
-    expect(peak).toBeGreaterThan(0.12);
-    expect(peak).toBeLessThan(0.26);
+    // 3.4 R124/R123 pulses through R125 into the summing amp
+    expect(peak).toBeGreaterThan(0.012);
+    expect(peak).toBeLessThan(0.022);
   });
 
   test("OUT 3 bit 5 low mutes the amplifier", async ({ page }) => {

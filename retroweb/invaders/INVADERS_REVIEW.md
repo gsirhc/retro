@@ -110,24 +110,70 @@ the CPU is reset. RAM, the beam and the sound latches carry on.
 
 ## 10. Sound (`shared/mw8080/sound.cpp`)
 
-MAME `invaders_audio_device` and the `invaders_discrete` netlist, module by
-module at a 48 kHz step:
+Built from the Midway 739 logic schematic (P.C. A084-90700-B000, logic
+schematic M051-00739-A005; scan `Daughterboard.tif` in classicgaming.cc's
+`space-invaders-midway-schematics.zip`) and the part datasheets. Every block
+is stepped at 48 kHz with its own equations: LM3900 stages solved as current
+mirrors (inputs at one VBE, output 0.09 V to 11.5 V), integrators and
+Schmitts switched at the exact threshold crossing inside a step, RC ladders
+by implicit Euler.
 
-- OUT 3: bit 0 high runs the SN76477 (MAME `enable_w(BIT(~data,0))`, the
-  chip's enable is active-low), 1 missile, 2 explosion, 3 invader hit, 4 bonus
-  base, 5 amplifier enable.
-- OUT 5: bits 0–3 fleet thump data, 4 saucer hit, 5 flip screen (n/c upright).
-- Ported literally: `midway_lfsr` noise at 7515 Hz, `dss_op_amp_osc`
-  (OSCILLATOR_1, VCO_1, VCO_3, Norton), `dst_op_amp`, `dst_op_amp_1sht`,
-  `dsd_555_astbl` with the R126–R130 comp adder, RC/CR filters,
-  `dss_squarewfix`, `dst_mixer` with C11 and C45, SN76477 SLF/VCO/output.
-- Reduced to what the netlist uses: `dst_tvca_op_amp` (f2 = TRG0 only), the
-  SN76477 noise path (mixer mode 0 is VCO only), and its one-shot/attack with
-  zero C and R (the A/D voltage sits at 4.44 V once enabled).
-- MAME's `DISCRETE_OUTPUT` gain 2500 is read as /32768 into the float stream.
-  Final mix is 0.5 discrete + 0.5 SN76477, as MAME routes both.
-- MAME notes the missile VCO_3 does not fully match the board. It is quiet
-  here as in MAME.
+- OUT 3: 0 UFO (F3 inverts it onto SN76477 pin 9), 1 missile, 2 explosion,
+  3 the circuit the sheet labels SAUCER HIT, 4 bonus base, 5 amplifier
+  enable (D13/D14).
+- OUT 5: 0–3 fleet ladder, 4 the circuit labelled INVADER HIT, 5 flip
+  (n/c upright).
+- UFO, SN76477 H2: pins 1, 22, 19 high, 25–28 low: VCO swept by the SLF,
+  mixer VCO only, one-shot envelope with pins 23/24 open, so the latch set
+  by pin 9 falling never times out and pin 9 alone gates the sound. SLF
+  0.64/(R120 C35) = 5.3 Hz, a triangle between 0.35 V and 2.5 V. VCO
+  minimum 0.64/(R121 C36) = 349 Hz, swept to about 1.5 kHz. Output pulses
+  3.4 R124/R123 = 0.23 V into R125 47K.
+- Noise: 4006 N5 wired as 17 stages, stage 5 XOR stage 17 back into D2
+  (a maximal 131071-bit sequence), NOISE taken at stage 13, clocked by the
+  4030 R113/C46 astable at 1/(2 ln3 RC), about 8.1 kHz.
+- Missile: M4 one-shot (C12 1 µF, about 0.33 s) charges the M4 integrator
+  (R35/R36/C13), which falls at 35 V/s and sets the P4 oscillator's pitch
+  through D1/R14; noise is mixed in through C9/R10/R11/R12. P4 stage 3 scales
+  the square by that ramp, stage 4 gates it with C14, charged through D3
+  while the bit is held and bled through R60. Out through C11 and R28.
+- Explosion: K3 one-shot (C24 2.2 µF, about 0.7 s) charges C26 through
+  R93/D6; C26 bleeds through R83 (0.68 s). K3-4 subtracts the noise (R79),
+  so the output is noise whose level follows C26, then R84/C27/R85/C28/R86.
+- Saucer hit (OUT 3 bit 3): K5 sawtooth (C16, about 12 Hz) sweeps the K5
+  linear VCO (C17 330 pF, 170 Hz to 2.1 kHz, 4016 J5 as the slope switch).
+  K4 one-shot (C18) drives the K4 integrator (R53/R137/C19), K4 stage 3
+  subtracts the VCO ramp from that envelope. Out through R59.
+- Invader hit (OUT 5 bit 4): M5 triangle (C21, about 6 Hz) sweeps the M5
+  VCO (C22 470 pF). The bit charges C23 through the 1K pull-up and R72
+  (102 V/s up, 11.5 V/s down). Out through R78.
+- Fleet: the set bits pull up through 1K, R126+R127/R128/R129/R130 and a
+  diode into the H4 556 discharge pin, R131 75K and C29 0.1 µF. One bit at a
+  time gives 61, 53, 50 and 46 Hz. Out through H3, R132/C31/R133/C32, R134.
+- Bonus base: the other 556 half (R94, R95, C34, reset by the bit) gates the
+  sheet's 480 Hz line in H3, about 7.4 bursts a second. Out through R136.
+- Mixer: every source is a current into the L2-3 virtual ground through C44.
+  Feedback is R105 100K in parallel with R106 (50K volume) plus C42, bias
+  R104 220K. The browser sample is that stage's swing about its 5.7 V bias,
+  so ±1.0 is the LM3900 rail.
+
+Sources: the Midway sheet above; TI SN76477 data sheet (July 1978) and
+"Complex Sound Generation Using the SN76477N" application guide (both from
+sandsoftwaresound.net); TI LM3900 data sheet (SLOS059) and National AN-72;
+TI NE555 data sheet; TI CD4006B data sheet.
+
+Assumptions:
+
+- R106 at mid travel (25K).
+- R78 reads 200K or 280K on the scan; 200K is used.
+- The bonus tone is the sheet's "480 HZ" label as an ideal square.
+- SN76477 VCO law f = f_min (2.5 + V0)/(V + V0), V0 = 2.5/9: the data sheet
+  gives only the end points (f_min at 2.5 V, 10× at 0 V).
+- SN76477 pins 8 and 23 open: attack and one-shot caps treated as zero.
+- 7411 outputs at typical TTL levels (3.4 V / 0.2 V); diode drops 0.6 V.
+- The noise clock uses the textbook two-gate CMOS astable period.
+- By the data sheet's equation 8 the UFO's 0.23 V pulses into 47K come out
+  about 30 dB below the fleet. That level comes straight from R123/R124.
 
 ## 11. HIGH SCORE
 
