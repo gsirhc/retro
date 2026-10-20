@@ -32,16 +32,19 @@ control flow. That covers MAME, SIMH, Altirra, Nuked-OPL3, DOSBox, Bochs,
 subagents too: don't open emulator source while writing code here, and
 tell any agent you delegate to the same.
 
-A numeric value may stay even if it first showed up in an emulator. Do not
-cite the emulator for it, and do not describe it as hardware until a
-schematic, a datasheet, a measurement, or the game's own ROM says so.
+Values are different from code. A part value, constant, address, or timing
+may come from any source, an emulator included, when no primary source has
+it. Do not cite the emulator for it, and do not describe it as hardware
+until a schematic, a datasheet, a measurement, or the game's own ROM says
+so. Code must always be written fresh from datasheets and schematics.
 
 - Work only from primary sources: the board's own schematics and service
   manuals, chip datasheets, period programming manuals, decap/die analyses,
   original ROM disassemblies, and measurements of real hardware.
 - Don't cite an emulator in a comment, review doc, test, or commit message,
-  even for a plain fact. If a fact is only known from an emulator, find a
-  primary source for it, or ask Chris before using it.
+  even for a plain fact. If a value is only known from an emulator, look
+  for a primary source first; if there is none, use the value and mark it
+  unsourced in the machine's review doc.
 - Model analog circuits (op-amps, 555s, RC networks, filters) from the
   schematic's part values and the parts' datasheets, deriving the equations
   yourself.
