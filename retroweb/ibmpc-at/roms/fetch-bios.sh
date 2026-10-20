@@ -21,7 +21,7 @@ FORCE="${1:-}"
 # Pinned to bochs-emu/Bochs@ff17a0c2bbabccf96d33af4e08ba8061889b079d (master, fetched 2026-09-05).
 BASE="https://raw.githubusercontent.com/bochs-emu/Bochs/ff17a0c2bbabccf96d33af4e08ba8061889b079d/bochs/bios"
 
-# Public-domain 8x8 and 8x14 fonts (Joseph Gil) for egabios/, from qemu/vgabios@19ea12c.
+# Joseph Gil's public-domain 8x8 and 8x14 fonts (fntcol16.zip, Simtel) for egabios/, via the vgabios C conversion.
 FONTS="https://raw.githubusercontent.com/qemu/vgabios/19ea12c230ded95928ecaef0db47a82231c2e485/vgafonts.h"
 
 # name  |  url  |  sha256

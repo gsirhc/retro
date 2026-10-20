@@ -2941,7 +2941,8 @@ is copied.
   BL=20h installs a print-screen routine that prints every row. Graphics
   characters, dots and scrolling cover modes 4-6 and D-10h.
 - **Fonts.** The 8x8 and 8x14 sets are Joseph Gil's public-domain fonts
-  (via LGPL vgabios's `vgafonts.h`, pinned in `fetch-bios.sh`). There is
+  from his `fntcol16.zip` collection (Simtel), fetched as vgabios's C
+  conversion `vgafonts.h`, pinned in `fetch-bios.sh`. There is
   no 9x14 alternate set; AH=11h AL=30h BH=5 returns an empty list.
 - **Labelling.** The ROM prints `EGA BIOS: open stand-in for IBM's ROM`
   after its mode set.
