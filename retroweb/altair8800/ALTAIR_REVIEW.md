@@ -375,18 +375,12 @@ Verified: `cpm63k`, `games`, `cpm3boot` boot to `A>` and CP/M `SAVE`/`DIR`/
 `SAVE`/`LOAD`/`RUN`/`KILL` the same; Altair DOS boots. Images written at
 Realistic and at Max are byte-identical.
 
-**Boot PROM (`disk_bootrom.h`), open.** No MITS-published listing of the DBL
-was found (the BASIC 4.1 manual only says how to run it from 177400 octal).
-The closest primary source is Mike Douglas's disassembly of a dumped DBL 3.3
-PROM (deramp.com `software/roms/orginal_roms/DBL33.PRN`, `DBL33.HEX`). The
-code our PROM copies to RAM, `4C00h`–`4CD3h`, matches it byte for byte. The
-rest differs: our copy stub at `FF00h` runs `LDAX D`/`MOV M,A` from `FF18h`
-for `0E6h` bytes where the dump runs `MOV A,M`/`STAX D` from `FF27h` for
-`0D4h`; the dump's cassette bootstrap at `FF13h`–`FF26h` is missing here
-(five zero bytes at `FF13h`, then the RAM code from `FF18h`); and our image
-copies 18 extra bytes (`84 00 4C 24 16 56 16`, then 11 zeros) into the sector
-buffer at `4CD4h`, which the first sector read overwrites. Boots work
-either way. The bytes are unchanged pending the owner's call.
+**Boot PROM (`disk_bootrom.h`).** No MITS-published listing of the DBL was
+found (the BASIC 4.1 manual only says how to run it from 177400 octal). The
+image is a dumped DBL 3.3 PROM, byte for byte (Mike Douglas, deramp.com
+`software/roms/orginal_roms/DBL33.HEX`, disassembly in `DBL33.PRN`): a copy
+stub at `FF00h` moves `0D4h` bytes from `FF27h` to `4C00h`, and the PROM's own
+cassette bootstrap sits at `FF13h`–`FF26h`.
 
 **Not modelled:** the sector interrupt (D4/D5 latch it, but the INT/VI7
 jumper output isn't wired to the CPU; no MITS software found uses it), write
