@@ -240,6 +240,7 @@ lint-ts:
 lint-staging:
 	sh -n stage_web.sh
 	python3 check_site.py --selftest
+	python3 check_emulator_refs.py --selftest
 	python3 strip_fast_flag.py --check ibmpc-at/web/app.js pc486/web/app.js
 
 lint-js:

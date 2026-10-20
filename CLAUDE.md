@@ -32,11 +32,16 @@ control flow. That covers MAME, SIMH, Altirra, Nuked-OPL3, DOSBox, Bochs,
 subagents too: don't open emulator source while writing code here, and
 tell any agent you delegate to the same.
 
-Values are different from code. A part value, constant, address, or timing
-may come from any source, an emulator included, when no primary source has
-it. Do not cite the emulator for it, and do not describe it as hardware
-until a schematic, a datasheet, a measurement, or the game's own ROM says
-so. Code must always be written fresh from datasheets and schematics.
+Single values are different from code. One value (an address, a constant,
+a bit, a timing) may come from an emulator when no primary source has it;
+mark it unsourced. A few related facts, like one filter's part values or a
+chip's interrupt vectors, still count as single values. Tables, arrays and
+curves never come from an emulator: take them from a primary source
+(datasheet, schematic, ROM dump) or derive them yourself. Do not cite the
+emulator for a value, and do not describe it as hardware until a
+schematic, a datasheet, a measurement, or the game's own ROM says so. Code
+must always be written fresh from datasheets and schematics.
+`make -C retroweb lint` fails on emulator names (`retroweb/check_emulator_refs.py`).
 
 - Work only from primary sources: the board's own schematics and service
   manuals, chip datasheets, period programming manuals, decap/die analyses,
