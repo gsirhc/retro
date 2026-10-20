@@ -1,6 +1,7 @@
 #include "machine.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 
 namespace centipede {
@@ -8,13 +9,15 @@ namespace centipede {
 namespace {
 
 uint16_t mirror(uint16_t addr) {
-    // A14/A15 ignored, map is 14-bit (MAME global_mask 0x3fff).
+    // H3 and J2 decode A13-A10; A14/A15 go nowhere (DP-182 sheet 1B).
     return addr & 0x3FFF;
 }
 
 }  // namespace
 
 Machine::Machine() : cpu(make_bus()) {
+    // AUD into J10, held at +5 V with R69 3.3K || C53 0.01 uF feedback (DP-182 sheet 2B).
+    pokey.set_output_transimpedance(3.3e3, 0.01e-6, 5.0, kOpAmpHigh);
     reset();
 }
 
@@ -50,6 +53,7 @@ void Machine::reset() {
     earom_c2_ = false;
     earom_clk_ = false;
     audio.clear();
+    hp_ = 5.0;
 }
 
 void Machine::load_roms(const RomSet& set) {
@@ -67,7 +71,7 @@ void Machine::set_earom_bytes(const uint8_t* p, size_t n) {
 void Machine::kick_watchdog() { watchdog_frames_ = kWatchdogFrames; }
 
 void Machine::earom_update() {
-    // C1=0 C2=0 AND-writes; C1=0 C2=1 erases to $FF (MAME er2055 update_state).
+    // C1=0 C2=0 writes, C1=0 C2=1 erases (GI ER2055 data sheet); erased reads $FF.
     if (earom_c1_) return;
     uint8_t& cell = earom[earom_addr_ & 0x3F];
     if (earom_c2_) cell = 0xFF;
@@ -75,7 +79,7 @@ void Machine::earom_update() {
 }
 
 void Machine::earom_control(uint8_t v) {
-    // CK=DB0, C1=/DB1, C2=DB2, CS1=DB3, /CS2=GND (MAME centiped earom_control_w).
+    // E4 LS175: CK=DB0, C1=/DB1, C2=DB2, CS1=DB3; CS2 grounded (DP-182 sheet 2B).
     bool cs1 = (v & 0x08) != 0;
     bool c1 = (v & 0x02) == 0;
     bool c2 = (v & 0x04) != 0;
@@ -105,7 +109,7 @@ uint8_t Machine::mem_read(uint16_t addr) const {
     if (addr == 0x0801) return inputs.dsw2;
 
     if (addr == 0x0C00) {
-        // Trackball X + cabinet/service/VBLANK (computerarcheology IN0).
+        // Trackball X, cocktail, self-test, VBLANK (DP-182 memory map).
         uint8_t v = uint8_t((inputs.track_x & 0x0F) | (inputs.track_x & 0x80));
         v |= uint8_t(inputs.in0_switches & 0x30);
         if (vblank_) v |= 0x40;
@@ -185,7 +189,7 @@ void Machine::service_video(int cycles) {
     while (line_cycles_ >= kCyclesPerLine) {
         line_cycles_ -= kCyclesPerLine;
         line_++;
-        // 32V IRQ every 16 lines (MAME generate_interrupt).
+        // D4 LS74 latches 32V on each 16V edge into /IRQ (DP-182 sheet 1B).
         if (line_ & 16) {
             bool assert_irq = ((line_ - 1) & 32) != 0;
             irq_line_ = assert_irq;
@@ -211,11 +215,13 @@ int Machine::run_cycles(int n) {
     while (done < n) {
         playfield_touch_ = false;
         int c = cpu.step();
-        // Playfield RAM steals the bus, half clock (MAME / schematics).
+        // L4 LS107 stretches PHI0 while PF is selected (DP-182 sheet 1B).
         if (playfield_touch_) c *= 2;
         if (c < 1) c = 1;
         service_video(c);
+        size_t from = audio.size();
         pokey.mix(c, audio_hz, audio);
+        condition_audio(from);
         done += c;
         if (watchdog_reset && frames == 0 && line_ == 0) {
             // reset() cleared the sticky flag path; keep sticky true.
@@ -223,6 +229,15 @@ int Machine::run_cycles(int n) {
         }
     }
     return done;
+}
+
+// C65 0.22 uF into R81 100K couples J10's output to the inverting stage.
+void Machine::condition_audio(size_t from) {
+    double a = 1 - std::exp(-1.0 / (0.22e-6 * 100e3 * audio_hz));
+    for (size_t i = from; i < audio.size(); i++) {
+        hp_ += (audio[i] - hp_) * a;
+        audio[i] = float(std::clamp(-(audio[i] - hp_) / kAudioScale, -1.0, 1.0));
+    }
 }
 
 uint8_t Machine::tile_pixel(uint8_t code, int x, int y) const {
@@ -244,7 +259,7 @@ uint8_t Machine::sprite_pixel(uint8_t code, int x, int y) const {
 }
 
 uint32_t Machine::pen_rgb(int pen) const {
-    // Character pens 0..3 from palette RAM $1404..$1407 (MAME centiped_paletteram_w).
+    // Playfield colours at $1404, motion objects at $140C (DP-182 memory map).
     // Sprite pens use $140C..$140F via the per-object colour nybbles.
     uint8_t data = 0;
     if (pen < 4) {
@@ -255,7 +270,7 @@ uint32_t Machine::pen_rgb(int pen) const {
         if (p == 0) return 0;
         data = paletteram[0x0C | ((p - 1) & 3)];
     }
-    // Bits inverted; bit3 = alternate dims blue or green (MAME centiped_v.cpp).
+    // Active low, $F is black (CENTST.MAC); bit 3 is the alternate blue or green (sheet 2B).
     int r = 0xff * ((~data >> 0) & 1);
     int g = 0xff * ((~data >> 1) & 1);
     int b = 0xff * ((~data >> 2) & 1);
@@ -275,8 +290,7 @@ void Machine::render(uint32_t* rgba) const {
         for (int tx = 0; tx < 32; tx++) {
             uint8_t data = videoram[ty * 32 + tx];
             uint8_t code = uint8_t((data & 0x3F) + 0x40);
-            // TILE_FLIPYX(data>>6): bit6 = flip X, bit7 = flip Y (MAME
-            // centiped_get_tile_info). After ROT270 that is upright Y / X.
+            // Bit 6 flips X, bit 7 flips Y; after ROT270 that is upright Y / X.
             bool flipx = (data & 0x40) != 0;
             bool flipy = (data & 0x80) != 0;
             for (int py = 0; py < 8; py++) {
@@ -292,7 +306,7 @@ void Machine::render(uint32_t* rgba) const {
         }
     }
 
-    // penmask: transparent when a colour pair is 0 (MAME init_penmask).
+    // A motion-object pen whose colour pair is 0 is transparent.
     auto penmask = [](uint8_t color) -> uint8_t {
         uint8_t mask = 1;
         if (((color >> 0) & 3) == 0) mask |= 2;
@@ -311,7 +325,7 @@ void Machine::render(uint32_t* rgba) const {
         int y = 240 - spriteram[offs + 0x10];
         uint8_t mask = penmask(uint8_t(color & 0x3F));
 
-        // Sprite clip: 8 px from the cocktail edge (MAME screen_update_centiped).
+        // Motion objects stop 8 px short of the cocktail edge.
         int x0 = flipscreen ? 8 : 0;
         int x1 = flipscreen ? kFbW : kFbW - 8;
 
@@ -322,7 +336,7 @@ void Machine::render(uint32_t* rgba) const {
                 uint8_t pix = sprite_pixel(uint8_t(code), sx, sy);
                 if (pix == 0) continue;
                 if (mask & (1u << pix)) continue;
-                // Colour nybbles select palette for pens 1/2/3 (MAME comment).
+                // Colour byte pairs pick the $140C slot for pens 1/2/3.
                 int pair = (color >> ((pix - 1) * 2)) & 3;
                 int dx = x + px;
                 int dy = y + py;

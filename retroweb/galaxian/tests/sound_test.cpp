@@ -18,13 +18,25 @@ std::vector<float> run_sound(galaxian::DiscreteSound& s, double seconds) {
     return out;
 }
 
+// NOISE chopped as a square wave at `hz`.
+std::vector<float> run_chopped(galaxian::DiscreteSound& s, double seconds, double hz) {
+    std::vector<float> out;
+    int n = int(seconds * 48000);
+    for (int k = 0; k < n; k++) {
+        s.set_noise(std::fmod(k / 48000.0 * hz, 1.0) < 0.5);
+        s.advance(64);
+        out.push_back(s.mix());
+    }
+    return out;
+}
+
 double rms(const std::vector<float>& v, size_t from = 0) {
     double sum = 0;
     for (size_t i = from; i < v.size(); i++) sum += double(v[i]) * v[i];
     return v.size() > from ? std::sqrt(sum / double(v.size() - from)) : 0.0;
 }
 
-double background_hz(uint8_t bits) {
+double ramp_hz(uint8_t bits) {
     galaxian::DiscreteSound s;
     s.reset();
     for (int b = 0; b < 4; b++) s.lfo_freq_w(b, (bits >> b) & 1);
@@ -33,14 +45,14 @@ double background_hz(uint8_t bits) {
     double first = -1, last = 0;
     for (int k = 0; k < 3072000 * 4 / 64; k++) {
         s.advance(64);
-        double cv = s.background_cv();
-        if (cv < prev - 0.5) {
+        double v = s.ramp_volts();
+        if (v < prev - 0.5) {
             double t = k * 64.0 / 3072000.0;
             if (first < 0) first = t;
             last = t;
             drops++;
         }
-        prev = cv;
+        prev = v;
     }
     return drops > 1 ? (drops - 1) / (last - first) : 0.0;
 }
@@ -55,14 +67,14 @@ TEST(DiscreteSound, IdleIsSilent) {
 }
 
 TEST(DiscreteSound, BackgroundRampSlowsAsTheDacRises) {
-    double f0 = background_hz(0x0);
-    double f15 = background_hz(0xF);
-    // C15 charged by (5 - 0.7 - Vdac)/R21 across 1/3 Vcc: 5.6 Hz with the ladder at rest.
-    EXPECT_NEAR(f0, 5.65, 0.3);
-    EXPECT_LT(f15, f0 / 3);
+    // Latches low: Q1 node 3.40 V, I1 = 66.8 uA, Q2 mirrors 10.5 uA into C15 across 1/3 VCC.
+    double f0 = ramp_hz(0x0);
+    double f15 = ramp_hz(0xF);
+    EXPECT_NEAR(f0, 6.30, 0.1);
+    EXPECT_LT(f15, f0 / 2);
 }
 
-TEST(DiscreteSound, BackgroundCvStaysWithinTheOpAmpClamp) {
+TEST(DiscreteSound, BackgroundCvStaysWithinTheOpAmpSwing) {
     galaxian::DiscreteSound s;
     s.reset();
     double lo = 9, hi = -9;
@@ -73,8 +85,9 @@ TEST(DiscreteSound, BackgroundCvStaysWithinTheOpAmpClamp) {
             hi = std::max(hi, s.background_cv());
         }
     }
-    EXPECT_NEAR(lo, 5.0 / 3 * 1.4255 - 1.0638, 0.05);
-    EXPECT_NEAR(hi, 10.0 / 3 * 1.4255 - 1.0638, 0.05);
+    // 7T gain 1 + 10k/47k + 10k/47k less 5 V x 10k/47k, from 1/3 VCC up to the LM324's VCC - 1.5 V.
+    EXPECT_NEAR(lo, 5.0 / 3 * (1 + 20.0 / 47) - 50.0 / 47, 0.02);
+    EXPECT_NEAR(hi, 3.5, 0.01);
 }
 
 TEST(DiscreteSound, FsVoicesAreAudible) {
@@ -82,7 +95,15 @@ TEST(DiscreteSound, FsVoicesAreAudible) {
     s.reset();
     s.sound_w(0, true);
     auto out = run_sound(s, 0.5);
-    EXPECT_GT(rms(out, out.size() / 2), 0.02);
+    EXPECT_GT(rms(out, out.size() / 2), 0.05);
+}
+
+TEST(DiscreteSound, LatchQ4DoesNothing) {
+    galaxian::DiscreteSound s;
+    s.reset();
+    s.sound_w(4, true);
+    auto out = run_sound(s, 0.3);
+    EXPECT_LT(rms(out, out.size() / 2), 1e-3);
 }
 
 TEST(DiscreteSound, PitchToneRunsWithoutFire) {
@@ -93,12 +114,12 @@ TEST(DiscreteSound, PitchToneRunsWithoutFire) {
     EXPECT_GT(rms(out, out.size() / 2), 0.05);
 }
 
-TEST(DiscreteSound, PitchFFIsUltrasonicAndCouplesOut) {
+TEST(DiscreteSound, PitchFFHoldsTheCounterAndIsSilent) {
     galaxian::DiscreteSound s;
     s.reset();
     s.pitch_w(0xFF);
     auto out = run_sound(s, 0.5);
-    EXPECT_LT(rms(out, out.size() / 2), 2e-3);
+    EXPECT_LT(rms(out, out.size() / 2), 1e-3);
 }
 
 TEST(DiscreteSound, Vol1AddsR49ToThePitchMix) {
@@ -140,48 +161,59 @@ TEST(DiscreteSound, FireDecaysAfterLatchDrops) {
     run_sound(s, 0.05);
     s.sound_w(5, false);
     auto soon = run_sound(s, 0.03);
-    EXPECT_GT(rms(soon), 0.02) << "R41/C25 keeps the shot going after FIRE clears";
+    EXPECT_GT(rms(soon), 0.05) << "C25 into R41 keeps the shot going after FIRE clears";
     run_sound(s, 1.5);
     auto late = run_sound(s, 0.1);
-    EXPECT_LT(rms(late), rms(soon) * 0.1);
+    EXPECT_LT(rms(late), rms(soon) * 0.01);
 }
 
-TEST(DiscreteSound, FireCvRecoversThroughR47C28) {
+TEST(DiscreteSound, FireCvFollowsR47C28) {
     galaxian::DiscreteSound s;
     s.reset();
-    run_sound(s, 1.0);
+    run_sound(s, 1.5);
+    // CV node: R48 from C28, R46 from NOISE high, the 555's 5k/5k/5k divider.
+    EXPECT_NEAR(s.fire_cv(), 3.368, 0.01);
     s.sound_w(5, true);
-    run_sound(s, 1.0);
-    double firing = s.fire_cv();
+    run_sound(s, 1.5);
+    EXPECT_NEAR(s.fire_cv(), 2.209, 0.01);
     s.sound_w(5, false);
-    run_sound(s, 1.0);
-    EXPECT_LT(firing, 1.0);
-    EXPECT_GT(s.fire_cv(), 3.0);
+    run_sound(s, 0.05);
+    EXPECT_LT(s.fire_cv(), 3.0) << "47 uF behind 2.2k recovers over about 0.1 s";
+    run_sound(s, 1.5);
+    EXPECT_NEAR(s.fire_cv(), 3.368, 0.01);
 }
 
-TEST(DiscreteSound, NoiseLatchToggles) {
+TEST(DiscreteSound, HitNeedsNoiseToReachTheBandPass) {
     galaxian::DiscreteSound s;
     s.reset();
-    int flips = 0;
-    bool prev = s.noise();
-    for (int k = 0; k < 3072000 / 10 / 64; k++) {
-        s.advance(64);
-        if (s.noise() != prev) flips++;
-        prev = s.noise();
-    }
-    // Sampled once per two lines, 800 latches in 0.1 s; a random bit changes about half the time.
-    EXPECT_GT(flips, 250);
-    EXPECT_LT(flips, 550);
+    s.set_noise(false);
+    s.sound_w(3, true);
+    auto out = run_sound(s, 0.3);
+    EXPECT_LT(rms(out, out.size() / 2), 1e-3);
 }
 
 TEST(DiscreteSound, HitIsAudibleAndDecays) {
     galaxian::DiscreteSound s;
     s.reset();
     s.sound_w(3, true);
-    auto on = run_sound(s, 0.2);
-    EXPECT_GT(rms(on, on.size() / 2), 0.02);
+    auto on = run_chopped(s, 0.2, 168.0);
+    EXPECT_GT(rms(on, on.size() / 2), 0.05);
     s.sound_w(3, false);
-    run_sound(s, 3.0);
-    auto off = run_sound(s, 0.2);
+    run_chopped(s, 3.0, 168.0);
+    auto off = run_chopped(s, 0.2, 168.0);
     EXPECT_LT(rms(off), rms(on, on.size() / 2) * 0.1);
+}
+
+TEST(DiscreteSound, HitBandPassCentresNear168Hz) {
+    // f0 = sqrt((1/150.5k + 1/22k) / (470k x 0.01 uF x 0.01 uF)) / 2 pi = 167.6 Hz.
+    auto level = [](double hz) {
+        galaxian::DiscreteSound s;
+        s.reset();
+        s.sound_w(3, true);
+        auto out = run_chopped(s, 0.3, hz);
+        return rms(out, out.size() / 2);
+    };
+    const double centre = level(168.0);
+    EXPECT_GT(centre, level(40.0) * 2);
+    EXPECT_GT(centre, level(1000.0) * 2);
 }

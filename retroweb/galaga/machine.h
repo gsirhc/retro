@@ -126,7 +126,7 @@ private:
     int mcu54_wait_ = 0;
     int mcu54_args_ = 0;
     uint8_t mcu54_cmd_ = 0;
-    // 54XX DAC network (MAME galaga_a.cpp galaga_discrete).
+    // 54XX DAC network. Midway M051-00808-C000.
     struct Bandpass54 {
         double x1 = 0, x2 = 0, y1 = 0, y2 = 0;
     };

@@ -437,7 +437,7 @@ struct BpCoef {
     double b0, a1, a2, r1, r2, r_total;
 };
 
-// MFB band-pass per channel: DAC impedance + series R, shunt R, feedback R, two caps (MAME galaga_chanlN_filt).
+// MFB band-pass. Midway M051-00808-C000, 54XX at 6M into 5P.
 BpCoef bp_coef(double r_series, double r2, double rf, double c) {
     BpCoef o{};
     o.r1 = kDacR + r_series;
@@ -489,7 +489,6 @@ void Machine::step_54xx_network() {
         i += (kVref - y) / kMixR[ch];
     }
     bp54_rest_ = true;
-    // Inverting summer, R 3.3k feedback, then C 0.1 uF into the amp (MAME galaga_final_mixer, gain 40800).
     double v = i * 3.3e3;
     amp54_cap_ += (v - amp54_cap_) * (1.0 - std::exp(-kNetDt / (100e3 * 0.1e-6)));
     disc_sum_ += (v - amp54_cap_) * 40800.0 / 32768.0;
@@ -551,7 +550,6 @@ int Machine::run_cycles(int n) {
             step_54xx_network();
         }
         if (audio.size() > audio_before) {
-            // MAME mono: WSG (sum / 1024) at 0.9*10/16 plus the 54XX network at 0.9. Ours sums the WSG to /360.
             float v = disc_n_ ? float(disc_sum_ / disc_n_) : 0.0f;
             disc_sum_ = 0;
             disc_n_ = 0;

@@ -73,7 +73,7 @@ void Machine::mem_write(uint16_t addr, uint8_t v) {
     int off = addr & 7;
     if (block == 0x6000) {
         if (off >= 4) sound.lfo_freq_w(off - 4, (v & 1) != 0);
-        // D0 low locks the coin chute out (MAME coin_lock_w).
+        // 9M Q2 drives the lockout coil through the 2075B; low locks coins out.
         else if (off == 2) coin_lockout = (v & 1) == 0;
         else if (off == 3) coin_counter_w(0, (v & 1) != 0);
         return;
@@ -85,7 +85,7 @@ void Machine::mem_write(uint16_t addr, uint8_t v) {
     if (block == 0x7000) {
         switch (off) {
             case 1:
-                // D0 holds the NMI flip-flop's CLEAR (MAME irq_enable_w).
+                // 9N Q1 NMI ON presets 6F; low holds NMI off.
                 nmi_enable = (v & 1) != 0;
                 if (!nmi_enable) cpu.set_nmi(false);
                 return;
@@ -123,6 +123,7 @@ int Machine::run_cycles(int n) {
         int t = cpu.step();
         if (t <= 0) t = 4;
         done += t;
+        sound.set_noise(video.noise());
         sound.advance(t);
         audio_acc_ += t;
         if (audio_hz > 0) {

@@ -226,7 +226,7 @@ TEST(Machine, UserRomInsertsCoinStartsAndFires) {
     } else {
         set = load_user_set();
         if (!set) {
-            GTEST_SKIP() << "no user ROM set — unzip a MAME galaxian set into "
+            GTEST_SKIP() << "no user ROM set — unzip a galaxian set into "
                             "roms/user/, set GALAXIAN_ROM, or leave galaxian.zip in "
                             "~/images/arcade or ~/Downloads (CI skips this on purpose)";
         }

@@ -23,8 +23,8 @@ void Dvg::go(const MemRead& read_word) {
 }
 
 int Dvg::apply_scale(int delta, int total_scale) {
-    // global + local scale added as 4-bit; 0..9 selects /512../1, beyond that the
-    // beam doesn't advance (nmikstas asteroidsHDL "Total Scaling Value")
+    // M6 adds the scale to the opcode; sums 10-15 leave every E7 output high and
+    // the timer starts at its maximum count (DP-143 sheet 2A vector timer).
     total_scale &= 0xF;
     if (total_scale > 9) return 0;
     int div = 512 >> total_scale;
@@ -36,8 +36,7 @@ void Dvg::draw_delta(int dx, int dy, uint8_t intensity) {
     int x0 = x, y0 = y;
     int x1 = x + dx;
     int y1 = y + dy;
-    // 12-bit counters keep counting off the 10-bit tube (bit 10 blanks the beam)
-    // so SVEC chains from one LABS stay put (MAME avgdvg.cpp dvg_gostrobe).
+    // 12-bit position counters run on past 0..1023; XVLD/YVLD blank there (DP-143 sheet 2A).
     // Zero-length bright VECs are photon shots: draw a point.
     if (intensity && dx == 0 && dy == 0) {
         if (unsigned(x0) <= 1023 && unsigned(y0) <= 1023)
@@ -128,8 +127,7 @@ void Dvg::run(const MemRead& read_word) {
                 pc_ = op & 0x0FFF;
                 break;
             case 0xF: {
-                // SVEC: Ss = ((op&0x800)>>11)|((op&8)>>2) remaps to VEC local scale
-                // 2..5, deltas in bits 9:8 (Asteroids HDL; computerarcheology VectorROM)
+                // Bits 11 and 3 step 2, 4, 8 or 16 units (VECMAC.XX VCTR short forms).
                 int ss = int(((op & 0x800) >> 11) | ((op & 0x8) >> 2));
                 int ymag = (op >> 8) & 3;
                 if (op & 0x400) ymag = -ymag;

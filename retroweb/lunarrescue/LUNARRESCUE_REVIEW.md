@@ -2,15 +2,17 @@
 
 Citation trail for the Taito Lunar Rescue (1979) emulator. Primary sources:
 
-- MAME `src/mame/taito/8080bw.cpp`, `8080bw_a.cpp`, `8080bw_v.cpp` at commit
-  `d404316732fb5970cc0170aefc69ef1a85e14fce` (`lrescue` driver, inputs,
-  video, sample-based sound handlers).
 - Taito PV game board schematic PVR00001, dated 7/19/79 (`tcsi-sp.pdf`,
   the Taito Space Invaders Part II schematic set). Its sound section is the
   board Lunar Rescue's OUT 3 / OUT 5 bits drive.
 - Lunar Rescue service instructions (Taito America), for the controls and
   the operator settings.
-- MAME `plugins/hiscore/hiscore.dat`, `lrescue` entry, for HIGH SCORE RAM.
+- The shared Midway 8080 board, in `invaders/INVADERS_REVIEW.md`.
+
+The red-screen latch is not on the service instructions. The colour
+PROM row is the vertical counter.
+
+The high-score blocks are the `lrescue` ROM, below.
 
 ## 0. Status
 
@@ -19,12 +21,11 @@ Shared 8080 board, colour PROM, red-screen latch and the Taito PV discrete
 self-test ROM. The front end ships the self-test. A real Taito `lrescue` set
 is opt-in and browser-local. Hub card, marquee tile and CI jobs
 (`lunarrescue-test` / `lunarrescue-web-test`, both after `i8080-test`) are
-wired in. No real dump was available while this was built, so the `Play.*`
-tests skip and the HIGH SCORE addresses come from hiscore.dat only.
+wired in. `Play.*` runs when `~/images/arcade/lrescue.zip` is present.
 
 ## 1. Scope
 
-MAME parent `lrescue` only: `lrescue.1`–`lrescue.4` at `$0000`–`$1FFF`,
+Taito set only: `lrescue.1`–`lrescue.4` at `$0000`–`$1FFF`,
 `lrescue.5`–`lrescue.6` at `$4000`–`$4FFF`, and the 1K colour PROM
 `7643-1.cpu`. Upright cabinet. The bootlegs (`mlander`, `lrescuem`, …) and
 the cocktail flip are not modelled.
@@ -37,10 +38,9 @@ INT latched at lines 96 and 224 with the 64V vector, MB14241, the beam
 fetching VRAM at pixel `8k+4`. See `invaders/INVADERS_REVIEW.md` §2–§8. The
 second ROM bank at `$4000` is the socket Invaders leaves empty.
 
-MAME `lrescue_io_map` maps port 6 to `nopw` ("noise? LED?"), so the cabinet
-runs with `watchdog_enabled = false`.
+Port 6 is unused, so the cabinet runs with `watchdog_enabled = false`.
 
-## 3. Inputs (MAME `sicv_base`, `lrescue`)
+## 3. Inputs
 
 | Port | Bits |
 |---|---|
@@ -54,19 +54,16 @@ both fire and the retro rocket.
 
 ## 4. Video
 
-- MAME `screen_update_invadpt2`: foreground pen is
-  `prom[(offs >> 8 << 5) | (offs & 0x1F)] & 7`, black background. With
-  `offs = V * 32 + k` and V = line + 0x20, that is
-  `prom[((line >> 3) + 4) * 32 + k]`, one colour per upright 8×8 cell.
-- Pens are `RBG_3BIT`: bit 0 red, bit 1 blue, bit 2 green.
-- OUT 3 bit 2 sets `m_screen_red`, forcing every lit pixel to pen 1. Here it
-  is latched per line at the start of each line (`Board::beam_tag`), so a
-  write mid-frame turns only the lines below the beam red.
-- MAME's `invadpt2` draws straight from RAM and pads the four flushed
-  columns by hand. That is an emulator shortcut. The shared board keeps the
-  real shift-register timing and the four blank rows.
-- `m_color_map` (the second PROM half) is never written by `lrescue`, so
-  only the first 1K is used.
+- Foreground pen is the colour PROM, one colour per upright 8×8 cell,
+  black where the bitmap is off. The row is `vcounter(line) >> 3`
+  (line 0 is V `$20`, so the first band is row 4) and the column is the
+  same cell as the bitmap. The colour is the low 3 bits.
+- Pen bits are red, blue, green.
+- OUT 3 bit 2 forces every lit pixel to pen 1. It is latched per line at
+  the start of each line (`Board::beam_tag`), so a write mid-frame turns
+  only the lines below the beam red.
+- The shared board keeps the shift-register timing and the four blank rows.
+- The second PROM half is unused, so only the first 1K is loaded.
 
 ## 5. Sound
 
@@ -107,7 +104,7 @@ Sources: PVR00001; the Midway 739 logic schematic for the values PVR00001
 does not show; TI SN76477 data sheet and application guide; TI LM3900 data
 sheet and National AN-72; TI NE555 data sheet; TI CD4006B data sheet.
 
-Assumptions:
+Not on the sheet:
 
 - VR1–VR7 have no value on the sheet: 50K like VR8, every wiper at mid
   travel. Each source then reaches the bus through about 41K and a 0.35
@@ -128,11 +125,18 @@ Assumptions:
 
 ## 6. HIGH SCORE
 
-MAME hiscore.dat `lrescue`: `$20DB` (1 byte, `$0A`), `$20CF` (10 bytes,
-`$1B`), `$20F4` (2 bytes, `00 05`). The plugin waits for those factory bytes
-before restoring, and `app.js` uses the same gate after 30 frames. Without a
-dump the meaning of `$20CF` and `$20DB` is unconfirmed; all three blocks are
-saved because that is what the plugin saves.
+Reset copies 256 bytes from ROM `$1AA3` to `$2000` (`$1653`, copier
+`$0B04`). In that image `$20F4` is `00 05`, printed as BCD by `$0AB7`.
+The next two bytes, `$20F6` `$20F7` = `1D 2F`, are the screen position,
+not the score. `$20CF` is the 10-letter name, printed by `$088D`. The
+image there is `1B 1B 13 00 08 13 0E 1B 1B 1B`. `$1B` is a blank glyph
+and `$00` is not drawn, so that reads as a blank, a blank, T, a blank,
+I, T, O, and three blanks. `$20DB` is the name length. The image stores
+`00`. The status routine `$0920` writes `$0A` when it finds zero, and
+the editor indexes `$20CF` by that byte (`$07D5`, `$0842`).
+
+`app.js` still waits for ten `$1B` bytes at `$20CF`. That is not the
+image the ROM copies.
 
 ## 7. Self-test ROM (`roms/hwtest/gen_hwtest.py`)
 

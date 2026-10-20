@@ -25,14 +25,16 @@ Planned features that haven't been started are listed in
 
 ## Never copy or reference other emulators
 
-Everything here is built from scratch. **Never copy, port, translate, or
-reference MAME, SIMH, or any other emulator's code**, and never take data
-from one: no tables, constants, netlists, part-value lists, or "MAME
-description" style facts lifted from an emulator's source. That covers
-every emulator and emulator-derived project (MAME, SIMH, Altirra,
-Nuked-OPL3, DOSBox, Bochs, 86Box, PCem, QEMU, MiSTer/FPGA cores, and the
-rest), and it applies to subagents too: don't open emulator source while
-writing code here, and tell any agent you delegate to the same.
+Everything here is built from scratch. **Never copy, port, or translate
+another emulator's code**: routines, formulas, address calculations, and
+control flow. That covers MAME, SIMH, Altirra, Nuked-OPL3, DOSBox, Bochs,
+86Box, PCem, QEMU, MiSTer/FPGA cores, and the rest, and it applies to
+subagents too: don't open emulator source while writing code here, and
+tell any agent you delegate to the same.
+
+A numeric value may stay even if it first showed up in an emulator. Do not
+cite the emulator for it, and do not describe it as hardware until a
+schematic, a datasheet, a measurement, or the game's own ROM says so.
 
 - Work only from primary sources: the board's own schematics and service
   manuals, chip datasheets, period programming manuals, decap/die analyses,
@@ -45,14 +47,25 @@ writing code here, and tell any agent you delegate to the same.
   yourself.
 - Running original period software (BASIC, CP/M, FreeDOS, game ROMs) and
   standard CPU exerciser programs (zexdoc, Dormann, 8080EXM) as guest code
-  is fine. Those aren't emulator code. The PCs' Bochs BIOS and LGPL VGA BIOS
-  are the one sanctioned exception: guest firmware standing in for IBM's,
-  fetched at build time, never read as a reference for our own code.
+  is fine. Those aren't emulator code.
 - Interop with the community's ROM dumps is fine: the user ROM loader may
-  accept the standard dump file names, and the hub's opt-in thumbnails may
-  fetch from libretro-thumbnails and Arcade Database. Don't call them MAME
-  names in code or docs, and derive anything they imply (high-score RAM
-  tables, ROM layouts) from the game's own ROM disassembly.
+  accept the standard dump file names. Derive anything a filename implies
+  (high-score RAM tables, ROM layouts) from the game's own ROM disassembly.
+
+Exceptions. These do not waive the rest of this section.
+
+- **Bochs BIOS and the LGPL VGA BIOS.** Both PCs ship these as guest
+  firmware standing in for IBM's, fetched at build time
+  (`BIOS-bochs-legacy`, `VGABIOS-lgpl-latest.bin`). Redistributing the
+  Bochs BIOS binary is allowed when its license permits it. Comments,
+  reviews, and tests may name that ROM and describe what it requires of
+  the hardware (port `0xE9`, INT 15h, `rombios.c`). Do not read the rest
+  of Bochs, or the VGA BIOS, as a reference for our own chip code.
+- **Hub thumbnails.** The arcade hub's opt-in thumbnails may fetch from
+  libretro-thumbnails and Arcade Database, including the URL paths those
+  sites publish (`thumbnails.libretro.com/MAME/...`,
+  `adb.arcadeitalia.net/media/mame.current/...`). Don't call those files
+  MAME names in our own wording.
 - Historical detail is a feature: hardware names on the S-100 cards, the blank
   paper-tape leader, the 72-column BASIC input buffer, `MEMORY SIZE?`
   auto-detection landing on the real number, the ASR-33 crawling at 10 cps.

@@ -68,7 +68,7 @@ bool extract_zip(const fs::path& zip, const fs::path& dest) {
     return std::system(cmd.c_str()) == 0;
 }
 
-// MAME invaders: H, G, F, E at $0000, $0800, $1000, $1800.
+// Board chips H, G, F, E at $0000, $0800, $1000, $1800.
 std::optional<invaders::RomSet> identify(const std::map<std::string, std::vector<uint8_t>>& files) {
     invaders::RomSet s;
     for (const auto& [name, data] : files) {
@@ -80,10 +80,10 @@ std::optional<invaders::RomSet> identify(const std::map<std::string, std::vector
     const char* chip[4] = {"h", "g", "f", "e"};
     for (int i = 0; i < 4; i++) {
         const std::string loose = std::string("invaders.") + chip[i];
-        const std::string mame = std::string("m739") + chip[i] + "." + chip[i] + "1";
+        const std::string board = std::string("m739") + chip[i] + "." + chip[i] + "1";
         const std::vector<uint8_t>* found = nullptr;
         for (const auto& [name, data] : files) {
-            if ((name == loose || ends_with(name, mame)) && data.size() >= kChip) found = &data;
+            if ((name == loose || ends_with(name, board)) && data.size() >= kChip) found = &data;
         }
         if (!found) return std::nullopt;
         std::copy_n(found->begin(), kChip, s.program.begin() + i * kChip);

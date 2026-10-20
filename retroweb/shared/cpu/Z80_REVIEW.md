@@ -15,8 +15,6 @@ written up here: the fact, why it matters, what changed, and the source.
   interrupted LDIR/CPIR/INIR/OTIR, found by logic-analyser capture.
 - **Tony Brewer, "Z80 Special Reset" (2014)**, confirmed on hardware with
   Mark Woodmass's HALT2INT (2021). What a halted CPU fetches.
-- Cross-checks only, not behaviour sources: MAME `devices/cpu/z80/z80.lst`
-  (microcoded M-cycles) and Manuel Sainz de Baranda y Goñi's redcode Z80.
 
 ## 2. Gates
 
@@ -28,8 +26,8 @@ written up here: the fact, why it matters, what changed, and the source.
   sequences. Each case checks every register, WZ, Q, the EI and LD A,I/R
   latches, RAM, port traffic, the T-state count, and the T-state, kind,
   address and data of every memory and I/O strobe plus the refresh
-  address. The cases were generated from the Ares core, so they're a
-  cross-check, not silicon. 1,604,000/1,604,000.
+  address. The suite is a cross-check, not a measurement of silicon.
+  1,604,000/1,604,000.
 
 zexall and SST run nightly (`make check`).
 

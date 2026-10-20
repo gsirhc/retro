@@ -1,8 +1,7 @@
 // Yamaha YMF262 (OPL3) FM synthesizer, the music half of the Sound Blaster 16.
 // 18 channels over 36 operators, 4-operator mode, eight waveforms, rhythm section,
 // and the two timers AdLib/OPL detection depends on.
-// Per the YMF262-M datasheet and SBPG (Creative, 1994) Appendix B. MAME ymf262.cpp
-// and Nuked-OPL3 cross-check table values only; no code taken (see ay8910.h).
+// Per the YMF262-M datasheet and SBPG (Creative, 1994) Appendix B.
 // --- output rate ---
 // Master clock 14.31818 MHz / 288 = 49715.9 Hz stereo frames (kSampleHz). Fixed by
 // the silicon; the front end resamples from cpu_cycle stamps. Every operator

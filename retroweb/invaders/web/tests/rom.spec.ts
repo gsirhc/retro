@@ -156,7 +156,7 @@ test.describe("ROM set loader", () => {
     await expect(page.locator("#romStatus")).toHaveText("Hardware test ROM");
   });
 
-  test("MAME chip names with the right sizes are accepted", async ({ page }) => {
+  test("chip names with the right sizes are accepted", async ({ page }) => {
     await page.locator("#romFile").setInputFiles([
       buf(CHIPS.h, "9316b-0869_m739h.h1"),
       buf(CHIPS.g, "9316b-0856_m739g.g1"),

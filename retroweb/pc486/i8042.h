@@ -2,8 +2,8 @@
 // port every 486-class board carries. Ports 0x60 (data), 0x64 (status/command).
 // Motherboard jobs:
 // - Output Port bit 1 gates A20. The KBC writes CFh to it at reset, so A20
-//   starts open (IBM AT KBC firmware disassembly, pcjs.org 8042_INTERN.TXT;
-//   QEMU pckbd.c agrees). POST closes it. chipset.h reads a20_enabled().
+//   starts open (IBM AT KBC firmware disassembly, pcjs.org 8042_INTERN.TXT).
+//   POST closes it. chipset.h reads a20_enabled().
 // - Output Port bit 0 driven low, or command 0xFE, pulses CPU RESET.
 //   reset_requested() surfaces it to Machine, which calls cpu.reset().
 // The AUX port is a PS/2 feature: the 5170's KBC firmware ignores

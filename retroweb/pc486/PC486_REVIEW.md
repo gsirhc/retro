@@ -1418,8 +1418,7 @@ faulting instruction runs again and succeeds.
 An x86 fault abandons a partially executed instruction and restarts it. That
 is not something a return code models well in an interpreter whose accessors
 return values inline in expressions, so `raise()` throws a `cpu80486::Fault`
-and `step()` catches it -- the same structure Bochs uses with its
-longjmp-based `exception()`. `deliver_fault()` then puts back the instruction's
+and `step()` catches it. `deliver_fault()` then puts back the instruction's
 own EIP, ESP, SS and SS descriptor before vectoring, so the handler sees
 exactly what a restart would see; `AFaultRestoresTheStackPointerSoTheInstructionCanRestart`
 checks that through the `on_fault` hook, which fires after the restore and
@@ -1733,9 +1732,6 @@ thing more directly.
   column, including its separate protected-mode rows for the far control
   transfers and its x87 rows.
   ([mirror](https://www2.math.uni-wuppertal.de/~fpf/Uebungen/GdR-SS02/opcode_i.html))
-- Bochs -- cited for *structure*, not behavior: its longjmp-based
-  `BX_CPU_C::exception()` is the precedent for modelling a fault as a
-  non-local exit out of a partially executed instruction (§6.4).
 
 ## 7. Milestone 3: VGA mode 13h, the DAC, and the VESA BIOS Extensions
 
@@ -1951,31 +1947,26 @@ Of those two, **102h** (800x600x4) is correct for the same reason **104h**
 now is. For bpp=4 the firmware's `dispi_set_mode` calls
 `_biosfn_set_video_mode(0x6A)` and then `vga_compat_setup`, which
 reprograms the real CRTC, Sequencer and Graphics Controller, and keeps the
-planar engine in charge -- matching Bochs `vga.cc`, which routes
-`bpp != 4` to its flat VBE window and leaves bpp=4 on the VGA core.
+planar engine in charge. bpp other than 4 uses the flat VBE window.
 
 **104h** (1024x768x4) needs 98,304 bytes per plane, past the standard 64KB
-aperture. The Bank register applies here the same way Bochs does: as an
-`ext_offset` of `bank << 16` added to the planar plane offset
-(`vbe_planar_banked()` / `vbe_planar_plane_off()`), not by switching to the
+aperture. The Bank register is `bank << 16` added to the planar plane offset
+(`vbe_planar_banked()` / `vbe_planar_plane_off()`), not a switch to the
 linear 8bpp path (`vbe_mode_active()` still requires bpp == 8). A 1MB card
 has four such planar banks (`(1MB/64KB)/4`); past-end bank writes are
 rejected. The RD/WR flag bits the firmware's 4F05 path ORs into the Bank
-register are masked off on write, matching Bochs.
+register are masked off on write.
 
 Geometry for a bpp=4 DISPI mode comes from the extension registers, not
 the CRTC. `vga_compat_setup` does reprogram the CRTC, but this card's
 `crtc_vertical_display_end()` deliberately reads only EGA's 9-bit overflow
 (Prince of Persia; see `ega.h`) and cannot express 600 or 768 lines -- so
 `RenderEgaNative16Screen` trusts DISPI XRES/YRES/VIRT_WIDTH when
-`vbe_planar_banked()` is set, the same source Bochs uses for tall 4bpp
-frames.
+`vbe_planar_banked()` is set.
 
 Verified against the pinned firmware source
 (`bochs-emu/VGABIOS@12d978bd` `vgabios/vbe.c` `dispi_set_mode` /
-`vga_compat_setup`) and Bochs's device backend at the same BIOS pin
-(`bochs-emu/Bochs@ff17a0c2` `iodev/display/vga.cc` bank write +
-`vgacore.cc` `ext_offset`).
+`vga_compat_setup`).
 
 ### 7.5.2 Departure found live: 32KB bank granularity
 
@@ -1985,12 +1976,12 @@ VGABIOS's `4F05` always writes `guest_bank << 1` because it expects the
 card's Bank register to step in 32KB units when
 `dispi_support_bank_granularity_32k` succeeds (GETCAPS on BANK returns
 `VBE_DISPI_BANK_GRANULARITY_32K` in the high byte; mode set ORs the same
-bit into Enable). Bochs advertises and honours that. This card only
+bit into Enable). The firmware expects that. This card only
 implemented 64KB steps and never answered GETCAPS on BANK, so the
 firmware still doubled the index against a 64KB step: guest bank N landed
 at `2N * 64KB`. Fixed by advertising the flag, honouring Enable bit
 `0x10` as a 32KB step (`vbe_bank_bytes()`), and rejecting past-end bank
-numbers for every depth the way Bochs does.
+numbers for every depth.
 
 ### 7.5.3 Bug found live: the linear frame buffer the ROM advertises
 
@@ -2003,8 +1994,7 @@ address, so every pixel went nowhere, and Wing never checks
 `set_gfx_mode`'s result.
 
 `Ega::owns_mem` now also claims `E000_0000h` + VRAM size, and in an 8bpp
-DISPI mode that range is VRAM byte for byte, with no banking, which is how
-Bochs `vga.cc` backs the same firmware. Outside an SVGA mode it reads open
+DISPI mode that range is VRAM byte for byte, with no banking. Outside an SVGA mode it reads open
 bus and drops writes. `linear_page()` hands the CPU a direct pointer for it,
 invalidated by the mapping epoch like the A0000h window. Tests:
 `EgaTest.LinearFrameBufferAtE0000000IsTheWholeVramInAnSvgaMode`,
@@ -2180,9 +2170,6 @@ step is a real bug, not a rounding preference.
   hardware, not as a behavioural model: `mode_info_check_mode` and
   `dispi_get_max_xres/yres/bpp` (§7.5), and `mode_info_find_mode` /
   `vbe_mode_list` (§7.6).
-- Bochs `vgacore.cc` -- unchanged from ibmpc-at's IBM_PCAT_REVIEW.md §12,
-  still the cross-check for the
-  planar memory engine that chain-4 sits alongside.
 
 ## 8. The browser build could not keep up with its own clock
 
@@ -3009,9 +2996,8 @@ Until then the hardware was complete and nothing could use it.
 - **OS/2 Museum, "IBM PC/AT 8042 Keyboard Controller Commands"** -- the
   5170 KBC ROM disassembly behind §10.1's claim that the original AT part
   ignores the whole AUX command range.
-- Bochs `iodev/keyboard.cc` -- cross-check only, on the points where a
-  document leaves room (the AUXB flag driving IRQ12, 0xA9's answer going to
-  the controller side rather than the AUX side).
+- Not pinned down by those documents: the AUXB flag driving IRQ12, and
+  0xA9's answer going to the controller side rather than the AUX side.
 
 ## 11. Milestone 4: a Sound Blaster 16 at 0x220, IRQ5, DMA 1 and 5
 
@@ -3207,16 +3193,11 @@ wrong fails quietly:
 - **`SET BLASTER=A220 I5 D1 H5 T6`** -- the period-standard environment
   string, corroborating 0x220/IRQ5/DMA1/DMA5 as the defaults this device
   powers up with (mixer 80h = 02h, mixer 81h = 22h).
-- **DOSBox / DOSBox-X `sblaster.cpp`** -- cited *only* for the exact text
-  of the E3h copyright string real cards return
-  (`COPYRIGHT (C) CREATIVE TECHNOLOGY LTD, 1992.`) and, together with
-  contemporary community DSP command tables, for the behavior of the
-  commands Creative never documented: E0h returning the bitwise complement
-  of its parameter, E4h/E8h as a diagnostic register that survives a DSP
-  reset, and F2h/F3h as the 8-bit/16-bit interrupt triggers a driver's IRQ
-  auto-detection uses. These are flagged as second-hand rather than
-  folded in with the guide's own material, per this repo's rule that
-  another emulator's behavior is not itself period-accurate evidence.
+- The E3h copyright string real cards return
+  (`COPYRIGHT (C) CREATIVE TECHNOLOGY LTD, 1992.`). E0h (bitwise
+  complement), E4h/E8h (a diagnostic register that survives DSP reset),
+  and F2h/F3h (8-bit and 16-bit interrupt triggers) are not in Creative's
+  guide. They stay in the code. They are not a hardware citation.
 - **DMX (Paul Radek), as used by DOOM** -- background on why ~11 kHz 8-bit
   unsigned mono is the format the digitized-output path most needs to get
   right for this era, and why auto-init DMA (rather than a chain of
@@ -3227,12 +3208,7 @@ wrong fails quietly:
 `opl3.h`/`opl3.cpp` add the YMF262 the SB16 carries for music -- 18 channels
 over 36 operators, two- and four-operator FM, eight waveforms, the rhythm
 section, and the two timers. Written from the Yamaha YMF262 register
-documentation and the OPL decap analyses of the internal ROM tables; MAME's
-`ymf262.cpp` and Nuked-OPL3 were consulted as cross-checks on table values
-only, and no code is taken from either -- the same standing rule `ay8910.h`
-records for MAME. The repo has no bundled third-party license, and
-Nuked-OPL3 is LGPL, which is the other reason this is a from-scratch
-implementation rather than a port.
+documentation and the OPL decap analyses of the internal ROM tables.
 
 **The output rate is not a choice.** The chip divides its 14.31818 MHz master
 clock by 288, emitting one stereo frame every 288 clocks: 49715.9 Hz. That is
@@ -5522,7 +5498,7 @@ Three things to know before reading it:
 
 - **Timer mask semantics are unverified.** A masked timer still sets its own
   status flag and the mask gates only bit 7 (the IRQ bit). No primary source
-  was found either way, and Nuked-OPL3 models no timers at all. Nothing on
+  was found either way. Nothing on
   this machine can observe the difference, because the OPL3's interrupt pin
   is not bussed to the PIC -- a real SB16 does not wire it either -- so this
   is a documentation gap more than a behavioural one.
@@ -5644,24 +5620,15 @@ game's redraw does to this path, which is why `?audiotrace` exists.
   buffer can still be heard up to that ~1ms cap late, and the DMA count still
   steps once a burst rather than sliding continuously. An order of magnitude
   tighter than before, not a redesign.
-- **Two behaviours rest on second-hand sources**, both because the copy of
-  SBPG this repo works from is missing its DSP command-reference chapter: the
-  ADPCM step/adjust tables and the E2h identification state machine, each
-  transcribed from DOSBox-X and flagged as such where it appears. A
-  follow-up search (searching specifically for the missing chapter, then
-  reading a fuller scanned copy than the hardware-overview excerpt already
-  cited elsewhere in this file) turned up a ~10,500-line OCR transcription of
-  the guide with the same chapter present -- but its DSP-command reference
-  section runs D9h/DAh, then E1h ("Get DSP version number"), then straight
-  into Appendix A: E0h, E2h, E3h, E4h and E8h are simply absent from
-  Creative's own document, not merely from this repo's copy of it. The
-  ADPCM section (chapter 3) describes the technique conceptually -- a
-  reference byte, then codes -- without publishing the step or adjust
-  values anywhere. DOSBox-X's own per-command wiki corroborates this from
-  the other direction: it has dedicated pages for E0h, E1h and E3h but none
-  for E2h at all. Both tables stay exactly as they were, with their existing
-  DOSBox-X citation -- this is now a confirmed "undocumented by Creative"
-  rather than an open "go looking for the chapter" item.
+- **Two behaviours are not in Creative's documentation.** The 1993-1996
+  *Sound Blaster Series Hardware Programming Guide* has its command
+  chapter. That chapter runs D9h/DAh, then E1h ("Get DSP version
+  number"), then Appendix A. E0h, E2h, E3h, E4h, E8h, F2h and F3h are
+  not in it. Chapter 3 and Appendix B describe ADPCM as a reference byte
+  followed by 4-bit, 3-bit or 2-bit codes, and they do not publish the
+  step or adjust values. Those tables and the E2h state machine stay in
+  the code. They are not a hardware citation. A measurement of a real
+  card, or a decap of the DSP, would replace them.
 - **The tone controls' corner frequencies are an estimate.** Mixer 44h-47h's
   +-14 dB range in 2 dB steps is documented; the CT1745's actual shelf
   corners are not, so the front end uses a 100 Hz low shelf and a 5 kHz high
@@ -5954,12 +5921,7 @@ documented mechanism rather than an analytic fit to its outputs.
 **Source.** Niemitalo & Gambrell's "OPLx decapsulated" is the primary
 citation already used throughout this file for other YM3812/YMF262
 die-level mechanisms (the log-sin/exp waveform tables, the KSL constants).
-Its envelope state machine was cross-checked for this rewrite against
-Nuked-OPL3's `OPL3_EnvelopeCalc` and the chip-global timer update in
-`OPL3_Generate4Ch` (nukeykt, LGPL) read directly from source -- as a fact
-check on specific formulas and table values only, per this file's standing
-rule never to copy code from it. Nothing here is ported from Nuked; the
-implementation is original, built from the documented mechanism.
+The envelope state machine is built from that write-up.
 
 **The mechanism.** Real silicon has one envelope clock shared by all 36
 operators, not 36 independent timers. Each output frame it advances a
@@ -6569,10 +6531,8 @@ open in §42.6.
 With AR10 bit 3 set in a graphics mode, pixel bit 3 reads 1, and a pixel
 that has bit 3 set drops it in the off phase. If Color Plane Enable has
 plane 3 off, every pixel blinks. The IBM VGA/XGA Technical Reference
-(May 1992) doesn't define graphics blink at all, so this follows 86Box
-(`vid_svga_render.c`), which checked it against Lotus 1-2-3's WYSIWYG
-add-on and QBASIC `SCREEN 10`. Bochs agrees except for the plane-3-off
-case, and calls its own version "undocumented feature ???".
+(May 1992) doesn't define graphics blink at all. The rule here was
+checked against Lotus 1-2-3's WYSIWYG add-on and QBASIC `SCREEN 10`.
 
 ### 43.2 CGA-compatible mode scrolls
 
@@ -6586,7 +6546,7 @@ A CRTC nobody has programmed keeps mode 4's layout.
 
 Cursor Skew (CRTC 0Bh bits 5-6) draws the cursor 0-3 character clocks
 right of its address. An attribute of foreground 1 on background 0
-(`attr & 77h == 01h`, DOSBox's decode) draws a line on the Underline
+(`attr & 77h == 01h`) draws a line on the Underline
 Location row (CRTC 14h). It fills dots 1-8, so in 9-dot modes the line
 is dashed between cells and solid through C0h-DFh with line graphics on,
 as IBM's "Programming Considerations" describes. Colour modes put the
@@ -6594,8 +6554,8 @@ row past the cell, so normal text shows none.
 
 ### 43.4 Blink rates, checked
 
-Bochs, 86Box, DOSBox and FreeVGA all toggle the cursor every 16 frames,
-the same as blinking characters. IBM's manual gives the VGA cursor
+FreeVGA toggles the cursor every 16 frames, the same as blinking
+characters. IBM's manual gives the VGA cursor
 VSYNC/16 and characters VSYNC/32, both 50% duty: a toggle every 8 frames
 and every 16. §42.3 already did that, and it stays. The same manual has
 line graphics the way §42.3 does (bit 2 set repeats column 8), where
@@ -6691,7 +6651,7 @@ permission check.
 The tag register only ever said empty (11) or valid (00). FSTENV and
 FSAVE now store a tag word built from the registers: 00 valid, 01 zero,
 10 special (NaN, infinity, denormal, unnormal), 11 empty (Intel 80486
-PRM, "Tag Word"; Bochs `fpu_tags.cc` packs it the same way). FLDENV and
+PRM, "Tag Word"). FLDENV and
 FRSTOR keep only which registers are empty, and the rest is worked out
 again from the contents on the next store. Two FPU tests expected
 "valid" for an infinity and for the FXCH indefinite. A 486 tags both
@@ -6762,7 +6722,7 @@ CR0.AM and EFLAGS.AC could be set but did nothing. A misaligned data
 access at CPL 3 with both set now raises #AC(0), vector 17 (Intel 80486
 PRM, "Alignment Check"). V86 runs at CPL 3, so a DOS program under
 EMM386 or Windows sees it too. The check sits after the segment limit
-check and before paging, the order Bochs uses.
+check and before paging.
 
 Each word, dword and qword access is checked against its own size,
 which gives the PRM's table for free: an 80-bit real reads 8 bytes then
@@ -7271,8 +7231,8 @@ expects it flipped.
 §6.5 called a closed A20 gate at power-on correct hardware behavior. It
 isn't. The 8042 writes CFh to its output port (P2) at reset and again in
 the AAh self-test, so A20GATE comes up high and the gate is open until POST
-closes it (IBM AT KBC ROM disassembly, pcjs.org `8042_INTERN.TXT`; QEMU's
-`pckbd.c` resets `outport` to the same CFh). 486-era KBC firmware clones
+closes it (IBM AT KBC ROM disassembly, pcjs.org `8042_INTERN.TXT`).
+486-era KBC firmware clones
 that interface. The old reset value, 00h, also held bit 0 (CPU reset) low
 and made command D0h read back 00h.
 

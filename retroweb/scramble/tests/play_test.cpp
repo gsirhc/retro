@@ -217,7 +217,7 @@ TEST(Machine, UserRomInsertsCoinStartsAndFires) {
     } else {
         set = load_user_set();
         if (!set) {
-            GTEST_SKIP() << "no user ROM set — unzip a MAME scramble set into "
+            GTEST_SKIP() << "no user ROM set — unzip a scramble set into "
                             "roms/user/, set SCRAMBLE_ROM, or leave scramble.zip in "
                             "~/Downloads (CI skips this on purpose)";
         }

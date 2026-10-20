@@ -1,7 +1,5 @@
-// Atari Missile Command (1980) board A035467: MOS 6502 @ 1.25 MHz, 3-bit bitmap, POKEY.
-//
-// Clocks, MADSEL, IRQ, I/O: MAME missile.cpp (Aaron Giles, from schematics).
-// RAM usage and port bit names: 6502disassembly.com/va-missile-command (rev 3).
+// Atari Missile Command (1980), board A035467. DP-147 2nd printing;
+// rev 3 program listing for RAM use and switch decode.
 
 #ifndef MISSILE_MACHINE_H
 #define MISSILE_MACHINE_H
@@ -21,16 +19,17 @@ constexpr int kPokeyHz = kMasterHz / 8;
 constexpr int kHTotal = 320;                    // 5 MHz pixel clock
 constexpr int kLines = 256;
 constexpr int kCyclesPerLine = kHTotal / 4;     // 80
-constexpr int kSlowV = 224;                     // Sigma-X: half clock from V=224
+constexpr int kSlowV = 224;                     // 3INH low: last 32 lines, half clock
 constexpr int kCyclesPerFrame = kSlowV * kCyclesPerLine + (kLines - kSlowV) * kCyclesPerLine / 2;
 constexpr double kFrameHz = double(kMasterHz / 2) / (kHTotal * kLines);  // 61.035
-// 19200 × 61.035 = 1171875 Hz, the 1.1724 MHz MAME's PCB notes measured at pin 37.
-constexpr int kAvgCpuHz = 1171875;
-constexpr int kVisTop = 25;                     // MAME VBEND
+constexpr int kAvgCpuHz = 1171875;              // 19200 cycles × kFrameHz
+constexpr int kVisTop = 25;                     // lines 25..255, the 231-line picture
 constexpr int kFbW = 256;
 constexpr int kFbH = kLines - kVisTop;          // 231
 constexpr int kWatchdogFrames = 8;
-constexpr uint8_t kR8Default = 0x73;            // MAME missile defaults
+constexpr double kAmpCouplingHz = 10.0;
+constexpr double kAudioScale = 4.0;             // page level fit
+constexpr uint8_t kR8Default = 0x73;            // 6 cities, 10000, mini (TM-147, rev 3)
 constexpr uint8_t kR10Default = 0x81;
 constexpr uint16_t kHiscoreAddr = 0x002C;       // hscore_initials + hscore_scores
 constexpr int kHiscoreLen = 48;
@@ -114,6 +113,7 @@ private:
     bool madsel_armed_ = false;
     int access_ = 0;
     int extra_cycles_ = 0;
+    double hp_ = 5.0;
 };
 
 }  // namespace missile

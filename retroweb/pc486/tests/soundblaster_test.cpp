@@ -704,8 +704,8 @@ TEST_F(SoundBlasterTest, DirectModeAdcReturnsTheSilenceMidpoint) {
 }
 
 TEST_F(SoundBlasterTest, DmaIdentificationEvolvesItsStateAndArmsAOneByteTransfer) {
-    // E2h is undocumented by Creative; the only description is DOSBox's sblaster.cpp (secondary, see
-    // begin_dma). valadd/valxor start at 0xAA/0x96 after DSP reset.
+    // E2h is not in Creative's programming guide. See begin_dma.
+    // valadd/valxor start at 0xAA/0x96 after DSP reset.
     ResetDsp();
     Cmd({0xE2, 0x12});
     const uint8_t expect1 = uint8_t(0xAA + (0x12 ^ 0x96));

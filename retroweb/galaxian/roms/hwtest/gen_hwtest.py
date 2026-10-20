@@ -400,7 +400,7 @@ def main():
     for k, fname in names.items():
         with open(os.path.join(args.dir, fname), "wb") as f:
             f.write(blobs[k])
-    # Loose-chip names a user zip might also use (MAME galaxian / galaxiana).
+    # Loose-chip names a user zip might also use (galaxian / galaxiana).
     for i, name in enumerate(("galmidw.u", "galmidw.v", "galmidw.w", "galmidw.y", "7l")):
         with open(os.path.join(args.dir, name), "wb") as f:
             f.write(blobs["program"][i * 0x800:(i + 1) * 0x800])

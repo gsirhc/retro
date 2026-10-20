@@ -7,154 +7,163 @@ namespace battlezone {
 
 namespace {
 
-constexpr double kTtl = 3.4;
-constexpr double kRon = 270;  // CD4066
-constexpr double kNoiseHz = 12000.0 / 2;  // 12 kHz halved by B4 74LS109
+constexpr double kVcc = 5.0;
+constexpr double kRail = 22.0 - 1.5;    // LM324 on +22 V, output high limit
+constexpr double kRon = 470;            // CD4066B r_on, VDD = 5 V typical
+constexpr double kVoh = 3.4, kVol = 0.2; // LS TTL typical levels
+constexpr double kDiode = 0.6;          // 1N914
+constexpr double kNoiseHz = 12096000.0 / 1024;  // E12KHZ, N5 LS393 QB
 
-constexpr double k(double v) { return v * 1e3; }
-constexpr double u(double v) { return v * 1e-6; }
+constexpr double kR5 = 1e3, kR6 = 4.7e3, kR7 = 1e3, kR8 = 100e3, kR9 = 22e3;
+constexpr double kC13 = 10e-6;
+// F3 555: R10 to the discharge pin, R11 set by ear to a moderate idle (mid travel).
+constexpr double kR10 = 100e3, kR11 = 125e3, kC11 = 0.015e-6;
+constexpr double kR20 = 33e3, kC29 = 0.47e-6;
+constexpr double kR25 = 100e3, kR26 = 33e3, kR27 = 330e3, kR28 = 100e3, kR29 = 22e3;
+constexpr double kMixGain = 1.0 + 100e3 / 10e3;  // K5: R31 / R30
+constexpr double kR23 = 100e3, kR24 = 100e3, kC20 = 0.1e-6;
+constexpr double kOutHp = 10.0;         // cabinet amplifier input coupling
+constexpr double kFullScale = 20.0;
 
-constexpr double kR5 = k(1), kR6 = k(4.7), kR7 = k(1), kR8 = k(100), kR9 = k(22);
-constexpr double kR10 = k(100), kR11 = k(49);  // R11 engine pot at MAME's 40%
-constexpr double kR12 = k(33), kR13 = k(10), kR14 = k(22), kR15 = k(1);
-constexpr double kR16 = k(1), kR17 = k(22), kR18 = k(10), kR19 = k(33);
-constexpr double kR20 = k(33), kR25 = k(100), kR26 = k(33), kR27 = k(330);
-constexpr double kR28 = k(100), kR29 = k(22), kR32 = k(330), kR33 = k(330);
-constexpr double kC9 = u(4.7), kC11 = u(0.015), kC13 = u(10), kC14 = u(10);
-constexpr double kC20 = u(0.1), kC21 = u(0.0047), kC22 = u(0.0047), kC29 = u(0.47);
-
-double par(double a, double b) { return a * b / (a + b); }
-double divider(double r1, double r2) { return r2 / (r1 + r2); }
+// C9/R14/R15/R13/R12/R32/C21 and C14/R17/R16/R18/R19/R33/C22.
+constexpr Sound::BurstParts kShell{4.7e-6, 22e3, 1e3, 10e3, 33e3, 330e3, 0.0047e-6};
+constexpr Sound::BurstParts kExpl{10e-6, 22e3, 1e3, 10e3, 33e3, 330e3, 0.0047e-6};
 
 }  // namespace
 
 void Sound::reset() {
     latch = 0;
     lfsr_ = 0;
-    noise_phase_ = 0;
-    noise_ = div31_ = nand33_ = div34_ = false;
-    shell_cap_ = shell_out_ = expl_cap_ = expl_out_ = 0;
-    eng_cv_ = 0;
-    vco_cap_ = 0;
-    vco_out_ = true;
-    f4_ = 4;
-    f5_ = 6;
-    eng_mix_ = 0;
-    hp_in_ = hp_out_ = 0;
+    noise_clk_ = 0;
+    noise_div_ = false;
+    shell_ff_ = expl_ff_ = false;
+    qh_ = false;
+    nand4_ = true;
+    shell_ = Burst{};
+    expl_ = Burst{};
+    c13_ = 0;
+    c11_ = 0;
+    f3_high_ = true;
+    f4_ = f5_ = 0;
+    c29_ = 0;
+    c20_ = 0;
+    aud_plus_ = 0;
+    dc_ = 0;
 }
 
 void Sound::set_rate(int hz) {
-    hz_ = std::max(1, hz);
-    dt_ = 1.0 / hz_;
+    hz_ = hz > 0 ? hz : 48000;
+    sub_ = std::max(1, int(std::ceil(192000.0 / hz_)));
+    dt_ = 1.0 / (double(hz_) * sub_);
 }
 
+// H5 then H4 LS164, cleared while SOUND ENABLE is low; J4 LS20 and two LS74 toggles.
 void Sound::clock_noise() {
-    // 16-bit LS164 chain: taps QC of the second (bit 3) and QH of the third (bit 14).
-    uint32_t fb = (lfsr_ >> 16) & 1;
-    fb ^= 1;
-    lfsr_ = ((lfsr_ << 1) & 0xFFFE) | fb;
-    uint32_t f0 = ((lfsr_ >> 3) ^ (lfsr_ >> 14)) & 1;
-    lfsr_ |= f0 << 16;
-
-    bool out = (lfsr_ >> 15) & 1;
-    if (out && !noise_) div31_ = !div31_;
-    noise_ = out;
-    bool nand = ((lfsr_ >> 11) & 0xF) != 0xF;
-    if (nand && !nand33_) div34_ = !div34_;
-    nand33_ = nand;
-}
-
-// MAME DST_RC_CIRCUIT_1: the enable charges the cap through a 4066, the gate
-// discharges it through R and passes it to the output.
-double Sound::rc_circuit(double& cap, bool charge, bool gate, double r, double c) const {
-    const double drop = divider(kRon, kRon + r);
-    if (!charge) {
-        if (!gate) return 0;
-        cap -= cap * (1 - std::exp(-dt_ / ((kRon + r) * c)));
-        return cap * drop;
+    if (latch & 0x20) {
+        bool b14 = (lfsr_ >> 14) & 1, b3 = (lfsr_ >> 3) & 1;
+        lfsr_ = uint16_t((lfsr_ << 1) | (b14 == b3 ? 1 : 0));
+    } else {
+        lfsr_ = 0;
     }
-    if (!gate) {
-        cap += (5.0 - cap) * (1 - std::exp(-dt_ / (kRon * c)));
-        return 0;
-    }
-    cap += (5.0 * drop - cap) * (1 - std::exp(-dt_ / (par(kRon, kRon + r) * c)));
-    return cap * drop;
-}
-
-// MAME bzone_custom_filter: 4066-switched gain op-amp, R5/C low-pass.
-double Sound::filter(double& out, bool loud, double in, const Parts& p) const {
-    const double r1 = p.r1, r2 = p.r2, r3 = p.r3, r4 = p.r4, r5 = p.r5, c = p.c;
-    double gain = loud ? r5 / (par(kRon, r1) + r2) + 1 : r5 / (r1 + r2) + 1;
-    double v = std::clamp(in * divider(r3, r4) * gain, 0.0, 22.0 - 1.5);
-    out += (v - out) * (1 - std::exp(-dt_ / (r5 * c)));
-    return out;
+    bool qh = (lfsr_ >> 15) & 1;
+    bool nand4 = ((lfsr_ >> 11) & 0xF) != 0xF;
+    if (qh && !qh_) shell_ff_ = !shell_ff_;
+    if (nand4 && !nand4_) expl_ff_ = !expl_ff_;
+    qh_ = qh;
+    nand4_ = nand4;
 }
 
 double Sound::engine_hz() const {
-    // 555 astable with CV: charge Vc/2 to Vc through R10+R11, discharge through R11.
-    double vc = std::clamp(eng_cv_, 0.05, 4.9);
-    double th = (kR10 + kR11) * kC11 * std::log((5.0 - vc / 2) / (5.0 - vc));
-    double tl = kR11 * kC11 * std::log(2.0);
-    return 1.0 / (th + tl);
+    double v = std::min(engine_cv(), kVcc - 0.01);
+    if (v <= 0.02) v = 0.02;
+    double hi = (kR10 + kR11) * kC11 * std::log((kVcc - v / 2) / (kVcc - v));
+    double lo = kR11 * kC11 * std::log(2.0);
+    return 1.0 / (hi + lo);
 }
 
-void Sound::step_vco() {
-    double vc = std::clamp(eng_cv_, 0.05, 4.9);
-    if (vco_out_) {
-        vco_cap_ += (5.0 - vco_cap_) * (1 - std::exp(-dt_ / ((kR10 + kR11) * kC11)));
-        if (vco_cap_ >= vc) vco_out_ = false;
+// 4066 charges the hold cap while enabled; the noise gate dumps it through
+// the divider into a non-inverting LM324 whose gain the L/S switch raises.
+void Sound::step_burst(Burst& b, const BurstParts& p, bool enable, bool gate, bool loud) {
+    double r_dump = kRon + p.r_series + p.r_shunt;
+    double i = (enable ? (kVcc - b.cap) / kRon : 0) - (gate ? b.cap / r_dump : 0);
+    b.cap += dt_ * i / p.c_hold;
+    double vplus = gate ? b.cap * p.r_shunt / r_dump : 0;
+    double rg = p.r13 + (loud ? p.r12 * kRon / (p.r12 + kRon) : p.r12);
+    b.vf += dt_ * (vplus / rg - b.vf / p.rf) / p.cf;
+    b.out = std::clamp(vplus + b.vf, 0.0, kRail);
+}
+
+void Sound::step_555() {
+    double v = engine_cv();
+    if (f3_high_) {
+        c11_ += (kVcc - c11_) * (1 - std::exp(-dt_ / ((kR10 + kR11) * kC11)));
+        if (c11_ >= v) f3_high_ = false;
     } else {
-        vco_cap_ -= vco_cap_ * (1 - std::exp(-dt_ / (kR11 * kC11)));
-        if (vco_cap_ <= vc / 2) {
-            vco_out_ = true;
-            // F4 counts 4..15, F5 6..15, on the 555's rising edge.
-            if (latch & 0x80) {
-                f4_ = f4_ >= 15 ? 4 : f4_ + 1;
-                f5_ = f5_ >= 15 ? 6 : f5_ + 1;
-            }
+        c11_ -= c11_ * (1 - std::exp(-dt_ / (kR11 * kC11)));
+        if (c11_ <= v / 2) {
+            f3_high_ = true;
+            clock_counters();
         }
     }
-    if (!(latch & 0x80)) {
-        f4_ = 0;
-        f5_ = 0;
+}
+
+// F4 loads 4 and F5 loads 6 after 15: divide by 12 and 10. MOTOR EN clears both.
+void Sound::clock_counters() {
+    if (!(latch & 0x80)) return;
+    f4_ = f4_ == 15 ? 4 : f4_ + 1;
+    f5_ = f5_ == 15 ? 6 : f5_ + 1;
+}
+
+void Sound::step(double pokey) {
+    noise_clk_ += dt_ * kNoiseHz;
+    while (noise_clk_ >= 1) {
+        noise_clk_ -= 1;
+        noise_div_ = !noise_div_;
+        if (noise_div_) clock_noise();
     }
+
+    step_burst(shell_, kShell, latch & 0x04, shell_ff_, latch & 0x08);
+    step_burst(expl_, kExpl, latch & 0x01, expl_ff_, latch & 0x02);
+
+    double g_gnd = 1 / kR6 + ((latch & 0x10) ? 1 / (kR5 + kRon) : 0);
+    double rth = 1 / (1 / kR7 + g_gnd);
+    double vth = kVcc / kR7 * rth;
+    double va = (vth / rth + c13_ / kR8) / (1 / rth + 1 / kR8);
+    if (va - c13_ > kDiode)
+        va = (vth / rth + c13_ / kR8 + (c13_ + kDiode) / kR9) / (1 / rth + 1 / kR8 + 1 / kR9);
+    double i13 = (va - c13_) / kR8 + std::max(0.0, (va - c13_ - kDiode) / kR9);
+    c13_ += dt_ * i13 / kC13;
+
+    if (!(latch & 0x80)) f4_ = f5_ = 0;
+    step_555();
+
+    bool on = latch & 0x20;
+    double gi = shell_.out / kR25 + expl_.out / kR28 + c29_ / kR26 + pokey / kR27;
+    double gs = 1 / kR25 + 1 / kR28 + 1 / kR26 + 1 / kR27;
+    double s = gi / (gs + (on ? 1 / (kRon + kR29) : 0));
+    double vplus = on ? s * kR29 / (kRon + kR29) : 0;
+
+    auto lvl = [](bool b) { return b ? kVoh : kVol; };
+    double i29 = (lvl(f4_ & 8) + lvl(f4_ == 15) + lvl(f5_ & 8) + lvl(f5_ == 15) - 4 * c29_) / kR20 +
+                 (s - c29_) / kR26;
+    c29_ += dt_ * i29 / kC29;
+
+    aud_plus_ = std::clamp(vplus * kMixGain, 0.0, kRail);
+    double u = aud_plus_ - kVcc - c20_;
+    c20_ += dt_ * u / (kR24 * kC20);
 }
 
 float Sound::sample(float pokey) {
-    noise_phase_ += kNoiseHz * dt_;
-    while (noise_phase_ >= 1.0) {
-        noise_phase_ -= 1.0;
-        clock_noise();
+    double acc = 0;
+    for (int i = 0; i < sub_; i++) {
+        step(pokey);
+        double u = aud_plus_ - kVcc - c20_;
+        double aud_minus = kVcc - u * kR23 / kR24;
+        acc += aud_plus_ - aud_minus;
     }
-
-    // D2 shell, D3 shell loud (game LOUDSH=8); D0 explosion, D1 explosion loud.
-    double shell = rc_circuit(shell_cap_, latch & 0x04, div31_, kR14 + kR15, kC9);
-    shell = filter(shell_out_, latch & 0x08, shell, {kR12, kR13, kR14, kR15, kR32, kC21});
-    double expl = rc_circuit(expl_cap_, latch & 0x01, div34_, kR17 + kR16, kC14);
-    expl = filter(expl_out_, latch & 0x02, expl, {kR19, kR18, kR17, kR16, kR33, kC22});
-
-    // D4 engine rev pulls the 555 CV down through R5 and the 4066.
-    double target = (latch & 0x10) ? 5.0 * divider(kR7, par(kRon + kR5, kR6))
-                                   : 5.0 * divider(kR7, kR6);
-    double diff = target - eng_cv_;
-    // RCDISC3, diode drop 0.5 V (MAME NODE_62).
-    double tau = diff > 0.5 ? par(kR8, kR9) * kC13 : kR8 * kC13;
-    eng_cv_ += diff * (1 - std::exp(-dt_ / tau));
-    step_vco();
-    double eng_in = ((f4_ > 7) + (f4_ == 15) + (f5_ > 7) + (f5_ == 15)) * kTtl / 4;
-    eng_mix_ += (eng_in - eng_mix_) * (1 - std::exp(-dt_ / ((kR20 / 4) * kC29)));
-
-    const double g[4] = {1 / kR25, 1 / kR28, 1 / (kR26 + kR20 / 4), 1 / kR27};
-    const double sum = g[0] + g[1] + g[2] + g[3] + 1 / kR29;
-    double out = (shell * g[0] + expl * g[1] + eng_mix_ * g[2] + double(pokey) * g[3]) / sum;
-    // C20 couples the speaker; the source is every mixer leg in parallel.
-    double rc = 1 / (1 / kR25 + 1 / kR28 + 1 / (kR26 + kR20 / 4) + 1 / kR27 + 1 / kR29) * kC20;
-    double a = rc / (rc + dt_);
-    hp_out_ = a * (hp_out_ + out - hp_in_);
-    hp_in_ = out;
-    // D5 mutes the output, past C20 (MAME system_mute), so it doesn't pop.
-    if (!(latch & 0x20)) return 0.0f;
-    return float(std::clamp(hp_out_ * 0.8, -1.0, 1.0));
+    double diff = acc / sub_;
+    dc_ += (diff - dc_) * (1 - std::exp(-2 * M_PI * kOutHp / hz_));
+    return float(std::clamp((diff - dc_) / kFullScale, -1.0, 1.0));
 }
 
 }  // namespace battlezone

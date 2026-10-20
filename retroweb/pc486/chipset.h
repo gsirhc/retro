@@ -118,7 +118,7 @@ public:
     // Port 0x80: BIOS POST code.
     uint8_t last_post_code() const { return last_post_code_; }
 
-    // Port 0xE9: Bochs debug console, written by the Bochs-legacy BIOS.
+    // Port 0xE9: debug console the stand-in BIOS writes.
     const std::string &debug_console() const { return debug_console_; }
 
     // Passes the CPU clock to devices that convert seconds into CPU cycles.

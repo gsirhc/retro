@@ -1,8 +1,4 @@
-// Atari Centipede (1981) board: MOS 6502 @ 1.512 MHz + playfield/sprites + POKEY.
-//
-// Memory map: computerarcheology.com/Arcade/Centipede/Hardware.html,
-// 6502disassembly.com/va-centipede, Atari DP-182 schematics.
-// Clocks / IRQ / watchdog / palette: MAME centiped.cpp / centiped_v.cpp.
+// Atari Centipede (1981) board (DP-182 schematics and memory map, CENDEF.MAC).
 
 #ifndef CENTIPEDE_MACHINE_H
 #define CENTIPEDE_MACHINE_H
@@ -26,7 +22,9 @@ constexpr int kUprightW = 240;           // ROT270 portrait
 constexpr int kUprightH = 256;
 constexpr int kCyclesPerLine = kCpuHz / (kFrameHz * kLines);  // 98.4375 → 98
 constexpr int kCyclesPerFrame = kCyclesPerLine * kLines;
-constexpr int kWatchdogFrames = 8;       // MAME set_vblank_count(8)
+constexpr double kOpAmpHigh = 12.0 - 1.5;  // LM324 on +12 V
+constexpr double kAudioScale = 6.0;
+constexpr int kWatchdogFrames = 8;       // L2 LS90 QD sets RESET at its 8th count
 
 struct Inputs {
     // IN0 bits 4–6 (cabinet / service / vblank filled by the board).
@@ -37,8 +35,8 @@ struct Inputs {
     // IN1 active-low (idle 0xFF): start1/2, fire, tilt, coins, service credit.
     uint8_t in1 = 0xFF;
     uint8_t in3 = 0xFF;  // cocktail P2 stick, unused upright
-    uint8_t dsw1 = 0x54; // lives/bonus/difficulty/language (MAME default-ish)
-    uint8_t dsw2 = 0x02; // coinage
+    uint8_t dsw1 = 0x54; // English, 3 lives, 12000 bonus, easy (manual fig. 7)
+    uint8_t dsw2 = 0x02; // 1 coin 1 play (manual fig. 8)
 };
 
 struct RomSet {
@@ -88,6 +86,7 @@ private:
     void earom_control(uint8_t v);
     void earom_update();
     uint32_t pen_rgb(int pen) const;
+    void condition_audio(size_t from);
     uint8_t tile_pixel(uint8_t code, int x, int y) const;
     uint8_t sprite_pixel(uint8_t code, int x, int y) const;
 
@@ -97,6 +96,7 @@ private:
     bool vblank_ = false;
     bool irq_line_ = false;
     mutable bool playfield_touch_ = false;
+    double hp_ = 5.0;
 
     // ER2055. C1=/DB1, C2=DB2, CS1=DB3; /CS2 is tied active.
     uint8_t earom_data_ = 0;

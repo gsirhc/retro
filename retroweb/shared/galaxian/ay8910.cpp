@@ -1,177 +1,127 @@
 #include "ay8910.h"
 
-#include <algorithm>
 #include <cmath>
 
 namespace galaxian {
+
 namespace {
 
-// 16-level AY DAC, relative to full scale. Datasheet resistor ladder
-// (normalized); not a linear 4-bit scale.
-constexpr float kVol[16] = {
-    0.0000f, 0.0078f, 0.0110f, 0.0156f, 0.0221f, 0.0312f, 0.0441f, 0.0624f,
-    0.0883f, 0.1249f, 0.1766f, 0.2498f, 0.3534f, 0.4998f, 0.7071f, 1.0000f,
-};
+// Unused register bits read back as 0 (data sheet register array).
+constexpr uint8_t kMask[16] = {0xFF, 0x0F, 0xFF, 0x0F, 0xFF, 0x0F, 0x1F, 0xFF,
+                               0x1F, 0x1F, 0x1F, 0xFF, 0xFF, 0x0F, 0xFF, 0xFF};
 
-int tone_period(const std::array<uint8_t, 16>& r, int ch) {
-    int p = r[unsigned(ch * 2)] | (int(r[unsigned(ch * 2 + 1)] & 0x0F) << 8);
-    return p == 0 ? 1 : p;
-}
+int period(int p) { return p ? p : 1; }
 
 }  // namespace
 
 void Ay8910::reset() {
     regs.fill(0);
     addr = 0;
-    mute = false;
-    ay_cycle_ = 0;
     host_acc_ = 0;
-    for (int i = 0; i < 3; i++) {
-        tone_cnt_[i] = 0;
-        tone_out_[i] = false;
+    host_sum_ = 0;
+    host_n_ = 0;
+    for (int c = 0; c < 3; c++) {
+        tone_cnt_[c] = 0;
+        tone_out_[c] = false;
     }
     noise_cnt_ = 0;
-    noise_lfsr_ = 1;
-    noise_out_ = false;
-    env_cnt_ = 0;
-    env_pos_ = 0;
-    env_step_ = 1;
-    env_hold_ = false;
+    noise_sr_ = 1;
+    restart_envelope();
 }
 
 void Ay8910::write_addr(uint8_t v) { addr = uint8_t(v & 0x0F); }
 
 void Ay8910::write_data(uint8_t v) {
-    static constexpr uint8_t kMask[16] = {
-        0xFF, 0x0F, 0xFF, 0x0F, 0xFF, 0x0F, 0x1F, 0xFF,
-        0x1F, 0x1F, 0x1F, 0xFF, 0xFF, 0x0F, 0xFF, 0xFF,
-    };
     regs[addr] = uint8_t(v & kMask[addr]);
     if (addr == 13) restart_envelope();
 }
 
 uint8_t Ay8910::read_data() const {
-    if (addr == 14 && port_a_r) return port_a_r();
-    if (addr == 15 && port_b_r) return port_b_r();
+    // R7 B6/B7 low make IOA/IOB inputs.
+    if (addr == 14 && !(regs[7] & 0x40)) return port_a_r ? port_a_r() : 0xFF;
+    if (addr == 15 && !(regs[7] & 0x80)) return port_b_r ? port_b_r() : 0xFF;
     return regs[addr];
 }
 
 void Ay8910::restart_envelope() {
     env_cnt_ = 0;
-    env_hold_ = false;
-    uint8_t shape = regs[13];
-    if (shape & 0x04) {
-        env_pos_ = 0;
-        env_step_ = 1;
-    } else {
-        env_pos_ = 15;
-        env_step_ = -1;
-    }
+    env_step_ = 0;
+    env_attack_ = (regs[13] & 0x04) != 0;
+    env_done_ = false;
 }
 
 uint8_t Ay8910::env_level() const {
-    return uint8_t(std::clamp(env_pos_, 0, 15));
+    const uint8_t shape = regs[13];
+    if (env_done_) {
+        if (!(shape & 0x08)) return 0;
+        const bool attack = (shape & 0x04) != 0;
+        const bool alternate = (shape & 0x02) != 0;
+        return (attack != alternate) ? 15 : 0;
+    }
+    return uint8_t(env_attack_ ? env_step_ : 15 - env_step_);
 }
 
 void Ay8910::tick() {
-    // GI datasheet: tone f = fclock/(16*TP), toggling every 8*TP clocks; noise
-    // fclock/(16*NP)
-    if ((ay_cycle_ & 7) == 0) {
-        for (int ch = 0; ch < 3; ch++) {
-            if (++tone_cnt_[ch] >= tone_period(regs, ch)) {
-                tone_cnt_[ch] = 0;
-                tone_out_[ch] = !tone_out_[ch];
-            }
+    for (int c = 0; c < 3; c++) {
+        const int tp = regs[unsigned(c * 2)] | ((regs[unsigned(c * 2 + 1)] & 0x0F) << 8);
+        // Square wave of period 16 * TP: half a period is 8 * TP input clocks.
+        if (++tone_cnt_[c] >= 8 * period(tp)) {
+            tone_cnt_[c] = 0;
+            tone_out_[c] = !tone_out_[c];
         }
     }
-    if ((ay_cycle_ & 15) == 0) {
-        int np = regs[6] & 0x1F;
-        if (np == 0) np = 1;
-        if (++noise_cnt_ >= np) {
-            noise_cnt_ = 0;
-            // 17-bit LFSR, tap bits 0 and 3 (GI AY-3-8910).
-            uint32_t bit = (noise_lfsr_ ^ (noise_lfsr_ >> 3)) & 1;
-            noise_lfsr_ = (noise_lfsr_ >> 1) | (bit << 16);
-            noise_out_ = (noise_lfsr_ & 1) != 0;
-        }
-
-        // One envelope step every 16·EP clocks; 16 steps → cycle fclock/(256·EP).
-        int ep = regs[11] | (int(regs[12]) << 8);
-        if (ep == 0) ep = 1;
-        if (!env_hold_ && ++env_cnt_ >= ep) {
-            env_cnt_ = 0;
-            env_pos_ += env_step_;
-            uint8_t shape = regs[13];
-            if (env_pos_ < 0 || env_pos_ > 15) {
-                if ((shape & 0x08) == 0) {
-                    env_pos_ = 0;
-                    env_hold_ = true;
-                } else if (shape & 0x01) {  // hold
-                    env_hold_ = true;
-                    bool alt = (shape & 0x02) != 0;
-                    bool att = (shape & 0x04) != 0;
-                    env_pos_ = (att ^ alt) ? 15 : 0;  // shapes 11 and 13 hold high (GI datasheet)
-                } else if (shape & 0x02) {  // alternate
-                    env_step_ = -env_step_;
-                    env_pos_ += env_step_;
-                } else {
-                    env_pos_ = (shape & 0x04) ? 0 : 15;
-                }
-            }
+    if (++noise_cnt_ >= 16 * period(regs[6] & 0x1F)) {
+        noise_cnt_ = 0;
+        const uint32_t in = (noise_sr_ ^ (noise_sr_ >> 3)) & 1;
+        noise_sr_ = (noise_sr_ >> 1) | (in << 16);
+    }
+    const int ep = regs[11] | (regs[12] << 8);
+    // One of 16 envelope states per 256 * EP clocks.
+    if (!env_done_ && ++env_cnt_ >= 16 * period(ep)) {
+        env_cnt_ = 0;
+        if (++env_step_ == 16) {
+            env_step_ = 0;
+            const uint8_t shape = regs[13];
+            if (!(shape & 0x08) || (shape & 0x01)) env_done_ = true;
+            else if (shape & 0x02) env_attack_ = !env_attack_;
         }
     }
-    ay_cycle_++;
 }
 
 uint8_t Ay8910::output_level(int ch) const {
-    uint8_t mixer = regs[7];
-    bool tone_off = (mixer & (1u << ch)) != 0;
-    bool noise_off = (mixer & (1u << (ch + 3))) != 0;
-    if (!((tone_off || tone_out_[ch]) && (noise_off || noise_out_))) return 0;
-    uint8_t amp = regs[unsigned(8 + ch)];
+    const uint8_t en = regs[7];
+    const bool tone = tone_out_[ch] || (en & (1 << ch));
+    const bool noise = (noise_sr_ & 1) || (en & (8 << ch));
+    if (!(tone && noise)) return 0;
+    const uint8_t amp = regs[unsigned(8 + ch)];
     return (amp & 0x10) ? env_level() : uint8_t(amp & 0x0F);
 }
 
-double Ay8910::output_resistance(uint8_t level) {
-    // Kn per DAC step in uA/V^2, fitted to die measurements (MAME ay8910_mosfet_param).
-    static const std::array<double, 16> table = [] {
-        constexpr double kKn[16] = {
-            0.00076, 0.80536, 1.13106, 1.65952, 2.42261, 3.60536, 5.34893, 8.96871,
-            10.97202, 19.32370, 29.01935, 38.82026, 55.50539, 78.44395, 109.49257, 153.72985,
-        };
-        constexpr double kVth = 1.465385778, kVg = 4.9, kRd = 1000.0;
-        std::array<double, 16> out{};
-        const double vg = kVg - kVth;
-        for (int j = 0; j < 16; j++) {
-            const double kn = kKn[j] / 1.0e6;
-            const double p2 = 1.0 / (2.0 * kn * kRd) + vg;
-            const double vs = p2 - std::sqrt(p2 * p2 - vg * vg);
-            out[unsigned(j)] = kRd * (5.0 / vs - 1.0);
-        }
-        return out;
-    }();
-    return table[level & 15];
+double Ay8910::dac_volts(uint8_t level) {
+    if (level == 0) return 0.0;
+    return std::pow(2.0, (int(level) - 15) / 2.0);
 }
 
 float Ay8910::mix() const {
     if (mute) return 0.0f;
-    float s = 0;
-    for (int ch = 0; ch < 3; ch++) s += kVol[output_level(ch)];
-    return s / 3.0f;
+    double s = 0;
+    for (int ch = 0; ch < 3; ch++) s += dac_volts(output_level(ch));
+    return float(s / 3.0);
 }
 
 void Ay8910::advance(int ay_cycles, int host_hz, std::vector<float>& out) {
-    if (host_hz <= 0) {
-        for (int i = 0; i < ay_cycles; i++) tick();
-        return;
-    }
-    const double step = 1789772.0 / double(host_hz);
+    constexpr double kClock = 1789772.0;
     for (int i = 0; i < ay_cycles; i++) {
         tick();
-        host_acc_ += 1.0;
-        while (host_acc_ >= step) {
-            host_acc_ -= step;
-            out.push_back(mix());
+        if (host_hz <= 0) continue;
+        host_sum_ += mix();
+        host_n_++;
+        host_acc_ += double(host_hz);
+        if (host_acc_ >= kClock) {
+            host_acc_ -= kClock;
+            out.push_back(float(host_sum_ / host_n_));
+            host_sum_ = 0;
+            host_n_ = 0;
         }
     }
 }

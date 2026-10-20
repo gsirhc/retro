@@ -224,8 +224,8 @@ void I8042::typematic_fire() {
 }
 
 // ---- PS/2 mouse on the AUX port ----
-// Chapweske, "The PS/2 Mouse Interface" (2001), cross-checked against the Bochs
-// BIOS INT 15h AH=C2h (rombios.c int15_function_mouse) and INT 74h handler.
+// Chapweske, "The PS/2 Mouse Interface" (2001). The stand-in BIOS uses
+// INT 15h AH=C2h and INT 74h.
 // Plain 3-button mouse, ID 0x00, 3-byte packets. No IntelliMouse (1996); its
 // knock (rates 200, 100, 80 then read ID) is accepted and the ID stays 0x00.
 
@@ -335,7 +335,7 @@ void I8042::aux_write(uint8_t v) {
     const uint8_t ack[1] = {0xFA};
     switch (v) {
         case 0xFF: {  // Reset
-            // ACK, BAT result, device ID: three bytes, as the Bochs BIOS reads them (rombios.c)
+            // ACK, BAT result, device ID: three bytes, as the stand-in BIOS reads them.
             const uint8_t resp[3] = {0xFA, 0xAA, 0x00};
             mouse_.mode = MouseMode::kStream;
             mouse_.mode_before_wrap = MouseMode::kStream;

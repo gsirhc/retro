@@ -92,7 +92,7 @@ public:
     // Port 0x80: last BIOS POST code written.
     uint8_t last_post_code() const { return last_post_code_; }
 
-    // Port 0xE9: Bochs/QEMU debug console. The Bochs BIOS writes progress text here.
+    // Port 0xE9: debug console. The stand-in BIOS writes progress text here.
     const std::string &debug_console() const { return debug_console_; }
 
 private:

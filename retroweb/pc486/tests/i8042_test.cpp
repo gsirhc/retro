@@ -1,5 +1,5 @@
 // 8042 keyboard controller: self-test, command byte, A20 gate, CPU reset, scan codes, PS/2 aux (mouse) port
-// Mouse protocol per Chapweske, "The PS/2 Mouse Interface" (2001), and Bochs rombios.c (INT 15h AH=C2h, INT 74h).
+// Mouse protocol per Chapweske, "The PS/2 Mouse Interface" (2001), and the stand-in BIOS (INT 15h AH=C2h, INT 74h).
 
 #include <gtest/gtest.h>
 

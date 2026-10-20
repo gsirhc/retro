@@ -129,7 +129,7 @@
   These are the only arcade tiles that ship. The hub's Thumbnails dropdown
   (Original by default) has the visitor's browser load each card's `data-art`
   image from libretro-thumbnails
-  (`thumbnails.libretro.com/MAME/{Named_Snaps,Named_Titles,Named_Boxarts}/<MAME description>.png`),
+  (`thumbnails.libretro.com/MAME/{Named_Snaps,Named_Titles,Named_Boxarts}/<title>.png`),
   or its `data-marquee` marquee from the Arcade Database
   (`adb.arcadeitalia.net/media/mame.current/marquees/<set>.png`).
   None of that art is committed or staged.

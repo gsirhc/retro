@@ -1,47 +1,42 @@
 # Scramble arcade board — design notes
 
-Citation trail for the Konami Scramble (1981) emulator. MAME `galaxian.cpp`
-(machine `scramble` / `theend_map`) is a cross-check of decoded
-chip-selects, not a behavior source — same rule as Frogger vs. `frogger_*`.
+Konami Scramble (1981) under `retroweb/scramble/`. Fidelity rules follow
+`CLAUDE.md` and `.claude/arcade.md`. Section 10 is the shared
+Galaxian-family video and Konami sound, also used by Frogger and Galaxian.
+
+## Sources
+
+- Stern Scramble 33A-105 (sound) and 33A-106 (video).
+- GI AY-3-8910/8912 data sheet. Intel 8255A data sheet.
+- Computer Archaeology / Konami service notes for the memory map.
+- Konami sound-board timer: 40960 crystal clocks, Computer Archaeology
+  (`shared/galaxian/timer.h`).
 
 ## 0. Status
 
-Dual Z80 + Galaxian video + two AY-3-8910s + two i8255s + PAL 6J, covered
-by GoogleTest (`make check`) and a generated hardware self-test ROM. The
-Emscripten front end ships the self-test; a real Konami `scramble` set is
-opt-in and browser-local. Landing-page card (286×128 Courier New starfield
-tile from `retroweb/shared/marquee.py`) and CI jobs (`scramble-test` /
-`scramble-web-test`) are wired in. Shared chips (AY, 8255, video raster,
-Konami sound-board timer) live in `retroweb/shared/galaxian/`; the Z80
-core is `retroweb/shared/cpu/`.
+Dual Z80, Galaxian video, two AY-3-8910s, two 8255s and PAL 6J.
+GoogleTest (`make check`) and a generated hardware self-test ROM. The
+page ships the self-test. A real Konami `scramble` set is opt-in and
+browser-local. Shared chips live in `retroweb/shared/galaxian/`. The
+Z80 core is `retroweb/shared/cpu/`.
 
 ## 1. Scope
 
-Konami parent set `scramble` only (chips `s1.2d`…`s8.2p`, `ot1.5c`…
-`ot3.5e`, `c2.5f`/`c1.5h`, `c01s.6e`). Not Super Cobra, The End as a
-game, Amidar, Stern `scrambles`, or bootlegs.
+Konami parent set only (`s1.2d`…`s8.2p`, `ot1.5c`…`ot3.5e`,
+`c2.5f` / `c1.5h`, `c01s.6e`). Not Super Cobra, The End as its own
+game, Amidar, or bootlegs.
 
-## 2. Clocks (never sped up on the live page)
+## 2. Clocks
 
-- Master 18.432 MHz.
-- Main Z80 18.432 / 6 = **3.072 MHz**. 50,688 T-states/frame @ 60.606 Hz.
-- Sound Z80 and both AY-3-8910s 14.31818 / 8 = **1.789772 MHz**.
-- Raster 384×264; visible 256×224 native; upright **ROT90** → canvas 224×256.
-- Vblank **NMI** on the main CPU, gated by `$6801` D0.
-- Sound `/INT` on the falling edge of PPI1 port B bit 3.
+- Master 18.432 MHz. Main Z80 is 18.432 / 6 = 3.072 MHz. 50,688
+  T-states a frame, 60.606 Hz.
+- Sound Z80 and both AYs are 14.31818 / 8 = 1.789772 MHz.
+- Raster 384×264. Visible 256×224, upright on a 224×256 canvas.
+- Vblank NMI on the main CPU, gated by `$6801` D0.
+- Sound /INT is the falling edge of PPI1 port B bit 3. The flip-flop
+  clears on M1 + IORQ (33A-105).
 
-## 3. Shared chips
-
-`retroweb/shared/cpu/cpu_z80.{h,cpp}` and `retroweb/shared/galaxian/`
-(AY, 8255, tile/sprite/PROM drawing, generic Konami timer). Frogger is a
-later PCB that keeps these chips and **moves the map**. ISA tests run as
-`make -C retroweb/shared/cpu check` (named GoogleTests plus zexdoc); this
-board smokes that CPU in `Smoke.HwtestBootsSignatureWatchdogAndPaints`.
-
-## 4. Memory map
-
-Schematic-derived The End map (Computer Archaeology / Konami service
-material). MAME `theend_map` is a cross-check of the decode.
+## 3. Memory map
 
 | Range | Contents |
 |---|---|
@@ -51,168 +46,97 @@ material). MAME `theend_map` is a cross-check of the decode.
 | `$5000–$50FF` | object RAM (mirrored through `$57FF`) |
 | `$6801` | NMI enable (D0 low also clears the held NMI) |
 | `$6802` | coin counter |
-| `$6803` | scramble background enable |
-| `$6804` | Galaxian stars enable |
+| `$6803` | background enable |
+| `$6804` | stars enable |
 | `$6806` / `$6807` | flip X / Y |
-| `$7000` | watchdog **read** (returns `$FF`) |
-| `$8000–$FFFF` | PPI0 if A8, PPI1 if A9 (`theend_ppi8255_*`) |
+| `$7000` | watchdog read (returns `$FF`) |
+| `$8000–$FFFF` | PPI0 if A8, PPI1 if A9 |
 
-Sound CPU: ROM `$0000–$1FFF` (6K populated), RAM `$8000–$83FF` (mirrored).
-AY I/O is bit-decoded: bits 4–5 = AY2 (addr/data), bits 6–7 = AY1
-(addr/data). AY1 port A is the command latch; port B is the **generic**
-Konami sound-board timer (no Frogger 3↔5 swap). Tone f = fclock/(16·TP);
-envelope step is 16·EP clocks. Filter latch writes at `$9000–$9FFF`
-(mirror `$6000`) set the 4066 switches from the address lines (§10).
+Sound CPU: ROM `$0000–$1FFF` (6K populated), RAM `$8000–$83FF`. AY I/O
+is bit-decoded: bits 4–5 are AY2, bits 6–7 are AY1. AY1 port A is the
+command latch. Port B is the sound-board timer, without Frogger's bit
+swap. Filter latch writes at `$9000–$9FFF` (mirror `$6000`) set the
+4066 switches from the address lines.
 
-## 5. Video
+## 4. Video
 
-Galaxian tilemap, 32×32 of 8×8, 2bpp. No nibble-swap, no river split, no
-D0↔D1, full PROM blue bits. Galaxian **starfield** (17-bit LFSR) plus a
-555 blink (`Ra=100k, Rb=10k, C=10µF`). Scramble background latch at
-`$6803` paints a 390 Ω blue. Eight shells in object RAM at `$60` (yellow,
-two pixels, one shell and one missile per line). Stars use `y * 512` with
-no frame drift. See §10.
+Galaxian tilemap, 32×32 of 8×8, 2 bpp. No nibble swap, no river, no
+D0↔D1 swap. Starfield is the 17-bit LFSR with the tap on 5M (1M QF),
+plus a 555 blink (Ra 100 kΩ, Rb 10 kΩ, C 10 µF). `$6803` turns on the
+background, an LS126 and 390 Ω of blue. Object RAM at `$60` holds
+seven shells on one counter, yellow, two pixels. Slot 7's decode (10M)
+is unconnected. Stars do
+not drift. See §10.
 
-## 6. Protection PAL at 6J
+## 5. Protection PAL at 6J
 
-Nibble in / nibble out on PPI1 port C. The game sets PPI1 to mode `$88`
-(its own `LD A,$88; LD ($8203),A`), so C's lower half drives the PAL and
-its upper half reads the result off the pins. Exact PAL equations are not
-published. Scramble uses op `$9` (increment); ops `$6`/`$F` and `$A`/`$B`
-are the bootleg and The End sequences MAME `theend_protection_w` lists.
-IN2 bits 5 and 7 feed the “alt” bits derived from the high bit of that
-nibble.
+Nibble in, nibble out, on PPI1 port C. The game writes mode `$88`, so
+C's lower half drives the PAL and the upper half reads the result.
+Stern 33A-105 and 33A-106 do not print equations for 6J. The scramble
+program at `$007E` shifts three nibbles. Window `F09` must read back
+`$F0`, then window `A49` must read back `$B0`. Any other window leaves
+the last result, which is what the `$1D75` loop is waiting on when it
+writes `09`.
 
-## 7. Inputs / DIPs
+## 6. Inputs
 
-Active-low, 8-way. Cocktail P2 unmapped (same labelled skip as Frogger).
+Active low, 8-way. Cocktail player 2 is unmapped.
 
 IN0: bomb `$02`, fire `$08`, R/L `$10/$20`, coins `$40/$80`.
-IN1: lives DIP bits 1:0 (default 00 = 3), starts `$40/$80`.
+IN1: lives bits 1:0 (default 00 = 3), starts `$40/$80`.
 IN2: U/D `$10/$40`, coinage bits 2:1, cabinet bit 3, protection bits 5/7.
 
-## 8. User ROM
+## 7. Unsourced
 
-Optional. `roms/user/`, `SCRAMBLE_ROM`, or `~/Downloads/scramble.zip`.
-Size-check only, MAME `scramble` chip names. IndexedDB `retroweb-scramble`.
-CI never has a Konami dump, so playthrough tests skip there.
+- Cocktail player 2's stick is unmapped.
+- High score `$4200` (10 × 3 BCD) and the displayed score at `$40A8`
+  have no battery. The page keeps them in IndexedDB for a user ROM.
+  Reset HIGH SCORE deletes the save and resets the board.
 
-## 9. Known simplifications
+## ROM policy
 
-- Cocktail P2 stick unmapped.
-- PAL 6J equations (parity K3) are inferred from observed sequences; MAME
-  also says "Logic is not exactly known". Needs a PAL dump.
-- **HIGH SCORE RAM is volatile on the real PCB.** There is no battery.
-  `$4200` (10 × 3 BCD) plus displayed HI at `$40A8` die on power-off. The
-  Konami parent set has no initials. This page always persists those bytes
-  in IndexedDB for a user ROM — a labelled departure. **Reset HIGH SCORE**
-  deletes the save and `machine.reset()`s the board. Covered by
-  `web/tests/hiscore.spec.ts`.
+Ships a from-scratch hwtest ROM. A user `scramble` set stays in
+IndexedDB (`retroweb-scramble`). Size-checked. Native `play_test` skips
+unless `roms/user/`, `SCRAMBLE_ROM`, or `~/Downloads/scramble.zip` holds
+a dump.
 
-## 10. Parity fixes (2026-10-09)
+## 8. Tests
 
-This section covers the Galaxian-family video and Konami sound shared by
-Scramble, Frogger and Galaxian. Items V1-V7, K1, K2, B1-B3, X3 from
-`shared/cpu/Z80_ARCADE_PARITY.md`.
+- `make -C retroweb/scramble check`
+- `make -C retroweb/scramble/web test` (Playwright on :8700)
 
-### Shared video (`shared/galaxian/video.cpp`)
+## 10. Shared video and Konami sound
 
-*Fact:* the board draws as the beam scans. Sprites load a 256-pixel line
-buffer during HBLANK that only accepts writes where it still holds 0, so
-lower-numbered sprites win; the first 16 pixels (17 with the +1 offset,
-mirrored when flipped) are hard-clipped; the first three sprites match
-one line late. Shells and the missile use one counter each per line,
-last match wins. Stars come from a 17-bit RNG clocked twice per pixel.
-*Why:* the old renderer drew the frame at once from final RAM, reversed
-sprite priority, drew every bullet match, and ignored flip for sprites,
-bullets and stars. *What:* the main Z80's `Bus::tick` drives
-`Video::advance`, which paints spans as the beam crosses them and runs
-`hblank_setup` for the next line. Flip inverts the H/V counters ahead of
-the scroll adder. Galaxian's star origin drifts one RNG step a frame (+1
-when flipped X) and `$7004` rising restarts it at the beam. Shells and
-the missile are OR'd into the RGB: Galaxian/Frogger four pixels, shells
-white and missile yellow; Scramble two yellow pixels. The palette uses
-MAME's resnet weights with the 470 Ω pulldown, scaled to 224, with star
-levels 194/214/255. *Source:* MAME `galaxian_v.cpp` (`sprites_draw`,
-`bullets_draw`, `stars_update_origin`, `galaxian_palette`), which quotes
-the schematics. Tests: `Video.LowerNumberedSpriteWins`,
-`Video.FirstThreeSpritesMatchAgainstLineMinusOne`,
-`Video.SpriteLineBufferClipsFirstSixteenPixels`,
-`Video.GalaxianStarFieldDriftsOneStepPerFrame`,
-`Video.StarsEnableRestartsTheFieldAtTheBeam`,
-`Video.OneShellPerLineLastMatchWins`, `Video.GalaxianMissileIsFourYellowPixels`,
-`Video.ShellsOrIntoTheTileColour`, `Video.FlipXMirrorsTheTilemap`,
-`Video.FlipYMirrorsTheTilemap`, `Video.MidFrameWritesTakeEffectAtTheBeam`,
-`Video.VblankEdgeFiresOncePerFrameAtLine240`, `Video.ScrambleShellsAreTwoYellowPixels`,
-`Video.FroggerShellsAreFourWhitePixels`.
+`retroweb/shared/galaxian/video.*` draws as the beam scans. H counts
+from 176, where HSYNC clocks V. Sprite slots load a line buffer during
+horizontal blank and only write where it still holds 0, so a
+lower-numbered sprite wins. The first 16 pixels are clipped. Slots 0–2
+fall before HSYNC and match the previous line. Shells and the missile
+each have one counter a line, and the last match wins. Flip inverts the
+counters ahead of the scroll adder. Stars are a 17-bit shift register,
+two clocks a pixel. Galaxian's origin drifts one step a frame, and
+stars-enable going high restarts the field at the beam.
 
-### Held vblank NMI
+Each colour gun is a TTL high (3.4 V) through its resistors into 470 Ω.
+The PROM uses 1 kΩ / 470 Ω / 220 Ω on red and green and 470 Ω / 220 Ω
+on blue. Stars use 150 Ω / 100 Ω through a 74366, a 0 bit driving the
+resistor high. Frogger's river is 470 Ω of blue. Scramble's background
+is 390 Ω of blue.
 
-The NMI flip-flop is set at vblank and cleared only by writing 0 to the
-enable latch (`$7001` Galaxian, `$B808` Frogger, `$6801` Scramble). Games
-clear and re-arm it inside the handler; one that doesn't gets one NMI.
-The three self-test ROMs now do it like the games. MAME `irq_enable_w`.
+`ay8910.*` is the GI AY-3-8910. Tone half-period is 8 × TP clocks,
+noise is 16 × NP, and each envelope step is 16 × EP. Level 15 is 1 V
+and each step down is 3 dB. Level 0 is 0 V. Held shapes sit at 15 or 0
+the way the data-sheet chart draws them. Shapes that repeat hold the
+end level for one step at each turn.
 
-### Konami sound network (`shared/galaxian/konami_sound.cpp`)
+`konami_sound.*` is the output stage on Stern 33A-105 and Frogger
+834-0069. Each channel is 1 kΩ, then a CD4066 (470 Ω on) switching
+0.22 µF and 0.047 µF, then 5.1 kΩ into an LM741. Feedback is 2.2 kΩ on
+Scramble and 5.6 kΩ on Frogger. The swing stops 2 V short of the ±5 V
+rails. Then 4.7 kΩ and 0.15 µF into the amp, whose input is taken as
+100 kΩ. The latch takes AV6–AV11 for one AY and AV0–AV5 for the other.
+A full-level channel is scaled to 0.5 peak to peak.
 
-*Fact:* each AY output is an NMOS source follower. MAME fits it from die
-measurements as a Thevenin resistance to 5 V per DAC level. Each channel
-then runs through RI 1 kΩ to a node with two caps (0.22 µF, 0.047 µF)
-switched in by a CD4066 (about 270 Ω on), then RO 5 kΩ into a uA741
-summer (2.2 kΩ feedback). That feeds the 4.7 kΩ / 200 Ω volume divider,
-then 0.15 µF into the M51516L amp (about 100 kΩ). The 4066s are
-controlled by a latch whose data is the CPU's address lines: AV6-AV11
-for AY 3D, AV0-AV5 for 3C, low bit 0.22 µF. *Why:* the old output was a
-dry 3 dB ladder mix with every filter write ignored. *What:* `KonamiSound`
-solves each channel node by backward Euler every 8 AY clocks, sums into
-the op-amp (clipped at about ±4 V), applies the coupling, and box-averages
-to the host rate. The output is scaled 1/0.05 like MAME, so Frogger's
-4x page gain is gone. *Source:* MAME `nl_konami.cpp` (Couriersud),
-`ay8910.cpp` `build_mosfet_resistor_table`, `galaxian.cpp`
-`konami_sound_filter_w`. Tests: `Ay8910.MosfetOutputResistanceFallsWithLevel`,
-`Ay8910.OutputLevelIsZeroWhileTheMixerGatesTheChannel`,
-`KonamiSound.SwitchedCapsDampTheTone`, `KonamiSound.OutputIsAcCoupled`,
-`KonamiSound.MuteSilencesTheOutput`,
-`Machine.FilterLatchDecodesAddressLinesAt6000` (Frogger),
-`Machine.FilterLatchSplitsAddressLinesBetweenAys` (Scramble).
-
-### AY envelope hold
-
-The held level for continue+hold shapes was inverted: shapes 11 and 13
-hold at 15, shapes 9 and 15 at 0 (GI datasheet envelope chart; MAME
-`set_shape`). `Ay8910.HeldEnvelopeLevelsMatchTheDatasheet`.
-
-### Sound CPU INT
-
-Control bit 3 falling sets a flip-flop that holds the sound Z80's /INT
-until the acknowledge clears it (MAME `konami_sound_control_w`
-HOLD_LINE). It used to be a one-shot with a retry flag.
-`Machine.SoundIntHoldsUntilTheCpuAcknowledges` (Frogger).
-
-### Board items
-
-- **Watchdog keeps RAM (B1)**, `Machine.WatchdogResetKeepsRam`.
-- **Coin counter (B3).** `$6802` D0 (MAME `coin_count_0_w`).
-  `Machine.CoinCounterCountsRisingEdges`.
-
-The real `scramble` set boots, takes a coin, starts and fires
-(`play_test` with `SCRAMBLE_ROM`), and frames dumped from it look right.
-
-### Found closing the coverage gaps
-
-- **8255 bit set/reset.** A control write with D7 low sets or clears one
-  port C line (Intel 8255A datasheet) and re-sends the port, as MAME
-  `output_pc` does. Ours ignored BSR, so a BSR write to the PAL went
-  nowhere. `I8255.BitSetResetDrivesOnePortCLine`,
-  `Machine.Pal6JSeesBitSetResetWrites`.
-- **No result in the port C latch.** `pal6j_write` also copied the result
-  into PPI1's output latch, which a BSR would then have sent back to the
-  PAL. In mode `$88` the result comes in on the input pins, so the copy is
-  gone. A port C read in that mode gives the result's high nibble and the
-  last nibble written. `Machine.Pal6JOp9IncrementsNibble`,
-  `Machine.Pal6JOtherOpsFollowMame`.
-- **Repeating AY envelopes.** Shapes 8, 10, 12 and 14 had no test. They
-  now match the datasheet waveforms step by step, with the end level held
-  for one step at each turn of the triangle, as MAME's AY does.
-  `Ay8910.RepeatingEnvelopeShapesMatchTheDatasheet`.
-- `play_test` also looks in `~/images/arcade/scramble.zip`.
+The NMI flip-flop sets at vblank and clears only when the enable latch
+is written 0 (`$7001` Galaxian, `$B808` Frogger, `$6801` Scramble).
+The sound CPU's INT flip-flop holds /INT until the acknowledge.

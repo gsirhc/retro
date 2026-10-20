@@ -65,11 +65,11 @@ void Ega::vbe_write_(int index, uint16_t v) {
         case kVbeRegVideoMemory64K:
             return;  // read-only: how much RAM is soldered to the card
         case kVbeRegBank: {
-            // Low 9 bits are the bank number; bits 14/15 are RD/WR selects. Bochs vga.cc masks the same way.
+            // Low 9 bits are the bank number; bits 14/15 are RD/WR selects.
             uint16_t bank = uint16_t(v & kVbeBankNumberMask);
             uint32_t bank_bytes = vbe_bank_bytes();
             uint32_t num_banks = uint32_t(vram.size() / bank_bytes);
-            // At bpp=4 each plane_off unit is 4 VRAM bytes, so reachable banks are quartered (Bochs vga.cc).
+            // At bpp=4 each plane_off unit is 4 VRAM bytes, so reachable banks are quartered.
             if (vbe_[kVbeRegBpp] == 4) num_banks >>= 2;
             if (bank >= num_banks) return;
             vbe_[kVbeRegBank] = bank;
@@ -80,7 +80,7 @@ void Ega::vbe_write_(int index, uint16_t v) {
             bool was_32k = (vbe_[kVbeRegEnable] & kVbeBankGranularity32K) != 0;
             vbe_[kVbeRegEnable] = v;
             bool now_32k = (v & kVbeBankGranularity32K) != 0;
-            // A step-size change resets the window (Bochs does the same).
+            // A step-size change resets the window.
             if (now_32k != was_32k) vbe_[kVbeRegBank] = 0;
             if ((v & kVbeEnabled) && !was_on) {
                 // Mode set clears window/pan state and, unless NoClearMem, VRAM.
@@ -253,8 +253,8 @@ void Ega::recompute_timing_() {
     v_display_cycles_ = per_scanline_cycles * double(std::min(vde, v_total_lines));
 }
 
-// Input Status 1 bit 0 is inverted display enable (FreeVGA General Registers;
-// DOSBox vga_other.cpp). Palette loaders poll it.
+// Input Status 1 bit 0 is inverted display enable (FreeVGA General Registers).
+// Palette loaders poll it.
 bool Ega::display_disabled_() const {
     if (retrace_credit_ >= v_display_cycles_) return true;
     return std::fmod(retrace_credit_, scanline_cycles_) >= h_display_cycles_;
@@ -307,7 +307,7 @@ uint32_t Ega::vbe_linear_offset(uint32_t addr) const {
     return lin < vram.size() ? lin : kOutOfWindow;
 }
 
-// Planar plane_off after the Bank slide in 4bpp DISPI modes (Bochs ext_offset).
+// Planar plane_off after the Bank slide in 4bpp DISPI modes.
 uint32_t Ega::vbe_planar_plane_off(uint32_t plane_off) const {
     if (!vbe_planar_banked()) return plane_off;
     return plane_off + uint32_t(vbe_[kVbeRegBank]) * vbe_bank_bytes();

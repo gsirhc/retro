@@ -5,8 +5,8 @@ const IDB_NAME = "retroweb-centipede";
 const ROM_KEY = "set";
 const TEST = new URLSearchParams(location.search).has("test");
 const DIP_KEY = "retroweb.centipede.dips";
-const DSW1_FACTORY = 0x54; // 3 lives, 12000 bonus, easy, English (MAME centiped)
-const DSW2_FACTORY = 0x02; // 1C/1C
+const DSW1_FACTORY = 0x54; // 3 lives, 12000 bonus, easy, English (manual fig. 7)
+const DSW2_FACTORY = 0x02; // 1C/1C (manual fig. 8)
 const HISCORE_LEN = 0x40; // ER2055 is 64 x 8
 const TRACK_STEP = 2;
 
@@ -16,10 +16,10 @@ function concat(parts, size) {
   return out;
 }
 
-// Board locations as named in MAME. 213/214 are the colour PROMs, which
-// this core doesn't read, so dumps that include them are ignored.
+// Board locations as printed on the PCB. 213/214 are PROMs this core
+// doesn't read, so dumps that include them are ignored.
 const SIZE = { program: 0x2000, gfx: 0x1000, chip: 0x0800 };
-// Program chips: rev 3 is 307–310, rev 4 (common MAME centiped set) is 407–410.
+// Program chips: rev 3 is 307–310, rev 4 (the common centiped set) is 407–410.
 const NUM_RE = /(?:^|[._-])(307|308|309|310|407|408|409|410|211|212)(?:[^a-z0-9]|$)/i;
 const LOC_RE = /(?:^|[._-])(d1|e1|fh1|j1|f7|hj7)(?:[^a-z0-9]|$)/i;
 const IGNORE_RE = /(?:^|[._-])(213|214)(?:[^a-z0-9]|$)/i;
@@ -126,9 +126,8 @@ CentipedeArcade().then(async (Module) => {
   // Mouse deltas accumulated between frames (pointer-lock or drag on #screen).
   let mouseDx = 0, mouseDy = 0;
 
-  // The 4-bit counter holds its value between pushes and the sign latches the
-  // last direction (MAME centiped.cpp read_trackball). X is wired reversed
-  // (TRACK0_X PORT_REVERSE), so right counts down.
+  // The 4-bit counter holds its value between pushes and D7 latches the last
+  // direction (DP-182 memory map). Right counts X down.
   function nudgeTrack(dx, dy) {
     if (dx) {
       track.x = (track.x + dx) & 0xff;

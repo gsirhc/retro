@@ -127,8 +127,7 @@ void Cpu::reset() {
 void Cpu::raise(int vector) {
     pending_fault_ = Fault{vector, 0, false};
 #ifdef __EMSCRIPTEN__
-    // Wasm C++ EH soft-locks under a V86 #GP storm (JEMMEX / EMMQXXX0); longjmp
-    // matches Bochs.
+    // Wasm C++ EH soft-locks under a V86 #GP storm (JEMMEX / EMMQXXX0).
     if (fault_jmp_set_) longjmp(fault_jmp_, 1);
 #endif
     throw pending_fault_;
@@ -1238,8 +1237,7 @@ int Cpu::far_return(uint32_t stack_adjust, bool is_iret) {
     if (is_iret) {
         // IOPL is writable only at CPL 0 and IF only when CPL <= IOPL;
         // otherwise IRET keeps the old values (Intel 80486 PRM, "IRET"). VM
-        // follows IOPL. Both test the CPL that executed the IRET, as Bochs
-        // iret_protected does with prev_cpl.
+        // follows IOPL. Both test the CPL that executed the IRET.
         uint32_t mask = opsize32_ ? kIretdMask : kPopfMask;
         uint32_t keep = 0;
         if (entry_cpl > 0) keep |= FLAG_IOPL | FLAG_VM;
@@ -3154,7 +3152,7 @@ void Cpu::fpu_set_tag(int phys, bool empty) {
 }
 // The tag register only tracks empty or not; the stored tag word classifies
 // each full register: 00 valid, 01 zero, 10 special, 11 empty (Intel 80486 PRM,
-// "Tag Word"; Bochs fpu_tags.cc packs it the same way).
+// "Tag Word").
 uint16_t Cpu::fpu_tag_word() const {
     uint16_t tw = 0;
     for (int phys = 0; phys < 8; ++phys) {

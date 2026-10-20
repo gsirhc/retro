@@ -55,8 +55,7 @@ TEST(Dvg, JsrFromVectorRomStyle) {
 }
 
 TEST(Dvg, SvecRemapsScaleLikeVectorRom) {
-    // computerarcheology VectorROM.html @ $1050: LABS scale 0 at (500,508),
-    // then SVEC ss=2 bri=13 x=+3 → dx 24 (3<<8 / 32). Bytes DB F0.
+    // VECMAC.XX: the $F008 short form steps 8 units, so x = +3 moves 24.
     std::array<uint16_t, 8> mem{};
     mem[0] = 0xA000 | 508;
     mem[1] = 0x0000 | 500;  // global scale 0

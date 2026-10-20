@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 import { readFileSync } from "fs";
 import { HWTEST_FILES } from "./cabinet";
 
-// Members map by MAME/board names and must be original chip size. CRC32 only
+// Members map by part numbers or board locations and must be original chip size. CRC32 only
 // labels the self-test ROM vs a user dump.
 
 function buf(path: string, name: string, patch?: (b: Buffer) => Buffer) {
@@ -182,7 +182,7 @@ test.describe("ROM set loader", () => {
     await expect(page.locator("#romStatus")).toHaveText("Hardware test ROM");
   });
 
-  test("the optional 034602 bonus-coin PROM is ignored, not required or rejected", async ({ page }) => {
+  test("the optional 034602 vector state PROM is ignored, not required or rejected", async ({ page }) => {
     const files = hwtestNamed({});
     files.push(buf("roms/035127-02.np3", "034602.r1"));
     await page.locator("#romFile").setInputFiles(files);

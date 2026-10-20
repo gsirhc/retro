@@ -1,8 +1,7 @@
 // VGA-class adapter (named Ega for historical reasons). 1MB VRAM, standard
 // CRTC/Sequencer/Graphics Controller/Attribute Controller/DAC register sets.
 // VRAM is 4 byte-interleaved planes, vram[(plane_offset << 2) + plane]. The
-// planar latch/ALU engine follows Bochs bx_vgacore_c::mem_read/mem_write
-// (vgacore.cc, commit ff17a0c2bbabccf96d33af4e08ba8061889b079d). Chain-4
+// planar latch/ALU engine. Chain-4
 // decodes to vram[offset] because ((off>>2)<<2) + (off&3) == off, which is why
 // mode 13h looks linear. SVGA extension registers back the VBE; see
 // PC486_REVIEW.md §7.
@@ -30,7 +29,7 @@ public:
     void out16(uint16_t port, uint16_t v);
 
     // VBE 2.0 linear frame buffer where the card ROM reports it
-    // (VGABIOS vbe.c VBE_DISPI_LFB_PHYSICAL_ADDRESS); Bochs vga.cc maps it onto VRAM.
+    // (VGABIOS vbe.c VBE_DISPI_LFB_PHYSICAL_ADDRESS). The window is VRAM.
     static constexpr uint32_t kVbeLfbBase = 0xE0000000u;
     bool owns_mem(uint32_t addr) const {
         return (addr >= 0xA0000 && addr <= 0xBFFFF) || (addr >= kVbeLfbBase && addr - kVbeLfbBase < vram.size());
@@ -150,7 +149,7 @@ public:
     static constexpr uint16_t kVbeGetCaps    = 0x02;
     // 32KB bank granularity. The VGABIOS enables it when GETCAPS reports it and
     // then writes bank*2; without it every write lands twice as far (SimCity 2000
-    // banded title screen). Bochs vga.cc does the same.
+    // banded title screen).
     static constexpr uint16_t kVbeBankGranularity32K = 0x10;
     static constexpr uint16_t kVbeNoClearMem = 0x80;
     // Largest 8bpp frame that fits the 1MB VRAM.
@@ -168,8 +167,8 @@ public:
     bool vbe_mode_active() const {
         return (vbe_[kVbeRegEnable] & kVbeEnabled) != 0 && vbe_[kVbeRegBpp] == 8;
     }
-    // DISPI on with bpp=4: the planar engine stays in charge (as in Bochs vga.cc)
-    // and the Bank register slides the 64KB aperture. Needed for 104h
+    // DISPI on with bpp=4: the planar engine stays in charge and the Bank
+    // register slides the 64KB aperture. Needed for 104h
     // (1024x768x4). See PC486_REVIEW.md §7.5.1.
     bool vbe_planar_banked() const {
         return (vbe_[kVbeRegEnable] & kVbeEnabled) != 0 && vbe_[kVbeRegBpp] == 4;
@@ -177,7 +176,7 @@ public:
     // CPU-visible window size at 0xA0000, reported as WinGranularity and WinSize.
     static constexpr uint32_t kVbeBankSize = 65536;
     // Bank register low bits are the bank number; bits 14/15 are the RD/WR window
-    // selects the VGABIOS 4F05 path ORs in. Bochs masks the same way.
+    // selects the VGABIOS 4F05 path ORs in.
     static constexpr uint16_t kVbeBankNumberMask = 0x1FF;
     // Live Bank step: 32KB when the Enable bit is on, else 64KB.
     uint32_t vbe_bank_bytes() const {
@@ -247,7 +246,7 @@ private:
     // SVGA mode: 0xA0000 is a 64KB window onto a linear frame, positioned by the
     // Bank register. Returns the VRAM offset or kOutOfWindow.
     uint32_t vbe_linear_offset(uint32_t addr) const;
-    // 4bpp DISPI mode: the Bank register slides plane_off (Bochs ext_offset).
+    // 4bpp DISPI mode: the Bank register slides plane_off.
     uint32_t vbe_planar_plane_off(uint32_t plane_off) const;
 
     // Decode straight from the raw register arrays, the single source of truth.

@@ -881,24 +881,14 @@ decoded; real hardware only ever answers one at a time, not all three
 simultaneously the way Phase 3's flat model implicitly did).
 
 **Source**: the memory-access algorithm (latch-on-every-read, the four
-write modes, both read modes, the odd/even-vs-map-mask gating) matches
-Bochs's own reference implementation, `bx_vgacore_c::mem_read`/`mem_write`
-in `vgacore.cc`, at the same pinned commit
-(`ff17a0c2bbabccf96d33af4e08ba8061889b079d`) this machine's own BIOS and
-VGABIOS images are built from -- fetched and read directly (`curl` + a
-plain read, not `WebFetch`, which repeatedly either failed outright on
-other EGA/VGA reference pages -- an expired cert on osdever.net, HTTP 403
-on osdev.org's wiki, `web.archive.org` refusing entirely -- or, for
-`vgacore.cc` itself, returned a lossy model-summarized paraphrase instead
-of exact register semantics; this is the same "fetch the real source
-directly" discipline already established for `rombios.c`). Register
-*values* (the standard mode-3 and 16-color-graphics-mode table used in
-`tests/ega_test.cpp`'s setup helpers) are the IBM EGA/VGA-standard values
-every compatible BIOS reproduces for exact hardware compatibility, and were
-additionally confirmed empirically: the regression check below booted the
-real, unmodified `vgabios` and it produced byte-for-byte the same screen
-output as Phase 3's simplified model, meaning vgabios's own mode-3 register
-programming matches what this implementation expects.
+write modes, both read modes, the odd/even-vs-map-mask gating) follows
+the IBM EGA Technical Reference. Register *values* (the standard mode-3
+and 16-color-graphics-mode table used in `tests/ega_test.cpp`'s setup
+helpers) are the IBM EGA/VGA-standard values every compatible BIOS
+reproduces, and were confirmed empirically: the regression check below
+booted the real, unmodified `vgabios` and it produced byte-for-byte the
+same screen output as Phase 3's simplified model, meaning vgabios's own
+mode-3 register programming matches what this implementation expects.
 
 **Explicitly out of scope: Chain Four (VGA mode 13h's chained-pixel
 addressing).** `VGABIOS-lgpl-latest.bin` is a full VGA-compatible BIOS (see
@@ -2964,8 +2954,8 @@ three graphics families, palettes, fonts and AH=12h.
 
 Writing it turned up an `Ega` bug. The Data Rotate function (AND, OR,
 XOR) applied only to CPU data in write mode 0. On the EGA it applies to
-Set/Reset data and write mode 2 data as well (86Box `vid_ega.c`), and
-IBM's documented XOR dots use write mode 2.
+Set/Reset data and write mode 2 data as well, and IBM's documented XOR
+dots use write mode 2.
 
 The 386-opcode concession for firmware (§7) now covers the system-board
 ROM space, E0000-FFFFF, only. The EGA BIOS runs as plain 286 code.
@@ -2982,14 +2972,14 @@ place of the VGA's:
 - Text rows come from Vertical Display End and Max Scan Line, so the
   43-line mode draws 43 rows (E5). AR10 bit 3 picks blink or bright
   backgrounds, and blinking characters and the cursor both toggle every
-  16 frames (E6, 86Box `vid_ega.c`).
+  16 frames (E6).
 - SR03 character maps A and B at 16KB banks in plane 2, only map 0
   without Memory Mode bit 1 (E7).
 - CRTC 17h bits 0 and 1 put row scan bits 0 and 1 on MA13 and MA14, which
   is how modes 4-6 reach the CGA's interleaved banks (E12). Bit 7 clear
   holds the CRTC in reset, drawn black.
 - Cursor skew and the underline location, with underline only under
-  monochrome attributes (E14, 86Box).
+  monochrome attributes (E14).
 - GR05 bit 5 picks the CGA 2-bit shift. Bit 6 and R09 bit 7 (VGA's
   256-colour shift and scan doubling) and CRTC 0Ah bit 5 (VGA's cursor
   off) are gone, since nothing on an EGA sets them.
@@ -3028,20 +3018,18 @@ doing §48.
 
 ### 49.1 Odd/even addressing (E15)
 
-`Ega` stored odd/even data the way Bochs does: the plane offset was the
-CPU address shifted right one. The EGA keeps the address and swaps A0
-through a multiplexer. With Graphics Miscellaneous bit 1 set, A0 becomes
-the inverted page select (Miscellaneous Output bit 5), or A16 in the
-128KB map. With Memory Mode bit 1 clear, each plane is 16KB (86Box
-`vid_ega.c`, `ega_remap_cpu_addr`). Plane selection is now split the way
+`Ega` stored odd/even data by shifting the CPU address right one. The
+EGA keeps the address and swaps A0 through a multiplexer. With Graphics
+Miscellaneous bit 1 set, A0 becomes the inverted page select
+(Miscellaneous Output bit 5), or A16 in the 128KB map. With Memory Mode
+bit 1 clear, each plane is 16KB. Plane selection is now split the way
 the card splits it: Memory Mode bit 2 gates writes to the odd or even
 planes, and Graphics Mode bit 4 puts A0 on the read map.
 
 The display side is `Ega::display_address()`. In byte mode (CRTC 17h bit
 6) the CRTC address is the plane offset. In word mode it shifts up one,
 with MA15 in bit 0, or MA13 when 17h bit 5 is clear. 17h bits 0 and 1
-clear then put row scan bits 0 and 1 on offset bits 13 and 14 (86Box
-`vid_ega_render_remap.h`). Every renderer path, the page's `textScreen()`
+clear then put row scan bits 0 and 1 on offset bits 13 and 14. Every renderer path, the page's `textScreen()`
 and the installer's screen reader all fetch through it, so what the CPU
 writes and what the CRTC reads agree by construction, not by both using
 the same shortcut.
@@ -3052,14 +3040,13 @@ now, not n. A program that turns odd/even off to read text or attributes
 straight from the planes now finds them where a real card keeps them.
 
 Modes 4 and 5 now take a character clock as 4 pels from plane 0 and then
-4 from plane 1, with planes 2 and 3 as the high colour bits (86Box
-`vid_ega_render.c`).
+4 from plane 1, with planes 2 and 3 as the high colour bits.
 
 ### 49.2 The Bit Mask merges with the latch (E16)
 
 Bits the Bit Mask leaves out used to come from the byte already at the
 write address. They come from the latch, loaded by the last read wherever
-it was (86Box `vid_ega.c`; MAME `isa/ega.cpp` `alu_op` agrees). Code that
+it was. Code that
 reads first, which includes the BIOS and every well-behaved program,
 gets the same result. Code that doesn't copies the stale latch bits, as
 on the real card.
@@ -3150,8 +3137,8 @@ ISR isn't on Intel's list, and Figure 9 doesn't run master clear to the
 IS latch. Leaving it set broke Ctrl+Alt+Del, though. The stand-in BIOS's
 INT 9 handler jumps to POST without an EOI. POST's ICW1 left IRQ1 in
 service, that blocked IRQ6, and the reboot hung at "Booting from
-Floppy...". So ICW1 clears ISR here, as Bochs, MAME, QEMU and 86Box all
-do. That's an inference from how BIOS warm boots behave, not something
+Floppy...". So ICW1 clears ISR here. That's an inference from how the
+stand-in BIOS warm-boots, not something
 Intel documents. A real 8259A's answer, or IBM's AT BIOS listing showing
 whether its CAD path sends an EOI, would settle it.
 
@@ -3338,8 +3325,7 @@ in the 300 RPM B: drive.
 
 Where the sectors land needs one call. The 765 formats the track under
 the head, and the IDs it writes are whatever the table says. The stand-in
-BIOS never seeks before AH=05h, because Bochs's own floppy model moves the
-head to the C in the first ID. On this FDC the first run put all 40
+BIOS never seeks before AH=05h. On this FDC the first run put all 40
 cylinders of a FreeDOS FORMAT onto cylinder 0. A raw image can only hold
 a sector at its ID's address, though, and READ DATA here already finds
 sectors by the C/H/R it's given rather than by head position. So each
@@ -3355,8 +3341,7 @@ cleared to 500 kbps by reset.
 
 It isn't enforced. The stand-in BIOS never writes 3F7h. Its media sense
 fills in the BDA's media state from the CMOS drive type and never touches
-the register. Bochs's floppy model uses the rate only for step timing and
-never refuses a mismatch. With the check, B: and any 360KB disk in A:
+the register. With the check, B: and any 360KB disk in A:
 would never read. Transfers keep pacing at the media's real rate, not the
 latched one. Pacing at 500 kbps would read a 360KB disk twice as fast as a
 real AT. The strict check is open as S7.

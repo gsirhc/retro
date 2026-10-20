@@ -10,8 +10,7 @@
 // The CPU's plane offset is its address with A0 multiplexed under odd/even
 // chaining; the display's is the CRTC address in byte or word mode. Reads load
 // all 4 planes into a latch. Writes run through Set/Reset, the rotate ALU and
-// Bit Mask, gated by Map Mask and odd/even parity (86Box vid_ega.c,
-// IBM_PCAT_REVIEW.md §49).
+// Bit Mask, gated by Map Mask and odd/even parity (IBM_PCAT_REVIEW.md §49).
 #ifndef IBMPCAT_EGA_H
 #define IBMPCAT_EGA_H
 
@@ -63,7 +62,7 @@ public:
     int crtc_underline_row() const { return crtc_[0x14] & 0x1F; }
 
     // Vertical frames since reset. Cursor and blinking characters both toggle
-    // every 16 (86Box vid_ega.c).
+    // every 16.
     uint32_t frame_count() const { return frame_count_; }
     bool cursor_blink_phase_on() const { return (frame_count_ & 16) == 0; }
     bool char_blink_phase_on() const { return (frame_count_ & 16) == 0; }
@@ -91,7 +90,7 @@ public:
     bool crtc_row_scan_ma14() const { return (crtc_[0x17] & 2) == 0; }
     bool crtc_running() const { return (crtc_[0x17] & 0x80) != 0; }
     // Plane offset the display fetches for CRTC address `ma` on row scan line `row_scan`:
-    // byte or word mode (CRTC 17h bit 6) and the row scan banks (86Box vid_ega_render_remap.h).
+    // byte or word mode (CRTC 17h bit 6) and the row scan banks.
     uint32_t display_address(uint32_t ma, int row_scan) const;
 
     // Switches 4, 5 and A-F describe a monochrome display (IBM EGA TR, switch settings).

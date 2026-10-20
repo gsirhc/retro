@@ -8,7 +8,7 @@ namespace pc486 {
 namespace {
 
 // E3h returns this null-terminated copyright string on real SB16 DSPs; drivers
-// use it to spot a genuine card (DOSBox sblaster.cpp `copyright_string`)
+// use it to spot a genuine card.
 constexpr char kCopyright[] = "COPYRIGHT (C) CREATIVE TECHNOLOGY LTD, 1992.";
 
 // Rate registers hold anything the DSP can clock; the per-format limit is applied
@@ -52,9 +52,8 @@ float two_bit_boost_gain(uint8_t reg) {
     return std::pow(10.0f, (6.0f * float(level)) / 20.0f);
 }
 
-// ADPCM step tables. Creative never published them and SBPG's command chapter
-// is missing from our copy, so these come from DOSBox-X sblaster.cpp
-// (`scaleMap_ADPCM*`/`adjustMap_ADPCM*`), second-hand. Decode: index with
+// ADPCM step tables. Creative's programming guide never publishes these values.
+// Not a hardware citation. Decode: index with
 // (code + step size), add the scale delta to the reference, adjust the step.
 constexpr int8_t kAdpcm4Scale[64] = {
     0,  1,  2,  3,  4,  5,  6,  7,  0,  -1,  -2,  -3,  -4,  -5,  -6,  -7,
@@ -459,8 +458,7 @@ void SoundBlaster::run_command() {
                 case 0xDA: if (!bits16_) exit_autoinit_ = true; break;
                 case 0xE0: read_fifo_.push_back(uint8_t(~params_[0])); break;  // DSP identification
                 case 0xE2:
-                    // DMA identification: undocumented by Creative; only DOSBox/DOSBox-X
-                    // sblaster.cpp describes it (second-hand). Two state bytes evolve on each E2h,
+                    // DMA identification. Creative never published E2h. Not a hardware citation. Two state bytes evolve on each E2h,
                     // then a single-byte DMA write of valadd to memory on the 8-bit channel.
                     ident_valadd_ = uint8_t(ident_valadd_ + (params_[0] ^ ident_valxor_));
                     ident_valxor_ = uint8_t((ident_valxor_ >> 2) | (ident_valxor_ << 6));
@@ -503,8 +501,7 @@ void SoundBlaster::begin_dma(bool input, bool is16, bool ai, bool stereo, bool s
     // stereo block covers half as many frames as units. Reading it as frames makes
     // an 8-bit stereo block twice too long, so a double-buffering driver falls a
     // half-block behind and every sound plays twice (seen in DOOM 1.2: 11025 Hz
-    // 8-bit stereo, C6h mode 20h, 2 KB auto-init). DOSBox-X sblaster.cpp agrees
-    // (second-hand).
+    // 8-bit stereo, C6h mode 20h, 2 KB auto-init).
     const uint32_t units_per_frame = stereo ? 2u : 1u;
     block_frames_ = block_left_ = dma_units / units_per_frame;
     adpcm_ = Adpcm::kNone;

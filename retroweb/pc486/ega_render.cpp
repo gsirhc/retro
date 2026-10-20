@@ -57,8 +57,7 @@ int PelPan(const Ega &ega, int dots_per_char, bool vga256) {
 }
 
 // Color Plane Enable plus graphics blink (AR10 bit 3). IBM leaves this
-// undefined; this is 86Box's rule (vid_svga_render.c), checked against Lotus
-// 1-2-3 WYSIWYG and QBASIC SCREEN 10.
+// undefined. Checked against Lotus 1-2-3 WYSIWYG and QBASIC SCREEN 10.
 uint8_t GraphicsAttr(const Ega &ega, uint8_t pixel) {
     const uint8_t pm = ega.attr_plane_enable();
     if (!ega.attr_blink_enabled()) return uint8_t(pixel & pm);
@@ -128,8 +127,8 @@ void RenderTextScreen(const Ega &ega, std::vector<uint8_t> &rgba, int &width, in
                 const uint8_t attr = ega.vram[(cell << 2) + 1];
                 const uint32_t map = (attr & 0x08) ? map_a : map_b;
                 bits = ega.vram[((map + uint32_t(ch) * 32 + uint32_t(pos.row_scan)) << 2) + 2];
-                // Underline is attribute x0x1 on the Underline Location row (as DOSBox decodes
-                // it), dots 1-8. Column 9 is dashed in 9-dot cells, solid for line graphics.
+                // Underline is attribute x0x1 on the Underline Location row, dots 1-8.
+                // Column 9 is dashed in 9-dot cells, solid for line graphics.
                 if ((attr & 0x77) == 0x01 && pos.row_scan == underline_row) bits = 0xFF;
                 uint8_t bg_idx = blink_enabled ? uint8_t((attr >> 4) & 0x07) : uint8_t(attr >> 4);
                 hidden = blink_enabled && (attr & 0x80) && !chars_on;
@@ -184,7 +183,7 @@ void RenderCgaGraphics4Screen(const Ega &ega, std::vector<uint8_t> &rgba) {
 
 void RenderEgaNative16Screen(const Ega &ega, std::vector<uint8_t> &rgba, int &width, int &height) {
     // 4bpp DISPI geometry comes from the extension registers: this card's 9-bit
-    // VDE cannot express 600 or 768 lines (Bochs bpp=4 does the same).
+    // VDE cannot express 600 or 768 lines.
     const bool dispi = ega.vbe_planar_banked();
     int row_stride;
     int dbl = 1;
@@ -193,7 +192,7 @@ void RenderEgaNative16Screen(const Ega &ega, std::vector<uint8_t> &rgba, int &wi
         height = ega.vbe_reg(Ega::kVbeRegYres);
         int virt = ega.vbe_reg(Ega::kVbeRegVirtWidth);
         if (virt < width) virt = width;
-        row_stride = virt / 8;  // 1 bit/pixel/plane; Bochs line_offset = xres>>3
+        row_stride = virt / 8;  // 1 bit/pixel/plane
     } else {
         width = (ega.crtc_horizontal_display_end() + 1) * 8;
         height = ega.crtc_vertical_display_end() + 1;

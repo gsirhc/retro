@@ -86,17 +86,17 @@ TEST(Video, SpritePositionRegisterRoles) {
     v.sprite_rom[8] = 0x08;     // sprite code 0, pixel (px=0,py=0) lit
     v.spriteram[0] = 0;         // code 0, no flip
     v.spriteram[1] = 0;         // color attr 0
-    v.sprite_xy[0] = 99;        // ram2[i]     -> sy = 99 - 31 + 1 (slot 0) = 69
+    v.sprite_xy[0] = 99;        // ram2[i]     -> sy = 99 - 31 = 68
     v.sprite_xy[1] = 50;        // ram2[i + 1] -> sx = 272 - 50 = 222
 
     std::array<uint32_t, pacman::kUprightW * pacman::kUprightH> out{};
     v.advance(2 * pacman::kCpuPerFrame);
     v.render(out.data());
 
-    // native (222, 69) rotates to upright dx=154, dy=222.
-    EXPECT_NE(out[222 * pacman::kUprightW + 154], 0u) << "expected sprite pixel at native (222,69)";
-    // The swapped-register mapping would land at dx=1, dy=69, which must stay dark.
-    EXPECT_EQ(out[69 * pacman::kUprightW + 1], 0u) << "swapped-register location must stay dark";
+    // native (222, 68) rotates to upright dx=155, dy=222.
+    EXPECT_NE(out[222 * pacman::kUprightW + 155], 0u) << "expected sprite pixel at native (222,68)";
+    // The swapped-register mapping would land at dx=1, dy=68, which must stay dark.
+    EXPECT_EQ(out[68 * pacman::kUprightW + 1], 0u) << "swapped-register location must stay dark";
 }
 
 TEST(Video, FlipScreenFlipsOnlyTheTilemap) {
@@ -113,7 +113,7 @@ TEST(Video, FlipScreenFlipsOnlyTheTilemap) {
     std::array<uint32_t, pacman::kUprightW * pacman::kUprightH> out{};
     v.advance(2 * pacman::kCpuPerFrame);
     v.render(out.data());
-    EXPECT_NE(out[222 * pacman::kUprightW + 154], 0u) << "sprites keep their unflipped position";
+    EXPECT_NE(out[222 * pacman::kUprightW + 155], 0u) << "sprites keep their unflipped position";
     // Tile pixel native (32,0) flips to (255,223), upright dx=0, dy=255.
     EXPECT_NE(out[255 * pacman::kUprightW + 0], 0u) << "tilemap flips X and Y";
     EXPECT_EQ(out[32 * pacman::kUprightW + 223], 0u);
@@ -150,23 +150,23 @@ TEST(Video, SpritesWrapAt256) {
     EXPECT_NE(out[20 * pacman::kUprightW + (pacman::kVisH - 1 - ny)], 0u);
 }
 
-TEST(Video, SlotsZeroToTwoSitOneLineLater) {
+TEST(Video, SlotsWithTheSameYLandOnTheSameLine) {
     pacman::Video v;
     v.reset();
     v.color_prom[31] = 0xFF;
     for (int p = 1; p < 4; p++) v.lookup_prom[unsigned(p)] = 31;
     v.sprite_rom.fill(0xFF);
-    v.sprite_xy[2 * 2] = 100;       // slot 2
+    v.sprite_xy[2 * 2] = 100;       // slot 2, sy = 100 - 31 = 69
     v.sprite_xy[2 * 2 + 1] = 200;   // sx = 72
-    v.sprite_xy[3 * 2] = 100;       // slot 3
+    v.sprite_xy[3 * 2] = 100;       // slot 3, same Y
     v.sprite_xy[3 * 2 + 1] = 100;   // sx = 172
     std::array<uint32_t, pacman::kUprightW * pacman::kUprightH> out{};
     v.advance(2 * pacman::kCpuPerFrame);
     v.render(out.data());
     auto at = [&](int nx, int ny) { return out[unsigned(nx * pacman::kUprightW + (pacman::kVisH - 1 - ny))]; };
-    EXPECT_EQ(at(75, 69), 0u);
-    EXPECT_NE(at(75, 70), 0u);
-    EXPECT_NE(at(75, 85), 0u);
+    EXPECT_NE(at(75, 69), 0u);
+    EXPECT_EQ(at(75, 68), 0u);
+    EXPECT_EQ(at(75, 85), 0u);
     EXPECT_NE(at(175, 69), 0u);
     EXPECT_EQ(at(175, 85), 0u);
 }
@@ -218,7 +218,7 @@ TEST(Video, SpriteFlipBitsAreXBit0YBit1) {
     v.color_prom[31] = 0xFF;
     v.lookup_prom[1] = 31;
     v.sprite_rom[8] = 0x08;  // sprite code 0, local pixel (px=0,py=0) lit
-    v.sprite_xy[0] = 30;     // sy = 30 - 31 + 1 (slot 0) = 0
+    v.sprite_xy[0] = 31;     // sy = 31 - 31 = 0
     v.sprite_xy[1] = 255;    // sx = 272 - 255 = 17 (sprite_xy is uint8_t; 0 isn't reachable)
     std::array<uint32_t, pacman::kUprightW * pacman::kUprightH> out{};
 
@@ -258,7 +258,7 @@ TEST(Video, SpriteWithAllPensMatchingPenZeroDoesNotOccludeSpriteBehindIt) {
     v.spriteram[7 * 2 + 1] = 5;     // color 5
 
     // Slot 0 (wins the line buffer): same position, color 6 left black.
-    v.sprite_xy[0] = 30;
+    v.sprite_xy[0] = 31;     // sy = 31 - 31 = 0, same line as slot 7
     v.sprite_xy[1] = 255;
     v.spriteram[0] = 0;             // code 0, no flip
     v.spriteram[1] = 6;             // color 6, pens 0 and 1 both resolve to black
@@ -281,7 +281,7 @@ TEST(Video, UnflippedSpriteKeepsBottomEdgeAtBottom) {
     v.color_prom[31] = 0xFF;
     v.lookup_prom[1] = 31;
     v.sprite_rom[8 + 7] = 0x08;  // sprite code 0, local pixel (px=0,py=7) lit (kColByte[0]=8, base_y=7)
-    v.sprite_xy[0] = 30 + 7;     // sy = 7 with slot 0's extra line, so this pixel lands at native y=14
+    v.sprite_xy[0] = 31 + 7;     // sy = 7, local py=7 lands at native y=14
     v.sprite_xy[1] = 255;        // sx = 272 - 255 = 17
     v.spriteram[0] = 0;          // no flip, ghosts always leave this 0
     v.spriteram[1] = 0;

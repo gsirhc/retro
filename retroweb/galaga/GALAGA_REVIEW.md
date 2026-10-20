@@ -152,11 +152,15 @@ cycle for one-byte instructions and two for EN, DIS, CALL, JPL and JPA,
 an instruction cycle of 6 clocks, four subroutine levels, 1K×8 ROM,
 64×4 RAM, external interrupt before timer before serial, and an internal
 shift clock of 1/6 of the clock generator. The opcode map in `mb88.cpp`
-matches Table 6. Unsourced: the ST flag rules, the interrupt vectors
-(`$02` external, `$04` timer, `$06` serial), the timer prescale of 32,
-three extra cycles to take an interrupt, and the ST value after reset.
-The datasheet in hand has none of them. Stack is 4×16-bit. `st` resets to 1 so a conditional jump is
-taken after reset.
+matches Table 6. External interrupt entry is `$02`. Both mask ROMs
+start a K-port dispatch there (`51xx.bin` at `$002`: exchange A, read K,
+disable the external interrupt, jump on A; `54xx.bin` at `$002`:
+exchange A, read K, jump on A), and nothing in either ROM branches to
+it. Timer `$04` and serial `$06` are not in the datasheet. Neither ROM
+enables those two interrupts. Also unsourced: the ST flag rules, the
+timer prescale of 32, three extra cycles to take an interrupt, and the
+ST value after reset. Stack is 4×16-bit. `st` resets to 1 so a conditional
+jump is taken after reset.
 
 CRC values `c2f57ef8` (51xx) and `ee7357e0` (54xx) are a cross-check only,
 not a whitelist. CI has no dumps. The self-test and Playwright cover the
@@ -247,18 +251,24 @@ Items GA1-GA5, B1-B3 and X4 from `shared/cpu/Z80_ARCADE_PARITY.md`.
   band-pass into an op-amp summer, then a 0.1 µF coupling cap. *Why:* the
   LLE path mixed the raw O latch, and that latch also held the CPU's
   command bytes. *What:* separate command latch for K/R0; the network at
-  96 kHz using MAME's values (`galaga_chanl1-3_filt`, `galaga_final_mixer`);
-  the whole Galaga mix on MAME's absolute scale (WSG at 0.5625 of /1024,
-  network at 0.9), which keeps explosions under full scale. Filters start
-  at rest, so power-on is silent. *Source:* MAME `galaga_a.cpp`
-  (Derrick Renaud), `namco54.cpp`. `Machine.UserRom54xxPlaysThroughItsDacs`
-  (real 54XX image).
-- **MB88 serial clock (GA5).** The real 51XX/54XX program enables serial
-  mode (PIO `$64`) and polls SF. With SI unconnected, S shifts in 0 once
-  per instruction cycle and SF sets after four. Serial IRQ vectors to
-  `$06` (Unsourced). The shift period is the datasheet's 1/6 of the clock
-  generator, one instruction cycle. `Mb88.InternalSerialClockSetsSfAfterFourShifts`,
-  `Mb88.SerialInterruptVectorsTo06`.
+  96 kHz. Midway schematic M051-00808-C000 (Galaga CPU PCB A084-91404-C508,
+  10-12-81) shows the parts at 6M and 5P. Each ladder is 4.7k, 10k, 22k,
+  47k. The three filters are 150k/22k/470k/0.01µF, 47k/10k/150k/0.01µF,
+  and 100k/22k/220k/0.001µF, mixed through 10k, 33k, and 33k into the
+  3.3k summer. The + input sits on 3.3k from +5V and 2.2k to ground.
+  The 0.1µF into the MB3730 is fed from the 10k volume pot, not from a
+  100k. The 100k in the coupling time constant, the 40800 summer scale,
+  and the two 0.9 mix factors are not on that sheet. Fujitsu MB3730A
+  (1988 Linear Products Data Book) lists 55 dB typical gain and 70 kΩ
+  typical input resistance, which are not those numbers either. Filters start at
+  rest, so power-on is silent.
+  `Machine.UserRom54xxPlaysThroughItsDacs` (real 54XX image).
+- **MB88 serial clock (GA5).** The 51XX program enables the serial port
+  (PIO `$64`) and polls SF. It does not enable the serial interrupt.
+  With SI unconnected, S shifts in 0 once per instruction cycle and SF
+  sets after four. The shift period is the datasheet's: S1 is 1/6 of the
+  clock generator, and two instruction cycles are 12 clocks, so one
+  instruction is one shift. `Mb88.InternalSerialClockSetsSfAfterFourShifts`.
 - **Held IRQs.** Main and sub vblank IRQs hold /INT until `$6820`/`$6821`
   D0 is written 0 (coinop.org: `$6820`/`$6821` clear IRQ1/IRQ2); the 06XX and
   sound NMIs are edges. `Machine.VblankIrqHoldsUntilMaskCleared`.

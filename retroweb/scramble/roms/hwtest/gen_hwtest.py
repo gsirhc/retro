@@ -463,7 +463,7 @@ def main():
     for k, fname in names.items():
         with open(os.path.join(args.dir, fname), "wb") as f:
             f.write(blobs[k])
-    # Loose-chip names a user zip might also use (MAME scramble).
+    # Loose-chip names a user zip might also use.
     for i, name in enumerate(("s1.2d", "s2.2e", "s3.2f", "s4.2h",
                               "s5.2j", "s6.2l", "s7.2m", "s8.2p")):
         with open(os.path.join(args.dir, name), "wb") as f:

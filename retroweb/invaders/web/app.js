@@ -8,7 +8,7 @@ const ROM_KEY = "set";
 const HISCORE_ADDR = 0x20F4;
 const HISCORE_LEN = 2;
 const CHIPS = ["h", "g", "f", "e"];
-// Midway upright cellophane strips on the B&W tube (MAME invaders.lay, 224x260 upright).
+// Midway upright cellophane strips on the B&W tube.
 const GELS = [
   [0, 32, 224, 30, "rgb(255,32,32)"],
   [0, 184, 224, 56, "rgb(32,255,32)"],

@@ -1,12 +1,13 @@
 # Space Invaders arcade board: design notes
 
 Citation trail for the Midway Space Invaders (1978) emulator, PCB #739.
-Primary source is MAME `src/mame/midw8080/mw8080bw.cpp`, `mw8080bw.h`,
-`mw8080bw_v.cpp`, `mw8080bw_a.cpp` and `src/devices/machine/mb14241.cpp` at
-commit `d404316732fb5970cc0170aefc69ef1a85e14fce`, whose header comments are
-taken from the Midway schematics. The game's RAM use and code paths are
+The sound board is the Midway 739 logic schematic (P.C. A084-90700-B000,
+logic schematic M051-00739-A005). The game's RAM use and code paths are
 checked against the Computer Archeology disassembly
-(computerarcheology.com/Arcade/SpaceInvaders/).
+(computerarcheology.com/Arcade/SpaceInvaders/). Clocks, the memory map,
+I/O, the shifter, interrupts and the beam are the model in
+`shared/mw8080`. Numbers not read off that schematic or the disassembly
+are under Unsourced.
 
 ## 0. Status
 
@@ -18,7 +19,7 @@ browser-local. Hub card, marquee tile and CI jobs (`invaders-test` /
 
 ## 1. Scope
 
-MAME parent `invaders` only: four 2K ROMs at `$0000`/`$0800`/`$1000`/`$1800`
+Upright Midway set only: four 2K ROMs at `$0000`/`$0800`/`$1000`/`$1800`
 (`9316b-0869_m739h.h1` … `9316b-0854_m739e.e1`, or the older `invaders.h` …
 `invaders.e`), or one 8K `program.bin`. Upright PCB only. Taito's `sitv`/`sicv`
 and the cocktail PCB are not modelled. On the upright PCB the flip-screen line
@@ -31,7 +32,7 @@ cocktail stick to map.
 - 320 pixel clocks a line = **128 T-states**. 262 lines = **33,536 T-states a
   frame**, 59.54 Hz.
 - The V counter steps when H overflows inside HBLANK, so each line starts at
-  H=0 (MAME header, "Vertical sync chain").
+  H=0.
 
 ## 3. Board split
 
@@ -48,42 +49,50 @@ both machines run one 8080. ISA coverage is the `I8080*` GoogleTest suites
 plus 8080PRE, TST8080, CPUTEST and 8080EXM through `cpm/cpm_host`
 (`make -C retroweb/shared/cpu i8080diag`).
 
-## 4. Memory map (MAME `main_map`)
+## 4. Memory map
 
-- A15 ignored (`global_mask(0x7fff)`).
+- A15 ignored.
 - `$0000–$1FFF` ROM, writes dropped.
 - `$2000–$3FFF` RAM, mirrored at `$6000–$7FFF`. `$2400–$3FFF` is the bitmap.
-- `$4000–$5FFF` empty ROM socket, reads 0 as in MAME's zero-filled region.
+- `$4000–$5FFF` empty ROM socket, reads 0.
 
-## 5. I/O (MAME `invaders_state::io_map`, A0–A2 decoded)
+## 5. I/O (A0–A2 decoded)
 
 Reads: 0 IN0, 1 IN1, 2 IN2, 3 shifter result, mirrored at 4–7.
 Writes: 2 shift count, 3 sound 1, 4 shift data, 5 sound 2, 6 watchdog.
 
-Inputs, upright PCB (MAME `INPUT_PORTS_START( invaders )`):
+The Midway ROM (`invaders.h` at `$0000`, then `.g`, `.f`, `.e`) never
+executes `IN 0`. The bits it does test:
 
 | Port | Bits |
 |---|---|
-| IN0 | 0 SW8, 1–2 SW6/SW7, 3 pulled high, 4–6 P1 fire/left/right, 7 SW5 |
-| IN1 | 0 COIN **active-low**, 1 START2, 2 START1, 3 pulled high, 4–6 P1 fire/left/right |
-| IN2 | 0–1 lives (3–6), 2 TILT n/c, 3 extra base at 1000 (0 = 1500), 4–6 P1 controls, 7 coin info off |
+| IN1 | 0 coin, credit on the 1→0 edge. 1 start 2, high. 2 start 1, high. 4 fire, high. 5 left. 6 right |
+| IN2 | 0–1 bases, the value plus 3. 2 high takes the stack reset. 3 high selects bonus `$10`, low selects `$15`. 7 high skips the coin-info text |
 
-The disassembly's ISR at `$0020` reads `IN 01; RRCA; JC` as "coin
-deposited", so with MAME's active-low COIN a credit registers when the switch
-is pressed. SW5–SW8 are unused by this ROM and not on the DIP panel.
+`$0020` is `IN 1` / `RRC` / `JC $0067`. The jump arms `$20EA`. The other
+path increments `$20EB` when that flag was set, so a pressed coin switch
+reads 0. Start 2 is the second `RRC` at `$085F` (`$20CE` = 1). Start 1 is
+`ANI $04` at `$0791`. Fire is `ANI $10` at `$163C`. Left is the third `RLC`
+at `$036C` (`DCR $201B`, stop `$30`). Right is the second `RLC` at `$0368`
+(`INR $201B`, stop `$D9`). Bases are `$08D1`. The stack reset is `$17CD`.
+The bonus threshold is `$093F`. Coin info is `$0BB7`.
+
+`$17C0` returns port 1 when `$2067` bit 0 is set, port 2 when it is clear.
+The startup image is `$21`, so the upright controls are port 1. The carry
+path at `$0310` stores `$22`, and the same fire, left, and right tests then
+read port 2. Bit 3 is set in the idle value. This ROM does not test it, and
+it does not read port 0.
 
 ## 6. MB14241
 
-`count = ~data & 7`, `data = data >> 8 | new << 7`, result `data >> count`
-(MAME `mb14241.cpp`). Equivalent to the usual description: a 16-bit register
-with the newest byte high, read as `reg >> (8 - n)`.
+`count = ~data & 7`, `data = data >> 8 | new << 7`, result `data >> count`.
+That is a 16-bit register with the newest byte high, read as `reg >> (8 - n)`.
 
 ## 7. Interrupts
 
 E3 is a D flip-flop clocked by `(!(64V | !128V) | VBLANK)`, so it fires at
 V = 0x80 (line 96) and V = 0xDA with VBLANK (line 224). It latches the 8080's
-INTE pin, which is what MAME's `interrupt_trigger` does (assert if
-`m_int_enable`, else clear). INTA clears it. The vector is sampled at INTA as
+INTE pin, so the line asserts only while interrupts are enabled. INTA clears it. The vector is sampled at INTA as
 `0xC7 | 64V << 4 | !64V << 3`: RST 1 (`$CF`) at line 96, RST 2 (`$D7`) at 224.
 An acknowledge that slips past line 160 reads RST 2, as on the board.
 `Board::run_cycles` samples INT after each instruction, once the beam has
@@ -92,21 +101,20 @@ caught up.
 ## 8. Video
 
 - The beam is emulated. Each VRAM byte loads the shift register at pixel
-  `8k+4` of its line (MAME `screen_update_invaders`), at 2.5 pixels per
+  `8k+4` of its line, at 2.5 pixels per
   T-state, so a write lands on screen this frame only if the beam has not
   passed it. Granularity is one instruction.
-- The frame is latched at line 224 and shown upright (MAME ROT270): 224×260,
-  the bottom four rows are the shift register flushing zeros after HBLANK
-  (`MW8080BW_HPIXCOUNT = 256 + 4`).
+- The frame is latched at line 224 and shown upright: 224×260. The bottom
+  four rows are the shift register flushing zeros after HBLANK.
 - The tube is black and white. Color comes from the Midway upright's
-  cellophane strips, multiplied over the canvas in `app.js` with MAME
-  `invaders.lay`'s rectangles: red y 32–62, green y 184–240, and green y
-  240–260 for x 16–134. The moon backdrop art is copyrighted and not drawn.
+  cellophane strips, multiplied over the canvas in `app.js`: red y 32–62,
+  green y 184–240, and green y 240–260 for x 16–134. The moon backdrop
+  art is copyrighted and not drawn.
 
 ## 9. Watchdog
 
-255 frames without OUT 6 (MAME `WATCHDOG_TIMER … 255 * MW8080BW_60HZ`). Only
-the CPU is reset. RAM, the beam and the sound latches carry on.
+255 frames without OUT 6. Only the CPU is reset. RAM, the beam and the
+sound latches carry on.
 
 ## 10. Sound (`shared/mw8080/sound.cpp`)
 
@@ -162,7 +170,7 @@ Sources: the Midway sheet above; TI SN76477 data sheet (July 1978) and
 sandsoftwaresound.net); TI LM3900 data sheet (SLOS059) and National AN-72;
 TI NE555 data sheet; TI CD4006B data sheet.
 
-Assumptions:
+Not on the sheet:
 
 - R106 at mid travel (25K).
 - R78 reads 200K or 280K on the scan; 200K is used.
@@ -174,6 +182,14 @@ Assumptions:
 - The noise clock uses the textbook two-gate CMOS astable period.
 - By the data sheet's equation 8 the UFO's 0.23 V pulses into 47K come out
   about 30 dB below the fleet. That level comes straight from R123/R124.
+
+## Unsourced
+
+- Gel rectangles in `app.js`.
+- Watchdog modulus of 255 frames.
+- Empty socket at `$4000` reads 0.
+- VRAM byte loaded at pixel `8k+4`, and the four flushed rows.
+- IN0, and whatever holds bit 3 high. The ROM never reads port 0 and never tests bit 3.
 
 ## 11. HIGH SCORE
 

@@ -69,7 +69,7 @@ bool extract_zip(const fs::path& zip, const fs::path& dest) {
     return std::system(cmd.c_str()) == 0;
 }
 
-// MAME lrescue: lrescue.1-4 at $0000, lrescue.5-6 at $4000, 7643-1.cpu colour map.
+// lrescue.1-4 at $0000, lrescue.5-6 at $4000, 7643-1.cpu colour map.
 std::optional<lunarrescue::RomSet> identify(const std::map<std::string, std::vector<uint8_t>>& files) {
     lunarrescue::RomSet s;
     auto find = [&](const std::string& want, size_t n) -> const std::vector<uint8_t>* {
@@ -138,7 +138,7 @@ TEST(Play, UserRomSeedsTheHiscoreAndPaintsInColour) {
     m.reset();
     run_frames(m, 240);
     if (is_hwtest(m)) GTEST_SKIP() << "that dump is the generated self-test ROM";
-    EXPECT_EQ(m.ram[0xF4], 0x00) << "MAME hiscore.dat lrescue $20F4";
+    EXPECT_EQ(m.ram[0xF4], 0x00) << "high score low byte at $20F4";
     EXPECT_EQ(m.ram[0xF5], 0x05);
     std::array<uint32_t, lunarrescue::kUprightW * lunarrescue::kUprightH> rgb{};
     m.render(rgb.data());

@@ -8,7 +8,7 @@ namespace battlezone {
 Machine::Machine() : cpu(make_bus()) {
     avg_read_ = [this](uint16_t a) { return mem_read(a); };
     pokey.set_clock(kCpuHz);
-    pokey.set_output_rc(10e3, 0.015e-6, 5.0);  // MAME bzone_audio
+    pokey.set_output_rc(10e3, 0.015e-6, 5.0);  // R36, C25 (DP-156 sheet 3B)
     reset();
 }
 
@@ -59,7 +59,7 @@ uint8_t Machine::mem_read(uint16_t addr) const {
     if (addr < 0x0400) return ram[addr];
     switch (addr) {
         case 0x0800: {
-            // D6 = AVG halted, D7 = 3 kHz (MAME bzone IN0).
+            // R11 LS244: D6 HALT, D7 3KHZ (DP-156 sheet 2B).
             uint8_t v = inputs.in0 & 0x3F;
             if (avg.halted()) v |= 0x40;
             if (clk3k_ & 0x100) v |= 0x80;

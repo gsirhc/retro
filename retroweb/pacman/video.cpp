@@ -85,8 +85,7 @@ void Video::hblank_setup(int line) {
         uint8_t b0 = spriteram[unsigned(i * 2)];
         uint8_t color = uint8_t(spriteram[unsigned(i * 2 + 1)] & 0x1F);
         int sx = 272 - int(sprite_xy[unsigned(i * 2 + 1)]);
-        // Slots 0-2 land a line later.
-        int sy = int(sprite_xy[unsigned(i * 2)]) - 31 + (i < 3 ? 1 : 0);
+        int sy = int(sprite_xy[unsigned(i * 2)]) - 31;
         int row = line - sy;
         if (row < 0 || row >= 16) continue;
         bool fx = (b0 & 1) != 0;

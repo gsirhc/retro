@@ -19,7 +19,8 @@ TEST(Video, FrameIs50688CpuCycles) {
     }
     EXPECT_EQ(edges, 1);
     EXPECT_EQ(v.v, 0);
-    EXPECT_FALSE(v.vblank);
+    // VBLANK stays set from line 240 until line 16, so v == 0 is still blanked.
+    EXPECT_TRUE(v.vblank);
 }
 
 TEST(Video, RemapColorMatchesFroggerPromWiring) {
@@ -67,7 +68,7 @@ TEST(Video, ScrollNibblesSwapEnteringTheAdder) {
     v.gfx[0x800 + 2 * 8 + 1] = 0x80;  // tile 2 row 1, native-left bit
     v.advance(galaxian::kCpuPerFrame);
     v.render(out.data());
-    EXPECT_EQ(out[200 * galaxian::kUprightW + 223] & 0xFF0000, 0xE00000u);
+    EXPECT_EQ(out[200 * galaxian::kUprightW + 223] & 0x00FFFFFF, v.prom_rgb(1));
 }
 
 TEST(Video, RiverSplitIsBlueOnNativeLeft) {
@@ -80,7 +81,7 @@ TEST(Video, RiverSplitIsBlueOnNativeLeft) {
     EXPECT_EQ(out[200 * galaxian::kUprightW + 0] & 0x00FFFFFF, 0u);
 }
 
-TEST(Video, Rot90MatchesMameFlipXSwapXy) {
+TEST(Video, Rot90IsFlipXAndSwapXy) {
     galaxian::Video v;
     v.videoram[2 * 32 + 0] = 2;  // row 2 col 0 = top-left of visible native
     v.objram[1] = 0;             // color attr 0 → group 0
@@ -90,13 +91,14 @@ TEST(Video, Rot90MatchesMameFlipXSwapXy) {
     v.advance(galaxian::kCpuPerFrame);
     v.render(out.data());
     // native (0, 16) → upright x = 223, y = 0
-    EXPECT_EQ(out[0 * galaxian::kUprightW + 223] & 0xFF0000, 0xE00000u);
+    EXPECT_EQ(out[0 * galaxian::kUprightW + 223] & 0x00FFFFFF, v.prom_rgb(1));
 }
 
 TEST(Video, FroggerShellsAreFourWhitePixels) {
     galaxian::Video v;
     v.board = galaxian::Board::Frogger;
-    v.objram[0x60 + 3 * 4 + 1] = 0xDF;
+    // 834-0068 swaps the nibbles into the adder, so 0xFD matches line 32.
+    v.objram[0x60 + 3 * 4 + 1] = 0xFD;
     v.objram[0x60 + 3 * 4 + 3] = 100;
     std::array<uint32_t, galaxian::kUprightW * galaxian::kUprightH> out{};
     v.advance(galaxian::kCpuPerFrame);
@@ -141,7 +143,7 @@ TEST(Video, ScrambleScrollDoesNotNibbleSwap) {
     std::array<uint32_t, galaxian::kUprightW * galaxian::kUprightH> out{};
     v.advance(galaxian::kCpuPerFrame);
     v.render(out.data());
-    EXPECT_EQ(out[200 * galaxian::kUprightW + 223] & 0xFF0000, 0xE00000u);
+    EXPECT_EQ(out[200 * galaxian::kUprightW + 223] & 0x00FFFFFF, v.prom_rgb(1));
 }
 
 TEST(Video, StarsEnableLightsPixels) {
@@ -198,7 +200,7 @@ TEST(Video, GalaxianScrollDoesNotNibbleSwap) {
     std::array<uint32_t, galaxian::kUprightW * galaxian::kUprightH> out{};
     v.advance(galaxian::kCpuPerFrame);
     v.render(out.data());
-    EXPECT_EQ(out[200 * galaxian::kUprightW + 223] & 0xFF0000, 0xE00000u);
+    EXPECT_EQ(out[200 * galaxian::kUprightW + 223] & 0x00FFFFFF, v.prom_rgb(1));
 }
 
 TEST(Video, GalaxianStarsEnableLightsPixels) {
@@ -222,7 +224,7 @@ TEST(Video, GalaxianBlueUses470And220Ohm) {
     uint32_t rgb = v.prom_rgb(0);
     EXPECT_EQ((rgb >> 16) & 0xFF, 0);
     EXPECT_EQ((rgb >> 8) & 0xFF, 0);
-    EXPECT_EQ(rgb & 0xFF, 217);
+    EXPECT_EQ(rgb & 0xFF, galaxian::gun_level(galaxian::gun_volts(1.0 / 470 + 1.0 / 220, 0)));
 }
 
 TEST(Video, GalaxianShellsAreFourWhitePixels) {
@@ -263,6 +265,13 @@ void place_sprite(galaxian::Video& v, int n, uint8_t y, uint8_t x, uint8_t color
 }
 
 }  // namespace
+
+TEST(Video, SpriteTopRightHalfIsEightBytesOn) {
+    galaxian::Video v;
+    v.gfx[8] = 0x80;
+    EXPECT_EQ(v.sprite_pixel(0, 8, 0), 2);
+    EXPECT_EQ(v.sprite_pixel(0, 0, 8), 0);
+}
 
 TEST(Video, LowerNumberedSpriteWins) {
     galaxian::Video v;
@@ -365,7 +374,7 @@ TEST(Video, GalaxianMissileIsFourYellowPixels) {
     EXPECT_EQ(yellow, 4);
 }
 
-TEST(Video, ShellsOrIntoTheTileColour) {
+TEST(Video, MissileAddsIntoTheTileColour) {
     galaxian::Video v;
     v.board = galaxian::Board::Galaxian;
     v.videoram[4 * 32 + 19] = 2;
@@ -377,7 +386,8 @@ TEST(Video, ShellsOrIntoTheTileColour) {
     Frame out{};
     v.advance(galaxian::kCpuPerFrame);
     v.render(out.data());
-    EXPECT_EQ(native_at(out, 153, 35), 0xFFFF00u);
+    // 100 ohm missile into the tile's low red outputs: red divides, green saturates.
+    EXPECT_EQ(native_at(out, 153, 35), 0xA4FF00u);
     EXPECT_EQ(native_at(out, 158, 34), v.prom_rgb(1));
 }
 
@@ -439,5 +449,5 @@ TEST(Video, VblankEdgeFiresOncePerFrameAtLine240) {
     v.vblank_edge = false;
     v.advance(galaxian::kCpuPerFrame - galaxian::kVBlankLine * galaxian::kCpuPerLine);
     EXPECT_FALSE(v.vblank_edge);
-    EXPECT_FALSE(v.vblank);
+    EXPECT_TRUE(v.vblank);
 }

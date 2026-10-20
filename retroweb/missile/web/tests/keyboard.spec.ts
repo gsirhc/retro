@@ -80,7 +80,7 @@ test.describe("keyboard input", () => {
     });
   }
 
-  // Y is wired reversed (MAME TRACK0_Y PORT_REVERSE): down counts down. X is not: right counts up.
+  // Upward roll counts Y up (rev 3 IRQ, $7BE6). Right counts X up.
   const trackCases: [string, "x" | "y", number][] = [
     ["ArrowRight", "x", 1],
     ["ArrowLeft", "x", -1],

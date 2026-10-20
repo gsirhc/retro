@@ -140,7 +140,7 @@ TEST_F(I8042Test, ScancodeSetsIrq1OnlyWhenEnabledInCommandByte) {
 }
 
 TEST_F(I8042Test, ResetCommandGetsAckThenBatByteOnSeparateReads) {
-    // Bochs rombios.c keyboard_init sends 0xFF, expects 0xFA, then 0xAA.
+    // The stand-in BIOS keyboard_init sends 0xFF, expects 0xFA, then 0xAA.
     Drain();
     kbc.out(0x60, 0xFF);
     EXPECT_EQ(Drain(), (std::vector<uint8_t>{0xFA, 0xAA}));
@@ -186,7 +186,7 @@ TEST_F(I8042Test, Irq1DropsBetweenBytesSoEveryByteIsANewEdge) {
 }
 
 TEST_F(I8042Test, InhibitedKeyboardHoldsKeysUntilEnabled) {
-    // The Bochs INT 9 handler brackets its read with ADh/AEh.
+    // The stand-in BIOS INT 9 handler brackets its read with ADh/AEh.
     Drain();
     kbc.out(0x64, 0xAD);
     kbc.inject_scancode(0x1E);

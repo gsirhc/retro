@@ -72,7 +72,7 @@ test.describe("keyboard input", () => {
     expect(await in1(page)).toBe(0xff);
   });
 
-  // X is wired reversed (MAME TRACK0_X PORT_REVERSE): right counts down, so the sign latches set.
+  // Right counts X down, so the sign latch sets.
   const trackCases: [string, "x" | "y", number][] = [
     ["ArrowLeft", "x", 0x00],
     ["ArrowRight", "x", 0x80],

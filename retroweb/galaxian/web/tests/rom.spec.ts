@@ -134,7 +134,7 @@ test.describe("ROM set loader", () => {
     expect(await page.evaluate(() => (window as any).__test.usingUserRom)).toBe(true);
   });
 
-  test("MAME chip names with the right sizes are accepted", async ({ page }) => {
+  test("chip names with the right sizes are accepted", async ({ page }) => {
     await page.locator("#romFile").setInputFiles([
       buf("roms/galmidw.u", "galmidw.u"),
       buf("roms/galmidw.v", "galmidw.v"),

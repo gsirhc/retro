@@ -16,6 +16,7 @@ uint8_t sound_timer_port(uint64_t sound_cpu_cycles) {
 
 Machine::Machine() : main(make_main_bus()), sound(make_sound_bus()) {
     konami.ay = {&ay, nullptr};
+    konami.feedback_ohms = 5600.0;
     wire_ppi();
     reset();
 }
@@ -37,7 +38,7 @@ z80::Bus Machine::make_sound_bus() {
     b.write = [this](uint16_t a, uint8_t v) { sound_write(a, v); };
     b.in = [this](uint16_t port) { return sound_in(uint8_t(port)); };
     b.out = [this](uint16_t port, uint8_t v) { sound_out(uint8_t(port), v); };
-    // The INT flip-flop clears on the acknowledge (MAME konami_sound_control_w HOLD_LINE).
+    // The INT flip-flop clears on the M1 + IORQ acknowledge (Frogger 834-0069 LS74 at 11).
     b.irq_data = [this] {
         sound.set_int(false);
         return uint8_t(0xFF);
@@ -56,13 +57,13 @@ void Machine::wire_ppi() {
 }
 
 uint8_t Machine::sound_in(uint8_t port) {
-    // Bit 6 selects AY data. Konami frogger_ay8910_r.
+    // Bit 6 selects AY data (Frogger 834-0069 37/39 decode).
     if (port & 0x40) return ay.read_data();
     return 0xFF;
 }
 
 void Machine::sound_out(uint8_t port, uint8_t v) {
-    // Bit 6 = data, else bit 7 = address. Konami frogger_ay8910_w.
+    // Bit 6 = data, else bit 7 = address (Frogger 834-0069 37/39 decode).
     if (port & 0x40) ay.write_data(v);
     else if (port & 0x80) ay.write_addr(v);
 }

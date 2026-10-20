@@ -1,4 +1,4 @@
-// Atari Battlezone (1980) board (MAME bzone.cpp, Atari BZONE.MAC).
+// Atari Battlezone (1980) board (Atari DP-156 schematics, BZONE.MAC).
 
 #ifndef BATTLEZONE_MACHINE_H
 #define BATTLEZONE_MACHINE_H
@@ -17,12 +17,13 @@ namespace battlezone {
 
 constexpr int kCpuHz = 1512000;
 constexpr int kCyclesPer3kHz = 512;
-constexpr int kCyclesPerNmi = kCyclesPer3kHz * 12;  // gated off by the self-test switch
-constexpr int kWatchdogCycles = kCyclesPer3kHz * 256;
+constexpr int kCyclesPerNmi = kCyclesPer3kHz * 12;  // L4 LS161 loads 4, ET = /TEST
+// M4 LS393 QD at 128 counts clocks L10 into reset (DP-156 sheet 2A).
+constexpr int kWatchdogCycles = kCyclesPer3kHz * 128;
 constexpr int kFbW = atari::Avg::kWidth;
 constexpr int kFbH = atari::Avg::kHeight;
-// Cabinet overlay: red over the top fifth (radar, score), green below (MAME bzone.lay).
-constexpr float kOverlaySplit = 0.2f;
+// Overlay edge at the game's upper window, Y = 192 at SCAL 1 of 384 (BZONE.MAC).
+constexpr float kOverlaySplit = 0.25f;
 
 struct Inputs {
     // $0800 D0-D5, active low: right, middle, left coin (COIN65.MAC), slam,
@@ -31,7 +32,7 @@ struct Inputs {
     // ALLPOT, active high: R down, R up, L down, L up, fire, start.
     uint8_t in3 = 0x00;
     uint8_t dsw0 = 0x15;  // 3 tanks, missile at 10000, bonus 15k & 100k, English
-    uint8_t dsw1 = 0x03;  // 2 coins / 1 credit, both mechs x1, no bonus coins
+    uint8_t dsw1 = 0x63;  // 2 coins / 1 play, mechs x1, $1.00 = 3 plays (manual fig. 8)
 };
 
 struct RomSet {

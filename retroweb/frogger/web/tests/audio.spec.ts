@@ -45,7 +45,8 @@ test.describe("Audio level", () => {
     await blocks(page, 30);
     const peak = await page.evaluate(() => (window as any).__audioPeak);
     expect(idle).toBeLessThan(1e-3);
-    expect(peak).toBeGreaterThan(0.65);
-    expect(peak).toBeLessThan(1.0);
+    // One full channel is scaled to 0.5.
+    expect(peak).toBeGreaterThan(0.45);
+    expect(peak).toBeLessThan(0.55);
   });
 });

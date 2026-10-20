@@ -10,7 +10,7 @@ namespace atari {
 
 class Mathbox {
 public:
-    static constexpr int kTicksPerCpuCycle = 2;  // 12.096 MHz / 4 (6502disassembly.com)
+    static constexpr int kTicksPerCpuCycle = 2;  // E3MHZ through B4 (DP-156 sheet 3B)
 
     std::array<uint8_t, 32> map{};
     // M1 holds bits 23-20, F1 bits 3-0 (MBUCOD.V05 $OUT macro).

@@ -202,64 +202,44 @@ TEST(Machine, AyPortBIsGenericKonamiTimer) {
     EXPECT_EQ(m.sound_in(0x80), 0x0E);
 }
 
-TEST(Machine, Pal6JOp9IncrementsNibble) {
+TEST(Machine, Pal6JBootSequences) {
     scramble::Machine m;
     m.reset();
     m.mem_write(0x8203, 0x88);  // the game's own mode: C upper in, C lower out
-    // State shifts: write num1, num2, op. Op $9: result = min(num1+1, 15) << 4.
-    m.mem_write(0x8202, 0x03);  // num1
-    m.mem_write(0x8202, 0x00);  // num2
-    m.mem_write(0x8202, 0x09);  // op
-    EXPECT_EQ(m.protection_result, 0x40);  // 4 << 4
-    EXPECT_EQ(m.mem_read(0x8202), 0x49) << "result on the input half, last nibble on the output half";
-    // Alt bits 5 and 7 of IN2 follow result bit 7 (clear here).
-    EXPECT_EQ(m.mem_read(0x8102) & 0xA0, 0);
-}
-
-TEST(Machine, Pal6JOp9SetsAltBitsWhenHigh) {
-    scramble::Machine m;
-    m.reset();
-    m.mem_write(0x8203, 0x88);
-    m.mem_write(0x8202, 0x0F);
-    m.mem_write(0x8202, 0x00);
-    m.mem_write(0x8202, 0x09);  // min(15+1,15)<<4 = 0xF0, bit 7 set
+    // s1.2d $007E writes 0F,00,0F,00,09 and requires the high nibble $F0.
+    for (uint8_t n : {0x0F, 0x00, 0x0F, 0x00, 0x09}) m.mem_write(0x8202, n);
     EXPECT_EQ(m.protection_result, 0xF0);
+    EXPECT_EQ(m.mem_read(0x8202) & 0xF0, 0xF0);
+    EXPECT_EQ(m.mem_read(0x8102) & 0xA0, 0xA0);
+    // $00B5 writes 0A,04,09 and requires $B0.
+    for (uint8_t n : {0x0A, 0x04, 0x09}) m.mem_write(0x8202, n);
+    EXPECT_EQ(m.protection_result, 0xB0);
+    EXPECT_EQ(m.mem_read(0x8202) & 0xF0, 0xB0);
     EXPECT_EQ(m.mem_read(0x8102) & 0xA0, 0xA0);
 }
 
-TEST(Machine, Pal6JOtherOpsFollowMame) {
-    struct Case { uint8_t num1, num2, op, before, result; };
-    const Case cases[] = {
-        {0x2, 0x7, 0x6, 0x40, 0xC0},  // flip bit 7
-        {0x2, 0x7, 0xA, 0x40, 0x00},  // clear
-        {0x2, 0x7, 0xB, 0x00, 0x50},  // num2 - num1
-        {0x7, 0x2, 0xB, 0x30, 0x00},  // floors at 0
-        {0x7, 0x2, 0xF, 0x00, 0x50},  // num1 - num2
-        {0x2, 0x7, 0xF, 0x30, 0x00},
-        {0x2, 0x7, 0x3, 0x30, 0x30},  // unknown ops leave it
-    };
-    for (const Case& k : cases) {
-        scramble::Machine m;
-        m.reset();
-        m.mem_write(0x8203, 0x88);
-        m.protection_result = k.before;
-        m.mem_write(0x8202, k.num1);
-        m.mem_write(0x8202, k.num2);
-        m.protection_result = k.before;
-        m.mem_write(0x8202, k.op);
-        EXPECT_EQ(m.protection_result, k.result) << "op " << int(k.op);
-    }
+TEST(Machine, Pal6JLater09StillReadsB0) {
+    scramble::Machine m;
+    m.reset();
+    m.mem_write(0x8203, 0x88);
+    for (uint8_t n : {0x0F, 0x00, 0x0F, 0x00, 0x09, 0x0A, 0x04, 0x09}) m.mem_write(0x8202, n);
+    // $1A30 writes 0F, then $1D75 writes 09 until the high nibble is $B0.
+    m.mem_write(0x8202, 0x0F);
+    m.mem_write(0x8202, 0x09);
+    EXPECT_EQ(m.protection_result, 0xB0);
+    m.mem_write(0x8202, 0x06);
+    m.mem_write(0x8202, 0x0B);
+    EXPECT_EQ(m.protection_result, 0xB0);
 }
 
-TEST(Machine, Pal6JSeesBitSetResetWrites) {
+TEST(Machine, Pal6JUncheckedWindowLeavesTheResult) {
     scramble::Machine m;
     m.reset();
     m.mem_write(0x8203, 0x88);
     m.mem_write(0x8202, 0x03);
     m.mem_write(0x8202, 0x00);
-    m.mem_write(0x8202, 0x08);
-    m.mem_write(0x8203, 0x01);  // BSR sets PC0 and re-sends the port: $9 shifts in again
-    EXPECT_EQ(m.protection_result, 0x10) << "num1 0, num2 8, op 9";
+    m.mem_write(0x8202, 0x09);
+    EXPECT_EQ(m.protection_result, 0);
 }
 
 TEST(Machine, JoystickEchoesToRam) {

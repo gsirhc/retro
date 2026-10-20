@@ -8,26 +8,12 @@ namespace asteroids {
 namespace {
 
 uint16_t mirror(uint16_t addr) {
-    // A15 ignored, $8000–$FFFF aliases $0000–$7FFF.
+    // A15 is not decoded (DP-143 memory map).
     return addr & 0x7FFF;
 }
 
-// Panel reads return $80 or $7F (MAME asteroid_IN0_r / asteroid_IN1_r).
-uint8_t bit7(bool v) { return v ? 0x80 : 0x7F; }
-
-// DP-143 thump 555 (MAME asteroid_thump_dac1 + DISCRETE_555_CC). A higher
-// nibble cuts the charge current, so the pitch falls.
-constexpr float kThumpHz[16] = {
-    81.6f, 83.9f, 85.8f, 86.9f, 87.5f, 87.3f, 86.6f, 85.5f,
-    81.9f, 79.5f, 76.3f, 73.1f, 67.8f, 63.7f, 58.4f, 53.5f
-};
-constexpr float kThumpDuty[16] = {
-    0.395f, 0.422f, 0.454f, 0.479f, 0.516f, 0.540f, 0.569f, 0.592f,
-    0.642f, 0.664f, 0.692f, 0.714f, 0.748f, 0.770f, 0.797f, 0.819f
-};
-
-// Fire 555 duty in percent, past 100 the pulse is DC (MAME asteroid_a.cpp).
-float fire_duty(float hz) { return 4500.0f / hz + 67.0f; }
+// The LS251 drives D7 only; R14-R16, R9-R11 pull the rest of the bus high.
+uint8_t bit7(bool v) { return v ? 0xFF : 0x7F; }
 
 }  // namespace
 
@@ -55,20 +41,10 @@ void Machine::reset() {
     watchdog_cycles_ = kWatchdogCycles;
     cycles_to_nmi_ = kCyclesPerNmi;
     clk3k_phase_ = 0;
-    explosion = thump = 0;
-    saucer = saucer_fire = saucer_sel = thrust = ship_fire = bonus = false;
-    noise_lfsr_ = 1;
-    thrust_phase_ = fire_phase_ = saucer_fire_phase_ = 0;
-    saucer_phase_ = saucer_warble_ = 0;
-    thump_phase_ = thump_lp_ = thrust_lp_ = thrust_bp_ = 0;
-    explode_hold_ = explode_lp_ = 0;
-    explode_pitch_div_ = 12;
-    explode_vol_ = explode_clk_ = 0;
-    fire_freq_ = 820.0f;
-    saucer_fire_freq_ = 830.0f;
-    fire_remain_ = saucer_fire_remain_ = 0;
-    bonus_phase_ = 0;
-    thump_en_ = false;
+    audio_acc_ = 0;
+    sound.reset();
+    sound.set_rate(audio_hz);
+    audio_hz_set_ = audio_hz;
     audio.clear();
 }
 
@@ -89,7 +65,7 @@ void Machine::tick_watchdog(int cycles) {
 }
 
 void Machine::service_nmi() {
-    // Self-test (IN0 bit 7) blocks the NMI (MAME asteroid.c).
+    // TEST holds C5's enable low (DP-143 sheet 1B).
     if ((inputs.in0 & 0x80) == 0)
         cpu.nmi();
     frames++;
@@ -140,31 +116,28 @@ uint8_t Machine::mem_read(uint16_t addr) const {
     addr = mirror(addr);
     if (addr < 0x0400) return read_banked(addr);
 
-    // Halt at $2002: 1 = DVG busy (6502disassembly.com Asteroids).
-    if (addr >= 0x2000 && addr <= 0x2007) {
-        int bit = addr & 7;
-        bool v = false;
-        switch (bit) {
-            case 0: v = false; break;
-            case 1: v = ((clk3k_phase_ / kCyclesPer3kHz) & 1) != 0; break;
-            case 2: v = !dvg.halted(); break;
-            default: v = (inputs.in0 & (1u << bit)) != 0; break;
+    // E4 LS139 on A11/A10 picks SINP0, SINP1 or OPTS; A2-A0 pick the switch.
+    switch (addr & 0x7C00) {
+        case 0x2000: {
+            int bit = addr & 7;
+            bool v = false;
+            if (bit == 1) v = ((clk3k_phase_ / kCyclesPer3kHz) & 1) != 0;
+            else if (bit == 2) v = !dvg.halted();
+            else if (bit > 2) v = (inputs.in0 & (1u << bit)) != 0;
+            return bit7(v);
         }
-        return bit7(v);
-    }
-    if (addr >= 0x2400 && addr <= 0x2407) {
-        int bit = addr & 7;
-        return bit7((inputs.in1 & (1u << bit)) != 0);
-    }
-    if (addr >= 0x2800 && addr <= 0x2803) {
-        int pair = addr & 3;
-        return uint8_t((inputs.dsw1 >> (2 * pair)) & 0x03);
+        case 0x2400:
+            return bit7((inputs.in1 & (1u << (addr & 7))) != 0);
+        case 0x2800:
+            return uint8_t(0xFC | ((inputs.dsw1 >> (2 * (addr & 3))) & 0x03));
+        default:
+            break;
     }
 
     if (addr >= 0x4000 && addr < 0x4800) return vector_ram[addr - 0x4000];
     if (addr >= 0x5000 && addr < 0x5800) return vector_rom[addr - 0x5000];
     if (addr >= 0x6800 && addr < 0x8000) return program[addr - 0x6800];
-    return 0;
+    return 0xFF;
 }
 
 void Machine::mem_write(uint16_t addr, uint8_t v) {
@@ -177,172 +150,32 @@ void Machine::mem_write(uint16_t addr, uint8_t v) {
         vector_ram[addr - 0x4000] = v;
         return;
     }
-
-    if (addr == 0x3000) { dvg_go(); return; }
-    if (addr == 0x3200) {
-        lamps = v;
-        ramsel = (v & 0x04) != 0;  // bit 2 = RAMSEL / cocktail flip
-        return;
-    }
-    if (addr == 0x3400) { kick_watchdog(); return; }
-    if (addr == 0x3600) {
-        // Bits 5:2 volume, 7:6 pitch divider (MAME asteroid_explode_w).
-        explosion = (v >> 2) & 0x0F;
-        explode_vol_ = explosion;
-        switch (v & 0xC0) {
-            case 0x00: explode_pitch_div_ = 12; break;
-            case 0x40: explode_pitch_div_ = 6; break;
-            case 0x80: explode_pitch_div_ = 3; break;
-            default:   explode_pitch_div_ = 5; break;
-        }
-        return;
-    }
-    if (addr == 0x3A00) {
-        // Bit 4 enables the 555 VCO, bits 3:0 set its control voltage.
-        thump = v & 0x1F;
-        thump_en_ = (thump & 0x10) != 0;
-        return;
-    }
-    // LS259: address selects the latch, D7 is the data (MAME asteroid_sounds_w).
-    if (addr >= 0x3C00 && addr <= 0x3C05) {
-        bool on = (v & 0x80) != 0;
-        switch (addr & 7) {
-            case 0: saucer = on; break;
-            case 1:
-                if (on && !saucer_fire) {
-                    saucer_fire_remain_ = int(audio_hz * 0.28f);
-                    saucer_fire_freq_ = 830.0f;
-                }
-                saucer_fire = on;
-                break;
-            case 2: saucer_sel = on; break;
-            case 3: thrust = on; break;
-            case 4:
-                if (on && !ship_fire) {
-                    fire_remain_ = int(audio_hz * 0.28f);
-                    fire_freq_ = 820.0f;
-                }
-                ship_fire = on;
-                break;
-            case 5:
-                bonus = on;
-                break;
-        }
-        return;
-    }
-    if (addr == 0x3E00) {
-        noise_lfsr_ = 1;
-        explosion = thump = 0;
-        explode_vol_ = 0;
-        thump_en_ = false;
-        saucer = saucer_fire = thrust = ship_fire = bonus = false;
-        return;
+    if ((addr & 0xF000) != 0x3000) return;
+    // L6 LS42 decodes A11-A9 into the $3000-$3E00 write strobes.
+    switch (addr & 0x0E00) {
+        case 0x0000: dvg_go(); break;
+        case 0x0200:
+            lamps = v;
+            ramsel = (v & 0x04) != 0;
+            break;
+        case 0x0400: kick_watchdog(); break;
+        case 0x0600: sound.write_explode(v); break;
+        case 0x0A00: sound.write_thump(v); break;
+        case 0x0C00: sound.write_latch(addr & 7, (v & 0x80) != 0); break;
+        case 0x0E00: sound.noise_reset(); break;
+        default: break;
     }
 }
 
 void Machine::mix_audio(int cycles) {
-    // Approximates the DP-143 discrete board; rates follow MAME asteroid_a.cpp.
-    int samples = int((int64_t(cycles) * audio_hz) / kCpuHz);
-    if (samples <= 0) return;
-    const float dt = 1.0f / float(audio_hz);
-    const int thump_n = thump & 0x0F;
-    const float thump_hz = kThumpHz[thump_n];
-    const float thump_duty = kThumpDuty[thump_n];
-    const int fire_total = std::max(1, int(float(audio_hz) * 0.28f));
-    audio.reserve(audio.size() + size_t(samples));
-    for (int i = 0; i < samples; i++) {
-        noise_lfsr_ = (noise_lfsr_ >> 1) ^ ((noise_lfsr_ & 1) ? 0xA001u : 0);
-        float noise = (noise_lfsr_ & 1) ? 1.0f : -1.0f;
-
-        float s = 0;
-
-        if (thump_en_) {
-            thump_phase_ += thump_hz * dt;
-            if (thump_phase_ >= 1.0f) thump_phase_ -= 1.0f;
-            float sq = thump_phase_ < thump_duty ? 1.0f : -1.0f;
-            // Pole is a bit brighter than the 3.3k / 0.1uF after the 555 (MAME NODE_32).
-            thump_lp_ += (sq - thump_lp_) * 0.2f;
-            s += thump_lp_ * 0.22f;
-        }
-
-        if (thrust) {
-            thrust_lp_ += (noise - thrust_lp_) * 0.08f;
-            thrust_bp_ += (thrust_lp_ - thrust_bp_) * 0.04f;
-            s += (thrust_lp_ - thrust_bp_) * 0.10f;
-        }
-
-        if (explode_vol_ > 0) {
-            // Sample-and-hold noise at 12 kHz / divider.
-            int period = std::max(1, int(float(audio_hz) / (12000.0f / float(explode_pitch_div_))));
-            if (++explode_clk_ >= period) {
-                explode_clk_ = 0;
-                explode_hold_ = noise;
-            }
-            float e = explode_hold_ * (float(explode_vol_) / 15.0f);
-            explode_lp_ += (e - explode_lp_) * 0.15f;
-            s += explode_lp_ * 0.35f;
-        }
-
-        if (ship_fire && fire_remain_ > 0) {
-            // 820 to 110 Hz in 0.28 s. RC discharge (tau 81 ms), duty hits 100% near 136 Hz.
-            fire_freq_ = std::max(110.0f, fire_freq_ - (820.0f - 110.0f) * dt / 0.28f);
-            fire_phase_ += fire_freq_ * dt;
-            if (fire_phase_ >= 1.0f) fire_phase_ -= 1.0f;
-            float age = 0.28f * (1.0f - float(fire_remain_) / float(fire_total));
-            float env = 7.0f + 46.0f * std::exp(-age / 0.081f);
-            float duty = fire_duty(fire_freq_);
-            if (duty < 100.0f) {
-                float amp = env / 53.0f * 0.22f;
-                s += (fire_phase_ < duty / 100.0f ? amp : -amp);
-            }
-            fire_remain_--;
-        } else if (!ship_fire) {
-            fire_remain_ = 0;
-        }
-
-        if (saucer) {
-            // Large saucer warbles at 5.75 Hz, 250 Hz lower (MAME NODE_41/42).
-            const float warble_hz = saucer_sel ? 5.75f : 8.25f;
-            saucer_warble_ += warble_hz * dt;
-            if (saucer_warble_ >= 1.0f) saucer_warble_ -= 1.0f;
-            float tri = saucer_warble_ < 0.5f
-                ? (4.0f * saucer_warble_ - 1.0f)
-                : (3.0f - 4.0f * saucer_warble_);
-            float f = 1210.0f + 460.0f * tri - (saucer_sel ? 250.0f : 0.0f);
-            saucer_phase_ += f * dt;
-            if (saucer_phase_ >= 1.0f) saucer_phase_ -= 1.0f;
-            float tone = saucer_phase_ < 0.5f
-                ? (4.0f * saucer_phase_ - 1.0f)
-                : (3.0f - 4.0f * saucer_phase_);
-            s += tone * 0.10f;
-        }
-
-        if (saucer_fire && saucer_fire_remain_ > 0) {
-            // 830 to 630 Hz in 0.28 s.
-            saucer_fire_freq_ = std::max(630.0f,
-                saucer_fire_freq_ - (830.0f - 630.0f) * dt / 0.28f);
-            saucer_fire_phase_ += saucer_fire_freq_ * dt;
-            if (saucer_fire_phase_ >= 1.0f) saucer_fire_phase_ -= 1.0f;
-            float age = 0.28f * (1.0f - float(saucer_fire_remain_) / float(fire_total));
-            float env = 7.0f + 42.5f * std::exp(-age / 0.30f);
-            float duty = fire_duty(saucer_fire_freq_);
-            if (duty < 100.0f) {
-                float amp = env / 49.5f * 0.18f;
-                s += (saucer_fire_phase_ < duty / 100.0f ? amp : -amp);
-            }
-            saucer_fire_remain_--;
-        } else if (!saucer_fire) {
-            saucer_fire_remain_ = 0;
-        }
-
-        if (bonus) {
-            // 3 kHz square (MAME asteroid_a.cpp ASTEROID_LIFE_SND).
-            bonus_phase_ += 3000.0f * dt;
-            if (bonus_phase_ >= 1.0f) bonus_phase_ -= 1.0f;
-            s += bonus_phase_ < 0.5f ? 0.12f : -0.12f;
-        }
-
-        audio.push_back(std::clamp(s, -1.0f, 1.0f));
+    if (audio_hz != audio_hz_set_) {
+        sound.set_rate(audio_hz);
+        audio_hz_set_ = audio_hz;
+    }
+    audio_acc_ += int64_t(cycles) * audio_hz;
+    while (audio_acc_ >= kCpuHz) {
+        audio_acc_ -= kCpuHz;
+        audio.push_back(sound.sample());
     }
 }
 

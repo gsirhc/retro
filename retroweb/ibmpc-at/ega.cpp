@@ -51,7 +51,7 @@ uint8_t Ega::in(uint16_t port) {
         }
         case 0x3C2: {
             // Clock select 0-3 reads switch 4-1, 0 when closed (IBM EGA BIOS listing, RD_SWS).
-            // Bits 0-3 float high (DOSBox vga_misc.cpp); no feature card drives bits 5-6.
+            // Bits 0-3 float high. No feature card drives bits 5-6.
             int sel = (misc_output_ >> 2) & 3;
             bool open = (switches_ >> (3 - sel)) & 1;
             return uint8_t(0x0F | (open ? 0x10 : 0x00) | (vint_ ? 0x80 : 0x00));
@@ -104,7 +104,7 @@ uint32_t Ega::window_offset(uint32_t addr) const {
     }
 }
 
-// A0 is replaced in odd/even chaining: by the inverted page bit, or A16 in the 128KB map (86Box vid_ega.c).
+// A0 is replaced in odd/even chaining: by the inverted page bit, or A16 in the 128KB map.
 uint32_t Ega::cpu_plane_offset(uint32_t off) const {
     uint32_t a = off & 0xFFFF;
     if (gfx_[6] & 0x02) {
@@ -151,7 +151,7 @@ uint8_t Ega::mem_read(uint32_t addr) const {
         return result;
     }
 
-    // Read Mode 0: Read Map Select picks the plane; GR05 bit 4 puts CPU A0 in its low bit (86Box vid_ega.c).
+    // Read Mode 0: Read Map Select picks the plane; GR05 bit 4 puts CPU A0 in its low bit.
     uint8_t plane = gc_read_map_select();
     if (gfx_[5] & 0x10) plane = uint8_t((plane & 0xFE) | (off & 1));
     return latch_[plane & 3];
@@ -195,14 +195,14 @@ void Ega::mem_write(uint32_t addr, uint8_t v) {
         } else {
             val = rotated;
         }
-        // Data Rotate logic applies to CPU, Set/Reset and write mode 2 data alike (86Box vid_ega.c).
+        // Data Rotate logic applies to CPU, Set/Reset and write mode 2 data alike.
         switch (gc_raster_op()) {
             case 1: val = uint8_t(val & latch_[p]); break;   // AND
             case 2: val = uint8_t(val | latch_[p]); break;   // OR
             case 3: val = uint8_t(val ^ latch_[p]); break;   // XOR
             default: break;                                   // 0: replace
         }
-        // Bits the Bit Mask leaves out come from the latch, not memory (86Box vid_ega.c).
+        // Bits the Bit Mask leaves out come from the latch, not memory.
         vram[idx] = uint8_t((val & bit_mask) | (latch_[p] & ~bit_mask));
     }
 }
@@ -269,7 +269,7 @@ void Ega::tick(uint64_t cpu_cycles) {
                                       : raster_ + double(d) >= retrace + frame_cycles_);
     raster_ += double(d);
     while (raster_ >= frame_cycles_) { raster_ -= frame_cycles_; ++frame_count_; }
-    // Latched at the start of vertical retrace while CRTC 11h bit 5 is 0 and bit 4 is 1 (EGA TR, DOSBox vga_draw.cpp).
+    // Latched at the start of vertical retrace while CRTC 11h bit 5 is 0 and bit 4 is 1 (EGA TR).
     if (crossed && (crtc_[0x11] & 0x30) == 0x10) vint_ = true;
 }
 

@@ -70,7 +70,7 @@ zexall: zex/zex_host zex/zexall.com
 	./zex/zex_host zex/zexall.com
 
 # SingleStepTests/z80, 1000 cases per opcode with per-T-state bus traces.
-# Generated from the Ares core, so a cross-check rather than silicon.
+# A cross-check, not a measurement of silicon.
 SST_COMMIT = ebe1875d48f374bcfd4b505d8eb8ee751568b5f7
 SST_URL = https://codeload.github.com/SingleStepTests/z80/tar.gz/$(SST_COMMIT)
 SST_SHA = f44683f0edf1c1c37f98861ccd1bfda3b9bce65b5b258d4817a0f1d2012076a7

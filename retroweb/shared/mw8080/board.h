@@ -11,7 +11,6 @@
 namespace mw8080 {
 
 constexpr int kCpuHz = 1996800;  // 19.968 MHz / 10
-// 256 shifted pixels plus the 4 the shift register flushes after HBLANK (MW8080BW_HPIXCOUNT).
 constexpr int kNativeW = 260;
 constexpr int kNativeH = 224;
 constexpr int kUprightW = kNativeH;

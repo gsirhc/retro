@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-// DSW0 and DSW1 factory values are 0x15 and 0x03.
+// DSW0 and DSW1 factory values are 0x15 and 0x63 (operator manual fig. 7 and 8).
 
 test.describe("DIP switches", () => {
   test.beforeEach(async ({ page }) => {
@@ -11,7 +11,7 @@ test.describe("DIP switches", () => {
   const dsw0 = (page: import("@playwright/test").Page) => page.evaluate(() => (window as any).__test.machine.dsw0());
   const dsw1 = (page: import("@playwright/test").Page) => page.evaluate(() => (window as any).__test.machine.dsw1());
 
-  test("factory default is 3 tanks, missile at 10000, 15k/100k bonus, English, 2 coins / 1 credit", async ({ page }) => {
+  test("factory default is 3 tanks, missile at 10000, 15k/100k bonus, English, 2 coins / 1 play, 6 credits for 4 coins", async ({ page }) => {
     await expect(page.locator("#dipPanel")).toBeVisible();
     await expect(page.locator("#dipLives")).toHaveValue("1");
     await expect(page.locator("#dipMissile")).toHaveValue("4");
@@ -20,10 +20,10 @@ test.describe("DIP switches", () => {
     await expect(page.locator("#dipCoinage")).toHaveValue("3");
     await expect(page.locator("#dipRightMech")).toHaveValue("0");
     await expect(page.locator("#dipLeftMech")).toHaveValue("0");
-    await expect(page.locator("#dipBonusCoins")).toHaveValue("0");
+    await expect(page.locator("#dipBonusCoins")).toHaveValue("96");
     await expect(page.locator("#dipSelfTest")).not.toBeChecked();
     expect(await dsw0(page)).toBe(0x15);
-    expect(await dsw1(page)).toBe(0x03);
+    expect(await dsw1(page)).toBe(0x63);
     await expect(page.locator("#dipPanel .legal")).toContainText(/physical switches/i);
   });
 
@@ -45,21 +45,21 @@ test.describe("DIP switches", () => {
     test(`${name} writes DSW0 = 0x${want.toString(16)}`, async ({ page }) => {
       await page.locator(sel).selectOption({ value });
       expect(await dsw0(page)).toBe(want);
-      expect(await dsw1(page)).toBe(0x03);
+      expect(await dsw1(page)).toBe(0x63);
     });
   }
 
   const dsw1Cases: [string, string, string, number][] = [
-    ["free play", "#dipCoinage", "0", 0x00],
-    ["1 coin / 2 credits", "#dipCoinage", "1", 0x01],
-    ["1 coin / 1 credit", "#dipCoinage", "2", 0x02],
-    ["right mech x4", "#dipRightMech", "4", 0x07],
-    ["right mech x5", "#dipRightMech", "8", 0x0b],
-    ["right mech x6", "#dipRightMech", "12", 0x0f],
-    ["left mech x2", "#dipLeftMech", "16", 0x13],
+    ["free play", "#dipCoinage", "0", 0x60],
+    ["1 coin / 2 credits", "#dipCoinage", "1", 0x61],
+    ["1 coin / 1 credit", "#dipCoinage", "2", 0x62],
+    ["right mech x4", "#dipRightMech", "4", 0x67],
+    ["right mech x5", "#dipRightMech", "8", 0x6b],
+    ["right mech x6", "#dipRightMech", "12", 0x6f],
+    ["left mech x2", "#dipLeftMech", "16", 0x73],
+    ["no bonus coins", "#dipBonusCoins", "0", 0x03],
     ["bonus coins 3 for 2", "#dipBonusCoins", "32", 0x23],
     ["bonus coins 5 for 4", "#dipBonusCoins", "64", 0x43],
-    ["bonus coins 6 for 4", "#dipBonusCoins", "96", 0x63],
     ["bonus coins 6 for 5", "#dipBonusCoins", "128", 0x83],
   ];
   for (const [name, sel, value, want] of dsw1Cases) {
@@ -81,16 +81,16 @@ test.describe("DIP switches", () => {
     await page.locator("#dipLives").selectOption({ value: "3" });
     await page.locator("#dipCoinage").selectOption({ value: "0" });
     expect(await dsw0(page)).toBe(0x17);
-    expect(await dsw1(page)).toBe(0x00);
+    expect(await dsw1(page)).toBe(0x60);
     expect(JSON.parse((await page.evaluate(() => localStorage.getItem("retroweb.battlezone.dips")))!))
-      .toEqual({ dsw0: 0x17, dsw1: 0x00, selfTest: false });
+      .toEqual({ dsw0: 0x17, dsw1: 0x60, selfTest: false });
 
     await page.reload();
     await page.waitForFunction(() => !!(window as any).__test?.machine);
     await expect(page.locator("#dipLives")).toHaveValue("3");
     await expect(page.locator("#dipCoinage")).toHaveValue("0");
     expect(await dsw0(page)).toBe(0x17);
-    expect(await dsw1(page)).toBe(0x00);
+    expect(await dsw1(page)).toBe(0x60);
   });
 
   test("self-test switch clears IN0 bit 0x10 and survives a reload", async ({ page }) => {

@@ -2,307 +2,291 @@
 
 #include <algorithm>
 #include <cmath>
-#include <vector>
 
 namespace galaxian {
+
 namespace {
 
-constexpr int kStepClocks = 8;
-constexpr double kDt = kStepClocks / kSoundClock;
-constexpr double kTtl = 4.0;
+constexpr double kVcc = 5.0;
+constexpr int kClocksPerStep = 8;
+constexpr double kH = kClocksPerStep / kSoundClock;
 
-constexpr double kR15 = 100e3, kR16 = 220e3, kR17 = 470e3, kR18 = 1000e3, kR19 = 330e3;
-constexpr double kR20 = 15e3, kR21 = 100e3, kR22 = 100e3, kR23 = 470e3, kR24 = 10e3;
-constexpr double kR25 = 100e3, kR26 = 330e3, kR27 = 10e3, kR28 = 100e3, kR29 = 220e3;
-constexpr double kR30 = 10e3, kR31 = 47e3, kR32 = 47e3, kR33 = 10e3, kR34 = 5.1e3;
-constexpr double kR35 = 150e3, kR36 = 22e3, kR37 = 470e3, kR38 = 33e3, kR39 = 22e3;
-constexpr double kR40 = 2.2e3, kR41 = 100e3, kR43 = 2.2e3, kR44 = 10e3, kR45 = 22e3;
-constexpr double kR46 = 10e3, kR47 = 2.2e3, kR48 = 2.2e3, kR49 = 10e3;
-constexpr double kR50 = 22e3, kR51 = 33e3, kR52 = 15e3, kR91 = 10e3;
-constexpr double kC15 = 1e-6, kC17 = 0.01e-6, kC18 = 0.01e-6, kC19 = 0.01e-6;
-constexpr double kC20 = 0.1e-6, kC21 = 2.2e-6, kC22 = 0.01e-6, kC23 = 0.01e-6;
-constexpr double kC25 = 1e-6, kC26 = 0.01e-6, kC27 = 0.01e-6, kC28 = 47e-6, kC46 = 0.1e-6;
+// TTL high/low (TI SN74LS00 VOH 3.4 V typ, VOL 0.2 V typ), NE555 high at 5 V
+// (TI NE555 VOH 3.3 V typ), LM324 top of swing VCC - 1.5 V (TI LM324).
+constexpr double kTtlHi = 3.4;
+constexpr double kTtlLo = 0.2;
+constexpr double k555Hi = 3.3;
+constexpr double kOpHi = kVcc - 1.5;
+constexpr double kVbe = 0.6;
+constexpr double kVt = 0.02585;
+constexpr double kDiode = 0.62;
+// CD4066B rON at VDD = 5 V, 25 C typical (TI CD4066B).
+constexpr double kRon = 470.0;
+// 555 control pin: internal 5k/5k/5k divider (TI LM555 schematic) seen as 3.33 V behind 3.33k.
+constexpr double kCvThev = kVcc * 2.0 / 3.0;
+constexpr double kCvRth = 5000.0 * 10000.0 / 15000.0;
 
-constexpr double kFsRa[3] = {kR22, kR25, kR28};
-constexpr double kFsRb[3] = {kR23, kR26, kR29};
-constexpr double kFsC[3] = {kC17, kC18, kC19};
+// Background ramp: 9M Q4-Q7 through R18/R17/R16/R15 into Q1, R19 to ground.
+constexpr double kDacR[4] = {1e6, 470e3, 220e3, 100e3};
+constexpr double kR19 = 330e3;
+constexpr double kR20 = 15e3;
+constexpr double kR21 = 100e3;
+constexpr double kC15 = 1e-6;
+// 7T pins 8-10: non-inverting gain set by R31/R32 47k and R33 10k.
+constexpr double kR31 = 47e3, kR32 = 47e3, kR33 = 10e3;
 
-double par(double a, double b) { return a * b / (a + b); }
-double charge_exp(double rc) { return 1.0 - std::exp(-kDt / rc); }
+// FS1-3: 8R/8S/8T, Ra 100k, Rb R23/R26/R29, C17-C19 0.01 uF.
+constexpr double kFsRa = 100e3;
+constexpr double kFsRb[3] = {470e3, 330e3, 220e3};
+constexpr double kFsC = 0.01e-6;
+constexpr double kR24 = 10e3;  // R24, R27, R30
+constexpr double kC20 = 0.1e-6;
+constexpr double kR34 = 5.1e3;
 
-// Noise LS164 chain: QC of the second into F0 with QH of the third inverted (MAME galaxian_lfsr).
-const std::vector<uint8_t>& noise_table() {
-    static const std::vector<uint8_t> t = [] {
-        std::vector<uint8_t> out;
-        uint32_t reg = 0;
-        do {
-            uint32_t f0 = ((reg >> 4) & 1) ^ (((reg >> 16) & 1) ^ 1);
-            reg = ((reg << 1) | f0) & 0x1FFFF;
-            out.push_back(uint8_t(f0));
-        } while (reg != 0 && out.size() < (1u << 17));
-        return out;
-    }();
-    return t;
-}
+// Pitch mix from 6T: QA R51, QC R50, QC via 7R and R49 (VOL1), QD via 7R and R52 (VOL2).
+constexpr double kR51 = 33e3, kR50 = 22e3, kR49 = 10e3, kR52 = 15e3;
 
-// NE555 astable with pin 5 driven: thresholds CV and CV/2. Returns the fraction of dt spent high.
-double astable(double& v, bool& charging, double ra, double rb, double c, double cv, bool run) {
-    const double tau_d = rb * c;
+// HIT: R89, D1, C21 2.2 uF, 7R gated by NOISE, R35 into the 7T pins 1-3 band-pass.
+constexpr double kR89 = 1e3;
+constexpr double kC21 = 2.2e-6;
+constexpr double kR35 = 150e3, kR36 = 22e3, kR37 = 470e3;
+constexpr double kC22 = 0.01e-6, kC23 = 0.01e-6;
+constexpr double kVref = kVcc * 22e3 / (33e3 + 22e3);  // R38/R39, held by C24
+constexpr double kR40 = 2.2e3;
+
+// FIRE: R90, D2, C25 1 uF, 7R gated by 7S, R41 100k, 7T pins 5-7 follower.
+constexpr double kR90 = 1e3;
+constexpr double kC25 = 1e-6;
+constexpr double kR41 = 100e3;
+constexpr double kR47 = 2.2e3, kR48 = 2.2e3, kR46 = 10e3;
+constexpr double kC28 = 47e-6, kC29 = 0.01e-6;
+constexpr double kFireRa = 10e3, kFireRb = 22e3, kFireC = 0.01e-6;  // R44, R45, C27
+constexpr double kC26 = 0.01e-6;
+constexpr double kR43 = 2.2e3;
+
+// Mix node: R91 10k volume pot to ground, C46 0.1 uF into the LM377 input, R92 100k to its bias.
+constexpr double kR91 = 10e3;
+constexpr double kC46 = 0.1e-6;
+constexpr double kR92 = 100e3;
+
+double ttl(double frac) { return kTtlLo + (kTtlHi - kTtlLo) * frac; }
+
+// 555 astable over one step; returns the fraction of it the output was high.
+double astable(DiscreteSound::Astable& a, double vcv, double ra, double rb, double c, bool run) {
     if (!run) {
-        // RESET low holds the output low and the discharge pin drains C through Rb.
-        v *= std::exp(-kDt / tau_d);
-        charging = false;
+        a.v *= std::exp(-kH / (rb * c));
+        a.charging = false;
         return 0.0;
     }
-    if (cv <= 0.0) {
-        v *= std::exp(-kDt / tau_d);
-        charging = false;
-        return 0.0;
-    }
-    const double tau_c = (ra + rb) * c;
-    const double thr = std::min(cv, 4.999);
-    const double trg = cv / 2.0;
-    double t = kDt, high = 0.0;
-    for (int guard = 0; t > 0.0 && guard < 64; guard++) {
-        if (charging) {
-            if (v >= thr) {
-                charging = false;
+    vcv = std::clamp(vcv, 0.1, kVcc - 0.05);
+    const double lo = vcv / 2;
+    double t = kH, high = 0;
+    for (int guard = 0; t > 0 && guard < 8; guard++) {
+        if (a.charging) {
+            const double tau = (ra + rb) * c;
+            if (a.v >= vcv) {
+                a.charging = false;
                 continue;
             }
-            double tc = tau_c * std::log((5.0 - v) / (5.0 - thr));
+            const double tc = tau * std::log((kVcc - a.v) / (kVcc - vcv));
             if (tc >= t) {
-                v = 5.0 - (5.0 - v) * std::exp(-t / tau_c);
+                a.v = kVcc - (kVcc - a.v) * std::exp(-t / tau);
                 high += t;
-                t = 0.0;
+                t = 0;
             } else {
-                v = thr;
+                a.v = vcv;
                 high += tc;
                 t -= tc;
-                charging = false;
+                a.charging = false;
             }
         } else {
-            if (v <= trg) {
-                charging = true;
+            const double tau = rb * c;
+            if (a.v <= lo) {
+                a.charging = true;
                 continue;
             }
-            double td = tau_d * std::log(v / trg);
+            const double td = tau * std::log(a.v / lo);
             if (td >= t) {
-                v *= std::exp(-t / tau_d);
-                t = 0.0;
+                a.v *= std::exp(-t / tau);
+                t = 0;
             } else {
-                v = trg;
+                a.v = lo;
                 t -= td;
-                charging = true;
+                a.charging = true;
             }
         }
     }
-    return high / kDt;
-}
-
-// MFB band-pass around the hit noise, bilinear at the step rate (MAME DISC_OP_AMP_FILTER_IS_BAND_PASS_1M).
-struct Bandpass {
-    double b0, b2, a1, a2, r_total, v_ref;
-};
-
-const Bandpass& bandpass() {
-    static const Bandpass bp = [] {
-        Bandpass o{};
-        o.r_total = par(kR35, kR36);
-        o.v_ref = 5.0 * kR39 / (kR38 + kR39);
-        const double pi = 3.14159265358979323846;
-        double fc = 1.0 / (2 * pi * std::sqrt(o.r_total * kR37 * kC22 * kC23));
-        double d = (kC22 + kC23) / std::sqrt(kR37 / o.r_total * kC22 * kC23);
-        double gain = -kR37 / o.r_total * kC23 / (kC22 + kC23);
-        double k = 1.0 / std::tan(pi * fc * kDt);
-        double den = k * k + d * k + 1.0;
-        o.b0 = gain * d * k / den;
-        o.b2 = -o.b0;
-        o.a1 = 2.0 * (1.0 - k * k) / den;
-        o.a2 = (k * k - d * k + 1.0) / den;
-        return o;
-    }();
-    return bp;
+    return high / kH;
 }
 
 }  // namespace
 
 void DiscreteSound::reset() {
-    fs[0] = fs[1] = fs[2] = false;
+    for (bool& f : fs) f = false;
     hit = fire = false;
     vol[0] = vol[1] = false;
     lfo_bits = 0;
     pitch = 0xFF;
-    cpu_rem_ = clock_rem_ = 0;
-    note_cnt1_ = 0;
-    note_cnt2_ = 0;
-    qa_acc_ = qc_acc_ = qd_acc_ = 0;
-    lfsr_clock_ = 0;
-    line_phase_ = 0;
-    noise_q_ = false;
-    bck_cap_ = 0;
+    cpu_rem_ = 0;
+    pitch_cnt_ = 0xFF;
+    rco_ = true;
+    q393_ = 0;
+    noise_ = true;
+    c15_ = 0;
     bck_cv_ = 0;
-    for (Astable& a : fs555_) a = {};
-    bck_mix_ = 0;
-    hit_cap_ = 0;
-    bp_x1_ = bp_x2_ = bp_y1_ = bp_y2_ = 0;
-    fire_rc_ = 0;
+    for (Astable& a : fs555_) a = Astable{};
+    node_b_ = 0;
+    c21_ = 0;
+    bp_v1_ = 0;
+    bp_vo_ = kVref;
+    c25_ = 0;
+    c28_ = 0;
     fire_cv_ = 0;
-    fire555_ = {};
-    fire_cap_ = 0;
-    c26_ = c46_ = out_ = 0;
+    fire555_ = Astable{};
+    c26_ = 0;
+    c46_ = 0;
+    out_ = 0;
     sum_ = 0;
     n_ = 0;
 }
 
 void DiscreteSound::sound_w(int offset, bool on) {
     switch (offset & 7) {
-        case 0: case 1: case 2:
-            fs[offset & 7] = on;
-            break;
-        case 3:
-            hit = on;
-            break;
-        case 5:
-            fire = on;
-            break;
-        case 6:
-            vol[0] = on;
-            break;
-        case 7:
-            vol[1] = on;
-            break;
-        default:
-            break;
+        case 0: fs[0] = on; break;
+        case 1: fs[1] = on; break;
+        case 2: fs[2] = on; break;
+        case 3: hit = on; break;
+        case 5: fire = on; break;
+        case 6: vol[0] = on; break;
+        case 7: vol[1] = on; break;
+        default: break;  // 9L Q4 is not connected
     }
 }
 
 void DiscreteSound::lfo_freq_w(int bit, bool on) {
-    uint8_t mask = uint8_t(1 << (bit & 3));
-    if (on) lfo_bits |= mask;
-    else lfo_bits = uint8_t(lfo_bits & ~mask);
+    const uint8_t m = uint8_t(1u << (bit & 3));
+    lfo_bits = on ? uint8_t(lfo_bits | m) : uint8_t(lfo_bits & ~m);
 }
 
 void DiscreteSound::pitch_w(uint8_t data) { pitch = data; }
 
 void DiscreteSound::advance(int cpu_cycles) {
-    const auto& noise = noise_table();
+    // 2H is half the CPU clock; eight 2H clocks make one step.
     cpu_rem_ += cpu_cycles;
-    int clocks = cpu_rem_ / 2;
-    cpu_rem_ -= clocks * 2;
-    for (int i = 0; i < clocks; i++) {
-        // Two LS164s preset from the pitch latch divide by 256 - pitch into a 74393.
-        if (++note_cnt1_ > 255) {
-            note_cnt1_ = pitch;
-            note_cnt2_ = (note_cnt2_ + 1) & 15;
+    while (cpu_rem_ >= 2 * kClocksPerStep) {
+        cpu_rem_ -= 2 * kClocksPerStep;
+        int qa = 0, qc = 0, qd = 0;
+        for (int i = 0; i < kClocksPerStep; i++) {
+            // 9K/8K reload the latch on the clock after they reach 255; 6T counts each carry.
+            pitch_cnt_ = (pitch_cnt_ == 0xFF) ? pitch : uint8_t(pitch_cnt_ + 1);
+            const bool rco = pitch_cnt_ == 0xFF;
+            if (rco && !rco_) q393_ = uint8_t((q393_ + 1) & 0x0F);
+            rco_ = rco;
+            qa += q393_ & 1;
+            qc += (q393_ >> 2) & 1;
+            qd += (q393_ >> 3) & 1;
         }
-        qa_acc_ += note_cnt2_ & 1;
-        qc_acc_ += (note_cnt2_ >> 2) & 1;
-        qd_acc_ += (note_cnt2_ >> 3) & 1;
-        // The RNG runs at 12.288 MHz, 8 per sound clock; a D flip-flop samples it once per two lines.
-        lfsr_clock_ += 8;
-        if (++line_phase_ == 192) {
-            line_phase_ = 0;
-            noise_q_ = noise[size_t(lfsr_clock_ % noise.size())] != 0;
-        }
-        if (++clock_rem_ == kStepClocks) {
-            clock_rem_ = 0;
-            step(kTtl * qa_acc_ / kStepClocks, kTtl * qc_acc_ / kStepClocks, kTtl * qd_acc_ / kStepClocks, noise_q_);
-            qa_acc_ = qc_acc_ = qd_acc_ = 0;
-        }
+        step(qa / double(kClocksPerStep), qc / double(kClocksPerStep), qd / double(kClocksPerStep));
     }
 }
 
-void DiscreteSound::step(double qa, double qc, double qd, bool noise) {
-    // Background: R1 ladder sets a PNP current source charging C15; the 555 dumps it at 2/3 Vcc.
-    static const double dac_rtotal = 1.0 / (1 / kR18 + 1 / kR17 + 1 / kR16 + 1 / kR15 + 1 / kR20 + 1 / kR19);
-    static constexpr double kLadder[4] = {kR18, kR17, kR16, kR15};
-    double i_dac = 4.4 / kR20;
-    for (int b = 0; b < 4; b++)
-        if (lfo_bits & (1 << b)) i_dac += kTtl / kLadder[b];
-    double vin = i_dac * dac_rtotal;
-    double limit = vin + 0.7;
-    double i_cc = std::max(0.0, (5.0 - limit) / kR21);
-    double t = kDt;
-    for (int guard = 0; t > 0.0 && guard < 8; guard++) {
-        double next = bck_cap_ + i_cc * t / kC15;
-        if (next < 5.0 * 2 / 3 || i_cc <= 0.0) {
-            bck_cap_ = std::min(next, limit);
-            break;
-        }
-        t -= (5.0 * 2 / 3 - bck_cap_) * kC15 / i_cc;
-        bck_cap_ = 5.0 / 3;
+void DiscreteSound::step(double qa, double qc, double qd) {
+    // --- background ramp ---
+    double num = 0, den = 1.0 / kR19;
+    for (int b = 0; b < 4; b++) {
+        const double v = ((lfo_bits >> b) & 1) ? kTtlHi : kTtlLo;
+        num += v / kDacR[b];
+        den += 1.0 / kDacR[b];
     }
-    bck_cv_ = std::clamp(bck_cap_ * kR33 / (1.0 / (1 / kR31 + 1 / kR32 + 1 / kR33)) - 5.0 * kR33 / kR31, 0.0, 5.0);
-    static constexpr double kBckR[3] = {kR24, kR27, kR30};
-    static const double bck_r = 1.0 / (1 / kR24 + 1 / kR27 + 1 / kR30);
+    double vx = (num + (kVcc - kVbe) / kR20) / (den + 1.0 / kR20);
+    double i1 = (kVcc - kVbe - vx) / kR20;
+    double i2 = 0;
+    if (i1 <= 0) {
+        vx = num / den;
+    } else {
+        // Q2's emitter sits VT ln(I2/I1) below Q1's on the shared base.
+        i2 = i1 * kR20 / kR21;
+        for (int k = 0; k < 4; k++)
+            i2 = std::max(1e-12, (kVcc - kVbe - vx - kVt * std::log(i2 / i1)) / kR21);
+    }
+    c15_ += i2 * kH / kC15;
+    // 9R has DISCH, THRES and TRIG all on C15: it drops straight back to 1/3 VCC.
+    if (c15_ >= kVcc * 2.0 / 3.0) c15_ = kVcc / 3.0;
+    const double gain = 1.0 + kR33 / kR32 + kR33 / kR31;
+    bck_cv_ = std::clamp(c15_ * gain - kVcc * kR33 / kR31, 0.0, kOpHi);
+
     double fs_sum = 0;
-    for (int i = 0; i < 3; i++)
-        fs_sum += 4.5 * astable(fs555_[i].v, fs555_[i].charging, kFsRa[i], kFsRb[i], kFsC[i], bck_cv_, fs[i]) / kBckR[i];
-    static const double bck_exp = charge_exp(bck_r * kC20);
-    bck_mix_ += (fs_sum * bck_r - bck_mix_) * bck_exp;
+    for (int k = 0; k < 3; k++)
+        fs_sum += k555Hi * astable(fs555_[k], bck_cv_, kFsRa, kFsRb[k], kFsC, fs[k]);
 
-    // HIT: C21 follows the HIT line through a diode and bleeds through R35+R36 while the noise gate is open.
-    static const double hit_exp = charge_exp((kR35 + kR36) * kC21);
-    double u = std::max(0.0, (hit ? kTtl : 0.0) - 0.7);
-    double v155 = 0;
-    if (noise) {
-        double diff = u - hit_cap_;
-        hit_cap_ += diff < 0 ? diff * hit_exp : diff;
-        v155 = hit_cap_;
-    } else if (u > hit_cap_) {
-        hit_cap_ = u;
+    // --- hit ---
+    const double vhit = hit ? kTtlHi : kTtlLo;
+    const double i_d1 = std::max(0.0, (vhit - kDiode - c21_) / kR89);
+    const double gin = noise_ ? 1.0 / (kR35 + kRon) : 0.0;
+    const double a = 1.0 / (kR37 * kC23);
+    const double k = kC23 / kC22;
+    const double g = gin + 1.0 / kR36;
+    // Backward Euler on the multiple-feedback band-pass: dv1 = -a (vo - Vref),
+    // C22 (dv1 - dvo) = gin (Vc21 - v1) - v1 / R36 - C23 dv1.
+    const double lhs = 1.0 + kH * (1.0 + k) * a + kH * kH * g * a / kC22;
+    const double rhs = bp_vo_ + kH * (1.0 + k) * a * kVref - kH * gin * c21_ / kC22 +
+                       (kH * g / kC22) * (bp_v1_ + kH * a * kVref);
+    double vo = rhs / lhs;
+    const double v1 = bp_v1_ - kH * a * (vo - kVref);
+    bp_vo_ = std::clamp(vo, 0.0, kOpHi);
+    bp_v1_ = v1;
+    c21_ += kH * (i_d1 - gin * (c21_ - v1)) / kC21;
+
+    // --- fire ---
+    const double v8l = fire ? kTtlLo : kTtlHi;
+    const double vn = noise_ ? kTtlHi : kTtlLo;
+    {
+        // Nodes F (C28) and CV (C29) by backward Euler.
+        const double a11 = kC28 / kH + 1.0 / kR47 + 1.0 / kR48, a12 = -1.0 / kR48;
+        const double b1 = kC28 * c28_ / kH + v8l / kR47;
+        const double a21 = -1.0 / kR48, a22 = kC29 / kH + 1.0 / kR48 + 1.0 / kR46 + 1.0 / kCvRth;
+        const double b2 = kC29 * fire_cv_ / kH + vn / kR46 + kCvThev / kCvRth;
+        const double det = a11 * a22 - a12 * a21;
+        c28_ = (b1 * a22 - a12 * b2) / det;
+        fire_cv_ = (a11 * b2 - a21 * b1) / det;
     }
-    const Bandpass& bp = bandpass();
-    double vbp = ((v155 - bp.v_ref) / kR35 + (0.0 - bp.v_ref) / kR36) * bp.r_total;
-    double y = -bp.a1 * bp_y1_ - bp.a2 * bp_y2_ + bp.b0 * vbp + bp.b2 * bp_x2_ + bp.v_ref;
-    bp_x2_ = bp_x1_;
-    bp_x1_ = vbp;
-    bp_y2_ = bp_y1_;
-    // The op-amp stops 1.5 V short of the 5 V rail (MAME OP_AMP_VP_RAIL_OFFSET).
-    y = std::clamp(y, 0.0, 5.0 - 1.5);
-    bp_y1_ = y - bp.v_ref;
-    double v157 = y;
+    const double sw = astable(fire555_, fire_cv_, kFireRa, kFireRb, kFireC, true);
+    const double i_d2 = std::max(0.0, ((fire ? kTtlHi : kTtlLo) - kDiode - c25_) / kR90);
+    c25_ += kH * (i_d2 - sw * c25_ / (kR41 + kRon)) / kC25;
+    const double vfol = std::min(kOpHi, sw * c25_ * kR41 / (kR41 + kRon));
 
-    // FIRE: R47/C28 recovers after the latch drops, sweeping the 555's CV down in pitch.
-    static const double fire_rc_exp = charge_exp(kR47 * kC28);
-    fire_rc_ += ((fire ? 0.0 : kTtl) - fire_rc_) * fire_rc_exp;
-    fire_cv_ = par(kR46, kR48) * ((noise ? kTtl : 0.0) / kR46 + fire_rc_ / kR48);
-    double fire_hi = astable(fire555_.v, fire555_.charging, kR44, kR45, kC27, fire_cv_, true);
-    double uf = std::max(0.0, (fire ? kTtl : 0.0) - 0.7);
-    if (uf > fire_cap_) fire_cap_ = uf;
-    else fire_cap_ -= (fire_cap_ - uf) * (1.0 - std::exp(-kDt * fire_hi / (kR41 * kC25)));
-    double v182 = fire_cap_ * fire_hi;
-
-    // VOL1/VOL2 switch R49 and R52 into the pitch mix (MAME galaxian_mixerpre_desc).
-    double g = 1 / kR51 + 1 / kR50 + 1 / kR34;
-    double i = qa / kR51 + qc / kR50 + bck_mix_ / kR34;
+    // --- mix: node B (C20) and node M by backward Euler ---
+    const double r26 = kR43 + kH / kC26;
+    const double r46 = kR92 + kH / kC46;
+    double gm = 1.0 / kR34 + 1.0 / kR51 + 1.0 / kR50 + 1.0 / kR40 + 1.0 / r26 + 1.0 / kR91 + 1.0 / r46;
+    double im = ttl(qa) / kR51 + ttl(qc) / kR50 + bp_vo_ / kR40 + (vfol - c26_) / r26 + c46_ / r46;
     if (vol[0]) {
-        g += 1 / kR49;
-        i += qc / kR49;
+        gm += 1.0 / (kR49 + kRon);
+        im += ttl(qc) / (kR49 + kRon);
     }
     if (vol[1]) {
-        g += 1 / kR52;
-        i += qd / kR52;
+        gm += 1.0 / (kR52 + kRon);
+        im += ttl(qd) / (kR52 + kRon);
     }
-    double v279 = i / g;
-
-    static const double c26_exp = charge_exp(par(kR43, kR91) * kC26);
-    c26_ += (v182 - c26_) * c26_exp;
-    static const double r_final = 1.0 / (1 / kR34 + 1 / kR40 + 1 / kR43 + 1 / kR91);
-    double v = (v279 / kR34 + v157 / kR40 + (v182 - c26_) / kR43) * r_final;
-    // C46 into the amp, whose input MAME takes as 100k.
-    static const double c46_exp = charge_exp(100e3 * kC46);
-    c46_ += (v - c46_) * c46_exp;
-    out_ = v - c46_;
+    const double b11 = kC20 / kH + 3.0 / kR24 + 1.0 / kR34, b12 = -1.0 / kR34;
+    const double c1 = kC20 * node_b_ / kH + fs_sum / kR24;
+    const double b21 = -1.0 / kR34, b22 = gm;
+    const double det = b11 * b22 - b12 * b21;
+    node_b_ = (c1 * b22 - b12 * im) / det;
+    const double vm = (b11 * im - b21 * c1) / det;
+    c26_ += kH * ((vfol - vm - c26_) / r26) / kC26;
+    const double i46 = (vm - c46_) / r46;
+    c46_ += kH * i46 / kC46;
+    out_ = i46 * kR92;
     sum_ += out_;
     n_++;
 }
 
 float DiscreteSound::mix() {
-    float s = n_ ? float(sum_ / n_) : float(out_);
+    const double v = n_ ? sum_ / n_ : out_;
     sum_ = 0;
     n_ = 0;
-    return s;
+    return float(v);
 }
 
 }  // namespace galaxian

@@ -23,6 +23,7 @@ add_custom_command(
 
 set(BOARD
   ${CORE}/machine.cpp
+  ${CORE}/sound.cpp
   ${CPU}/cpu_mos6502.cpp
   ${ATARI}/dvg.cpp
 )
@@ -35,10 +36,12 @@ function(add_unit_test name)
 endfunction()
 
 add_unit_test(dvg_test ${ATARI}/tests/dvg_test.cpp ${ATARI}/dvg.cpp)
+add_unit_test(sound_test sound_test.cpp ${CORE}/sound.cpp)
 add_unit_test(machine_test machine_test.cpp ${BOARD} ${WEB}/hwtest_roms.h)
 add_unit_test(smoke_test smoke_test.cpp ${BOARD} ${WEB}/hwtest_roms.h)
 
 include(GoogleTest)
 gtest_discover_tests(dvg_test)
+gtest_discover_tests(sound_test)
 gtest_discover_tests(machine_test)
 gtest_discover_tests(smoke_test)

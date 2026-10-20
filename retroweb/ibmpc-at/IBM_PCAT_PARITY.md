@@ -79,13 +79,11 @@ page, a Playwright test, in the same commit.
 
 - **E18. Write mode 3 on a real EGA.** GR05 bits 0-1 = 3 is VGA's write
   mode 3; the EGA TR lists it as not valid and doesn't say what the card
-  does. `Ega` runs it as VGA does. MAME's EGA does the same, 86Box's
-  writes nothing, and neither cites hardware. Needs a test on a real IBM
-  EGA. Until then there's nothing to port.
+  does. `Ega` runs it as VGA does. Needs a test on a real IBM EGA.
 - **E19. No 9x14 alternate glyphs.** In mode 7, IBM's ROM patches the 8x14
   font with 9-dot versions of about a dozen characters. The only open set
-  found (DOSBox's) is GPL and looks copied from IBM's ROM, so it can't go
-  in the stand-in. AH=11h AL=30h BH=5 returns an empty list. Drawing new
+  found is GPL and looks copied from IBM's ROM, so it can't go in the
+  stand-in. AH=11h AL=30h BH=5 returns an empty list. Drawing new
   glyphs wouldn't make the screen any closer to IBM's, so this stays open
   until a clean public-domain set turns up.
 - **E20. EGA memory-cycle length isn't sourced.** §47.3 derives 32 dots

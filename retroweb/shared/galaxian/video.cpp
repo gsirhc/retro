@@ -1,316 +1,368 @@
-#include "video.h"
+#include "galaxian/video.h"
 
-#include <array>
+#include <vector>
 
 namespace galaxian {
+
 namespace {
 
-uint8_t plane_bit(uint8_t b, int x) { return uint8_t((b >> (7 - (x & 7))) & 1); }
+// h counts from H = 176, where HSYNC clocks V (Galaxian 6F).
+constexpr int kActiveH0 = 80;   // H = 256
+constexpr int kActiveH1 = 336;  // H wraps 511 -> 128
+constexpr int kFramePixels = 256 * 256;
+// Object slots end at H = 128 + 16k + 15; slots 0-2 fall before HSYNC and see the old V.
+constexpr int kSlotH[8] = {351, 367, 383, 15, 31, 47, 63, 79};
 
-// Frogger PCB: upper and lower nibbles swap entering the scroll and sprite-Y adder.
-uint8_t nibble_swap(uint8_t v) { return uint8_t((v << 4) | (v >> 4)); }
-
-// 17-bit star LFSR: enable in bit 7, 6-bit colour in 0-5 (MAME stars_init).
-const std::array<uint8_t, kStarPeriod>& star_table() {
-    static const std::array<uint8_t, kStarPeriod> t = [] {
-        std::array<uint8_t, kStarPeriod> out{};
-        uint32_t shiftreg = 0;
-        for (int i = 0; i < kStarPeriod; i++) {
-            int enabled = ((shiftreg & 0x1fe01) == 0x1fe00);
-            int color = (~shiftreg & 0x1f8) >> 3;
-            out[unsigned(i)] = uint8_t(color | (enabled << 7));
-            shiftreg = (shiftreg >> 1) | ((((shiftreg >> 12) ^ ~shiftreg) & 1) << 16);
-        }
-        return out;
-    }();
-    return t;
+std::vector<uint32_t> make_lfsr(int tap) {
+    std::vector<uint32_t> s(static_cast<size_t>(kStarPeriod));
+    uint32_t r = 0;
+    for (size_t i = 0; i < s.size(); i++) {
+        s[i] = r;
+        const uint32_t in = (~(r >> 16) ^ (r >> (tap - 1))) & 1;
+        r = ((r << 1) | in) & 0x1FFFF;
+    }
+    return s;
 }
 
-// PROM R/G 1k/470/220, B 470/220, 470 ohm pulldown, scaled so white is 224
-// to leave headroom for stars and shells (MAME galaxian_palette).
-struct Weights {
-    double rg[3];
-    double b[2];
+// Bit k-1 holds stage k; stage 1 takes NOT stage 17 XOR the tap.
+const std::vector<uint32_t>& lfsr(Board b) {
+    static const std::vector<uint32_t> galaxian = make_lfsr(5);   // 3B on A1 QE
+    static const std::vector<uint32_t> scramble = make_lfsr(14);  // 5M on 1M QF
+    return b == Board::Scramble ? scramble : galaxian;
+}
+
+int wrap(long long n) {
+    const long long m = n % kStarPeriod;
+    return int(m < 0 ? m + kStarPeriod : m);
+}
+
+struct Gun {
+    double hi = 0;
+    double lo = 0;
+    void add(double ohms, bool high) { (high ? hi : lo) += 1.0 / ohms; }
+    uint32_t level() const { return gun_level(gun_volts(hi, lo)); }
 };
 
-const Weights& weights() {
-    static const Weights w = [] {
-        auto divider = [](const double* r, int n, int bit) {
-            double g_on = 1.0 / r[bit];
-            double g_off = 1.0 / 470.0;
-            for (int j = 0; j < n; j++)
-                if (j != bit) g_off += 1.0 / r[j];
-            return g_on / (g_on + g_off);
-        };
-        const double rg[3] = {1000, 470, 220};
-        const double bl[2] = {470, 220};
-        Weights out{};
-        double max_rg = 0, max_b = 0;
-        for (int i = 0; i < 3; i++) max_rg += (out.rg[i] = divider(rg, 3, i));
-        for (int i = 0; i < 2; i++) max_b += (out.b[i] = divider(bl, 2, i));
-        double scale = 224.0 / (max_rg > max_b ? max_rg : max_b);
-        for (double& x : out.rg) x *= scale;
-        for (double& x : out.b) x *= scale;
-        return out;
-    }();
-    return w;
+uint32_t pack(const Gun& r, const Gun& g, const Gun& b) {
+    return (r.level() << 16) | (g.level() << 8) | b.level();
 }
 
-uint32_t channel_or(uint32_t rgb, uint32_t bullet) {
-    uint32_t out = rgb;
-    for (int shift = 0; shift < 24; shift += 8)
-        if ((bullet >> shift) & 0xFF) out |= 0xFFu << shift;
-    return out;
+void add_prom(uint8_t e, Gun& r, Gun& g, Gun& b) {
+    r.add(1000, e & 0x01);
+    r.add(470, e & 0x02);
+    r.add(220, e & 0x04);
+    g.add(1000, e & 0x08);
+    g.add(470, e & 0x10);
+    g.add(220, e & 0x20);
+    b.add(470, e & 0x40);
+    b.add(220, e & 0x80);
 }
 
-uint32_t blend3(uint32_t first, uint32_t second) {
-    uint32_t out = 0;
-    for (int shift = 0; shift < 24; shift += 8) {
-        uint32_t a = (first >> shift) & 0xFF;
-        uint32_t b = (second >> shift) & 0xFF;
-        out |= ((a + 2 * b + 1) / 3) << shift;
-    }
-    return out;
+// 74366/LS366 inverting drivers: a star bit of 0 drives its resistor high.
+void add_star(uint8_t c, Gun& r, Gun& g, Gun& b) {
+    r.add(150, !(c & 0x01));
+    r.add(100, !(c & 0x02));
+    g.add(150, !(c & 0x04));
+    g.add(100, !(c & 0x08));
+    b.add(150, !(c & 0x10));
+    b.add(100, !(c & 0x20));
 }
-
-constexpr uint32_t kWhite = 0xFFFFFF;
-constexpr uint32_t kYellow = 0xFFFF00;
 
 }  // namespace
 
 void Video::reset() {
-    h = v = 0;
-    vblank = false;
+    h = 0;
+    v = 0;
+    vblank = true;
     vblank_edge = false;
-    stars_enable_ = false;
+    flip_x = false;
+    flip_y = false;
     background_enable = false;
-    flip_x = flip_y = false;
     stars_blink_state = 0;
-    blink_acc_ = 0;
+    stars_enable_ = false;
+    noise_ = true;
+    star_drop_ = true;
+    star_base_ = 0;
     star_origin = 0;
-    sprite_line_.fill(0);
-    shell_x_ = missile_x_ = -1;
+    blink_acc_ = 0;
+    frame_.fill(0);
+    line_buf_.fill(0);
+    shell_ = {};
+    missile_ = {};
+    rgb_prom_ok_.fill(false);
+    rgb_dark_ok_.fill(false);
 }
 
 void Video::set_stars_enable(bool on) {
-    // Releasing CLR on the shift registers restarts the count at the beam (MAME stars_enable_w).
     if (on && !stars_enable_) {
-        int hpos = h < kVisW ? h : kVisW;
-        star_origin = uint32_t((kStarPeriod - ((v * 512 + 2 * hpos) % kStarPeriod)) % kStarPeriod);
+        long long next;
+        if (v >= 256) next = kFramePixels;
+        else if (h < kActiveH0) next = 256LL * v;
+        else if (h < kActiveH1) next = 256LL * v + (h - kActiveH0);
+        else next = 256LL * (v + 1);
+        star_base_ = wrap(-2 * next);
+        star_origin = 0;
     }
     stars_enable_ = on;
 }
 
-uint8_t Video::remap_color(uint8_t attr) {
-    // Frogger PROM wiring: attribute bits 2/1/0 become PROM group bits 0/1/2
-    uint8_t c = attr & 7;
-    return uint8_t(((c >> 1) & 0x03) | ((c << 2) & 0x04));
+uint8_t Video::tile_pixel(uint8_t code, int x, int y) const {
+    const unsigned a = unsigned(code) * 8 + unsigned(y & 7);
+    const int bit = 7 - (x & 7);
+    return uint8_t((((gfx[a] >> bit) & 1) << 1) | ((gfx[0x800 + a] >> bit) & 1));
 }
 
-uint8_t Video::scroll_y(uint8_t value) const {
-    return board == Board::Frogger ? nibble_swap(value) : value;
+uint8_t Video::sprite_pixel(uint8_t code, int x, int y) const {
+    // 32 bytes per sprite. The x+8 half is the next 8, rows 8-15 follow that.
+    const int yy = y & 15;
+    unsigned a = unsigned(code & 0x3F) * 32 + unsigned(yy < 8 ? yy : 16 + (yy - 8));
+    if (x & 8) a += 8;
+    const int bit = 7 - (x & 7);
+    return uint8_t((((gfx[a] >> bit) & 1) << 1) | ((gfx[0x800 + a] >> bit) & 1));
+}
+
+uint32_t Video::prom_rgb(uint8_t pen) const {
+    Gun r, g, b;
+    add_prom(color_prom[pen & 31], r, g, b);
+    return pack(r, g, b);
+}
+
+uint32_t Video::star_rgb(uint8_t color6) {
+    Gun r, g, b;
+    add_star(color6 & 0x3F, r, g, b);
+    return pack(r, g, b);
+}
+
+// Frogger 834-0068: HPLA0-2 reach CD2, CD0, CD1 through LS175 43 and LS377 61.
+uint8_t Video::remap_color(uint8_t attr) {
+    return uint8_t(((attr >> 1) & 3) | ((attr & 1) << 2));
+}
+
+// Frogger 834-0068 LS283 76/77 add HPLA0-3 to 16V-128V and HPLA4-7 to 1V-8V.
+uint8_t Video::scroll_of(uint8_t value) const {
+    if (board == Board::Frogger) return uint8_t((value >> 4) | (value << 4));
+    return value;
 }
 
 uint8_t Video::color_group(uint8_t attr) const {
     return board == Board::Frogger ? remap_color(attr) : uint8_t(attr & 7);
 }
 
-uint8_t Video::tile_pixel(uint8_t code, int x, int y) const {
-    int row = code * 8 + (y & 7);
-    uint8_t hi = gfx[unsigned(row)];
-    uint8_t lo = gfx[unsigned(0x800 + row)];
-    return uint8_t(plane_bit(lo, x) | (plane_bit(hi, x) << 1));
-}
-
-uint8_t Video::sprite_pixel(uint8_t code, int x, int y) const {
-    // 16x16: rows 8-15 sit 16 bytes on, columns 8-15 a further 8 (MAME spritelayout)
-    int yy = y & 15;
-    int row = (yy < 8) ? yy : (16 + (yy - 8));
-    int base = (code & 0x3F) * 32 + row;
-    if (x & 8) base += 8;
-    uint8_t hi = gfx[unsigned(base)];
-    uint8_t lo = gfx[unsigned(0x800 + base)];
-    return uint8_t(plane_bit(lo, x) | (plane_bit(hi, x) << 1));
-}
-
-uint32_t Video::prom_rgb(uint8_t pen) const {
-    const Weights& w = weights();
-    uint8_t p = color_prom[pen & 31];
-    auto bit = [p](int n) { return (p >> n) & 1; };
-    int r = int(w.rg[0] * bit(0) + w.rg[1] * bit(1) + w.rg[2] * bit(2) + 0.5);
-    int g = int(w.rg[0] * bit(3) + w.rg[1] * bit(4) + w.rg[2] * bit(5) + 0.5);
-    int b = int(w.b[0] * bit(6) + w.b[1] * bit(7) + 0.5);
-    return uint32_t((r << 16) | (g << 8) | b);
-}
-
-uint32_t Video::star_rgb(uint8_t color) {
-    // 150 and 100 ohm star resistors against the 130 ohm PROM maximum, compressed
-    // into 194..255 (MAME galaxian_palette starmap).
-    static constexpr uint8_t kLevel[4] = {0, 194, 214, 255};
-    int r = kLevel[((color >> 4) & 1) << 1 | ((color >> 5) & 1)];
-    int g = kLevel[((color >> 2) & 1) << 1 | ((color >> 3) & 1)];
-    int b = kLevel[(color & 1) << 1 | ((color >> 1) & 1)];
-    return uint32_t((r << 16) | (g << 8) | b);
-}
-
-uint8_t Video::tile_pen(int x, int y) const {
-    // Flip inverts the H and V counters ahead of the scroll adder.
-    int hx = flip_x ? 255 - x : x;
-    int vy = flip_y ? 255 - y : y;
-    int col = hx >> 3;
-    int sy = (vy + scroll_y(objram[unsigned(col * 2)])) & 0xFF;
-    uint8_t code = videoram[unsigned((sy >> 3) * 32 + col)];
-    uint8_t attr = objram[unsigned(col * 2 + 1)];
-    return uint8_t((color_group(attr) << 2) | tile_pixel(code, hx & 7, sy & 7));
-}
-
-void Video::hblank_setup(int line) {
-    // Sprites load the line buffer during HBLANK; it only takes a pixel where it
-    // still holds 0, so lower-numbered sprites win (MAME sprites_draw).
-    sprite_line_.fill(0);
-    for (int i = 0; i < 8; i++) {
-        const uint8_t* base = &objram[unsigned(0x40 + i * 4)];
-        // The first three sprites match against V-1 (MAME sprites_draw).
-        uint8_t sy = uint8_t(240 - (scroll_y(base[0]) - (i < 3 ? 1 : 0)));
-        bool fx = base[1] & 0x40;
-        bool fy = base[1] & 0x80;
-        uint8_t sx = uint8_t(base[3] + 1);
-        if (flip_x) {
-            sx = uint8_t(240 - sx);
-            fx = !fx;
-        }
-        if (flip_y) {
-            sy = uint8_t(240 - sy);
-            fy = !fy;
-        }
-        int row = uint8_t(line - sy);
-        if (row >= 16) continue;
-        uint8_t color = color_group(base[2]);
-        for (int px = 0; px < 16; px++) {
-            int x = sx + px;
-            // 16 pixels are hard-clipped at the line buffer, the first 16 after the +1.
-            if (x > 255 || (flip_x ? x >= 256 - 17 : x < 17)) continue;
-            if (sprite_line_[unsigned(x)]) continue;
-            uint8_t pix = sprite_pixel(uint8_t(base[1] & 0x3F), fx ? 15 - px : px, fy ? 15 - row : row);
-            if (pix) sprite_line_[unsigned(x)] = uint8_t(((color << 2) | pix) + 1);
-        }
-    }
-
-    // One shell counter and one missile counter, the last match wins (MAME bullets_draw).
-    shell_x_ = missile_x_ = -1;
-    uint8_t effy = uint8_t(flip_y ? ((line - 1) ^ 255) : (line - 1));
-    for (int which = 0; which < 3; which++)
-        if (uint8_t(objram[unsigned(0x60 + which * 4 + 1)] + effy) == 0xFF)
-            shell_x_ = 255 - objram[unsigned(0x60 + which * 4 + 3)];
-    effy = uint8_t(flip_y ? (line ^ 255) : line);
-    for (int which = 3; which < 8; which++) {
-        if (uint8_t(objram[unsigned(0x60 + which * 4 + 1)] + effy) != 0xFF) continue;
-        int x = 255 - objram[unsigned(0x60 + which * 4 + 3)];
-        if (which == 7) missile_x_ = x;
-        else shell_x_ = x;
+void Video::check_palette() {
+    if (prom_seen_ != color_prom || board_seen_ != board) {
+        prom_seen_ = color_prom;
+        board_seen_ = board;
+        rgb_prom_ok_.fill(false);
+        rgb_dark_ok_.fill(false);
     }
 }
 
-uint32_t Video::backdrop(int x, int y) const {
-    if (board == Board::Frogger) {
-        bool river = flip_x ? (x >= kRiverSplit) : (x < kRiverSplit);
-        return river ? kRiverBlue : 0;
-    }
-    uint32_t bg = (board == Board::Scramble && background_enable) ? kScrambleBgBlue : 0;
-    if (!stars_enable_) return bg;
-    uint8_t mask = 0xFF;
-    uint32_t base = uint32_t(y) * 512;
-    if (board == Board::Scramble) {
-        static constexpr uint8_t kMask[4] = {0x20, 0x08, 0xFF, 0xFF};
-        int blink = stars_blink_state & 3;
-        if (blink == 2 && (y & 2) == 0) return bg;
-        mask = kMask[blink];
+uint32_t Video::mix(int prom_index, int star, int bullet, bool backdrop) {
+    size_t key;
+    bool* ok;
+    uint32_t* slot;
+    if (prom_index >= 0) {
+        key = size_t(prom_index * 3 + bullet) * 2;
+        ok = &rgb_prom_ok_[key];
+        slot = &rgb_prom_[key];
     } else {
-        base += star_origin;
+        key = size_t(((star + 1) * 3 + bullet) * 2 + (backdrop ? 1 : 0));
+        ok = &rgb_dark_ok_[key];
+        slot = &rgb_dark_[key];
     }
-    // Stars show only when V1 ^ H8.
-    if (((y ^ (x >> 3)) & 1) == 0) return bg;
-    // The RNG steps twice per pixel on the 18 MHz clock gated by the 2/3-duty
-    // pixel clock: the first sample covers a third of the pixel, the second two.
-    const auto& t = star_table();
-    uint32_t offs = (base + uint32_t(2 * x)) % kStarPeriod;
-    uint8_t s1 = t[offs];
-    uint8_t s2 = t[(offs + 1) % kStarPeriod];
-    uint32_t c1 = ((s1 & 0x80) && (s1 & mask)) ? star_rgb(uint8_t(s1 & 0x3F)) : bg;
-    uint32_t c2 = ((s2 & 0x80) && (s2 & mask)) ? star_rgb(uint8_t(s2 & 0x3F)) : bg;
-    return c1 == c2 ? c1 : blend3(c1, c2);
+    if (*ok) return *slot;
+    Gun r, g, b;
+    if (prom_index >= 0) add_prom(color_prom[unsigned(prom_index)], r, g, b);
+    if (star >= 0) add_star(uint8_t(star), r, g, b);
+    if (backdrop) b.add(board == Board::Scramble ? 390 : 470, true);
+    if (bullet) {
+        r.add(100, true);
+        g.add(100, true);
+        // Galaxian 9D drives blue from SHELL. Frogger shells are white the same way.
+        if (board != Board::Scramble) b.add(100, bullet == 1);
+    }
+    *ok = true;
+    *slot = pack(r, g, b);
+    return *slot;
 }
 
-uint32_t Video::bullet_or(int x, uint32_t rgb) const {
-    // Shells and missiles are OR'd into the RGB through 100 ohm resistors.
+int Video::star_at(int x, int y) const {
+    if (!stars_enable_ || board == Board::Frogger) return -1;
+    const long long n = 256LL * y + x;
+    uint32_t s;
+    int xh, vy;
+    if (board == Board::Galaxian) {
+        s = lfsr(board)[size_t(wrap(star_base_ + 2 * n))];
+        xh = flip_x ? 255 - x : x;
+        vy = y;
+    } else {
+        // Scramble clears the LFSR through VBLANK (6P), so every frame starts at line 16.
+        s = lfsr(board)[size_t(wrap(2 * (n - 256LL * kVisY0)))];
+        xh = flip_x ? 255 - x : x;
+        vy = flip_y ? 255 - y : y;
+    }
+    if ((s & 0xFF) != 0xFF || (s & 0x10000)) return -1;
+    if ((((vy & 1) ^ (xh >> 3)) & 1) == 0) return -1;
     if (board == Board::Scramble) {
-        // Scramble shells start at $FA and last two pixel clocks, all yellow.
-        auto hit = [x](int bx) { return bx >= 0 && (x == bx - 5 || x == bx - 6); };
-        if (hit(shell_x_) || hit(missile_x_)) rgb = channel_or(rgb, kYellow);
-        return rgb;
+        bool sel = true;
+        switch (stars_blink_state & 3) {
+            case 0: sel = (s >> 8) & 1; break;   // LS151 D0 = TF (1M QA)
+            case 1: sel = (s >> 10) & 1; break;  // D1 = TG (1M QC)
+            case 2: sel = (y >> 1) & 1; break;   // D2 = 2V
+            default: break;
+        }
+        if (!sel) return -1;
     }
-    // Galaxian and Frogger: $FC to $00 is four pixels; shells white, missile yellow.
-    auto hit = [x](int bx) { return bx >= 0 && x >= bx - 4 && x < bx; };
-    if (hit(shell_x_)) rgb = channel_or(rgb, kWhite);
-    if (hit(missile_x_)) rgb = channel_or(rgb, kYellow);
-    return rgb;
+    return int((s >> 8) & 0x3F);
 }
 
-void Video::paint(int line, int x0, int x1) {
-    uint32_t* row = &frame_[unsigned((line - kVisY0) * kVisW)];
-    for (int x = x0; x < x1; x++) {
-        uint8_t pen = tile_pen(x, line);
-        if (uint8_t s = sprite_line_[unsigned(x)]) pen = uint8_t(s - 1);
-        uint32_t rgb = (pen & 3) ? prom_rgb(pen) : backdrop(x, line);
-        row[x] = bullet_or(x, rgb);
+bool Video::bullet_hit(Bullet& b, int x, int lo, int hi) {
+    if (b.load < 0 || b.done) return false;
+    const int c = (b.load + x + 1) & 0xFF;
+    const bool in = c >= lo && c <= hi;
+    // 5P (Galaxian) / 10L (Scramble) stop the counter firing twice on one line.
+    if (!in && b.in_window) b.done = true;
+    b.in_window = in;
+    return in;
+}
+
+void Video::object_slot(int slot) {
+    const int line = v < 256 ? v : v - 8;
+    const int vb = flip_y ? 255 - line : line;
+
+    const uint8_t* o = &objram[unsigned(0x40 + slot * 4)];
+    const int sum = (scroll_of(o[0]) + vb) & 0xFF;
+    if ((sum & 0xF0) == 0xF0) {
+        int row = sum & 0x0F;
+        if (o[1] & 0x80) row ^= 15;
+        const bool fx = (o[1] & 0x40) != 0;
+        const uint8_t code = o[1] & 0x3F;
+        const uint8_t group = color_group(o[2]);
+        for (int p = 0; p < 16; p++) {
+            const uint8_t pen = sprite_pixel(code, fx ? 15 - p : p, row);
+            if (!pen) continue;
+            uint8_t& cell = line_buf_[unsigned((o[3] + p) & 0xFF)];
+            if (!cell) cell = uint8_t(pen | (group << 2));
+        }
     }
+
+    const uint8_t* b = &objram[unsigned(0x60 + slot * 4)];
+    if (((scroll_of(b[1]) + vb) & 0xFF) != 0xFF) return;
+    Bullet* dst = nullptr;
+    if (board == Board::Scramble) {
+        if (slot != 7) dst = &shell_;  // 10M leaves the slot-7 decode unconnected
+    } else {
+        dst = slot == 7 ? &missile_ : &shell_;
+    }
+    if (dst) *dst = Bullet{b[3], false, false};
+}
+
+void Video::paint(int x) {
+    const int y = v;
+    const int yf = flip_y ? 255 - y : y;
+    const int xf = flip_x ? 255 - x : x;
+    const int col = xf >> 3;
+    const int sum = (scroll_of(objram[unsigned(col * 2)]) + yf) & 0xFF;
+    const uint8_t code = videoram[unsigned((sum >> 3) * 32 + col)];
+    int pen = tile_pixel(code, xf & 7, sum & 7);
+    int group = color_group(objram[unsigned(col * 2 + 1)]);
+
+    int r = (x - 1) & 0xFF;
+    if (flip_x) r ^= 0xFF;
+    const uint8_t sp = line_buf_[unsigned(r)];
+    line_buf_[unsigned(r)] = 0;
+    if (sp && (r & 0xF0)) {
+        pen = sp & 3;
+        group = sp >> 2;
+    }
+
+    int bullet = 0;
+    if (board != Board::Scramble) {
+        if (bullet_hit(missile_, x, 0xFC, 0xFF)) bullet = 2;
+        if (bullet_hit(shell_, x, 0xFC, 0xFF)) bullet = 1;
+    } else {
+        if (bullet_hit(shell_, x, 0xFA, 0xFB)) bullet = 1;
+    }
+
+    if (y < kVisY0 || y >= kVBlankLine) return;
+    uint32_t rgb;
+    if (pen) {
+        rgb = mix(group * 4 + pen, -1, bullet, false);
+    } else {
+        bool backdrop = false;
+        if (board == Board::Frogger) backdrop = (x < kRiverSplit) != flip_x;
+        else if (board == Board::Scramble) backdrop = background_enable;
+        rgb = mix(-1, star_at(x, y), bullet, backdrop);
+    }
+    frame_[unsigned((y - kVisY0) * kVisW + x)] = rgb;
+}
+
+void Video::line_start() {
+    v = (v + 1) % kVTotal;
+    if (v == kVBlankLine) {
+        vblank = true;
+        vblank_edge = true;
+    } else if (v == kVisY0) {
+        vblank = false;
+    }
+    if (v == 0) {
+        if (stars_enable_) {
+            star_origin = uint32_t(wrap(star_base_ + 2LL * kFramePixels));
+            star_base_ = int(star_origin);
+        }
+        star_drop_ = true;
+    }
+    // 7474 at 2D clocks on 2V (A082-91352-A000 p.22).
+    if ((v & 3) == 2) {
+        if (!stars_enable_ || board != Board::Galaxian) {
+            noise_ = true;
+        } else {
+            const long long n = v < 256 ? 256LL * v : kFramePixels;
+            noise_ = !((lfsr(board)[size_t(wrap(star_base_ + 2 * n))] >> 16) & 1);
+        }
+    }
+    check_palette();
 }
 
 void Video::advance(int cpu_cycles) {
-    int pixels = cpu_cycles * 2;
-    while (pixels > 0) {
-        bool visible_line = v >= kVisY0 && v < kVisY0 + kVisH;
-        if (h < kVisW) {
-            int end = h + pixels < kVisW ? h + pixels : kVisW;
-            if (visible_line) paint(v, h, end);
-            pixels -= end - h;
-            h = end;
-            if (h == kVisW) hblank_setup(v + 1);
-            continue;
-        }
-        int end = h + pixels < kHTotal ? h + pixels : kHTotal;
-        pixels -= end - h;
-        h = end;
-        if (h < kHTotal) continue;
-        h = 0;
-        v++;
-        if (v == kVBlankLine) {
-            vblank = true;
-            vblank_edge = true;
-        }
-        if (v >= kVTotal) {
-            v = 0;
-            vblank = false;
-            // 2^17 RNG clocks a frame, less two through 6B unflipped: one step of drift (MAME).
-            if (board == Board::Galaxian)
-                star_origin = (star_origin + (flip_x ? 1u : uint32_t(kStarPeriod - 1))) % kStarPeriod;
-        }
-    }
     if (board == Board::Scramble) {
         blink_acc_ += cpu_cycles;
         while (blink_acc_ >= kStarBlinkPeriod) {
             blink_acc_ -= kStarBlinkPeriod;
-            stars_blink_state++;
+            stars_blink_state = uint8_t((stars_blink_state + 1) & 3);
+        }
+    }
+    for (int p = 0; p < cpu_cycles * 2; p++) {
+        if (h >= kActiveH0 && h < kActiveH1) {
+            if (h == kActiveH0 && v == 0) {
+                // Galaxian 1C drops the first two star clocks after VSYNC unless HFLIP.
+                if (star_drop_ && stars_enable_ && !flip_x) star_base_ = wrap(star_base_ - 2LL);
+                star_drop_ = false;
+            }
+            if (v < 256) paint(h - kActiveH0);
+        } else if (h == kActiveH1) {
+            line_buf_.fill(0);
+            shell_ = {};
+            missile_ = {};
+        }
+        for (int k = 0; k < 8; k++) {
+            if (kSlotH[k] == h) {
+                object_slot(k);
+                break;
+            }
+        }
+        if (++h == kHTotal) {
+            h = 0;
+            line_start();
         }
     }
 }
 
-void Video::render(uint32_t* out) const {
-    for (int ny = 0; ny < kVisH; ny++) {
-        for (int nx = 0; nx < kVisW; nx++) {
-            // ROT90 = FLIP_X | SWAP_XY: upright((H-1)-y, x) = native(x, y).
-            out[nx * kUprightW + (kVisH - 1) - ny] = frame_[unsigned(ny * kVisW + nx)];
-        }
+void Video::render(uint32_t* upright_224x256) const {
+    for (int line = 0; line < kVisH; line++) {
+        const uint32_t* src = &frame_[unsigned(line * kVisW)];
+        const int ux = kUprightW - 1 - line;
+        for (int x = 0; x < kVisW; x++) upright_224x256[x * kUprightW + ux] = src[x];
     }
 }
 

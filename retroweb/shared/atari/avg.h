@@ -1,4 +1,4 @@
-// Atari AVG, Battlezone variant: STATE2.MAC sequencer, MAME avgdvg.cpp datapath.
+// Atari analog vector generator, Battlezone board (DP-156 sheet 3A, STATE2.MAC, VGMC.MAC).
 
 #ifndef SHARED_ATARI_AVG_H
 #define SHARED_ATARI_AVG_H
@@ -10,8 +10,7 @@
 
 namespace atari {
 
-// Beam coordinates in 1/65536 of a picture unit; the picture is kWidth x
-// kHeight units with y growing down, origin at the top left.
+// Picture coordinates, y down, origin at the top left of the tube.
 struct AvgSeg {
     float x0 = 0, y0 = 0, x1 = 0, y1 = 0;
     uint8_t z = 0;  // 1..15
@@ -19,8 +18,11 @@ struct AvgSeg {
 
 class Avg {
 public:
-    static constexpr int kWidth = 580;   // MAME bzone visarea
-    static constexpr int kHeight = 400;
+    // SCAL 1 VCTR 512,384 reaches the tube corner (BZSADG.MAC WTBL), so full
+    // size spans 512 x 384 vector units.
+    static constexpr int kWidth = 512;
+    static constexpr int kHeight = 384;
+    // L8 gates the state clock with VGCK, 3MHZ and 6MHZ: one state per 8 clocks of 12 MHz.
     static constexpr int kMasterPerState = 8;
 
     // Reads one byte of the CPU address space, as the AVG shares the bus.
@@ -35,50 +37,39 @@ public:
     void go();
     bool halted() const { return halt_; }
 
-    // Advance by CPU cycles (1 state per CPU cycle, beam time in master clocks).
+    // Advance by CPU cycles; beam time is counted in 12 MHz clocks.
     void run(int cpu_cycles, const MemRead& read);
 
-    int x() const { return xpos_; }
-    int y() const { return ypos_; }
-    uint8_t scale() const { return scale_; }
-    uint8_t bin_scale() const { return bin_scale_; }
-    uint8_t intensity() const { return intensity_; }
+    // Beam position in full-size vector units from the centre, y up.
+    int x() const;
+    int y() const;
+    uint8_t scale() const { return lin_; }
+    uint8_t bin_scale() const { return bin_; }
+    uint8_t intensity() const { return zstat_; }
+    uint16_t pc() const { return pc_; }
 
 private:
-    bool op0() const { return op_ & 1; }
-    bool op1() const { return op_ & 2; }
-    bool op2() const { return op_ & 4; }
-
     int step(const MemRead& read);
-    void latch1();
-    void strobe0();
-    void strobe1();
-    void strobe2();
     int strobe3();
-    void emit(int x0, int y0, int x1, int y1, uint8_t z);
-    void publish();
+    int beam(int dx, int dy, int timer_bits, bool center);
+    void draw(double x0, double y0, double x1, double y1, uint8_t z);
+    void emit(double x0, double y0, double x1, double y1, uint8_t z);
 
     bool halt_ = true;
     uint8_t state_ = 0;
     uint8_t op_ = 0;
-    uint8_t data_ = 0;
+    uint8_t hi1_ = 0, lo1_ = 0, hi2_ = 0, lo2_ = 0;
     uint16_t pc_ = 0;
+    bool odd_ = true;
     uint8_t sp_ = 0;
     std::array<uint16_t, 4> stack_{};
-    int dvx_ = 0, dvy_ = 0;
-    int dvy12_ = 0;
-    int timer_ = 0;
-    uint8_t int_latch_ = 0;
-    uint8_t scale_ = 0;
-    uint8_t bin_scale_ = 0;
-    uint8_t intensity_ = 0;
-    int xpos_ = 0, ypos_ = 0;
+    uint8_t zstat_ = 0;
+    uint8_t lin_ = 0;
+    uint8_t bin_ = 0;
+    double bx_ = 0, by_ = 0;
+    double lo_x_ = -1e9, lo_y_ = -1e9, hi_x_ = 1e9, hi_y_ = 1e9;
+    bool outside_ = false;
     int64_t budget_ = 0;
-
-    bool hst_ = true, lst_ = true;
-    int clip_x0_ = 0, clip_y0_ = 0, clip_x1_ = 0, clip_y1_ = 0;
-    bool clipping_ = false;
-    int win_x0_ = 0, win_y0_ = 0, win_x1_ = 0, win_y1_ = 0;
 
     std::vector<AvgSeg> building_;
 };

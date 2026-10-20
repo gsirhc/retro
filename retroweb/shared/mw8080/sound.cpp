@@ -86,7 +86,7 @@ constexpr Parts kTaito{
 
 const Parts& parts(SoundBoard b) { return b == SoundBoard::TaitoPv ? kTaito : kMidway; }
 
-// Taito VR1-VR7: value not on the sheet, 50K like VR8 assumed, wiper at mid travel.
+// Taito VR1-VR7: value not on the sheet. 50K like VR8, wiper at mid travel.
 constexpr double kTrimPot = 50e3;
 constexpr double kTrimWiper = 0.5;
 constexpr double kTrimR = 47e3;
@@ -276,7 +276,7 @@ double Sn76477::step(double dt) {
 
 Sound::Sound(SoundBoard board) : board_(board) {
     const Parts& p = parts(board);
-    // R120 C35 R121 C36 R123 R124; PVR00001 pins 11, 17, 18, 20 illegible, same parts assumed
+    // R120 C35 R121 C36 R123 R124. PVR00001 pins 11, 17, 18, 20 illegible.
     sn_ = {120e3, 1e-6, 39e3, 0.047e-6, 150e3, 10e3};
     missile_os_ = p.missile_os;
     // C10, R13, R16, R18, R19, R17

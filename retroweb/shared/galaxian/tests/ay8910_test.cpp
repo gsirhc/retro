@@ -111,11 +111,24 @@ TEST(Ay8910, OutputLevelIsZeroWhileTheMixerGatesTheChannel) {
     EXPECT_EQ(ay.output_level(0), 0);
 }
 
-TEST(Ay8910, MosfetOutputResistanceFallsWithLevel) {
-    EXPECT_GT(galaxian::Ay8910::output_resistance(0), 1e8);
-    EXPECT_NEAR(galaxian::Ay8910::output_resistance(15), 4268.0, 5.0);
-    for (int l = 1; l < 16; l++)
-        EXPECT_LT(galaxian::Ay8910::output_resistance(uint8_t(l)), galaxian::Ay8910::output_resistance(uint8_t(l - 1)));
+TEST(Ay8910, DacStepsFollowTheDatasheetCurve) {
+    // Tread heights read off the data sheet's D/A converter output figure, 1 V = 15.
+    const double fig[] = {0.702, 0.502, 0.352, 0.250, 0.174, 0.123, 0.087, 0.061, 0.042, 0.031, 0.020};
+    EXPECT_DOUBLE_EQ(galaxian::Ay8910::dac_volts(0), 0.0);
+    EXPECT_DOUBLE_EQ(galaxian::Ay8910::dac_volts(15), 1.0);
+    for (int i = 0; i < 11; i++)
+        EXPECT_NEAR(galaxian::Ay8910::dac_volts(uint8_t(14 - i)), fig[i], 0.01) << "level " << 14 - i;
+}
+
+TEST(Ay8910, OutputPortReadsBackItsRegister) {
+    galaxian::Ay8910 ay;
+    ay.reset();
+    ay.port_a_r = [] { return uint8_t(0x42); };
+    ay.write_addr(7);
+    ay.write_data(0x40);
+    ay.write_addr(14);
+    ay.write_data(0x99);
+    EXPECT_EQ(ay.read_data(), 0x99);
 }
 
 namespace {

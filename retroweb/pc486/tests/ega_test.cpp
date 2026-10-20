@@ -14,7 +14,7 @@ namespace {
 using pc486::Ega;
 
 // A freshly reset card has no planes enabled and a zero Bit Mask, so writes are no-ops
-// until a mode set. These helpers program standard IBM EGA/VGA values (as the Bochs vgabios does).
+// until a mode set. These helpers program standard IBM EGA/VGA values.
 
 // Mode 3 (80x25 text): odd/even on, Map Mask planes 0+1, 32K color-text window @ B8000.
 void SetupTextMode80x25(Ega &ega) {
@@ -594,7 +594,7 @@ TEST(EgaTest, SvgaWindowIsFlatLinearMemorySlidByTheBankRegister) {
     EXPECT_EQ(ega.mem_read(0xA0000), 0x77);
     EXPECT_EQ(ega.vram[0], 0x20);  // bank 0's byte is untouched
 
-    // Past the card's 1MB the write is rejected and the window stays put, as in Bochs vga.cc.
+    // Past the card's 1MB the write is rejected and the window stays put.
     uint16_t past_end_bank = uint16_t(ega.vram.size() / Ega::kVbeBankSize + 1);
     ega.out16(Ega::kVbeIndexPort, Ega::kVbeRegBank); ega.out16(Ega::kVbeDataPort, past_end_bank);
     EXPECT_EQ(ega.vbe_reg(Ega::kVbeRegBank), 2);
@@ -683,7 +683,7 @@ TEST(EgaTest, LeavingAnSvgaModeGivesThePlanarEngineBackItsMemory) {
 
 TEST(EgaTest, FourBppDispiModeKeepsThePlanarEngineAndSlidesItByTheBankRegister) {
     // Mode 104h (1024x768x4) needs 98,304 bytes/plane, past the 64KB aperture, so Bank slides
-    // plane_off as Bochs's ext_offset does (PC486_REVIEW.md §7.5.1, VGABIOS dispi_set_mode).
+    // plane_off (PC486_REVIEW.md §7.5.1, VGABIOS dispi_set_mode).
     Ega ega;
     ega.reset();
     SetupLinearGraphics(ega);

@@ -182,7 +182,7 @@ TEST(Machine, AudioRunsAtTheRequestedRate) {
     EXPECT_NEAR(double(m.audio.size()), 4410, 2);
 }
 
-TEST(Machine, OverlayTintsTheTopFifthRed) {
+TEST(Machine, OverlayTintsTheTopQuarterRed) {
     battlezone::Machine m;
     m.avg.frame.push_back({10, 10, 100, 10, 15});
     m.avg.frame.push_back({10, 300, 100, 300, 15});

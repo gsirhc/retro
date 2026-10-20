@@ -1,11 +1,14 @@
 #include "machine.h"
 
+#include <algorithm>
+#include <cmath>
+
 namespace missile {
 
 namespace {
 
 uint16_t bit3_addr(uint16_t pixaddr) {
-    // Third colour bit scatter, MAME missile.cpp get_bit3_addr (from schematics).
+    // 3rd-colour bits, last 32 lines, packed into $0200-$05FF (DP-147 memory map).
     return uint16_t(((pixaddr & 0x0800) >> 1) | ((~pixaddr & 0x0800) >> 2) |
                     ((pixaddr & 0x07F8) >> 2) | ((pixaddr & 0x1000) >> 12));
 }
@@ -15,6 +18,8 @@ uint16_t bit3_addr(uint16_t pixaddr) {
 Machine::Machine() : cpu(make_bus()) {
     set_default_prom();
     pokey.set_clock(kPokeyHz);
+    // AUD into R38 10K to +5 V and C70 0.1 uF, buffered by N10 (DP-147 sheet 2B).
+    pokey.set_output_rc(10e3, 0.1e-6, 5.0);
     reset();
 }
 
@@ -36,6 +41,7 @@ void Machine::reset() {
     line_ = 0;
     line_used_ = 0;
     audio.clear();
+    hp_ = 5.0;
     soft_reset();
 }
 
@@ -53,7 +59,7 @@ void Machine::soft_reset() {
 }
 
 void Machine::set_default_prom() {
-    // L6 write masks: keep every pixel but the addressed one (MAME vram_mad_r/w).
+    // Stand-in for 035826-01: a write keeps every pixel but the one addressed.
     prom.fill(0xFF);
     for (int i = 0; i < 8; i++) {
         prom[size_t(0x10 | i)] = uint8_t(~(0x11 << (i & 3)));
@@ -154,7 +160,13 @@ void Machine::bus_write(uint16_t addr, uint8_t v) {
 }
 
 void Machine::next_line() {
+    size_t from = audio.size();
     pokey.mix(kCyclesPerLine, audio_hz, audio);
+    double a = 1 - std::exp(-2 * M_PI * kAmpCouplingHz / audio_hz);
+    for (size_t i = from; i < audio.size(); i++) {
+        hp_ += (audio[i] - hp_) * a;
+        audio[i] = float(std::clamp((hp_ - audio[i]) / kAudioScale, -1.0, 1.0));
+    }
     if (++line_ >= kLines) {
         line_ = 0;
         frames++;
@@ -167,7 +179,7 @@ void Machine::next_line() {
 }
 
 void Machine::clock_irq() {
-    // F7 clocks 32V on 16V edges; /16V when flipped (MAME schedule_next_irq).
+    // F7 clocks 32V on 16V; FLIP selects /16V (DP-147 sheet 1B).
     int v = v_of(line_);
     if ((v & 0x1F) == (flipscreen ? 0x10 : 0x00)) irq_state_ = (v & 0x20) == 0;
 }

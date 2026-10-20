@@ -1,7 +1,5 @@
 #include "machine.h"
 
-#include <algorithm>
-
 namespace scramble {
 
 Machine::Machine() : main(make_main_bus()), sound(make_sound_bus()) {
@@ -28,7 +26,7 @@ z80::Bus Machine::make_sound_bus() {
     b.write = [this](uint16_t a, uint8_t v) { sound_write(a, v); };
     b.in = [this](uint16_t port) { return sound_in(uint8_t(port)); };
     b.out = [this](uint16_t port, uint8_t v) { sound_out(uint8_t(port), v); };
-    // The INT flip-flop clears on the acknowledge (MAME konami_sound_control_w HOLD_LINE).
+    // The INT flip-flop clears on the M1 + IORQ acknowledge (Stern 33A-105).
     b.irq_data = [this] {
         sound.set_int(false);
         return uint8_t(0xFF);
@@ -55,30 +53,11 @@ void Machine::wire_ppi() {
 }
 
 void Machine::pal6j_write(uint8_t v) {
-    // PAL 6J: nibble in/out, equations unpublished. Ops per MAME theend_protection_w.
-    protection_state_ = (protection_state_ << 4) | (v & 0x0F);
-    uint8_t num1 = uint8_t((protection_state_ >> 8) & 0x0F);
-    uint8_t num2 = uint8_t((protection_state_ >> 4) & 0x0F);
-    uint8_t op = uint8_t(protection_state_ & 0x0F);
-    switch (op) {
-        case 0x6:
-            protection_result ^= 0x80;
-            break;
-        case 0x9:
-            protection_result = uint8_t(std::min(int(num1) + 1, 0x0F) << 4);
-            break;
-        case 0xB:
-            protection_result = uint8_t(std::max(int(num2) - int(num1), 0) << 4);
-            break;
-        case 0xA:
-            protection_result = 0;
-            break;
-        case 0xF:
-            protection_result = uint8_t(std::max(int(num1) - int(num2), 0) << 4);
-            break;
-        default:
-            break;
-    }
+    // s1.2d $007E wants F09 -> $F0 and A49 -> $B0. $1D75 then writes 09
+    // until that $B0 is still what the port reads.
+    protection_state_ = ((protection_state_ << 4) | (v & 0x0F)) & 0x0FFF;
+    if (protection_state_ == 0xF09) protection_result = 0xF0;
+    else if (protection_state_ == 0xA49) protection_result = 0xB0;
 }
 
 uint8_t Machine::sound_in(uint8_t port) {

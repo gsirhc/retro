@@ -13,7 +13,8 @@ test("self-test ROM ends on a copyright / load-it-yourself help screen", async (
     let yellow = 0, white = 0, lit = 0;
     for (let i = 0; i < data.length; i += 4) {
       const r = data[i], g = data[i + 1], b = data[i + 2];
-      const river = r === 0 && g === 0 && b > 0 && b < 0x80;
+      // River blue is 163.
+      const river = r === 0 && g === 0 && b > 0 && b <= 178;
       if ((r | g | b) && !river) lit++;
       if (r > 180 && g > 180 && b < 40) yellow++;
       if (r > 180 && g > 180 && b > 180) white++;

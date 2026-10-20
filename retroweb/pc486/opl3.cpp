@@ -85,7 +85,7 @@ int effective_rate(uint8_t reg_rate, int ksn, bool ksr) {
 constexpr int32_t kEnvMax = 511;
 
 // eg_incstep[rate_lo][eg_timer_lo]: extra shift for rate_hi 12-15 on top of
-// rate_hi&3 ("OPLx decapsulated"; Nuked-OPL3 table cross-check only)
+// rate_hi&3 ("OPLx decapsulated").
 constexpr int kEgIncStep[4][4] = {
     {0, 0, 0, 0},
     {1, 0, 0, 0},
@@ -481,8 +481,7 @@ void Opl3::generate_frame(uint64_t cycle) {
     double am_units_this_frame = am_tri * ((dam ? 4.8 : 1.0) / 0.1875);
 
     // Vibrato steps through an 8-entry pattern once per 1024 frames
-    // (49715.9/(1024*8) = 6.07 Hz), not a continuous LFO (Niemitalo & Gambrell;
-    // Nuked-OPL3 vibtab cross-check only)
+    // (49715.9/(1024*8) = 6.07 Hz), not a continuous LFO (Niemitalo & Gambrell).
     if (++vib_frame_ >= 1024) { vib_frame_ = 0; vib_pos_ = (vib_pos_ + 1) & 7; }
 
     // Advances one operator's envelope and phase for this frame, given its key state
@@ -609,8 +608,8 @@ void Opl3::generate_frame(uint64_t cycle) {
         if (ch_[c].four_op_primary) {
             int s = c + 3;
             // The secondary's A0h/B0h are latched but not live in 4-op mode: the primary's
-            // fnum/block drive all four operators (Nuked-OPL3 OPL3_ChannelSync4Op;
-            // decap-corroborated, not in the datasheet). They go live when 104h unpairs.
+            // fnum/block drive all four operators (decap, not in the datasheet).
+            // They go live when 104h unpairs.
             uint16_t sfnum = fnum;
             uint8_t sblock = block;
             int op3 = op_index(bank, cib + 3, false);
@@ -691,7 +690,7 @@ void Opl3::generate_frame(uint64_t cycle) {
             int32_t car_out = compute_sample(car, ch_[6].fnum, ch_[6].block, off);
             op_[car].prev_out = op_[car].out; op_[car].out = int16_t(car_out);
             // Each rhythm voice feeds two of the channel's four output buses, so it sums
-            // at twice a melodic channel's amplitude (decap-corroborated via Nuked-OPL3,
+            // at twice a melodic channel's amplitude (decap,
             // not in a Yamaha document)
             mix_channel(6, 2 * (additive ? (mod_out + car_out) : car_out));
         }
@@ -744,12 +743,12 @@ void Opl3::generate_frame(uint64_t cycle) {
     samples_.push_back({cycle, clamp16(left * kMasterGain), clamp16(right * kMasterGain)});
 
     // Operators read this frame's eg_* clock (set by the previous call); step it
-    // now so the next frame sees it one tick on, as silicon does (OPL3_Generate4Ch)
+    // now so the next frame sees it one tick on, as silicon does.
     advance_envelope_clock();
 }
 
 // Chip-global envelope clock read by every envelope_shift() ("OPLx
-// decapsulated"; Nuked-OPL3 eg_timer cross-check only). eg_state_ alternates
+// decapsulated"). eg_state_ alternates
 // each frame; eg_add_/eg_timer_lo_ change on the true frames, from eg_timer_'s
 // trailing zero bits (a ruler sequence), with eg_timerrem_ gating the late carry.
 void Opl3::advance_envelope_clock() {

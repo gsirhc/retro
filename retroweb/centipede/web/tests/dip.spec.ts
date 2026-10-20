@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-// DSW1 ($0800): language 0-1, lives 2-3, bonus 4-5, difficulty 6. DSW2 ($0801): coinage 0-1. Factory is 0x54 / 0x02 (MAME centiped).
+// DSW1 ($0800): language 0-1, lives 2-3, bonus 4-5, difficulty 6. DSW2 ($0801): coinage 0-1. Factory is 0x54 / 0x02 (operator manual fig. 7 and 8).
 
 test.describe("DIP switches", () => {
   test.beforeEach(async ({ page }) => {

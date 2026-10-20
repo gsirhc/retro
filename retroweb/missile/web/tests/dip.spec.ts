@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 
 // R8 ($4008 ALLPOT): cities 0-1, bonus credit 2, trackball 3, bonus city 4-6, cabinet 7.
-// R10 ($4A00): coinage 0-1, right mult 2-3, center mult 4, language 5-6, unused 7. Factory is 0x73 / 0x81 (MAME missile).
+// R10 ($4A00): coinage 0-1, right mult 2-3, center mult 4, language 5-6, unused 7. Factory is 0x73 / 0x81 (TM-147, rev 3).
 
 test.describe("DIP switches", () => {
   test.beforeEach(async ({ page }) => {

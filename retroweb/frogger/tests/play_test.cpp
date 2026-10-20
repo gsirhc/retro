@@ -113,7 +113,7 @@ std::optional<frogger::RomSet> identify(const std::map<std::string, std::vector<
     const auto* prom = get("pr-91.6l");
     if (!p26 || !p27 || !p7 || !s608 || !s609 || !s610 || !g606 || !g607 || !prom)
         return std::nullopt;
-    // MAME frogger: 4K+4K+4K. Some sets ship an 8K last chip; pad a 4K one.
+    // Program chips are 4K. Some sets ship an 8K last chip; pad a 4K one.
     if (p26->size() < kProgChip || p27->size() < kProgChip || p7->size() < kProgChip)
         return std::nullopt;
     if (s608->size() < kSndChip || s609->size() < kSndChip || s610->size() < kSndChip)
@@ -283,7 +283,7 @@ TEST(Machine, UserRomPlayfieldUsesKonamiPalette) {
     EXPECT_LT(white, brown) << "log lanes should not be dominated by white";
 }
 
-// Skips in CI. Locally, put a MAME frogger zip in roms/user/, set FROGGER_ROM, or leave frogger.zip in ~/Downloads.
+// Skips in CI. Locally, put a frogger zip in roms/user/, set FROGGER_ROM, or leave frogger.zip in ~/Downloads.
 TEST(Machine, UserRomInsertsCoinStartsAndHops) {
     std::optional<frogger::RomSet> set;
     if (const char* env = std::getenv("FROGGER_ROM"); env && *env) {
@@ -294,9 +294,9 @@ TEST(Machine, UserRomInsertsCoinStartsAndHops) {
     } else {
         set = load_user_set();
         if (!set) {
-            GTEST_SKIP() << "no user ROM set — unzip a MAME frogger set into "
+            GTEST_SKIP() << "no user ROM set — unzip a frogger set into "
                             "roms/user/, set FROGGER_ROM, or leave frogger.zip in "
-                            "~/Downloads (CI skips this on purpose; see FROGGER_REVIEW.md §8)";
+                            "~/Downloads (CI skips this on purpose; see FROGGER_REVIEW.md)";
         }
     }
 

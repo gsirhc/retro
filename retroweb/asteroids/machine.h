@@ -1,16 +1,11 @@
-// Atari Asteroids (1979) board: MOS 6502 @ 1.5 MHz + DVG + discrete sound.
-//
-// Memory map and I/O: computerarcheology.com/Arcade/Asteroids/Hardware.html,
-// 6502disassembly.com/va-asteroids, Atari TM-143 / DP-143 schematics.
-// A15 is ignored, so vectors at $FFFA mirror into ROM at $7FFA.
-// Clocks from the 12.096 MHz master: CPU /8, 3 kHz = /4096, NMI every 12
-// 3 kHz edges (MAME asteroid.cpp).
+// Atari Asteroids (1979) board (DP-143 schematics and memory map, ASTDEC.XX).
 
 #ifndef ASTEROIDS_MACHINE_H
 #define ASTEROIDS_MACHINE_H
 
 #include "cpu_mos6502.h"
 #include "dvg.h"
+#include "sound.h"
 
 #include <array>
 #include <cstdint>
@@ -20,8 +15,9 @@ namespace asteroids {
 
 constexpr int kCpuHz = 1512000;              // 12.096 MHz / 8
 constexpr int kCyclesPer3kHz = 512;          // CPU cycles per 3 kHz edge
-constexpr int kCyclesPerNmi = kCyclesPer3kHz * 12;  // ≈ 246.1 Hz
-constexpr int kWatchdogCycles = kCyclesPer3kHz * 256;  // ≈ 87 ms
+constexpr int kCyclesPerNmi = kCyclesPer3kHz * 12;  // C5 LS161 divides 3 kHz by 12
+// D5 LS393 reaches 128 at the 3 kHz rate and sets RESET (DP-143 sheet 1B).
+constexpr int kWatchdogCycles = kCyclesPer3kHz * 128;
 constexpr int kFbW = 1024;
 constexpr int kFbH = 1024;
 
@@ -55,15 +51,7 @@ public:
     std::vector<float> audio;
     int audio_hz = 48000;
 
-    uint8_t explosion = 0;
-    uint8_t thump = 0;
-    bool saucer = false;
-    bool saucer_fire = false;
-    // LS259 Q2, SAUCERSEL. 1 = large saucer (ScrStatus 2, three RORs into D7).
-    bool saucer_sel = false;
-    bool thrust = false;
-    bool ship_fire = false;
-    bool bonus = false;
+    Sound sound;
 
     uint8_t lamps = 0;   // LMPSCNS at $3200 (lamps + RAMSEL + coin counters)
     bool ramsel = false; // OUT latch bit 2, swaps $0200/$0300 banks
@@ -92,27 +80,8 @@ private:
     uint64_t clk3k_phase_ = 0;
     std::array<uint8_t, 0x100> bank1_{};  // alternate $0200 page
 
-    uint32_t noise_lfsr_ = 1;
-    float thrust_phase_ = 0;
-    float fire_freq_ = 820.0f;
-    float fire_phase_ = 0;
-    float saucer_fire_freq_ = 830.0f;
-    float saucer_fire_phase_ = 0;
-    int saucer_fire_remain_ = 0;
-    float saucer_phase_ = 0;
-    float saucer_warble_ = 0;
-    float thump_phase_ = 0;
-    float thump_lp_ = 0;
-    float thrust_lp_ = 0;
-    float thrust_bp_ = 0;
-    float explode_hold_ = 0;
-    float explode_lp_ = 0;
-    int explode_pitch_div_ = 12;
-    int explode_vol_ = 0;
-    int explode_clk_ = 0;
-    int fire_remain_ = 0;
-    float bonus_phase_ = 0;
-    bool thump_en_ = false;
+    int audio_hz_set_ = 0;
+    int64_t audio_acc_ = 0;
 };
 
 }  // namespace asteroids

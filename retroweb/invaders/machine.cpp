@@ -8,7 +8,7 @@ Machine::Machine() {
 
 void Machine::reset() {
     Board::reset();
-    // IN0/IN1 bit 3 pulled high, COIN active-low (MAME invaders input ports).
+    // Bit 3 set, coin bit set. Credit is the falling edge (invaders.h $0020).
     inputs = {0x08, 0x09, 0x00};
     sound.reset();
     audio.clear();

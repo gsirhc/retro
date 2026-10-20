@@ -5,7 +5,7 @@ const IDB_NAME = "retroweb-lunarrescue";
 const TEST = new URLSearchParams(location.search).has("test");
 const DIP_KEY = "retroweb.lunarrescue.dips";
 const ROM_KEY = "set";
-// MAME hiscore.dat lrescue: three RAM blocks, and what they hold once init has run.
+// Name $20CF, length $20DB, BCD score $20F4. ROM image copied from $1AA3.
 const HISCORE_BLOCKS = [[0x20CF, 10], [0x20DB, 1], [0x20F4, 2]];
 const HISCORE_LEN = 13;
 const FACTORY = [0x1B, 0x1B, 0x1B, 0x1B, 0x1B, 0x1B, 0x1B, 0x1B, 0x1B, 0x1B, 0x0A, 0x00, 0x05];
@@ -170,7 +170,7 @@ LunarRescueArcade().then(async (Module) => {
 
   function hiscoreIsFactory(b) { return FACTORY.every((v, i) => b[i] === v); }
 
-  // Restore once init has written the factory table, as MAME's hiscore plugin waits for it.
+  // Restore once init has written the factory table.
   function postDone() {
     return machine.state().frames >= 30 && hiscoreIsFactory(readHiscore());
   }

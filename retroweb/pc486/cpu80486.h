@@ -536,8 +536,7 @@ private:
     }
     uint32_t seg_linear_slow(int si, uint32_t off, int size, bool write);
     // Misaligned CPL 3 access with CR0.AM and EFLAGS.AC raises #AC(0), after
-    // the limit check and before paging (Intel 80486 PRM, "Alignment Check";
-    // Bochs order).
+    // the limit check and before paging (Intel 80486 PRM, "Alignment Check").
     void ac_check(uint32_t lin, int size) {
         if ((cr_[0] & CR0_AM) && (lin & uint32_t(size - 1)) && (eflags & FLAG_AC) &&
             cpl() == 3 && !ac_skip_)

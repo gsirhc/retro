@@ -5,14 +5,14 @@
 namespace lunarrescue {
 
 Machine::Machine() {
-    // port 6 goes nowhere on lrescue (MAME lrescue_io_map)
+    // port 6 is unused
     watchdog_enabled = false;
     Machine::reset();
 }
 
 void Machine::reset() {
     Board::reset();
-    // IN0 tied high, IN1 COIN active-low with bits 3 and 7 high (MAME sicv_base)
+    // IN0 tied high, IN1 COIN active-low with bits 3 and 7 high.
     inputs = {0xFF, 0x89, 0x00};
     sound.reset();
     audio.clear();
@@ -29,7 +29,7 @@ void Machine::load_roms(const RomSet& set) {
 void Machine::sound_out(uint8_t port, uint8_t v) {
     if (port == 3) {
         sound.port3_w(v);
-        // SX2 also forces every foreground pixel red (MAME m_screen_red)
+        // SX2 also forces every foreground pixel red.
         beam_tag = (v >> 2) & 1;
     } else {
         sound.port5_w(v);
@@ -47,11 +47,12 @@ void Machine::elapsed(int t) {
     }
 }
 
-// PROM address (V >> 3) * 32 + byte column, V = line + 0x20 (MAME screen_update_invadpt2).
 uint8_t Machine::pen(int ux, int uy) const {
     if (!lit(ux, uy)) return 0;
     if (tag(ux)) return 1;
-    return prom[size_t(((ux >> 3) + 4) * 32 + column(uy))] & 7;
+    // Row is vcounter >> 3. Line 0 is V $20, so the first band is PROM row 4.
+    const int row = vcounter(ux) >> 3;
+    return prom[size_t(row * 32 + column(uy))] & 7;
 }
 
 void Machine::render(uint32_t* upright) const {

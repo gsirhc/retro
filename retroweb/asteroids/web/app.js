@@ -6,8 +6,8 @@ const ROM_KEY = "set";
 const TEST = new URLSearchParams(location.search).has("test");
 const DIP_KEY = "retroweb.asteroids.dips";
 const DSW1_FACTORY = 0x12; // 1C/1C, x1 center, 3 lives (bit4), English
-// $2802 pair: 0=1x&4 lives, 1=1x&3, 2=2x&4, 3=2x&3 (computerarcheology).
-// Work RAM range holding the high-score table, through the initials at $51.
+// $2802 pair: 0=1x&4 lives, 1=1x&3, 2=2x&4, 3=2x&3 (A35131.1A INIT, A35131.1E).
+// HSCORE through INITL (A35131.1A page 0); rev 4 puts SCORE at $52, so the table starts at $1D.
 const HISCORE_ADDR = 0x1d;
 const HISCORE_LEN = 0x35;
 
@@ -17,8 +17,8 @@ function concat3(parts) {
   return out;
 }
 
-// Board locations as named in MAME. 034602 is the bonus-coin PROM, which
-// this core doesn't implement, so dumps that include it are ignored.
+// Board locations as printed on the PCB. 034602 is the C8 vector state PROM
+// (DP-143 sheet 2A); the DVG here runs at instruction level, so dumps that include it are ignored.
 const SIZE = { program: 0x1800, chip: 0x0800, vector: 0x0800 };
 const CHIP_RE = /(?:^|[._-])(035145|ef2|035144|h2|035143|j2|035127|np3)(?:[^a-z0-9]|$)/i;
 const IGNORE_RE = /(?:^|[._-])(034602)(?:[^a-z0-9]|$)/i;

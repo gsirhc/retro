@@ -787,7 +787,7 @@ TEST_F(Opl3Test, FullScaleModulationMatchesAnEightPiModulationIndex) {
 // --- four-operator mode ------------------------------------------------------
 
 // In 4-op mode the secondary channel's A0h/B0h are latched but not live; the primary's fnum/block
-// drive all four operators (opl3.cpp generate_frame, Nuked-OPL3 OPL3_ChannelSync4Op). Isolate ops 3/4
+// drive all four operators (opl3.cpp generate_frame). Isolate ops 3/4
 // by diffing against an identical 2-op channel.
 TEST_F(Opl3Test, FourOpSecondaryOperatorsRunFromThePrimarysFnumAndBlock) {
     Opl3 four_op;
@@ -991,7 +991,7 @@ TEST_F(Opl3Test, NoteSelectPicksFnumBitNineWhenClearAndBitEightWhenSet) {
 // --- rhythm output doubling ---------------------------------------------------
 
 // Each rhythm voice is wired to two of four output buses, so it sums at twice a melodic channel
-// (decap-corroborated: Nuked-OPL3 ties out[0]/out[1] and out[2]/out[3] to one slot).
+// (decap: out[0]/out[1] and out[2]/out[3] share one slot).
 // The bass drum is an ordinary 2-op channel, so it compares cleanly against a melodic voice.
 TEST_F(Opl3Test, RhythmVoiceSumsAtTwiceAMelodicChannelsAmplitude) {
     auto peak_of = [](bool rhythm) -> int32_t {

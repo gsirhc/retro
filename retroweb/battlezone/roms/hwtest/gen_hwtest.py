@@ -60,13 +60,12 @@ MB_ROW = 3
 MB_OK = "MATH BOX OK"
 MB_FAIL = "MATH BOX FAIL"
 
-# Text drawn at SCAL linear 64, so one unit is 191/256 of a picture unit.
+# SCAL linear 64 draws text at 192/256 of full size (VGMC.MAC).
 TEXT_SCALE = 64
-UNIT = (255 - TEXT_SCALE) / 256
 CELL = 20
 GLYPH = 2  # font grid step
-ROW_GAP = 28
-TOP_BASELINE = 221  # units above centre; rows 0-1 sit under the red overlay
+ROW_GAP = 26
+TOP_BASELINE = 165  # units above centre; rows 0-1 sit under the red overlay
 
 FONT_UP = 0xFE
 FONT_LAST = 0xFF
@@ -111,7 +110,7 @@ FONT: dict[str, tuple[int, ...]] = {
 
 HALT = 0x2000
 RTSL = 0xC000
-CNTR = 0x8040  # normalizer leaves the beam 64 CPU cycles to settle
+CNTR = 0x8040
 
 
 def vctr(dx: int, dy: int, z: int) -> list[int]:
@@ -166,23 +165,28 @@ def text_line(text: str, row: int, intensity: int, glyphs: dict[str, int]) -> li
     return words
 
 
+def open_window() -> list[int]:
+    w = [CNTR] + scal(0, 0) + vctr(-255, -191, 0) + stat_clip(False, 0)
+    return w + [CNTR] + vctr(255, 191, 0) + stat_clip(True, 0)
+
+
 def diag_list() -> list[int]:
-    w: list[int] = [CNTR] + scal(0, 0) + stat(12)
-    w += vctr(-280, -190, 0)
-    w += vctr(560, 0, 1) + vctr(0, 380, 1) + vctr(-560, 0, 1) + vctr(0, -380, 1)
-    w += [CNTR] + vctr(-280, 0, 0) + vctr(560, 0, 1)
-    w += [CNTR] + vctr(0, -190, 0) + vctr(0, 380, 1)
+    w: list[int] = open_window() + [CNTR] + stat(12)
+    w += vctr(-250, -185, 0)
+    w += vctr(500, 0, 1) + vctr(0, 370, 1) + vctr(-500, 0, 1) + vctr(0, -370, 1)
+    w += [CNTR] + vctr(-250, 0, 0) + vctr(500, 0, 1)
+    w += [CNTR] + vctr(0, -185, 0) + vctr(0, 370, 1)
     w += [CNTR]
     for size, z in ((200, 7), (130, 5), (60, 3)):
         w += [CNTR] + vctr(-size // 2, -size // 2, 0)
         w += vctr(size, 0, z) + vctr(0, size, z) + vctr(-size, 0, z) + vctr(0, -size, z)
-    w += [CNTR] + vctr(-250, -160, 0)
+    w += [CNTR] + vctr(-240, -160, 0)
     for z in range(1, 8):
         w += vctr(0, 50, z) + vctr(14, 0, 0) + vctr(0, -50, 0) + vctr(14, 0, 0)
-    # Clip window from (140,40) to (260,160); the diagonal only lights inside it.
-    w += [CNTR] + vctr(260, 160, 0) + stat_clip(True, 15)
-    w += [CNTR] + vctr(140, 40, 0) + stat_clip(False, 15)
-    w += [CNTR] + vctr(100, 0, 0) + vctr(180, 200, 7)
+    # Clip window from (120,40) to (240,160); the diagonal only lights inside it.
+    w += [CNTR] + vctr(240, 160, 0) + stat_clip(True, 15)
+    w += [CNTR] + vctr(120, 40, 0) + stat_clip(False, 15)
+    w += [CNTR] + vctr(100, 20, 0) + vctr(150, 160, 7)
     w.append(HALT)
     return w
 
@@ -200,7 +204,7 @@ def build_vector_rom() -> tuple[bytes, dict[str, int]]:
     for ch in chars:
         place("glyph_" + ch, glyph_words(ch))
         glyphs[ch] = labels["glyph_" + ch]
-    help_words: list[int] = []
+    help_words: list[int] = open_window()
     for row, text, bri in HELP_LINES:
         help_words += text_line(text, row, bri, glyphs)
     place("help", help_words + [RTSL])

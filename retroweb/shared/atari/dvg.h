@@ -1,8 +1,5 @@
-// Atari Digital Vector Generator (Asteroids / Lunar Lander).
-// Opcodes and geometry: computerarcheology.com/Arcade/Asteroids/DVG.html and
-// the Atari Asteroids schematics (jmargolin notes).
-// SVEC: Ss = ((op&0x800)>>11)|((op&8)>>2) remaps to VEC local scale 2..5, with
-// the 2-bit deltas in bits 9:8 (Asteroids HDL; VectorROM LABS0+SVEC ss2 x=3 -> dx 24).
+// Atari digital vector generator, Asteroids (DP-143 sheet 2A, VECMAC.XX).
+// SVEC bits 11 and 3 step 2, 4, 8 or 16 units: VEC opcode 2..5 with deltas in bits 9:8.
 // Vector memory is little-endian 16-bit words, at $4000-$5FFF on the 6502 side.
 
 #ifndef SHARED_ATARI_DVG_H
@@ -22,7 +19,7 @@ struct VectorSeg {
 
 class Dvg {
 public:
-    static constexpr int kStackDepth = 4;
+    static constexpr int kStackDepth = 4;  // F4, H4, J4: 4 words of 12 bits
     static constexpr int kMaxOps = 100000;
 
     using MemRead = std::function<uint16_t(uint16_t word_addr)>;

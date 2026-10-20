@@ -6,12 +6,12 @@ const ROM_KEY = "set";
 const TEST = new URLSearchParams(location.search).has("test");
 const DIP_KEY = "retroweb.battlezone.dips";
 const DSW0_FACTORY = 0x15; // 3 tanks, missile at 10000, bonus 15k and 100k, English
-const DSW1_FACTORY = 0x03; // 2 coins / 1 play, both mechs x1, no bonus coins
+const DSW1_FACTORY = 0x63; // 2 coins / 1 play, mechs x1, 6 credits / 4 coins (manual fig. 8)
 // HSCTBL $0300 (10 x 3 bytes) then INITLS $031E (BZONE.MAP).
 const HISCORE_ADDR = 0x300;
 const HISCORE_LEN = 0x3c;
 
-// Battlezone and the 036414-01 revision share every other chip (MAME bzone, bzonea).
+// Both 036414 revisions share every other chip (sets bzone and bzonea).
 // 036408 is the AVG state PROM; avg.cpp carries its sequence, so it isn't needed.
 const PROGRAM_PARTS = ["036414", "036413", "036412", "036411", "036410", "036409"];
 const VECTOR_PARTS = ["036422", "036421"];
@@ -105,7 +105,7 @@ BattlezoneArcade().then(async (Module) => {
     return { w, h, dpr };
   }
 
-  // The cabinet's overlay film: red across the top fifth, green below.
+  // The cabinet's overlay film: red across the top quarter, green below.
   function tint(red, bri, glow) {
     const hi = glow ? 150 + bri * 7 : 190 + bri * 4;
     const lo = glow ? 20 : 40 + bri * 3;

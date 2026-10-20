@@ -462,10 +462,10 @@ Items P1-P5, B1-B3 and X5 from `shared/cpu/Z80_ARCADE_PARITY.md`.
 - **Sprite clip (P2).** Sprites draw only in native x 16-271, never over
   the two score columns (Lomont: no sprite on the top or bottom two rows).
   `Video.SpritesClipToTheMazeColumns`.
-- **Slots 0-2 one line later (P3).** Sprites 0-2 draw one line below
-  the others. Unsourced: no primary source found (searched the Namco
-  Pac-Man wiki Video page, Lomont). Behaviour kept.
-  `Video.SlotsZeroToTwoSitOneLineLater`.
+- **Sprite Y (P3).** Every slot uses the Y register minus 31. The
+  program copies slots 1-6 from `$4C32` to `$5062` with one `LDIR` at
+  `$0181`, and logic sheet A082-91375-A000 does not show a per-slot
+  delay. `Video.SlotsWithTheSameYLandOnTheSameLine`.
 - **Wraparound (P4).** Each sprite also draws at `sx - 256`.
   `Video.SpritesWrapAt256`.
 - **Watchdog 16 (P5).** 74LS161 at 9C counts vblanks, carry resets (Lomont, Watchdog Timer).

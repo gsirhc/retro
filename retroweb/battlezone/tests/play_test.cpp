@@ -69,7 +69,7 @@ bool extract_zip(const fs::path& zip, const fs::path& dest) {
     return std::system(cmd.c_str()) == 0;
 }
 
-// MAME bzone / bzonea: six program chips, two vector chips, Math Box PROMs.
+// bzone / bzonea standard dump names: six program chips, two vector chips, Math Box PROMs.
 // The 036408 AVG state PROM is not needed; avg.cpp carries its sequence.
 std::optional<battlezone::RomSet> identify(const std::map<std::string, std::vector<uint8_t>>& files) {
     battlezone::RomSet s;

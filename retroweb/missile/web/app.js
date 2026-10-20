@@ -5,8 +5,8 @@ const IDB_NAME = "retroweb-missile";
 const ROM_KEY = "set";
 const TEST = new URLSearchParams(location.search).has("test");
 const DIP_KEY = "retroweb.missile.dips";
-const R8_FACTORY = 0x73; // 6 cities, 10000 bonus, mini trackball (MAME missile)
-const R10_FACTORY = 0x81; // 2 coins 1 play, English
+const R8_FACTORY = 0x73; // 6 cities, 10000 bonus, mini trak-ball (TM-147, rev 3)
+const R10_FACTORY = 0x81; // 2 coins 1 play, English (TM-147 fig. 7)
 const HISCORE_ADDR = 0x2c;
 const HISCORE_LEN = 48; // 24 initials, 24 BCD
 const HISCORE_INITIALS = 0x24f3; // program offsets of the factory table
@@ -21,7 +21,7 @@ function concat(parts, size) {
   return out;
 }
 
-// Board locations as named in MAME. 035826-01 is the optional L6 PROM.
+// 035820-02 through 035825-02 at H1, JK1, KL1, LM1, NP1, R1. 035826-01 is the optional L6 PROM.
 const SIZE = { program: 0x3000, chip: 0x0800, prom: 0x20 };
 const CHIPS = ["h1", "jk1", "kl1", "lm1", "np1", "r1"];
 const NUM_RE = /(?:^|[._-])0358(2[0-6])(?:[^a-z0-9]|$)/i;
@@ -126,8 +126,8 @@ MissileArcade().then(async (Module) => {
   // Mouse deltas accumulated between frames (pointer-lock or drag on #screen).
   let mouseDx = 0, mouseDy = 0;
 
-  // Two 4-bit counters, read as VVVVHHHH. Y is wired reversed (MAME
-  // TRACK0_Y PORT_REVERSE), so rolling down counts down.
+  // Two 4-bit counters, read as VVVVHHHH. Upward roll counts the vertical
+  // nibble up (rev 3 IRQ at $7BE6).
   function nudgeTrack(dx, dy) {
     track.x = (track.x + dx) & 0x0f;
     track.y = (track.y + dy) & 0x0f;

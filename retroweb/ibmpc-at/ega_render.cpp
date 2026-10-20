@@ -57,7 +57,7 @@ int PelPan(const Ega &ega, int dots_per_char) {
 }
 
 // Color Plane Enable plus graphics blink (AR10 bit 3). IBM leaves the rule
-// undefined; this is 86Box's (vid_svga_render.c).
+// undefined.
 uint8_t GraphicsAttr(const Ega &ega, uint8_t pixel) {
     const uint8_t pm = ega.attr_plane_enable();
     if (!ega.attr_blink_enabled()) return uint8_t(pixel & pm);
@@ -119,7 +119,7 @@ void RenderTextScreen(const Ega &ega, std::vector<uint8_t> &rgba, int &width, in
                 const uint8_t attr = ega.vram[(cell << 2) + 1];
                 const uint32_t map = (attr & 0x08) ? map_a : map_b;
                 bits = ega.vram[((map + uint32_t(ch) * 32 + uint32_t(pos.row_scan)) << 2) + 2];
-                // Monochrome attributes underline foreground 1 on the Underline Location row (86Box vid_ega_render.c).
+                // Monochrome attributes underline foreground 1 on the Underline Location row.
                 if (mono && (attr & 0x07) == 0x01 && pos.row_scan == underline_row) bits = 0xFF;
                 uint8_t bg_idx = blink_enabled ? uint8_t((attr >> 4) & 0x07) : uint8_t(attr >> 4);
                 hidden = blink_enabled && (attr & 0x80) && !chars_on;
@@ -152,7 +152,7 @@ void RenderCgaGraphics4Screen(const Ega &ega, std::vector<uint8_t> &rgba) {
         const uint32_t row_base = pos.base + uint32_t(pos.row) * stride;
         for (int x = 0; x < W; ++x) {
             const int sx = x + pan;
-            // One character clock is 8 pels: 4 from plane 0 then 4 from plane 1, planes 2/3 the high bits (86Box vid_ega_render.c).
+            // One character clock is 8 pels: 4 from plane 0 then 4 from plane 1, planes 2/3 the high bits.
             const uint32_t ma = (row_base + uint32_t(sx >> 3)) & 0xFFFF;
             const uint8_t* p = &ega.vram[ega.display_address(ma, pos.row_scan) << 2];
             const int half = (sx >> 2) & 1, shift = 6 - 2 * (sx & 3);

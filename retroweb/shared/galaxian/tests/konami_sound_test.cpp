@@ -63,3 +63,20 @@ TEST(KonamiSound, MuteSilencesTheOutput) {
     k.advance(1789772 / 20, 48000, out);
     for (float s : out) EXPECT_EQ(s, 0.0f);
 }
+
+TEST(KonamiSound, SummerGainIsFeedbackOverTheChannelResistors) {
+    galaxian::Ay8910 ay;
+    ay.reset();
+    ay.regs[7] = 0x3F;
+    ay.regs[8] = 0x0F;
+    galaxian::KonamiSound k;
+    k.reset();
+    k.ay = {&ay, nullptr};
+    std::vector<float> out;
+    k.advance(64, 0, out);
+    // 1 V through 1k + 5.1k into the virtual ground, times the feedback.
+    EXPECT_NEAR(k.opamp_volts(), -2200.0 / 6100.0, 1e-6);
+    k.feedback_ohms = 5600.0;
+    k.advance(64, 0, out);
+    EXPECT_NEAR(k.opamp_volts(), -5600.0 / 6100.0, 1e-6);
+}
