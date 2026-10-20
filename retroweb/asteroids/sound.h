@@ -36,7 +36,7 @@ public:
 
 private:
     struct Fire {
-        double rq, cq, r_out;  // R54 C38 R58 / R52 C47 R66
+        double rq = 0, cq = 0, r_out = 0;  // R54 C38 R58 / R52 C47 R66
         double ctrl = 5.0;  // C38 / C47
         double cap = 0;     // C35 / C50
         bool out = false;
