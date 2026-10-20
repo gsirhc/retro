@@ -146,21 +146,55 @@ treating a color as exact.
 ## 5. 51XX and 54XX
 
 51XX is a Fujitsu MB8843, 54XX an MB8844. Both: 10-bit PC (1K ROM), 6-bit
-data (64 nibbles). The core is `retroweb/galaga/mb88.cpp`. From the
-Fujitsu datasheet: 70 instructions on the MB8843 (69 on the MB8844), one
-cycle for one-byte instructions and two for EN, DIS, CALL, JPL and JPA,
-an instruction cycle of 6 clocks, four subroutine levels, 1K×8 ROM,
-64×4 RAM, external interrupt before timer before serial, and an internal
-shift clock of 1/6 of the clock generator. The opcode map in `mb88.cpp`
-matches Table 6. External interrupt entry is `$02`. Both mask ROMs
-start a K-port dispatch there (`51xx.bin` at `$002`: exchange A, read K,
-disable the external interrupt, jump on A; `54xx.bin` at `$002`:
-exchange A, read K, jump on A), and nothing in either ROM branches to
-it. Timer `$04` and serial `$06` are not in the datasheet. Neither ROM
-enables those two interrupts. Also unsourced: the ST flag rules, the
-timer prescale of 32, three extra cycles to take an interrupt, and the
-ST value after reset. Stack is 4×16-bit. `st` resets to 1 so a conditional
-jump is taken after reset.
+data (64 nibbles). The core, `retroweb/galaga/mb88.cpp`, is written from
+the Fujitsu MB8840/MB8840H series datasheet (Jan 1987); the MB8850 series
+datasheet (TM335-A871) carries the same tables and gives the clean EN/DIS
+bit chart. From the datasheet: the opcode map (Table 6); every
+instruction's operation and its ZF, CF and ST columns (Table 5); one
+cycle for one-byte instructions and two for EN, DIS, CALL, JPL and JPA;
+four subroutine levels; 1K×8 ROM and 64×4 RAM; EN/DIS bits (b0 serial
+IRQ, b1 timer IRQ, b2 external IRQ, b3 TO, b4 external shift clock, b5
+internal shift clock, b6 TC counter, b7 internal timer); external before
+timer before serial; the external request latching on the falling IRQ
+edge only while enabled; IF following the pin for TSTI; TC counting on
+its falling edge; the internal shift clock at 1/6 of the clock generator
+(one shift per instruction cycle); output ports high during reset
+(Table 2, MB8840 series fixed high). In Table 5, `↓C` and `↓Z` are read
+as ST = 0 on carry or on a zero result and 1 otherwise. The MB8840
+table's `·Z` in the RSTC/SETC ST column is a misprint; the MB8850 table
+has `·`.
+
+Decided from the real mask ROMs (my own disassembly of `51xx.bin` and
+`54xx.bin`), not stated by the datasheet:
+
+- External interrupt vector `$02`. Both ROMs start a K-port dispatch
+  there and nothing branches to it.
+- The PC carries out of a 64-byte page into the next (`54xx.bin` runs
+  straight through `$03F`→`$040`), and a JMP on a page's last byte lands
+  in the next page (`54xx.bin` `$0BF` must reach `$0C9`).
+- Subtraction carry is a borrow. `51xx.bin` `$1DA` does `RSTC; SBC; DAS;
+  STIC; LI 0; SBC`, which only works if SBC sets CF on borrow.
+- DCM and DCY clear ST on borrow (the old value was 0). The 54XX's
+  multi-nibble countdowns at `$046` and `$128` exit on no borrow. The
+  adder reading (ST clear whenever the old value was non-zero) silences
+  `Machine.UserRom54xxPlaysThroughItsDacs`.
+
+Unsourced, kept because the real ROMs need them or don't exercise them:
+
+- ST after reset is 1. `51xx.bin` opens with JPL at `$000`; with ST 0
+  `Machine.UserRomInsertsCoinWhenLocalDumpPresent` fails.
+- An instruction whose ST column is `·` sets ST to 1, untaken JMP, JPL
+  and CALL included. Reading `·` literally (ST kept) fails both Play
+  tests.
+- Timer `$04` and serial `$06` vectors. Neither ROM enables those
+  interrupts.
+- Timer prescale of 32 instruction cycles. Neither ROM runs the internal
+  timer (the 51XX enables the TC counter, PIO `$64`).
+- Three cycles to take an interrupt, during which no instruction runs.
+- RTI restores CF, ZF and ST saved at entry; RTS doesn't. Both ROMs'
+  handlers restore A, X and Y by hand and not the flags.
+- The timer is TH:TL, 8 bits, and VF sets on its wrap. The stack wraps
+  after four levels.
 
 CRC values `c2f57ef8` (51xx) and `ee7357e0` (54xx) are a cross-check only,
 not a whitelist. CI has no dumps. The self-test and Playwright cover the
@@ -312,9 +346,10 @@ Items GA1-GA5, B1-B3 and X4 from `shared/cpu/Z80_ARCADE_PARITY.md`.
   starfield phase differs.
 - **The 54XX isn't readable.** The bus reads `$FF` for it (Unsourced).
   We echoed its command latch. `Io.Reading54xxGivesTheOpenBus`.
-- **MB88 ISA suite.** `mb88_test.cpp` checks every opcode, the timer, and
-  interrupt entry and return. The opcode map and cycle counts follow the
-  datasheet's Tables 5 and 6; flag results beyond those are Unsourced.
+- **MB88 ISA suite.** `mb88_test.cpp` checks every opcode, the timer, the
+  serial shift, and interrupt entry and return against §5: datasheet
+  values where Table 5 or 6 gives them, the ROM-derived and Unsourced
+  choices listed there otherwise.
 - Also tested now: the real 54XX's K/R0 command and O/R1 DACs, the HLE
   54XX argument counts and volume, the HLE 51XX credit-mode reply, sprite
   RAM banks 2 and 3, IRQ2 masking, and the `$6823` reset line.

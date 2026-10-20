@@ -114,10 +114,10 @@ TEST(Io, ReadModeClockIrqs51xx) {
     m.mem_write(0x6823, 0x01);
     m.run_cycles(500);
     m.mem_write(0x7100, 0x71);
-    EXPECT_EQ(m.mem_read(0x7000), 0x00);
+    EXPECT_EQ(m.mem_read(0x7000), 0xFF);
     // First falling edge is a read stretch: /IO only, no host NMI.
     m.run_cycles((64 << 3) + 80);
-    EXPECT_EQ(m.mem_read(0x7000), 0x05);
+    EXPECT_EQ(m.mem_read(0x7000), 0xF5);
     EXPECT_FALSE(m.watchdog_reset);
 }
 
