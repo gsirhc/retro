@@ -46,6 +46,12 @@ struct RomSet {
     bool has54 = false;
 };
 
+// Two-state RC network stepped by the trapezoidal rule: x' = A x + B u.
+struct Linear2 {
+    double m[2][2]{}, n[2]{};
+    void step(double* x, double u_prev, double u) const;
+};
+
 class Machine {
 public:
     Inputs inputs;
@@ -126,18 +132,24 @@ private:
     int mcu54_wait_ = 0;
     int mcu54_args_ = 0;
     uint8_t mcu54_cmd_ = 0;
-    // 54XX DAC network. Midway M051-00808-C000.
-    struct Bandpass54 {
-        double x1 = 0, x2 = 0, y1 = 0, y2 = 0;
+    struct Section {
+        double x[2]{};
+        double u = 0;
     };
     uint8_t dac54_[3]{};
-    Bandpass54 bp54_[3];
-    double amp54_cap_ = 0;
-    bool bp54_rest_ = false;
-    double disc_sum_ = 0;
-    int disc_n_ = 0;
-    int disc_clock_ = 0;
+    Section mfb_[2];
+    Section amp_in_;
+    Linear2 amp_disc_;
+    int amp_hz_ = 0;
+    double wsg_lp_ = 0;
+    double wsg_in_ = 0;
+    bool net_settled_ = false;
+    double net_sum_ = 0;
+    int net_n_ = 0;
+    int net_clock_ = 0;
+    void settle_sound_network();
     void step_54xx_network();
+    float sound_output(float wsg);
     int noise_left_ = 0;
     int noise_amp_ = 0;
     int noise_vol_ = 15;

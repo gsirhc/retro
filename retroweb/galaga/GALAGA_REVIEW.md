@@ -9,6 +9,12 @@ Citation trail for the Midway Galaga (1981) emulator. Primary sources:
 - Midway Galaga schematic (arcade-museum.com `galaga3.pdf`), CPU board
   and video board sheets: crystal, watchdog counter, DIP multiplexers,
   07XX divider.
+- Midway *Galaga Parts and Operating Manual* schematic pages 7-7 to 7-9
+  (arcade-museum.com `Galaga.pdf`, PDF pp. 71-76): video PCB
+  A084-91405-B508 (sprite pipeline, colour PROM network, 05XX pinout) and
+  CPU PCB A084-91404-C508 with its designation list (sound section).
+- National/TI LM324 datasheet (output swing); Fujitsu MB3730A, 1988
+  Linear Products Data Book (input resistance).
 - coinop.org GalagaMap, a 1996 memory map write-up
   (https://www.coinop.org/kdl/GameTech/GalagaMap.html).
 - Fujitsu MB8840/MB8840H series datasheet, January 1987.
@@ -131,17 +137,56 @@ visible origin. Y counts down from its register. A 2× sprite is the next
 three codes. A sprite pen is clear when its LUT entry is 0x0F, and later sprites
 overwrite earlier ones (both Unsourced). See §8 for the raster renderer and flip.
 
+Sprite fetch, from the video PCB sheet (page 7-7):
+
+- Y match: 3D/3C (74LS283) add the sprite's Y byte to V. 2B (LS20) with
+  1F (LS32) flags the line when sum bits 7-5 are set and bit 4 is set or
+  VSIZE is on, so 16 lines (32 with VSIZE). Sum bits 4-0 XOR the flip
+  line (4B/4C LS86) give the row: 16V*, 8V*..1V*.
+- Code: 2E latches the code. 1B (LS153) passes code bit 1, or 16V* when
+  VSIZE (2C 1Q on select B); and code bit 0, or the horizontal half when
+  HSIZE (2C 2Q on select A). The low code bits are replaced, not added.
+- Sprite ROMs 4D (GG-L, `2800l`) and 4F (GG-K, `2700k`): A0-A2 = 1V*-4V*
+  from 2C, A3/A4 = 4H/8H XOR HFLIP (3B), A5 = 8V*, A6/A7 = the 1B
+  outputs, A8-A11 = code bits 2-5. Code bit 6 picks the chip through the
+  3N inverter (low selects 4D).
+- 3B XORs the sprite's flip bits with FLIP. The 2114 at 3H carries VSIZE,
+  HSIZE, HP9, HP8 on D3-D0.
+- X: 5E/5D/5C and 5J/5H/5F (LS161) load X and HP8/HP9 and count the
+  line-buffer address at 6 MHz. 5C's QB (HP9's bit) is the off-buffer
+  line, QC/QD are unused, so the address wraps at 1024.
+- Unsourced, single values kept: V at the first visible line less the
+  one-line buffer delay (15, which is `kSpriteVBias`), the buffer address
+  shown at visible x = 0 (40), and the polarity of the off-buffer bit.
+  The 07XX count and the read-side preset are inside customs.
+- Pixel order within a ROM byte is the same nibble packing as the tiles
+  (Lomont). The 02XX shifter is a custom, so this is Unsourced for
+  sprites; the real ROM's pictures come out whole with it.
+
+Colour network (J2 on page 7-7): 5N (MB7051) D0-D2 drive red through 1K,
+470, 220, D3-D5 green through 1K, 470, 220, D6-D7 blue
+through 470, 220. Every leg is driven high or low, so a leg's level is
+its conductance over the channel's total: 33/71/151 and 81/174 of 255.
+The monitor input is taken as high impedance (Unsourced). The 05XX drives
+pins 11/10 (red 470/220), 9/8 (green), 7/6 (blue) onto the same nets and
+its pin 20 deselects 5N, so a star sees only the 470/220 legs: 81/174 on
+every channel. Shared nets with no isolation mean 5N must be three-state.
+
 Stars are the Namco 05XX: a 16-bit Fibonacci LFSR (taps 16/13/11/6)
 that paints a hit into the centre 256 pixels when bits match
 `FA14`/`7800`. Speed is latches 0–2, blink sets are 3–4 (with set B
-forced into {2,3}), enable is latch 5. The LFSR taps, hit pattern,
-speed offsets and colour ladder are Unsourced: no schematic or
-published analysis of the 05XX turned up (searched the Midway schematic,
-arcade hardware wikis, forum threads). Draw order is stars, then sprites,
+forced into {2,3}), enable is latch 5. The LFSR taps, seed, hit pattern,
+speed offsets, pre/post clock counts, star-set selection and the LFSR to
+colour mapping are Unsourced and still need a source. The schematic
+gives only the pinout: 5K (LS259) latches into pins 12-23, HSYNC pin 2,
+VSYNC pin 4, 6 MHz pin 1, colour out on 6-11, PROM select on 20. The one
+non-code write-up found, pin4.at's 05XX CPLD page, states the chip is a
+maximum-length 16-bit LFSR over a 256x256 field, read from a real chip on
+a test bench, and that scrolling adds or drops clocks by up to 3 pixels;
+it gives no taps, seed or hit equations. Options: measure a real 05XX,
+get the values from that author, or drop the starfield. Draw order is stars, then sprites,
 then tiles, so the score strips stay on top. Character colours OR `0x10`
-into the PROM index. Palette resistor weights are the Pac-Man
-82S123-style weights; confirm them against the Midway schematic before
-treating a color as exact.
+into the PROM index. Palette levels come from the colour network below.
 
 ## 5. 51XX and 54XX
 
@@ -307,7 +352,7 @@ Items GA1-GA5, B1-B3 and X4 from `shared/cpu/Z80_ARCADE_PARITY.md`.
   10-12-81) shows the parts at 6M and 5P. Each ladder is 4.7k, 10k, 22k,
   47k. The three filters are 150k/22k/470k/0.01µF, 47k/10k/150k/0.01µF,
   and 100k/22k/220k/0.001µF, mixed through 10k, 33k, and 33k into the
-  3.3k summer. The + input sits on 3.3k from +5V and 2.2k to ground.
+  3.3k summer. (Superseded by §9: the third filter is not fitted.) The + input sits on 3.3k from +5V and 2.2k to ground.
   The 0.1µF into the MB3730 is fed from the 10k volume pot, not from a
   100k. The 100k in the coupling time constant, the 40800 summer scale,
   and the two 0.9 mix factors are not on that sheet. Fujitsu MB3730A
@@ -371,3 +416,50 @@ Items GA1-GA5, B1-B3 and X4 from `shared/cpu/Z80_ARCADE_PARITY.md`.
 - Also tested now: the real 54XX's K/R0 command and O/R1 DACs, the HLE
   54XX argument counts and volume, the HLE 51XX credit-mode reply, sprite
   RAM banks 2 and 3, IRQ2 masking, and the `$6823` reset line.
+
+## 9. Sound network from the parts
+
+Re-derived from the CPU PCB sheet (page 7-9) and its designation list.
+
+- Fitted: O0-O3 ladder R46-R43 (47K/22K/10K/4.7K) into R42 150K, R41 22K
+  to ground, R40 470K, C27/C26 0.01 µF, mixed through R37 10K. O4-O7
+  ladder R32-R29 into R33 47K, R34 10K, R35 150K, C29/C28 0.01 µF, mixed
+  through R36 33K. The list marks R21-R28, C30-C42 and R49/R50 not used,
+  so the R4-R7 ladder and its filter are absent and EXDATA is open. The
+  R1 latch is kept (`dac54(2)`) but reaches nothing.
+- Pin map from the MB8844 28-pin assignment (MB8840 datasheet Fig. 1):
+  O0-O7 on 4-11, R4-R7 on 17-20.
+- Each filter is a multiple-feedback band-pass, + input at the R38/R39
+  bias (2.0 V), R2 to ground. With R1 = ladder Thevenin + series R, C1
+  from node A to the output and C2 from node A to the - input,
+  H(s) = -(s C2 R3/R1) / (s² C1 C2 R3 + s (C1+C2) + 1/R1 + 1/R2), output
+  DC at bias. The code holds the two capacitor voltages as states,
+  measured from rest, x' = A x + B u, and steps them with the trapezoidal
+  rule at 96 kHz. f0 is 167 Hz (Q 2.5) and 450 Hz.
+  `Io.LowNibbleBandPassRingsNear164Hz` checks the first one's ringing.
+- Summer 5P (R20 3.3K) takes both filters and the WSG through R19 10K.
+  WSG source: wave ladder R15-R18 (470/1K/2.2K/4.7K) plus the 4066
+  volume legs R10-R13 at full volume, C43 2.2 nF on its node (one pole,
+  about 20 kHz). The shared WSG chip folds volume in linearly, so the
+  WSG level is an approximation of the real 4066 network.
+- Output: SOUND through R51 10K onto VR1 1K, C18 0.1 µF into the MB3730
+  with C19 0.01 µF to ground and 70K typical input resistance. That is a
+  22 Hz high-pass and a 19 kHz low-pass, stepped the same way at the host
+  rate. VR1 is taken at full and the amp's own gain is not modelled; the
+  host full scale is the summer's 2 V swing below bias.
+- Op-amp outputs clamp to 0 V and V+ − 1.5 V (LM324 output swing).
+- Unsourced: the 54XX O pins swing the full 5 V rail. The datasheet
+  only guarantees VOH ≥ 2.4 V at −200 µA.
+- The HLE explosion peaks near 0.09 now (was 0.18).
+  `Io.Only54xxPortOLaddersAreFitted`, `Io.SilentBoardIsExactlyZero`.
+
+## 10. 06XX timer and the read delay
+
+The schematic gives 2L's clock as 64H (pin 17), SEL on AB8 (pin 15),
+NMI out on pin 19, and its device-side lines to the 51XX and 54XX
+(54XX /IRQ on pin 23). The control layout, divider period and the skipped
+first NMI in read mode are still Unsourced; no non-code description of
+the 06XX turned up. The galagamw main ROM with the genuine 51XX image
+needs that read delay: without it the credit count never reaches the
+main CPU and the attract screen never shows CREDIT.
+`Machine.UserRom51xxCreditsReachTheMainCpu` pins this with a local dump.

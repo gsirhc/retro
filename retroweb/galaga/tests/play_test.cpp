@@ -169,3 +169,55 @@ TEST(Machine, UserRom54xxPlaysThroughItsDacs) {
     }
     EXPECT_GT(changes, 50);
 }
+
+namespace {
+
+// Finds "CREDIT" in tile codes (A = 0x0A) and returns the digit two cells on, or -1.
+int credit_digit(const galaga::Machine& m) {
+    static const uint8_t word[] = {0x0C, 0x1B, 0x0E, 0x0D, 0x12, 0x1D};
+    for (int stride : {1, -1, 32, -32}) {
+        for (int start = 0; start < 0x400; start++) {
+            bool hit = true;
+            for (int k = 0; k < 6 && hit; k++) {
+                int a = start + k * stride;
+                hit = a >= 0 && a < 0x400 && m.video.videoram[unsigned(a)] == word[k];
+            }
+            int d = start + 7 * stride;
+            if (hit && d >= 0 && d < 0x400) return m.video.videoram[unsigned(d)];
+        }
+    }
+    return -1;
+}
+
+}  // namespace
+
+TEST(Machine, UserRom51xxCreditsReachTheMainCpu) {
+    auto hold = find_dump();
+    if (!hold) GTEST_SKIP() << "no local galagamw dump";
+    const fs::path& dir = hold->dir;
+    galaga::RomSet set;
+    if (!read_file(dir / "3200a.bin", set.main.data(), 0x1000) ||
+        !read_file(dir / "3300b.bin", set.main.data() + 0x1000, 0x1000) ||
+        !read_file(dir / "3400c.bin", set.main.data() + 0x2000, 0x1000) ||
+        !read_file(dir / "3500d.bin", set.main.data() + 0x3000, 0x1000) ||
+        !read_file(dir / "3600e.bin", set.sub.data(), 0x1000) ||
+        !read_file(dir / "3700g.bin", set.sound.data(), 0x1000) ||
+        !read_file(dir / "51xx.bin", set.mcu51.data(), set.mcu51.size())) {
+        GTEST_SKIP() << "set lacks 51xx.bin";
+    }
+    set.has51 = true;
+    read_file(dir / "2600j.bin", set.tiles.data(), set.tiles.size());
+    galaga::Machine m;
+    m.load_roms(set);
+    m.reset();
+    m.run_cycles(galaga::kCpuHz * 20);
+    for (int i = 0; i < 3; i++) {
+        m.inputs.in1 = 0x10;
+        m.run_cycles(galaga::kCpuHz / 10);
+        m.inputs.in1 = 0;
+        m.run_cycles(galaga::kCpuHz / 5);
+    }
+    m.run_cycles(galaga::kCpuHz);
+    // The main CPU reads the genuine 51XX's credit count over the 06XX and prints it.
+    EXPECT_EQ(credit_digit(m), 3);
+}

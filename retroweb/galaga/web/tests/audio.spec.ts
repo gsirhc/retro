@@ -42,8 +42,8 @@ test.describe("Audio level", () => {
     await blocks(page, 30);
     const peak = await page.evaluate(() => (window as any).__audioPeak);
     expect(idle).toBeLessThan(1e-3);
-    expect(peak).toBeGreaterThan(0.13);
-    expect(peak).toBeLessThan(0.25);
+    expect(peak).toBeGreaterThan(0.06);
+    expect(peak).toBeLessThan(0.13);
   });
 });
 

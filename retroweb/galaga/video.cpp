@@ -14,6 +14,29 @@ constexpr int kStarLimitX = kStarOffsetX + kStarFieldW;
 // SCROLL_X index → extra LFSR clocks in the pre-visible interval.
 constexpr int kSpeedXOffset[8] = {0, 1, 2, 3, -4, -3, -2, -1};
 
+// Share of full scale for a high leg among legs that all drive (monitor input taken as high impedance).
+constexpr int dac_level(const double* ohms, int n, int leg) {
+    double total = 0;
+    for (int i = 0; i < n; i++) total += 1.0 / ohms[i];
+    return int(255.0 * (1.0 / ohms[leg]) / total + 0.5);
+}
+
+// R6-R8 / R3-R5 / R1-R2 into J2 (Midway video PCB A084-91405-B508).
+constexpr double kRedGreenOhms[3] = {1000, 470, 220};
+constexpr double kBlueOhms[2] = {470, 220};
+constexpr int kPromLevel[3] = {dac_level(kRedGreenOhms, 3, 0), dac_level(kRedGreenOhms, 3, 1),
+                               dac_level(kRedGreenOhms, 3, 2)};
+constexpr int kTwoLegLevel[2] = {dac_level(kBlueOhms, 2, 0), dac_level(kBlueOhms, 2, 1)};
+
+// V count of the visible line, less the one-line buffer delay (Unsourced).
+constexpr int kSpriteVBias = 15;
+// Line-buffer address read out at visible x = 0 (Unsourced).
+constexpr int kLineBufferOrigin = 40;
+
+uint8_t shifter_pen(uint8_t byte, int x) {
+    return uint8_t((((byte >> (7 - x)) & 1) << 1) | ((byte >> (3 - x)) & 1));
+}
+
 }  // namespace
 
 void Video::reset() {
@@ -63,27 +86,29 @@ void Video::advance(int cpu_cycles) {
 uint8_t Video::tile_pixel(uint8_t code, int x, int y) const {
     // High nibble is plane 0, low is plane 1 (same packing as Pac-Man, Lomont).
     const uint8_t* t = &tile_rom[(unsigned(code) * 16) & (tile_rom.size() - 1)];
-    uint8_t byte = (x < 4) ? t[y + 8] : t[y];
-    int xb = x & 3;
-    return uint8_t((((byte >> (7 - xb)) & 1) << 1) | ((byte >> (3 - xb)) & 1));
+    return shifter_pen((x < 4) ? t[y + 8] : t[y], x & 3);
 }
 
 uint32_t Video::prom_rgb(uint8_t idx) const {
     uint8_t c = palette[idx & 31];
-    int r = ((c & 1) ? 0x21 : 0) + ((c & 2) ? 0x47 : 0) + ((c & 4) ? 0x97 : 0);
-    int g = ((c & 8) ? 0x21 : 0) + ((c & 16) ? 0x47 : 0) + ((c & 32) ? 0x97 : 0);
-    int b = ((c & 64) ? 0x51 : 0) + ((c & 128) ? 0xAE : 0);
+    int r = 0, g = 0, b = 0;
+    for (int i = 0; i < 3; i++) {
+        if (c & (1 << i)) r += kPromLevel[i];
+        if (c & (8 << i)) g += kPromLevel[i];
+    }
+    if (c & 0x40) b += kTwoLegLevel[0];
+    if (c & 0x80) b += kTwoLegLevel[1];
     return uint32_t((r << 16) | (g << 8) | b);
 }
 
 uint32_t Video::star_rgb(uint8_t color6) const {
-    // 05XX colour ladder; R and G have a 1k pulldown, B does not.
-    int r = ((color6 & 1) ? 0x47 : 0) + ((color6 & 2) ? 0x97 : 0);
-    int g = ((color6 & 4) ? 0x47 : 0) + ((color6 & 8) ? 0x97 : 0);
-    int b = ((color6 & 16) ? 0x47 : 0) + ((color6 & 32) ? 0x97 : 0);
-    if (r) r = 0x20 + r;
-    if (g) g = 0x20 + g;
-    return uint32_t((r << 16) | (g << 8) | b);
+    // 05XX pins 11..6 drive the 470/220 legs; its pin 20 floats the PROM, so the 1K legs carry nothing.
+    int level[3] = {};
+    for (int ch = 0; ch < 3; ch++) {
+        if (color6 & (1 << (ch * 2))) level[ch] += kTwoLegLevel[0];
+        if (color6 & (2 << (ch * 2))) level[ch] += kTwoLegLevel[1];
+    }
+    return uint32_t((level[0] << 16) | (level[1] << 8) | level[2]);
 }
 
 uint16_t Video::next_star_lfsr(uint16_t lfsr) {
@@ -129,46 +154,45 @@ void Video::hblank_setup(int line) {
         }
     }
 
+    load_sprite_line(line);
+}
+
+void Video::load_sprite_line(int line) {
     if (!ram1 || !ram2 || !ram3) return;
-    // 04XX: X is 10 bits, register 0 is 40 px left of the visible origin. Y is one line late
-    // and wraps by 32. Later sprites overwrite earlier ones.
-    static constexpr int kOffs[2][2] = {{0, 1}, {2, 3}};
-    static constexpr int kCol[4] = {0, 8, 16, 24};
-    for (int i = 0; i < 64; i++) {
-        int o = 0x380 + i * 2;
-        uint8_t attr = ram3[o];
-        bool flipx = (attr & 1) != 0;
-        bool flipy = (attr & 2) != 0;
-        int sizex = (attr & 4) ? 1 : 0;
-        int sizey = (attr & 8) ? 1 : 0;
-        if (flip) {
-            flipx = !flipx;
-            flipy = !flipy;
-        }
-        int sy = 256 - int(ram2[o]) + 1;
-        sy -= 16 * sizey;
-        sy = (sy & 0xff) - 32;
-        int rel = line - sy;
-        if (rel < 0 || rel >= 16 * (sizey + 1)) continue;
-        int sx = int(ram2[o + 1]) - 40 + 0x100 * (ram3[o + 1] & 3);
-        int ty = rel >> 4;
-        int py = flipy ? 15 - (rel & 15) : (rel & 15);
-        uint8_t color = uint8_t(ram1[o + 1] & 0x3F);
-        for (int tx = 0; tx <= sizex; tx++) {
-            int code = (ram1[o] & 0x7f) + kOffs[ty ^ (sizey & flipy)][tx ^ (sizex & flipx)];
-            const uint8_t* t = &sprite_rom[(unsigned(code) * 64) % sprite_rom.size()];
-            int base_y = (py < 8) ? py : (32 + (py - 8));
-            for (int px = 0; px < 16; px++) {
-                int x = sx + tx * 16 + (flipx ? (15 - px) : px);
-                if (x < 0 || x >= kVisW) continue;
-                uint8_t byte = t[kCol[px >> 2] + base_y];
-                int xb = px & 3;
-                uint8_t pen = uint8_t((((byte >> (7 - xb)) & 1) << 1) | ((byte >> (3 - xb)) & 1));
-                // A pen is clear when its LUT entry is 0x0F.
-                uint8_t li = sprite_lut[unsigned((color << 2) | pen)] & 0x0F;
-                if (li == 0x0F) continue;
-                sprite_line_[unsigned(x)] = prom_rgb(li) | (1u << 24);
-            }
+    const int vcount = (line + kSpriteVBias) & 0xFF;
+    for (int n = 0; n < 64; n++) {
+        const unsigned reg = 0x380 + unsigned(n) * 2;
+        const uint8_t attr = ram3[reg];
+        const bool vsize = (attr & 8) != 0;
+        const bool hsize = (attr & 4) != 0;
+        // 4B/4C and 3B XOR the sprite's flip bits with FLIP.
+        const int vflip = ((attr >> 1) & 1) ^ (flip ? 1 : 0);
+        const int hflip = (attr & 1) ^ (flip ? 1 : 0);
+        // 3D/3C add Y to V; 2B flags the line when the sum is in the top 16 (32 with VSIZE).
+        const int sum = (vcount + ram2[reg]) & 0xFF;
+        if (sum < (vsize ? 0xE0 : 0xF0)) continue;
+        const int row = (sum & 0x1F) ^ (vflip ? 0x1F : 0);
+        // 1B swaps code bit 1 for 16V* under VSIZE and bit 0 for 16H* under HSIZE.
+        int picture = ram1[reg] & 0x7F;
+        if (vsize) picture = (picture & ~2) | ((row >> 3) & 2);
+        const int x_start = ram2[reg + 1] | ((ram3[reg + 1] & 3) << 8);
+        const int width = hsize ? 32 : 16;
+        const unsigned color = unsigned(ram1[reg + 1] & 0x3F) << 2;
+        for (int dot = 0; dot < width; dot++) {
+            // 5C/5D/5E count the write address on from X; bit 9 set skips the buffer (polarity Unsourced).
+            const int addr = (x_start + dot) & 0x3FF;
+            if (addr & 0x200) continue;
+            const int x = addr - kLineBufferOrigin;
+            if (x < 0 || x >= kVisW) continue;
+            const int col = dot ^ (hflip ? width - 1 : 0);
+            int code = picture;
+            if (hsize) code = (code & ~1) | (col >> 4);
+            // 4D/4F address: code, 8V* on A5, 8H/4H on A4:A3, 4V-1V on A2:A0.
+            const unsigned rom_addr = unsigned(code) << 6 | unsigned(row & 8) << 2 | unsigned((col >> 2) & 3) << 3 | unsigned(row & 7);
+            const uint8_t pen = shifter_pen(sprite_rom[rom_addr % sprite_rom.size()], col & 3);
+            const uint8_t li = sprite_lut[color | pen] & 0x0F;
+            if (li == 0x0F) continue;
+            sprite_line_[unsigned(x)] = prom_rgb(li) | (1u << 24);
         }
     }
 }

@@ -66,6 +66,7 @@ private:
     void frame_start();
     void hblank_setup(int line);
     void paint(int line, int x0, int x1);
+    void load_sprite_line(int line);
 };
 
 }  // namespace galaga

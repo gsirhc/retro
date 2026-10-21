@@ -73,15 +73,11 @@ void Machine::reset() {
     mcu51_wait_ = mcu54_wait_ = 0;
     mcu54_args_ = 0;
     mcu54_cmd_ = 0;
-    for (int ch = 0; ch < 3; ch++) {
-        dac54_[ch] = 0;
-        bp54_[ch] = {};
-    }
-    amp54_cap_ = 0;
-    bp54_rest_ = false;
-    disc_sum_ = 0;
-    disc_n_ = 0;
-    disc_clock_ = 0;
+    for (uint8_t& d : dac54_) d = 0;
+    net_settled_ = false;
+    net_sum_ = 0;
+    net_n_ = 0;
+    net_clock_ = 0;
     noise_left_ = 0;
     noise_amp_ = 0;
     noise_vol_ = 15;
@@ -429,70 +425,163 @@ void Machine::watchdog_fire() {
 
 namespace {
 
-constexpr double kNetDt = 32.0 / 3072000.0;
-constexpr double kDacR = 1.0 / (1.0 / 47e3 + 1.0 / 22e3 + 1.0 / 10e3 + 1.0 / 4.7e3);
-constexpr double kVref = 5.0 * 2.2e3 / (3.3e3 + 2.2e3);
+// Midway CPU PCB A084-91404-C508 sound section, op-amps at 5P (LM324).
+constexpr double kVcc = 5.0;
+constexpr double kNetHz = 3072000.0 / 32.0;
+// R38 3.3K / R39 2.2K hold the + inputs.
+constexpr double kBias = kVcc * 2.2e3 / (3.3e3 + 2.2e3);
+// LM324 output swing tops out about 1.5 V under V+ (National LM324 datasheet).
+constexpr double kOpAmpTop = kVcc - 1.5;
+constexpr double kSummerFeedback = 3.3e3;  // R20
 
-struct BpCoef {
-    double b0, a1, a2, r1, r2, r_total;
-};
+constexpr double parallel(double a, double b) { return a * b / (a + b); }
 
-// MFB band-pass. Midway M051-00808-C000, 54XX at 6M into 5P.
-BpCoef bp_coef(double r_series, double r2, double rf, double c) {
-    BpCoef o{};
-    o.r1 = kDacR + r_series;
-    o.r2 = r2;
-    o.r_total = 1.0 / (1.0 / o.r1 + 1.0 / r2);
-    const double pi = 3.14159265358979323846;
-    double fc = 1.0 / (2 * pi * std::sqrt(o.r_total * rf * c * c));
-    double d = (2 * c) / std::sqrt(rf / o.r_total * c * c);
-    double gain = -rf / o.r_total * 0.5;
-    double k = 1.0 / std::tan(pi * fc * kNetDt);
-    double den = k * k + d * k + 1.0;
-    o.b0 = gain * d * k / den;
-    o.a1 = 2.0 * (1.0 - k * k) / den;
-    o.a2 = (k * k - d * k + 1.0) / den;
-    return o;
+// 54XX O ladders, bit 0 first: R46-R43 (O0-O3) and R32-R29 (O4-O7).
+constexpr double kLadderOhms[4] = {47e3, 22e3, 10e3, 4.7e3};
+constexpr double ladder_ohms() {
+    double g = 0;
+    for (double r : kLadderOhms) g += 1.0 / r;
+    return 1.0 / g;
 }
 
-const BpCoef& coef(int ch) {
-    static const BpCoef c[3] = {
-        bp_coef(150e3, 22e3, 470e3, 0.01e-6),   // 54XX_0
-        bp_coef(47e3, 10e3, 150e3, 0.01e-6),    // 54XX_1
-        bp_coef(100e3, 22e3, 220e3, 0.001e-6),  // 54XX_2
-    };
-    return c[ch];
+// O pins taken to swing the full 5 V rail (Unsourced; MB8840 datasheet guarantees VOH >= 2.4 V).
+double ladder_volts(uint8_t nibble) {
+    double g = 0;
+    for (int b = 0; b < 4; b++)
+        if (nibble & (1 << b)) g += 1.0 / kLadderOhms[b];
+    return kVcc * g * ladder_ohms();
+}
+
+struct Mfb {
+    double r_in, r_ground, r_feedback, c_out, c_inv, r_mix;
+};
+
+// R42/R41/R40/C27/C26 into R37, and R33/R34/R35/C29/C28 into R36. R21-R28 and C30-C31 are not fitted.
+constexpr Mfb kMfb[2] = {
+    {150e3, 22e3, 470e3, 0.01e-6, 0.01e-6, 10e3},
+    {47e3, 10e3, 150e3, 0.01e-6, 0.01e-6, 33e3},
+};
+
+void discretize(double a[2][2], const double bvec[2], double dt, double out_m[2][2], double out_n[2]) {
+    double l[2][2], r[2][2];
+    for (int i = 0; i < 2; i++)
+        for (int j = 0; j < 2; j++) {
+            double eye = i == j ? 1.0 : 0.0;
+            l[i][j] = eye - a[i][j] * dt / 2;
+            r[i][j] = eye + a[i][j] * dt / 2;
+        }
+    double det = l[0][0] * l[1][1] - l[0][1] * l[1][0];
+    double inv[2][2] = {{l[1][1] / det, -l[0][1] / det}, {-l[1][0] / det, l[0][0] / det}};
+    for (int i = 0; i < 2; i++) {
+        for (int j = 0; j < 2; j++) out_m[i][j] = inv[i][0] * r[0][j] + inv[i][1] * r[1][j];
+        out_n[i] = (inv[i][0] * bvec[0] + inv[i][1] * bvec[1]) * dt / 2;
+    }
+}
+
+// States: x0 across the output capacitor, x1 across the capacitor into the - input, both
+// measured from rest with the DAC at 0. The output sits at bias plus x1 - x0.
+void mfb_matrices(const Mfb& f, double a[2][2], double bvec[2]) {
+    double g1 = 1.0 / (ladder_ohms() + f.r_in), g2 = 1.0 / f.r_ground, g3 = 1.0 / f.r_feedback;
+    a[0][0] = -g3 / f.c_out;
+    a[0][1] = (g3 - g1 - g2) / f.c_out;
+    a[1][0] = g3 / f.c_inv;
+    a[1][1] = -g3 / f.c_inv;
+    bvec[0] = g1 / f.c_out;
+    bvec[1] = 0;
+}
+
+// Wave ladder R15-R18 through the 4066 volume legs R10-R13 at full volume, then R19 10K.
+constexpr double kWsgSourceOhms =
+    1.0 / (1 / 470.0 + 1 / 1e3 + 1 / 2.2e3 + 1 / 4.7e3) + 1.0 / (1 / 10e3 + 1 / 22e3 + 1 / 47e3 + 1 / 100e3);
+constexpr double kWsgSumOhms = 10e3;
+constexpr double kWsgNodeFarads = 0.0022e-6;  // C43
+// A wave sample of 15 against 8 at volume 15 is the chip's unit output.
+constexpr double kWsgUnitVolts = kVcc * 8.0 / 15.0;
+
+// SOUND through R51 10K onto VR1 1K, C18 0.1 uF into the MB3730, C19 0.01 uF to ground.
+constexpr double kPotTap = 1e3 / (10e3 + 1e3);
+constexpr double kPotSourceOhms = parallel(10e3, 1e3);
+constexpr double kCouplingFarads = 0.1e-6;
+constexpr double kAmpShuntFarads = 0.01e-6;
+// MB3730 typical input resistance (Fujitsu 1988 Linear Products Data Book).
+constexpr double kAmpInputOhms = 70e3;
+// Host full scale: the summer's swing from bias down to ground, seen at the amp input.
+constexpr double kHostFullScale = kBias * kPotTap;
+
+struct MfbDiscrete {
+    Linear2 d[2];
+    MfbDiscrete() {
+        for (int ch = 0; ch < 2; ch++) {
+            double a[2][2], bvec[2];
+            mfb_matrices(kMfb[ch], a, bvec);
+            discretize(a, bvec, 1.0 / kNetHz, d[ch].m, d[ch].n);
+        }
+    }
+};
+
+const MfbDiscrete& mfb_discrete() {
+    static const MfbDiscrete d;
+    return d;
 }
 
 }  // namespace
 
+void Linear2::step(double* x, double u_prev, double u) const {
+    double x0 = m[0][0] * x[0] + m[0][1] * x[1] + n[0] * (u_prev + u);
+    double x1 = m[1][0] * x[0] + m[1][1] * x[1] + n[1] * (u_prev + u);
+    x[0] = x0;
+    x[1] = x1;
+}
+
+void Machine::settle_sound_network() {
+    // Power-on finds every capacitor charged to its DAC-off level, so the start is silent.
+    for (Section& sec : mfb_) sec = {};
+    amp_in_ = {};
+    wsg_lp_ = 0;
+    wsg_in_ = 0;
+    net_settled_ = true;
+}
+
 void Machine::step_54xx_network() {
-    static constexpr double kMixR[3] = {10e3, 33e3, 33e3};
+    if (!net_settled_) settle_sound_network();
     double i = 0;
-    for (int ch = 0; ch < 3; ch++) {
-        double vdac = 0;
-        static constexpr double kLadder[4] = {47e3, 22e3, 10e3, 4.7e3};
-        for (int b = 0; b < 4; b++)
-            if (dac54_[ch] & (1 << b)) vdac += 4.0 / kLadder[b];
-        vdac *= kDacR;
-        const BpCoef& c = coef(ch);
-        Bandpass54& f = bp54_[ch];
-        double v = ((vdac - kVref) / c.r1 + (0.0 - kVref) / c.r2) * c.r_total;
-        // Power-on: the filters have settled at their DAC-off input.
-        if (!bp54_rest_) f.x1 = f.x2 = ((0.0 - kVref) / c.r1 + (0.0 - kVref) / c.r2) * c.r_total;
-        double y = -c.a1 * f.y1 - c.a2 * f.y2 + c.b0 * v - c.b0 * f.x2 + kVref;
-        f.x2 = f.x1;
-        f.x1 = v;
-        f.y2 = f.y1;
-        y = std::clamp(y, 0.0, 5.0 - 1.5);
-        f.y1 = y - kVref;
-        i += (kVref - y) / kMixR[ch];
+    for (int ch = 0; ch < 2; ch++) {
+        Section& s = mfb_[ch];
+        double u = ladder_volts(dac54_[ch]);
+        mfb_discrete().d[ch].step(s.x, s.u, u);
+        s.u = u;
+        double v = std::clamp(kBias + s.x[1] - s.x[0], 0.0, kOpAmpTop);
+        i += (v - kBias) / kMfb[ch].r_mix;
     }
-    bp54_rest_ = true;
-    double v = i * 3.3e3;
-    amp54_cap_ += (v - amp54_cap_) * (1.0 - std::exp(-kNetDt / (100e3 * 0.1e-6)));
-    disc_sum_ += (v - amp54_cap_) * 40800.0 / 32768.0;
-    disc_n_++;
+    net_sum_ += -kSummerFeedback * i;
+    net_n_++;
+}
+
+float Machine::sound_output(float wsg) {
+    if (!net_settled_) settle_sound_network();
+    const double dt = 1.0 / audio_hz;
+    if (amp_hz_ != audio_hz) {
+        double c1 = kCouplingFarads, c2 = kAmpShuntFarads, gs = 1.0 / kPotSourceOhms;
+        double a[2][2] = {{-gs / c1, -gs / c1}, {-gs / c2, -(gs + 1.0 / kAmpInputOhms) / c2}};
+        double bvec[2] = {gs / c1, gs / c2};
+        discretize(a, bvec, dt, amp_disc_.m, amp_disc_.n);
+        amp_hz_ = audio_hz;
+    }
+    // C43 rounds the WSG node with the source and R19 in parallel.
+    double tau = parallel(kWsgSourceOhms, kWsgSumOhms) * kWsgNodeFarads;
+    double w = double(wsg) * kWsgUnitVolts;
+    double alpha = dt / (2 * tau);
+    wsg_lp_ = (wsg_lp_ * (1 - alpha) + alpha * (w + wsg_in_)) / (1 + alpha);
+    wsg_in_ = w;
+    double dev54 = net_n_ ? net_sum_ / net_n_ : 0.0;
+    net_sum_ = 0;
+    net_n_ = 0;
+    double dev_wsg = -kSummerFeedback * wsg_lp_ / (kWsgSourceOhms + kWsgSumOhms);
+    double sound = std::clamp(kBias + dev54 + dev_wsg, 0.0, kOpAmpTop);
+    double u = (sound - kBias) * kPotTap;
+    amp_disc_.step(amp_in_.x, amp_in_.u, u);
+    amp_in_.u = u;
+    return float(amp_in_.x[1] / kHostFullScale);
 }
 
 int Machine::run_cycles(int n) {
@@ -534,9 +623,9 @@ int Machine::run_cycles(int n) {
             on_vblank();
         }
         if (watchdog_reset) break;
-        disc_clock_ += t;
-        while (disc_clock_ >= 32) {
-            disc_clock_ -= 32;
+        net_clock_ += t;
+        while (net_clock_ >= 32) {
+            net_clock_ -= 32;
             if (mcu54_hle) {
                 // HLE: the noise burst drives 54XX_0, so it still goes through the real filter.
                 uint8_t level = 0;
@@ -549,13 +638,7 @@ int Machine::run_cycles(int n) {
             }
             step_54xx_network();
         }
-        if (audio.size() > audio_before) {
-            float v = disc_n_ ? float(disc_sum_ / disc_n_) : 0.0f;
-            disc_sum_ = 0;
-            disc_n_ = 0;
-            for (size_t i = audio_before; i < audio.size(); i++)
-                audio[i] = audio[i] * float(360.0 / 1024.0 * 0.9 * 10.0 / 16.0) + v * 0.9f;
-        }
+        for (size_t i = audio_before; i < audio.size(); i++) audio[i] = sound_output(audio[i]);
     }
     return done;
 }

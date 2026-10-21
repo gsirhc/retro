@@ -8,6 +8,7 @@
 #include <cmath>
 #include <initializer_list>
 #include <iterator>
+#include <vector>
 
 using namespace galaga;
 
@@ -249,7 +250,7 @@ TEST(Io, HleExplosionPlaysThroughTheDacNetworkAndDecays) {
     m.run_cycles(kCpuHz / 10);
     float peak = 0;
     for (float s : m.audio) peak = std::max(peak, std::fabs(s));
-    EXPECT_NEAR(peak, 0.18f, 0.05f) << "54XX explosion level";
+    EXPECT_NEAR(peak, 0.09f, 0.03f) << "54XX explosion level";
     m.run_cycles(kCpuHz / 2);
     EXPECT_EQ(m.dac54(0), 0);
     m.audio.clear();
@@ -257,6 +258,62 @@ TEST(Io, HleExplosionPlaysThroughTheDacNetworkAndDecays) {
     float tail = 0;
     for (float s : m.audio) tail = std::max(tail, std::fabs(s));
     EXPECT_LT(tail, 1e-3f);
+}
+
+namespace {
+
+std::vector<float> real54_step(bool r1_port) {
+    Machine m;
+    RomSet set;
+    set.has54 = true;
+    // RSTC; LI 15; then OUTO (O0-O3) or LYI 1; OUTR (R4-R7); JMP to self.
+    std::array<uint8_t, 6> prog = {0x23, 0x9F, 0x01, 0xC3, 0, 0};
+    if (r1_port) prog = {0x23, 0x9F, 0x81, 0x03, 0xC4, 0};
+    std::copy(prog.begin(), prog.end(), set.mcu54.begin());
+    m.load_roms(set);
+    m.rom_main[0] = 0x18;
+    m.rom_main[1] = 0xFE;
+    m.reset();
+    m.audio_hz = 48000;
+    m.mem_write(0x6823, 0x01);
+    m.run_cycles(kCpuHz / 20);
+    EXPECT_EQ(m.dac54(r1_port ? 2 : 0), 15);
+    return m.audio;
+}
+
+float peak_of(const std::vector<float>& audio) {
+    float peak = 0;
+    for (float s : audio) peak = std::max(peak, std::fabs(s));
+    return peak;
+}
+
+}  // namespace
+
+TEST(Io, Only54xxPortOLaddersAreFitted) {
+    EXPECT_GT(peak_of(real54_step(false)), 0.01f) << "O0-O3 step rings the R42 band-pass";
+    EXPECT_EQ(peak_of(real54_step(true)), 0.0f) << "R25-R28 are not fitted on the Midway board";
+}
+
+TEST(Io, LowNibbleBandPassRingsNear164Hz) {
+    // R42+ladder, R41, R40, C26/C27: w0 = 1052 rad/s, Q 2.5, so the step rings at about 164 Hz.
+    std::vector<float> a = real54_step(false);
+    std::vector<size_t> cross;
+    for (size_t i = 1; i < a.size() && cross.size() < 3; i++)
+        if (a[i - 1] != 0 && (a[i - 1] < 0) != (a[i] < 0)) cross.push_back(i);
+    ASSERT_EQ(cross.size(), 3u);
+    double period_ms = double(cross[2] - cross[0]) * 1000.0 / 48000.0;
+    EXPECT_NEAR(period_ms, 1000.0 / 164.0, 0.5);
+}
+
+TEST(Io, SilentBoardIsExactlyZero) {
+    Machine m;
+    m.rom_main[0] = 0x18;
+    m.rom_main[1] = 0xFE;
+    m.reset();
+    m.audio_hz = 48000;
+    m.run_cycles(kCpuHz / 10);
+    ASSERT_FALSE(m.audio.empty());
+    for (float s : m.audio) ASSERT_EQ(s, 0.0f);
 }
 
 TEST(Io, HostWriteLandsOnTheReal51xxPortO) {
@@ -392,6 +449,45 @@ TEST(Video, SpriteColumnOrder) {
     // sx = 0, sy = 185. Upright y follows native x, so the pixel is on row 0.
     EXPECT_EQ(rgb[0 * kUprightW + (kVisH - 1 - 185)], 0x00FFFF00u);
     EXPECT_NE(rgb[12 * kUprightW + (kVisH - 1 - 185)], 0x00FFFF00u);
+}
+
+TEST(Video, DoubleHeightSwapsCodeBitOneForTheHalf) {
+    Machine m;
+    m.video.char_lut.fill(0x0F);
+    m.video.sprite_lut.fill(0x0F);
+    m.video.palette[1] = 0x3F;
+    m.video.sprite_lut[7] = 1;
+    for (int i = 0; i < 64; i++) m.video.sprite_rom[64 + i] = 0xFF;  // code 1 only
+    m.ram1[0x380] = 3;
+    m.ram1[0x381] = 1;
+    m.ram2[0x380] = 40;
+    m.ram2[0x381] = 40;
+    m.ram3[0x380] = 0x08;
+    std::array<uint32_t, kUprightW * kUprightH> rgb{};
+    m.video.advance(2 * kCpuPerFrame);
+    m.render(rgb.data());
+    // Code 3 with VSIZE fetches code 1 for the top half (lines 169-184) and 3 below.
+    EXPECT_NE(rgb[0 * kUprightW + (kVisH - 1 - 169)], 0u);
+    EXPECT_NE(rgb[15 * kUprightW + (kVisH - 1 - 184)], 0u);
+    EXPECT_EQ(rgb[0 * kUprightW + (kVisH - 1 - 185)], 0u);
+    EXPECT_EQ(rgb[0 * kUprightW + (kVisH - 1 - 168)], 0u);
+}
+
+TEST(Video, ColourLevelsFollowTheResistorNetwork) {
+    Video v;
+    v.palette[0] = 0x01;
+    v.palette[1] = 0x24;
+    v.palette[2] = 0xFF;
+    v.palette[3] = 0x40;
+    // 1K/470/220 into an unloaded node: 33, 71, 151 of 255. Blue 470/220: 81, 174.
+    EXPECT_EQ(v.prom_rgb(0), 0x210000u);
+    EXPECT_EQ(v.prom_rgb(1), 0x979700u);
+    EXPECT_EQ(v.prom_rgb(2), 0xFFFFFFu);
+    EXPECT_EQ(v.prom_rgb(3), 0x000051u);
+    // Stars drive only the 470/220 legs.
+    EXPECT_EQ(v.star_rgb(0x01), 0x510000u);
+    EXPECT_EQ(v.star_rgb(0x0A), 0xAEAE00u);
+    EXPECT_EQ(v.star_rgb(0x3F), 0xFFFFFFu);
 }
 
 TEST(Video, StarfieldEnableAndScoreStripStayClear) {
