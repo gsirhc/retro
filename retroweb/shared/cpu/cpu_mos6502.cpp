@@ -526,7 +526,7 @@ int Cpu::step() {
             break;
         }
 
-        // SHY/SHX/AHX/TAS AND with (high byte + 1) of the effective address (Nesdev, VICE)
+        // SHY/SHX/AHX/TAS AND with (high byte + 1) of the effective address (Nesdev)
         case 0x9C: {
             bool cr;
             uint16_t base = fetch16();

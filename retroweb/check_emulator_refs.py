@@ -3,7 +3,8 @@ import re
 import subprocess
 import sys
 
-NAMES = re.compile(r"\b(?:mame|simh|altirra|nuked|dosbox|86box|pcem|qemu|mister|fbneo|finalburn|couriersud|hiscore\.dat)\b", re.I)
+NAMES = re.compile(r"\b(?:mame|simh|altirra|nuked|dosbox|86box|pcem|qemu|mister|fbneo|finalburn|couriersud|ymfm|hiscore\.dat)\b", re.I)
+CASED = re.compile(r"\bVICE\b")
 SKIP_FILES = {"CLAUDE.md", "retroweb/about.html", "retroweb/news_info.html", "retroweb/check_emulator_refs.py"}
 SKIP_DIRS = ("node_modules/", "vendor/")
 ALLOWED_LINES = (
@@ -17,7 +18,7 @@ ALLOWED_LINES = (
 
 def offending(path, text):
     for n, line in enumerate(text.splitlines(), 1):
-        if NAMES.search(line) and not any(a in line for a in ALLOWED_LINES):
+        if (NAMES.search(line) or CASED.search(line)) and not any(a in line for a in ALLOWED_LINES):
             yield n, line.strip()
 
 
@@ -26,6 +27,8 @@ def selftest():
     assert list(offending("x.md", "SIMH latches it"))
     assert not list(offending("x.js", 'const L = "https://thumbnails.libretro.com/MAME/";'))
     assert not list(offending("x.cpp", "// mamba, simhash"))
+    assert list(offending("x.cpp", "// taps per VICE"))
+    assert not list(offending("x.cpp", "// service the device"))
 
 
 def main():
