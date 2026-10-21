@@ -11,54 +11,12 @@
 <link rel="stylesheet" href="../shared/theme.css">
 <link rel="stylesheet" href="../shared/pagebar.css">
 <link rel="stylesheet" href="../shared/footer.css">
+<link rel="stylesheet" href="../shared/catalog.css">
 <script>try{if(localStorage.getItem("retroweb.arcadeArt"))document.documentElement.classList.add("art-pending");}catch(e){}</script>
 <style>
-  :root { --title-font: 900 30px "Arial Black", Arial, sans-serif; }
-  :root[data-theme="winxp"] { --title-font: bold 28px Tahoma, "Segoe UI", sans-serif; }
-  :root[data-theme="web94"] { --title-font: bold 26px "Times New Roman", Times, serif; }
-  :root[data-theme="modern"] { --title-font: 700 28px/1.15 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-  :root[data-theme="aurora"] { --title-font: 800 30px/1.15 Inter, Helvetica, Arial, sans-serif; }
-  :root[data-theme="aurora"] body {
-    display: flex; flex-direction: column; align-items: center; justify-content: center;
-  }
-  :root[data-theme="aurora"] .pagebar { border-bottom: 1px solid rgba(168,140,255,.35); }
-  :root[data-theme="aurora"] .machine-card .shot { border-radius: 6px; }
-  :root[data-theme="aurora"] .machine-card:hover {
-    box-shadow: 0 6px 22px rgba(123,47,247,.35);
-  }
-
-  * { box-sizing: border-box; }
-  html, body { margin: 0; }
-  body {
-    background: var(--desktop);
-    color: var(--text);
-    font: 18px/1.5 var(--body-font);
-    min-height: 100vh;
-    padding: 28px 14px;
-  }
-  .page {
-    max-width: 780px;
-    margin: 0 auto;
-    background: var(--page-bg);
-    border: var(--page-border);
-    border-radius: var(--page-radius);
-    box-shadow: var(--page-shadow);
-  }
-  :root[data-theme="aurora"] .page { max-width: min(980px, 86vw); }
-  .inner { padding: 22px 26px 26px; }
-
-  header.brand-row {
-    display: flex; align-items: center; justify-content: space-between;
-    gap: 16px; flex-wrap: wrap; margin-bottom: 18px;
-  }
-  .brand { display: flex; align-items: center; gap: 14px; min-width: 0; }
-  .site-icon { width: 56px; height: 56px; flex: 0 0 auto; border-radius: 4px; }
-  .brand-text { min-width: 0; }
-  h1 {
-    margin: 0; font: var(--title-font); color: var(--title-color);
-    text-shadow: var(--title-shadow); letter-spacing: 2px;
-  }
-  .tagline { margin: 2px 0 0; color: var(--muted); }
+  /* Catalog shell and tiles live in shared/catalog.css. Local: sort tools,
+     section borders, marquee fit. */
+  header.brand-row { margin-bottom: 18px; }
   .tagline .more { font-size: 12px; }
 
   .arcade-tools {
@@ -79,51 +37,12 @@
 
   .section-heading {
     margin: 30px 0 14px; padding-top: 18px; border-top: var(--card-border);
-    font: bold 17px Arial, Helvetica, sans-serif; color: var(--text);
-    letter-spacing: .5px; text-transform: uppercase;
   }
-  :root[data-theme="winxp"] .section-heading { font: bold 15px Tahoma, "Segoe UI", sans-serif; letter-spacing: .4px; }
-  :root[data-theme="web94"] .section-heading { font: bold 19px "Times New Roman", Times, serif; letter-spacing: normal; text-transform: none; }
-  :root[data-theme="modern"] .section-heading { font: 700 14px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: var(--muted); }
-  :root[data-theme="aurora"] .section-heading { font: 700 14px Inter, Helvetica, Arial, sans-serif; color: var(--muted); }
   #arcadeCatalog > .section-heading:first-child {
     margin-top: 0;
   }
 
-  .machines {
-    display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;
-  }
-
-  .machine-card {
-    display: flex; flex-direction: column; padding: 0;
-    text-decoration: none; color: inherit;
-    background: var(--card-bg); border: var(--card-border);
-    border-radius: var(--card-radius); overflow: hidden;
-    transition: transform .12s ease, box-shadow .12s ease;
-  }
-  .machine-card:hover { transform: translateY(-2px); }
-  :root[data-theme="modern"] .machine-card:hover {
-    box-shadow: 0 6px 20px rgba(16,24,40,.12);
-  }
-  :root:not([data-theme="modern"]) .machine-card:active { border-style: inset; }
-
-  .machine-card .shot {
-    display: block; width: 100%; height: auto; aspect-ratio: 286 / 128;
-    object-fit: cover; object-position: left center;
-  }
-  .machine-card.art .shot { object-fit: cover; object-position: center; background: #000; }
-  .art-pending .machine-card[data-art] .shot:not(.art-ready) { visibility: hidden; }
   .machine-card.art.marquee .shot { object-fit: contain; }
-  .machine-card .name {
-    display: block; padding: 8px 8px 2px; text-align: center;
-    font-weight: 700; font-size: 15px; letter-spacing: .3px;
-  }
-  .machine-card .meta {
-    display: block; padding: 0 8px 10px; text-align: center;
-    font-size: 12px; color: var(--muted);
-  }
-
-  a { color: var(--link); }
 </style>
 </head>
 <body>

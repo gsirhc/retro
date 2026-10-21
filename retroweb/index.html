@@ -11,68 +11,13 @@
 <link rel="stylesheet" href="shared/theme.css">
 <link rel="stylesheet" href="shared/pagebar.css">
 <link rel="stylesheet" href="shared/footer.css">
+<link rel="stylesheet" href="shared/catalog.css">
 <style>
-  /* ---- page themes: default = Windows 95; winxp = Luna; web94 = mid-90s
-     Mosaic web; modern / aurora = clean layouts. Light and dark palettes
-     for every family live in shared/theme.css (linked above) -- editing a
-     color there reaches this page and every machine. This page has no
-     build step, so it links that file straight from its own sibling
-     shared/ directory rather than a copied web/shared/ (see each
-     machine's web/Makefile `shared` target for that copy). Only
-     --title-font (this page's own heading size, which varies with its own
-     header layout, not the theme) stays local, below. */
-  :root { --title-font: 900 30px "Arial Black", Arial, sans-serif; }
-  :root[data-theme="winxp"] { --title-font: bold 28px Tahoma, "Segoe UI", sans-serif; }
-  :root[data-theme="web94"] { --title-font: bold 26px "Times New Roman", Times, serif; }
-  :root[data-theme="modern"] { --title-font: 700 28px/1.15 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-  /* Atmosphere title size; desktop background lives in shared/theme.css. */
-  :root[data-theme="aurora"] { --title-font: 800 30px/1.15 Inter, Helvetica, Arial, sans-serif; }
-  :root[data-theme="aurora"] body {
-    display: flex; flex-direction: column; align-items: center; justify-content: center;
-  }
-  :root[data-theme="aurora"] .pagebar { border-bottom: 1px solid rgba(168,140,255,.35); }
-  :root[data-theme="aurora"] .section-heading { font: 700 14px Inter, Helvetica, Arial, sans-serif; color: var(--muted); }
-  :root[data-theme="aurora"] .machine-card .shot { border-radius: 6px; }
-  :root[data-theme="aurora"] .machine-card:hover {
-    box-shadow: 0 6px 22px rgba(123,47,247,.35);
-  }
+  /* Catalog shell, tiles, and arcade portal live in shared/catalog.css.
+     Local: 2-col grid, welcome banner, contact, soon-card. */
+  :root { --catalog-cols: 2; }
+  .machines { margin-top: 22px; }
 
-  * { box-sizing: border-box; }
-  html, body { margin: 0; }
-  body {
-    background: var(--desktop);
-    color: var(--text);
-    font: 18px/1.5 var(--body-font);
-    min-height: 100vh;
-    padding: 28px 14px;
-  }
-  .page {
-    max-width: 780px;
-    margin: 0 auto;
-    background: var(--page-bg);
-    border: var(--page-border);
-    border-radius: var(--page-radius);
-    box-shadow: var(--page-shadow);
-  }
-  :root[data-theme="aurora"] .page { max-width: min(980px, 86vw); }
-  .inner { padding: 22px 26px 26px; }
-
-  header {
-    display: flex; align-items: center; justify-content: space-between;
-    gap: 16px; flex-wrap: wrap; margin-bottom: 22px;
-  }
-  .brand { display: flex; align-items: center; gap: 14px; min-width: 0; }
-  /* Same source icon as the favicon/window icon (see assets/README.md) --
-     referencing the 512px master rather than a small favicon variant so it
-     stays crisp at this larger, on-page size (including on retina, where
-     the browser's own high-quality downsample beats upscaling a tiny one). */
-  .site-icon { width: 56px; height: 56px; flex: 0 0 auto; border-radius: 4px; }
-  .brand-text { min-width: 0; }
-  h1 {
-    margin: 0; font: var(--title-font); color: var(--title-color);
-    text-shadow: var(--title-shadow); letter-spacing: 2px;
-  }
-  .tagline { margin: 2px 0 0; color: var(--muted); }
   .welcome-banner {
     margin: 0 -26px 20px;
     padding: 12px 26px;
@@ -120,65 +65,6 @@
     color: var(--muted);
   }
 
-  .section-heading {
-    margin: 0;
-    font: bold 17px Arial, Helvetica, sans-serif; color: var(--text);
-    letter-spacing: .5px; text-transform: uppercase;
-  }
-  :root[data-theme="winxp"] .section-heading { font: bold 15px Tahoma, "Segoe UI", sans-serif; letter-spacing: .4px; }
-  :root[data-theme="web94"] .section-heading { font: bold 19px "Times New Roman", Times, serif; letter-spacing: normal; text-transform: none; }
-  :root[data-theme="modern"] .section-heading { font: 700 14px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: var(--muted); }
-
-  .machines {
-    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px;
-    margin-top: 22px;
-  }
-  .machines + .machines { margin-top: 30px; }
-  .section-row {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    gap: 2px 14px;
-    margin: 30px 0 14px;
-    padding-top: 18px;
-    border-top: var(--card-border);
-  }
-  .section-row .section-heading { flex: 0 0 auto; }
-  .art-pick {
-    display: inline-flex; align-items: center; gap: 8px; margin-left: auto;
-    font-size: 14px; color: var(--muted);
-  }
-  .art-pick select {
-    font: inherit; font-size: 14px; color: var(--text);
-    background: var(--card-bg); border: var(--card-border);
-    border-radius: var(--card-radius); padding: 4px 8px;
-  }
-  .section-blurb {
-    margin: 0;
-    flex: 1 1 16em;
-    color: var(--muted);
-    font: 15px/1.35 Arial, Helvetica, sans-serif;
-  }
-  :root[data-theme="winxp"] .section-blurb { font: 15px/1.35 Tahoma, "Segoe UI", sans-serif; }
-  :root[data-theme="web94"] .section-blurb { font: 15px/1.35 "Times New Roman", Times, serif; }
-  :root[data-theme="modern"] .section-blurb {
-    font: 15px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  }
-  :root[data-theme="aurora"] .section-blurb {
-    font: 15px/1.35 Inter, Helvetica, Arial, sans-serif;
-  }
-  .machine-card {
-    display: flex; flex-direction: column; padding: 0;
-    text-decoration: none; color: inherit;
-    background: var(--card-bg); border: var(--card-border);
-    border-radius: var(--card-radius); overflow: hidden;
-    transition: transform .12s ease, box-shadow .12s ease;
-  }
-  .machine-card:hover { transform: translateY(-2px); }
-  :root[data-theme="modern"] .machine-card:hover {
-    box-shadow: 0 6px 20px rgba(16,24,40,.12);
-  }
-  :root:not([data-theme="modern"]) .machine-card:active { border-style: inset; }
   .machine-card.is-soon,
   .arcade-portal.is-soon { pointer-events: none; }
   .machine-card.is-soon:hover,
@@ -194,23 +80,6 @@
   .arcade-portal.is-soon:hover .portal-neon,
   .arcade-portal.is-soon:hover .portal-open { filter: none; }
 
-  /* Thumbnail-only tiles. Shots are 286×128 (2.234:1) except the AT fascia
-     (712×128); object-fit: cover + left keeps that crop on the badge/LEDs. */
-  .machine-card .shot {
-    display: block; width: 100%; height: auto; aspect-ratio: 286 / 128;
-    object-fit: cover; object-position: left center;
-  }
-  .machine-card.art .shot { object-fit: cover; object-position: center; background: #000; }
-  .art-pending .machine-card[data-art] .shot:not(.art-ready) { visibility: hidden; }
-  .machine-card .name {
-    display: block; padding: 8px 8px 10px; text-align: center;
-    font-weight: 700; font-size: 15px; letter-spacing: .3px;
-  }
-  .machine-card .meta {
-    display: block; padding: 0 8px 10px; text-align: center;
-    font-size: 12px; color: var(--muted);
-  }
-  .machine-card:has(.meta) .name { padding-bottom: 2px; }
   button.machine-card {
     font: inherit; cursor: pointer; width: 100%; text-align: inherit;
   }
@@ -226,136 +95,6 @@
   }
   #pc486SoonDialog { max-width: 440px; }
   #pc486SoonDialog p { margin: 0 0 14px; font-size: 14px; line-height: 1.5; color: var(--dim); }
-
-  /* Full-width arcade neon: script lettering on a starfield + crescent moon.
-     Face stays dark in every theme; no card border so the night sky reads flush. */
-  .arcade-portal {
-    display: block; width: 100%; margin: 0 0 4px;
-    text-decoration: none; color: inherit;
-    background: #04020a; border: 0; border-radius: var(--card-radius);
-    overflow: hidden;
-    transition: transform .12s ease, box-shadow .12s ease;
-  }
-  .arcade-portal:hover { transform: translateY(-2px); }
-  :root[data-theme="modern"] .arcade-portal:hover {
-    box-shadow: 0 6px 20px rgba(16,24,40,.12);
-  }
-  :root[data-theme="aurora"] .arcade-portal:hover {
-    box-shadow: 0 6px 22px rgba(123,47,247,.35);
-  }
-
-  .arcade-portal .portal-face {
-    position: relative;
-    display: flex; align-items: center; justify-content: center;
-    width: 100%; min-height: 120px; padding: 8px 12px 18px;
-    background: #04020a;
-    overflow: hidden;
-  }
-  .arcade-portal .portal-stars {
-    position: absolute; inset: 0; pointer-events: none;
-    background-color: #04020a;
-    background-image:
-      radial-gradient(1px 1px at 2% 12%, rgba(255,255,255,.85), transparent),
-      radial-gradient(1px 1px at 5% 48%, rgba(255,255,255,.4), transparent),
-      radial-gradient(1.5px 1.5px at 7% 78%, #fff, transparent),
-      radial-gradient(1px 1px at 11% 22%, rgba(255,255,255,.65), transparent),
-      radial-gradient(1px 1px at 14% 58%, rgba(220,230,255,.5), transparent),
-      radial-gradient(1px 1px at 17% 88%, rgba(255,255,255,.7), transparent),
-      radial-gradient(1px 1px at 20% 34%, rgba(255,255,255,.35), transparent),
-      radial-gradient(1.5px 1.5px at 24% 8%, #fff, transparent),
-      radial-gradient(1px 1px at 26% 52%, rgba(255,255,255,.55), transparent),
-      radial-gradient(1px 1px at 29% 72%, rgba(255,200,230,.45), transparent),
-      radial-gradient(1px 1px at 33% 18%, rgba(255,255,255,.8), transparent),
-      radial-gradient(1px 1px at 36% 44%, rgba(255,255,255,.3), transparent),
-      radial-gradient(1px 1px at 38% 82%, rgba(255,255,255,.6), transparent),
-      radial-gradient(1.5px 1.5px at 42% 28%, #fff, transparent),
-      radial-gradient(1px 1px at 45% 62%, rgba(180,230,255,.55), transparent),
-      radial-gradient(1px 1px at 48% 92%, rgba(255,255,255,.4), transparent),
-      radial-gradient(1px 1px at 51% 14%, rgba(255,255,255,.75), transparent),
-      radial-gradient(1px 1px at 54% 48%, rgba(255,255,255,.45), transparent),
-      radial-gradient(1px 1px at 57% 76%, rgba(255,255,255,.85), transparent),
-      radial-gradient(1.5px 1.5px at 61% 36%, #fff, transparent),
-      radial-gradient(1px 1px at 64% 6%, rgba(255,255,255,.5), transparent),
-      radial-gradient(1px 1px at 67% 58%, rgba(255,255,255,.35), transparent),
-      radial-gradient(1px 1px at 70% 84%, rgba(200,220,255,.6), transparent),
-      radial-gradient(1px 1px at 74% 24%, rgba(255,255,255,.7), transparent),
-      radial-gradient(1px 1px at 77% 50%, rgba(255,255,255,.4), transparent),
-      radial-gradient(1.5px 1.5px at 80% 70%, #fff, transparent),
-      radial-gradient(1px 1px at 83% 16%, rgba(255,255,255,.55), transparent),
-      radial-gradient(1px 1px at 86% 42%, rgba(255,255,255,.8), transparent),
-      radial-gradient(1px 1px at 89% 66%, rgba(255,200,230,.4), transparent),
-      radial-gradient(1px 1px at 92% 90%, rgba(255,255,255,.65), transparent),
-      radial-gradient(1px 1px at 95% 32%, rgba(255,255,255,.45), transparent),
-      radial-gradient(1px 1px at 98% 54%, rgba(255,255,255,.7), transparent),
-      radial-gradient(1px 1px at 9% 66%, rgba(255,255,255,.25), transparent),
-      radial-gradient(1px 1px at 22% 94%, rgba(255,255,255,.3), transparent),
-      radial-gradient(1px 1px at 40% 4%, rgba(255,255,255,.35), transparent),
-      radial-gradient(1px 1px at 59% 96%, rgba(255,255,255,.3), transparent),
-      radial-gradient(1px 1px at 72% 40%, rgba(255,255,255,.25), transparent),
-      radial-gradient(1px 1px at 85% 8%, rgba(255,255,255,.4), transparent),
-      radial-gradient(ellipse 80% 100% at 50% 130%, rgba(255, 20, 120, .14), transparent 55%);
-  }
-  .arcade-portal .portal-moon {
-    position: absolute; z-index: 0;
-    left: 7%; top: 16%;
-    width: 42px; height: 42px;
-    border-radius: 50%;
-    background: transparent;
-    box-shadow: inset -12px 0 0 #e8dcc0;
-    filter: drop-shadow(0 0 6px rgba(255, 236, 200, .35));
-    opacity: .9;
-    pointer-events: none;
-  }
-  .arcade-portal .portal-neon {
-    position: relative; z-index: 1;
-    margin: 0;
-    font: italic 400 72px/1 "Brush Script MT", "Segoe Script", "Apple Chancery", cursive;
-    letter-spacing: .04em; text-align: center;
-    color: #ff8ec8;
-    text-shadow:
-      0 0 1px #ffd0e8,
-      0 0 3px #ff4ea8,
-      0 0 8px rgba(255, 42, 154, .9),
-      0 0 18px rgba(255, 20, 147, .5);
-    animation: neon-buzz 4.5s steps(1, end) infinite;
-  }
-  .arcade-portal .portal-open {
-    position: absolute; z-index: 1;
-    right: 16px; bottom: 8px;
-    font: italic 400 22px/1 "Brush Script MT", "Segoe Script", "Apple Chancery", cursive;
-    letter-spacing: .08em;
-    color: #7dffb0;
-    text-shadow:
-      0 0 1px #c8ffe0,
-      0 0 2px #2aff80,
-      0 0 6px rgba(20, 255, 120, .85),
-      0 0 12px rgba(20, 220, 100, .4);
-    animation: neon-buzz 5.2s steps(1, end) infinite;
-    animation-delay: .8s;
-    transform: rotate(-6deg);
-  }
-  @keyframes neon-buzz {
-    0%, 96%, 100% { opacity: 1; }
-    97% { opacity: .78; }
-    98% { opacity: 1; }
-    99% { opacity: .88; }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .arcade-portal .portal-neon,
-    .arcade-portal .portal-open { animation: none; }
-  }
-  .arcade-portal:hover .portal-neon,
-  .arcade-portal:hover .portal-open {
-    filter: brightness(1.1);
-  }
-  @media (max-width: 520px) {
-    .arcade-portal .portal-neon { font-size: 44px; }
-    .arcade-portal .portal-open { font-size: 17px; right: 10px; bottom: 6px; }
-    .arcade-portal .portal-moon { width: 30px; height: 30px; box-shadow: inset -9px 0 0 #e8dcc0; }
-    .arcade-portal .portal-face { min-height: 96px; padding: 6px 10px 16px; }
-  }
-
-  a { color: var(--link); }
 </style>
 </head>
 <body>

@@ -90,7 +90,8 @@ The browser emulators and the landing page that lists them.
 [`shared/`](shared/) holds the front-end code common to every machine
 page — the theme system (`theme-init.js`'s anti-FOUC bootstrap,
 `theme-picker.js`'s interactive `<select>` logic), the pagebar/titlebar
-chrome (`pagebar.css`), the fullscreen + "click to focus" mechanisms
+chrome (`pagebar.css`), the hub catalog layout (`catalog.css`, linked by
+`index.html` / `super_secret.html` / `arcade/`), the fullscreen + "click to focus" mechanisms
 (`fullscreen.css`/`.js`, `focus-hint.css`/`.js`), and the site footer
 (`footer.css`/`.js`, including the theme-matched Help control that links to `about.html`).
 The landing page and `about.html` link `shared/` directly; each machine's
@@ -130,7 +131,7 @@ _site/about.html      <- retroweb/about.html
 _site/news_info.html  <- retroweb/news_info.html
 _site/arcade/         <- retroweb/arcade/index.html
 _site/assets/         <- retroweb/assets/
-_site/shared/         <- retroweb/shared/theme.css, pagebar.css, footer.css, footer.js
+_site/shared/         <- retroweb/shared/theme.css, pagebar.css, footer.css, catalog.css, footer.js
 _site/altair8800/     <- retroweb/altair8800/web/    (its `stage` list)
 _site/assembler6502/  <- retroweb/assembler6502/web/ (its `stage` list)
 _site/ibmpc-at/       <- retroweb/ibmpc-at/web/      (its `stage` list)
