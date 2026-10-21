@@ -128,7 +128,6 @@ FreeDOS hard disk and CD-ROM images, then **stages** the site so URLs are clean:
 _site/index.html      <- retroweb/index.html
 _site/about.html      <- retroweb/about.html
 _site/news_info.html  <- retroweb/news_info.html
-_site/blog.html       <- retroweb/blog.html
 _site/arcade/         <- retroweb/arcade/index.html
 _site/assets/         <- retroweb/assets/
 _site/shared/         <- retroweb/shared/theme.css, pagebar.css, footer.css, footer.js
@@ -183,7 +182,7 @@ MACHINE=pc486 make -C retroweb watch   # wasm rebuilds only for that machine
 
 Static edits restage in under a second; a C++ save waits on emscripten for
 that machine (or every arcade board, if you touched `shared/cpu`). Root
-`index.html` / `about.html` / `news_info.html` / `blog.html` / `arcade/` / `assets/` and `shared/` front-end files always
+`index.html` / `about.html` / `news_info.html` / `arcade/` / `assets/` and `shared/` front-end files always
 restage even with `MACHINE=` set.
 
 **If the preview keeps dropping** (terminal closed, laptop slept, a crash),
@@ -205,7 +204,7 @@ reload instead of hand-running `make site`.)
 
 - **JavaScript** — ESLint (`eslint.config.js`). Browser scripts, not
   vendored xterm, generated wasm glue, or the copied `web/shared/`.
-- **HTML** — HTMLHint (`.htmlhintrc`) on the landing page, `about.html`, `news_info.html`, `blog.html`,
+- **HTML** — HTMLHint (`.htmlhintrc`) on the landing page, `about.html`, `news_info.html`,
   and each machine's `web/index.html`.
 - **C++** — cppcheck (`lint-cpp.sh`), warning / performance / portability,
   C++17. Needs `cppcheck` on `PATH` and gtest headers (`apt install

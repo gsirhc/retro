@@ -123,7 +123,7 @@ test.describe("retroweb landing page", () => {
     await expect(news).toHaveAttribute("href", "news_info.html#news");
     await news.click();
     await expect(page).toHaveURL(/\/news_info\.html/);
-    await expect(page).toHaveTitle("About & News");
+    await expect(page).toHaveTitle("News & Info");
     await expect(page.locator(".inner h1")).toHaveText("News & Info");
     await expect(page.locator("#news")).toHaveText("News");
     await expect(page.locator("#info")).toHaveText("Info");

@@ -193,9 +193,8 @@ load-your-own copy), not only the self-test picture.
 may change navigation, header, and footer chrome only. Chris owns the body
 copy — do not edit content sections. The public page does not link it.
 Help on `super_secret.html` and on the machine pages still opens it.
-`retroweb/news_info.html` is the public About & News page. `blog.html`
-redirects there. Both follow [`.claude/blog.md`](.claude/blog.md). Chris
-owns the entries.
+`retroweb/news_info.html` is the public About & News page. It follows
+[`.claude/blog.md`](.claude/blog.md). Chris owns the entries.
 
 ## Wiring a machine into the site
 
@@ -255,7 +254,7 @@ before calling it done.
   (Courier New on a starfield), not cabinet scans; the recipe is in
   `retroweb/assets/README.md`.
 - **Staging**: `retroweb/Makefile`'s `site` target copies `index.html`,
-  `super_secret.html`, `about.html`, `news_info.html`, `blog.html`, and `arcade/index.html` to `_site/`, then runs each
+  `super_secret.html`, `about.html`, `news_info.html`, and `arcade/index.html` to `_site/`, then runs each
   machine's own `make -C <machine>/web stage DEST=…`. That target lists
   exactly what ships (`STAGE = index.html app.js <wasm> assets roms shared …`)
   and copies it with `retroweb/stage_web.sh`, which also drops source and
@@ -541,7 +540,7 @@ else. There is no formatter in the repo (no Prettier, no clang-format).
   `initFullscreen`, `initFocusHint`) stay `function` declarations so they
   are globals on the page. Use `===`.
 - **Theme bootstrap.** `shared/theme-init.js` and the one-line copy inlined
-  in `index.html`, `super_secret.html`, `about.html`, `news_info.html`, `blog.html`, and `arcade/index.html` stay in sync and
+  in `index.html`, `super_secret.html`, `about.html`, `news_info.html`, and `arcade/index.html` stay in sync and
   stay compact (`var`, `==`, a single `catch`). That snippet runs before
   anything else paints.
 - **HTML.** Lowercase tags, double-quoted attributes. Keep `<!DOCTYPE html>`

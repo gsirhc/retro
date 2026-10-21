@@ -4,8 +4,6 @@
 the entries and the About section on that page. Agents must not rewrite
 that prose.
 
-`retroweb/blog.html` only redirects to `news_info.html#news`.
-
 `retroweb/about.html` stays the Help page. The public site does not link
 it. Help on `super_secret.html` and on the machine pages still opens it.
 That page follows [about.md](about.md).
