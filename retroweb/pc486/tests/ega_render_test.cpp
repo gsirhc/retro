@@ -878,6 +878,21 @@ TEST(EgaRenderTest, CharacterMapSelectPicksTheFontByAttributeBitThree) {
     ExpectRgb(rgba, w, 15, 0, 0xAA, 0xAA, 0xAA);
 }
 
+TEST(EgaRenderTest, CharacterMapSelectMsbAddsAnEightKilobyteStep) {
+    Ega ega;
+    ega.reset();
+    Text80x25(ega, false);
+    ega.out(0x3C4, 0x03); ega.out(0x3C5, 0x2C);  // map A = 7 (MSB + 3), map B = 0
+    PutCell(ega, 0, 'A', 0x0F);
+    PutGlyphRow(ega, 0xE000, 'A', 0, 0x80);
+    PutGlyphRow(ega, 0xC000, 'A', 0, 0x01);
+    std::vector<uint8_t> rgba;
+    int w = 0, h = 0;
+    RenderTextScreen(ega, rgba, w, h);
+    ExpectRgb(rgba, w, 0, 0, 255, 255, 255);
+    ExpectRgb(rgba, w, 7, 0, 0, 0, 0);
+}
+
 TEST(EgaRenderTest, ColorPlaneEnableMasksTextColours) {
     // 512-character software keeps attribute bit 3 from brightening.
     Ega ega;

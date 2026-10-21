@@ -103,6 +103,8 @@ public:
     // Register file as written, for tests and the front end's FM view. Bank 1 is 0x100-0x1FF.
     uint8_t reg(uint16_t index) const { return index < 0x200 ? regs_[index] : 0; }
     bool opl3_mode() const { return new_; }
+    // Envelope attenuation of op_[0-35] (0-511, 0.1875 dB units), for tests
+    int32_t envelope_level(int op) const { return op >= 0 && op < 36 ? op_[op].env_level : 0; }
 
     // --- pacing ---
     // Advances against the CPU's cycle count: output frames and timers. Inline
@@ -166,9 +168,8 @@ private:
     std::size_t trace_max_ = 0;
 
     // --- operator and channel state ---
-    // 36 operators, 18 channels, indexed by register slot. The chip has only these four
-    // envelope states (Niemitalo & Gambrell, "OPLx decapsulated"); a released
-    // operator pins attenuation at maximum (eg_off in generate_frame) instead of a fifth state.
+    // 36 operators, 18 channels, indexed by register slot. Envelope phases per YM3812
+    // application manual Fig. 3-1; a finished release sits in kRelease at 511.
     enum class Env { kAttack, kDecay, kSustain, kRelease };
 
     struct Operator {
@@ -176,11 +177,11 @@ private:
         uint8_t ksl = 0, tl = 0;
         uint8_t ar = 0, dr = 0, sl = 0, rr = 0;
         uint8_t waveform = 0;
-        // Attenuation is a 9-bit counter (0-511), 0.1875 dB/unit, 511 = silent, no
-        // fractional precision (envelope_shift() in opl3.cpp). Defaults to released.
+        // Attenuation 0-511 at 0.1875 dB per unit, 511 = silent. Defaults to released.
         Env env = Env::kRelease;
         uint32_t phase = 0;         // 10.10 fixed point into the 1024-entry table
         int32_t env_level = 511;
+        uint32_t eg_acc = 0;        // rate remainder carried between frames
         int16_t out = 0, prev_out = 0;  // feedback history (two samples)
         bool key_on = false;
     };
@@ -200,20 +201,11 @@ private:
     Channel ch_[18];
 
     uint32_t am_phase_ = 0;   // tremolo LFO, 3.7 Hz
-    // Vibrato's 8-step position and 1024-frame-per-step counter
-    uint8_t vib_pos_ = 0;
-    uint32_t vib_frame_ = 0;
+    uint32_t vib_phase_ = 0;  // vibrato LFO, 6.1 Hz
     uint32_t noise_ = 1;      // rhythm-section noise LFSR
 
-    // Chip-global envelope clock shared by all operators (Niemitalo & Gambrell),
-    // advanced per frame by advance_envelope_clock(). eg_state_ alternates each
-    // frame; eg_add_/eg_timer_lo_ derive from eg_timer_ on the active frames.
-    uint64_t eg_timer_ = 0;
-    bool eg_timerrem_ = false;
-    bool eg_state_ = false;
-    int eg_add_ = 0;
-    uint8_t eg_timer_lo_ = 0;
-    void advance_envelope_clock();
+    void clock_envelope(Operator &op, int ksn);
+    static int envelope_steps(Operator &op, uint8_t r, int ksn, uint32_t divisor);
 
     void write_reg(uint16_t index, uint8_t v);
     void generate_frame(uint64_t cycle);

@@ -98,10 +98,10 @@ void RenderTextScreen(const Ega &ega, std::vector<uint8_t> &rgba, int &width, in
     const bool blink_enabled = ega.attr_blink_enabled();
     const bool chars_on = ega.char_blink_phase_on();
     const uint8_t plane_enable = ega.attr_plane_enable();
-    // Font map n offsets in plane 2 (IBM VGA Technical Reference, Character Map Select).
-    static constexpr uint32_t kMapOffset[8] = {0x0000, 0x4000, 0x8000, 0xC000, 0x2000, 0x6000, 0xA000, 0xE000};
-    const uint32_t map_a = kMapOffset[ega.seq_char_map_a()];
-    const uint32_t map_b = kMapOffset[ega.seq_char_map_b()];
+    // Character Map Select (IBM VGA Technical Reference): bits 1-0 pick a 16K block, the MSB adds 8K
+    auto map_offset = [](int sel) { return uint32_t(((sel & 3) << 14) | ((sel >> 2) << 13)); };
+    const uint32_t map_a = map_offset(ega.seq_char_map_a());
+    const uint32_t map_b = map_offset(ega.seq_char_map_b());
 
     const uint16_t cursor_off = uint16_t(ega.cursor_offset() + ega.cursor_skew());
     const int underline_row = ega.crtc_underline_row();

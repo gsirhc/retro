@@ -68,9 +68,10 @@ void Ega::vbe_write_(int index, uint16_t v) {
             // Low 9 bits are the bank number; bits 14/15 are RD/WR selects.
             uint16_t bank = uint16_t(v & kVbeBankNumberMask);
             uint32_t bank_bytes = vbe_bank_bytes();
-            uint32_t num_banks = uint32_t(vram.size() / bank_bytes);
-            // At bpp=4 each plane_off unit is 4 VRAM bytes, so reachable banks are quartered.
-            if (vbe_[kVbeRegBpp] == 4) num_banks >>= 2;
+            // Planar 4bpp: a window address selects a byte in all four planes (VBE 2.0, 4F05 and planar memory model)
+            uint32_t bank_space = uint32_t(vram.size());
+            if (vbe_[kVbeRegBpp] == 4) bank_space /= 4;
+            uint32_t num_banks = bank_space / bank_bytes;
             if (bank >= num_banks) return;
             vbe_[kVbeRegBank] = bank;
             return;

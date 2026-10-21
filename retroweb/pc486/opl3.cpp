@@ -70,51 +70,38 @@ int op_index(int bank, int cib, bool carrier) {
     return bank * 18 + group * 6 + (carrier ? 3 + cl : cl);
 }
 
-// RATE = reg*4 + Rof (KSR=1: KSN 0-15; KSR=0: KSN>>2), YMF715x "Rate Key
-// Scale". Rate register 0 returns -1 (envelope never moves), as the silicon gates
-// on reg_rate==0. Not clamped to 63: hardware clamps only rate_hi and keeps
-// rate_lo from the unclamped sum (reg 15, KSR=1, ksn=15 gives 75).
-int effective_rate(uint8_t reg_rate, int ksn, bool ksr) {
-    if (reg_rate == 0) return -1;
-    int rks = ksr ? ksn : (ksn >> 2);
-    return int(reg_rate) * 4 + rks;
+// Attenuation counter: 96 dB in 0.1875 dB steps (YM3812 application manual 3-3)
+constexpr int32_t kEnvSilent = 511;
+
+// Actual rate = R*4 + Rof, 0 when R is 0 (YMF262 datasheet KSR). Table 3-6 tops out at 63.
+int actual_rate(uint8_t r, int ksn, bool ksr) {
+    if (r == 0) return 0;
+    int rof = ksr ? ksn : (ksn >> 2);
+    return std::min(int(r) * 4 + rof, 63);
 }
 
-// Envelope attenuation is a 9-bit counter (0-511), 0.1875 dB/unit, 511 = silent,
-// no fractional precision. Slow rates look continuous because the shared clock gates steps.
-constexpr int32_t kEnvMax = 511;
+// Envelope speed for RATE = RM*4 + RL. Table 3-6 times halve per RM and scale by 4/(4+RL);
+// RATE 60-63 all list the same time.
+uint32_t rate_speed(int rate) {
+    if (rate <= 0) return 0;
+    if (rate >= 60) return 4u << 15;
+    return uint32_t(4 + (rate & 3)) << (rate >> 2);
+}
 
-// eg_incstep[rate_lo][eg_timer_lo]: extra shift for rate_hi 12-15 on top of
-// rate_hi&3 ("OPLx decapsulated").
-constexpr int kEgIncStep[4][4] = {
-    {0, 0, 0, 0},
-    {1, 0, 0, 0},
-    {1, 0, 1, 0},
-    {1, 1, 1, 0},
-};
+// Table 3-6 at RATE 4: decay 0-96 dB is 39280.64 ms (1964032 samples at fM/72) over 512 steps,
+// attack 0-100% is 2826.24 ms over the 34 steps the attack curve below takes from silence
+constexpr uint32_t kDecayDivisor = 30688;
+constexpr uint32_t kAttackDivisor = 33250;
 
-// Bits (0-3) an operator's attenuation shifts this frame for effective RATE
-// `rate` (-1 = never moves). All 36 operators share one envelope clock
-// (eg_add_/eg_timer_lo_/eg_state_) and derive their shift from their own RATE.
-int envelope_shift(int rate, int eg_add, int eg_timer_lo, bool eg_state) {
-    if (rate < 0) return 0;
-    int rate_hi = rate >> 2;
-    int rate_lo = rate & 3;
-    if (rate_hi > 15) rate_hi = 15;
-    int eg_shift = rate_hi + eg_add;
-    if (rate_hi < 12) {
-        if (!eg_state) return 0;
-        switch (eg_shift) {
-            case 12: return 1;
-            case 13: return (rate_lo >> 1) & 1;
-            case 14: return rate_lo & 1;
-            default: return 0;
-        }
-    }
-    int shift = (rate_hi & 3) + kEgIncStep[rate_lo][eg_timer_lo];
-    if (shift & 4) shift = 3;
-    if (shift == 0) shift = eg_state ? 1 : 0;
-    return shift;
+// Exponential attack: each step closes 1/8 of the gap to a point 9 units (1.7 dB) past full
+// level, fit to Table 3-6's 10-90% vs 0-100% attack ratio. Always moves at least one unit.
+int32_t attack_step(int32_t level) {
+    return level - ((level + 9) >> 3);
+}
+
+// SL is 3 dB per step (16 units); all ones is 93 dB, not 45 (YMF262 datasheet SL)
+int32_t sustain_floor(uint8_t sl) {
+    return sl == 15 ? 496 : int32_t(sl) * 16;
 }
 
 // Total level (0.75 dB/step = 4 envelope units) plus KSL attenuation, in
@@ -185,12 +172,10 @@ int32_t wave_sample(uint8_t waveform, uint32_t phase20, double atten_env_units) 
             use_table = false;
             logsin_units = 0;
             break;
-        default: {  // 7: exponential-decay sawtooth (derived linear-attenuation ramp)
+        default: {  // 7: a linear ramp into the exp table (Niemitalo & Gambrell); slope unsourced
             use_table = false;
             uint32_t li = idx1024 & 511;
-            // The negative half ramps up to full amplitude by cycle end, and the ramp
-            // covers ~96 dB per half cycle, hence <<3 not <<2
-            if (quadrant >= 2) li = 511 - li;
+            if (quadrant >= 2) li = 511 - li;  // mirrored half (YMF262 datasheet WS=7 figure)
             logsin_units = int32_t(li) * 8;
             break;
         }
@@ -237,14 +222,8 @@ void Opl3::reset() {
     for (auto &op : op_) op = Operator();
     for (auto &ch : ch_) ch = Channel();
     am_phase_ = 0;
-    vib_pos_ = 0;
-    vib_frame_ = 0;
+    vib_phase_ = 0;
     noise_ = 1;
-    eg_timer_ = 0;
-    eg_timerrem_ = false;
-    eg_state_ = false;
-    eg_add_ = 0;
-    eg_timer_lo_ = 0;
     // Every register clears to 0. A cleared C0h doesn't mute: pan bits are
     // ignored while NEW is clear (see generate_frame).
 }
@@ -442,10 +421,8 @@ void Opl3::recompute_active() {
     }
     if (!any && (regs_[0xBD] & 0x20) != 0 && (regs_[0xBD] & 0x1F) != 0) any = true;
     if (!any) {
-        // Idle is derived: a released operator sits in kRelease with attenuation pinned at eg_off
         for (const auto &op : op_) {
-            bool pinned = op.env == Env::kRelease && (op.env_level & 0x1F8) == 0x1F8;
-            if (!pinned) { any = true; break; }
+            if (op.env != Env::kRelease || op.env_level < kEnvSilent) { any = true; break; }
         }
     }
     active_ = any;
@@ -480,92 +457,36 @@ void Opl3::generate_frame(uint64_t cycle) {
     bool dvb = (regs_[0xBD] & 0x40) != 0;
     double am_units_this_frame = am_tri * ((dam ? 4.8 : 1.0) / 0.1875);
 
-    // Vibrato steps through an 8-entry pattern once per 1024 frames
-    // (49715.9/(1024*8) = 6.07 Hz), not a continuous LFO (Niemitalo & Gambrell).
-    if (++vib_frame_ >= 1024) { vib_frame_ = 0; vib_pos_ = (vib_pos_ + 1) & 7; }
+    // Vibrato: 6.1 Hz, 7 cents or 14 with DVB (YMF262 datasheet VIB/DVB). Shape undocumented: triangle.
+    constexpr uint32_t kVibStep = uint32_t((6.1 / kSampleHz) * kFull);
+    vib_phase_ += kVibStep;
+    double vib01 = double(vib_phase_) / kFull;
+    double vib_tri = vib01 < 0.25 ? vib01 * 4.0 : vib01 < 0.75 ? 2.0 - vib01 * 4.0 : vib01 * 4.0 - 4.0;
+    double vib_ratio = std::exp2((dvb ? 14.0 : 7.0) * vib_tri / 1200.0);
 
-    // Advances one operator's envelope and phase for this frame, given its key state
-    // (channel KON, or a rhythm bit for channels 6-8)
-    auto advance_env_phase = [this, dvb](int opidx, uint16_t fnum, uint8_t block, bool key_on) {
+    // Envelope and phase for one operator this frame; key_on is channel KON or, for 6-8, a rhythm bit
+    auto advance_env_phase = [this, vib_ratio](int opidx, uint16_t fnum, uint8_t block, bool key_on) {
         Operator &op = op_[opidx];
-
-        // Attack re-triggers whenever key-on is live while the envelope is in release,
-        // not on an edge ("OPLx decapsulated" `reset`)
-        bool reset = key_on && op.env == Env::kRelease;
         if (key_on && !op.key_on) {
-            // Phase/feedback history resets on the triggering sample (pg_reset). The shift
-            // below still takes the release/off path since op.env flips to kAttack at the
-            // end of the call, as on silicon.
             op.phase = 0;
             op.out = 0; op.prev_out = 0;
+            op.env = Env::kAttack;
+            op.eg_acc = 0;
+        } else if (!key_on) {
+            op.env = Env::kRelease;
         }
         op.key_on = key_on;
 
         // NTS=0 selects F-number bit 9 for key scaling, NTS=1 bit 8 (YMF715x note-select table)
         bool nts = (regs_[0x08] & 0x40) != 0;
         int ksn = (int(block) << 1) | int(nts ? ((fnum >> 8) & 1) : ((fnum >> 9) & 1));
-
-        uint8_t reg_rate = 0;
-        switch (op.env) {
-            case Env::kAttack: reg_rate = op.ar; break;
-            case Env::kDecay: reg_rate = op.dr; break;
-            case Env::kSustain: if (op.egt == 0) reg_rate = op.rr; break;  // percussive: falls to release
-            case Env::kRelease: reg_rate = op.rr; break;
-        }
-        if (reset) reg_rate = op.ar;
-
-        int rate = effective_rate(reg_rate, ksn, op.ksr != 0);
-        int rate_hi = rate < 0 ? 0 : std::min(rate >> 2, 15);
-        int shift = envelope_shift(rate, eg_add_, eg_timer_lo_, eg_state_);
-
-        bool eg_off = (op.env_level & 0x1F8) == 0x1F8;
-        int32_t rout = op.env_level;
-        if (reset && rate_hi == 15) rout = 0;  // instant attack
-        if (op.env != Env::kAttack && !reset && eg_off) rout = kEnvMax;
-        int32_t inc = 0;
-
-        switch (op.env) {
-            case Env::kAttack:
-                if (op.env_level == 0) {
-                    op.env = Env::kDecay;
-                } else if (key_on && shift > 0 && rate_hi != 15) {
-                    inc = (~rout) >> (4 - shift);
-                }
-                break;
-            case Env::kDecay: {
-                int sl = (op.sl == 15) ? 31 : int(op.sl);
-                if ((op.env_level >> 4) == sl) {
-                    op.env = Env::kSustain;
-                } else if (!eg_off && !reset && shift > 0) {
-                    inc = 1 << (shift - 1);
-                }
-                break;
-            }
-            case Env::kSustain:
-            case Env::kRelease:
-                if (!eg_off && !reset && shift > 0) inc = 1 << (shift - 1);
-                break;
-        }
-        op.env_level = (rout + inc) & 0x1FF;
-        if (reset) op.env = Env::kAttack;
-        if (!key_on) op.env = Env::kRelease;
+        clock_envelope(op, ksn);
 
         // One lap of the 20-bit accumulator is one cycle, indexed as phase>>10, so a
         // frame advances fnum * 2^block at MULT=1: F = fnum * kSampleHz / 2^(20-block)
         // (fnum 159h at block 4 is middle C). kMultX2 is doubled, so halving gives MULT=0 x0.5.
-        int32_t vfnum = int32_t(fnum);
-        if (op.vib) {
-            // Vibrato is a quantised F-number delta per position step, not a cents
-            // ratio (Niemitalo & Gambrell). DVB (BDh bit 6) doubles depth by skipping the final halving.
-            int range = (fnum >> 7) & 7;
-            if ((vib_pos_ & 3) == 0) range = 0;
-            else if (vib_pos_ & 1) range >>= 1;
-            range >>= dvb ? 0 : 1;
-            if (vib_pos_ & 4) range = -range;
-            vfnum += range;
-            if (vfnum < 0) vfnum = 0;
-        }
-        double base = double(uint64_t(uint32_t(vfnum)) << block) * double(kMultX2[op.mult]) / 2.0;
+        double base = double(uint64_t(fnum) << block) * double(kMultX2[op.mult]) / 2.0;
+        if (op.vib) base *= vib_ratio;
         op.phase = (op.phase + uint32_t(std::llround(base))) & 0xFFFFF;
     };
 
@@ -741,33 +662,46 @@ void Opl3::generate_frame(uint64_t cycle) {
     };
     if (samples_.size() >= kMaxSamples) samples_.pop_front();
     samples_.push_back({cycle, clamp16(left * kMasterGain), clamp16(right * kMasterGain)});
-
-    // Operators read this frame's eg_* clock (set by the previous call); step it
-    // now so the next frame sees it one tick on, as silicon does.
-    advance_envelope_clock();
 }
 
-// Chip-global envelope clock read by every envelope_shift() ("OPLx
-// decapsulated"). eg_state_ alternates
-// each frame; eg_add_/eg_timer_lo_ change on the true frames, from eg_timer_'s
-// trailing zero bits (a ruler sequence), with eg_timerrem_ gating the late carry.
-void Opl3::advance_envelope_clock() {
-    if (eg_state_) {
-        int shift = 0;
-        while (shift < 13 && ((eg_timer_ >> shift) & 1) == 0) shift++;
-        eg_add_ = shift > 12 ? 0 : shift + 1;
-        eg_timer_lo_ = uint8_t(eg_timer_ & 3);
-    }
-    if (eg_timerrem_ || eg_state_) {
-        if (eg_timer_ == 0xFFFFFFFFFULL) {  // 36-bit counter, per the decap notes
-            eg_timer_ = 0;
-            eg_timerrem_ = true;
-        } else {
-            eg_timer_++;
-            eg_timerrem_ = false;
+// Steps owed at this rate since the last frame; the remainder carries so slow rates keep their time
+int Opl3::envelope_steps(Operator &op, uint8_t r, int ksn, uint32_t divisor) {
+    op.eg_acc += rate_speed(actual_rate(r, ksn, op.ksr != 0));
+    int n = int(op.eg_acc / divisor);
+    op.eg_acc %= divisor;
+    return n;
+}
+
+// Attack is exponential, the rest linear in dB; attack hands to decay at 0 dB, decay to sustain
+// at SL (YM3812 application manual 3-3, Fig. 3-1)
+void Opl3::clock_envelope(Operator &op, int ksn) {
+    switch (op.env) {
+        case Env::kAttack:
+            if (actual_rate(op.ar, ksn, op.ksr != 0) >= 60) {
+                op.env_level = 0;  // Table 3-6: 0.00 ms
+            } else {
+                for (int n = envelope_steps(op, op.ar, ksn, kAttackDivisor); n > 0 && op.env_level > 0; n--) {
+                    op.env_level = attack_step(op.env_level);
+                }
+            }
+            if (op.env_level == 0) op.env = Env::kDecay;
+            break;
+        case Env::kDecay: {
+            int32_t target = sustain_floor(op.sl);
+            if (op.env_level < target) {
+                op.env_level = std::min(target, op.env_level + envelope_steps(op, op.dr, ksn, kDecayDivisor));
+            }
+            if (op.env_level >= target) op.env = Env::kSustain;
+            break;
         }
+        case Env::kSustain:
+            // EGT=0: release rate takes over even with KON held (YMF262 datasheet EGT)
+            if (op.egt) break;
+            [[fallthrough]];
+        case Env::kRelease:
+            op.env_level = std::min(kEnvSilent, op.env_level + envelope_steps(op, op.rr, ksn, kDecayDivisor));
+            break;
     }
-    eg_state_ = !eg_state_;
 }
 
 }  // namespace pc486

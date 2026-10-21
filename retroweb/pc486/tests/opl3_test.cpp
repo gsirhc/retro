@@ -342,8 +342,7 @@ TEST_F(Opl3Test, KeyOnProducesAudibleOutputAndKeyOffReleasesToSilence) {
 
 // --- envelope generator: instant attack, pinned idle, retrigger, rate scaling ---
 
-// rate_hi hits 15 whenever AR=15 (15*4=60 before key scaling), and the real mechanism snaps
-// attenuation to zero on the key-on sample.
+// AR=15 is RATE 60 or more, which Table 3-6 (YM3812 application manual) lists as a 0.00 ms attack.
 TEST_F(Opl3Test, InstantAttackReachesFullVolumeOnTheVeryFirstFewFramesWhenEffectiveRateHiIsFifteen) {
     auto peak_over_ms = [](Opl3 &chip, uint64_t &cycles, double ms) {
         const double cycles_per_frame = Opl3::kCpuHz / Opl3::kSampleHz;
@@ -522,6 +521,147 @@ TEST_F(Opl3Test, DecayAttenuationAtAFixedElapsedTimeRoughlyDoublesForOneStepOfTh
     EXPECT_NEAR(db8 / db7, 2.0, 0.5)
         << "DR=8 is one register step (= 4 RATE units) above DR=7 and must show roughly double "
            "the attenuation at the same elapsed time -- db7=" << db7 << " db8=" << db8;
+}
+
+// --- envelope times against the YM3812 application manual, Table 3-6 (p.16) ---
+// The table is at fM = 3.6 MHz, one sample per 72 clocks: 50 frames per ms. The YMF262 runs the
+// same 72-clock frame from 14.31818 MHz / 4, so times compare in frames.
+
+class Opl3EnvelopeTimeTest : public ::testing::Test {
+protected:
+    static constexpr int kCarrier = 3;  // op_[3]: channel 0's carrier
+    static constexpr double kFramesPerMs = 50.0;
+    Opl3 chip;
+    uint64_t cycles_ = 0;
+
+    void SetUp() override {
+        chip.reset();
+        cycles_ = 0;
+        chip.set_cpu_hz(Opl3::kSampleHz * 64.0);  // 64 cycles per frame, exactly
+    }
+    void W(uint8_t r, uint8_t v) { chip.write_address(0, r); chip.write_data(0, v); }
+
+    // Carrier with KSR=1 so RATE = R*4 + ksn; ksn = BLOCK*2 + F-number bit 9 (NTS=0)
+    void Voice(uint8_t ar, uint8_t dr, uint8_t sl, uint8_t rr, int ksn, bool egt = true) {
+        W(0x23, uint8_t((egt ? 0x20 : 0x00) | 0x10 | 0x01));
+        W(0x43, 0x00);
+        W(0x63, uint8_t((ar << 4) | dr));
+        W(0x83, uint8_t((sl << 4) | rr));
+        W(0xA0, 0x00);
+        block_fnum_ = uint8_t(((ksn >> 1) << 2) | ((ksn & 1) << 1));
+    }
+    void KeyOn() { W(0xB0, uint8_t(0x20 | block_fnum_)); }
+    void KeyOff() { W(0xB0, block_fnum_); }
+
+    // Frames until pred(level) holds, checked every `chunk` frames; -1 past `limit`
+    template <typename Pred>
+    long FramesUntil(Pred pred, long limit, long chunk = 1) {
+        for (long f = 0; f <= limit; f += chunk) {
+            if (pred(chip.envelope_level(kCarrier))) return f;
+            cycles_ += uint64_t(64 * chunk);
+            chip.tick(cycles_);
+        }
+        return -1;
+    }
+    static double Tolerance(double frames, double pct) { return std::max(frames * pct, 2.0); }
+
+private:
+    uint8_t block_fnum_ = 0;
+};
+
+// Attack, 0-100% (silence to 0 dB) and 10-90% (20 dB to 0.9 dB), at RATE = RM*4 + RL
+TEST_F(Opl3EnvelopeTimeTest, AttackTimesMatchTable36AcrossRates) {
+    struct Row { uint8_t r; int ksn; double ms_0_100, ms_10_90; };
+    const Row rows[] = {
+        {1, 0, 2826.24, 1482.75},  // RATE 4
+        {4, 3, 199.68, 108.54},    // RATE 19
+        {9, 2, 7.36, 3.87},        // RATE 38
+        {12, 1, 1.12, 0.61},       // RATE 49
+        {13, 0, 0.70, 0.37},       // RATE 52
+    };
+    for (const Row &row : rows) {
+        SetUp();
+        Voice(row.r, 0, 0, 0, row.ksn);
+        ASSERT_EQ(chip.envelope_level(kCarrier), 511);
+        KeyOn();
+        long chunk = row.ms_0_100 > 100.0 ? 8 : 1;
+        long limit = long(row.ms_0_100 * kFramesPerMs * 2.0);
+        long t10 = FramesUntil([](int32_t l) { return l <= 106; }, limit, chunk);
+        long t90 = FramesUntil([](int32_t l) { return l <= 4; }, limit, chunk);
+        long t100 = FramesUntil([](int32_t l) { return l == 0; }, limit, chunk);
+        ASSERT_GE(t10, 0);
+        ASSERT_GE(t90, 0);
+        ASSERT_GE(t100, 0);
+        long done = t10 + t90 + t100;
+        double want_100 = row.ms_0_100 * kFramesPerMs;
+        double want_1090 = row.ms_10_90 * kFramesPerMs;
+        EXPECT_NEAR(double(done), want_100, Tolerance(want_100, 0.02)) << "RATE " << row.r * 4 + row.ksn;
+        EXPECT_NEAR(double(t90), want_1090, Tolerance(want_1090, 0.05)) << "RATE " << row.r * 4 + row.ksn;
+    }
+}
+
+// Release covers the decay table's 0-96 dB in the same time (manual 3-1-7)
+TEST_F(Opl3EnvelopeTimeTest, ReleaseTimesMatchTable36DecayColumnAcrossRates) {
+    struct Row { uint8_t r; int ksn; double ms; };
+    const Row rows[] = {
+        {1, 0, 39280.64},  // RATE 4
+        {5, 2, 1635.84},   // RATE 22
+        {10, 1, 61.36},    // RATE 41
+        {14, 0, 4.80},     // RATE 56
+        {15, 2, 2.40},     // RATE 62: 60-63 share one time
+    };
+    for (const Row &row : rows) {
+        SetUp();
+        Voice(15, 0, 0, row.r, row.ksn);
+        KeyOn();
+        ASSERT_EQ(FramesUntil([](int32_t l) { return l == 0; }, 4), 1);
+        KeyOff();
+        double want = row.ms * kFramesPerMs;
+        long chunk = row.ms > 1000.0 ? 64 : 1;
+        long t = FramesUntil([](int32_t l) { return l >= 511; }, long(want * 2.0), chunk);
+        ASSERT_GE(t, 0) << "RATE " << row.r * 4 + row.ksn;
+        EXPECT_NEAR(double(t), want, Tolerance(want, 0.02)) << "RATE " << row.r * 4 + row.ksn;
+    }
+}
+
+// Decay runs at the same speed as release and stops at SL (3 dB steps) while KON holds with EGT=1
+TEST_F(Opl3EnvelopeTimeTest, DecayStopsAtTheSustainLevelAndHoldsWithEgtSet) {
+    Voice(15, 10, 14, 0, 1);  // DR RATE 41, SL=14: 42 dB
+    KeyOn();
+    ASSERT_EQ(FramesUntil([](int32_t l) { return l == 0; }, 4), 1);
+    long t = FramesUntil([](int32_t l) { return l >= 224; }, 10000);
+    double want = 61.36 * kFramesPerMs * 224.0 / 512.0;
+    EXPECT_NEAR(double(t), want, Tolerance(want, 0.02));
+    FramesUntil([](int32_t) { return false; }, 5000);
+    EXPECT_EQ(chip.envelope_level(kCarrier), 224) << "42 dB = 224 units, held";
+}
+
+// SL=15 is 93 dB, not 45 (YMF262 datasheet SL)
+TEST_F(Opl3EnvelopeTimeTest, SustainLevelFifteenIsNinetyThreeDecibels) {
+    Voice(15, 14, 15, 0, 0);
+    KeyOn();
+    FramesUntil([](int32_t) { return false; }, 2000);
+    EXPECT_EQ(chip.envelope_level(kCarrier), 496);
+}
+
+// EGT=0: the release rate takes over at SL even with KON held (YMF262 datasheet EGT)
+TEST_F(Opl3EnvelopeTimeTest, EgtClearReleasesFromTheSustainLevelWhileKeyedOn) {
+    Voice(15, 14, 4, 14, 0, /*egt=*/false);
+    KeyOn();
+    ASSERT_EQ(FramesUntil([](int32_t l) { return l == 0; }, 4), 1);
+    long t = FramesUntil([](int32_t l) { return l >= 511; }, 5000);
+    ASSERT_GE(t, 0) << "a percussive envelope must fall to silence with KON still set";
+    // 64 units at the DR rate, then 447 at the RR rate, both RATE 56
+    double want = 4.80 * kFramesPerMs;
+    EXPECT_NEAR(double(t), want, Tolerance(want, 0.03));
+}
+
+// Rate 0 never moves the envelope (Table 3-6 note)
+TEST_F(Opl3EnvelopeTimeTest, RateZeroLeavesTheEnvelopeWhereItIs) {
+    Voice(0, 0, 0, 0, 15);
+    KeyOn();
+    FramesUntil([](int32_t) { return false; }, 5000);
+    EXPECT_EQ(chip.envelope_level(kCarrier), 511) << "AR=0 must not attack, even with KSR";
 }
 
 // A coarse tick must not slip the clock. advance() bounds frames per call but consumes credit for
@@ -1098,8 +1238,8 @@ TEST_F(Opl3Test, Waveform6IsAFullAmplitudeSquareWaveWithNoWaveformShaping) {
 
 // --- waveform 7 (exponential-decay sawtooth) ----------------------------------
 
-// The negative half is a mirrored continuation: it starts near silence and rises to full
-// amplitude only at the end of the cycle (<<3, not <<2).
+// The negative half mirrors the positive one (YMF262 datasheet WS=7 figure): it starts near
+// silence and rises to full amplitude only at the end of the cycle.
 TEST_F(Opl3Test, Waveform7MirrorsItsNegativeHalfAndRampsAcrossTheFullRange) {
     Opl3 chip;
     auto w = [&](uint8_t r, uint8_t v) { chip.write_address(0, r); chip.write_data(0, v); };
@@ -1140,10 +1280,9 @@ TEST_F(Opl3Test, Waveform7MirrorsItsNegativeHalfAndRampsAcrossTheFullRange) {
 
 // --- vibrato -------------------------------------------------------------------
 
-// Vibrato steps position 0-7 every 1024 frames, applying an F-number delta (opl3.cpp
-// advance_env_phase). Step 2 (frames 2048-3071) has the largest deviation.
-TEST_F(Opl3Test, VibratoAppliesTheQuantisedEightStepFnumDeltaAndDvbDoublesIt) {
-    // Interpolated zero-crossing frequency over [lo,hi); the expected shift is under 1% of the carrier.
+// VIB is a 6.1 Hz vibrato, 7 cents deep or 14 with DVB (YMF262 datasheet VIB, DVB).
+TEST_F(Opl3Test, VibratoSwingsSevenCentsAtSixPointOneHertzAndDvbMakesItFourteen) {
+    // Interpolated zero-crossing frequency over [lo,hi)
     auto measured_hz = [](const std::vector<int32_t> &v, std::size_t lo, std::size_t hi) -> double {
         std::vector<double> crossings;
         for (std::size_t i = lo + 1; i < hi; ++i) {
@@ -1157,41 +1296,54 @@ TEST_F(Opl3Test, VibratoAppliesTheQuantisedEightStepFnumDeltaAndDvbDoublesIt) {
         double span_frames = crossings.back() - crossings.front();
         return periods / (span_frames / Opl3::kSampleHz);
     };
-    auto measure = [&](bool vib, bool dvb) -> double {
+    auto record = [](bool vib, bool dvb) {
         Opl3 chip;
         auto w = [&](uint8_t r, uint8_t v) { chip.write_address(0, r); chip.write_data(0, v); };
         w(0xBD, dvb ? 0x40 : 0x00);
         w(0x20, 0x01);  // modulator: MULT=1 (AR=0 default: never attacks, stays silent)
         w(0x23, uint8_t(0x20 | (vib ? 0x40 : 0x00) | 0x01));  // carrier: EGT hold, VIB, MULT=1
-        w(0x43, 0x00);                                        // carrier TL: loudest
-        w(0x63, 0xF0); w(0x83, 0x00);                          // carrier: fastest attack, SL=0 hold
-        w(0xA0, 0x00);                                         // fnum = 0x200 (512): (fnum>>7)&7 == 4
-        w(0xB0, uint8_t(0x20 | (7 << 2) | 0x02));              // KON, block=7, fnum hi bits = 10b
-
+        w(0x43, 0x00);
+        w(0x63, 0xF0); w(0x83, 0x00);
+        w(0xA0, 0x00);
+        w(0xB0, uint8_t(0x20 | (7 << 2) | 0x02));  // KON, block=7, fnum=0x200: ~3.1 kHz
         std::vector<int32_t> left;
         uint64_t cycles = 0;
         const double cycles_per_frame = Opl3::kCpuHz / Opl3::kSampleHz;
-        for (int i = 0; i < 4; ++i) {  // 4000 frames > the 3072 needed to clear step 2
+        for (int i = 0; i < 18; ++i) {
             cycles += uint64_t(std::llround(1000.0 * cycles_per_frame));
             chip.tick(cycles);
             for (const auto &s : chip.drain_samples()) left.push_back(s.left);
         }
-        // Step 2 spans frames 2048-3071; stay clear of its edges.
-        return measured_hz(left, 2200, 3000);
+        return left;
     };
+    struct Swing { double cents_up, cents_down; long peak_frame, trough_frame; };
+    auto swing = [&](const std::vector<int32_t> &v, double ref_hz) {
+        constexpr std::size_t kWindow = 300;
+        Swing s{-1e9, 1e9, 0, 0};
+        for (std::size_t lo = 0; lo + kWindow <= 16000 && lo + kWindow <= v.size(); lo += 50) {
+            double cents = 1200.0 * std::log2(measured_hz(v, lo, lo + kWindow) / ref_hz);
+            if (cents > s.cents_up) { s.cents_up = cents; s.peak_frame = long(lo); }
+            if (cents < s.cents_down) { s.cents_down = cents; s.trough_frame = long(lo); }
+        }
+        return s;
+    };
+    const double ref_hz = measured_hz(record(false, false), 100, 16000);
+    ASSERT_GT(ref_hz, 3000.0);
 
-    const double base_hz = 512.0 * Opl3::kSampleHz / 1048576.0 * double(1u << 7);
-    const double vib_off_hz = measure(/*vib=*/false, /*dvb=*/false);
-    const double vib_on_hz = measure(/*vib=*/true, /*dvb=*/false);
-    const double vib_on_dvb_hz = measure(/*vib=*/true, /*dvb=*/true);
+    Swing off = swing(record(false, false), ref_hz);
+    EXPECT_LT(std::max(off.cents_up, -off.cents_down), 0.5) << "VIB clear must leave pitch steady";
 
-    EXPECT_NEAR(vib_off_hz, base_hz, base_hz * 0.01) << "VIB clear must leave pitch unchanged";
-    EXPECT_GT(vib_on_hz, base_hz * 1.002)
-        << "step 2 without DVB (range=base>>1=+2) must raise pitch measurably: " << vib_on_hz << " vs base " << base_hz;
-    const double shallow_delta = vib_on_hz - base_hz;
-    const double deep_delta = vib_on_dvb_hz - base_hz;
-    EXPECT_NEAR(deep_delta, shallow_delta * 2.0, shallow_delta * 0.3)
-        << "DVB must double the vibrato depth: shallow delta " << shallow_delta << ", deep delta " << deep_delta;
+    Swing shallow = swing(record(true, false), ref_hz);
+    EXPECT_NEAR(shallow.cents_up, 7.0, 1.0);
+    EXPECT_NEAR(shallow.cents_down, -7.0, 1.0);
+
+    Swing deep = swing(record(true, true), ref_hz);
+    EXPECT_NEAR(deep.cents_up, 14.0, 1.5);
+    EXPECT_NEAR(deep.cents_down, -14.0, 1.5);
+
+    // Peak to trough is half an LFO period
+    const double half_period = Opl3::kSampleHz / 6.1 / 2.0;
+    EXPECT_NEAR(double(std::labs(shallow.trough_frame - shallow.peak_frame)), half_period, half_period * 0.05);
 }
 
 // --- register write trace (opt-in diagnostic) ------------------------------

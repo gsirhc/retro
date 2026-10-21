@@ -1953,9 +1953,11 @@ planar engine in charge. bpp other than 4 uses the flat VBE window.
 aperture. The Bank register is `bank << 16` added to the planar plane offset
 (`vbe_planar_banked()` / `vbe_planar_plane_off()`), not a switch to the
 linear 8bpp path (`vbe_mode_active()` still requires bpp == 8). A 1MB card
-has four such planar banks (`(1MB/64KB)/4`); past-end bank writes are
-rejected. The RD/WR flag bits the firmware's 4F05 path ORs into the Bank
-register are masked off on write.
+has four such planar banks: the window address selects a byte in all four
+planes (VBE 2.0, function 4F05 and the planar memory model), so the bank
+space is one plane (256KB). Past-end bank writes are rejected. The RD/WR
+flag bits the firmware's 4F05 path ORs into the Bank register are masked
+off on write.
 
 Geometry for a bpp=4 DISPI mode comes from the extension registers, not
 the CRTC. `vga_compat_setup` does reprogram the CRTC, but this card's
@@ -3246,9 +3248,9 @@ fully-released state, and the probe hangs forever.
 These are labelled in `opl3.cpp` at the point they matter, and none of them
 affect whether software finds the chip or plays in time. The list is shorter
 than it was: the modulation index, the four-operator pair's F-number source,
-the note-select split point, the rhythm section's output level, waveform 7's
-ramp and the vibrato LFO's shape have all since been pinned to hardware
-behaviour, and what is left is in §31.
+the note-select split point and the rhythm section's output level have
+since been pinned down, and what is left is in §31. The envelope, vibrato
+and waveform 7 sources and gaps are in §35.
 
 - **The output stage's master gain has no hardware citation.** The YMF262
   datasheet (p.5) documents the output format -- 16-bit offset binary on four
@@ -5514,12 +5516,10 @@ Three things to know before reading it:
   it passed against the current analytic envelope on the first real run (one
   test-authoring bug aside, see §34) -- this was a coverage gap, not a sign
   of an undiscovered synthesis bug.
-- **The envelope generator's shape is now the real state machine** (§35):
-  the analytic exponential-attack/linear-dB-decay curve this section used to
-  describe is gone, replaced with the chip's actual global-EG-timer,
-  quantised-shift-and-add mechanism. §34's tests (written against the old
-  analytic curve specifically so they'd act as a routing/scaling/waveform
-  regression check across this rewrite) all kept passing unmodified.
+- **Envelope, vibrato and waveform 7** (§35): envelope times match the
+  YM3812 manual's Table 3-6, but the per-sample stepping pattern, the
+  vibrato LFO's shape and quantisation, and waveform 7's slope have no
+  primary source.
 
 ### The front end's audio path
 
@@ -5831,8 +5831,8 @@ envelope-generator rewrite (§35) -- these were written against the
 **then-current** analytic envelope specifically so they'd keep passing once
 that rewrite landed, since none of them assert anything about the envelope's
 per-sample shape, only about routing, scaling, and waveform identity. They
-did: every case below still passes unmodified against §35's real state
-machine.
+did: every case below still passes unmodified against §35's
+Table 3-6 envelope.
 
 **Four-operator algorithms.** Before writing tests for the three combinations
 the existing `FourOpSecondaryOperatorsRunFromThePrimarysFnumAndBlock` case
@@ -5906,132 +5906,72 @@ native tests pass (up from 641 after §33); the Playwright suite is
 unaffected (no front-end-visible behavior changed, and `opl3.h`'s default
 fix changes no path any real caller takes).
 
-## 35. The OPL3 envelope generator is now the real shift/add state machine
+## 35. OPL3 envelope generator, vibrato and waveform 7: sources
 
-§31 flagged the envelope as the one place this file knowingly modeled the
-*effect* of the silicon (documented attack/decay/release times) rather than
-the silicon itself: `attack_tau_seconds()` fit a continuous exponential to
-the datasheet's Attack Time(10-90%) table, and `decay_units_per_sample()` fit
-a continuous linear-dB ramp to the Decay/Release Time(0-100%) table. Times
-matched; the per-sample curve a real YMF262 actually produces -- quantised,
-stepping only on some samples, by amounts that are themselves powers of two
--- did not. That curve is now implemented directly, as the chip's own
-documented mechanism rather than an analytic fit to its outputs.
+**Sources.**
 
-**Source.** Niemitalo & Gambrell's "OPLx decapsulated" is the primary
-citation already used throughout this file for other YM3812/YMF262
-die-level mechanisms (the log-sin/exp waveform tables, the KSL constants).
-The envelope state machine is built from that write-up.
+- Yamaha YM3812 Application Manual (1994-06), §3-1-4 to §3-1-7, §3-3,
+  Fig. 3-1/3-2, Table 3-6 "Attack and Decay Times for Various Rates" (p.16).
+  https://archive.org/details/YamahaYM3812ApplicationManual
+- Yamaha YMF262 catalog datasheet (1994-11), register descriptions for
+  KSR, EGT, SL, VIB, DVB and WS. https://bitsavers.org/components/yamaha/YMF262_199411.pdf
+- Gambrell & Niemitalo, "OPLx decapsulated" (2008). It covers the log-sin
+  and exp ROMs only. It says nothing about the envelope generator or the
+  vibrato, and suggests waveform 7 "is probably simply the exponential
+  table".
 
-**The mechanism.** Real silicon has one envelope clock shared by all 36
-operators, not 36 independent timers. Each output frame it advances a
-counter (`Opl3::eg_timer_`) by counting the counter's own trailing zero bits
-(a "ruler sequence": 0, 1, 0, 2, 0, 1, 0, 3, ...) into `eg_add_`, and the
-clock only does this on alternating frames (`eg_state_`). Each operator
-combines `eg_add_` with its own effective RATE (register value, key-scaled
-exactly as `effective_rate()` already computed it -- that function needed no
-change) to look up a small quantised `shift` (0-3) via a table from the same
-source (`kEgIncStep`). That shift says two things: whether this operator's
-9-bit attenuation counter (`env_level`, now a plain 0-511 value -- see
-below) moves *at all* this frame, and if so by how much. Attack moves by an
-exponential-via-bitshift trick (`eg_inc = ~env_level >> (4-shift)`, which
-provably reaches exactly 0 in a bounded number of steps, unlike a true
-floating-point exponential); decay, sustain and release move by a plain
-`1 << (shift-1)`. Most frames, for most rates, the shift is 0 and nothing
-moves -- that quantisation, not a slow continuous rate, is what the slow
-end of the Rate tables actually sounds like on real hardware.
+**What the sources give.** Attenuation is a 96 dB range in 0.1875 dB steps
+(0-511). Attack is exponential, decay/sustain/release are linear in dB;
+attack hands over to decay at 0 dB, decay to sustain at SL. RATE = R*4 + Rof,
+and R = 0 never moves. SL steps by 3 dB, and all ones is 93 dB (496 units),
+not 45. EGT=0 lets the release rate take over at SL with KON still held.
+Release times equal the decay column. Vibrato is 6.1 Hz, 7 cents, or 14 with
+DVB.
 
-**`env_level` lost its fixed-point scale.** The old code stored attenuation
-at 65536x fixed-point precision (`kEnvScale`) because the analytic decay
-formula could need to advance by a fraction of a unit per sample at the
-slowest documented rate. The real mechanism has no such need -- a real
-operator's attenuation *is* a 9-bit (0-511) hardware counter, full stop, and
-the "slowness" of a slow rate comes entirely from how rarely the shared
-clock schedules it to move, not from sub-unit precision on the move itself.
-`kEnvScale`/`kEnvMax` (the fixed-point constants), `kAttack1090Base`,
-`kDecay0to100Base`, `attack_tau_seconds()`, and `decay_units_per_sample()`
-are gone; `kEnvMax` now just names `511`.
+**Table 3-6 as the model.** Times are at fM = 3.6 MHz, 72 clocks a sample,
+so 50 frames per ms. The YMF262 frame is the same 72 clocks of its
+14.31818 MHz / 4 internal clock, so the table compares in frames. Decay
+times halve per RM and scale exactly as 4/(4+RL) (RATE 4: 39280.64,
+31416.32, 26173.44, 22446.08 ms). RATE 60-63 all list 2.40 ms decay and
+0.00 ms attack. `opl3.cpp` turns that into a per-operator speed
+`(4+RL) << RM` (60-63 pinned to the RATE 60 speed) and a rate remainder
+carried between frames (`Operator::eg_acc`):
 
-**A real hardware subtlety this surfaced and fixed in passing:** `RATE =
-(rate register)*4 + Rof` can reach 75 (register 15, KSR=1, key-scale number
-15), but the chip clamps only the top nibble of that sum (`rate_hi`, capped
-to 15) when it splits RATE into the `rate_hi`/`rate_lo` pair the shift table
-indexes by -- `rate_lo` keeps reading from the *uncapped* sum. The old
-`effective_rate()` capped the whole sum to 63 before any caller could split
-it, which is harmless for the old analytic code (it only ever used the
-combined value) but would have handed the new shift lookup the wrong
-`rate_lo` for any RATE above 63 -- silently landing on a different, also
-legal-looking shift, not a crash. `effective_rate()` now returns the
-uncapped sum (or -1 for "rate register 0, never moves", replacing a 0 return
-that could otherwise have been confused with a legitimately-computed RATE of
-0); `envelope_shift()` does the asymmetric clamp itself, matching the
-decapsulated mechanism exactly.
+- Decay, sustain and release add one unit per step. The divisor 30688 is
+  RATE 4's 1964032 frames over 512 steps.
+- Attack takes `level -= (level + 9) >> 3` per step. The shape is fit to the
+  table's attack 10-90% / 0-100% ratio (0.525; a continuous exponential
+  needs an offset near 1.25 dB to hit it); 34 steps from silence, divisor
+  33250 from RATE 4's 2826.24 ms. Across Table 3-6 this lands within about
+  1% at the slow rates and within one frame at RATE 52-59.
+- RATE 60-63 attack snaps to 0 dB on the first frame.
 
-**The `kOff` enum value is gone.** Real silicon has exactly four envelope
-states (attack/decay/sustain/release) -- "off" was this file's own
-bookkeeping shortcut for `recompute_active()`'s "does the chip need to keep
-running" fast path (`tick()`'s early-out, see §8 and the note above). A
-fully released operator on real hardware just sits in release forever with
-its attenuation pinned at maximum (the same `eg_off` condition -- top 8 of
-512 values -- that freezes its own further movement), so "idle" is now
-*derived* (`env == kRelease && env_level` pinned) rather than stored as a
-fifth state nothing in the silicon actually has.
+A retrigger starts the attack from the current level. No source says either
+way; it is the reading with the fewest assumptions.
 
-**Key-on retrigger timing.** The decapsulated mechanism re-triggers attack
-whenever key-on is live while the envelope is in release -- not on an edge
-against a separately latched flag -- and, subtly, dispatches that *same*
-sample's shift computation through the release/off case, not the attack
-case: `eg_gen` only flips to attack at the very end of the sample that
-detected the retrigger. Phase and feedback history (`phase`, `out`,
-`prev_out`) reset immediately, on that same sample -- only the envelope
-shift computation is the one-sample-delayed part. Getting this ordering
-exactly right (rather than flipping state before computing that sample's
-shift, which would start the attack curve one sample early) is what let
-`op.key_on`'s existing edge-tracking stay as the trigger signal without
-restructuring the call site.
+**Gaps.** No primary source describes how the real chip schedules envelope
+steps (a shared counter, its period, which frames a slow rate moves on), so
+the per-frame pattern here is a remainder accumulator, not the silicon's.
+Times match; sample-level step placement may not. The divisors and the
+attack constants (9, >>3) are fits to the table, not die values. The
+decay 10-90% column (8212.48 ms at RATE 4) implies 20.1 dB of span where
+linear-dB gives 19.1 dB, about 5% off; untested. Vibrato is a smooth
+triangle with no F-number quantisation: shape unsourced, and "7 cents" is
+read as peak deviation. Phase reset on key-on is kept, also unsourced.
 
-**Verification.** All 652 native tests pass unmodified, including every
-§34 case written specifically to act as a routing/KSL/KSR/four-op/waveform
-regression check across this exact rewrite -- confirming the rewrite changed
-only the envelope's per-sample curve, not anything else `generate_frame()`
-does. Both wasm binaries (`pc486.js`, `pc486-perf.js`) rebuilt clean; the
-full Playwright suite passes with no change to any audio-relevant spec
-(`opl3.spec.ts`, `soundblaster.spec.ts`, `fmquality.spec.ts`, `tone.spec.ts`,
-`audiotrace.spec.ts`, `cdda.spec.ts`) -- no front-end-visible behavior needed
-updating, since the `Sample` output contract (`{cpu_cycle, left, right}`)
-never changed.
+**Waveform 7's slope is unsourced.** The datasheet figure is schematic (it
+draws the ramp reaching zero mid-cycle and is near linear, which no
+exponential does), and the decap note only says the waveform is probably the
+exp table. `wave_sample()` keeps 8 log units per phase step (96 dB over a
+half cycle) as a single unsourced value.
 
-Four new `opl3_test.cpp` cases pin the rewrite's own specific behaviors,
-beyond what §34's shape-agnostic regression set happens to exercise:
-
-- `InstantAttackReachesFullVolumeOnTheVeryFirstFewFramesWhenEffectiveRateHiIsFifteen`
-  -- AR=15 reaches full volume within a fraction of a millisecond; a clearly
-  slower rate (AR=6) measurably does not, over the identical window.
-- `FullyIdleOperatorAttacksNormallyAgainOnASubsequentKeyOn` -- a fully
-  released, pinned-idle operator (no longer a separate stored `kOff`) still
-  attacks normally on a fresh key-on.
-- `RetriggeringMidReleaseResumesFromThereInsteadOfDippingToSilenceFirst` --
-  a key-on while still releasing resumes from the current attenuation; it
-  must not dip toward silence first.
-- `DecayAttenuationAtAFixedElapsedTimeRoughlyDoublesForOneStepOfTheRateRegister`
-  -- DR=7 vs DR=8 (one rate-register step = 4 RATE units, the datasheet's
-  actual halving unit) shows ~2x the attenuation at a fixed elapsed time.
-  The first draft of this test compared DR=8 vs DR=12 expecting 2x and got
-  ~16x -- a test bug, not a production one: a register delta of N is a RATE
-  delta of 4N (RATE = register*4 + key-scale offset), so N=4 is four
-  halvings (2^4=16), not one. A second draft's "early window" baseline was
-  also wrong for the same underlying reason §34 already names (a growing
-  measurement window reads close to its own start once decay is monotonic);
-  fixed by measuring a short, >1-waveform-cycle window positioned at the
-  end of the elapsed time against a separately-measured, never-decaying
-  (SL=0) reference peak.
-
-All four were verified to actually catch a regression, not just pass
-tautologically: each was checked against a deliberately sabotaged build
-(the instant-attack snap disabled, the retrigger path reverted to the old
-reset-to-silence-on-every-key-on behavior, and the envelope clock's
-trailing-zero-bit count artificially capped) and failed clearly every time,
-then reverted.
+**Tests** (`opl3_test.cpp`, `Opl3EnvelopeTimeTest`): attack 0-100% and
+10-90% at RATE 4, 19, 38, 49, 52; release 0-96 dB at RATE 4, 22, 41, 56,
+62; decay stopping and holding at SL=14 (224 units) with EGT=1; SL=15 at
+496; EGT=0 releasing with KON held; rate 0 frozen. `envelope_level()` is
+the test accessor. Vibrato's test measures ±7 / ±14 cents and the 6.1 Hz
+half period from zero crossings. Each was seen to fail against a planted
+regression (RL ignored, SL=15 as 45 dB, DVB ignored).
 
 ## 36. Diagnosing a real "scratchy music" report: ring range, and a checkbox that lied
 
