@@ -240,119 +240,101 @@ void Machine::condition_audio(size_t from) {
     }
 }
 
-uint8_t Machine::tile_pixel(uint8_t code, int x, int y) const {
-    int off = int(code) * 8 + (y & 7);
-    if (off < 0 || off >= 0x800) return 0;
-    uint8_t p0 = gfx[off];
-    uint8_t p1 = gfx[0x800 + off];
-    int bit = 7 - (x & 7);
-    return uint8_t(((p0 >> bit) & 1) | (((p1 >> bit) & 1) << 1));
+// --- video ---
+
+namespace {
+
+// Output stage on DP-182 sheet 2B: A9 7407 into R66 220 up and R65 330 down,
+// Q5 draws the line down through R102 56 and CR1 to the 7407's low level.
+constexpr double kLineVcc = 5.0;
+constexpr double kLineUp = 220.0;
+constexpr double kLineDown = 330.0;
+constexpr double kLineSeries = 56.0;
+constexpr double kDiodeDrop = 0.8;     // 1N914 at 10 mA
+constexpr double kSatDrop = 0.15;      // 2N3904 VCE(sat)
+constexpr double kBufferLow = 0.3;     // 7407 VOL
+
+constexpr double alt_level() {
+    double voc = kLineVcc * kLineDown / (kLineUp + kLineDown);
+    double rth = kLineUp * kLineDown / (kLineUp + kLineDown);
+    double drops = kDiodeDrop + kSatDrop + kBufferLow;
+    double v = (voc + rth * drops / kLineSeries) / (1.0 + rth / kLineSeries);
+    return (v - kBufferLow) / (voc - kBufferLow);
 }
 
-uint8_t Machine::sprite_pixel(uint8_t code, int x, int y) const {
-    int off = int(code) * 16 + (y & 15);
-    if (off < 0 || off >= 0x800) return 0;
-    uint8_t p0 = gfx[off];
-    uint8_t p1 = gfx[0x800 + off];
-    int bit = 7 - (x & 7);
-    return uint8_t(((p0 >> bit) & 1) | (((p1 >> bit) & 1) << 1));
+constexpr int kAltLevel = int(alt_level() * 255.0 + 0.5);
+
+// 82S25 outputs the complement of the stored bit (Signetics 1975 Bipolar
+// Memories); A8 passes it on, so a stored 0 lights the gun (DP-182 sheet 2B).
+uint32_t colour_ram_rgb(uint8_t cell) {
+    bool red = !(cell & 0x01);
+    bool green = !(cell & 0x02);
+    bool blue = !(cell & 0x04);
+    bool alt = !(cell & 0x08);
+    int r = red ? 255 : 0;
+    int g = green ? 255 : 0;
+    int b = blue ? 255 : 0;
+    // Q5 sinks the blue line while blue is lit, Q4 the green line while blue is dark.
+    if (alt) {
+        if (blue) b = kAltLevel;
+        else if (green) g = kAltLevel;
+    }
+    return 0xFF000000u | uint32_t(r) | (uint32_t(g) << 8) | (uint32_t(b) << 16);
 }
 
-uint32_t Machine::pen_rgb(int pen) const {
-    // Playfield colours at $1404, motion objects at $140C (DP-182 memory map).
-    // Sprite pens use $140C..$140F via the per-object colour nybbles.
-    uint8_t data = 0;
-    if (pen < 4) {
-        data = paletteram[0x04 | (pen & 3)];
-    } else {
-        // Sprite pen 1/2/3 → palette slots 0x0C + index.
-        int p = pen & 3;
-        if (p == 0) return 0;
-        data = paletteram[0x0C | ((p - 1) & 3)];
-    }
-    // Active low, $F is black (CENTST.MAC); bit 3 is the alternate blue or green (sheet 2B).
-    int r = 0xff * ((~data >> 0) & 1);
-    int g = 0xff * ((~data >> 1) & 1);
-    int b = 0xff * ((~data >> 2) & 1);
-    if (~data & 0x08) {
-        if (b) b = 0xc0;
-        else if (g) g = 0xc0;
-    }
-    return 0xFF000000u | (uint32_t(r)) | (uint32_t(g) << 8) | (uint32_t(b) << 16);
+// F7/HJ7 address: A10 and A9 select object or playfield by 256H, A8-A4 are
+// PIC5-PIC1, A3-A0 are MGA3-MGA0 (DP-182 sheet 2A).
+size_t picture_rom_addr(bool object, uint8_t pic, int mga) {
+    if (object) return size_t(((pic & 0x01) << 10) | ((pic & 0x3E) << 3) | (mga & 0x0F));
+    return size_t(0x200 | ((pic & 0x3F) << 3) | (mga & 0x07));
 }
+
+// F8/H8 mux and the LS166 shift out D7 first, or D0 first when PIC6 is set.
+int shifted_pen(const uint8_t* plane0, const uint8_t* plane1, size_t addr, int x, bool flip) {
+    int bit = flip ? (x & 7) : 7 - (x & 7);
+    return ((plane0[addr] >> bit) & 1) | (((plane1[addr] >> bit) & 1) << 1);
+}
+
+}  // namespace
 
 void Machine::render(uint32_t* rgba) const {
-    // Build machine-space 256×240, then ROT270 into upright 240×256.
     std::array<uint32_t, kFbW * kFbH> fb{};
-    fb.fill(pen_rgb(0));
+    const uint8_t* plane0 = gfx.data();
+    const uint8_t* plane1 = gfx.data() + 0x800;
 
-    for (int ty = 0; ty < kVisRows; ty++) {
-        for (int tx = 0; tx < 32; tx++) {
-            uint8_t data = videoram[ty * 32 + tx];
-            uint8_t code = uint8_t((data & 0x3F) + 0x40);
-            // Bit 6 flips X, bit 7 flips Y; after ROT270 that is upright Y / X.
-            bool flipx = (data & 0x40) != 0;
-            bool flipy = (data & 0x80) != 0;
-            for (int py = 0; py < 8; py++) {
-                for (int px = 0; px < 8; px++) {
-                    int sx = flipx ? 7 - px : px;
-                    int sy = flipy ? 7 - py : py;
-                    uint8_t pix = tile_pixel(code, sx, sy);
-                    int x = tx * 8 + px;
-                    int y = ty * 8 + py;
-                    fb[y * kFbW + x] = pen_rgb(pix);
-                }
+    for (int v = 0; v < kFbH; v++) {
+        // Line buffer A6/B6: 2-bit indirect colour per pixel, 256 deep.
+        std::array<uint8_t, kFbW> mo{};
+        for (int n = 0; n < 16; n++) {
+            uint8_t pic = spriteram[n];
+            int sum = (v + spriteram[0x10 + n]) & 0xFF;
+            // A7 matches when the top nibble of V + vertical position is $F.
+            if ((sum & 0xF0) != 0xF0) continue;
+            int mga = (sum & 0x0F) ^ ((pic & 0x80) ? 0x0F : 0);
+            size_t addr = picture_rom_addr(true, pic, mga);
+            uint8_t colour = spriteram[0x30 + n];
+            int x0 = spriteram[0x20 + n];
+            for (int px = 0; px < 8; px++) {
+                int pen = shifted_pen(plane0, plane1, addr, px, (pic & 0x40) != 0);
+                // C7 passes pen 0 through as the buffer's own contents.
+                if (pen == 0) continue;
+                mo[size_t((x0 + px) & 0xFF)] = uint8_t((colour >> ((pen - 1) * 2)) & 3);
             }
         }
-    }
 
-    // A motion-object pen whose colour pair is 0 is transparent.
-    auto penmask = [](uint8_t color) -> uint8_t {
-        uint8_t mask = 1;
-        if (((color >> 0) & 3) == 0) mask |= 2;
-        if (((color >> 2) & 3) == 0) mask |= 4;
-        if (((color >> 4) & 3) == 0) mask |= 8;
-        return mask;
-    };
-
-    for (int offs = 0; offs < 0x10; offs++) {
-        uint8_t pic = spriteram[offs];
-        int code = ((pic & 0x3E) >> 1) | ((pic & 0x01) << 6);
-        int color = spriteram[offs + 0x30];
-        bool flipx = (pic & 0x40) != 0;
-        bool flipy = (pic & 0x80) != 0;
-        int x = spriteram[offs + 0x20];
-        int y = 240 - spriteram[offs + 0x10];
-        uint8_t mask = penmask(uint8_t(color & 0x3F));
-
-        // Motion objects stop 8 px short of the cocktail edge.
-        int x0 = flipscreen ? 8 : 0;
-        int x1 = flipscreen ? kFbW : kFbW - 8;
-
-        for (int py = 0; py < 16; py++) {
-            for (int px = 0; px < 8; px++) {
-                int sx = flipx ? 7 - px : px;
-                int sy = flipy ? 15 - py : py;
-                uint8_t pix = sprite_pixel(uint8_t(code), sx, sy);
-                if (pix == 0) continue;
-                if (mask & (1u << pix)) continue;
-                // Colour byte pairs pick the $140C slot for pens 1/2/3.
-                int pair = (color >> ((pix - 1) * 2)) & 3;
-                int dx = x + px;
-                int dy = y + py;
-                if (dx < x0 || dx >= x1 || dy < 0 || dy >= kFbH) continue;
-                // Map sprite pair → palette RAM $140C+pair as pen.
-                uint8_t data = paletteram[0x0C | (pair & 3)];
-                int r = 0xff * ((~data >> 0) & 1);
-                int g = 0xff * ((~data >> 1) & 1);
-                int b = 0xff * ((~data >> 2) & 1);
-                if (~data & 0x08) {
-                    if (b) b = 0xc0;
-                    else if (g) g = 0xc0;
-                }
-                fb[dy * kFbW + dx] =
-                    0xFF000000u | uint32_t(r) | (uint32_t(g) << 8) | (uint32_t(b) << 16);
+        int row = v >> 3;
+        for (int x = 0; x < kFbW; x++) {
+            uint8_t grey = mo[size_t(x)];
+            bool in_window = flipscreen ? x >= 8 : x < kFbW - 8;
+            if (grey != 0 && in_window) {
+                fb[size_t(v * kFbW + x)] = colour_ram_rgb(paletteram[0x0C | grey]);
+                continue;
             }
+            uint8_t pic = videoram[size_t(row * 32 + (x >> 3))];
+            int mga = (v & 7) ^ ((pic & 0x80) ? 0x07 : 0);
+            size_t addr = picture_rom_addr(false, pic, mga);
+            int pen = shifted_pen(plane0, plane1, addr, x, (pic & 0x40) != 0);
+            fb[size_t(v * kFbW + x)] = colour_ram_rgb(paletteram[0x04 | pen]);
         }
     }
 
@@ -361,7 +343,7 @@ void Machine::render(uint32_t* rgba) const {
         for (int mx = 0; mx < kFbW; mx++) {
             int ux = my;
             int uy = (kFbW - 1) - mx;
-            rgba[uy * kUprightW + ux] = fb[my * kFbW + mx];
+            rgba[uy * kUprightW + ux] = fb[size_t(my * kFbW + mx)];
         }
     }
 }

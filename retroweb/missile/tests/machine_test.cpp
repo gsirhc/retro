@@ -140,7 +140,7 @@ TEST(Madsel, LdaIndexedIndirectReadsPixelBits) {
     m.vram[0x2020] = 0x01;  // pixel 0: low bit only
     m.run_cycles(60);
     EXPECT_EQ(m.mem_read(0x90), 0x7F);
-    EXPECT_EQ(m.mem_read(0x91), 0x3F);
+    EXPECT_EQ(m.mem_read(0x91), 0x1F);
 }
 
 TEST(Madsel, ThirdBitPlaneCostsOneCycle) {
@@ -156,9 +156,7 @@ TEST(Madsel, ThirdBitPlaneCostsOneCycle) {
     EXPECT_EQ(c, 2 + 2 + 7);
     EXPECT_EQ(m.madsel_hits, 1);
     EXPECT_EQ(m.vram[0xE805 >> 2] & (0x11 << 1), 0x11 << 1);
-    uint16_t b3 = uint16_t(((0xE805 & 0x0800) >> 1) | ((~0xE805 & 0x0800) >> 2) |
-                           ((0xE805 & 0x07F8) >> 2) | ((0xE805 & 0x1000) >> 12));
-    EXPECT_EQ(m.vram[b3] & (1 << 5), 1 << 5);
+    EXPECT_EQ(m.vram[0x0400] & (1 << 5), 1 << 5);
 }
 
 TEST(Madsel, OnlyOpcodesWithLow5Bits01) {
@@ -247,11 +245,8 @@ TEST(Video, PaletteBitsInvertedRgb) {
 TEST(Video, BottomRowsAddThirdBit) {
     Machine m;
     m.mem_write(0x4B01, 0x08);  // pen 1: R off, G on, B on
-    // Line 240, x 0..7: third bit lives at bit3_addr(240 << 8).
-    uint16_t pix = uint16_t(240 << 8);
-    uint16_t b3 = uint16_t(((pix & 0x0800) >> 1) | ((~pix & 0x0800) >> 2) |
-                           ((pix & 0x07F8) >> 2) | ((pix & 0x1000) >> 12));
-    m.vram[b3] = 0x01;
+    // Line 240 is BA = $F000, so BA12 = 1 and BA11 = 0 put its bits at $0201.
+    m.vram[0x0201] = 0x01;
     std::array<uint32_t, missile::kFbW * missile::kFbH> fb{};
     m.render(fb.data());
     EXPECT_EQ(fb[size_t((240 - missile::kVisTop) * missile::kFbW + 0)], 0xFFFFFF00u);
@@ -327,4 +322,100 @@ TEST(Flip, CocktailTrackballReadsIdle) {
     m.inputs.track_y = 0x03;
     m.mem_write(0x4800, 0x01);
     EXPECT_EQ(m.mem_read(0x4800), 0x00);
+}
+
+TEST(Madsel, ThirdColourBytesLandInTheScreenGapOfWorkRam) {
+    // BA12 is MAD0, BA11 is MAD10 and inverted MAD9, BA10-BA3 are MAD8-MAD1.
+    Machine m;
+    m.mad_write(0xE000, 0x20);
+    EXPECT_EQ(m.vram[0x0200] & 0x01, 0x01);
+    m.mad_write(0xF000, 0x20);
+    EXPECT_EQ(m.vram[0x0201] & 0x01, 0x01);
+    m.mad_write(0xE800, 0x20);
+    EXPECT_EQ(m.vram[0x0400] & 0x01, 0x01);
+    m.mad_write(0xE008, 0x20);
+    EXPECT_EQ(m.vram[0x0202] & 0x01, 0x01);
+    m.mad_write(0xE400, 0x20);
+    EXPECT_EQ(m.vram[0x0300] & 0x01, 0x01);
+    m.mad_write(0xE007, 0x20);
+    EXPECT_EQ(m.vram[0x0200] & 0x80, 0x80);
+}
+
+TEST(Madsel, TwoColourWriteUsesFourteenBitPixelAddress) {
+    Machine m;
+    m.mad_write(0x4003, 0xC0);
+    EXPECT_EQ(m.vram[0x1000], 0x88);
+    m.mad_write(0xC1FC, 0xC0);
+    EXPECT_EQ(m.vram[0x307F], 0x11);
+}
+
+TEST(Madsel, WriteSendsD7ToHighNibbleChipsAndD6ToLow) {
+    Machine m;
+    m.mad_write(0x4001, 0x80);
+    EXPECT_EQ(m.vram[0x1000], 0x20);
+    m.mad_write(0x4001, 0x40);
+    EXPECT_EQ(m.vram[0x1000], 0x02);
+}
+
+TEST(Madsel, WriteHonoursPromChipSelects) {
+    Machine m;
+    m.prom.fill(0xFF);
+    m.prom[0x10] = 0xFE;
+    m.mad_write(0x4000, 0xC0);
+    EXPECT_EQ(m.vram[0x1000], 0x01);
+}
+
+TEST(Madsel, DefaultPromEnablesEveryChipForWorkRamRows) {
+    Machine m;
+    for (int i = 0; i < 16; i++) EXPECT_EQ(m.prom[size_t(i)], 0x00) << i;
+    EXPECT_EQ(m.prom[0x1B], 0xF7);
+    EXPECT_EQ(m.prom[0x1F], 0x7F);
+}
+
+TEST(Madsel, ReadReturnsHighNibbleOnD7LowOnD6AndByteBitOnD5) {
+    Machine m;
+    m.vram[0x1000] = 0x24;
+    EXPECT_EQ(m.mad_read(0x4000), 0x1F);
+    EXPECT_EQ(m.mad_read(0x4001), 0x1F | 0x80);
+    EXPECT_EQ(m.mad_read(0x4002), 0x1F | 0x40 | 0x20);
+    m.vram[0x1000] = 0x01;
+    EXPECT_EQ(m.mad_read(0x4000), 0x1F | 0x40 | 0x20);
+}
+
+TEST(Madsel, ThirdColourRangeReadsBitFromThirdColourByteOnD5) {
+    Machine m;
+    m.vram[0x0200] = 0x04;
+    m.vram[0xE000 >> 2] = 0x02;
+    EXPECT_EQ(m.mad_read(0xE002), 0x1F | 0x20);
+    EXPECT_EQ(m.mad_read(0xE001), 0x1F | 0x40);
+}
+
+TEST(Video, FourthPaletteBitIsNotAColour) {
+    Machine m;
+    m.mem_write(0x4B00, 0x01);
+    std::array<uint32_t, missile::kFbW * missile::kFbH> fb{};
+    m.render(fb.data());
+    EXPECT_EQ(fb[0], 0xFFFFFFFFu);
+}
+
+TEST(Video, FirstShownLineIsRow25) {
+    EXPECT_EQ(missile::kVisTop, 25);
+    Machine m;
+    m.mem_write(0x4B02, 0x0D);
+    m.vram[25 * 64] = 0x01;
+    std::array<uint32_t, missile::kFbW * missile::kFbH> fb{};
+    m.render(fb.data());
+    EXPECT_EQ(fb[0], 0xFFFF0000u);
+}
+
+TEST(Video, PixelBitOrderFollowsTheShiftRegisters) {
+    Machine m;
+    m.mem_write(0x4B02, 0x0D);
+    m.mem_write(0x4B04, 0x07);
+    m.vram[100 * 64] = 0x21;
+    std::array<uint32_t, missile::kFbW * missile::kFbH> fb{};
+    m.render(fb.data());
+    size_t base = size_t((100 - missile::kVisTop) * missile::kFbW);
+    EXPECT_EQ(fb[base + 0], 0xFFFF0000u);
+    EXPECT_EQ(fb[base + 1], 0xFF0000FFu);
 }

@@ -15,7 +15,6 @@ namespace centipede {
 constexpr int kCpuHz = 1512000;          // 12.096 MHz / 8
 constexpr int kFrameHz = 60;
 constexpr int kLines = 256;              // 32×8 including blanked rows
-constexpr int kVisRows = 30;             // visible tile rows
 constexpr int kFbW = 256;                // machine (pre-rotate) width
 constexpr int kFbH = 240;                // visible height
 constexpr int kUprightW = 240;           // ROT270 portrait
@@ -85,10 +84,7 @@ private:
     void kick_watchdog();
     void earom_control(uint8_t v);
     void earom_update();
-    uint32_t pen_rgb(int pen) const;
     void condition_audio(size_t from);
-    uint8_t tile_pixel(uint8_t code, int x, int y) const;
-    uint8_t sprite_pixel(uint8_t code, int x, int y) const;
 
     int line_ = 0;
     int line_cycles_ = 0;

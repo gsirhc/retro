@@ -5,10 +5,14 @@ Fidelity rules follow `CLAUDE.md` and `.claude/arcade.md`.
 
 ## Sources
 
-- Atari DP-182 schematic package, 1st printing (sheet 1B microprocessor,
-  address decoder, memory map table; sheet 2B player, option and trackball
-  inputs, video output, audio output, high score memory). Scans from the
-  archive.org arcade manual collection.
+- Atari DP-182 schematic package, 5th printing (sheet 1B microprocessor,
+  address decoder, memory map table; sheet 2A playfield address selector,
+  playfield multiplexer, picture ROMs, motion object vertical and
+  horizontal; sheet 2B player, option and trackball inputs, video output,
+  audio output, high score memory). archive.org item
+  `arcademanual_Centipedesp`.
+- Signetics Bipolar Memories data book (Feb 1975), 82S25 16x4 RAM: open
+  collector outputs return the complement of the stored bit (bitsavers).
 - Atari Centipede operator's manual (fig. 7 game options, fig. 8 price
   settings).
 - Atari's Centipede source as published in the `historicalsource/centipede`
@@ -32,8 +36,32 @@ Fidelity rules follow `CLAUDE.md` and `.claude/arcade.md`.
 - L4 LS107 stretches PHI0 while the playfield RAM is selected.
 - Watchdog: L2 LS90 resets the board at its 8th count unless `$2000` is
   written.
-- Colour RAM is active low (`$F` is black, `CENTST.MAC`); bit 3 is the
-  alternate bit that makes a paler blue or green (sheet 2B video output).
+- Colour RAM C8 is an 82S25, so its outputs are the complement of the
+  stored nibble. Bits 0-2 light red, green and blue when 0, which is why `$F`
+  is black. Bit 3 (alternate) is latched by A8 and gates Q5 and Q4 (sheet 2B).
+  Each gun line is a 7407 into R66/R62/R64 220 up and R65/R61/R63 330 down.
+  With the alternate bit set, Q5 sinks the blue line through R102 56 and CR1
+  while blue is lit, and Q4 sinks the green line through R101 56 and CR2
+  while blue is dark (A8 pin 11 and pin 10 gate the two emitters). The
+  dimmed level is the Thevenin solution of that stage, about 0.54 of full.
+- Playfield RAM address is 8H-64H and 16V-128V through P5 and P7 (sheet 2A),
+  so a tile is `$0400 + 32 * row + column`. The four RAM lanes at one
+  address hold the picture, vertical, horizontal and colour bytes of the
+  motion objects at `$07C0` (AB4 and AB5 pick the lane).
+- Picture ROMs F7 (plane 0) and H/J7 (plane 1): A3-A0 are MGA3-MGA0, A8-A4
+  are PIC5-PIC1, A9 is 256H, A10 is /256H gated with PIC0. Playfield
+  tiles therefore start at ROM `$0200` with PIC0 on A3. F8/H8 and the LS166
+  shift out D7 first, or D0 first when PIC6 is set. PIC7 inverts MGA0-MGA2
+  through E7, but MGA3 only for motion objects (B7 gates it with /256H).
+- Motion objects: H6/F6 add V to the vertical byte, A7 matches when the sum
+  is `$Fx`, and the low nibble is the picture line. The horizontal byte
+  loads counters A5/B5, which address the 256 x 2 bit line buffer A6/B6
+  and wrap at 256. C7 selects one of the three 2-bit fields of the colour
+  byte by the pen. Pen 0 feeds the latched GRY value back, leaving the
+  buffer alone. Field 0 does write, and E8/C5 then fall back to the
+  playfield pen. Colour RAM address is `4 + pen` for the playfield and
+  `12 + GRY` for objects (D8, E8). Objects are written in slot order, so a
+  later slot wins.
 - Option switch factory values `0x54` (English, 3 lives, 12000 bonus,
   easy, 1-credit minimum) and `0x02` (1 coin 1 play), the manual's
   suggested settings.
@@ -59,9 +87,16 @@ resets the board.
   gating isn't worked out.
 - The L2 watchdog clock is taken as once per frame; its source line runs
   off the cropped sheet.
-- Frame timing (256 lines at 60 Hz, 240 visible) and the tile/motion
-  object flip bits, transparent pen rule and 8-pixel cocktail clip are
-  kept from earlier work and not yet traced on the scan.
+- Frame timing (256 lines at 60 Hz, 240 visible).
+- Motion objects are hidden in the last 8 columns (the first 8 when
+  flipped). The game parks an object at X = `$F8`. The line buffer
+  circuit has no gate for this, and the counter load and clear timing
+  against the playfield is not worked out, so the window is a stand-in.
+  The same gap covers the absolute alignment of objects to the playfield:
+  X is placed at the buffer address and Y at `240 - byte`.
+- Alternate-bit level uses typical device drops: 1N914 0.8 V, 2N3904
+  VCE(sat) 0.15 V, 7407 VOL 0.3 V, and an unloaded monitor input.
+- Cocktail flip is not applied to the picture.
 - Trackball X counts down for rightward motion; the quadrature phase
   order isn't legible on the scan.
 

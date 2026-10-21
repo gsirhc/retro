@@ -127,3 +127,226 @@ TEST(Machine, HwtestHelpScreenShowsCopyrightPrompt) {
             << "copyright line char " << i;
     }
 }
+
+namespace {
+
+uint32_t rgba(int r, int g, int b) {
+    return 0xFF000000u | uint32_t(r) | (uint32_t(g) << 8) | (uint32_t(b) << 16);
+}
+
+struct Frame {
+    std::array<uint32_t, centipede::kUprightW * centipede::kUprightH> px{};
+    explicit Frame(const centipede::Machine& m) { m.render(px.data()); }
+    uint32_t at(int x, int y) const {
+        return px[size_t((centipede::kFbW - 1 - x) * centipede::kUprightW + y)];
+    }
+};
+
+void set_pf_colours(centipede::Machine& m) {
+    m.paletteram[0x04] = 0x0F;
+    m.paletteram[0x05] = 0x0E;
+    m.paletteram[0x06] = 0x0D;
+    m.paletteram[0x07] = 0x0B;
+}
+
+void set_mo_colours(centipede::Machine& m) {
+    m.paletteram[0x0D] = 0x0E;
+    m.paletteram[0x0E] = 0x0D;
+    m.paletteram[0x0F] = 0x0B;
+}
+
+}  // namespace
+
+TEST(Video, ColourRamIsActiveLowRedGreenBlue) {
+    centipede::Machine m;
+    const struct { uint8_t cell; uint32_t want; } cases[] = {
+        {0x0F, rgba(0, 0, 0)},
+        {0x0E, rgba(255, 0, 0)},
+        {0x0D, rgba(0, 255, 0)},
+        {0x0B, rgba(0, 0, 255)},
+        {0x08, rgba(255, 255, 255)},
+    };
+    for (const auto& c : cases) {
+        m.paletteram[0x04] = c.cell;
+        EXPECT_EQ(Frame(m).at(0, 0), c.want) << "cell " << int(c.cell);
+    }
+}
+
+TEST(Video, AlternateBitDimsBlueWhileBlueIsLit) {
+    centipede::Machine m;
+    m.paletteram[0x04] = 0x03;
+    uint32_t p = Frame(m).at(0, 0);
+    int blue = int((p >> 16) & 0xFF);
+    EXPECT_GT(blue, 100);
+    EXPECT_LT(blue, 160);
+    EXPECT_EQ(p & 0xFFFF, 0u);
+    m.paletteram[0x04] = 0x01;
+    uint32_t q = Frame(m).at(0, 0);
+    EXPECT_EQ((q >> 16) & 0xFF, uint32_t(blue));
+    EXPECT_EQ((q >> 8) & 0xFF, 255u);
+}
+
+TEST(Video, AlternateBitDimsGreenOnlyWhileBlueIsDark) {
+    centipede::Machine m;
+    m.paletteram[0x04] = 0x05;
+    uint32_t p = Frame(m).at(0, 0);
+    int green = int((p >> 8) & 0xFF);
+    EXPECT_GT(green, 100);
+    EXPECT_LT(green, 160);
+    m.paletteram[0x04] = 0x04;
+    uint32_t q = Frame(m).at(0, 0);
+    EXPECT_EQ((q >> 8) & 0xFF, uint32_t(green));
+    EXPECT_EQ(q & 0xFF, 255u);
+    m.paletteram[0x04] = 0x0C;
+    EXPECT_EQ(Frame(m).at(0, 0), rgba(255, 255, 0));
+}
+
+TEST(Video, AlternateBitLeavesRedAndDarkGunsAlone) {
+    centipede::Machine m;
+    m.paletteram[0x04] = 0x06;
+    EXPECT_EQ(Frame(m).at(0, 0), rgba(255, 0, 0));
+    m.paletteram[0x04] = 0x07;
+    EXPECT_EQ(Frame(m).at(0, 0), rgba(0, 0, 0));
+}
+
+TEST(Video, PlayfieldTileUsesCodeOffsetAndPlanes) {
+    centipede::Machine m;
+    set_pf_colours(m);
+    m.videoram[0] = 0x05;
+    m.gfx[0x200 + 5 * 8 + 2] = 0x80;
+    m.gfx[0x800 + 0x200 + 5 * 8 + 2] = 0x40;
+    Frame f(m);
+    EXPECT_EQ(f.at(0, 2), rgba(255, 0, 0));
+    EXPECT_EQ(f.at(1, 2), rgba(0, 255, 0));
+    EXPECT_EQ(f.at(2, 2), rgba(0, 0, 0));
+    EXPECT_EQ(f.at(0, 1), rgba(0, 0, 0));
+}
+
+TEST(Video, PlayfieldBit6FlipsHorizontallyBit7FlipsLinesNotTile) {
+    centipede::Machine m;
+    set_pf_colours(m);
+    m.gfx[0x200 + 5 * 8 + 2] = 0x80;
+    m.gfx[0x200 + 4 * 8 + 5] = 0x01;
+    m.videoram[0] = 0x45;
+    EXPECT_EQ(Frame(m).at(7, 2), rgba(255, 0, 0));
+    EXPECT_EQ(Frame(m).at(0, 2), rgba(0, 0, 0));
+    m.videoram[0] = 0x85;
+    Frame f(m);
+    EXPECT_EQ(f.at(0, 5), rgba(255, 0, 0));
+    EXPECT_EQ(f.at(7, 5), rgba(0, 0, 0));
+}
+
+TEST(Video, PlayfieldRowsAndColumnsAre32PerRow) {
+    centipede::Machine m;
+    set_pf_colours(m);
+    m.gfx[0x200 + 3 * 8] = 0x80;
+    m.videoram[2 * 32 + 5] = 0x03;
+    EXPECT_EQ(Frame(m).at(5 * 8, 2 * 8), rgba(255, 0, 0));
+}
+
+TEST(Video, ObjectUsesPicBitsLineFromVerticalSumAndIndirectColour) {
+    centipede::Machine m;
+    set_pf_colours(m);
+    set_mo_colours(m);
+    m.spriteram[0] = 0x01;
+    m.spriteram[0x10] = 220;
+    m.spriteram[0x20] = 40;
+    m.spriteram[0x30] = 0x1E;
+    m.gfx[0x400 + 3] = 0x80;
+    m.gfx[0x800 + 0x400 + 3] = 0x40;
+    m.gfx[0x400 + 3 + 1] = 0x20;
+    m.gfx[0x800 + 0x400 + 3 + 1] = 0x20;
+    Frame f(m);
+    EXPECT_EQ(f.at(40, 23), rgba(0, 255, 0));
+    EXPECT_EQ(f.at(41, 23), rgba(0, 0, 255));
+    EXPECT_EQ(f.at(42, 24), rgba(255, 0, 0));
+    EXPECT_EQ(f.at(40, 22), rgba(0, 0, 0));
+}
+
+TEST(Video, ObjectFlipsFollowPicBits) {
+    centipede::Machine m;
+    set_mo_colours(m);
+    m.spriteram[0x10] = 220;
+    m.spriteram[0x20] = 40;
+    m.spriteram[0x30] = 0x01;
+    m.gfx[3] = 0x80;
+    m.spriteram[0] = 0x00;
+    EXPECT_EQ(Frame(m).at(40, 23), rgba(255, 0, 0));
+    m.spriteram[0] = 0x40;
+    EXPECT_EQ(Frame(m).at(47, 23), rgba(255, 0, 0));
+    m.spriteram[0] = 0x80;
+    EXPECT_EQ(Frame(m).at(40, 20 + 12), rgba(255, 0, 0));
+}
+
+TEST(Video, ObjectColourFieldZeroLetsPlayfieldShowThroughAndErasesEarlierObject) {
+    centipede::Machine m;
+    set_mo_colours(m);
+    m.paletteram[0x04] = 0x0B;
+    m.gfx[3] = 0x80;
+    m.gfx[0x800 + 3] = 0x80;
+    for (int n = 0; n < 2; n++) {
+        m.spriteram[size_t(0x10 + n)] = 220;
+        m.spriteram[size_t(0x20 + n)] = 40;
+    }
+    m.spriteram[0x30] = 0x10;
+    m.spriteram[0x31] = 0x00;
+    EXPECT_EQ(Frame(m).at(40, 23), rgba(0, 0, 255));
+    m.spriteram[0x31] = 0x20;
+    EXPECT_EQ(Frame(m).at(40, 23), rgba(0, 255, 0));
+    m.spriteram[0x30] = 0x00;
+    m.spriteram[0x31] = 0x10;
+    EXPECT_EQ(Frame(m).at(40, 23), rgba(255, 0, 0));
+}
+
+TEST(Video, LaterObjectSlotWins) {
+    centipede::Machine m;
+    set_mo_colours(m);
+    m.gfx[3] = 0x80;
+    m.gfx[0x800 + 3] = 0x80;
+    for (int n = 0; n < 2; n++) {
+        m.spriteram[size_t(0x10 + n)] = 220;
+        m.spriteram[size_t(0x20 + n)] = 40;
+    }
+    m.spriteram[0x30] = 0x10;
+    m.spriteram[0x31] = 0x20;
+    EXPECT_EQ(Frame(m).at(40, 23), rgba(0, 255, 0));
+    m.spriteram[0x30] = 0x20;
+    m.spriteram[0x31] = 0x10;
+    EXPECT_EQ(Frame(m).at(40, 23), rgba(255, 0, 0));
+}
+
+TEST(Video, ObjectHorizontalPositionWrapsInside256) {
+    centipede::Machine m;
+    set_mo_colours(m);
+    m.spriteram[0x10] = 220;
+    m.spriteram[0x20] = 252;
+    m.spriteram[0x30] = 0x01;
+    m.gfx[3] = 0x08;
+    EXPECT_EQ(Frame(m).at(0, 23), rgba(255, 0, 0));
+}
+
+TEST(Video, ObjectVerticalSumWrapsInside256) {
+    centipede::Machine m;
+    set_mo_colours(m);
+    m.spriteram[0x10] = 0x10;
+    m.spriteram[0x20] = 40;
+    m.spriteram[0x30] = 0x01;
+    m.gfx[5] = 0x80;
+    EXPECT_EQ(Frame(m).at(40, 224 + 5), rgba(255, 0, 0));
+}
+
+TEST(Video, ObjectsAreHiddenInTheLastEightColumnsUnlessFlipped) {
+    centipede::Machine m;
+    set_pf_colours(m);
+    set_mo_colours(m);
+    m.spriteram[0x10] = 220;
+    m.spriteram[0x20] = 248;
+    m.spriteram[0x30] = 0x01;
+    m.gfx[3] = 0x80;
+    EXPECT_EQ(Frame(m).at(248, 23), rgba(0, 0, 0));
+    m.spriteram[0x20] = 247;
+    EXPECT_EQ(Frame(m).at(247, 23), rgba(255, 0, 0));
+    m.flipscreen = true;
+    m.spriteram[0x20] = 248;
+    EXPECT_EQ(Frame(m).at(248, 23), rgba(255, 0, 0));
+}

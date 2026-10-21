@@ -5,9 +5,13 @@ Fidelity rules follow `CLAUDE.md` and `.claude/arcade.md`.
 
 ## Sources
 
-- Atari DP-147 schematic package, 2nd printing (sheet 1B microprocessor,
-  sync chain, memory map; sheet 2B input and output, POKEY, audio).
-  Scans from the arcarc.xmission.com Atari manual collection.
+- Atari DP-147 schematic package, 1st printing (sheet 1B microprocessor,
+  address decoding and sync; sheet 2A video generator with its signal
+  glossary; sheet 2B memory map, inputs and outputs). archive.org item
+  `missile-command-dp-147-01-1st-printing-sheet-1-side-a`. The 2nd printing
+  scans (arcarc.xmission.com) cover POKEY and audio.
+- Signetics Bipolar Memories data book (Feb 1975), 82S25: outputs are the
+  complement of the stored bit (bitsavers).
 - Atari TM-147 operator's manual, 2nd printing (fig. 7 option switches,
   self-test legend). The Regulator/Audio II board (035435) is a pair of
   TDA2002AV amplifiers, gain of ten.
@@ -38,24 +42,40 @@ Fidelity rules follow `CLAUDE.md` and `.claude/arcade.md`.
 
 ## MADSEL
 
-- Loaded at SYNC when the opcode's low five bits are `00001` (every
-  `($zz,X)` instruction) and /IRQH is inactive. It goes high on the
-  instruction's data access. The shared core skips the zero-page dummy
-  read, so that is its fifth bus access.
-- Pixel address is the 16-bit pointer. Data comes back in bits 7–6, and
-  bit 5 for the 3rd colour at `$E000+`. Writes go through the 035826-01
-  L6 masks. Without that PROM the board keeps every pixel but the one
-  addressed.
-- A 3rd-bit access takes one extra CPU cycle.
+- R4 counts five phi0 cycles after SYNC when the opcode's low five bits are
+  `00001` and /IRQH is inactive (sheet 2A). MADSEL is then high for the data
+  access of a `($zz,X)` instruction. The shared core skips the zero-page
+  dummy read, so that is its fifth bus access.
+- Address: with MADSEL high the L2/K2/J2/H2 muxes give MAD13-MAD0 =
+  BA15-BA2, so a byte holds four pixels. MUSHROOM (BA15, BA14 and BA13 all
+  high, N3) switches M2, M3 and L3: MAD13-MAD11 are 0, MAD10 = BA11,
+  MAD9 = /BA11, MAD8-MAD1 = BA10-BA3 and MAD0 = BA12. Those bytes land in
+  `$0200-$05FF`.
+- Write: MD0-MD3 take D6 and MD4-MD7 take D7 for two colours, every MD takes
+  D5 for the third colour (data selector muxes F5, H5, J5, K5). L6
+  (035826-01) is addressed by MADSEL, MUSHROOM and BA2-BA0 and its low
+  outputs enable chips WP0-WP7. The schematic prints its table: rows 0-15
+  all chips, 16-23 chips n and n+4 for pixel BA1-BA0, 24-31 one chip per
+  BA2-BA0. The default PROM is that table. A user PROM replaces it.
+- Read: P7 picks bit BA1-BA0 of each nibble and E7 latches them onto D7
+  (high nibble) and D6 (low nibble). A LS251 puts DRAM bit BA2-BA0 on D5.
+- Above `$E000` the access runs a two-colour cycle and then a third-colour
+  cycle, and phi0 is extended one cycle (phiEXTEND, sheet 2A).
 
 ## Video
 
-- 256 × 231 shown, lines 25–255. The rev 3 listing describes that
-  picture; line 24 is not drawn. 2bpp at `y × 64`, nibble-split. Lines
-  224–255 add the 3rd colour bit from `$0200–$05FF` (memory map).
-- Palette `$4B00–$4B07`: bits 3/2/1 = R/G/B, active low.
-- FLIP (OUT0 bit 6 low) reverses V. IRQ edges, the half-rate window and
-  VBLANK follow the flipped count. VBLANK in this model is V < 24.
+- 256 x 231 shown, lines 25-255. VBLANK is 1 for V < 24 (NOR of 32V, 64V,
+  128V and 16V.8V). The blanking latch L8 is cleared by VBLANK*, which also
+  goes low at V = 24 (B7/B5/J6, sheet 1B), so the first shown line is 25.
+- 2bpp at `y * 64`. N6 latches the byte, N7 shifts the high nibble and M6
+  the low nibble out as COLNUM2 and COLNUM1, bit 4+n and bit n for pixel n.
+  P6 shifts the third-colour byte out as COLNUM0 during 3INH low, V >= 224.
+  The three bits address the colour RAM through M7.
+- Palette `$4B00-$4B07`: L7 is an 82S25, so BD3, BD2, BD1 light red, green
+  and blue when 0. BD0 goes to L8 pin 5 and is not a gun.
+- FLIP (OUT0 bit 6 low) makes the V counters count down, so the same rows
+  show bottom up. IRQ edges, the half-rate window and VBLANK follow the
+  flipped count. VBLANK in this model is V < 24.
 
 ## I/O
 
@@ -88,16 +108,17 @@ of N10, R71 and R70 both 10K, inverts that for AUD2.
 
 - The 10 Hz high-pass and the ÷4 level fit on the way out to the page
   are not on sheet 2B. They stand in for the Regulator/Audio II input.
-- VBLANK's gate (8V, 16V, 32V, 64V, 128V into A5) doesn't read as a
-  line count on the scan. The model uses V < 24, and the page starts at
-  line 25, so the picture is the rev 3 listing's 231 lines.
 - The watchdog at `$4C00` is 8 frames. Its clock source runs off the
   cropped sheet.
 - The half-rate window is the 3INH cities area. The gate that stretches
   Φ0 there isn't legible on the scan.
-- The 3rd-bit address mix places that plane in `$0200–$05FF`, matching
-  the rev 3 layout (line 199 at `$0200`). The permutation isn't traced
-  on sheet 2A.
+- Order of the two cycles above `$E000` (two-colour first), and the
+  level of D4-D0 while MADSEL is read (taken as 1, floating TTL).
+- The display address is taken to match the processor address
+  (VAPORIZE9-VAPORIZE12 and 3COLSEL checked, the rest not).
+- The data selector table printed on sheet 2A lists MD0-MD7 as D7-D0.
+  The wiring and the read path agree with each other and not with the
+  table's column order, so the wiring is used.
 
 ## Departures (labelled)
 

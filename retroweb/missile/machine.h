@@ -23,7 +23,7 @@ constexpr int kSlowV = 224;                     // 3INH low: last 32 lines, half
 constexpr int kCyclesPerFrame = kSlowV * kCyclesPerLine + (kLines - kSlowV) * kCyclesPerLine / 2;
 constexpr double kFrameHz = double(kMasterHz / 2) / (kHTotal * kLines);  // 61.035
 constexpr int kAvgCpuHz = 1171875;              // 19200 cycles × kFrameHz
-constexpr int kVisTop = 25;                     // lines 25..255, the 231-line picture
+constexpr int kVisTop = 25;                     // VBLANK* blanks V < 24 and V = 24
 constexpr int kFbW = 256;
 constexpr int kFbH = kLines - kVisTop;          // 231
 constexpr int kWatchdogFrames = 8;
@@ -82,8 +82,8 @@ public:
 
     uint8_t mem_read(uint16_t addr) const;
     void mem_write(uint16_t addr, uint8_t v);
-    uint8_t vram_mad_read(uint16_t addr) const;
-    void vram_mad_write(uint16_t addr, uint8_t v);
+    uint8_t mad_read(uint16_t ba) const;
+    void mad_write(uint16_t ba, uint8_t d);
 
     int line() const { return line_; }
     int v() const { return v_of(line_); }
@@ -96,6 +96,7 @@ private:
     mos6502::Bus make_bus();
     void soft_reset();
     void set_default_prom();
+    void dram_write_cycle(uint16_t ba, bool mushroom, uint8_t d);
     void kick_watchdog() { watchdog_frames_ = kWatchdogFrames; }
     void next_line();
     void clock_irq();

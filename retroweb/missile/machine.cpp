@@ -7,10 +7,25 @@ namespace missile {
 
 namespace {
 
-uint16_t bit3_addr(uint16_t pixaddr) {
-    // 3rd-colour bits, last 32 lines, packed into $0200-$05FF (DP-147 memory map).
-    return uint16_t(((pixaddr & 0x0800) >> 1) | ((~pixaddr & 0x0800) >> 2) |
-                    ((pixaddr & 0x07F8) >> 2) | ((pixaddr & 0x1000) >> 12));
+// MAD13..MAD0 for a MADSEL access (DP-147 sheet 2A, L2 K2 J2 H2 M2 muxes, M3 and L3 gates).
+uint16_t dram_address(uint16_t ba, bool mushroom) {
+    if (!mushroom) return uint16_t((ba >> 2) & 0x3FFF);
+    uint16_t a = uint16_t((ba >> 12) & 1);
+    a |= uint16_t(((ba >> 3) & 0xFF) << 1);
+    a |= uint16_t(((ba >> 11) & 1) << 10);
+    a |= uint16_t((~ba >> 11 & 1) << 9);
+    return a;
+}
+
+// MUSHROOM is BA15 BA14 BA13 all high (N3, sheet 2A); ΦEXTEND adds a cycle there.
+bool in_third_colour_range(uint16_t ba) { return (ba & 0xE000) == 0xE000; }
+
+uint32_t palette_rgba(uint8_t cell) {
+    // L7 82S25 returns the complement of BD3, BD2, BD1 on UNLRED, UNLGREEN, UNLBLUE.
+    uint32_t r = (cell & 0x08) ? 0 : 0xFF;
+    uint32_t g = (cell & 0x04) ? 0 : 0xFF;
+    uint32_t b = (cell & 0x02) ? 0 : 0xFF;
+    return 0xFF000000u | r | (g << 8) | (b << 16);
 }
 
 }  // namespace
@@ -59,8 +74,8 @@ void Machine::soft_reset() {
 }
 
 void Machine::set_default_prom() {
-    // Stand-in for 035826-01: a write keeps every pixel but the one addressed.
-    prom.fill(0xFF);
+    // L6 outputs WP0-WP7, low enables a chip (write enable table, sheet 2A).
+    prom.fill(0x00);
     for (int i = 0; i < 8; i++) {
         prom[size_t(0x10 | i)] = uint8_t(~(0x11 << (i & 3)));
         prom[size_t(0x18 | i)] = uint8_t(~(1 << i));
@@ -112,28 +127,30 @@ void Machine::mem_write(uint16_t addr, uint8_t v) {
     }
 }
 
-uint8_t Machine::vram_mad_read(uint16_t addr) const {
-    uint8_t result = 0xFF;
-    uint8_t d = vram[addr >> 2] & uint8_t(0x11 << (addr & 3));
-    if ((d & 0xF0) == 0) result &= ~0x80;
-    if ((d & 0x0F) == 0) result &= ~0x40;
-    if ((addr & 0xE000) == 0xE000) {
-        if ((vram[bit3_addr(addr)] & (1 << (addr & 7))) == 0) result &= ~0x20;
-    }
-    return result;
+void Machine::dram_write_cycle(uint16_t ba, bool mushroom, uint8_t d) {
+    // L6 address is MADSEL, MUSHROOM, BA2-BA0.
+    uint8_t wp = prom[size_t(0x10 | (mushroom ? 0x08 : 0x00) | (ba & 7))];
+    // Data selector table: chips 0-3 take D6, 4-7 take D7, or every chip takes D5.
+    uint8_t md = mushroom ? uint8_t((d & 0x20) ? 0xFF : 0x00)
+                          : uint8_t(((d & 0x80) ? 0xF0 : 0x00) | ((d & 0x40) ? 0x0F : 0x00));
+    uint8_t& cell = vram[dram_address(ba, mushroom)];
+    cell = uint8_t((cell & wp) | (md & ~wp));
 }
 
-void Machine::vram_mad_write(uint16_t addr, uint8_t v) {
-    static const uint8_t kSpread[4] = {0x00, 0x0F, 0xF0, 0xFF};
-    uint8_t& cell = vram[addr >> 2];
-    uint8_t mask = prom[(addr & 7) | 0x10];
-    cell = uint8_t((cell & mask) | (kSpread[v >> 6] & ~mask));
-    if ((addr & 0xE000) == 0xE000) {
-        uint8_t& c3 = vram[bit3_addr(addr)];
-        uint8_t m3 = prom[(addr & 7) | 0x18];
-        uint8_t d3 = (v & 0x20) ? 0xFF : 0x00;
-        c3 = uint8_t((c3 & m3) | (d3 & ~m3));
-    }
+void Machine::mad_write(uint16_t ba, uint8_t d) {
+    dram_write_cycle(ba, false, d);
+    if (in_third_colour_range(ba)) dram_write_cycle(ba, true, d);
+}
+
+uint8_t Machine::mad_read(uint16_t ba) const {
+    uint8_t byte = vram[dram_address(ba, false)];
+    // P7 picks bit BA1-BA0 of each nibble, E7 latches them onto D7 and D6.
+    int sel = ba & 3;
+    uint8_t latched = uint8_t((((byte >> (4 + sel)) & 1) << 7) | (((byte >> sel) & 1) << 6));
+    if (in_third_colour_range(ba)) byte = vram[dram_address(ba, true)];
+    // LS251 on D5 picks bit BA2-BA0 of the byte on the DRAM outputs.
+    uint8_t d5 = uint8_t(((byte >> (ba & 7)) & 1) << 5);
+    return uint8_t(0x1F | latched | d5);
 }
 
 // MADSEL lands on the 6th cycle after a ($zz,X) SYNC, which is the data
@@ -143,7 +160,7 @@ uint8_t Machine::bus_read(uint16_t addr) {
         madsel_armed_ = false;
         madsel_hits++;
         if ((addr & 0xE000) == 0xE000) extra_cycles_++;
-        return vram_mad_read(addr);
+        return mad_read(addr);
     }
     return mem_read(addr);
 }
@@ -153,7 +170,7 @@ void Machine::bus_write(uint16_t addr, uint8_t v) {
         madsel_armed_ = false;
         madsel_hits++;
         if ((addr & 0xE000) == 0xE000) extra_cycles_++;
-        vram_mad_write(addr, v);
+        mad_write(addr, v);
         return;
     }
     mem_write(addr, v);
@@ -210,23 +227,21 @@ int Machine::run_cycles(int n) {
 
 void Machine::render(uint32_t* rgba) const {
     uint32_t pens[8];
-    for (int i = 0; i < 8; i++) {
-        uint8_t d = uint8_t(~palette[size_t(i)]);
-        uint32_t r = (d & 0x08) ? 0xFF : 0;
-        uint32_t g = (d & 0x04) ? 0xFF : 0;
-        uint32_t b = (d & 0x02) ? 0xFF : 0;
-        pens[i] = 0xFF000000u | r | (g << 8) | (b << 16);
-    }
+    for (int i = 0; i < 8; i++) pens[i] = palette_rgba(palette[size_t(i)]);
     for (int y = kVisTop; y < kLines; y++) {
-        int effy = flipscreen ? ((256 + 24 - y) & 0xFF) : y;
-        const uint8_t* src = &vram[size_t(effy * 64)];
-        const uint8_t* src3 = effy >= kSlowV ? &vram[bit3_addr(uint16_t(effy << 8))] : nullptr;
+        // FLIP counts V down, so the same rows show in reverse.
+        int row = flipscreen ? ((255 + kVisTop - y) & 0xFF) : y;
+        bool third = row >= kSlowV;
         uint32_t* dst = rgba + (y - kVisTop) * kFbW;
         for (int x = 0; x < kFbW; x++) {
-            uint8_t p = uint8_t(src[x / 4] >> (x & 3));
-            int pix = ((p >> 2) & 4) | ((p << 1) & 2);
-            if (src3) pix |= (src3[(x / 8) * 2] >> (x & 7)) & 1;
-            dst[x] = pens[pix];
+            uint8_t byte = vram[size_t(row * 64 + (x >> 2))];
+            // N7 shifts the high nibble, M6 the low nibble, P6 the 3rd-colour byte.
+            int pen = (((byte >> (4 + (x & 3))) & 1) << 2) | (((byte >> (x & 3)) & 1) << 1);
+            if (third) {
+                uint8_t b3 = vram[dram_address(uint16_t((row << 8) | x), true)];
+                pen |= (b3 >> (x & 7)) & 1;
+            }
+            dst[x] = pens[pen];
         }
     }
 }
