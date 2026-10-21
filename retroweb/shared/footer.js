@@ -16,10 +16,11 @@
     var footer = document.createElement("footer");
     footer.id = "siteFooter";
     footer.className = "site-footer";
-    footer.innerHTML =
+    var help = document.documentElement.hasAttribute("data-no-help") ? "" :
       '<p class="site-footer-about">' +
       '<a class="about-sign" href="' + aboutHref() +
-      '" title="Help" aria-label="Help">Help</a></p>' +
+      '" title="Help" aria-label="Help">Help</a></p>';
+    footer.innerHTML = help +
       "<p>&copy; 2026 oac-emu.dev - An indie project featuring old-ass computer " +
       "emulation you can use for free.</p>" +
       '<p>Source code available on <a class="source-link" href="' +

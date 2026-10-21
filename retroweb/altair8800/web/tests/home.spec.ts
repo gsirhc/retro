@@ -13,10 +13,11 @@ async function chooseTheme(page, theme, mode = "light") {
 // localStorage key with the emulator.
 
 const HOME = "http://localhost:8110/";
+const CATALOG = HOME + "super_secret.html";
 
 test.describe("retroweb landing page", () => {
   test("lists the Altair 8800 with a launch link to /altair8800/", async ({ page }) => {
-    await page.goto(HOME);
+    await page.goto(CATALOG);
     await expect(page).toHaveTitle(/Welcome to OAC Emulators/);
 
     // scoped by href; other machines have their own .machine-card
@@ -35,7 +36,7 @@ test.describe("retroweb landing page", () => {
   });
 
   test("Ready to Play lists Star Trek, linking to the Altair with ?tape=startrek", async ({ page }) => {
-    await page.goto(HOME);
+    await page.goto(CATALOG);
     const card = page.locator('a.machine-card[href="altair8800/?tape=startrek"]');
     await expect(card.locator(".name")).toHaveText("Star Trek");
     await expect(card.locator(".meta")).toHaveText("MITS Altair 8800");
@@ -45,7 +46,7 @@ test.describe("retroweb landing page", () => {
   });
 
   test("Ready to Play lists CP/M, linking to the Altair with ?disk=cpm", async ({ page }) => {
-    await page.goto(HOME);
+    await page.goto(CATALOG);
     const card = page.locator('a.machine-card[href="altair8800/?disk=cpm"]');
     await expect(card.locator(".name")).toHaveText("CP/M");
     await expect(card.locator(".meta")).toHaveText("MITS Altair 8800");
@@ -59,17 +60,17 @@ test.describe("retroweb landing page", () => {
     const root = page.locator("html");
     await expect(root).toHaveAttribute("data-theme", "win"); // default
 
-    await expect(page.locator("#siteFooter a.about-sign")).toHaveText("Help");
+    await expect(page.locator("#siteFooter a.about-sign")).toHaveCount(0);
 
     await chooseTheme(page, "modern");
     await expect(root).toHaveAttribute("data-theme", "modern");
     expect(await page.evaluate(() => localStorage.getItem("retro8080.theme"))).toBe("modern");
-    await expect(page.locator("#siteFooter a.about-sign")).toHaveText("Help");
+    await expect(page.locator("#siteFooter a.about-sign")).toHaveCount(0);
 
     await chooseTheme(page, "web94");
     await expect(root).toHaveAttribute("data-theme", "web94");
     expect(await page.evaluate(() => localStorage.getItem("retro8080.theme"))).toBe("web94");
-    await expect(page.locator("#siteFooter a.about-sign")).toHaveText("Help");
+    await expect(page.locator("#siteFooter a.about-sign")).toHaveCount(0);
   });
 
   test("System follows the OS appearance on the landing page and about page", async ({ page }) => {
@@ -93,7 +94,7 @@ test.describe("retroweb landing page", () => {
     await expect(page.locator("html")).toHaveAttribute("data-theme", "modern");
     await expect(page.locator("html")).toHaveAttribute("data-mode", "dark");
 
-    await page.locator("#siteFooter a.about-sign").click();
+    await page.goto(HOME + "about.html");
     await expect(page).toHaveURL(/\/about\.html$/);
     await expect(page.locator("html")).toHaveAttribute("data-theme", "modern");
     await expect(page.locator("html")).toHaveAttribute("data-mode", "dark");
@@ -114,17 +115,16 @@ test.describe("retroweb landing page", () => {
     await expect(page.locator("#pageThemeBtn")).toHaveText("Modern");
   });
 
-  test("the shared site footer credits oac-emu.dev and the Help control goes to about.html", async ({ page }) => {
+  test("the public footer has no Help control, and about.html still returns home", async ({ page }) => {
     await page.goto(HOME);
     const footer = page.locator("#siteFooter");
     await expect(footer).toContainText(/© 2026 oac-emu\.dev/);
     await expect(footer).toContainText(/old-ass computer/);
-    const about = footer.locator("a.about-sign");
-    await expect(about).toHaveAttribute("href", "about.html");
-    await expect(about).toHaveText("Help");
-    await about.click();
+    await expect(footer.locator("a.about-sign")).toHaveCount(0);
+    await page.goto(HOME + "about.html");
     await expect(page).toHaveURL(/\/about\.html$/);
     await expect(page).toHaveTitle(/About/i);
+    await expect(page.locator("#siteFooter a.about-sign")).toHaveCount(0);
     await expect(page.locator("a.pb-close")).toHaveAttribute("href", "./");
     await page.locator("a.pb-close").click();
     await expect(page).toHaveTitle(/Welcome to OAC Emulators/);

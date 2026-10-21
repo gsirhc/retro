@@ -1,4 +1,4 @@
-// Theme bootstrap, run before first paint. Inlined copies: index.html, about.html, arcade/index.html.
+// Theme bootstrap, run before first paint. Inlined copies: index.html, super_secret.html, about.html, news_info.html, blog.html, arcade/index.html.
 try {
   var r = document.documentElement;
   var t = localStorage.getItem("retro8080.theme") || "win";

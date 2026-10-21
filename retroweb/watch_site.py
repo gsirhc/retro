@@ -108,7 +108,7 @@ def classify(rel):
     _, ext = os.path.splitext(base)
     ext = ext.lower()
 
-    if (rel in ("index.html", "about.html")
+    if (rel in ("index.html", "about.html", "news_info.html", "blog.html", "super_secret.html")
             or rel.startswith("assets/")
             or rel.startswith("arcade/")):
         if ext in STATIC_EXT or base == "README.md":

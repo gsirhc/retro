@@ -28,6 +28,20 @@
   const testParams = new URLSearchParams(location.search);
   const TEST_CPU_MULTIPLIER =
     testParams.get("test") === "1" && testParams.get("fast") === "1" ? 20 : 1;
+  // The catalog link's token has to be in this URL. Without it, C: is the Doom disk.
+  const kFullToken = "c4e8a1f07b2d49e6a3c58f1d6e90b274";
+  const fullMachine = testParams.get("full") === kFullToken;
+  // clear a stored copy of the token
+  try { localStorage.removeItem("retroweb.pc486.full"); } catch (e) {}
+  if (!fullMachine) {
+    document.body.classList.add("doom-only");
+    const hideHelp = () => {
+      const help = document.querySelector("#siteFooter .about-sign");
+      if (help && help.parentElement) help.parentElement.remove();
+    };
+    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", hideHelp);
+    else hideHelp();
+  }
 
   // Opt-in diagnostic, not part of the machine: `?fmtrace` records every OPL3 register write with
   // its CPU cycle stamp (window.__fm). Free unless __fm.start() is called.
@@ -335,7 +349,7 @@
     const label = bay.querySelector('[data-role="label"]');
     label.textContent = name;
     label.classList.remove("empty");
-    bay.querySelector('[data-role="eject"]').disabled = false;
+    if (fullMachine) bay.querySelector('[data-role="eject"]').disabled = false;
   }
   function setBayEmpty(bay, emptyLabel) {
     bay.classList.remove("loaded");
@@ -361,6 +375,7 @@
     floppySaveBtn.hidden = true;
   }
   async function insertFloppy(name, data) {
+    if (!fullMachine) return;
     saveFloppy();
     await withLoad("Loading floppy\u2026", async () => {
       const bytes = await data;
@@ -378,6 +393,7 @@
       if (!f) return;
       await insertFloppy(f.name, f.arrayBuffer().then((b) => new Uint8Array(b)));
     });
+    if (!fullMachine) fileInput.disabled = true;
     floppySaveBtn.addEventListener("click", saveFloppy);
     ejectBtn.addEventListener("click", () => {
       saveFloppy();
@@ -387,14 +403,16 @@
     });
   }
 
+  const libraryBtn = document.getElementById("libraryBtn");
+  if (!fullMachine) libraryBtn.disabled = true;
   initDiskLibrary({
-    button: document.getElementById("libraryBtn"),
+    button: libraryBtn,
     drives: [{ id: 0, name: "A:", accepts: (k) => k === 1440 || k === 720 }],
     insert: (drive, label, bytes) => insertFloppy(label, bytes),
   });
 
   const FLOPPY_SIZES = [1474560, 737280];
-  const diskDrop = initDiskDrop({
+  const diskDrop = fullMachine ? initDiskDrop({
     accept: /\.(img|ima)$/i,
     message: () => "Drop a floppy image to put it in drive A:",
     onDrop: async (f) => {
@@ -406,12 +424,13 @@
       await insertFloppy(f.name, bytes);
     },
     onReject: (f) => diskDrop.flash(`${f.name} isn't a floppy image. Drive A: takes .img files.`),
-  });
+  }) : null;
 
   // ---- CD-ROM drive (atapi_cdrom) ----
   // Read-only media, so no dirty-image path. Starts empty; C: already ships with FreeDOS.
   const cdromBay = document.querySelector('.at-bay[data-drive="cdrom"]');
   async function insertCdrom(name, data) {
+    if (!fullMachine) return;
     await withLoad("Loading CD-ROM\u2026", async () => {
       const bytes = await data;
       pendingCdrom = { name, bytes };
@@ -422,7 +441,9 @@
   {
     const fileInput = cdromBay.querySelector('[data-role="file"]');
     const ejectBtn = cdromBay.querySelector('[data-role="eject"]');
+    if (!fullMachine) fileInput.disabled = true;
     fileInput.addEventListener("change", async () => {
+      if (!fullMachine) return;
       const files = Array.from(fileInput.files);
       fileInput.value = "";
       if (!files.length) return;
@@ -1575,7 +1596,7 @@
     pinball: { file: "disks/presets/pinball-hdd.img.gz", label: "Epic Pinball shareware", reset: "Reset to original Epic Pinball disk" },
     tyrian: { file: "disks/presets/tyrian-hdd.img.gz", label: "Tyrian 2.1 freeware", reset: "Reset to original Tyrian disk" },
   };
-  const presetId = new URLSearchParams(location.search).get("disk");
+  const presetId = fullMachine ? testParams.get("disk") : "doom";
   const presetHdd = Object.hasOwn(kPresetHdds, presetId) ? kPresetHdds[presetId] : null;
   addFooterNote("All shareware and freeware titles remain the property of their respective owners. <a href=\"../about.html#rights\">More info</a>.");
   // Only the gzip ships; the raw 256MB images would put the site over the host's 1GB.
@@ -1798,13 +1819,16 @@
       (hddStorageOk ? "" : ". " + HDD_STORAGE_BLOCKED);
     hddLegacyDownloadBtn.hidden = !legacyHddNote;
     // A fixed disk can't be swapped while running; these only affect the next power-on.
-    hddResetBtn.disabled = !firmware || poweredOn;
-    hddBlankBtn.disabled = !firmware || poweredOn;
-    hddDownloadBtn.disabled = !firmware;
-    hddUploadInput.disabled = !firmware || poweredOn;
-    document.getElementById("hddUploadBtn").disabled = !firmware || poweredOn;
+    const held = !fullMachine;
+    hddResetBtn.disabled = held || !firmware || poweredOn;
+    hddBlankBtn.disabled = held || !firmware || poweredOn;
+    hddDownloadBtn.disabled = held || !firmware;
+    hddLegacyDownloadBtn.disabled = held;
+    hddUploadInput.disabled = held || !firmware || poweredOn;
+    document.getElementById("hddUploadBtn").disabled = held || !firmware || poweredOn;
   }
   hddResetBtn.addEventListener("click", () => {
+    if (!fullMachine) return;
     pendingHdd = null;
     legacyHddNote = null;
     hddLabel = kFactoryHddLabel + ". Takes effect at next power-on";
@@ -1818,7 +1842,7 @@
     ensureFactoryHdd().catch((err) => console.error(err));
   });
   hddBlankBtn.addEventListener("click", () => {
-    if (!firmware) return;
+    if (!fullMachine || !firmware) return;
     pendingHdd = null;
     legacyHddNote = null;
     hddLabel = "blank drive (unformatted). Takes effect at next power-on";
@@ -1841,7 +1865,7 @@
   // A real file on the visitor's disk, like the floppy eject flow's "save modified media". C: isn't
   // ejectable, so it needs its own control.
   hddDownloadBtn.addEventListener("click", async () => {
-    if (!firmware) return;
+    if (!fullMachine || !firmware) return;
     // The live image if running, else what's staged for next power-on, else the factory image.
     let bytes;
     if (poweredOn && machine) {
@@ -1860,6 +1884,7 @@
     if (buf) downloadBytes(new Uint8Array(buf), "pc486-hdd-504mb.img");
   });
   hddUploadInput.addEventListener("change", async () => {
+    if (!fullMachine) return;
     const f = hddUploadInput.files[0];
     hddUploadInput.value = "";
     if (!f || !firmware) return;
@@ -1968,7 +1993,7 @@
     updateFocusHint();
     let noticeDismissed = false;
     try { noticeDismissed = localStorage.getItem(BOOT_NOTICE_KEY) === "1"; } catch {}
-    if (!noticeDismissed) bootNoticeEl.classList.add("visible");
+    if (!noticeDismissed && fullMachine) bootNoticeEl.classList.add("visible");
     if (new URLSearchParams(location.search).get("test") === "1") {
       window.__test = {
         machine, sendKey, screenEl, fitScreen, frameCanvas, keyboard,

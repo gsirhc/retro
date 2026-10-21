@@ -1,12 +1,12 @@
 import { test, expect } from "./fixtures";
-import { openKeyboard, screenText, keysDrained, emuWait } from "./helpers";
+import { openKeyboard, screenText, keysDrained, emuWait, withFull } from "./helpers";
 
 // Doom 1.2 and its contemporaries default to the arrow cluster. The Key Mapper maps at the
 // browser edge, so the guest gets genuine arrow scancodes. Off by default; the WASD -> Arrows
 // preset (and the bezel shortcut) turn it on.
 test.describe("WASD to arrow keys", () => {
   test("preset persists across reload", async ({ page }) => {
-    await page.goto("/?test=1&fast=1");
+    await page.goto(withFull("/?test=1&fast=1"));
     await page.waitForFunction(() => !!(window as any).__test?.machine, null, { timeout: 60_000 });
     await page.evaluate(() => (window as any).__test.clearKeymap());
     await expect(page.locator("#keymapAllBtn")).toBeDisabled();

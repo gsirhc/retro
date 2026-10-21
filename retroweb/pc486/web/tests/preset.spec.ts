@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures";
-import { bootLive, setPowerSwitch, expectDownload } from "./helpers";
+import { bootLive, setPowerSwitch, expectDownload, PC486_FULL } from "./helpers";
 
 type Page = import("@playwright/test").Page;
 
@@ -299,5 +299,62 @@ test.describe("preset C: (?disk=tyrian)", () => {
     const note = page.locator("#siteFooter .site-footer-note");
     await expect(note).toContainText("All shareware and freeware titles remain the property of their respective owners");
     await expect(note.locator("a")).toHaveAttribute("href", "../about.html#rights");
+  });
+});
+
+test.describe("locked Doom page", () => {
+  test("a bare visit forces the Doom disk and grays out the drive controls", async ({ page }) => {
+    await page.goto("/?test=1&fast=1&disk=wolf3d");
+    await page.waitForFunction(() => !!(window as any).__test?.machine, null, { timeout: 15_000 });
+    await expect(page.locator("body")).toHaveClass(/doom-only/);
+    await expect(page.locator("#hddStatus")).toHaveText(/Using: DOOM shareware/);
+    await expect(page.locator("#hddDownloadBtn")).toBeDisabled();
+    await expect(page.locator("#libraryBtn")).toBeDisabled();
+    await expect(page.locator('.at-bay[data-drive="0"] [data-role="file"]')).toBeDisabled();
+    await expect(page.locator('.at-bay[data-drive="cdrom"] [data-role="file"]')).toBeDisabled();
+    await expect(page.locator("#siteFooter a.about-sign")).toHaveCount(0);
+    await expect(page.locator("#hddCard .soon-label")).toBeVisible();
+    await expect(page.locator("#floppyInfoCard .soon-label")).toBeVisible();
+    await expect(page.locator('.at-bay[data-drive="0"] .soon-label')).toBeVisible();
+    await expect(page.locator('.at-bay[data-drive="cdrom"] .soon-label')).toBeVisible();
+    await expect(page.locator("#powerSwitch")).toBeEnabled();
+    await expect(page.locator("#resetBtn")).toBeEnabled();
+    await page.locator("#powerSwitch").click({ force: true });
+    await expect(page.locator("#powerLed")).not.toHaveClass(/power-on/);
+    await expect(page.locator("#hddResetBtn")).toBeDisabled();
+  });
+
+  test("a wrong unlock string stays locked", async ({ page }) => {
+    await page.goto("/?test=1&fast=1&full=nope");
+    await page.waitForFunction(() => !!(window as any).__test?.machine, null, { timeout: 15_000 });
+    await expect(page.locator("body")).toHaveClass(/doom-only/);
+    await expect(page.locator("#hddStatus")).toHaveText(/Using: DOOM shareware/);
+  });
+
+  test("the unlock string applies only while it is in the URL", async ({ page }) => {
+    await page.addInitScript((token) => {
+      localStorage.setItem("retroweb.pc486.full", token);
+    }, PC486_FULL);
+    await page.goto("/?test=1&fast=1");
+    await page.waitForFunction(() => !!(window as any).__test?.machine, null, { timeout: 15_000 });
+    await expect(page.locator("body")).toHaveClass(/doom-only/);
+    await expect(page.locator("#siteFooter a.about-sign")).toHaveCount(0);
+
+    await page.goto(`/?test=1&fast=1&full=${PC486_FULL}`);
+    await page.waitForFunction(() => !!(window as any).__test?.machine, null, { timeout: 15_000 });
+    await expect(page.locator("body")).not.toHaveClass(/doom-only/);
+    await expect(page.locator("#hddStatus")).toHaveText(/Using: FreeDOS \(default\)/);
+    await expect(page.locator("#libraryBtn")).toBeEnabled();
+    await expect(page.locator("#hddDownloadBtn")).toBeEnabled();
+    await expect(page.locator("#siteFooter a.about-sign")).toHaveText("Help");
+    await expect(page.locator(".soon-label")).toHaveCount(4);
+    await expect(page.locator("#hddCard .soon-label")).toBeHidden();
+    await expect(page.locator('.at-bay[data-drive="cdrom"] .soon-label')).toBeHidden();
+
+    await page.goto("/?test=1&fast=1");
+    await page.waitForFunction(() => !!(window as any).__test?.machine, null, { timeout: 15_000 });
+    await expect(page.locator("body")).toHaveClass(/doom-only/);
+    await expect(page.locator("#hddStatus")).toHaveText(/Using: DOOM shareware/);
+    await expect(page.locator("#siteFooter a.about-sign")).toHaveCount(0);
   });
 });

@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures";
-import { boardKey, openKeyboard } from "./helpers";
+import { boardKey, openKeyboard, withFull } from "./helpers";
 
 // Key Mapper presets, bulk toggles and persistence. Map mode itself is in pckeyboard.spec.ts.
 test.describe("Key Mapper", () => {
@@ -48,7 +48,7 @@ test.describe("Key Mapper", () => {
   });
 
   test("custom mapping persists across reload", async ({ page }) => {
-    await page.goto("/?test=1&fast=1");
+    await page.goto(withFull("/?test=1&fast=1"));
     await page.waitForFunction(() => !!(window as any).__test?.machine, null, { timeout: 60_000 });
     await page.evaluate(() => {
       (window as any).__test.clearKeymap();

@@ -2,9 +2,12 @@
 
 The browser emulators and the landing page that lists them.
 
-- [`index.html`](index.html) — the landing page (site root). Machines are
-  grouped as 3-column tiles (**Systems**, **Ready to Play**, a full-width neon
-  **Enter the Arcade** portal, then **Homebrew**). The full cabinet list lives at
+- [`index.html`](index.html) — the landing page (site root). Two cards:
+  Doom, which links to the 486, and the 486 itself, which explains that the
+  full PC is coming soon. [`super_secret.html`](super_secret.html) is the
+  full catalog (Systems, Ready to Play, the neon **Enter the Arcade** portal,
+  Homebrew), deployed and not linked from the site. Its 486 links carry an
+  unlock, and the string has to be in the URL. The full cabinet list lives at
   [`arcade/`](arcade/) (`/arcade/`), sortable by name, year, CPU, or
   manufacturer. Computer cards use screenshots of this project's own
   rendered hardware; arcade cards are original 286×128 starfield titles in
@@ -124,6 +127,8 @@ FreeDOS hard disk and CD-ROM images, then **stages** the site so URLs are clean:
 ```
 _site/index.html      <- retroweb/index.html
 _site/about.html      <- retroweb/about.html
+_site/news_info.html  <- retroweb/news_info.html
+_site/blog.html       <- retroweb/blog.html
 _site/arcade/         <- retroweb/arcade/index.html
 _site/assets/         <- retroweb/assets/
 _site/shared/         <- retroweb/shared/theme.css, pagebar.css, footer.css, footer.js
@@ -178,7 +183,7 @@ MACHINE=pc486 make -C retroweb watch   # wasm rebuilds only for that machine
 
 Static edits restage in under a second; a C++ save waits on emscripten for
 that machine (or every arcade board, if you touched `shared/cpu`). Root
-`index.html` / `about.html` / `arcade/` / `assets/` and `shared/` front-end files always
+`index.html` / `about.html` / `news_info.html` / `blog.html` / `arcade/` / `assets/` and `shared/` front-end files always
 restage even with `MACHINE=` set.
 
 **If the preview keeps dropping** (terminal closed, laptop slept, a crash),
@@ -200,7 +205,7 @@ reload instead of hand-running `make site`.)
 
 - **JavaScript** — ESLint (`eslint.config.js`). Browser scripts, not
   vendored xterm, generated wasm glue, or the copied `web/shared/`.
-- **HTML** — HTMLHint (`.htmlhintrc`) on the landing page, `about.html`,
+- **HTML** — HTMLHint (`.htmlhintrc`) on the landing page, `about.html`, `news_info.html`, `blog.html`,
   and each machine's `web/index.html`.
 - **C++** — cppcheck (`lint-cpp.sh`), warning / performance / portability,
   C++17. Needs `cppcheck` on `PATH` and gtest headers (`apt install

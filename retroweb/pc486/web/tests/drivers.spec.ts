@@ -1,10 +1,11 @@
 import { test, expect } from "./fixtures";
+import { withFull } from "./helpers";
 
 // The CuteMouse floppy lives in the Disk library. INT 33h is a
 // driver, not firmware, so the machine ships the diskette (PC486_REVIEW.md §10).
 test.describe("Freeware disks & drivers", () => {
   test("Removable media has the Disk library and no separate media buttons", async ({ page }) => {
-    await page.goto("/?test=1");
+    await page.goto(withFull("/?test=1"));
     await expect(page.locator("#floppyInfoCard h2")).toHaveText("Removable media");
     await expect(page.locator("#floppyInfoCard #libraryBtn")).toBeVisible();
     await expect(page.locator("#ctmouseBtn")).toHaveCount(0);
@@ -12,7 +13,7 @@ test.describe("Freeware disks & drivers", () => {
   });
 
   test("the library offers CuteMouse for A:", async ({ page }) => {
-    await page.goto("/?test=1");
+    await page.goto(withFull("/?test=1"));
     await page.locator("#libraryBtn").click();
     await page.locator("#libraryDialog .lib-item", { hasText: "CuteMouse" }).click();
     await expect(page.locator("#libraryDialog .lib-disks button")).toHaveText(["Insert in A:"]);
@@ -33,7 +34,7 @@ test.describe("Freeware disks & drivers", () => {
   });
 
   test("the served image is a 1.44MB FAT12 diskette carrying CTMOUSE.EXE", async ({ page }) => {
-    await page.goto("/?test=1");
+    await page.goto(withFull("/?test=1"));
     const info = await page.evaluate(async () => {
       const res = await fetch("disks/library/ctmouse.img");
       const buf = new Uint8Array(await res.arrayBuffer());

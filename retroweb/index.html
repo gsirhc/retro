@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-no-help>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -11,7 +11,6 @@
 <link rel="stylesheet" href="shared/theme.css">
 <link rel="stylesheet" href="shared/pagebar.css">
 <link rel="stylesheet" href="shared/footer.css">
-<script>try{if(localStorage.getItem("retroweb.readyArt"))document.documentElement.classList.add("art-pending");}catch(e){}</script>
 <style>
   /* ---- page themes: default = Windows 95; winxp = Luna; web94 = mid-90s
      Mosaic web; modern / aurora = clean layouts. Light and dark palettes
@@ -27,12 +26,12 @@
   :root[data-theme="web94"] { --title-font: bold 26px "Times New Roman", Times, serif; }
   :root[data-theme="modern"] { --title-font: 700 28px/1.15 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
   /* Atmosphere title size; desktop background lives in shared/theme.css. */
-  :root[data-theme="aurora"] { --title-font: 800 30px/1.15 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  :root[data-theme="aurora"] { --title-font: 800 30px/1.15 Inter, Helvetica, Arial, sans-serif; }
   :root[data-theme="aurora"] body {
     display: flex; flex-direction: column; align-items: center; justify-content: center;
   }
   :root[data-theme="aurora"] .pagebar { border-bottom: 1px solid rgba(168,140,255,.35); }
-  :root[data-theme="aurora"] .section-heading { font: 700 14px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: var(--muted); }
+  :root[data-theme="aurora"] .section-heading { font: 700 14px Inter, Helvetica, Arial, sans-serif; color: var(--muted); }
   :root[data-theme="aurora"] .machine-card .shot { border-radius: 6px; }
   :root[data-theme="aurora"] .machine-card:hover {
     box-shadow: 0 6px 22px rgba(123,47,247,.35);
@@ -74,6 +73,52 @@
     text-shadow: var(--title-shadow); letter-spacing: 2px;
   }
   .tagline { margin: 2px 0 0; color: var(--muted); }
+  .welcome-banner {
+    margin: 0 -26px 20px;
+    padding: 12px 26px;
+    background: var(--titlebar-bg);
+    color: var(--titlebar-fg);
+    text-align: center;
+    font: bold 16px/1.45 Arial, Helvetica, sans-serif;
+  }
+  .welcome-banner a,
+  .welcome-banner a:visited { color: inherit; }
+  :root[data-theme="win"] .welcome-banner {
+    background: #000080;
+  }
+  :root[data-theme="web94"] .welcome-banner {
+    background: #000080;
+    color: #ffffff;
+    font-family: "Times New Roman", Times, serif;
+    font-size: 18px;
+  }
+  :root[data-theme="modern"] .welcome-banner {
+    margin-left: 0;
+    margin-right: 0;
+    border: var(--rule);
+    border-radius: 10px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  :root[data-theme="aurora"] .welcome-banner {
+    margin-left: 0;
+    margin-right: 0;
+    border-radius: 10px;
+    font-family: Inter, Helvetica, Arial, sans-serif;
+  }
+  #contact {
+    margin: 28px 0 0;
+    padding-top: 16px;
+    border-top: var(--rule);
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--muted);
+  }
+  #contact + p {
+    margin: 6px 0 0;
+    font-size: 13px;
+    line-height: 1.45;
+    color: var(--muted);
+  }
 
   .section-heading {
     margin: 0;
@@ -85,7 +130,8 @@
   :root[data-theme="modern"] .section-heading { font: 700 14px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: var(--muted); }
 
   .machines {
-    display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;
+    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px;
+    margin-top: 22px;
   }
   .machines + .machines { margin-top: 30px; }
   .section-row {
@@ -115,9 +161,11 @@
   }
   :root[data-theme="winxp"] .section-blurb { font: 15px/1.35 Tahoma, "Segoe UI", sans-serif; }
   :root[data-theme="web94"] .section-blurb { font: 15px/1.35 "Times New Roman", Times, serif; }
-  :root[data-theme="modern"] .section-blurb,
-  :root[data-theme="aurora"] .section-blurb {
+  :root[data-theme="modern"] .section-blurb {
     font: 15px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  :root[data-theme="aurora"] .section-blurb {
+    font: 15px/1.35 Inter, Helvetica, Arial, sans-serif;
   }
   .machine-card {
     display: flex; flex-direction: column; padding: 0;
@@ -131,6 +179,20 @@
     box-shadow: 0 6px 20px rgba(16,24,40,.12);
   }
   :root:not([data-theme="modern"]) .machine-card:active { border-style: inset; }
+  .machine-card.is-soon,
+  .arcade-portal.is-soon { pointer-events: none; }
+  .machine-card.is-soon:hover,
+  :root[data-theme="modern"] .machine-card.is-soon:hover,
+  :root[data-theme="aurora"] .machine-card.is-soon:hover,
+  :root:not([data-theme="modern"]) .machine-card.is-soon:active,
+  .arcade-portal.is-soon:hover,
+  :root[data-theme="modern"] .arcade-portal.is-soon:hover,
+  :root[data-theme="aurora"] .arcade-portal.is-soon:hover {
+    transform: none;
+    box-shadow: none;
+  }
+  .arcade-portal.is-soon:hover .portal-neon,
+  .arcade-portal.is-soon:hover .portal-open { filter: none; }
 
   /* Thumbnail-only tiles. Shots are 286×128 (2.234:1) except the AT fascia
      (712×128); object-fit: cover + left keeps that crop on the badge/LEDs. */
@@ -149,6 +211,21 @@
     font-size: 12px; color: var(--muted);
   }
   .machine-card:has(.meta) .name { padding-bottom: 2px; }
+  button.machine-card {
+    font: inherit; cursor: pointer; width: 100%; text-align: inherit;
+  }
+  .shot-frame { position: relative; display: block; overflow: hidden; line-height: 0; }
+  .shot-frame .shot { filter: brightness(.45); }
+  .soon-banner {
+    position: absolute; left: -18%; right: -18%; top: 50%;
+    transform: translateY(-50%) rotate(-18deg);
+    background: #9a1c1c; color: #fff; text-align: center;
+    font: 700 15px/1.2 Arial, Helvetica, sans-serif;
+    letter-spacing: .14em; text-transform: uppercase;
+    padding: 6px 0; box-shadow: 0 2px 8px rgba(0,0,0,.45);
+  }
+  #pc486SoonDialog { max-width: 440px; }
+  #pc486SoonDialog p { margin: 0 0 14px; font-size: 14px; line-height: 1.5; color: var(--dim); }
 
   /* Full-width arcade neon: script lettering on a starfield + crescent moon.
      Face stays dark in every theme; no card border so the night sky reads flush. */
@@ -306,129 +383,49 @@
       </div>
     </header>
 
-    <div class="section-row">
-      <h2 class="section-heading">Systems</h2>
-      <p class="section-blurb">Era-correct full hardware systems you can use like the real thing.</p>
-    </div>
-    <div class="machines">
-      <a class="machine-card" href="altair8800/">
-        <img class="shot" src="assets/altair-panel.jpg" width="286" height="128"
-             decoding="async" alt="Altair 8800 front panel">
-        <span class="name">MITS Altair 8800</span>
-      </a>
-      <a class="machine-card" href="ibmpc-at/">
-        <img class="shot" src="assets/ibmpcat-panel.jpg" width="712" height="128"
-             decoding="async" alt="IBM PC/AT front panel, powered on">
-        <span class="name">IBM PC/AT</span>
-      </a>
-      <a class="machine-card" href="pc486/">
-        <img class="shot" src="assets/pc486-panel.jpg" width="286" height="128"
-             decoding="async" alt="486 DX2-66 front panel turbo cluster, powered on">
-        <span class="name">486 DX2-66 Gaming PC</span>
-      </a>
-    </div>
+    <p class="welcome-banner">Welcome!  We are just starting out and are currently 
+      working on several emulators.  
+      <br/>Here is a preview. Enjoy! Please read <a href="news_info.html">News & Info</a> for more details.
+    </p>
 
-    <div class="section-row">
-      <h2 class="section-heading">Ready to Play</h2>
-      <p class="section-blurb">Quick to play titles you can run immediately.</p>
-      <label class="art-pick">Thumbnails
-        <select id="readyArt" aria-label="Thumbnail art">
-          <option value="">Original</option>
-          <option value="snap">Screenshot</option>
-          <option value="title">Title screen</option>
-          <option value="boxart">Box art</option>
-        </select>
-      </label>
-    </div>
     <div class="machines">
-      <a class="machine-card" href="pc486/?disk=doom" data-art="DOOM (1993)" data-title-y="0%" data-boxart-y="0%">
-        <img class="shot" referrerpolicy="no-referrer" src="assets/doom-e1m1.jpg" width="286" height="128"
+      <a class="machine-card" href="pc486/?disk=doom">
+        <img class="shot" src="assets/doom-e1m1.jpg" width="286" height="128"
              decoding="async" alt="Shareware DOOM, looking out a window in E1M1, on the 486 DX2-66">
         <span class="name">Doom</span>
         <span class="meta">486 DX2-66 Gaming PC</span>
       </a>
-      <a class="machine-card" href="pc486/?disk=wolf3d" data-art="Wolfenstein 3D (1992)" data-title-y="0%" data-boxart-y="0%">
-        <img class="shot" referrerpolicy="no-referrer" src="assets/wolf3d-e1m1.jpg" width="286" height="128"
-             decoding="async" alt="Shareware Wolfenstein 3-D, the first cell of E1M1, on the 486 DX2-66">
-        <span class="name">Wolfenstein 3D</span>
-        <span class="meta">486 DX2-66 Gaming PC</span>
-      </a>
-      <a class="machine-card" href="pc486/?disk=duke3d" data-art="Duke Nukem 3D (1996)" data-title-y="30%" data-boxart-y="0%">
-        <img class="shot" referrerpolicy="no-referrer" src="assets/duke3d-e1l1.jpg" width="286" height="128"
-             decoding="async" alt="Shareware Duke Nukem 3D's attract demo, a Pig Cop in the E1L1 bookstore, on the 486 DX2-66">
-        <span class="name">Duke Nukem 3D</span>
-        <span class="meta">486 DX2-66 Gaming PC</span>
-      </a>
-      <a class="machine-card" href="pc486/?disk=rott" data-art="Rise of the Triad - Dark War (1994)" data-title-y="30%" data-boxart-y="0%">
-        <img class="shot" referrerpolicy="no-referrer" src="assets/rott-demo.jpg" width="286" height="128"
-             decoding="async" alt="Shareware Rise of the Triad's attract demo, two guards on a walkway, on the 486 DX2-66">
-        <span class="name">Rise of the Triad</span>
-        <span class="meta">486 DX2-66 Gaming PC</span>
-      </a>
-      <a class="machine-card" href="pc486/?disk=pinball" data-art="Epic Pinball - The Complete Collection (1995)" data-title-y="0%" data-boxart-y="0%">
-        <img class="shot" referrerpolicy="no-referrer" src="assets/pinball-android.jpg" width="286" height="128"
-             decoding="async" alt="Shareware Epic Pinball's attract demo on the Super Android table, on the 486 DX2-66">
-        <span class="name">Epic Pinball</span>
-        <span class="meta">486 DX2-66 Gaming PC</span>
-      </a>
-      <a class="machine-card" href="ibmpc-at/?disk=keen1" data-art="Commander Keen 1 - Marooned on Mars (1990)" data-title-y="0%" data-boxart-y="0%">
-        <img class="shot" referrerpolicy="no-referrer" src="assets/keen1-mars.jpg" width="286" height="128"
-             decoding="async" alt="Shareware Commander Keen 1 on the Mars map, on the IBM PC/AT">
-        <span class="name">Commander Keen</span>
-        <span class="meta">IBM PC/AT</span>
-      </a>
-      <a class="machine-card" href="pc486/?disk=tyrian" data-art="Tyrian (1995)" data-title-y="0%" data-boxart-y="0%">
-        <img class="shot" referrerpolicy="no-referrer" src="assets/tyrian-demo.jpg" width="286" height="128"
-             decoding="async" alt="Freeware Tyrian 2.1's attract demo, on the 486 DX2-66">
-        <span class="name">Tyrian</span>
-        <span class="meta">486 DX2-66 Gaming PC</span>
-      </a>
-      <a class="machine-card" href="altair8800/?tape=startrek">
-        <img class="shot" src="assets/altair-startrek.jpg" width="286" height="128"
-             decoding="async" alt="Super Star Trek's short range scan, loaded from cassette on the Altair 8800">
-        <span class="name">Star Trek</span>
-        <span class="meta">MITS Altair 8800</span>
-      </a>
-      <a class="machine-card" href="altair8800/?disk=cpm">
-        <img class="shot" src="assets/altair-cpm.jpg" width="286" height="128"
-             decoding="async" alt="CP/M 2.2 at the A&gt; prompt after a DIR, booted from 8-inch floppy on the Altair 8800">
-        <span class="name">CP/M</span>
-        <span class="meta">MITS Altair 8800</span>
-      </a>
+      <button type="button" class="machine-card" id="pc486Soon">
+        <span class="shot-frame">
+          <img class="shot" src="assets/pc486-panel.jpg" width="286" height="128"
+               decoding="async" alt="">
+          <span class="soon-banner" aria-hidden="true">Coming soon</span>
+        </span>
+        <span class="name">486 DX2-66 Gaming PC</span>
+        <span class="meta">Coming soon</span>
+      </button>
     </div>
 
-    <div class="section-row">
-      <h2 class="section-heading">Arcade</h2>
-      <p class="section-blurb">Faithful emulation of arcade cabinet hardware.</p>
-    </div>
-    <a class="arcade-portal" href="arcade/" aria-label="Enter the Arcade">
-      <span class="portal-face">
-        <span class="portal-stars" aria-hidden="true"></span>
-        <span class="portal-moon" aria-hidden="true"></span>
-        <span class="portal-neon" aria-hidden="true">Enter the Arcade</span>
-        <span class="portal-open" aria-hidden="true">Open</span>
-      </span>
-    </a>
 
-    <div class="section-row">
-      <h2 class="section-heading">Homebrew</h2>
-      <p class="section-blurb">The author's own hardware projects.</p>
-    </div>
-    <div class="machines">
-      <a class="machine-card" href="assembler6502/">
-        <img class="shot" src="assets/cg-oac-6502-board.svg" width="286" height="128"
-             decoding="async" alt="6502 Assembler board and terminal">
-        <span class="name">6502 Assembler</span>
-      </a>
-    </div>
+    <dialog id="pc486SoonDialog">
+      <h2>Coming Soon!</h2>
+      <p>A 66 MHz 486 with VGA, Sound Blaster, a hard disk, a floppy drive, and a CD-ROM. The full PC will be available soon where you have full control over your system just like the real thing.</p>
+      <div class="row"><button type="button" id="pc486SoonOk">OK</button></div>
+    </dialog>
   </div>
 </div>
 
 <script src="shared/theme-picker.js"></script>
 <script>initThemePicker();</script>
 <script src="shared/winbtns.js"></script>
-<script src="shared/thumb-art.js"></script>
-<script>initThumbArt(document.getElementById("readyArt"), Array.prototype.slice.call(document.querySelectorAll("a.machine-card[data-art]")), "retroweb.readyArt", "DOS");</script>
+<script>
+document.getElementById("pc486Soon").addEventListener("click", function () {
+  document.getElementById("pc486SoonDialog").showModal();
+});
+document.getElementById("pc486SoonOk").addEventListener("click", function () {
+  document.getElementById("pc486SoonDialog").close();
+});
+</script>
 <script src="shared/footer.js"></script>
 </body>
 </html>

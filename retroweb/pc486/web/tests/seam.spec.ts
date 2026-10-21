@@ -1,9 +1,9 @@
 import { test, expect } from "./fixtures";
-import { bootLive, wallWait } from "./helpers";
+import { bootLive, wallWait, withFull } from "./helpers";
 
 // __test is set in the same step that lights the power LED.
 test("?fast=1 without ?test=1 exposes no test seam", async ({ page }) => {
-  await page.goto("/?fast=1");
+  await page.goto(withFull("/?fast=1"));
   await expect(page.locator("#powerLed")).toHaveClass(/power-on/, { timeout: 15_000 });
   expect(await page.evaluate(() => (window as any).__test)).toBeUndefined();
 });

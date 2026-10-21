@@ -17,8 +17,9 @@ write_deps = $(EMCC) -std=c++17 -MM -MP -MT $@ $(1) > $(basename $@).d
 
 # Copied from retroweb/shared/ at build time; only web/ gets staged.
 shared:
-	mkdir -p shared
+	mkdir -p shared/vendor/fonts
 	cp -R $(addprefix $(SHARED)/,$(SHARED_BASE) $(SHARED_EXTRA)) shared/
+	cp $(SHARED)/vendor/fonts/inter-*.woff2 shared/vendor/fonts/
 ifneq ($(SHARED_TESTS),)
 	rm -rf tests/shared
 	mkdir -p tests/shared

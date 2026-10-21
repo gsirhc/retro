@@ -5,6 +5,11 @@ import { Page, expect } from "@playwright/test";
 // screen via Machine::textScreen(), a test-only convenience in wasm_machine.cpp.
 
 export const TEST_QS = "test=1";
+export const PC486_FULL = "c4e8a1f07b2d49e6a3c58f1d6e90b274";
+
+export function withFull(path: string): string {
+  return path + (path.includes("?") ? "&" : "?") + "full=" + PC486_FULL;
+}
 
 // Navigates with `?test=1` and waits for the machine. By default also waits for the `C:\>` prompt, which is
 // host-bound wall clock even under fast=1 (PC486_REVIEW.md §8.6). `expectScreen: null` skips it.
@@ -16,7 +21,7 @@ export async function boot(
   // `realtime: true` opts a smoke test back into real pacing. fast=1 still means as fast as the host can
   // (PC486_REVIEW.md §8.6), so prefer bootLive / `expectScreen: null` when the prompt isn't under test.
   const speed = opts.realtime ? "" : "&fast=1";
-  const qs = TEST_QS + speed + (opts.params ? `&${opts.params}` : "");
+  const qs = TEST_QS + speed + (opts.params ? `&${opts.params}` : "") + `&full=${PC486_FULL}`;
   await page.goto(`/?${qs}`);
   await page.waitForFunction(() => !!(window as any).__test?.machine, null, {
     timeout: 15_000,

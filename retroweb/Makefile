@@ -1,6 +1,6 @@
 # retroweb, assemble and preview the deployed site.
 #
-#   make site        build _site/ : index.html + about.html + arcade/ at the
+#   make site        build _site/ : index.html + super_secret.html + about.html + news_info.html + blog.html + arcade/ at the
 #                    root, the emulators at
 #                    /altair8800/, /assembler6502/, /ibmpc-at/, /pacman/,
 #                    /frogger/, /galaga/, /galaxian/, /scramble/, /asteroids/,
@@ -56,12 +56,14 @@ SITE ?= _site
 site:
 	rm -rf $(SITE).new
 	mkdir -p $(SITE).new/arcade $(SITE).new/shared
-	cp index.html about.html $(SITE).new/
+	cp index.html super_secret.html about.html news_info.html blog.html $(SITE).new/
 	cp arcade/index.html $(SITE).new/arcade/
 	cp -Rp assets $(SITE).new/ && rm -f $(SITE).new/assets/README.md
 	find $(SITE).new -name .DS_Store -delete
+	mkdir -p $(SITE).new/shared/vendor/fonts
 	cp shared/theme.css shared/pagebar.css shared/footer.css shared/footer.js \
 	   shared/theme-picker.js shared/winbtns.js shared/thumb-art.js $(SITE).new/shared/
+	cp shared/vendor/fonts/inter-*.woff2 $(SITE).new/shared/vendor/fonts/
 	for m in $(MACHINES); do \
 	  $(MAKE) --no-print-directory -C $$m/web stage DEST=$(abspath $(SITE).new)/$$m || exit 1; \
 	done

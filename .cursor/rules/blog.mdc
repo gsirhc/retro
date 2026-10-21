@@ -1,0 +1,14 @@
+---
+description: news_info.html — agents may touch nav/header/footer only, not body copy
+globs: retroweb/news_info.html,retroweb/blog.html
+alwaysApply: true
+---
+
+# news_info.html
+
+Follow [`.claude/blog.md`](../../.claude/blog.md). Do not contradict
+[`CLAUDE.md`](../../CLAUDE.md).
+
+Agents may change navigation, header, and footer chrome only. Never edit
+the page's body copy or content sections — leave those for Chris.
+`blog.html` only redirects to `news_info.html#news`.

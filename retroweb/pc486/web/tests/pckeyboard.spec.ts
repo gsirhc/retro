@@ -1,11 +1,11 @@
 import { test, expect } from "./fixtures";
-import { boardKey, focusScreen, openKeyboard, screenText, setPowerSwitch, waitForScreen } from "./helpers";
+import { boardKey, focusScreen, openKeyboard, screenText, setPowerSwitch, waitForScreen, withFull } from "./helpers";
 
 // The drawn IBM Enhanced Keyboard (shared/pc-keyboard.js): collapse state, clicks that reach DOS,
 // latched modifiers, the lock lights, and map mode.
 test.describe("drawn keyboard", () => {
   test("is hidden on a desktop until Keyboard is ticked, and remembers it", async ({ page }) => {
-    await page.goto("/?test=1&fast=1");
+    await page.goto(withFull("/?test=1&fast=1"));
     await page.waitForFunction(() => !!(window as any).__test?.machine, null, { timeout: 60_000 });
     await page.evaluate(() => localStorage.removeItem("retro8080.pc486.keyboardOpen"));
     await page.reload();
@@ -24,7 +24,7 @@ test.describe("drawn keyboard", () => {
   test("shows by default on a touch screen with no mouse", async ({ browser }) => {
     const ctx = await browser.newContext({ hasTouch: true, isMobile: true, viewport: { width: 820, height: 1180 } });
     const page = await ctx.newPage();
-    await page.goto("/?test=1&fast=1");
+    await page.goto(withFull("/?test=1&fast=1"));
     await page.waitForFunction(() => !!(window as any).__test?.machine, null, { timeout: 60_000 });
     await expect(page.locator("#keyboardToggle")).toBeChecked();
     await ctx.close();
@@ -263,7 +263,7 @@ test.describe("map mode", () => {
   });
 
   test("a switched-off mapping stays off across reload", async ({ page }) => {
-    await page.goto("/?test=1&fast=1");
+    await page.goto(withFull("/?test=1&fast=1"));
     await page.waitForFunction(() => !!(window as any).__test?.machine, null, { timeout: 60_000 });
     await page.evaluate(() => localStorage.removeItem("retro8080.pc486.keymap"));
     await page.evaluate(() => (window as any).__test.upsertMapping("KeyN", ["KeyL"], undefined));

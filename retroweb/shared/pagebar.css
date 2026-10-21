@@ -104,20 +104,22 @@ h1, h2, h3 { font-weight: 600; }
 
 /* Theme picker dialog, built by theme-picker.js. Lives here so landing/about
    get it too. */
-#themeDialog {
+#themeDialog, #pc486SoonDialog {
   max-width: 320px; padding: 16px 18px 18px;
   background: var(--panel-bg); color: var(--text);
   border: var(--panel-border); border-radius: var(--panel-radius);
 }
 /* Aurora panels are glassy; the dialog needs a solid sheet. */
-:root[data-theme="aurora"]:not([data-mode="dark"]) #themeDialog {
+:root[data-theme="aurora"]:not([data-mode="dark"]) #themeDialog,
+:root[data-theme="aurora"]:not([data-mode="dark"]) #pc486SoonDialog {
   background: rgba(255, 252, 255, .94);
 }
-:root[data-theme="aurora"][data-mode="dark"] #themeDialog {
+:root[data-theme="aurora"][data-mode="dark"] #themeDialog,
+:root[data-theme="aurora"][data-mode="dark"] #pc486SoonDialog {
   background: rgba(20, 17, 32, .94);
 }
-#themeDialog::backdrop { background: rgba(0,0,0,.55); }
-#themeDialog h2 {
+#themeDialog::backdrop, #pc486SoonDialog::backdrop { background: rgba(0,0,0,.55); }
+#themeDialog h2, #pc486SoonDialog h2 {
   margin: 0 0 10px; font: bold 15px Arial, Helvetica, sans-serif;
   text-transform: none; letter-spacing: normal; color: var(--text);
 }
@@ -136,16 +138,16 @@ h1, h2, h3 { font-weight: 600; }
   display: flex; flex-wrap: wrap; gap: 4px 14px;
 }
 #themeDialog .theme-dialog-modes label { margin: 2px 0; }
-#themeDialog .row {
+#themeDialog .row, #pc486SoonDialog .row {
   display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px;
 }
-#themeDialog .row button {
+#themeDialog .row button, #pc486SoonDialog .row button {
   font: 12px Arial, Helvetica, sans-serif;
   color: var(--btn-fg); background: var(--btn-bg);
   border: var(--btn-border); border-radius: var(--btn-radius);
   padding: 4px 16px; min-width: 72px; cursor: pointer;
 }
-#themeDialog .row button:active { border-style: inset; }
+#themeDialog .row button:active, #pc486SoonDialog .row button:active { border-style: inset; }
 .pb-winbtns span, .pb-winbtns a, .pb-winbtns button {
   display: inline-block; width: 16px; height: 14px; line-height: 12px;
   margin-left: 2px; text-align: center; font-size: 10px;
@@ -162,7 +164,10 @@ h1, h2, h3 { font-weight: 600; }
 .page.is-minimized > #siteFooter { display: none; }
 
 /* Atmosphere: Windows 11 caption buttons (flat, flush, red close on hover). */
-:root[data-theme="aurora"] .pagebar { padding: 0 0 0 12px; min-height: 32px; }
+:root[data-theme="aurora"] .pagebar {
+  padding: 0 0 0 12px; min-height: 32px;
+  font-family: Inter, Helvetica, Arial, sans-serif;
+}
 :root[data-theme="aurora"] .pb-tools { align-self: stretch; gap: 8px; }
 :root[data-theme="aurora"] .pb-theme { padding-right: 4px; }
 :root[data-theme="aurora"] .pb-winbtns {

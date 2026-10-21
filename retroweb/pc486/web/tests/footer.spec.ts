@@ -1,10 +1,11 @@
 import { test, expect } from "./fixtures";
+import { withFull } from "./helpers";
 
 // Shared site footer (shared/footer.js). Help points one level up at about.html on the staged site.
 // Same expectations as every other machine's copy.
 
 test("site footer is present and the Help control points at ../about.html", async ({ page }) => {
-  await page.goto("/?test=1");
+  await page.goto(withFull("/?test=1"));
   const footer = page.locator("#siteFooter");
   await expect(footer).toContainText(/© 2026 oac-emu\.dev/);
   await expect(footer).toContainText(/old-ass computer/);

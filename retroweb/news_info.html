@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en" data-no-help>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>News &amp; Info</title>
+<link rel="icon" href="assets/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="assets/favicon-16.png">
+<link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+<link rel="stylesheet" href="shared/theme.css">
+<link rel="stylesheet" href="shared/pagebar.css">
+<link rel="stylesheet" href="shared/footer.css">
+<style>
+  :root {
+    --title-font: 900 30px "Arial Black", Arial, sans-serif;
+    --page-max: 720px;
+    --body-pad: 28px 14px;
+  }
+  :root[data-theme="winxp"] { --title-font: bold 28px Tahoma, "Segoe UI", sans-serif; }
+  :root[data-theme="web94"] { --title-font: bold 26px "Times New Roman", Times, serif; }
+  :root[data-theme="modern"] { --title-font: 700 28px/1.15 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  :root[data-theme="aurora"] { --title-font: 800 30px/1.15 Inter, Helvetica, Arial, sans-serif; }
+
+  :root[data-theme="aurora"] .pagebar { border-bottom: 1px solid rgba(168,140,255,.35); }
+  body {
+    color: var(--text);
+    font: 18px/1.5 var(--body-font);
+    min-height: 100vh;
+  }
+  h1 {
+    margin: 0 0 8px; font: var(--title-font); color: var(--title-color);
+    text-shadow: var(--title-shadow); letter-spacing: 2px;
+  }
+  :root[data-theme="modern"] h1,
+  :root[data-theme="modern"] .tagline { display: none; }
+  .tagline { margin: 0 0 22px; color: var(--muted); }
+  a { color: var(--link); }
+  .mission {
+    margin: 14px 0 22px;
+    padding: 14px 18px;
+    border-left: 3px solid var(--dim);
+    color: var(--text);
+    font: italic 15px/1.55 "Courier New", Courier, ui-monospace, monospace;
+  }
+  .mission p { margin: 0; }
+  .aside { font-size: 14px; color: var(--muted); }
+  h2.part {
+    margin: 26px 0 12px;
+    font: 700 18px/1.2 var(--body-font);
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--dim);
+  }
+  h1 + h2.part { margin-top: 18px; }
+  .entry { margin: 0 0 28px; }
+  .entry h2 {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 4px 16px;
+    margin: 0 0 10px;
+    padding-bottom: 6px;
+    border-bottom: var(--rule);
+    font-size: 22px;
+    line-height: 1.25;
+    letter-spacing: normal;
+    text-transform: none;
+    color: var(--text);
+  }
+  .entry h3 { margin-bottom: 0; }
+  .entry-date {
+    display: block;
+    margin: 0 0 10px;
+    padding: 0 0 8px;
+    color: var(--muted);
+    font: 400 14px/1 var(--body-font);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: .03em;
+    white-space: nowrap;
+  }
+  .entry p { margin: 0 0 12px; }
+</style>
+</head>
+<body>
+<script>try{var r=document.documentElement,t=localStorage.getItem("retro8080.theme")||"win",m=localStorage.getItem("retro8080.mode");if(t=="ai"||t=="systemaurora"){t="aurora";if(!m)m="system";}else if(t=="moderndark"){t="modern";if(!m)m="dark";}else if(t=="system"){t="modern";if(!m)m="system";}if(t!="win"&&t!="winxp"&&t!="web94"&&t!="modern"&&t!="aurora")t="win";if(m!="light"&&m!="dark"&&m!="system")m="light";var dark=m=="dark"||(m=="system"&&matchMedia("(prefers-color-scheme: dark)").matches);r.dataset.theme=t;if(dark)r.dataset.mode="dark";else delete r.dataset.mode;}catch(e){}</script>
+
+<div class="page">
+  <header class="pagebar">
+    <a class="pb-home" href="./">&#8592;&nbsp;All&nbsp;machines</a>
+    <span class="pb-title"><img class="pb-icon" src="assets/favicon-32.png" alt="" aria-hidden="true"> About &amp; News</span>
+    <span class="pb-name">News &amp; Info</span>
+    <span class="pb-tag">Vintage machines, running entirely in your browser</span>
+    <span class="pb-tools">
+      <label class="pb-theme">Theme
+        <button type="button" class="pb-theme-btn" id="pageThemeBtn">Windows 95</button>
+      </label>
+      <span class="pb-winbtns"><button type="button" class="pb-min" title="Minimize" aria-label="Minimize" aria-pressed="false">_</button><button type="button" class="pb-max" title="Maximize" aria-label="Maximize" disabled>&#9633;</button><a class="pb-close" href="./" title="back to all machines" aria-label="close — back to all machines">&times;</a></span>
+    </span>
+  </header>
+
+  <div class="inner">
+    <h1>News &amp; Info</h1>
+
+    <h2 id="news">News</h2>
+    <article class="entry">
+      <h3>The site is live!</h3>
+      <time class="entry-date" datetime="2026-10-20">10/20/2026</time>
+      <p>
+        Launched the new site with a preview of the 486 emulator running Doom.  Stay 
+        tuned for more...
+      </p>
+    </article>
+
+    <hr />
+
+    <h2 id="info">Site Information</h2>
+
+    <p>
+      This site emulates computer hardware running entirely in your browser.
+      The emulator cores are written from scratch in C++ and compiled to a WebAssembly module.    
+      The module is downloaded to the browser, allowing the emulator to execute all hardware 
+      simulation locally.  There are no virtual machines or third-party emulator engines involved.
+    </p>
+
+    <h3>Why not release more games/emulators now?</h3>
+    <p>
+      Development is quite a bit ahead of the current releases however, the games/emulators are being released slowly 
+      to help vet them for stability and performance.  Stay tuned for more releases.  If you are super excited 
+      for more, let me know below!
+    </p>
+
+    <h3>Software Statement</h3>
+    <p>
+      This site does not host commercial software.  All software provided is shareware or open sourced.  You can 
+      (once released) provide your own commercial software in the emulators just like you would on a real machine.  
+      If you are an active rights holder of any of the supplied software here and would like it removed, please 
+      `contact me below.
+    </p>
+
+    <h3 id="contact">Contact Me</h3>
+    <p>
+      I am open to any questions, issues, complaints or praise.  If you want me to
+      take you seriously, please use English, spell correctly and provide one
+      fact about retro computing or gaming you find interesting. <br/><br/>
+      <b>chris @ oac-emu . dev</b>
+    </p>
+  </div>
+</div>
+
+<script src="shared/theme-picker.js"></script>
+<script>initThemePicker();</script>
+<script src="shared/winbtns.js"></script>
+<script src="shared/footer.js"></script>
+</body>
+</html>

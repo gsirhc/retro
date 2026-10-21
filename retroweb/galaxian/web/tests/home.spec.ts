@@ -10,6 +10,7 @@ async function chooseTheme(page, theme, mode = "light") {
 
 
 const HOME = "http://localhost:8810/";
+const CATALOG = HOME + "super_secret.html";
 const ARCADE = "http://localhost:8810/arcade/";
 
 test.describe("retroweb landing page", () => {
@@ -17,8 +18,7 @@ test.describe("retroweb landing page", () => {
     await page.goto(HOME);
     await expect(page).toHaveTitle(/Welcome to OAC Emulators/);
     await expect(page.locator('a.machine-card[href="galaxian/"]')).toHaveCount(0);
-    const headings = page.locator("h2.section-heading");
-    await expect(headings).toHaveText(["Systems", "Ready to Play", "Arcade", "Homebrew"]);
+    await expect(page.locator("h2.section-heading")).toHaveCount(0);
 
     await page.goto(ARCADE);
     const card = page.locator('a.machine-card[href="../galaxian/"]');
@@ -34,8 +34,8 @@ test.describe("retroweb landing page", () => {
   });
 
   test("computers stay Altair, IBM, then 486; Arcade is the neon portal only", async ({ page }) => {
-    await page.goto(HOME);
-    const computers = await page.locator('a.machine-card[href="altair8800/"], a.machine-card[href="ibmpc-at/"], a.machine-card[href="pc486/"]').locator(".name").allTextContents();
+    await page.goto(CATALOG);
+    const computers = await page.locator('a.machine-card[href="altair8800/"], a.machine-card[href="ibmpc-at/"], a.machine-card[href^="pc486/?full="]').locator(".name").allTextContents();
     expect(computers).toEqual(["MITS Altair 8800", "IBM PC/AT", "486 DX2-66 Gaming PC"]);
     await expect(page.locator(".section-row:has(h2:text-is('Arcade')) + a.arcade-portal .portal-neon")).toHaveText("Enter the Arcade");
     await expect(page.locator('h2.section-heading:has-text("Arcade") + .machines')).toHaveCount(0);
@@ -45,25 +45,24 @@ test.describe("retroweb landing page", () => {
     await page.goto(HOME);
     const root = page.locator("html");
     await expect(root).toHaveAttribute("data-theme", "win");
-    await expect(page.locator("#siteFooter a.about-sign")).toHaveText("Help");
+    await expect(page.locator("#siteFooter a.about-sign")).toHaveCount(0);
 
     await chooseTheme(page, "modern");
     await expect(root).toHaveAttribute("data-theme", "modern");
     expect(await page.evaluate(() => localStorage.getItem("retro8080.theme"))).toBe("modern");
-    await expect(page.locator("#siteFooter a.about-sign")).toHaveText("Help");
+    await expect(page.locator("#siteFooter a.about-sign")).toHaveCount(0);
   });
 
-  test("the shared site footer credits oac-emu.dev and the Help control goes to about.html", async ({ page }) => {
+  test("the public footer has no Help control, and about.html still returns home", async ({ page }) => {
     await page.goto(HOME);
     const footer = page.locator("#siteFooter");
     await expect(footer).toContainText(/© 2026 oac-emu\.dev/);
     await expect(footer).toContainText(/old-ass computer/);
-    const about = footer.locator("a.about-sign");
-    await expect(about).toHaveAttribute("href", "about.html");
-    await expect(about).toHaveText("Help");
-    await about.click();
+    await expect(footer.locator("a.about-sign")).toHaveCount(0);
+    await page.goto(HOME + "about.html");
     await expect(page).toHaveURL(/\/about\.html$/);
     await expect(page).toHaveTitle(/About/i);
+    await expect(page.locator("#siteFooter a.about-sign")).toHaveCount(0);
     await expect(page.locator("a.pb-close")).toHaveAttribute("href", "./");
     await page.locator("a.pb-close").click();
     await expect(page).toHaveTitle(/Welcome to OAC Emulators/);

@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures";
-import { boot, bootLive, waitForScreen, setPowerSwitch, typeStr, focusScreen, expectDownload } from "./helpers";
+import { boot, bootLive, waitForScreen, setPowerSwitch, typeStr, focusScreen, expectDownload, withFull } from "./helpers";
 
 // C: controls. Reset/blank/download/upload take effect on next power-on; buttons are disabled
 // while running and upload/reset/blank until firmware loads. State persists in IndexedDB via
@@ -466,7 +466,7 @@ test.describe("hard disk storage and conversion", () => {
   }
 
   test("the converter refuses disks it can't read, with a reason", async ({ page }) => {
-    await page.goto("/?test=1");
+    await page.goto(withFull("/?test=1"));
     await page.addScriptTag({ url: "shared/hdd-convert.js" });
     const results = await page.evaluate(() => {
       const convert = (window as any).convertLegacyHdd;
