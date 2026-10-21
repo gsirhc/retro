@@ -8,6 +8,7 @@ DEV_NAMES = {"Makefile", "__pycache__", "node_modules", "tests", ".DS_Store"}
 DEV_EXT = (".py", ".pyc", ".sh", ".md", ".h", ".cpp", ".ts")
 FAST = re.compile(r"""\.(?:get|has)\(\s*["']fast["']\s*\)""")
 HTML_REF = re.compile(r"""\b(?:src|href)\s*=\s*["']([^"']*)["']""")
+BASE_HREF = re.compile(r"""<base\s+[^>]*\bhref\s*=\s*["']([^"']*)["']""", re.I)
 JS_REF = re.compile(r"""(?:fetch|importScripts|locateFile)\(\s*["']([^"'`?#]+)|new Worker\([^)]*?["']([^"'?#]+\.js)""")
 PAGES_LIMIT = 10**9  # GitHub Pages: "may be no larger than 1 GB"
 MEDIA_REF = re.compile(r"""["']((?:disks|roms|tapes|examples|assets)/[\w./-]+\.[A-Za-z0-9]+)["']""")
@@ -44,11 +45,17 @@ def check(site, limit=PAGES_LIMIT):
             total += os.path.getsize(full)
             if name.endswith(".html"):
                 text = open(full, encoding="utf-8").read()
+                base = root
+                m = BASE_HREF.search(text)
+                if m:
+                    base = os.path.normpath(os.path.join(root, m.group(1).split("#")[0].split("?")[0] or "."))
                 for ref in HTML_REF.findall(text):
                     ref = ref.split("#")[0].split("?")[0]
                     if not ref or re.match(r"^[a-z]+:|^//|^/", ref, re.I):
                         continue
-                    resolve(root, ref, rel)
+                    # The <base href> itself is resolved from the page dir, not from base.
+                    resolve_from = root if m and ref == m.group(1).split("#")[0].split("?")[0] else base
+                    resolve(resolve_from, ref, rel)
             elif name.endswith(".js"):
                 text = open(full, encoding="utf-8", errors="replace").read()
                 if FAST.search(text):
@@ -107,6 +114,8 @@ def selftest():
                 "m/d/list.json": '{"disks": [{"file": "x.dsk"}]}',
                 "m/d/x.dsk": "",
                 "m/disks/hdd.img.gz": "",
+                # Shared entry under a subdir: assets resolve via <base href="../">.
+                "m/Doom/index.html": '<base href="../"><script src="app.js"></script><link href="s.css">',
             }
             if case.startswith("rm "):
                 del files[case[3:]]

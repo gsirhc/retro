@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures";
-import { bootLive, setPowerSwitch, expectDownload, PC486_FULL } from "./helpers";
+import { bootLive, setPowerSwitch, expectDownload, PC486_FULL, withFull } from "./helpers";
 
 type Page = import("@playwright/test").Page;
 
@@ -212,7 +212,7 @@ test.describe("preset C: (?disk=wolf3d)", () => {
 test.describe("preset page heading", () => {
   test("the game title is in place before app.js runs, so the machine name never flashes", async ({ page }) => {
     await page.route("**/app.js", (route) => route.abort());
-    await page.goto("/?disk=duke3d", { waitUntil: "domcontentloaded" });
+    await page.goto(withFull("/?disk=duke3d"), { waitUntil: "domcontentloaded" });
     expect(await page.evaluate(() => [document.querySelector(".inner h1")!.textContent, document.querySelector(".inner .tagline")!.textContent])).toEqual(["Duke Nukem 3D", "486 DX2-66 Gaming PC"]);
   });
 });
@@ -303,9 +303,10 @@ test.describe("preset C: (?disk=tyrian)", () => {
 });
 
 test.describe("locked Doom page", () => {
-  test("a bare visit forces the Doom disk and grays out the drive controls", async ({ page }) => {
-    await page.goto("/?test=1&fast=1&disk=wolf3d");
+  test("/Doom/ forces the Doom disk and grays out the drive controls", async ({ page }) => {
+    await page.goto("/Doom/?test=1&fast=1&disk=wolf3d");
     await page.waitForFunction(() => !!(window as any).__test?.machine, null, { timeout: 15_000 });
+    await expect(page).toHaveURL(/\/Doom\//);
     await expect(page.locator("body")).toHaveClass(/doom-only/);
     await expect(page.locator("#hddStatus")).toHaveText(/Using: DOOM shareware/);
     await expect(page.locator("#hddDownloadBtn")).toBeDisabled();
@@ -313,6 +314,7 @@ test.describe("locked Doom page", () => {
     await expect(page.locator('.at-bay[data-drive="0"] [data-role="file"]')).toBeDisabled();
     await expect(page.locator('.at-bay[data-drive="cdrom"] [data-role="file"]')).toBeDisabled();
     await expect(page.locator("#siteFooter a.about-sign")).toHaveCount(0);
+    await expect(page.locator("#siteFooter .site-footer-note a")).toHaveAttribute("href", "../news_info.html#info");
     await expect(page.locator("#hddCard .soon-label")).toBeVisible();
     await expect(page.locator("#floppyInfoCard .soon-label")).toBeVisible();
     await expect(page.locator('.at-bay[data-drive="0"] .soon-label')).toBeVisible();
@@ -324,23 +326,29 @@ test.describe("locked Doom page", () => {
     await expect(page.locator("#hddResetBtn")).toBeDisabled();
   });
 
-  test("a wrong unlock string stays locked", async ({ page }) => {
-    await page.goto("/?test=1&fast=1&full=nope");
+  test("a token on /Doom/ does not unlock the page", async ({ page }) => {
+    await page.goto(`/Doom/?test=1&fast=1&full=${PC486_FULL}`);
     await page.waitForFunction(() => !!(window as any).__test?.machine, null, { timeout: 15_000 });
     await expect(page.locator("body")).toHaveClass(/doom-only/);
     await expect(page.locator("#hddStatus")).toHaveText(/Using: DOOM shareware/);
   });
 
-  test("the unlock string applies only while it is in the URL", async ({ page }) => {
+  test("/full/ without a valid token redirects to the site home", async ({ page }) => {
+    await page.goto("/full/?test=1&fast=1&full=nope");
+    await page.waitForURL((url) => !url.pathname.includes("/full"), { timeout: 5_000 });
+    expect(new URL(page.url()).pathname.replace(/\/+$/, "") || "/").toBe("/");
+  });
+
+  test("the unlock string applies only on /full/ while it is in the URL", async ({ page }) => {
     await page.addInitScript((token) => {
       localStorage.setItem("retroweb.pc486.full", token);
     }, PC486_FULL);
-    await page.goto("/?test=1&fast=1");
+    await page.goto("/Doom/?test=1&fast=1");
     await page.waitForFunction(() => !!(window as any).__test?.machine, null, { timeout: 15_000 });
     await expect(page.locator("body")).toHaveClass(/doom-only/);
     await expect(page.locator("#siteFooter a.about-sign")).toHaveCount(0);
 
-    await page.goto(`/?test=1&fast=1&full=${PC486_FULL}`);
+    await page.goto(`/full/?test=1&fast=1&full=${PC486_FULL}`);
     await page.waitForFunction(() => !!(window as any).__test?.machine, null, { timeout: 15_000 });
     await expect(page.locator("body")).not.toHaveClass(/doom-only/);
     await expect(page.locator("#hddStatus")).toHaveText(/Using: FreeDOS \(default\)/);
@@ -351,7 +359,7 @@ test.describe("locked Doom page", () => {
     await expect(page.locator("#hddCard .soon-label")).toBeHidden();
     await expect(page.locator('.at-bay[data-drive="cdrom"] .soon-label')).toBeHidden();
 
-    await page.goto("/?test=1&fast=1");
+    await page.goto("/Doom/?test=1&fast=1");
     await page.waitForFunction(() => !!(window as any).__test?.machine, null, { timeout: 15_000 });
     await expect(page.locator("body")).toHaveClass(/doom-only/);
     await expect(page.locator("#hddStatus")).toHaveText(/Using: DOOM shareware/);

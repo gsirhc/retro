@@ -17,7 +17,7 @@
 - **`doom-e1m1.jpg`**: the first room of E1M1 in shareware DOOM, turned
   toward the window and mountains, from *this project's* 486 DX2-66 running
   the `?disk=doom` preset C:. A new game (Esc, Enter ×3) on
-  `pc486/?test=1&fast=1&disk=doom`, two steps forward and one turn right,
+  `pc486/full/?test=1&fast=1&disk=doom&full=…`, two steps forward and one turn right,
   then a frame read off `__test.frameCanvas` (320×200), rows 25 to 168
   cropped and resized to 286×128 (JPEG q90). Gameplay, not the title
   screen, so no logo or title art.
@@ -25,7 +25,7 @@
 - **`wolf3d-e1m1.jpg`**: the first cell of E1M1 in shareware Wolfenstein 3-D,
   turned a little left, from *this project's* 486 DX2-66 running the
   `?disk=wolf3d` preset C:. Space, Space, Esc, Enter ×3 on
-  `pc486/?test=1&fast=1&disk=wolf3d` starts a new game; one left turn, then
+  `pc486/full/?test=1&fast=1&disk=wolf3d&full=…` starts a new game; one left turn, then
   a frame read off `__test.frameCanvas`, cropped inside the view border down
   to the bottom of the view and resized to 286×128 (JPEG q90).
 

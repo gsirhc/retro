@@ -44,7 +44,7 @@ pc486-perf.js: $(SRC)
 
 perf-build: pc486-perf.js
 
-.PHONY: library-images shared roms hdd-image preset-images legacy-hdd-fixture driver-images perf-build serve test test-smoke test-install coverage clean stage
+.PHONY: library-images shared roms hdd-image preset-images legacy-hdd-fixture driver-images perf-build pages serve test test-smoke test-install coverage clean stage
 
 SHARED = ../../shared
 roms:
@@ -103,8 +103,12 @@ disks/ctmouse.img: $(CORE)/disks/ctmouse.img
 
 driver-images: disks/ctmouse.img
 
+# Doom/ and full/ share web/index.html via <base href="../"> (staging overwrites root).
+pages:
+	python3 ../../install_pc486_pages.py . --page index.html
+
 # Port 8000 like every machine; the Playwright suite uses 8400/8410.
-serve: pc486.js pc486-perf.js roms shared driver-images
+serve: pc486.js pc486-perf.js roms shared driver-images pages
 	@if [ ! -f disks/freedos-hdd.img ]; then \
 	  echo "disks/freedos-hdd.img not found -- run 'make hdd-image' first"; \
 	  echo "(NOT YET IMPLEMENTED for this machine -- see ../Makefile's MILESTONE 1 STATUS note)."; \
@@ -114,7 +118,7 @@ serve: pc486.js pc486-perf.js roms shared driver-images
 	python3 ../../serve_nocache.py 8000 .
 
 # Playwright suite. Needs the same roms and images as serve, plus npm ci once. Ports 8400/8410.
-test: pc486.js pc486-perf.js roms shared driver-images legacy-hdd-fixture
+test: pc486.js pc486-perf.js roms shared driver-images legacy-hdd-fixture pages
 	@if [ ! -f disks/freedos-hdd.img ]; then \
 	  echo "disks/freedos-hdd.img not found -- run 'make hdd-image' first"; \
 	  echo "(NOT YET IMPLEMENTED for this machine -- see ../Makefile's MILESTONE 1 STATUS note)."; \
@@ -128,7 +132,7 @@ test: pc486.js pc486-perf.js roms shared driver-images legacy-hdd-fixture
 	npx playwright test
 
 # Smoke: tests/smoke.spec.ts only, what deploy CI runs.
-test-smoke: pc486.js pc486-perf.js roms shared driver-images
+test-smoke: pc486.js pc486-perf.js roms shared driver-images pages
 	@if [ ! -f disks/freedos-hdd.img ]; then \
 	  echo "disks/freedos-hdd.img not found -- run 'make hdd-image' first"; \
 	  echo "(NOT YET IMPLEMENTED for this machine -- see ../Makefile's MILESTONE 1 STATUS note)."; \
@@ -142,7 +146,7 @@ test-smoke: pc486.js pc486-perf.js roms shared driver-images
 	npx playwright test tests/smoke.spec.ts
 
 # Same suite, one worker, V8 coverage for app.js -> coverage/index.html (+ coverage/lcov.info)
-coverage: pc486.js roms shared legacy-hdd-fixture
+coverage: pc486.js roms shared legacy-hdd-fixture pages
 	@if [ ! -f disks/freedos-hdd.img ]; then \
 	  echo "disks/freedos-hdd.img not found -- run 'make hdd-image' first"; \
 	  exit 1; \
@@ -151,7 +155,7 @@ coverage: pc486.js roms shared legacy-hdd-fixture
 
 clean:
 	rm -f pc486.js pc486.wasm pc486.d pc486-perf.d
-	rm -rf shared
+	rm -rf shared Doom full
 	rm -rf test-results playwright-report coverage .v8-coverage tests/media
 
 # Fetched at runtime, so it lives under web/ (nothing one level up is staged).
@@ -165,6 +169,7 @@ SHARED_EXTRA = $(SHARED_PC)
 define STAGE_POST
 find $(DEST)/disks -name '*-hdd.img' -delete
 python3 ../../strip_fast_flag.py $(DEST)/app.js
+python3 ../../install_pc486_pages.py $(DEST) --page $(CURDIR)/index.html --redirect-root
 endef
 
 include $(SHARED)/web.mk

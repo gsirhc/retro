@@ -3,13 +3,17 @@
 The browser emulators and the landing page that lists them.
 
 - [`index.html`](index.html) — the landing page (site root). Two cards:
-  Doom, which links to the 486, and the 486 itself, which explains that the
-  full PC is coming soon. [`super_secret.html`](super_secret.html) is the
+  Doom (`pc486/Doom/`, locked tease) and the 486 itself, which explains that
+  the full PC is coming soon. [`super_secret.html`](super_secret.html) is the
   full catalog (Systems, Ready to Play, the neon **Enter the Arcade** portal,
-  Homebrew), deployed and not linked from the site. Its 486 links carry an
-  unlock, and the string has to be in the URL. The full cabinet list lives at
-  [`arcade/`](arcade/) (`/arcade/`), sortable by name, year, CPU, or
-  manufacturer. Computer cards use screenshots of this project's own
+  Homebrew), deployed and not linked from the site. Its 486 links go to
+  `pc486/full/?full=…` (Ready to Play adds `&disk=…`); without the token,
+  `/pc486/full/` redirects home. `/pc486/` redirects to `Doom/`. Both entry
+  pages share one `index.html` via staging (`install_pc486_pages.py`). A later
+  public game (e.g. `pc486/Wolf3d/`) is another copy of that HTML plus a
+  path→preset map in `app.js` — not a second maintained page. The full cabinet
+  list lives at [`arcade/`](arcade/) (`/arcade/`), sortable by name, year, CPU,
+  or manufacturer. Computer cards use screenshots of this project's own
   rendered hardware; arcade cards are original 286×128 starfield titles in
   Courier New — see [`assets/README.md`](assets/README.md) and
   [`shared/marquee.py`](shared/marquee.py). A Theme button opens a dialog

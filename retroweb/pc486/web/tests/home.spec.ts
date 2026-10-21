@@ -3,7 +3,9 @@ import { PC486_FULL } from "./helpers";
 
 function catalogHref(href: string): string {
   if (!href.startsWith("pc486/")) return href;
-  return href.includes("?") ? `${href}&full=${PC486_FULL}` : `${href}?full=${PC486_FULL}`;
+  const rest = href.slice("pc486/".length);
+  if (rest.startsWith("?")) return `pc486/full/${rest}&full=${PC486_FULL}`;
+  return `pc486/full/?full=${PC486_FULL}`;
 }
 
 
@@ -22,7 +24,7 @@ const HOME = "http://localhost:8410/";
 const CATALOG = HOME + "super_secret.html";
 
 test.describe("retroweb landing page", () => {
-  test("lists the 486 DX2-66 Gaming PC with a launch link to /pc486/", async ({ page }) => {
+  test("lists the 486 DX2-66 Gaming PC with a launch link to /pc486/full/", async ({ page }) => {
     await page.goto(CATALOG);
     await expect(page).toHaveTitle(/Welcome to OAC Emulators/);
     await expect(page.locator("#siteFooter a.about-sign")).toHaveText("Help");
@@ -93,7 +95,7 @@ test.describe("retroweb landing page", () => {
     await expect(page.locator("h2.section-heading")).toHaveCount(0);
     await expect(page.locator("#siteFooter a.about-sign")).toHaveCount(0);
     await expect(page.locator("a.machine-card")).toHaveCount(1);
-    const doom = page.locator('a.machine-card[href="pc486/?disk=doom"]');
+    const doom = page.locator('a.machine-card[href="pc486/Doom/"]');
     await expect(doom.locator(".name")).toHaveText("Doom");
     await expect(doom.locator(".meta")).toHaveText("486 DX2-66 Gaming PC");
     const soon = page.locator("#pc486Soon");
@@ -104,8 +106,8 @@ test.describe("retroweb landing page", () => {
     await expect(dlg).toBeHidden();
     await soon.click();
     await expect(dlg).toBeVisible();
-    await expect(dlg.locator("h2")).toHaveText("486 DX2-66 Gaming PC");
-    await expect(dlg.locator("p")).toHaveText("A 66 MHz 486 with VGA, Sound Blaster, a hard disk, a floppy drive, and a CD-ROM. Doom is running on it now. The full PC, where you swap disks and boot your own software, is coming soon.");
+    await expect(dlg.locator("h2")).toHaveText("Coming Soon!");
+    await expect(dlg.locator("p")).toHaveText("A 66 MHz 486 with VGA, Sound Blaster, a hard disk, a floppy drive, and a CD-ROM. The full PC will be available soon where you have full control over your system just like the real thing.");
     const winBg = await dlg.evaluate((el) => getComputedStyle(el).backgroundColor);
     await page.locator("#pc486SoonOk").click();
     await expect(dlg).toBeHidden();
@@ -119,14 +121,14 @@ test.describe("retroweb landing page", () => {
   test("the welcome banner links to the news, and that page returns home", async ({ page }) => {
     await page.goto(HOME);
     const news = page.locator(".welcome-banner a");
-    await expect(news).toHaveText("news");
-    await expect(news).toHaveAttribute("href", "news_info.html#news");
+    await expect(news).toHaveText("News & Info");
+    await expect(news).toHaveAttribute("href", "news_info.html");
     await news.click();
     await expect(page).toHaveURL(/\/news_info\.html/);
     await expect(page).toHaveTitle("News & Info");
     await expect(page.locator(".inner h1")).toHaveText("News & Info");
     await expect(page.locator("#news")).toHaveText("News");
-    await expect(page.locator("#info")).toHaveText("Info");
+    await expect(page.locator("#info")).toHaveText("Site Information");
     await expect(page.locator("#siteFooter a.about-sign")).toHaveCount(0);
     await expect(page.locator("a.pb-close")).toHaveAttribute("href", "./");
     await page.locator("a.pb-close").click();

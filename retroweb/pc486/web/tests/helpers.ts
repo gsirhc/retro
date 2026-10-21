@@ -7,8 +7,10 @@ import { Page, expect } from "@playwright/test";
 export const TEST_QS = "test=1";
 export const PC486_FULL = "c4e8a1f07b2d49e6a3c58f1d6e90b274";
 
+/** Map a root-relative path onto /full/ and append the unlock token. */
 export function withFull(path: string): string {
-  return path + (path.includes("?") ? "&" : "?") + "full=" + PC486_FULL;
+  const underFull = path.startsWith("/full") ? path : path.replace(/^\//, "/full/");
+  return underFull + (underFull.includes("?") ? "&" : "?") + "full=" + PC486_FULL;
 }
 
 // Navigates with `?test=1` and waits for the machine. By default also waits for the `C:\>` prompt, which is
@@ -22,7 +24,7 @@ export async function boot(
   // (PC486_REVIEW.md §8.6), so prefer bootLive / `expectScreen: null` when the prompt isn't under test.
   const speed = opts.realtime ? "" : "&fast=1";
   const qs = TEST_QS + speed + (opts.params ? `&${opts.params}` : "") + `&full=${PC486_FULL}`;
-  await page.goto(`/?${qs}`);
+  await page.goto(`/full/?${qs}`);
   await page.waitForFunction(() => !!(window as any).__test?.machine, null, {
     timeout: 15_000,
   });

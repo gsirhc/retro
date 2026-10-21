@@ -37,7 +37,7 @@ test.describe("retroweb landing page", () => {
 
   test("computers stay Altair, IBM, then 486; Arcade is the neon portal only", async ({ page }) => {
     await page.goto(CATALOG);
-    const computers = await page.locator('a.machine-card[href="altair8800/"], a.machine-card[href="ibmpc-at/"], a.machine-card[href^="pc486/?full="]').locator(".name").allTextContents();
+    const computers = await page.locator('a.machine-card[href="altair8800/"], a.machine-card[href="ibmpc-at/"], a.machine-card[href^="pc486/full/?full="]').locator(".name").allTextContents();
     expect(computers).toEqual(["MITS Altair 8800", "IBM PC/AT", "486 DX2-66 Gaming PC"]);
     await expect(page.locator(".section-row:has(h2:text-is('Arcade')) + a.arcade-portal .portal-neon")).toHaveText("Enter the Arcade");
     await expect(page.locator('h2.section-heading:has-text("Arcade") + .machines')).toHaveCount(0);

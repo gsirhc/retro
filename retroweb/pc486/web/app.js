@@ -28,11 +28,16 @@
   const testParams = new URLSearchParams(location.search);
   const TEST_CPU_MULTIPLIER =
     testParams.get("test") === "1" && testParams.get("fast") === "1" ? 20 : 1;
-  // The catalog link's token has to be in this URL. Without it, C: is the Doom disk.
+  // /full/ needs the catalog token in the URL; /Doom/ is always the locked tease.
   const kFullToken = "c4e8a1f07b2d49e6a3c58f1d6e90b274";
-  const fullMachine = testParams.get("full") === kFullToken;
-  // clear a stored copy of the token
+  const pathSeg = location.pathname.replace(/\/+$/, "").split("/").pop();
+  const onFullPath = pathSeg === "full";
   try { localStorage.removeItem("retroweb.pc486.full"); } catch (e) {}
+  if (onFullPath && testParams.get("full") !== kFullToken) {
+    location.replace(new URL("../../", location.href).href);
+    return;
+  }
+  const fullMachine = onFullPath;
   if (!fullMachine) {
     document.body.classList.add("doom-only");
     const hideHelp = () => {
@@ -1598,7 +1603,9 @@
   };
   const presetId = fullMachine ? testParams.get("disk") : "doom";
   const presetHdd = Object.hasOwn(kPresetHdds, presetId) ? kPresetHdds[presetId] : null;
-  addFooterNote("All shareware and freeware titles remain the property of their respective owners. <a href=\"../about.html#rights\">More info</a>.");
+  // Locked /Doom/ has no Help link to about.html; news_info is the public page.
+  const rightsHref = fullMachine ? "../about.html#rights" : "../news_info.html#info";
+  addFooterNote("All shareware and freeware titles remain the property of their respective owners. <a href=\"" + rightsHref + "\">More info</a>.");
   // Only the gzip ships; the raw 256MB images would put the site over the host's 1GB.
   const kFactoryHddFile = presetHdd ? presetHdd.file : "disks/freedos-hdd.img.gz";
   const kFactoryHddLabel = presetHdd ? presetHdd.label : "FreeDOS (default)";
@@ -1721,7 +1728,7 @@
   // Fetched only when a session needs the pristine factory image (nothing saved, or Reset to factory).
   let factoryHddPromise = null;
   function factoryHddUrl() {
-    return new URL(kFactoryHddFile, location.href).href;
+    return new URL(kFactoryHddFile, document.baseURI).href;
   }
   // Cheap identity of the server's freedos-hdd.img.gz (ETag, else Last-Modified, plus Content-Length)
   // to tell an untouched older C: from a current one without the body. One HEAD per page load.
