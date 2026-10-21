@@ -23,7 +23,7 @@ void Board::reset() {
     shown_.fill(0);
     beam_tags_.fill(0);
     shown_tags_.fill(0);
-    shifter = Mb14241{};
+    shifter = Shifter{};
     beam_tag = 0;
     cpu.reset();
     frame_origin_ = cpu.cycles;
@@ -62,7 +62,7 @@ uint8_t Board::port_in(uint8_t port) const {
 
 void Board::port_out(uint8_t port, uint8_t v) {
     switch (port & 7) {
-        case 2: shifter.count_w(v); break;
+        case 2: shifter.offset_w(v); break;
         case 4: shifter.data_w(v); break;
         case 3:
         case 5: sound_out(port & 7, v); break;
@@ -75,10 +75,9 @@ uint8_t Board::vcounter(int line) {
     return line < kVblankLine ? uint8_t(line + 0x20) : uint8_t(line - kVblankLine + 0xDA);
 }
 
-// 0xC7 | 64V << 4 | !64V << 3, sampled at INTA.
+// Taito SV game board (BPR00003) 6D gates drive D3/D4 at INTA from 64V; ISRs sit at $08 and $10.
 uint8_t Board::rst_vector(int line) {
-    const uint8_t v = vcounter(line);
-    return uint8_t(0xC7 | ((v & 0x40) >> 2) | ((~v & 0x40) >> 3));
+    return (vcounter(line) & 0x40) ? 0xD7 : 0xCF;
 }
 
 void Board::line_start(int line) {

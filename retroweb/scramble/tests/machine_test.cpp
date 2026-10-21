@@ -194,12 +194,23 @@ TEST(Machine, TwoAysDecodeOnKonamiBits) {
     EXPECT_EQ(m.sound_in(0x80), 0x42);
 }
 
-TEST(Machine, AyPortBIsGenericKonamiTimer) {
-    EXPECT_EQ(galaxian::konami_sound_timer(0), 0x0E);
+TEST(Machine, AyPortBIsTheSoundTimer) {
     scramble::Machine m;
     m.sound.cycles = 0;
     m.sound_out(0x40, 15);
-    EXPECT_EQ(m.sound_in(0x80), 0x0E);
+    EXPECT_EQ(m.sound_in(0x80), 0x0F);
+    m.sound.cycles = 512 * 4;
+    EXPECT_EQ(m.sound_in(0x80), 0x4F);
+}
+
+TEST(Machine, AyAddressLatchesWhenBothBitsSet) {
+    scramble::Machine m;
+    m.sound_out(0xC0, 8);
+    m.sound_out(0x80, 0x07);
+    EXPECT_EQ(m.ay1.regs[8], 0x07);
+    m.sound_out(0x30, 8);
+    m.sound_out(0x20, 0x05);
+    EXPECT_EQ(m.ay2.regs[8], 0x05);
 }
 
 TEST(Machine, Pal6JBootSequences) {

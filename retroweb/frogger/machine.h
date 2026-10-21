@@ -91,9 +91,6 @@ private:
 // have D0↔D1 swapped. 607 is the high plane and is wired straight.
 uint8_t swap_d0d1(uint8_t v);
 
-// Konami sound-board timer on AY port B; Frogger swaps bits 3 and 5 (Computer Archaeology).
-uint8_t sound_timer_port(uint64_t sound_cpu_cycles);
-
 }  // namespace frogger
 
 #endif

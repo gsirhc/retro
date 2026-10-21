@@ -34,7 +34,7 @@ the cocktail flip are not modelled.
 
 Everything below the cabinet layer is `retroweb/shared/mw8080/board.{h,cpp}`,
 shared with Space Invaders: 1.9968 MHz 8080, 128 T-states a line, 262 lines,
-INT latched at lines 96 and 224 with the 64V vector, MB14241, the beam
+INT latched at lines 96 and 224 with the 64V vector, shifter, the beam
 fetching VRAM at pixel `8k+4`. See `invaders/INVADERS_REVIEW.md` §2–§8. The
 second ROM bank at `$4000` is the socket Invaders leaves empty.
 
@@ -141,7 +141,7 @@ image the ROM copies.
 ## 7. Self-test ROM (`roms/hwtest/gen_hwtest.py`)
 
 Original 8080 code and an original colour PROM, assembled in Python.
-Signature `TST1` at `$2000`. Checks the MB14241 (pass flag `$2004`, result
+Signature `TST1` at `$2000`. Checks the shifter (pass flag `$2004`, result
 `$2005`) and the second ROM bank (`BNK2` at `$4000` plus a routine run from
 there; pass flag `$200A`). Then a 16-pixel crosshatch with the four step
 notes, a full-white field that shows the PROM's eight bands (white, green,

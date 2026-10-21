@@ -1,4 +1,4 @@
-// Midway/Taito 8080 B&W board: 8080, 1-bit bitmap, beam-timed RST 1/RST 2, MB14241.
+// Midway/Taito 8080 B&W board: 8080, 1-bit bitmap, beam-timed RST 1/RST 2, shifter.
 
 #ifndef SHARED_MW8080_BOARD_H
 #define SHARED_MW8080_BOARD_H
@@ -32,20 +32,21 @@ struct Inputs {
     uint8_t in2 = 0;
 };
 
-// Fujitsu MB14241 barrel shifter.
-struct Mb14241 {
-    uint16_t data = 0;
-    uint8_t count = 0;
-    void count_w(uint8_t v) { count = uint8_t(~v & 7); }
-    void data_w(uint8_t v) { data = uint16_t((data >> 8) | (uint16_t(v) << 7)); }
-    uint8_t result() const { return uint8_t(data >> count); }
+// 74174 C5/D5 and 74175 B5 hold nets DS-1..DS-F (bit n of latch). Eight 74LS151s
+// pick DS-(k+8-EA) for result bit k (Midway 739 logic schematic M051-00739-B005).
+struct Shifter {
+    uint16_t latch = 0;
+    uint8_t offset = 0;
+    void offset_w(uint8_t v) { offset = v & 7; }
+    void data_w(uint8_t v) { latch = uint16_t(((latch >> 8) | (uint16_t(v) << 8)) & 0xFFFE); }
+    uint8_t result() const { return uint8_t(latch >> (8 - offset)); }
 };
 
 class Board {
 public:
     Inputs inputs;
     i8080::Cpu cpu;
-    Mb14241 shifter;
+    Shifter shifter;
     std::array<uint8_t, 0x2000> program{};    // $0000–$1FFF
     std::array<uint8_t, 0x2000> program_hi{}; // $4000–$5FFF, an empty socket reads 0
     std::array<uint8_t, 0x2000> ram{};        // $2000–$3FFF, mirrored at $6000

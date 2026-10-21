@@ -8,12 +8,6 @@ uint8_t swap_d0d1(uint8_t v) {
     return uint8_t((v & 0xFC) | ((v & 1) << 1) | ((v & 2) >> 1));
 }
 
-uint8_t sound_timer_port(uint64_t sound_cpu_cycles) {
-    uint8_t v = galaxian::konami_sound_timer(sound_cpu_cycles);
-    // Frogger PCB swaps timer bits 3 and 5 of the generic Konami reading.
-    return uint8_t((v & 0xD7) | ((v & 0x08) << 2) | ((v & 0x20) >> 2));
-}
-
 Machine::Machine() : main(make_main_bus()), sound(make_sound_bus()) {
     konami.ay = {&ay, nullptr};
     konami.feedback_ohms = 5600.0;
@@ -53,19 +47,19 @@ void Machine::wire_ppi() {
     ppi1.out_a = [this](uint8_t v) { sound_latch = v; };
     ppi1.out_b = [this](uint8_t v) { on_sound_control(v); };
     ay.port_a_r = [this] { return sound_latch; };
-    ay.port_b_r = [this] { return sound_timer_port(sound.cycles); };
+    ay.port_b_r = [this] { return galaxian::frogger_port_b(sound.cycles); };
 }
 
 uint8_t Machine::sound_in(uint8_t port) {
-    // Bit 6 selects AY data (Frogger 834-0069 37/39 decode).
+    // Read with A6 set drives BC2+BC1 (834-0074 U37a, U25).
     if (port & 0x40) return ay.read_data();
     return 0xFF;
 }
 
 void Machine::sound_out(uint8_t port, uint8_t v) {
-    // Bit 6 = data, else bit 7 = address (Frogger 834-0069 37/39 decode).
-    if (port & 0x40) ay.write_data(v);
-    else if (port & 0x80) ay.write_addr(v);
+    // Write: A7 latches the address, else A6 writes data (834-0074 U37b, U24, U25, U36).
+    if (port & 0x80) ay.write_addr(v);
+    else if (port & 0x40) ay.write_data(v);
 }
 
 void Machine::on_sound_control(uint8_t v) {

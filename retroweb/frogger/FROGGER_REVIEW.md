@@ -5,12 +5,14 @@ Konami Frogger (1981) under `retroweb/frogger/`. Fidelity rules follow
 
 ## Sources
 
-- Sega/Gremlin Frogger 834-0068 (video) and 834-0069 (sound).
+- Sega/Gremlin Frogger 834-0068 (video) and sound board 834-0074: AY
+  chip-select gates (U37, U24, U25, U36), divider chain (U13, U12, U10)
+  and the 4066 latch (U8).
 - GI AY-3-8910/8912 data sheet. Intel 8255A data sheet.
 - Computer Archaeology Frogger hardware notes, for the RAM map.
 - Shared video and the Konami output stage: `SCRAMBLE_REVIEW.md` §10.
   Frogger's own pieces are the map, the D0↔D1 swaps, the nibble swap,
-  the river split and timer bits 3↔5.
+  the river split and the timer's QC on B3.
 
 ## 0. Status
 
@@ -51,9 +53,10 @@ Super Cobra, or bootlegs.
 
 Sound CPU: ROM `$0000–$17FF`, RAM `$4000–$43FF` (mirrored through
 `$5FFF`). Filter latch `$6000–$6FFF`, mirrored to `$7FFF`, takes its
-data from the address lines. AY I/O is bit-decoded on 834-0069 at 37/39:
-bit 7 is address, bit 6 is data. AY port A is the command latch. Port B
-is the sound-board timer with bits 3 and 5 swapped.
+data from the address lines. AY I/O is gate-decoded on 834-0074: a read
+with A6 set reads data. A write with A7 set latches the address, otherwise
+A6 writes data. AY port A is the command latch. Port B is the divider
+chain: B7 LS90 QA, B6 QD, B3 QC, B4 the LS93 QD; B5, B2–B0 float high.
 
 The first 2K of sound ROM (608) and gfx ROM 606 (plane 1 at `$800`) have
 D0↔D1 swapped on the PCB, applied in `load_roms`. 607 is the high plane.
@@ -90,6 +93,7 @@ Idle factory: IN0 `$FF`, IN1 `$FC`, IN2 `$F1`.
 
 - Cocktail player 2's stick is unmapped.
 - 4066 on-resistance and the LM741 swing are typical data-sheet values.
+- M51516L input load taken as 100 kΩ. No Mitsubishi data sheet found.
 - High score `$83EF–$83FA` (the display word and five 16-bit ranks) has
   no battery. The page keeps those bytes in IndexedDB for a user ROM.
   Reset HIGH SCORE deletes the save and resets the board.

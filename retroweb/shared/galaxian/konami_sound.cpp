@@ -16,7 +16,7 @@ constexpr double kCap[2] = {0.22e-6, 0.047e-6};
 constexpr double kRon = 470.0;
 // LM741 swings to within 2 V of each +/-5 V rail (TI LM741: +/-13 V at +/-15 V, RL >= 2k).
 constexpr double kSwing = 3.0;
-// 4.7k, then 0.15 uF into the M51516L, whose input is taken as 100k.
+// 4.7k, then 0.15 uF into the M51516L. Its 100k input load is unsourced.
 constexpr double kRc = 4700.0 + 100000.0;
 constexpr double kCc = 0.15e-6;
 
@@ -35,8 +35,8 @@ void KonamiSound::reset() {
 }
 
 void KonamiSound::filter_w(uint16_t offset) {
-    for (int n = 0; n < 6; n++) sw_[unsigned(n)] = (offset >> (6 + n)) & 1;
-    for (int n = 0; n < 6; n++) sw_[unsigned(6 + n)] = (offset >> n) & 1;
+    // LS74 pair per channel clocks AVn into its 4066 gate: AV6-AV11 for 3D, AV0-AV5 for 3C.
+    for (unsigned n = 0; n < 12; n++) sw_[(n + 6) % 12] = (offset >> n) & 1;
 }
 
 float KonamiSound::sample() const {

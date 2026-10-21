@@ -103,12 +103,12 @@ TEST(Board, InputPortsDecodeA0A1AndShifterOnPort3) {
     EXPECT_EQ(m.port_in(7), 0x7F);
 }
 
-TEST(Board, Mb14241ShiftsNewestByteHigh) {
+TEST(Board, ShifterPutsNewestByteHigh) {
     for (int count = 0; count < 8; count++) {
-        mw8080::Mb14241 s;
+        mw8080::Shifter s;
         s.data_w(0xA5);
         s.data_w(0x3C);
-        s.count_w(uint8_t(count | 0xF8));
+        s.offset_w(uint8_t(count | 0xF8));
         const uint16_t reg = 0x3CA5;
         EXPECT_EQ(s.result(), uint8_t(reg >> (8 - count))) << "count " << count;
     }

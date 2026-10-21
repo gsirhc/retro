@@ -49,7 +49,7 @@ void Machine::wire_ppi() {
     ppi1.out_c = [this](uint8_t v) { pal6j_write(v); };
     ppi1.in_c = [this] { return protection_result; };
     ay1.port_a_r = [this] { return sound_latch; };
-    ay1.port_b_r = [this] { return galaxian::konami_sound_timer(sound.cycles); };
+    ay1.port_b_r = [this] { return galaxian::scramble_port_b(sound.cycles); };
 }
 
 void Machine::pal6j_write(uint8_t v) {
@@ -61,7 +61,7 @@ void Machine::pal6j_write(uint8_t v) {
 }
 
 uint8_t Machine::sound_in(uint8_t port) {
-    // konami_ay8910_r: bit 5 = AY2 data, bit 7 = AY1 data.
+    // Read with A7 (AY1) or A5 (AY2) set drives BC2+BC1 (33A-105 3D, 3C).
     uint8_t r = 0xFF;
     if (port & 0x20) r &= ay2.read_data();
     if (port & 0x80) r &= ay1.read_data();
@@ -69,11 +69,11 @@ uint8_t Machine::sound_in(uint8_t port) {
 }
 
 void Machine::sound_out(uint8_t port, uint8_t v) {
-    // konami_ay8910_w: bits 4–5 = AY2 (addr/data), bits 6–7 = AY1 (addr/data).
-    if (port & 0x10) ay2.write_addr(v);
-    else if (port & 0x20) ay2.write_data(v);
+    // A6 latches AY1's address, else A7 writes its data. A4 and A5 do the same for AY2.
     if (port & 0x40) ay1.write_addr(v);
     else if (port & 0x80) ay1.write_data(v);
+    if (port & 0x10) ay2.write_addr(v);
+    else if (port & 0x20) ay2.write_data(v);
 }
 
 void Machine::on_sound_control(uint8_t v) {

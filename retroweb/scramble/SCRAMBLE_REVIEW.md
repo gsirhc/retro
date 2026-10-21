@@ -9,8 +9,10 @@ Galaxian-family video and Konami sound, also used by Frogger and Galaxian.
 - Stern Scramble 33A-105 (sound) and 33A-106 (video).
 - GI AY-3-8910/8912 data sheet. Intel 8255A data sheet.
 - Computer Archaeology / Konami service notes for the memory map.
-- Konami sound-board timer: 40960 crystal clocks, Computer Archaeology
-  (`shared/galaxian/timer.h`).
+- Sound-board divider chain on AY port B (7C/6B/5B LS93, 4B LS90), AY
+  chip-select gates (3D: 4A, 6A; 3C: 5A) and the 4066 latch: Scramble
+  33A-105 sheets. 40960 crystal clocks per cycle (`shared/galaxian/timer.h`).
+- GI AY-3-8910 data manual: BDIR/BC2/BC1 table, I/O pins pulled up.
 
 ## 0. Status
 
@@ -53,9 +55,11 @@ game, Amidar, or bootlegs.
 | `$8000–$FFFF` | PPI0 if A8, PPI1 if A9 |
 
 Sound CPU: ROM `$0000–$1FFF` (6K populated), RAM `$8000–$83FF`. AY I/O
-is bit-decoded: bits 4–5 are AY2, bits 6–7 are AY1. AY1 port A is the
-command latch. Port B is the sound-board timer, without Frogger's bit
-swap. Filter latch writes at `$9000–$9FFF` (mirror `$6000`) set the
+is gate-decoded (33A-105 3D and 3C): a read with A7 (A5 for AY2) set
+reads data. A write with A6 (A4) latches the address, otherwise A7 (A5)
+writes data. AY1 port A is the command latch. Port B is the divider
+chain: B7 LS90 QA, B6 QD, B5 QC, B4 the last LS93 QD; B3–B0 float high.
+Frogger moves QC to B3. Filter latch writes at `$9000–$9FFF` (mirror `$6000`) set the
 4066 switches from the address lines.
 
 ## 4. Video
@@ -89,6 +93,7 @@ IN2: U/D `$10/$40`, coinage bits 2:1, cabinet bit 3, protection bits 5/7.
 ## 7. Unsourced
 
 - Cocktail player 2's stick is unmapped.
+- M51516L input load taken as 100 kΩ. No Mitsubishi data sheet found.
 - High score `$4200` (10 × 3 BCD) and the displayed score at `$40A8`
   have no battery. The page keeps them in IndexedDB for a user ROM.
   Reset HIGH SCORE deletes the save and resets the board.

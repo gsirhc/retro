@@ -186,16 +186,20 @@ TEST(Machine, AyIoBit6IsDataBit7IsAddress) {
     EXPECT_EQ(m.sound_in(0x80), 0xFF) << "only bit 6 reads the AY";
 }
 
-TEST(Machine, AyPortBIsFroggerSoundTimer) {
-    // Generic Konami at t=0 is 0x0E; Frogger swaps bits 3 and 5 → 0x26.
-    EXPECT_EQ(frogger::sound_timer_port(0), 0x26);
+TEST(Machine, AyPortBIsTheSoundTimer) {
     frogger::Machine m;
     m.sound.cycles = 0;
     m.sound_out(0x80, 15);
-    EXPECT_EQ(m.sound_in(0x40), 0x26);
-    // One half-period of the 40960-clock chain is 20480 crystal clocks =
-    // 2560 sound T-states; that sets the high bit.
-    EXPECT_NE(frogger::sound_timer_port(2560), frogger::sound_timer_port(0));
+    EXPECT_EQ(m.sound_in(0x40), 0x27);
+    m.sound.cycles = 512 * 4;
+    EXPECT_EQ(m.sound_in(0x40), 0x67);
+}
+
+TEST(Machine, AyAddressLatchesWhenBothBitsSet) {
+    frogger::Machine m;
+    m.sound_out(0xC0, 8);
+    m.sound_out(0x40, 0x07);
+    EXPECT_EQ(m.ay.regs[8], 0x07);
 }
 
 TEST(Machine, FlipLatches) {
