@@ -58,6 +58,38 @@ TEST(Video, LookupRgbUsesPromDac) {
     EXPECT_EQ(rgb & 0xFF, 0);
 }
 
+TEST(Video, GunLevelsFollowTheResistorLadder) {
+    pacman::Video v;
+    const uint8_t bits[] = {0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80};
+    const uint32_t want[] = {0x210000, 0x470000, 0x970000, 0x002100,
+                             0x004700, 0x009700, 0x000051, 0x0000AE};
+    for (int i = 0; i < 8; i++) {
+        v.color_prom[1] = bits[i];
+        v.lookup_prom[4] = 1;
+        EXPECT_EQ(v.lookup_rgb(1, 0), want[i]) << "PROM bit " << i;
+    }
+}
+
+TEST(Video, ScoreColumnsUseTheirOwnVramRows) {
+    pacman::Video v;
+    v.reset();
+    v.color_prom[31] = 0xFF;
+    v.lookup_prom[1] = 31;
+    v.tile_rom[16 + 8] = 0x08;   // tile 1, pixel (0,0)
+    v.videoram[0x3C2] = 1;       // native column 0, row 0
+    v.videoram[0x022] = 1;       // native column 35, row 0
+    v.videoram[0x043] = 1;       // native column 5, row 0
+    std::array<uint32_t, pacman::kUprightW * pacman::kUprightH> out{};
+    v.advance(2 * pacman::kCpuPerFrame);
+    v.render(out.data());
+    auto at = [&](int nx, int ny) { return out[unsigned(nx * pacman::kUprightW + (pacman::kVisH - 1 - ny))]; };
+    EXPECT_NE(at(0, 0), 0u);
+    EXPECT_NE(at(280, 0), 0u);
+    EXPECT_NE(at(40, 0), 0u);
+    EXPECT_EQ(at(8, 0), 0u);
+    EXPECT_EQ(at(272, 0), 0u);
+}
+
 // Monitor rotated 90 degrees: native (16,0) lands at upright (223,16).
 TEST(Video, Rot90FlipsXAndSwapsXy) {
     pacman::Video v;

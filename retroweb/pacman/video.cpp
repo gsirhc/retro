@@ -1,6 +1,39 @@
 #include "video.h"
 
 namespace pacman {
+namespace {
+
+// 7F drives each gun through R18/R17/R16 1k/470/220 (red), R14/R15/R13 (green) and
+// R34/R33 470/220 (blue) (manual p.33). A divider into the monitor's input is linear in
+// the conductance switched high, so full drive normalises to 255 and the load drops out.
+constexpr double kRedGreenOhms[3] = {1000.0, 470.0, 220.0};
+constexpr double kBlueOhms[2] = {470.0, 220.0};
+
+template <int N>
+constexpr std::array<int, 1 << N> gun_levels(const double (&ohms)[N]) {
+    std::array<int, 1 << N> out{};
+    double total = 0;
+    for (int k = 0; k < N; k++) total += 1.0 / ohms[k];
+    for (int bits = 0; bits < (1 << N); bits++) {
+        double on = 0;
+        for (int k = 0; k < N; k++)
+            if (bits & (1 << k)) on += 1.0 / ohms[k];
+        out[unsigned(bits)] = int(255.0 * on / total + 0.5);
+    }
+    return out;
+}
+
+constexpr auto kGunLevel3 = gun_levels(kRedGreenOhms);
+constexpr auto kGunLevel2 = gun_levels(kBlueOhms);
+
+// H counter 3R/3S reloads 128 after 511 and 3N unblanks 240-511 then 128-143 (manual p.32).
+int h_count(int x) { return x < 272 ? 240 + x : x - 144; }
+// V counter 2R/2S reloads 248 after 511; /VBLANK releases at V = 16 of the 256V half.
+int v_count(int line) { return 272 + line; }
+// Line buffer cell to first displayed pixel; not readable from the scanned schematic.
+constexpr int kLineBufferLag = 1;
+
+}  // namespace
 
 void Video::reset() {
     videoram.fill(0);
@@ -62,19 +95,23 @@ uint8_t Video::sprite_pixel(uint8_t code, int x, int y) const {
 uint32_t Video::lookup_rgb(uint8_t attr, uint8_t pix) const {
     uint8_t idx = lookup_prom[unsigned(((attr & 0x3F) << 2) | (pix & 3)) & 0xFF];
     uint8_t v = color_prom[idx & 0x1F];
-    int r = ((v & 1) ? 0x21 : 0) + ((v & 2) ? 0x47 : 0) + ((v & 4) ? 0x97 : 0);
-    int g = ((v & 8) ? 0x21 : 0) + ((v & 16) ? 0x47 : 0) + ((v & 32) ? 0x97 : 0);
-    int b = ((v & 64) ? 0x51 : 0) + ((v & 128) ? 0xAE : 0);
+    int r = kGunLevel3[v & 7];
+    int g = kGunLevel3[(v >> 3) & 7];
+    int b = kGunLevel2[v >> 6];
     return uint32_t((r << 16) | (g << 8) | b);
 }
 
-int Video::vram_offset(int col, int row) const {
-    // 36x28 tilemap scan (Lomont, Pac-Man hardware notes v0.1, figure 7).
-    int c = col - 2;
-    int r = row + 2;
-    if (c & 0x20)
-        return r + ((c & 0x1F) << 5);
-    return c + (r << 5);
+// V-RAM addresser A082-91384-B000 (Midway Pac-Man manual p.38).
+int Video::tile_address(int x, int line) const {
+    const int h = h_count(x);
+    const int v = v_count(line);
+    // U7-U9 XOR 8H-128H and 8V-128V with FLIP.
+    const int flip = flip_screen ? 0xF8 : 0;
+    const int hp = h ^ flip;
+    const int vp = v ^ flip;
+    if (h & 0x100) return ((hp >> 3) & 31) | (((vp >> 3) & 31) << 5);
+    // 16H = 32H = 64H: U4-U6 take the score columns, AB5 = 8HP and AB6-AB9 = 64HP.
+    return ((vp >> 3) & 31) | (((hp >> 3) & 1) << 5) | ((hp & 0x40) ? 0x3C0 : 0);
 }
 
 void Video::hblank_setup(int line) {
@@ -82,26 +119,27 @@ void Video::hblank_setup(int line) {
     if (line >= kVisH) return;
     // Lower slots win (Lomont: lower numbered sprites overwrite higher).
     for (int i = 0; i < 8; i++) {
-        uint8_t b0 = spriteram[unsigned(i * 2)];
-        uint8_t color = uint8_t(spriteram[unsigned(i * 2 + 1)] & 0x1F);
-        int sx = 272 - int(sprite_xy[unsigned(i * 2 + 1)]);
-        int sy = int(sprite_xy[unsigned(i * 2)]) - 31;
-        int row = line - sy;
-        if (row < 0 || row >= 16) continue;
-        bool fx = (b0 & 1) != 0;
-        bool fy = (b0 & 2) != 0;
-        uint8_t code = uint8_t(b0 >> 2);
-        for (int wrap = 0; wrap < 2; wrap++) {
-            int base = sx - wrap * 256;
-            for (int px = 0; px < 16; px++) {
-                int x = base + (fx ? 15 - px : px);
-                // Sprites never reach the two score columns at each end (Lomont).
-                if (x < 16 || x > 271 || sprite_line_[unsigned(x)]) continue;
-                uint8_t pix = sprite_pixel(code, px, fy ? 15 - row : row);
-                // A pen is clear when its lookup entry selects colour 0 (Lomont: colour 0 is transparent).
-                if ((lookup_prom[unsigned((color << 2) | pix)] & 0x0F) == 0) continue;
-                sprite_line_[unsigned(x)] = lookup_rgb(color, pix) | (1u << 24);
-            }
+        const uint8_t b0 = spriteram[unsigned(i * 2)];
+        const uint8_t color = uint8_t(spriteram[unsigned(i * 2 + 1)] & 0x1F);
+        // 74LS89 3F/3H read back inverted; 1F/2F add V with carry-in low during hblank.
+        const int y_inv = ~sprite_xy[unsigned(i * 2)] & 0xFF;
+        const int x_inv = ~sprite_xy[unsigned(i * 2 + 1)] & 0xFF;
+        const int sum = (v_count(line) + y_inv) & 0xFF;
+        if ((sum & 0xF0) != 0xF0) continue;  // 3E 74LS20 MATCH
+        const int row = sum & 15;
+        const bool fx = (b0 & 1) != 0;
+        const bool fy = (b0 & 2) != 0;
+        const uint8_t code = uint8_t(b0 >> 2);
+        for (int px = 0; px < 16; px++) {
+            // 1E/2E address a 256-cell buffer, read out while the counter is 256-511.
+            const int cell = (x_inv + kLineBufferLag + px) & 0xFF;
+            const int x = 16 + cell;
+            const int sp = fx ? 15 - px : px;
+            if (sprite_line_[unsigned(x)]) continue;
+            uint8_t pix = sprite_pixel(code, sp, fy ? 15 - row : row);
+            // A pen is clear when its lookup entry selects colour 0 (Lomont: colour 0 is transparent).
+            if ((lookup_prom[unsigned((color << 2) | pix)] & 0x0F) == 0) continue;
+            sprite_line_[unsigned(x)] = lookup_rgb(color, pix) | (1u << 24);
         }
     }
 }
@@ -113,12 +151,11 @@ void Video::paint(int line, int x0, int x1) {
             row[x] = s & 0xFFFFFF;
             continue;
         }
-        // Flip inverts both tilemap counters; sprites are positioned by the game.
-        int tx = flip_screen ? kVisW - 1 - x : x;
-        int ty = flip_screen ? kVisH - 1 - line : line;
-        int offs = vram_offset(tx >> 3, ty >> 3) & 0x3FF;
+        // Flip turns the tile around too; sprites are positioned by the game.
+        const int fine = flip_screen ? 7 : 0;
+        int offs = tile_address(x, line);
         uint8_t attr = colorram[unsigned(offs)];
-        uint8_t pix = tile_pixel(videoram[unsigned(offs)], tx & 7, ty & 7);
+        uint8_t pix = tile_pixel(videoram[unsigned(offs)], (x & 7) ^ fine, (line & 7) ^ fine);
         row[x] = lookup_rgb(attr, pix);
     }
 }

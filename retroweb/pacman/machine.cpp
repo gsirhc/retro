@@ -1,39 +1,50 @@
 #include "machine.h"
 
-#include <utility>
+#include <algorithm>
 
 namespace pacman {
 namespace {
 
-// U5/U6/U7 lines are wired scrambled (US 4,525,599 describes the scheme, not these orders).
-uint16_t bitswap(uint16_t val, const int* bits, int n) {
-    uint16_t out = 0;
-    for (int i = 0; i < n; i++)
-        out |= uint16_t((val >> bits[i]) & 1) << (n - 1 - i);
-    return out;
+// Aux-board EPROM wiring, recovered from the U5/U6/U7 dumps (PACMAN_REVIEW.md §1).
+// Entry k is the EPROM pin that Z80 line k reaches.
+constexpr int kAuxDataPin[8] = {1, 2, 3, 6, 7, 5, 4, 0};
+constexpr int kU5AddrPin[11] = {0, 1, 2, 4, 3, 8, 5, 9, 10, 7, 6};
+constexpr int kU6U7AddrPin[12] = {0, 1, 2, 10, 3, 4, 5, 9, 6, 8, 7, 11};
+
+unsigned eprom_address(unsigned cpu, const int* pin, int lines) {
+    unsigned chip = 0;
+    for (int k = 0; k < lines; k++)
+        if (cpu & (1u << k)) chip |= 1u << pin[k];
+    return chip;
 }
 
-uint8_t aux_data(uint8_t v) {
-    const int b[] = {0, 4, 5, 7, 6, 3, 2, 1};
-    return uint8_t(bitswap(v, b, 8));
+uint8_t eprom_data(uint8_t chip) {
+    uint8_t cpu = 0;
+    for (int k = 0; k < 8; k++)
+        if (chip & (1u << kAuxDataPin[k])) cpu |= uint8_t(1u << k);
+    return cpu;
 }
 
 bool in_trap(uint16_t addr, uint16_t base) {
     return addr >= base && addr < uint16_t(base + 8);
 }
 
-// Forty 8-byte overlay windows: dest $0000-$2FFF, source decrypted aux ROM $8000-$81EF.
-constexpr std::pair<uint16_t, uint16_t> kPatches[] = {
-    {0x0410, 0x8008}, {0x08E0, 0x81D8}, {0x0A30, 0x8118}, {0x0BD0, 0x80D8},
-    {0x0C20, 0x8120}, {0x0E58, 0x8168}, {0x0EA8, 0x8198}, {0x1000, 0x8020},
-    {0x1008, 0x8010}, {0x1288, 0x8098}, {0x1348, 0x8048}, {0x1688, 0x8088},
-    {0x16B0, 0x8188}, {0x16D8, 0x80C8}, {0x16F8, 0x81C8}, {0x19A8, 0x80A8},
-    {0x19B8, 0x81A8}, {0x2060, 0x8148}, {0x2108, 0x8018}, {0x21A0, 0x81A0},
-    {0x2298, 0x80A0}, {0x23E0, 0x80E8}, {0x2418, 0x8000}, {0x2448, 0x8058},
-    {0x2470, 0x8140}, {0x2488, 0x8080}, {0x24B0, 0x8180}, {0x24D8, 0x80C0},
-    {0x24F8, 0x81C0}, {0x2748, 0x8050}, {0x2780, 0x8090}, {0x27B8, 0x8190},
-    {0x2800, 0x8028}, {0x2B20, 0x8100}, {0x2B30, 0x8110}, {0x2BF0, 0x81D0},
-    {0x2CC0, 0x80D0}, {0x2CD8, 0x80E0}, {0x2CF0, 0x81E0}, {0x2D60, 0x8160},
+// U5 $8000-$81EF holds forty 8-byte code windows; the rest of that page is blank $FF.
+struct AuxPatch {
+    uint16_t u5;
+    uint16_t window;
+};
+constexpr AuxPatch kAuxPatches[] = {
+    {0x000, 0x2418}, {0x008, 0x0410}, {0x010, 0x1008}, {0x018, 0x2108},
+    {0x020, 0x1000}, {0x028, 0x2800}, {0x048, 0x1348}, {0x050, 0x2748},
+    {0x058, 0x2448}, {0x080, 0x2488}, {0x088, 0x1688}, {0x090, 0x2780},
+    {0x098, 0x1288}, {0x0A0, 0x2298}, {0x0A8, 0x19A8}, {0x0C0, 0x24D8},
+    {0x0C8, 0x16D8}, {0x0D0, 0x2CC0}, {0x0D8, 0x0BD0}, {0x0E0, 0x2CD8},
+    {0x0E8, 0x23E0}, {0x100, 0x2B20}, {0x110, 0x2B30}, {0x118, 0x0A30},
+    {0x120, 0x0C20}, {0x140, 0x2470}, {0x148, 0x2060}, {0x160, 0x2D60},
+    {0x168, 0x0E58}, {0x180, 0x24B0}, {0x188, 0x16B0}, {0x190, 0x27B8},
+    {0x198, 0x0EA8}, {0x1A0, 0x21A0}, {0x1A8, 0x19B8}, {0x1C0, 0x24F8},
+    {0x1C8, 0x16F8}, {0x1D0, 0x2BF0}, {0x1D8, 0x08E0}, {0x1E0, 0x2CF0},
 };
 
 }  // namespace
@@ -67,34 +78,18 @@ void Machine::reset() {
 }
 
 void Machine::rebuild_aux() {
-    aux_decrypted_.fill(0);
-    const int u7a[] = {11, 3, 7, 9, 10, 8, 6, 5, 4, 2, 1, 0};
-    for (int i = 0; i < 0x1000; i++) {
-        aux_decrypted_[unsigned(0x0000 + i)] = program[unsigned(0x0000 + i)];
-        aux_decrypted_[unsigned(0x1000 + i)] = program[unsigned(0x1000 + i)];
-        aux_decrypted_[unsigned(0x2000 + i)] = program[unsigned(0x2000 + i)];
-        aux_decrypted_[unsigned(0x3000 + i)] =
-            aux_data(aux_u7_[bitswap(uint16_t(i), u7a, 12)]);
+    // U5 decodes A0-A10 at $8000-$87FF, U6 A0-A11 at $8800-$97FF.
+    for (unsigned cpu = 0x8000; cpu < 0x9800; cpu++) {
+        const unsigned off = cpu - 0x8000;
+        aux_high_[off] = cpu < 0x8800
+            ? eprom_data(aux_u5_[eprom_address(cpu & 0x7FF, kU5AddrPin, 11)])
+            : eprom_data(aux_u6_[eprom_address(cpu & 0xFFF, kU6U7AddrPin, 12)]);
     }
-    const int u5a[] = {8, 7, 5, 9, 10, 6, 3, 4, 2, 1, 0};
-    const int u6a[] = {3, 7, 9, 10, 8, 6, 5, 4, 2, 1, 0};
-    for (int i = 0; i < 0x800; i++) {
-        aux_decrypted_[unsigned(0x8000 + i)] =
-            aux_data(aux_u5_[bitswap(uint16_t(i), u5a, 11)]);
-        aux_decrypted_[unsigned(0x8800 + i)] =
-            aux_data(aux_u6_[0x800 + bitswap(uint16_t(i), u6a, 11)]);
-        aux_decrypted_[unsigned(0x9000 + i)] =
-            aux_data(aux_u6_[bitswap(uint16_t(i), u6a, 11)]);
-        aux_decrypted_[unsigned(0x9800 + i)] = program[unsigned(0x1800 + i)];
-    }
-    for (int i = 0; i < 0x1000; i++) {
-        aux_decrypted_[unsigned(0xA000 + i)] = program[unsigned(0x2000 + i)];
-        aux_decrypted_[unsigned(0xB000 + i)] = program[unsigned(0x3000 + i)];
-    }
-    for (const auto& p : kPatches) {
-        for (int i = 0; i < 8; i++)
-            aux_decrypted_[p.first + unsigned(i)] = aux_decrypted_[p.second + unsigned(i)];
-    }
+    std::copy(program.begin(), program.begin() + 0x3000, aux_low_.begin());
+    for (unsigned off = 0; off < 0x1000; off++)
+        aux_low_[0x3000 + off] = eprom_data(aux_u7_[eprom_address(off, kU6U7AddrPin, 12)]);
+    for (const AuxPatch& p : kAuxPatches)
+        std::copy_n(aux_high_.begin() + p.u5, 8, aux_low_.begin() + p.window);
 }
 
 void Machine::load_roms(const RomSet& set) {
@@ -109,8 +104,9 @@ void Machine::load_roms(const RomSet& set) {
     aux_u6_ = set.aux_u6;
     aux_u7_ = set.aux_u7;
     aux_decode = false;
+    aux_low_.fill(0);
+    aux_high_.fill(0);
     if (aux_board) rebuild_aux();
-    else aux_decrypted_.fill(0);
 }
 
 void Machine::aux_trap(uint16_t addr) {
@@ -129,12 +125,13 @@ void Machine::aux_trap(uint16_t addr) {
 
 uint8_t Machine::mem_read(uint16_t addr) {
     aux_trap(addr);
+    if (aux_board && aux_decode) {
+        if (addr < 0x4000) return aux_low_[addr];
+        if (addr >= 0x8000 && addr < 0x9800) return aux_high_[addr - 0x8000u];
+    }
     // Stock PCB leaves A15 unconnected, so $8000-$FFFF mirror $0000-$7FFF.
     const uint16_t lo = addr & 0x7FFF;
-    if (lo < 0x4000) {
-        if (aux_board && aux_decode) return aux_decrypted_[addr];
-        return program[lo];
-    }
+    if (lo < 0x4000) return program[lo];
     // A13 is not decoded above $4000 (Lomont, Pac-Man hardware notes v0.1: $6000 mirrors $4000).
     const uint16_t m = lo & 0x5FFF;
     if (m < 0x4400) return video.videoram[m - 0x4000];

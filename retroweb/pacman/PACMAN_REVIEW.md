@@ -59,10 +59,48 @@ the original Pac-Man map. The latch powers on clear; Pac-Man's IM 2
 vector table sits in `$3FF8–$3FFF`, so the first vblank IRQ both enables
 Ms. Pac-Man and reads U7's vector. Z80 RESET (watchdog) does not clear
 the PAL. The patent describes the scheme (PROM-mapped address and data
-swaps, trap detection on address values) but gives no line orders, so the
-bit orders and the forty patch addresses are Unsourced. They are checked
-only against the real dump: the decoded U5/U6/U7 contents run as the
-Ms. Pac-Man program in `play_test`. Covered by `Machine.Aux*` / `Machine.Im2VectorFetchEnablesAuxDecode`
+swaps, trap detection on address values) but gives no line orders, so
+the wiring and the forty windows were recovered from the U5/U6/U7 dumps
+themselves, with the Pac-Man program chips as the reference for Z80 code:
+
+- **Data pins.** A byte histogram is unchanged by any address swap, so
+  each of the 8! data orders was scored by how closely the aux bytes'
+  histogram matched the Pac-Man program's. Z80 D0-D7 come from EPROM
+  D1, D2, D3, D6, D7, D5, D4, D0 (`kAuxDataPin`).
+- **Address pins, low bits.** With data fixed, the EPROM line carrying
+  Z80 A<k> was chosen, A0 first, by the likelihood of the byte pairs
+  that become adjacent (Pac-Man byte-bigram model). U6 and U7 agree:
+  A0-A2 straight, then A3 to pin 10, A4-A6 to pins 3-5, A7 to 9, A8 to
+  6, A9 to 8, A10 to 7, A11 straight (`kU6U7AddrPin`). Swapping any two
+  of A3-A11 lowers the share of JP/CALL targets that land on decoded
+  instruction starts (86 of 87 as wired).
+- **U5.** A0-A5 come out of the same bigram search (A3 to pin 4, A4 to
+  3, A5 to 8). U5 splits into 62 eight-byte chunks plus a pointer table:
+  40 chunks are near-copies of 8-byte-aligned Pac-Man code, 22 are blank
+  `$FF`. All 40 have physical pins 6 and 7 low, so A9/A10 are those
+  pins. The table at `$81F0` lists eight cutscene scripts; with A9 on
+  pin 7 and A10 on pin 6 every entry lands just after an `$FF`
+  terminator, the swap lands on none. Of the six A6-A8 orders over pins
+  5, 9, 10, only A6=5, A7=9, A8=10 puts every table entry after a
+  terminator and 13 of 14 code targets on instruction starts.
+- **Bank layout.** U7's own JP/CALLs point at `$3000-$37FF`, so U7 is
+  `$3000-$3FFF`. Patch-window and U7 targets into `$8800-$97FF` hit
+  instruction starts 17 of 19 times when U6 sees Z80 A11 unchanged
+  (`$8800` = its upper half) and 10 of 19 the other way. Decoded code
+  never addresses `$9800-$FFFF`, so those keep the stock A15 mirror.
+- **Patch windows.** Each non-blank U5 chunk was matched against every
+  8-byte-aligned window of `$0000-$2FFF`. 37 have a unique best match,
+  two of them byte-identical to Pac-Man. Three were settled by what the
+  replacement does: `$8028` (`CALL $955E`) and `$8090` (`CALL $9561`)
+  call routines that load `A` from `$4D2F` or load `DE` and keep `A`,
+  which reproduces only the instruction they overwrite at `$2800` and
+  `$2780` (`LD A,($4D2F)`, `LD DE,$391D`), not at the other candidates;
+  `$81A8` at `$19B8` is `CALL $1000; JR` and the jump lands on the
+  original `RST 30` at `$19C4`.
+
+The decoded U5/U6/U7 contents run as the Ms. Pac-Man program in
+`play_test`. The latch-set and latch-clear trap addresses have no source yet and
+are Unsourced. Covered by `Machine.Aux*` / `Machine.Im2VectorFetchEnablesAuxDecode`
 and `web/tests/mspacman.spec.ts`.
 
 ## 2. Clocks (never sped up on the live page)
@@ -132,7 +170,7 @@ and the Namco Pac-Man wiki at obscure.nesdev.org (Memory Map, Memory Mapped I/O)
 | Range | Contents |
 |---|---|
 | `$0000–$3FFF` | Program ROM (16K) |
-| `$4000–$43FF` | Video RAM (tile codes, 32×28 visible via `vram_offset`'s row/col decode) |
+| `$4000–$43FF` | Video RAM (tile codes, 32×28 visible via `tile_address`'s row/col decode) |
 | `$4400–$47FF` | Color RAM (per-tile palette attribute) |
 | `$4800–$4BFF` | Nothing. No RAM is fitted (wiki: unused); reads return `$BF`, value Unsourced |
 | `$4C00–$4FEF` | Work RAM (1K with the sprite RAM) |
@@ -185,21 +223,50 @@ into a 256-byte lookup PROM, whose output byte indexes a 32-byte RGB color
 PROM (`Video::lookup_rgb`) — this two-PROM indirection (not a direct
 pixel→RGB table) is genuine Midway hardware, not an emulator simplification.
 
-`vram_offset`'s row/col-swizzle (`col -= 2; row += 2`, then bit-0x20-gated
-either `row + ((col&0x1F)<<5)` or `col + (row<<5)`) reproduces the real
-board's non-linear VRAM address decode — the tilemap isn't stored in raster
-(row-major) order in VRAM; Lomont's figure 7 gives the offset of every
-cell and `vram_offset` reproduces it.
+Sources for the raster, tilemap, sprite and colour paths are the Midway
+Pac-Man parts and operating manual (December 1980,
+archive.org/details/ArcadeGameManualPac-man): game board schematic
+pp.32-33 and the V-RAM addresser A082-91384-B000 schematic p.38.
 
-Sprite coordinate transform (`sy = ram2[i] - 31; sx = 272 - ram2[i+1]`)
-reproduces Lomont's visible limits: the lowest fully visible position is
-(31,16) and the highest (239,256), figure 10. Flip screen does not touch it: the game writes flipped
-coordinates itself in cocktail mode (see §10). This was a genuine bring-up bug
-(get it wrong and Pac-Man/ghosts still render, just bunched at the wrong
-position, e.g. at the ghost house instead of each character's own start
-spot) -- `Video.SpritePositionRegisterRoles` is the regression
-test, verified against real gameplay (level-start layout) via a native
-trace harness before landing.
+Counters (p.32). 1H is 8C; 3R/3S count 2H-256H and reload 128 after 511,
+so H runs 128-511, 384 states. 3N blanks from H=144 and unblanks at 240,
+so the 288 visible pixels are H 240-511 then 128-143. 2R/2S reload 248
+after 511 (264 lines); 5M releases /VBLANK at V=16 of the 256-511 half,
+so visible line y is V = 272 + y.
+
+Tilemap (`Video::tile_address`, p.38). Three 74LS257s give AB0-AB11 and
+take their B side while the counter is 256-511: AB0-AB4 = 8HP-128HP,
+AB5-AB9 = 8VP-128VP, plain row-major. In 128-255 the 74LS157s are
+selected when 16H = 32H = 64H, which is exactly H 128-143 and 240-255,
+the two score columns at each end: AB0-AB4 = 8VP-128VP, AB5 = 8HP,
+AB6-AB9 = 64HP, so H 240-255 reads `$3C0-$3FF` and 128-143 reads
+`$000-$03F`. AB10 is raw 4H (code, then colour). In the rest of the
+blank the 157s pass 4H/16H/32H/64H with AB4-AB11 pulled up, the
+`$4FF0` sprite fetch. "P" signals are the counter XOR FLIP (U7-U9), on
+8H-128H and 8V-128V only.
+
+Sprites (p.32, `hblank_setup`). The `$5060` registers are a pair of
+74LS89s (3F/3H), which read back inverted. 1F/2F add V to the inverted
+Y with carry-in low during hblank (5N), 3E (74LS20) flags a match when
+the sum's top nibble is all ones and the low nibble is the sprite row,
+which works out to row = y - Y + 31 on visible line y. 1E/2E (74LS161)
+load the inverted X and step through the 256-cell line buffer at the
+pixel clock; the buffer is shown while the H counter is 256-511, so a
+sprite wraps modulo 256 and never reaches the score columns. The one
+pixel between the loaded cell and the first displayed pixel
+(`kLineBufferLag`) depends on load and read pipeline timing that the
+scan doesn't resolve; it is Unsourced, chosen so the lowest fully
+visible position is (31,16) and the highest (239,256) (Lomont, figure
+10). The Y path assumes the fetch and the display use the same V.
+
+Colour (p.33, `lookup_rgb`). 7F (7603) drives red through R18/R17/R16
+(1k, 470, 220 from D0-D2), green through R14/R15/R13 (D3-D5) and blue
+through R34/R33 (470, 220 from D6-D7) straight into the monitor input.
+For a resistor summer into a load R_L, V = V_OH·G_on / (G_total + 1/R_L)
+above black, so with full drive scaled to 255 the load and V_OH cancel
+and each level is 255·G_on/G_total, rounded: red/green 33, 71, 151 per
+bit and blue 81, 174. The table is computed from the resistor values at
+compile time. `Video.GunLevelsFollowTheResistorLadder` pins it.
 
 Flip bits: bit 0 of the sprite's first RAM byte is X flip, bit 1 is Y
 flip (Lomont, table 6 lists the two flip bits together with the 6-bit

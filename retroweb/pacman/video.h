@@ -59,7 +59,7 @@ private:
     std::array<uint32_t, kVisW * kVisH> frame_{};
     std::array<uint32_t, kVisW> sprite_line_{};  // RGB | 1 << 24, 0 = empty
 
-    int vram_offset(int col, int row) const;
+    int tile_address(int x, int line) const;
     void hblank_setup(int line);
     void paint(int line, int x0, int x1);
 };

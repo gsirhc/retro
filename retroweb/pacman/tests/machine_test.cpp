@@ -336,45 +336,35 @@ TEST(Machine, PacManA15MirrorsProgramRom) {
     EXPECT_EQ(m.mem_read(0x9234), 0xA5);
 }
 
-// U5/U6/U7 data-line scramble (patent 4,525,599): input bit 0 becomes bit 7.
-uint16_t bitswap_t(uint16_t val, const int* bits, int n) {
-    uint16_t out = 0;
-    for (int i = 0; i < n; i++)
-        out |= uint16_t((val >> bits[i]) & 1) << (n - 1 - i);
-    return out;
+// Aux EPROM wiring recovered from the dumps (PACMAN_REVIEW.md §1): Z80 line k reaches pin[k].
+const int kDataPin[8] = {1, 2, 3, 6, 7, 5, 4, 0};
+const int kU5Pin[11] = {0, 1, 2, 4, 3, 8, 5, 9, 10, 7, 6};
+const int kU67Pin[12] = {0, 1, 2, 10, 3, 4, 5, 9, 6, 8, 7, 11};
+
+unsigned chip_addr(unsigned cpu, const int* pin, int n) {
+    unsigned chip = 0;
+    for (int k = 0; k < n; k++)
+        chip |= ((cpu >> k) & 1u) << pin[k];
+    return chip;
 }
-uint8_t aux_data_t(uint8_t v) {
-    const int b[] = {0, 4, 5, 7, 6, 3, 2, 1};
-    return uint8_t(bitswap_t(v, b, 8));
-}
-uint8_t aux_data_inv_t(uint8_t v) {
-    const int b[] = {4, 3, 5, 6, 2, 1, 0, 7};
-    return uint8_t(bitswap_t(v, b, 8));
+uint8_t chip_byte(uint8_t cpu) {
+    return uint8_t(chip_addr(cpu, kDataPin, 8));
 }
 
-TEST(Machine, AuxDataScrambleRoundTripAndGoldenVector) {
-    EXPECT_EQ(aux_data_t(0x01), 0x80);
-    for (int i = 0; i < 256; i++)
-        EXPECT_EQ(int(aux_data_inv_t(aux_data_t(uint8_t(i)))), i);
+TEST(Machine, AuxDataPinsGoldenVectors) {
+    EXPECT_EQ(chip_byte(0x80), 0x01) << "Z80 D7 is EPROM D0";
+    EXPECT_EQ(chip_byte(0x01), 0x02) << "Z80 D0 is EPROM D1";
+    EXPECT_EQ(chip_byte(0x08), 0x40) << "Z80 D3 is EPROM D6";
 }
 
 void plant_u5(pacman::RomSet& s, uint16_t cpu, uint8_t decoded) {
-    const int a[] = {8, 7, 5, 9, 10, 6, 3, 4, 2, 1, 0};
-    s.aux_u5[bitswap_t(uint16_t(cpu - 0x8000), a, 11)] = aux_data_inv_t(decoded);
+    s.aux_u5[chip_addr(cpu & 0x7FFu, kU5Pin, 11)] = chip_byte(decoded);
 }
 void plant_u6(pacman::RomSet& s, uint16_t cpu, uint8_t decoded) {
-    const int a[] = {3, 7, 9, 10, 8, 6, 5, 4, 2, 1, 0};
-    if (cpu >= 0x8800 && cpu < 0x9000) {
-        uint16_t i = uint16_t(cpu - 0x8800);
-        s.aux_u6[0x800 + bitswap_t(i, a, 11)] = aux_data_inv_t(decoded);
-    } else {
-        uint16_t i = uint16_t(cpu - 0x9000);
-        s.aux_u6[bitswap_t(i, a, 11)] = aux_data_inv_t(decoded);
-    }
+    s.aux_u6[chip_addr(cpu & 0xFFFu, kU67Pin, 12)] = chip_byte(decoded);
 }
 void plant_u7(pacman::RomSet& s, uint16_t cpu, uint8_t decoded) {
-    const int a[] = {11, 3, 7, 9, 10, 8, 6, 5, 4, 2, 1, 0};
-    s.aux_u7[bitswap_t(uint16_t(cpu - 0x3000), a, 12)] = aux_data_inv_t(decoded);
+    s.aux_u7[chip_addr(cpu & 0xFFFu, kU67Pin, 12)] = chip_byte(decoded);
 }
 
 pacman::RomSet aux_set() {
@@ -452,6 +442,39 @@ TEST(Machine, AuxU5GoldenDescrambleAt8008) {
     m.load_roms(s);
     (void)m.mem_read(0x3FF8);
     EXPECT_EQ(m.mem_read(0x8008), 0x80);
+}
+
+TEST(Machine, AuxU6AndU7GoldenAddressPins) {
+    // Z80 A3 drives pin A10 of both 2532s; U6 sees Z80 A11 unchanged, so $8800 is its upper half.
+    pacman::RomSet s;
+    s.aux_board = true;
+    s.aux_u7[0x400] = 0x01;
+    s.aux_u6[0x800] = 0x02;
+    s.aux_u6[0x000] = 0x04;
+    pacman::Machine m;
+    m.load_roms(s);
+    (void)m.mem_read(0x3FF8);
+    EXPECT_EQ(m.mem_read(0x3008), 0x80);
+    EXPECT_EQ(m.mem_read(0x8800), 0x01);
+    EXPECT_EQ(m.mem_read(0x9000), 0x02);
+}
+
+TEST(Machine, AuxPatchWindowsCopyTheirU5Bytes) {
+    pacman::RomSet s = aux_set();
+    for (int i = 0; i < 8; i++) {
+        plant_u5(s, uint16_t(0x8028 + i), uint8_t(0x60 + i));
+        plant_u5(s, uint16_t(0x81A8 + i), uint8_t(0x70 + i));
+    }
+    s.program[0x2808] = 0x5A;
+    pacman::Machine m;
+    m.load_roms(s);
+    (void)m.mem_read(0x3FF8);
+    for (int i = 0; i < 8; i++) {
+        EXPECT_EQ(m.mem_read(uint16_t(0x2800 + i)), 0x60 + i);
+        EXPECT_EQ(m.mem_read(uint16_t(0x19B8 + i)), 0x70 + i);
+    }
+    EXPECT_EQ(m.mem_read(0x2808), 0x5A) << "window is eight bytes";
+    EXPECT_EQ(m.mem_read(0x9800), 0xE5) << "$9800 up is the stock A15 mirror";
 }
 
 TEST(Machine, WatchdogResetLeavesAuxLatchAlone) {

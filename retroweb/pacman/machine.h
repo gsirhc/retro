@@ -91,7 +91,8 @@ private:
     z80::Bus make_bus();
     void aux_trap(uint16_t addr);
     void rebuild_aux();
-    std::array<uint8_t, 0x10000> aux_decrypted_{};
+    std::array<uint8_t, 0x4000> aux_low_{};   // $0000-$3FFF with the latch set
+    std::array<uint8_t, 0x1800> aux_high_{};  // $8000-$97FF
     std::array<uint8_t, 0x0800> aux_u5_{};
     std::array<uint8_t, 0x1000> aux_u6_{};
     std::array<uint8_t, 0x1000> aux_u7_{};
