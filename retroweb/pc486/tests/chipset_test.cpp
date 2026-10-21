@@ -633,12 +633,11 @@ TEST(ChipsetTest, SoundBlasterPlaybackWrapsWithinTheSixtyFourKPageNotAcrossIt) {
         EXPECT_EQ(samples[i].left, int16_t((int(pcm[i]) - 128) * 256)) << "byte " << i;
 }
 
-TEST(ChipsetTest, DmaIdentificationWritesOneByteToMemoryWithNoInterrupt) {
-    // E2h's single-byte DMA write is not a DSP block: no interrupt, no counters
+TEST(ChipsetTest, DmaIdentificationLeavesMemoryAndInterruptsAlone) {
     Chipset cs;
     InitPics(cs);
     const uint32_t phys = 0x00015000;
-    cs.mem_write(phys, 0x00);
+    cs.mem_write(phys, 0x5A);
 
     cs.io_out(0x0C, 0x00);
     cs.io_out(0x02, uint8_t(phys & 0xFF));
@@ -653,11 +652,11 @@ TEST(ChipsetTest, DmaIdentificationWritesOneByteToMemoryWithNoInterrupt) {
     cs.io_out(0x226, 1);
     cs.io_out(0x226, 0);
     ASSERT_EQ(cs.io_in(0x22A), 0xAA);
-    cs.io_out(0x22C, 0xE2); cs.io_out(0x22C, 0x12);  // DMA identification, p = 0x12
+    cs.io_out(0x22C, 0xE2); cs.io_out(0x22C, 0x12);
 
-    for (uint64_t c = 0; c < 2000 && cs.sb.transfer_ready(); c += 64) cs.tick(c, 66000000.0);
+    for (uint64_t c = 0; c < 2000; c += 64) cs.tick(c, 66000000.0);
     EXPECT_FALSE(cs.sb.transfer_ready());
-    EXPECT_EQ(cs.mem_read(phys), uint8_t(0xAA + (0x12 ^ 0x96)));  // valadd=0xAA, valxor=0x96 out of reset
+    EXPECT_EQ(cs.mem_read(phys), 0x5A);
     EXPECT_EQ(cs.poll_interrupt(), -1);
 }
 

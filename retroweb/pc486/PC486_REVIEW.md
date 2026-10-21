@@ -3075,7 +3075,7 @@ never gets exercised at all. So the version byte pair is not cosmetic
 identification -- it selects which half of this device's command set real
 software will ever reach. 4.05 is a genuine shipped SB16 revision.
 
-### 11.3 Command coverage, and the three things deliberately left ignored
+### 11.3 Command coverage, and what is deliberately left ignored
 
 Implemented: direct-mode 10h; the legacy 8-bit single-cycle 14h/24h and
 auto-init 1Ch/2Ch paced by the 40h time constant with 48h block size; the
@@ -3098,14 +3098,13 @@ Three groups are accepted and ignored, each for a documented reason:
   for the same documented reason: stereo is selected by the Bxh/Cxh mode
   byte instead.
 
-ADPCM is no longer in that list. SBPG Table 3-1 checks 8-bit mono ADPCM
-single-cycle *and* auto-initialize for DSP 4.xx, so all three ratios
-(8-to-4-bit, 8-to-3-bit "2.6-bit", 8-to-2-bit) decode and play here,
-reference byte included, with each ratio's own sampling ceiling from
-Table 3-2. The DSP's length parameter for these commands counts compressed
-bytes rather than frames, which is why an ADPCM block counter is in bytes
-while a PCM one is in frames. The step tables themselves are the one part
-with no primary source -- see §31.
+- **ADPCM output (16h/17h/74h-77h, auto-init 1Fh/7Dh/7Fh) plays nothing.**
+  SBPG Table 3-1 lists 8-bit mono ADPCM for DSP 4.xx, so a real SB16
+  plays it. Creative never published the decoder's step and adjust tables,
+  so the commands take their length bytes, keeping the command stream in
+  sync, and start no transfer. A program that uses ADPCM gets silence for
+  that sound. This is a labelled departure; a DSP ROM disassembly or a
+  measured card would let it come back.
 - **Recording delivers digital silence, paced correctly, with its
   interrupts firing on schedule.** Nothing is plugged into the line or mic
   inputs, so silence is what a real card digitizes -- and note silence is
@@ -5626,9 +5625,10 @@ game's redraw does to this path, which is why `?audiotrace` exists.
   number"), then Appendix A. E0h, E2h, E3h, E4h, E8h, F2h and F3h are
   not in it. Chapter 3 and Appendix B describe ADPCM as a reference byte
   followed by 4-bit, 3-bit or 2-bit codes, and they do not publish the
-  step or adjust values. Those tables and the E2h state machine stay in
-  the code. They are not a hardware citation. A measurement of a real
-  card, or a decap of the DSP, would replace them.
+  step or adjust values. ADPCM output is therefore not played (§11.3). E2h
+  (DMA identification) takes one parameter byte and makes no DMA write; the
+  one-byte parameter count is unsourced. A measurement of a real card, or a
+  disassembly of the DSP ROM, would let either come back.
 - **The tone controls' corner frequencies are an estimate.** Mixer 44h-47h's
   +-14 dB range in 2 dB steps is documented; the CT1745's actual shelf
   corners are not, so the front end uses a 100 Hz low shelf and a 5 kHz high

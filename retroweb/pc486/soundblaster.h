@@ -28,9 +28,8 @@
 // Commands: direct-mode 10h; 8-bit single-cycle 14h and auto-init 1Ch with
 // 40h/48h (SBPG 3-13..3-16); DSP 4.xx Bxh/Cxh programmed 8/16-bit, mono/stereo,
 // signed/unsigned transfers with 41h/42h rates (SBPG 3-26..3-29); pause/continue/
-// exit D0h/D4h/D5h/D6h/D9h/DAh; speaker D1h/D3h/D8h; silence 80h; ADPCM output
-// 16h/17h/74h-77h and auto-init 1Fh/7Dh/7Fh (SBPG Table 3-1); direct input 20h;
-// and E0h, E1h, E2h, E3h, E4h, E8h, F2h, F3h for card and IRQ/DMA detection.
+// exit D0h/D4h/D5h/D6h/D9h/DAh; speaker D1h/D3h/D8h; silence 80h; direct input 20h;
+// and E0h, E1h, E3h, E4h, E8h, F2h, F3h for card and IRQ detection.
 //
 // Scope (PC486_REVIEW.md):
 // - FM is a real YMF262 (opl3.h). base+0h/1h is bank 0, base+2h/3h bank 1,
@@ -39,8 +38,8 @@
 // - 0x388/0x389 is decoded as bank 0: AdLib-era drivers (DOOM) write FM there and
 //   never touch the card's block. 0x38Ah/0x38Bh (AdLib Gold/PAS bank 1) are not
 //   decoded; the SB16 uses base+2h/3h.
-// - ADPCM output plays all three ratios including the reference byte. The step
-//   tables have no primary source (soundblaster.cpp kAdpcm*).
+// - ADPCM output (16h/17h/74h-77h, 1Fh/7Dh/7Fh) and E2h DMA identification take
+//   their parameters and do nothing. Creative never published either.
 // - No SB-MIDI (30h/31h/34h-38h) or joystick. The MPU-401 is in mpu401.h.
 // - High-speed commands 90h/91h/98h/99h are accepted and ignored: SBPG lists them
 //   for DSP 2.01+ and 3.xx only. Allegro uses them only below version 4.00.
@@ -186,12 +185,7 @@ public:
     uint8_t mixer_register(uint8_t index) const { return mixer_[index]; }
 
 private:
-    // kIdentify: the one-byte E2h DMA-identification write, a single unpaced DMA
-    // cycle that doesn't fit kDma's block accounting
-    enum class Mode { kIdle, kDma, kSilence, kIdentify };
-
-    // The three ADPCM ratios (SBPG 3-7); kNone is ordinary PCM
-    enum class Adpcm { kNone, k2Bit, k3Bit, k4Bit };
+    enum class Mode { kIdle, kDma, kSilence };
 
     // 256 KB, more than any period driver programs (the 8237 addresses 64 KB)
     static constexpr std::size_t kBufferBytes = 256u * 1024u;
@@ -211,26 +205,10 @@ private:
     // `dma_units` is the programmed length (+1'd): bytes on the 8-bit channel, words on the 16-bit
     void begin_dma(bool input, bool is16, bool ai, bool stereo, bool signed_data,
                    uint32_t dma_units);
-    // ADPCM output commands (16h/17h/74h-77h, auto-init 1Fh/7Dh/7Fh): 8-bit mono
-    // on the 8-bit channel, output only (SBPG 3-7). `need_ref` marks commands whose
-    // first block byte is a reference value.
-    void begin_adpcm(Adpcm format, bool ai, bool need_ref, uint32_t dma_bytes);
-    // Decodes one byte into frames_per_byte() samples, advancing the predictor/step state
-    void decode_adpcm_byte(uint8_t byte, uint64_t cycle, double cycles_per_frame);
     void push_sample(uint64_t cycle, int16_t l, int16_t r);
     void raise_block_irq();
     void fill_input_buffer(std::size_t len);
     int bytes_per_frame() const { return (bits16_ ? 2 : 1) * (stereo_ ? 2 : 1); }
-    // Samples per compressed byte: 2 for 4-bit, 3 for 3-bit (the "2.6-bit" mode,
-    // last sample two bits wide), 4 for 2-bit. PCM is one frame per byte.
-    int frames_per_byte() const {
-        switch (adpcm_) {
-            case Adpcm::k4Bit: return 2;
-            case Adpcm::k3Bit: return 3;
-            case Adpcm::k2Bit: return 4;
-            default: return 1;
-        }
-    }
 
     uint16_t base_;
 
@@ -242,9 +220,6 @@ private:
     uint8_t test_reg_ = 0;    // E4h/E8h diagnostic register; survives a DSP reset
     bool reset_asserted_ = false;
     bool speaker_on_ = false;
-    // E2h DMA-identification state, reset on every DSP reset (undocumented by Creative)
-    uint8_t ident_valadd_ = 0xAA;
-    uint8_t ident_valxor_ = 0x96;
 
     Mode mode_ = Mode::kIdle;
     bool is_input_ = false, bits16_ = false, autoinit_ = false, stereo_ = false;
@@ -256,11 +231,6 @@ private:
     uint32_t block_frames_ = 0;     // 48h / Bxh-Cxh length, in frames
     uint32_t block_left_ = 0;
 
-    // ADPCM blocks count compressed bytes in block_frames_/block_left_, as the DSP length parameter does
-    Adpcm adpcm_ = Adpcm::kNone;
-    bool adpcm_need_ref_ = false;  // consume the next byte as the reference
-    uint8_t adpcm_ref_ = 0;        // last decoded sample, the decoder's predictor
-    uint8_t adpcm_step_ = 0;       // adaptive step-size index
     uint16_t dsp_block_size_ = 0;   // last 48h value, in samples-1 as programmed
 
     bool transfer_ready_ = false;

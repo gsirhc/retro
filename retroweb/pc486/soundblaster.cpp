@@ -12,7 +12,7 @@ namespace {
 constexpr char kCopyright[] = "COPYRIGHT (C) CREATIVE TECHNOLOGY LTD, 1992.";
 
 // Rate registers hold anything the DSP can clock; the per-format limit is applied
-// at transfer start (clamp_rate_for_format). Range is 4000 Hz (ADPCM rows) to
+// at transfer start (clamp_pcm_rate). Range is 4000 Hz (ADPCM rows) to
 // 44100 Hz, SBPG Tables 3-2/3-3; real hardware clamps.
 uint32_t clamp_rate(uint32_t hz) {
     if (hz < 4000) return 4000;
@@ -52,79 +52,11 @@ float two_bit_boost_gain(uint8_t reg) {
     return std::pow(10.0f, (6.0f * float(level)) / 20.0f);
 }
 
-// ADPCM step tables. Creative's programming guide never publishes these values.
-// Not a hardware citation. Decode: index with
-// (code + step size), add the scale delta to the reference, adjust the step.
-constexpr int8_t kAdpcm4Scale[64] = {
-    0,  1,  2,  3,  4,  5,  6,  7,  0,  -1,  -2,  -3,  -4,  -5,  -6,  -7,
-    1,  3,  5,  7,  9, 11, 13, 15, -1,  -3,  -5,  -7,  -9, -11, -13, -15,
-    2,  6, 10, 14, 18, 22, 26, 30, -2,  -6, -10, -14, -18, -22, -26, -30,
-    4, 12, 20, 28, 36, 44, 52, 60, -4, -12, -20, -28, -36, -44, -52, -60,
-};
-constexpr uint8_t kAdpcm4Adjust[64] = {
-      0, 0, 0, 0, 0, 16, 16, 16,
-      0, 0, 0, 0, 0, 16, 16, 16,
-    240, 0, 0, 0, 0, 16, 16, 16,
-    240, 0, 0, 0, 0, 16, 16, 16,
-    240, 0, 0, 0, 0, 16, 16, 16,
-    240, 0, 0, 0, 0, 16, 16, 16,
-    240, 0, 0, 0, 0,  0,  0,  0,
-    240, 0, 0, 0, 0,  0,  0,  0,
-};
-constexpr int8_t kAdpcm3Scale[40] = {
-    0,  1,  2,  3,  0,  -1,  -2,  -3,
-    1,  3,  5,  7, -1,  -3,  -5,  -7,
-    2,  6, 10, 14, -2,  -6, -10, -14,
-    4, 12, 20, 28, -4, -12, -20, -28,
-    5, 15, 25, 35, -5, -15, -25, -35,
-};
-constexpr uint8_t kAdpcm3Adjust[40] = {
-      0, 0, 0, 8,   0, 0, 0, 8,
-    248, 0, 0, 8, 248, 0, 0, 8,
-    248, 0, 0, 8, 248, 0, 0, 8,
-    248, 0, 0, 8, 248, 0, 0, 8,
-    248, 0, 0, 0, 248, 0, 0, 0,
-};
-constexpr int8_t kAdpcm2Scale[24] = {
-    0,  1,  0,  -1,  1,  3,  -1,  -3,
-    2,  6, -2,  -6,  4, 12,  -4, -12,
-    8, 24, -8, -24, 16, 48, -16, -48,
-};
-constexpr uint8_t kAdpcm2Adjust[24] = {
-      0, 4,   0, 4,
-    252, 4, 252, 4, 252, 4, 252, 4,
-    252, 4, 252, 4, 252, 4, 252, 4,
-    252, 0, 252, 0,
-};
-
-// Sampling range for the selected format (SBPG Tables 3-2, 3-3): PCM on DSP 4.xx
-// 5000-44100 Hz; ADPCM from 4000 up to 12000 (4-bit), 13000 (3-bit), 11000 (2-bit)
-uint32_t clamp_rate_for_format(uint32_t hz, int adpcm_bits) {
-    uint32_t lo = 5000, hi = 44100;
-    switch (adpcm_bits) {
-        case 4: lo = 4000; hi = 12000; break;
-        case 3: lo = 4000; hi = 13000; break;
-        case 2: lo = 4000; hi = 11000; break;
-        default: break;
-    }
-    if (hz < lo) return lo;
-    if (hz > hi) return hi;
+// PCM on DSP 4.xx runs 5000-44100 Hz (SBPG Tables 3-2, 3-3)
+uint32_t clamp_pcm_rate(uint32_t hz) {
+    if (hz < 5000) return 5000;
+    if (hz > 44100) return 44100;
     return hz;
-}
-
-// One ADPCM sample from `code` and the running ref/step; returns the unsigned
-// 8-bit sample, which is the new reference
-uint8_t decode_adpcm(uint8_t code, const int8_t *scale, const uint8_t *adjust, int entries,
-                     uint8_t &ref, uint8_t &step) {
-    int idx = int(code) + int(step);
-    if (idx < 0) idx = 0;
-    if (idx >= entries) idx = entries - 1;
-    int next = int(ref) + int(scale[idx]);
-    if (next < 0) next = 0;
-    if (next > 255) next = 255;
-    ref = uint8_t(next);
-    step = uint8_t(step + adjust[idx]);
-    return ref;
 }
 
 // CT1345-compatibility volumes (04h/22h/26h/28h/2Eh) are "actually mapped to the
@@ -173,12 +105,6 @@ void SoundBlaster::reset_dsp(bool from_reset_port) {
     speaker_on_ = false;
     irq8_ = irq16_ = false;
     frame_credit_ = 0.0;
-    ident_valadd_ = 0xAA;
-    ident_valxor_ = 0x96;
-    adpcm_ = Adpcm::kNone;
-    adpcm_need_ref_ = false;
-    adpcm_ref_ = 0x80;
-    adpcm_step_ = 0;
     // SBPG 2-2: after the reset handshake "the DSP returns a data byte 0AAh at the
     // Read Data port". A reset for any other reason (cold power-on) must not post it.
     if (from_reset_port) read_fifo_.push_back(0xAA);
@@ -363,7 +289,7 @@ void SoundBlaster::dsp_write(uint8_t v) {
     switch (v) {
         case 0x10: params_needed_ = 1; break;                       // direct DAC output
         case 0x14: case 0x24:                                       // 8-bit single-cycle out/in
-        case 0x16: case 0x17: case 0x74: case 0x75: case 0x76: case 0x77:  // ADPCM single-cycle
+        case 0x16: case 0x17: case 0x74: case 0x75: case 0x76: case 0x77:  // ADPCM single-cycle, not played
         case 0x41: case 0x42:                                       // output/input sampling rate
         case 0x48:                                                  // block transfer size
         case 0x80: params_needed_ = 2; break;                       // silence period
@@ -393,19 +319,10 @@ void SoundBlaster::run_command() {
         case 0x1C: begin_dma(false, false, true, false, false, uint32_t(dsp_block_size_) + 1); break;
         case 0x2C: begin_dma(true, false, true, false, false, uint32_t(dsp_block_size_) + 1); break;
 
-        // ADPCM output. SBPG Table 3-1 lists 8-bit mono ADPCM single-cycle and auto-init
-        // for DSP 4.xx. "Reference" variants carry a sample value as the first byte
-        // (SBPG 3-7). Length is one less than the compressed byte count, hence +1.
-        case 0x16: begin_adpcm(Adpcm::k2Bit, false, false, uint32_t(len16) + 1); break;
-        case 0x17: begin_adpcm(Adpcm::k2Bit, false, true, uint32_t(len16) + 1); break;
-        case 0x74: begin_adpcm(Adpcm::k4Bit, false, false, uint32_t(len16) + 1); break;
-        case 0x75: begin_adpcm(Adpcm::k4Bit, false, true, uint32_t(len16) + 1); break;
-        case 0x76: begin_adpcm(Adpcm::k3Bit, false, false, uint32_t(len16) + 1); break;
-        case 0x77: begin_adpcm(Adpcm::k3Bit, false, true, uint32_t(len16) + 1); break;
-        // Auto-init forms take their length from the last 48h, like 1Ch and 2Ch, and carry a reference byte
-        case 0x1F: begin_adpcm(Adpcm::k2Bit, true, true, uint32_t(dsp_block_size_) + 1); break;
-        case 0x7D: begin_adpcm(Adpcm::k4Bit, true, true, uint32_t(dsp_block_size_) + 1); break;
-        case 0x7F: begin_adpcm(Adpcm::k3Bit, true, true, uint32_t(dsp_block_size_) + 1); break;
+        // ADPCM output (SBPG Table 3-1) takes its length but plays nothing; the step tables are unpublished
+        case 0x16: case 0x17: case 0x74: case 0x75: case 0x76: case 0x77:
+        case 0x1F: case 0x7D: case 0x7F:
+            break;
 
         // No high-speed mode on DSP 4.xx (SBPG ch.6 lists 90h/91h/98h/99h for 2.01+ and
         // 3.xx only), so a real SB16 ignores these
@@ -457,18 +374,7 @@ void SoundBlaster::run_command() {
                 case 0xD9: if (bits16_) exit_autoinit_ = true; break;
                 case 0xDA: if (!bits16_) exit_autoinit_ = true; break;
                 case 0xE0: read_fifo_.push_back(uint8_t(~params_[0])); break;  // DSP identification
-                case 0xE2:
-                    // DMA identification. Creative never published E2h. Not a hardware citation. Two state bytes evolve on each E2h,
-                    // then a single-byte DMA write of valadd to memory on the 8-bit channel.
-                    ident_valadd_ = uint8_t(ident_valadd_ + (params_[0] ^ ident_valxor_));
-                    ident_valxor_ = uint8_t((ident_valxor_ >> 2) | (ident_valxor_ << 6));
-                    buffer_[0] = ident_valadd_;
-                    is_input_ = true;
-                    bits16_ = false;
-                    transfer_len_ = 1;
-                    transfer_ready_ = true;
-                    mode_ = Mode::kIdentify;
-                    break;
+                case 0xE2: break;  // DMA identification, undocumented: takes its parameter, writes nothing
                 case 0xE1:  // major then minor (SBPG chapter 6)
                     read_fifo_.push_back(kDspMajor);
                     read_fifo_.push_back(kDspMinor);
@@ -504,77 +410,13 @@ void SoundBlaster::begin_dma(bool input, bool is16, bool ai, bool stereo, bool s
     // 8-bit stereo, C6h mode 20h, 2 KB auto-init).
     const uint32_t units_per_frame = stereo ? 2u : 1u;
     block_frames_ = block_left_ = dma_units / units_per_frame;
-    adpcm_ = Adpcm::kNone;
-    adpcm_need_ref_ = false;
-    rate_hz_ = clamp_rate_for_format(rate_hz_, 0);
+    rate_hz_ = clamp_pcm_rate(rate_hz_);
     exit_autoinit_ = false;
     paused_ = false;
     transfer_ready_ = false;
     transfer_len_ = 0;
     frame_credit_ = 0.0;
     mode_ = Mode::kDma;
-}
-
-void SoundBlaster::begin_adpcm(Adpcm format, bool ai, bool need_ref, uint32_t dma_bytes) {
-    is_input_ = false;  // decompression is output-only (SBPG 3-7)
-    bits16_ = stereo_ = signed_data_ = false;
-    autoinit_ = ai;
-    adpcm_ = format;
-    adpcm_need_ref_ = need_ref;
-    // A fresh decoder starts near silence; a reference block overwrites both on its first byte
-    adpcm_ref_ = 0x80;
-    adpcm_step_ = 0;
-    // Length for these commands counts compressed bytes (2, 3 or 4 samples each), so
-    // the block counter is in bytes and advance()/finish_transfer() convert
-    block_frames_ = block_left_ = dma_bytes;
-    const int bits = format == Adpcm::k4Bit ? 4 : (format == Adpcm::k3Bit ? 3 : 2);
-    rate_hz_ = clamp_rate_for_format(rate_hz_, bits);
-    exit_autoinit_ = false;
-    paused_ = false;
-    transfer_ready_ = false;
-    transfer_len_ = 0;
-    frame_credit_ = 0.0;
-    mode_ = Mode::kDma;
-}
-
-void SoundBlaster::decode_adpcm_byte(uint8_t byte, uint64_t cycle, double cycles_per_frame) {
-    // Code packing: 4-bit takes the high nibble first; 3-bit packs bits 7-5, 4-2,
-    // then bits 1-0 shifted up (the "2.6-bit" short last sample); 2-bit takes four
-    // codes from the top down
-    uint8_t codes[4] = {};
-    int n = frames_per_byte();
-    const int8_t *scale = kAdpcm4Scale;
-    const uint8_t *adjust = kAdpcm4Adjust;
-    int entries = 64;
-    switch (adpcm_) {
-        case Adpcm::k4Bit:
-            codes[0] = uint8_t(byte >> 4);
-            codes[1] = uint8_t(byte & 0x0F);
-            break;
-        case Adpcm::k3Bit:
-            codes[0] = uint8_t((byte >> 5) & 0x07);
-            codes[1] = uint8_t((byte >> 2) & 0x07);
-            codes[2] = uint8_t((byte & 0x03) << 1);
-            scale = kAdpcm3Scale;
-            adjust = kAdpcm3Adjust;
-            entries = 40;
-            break;
-        case Adpcm::k2Bit:
-            codes[0] = uint8_t((byte >> 6) & 0x03);
-            codes[1] = uint8_t((byte >> 4) & 0x03);
-            codes[2] = uint8_t((byte >> 2) & 0x03);
-            codes[3] = uint8_t(byte & 0x03);
-            scale = kAdpcm2Scale;
-            adjust = kAdpcm2Adjust;
-            entries = 24;
-            break;
-        default: return;
-    }
-    for (int i = 0; i < n; ++i) {
-        const uint8_t s = decode_adpcm(codes[i], scale, adjust, entries, adpcm_ref_, adpcm_step_);
-        const int16_t v = expand8(s, false);  // decoded samples are unsigned 8-bit
-        push_sample(cycle + uint64_t(double(i) * cycles_per_frame), v, v);
-    }
 }
 
 void SoundBlaster::push_sample(uint64_t cycle, int16_t l, int16_t r) {
@@ -624,28 +466,14 @@ void SoundBlaster::advance(uint64_t cpu_cycles, uint64_t delta) {
     // The chipset hasn't serviced the last burst; the request stays asserted, not stacked
     if (transfer_ready_) return;
 
-    uint64_t burst_frames;  // frames this burst's bytes will actually cover
-    if (adpcm_ != Adpcm::kNone) {
-        // block_left_ counts compressed bytes here, so convert due frames to bytes,
-        // rounding up since a byte is indivisible. Credit consumed matches the frames
-        // those bytes produce, so rounding borrows against the next burst, not the long-run rate.
-        const uint64_t fpb = uint64_t(frames_per_byte());
-        uint32_t bytes = uint32_t(std::min<uint64_t>((due + fpb - 1) / fpb, block_left_));
-        bytes = uint32_t(std::min<std::size_t>(bytes, kBufferBytes));
-        if (bytes == 0) return;
-        transfer_len_ = bytes;
-        burst_frames = uint64_t(bytes) * fpb;
-    } else {
-        const std::size_t bpf = std::size_t(bytes_per_frame());
-        uint32_t frames = uint32_t(std::min<uint64_t>(due, block_left_));
-        frames = uint32_t(std::min<std::size_t>(frames, kBufferBytes / bpf));
-        if (frames == 0) return;
-        transfer_len_ = std::size_t(frames) * bpf;
-        burst_frames = frames;
-    }
-    frame_credit_ -= double(burst_frames) * cycles_per_frame;
+    const std::size_t bpf = std::size_t(bytes_per_frame());
+    uint32_t frames = uint32_t(std::min<uint64_t>(due, block_left_));
+    frames = uint32_t(std::min<std::size_t>(frames, kBufferBytes / bpf));
+    if (frames == 0) return;
+    transfer_len_ = std::size_t(frames) * bpf;
+    frame_credit_ -= double(frames) * cycles_per_frame;
     // Stamp the burst with the real time it covered, which ended at cpu_cycles
-    const double span = double(burst_frames) * cycles_per_frame;
+    const double span = double(frames) * cycles_per_frame;
     xfer_start_cycle_ = double(cpu_cycles) > span ? cpu_cycles - uint64_t(span) : 0;
     if (is_input_) fill_input_buffer(transfer_len_);
     transfer_ready_ = true;
@@ -653,49 +481,6 @@ void SoundBlaster::advance(uint64_t cpu_cycles, uint64_t delta) {
 
 void SoundBlaster::finish_transfer(std::size_t actual_len) {
     transfer_ready_ = false;
-    if (mode_ == Mode::kIdentify) {
-        // The one-byte E2h write is not a DSP block: no length accounting, no interrupt.
-        // A masked channel moves nothing and the request stays asserted until unmasked,
-        // the normal order for the DMA probe.
-        if (actual_len == 0) {
-            transfer_ready_ = true;
-            return;
-        }
-        transfer_len_ = 0;
-        mode_ = Mode::kIdle;
-        return;
-    }
-
-    if (adpcm_ != Adpcm::kNone) {
-        const std::size_t bytes = std::min(actual_len, transfer_len_);
-        transfer_len_ = 0;
-        const double cycles_per_frame = cpu_hz_ / double(rate_hz_ ? rate_hz_ : 1);
-        const int fpb = frames_per_byte();
-        uint64_t cycle = xfer_start_cycle_;
-        for (std::size_t i = 0; i < bytes; ++i) {
-            if (adpcm_need_ref_) {
-                // SBPG 3-7: "The first byte of the compressed data is always a reference byte."
-                // It seeds the predictor and produces no sample.
-                adpcm_need_ref_ = false;
-                adpcm_ref_ = buffer_[i];
-                adpcm_step_ = 0;
-                continue;
-            }
-            decode_adpcm_byte(buffer_[i], cycle, cycles_per_frame);
-            cycle += uint64_t(double(fpb) * cycles_per_frame);
-        }
-        const uint32_t consumed_bytes = uint32_t(std::min<std::size_t>(bytes, block_left_));
-        block_left_ -= consumed_bytes;
-        if (block_left_ == 0) {
-            raise_block_irq();
-            // Auto-init ADPCM re-reads the buffer, but the reference byte was consumed once
-            // at command start, so later passes decode the first byte as compressed data
-            if (autoinit_ && !exit_autoinit_) block_left_ = block_frames_;
-            else mode_ = Mode::kIdle;
-        }
-        return;
-    }
-
     const std::size_t bpf = std::size_t(bytes_per_frame());
     const std::size_t frames = std::min(actual_len, transfer_len_) / bpf;
     transfer_len_ = 0;
