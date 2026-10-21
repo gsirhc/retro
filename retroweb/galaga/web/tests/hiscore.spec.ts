@@ -29,16 +29,26 @@ function userSet() {
 
 const SAMPLE = Array.from({ length: 51 }, (_, i) => (i === 4 ? 0x76 : i & 0xff));
 
-// POST writes the 20000 table at $8A20; the self-test fill can overwrite it, so plant it until the restore lands.
+// What POST ($0310) and $00D6 leave in RAM, built from the loaded main ROM: five copies of the 6-byte
+// score at $02B9, five names from $02BF as c,$2A,c, then the HI-SCORE strip.
+const FACTORY = (() => {
+  const rom = readFileSync("roms/main.bin");
+  rom[0] ^= 1;
+  const score = [...rom.subarray(0x2b9, 0x2bf)];
+  const out: number[] = [];
+  for (let i = 0; i < 5; i++) out.push(...score);
+  for (let i = 0; i < 5; i++) out.push(rom[0x2bf + i], 0x2a, rom[0x2bf + i]);
+  out.push(...score.slice(0, 5), 0x24);
+  return out;
+})();
+
+// The self-test ROM never runs the real POST, so plant the factory table until the restore lands.
 async function postWritesFactoryTable(page: import("@playwright/test").Page) {
-  await page.waitForFunction(() => {
+  await page.waitForFunction((factory) => {
     const t = (window as any).__test;
-    if (!t.hiscoreRestored) {
-      const factory = [0x00, 0x00, 0x00, 0x00, 0x02, 0x24];
-      for (let i = 0; i < factory.length; i++) t.machine.setRamByte(0x8A20 + i, factory[i]);
-    }
+    if (!t.hiscoreRestored) t.writeHiscore(factory);
     return t.hiscoreRestored;
-  }, null, { timeout: 15_000 });
+  }, FACTORY, { timeout: 15_000 });
 }
 
 test.describe("HIGH SCORE persist", () => {
@@ -121,8 +131,7 @@ test.describe("HIGH SCORE persist", () => {
     expect(await page.evaluate(() => (window as any).__test.readHiscore())).not.toEqual(SAMPLE);
   });
 
-  // POST junk at $8A20 must not count as restored; plant the factory 20000 prefix.
-  test("HI-SCORE restores once the factory table is present", async ({ page }) => {
+  test("the restore waits for the whole factory table", async ({ page }) => {
     await page.locator("#romFile").setInputFiles(userSet());
     await expect(page.locator("#romStatus")).toHaveText("Loaded ROM set");
     await page.evaluate(async (bytes) => {
@@ -134,15 +143,15 @@ test.describe("HIGH SCORE persist", () => {
     await page.reload();
     await expect(page.locator("#romStatus")).toHaveText("Loaded stored ROM set");
 
-    await page.waitForFunction((want) => {
+    await page.waitForFunction(() => (window as any).__test?.usingUserRom);
+    await page.evaluate((factory) => {
       const t = (window as any).__test;
-      if (!t || !t.usingUserRom) return false;
-      if (!t.hiscoreRestored) {
-        const factory = [0x00, 0x00, 0x00, 0x00, 0x02, 0x24];
-        for (let i = 0; i < factory.length; i++) t.machine.setRamByte(0x8A20 + i, factory[i]);
-      }
-      const ram = t.readHiscore();
-      return t.hiscoreRestored && ram[4] === want[4];
-    }, SAMPLE, { timeout: 15_000 });
+      t.writeHiscore(factory.map((x: number, i: number) => (i === 20 ? x ^ 1 : x)));
+    }, FACTORY);
+    await page.waitForFunction(() => (window as any).__test.machine.state().frames > 120);
+    expect(await page.evaluate(() => (window as any).__test.hiscoreRestored)).toBe(false);
+
+    await postWritesFactoryTable(page);
+    expect(await page.evaluate(() => (window as any).__test.readHiscore())).toEqual(SAMPLE);
   });
 });

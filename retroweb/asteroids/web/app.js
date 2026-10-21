@@ -7,9 +7,12 @@ const TEST = new URLSearchParams(location.search).has("test");
 const DIP_KEY = "retroweb.asteroids.dips";
 const DSW1_FACTORY = 0x12; // 1C/1C, x1 center, 3 lives (bit4), English
 // $2802 pair: 0=1x&4 lives, 1=1x&3, 2=2x&4, 3=2x&3 (A35131.1A INIT, A35131.1E).
-// HSCORE through INITL (A35131.1A page 0); rev 4 puts SCORE at $52, so the table starts at $1D.
-const HISCORE_ADDR = 0x1d;
-const HISCORE_LEN = 0x35;
+// Rev 4 ROM: ten 2-byte scores at $1D, ten 3-byte initials at $34. $31-$33 are entry state.
+const HISCORE = [
+  { addr: 0x1d, len: 20 },
+  { addr: 0x34, len: 30 },
+];
+const HISCORE_LEN = 50;
 
 function concat3(parts) {
   const out = new Uint8Array(0x1800);
@@ -239,26 +242,28 @@ AsteroidsArcade().then(async (Module) => {
 
   function readHiscore() {
     const b = [];
-    for (let i = 0; i < HISCORE_LEN; i++) b.push(machine.ramByte(HISCORE_ADDR + i) & 0xff);
+    for (const r of HISCORE) {
+      for (let i = 0; i < r.len; i++) b.push(machine.ramByte(r.addr + i) & 0xff);
+    }
     return b;
   }
 
   function writeHiscore(bytes) {
     if (!bytes || bytes.length < HISCORE_LEN) return;
-    for (let i = 0; i < HISCORE_LEN; i++) machine.setRamByte(HISCORE_ADDR + i, bytes[i] & 0xff);
+    // A 53-byte save is one $1D-$51 run; drop its $31-$33 entry state.
+    if (bytes.length === 0x35) bytes = [...bytes.slice(0, 20), ...bytes.slice(23)];
+    let o = 0;
+    for (const r of HISCORE) {
+      for (let i = 0; i < r.len; i++) machine.setRamByte(r.addr + i, bytes[o++] & 0xff);
+    }
   }
 
-  // Scores are $1D-$30. $31-$33 are live initials-entry state that
-  // CheckHighScore fills with $FF on attract (6502disassembly.com $7664),
-  // so they must not count as a filled table.
-  function hiscoreIsFactory(b) {
-    for (let i = 0; i < 20; i++) if (b[i]) return false;
-    return true;
-  }
+  // Reset clears all of page 0 ($7CF3) and nothing refills the table, so factory is all zero.
+  function hiscoreIsFactory(b) { return b.every((x) => !x); }
 
-  // NMI runs at about 246 Hz. A few hundred frames is past the ROM's startup RAM clear.
+  // The clear is 256 passes of 24 cycles, about one NMI at 246 Hz.
   function postDone() {
-    return machine.frames() >= 180 && hiscoreIsFactory(readHiscore());
+    return machine.frames() >= 4 && hiscoreIsFactory(readHiscore());
   }
 
   const hiscore = arcadeHiscore({

@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { readFileSync } from "fs";
 
-// HIGH SCORE work RAM ($1d-$51) persists for a user ROM. Reset HIGH SCORE clears it.
+// HIGH SCORE work RAM (scores $1d-$30, initials $34-$51) persists for a user ROM. Reset HIGH SCORE clears it.
 // Fixtures are the self-test ROM, so tests poke the RAM through the ?test=1 seam.
 
 const HWTEST_FILES = [
@@ -28,9 +28,11 @@ function userSet() {
 }
 
 function sampleBytes(seed: number) {
-  const b = new Array(0x35).fill(0);
+  const b = new Array(50).fill(0);
   b[0] = seed & 0xff;
   b[1] = (seed >> 8) & 0xff;
+  b[20] = 0x11;
+  b[49] = 0x22;
   return b;
 }
 
@@ -83,9 +85,35 @@ test.describe("HIGH SCORE persist", () => {
     await page.waitForFunction(() => (window as any).__test.machine.frames() > 360);
     expect(await page.evaluate(() => (window as any).__test.hiscoreRestored)).toBe(false);
 
-    await page.evaluate(() => (window as any).__test.writeHiscore(new Array(0x35).fill(0)));
+    await page.evaluate(() => (window as any).__test.writeHiscore(new Array(50).fill(0)));
     await expect.poll(() => page.evaluate(() => (window as any).__test.hiscoreRestored)).toBe(true);
     expect(await page.evaluate(() => (window as any).__test.readHiscore())).toEqual(bytes);
+  });
+
+  test("the table spans scores $1d-$30 and initials $34-$51", async ({ page }) => {
+    const idx = await page.evaluate(() => {
+      const t = (window as any).__test;
+      const at = (addr: number) => {
+        const before = t.readHiscore();
+        t.machine.setRamByte(addr, 0xa5);
+        const after = t.readHiscore();
+        t.machine.setRamByte(addr, 0);
+        return after.findIndex((v: number, i: number) => v !== before[i]);
+      };
+      return [0x1d, 0x30, 0x31, 0x32, 0x33, 0x34, 0x51, 0x52].map(at);
+    });
+    expect(idx).toEqual([0, 19, -1, -1, -1, 20, 49, -1]);
+  });
+
+  test("a 53-byte $1d-$51 save restores without the $31-$33 entry state", async ({ page }) => {
+    const run = new Array(0x35).fill(0).map((_, i) => i + 1);
+    const got = await page.evaluate((b) => {
+      const t = (window as any).__test;
+      t.writeHiscore(b);
+      return [t.readHiscore(), [0x31, 0x32, 0x33].map((a: number) => t.machine.ramByte(a) & 0xff)];
+    }, run);
+    expect(got[0]).toEqual([...run.slice(0, 20), ...run.slice(23)]);
+    expect(got[1]).toEqual([0, 0, 0]);
   });
 
   test("Remove ROMs disables Reset again", async ({ page }) => {
@@ -137,26 +165,23 @@ test.describe("HIGH SCORE persist", () => {
     expect((await page.evaluate(() => (window as any).__test.readHiscore())).slice(0, 20)).toEqual(Array(20).fill(0));
   });
 
-  test("attract rank bytes do not block persist", async ({ page }) => {
+  test("initials-entry state at $31-$33 is not part of the saved table", async ({ page }) => {
     await page.locator("#romFile").setInputFiles(userSet());
     await expect(page.locator("#romStatus")).toHaveText("Loaded ROM set");
     const bytes = sampleBytes(0x70);
-    const restored = await page.evaluate(async (b) => {
+    const out = await page.evaluate(async (b) => {
       const t = (window as any).__test;
-      const cur = t.readHiscore();
-      cur[0x15] = 0;
-      cur[0x16] = 0xff;
-      cur[0x17] = 0xff;
-      t.writeHiscore(cur);
+      for (const a of [0x31, 0x32, 0x33]) t.machine.setRamByte(a, 0xff);
       for (let i = 0; i < 400 && !t.hiscoreRestored; i++) {
         await new Promise((r) => requestAnimationFrame(r));
       }
-      if (!t.hiscoreRestored) return { restored: false, table: t.readHiscore() };
       t.writeHiscore(b);
       await t.maybeSaveHiscore();
-      return { restored: true, table: t.readHiscore() };
+      return { restored: t.hiscoreRestored, len: t.readHiscore().length, state: [0x31, 0x32, 0x33].map((a) => t.machine.ramByte(a)) };
     }, bytes);
-    expect(restored.restored).toBe(true);
+    expect(out.restored).toBe(true);
+    expect(out.len).toBe(50);
+    expect(out.state).toEqual([0xff, 0xff, 0xff]);
 
     await page.reload();
     await expect(page.locator("#romStatus")).toHaveText("Loaded stored ROM set");
@@ -165,10 +190,11 @@ test.describe("HIGH SCORE persist", () => {
       for (let i = 0; i < 400 && !t.hiscoreRestored; i++) {
         await new Promise((r) => requestAnimationFrame(r));
       }
-      return { restored: t.hiscoreRestored, table: t.readHiscore() };
+      return { restored: t.hiscoreRestored, table: t.readHiscore(), state: [0x31, 0x32, 0x33].map((a) => t.machine.ramByte(a)) };
     });
     expect(after.restored).toBe(true);
     expect(after.table.slice(0, 2)).toEqual(bytes.slice(0, 2));
+    expect(after.state).not.toEqual([0xff, 0xff, 0xff]);
   });
 
   test("factory-zero RAM is never saved", async ({ page }) => {

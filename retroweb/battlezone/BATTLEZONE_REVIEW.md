@@ -172,7 +172,7 @@ Math Box microcode under Atari's chip names:
 ## 7. Departures and open items
 
 - High-score RAM `$0300–$033B` persists in IndexedDB for user ROMs (real
-  PCBs have no battery). Reset HIGH SCORE clears it.
+  PCBs have no battery). Reset HIGH SCORE clears it. See §9.
 - The window holds start wide open at power-on; their real power-on
   charge isn't documented. The game sets both corners every frame.
 - The overlay edge sits at the game's upper window, Y = 192 at SCAL 1
@@ -206,3 +206,33 @@ Math Box microcode under Atari's chip names:
   shoots, and keeps the Math Box busy).
 - `make -C retroweb/battlezone test-smoke` (board smoke)
 - `make -C retroweb/battlezone/web test` / `test-smoke` (Playwright on :9500)
+
+## 9. High score
+
+Derived by disassembling the Atari `bzone` program ROM (036414-01 through
+036409-01 at `$5000-$7FFF`; a local dump, not the repo).
+
+- Init: RESET (`$7ACC`) clears page 0 and `$0100-$2FFF`, then (self-test
+  switch off) the loop at `$7B5C` runs ten times with X = `$1D` down to
+  `$02` in steps of 3. Each pass stores 5 at `$02FE+X` (score `n`'s low byte
+  at `$0300+3n`) and copies three bytes from ROM `$7B7F+3n` to
+  `$031E+3n`. Then `JSR $531F`, `JMP $5000`.
+- Layout: ten 3-byte score entries at `$0300`: low, high (both compared by
+  `$5344`), and a third byte nothing reads, so it stays 0. Ten 3-byte
+  initials at `$031E-$033B`, character codes. `$033C` and up are entry
+  state (`$033C` cleared at `$5344`, `$0340` the rank, `$0341-$034B` cursor
+  and timers) and are not saved.
+- Insert: `$5344` compares the player's score (`$B8/$B9`) with each entry,
+  low byte then high byte through a borrow, from the best down. At the first
+  entry it beats, `$537E` shifts the lower entries down three bytes (two
+  score bytes and three initials bytes per step), stores `$B8/$B9`, and sets
+  up initials entry.
+- On-screen top score: the attract and game screens read `$0300/$0301`
+  directly (`$6D7F` for the attract line, `$54B2` for the table screen), so
+  the table is the only copy.
+- Saved: `$0300-$033B`, 60 bytes.
+- Ready and factory: RAM equals what the init loop writes: 5 in each
+  score's low byte, zero elsewhere in the score area, and the 30 initials
+  bytes equal to the loaded program at `$7B7F` (offset `$2B7F`). Restore waits
+  for that, so the pre-init zeros never pass, and a table equal to it is not
+  saved.

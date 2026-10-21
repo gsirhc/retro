@@ -7,6 +7,7 @@ const DIP_KEY = "retroweb.invaders.dips";
 const ROM_KEY = "set";
 const HISCORE_ADDR = 0x20F4;
 const HISCORE_LEN = 2;
+const HISCORE_INIT = 0x1BF4;
 const CHIPS = ["h", "g", "f", "e"];
 // Midway upright cellophane strips on the B&W tube.
 const GELS = [
@@ -75,6 +76,7 @@ InvadersArcade().then(async (Module) => {
 
   let usingUserRom = false;
   let programCrc = 0;
+  let program = new Uint8Array(0x2000);
   const keys = {};
   let coinUntil = 0;
   const coinDoor = document.getElementById("coinDoor");
@@ -179,11 +181,14 @@ InvadersArcade().then(async (Module) => {
     for (let i = 0; i < HISCORE_LEN; i++) machine.setRamByte(HISCORE_ADDR + i, bytes[i] & 0xff);
   }
 
-  function hiscoreIsFactory(b) { return !b[0] && !b[1]; }
+  // Init ($18D4) copies ROM $1B00-$1BFF to $2000-$20FF, so HI-SCORE starts as ROM $1BF4-$1BF5.
+  function hiscoreIsFactory(b) {
+    return b[0] === program[HISCORE_INIT] && b[1] === program[HISCORE_INIT + 1];
+  }
 
-  // init copies $1B00-$1BFF over $2000-$20FF at power-up, zeroing HI-SCORE. Restore after that.
+  // The 256-byte copy takes under one frame.
   function postDone() {
-    return machine.state().frames >= 30 && hiscoreIsFactory(readHiscore());
+    return machine.state().frames >= 2 && hiscoreIsFactory(readHiscore());
   }
 
   const hiscore = arcadeHiscore({
@@ -233,6 +238,7 @@ InvadersArcade().then(async (Module) => {
     machine.loadRomSet(set.program);
     usingUserRom = set.kind !== "hwtest";
     programCrc = arcadeCrc32(set.program);
+    program = set.program;
     hiscore.rearm();
     syncHiscoreResetBtn();
     setStatus(label);

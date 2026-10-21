@@ -11,7 +11,7 @@ are under Unsourced.
 
 ## 0. Status
 
-Single 8080, 1-bit bitmap, MB14241 shifter, and discrete analog + SN76477
+Single 8080, 1-bit bitmap, shift register, and discrete analog + SN76477
 sound, covered by GoogleTest (`make check`) and a generated self-test ROM.
 The front end ships the self-test. A real Midway `invaders` set is opt-in and
 browser-local. Hub card, marquee tile and CI jobs (`invaders-test` /
@@ -36,7 +36,7 @@ cocktail stick to map.
 
 ## 3. Board split
 
-The board shared with Taito's Lunar Rescue (CPU, memory, I/O decode, MB14241,
+The board shared with Taito's Lunar Rescue (CPU, memory, I/O decode, shifter,
 interrupts, beam, watchdog) is `retroweb/shared/mw8080/board.{h,cpp}`, the
 sound board `retroweb/shared/mw8080/sound.{h,cpp}` with `SoundBoard::Midway`.
 `machine.{h,cpp}` here adds the idle inputs, the audio stream and the B&W
@@ -83,17 +83,20 @@ path at `$0310` stores `$22`, and the same fire, left, and right tests then
 read port 2. Bit 3 is set in the idle value. This ROM does not test it, and
 it does not read port 0.
 
-## 6. MB14241
+## 6. Shifter
 
-`count = ~data & 7`, `data = data >> 8 | new << 7`, result `data >> count`.
+Midway 739 logic schematic (M051-00739-B005): 74175 A5 latches D0–D2 on
+OUT 2 as EA0–EA2. 74174 C5/D5 and 74175 B5 latch each OUT 4 byte as
+DS-8…DS-F and move the previous one down to DS-0…DS-7 minus bit 0, so
+the register is 15 bits. Eight 74LS151s pick DS-(k+8-EA) for result bit k.
 That is a 16-bit register with the newest byte high, read as `reg >> (8 - n)`.
 
 ## 7. Interrupts
 
 E3 is a D flip-flop clocked by `(!(64V | !128V) | VBLANK)`, so it fires at
 V = 0x80 (line 96) and V = 0xDA with VBLANK (line 224). It latches the 8080's
-INTE pin, so the line asserts only while interrupts are enabled. INTA clears it. The vector is sampled at INTA as
-`0xC7 | 64V << 4 | !64V << 3`: RST 1 (`$CF`) at line 96, RST 2 (`$D7`) at 224.
+INTE pin, so the line asserts only while interrupts are enabled. INTA clears it. The vector is sampled at INTA and 64V
+selects it (Taito BPR00003 6D gates, ISRs at `$08`/`$10`): RST 1 (`$CF`) at line 96, RST 2 (`$D7`) at 224.
 An acknowledge that slips past line 160 reads RST 2, as on the board.
 `Board::run_cycles` samples INT after each instruction, once the beam has
 caught up.
@@ -186,6 +189,8 @@ Not on the sheet:
 ## Unsourced
 
 - Gel rectangles in `app.js`.
+- The BPR00003 scan is too faint to trace the 6D pins. The vector values
+  come from the ISR layout.
 - Watchdog modulus of 255 frames.
 - Empty socket at `$4000` reads 0.
 - VRAM byte loaded at pixel `8k+4`, and the four flushed rows.
@@ -193,17 +198,34 @@ Not on the sheet:
 
 ## 11. HIGH SCORE
 
-`$20F4–$20F5`, BCD, low byte first (disassembly `HiScorL`/`HiScorM`).
-`init` at `$18D4` copies `$1B00–$1BFF` over `$2000–$20FF` and draws the
-status line at `$18DC`, so the restore waits 30 frames for that copy to
-leave zeros. The game redraws HI-SCORE only at coin-up (`$07C8`) and game
-over (`$1695`), so a restored score is live in RAM straight away and on
-screen from the next coin-up.
+Derived by disassembling the Midway `invaders` program ROM (`invaders.h`,
+`.g`, `.f`, `.e`; a local dump, not the repo).
+
+- Init: reset jumps to `$18D4`, which does `CALL $01E6` (`LXI D,$1B00;
+  LXI H,$2000`, then the copy loop at `$1A32` with B = 0, so 256 bytes), then
+  `CALL $1956` to draw the score line. The copied page is the game's whole
+  variable block, so every variable starts as ROM `$1B00 + n`.
+- Table: one entry, two BCD bytes, low byte first, at `$20F4-$20F5`. The
+  factory value is ROM `$1BF4-$1BF5`, which is `00 00`. `$20F6-$20F7` is the
+  screen pointer for the HI-SCORE field and is not saved.
+- Insert: game over reaches `$166D`/`$1671` (from `$02DB`). `$1910` clears the
+  player's score-changed byte, `$09CA` returns the score record (`$20F8`
+  for P1, `$20FC` for P2: low, high, screen pointer). The code compares the
+  high bytes against `$20F5`, then the low bytes against `$20F4`. If the
+  score is larger it copies both bytes into `$20F4-$20F5` and calls `$1950`
+  to redraw. `$1956` (coin-up at `$07C8`, init) redraws all the score
+  fields, so a restored value shows from the next coin-up.
+- Saved: `$20F4-$20F5`. The on-screen top score is drawn from it, with no
+  second copy.
+- Ready and factory: RAM equals ROM `$1BF4-$1BF5` (the app reads the loaded
+  program) and at least 2 frames have run. The 256-byte copy is under
+  5000 cycles, less than a frame, so the frame floor only keeps the pre-init
+  zeros from passing.
 
 ## 12. Self-test ROM (`roms/hwtest/gen_hwtest.py`)
 
 Original 8080 code assembled in Python. Signature `TST1` at `$2000`, an
-MB14241 check (result at `$2005`, pass flag at `$2004`), a 16-pixel
+shifter check (result at `$2005`, pass flag at `$2004`), a 16-pixel
 crosshatch with the four fleet notes, a full-white field with the saucer
 (shows the gels), then the help screen in this repo's own 8×8 font, rotated
 for ROT270. RST 1 counts at `$2009`, RST 2 at `$2008`; the main loop feeds the

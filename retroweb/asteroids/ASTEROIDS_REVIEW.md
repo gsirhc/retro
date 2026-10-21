@@ -19,8 +19,8 @@ Fidelity rules follow `CLAUDE.md` and `.claude/arcade.md`.
 - Jed Margolin, "The Secret Life of Vector Generators" (jmargolin.com),
   for the DVG normalization and timer description.
 - Philips NE566 data sheet (triangle output swing).
-- Rev 4 program ROM (`035145-04e`, `035144-04e`, `035143-02`), read only to
-  place the page 0 table: its score accesses sit at `$52`/`$53`.
+- Rev 4 program ROM (`035145-04e`, `035144-04e`, `035143-02`),
+  disassembled for the high-score table (High score below).
 
 ## Board
 
@@ -72,6 +72,28 @@ Fidelity rules follow `CLAUDE.md` and `.claude/arcade.md`.
 - Life: the 3 kHz clock gated by LIFEEN into R78.
 - Mixer: P11 summing node around +5V with R83, R77, R78, R81, R84, R82,
   R102, then C113/R111.
+
+## High score
+
+Derived by disassembling the rev 4 program ROM (`$6800-$7FFF`; a local
+dump, not the repo).
+
+- Init: RESET (`$7CF3`) zeroes page 0 and `$0100-$03FF` and never copies a
+  default table, so the factory table is all zero. It then sets `$32` and
+  `$33` to `$B0`.
+- Layout: ten 2-byte scores, low then high, at `$1D-$30`, best first. Ten
+  3-byte initials at `$34-$51`. The player's score is `$52/$53` (P1) and
+  `$54/$55` (P2). `$31` is the shift index, `$32/$33` the per-player
+  initials-entry position, `$1C` the check flag. None of those are saved.
+- Insert: `$765C` (CheckHighScore), for X = 2 then 0. `$766A` compares the
+  score against each table entry (`CPY #$14`, so 10 entries), `$7699`
+  shifts the lower scores down and the initials with it (`$76AC`), stores
+  the score, and puts `$0B,0,0` in the new initials slot.
+- On-screen: `$73C4` draws the table, skipping entries whose two score bytes
+  are 0. There is no separate top-score variable.
+- Saved: `$1D-$30` and `$34-$51`, 50 bytes.
+- Ready and factory: all 50 bytes zero and at least 4 NMIs run. The clear is
+  256 passes of 24 cycles at 1.512 MHz, about one NMI at 246 Hz.
 
 ## Departures (labelled)
 

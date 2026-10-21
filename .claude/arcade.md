@@ -28,13 +28,13 @@ the ROM actually keeps:
 | Galaxian | `$40A8` (3 BCD HI-SCORE) |
 | Frogger | `$83EF–$83FA` (display HI + 5-rank table) |
 | Scramble | `$4200` (10 × 3 BCD) + `$40A8` (displayed HI) |
-| Galaga | `$8A20` (0x2D) + `$83ED` (6). Factory top score is the 20000 character bytes, not zeros |
-| Asteroids | `$001D–$0051` (top-10 scores + initials) |
+| Galaga | `$8A20` (0x2D: 5 × 6-digit scores, 5 × 3 names) + `$83ED` (6, HI-SCORE strip). Factory is the table POST builds from main ROM `$02B9`/`$02BF`, not zeros |
+| Asteroids | `$001D–$0030` (10 × 2-byte scores) + `$0034–$0051` (10 × 3 initials). Reset zeroes page 0, so factory is all zero. `$31–$33` are entry state, not saved |
 | Centipede | EAROM `$1600–$163F` (64 B ER2055 image) |
 | Missile Command | `$002C–$005B` (8 × initials + 3-byte BCD). Factory table is the ROM's own defaults, not zeros |
-| Space Invaders | `$20F4–$20F5` (2 BCD HI-SCORE, low byte first). init zeroes it; it shows from the next coin-up |
+| Space Invaders | `$20F4–$20F5` (2 BCD HI-SCORE, low byte first). Factory is ROM `$1BF4–$1BF5` (init copies `$1B00` page to `$2000`); it shows from the next coin-up |
 | Lunar Rescue | `$20CF` (10), `$20DB` (1), `$20F4–$20F5`. Factory is ten `$1B`, `$0A`, then `00 05` |
-| Battlezone | `$0300–$033B` (HSCTBL 10 × 3, then INITLS 10 × 3, BZONE.MAP). Factory is PWRON's table: each score's first byte 5, initials from ROM |
+| Battlezone | `$0300–$033B` (10 × 3-byte scores, then 10 × 3 initials). Factory is what the reset loop at `$7B5C` builds: each score's first byte 5, initials from ROM `$7B7F` |
 
 Scramble’s parent set has **numeric** scores only — no initials in the Konami
 ROM. Real PCBs have no battery; persist is a labelled departure, Reset is

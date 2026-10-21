@@ -7,9 +7,9 @@ const TEST = new URLSearchParams(location.search).has("test");
 const DIP_KEY = "retroweb.battlezone.dips";
 const DSW0_FACTORY = 0x15; // 3 tanks, missile at 10000, bonus 15k and 100k, English
 const DSW1_FACTORY = 0x63; // 2 coins / 1 play, mechs x1, 6 credits / 4 coins (manual fig. 8)
-// HSCTBL $0300 (10 x 3 bytes) then INITLS $031E (BZONE.MAP).
 const HISCORE_ADDR = 0x300;
 const HISCORE_LEN = 0x3c;
+const INITLS_ROM = 0x2B7F; // program offset of the initials the reset code copies to $031E
 
 // Both 036414 revisions share every other chip (sets bzone and bzonea).
 // 036408 is the AVG state PROM; avg.cpp carries its sequence, so it isn't needed.
@@ -87,6 +87,7 @@ BattlezoneArcade().then(async (Module) => {
 
   let usingUserRom = false;
   let romKey = 0;
+  let program = new Uint8Array(0x3000);
   let selfTest = false;
   let diagStep = false;
   const keys = {};
@@ -259,9 +260,10 @@ BattlezoneArcade().then(async (Module) => {
     for (let i = 0; i < HISCORE_LEN; i++) machine.setRamByte(HISCORE_ADDR + i, bytes[i] & 0xff);
   }
 
-  // PWRON gives every entry a first byte of 5 (BZSTST.MAC); initials come from ROM.
+  // Reset code ($7B5C) writes 5 to each score's low byte and ROM $7B7F+ to the initials; the rest stays cleared.
   function hiscoreIsFactory(b) {
     for (let i = 0; i < 30; i++) if (b[i] !== (i % 3 === 0 ? 5 : 0)) return false;
+    for (let i = 0; i < 30; i++) if (b[30 + i] !== program[INITLS_ROM + i]) return false;
     return true;
   }
 
@@ -340,6 +342,7 @@ BattlezoneArcade().then(async (Module) => {
     machine.loadRomSet(set.program, set.vector, set.map, set.ucode);
     usingUserRom = set.kind !== "hwtest";
     romKey = arcadeCrc32(set.program) ^ arcadeCrc32(set.vector);
+    program = set.program;
     hiscore.rearm();
     syncHiscoreResetBtn();
     applyDips();

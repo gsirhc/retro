@@ -2,10 +2,13 @@ import { test, expect, type Page } from "@playwright/test";
 import { readFileSync } from "fs";
 import { HWTEST_FILES, USER_BYTE } from "./cabinet";
 
-// HSCTBL at $0300 (ten 3-byte scores, then initials) persists for a user ROM. Reset clears it.
-// The self-test ROM never runs Atari's power-on code, so tests write the factory pattern themselves.
+// The $0300 table (ten 3-byte scores, then ten 3-byte initials) persists for a user ROM. Reset clears it.
+// The self-test ROM never runs the real reset code, so tests write the factory table that code builds.
 
 const LEN = 0x3c;
+const INITLS_CHIP = 5;
+const INITLS_AT = 0x37f;
+const initials = (i: number) => 0x10 + i;
 
 // Shared IndexedDB origin, keep this file serial.
 test.describe.configure({ mode: "serial" });
@@ -14,6 +17,7 @@ function userSet() {
   return HWTEST_FILES.map((path, i) => {
     const buffer = Buffer.from(readFileSync(path));
     if (i === 0) buffer[USER_BYTE] ^= 1;
+    if (i === INITLS_CHIP) for (let k = 0; k < 30; k++) buffer[INITLS_AT + k] = initials(k);
     return { name: path.split("/").pop()!, mimeType: "application/octet-stream" as const, buffer };
   });
 }
@@ -21,6 +25,7 @@ function userSet() {
 function factory() {
   const b = new Array(LEN).fill(0);
   for (let i = 0; i < 30; i += 3) b[i] = 5;
+  for (let k = 0; k < 30; k++) b[30 + k] = initials(k);
   return b;
 }
 
@@ -70,13 +75,17 @@ test.describe("HIGH SCORE persist", () => {
     expect(await read(page)).toHaveLength(LEN);
   });
 
-  test("the factory check wants a 5 in the first byte of each of ten scores", async ({ page }) => {
+  test("the factory check wants a 5 in each score and the ROM's initials", async ({ page }) => {
+    await loadUser(page);
     const is = (b: number[]) => page.evaluate((x) => (window as any).__test.hiscoreIsFactory(x), b);
     expect(await is(factory())).toBe(true);
     expect(await is(sample(0x1234))).toBe(false);
     const bad = factory();
     bad[27] = 4;
     expect(await is(bad)).toBe(false);
+    const badInitials = factory();
+    badInitials[59] ^= 1;
+    expect(await is(badInitials)).toBe(false);
     expect(await is(new Array(LEN).fill(0))).toBe(false);
   });
 

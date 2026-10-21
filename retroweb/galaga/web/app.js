@@ -5,14 +5,16 @@ const IDB_NAME = "retroweb-galaga";
 const TEST = new URLSearchParams(location.search).has("test");
 const DIP_KEY = "retroweb.galaga.dips";
 const ROM_KEY = "set";
-// Work RAM table, then the score strip.
+// Score table (5 x 6 digits, 5 x 3 initials), then the HI-SCORE strip on screen.
 const HISCORE = [
   { addr: 0x8A20, len: 0x2D },
   { addr: 0x83ED, len: 6 },
 ];
 const HISCORE_LEN = 0x2D + 6;
-// Midway reset table starts as the character bytes for a 20000 score.
-const FACTORY_PREFIX = [0x00, 0x00, 0x00, 0x00, 0x02, 0x24];
+const INIT_SCORE = 0x2B9; // 20000 as digits, least significant first, then a $24 blank
+const INIT_NAMES = 0x2BF; // five character codes
+const NAME_FILL = 0x2A; // LD A,$2A at $0324
+const BLANK = 0x24; // LD A,$24 at $02FD fills $83C0-$83FF
 
 function exact(bytes, n) {
   if (!bytes || bytes.length !== n) return null;
@@ -137,6 +139,7 @@ GalagaArcade().then(async (Module) => {
 
   let usingUserRom = false;
   let programCrc = 0;
+  let mainRom = new Uint8Array(0x4000);
   const keys = {};
   const coinDoor = document.getElementById("coinDoor");
   const dipCredits = document.getElementById("dipCredits");
@@ -278,17 +281,22 @@ GalagaArcade().then(async (Module) => {
     }
   }
 
-  function hiscoreIsFactory(b) {
-    if (b.every((x) => !x)) return true;
-    return FACTORY_PREFIX.every((x, i) => b[i] === x);
+  // POST init ($0310) builds the table from ROM, then $00D6 draws the strip.
+  function factoryHiscore() {
+    const score = mainRom.subarray(INIT_SCORE, INIT_SCORE + 6);
+    const out = [];
+    for (let i = 0; i < 5; i++) out.push(...score);
+    for (let i = 0; i < 5; i++) {
+      const c = mainRom[INIT_NAMES + i];
+      out.push(c, NAME_FILL, c);
+    }
+    out.push(...score.subarray(0, 5), BLANK);
+    return out;
   }
 
-  // POST leaves junk at $8A20 until it writes the 20000 table, so wait for that before poking IndexedDB.
-  function factoryTableReady() {
-    for (let i = 0; i < FACTORY_PREFIX.length; i++) {
-      if ((machine.ramByte(0x8A20 + i) & 0xff) !== FACTORY_PREFIX[i]) return false;
-    }
-    return true;
+  function hiscoreIsFactory(b) {
+    const f = factoryHiscore();
+    return f.every((x, i) => b[i] === x);
   }
 
   const hiscore = arcadeHiscore({
@@ -299,7 +307,7 @@ GalagaArcade().then(async (Module) => {
     read: readHiscore,
     write: writeHiscore,
     isFactory: hiscoreIsFactory,
-    ready: factoryTableReady,
+    ready: () => hiscoreIsFactory(readHiscore()),
   });
 
   async function resetHiscoreNow() {
@@ -356,6 +364,7 @@ GalagaArcade().then(async (Module) => {
       orEmpty(set.mcu51), orEmpty(set.mcu54));
     usingUserRom = set.kind !== "hwtest";
     programCrc = arcadeCrc32(set.main);
+    mainRom = set.main;
     hiscore.rearm();
     syncHiscoreResetBtn();
     setStatus(statusFor(set, stored));

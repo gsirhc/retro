@@ -3,13 +3,14 @@ import { readFileSync } from "fs";
 
 import { HWTEST_FILES } from "./cabinet";
 
-function userSet() {
+function userSet(init = 0) {
   return HWTEST_FILES.map((path) => {
     const name = path.split("/").pop()!;
     let buffer = readFileSync(path);
     if (name === "program.bin") {
       buffer = Buffer.from(buffer);
       buffer[0] ^= 1;
+      buffer[0x1bf4] = init;
     }
     return { name, mimeType: "application/octet-stream" as const, buffer };
   });
@@ -66,6 +67,25 @@ test.describe("HIGH SCORE persist", () => {
     expect(await page.evaluate(() => (window as any).__test.hiscoreRestored)).toBe(false);
 
     await page.evaluate(() => (window as any).__test.writeHiscore([0, 0]));
+    await expect.poll(() => page.evaluate(() => (window as any).__test.hiscoreRestored)).toBe(true);
+    expect(await page.evaluate(() => (window as any).__test.readHiscore())).toEqual(SAMPLE);
+  });
+
+  test("the factory HI-SCORE is whatever the ROM's init copy holds at $1BF4", async ({ page }) => {
+    await page.locator("#romFile").setInputFiles(userSet(0x03));
+    await expect(page.locator("#romStatus")).toHaveText("Loaded ROM set");
+    await page.evaluate(async (bytes) => {
+      const t = (window as any).__test;
+      t.writeHiscore(bytes);
+      await t.saveHiscoreNow(t.readHiscore());
+    }, SAMPLE);
+
+    await page.reload();
+    await expect(page.locator("#romStatus")).toHaveText("Loaded stored ROM set");
+    await page.waitForFunction(() => (window as any).__test.machine.state().frames > 120);
+    expect(await page.evaluate(() => (window as any).__test.hiscoreRestored)).toBe(false);
+
+    await page.evaluate(() => (window as any).__test.writeHiscore([0x03, 0x00]));
     await expect.poll(() => page.evaluate(() => (window as any).__test.hiscoreRestored)).toBe(true);
     expect(await page.evaluate(() => (window as any).__test.readHiscore())).toEqual(SAMPLE);
   });

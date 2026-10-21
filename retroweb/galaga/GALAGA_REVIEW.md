@@ -225,22 +225,40 @@ what CI tests.
 
 ## 6. High score
 
-Table at `$8A20` for `0x2D` bytes and the score strip at `$83ED` for 6
-bytes, re-derived from the main program ROM (a local dump, not the repo):
-the POST routine at `$0310` is `LD DE,$8A20; LD A,5` then five times
-`LD HL,$02B9; LD C,6; LDIR`, followed by a loop that builds five
-3-byte entries from the initials at `$02BF`, 30 + 15 = `0x2D` bytes. The
-routine at `$00D6` does `LD DE,$83ED; LD HL,$02B9; LD BC,5; LDIR`, so the
-score digits start at `$83ED`; the sixth saved byte is the entry's `$24`
-terminator. IndexedDB `hiscores` in
-`retroweb-galaga`, keyed by program CRC. Restore once Midway has written
-the factory `00 00 00 00 02 24` prefix (" 20000") at `$8A20` — irq1 comes
-up ~100 frames earlier while that region still holds POST junk, so a
-frame-count gate alone would mark the table "already restored" and skip
-the IndexedDB poke forever. All-zero still counts as pre-table (not
-ready). A save is not written over the factory prefix. Reset HIGH SCORE
-is the labelled clear and is disabled on the self-test. The factory
-prefix is the six bytes at `$02B9` in the main ROM.
+Derived by disassembling the Midway `galagamw` main program ROM
+(`3200a`-`3500d`, CPU 1, $0000-$3FFF; a local dump, not in the repo).
+
+- Init: POST at `$0310` (after the RAM tests and the `$83C0` blank fill)
+  does `LD DE,$8A20`, five times `LDIR` of 6 bytes from `$02B9`
+  (`00 00 00 00 02 24`: 20000 as digits, least significant first, then a
+  `$24` blank). It then builds five 3-byte names from the character codes at
+  `$02BF` (`$17 $0A $16 $0C $18`) as `c,$2A,c` (`LD A,$2A` at `$0324`).
+  That is the 30 + 15 = `0x2D` bytes at `$8A20`. `CALL $00D6` then copies
+  the first 5 bytes at `$02B9` to `$83ED` (the HI-SCORE strip) and draws the
+  label. The sixth strip byte `$83F2` is `$24` from the `LD A,$24` fill of
+  `$83C0-$83FF` at `$02FD`.
+- Layout: five 6-digit scores at `$8A20 + 6n`, best first, then five
+  3-character names at `$8A3E + 3n`. Digits are stored least significant
+  first with the blank last, so a compare walks down from the last byte.
+- Insert: `$3000` (game over). `$8A00` = pointer to the player's score
+  strip (`$83FD` P1, `$83E8` P2, by `$9840`). `$31F7` compares 6 digits from
+  the top against table entry ends `$8A3D`, `$8A37`, `$8A31`, `$8A2B`,
+  `$8A25`, fixes the rank in `$8A11`, shifts entries down with `LDDR`
+  (`$31B4`), then copies the score in and runs name entry. `$8A00-$8A11`
+  are entry scratch and are not saved.
+- On-screen top score: `$83ED-$83F2`, six screen characters. `$077D` copies
+  the player's score over it as soon as it exceeds it, so it changes during
+  play while the table changes only at game over. Both are saved. Nothing
+  copies table entry 0 back to the strip after init.
+- Saved: `$8A20` x `0x2D` (table and names) and `$83ED` x 6 (strip). That is
+  everything the game keeps across attract cycles.
+- Ready and factory: the app builds the image init leaves (table, names,
+  strip) from the loaded ROM's `$02B9`/`$02BF` bytes. Restore waits until RAM
+  equals it, so POST junk and the pre-init zeros never pass. A save is not
+  written while RAM equals it.
+
+IndexedDB `hiscores` in `retroweb-galaga`, keyed by program CRC. Reset HIGH
+SCORE is the labelled clear and is disabled on the self-test.
 
 ## 7. Front end
 
