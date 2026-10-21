@@ -15,14 +15,13 @@ constexpr uint8_t kMultX2[16] = {
     1, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 20, 24, 24, 30, 30,
 };
 
-// KSL attenuation at KSL=1 (3 dB/oct, BLOCK=7) by top 4 F-number bits, in
-// 0.375 dB units. From the YMF715x (OPL3-SA3) register description OCT=7 column;
-// matches Niemitalo & Gambrell's decap figures.
-constexpr uint8_t kKslTable[16] = {
-    0, 24, 32, 37, 40, 43, 45, 47, 48, 50, 51, 52, 53, 54, 55, 56,
+// YM3812 application manual Table 3-5, 3 dB/oct row OCT=7, by the F-number's top 4 bits,
+// in 1/8 dB (0.000, 9.000, 12.000, 13.875 ... 21.000 dB)
+constexpr uint8_t kKslOct7Eighths[16] = {
+    0, 72, 96, 111, 120, 129, 135, 141, 144, 150, 153, 156, 159, 162, 165, 168,
 };
 
-// Feedback modulation index in radians, FB=0-7 (YMF715x "FB 2-0" table)
+// Feedback modulation index in radians, FB=0-7 (YMF262 datasheet FB)
 constexpr double kFeedbackRadians[8] = {
     0.0, kPi / 16.0, kPi / 8.0, kPi / 4.0, kPi / 2.0, kPi, 2.0 * kPi, 4.0 * kPi,
 };
@@ -31,10 +30,7 @@ constexpr double kFeedbackRadians[8] = {
 constexpr double kPhaseUnitsPerRadian = 1048576.0 / (2.0 * kPi);
 // Zero-attenuation wave sample; the exp table's implicit leading 1 puts unity at 1024
 constexpr double kFullScale = 1024.0;
-// Modulation index of a full-scale modulator. The die forms feedback as
-// (out+prev_out) >> (9-FB) and full scale is 4084, so the phase adder runs at
-// 1024 units/cycle; the modulator adds unshifted: 4084/1024 = 3.99 cycles = 8pi,
-// double the FB=7 figure (PC486_REVIEW.md §11.1).
+// Modulation index of a full-scale modulator into the next operator; unsourced (PC486_REVIEW.md §35)
 constexpr double kModulationIndexRadians = 8.0 * kPi;
 
 // Log-sin (first quarter) and exp ROM tables from Niemitalo & Gambrell "OPLx
@@ -104,20 +100,16 @@ int32_t sustain_floor(uint8_t sl) {
     return sl == 15 ? 496 : int32_t(sl) * 16;
 }
 
-// Total level (0.75 dB/step = 4 envelope units) plus KSL attenuation, in
-// 0.1875 dB units. atten = max(0, kKslTable[fnum top4] - 8*(7-oct)), scaled for
-// KSL 0/1/2/3 = 0 / 3 / 1.5 / 6 dB per octave.
+// Key scale level in 0.1875 dB units. Table 3-5's rows drop 3 dB per octave below OCT=7 and
+// floor at 0; KSL=2 is half of it, 3 twice (Table 3-4: 1=3, 2=1.5, 3=6 dB/oct).
 int ksl_env_units(uint8_t ksl_reg, uint16_t fnum, uint8_t block) {
     if (ksl_reg == 0) return 0;
-    int fnum4 = (fnum >> 6) & 0x0F;
-    int base_0375 = int(kKslTable[fnum4]) - 8 * (7 - int(block));
-    if (base_0375 < 0) base_0375 = 0;
-    int env_r1 = base_0375 * 2;  // 0.375 dB units -> 0.1875 dB units
-    switch (ksl_reg) {
-        case 1: return env_r1;
-        case 2: return env_r1 / 2;
-        default: return env_r1 * 2;  // 3
-    }
+    int eighths = int(kKslOct7Eighths[(fnum >> 6) & 0x0F]) - 24 * (7 - int(block));
+    if (eighths <= 0) return 0;
+    int units = eighths * 2 / 3;  // every cell is a multiple of 0.375 dB
+    if (ksl_reg == 2) return units / 2;
+    if (ksl_reg == 3) return units * 2;
+    return units;
 }
 
 // Phase-modulation offset for a modulator output `out_val` (about +-1024,
@@ -188,8 +180,8 @@ int32_t wave_sample(uint8_t waveform, uint32_t phase20, double atten_env_units) 
     if (t < 0) t = 0;
     int32_t shift = t >> 8;
     if (shift >= 16) return 0;
-    // The die stores the exp ROM reversed, so decode indexes 255-frac (Niemitalo
-    // & Gambrell). The form carries a factor of two, which the extra shift removes.
+    // Attenuation is a negative exponent: ~t = -t-1, so its low 8 bits index the exp table and
+    // t>>8 plus one is the shift (table + 1024 significand, Niemitalo & Gambrell)
     int32_t frac = t & 0xFF;
     int32_t mantissa = int32_t(kWave.exp_tab[255 - frac]) + 1024;
     int32_t mag = mantissa >> (shift + 1);
@@ -477,9 +469,9 @@ void Opl3::generate_frame(uint64_t cycle) {
         }
         op.key_on = key_on;
 
-        // NTS=0 selects F-number bit 9 for key scaling, NTS=1 bit 8 (YMF715x note-select table)
+        // NTS=0 splits on F-number bit 8, NTS=1 on bit 9 (YM3812 application manual 3-1-3)
         bool nts = (regs_[0x08] & 0x40) != 0;
-        int ksn = (int(block) << 1) | int(nts ? ((fnum >> 8) & 1) : ((fnum >> 9) & 1));
+        int ksn = (int(block) << 1) | int((fnum >> (nts ? 9 : 8)) & 1);
         clock_envelope(op, ksn);
 
         // One lap of the 20-bit accumulator is one cycle, indexed as phase>>10, so a
@@ -502,6 +494,7 @@ void Opl3::generate_frame(uint64_t cycle) {
 
     auto feedback_offset = [this](int opidx, uint8_t fb) -> int32_t {
         if (fb == 0) return 0;
+        // F = A sin(wt + bF) (YM3812 application manual 1-1); the two-sample average is unsourced
         double avg = (double(op_[opidx].out) + double(op_[opidx].prev_out)) / 2.0;
         return phase_offset(int32_t(avg), kFeedbackRadians[fb]);
     };
@@ -528,9 +521,8 @@ void Opl3::generate_frame(uint64_t cycle) {
 
         if (ch_[c].four_op_primary) {
             int s = c + 3;
-            // The secondary's A0h/B0h are latched but not live in 4-op mode: the primary's
-            // fnum/block drive all four operators (decap, not in the datasheet).
-            // They go live when 104h unpairs.
+            // A four-operator channel takes A0h-A2h/B0h-B2h only; A3h-A5h/B3h-B5h aren't listed
+            // for it (YMF262 datasheet, FM signal source organization)
             uint16_t sfnum = fnum;
             uint8_t sblock = block;
             int op3 = op_index(bank, cib + 3, false);
@@ -610,9 +602,7 @@ void Opl3::generate_frame(uint64_t cycle) {
             int32_t off = additive ? 0 : phase_offset(mod_out, kModulationIndexRadians);
             int32_t car_out = compute_sample(car, ch_[6].fnum, ch_[6].block, off);
             op_[car].prev_out = op_[car].out; op_[car].out = int16_t(car_out);
-            // Each rhythm voice feeds two of the channel's four output buses, so it sums
-            // at twice a melodic channel's amplitude (decap,
-            // not in a Yamaha document)
+            // Rhythm voices sum at twice a melodic channel; unsourced (PC486_REVIEW.md §35)
             mix_channel(6, 2 * (additive ? (mod_out + car_out) : car_out));
         }
 
@@ -628,7 +618,7 @@ void Opl3::generate_frame(uint64_t cycle) {
             advance_env_phase(tom, ch_[8].fnum, ch_[8].block, tom_on);
             int32_t out = compute_sample(tom, ch_[8].fnum, ch_[8].block, 0);
             op_[tom].prev_out = op_[tom].out; op_[tom].out = int16_t(out);
-            mix_channel(8, 2 * out);  // rhythm voice on two output buses
+            mix_channel(8, 2 * out);
         }
 
         // Snare, hi-hat, top cymbal: noise-gated square shaped by each slot's envelope
@@ -642,7 +632,7 @@ void Opl3::generate_frame(uint64_t cycle) {
             int32_t mag = wave_sample(6, 0, atten);
             int32_t out = gate ? mag : -mag;
             op_[opidx].prev_out = op_[opidx].out; op_[opidx].out = int16_t(out);
-            mix_channel(c, 2 * out);  // rhythm voice on two output buses
+            mix_channel(c, 2 * out);
         };
         noise_percussion(op_index(0, 7, false), ch_[7].fnum, ch_[7].block, hh_on, 18, 7);
         noise_percussion(op_index(0, 7, true), ch_[7].fnum, ch_[7].block, sd_on, 16, 7);

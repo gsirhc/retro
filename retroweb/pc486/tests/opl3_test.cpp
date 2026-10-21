@@ -475,7 +475,7 @@ TEST_F(Opl3Test, RetriggeringMidReleaseResumesFromThereInsteadOfDippingToSilence
 }
 
 // Each +1 step of a rate register (+4 effective RATE) halves the full-range traverse time
-// (YMF715x Register Description Document, Rate Value - Actual Time Table), so N steps is 2^N.
+// (YM3812 application manual Table 3-6), so N steps is 2^N.
 TEST_F(Opl3Test, DecayAttenuationAtAFixedElapsedTimeRoughlyDoublesForOneStepOfTheRateRegister) {
     auto make_chip = [](Opl3 &chip, uint8_t dr, uint8_t sl) {
         chip.reset();
@@ -541,14 +541,14 @@ protected:
     }
     void W(uint8_t r, uint8_t v) { chip.write_address(0, r); chip.write_data(0, v); }
 
-    // Carrier with KSR=1 so RATE = R*4 + ksn; ksn = BLOCK*2 + F-number bit 9 (NTS=0)
+    // Carrier with KSR=1 so RATE = R*4 + ksn; ksn = BLOCK*2 + F-number bit 8 (NTS=0)
     void Voice(uint8_t ar, uint8_t dr, uint8_t sl, uint8_t rr, int ksn, bool egt = true) {
         W(0x23, uint8_t((egt ? 0x20 : 0x00) | 0x10 | 0x01));
         W(0x43, 0x00);
         W(0x63, uint8_t((ar << 4) | dr));
         W(0x83, uint8_t((sl << 4) | rr));
         W(0xA0, 0x00);
-        block_fnum_ = uint8_t(((ksn >> 1) << 2) | ((ksn & 1) << 1));
+        block_fnum_ = uint8_t(((ksn >> 1) << 2) | (ksn & 1));
     }
     void KeyOn() { W(0xB0, uint8_t(0x20 | block_fnum_)); }
     void KeyOff() { W(0xB0, block_fnum_); }
@@ -1020,9 +1020,8 @@ TEST_F(Opl3Test, FourOpAmAmAlgorithmSumsThreeOfTheFourOperators) {
 
 // --- key-scale level (KSL) -------------------------------------------------
 
-// KSL attenuates by octave: at BLOCK=7 and F-number top bits 15 the table gives 56 units of
-// 0.375 dB = 21 dB (YMF715x Register Description Document). KSL=1 is that figure, 2 half, 3 double
-// (opl3.cpp ksl_env_units()). The modulator is silenced (AR=0) so the carrier is unmodulated.
+// KSL attenuates by octave: at BLOCK=7 and F-number top bits 15 Table 3-5 (YM3812 application
+// manual) gives 21 dB. KSL=1 is that figure, 2 half, 3 double (Table 3-4). The modulator is silenced (AR=0) so the carrier is unmodulated.
 TEST_F(Opl3Test, KeyScaleLevelMatchesDocumentedDbPerOctaveSteps) {
     auto peak_for = [](uint8_t ksl) -> int32_t {
         Opl3 chip;
@@ -1056,10 +1055,46 @@ TEST_F(Opl3Test, KeyScaleLevelMatchesDocumentedDbPerOctaveSteps) {
         << "KSL=3 must attenuate double KSL=1 (6 dB/octave): p0=" << p0 << " p3=" << p3;
 }
 
+// Lower octaves follow Table 3-5's own cells: 3 dB less per octave, floored at 0
+TEST_F(Opl3Test, KeyScaleLevelMatchesTable35BelowTheTopOctave) {
+    auto peak_for = [](uint8_t ksl, int block, uint16_t fnum) -> int32_t {
+        Opl3 chip;
+        chip.reset();
+        auto w = [&](uint8_t r, uint8_t v) { chip.write_address(0, r); chip.write_data(0, v); };
+        w(0x20, 0x01);
+        w(0x23, 0x21);
+        w(0x43, uint8_t(ksl << 6));
+        w(0x63, 0xF0);
+        w(0x83, 0x00);
+        w(0xC0, 0x30);
+        w(0xA0, uint8_t(fnum & 0xFF));
+        w(0xB0, uint8_t(0x20 | (block << 2) | (fnum >> 8)));
+        uint64_t cycles = 0;
+        for (int i = 0; i < 40; ++i) { cycles += uint64_t(Opl3::kCpuHz * 0.001); chip.tick(cycles); }
+        int32_t peak = 0;
+        for (const auto &s : chip.drain_samples()) peak = std::max(peak, std::abs(int(s.left)));
+        return peak;
+    };
+    struct Cell { int block; uint16_t fnum; double db; };
+    const Cell cells[] = {
+        {3, 0x150, 4.125},   // OCT 3, F-number 5
+        {5, 0x310, 13.875},  // OCT 5, F-number 12
+        {6, 0x090, 9.000},   // OCT 6, F-number 2
+        {1, 0x0D0, 0.000},   // OCT 1, F-number 3
+    };
+    for (const Cell &c : cells) {
+        int32_t p0 = peak_for(0, c.block, c.fnum);
+        int32_t p1 = peak_for(1, c.block, c.fnum);
+        ASSERT_GT(p0, 0);
+        double db = 20.0 * std::log10(double(p0) / double(std::max(p1, 1)));
+        EXPECT_NEAR(db, c.db, 0.3) << "OCT " << c.block << " fnum 0x" << std::hex << c.fnum;
+    }
+}
+
 // --- key-scale rate (KSR) ----------------------------------------------------
 
 // RATE = register*4 + Rof; Rof is the key-scale number when KSR=1, or ksn>>2 when KSR=0
-// (YMF715x Rate Key Scale). At BLOCK=7, NTS=0, ksn=15: KSR=1 adds 15, KSR=0 adds 3, 12 steps
+// (YMF262 datasheet KSR). At BLOCK=7, NTS=1, ksn=15: KSR=1 adds 15, KSR=0 adds 3, 12 steps
 // apart, an 8x difference in decay speed.
 TEST_F(Opl3Test, KeyScaleRateOnVersusOffChangesTheDecayRateAtAFixedNote) {
     auto peak_after_ms = [](bool ksr, int ms) -> int32_t {
@@ -1072,7 +1107,7 @@ TEST_F(Opl3Test, KeyScaleRateOnVersusOffChangesTheDecayRateAtAFixedNote) {
         w(0x63, 0xF4);                                   // carrier AR=15 (fastest attack), DR=4
         w(0x83, 0xF0);                                   // carrier SL=15 (decay runs to full silence), RR=0
         w(0xC0, 0x30);                                    // pan both channels on
-        w(0x08, 0x00);                                    // NTS=0, selects fnum bit 9 for key scaling
+        w(0x08, 0x40);                                    // NTS=1, selects fnum bit 9 for key scaling
         w(0xA0, 0xFF);
         w(0xB0, uint8_t(0x20 | (7 << 2) | 0x02));  // KON, BLOCK=7, fnum hi bits: bit9=1,bit8=0 -> ksn=15
         uint64_t cycles = 0;
@@ -1095,9 +1130,9 @@ TEST_F(Opl3Test, KeyScaleRateOnVersusOffChangesTheDecayRateAtAFixedNote) {
 
 // --- note-select / key-scale number -------------------------------------------
 
-// NTS=0 selects F-number bit 9 for key scaling, NTS=1 bit 8 (YMF715x Register Description Document).
-// Observed through KSR=1, where ksn feeds the rate directly.
-TEST_F(Opl3Test, NoteSelectPicksFnumBitNineWhenClearAndBitEightWhenSet) {
+// NTS=0 splits on F-number bit 8, NTS=1 on bit 9 (YM3812 application manual 3-1-3, YMF262
+// datasheet NTS). Observed through KSR=1, where ksn feeds the rate directly.
+TEST_F(Opl3Test, NoteSelectPicksFnumBitEightWhenClearAndBitNineWhenSet) {
     auto decayed_peak = [](bool nts) -> int32_t {
         Opl3 chip;
         auto w = [&](uint8_t r, uint8_t v) { chip.write_address(0, r); chip.write_data(0, v); };
@@ -1121,17 +1156,16 @@ TEST_F(Opl3Test, NoteSelectPicksFnumBitNineWhenClearAndBitEightWhenSet) {
         }
         return peak;
     };
-    const int32_t peak_nts0 = decayed_peak(false);  // selects fnum bit 9 (=1) -> ksn=1, faster decay
-    const int32_t peak_nts1 = decayed_peak(true);   // selects fnum bit 8 (=0) -> ksn=0, slower decay
-    EXPECT_LT(peak_nts0, peak_nts1 * 0.9)
+    const int32_t peak_nts0 = decayed_peak(false);  // selects fnum bit 8 (=0) -> ksn=0, slower decay
+    const int32_t peak_nts1 = decayed_peak(true);   // selects fnum bit 9 (=1) -> ksn=1, faster decay
+    EXPECT_LT(peak_nts1, peak_nts0 * 0.9)
         << "NTS must pick different fnum bits, giving a different key-scaled decay rate: "
         << "peak after 2s, NTS=0 " << peak_nts0 << ", NTS=1 " << peak_nts1;
 }
 
 // --- rhythm output doubling ---------------------------------------------------
 
-// Each rhythm voice is wired to two of four output buses, so it sums at twice a melodic channel
-// (decap: out[0]/out[1] and out[2]/out[3] share one slot).
+// Rhythm voices sum at twice a melodic channel (unsourced, PC486_REVIEW.md §35).
 // The bass drum is an ordinary 2-op channel, so it compares cleanly against a melodic voice.
 TEST_F(Opl3Test, RhythmVoiceSumsAtTwiceAMelodicChannelsAmplitude) {
     auto peak_of = [](bool rhythm) -> int32_t {

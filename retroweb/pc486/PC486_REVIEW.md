@@ -3247,9 +3247,9 @@ fully-released state, and the probe hangs forever.
 
 These are labelled in `opl3.cpp` at the point they matter, and none of them
 affect whether software finds the chip or plays in time. The list is shorter
-than it was: the modulation index, the four-operator pair's F-number source,
-the note-select split point and the rhythm section's output level have
-since been pinned down, and what is left is in §31. The envelope, vibrato
+than it was: the four-operator pair's F-number source and the note-select
+split point are now sourced, and what is left is in §31 and §35 (the
+modulation index and the rhythm section's output level are unsourced). The envelope, vibrato
 and waveform 7 sources and gaps are in §35.
 
 - **The output stage's master gain has no hardware citation.** The YMF262
@@ -5336,10 +5336,10 @@ read the ROM forwards:
 `exp_tab[x] = round((2^(x/256) - 1) * 1024)` rises with its index, while `t`
 is an *attenuation*. So within each octave of attenuation the magnitude
 climbed toward 2x instead of decaying, and the `>> shift` snapped it back at
-every 256 boundary -- a sawtooth riding on the sine. The die stores that ROM
-reversed, so the decode indexes `255 - frac`; that form carries an inherent
-factor of two, which an extra shift takes back out to land on kFullScale's
-unity-at-1024 convention.
+every 256 boundary -- a sawtooth riding on the sine. An attenuation is a
+negative exponent: `~t = -t-1`, so the inverted low byte (`255 - frac`)
+indexes the table and the shift is `(t >> 8) + 1`, which lands on
+kFullScale's unity-at-1024 convention (§35).
 
 Measured over all 1024 phase steps of waveform 0 at zero attenuation,
 against an ideal sine:
@@ -5877,8 +5877,8 @@ smaller and faster check than analysing a modulated waveform's shape.
   regardless of algorithm. Every existing four-op test already ORs in 0x30;
   mine didn't. Fixed by doing the same.
 
-**KSL** (`ksl_env_units()`) matches the Yamaha YMF715x Register Description
-Document's octave/F-number table exactly: at BLOCK=7 and the table's largest
+**KSL** (`ksl_env_units()`) matches Table 3-5 of the YM3812 application
+manual (§35): at BLOCK=7 and the table's largest
 F-number-top-4-bits entry (21 dB at KSL=1), KSL=2 measures half that (1.5
 dB/octave) and KSL=3 double (6 dB/octave), both within the dB arithmetic's
 own rounding. **KSR** (`effective_rate()`) likewise: at a fixed, high
@@ -5964,6 +5964,37 @@ draws the ramp reaching zero mid-cycle and is near linear, which no
 exponential does), and the decap note only says the waveform is probably the
 exp table. `wave_sample()` keeps 8 log units per phase step (96 dB over a
 half cycle) as a single unsourced value.
+
+**Other OPL3 citations, re-checked.** The decap write-up covers the ROMs
+only, so nothing else in `opl3.cpp` cites it except the tables and their
+use.
+
+- *Exp decode.* The write-up says the table is read at the input's 8 LSBs,
+  plus 1024 as the significand, with the MSBs as the exponent. An
+  attenuation is a negative exponent, and `~t = -t-1`, so the decode
+  indexes `255 - frac` and shifts by `(t >> 8) + 1`. That is derived from
+  the write-up, not a claim about how the die stores the ROM.
+- *KSL.* `kKslOct7Eighths` is Table 3-5's 3 dB/oct OCT=7 row (YM3812
+  manual p.14) in 1/8 dB. Every lower row in the table is that row minus
+  3 dB per octave, floored at 0, and Table 3-4 gives 1.5 and 6 dB/oct as
+  half and double. `KeyScaleLevelMatchesTable35BelowTheTopOctave` checks
+  four cells.
+- *Four-operator F-number.* The YMF262 datasheet's "FM signal source
+  organization" (pp.6-7) lists only A0h-A2h/B0h-B2h for a four-operator
+  channel, so the primary's F-number, block and KON drive all four slots.
+- *NTS.* Both the YM3812 manual (3-1-3, p.11, with its split table) and the
+  YMF262 datasheet (NTS) say NTS=0 splits on the F-number's second bit
+  (bit 8) and NTS=1 on the MSB (bit 9). The code had them the other way
+  round, citing a YMF715x document that could not be retrieved. It now
+  follows the two Yamaha documents.
+- *Feedback.* FB's 0, pi/16 ... 4pi is the YMF262 datasheet's FB table, and
+  F = A sin(wt + bF) is the manual's formula (3). Feeding back the average
+  of the last two outputs is unsourced.
+- *Unsourced:* the 8pi modulation index of a full-scale modulator into the
+  next operator, and the rhythm voices' 2x output level. No Yamaha document
+  gives either one. The manual's rhythm section (5-4) says the noise
+  generator uses channel 8 and 9 frequency information, and nothing about
+  the output level.
 
 **Tests** (`opl3_test.cpp`, `Opl3EnvelopeTimeTest`): attack 0-100% and
 10-90% at RATE 4, 19, 38, 49, 52; release 0-96 dB at RATE 4, 22, 41, 56,
