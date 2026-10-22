@@ -68,7 +68,8 @@ void Ega::vbe_write_(int index, uint16_t v) {
             // Low 9 bits are the bank number; bits 14/15 are RD/WR selects.
             uint16_t bank = uint16_t(v & kVbeBankNumberMask);
             uint32_t bank_bytes = vbe_bank_bytes();
-            // Planar 4bpp: a window address selects a byte in all four planes (VBE 2.0, 4F05 and planar memory model)
+            // 4bpp planar: one window address hits all four planes (VBE 2.0 planar model);
+            // vbe.c mode_info_number_of_image_pages divides VRAM by 4 for 4bpp
             uint32_t bank_space = uint32_t(vram.size());
             if (vbe_[kVbeRegBpp] == 4) bank_space /= 4;
             uint32_t num_banks = bank_space / bank_bytes;
@@ -78,11 +79,7 @@ void Ega::vbe_write_(int index, uint16_t v) {
         }
         case kVbeRegEnable: {
             bool was_on = (vbe_[kVbeRegEnable] & kVbeEnabled) != 0;
-            bool was_32k = (vbe_[kVbeRegEnable] & kVbeBankGranularity32K) != 0;
             vbe_[kVbeRegEnable] = v;
-            bool now_32k = (v & kVbeBankGranularity32K) != 0;
-            // A step-size change resets the window.
-            if (now_32k != was_32k) vbe_[kVbeRegBank] = 0;
             if ((v & kVbeEnabled) && !was_on) {
                 // Mode set clears window/pan state and, unless NoClearMem, VRAM.
                 vbe_[kVbeRegBank] = 0;

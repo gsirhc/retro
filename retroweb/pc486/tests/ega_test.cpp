@@ -712,6 +712,50 @@ TEST(EgaTest, FourBppDispiModeKeepsThePlanarEngineAndSlidesItByTheBankRegister) 
     EXPECT_EQ(ega.mem_read(0xA0000), 0x5A);
 }
 
+TEST(EgaTest, FourBppBankSpaceIsOnePlaneAtEitherGranularity) {
+    // Planar window addresses span one plane (VRAM/4 = 256KB): 8 banks at 32KB, 4 at 64KB.
+    Ega ega;
+    ega.reset();
+    SetupLinearGraphics(ega);
+    ega.out16(Ega::kVbeIndexPort, Ega::kVbeRegBpp); ega.out16(Ega::kVbeDataPort, 4);
+    ega.out16(Ega::kVbeIndexPort, Ega::kVbeRegEnable);
+    ega.out16(Ega::kVbeDataPort, uint16_t(Ega::kVbeEnabled | Ega::kVbeBankGranularity32K));
+    auto set_bank = [&](uint16_t b) {
+        ega.out16(Ega::kVbeIndexPort, Ega::kVbeRegBank); ega.out16(Ega::kVbeDataPort, b);
+    };
+    set_bank(7);
+    EXPECT_EQ(ega.vbe_reg(Ega::kVbeRegBank), 7);
+    set_bank(8);
+    EXPECT_EQ(ega.vbe_reg(Ega::kVbeRegBank), 7);
+}
+
+TEST(EgaTest, EightBppBankSpaceIsAllVram) {
+    // Flat 8bpp: 1MB / 32KB = 32 banks.
+    Ega ega;
+    ega.reset();
+    SetupLinearGraphics(ega);
+    ega.out16(Ega::kVbeIndexPort, Ega::kVbeRegBpp); ega.out16(Ega::kVbeDataPort, 8);
+    ega.out16(Ega::kVbeIndexPort, Ega::kVbeRegEnable);
+    ega.out16(Ega::kVbeDataPort, uint16_t(Ega::kVbeEnabled | Ega::kVbeBankGranularity32K));
+    ega.out16(Ega::kVbeIndexPort, Ega::kVbeRegBank); ega.out16(Ega::kVbeDataPort, 31);
+    EXPECT_EQ(ega.vbe_reg(Ega::kVbeRegBank), 31);
+    ega.out16(Ega::kVbeDataPort, 32);
+    EXPECT_EQ(ega.vbe_reg(Ega::kVbeRegBank), 31);
+}
+
+TEST(EgaTest, GranularityBitChangeLeavesTheBankRegisterAlone) {
+    // vbe.c writes BANK=0 before it sets the 32K bit and never relies on a reset from the toggle.
+    Ega ega;
+    ega.reset();
+    SetupLinearGraphics(ega);
+    ega.out16(Ega::kVbeIndexPort, Ega::kVbeRegBpp); ega.out16(Ega::kVbeDataPort, 8);
+    ega.out16(Ega::kVbeIndexPort, Ega::kVbeRegEnable); ega.out16(Ega::kVbeDataPort, Ega::kVbeEnabled);
+    ega.out16(Ega::kVbeIndexPort, Ega::kVbeRegBank); ega.out16(Ega::kVbeDataPort, 3);
+    ega.out16(Ega::kVbeIndexPort, Ega::kVbeRegEnable);
+    ega.out16(Ega::kVbeDataPort, uint16_t(Ega::kVbeEnabled | Ega::kVbeBankGranularity32K));
+    EXPECT_EQ(ega.vbe_reg(Ega::kVbeRegBank), 3);
+}
+
 TEST(EgaTest, BankRegisterIgnoresTheFirmwareRdWrFlagBits) {
     // The VGABIOS 4F05 ORs VBE_DISPI_BANK_RW (bits 15:14) into the bank; only the low bits select.
     Ega ega;

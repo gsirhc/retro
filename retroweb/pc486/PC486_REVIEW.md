@@ -1953,9 +1953,13 @@ planar engine in charge. bpp other than 4 uses the flat VBE window.
 aperture. The Bank register is `bank << 16` added to the planar plane offset
 (`vbe_planar_banked()` / `vbe_planar_plane_off()`), not a switch to the
 linear 8bpp path (`vbe_mode_active()` still requires bpp == 8). A 1MB card
-has four such planar banks: the window address selects a byte in all four
-planes (VBE 2.0, function 4F05 and the planar memory model), so the bank
-space is one plane (256KB). Past-end bank writes are rejected. The RD/WR
+has four such planar banks at 64KB (eight at 32KB). A window address selects
+a byte in all four planes (VBE 2.0 planar memory model), so the bank space is
+one plane (256KB). The firmware agrees: `mode_info_number_of_image_pages`
+shifts the 64KB-unit VRAM count right by 2 for 4bpp before dividing by line
+bytes and yres, and its 4F05 (`set_display_window`) writes a bank, reads it
+back and fails the call if it differs, so a past-end bank has to be rejected.
+The RD/WR
 flag bits the firmware's 4F05 path ORs into the Bank register are masked
 off on write.
 
@@ -1984,6 +1988,16 @@ firmware still doubled the index against a 64KB step: guest bank N landed
 at `2N * 64KB`. Fixed by advertising the flag, honouring Enable bit
 `0x10` as a 32KB step (`vbe_bank_bytes()`), and rejecting past-end bank
 numbers for every depth.
+
+Sources: `dispi_support_bank_granularity_32k` (GETCAPS on BANK, high byte
+masked with the 32K flag), `dispi_set_mode` (ORs the flag into Enable),
+`dispi_set_bank_farcall`, `vbe_biosfn_display_window_control` and
+`vesa_pm_set_window` (all shift the window number left by 1, OR the RD/WR
+bits, and the first two read BANK back and compare). ModeInfo reports
+WinGranularity and WinSize as 64K. A change of the Enable granularity bit
+does not touch BANK: `dispi_set_mode` writes BANK = RW (bank 0) before it
+sets the bit, and nothing in `vbe.c` reads BANK after a toggle expecting
+a reset. A mode set from disabled still zeroes BANK.
 
 ### 7.5.3 Bug found live: the linear frame buffer the ROM advertises
 
