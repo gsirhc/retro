@@ -75,9 +75,10 @@ uint8_t Board::vcounter(int line) {
     return line < kVblankLine ? uint8_t(line + 0x20) : uint8_t(line - kVblankLine + 0xDA);
 }
 
-// Taito SV game board (BPR00003) 6D gates drive D3/D4 at INTA from 64V; ISRs sit at $08 and $10.
+// BPR00003: at INTA the 74LS153s pass input 0, D4 = 64V (7E QC), D3 = /64V via a NAND, D0-2/D6-7 pulled up
 uint8_t Board::rst_vector(int line) {
-    return (vcounter(line) & 0x40) ? 0xD7 : 0xCF;
+    const bool v64 = (vcounter(line) & 0x40) != 0;
+    return uint8_t(0xC7 | (v64 ? 0x10 : 0x08));
 }
 
 void Board::line_start(int line) {

@@ -444,12 +444,12 @@ void Opl3::generate_frame(uint64_t cycle) {
     constexpr double kFull = 4294967296.0;
     am_phase_ += uint32_t(std::llround((3.7 / kSampleHz) * kFull));
     double am01 = double(am_phase_) / kFull;
-    double am_tri = am01 < 0.5 ? am01 * 2.0 : 2.0 - am01 * 2.0;              // 0..1
+    double am_tri = am01 < 0.5 ? am01 * 2.0 : 2.0 - am01 * 2.0;  // triangle from 0 dB (YMF278 manual p.43)
     bool dam = (regs_[0xBD] & 0x80) != 0;
     bool dvb = (regs_[0xBD] & 0x40) != 0;
     double am_units_this_frame = am_tri * ((dam ? 4.8 : 1.0) / 0.1875);
 
-    // Vibrato: 6.1 Hz, 7 cents or 14 with DVB (YMF262 datasheet VIB/DVB). Shape undocumented: triangle.
+    // Vibrato: 6.1 Hz, 7 cents or 14 with DVB (YMF262 datasheet VIB/DVB), a triangle about 0 (YMF278 manual p.44)
     constexpr uint32_t kVibStep = uint32_t((6.1 / kSampleHz) * kFull);
     vib_phase_ += kVibStep;
     double vib01 = double(vib_phase_) / kFull;
@@ -494,7 +494,7 @@ void Opl3::generate_frame(uint64_t cycle) {
 
     auto feedback_offset = [this](int opidx, uint8_t fb) -> int32_t {
         if (fb == 0) return 0;
-        // F = A sin(wt + bF) (YM3812 application manual 1-1); the two-sample average is unsourced
+        // F = A sin(wt + bF) (YM3812 application manual 1-1) on the mean of the last two outputs (US 4,249,447; US 4,554,857)
         double avg = (double(op_[opidx].out) + double(op_[opidx].prev_out)) / 2.0;
         return phase_offset(int32_t(avg), kFeedbackRadians[fb]);
     };
@@ -602,7 +602,7 @@ void Opl3::generate_frame(uint64_t cycle) {
             int32_t off = additive ? 0 : phase_offset(mod_out, kModulationIndexRadians);
             int32_t car_out = compute_sample(car, ch_[6].fnum, ch_[6].block, off);
             op_[car].prev_out = op_[car].out; op_[car].out = int16_t(car_out);
-            // Rhythm voices sum at twice a melodic channel; unsourced (PC486_REVIEW.md §35)
+            // Rhythm voices sum twice, as the YM2413's do (YM2413 application manual III-4); no OPL3 document says
             mix_channel(6, 2 * (additive ? (mod_out + car_out) : car_out));
         }
 

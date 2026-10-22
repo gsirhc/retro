@@ -17,7 +17,8 @@ Fidelity rules follow `CLAUDE.md` and `.claude/arcade.md`.
   settings).
 - Atari's Centipede source as published in the `historicalsource/centipede`
   repository: `CENDEF.MAC` (memory map, switch polarities, IRQ rate),
-  `CENTST.MAC` (colour RAM polarity), `CENTIP.DOC` (design notes). Read for
+  `CENTST.MAC` (colour RAM polarity), `CENTIP.DOC` (design notes),
+  `CENTI.MAC` (object parking and the tile-to-object formula). Read for
   behaviour only; nothing from those files is in this repo.
 - General Instrument 1983 Electrically Alterable Non-Volatile Memory
   Handbook, ER2055 data sheet (bitsavers).
@@ -62,6 +63,18 @@ Fidelity rules follow `CLAUDE.md` and `.claude/arcade.md`.
   playfield pen. Colour RAM address is `4 + pen` for the playfield and
   `12 + GRY` for objects (D8, E8). Objects are written in slot order, so a
   later slot wins.
+- Object window: `CENTI.MAC` parks objects at VPOS `$F8` and tests
+  `VPOS >= $F8` as "off top of screen". Centipede segments and the flea
+  enter there with live pictures. `CKSET` sets FLIP and `CKF8 = $F8`
+  together, so the cocktail flip parks at 0 instead. A real machine
+  therefore shows nothing at buffer `$F8`-`$FF`, or `$00`-`$07` with FLIP
+  set, and that band is hidden.
+- Object alignment: the mushroom explosion code in `CENTI.MAC` places an
+  object over playfield cell `$400 + 32 * row + col` at VPOS `col * 8` and
+  HPOS `(31 - row) * 8 - 4` ("lower left corner is F8", "explosion is
+  centered in picture"). X is the line buffer address and an object covers
+  lines `240 - HPOS` to `255 - HPOS`, which puts that 16-line picture
+  centred on the tile to the pixel.
 - Option switch factory values `0x54` (English, 3 lives, 12000 bonus,
   easy, 1-credit minimum) and `0x02` (1 coin 1 play), the manual's
   suggested settings.
@@ -88,12 +101,10 @@ resets the board.
 - The L2 watchdog clock is taken as once per frame; its source line runs
   off the cropped sheet.
 - Frame timing (256 lines at 60 Hz, 240 visible).
-- Motion objects are hidden in the last 8 columns (the first 8 when
-  flipped). The game parks an object at X = `$F8`. The line buffer
-  circuit has no gate for this, and the counter load and clear timing
-  against the playfield is not worked out, so the window is a stand-in.
-  The same gap covers the absolute alignment of objects to the playfield:
-  X is placed at the buffer address and Y at `240 - byte`.
+- The gate that blanks objects in the parked band is not found on DP-182
+  (5th printing, sheets 1B, 2A, 2B) or DP-189 (1st printing, sheet 1B, the
+  only sheet scanned); the band itself comes from the game code above. `CENIRQ.MAC` adds 1 to HPOS whenever it sets PIC7 to turn
+  a picture; the PIC7 line flip as drawn doesn't account for that pixel.
 - Alternate-bit level uses typical device drops: 1N914 0.8 V, 2N3904
   VCE(sat) 0.15 V, 7407 VOL 0.3 V, and an unloaded monitor input.
 - Cocktail flip is not applied to the picture.

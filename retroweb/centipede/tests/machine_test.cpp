@@ -335,7 +335,7 @@ TEST(Video, ObjectVerticalSumWrapsInside256) {
     EXPECT_EQ(Frame(m).at(40, 224 + 5), rgba(255, 0, 0));
 }
 
-TEST(Video, ObjectsAreHiddenInTheLastEightColumnsUnlessFlipped) {
+TEST(Video, ObjectsAreHiddenInTheLastEightColumnsOrTheFirstEightWhenFlipped) {
     centipede::Machine m;
     set_pf_colours(m);
     set_mo_colours(m);
@@ -349,4 +349,28 @@ TEST(Video, ObjectsAreHiddenInTheLastEightColumnsUnlessFlipped) {
     m.flipscreen = true;
     m.spriteram[0x20] = 248;
     EXPECT_EQ(Frame(m).at(248, 23), rgba(255, 0, 0));
+    m.spriteram[0x20] = 0;
+    EXPECT_EQ(Frame(m).at(0, 23), rgba(0, 0, 0));
+    m.spriteram[0x20] = 8;
+    EXPECT_EQ(Frame(m).at(8, 23), rgba(255, 0, 0));
+}
+
+// CENTI.MAC's mushroom explosion: VPOS = column * 8, HPOS = (31 - row) * 8 - 4 centres the
+// 16-line picture on the tile.
+TEST(Video, ObjectPlacedByTheGamesTileFormulaCoversThatTile) {
+    centipede::Machine m;
+    set_pf_colours(m);
+    set_mo_colours(m);
+    const int col = 10, row = 12;
+    m.spriteram[0x10] = uint8_t((31 - row) * 8 - 4);
+    m.spriteram[0x20] = uint8_t(col * 8);
+    m.spriteram[0x30] = 0x01;
+    for (int line = 4; line < 12; line++) m.gfx[size_t(line)] = 0xFF;
+    Frame f(m);
+    for (int y = row * 8 - 6; y < row * 8 + 14; y++) {
+        for (int x = col * 8 - 2; x < col * 8 + 10; x++) {
+            bool on_tile = x >= col * 8 && x < col * 8 + 8 && y >= row * 8 && y < row * 8 + 8;
+            EXPECT_EQ(f.at(x, y), on_tile ? rgba(255, 0, 0) : rgba(0, 0, 0)) << x << "," << y;
+        }
+    }
 }

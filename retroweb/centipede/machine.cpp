@@ -325,6 +325,7 @@ void Machine::render(uint32_t* rgba) const {
         int row = v >> 3;
         for (int x = 0; x < kFbW; x++) {
             uint8_t grey = mo[size_t(x)];
+            // Atari's CENTI.MAC parks objects at VPOS $F8 as off screen, 0 once FLIP is set
             bool in_window = flipscreen ? x >= 8 : x < kFbW - 8;
             if (grey != 0 && in_window) {
                 fb[size_t(v * kFbW + x)] = colour_ram_rgb(paletteram[0x0C | grey]);

@@ -96,7 +96,18 @@ That is a 16-bit register with the newest byte high, read as `reg >> (8 - n)`.
 E3 is a D flip-flop clocked by `(!(64V | !128V) | VBLANK)`, so it fires at
 V = 0x80 (line 96) and V = 0xDA with VBLANK (line 224). It latches the 8080's
 INTE pin, so the line asserts only while interrupts are enabled. INTA clears it. The vector is sampled at INTA and 64V
-selects it (Taito BPR00003 6D gates, ISRs at `$08`/`$10`): RST 1 (`$CF`) at line 96, RST 2 (`$D7`) at 224.
+selects it: RST 1 (`$CF`) at line 96, RST 2 (`$D7`) at 224.
+
+Traced on the Taito BPR00003 mother board drawing (archive.org
+`space_invaders_manual_schematics_ptm`, sheet 2 at full scan resolution).
+The 74174 at 7D latches the 8080 status byte; its Q1 (D0, INTA) feeds both
+6D 7402 NORs that drive the A and B selects of the four 74LS153 input
+muxes (2A-2D), so INTA selects input 0 (pins 6 and 10). Input 0 of the D0,
+D1, D2, D6 and D7 muxes is the common pulled-up line. Input 0 of the D4 mux
+(2B pin 6) is 7E QC, the 9316's 64V output, which is the 120 Hz edge
+connector line V. Input 0 of the D3 mux (2C pin 10) is the same line
+through a NAND with both inputs tied, so `/64V`. The bus at INTA is
+`11 0 64V /64V 111`.
 An acknowledge that slips past line 160 reads RST 2, as on the board.
 `Board::run_cycles` samples INT after each instruction, once the beam has
 caught up.
@@ -189,8 +200,8 @@ Not on the sheet:
 ## Unsourced
 
 - Gel rectangles in `app.js`.
-- The BPR00003 scan is too faint to trace the 6D pins. The vector values
-  come from the ISR layout.
+- D5 at INTA: 2B pin 10 shows only a stub on the scan. It reads 0 because
+  the ISRs sit at `$08`/`$10`.
 - Watchdog modulus of 255 frames.
 - Empty socket at `$4000` reads 0.
 - VRAM byte loaded at pixel `8k+4`, and the four flushed rows.

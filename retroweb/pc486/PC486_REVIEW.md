@@ -3248,8 +3248,9 @@ These are labelled in `opl3.cpp` at the point they matter, and none of them
 affect whether software finds the chip or plays in time. The list is shorter
 than it was: the four-operator pair's F-number source and the note-select
 split point are now sourced, and what is left is in §31 and §35 (the
-modulation index and the rhythm section's output level are unsourced). The envelope, vibrato
-and waveform 7 sources and gaps are in §35.
+modulation index is unsourced, and the rhythm level comes from the YM2413
+manual, not an OPL3 document). The envelope, vibrato and waveform 7 sources
+and gaps are in §35.
 
 - **The output stage's master gain has no hardware citation.** The YMF262
   datasheet (p.5) documents the output format -- 16-bit offset binary on four
@@ -5919,6 +5920,17 @@ fix changes no path any real caller takes).
   and exp ROMs only. It says nothing about the envelope generator or the
   vibrato, and suggests waveform 7 "is probably simply the exponential
   table".
+- Yamaha YMF278B (OPL4) application manual, FM section: tremolo figure
+  (p.43, a 3.7 Hz triangle from 0 dB to the DAM depth), vibrato figure
+  (p.44, a triangle swinging both ways about the note), waveform figure
+  (p.53). map.grauw.nl/resources/sound/yamaha_opl4.pdf
+- Yamaha YM2413 (OPLL) application manual, III-4 and Fig. III-3: the
+  percussion sounds are output twice because they "seem lower" than the
+  melody. map.grauw.nl/resources/sound/yamaha_ym2413.pdf
+- US 4,249,447 (Tomisawa, Nippon Gakki, 1981), averaging device 23: the
+  feedback loop takes the mean of two adjacent samples to stop hunting.
+  US 4,554,857 (Nishimoto, Nippon Gakki, 1985), adder 62: "the average of
+  the last output signal and the last but one output signal".
 
 **What the sources give.** Attenuation is a 96 dB range in 0.1875 dB steps
 (0-511). Attack is exponential, decay/sustain/release are linear in dB;
@@ -5955,15 +5967,26 @@ the per-frame pattern here is a remainder accumulator, not the silicon's.
 Times match; sample-level step placement may not. The divisors and the
 attack constants (9, >>3) are fits to the table, not die values. The
 decay 10-90% column (8212.48 ms at RATE 4) implies 20.1 dB of span where
-linear-dB gives 19.1 dB, about 5% off; untested. Vibrato is a smooth
-triangle with no F-number quantisation: shape unsourced, and "7 cents" is
-read as peak deviation. Phase reset on key-on is kept, also unsourced.
+linear-dB gives 19.1 dB, about 5% off; untested. Also searched for the
+step schedule: the YMF262 datasheet, the YM3812, YMF278B, Y8950, YM3526 and
+YM2413 manuals, the YMF289B and YMF715 datasheets, and Yamaha envelope
+patents (US 4,928,569, JP S59-101698 and the Google Patents Nippon Gakki
+envelope set). None describes the OPL counter.
+
+Vibrato and tremolo are triangles (YMF278B manual pp.43-44): vibrato swings
+both ways about the note, "7 cents" read as the peak, and tremolo runs from
+0 dB to the DAM depth. Whether the real LFO moves in steps, and its step
+size, is unsourced; it is smooth here. The YMF278B manual gives the vibrato
+as 6.0 Hz and the Y8950 manual as 6.4 Hz; the YMF262 datasheet's 6.1 Hz is
+kept for this chip. Phase reset on key-on is kept, unsourced.
 
 **Waveform 7's slope is unsourced.** The datasheet figure is schematic (it
 draws the ramp reaching zero mid-cycle and is near linear, which no
 exponential does), and the decap note only says the waveform is probably the
-exp table. `wave_sample()` keeps 8 log units per phase step (96 dB over a
-half cycle) as a single unsourced value.
+exp table. The YMF278B manual's figure (p.53) is curved instead; read off the
+page, it falls about 30-40 dB over the half cycle, but its two halves of the
+curve disagree, so it is a drawing, not data. `wave_sample()` keeps 8 log
+units per phase step (96 dB over a half cycle) as a single unsourced value.
 
 **Other OPL3 citations, re-checked.** The decap write-up covers the ROMs
 only, so nothing else in `opl3.cpp` cites it except the tables and their
@@ -5988,20 +6011,25 @@ use.
   round, citing a YMF715x document that could not be retrieved. It now
   follows the two Yamaha documents.
 - *Feedback.* FB's 0, pi/16 ... 4pi is the YMF262 datasheet's FB table, and
-  F = A sin(wt + bF) is the manual's formula (3). Feeding back the average
-  of the last two outputs is unsourced.
+  F = A sin(wt + bF) is the manual's formula (3). The fed-back value is the
+  mean of the last two outputs, per Yamaha's feedback FM patents (US
+  4,249,447 averaging device 23; US 4,554,857 adder 62).
+- *Rhythm level.* Rhythm voices sum at 2x. The YM2413 manual (III-4) says
+  its percussion is output twice to match the melody. No OPL2/OPL3 document
+  states a rhythm level; the YM3812 manual's rhythm section (5-4) covers
+  only the noise generator's use of channel 8 and 9 frequencies.
 - *Unsourced:* the 8pi modulation index of a full-scale modulator into the
-  next operator, and the rhythm voices' 2x output level. No Yamaha document
-  gives either one. The manual's rhythm section (5-4) says the noise
-  generator uses channel 8 and 9 frequency information, and nothing about
-  the output level.
+  next operator. Not in the YMF262 datasheet, the YM3812, YMF278B, Y8950
+  or YM2413 manuals, US 4,249,447 or US 4,554,857 (which says only that the
+  modulating wave is added to the phase).
 
 **Tests** (`opl3_test.cpp`, `Opl3EnvelopeTimeTest`): attack 0-100% and
 10-90% at RATE 4, 19, 38, 49, 52; release 0-96 dB at RATE 4, 22, 41, 56,
 62; decay stopping and holding at SL=14 (224 units) with EGT=1; SL=15 at
 496; EGT=0 releasing with KON held; rate 0 frozen. `envelope_level()` is
-the test accessor. Vibrato's test measures ±7 / ±14 cents and the 6.1 Hz
-half period from zero crossings. Each was seen to fail against a planted
+the test accessor. Vibrato's test measures ±7 / ±14 cents, the 6.1 Hz
+half period from zero crossings, and the triangle shape (half the period
+beyond half the peak; a sine LFO fails it). Each was seen to fail against a planted
 regression (RL ignored, SL=15 as 45 dB, DVB ignored).
 
 ## 36. Diagnosing a real "scratchy music" report: ring range, and a checkbox that lied

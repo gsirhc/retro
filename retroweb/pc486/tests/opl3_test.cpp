@@ -1165,7 +1165,7 @@ TEST_F(Opl3Test, NoteSelectPicksFnumBitEightWhenClearAndBitNineWhenSet) {
 
 // --- rhythm output doubling ---------------------------------------------------
 
-// Rhythm voices sum at twice a melodic channel (unsourced, PC486_REVIEW.md §35).
+// Rhythm voices sum at twice a melodic channel (YM2413 application manual III-4, PC486_REVIEW.md §35).
 // The bass drum is an ordinary 2-op channel, so it compares cleanly against a melodic voice.
 TEST_F(Opl3Test, RhythmVoiceSumsAtTwiceAMelodicChannelsAmplitude) {
     auto peak_of = [](bool rhythm) -> int32_t {
@@ -1314,8 +1314,9 @@ TEST_F(Opl3Test, Waveform7MirrorsItsNegativeHalfAndRampsAcrossTheFullRange) {
 
 // --- vibrato -------------------------------------------------------------------
 
-// VIB is a 6.1 Hz vibrato, 7 cents deep or 14 with DVB (YMF262 datasheet VIB, DVB).
-TEST_F(Opl3Test, VibratoSwingsSevenCentsAtSixPointOneHertzAndDvbMakesItFourteen) {
+// VIB is a 6.1 Hz vibrato, 7 cents deep or 14 with DVB (YMF262 datasheet VIB, DVB), drawn as a
+// triangle (YMF278 application manual p.44).
+TEST_F(Opl3Test, VibratoIsASixPointOneHertzTriangleSevenCentsDeepOrFourteenWithDvb) {
     // Interpolated zero-crossing frequency over [lo,hi)
     auto measured_hz = [](const std::vector<int32_t> &v, std::size_t lo, std::size_t hi) -> double {
         std::vector<double> crossings;
@@ -1378,6 +1379,19 @@ TEST_F(Opl3Test, VibratoSwingsSevenCentsAtSixPointOneHertzAndDvbMakesItFourteen)
     // Peak to trough is half an LFO period
     const double half_period = Opl3::kSampleHz / 6.1 / 2.0;
     EXPECT_NEAR(double(std::labs(shallow.trough_frame - shallow.peak_frame)), half_period, half_period * 0.05);
+
+    // A triangle spends half its period beyond half its peak; a sine spends two thirds
+    const std::vector<int32_t> deep_wave = record(true, true);
+    const double period = Opl3::kSampleHz / 6.1;
+    std::vector<double> cents;
+    for (double lo = 0.0; lo < 2.0 * period; lo += 25.0) {
+        cents.push_back(1200.0 * std::log2(measured_hz(deep_wave, std::size_t(lo), std::size_t(lo) + 300) / ref_hz));
+    }
+    double peak = 0.0;
+    for (double c : cents) peak = std::max(peak, std::fabs(c));
+    std::size_t above = 0;
+    for (double c : cents) if (std::fabs(c) > peak / 2.0) ++above;
+    EXPECT_NEAR(double(above) / double(cents.size()), 0.5, 0.06) << "peak " << peak << " cents";
 }
 
 // --- register write trace (opt-in diagnostic) ------------------------------
