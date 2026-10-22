@@ -204,10 +204,9 @@ GalaxianArcade().then(async (Module) => {
 
   function hiscoreIsFactory(b) { return !b[0] && !b[1] && !b[2]; }
 
-  // POST leaves junk at $40A8 until NMI settles. Wait for zero HI-SCORE frames, then poke IndexedDB.
+  // Self-test clears work RAM ($1B8A) before it turns NMI on ($1BC7); nothing sets HI-SCORE after that.
   function postDone() {
-    const st = machine.state();
-    return st.nmiEnable && st.frames >= 60 && hiscoreIsFactory(readHiscore());
+    return machine.state().nmiEnable && hiscoreIsFactory(readHiscore());
   }
 
   const hiscore = arcadeHiscore({

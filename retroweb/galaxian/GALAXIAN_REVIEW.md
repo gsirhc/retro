@@ -95,8 +95,11 @@ IN2: bonus bits 1:0 (default 00 = 7000), lives bit 2 (default 1 = 3).
 - TTL, 555 and LM324 levels are typical data-sheet values.
 - High score at `$40A8` (3 BCD bytes) has no battery. The page keeps
   those bytes in IndexedDB for a user ROM. Restore waits until NMI is
-  on, frames ≥ 60, and the bytes are still the factory zeros. Reset
-  HIGH SCORE deletes the save and resets the board.
+  on and the bytes are still the factory zeros. Reset HIGH SCORE deletes
+  the save and resets the board. Source: Tunstall's Galaxian ROM
+  disassembly (github.com/ScottTunstall/Galaxian). The self-test path
+  clears work RAM at `$1B8A`, turns NMI on at `$1BC7`, and only
+  `UPDATE_HIGH_SCORE` (`$21E9`) writes `$40A8` after that.
 
 ## ROM policy
 

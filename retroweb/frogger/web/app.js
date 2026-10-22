@@ -7,6 +7,7 @@ const DIP_KEY = "retroweb.frogger.dips";
 const ROM_KEY = "set";
 const HISCORE_ADDR = 0x83EF;
 const HISCORE_LEN = 12;
+const HISCORE_ROM = 0x2E0E;
 
 function clip(bytes, n) {
   if (!bytes || bytes.length < n) return null;
@@ -111,6 +112,7 @@ FroggerArcade().then(async (Module) => {
 
   let usingUserRom = false;
   let programCrc = 0;
+  let program = null;
   const keys = {};
   let coinUntil = 0;
   const coinDoor = document.getElementById("coinDoor");
@@ -208,12 +210,13 @@ FroggerArcade().then(async (Module) => {
     for (let i = 0; i < HISCORE_LEN; i++) machine.setRamByte(HISCORE_ADDR + i, bytes[i] & 0xff);
   }
 
+  // Cold start LDIRs 18 bytes from ROM $2E0A to $83EB (code $02E5); the last 12 are HI + 5 ranks.
   function hiscoreIsFactory(b) {
-    if (b.every((x) => !x)) return true;
-    return b[2] === 0x63 && b[11] === 0x01;
+    if (!program) return false;
+    for (let i = 0; i < HISCORE_LEN; i++) if (b[i] !== program[HISCORE_ROM + i]) return false;
+    return true;
   }
 
-  // POST writes the factory table ($83F1/$83FA) before the restore goes in.
   const hiscore = arcadeHiscore({
     store,
     len: HISCORE_LEN,
@@ -222,7 +225,7 @@ FroggerArcade().then(async (Module) => {
     read: readHiscore,
     write: writeHiscore,
     isFactory: hiscoreIsFactory,
-    ready: () => machine.ramByte(0x83F1) === 0x63 && machine.ramByte(0x83FA) === 0x01,
+    ready: () => hiscoreIsFactory(readHiscore()),
   });
 
   async function resetHiscoreNow() {
@@ -262,6 +265,7 @@ FroggerArcade().then(async (Module) => {
     machine.loadRomSet(set.program, set.sound, set.gfx, set.color);
     usingUserRom = set.kind !== "hwtest";
     programCrc = arcadeCrc32(set.program);
+    program = set.program;
     hiscore.rearm();
     syncHiscoreResetBtn();
     setStatus(label);
@@ -273,6 +277,7 @@ FroggerArcade().then(async (Module) => {
   function loadBuiltInRom() {
     machine.loadHwtest();
     usingUserRom = false;
+    program = null;
     hiscore.rearm();
     syncHiscoreResetBtn();
     setStatus("Running test ROM");

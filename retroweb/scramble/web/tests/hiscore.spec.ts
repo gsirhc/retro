@@ -21,8 +21,8 @@ function userSet() {
 }
 
 const SAMPLE = Array.from({ length: 0x21 }, (_, i) => (i + 1) & 0xff);
-// What POST leaves in the table: $00 at $4200 and $01 at $421D open the restore gate.
-const FACTORY = Array.from({ length: 0x21 }, (_, i) => (i === 0x1D ? 0x01 : 0x00));
+// Code $0195-$01AA: ten entries of 00 00 01 (10000) at $4200, then $01 at $40AA.
+const FACTORY = Array.from({ length: 0x21 }, (_, i) => (i % 3 === 2 ? 0x01 : 0x00));
 
 async function postWritesFactoryTable(page: import("@playwright/test").Page) {
   await page.evaluate((bytes) => (window as any).__test.writeHiscore(bytes), FACTORY);
@@ -57,6 +57,26 @@ test.describe("HIGH SCORE persist", () => {
     await expect(page.locator("#romStatus")).toHaveText("Loaded stored ROM set");
 
     expect(await page.evaluate(() => (window as any).__test.hiscoreReady())).toBe(false);
+    expect(await page.evaluate(() => (window as any).__test.hiscoreRestored)).toBe(false);
+
+    await postWritesFactoryTable(page);
+    await expect.poll(() => page.evaluate(() => (window as any).__test.hiscoreRestored)).toBe(true);
+    expect(await page.evaluate(() => (window as any).__test.readHiscore())).toEqual(SAMPLE);
+  });
+
+  test("the restore waits for the whole factory table", async ({ page }) => {
+    await page.locator("#romFile").setInputFiles(userSet());
+    await expect(page.locator("#romStatus")).toHaveText("Loaded ROM set");
+    await page.evaluate(async (bytes) => {
+      const t = (window as any).__test;
+      t.writeHiscore(bytes);
+      await t.saveHiscoreNow(t.readHiscore());
+    }, SAMPLE);
+
+    await page.reload();
+    await expect(page.locator("#romStatus")).toHaveText("Loaded stored ROM set");
+    await page.evaluate((bytes) => (window as any).__test.writeHiscore(bytes), FACTORY.map((b, i) => (i === 0x20 ? 0 : b)));
+    await page.waitForFunction(() => (window as any).__test.machine.state().frames > 120);
     expect(await page.evaluate(() => (window as any).__test.hiscoreRestored)).toBe(false);
 
     await postWritesFactoryTable(page);

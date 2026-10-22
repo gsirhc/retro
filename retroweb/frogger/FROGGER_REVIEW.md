@@ -96,7 +96,12 @@ Idle factory: IN0 `$FF`, IN1 `$FC`, IN2 `$F1`.
 - M51516L input load taken as 100 kΩ. No Mitsubishi data sheet found.
 - High score `$83EF–$83FA` (the display word and five 16-bit ranks) has
   no battery. The page keeps those bytes in IndexedDB for a user ROM.
-  Reset HIGH SCORE deletes the save and resets the board.
+  Reset HIGH SCORE deletes the save and resets the board. Source: Computer
+  Archeology's Frogger disassembly (computerarcheology.com/Arcade/Frogger).
+  Cold start (`$02E5`) copies 18 bytes from ROM `$2E0A` to `$83EB`; the last
+  12 are the display word and ranks. `insertHighScoreEntry` (`$0A84`) keeps
+  the ranks. The restore waits for the live bytes to equal `$2E0E-$2E19` of
+  the loaded ROM.
 
 ## ROM policy
 

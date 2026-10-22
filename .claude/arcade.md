@@ -25,9 +25,9 @@ the ROM actually keeps:
 | Cabinet | RAM |
 |---|---|
 | Pac-Man | `$4E88–$4E8A` (3 BCD TOP) |
-| Galaxian | `$40A8` (3 BCD HI-SCORE) |
-| Frogger | `$83EF–$83FA` (display HI + 5-rank table) |
-| Scramble | `$4200` (10 × 3 BCD) + `$40A8` (displayed HI) |
+| Galaxian | `$40A8` (3 BCD HI-SCORE). Factory is zero: self-test clears RAM before NMI turns on |
+| Frogger | `$83EF–$83FA` (display HI + 5-rank table). Factory is ROM `$2E0E–$2E19`, which cold start copies in |
+| Scramble | `$4200` (10 × 3 BCD) + `$40A8` (displayed HI). Factory is ten `00 00 01` entries and HI `00 00 01` (cold start `$0195`) |
 | Galaga | `$8A20` (0x2D: 5 × 6-digit scores, 5 × 3 names) + `$83ED` (6, HI-SCORE strip). Factory is the table POST builds from main ROM `$02B9`/`$02BF`, not zeros |
 | Asteroids | `$001D–$0030` (10 × 2-byte scores) + `$0034–$0051` (10 × 3 initials). Reset zeroes page 0, so factory is all zero. `$31–$33` are entry state, not saved |
 | Centipede | EAROM `$1600–$163F` (64 B ER2055 image) |

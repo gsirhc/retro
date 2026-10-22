@@ -205,12 +205,12 @@ ScrambleArcade().then(async (Module) => {
     for (let i = 0; i < 3; i++) machine.setRamByte(0x40A8 + i, bytes[0x1E + i] & 0xff);
   }
 
+  // Cold start writes ten 00 00 01 entries at $4200 and $01 at $40AA (code $0195).
   function hiscoreIsFactory(b) {
-    if (b.every((x) => !x)) return true;
-    return b[0] === 0x00 && b[0x1D] === 0x01;
+    for (let i = 0; i < HISCORE_LEN; i++) if (b[i] !== (i % 3 === 2 ? 1 : 0)) return false;
+    return true;
   }
 
-  // POST writes the factory table ($4200/$421D) before the restore goes in.
   const hiscore = arcadeHiscore({
     store,
     len: HISCORE_LEN,
@@ -219,7 +219,7 @@ ScrambleArcade().then(async (Module) => {
     read: readHiscore,
     write: writeHiscore,
     isFactory: hiscoreIsFactory,
-    ready: () => machine.ramByte(0x4200) === 0x00 && machine.ramByte(0x421D) === 0x01,
+    ready: () => hiscoreIsFactory(readHiscore()),
   });
 
   async function resetHiscoreNow() {

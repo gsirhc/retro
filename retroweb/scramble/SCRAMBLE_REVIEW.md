@@ -96,7 +96,11 @@ IN2: U/D `$10/$40`, coinage bits 2:1, cabinet bit 3, protection bits 5/7.
 - M51516L input load taken as 100 kΩ. No Mitsubishi data sheet found.
 - High score `$4200` (10 × 3 BCD) and the displayed score at `$40A8`
   have no battery. The page keeps them in IndexedDB for a user ROM.
-  Reset HIGH SCORE deletes the save and resets the board.
+  Reset HIGH SCORE deletes the save and resets the board. Source: Tunstall's
+  Scramble ROM disassembly (seanriddle.com/scramble.asm). Cold start
+  (`$0195`) writes ten `00 00 01` entries at `$4200` and `01` at `$40AA`;
+  the insert routine is `$1359`/`$137F`. The restore waits for all 33 bytes
+  to equal that image.
 
 ## ROM policy
 
