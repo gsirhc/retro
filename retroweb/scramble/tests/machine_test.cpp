@@ -213,6 +213,54 @@ TEST(Machine, AyAddressLatchesWhenBothBitsSet) {
     EXPECT_EQ(m.ay2.regs[8], 0x05);
 }
 
+TEST(Machine, AyAddressLineIsWriteOnly) {
+    scramble::Machine m;
+    m.sound_out(0x40, 8);
+    m.sound_out(0x80, 0x07);
+    EXPECT_EQ(m.sound_in(0x40), 0xFF);
+    EXPECT_EQ(m.sound_in(0x80), 0x07);
+    m.sound_out(0x40, 9);
+    EXPECT_EQ(m.sound_in(0xC0), 0x00);
+    m.sound_out(0x40, 8);
+    EXPECT_EQ(m.sound_in(0xC0), 0x07);
+    m.sound_out(0x10, 8);
+    m.sound_out(0x20, 0x05);
+    EXPECT_EQ(m.sound_in(0x30), 0x05);
+    EXPECT_EQ(m.sound_in(0x10), 0xFF);
+}
+
+TEST(Machine, OneWriteReachesBothAys) {
+    scramble::Machine m;
+    m.sound_out(0x50, 9);
+    m.sound_out(0xA0, 0x0C);
+    EXPECT_EQ(m.ay1.regs[9], 0x0C);
+    EXPECT_EQ(m.ay2.regs[9], 0x0C);
+    m.sound_out(0x00, 0x03);
+    EXPECT_EQ(m.ay1.regs[9], 0x0C);
+    EXPECT_EQ(m.ay2.regs[9], 0x0C);
+}
+
+TEST(Machine, ReadingBothAysAndsTheirBytes) {
+    scramble::Machine m;
+    m.sound_out(0x40, 9);
+    m.sound_out(0x80, 0x0C);
+    m.sound_out(0x10, 9);
+    m.sound_out(0x20, 0x06);
+    EXPECT_EQ(m.sound_in(0xA0), 0x04);
+}
+
+TEST(Machine, In2Bits5And7FollowXb7) {
+    scramble::Machine m;
+    m.reset();
+    m.mem_write(0x8103, 0x9B);
+    m.inputs.in2 = 0xFF;
+    m.protection_result = 0x70;
+    EXPECT_EQ(m.mem_read(0x8102), 0x5F);
+    m.inputs.in2 = 0x00;
+    m.protection_result = 0x80;
+    EXPECT_EQ(m.mem_read(0x8102), 0xA0);
+}
+
 TEST(Machine, Pal6JBootSequences) {
     scramble::Machine m;
     m.reset();

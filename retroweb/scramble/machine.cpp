@@ -34,10 +34,32 @@ z80::Bus Machine::make_sound_bus() {
     return b;
 }
 
+namespace {
+
+// Returns the byte the chip drives onto DV, or -1 when it leaves the bus alone.
+int ay_io(galaxian::Ay8910& ay, bool rd, bool data_line, bool addr_line, uint8_t v) {
+    // 33A-105 3D (6A, 4A) and 3C (5A, 4A): LS27 strobes, LS32 BC2 = rd | BDIR, BC1 = rd | addr.
+    bool read = rd && data_line;
+    bool bdir = !rd && data_line;
+    bool bc2 = read || bdir;
+    bool bc1 = read || (!rd && addr_line);
+    // GI AY-3-8910 data manual bus control table.
+    switch ((bdir << 2) | (bc2 << 1) | int(bc1)) {
+        case 0b011: return ay.read_data();
+        case 0b110: ay.write_data(v); return -1;
+        case 0b001:
+        case 0b100:
+        case 0b111: ay.write_addr(v); return -1;
+        default: return -1;
+    }
+}
+
+}  // namespace
+
 uint8_t Machine::in2_with_protection() const {
-    // IN2 bits 5/7 are PAL 6J "alt" bits from the high bit of the PAL's nibble (equations unpublished).
-    uint8_t alt = uint8_t((protection_result >> 7) & 1);
-    return uint8_t((inputs.in2 & ~0xA0) | (alt ? 0xA0 : 0));
+    // 6J's XB7 through custom 10S at 2B to PC5 and PC7 (33A-105). The ROM never reads them.
+    uint8_t xb7 = uint8_t(protection_result & 0x80);
+    return uint8_t((inputs.in2 & ~0xA0) | (xb7 ? 0xA0 : 0));
 }
 
 void Machine::wire_ppi() {
@@ -61,19 +83,17 @@ void Machine::pal6j_write(uint8_t v) {
 }
 
 uint8_t Machine::sound_in(uint8_t port) {
-    // Read with A7 (AY1) or A5 (AY2) set drives BC2+BC1 (33A-105 3D, 3C).
-    uint8_t r = 0xFF;
-    if (port & 0x20) r &= ay2.read_data();
-    if (port & 0x80) r &= ay1.read_data();
-    return r;
+    int d1 = ay_io(ay1, true, port & 0x80, port & 0x40, 0);
+    int d2 = ay_io(ay2, true, port & 0x20, port & 0x10, 0);
+    if (d1 < 0 && d2 < 0) return 0xFF;
+    if (d1 < 0) return uint8_t(d2);
+    if (d2 < 0) return uint8_t(d1);
+    return uint8_t(d1 & d2);
 }
 
 void Machine::sound_out(uint8_t port, uint8_t v) {
-    // A6 latches AY1's address, else A7 writes its data. A4 and A5 do the same for AY2.
-    if (port & 0x40) ay1.write_addr(v);
-    else if (port & 0x80) ay1.write_data(v);
-    if (port & 0x10) ay2.write_addr(v);
-    else if (port & 0x20) ay2.write_data(v);
+    ay_io(ay1, false, port & 0x80, port & 0x40, v);
+    ay_io(ay2, false, port & 0x20, port & 0x10, v);
 }
 
 void Machine::on_sound_control(uint8_t v) {

@@ -6,13 +6,20 @@ Galaxian-family video and Konami sound, also used by Frogger and Galaxian.
 
 ## Sources
 
-- Stern Scramble 33A-105 (sound) and 33A-106 (video).
+- Stern Scramble 33A-105 (sound) and 33A-106 (video), in the Stern
+  Scramble manual (archive.org `scrambleenglish`, PDF pages 8 and 9).
 - GI AY-3-8910/8912 data sheet. Intel 8255A data sheet.
 - Computer Archaeology / Konami service notes for the memory map.
 - Sound-board divider chain on AY port B (7C/6B/5B LS93, 4B LS90), AY
-  chip-select gates (3D: 4A, 6A; 3C: 5A) and the 4066 latch: Scramble
-  33A-105 sheets. 40960 crystal clocks per cycle (`shared/galaxian/timer.h`).
+  bus-control gates (3D: 6A LS27, 4A LS32, 7A/5J LS04; 3C: 5A LS27, 4A
+  LS32, 5J/7A LS04), custom IC2 at 2B and the 4066 latch: Scramble
+  33A-105. 40960 crystal clocks per cycle (`shared/galaxian/timer.h`).
 - GI AY-3-8910 data manual: BDIR/BC2/BC1 table, I/O pins pulled up.
+- Sound ROM `ot1.5c`–`ot3.5e`, disassembled here. Every AY access is
+  `OUT ($40)`/`OUT ($80)`/`IN ($80)` for 3D and `OUT ($10)`/`OUT ($20)`/
+  `IN ($20)` for 3C (e.g. `$003C`, `$0447`, `$063E`).
+- Tunstall's Scramble ROM disassembly (seanriddle.com/scramble.asm), checked
+  against the `s1.2d`–`s8.2p` dump.
 
 ## 0. Status
 
@@ -55,9 +62,14 @@ game, Amidar, or bootlegs.
 | `$8000–$FFFF` | PPI0 if A8, PPI1 if A9 |
 
 Sound CPU: ROM `$0000–$1FFF` (6K populated), RAM `$8000–$83FF`. AY I/O
-is gate-decoded (33A-105 3D and 3C): a read with A7 (A5 for AY2) set
-reads data. A write with A6 (A4) latches the address, otherwise A7 (A5)
-writes data. AY1 port A is the command latch. Port B is the divider
+is gate-decoded on 33A-105. For AY 3D, LS27 6A makes three strobes from
+/IORQ: /RD with AV7, /WR with AV7, /WR with AV6. BDIR is the AV7 write.
+LS32 4A makes BC2 = AV7 read or BDIR and BC1 = AV7 read or AV6 write.
+AY 3C is the same with 5A on AV5 and AV4. Through the data-manual table,
+a read with A7 (A5) reads data whatever A6 (A4) is, a write with only A7
+(A5) writes data, and a write with A6 (A4) latches the address, also
+when A7 (A5) is set (BDIR, BC2, BC1 all high). The two chips decode
+independently, so one write can reach both. AY1 port A is the command latch. Port B is the divider
 chain: B7 LS90 QA, B6 QD, B5 QC, B4 the last LS93 QD; B3–B0 float high.
 Frogger moves QC to B3. Filter latch writes at `$9000–$9FFF` (mirror `$6000`) set the
 4066 switches from the address lines.
@@ -88,19 +100,22 @@ Active low, 8-way. Cocktail player 2 is unmapped.
 
 IN0: bomb `$02`, fire `$08`, R/L `$10/$20`, coins `$40/$80`.
 IN1: lives bits 1:0 (default 00 = 3), starts `$40/$80`.
-IN2: U/D `$10/$40`, coinage bits 2:1, cabinet bit 3, protection bits 5/7.
+IN2: U/D `$10/$40`, coinage bits 2:1, cabinet bit 3. PC5 and PC7 are
+nets 1E12 and 1E10 on 33A-105, the open-collector outputs (3.9 kΩ
+pull-ups) of custom IC2 at 2B, whose only input is 6J's XB7 through
+1 kΩ. Both follow XB7. The program reads IN2 only at `$0103` (bits 1–3)
+and `$21D6` into `$4012`, which `$1754` and `$1787` test for bits 4, 6
+and 0, so bits 5 and 7 are never used.
 
 ## 7. Unsourced
 
 - Cocktail player 2's stick is unmapped.
 - M51516L input load taken as 100 kΩ. No Mitsubishi data sheet found.
-- High score `$4200` (10 × 3 BCD) and the displayed score at `$40A8`
-  have no battery. The page keeps them in IndexedDB for a user ROM.
-  Reset HIGH SCORE deletes the save and resets the board. Source: Tunstall's
-  Scramble ROM disassembly (seanriddle.com/scramble.asm). Cold start
-  (`$0195`) writes ten `00 00 01` entries at `$4200` and `01` at `$40AA`;
-  the insert routine is `$1359`/`$137F`. The restore waits for all 33 bytes
-  to equal that image.
+- Custom IC2 (2B, "10S") has no published function. IN2 PC5/PC7 are
+  taken as XB7 without inversion. The ROM never reads them.
+- Reading both AYs at once (A7 and A5 set) ANDs their bytes. Both drive
+  DV together and nothing measures the result. The ROM never does it.
+- A sound-CPU read that selects no AY returns `$FF`.
 
 ## ROM policy
 
@@ -113,6 +128,16 @@ a dump.
 
 - `make -C retroweb/scramble check`
 - `make -C retroweb/scramble/web test` (Playwright on :8700)
+
+## 9. High score
+
+High score `$4200` (10 × 3 BCD) and the displayed score at `$40A8` have
+no battery. The page keeps them in IndexedDB for a user ROM. Reset HIGH
+SCORE deletes the save and resets the board. Source: Tunstall's Scramble
+ROM disassembly (seanriddle.com/scramble.asm). Cold start (`$0195`)
+writes ten `00 00 01` entries at `$4200` and `01` at `$40AA`; the insert
+routine is `$1359`/`$137F`. The restore waits for all 33 bytes to equal
+that image.
 
 ## 10. Shared video and Konami sound
 
