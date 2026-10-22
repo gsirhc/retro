@@ -208,7 +208,12 @@ Not on the sheet:
 - SN76477 VCO law f = f_min (2.5 + V0)/(V + V0), V0 = 2.5/9: the data sheet
   gives only the end points (f_min at 2.5 V, 10× at 0 V).
 - SN76477 pins 8 and 23 open: attack and one-shot caps treated as zero.
-- 7411 outputs at typical TTL levels (3.4 V / 0.2 V); diode drops 0.6 V.
+- 7411 outputs at 3.4 V / 0.2 V are the typical VOH and VOL in the TI SN5400/SN7400
+  data sheet's standard-series table. The SN7411's own data sheet
+  could not be fetched, so the family table stands in for it.
+- Diode drop 0.6 V (`kVd`) is below the onsemi 1N914/1N4148 data sheet's VF
+  of 0.62-0.72 V at 5 mA, for the sub-milliamp currents here. The schematic
+  parts are not confirmed to be 1N914s.
 - The noise clock uses the textbook two-gate CMOS astable period.
 - By the data sheet's equation 8 the UFO's 0.23 V pulses into 47K come out
   about 30 dB below the fleet. That level comes straight from R123/R124.
@@ -220,7 +225,12 @@ Not on the sheet:
 - Watchdog modulus of 255 frames.
 - Empty socket at `$4000` reads 0.
 - VRAM byte loaded at pixel `8k+4`, and the four flushed rows.
-- IN0, and whatever holds bit 3 high. The ROM never reads port 0 and never tests bit 3.
+- Idle inputs `{0x08, 0x09, 0x00}`. IN1 bit 0 high is the ROM (`$0020`
+  `IN 1` / `RRC` / `JC`, a pressed coin reads 0). The Midway input sheet is
+  not on hand. The Taito BPR00003 sheet 2 muxes wire the connector differently
+  (470 ohm pull-ups, IP0-IP7), so it doesn't settle Midway's IN0 value, IN1
+  bit 3 or the IN2 DIP defaults. The ROM never reads port 0 and never tests
+  IN1 bit 3.
 
 ## 11. HIGH SCORE
 

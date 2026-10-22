@@ -10,6 +10,7 @@ const DSW1_FACTORY = 0xC9;
 const HISCORE_ADDR = 0x4E88;
 const HISCORE_LEN = 3;
 
+// CRC32s of the community dump files, used only to label a user set.
 const SET_PACMAN = {
   "pacman.6e": 0xc1e6ab10,
   "pacman.6f": 0x1a6fb2d4,

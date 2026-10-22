@@ -38,15 +38,26 @@ INT latched at lines 96 and 224 with the 64V vector, shifter, the beam
 fetching VRAM at pixel `8k+4`. See `invaders/INVADERS_REVIEW.md` §2–§8. The
 second ROM bank at `$4000` is the socket Invaders leaves empty.
 
-Port 6 is unused, so the cabinet runs with `watchdog_enabled = false`.
+PVR00001 sheet 5 shows a 7442 (IC13) PORT6 output wired to the CL pins of
+two 74161s (IC2, IC8) that count the 60 Hz clock, so OUT 6 looks like the
+same watchdog clear Midway has, not an unused port. The cabinet still runs
+with `watchdog_enabled = false`. That is Unsourced against this sheet and
+needs a decision, since the self-test ROM never writes port 6.
 
 ## 3. Inputs
 
 | Port | Bits |
 |---|---|
-| IN0 | all tied high through 1K, bit 5 floating: `0xFF` |
+| IN0 | `0xFF`. Sheet 5 input muxes are four 74153s: IC4 (bits 0-1), IC9 (2-3), IC5 (4-5), IC10 (6-7), 1Y low bit, 2Y high bit. Port 0 is pins 6 and 10. Bits 2, 4, 6, 7 are 1K to +5 V, bit 5 (IC5 pin 10) is not connected |
 | IN1 | 0 COIN **active-low**, 1 START2, 2 START1, 3 high, 4–6 P1 fire/left/right, 7 floating high |
 | IN2 | 0–1 rescue ships (3–6), 2 TILT, 3 and 7 unused DIPs, 4–6 P1 controls on the upright |
+
+Unsourced input bits: IC4 pin 6 (IN0 bit 0) runs to a bus not yet
+traced. IC4 pin 10 (IN0 bit 1) and IC9 pins 10 and 11 (IN0 bit 3, IN1 bit 3)
+sit on nets drawn with both a 1K to +5 V and a ground symbol, so the idle
+level is unresolved and `0xFF` / `0x89` keep them high. IN1 bit 7 (IC10
+pin 5 side) and bit 3 are not tested by `lrescue.1`-`.4` at the `IN 1` reads
+(`$0020`, `$00A0`, `$018F`, `$05EE`), and the ROM has no `IN 0`.
 
 The manual lists the ship count as the only operator setting and calls SW1:3–8
 factory adjustments, so the DIP panel has Lives only. The one red button is

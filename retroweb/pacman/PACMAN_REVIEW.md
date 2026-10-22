@@ -443,6 +443,10 @@ tiles, 4K sprites, 32-byte color PROM, 256-byte lookup, 256-byte wave;
 Ms. Pac-Man also needs U5 2K + U6/U7 4K; overdumps are clipped; the
 unused `82s126.3m` timing PROM is ignored). CRC32 is used only to
 *label* the generated self-test ROM vs. a user set, not as a whitelist.
+The `SET_PACMAN` / `SET_MSPACMAN` tables in `web/app.js` are the CRC32s
+of the community dump files (checked against local `pacman.zip` and
+`mspacman.zip`). They are file labels, not hardware facts; no primary
+source states them.
 Bytes stay in IndexedDB (`retroweb-pacman`, keys `set` / `set-mspacman`)
 and are never sent to a server; "Remove ROMs" clears them and reverts
 to the test ROM. Extra U5/U6/U7 on the Pac-Man cabinet are ignored

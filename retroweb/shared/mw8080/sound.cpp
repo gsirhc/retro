@@ -15,8 +15,9 @@ constexpr double kV5 = 5.0;
 constexpr double kVbe = 0.5;
 constexpr double kVoh = kV12 - kVbe;
 constexpr double kVol = 0.09;
+// 1N914/1N4148 VF 0.62-0.72 V at 5 mA (onsemi 1N914 data sheet)
 constexpr double kVd = 0.6;
-// 7411 typical output levels
+// SN7400-family typical VOH 3.4 V, VOL 0.2 V (TI SN7400 data sheet)
 constexpr double kTtlHigh = 3.4;
 constexpr double kTtlLow = 0.2;
 

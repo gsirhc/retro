@@ -286,7 +286,17 @@ Coin edges count against the coinage from command `01` and START spends
 credits until credit mode is re-entered; see §8.
 
 54XX HLE: high nibble 1, 2, or 5 plays noise for about 1/8 second. 3 and
-4 expect 4 parameter bytes, 6 expects 5, 7 sets volume. The noise drives
+4 expect 4 parameter bytes, 6 expects 5, 7 sets volume.
+
+The counts come from my disassembly of `54xx.bin`. `$004` JPA page 6 sends
+K = 3, 4, 6 to `$255`, `$25D`, `$240`. Each sets a pointer in R5 (7, 15, 9),
+then loops at `$265`/`$268`: wait for /IRQ low and high, store R0 and K at
+the pointer (`$26B`-`$26F`, two nibbles, pointer down by two). `$272`-`$274`
+rotates the pointer left and leaves the loop when it equals 14 (pointer 7
+or 15). That is 4 pairs from 7, 4 from 15, and 5 from 9 (the first pair of
+`$240` is inline at `$24D`-`$253`). `$1C0`, `$1DC`, `$1F9` and `$168`
+(K = 1, 2, 5, 7) never test /IRQ and end in RTI, so they take no arguments.
+`$168` stores R0 into the volume nibble. The noise drives
 the 54XX_0 DAC, so it goes through the real filter network. That fixed
 burst is still a labelled stand-in for the 54XX program. A real 54XX
 image drives all three DACs (§8). The 06XX model is in §10. The

@@ -232,7 +232,7 @@ void Machine::mcu54_command(uint8_t v) {
         return;
     }
     uint8_t hi = uint8_t(v >> 4);
-    // 54XX commands: 1/2/5 play, 3/4/6 set parameters, 7 sets type-C volume.
+    // 54xx.bin $265-$274 takes 4/4/5 pairs for 3/4/6; 1/2/5/7 take none ($1C0 $1DC $1F9 $168).
     if (hi == 1 || hi == 2 || hi == 5) {
         noise_amp_ = v & 0x0f;
         if (noise_amp_ == 0) noise_amp_ = 8;
