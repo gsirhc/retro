@@ -21,7 +21,7 @@ from hwtest_font import font  # noqa: E402
 PROG_BASE = 0x2000
 PROG_SIZE = 0x2000
 VRAM_SIZE = 0x03C0  # 30×32 playfield
-WAIT_IRQS = 90 * 16  # ~1.5 s (16 IRQs/frame × 90 frames)
+WAIT_IRQS = 90 * 4  # ~1.5 s (4 IRQs/frame × 90 frames)
 
 # Upright tile grid after ROT270: 30 columns × 32 rows (240×256).
 U_COLS, U_ROWS = 30, 32

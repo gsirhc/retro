@@ -52,6 +52,10 @@ void Machine::reset() {
     earom_c1_ = true;
     earom_c2_ = false;
     earom_clk_ = false;
+    earom_op_done_ = true;
+    earom_out_valid_ = false;
+    earom_op_cycles_ = 0;
+    earom_out_age_ = 0;
     audio.clear();
     hp_ = 5.0;
 }
@@ -70,31 +74,55 @@ void Machine::set_earom_bytes(const uint8_t* p, size_t n) {
 
 void Machine::kick_watchdog() { watchdog_frames_ = kWatchdogFrames; }
 
-void Machine::earom_update() {
-    // C1=0 C2=0 writes, C1=0 C2=1 erases (GI ER2055 data sheet); erased reads $FF.
-    if (earom_c1_) return;
-    uint8_t& cell = earom[earom_addr_ & 0x3F];
-    if (earom_c2_) cell = 0xFF;
-    else cell &= earom_data_;
+bool Machine::earom_mode(bool c1, bool c2) const { return earom_cs1_ && c1 == earom_c1_ && c2 == earom_c2_; }
+
+void Machine::earom_restart() {
+    earom_op_cycles_ = 0;
+    earom_op_done_ = false;
+}
+
+void Machine::earom_tick(int cycles) {
+    bool erase = earom_mode(false, true);
+    bool write = earom_mode(false, false);
+    if ((erase || write) && !earom_op_done_) {
+        earom_op_cycles_ += cycles;
+        if (earom_op_cycles_ >= kEaromOpCycles) {
+            earom_op_done_ = true;
+            uint8_t& cell = earom[earom_addr_ & 0x3F];
+            if (erase) cell = 0xFF;
+            else cell &= earom_data_;
+        }
+    }
+    if (earom_out_valid_ && (earom_out_age_ += cycles) >= kEaromHoldCycles) earom_out_valid_ = false;
 }
 
 void Machine::earom_control(uint8_t v) {
-    // E4 to E5: Q1 to CK, /Q4 to C1, Q3 to C2, Q2 to CS1, CS2 grounded (DP-182 2B)
+    // E4 outputs: Q DB3 CS1, Q DB2 C2, Q-bar DB1 C1, Q DB0 CK (DP-182 sheet 2B)
     bool cs1 = (v & 0x08) != 0;
-    bool c1 = (v & 0x02) == 0;
     bool c2 = (v & 0x04) != 0;
+    bool c1 = (v & 0x02) == 0;
     bool clk = (v & 0x01) != 0;
-    bool ctrl_changed = cs1 != earom_cs1_ || c1 != earom_c1_ || c2 != earom_c2_;
+    bool new_op = cs1 != earom_cs1_ || c1 != earom_c1_ || c2 != earom_c2_ || clk != earom_clk_;
+    bool fell = earom_clk_ && !clk;
     earom_cs1_ = cs1;
     earom_c1_ = c1;
     earom_c2_ = c2;
-    if (cs1 && ctrl_changed) earom_update();
-    bool fell = earom_clk_ && !clk;
     earom_clk_ = clk;
-    if (cs1 && fell) {
-        if (c1) earom_data_ = earom[earom_addr_ & 0x3F];
-        earom_update();
+    if (new_op) earom_restart();
+    if (!earom_mode(true, false)) earom_out_valid_ = false;
+    // read latches on the clock pulse's falling edge (GI ER2055, 1980 catalog p.4-14)
+    else if (fell) {
+        earom_out_ = earom[earom_addr_ & 0x3F];
+        earom_out_valid_ = true;
+        earom_out_age_ = 0;
     }
+}
+
+uint8_t Machine::earom_read() const {
+    // H4 drives the bus while C1=0, E5 while a read is valid, else the D-line pull-ups (DP-182 sheet 2B)
+    if (!earom_c1_) return earom_data_;
+    if (earom_out_valid_) return earom_out_;
+    return 0xFF;
 }
 
 uint8_t Machine::mem_read(uint16_t addr) const {
@@ -125,7 +153,7 @@ uint8_t Machine::mem_read(uint16_t addr) const {
         return pokey.read(uint8_t(addr & 0x0F));
 
     if (addr >= 0x1700 && addr <= 0x173F)
-        return earom_data_;
+        return earom_read();
 
     if (addr >= 0x2000 && addr <= 0x3FFF)
         return program[addr - 0x2000];
@@ -158,6 +186,7 @@ void Machine::mem_write(uint16_t addr, uint8_t v) {
     if (addr >= 0x1600 && addr <= 0x163F) {
         earom_addr_ = uint8_t(addr - 0x1600);
         earom_data_ = v;
+        if (!earom_op_done_) earom_restart();
         return;
     }
     if (addr == 0x1680) {
@@ -165,6 +194,7 @@ void Machine::mem_write(uint16_t addr, uint8_t v) {
         return;
     }
     if (addr == 0x1800) {
+        // /IRQRES clears D4 (DP-182 sheet 1B, address decoder)
         irq_line_ = false;
         cpu.irq_line = false;
         return;
@@ -185,15 +215,16 @@ void Machine::mem_write(uint16_t addr, uint8_t v) {
 }
 
 void Machine::service_video(int cycles) {
+    earom_tick(cycles);
     line_cycles_ += cycles;
     while (line_cycles_ >= kCyclesPerLine) {
         line_cycles_ -= kCyclesPerLine;
         line_++;
-        // D4 LS74 latches 32V on each 16V edge into /IRQ (DP-182 sheet 1B).
-        if (line_ & 16) {
-            bool assert_irq = ((line_ - 1) & 32) != 0;
-            irq_line_ = assert_irq;
-            cpu.irq_line = assert_irq;
+        // D4 LS74: D=32V, CK=16V rising, Q-bar to /IRQ (DP-182 sheet 1B, Microprocessor)
+        if ((line_ & 31) == 16) {
+            bool q = (line_ & 32) != 0;
+            irq_line_ = q;
+            cpu.irq_line = q;
         }
         vblank_ = (line_ >= kFbH);
         if (line_ >= kLines) {

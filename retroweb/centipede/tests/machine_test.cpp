@@ -36,6 +36,34 @@ TEST(Machine, IrqAckClearsLine) {
     EXPECT_FALSE(m.cpu.irq_line);
 }
 
+TEST(Machine, IrqIsFourPerFrameAndDropsOnNextClockWithoutAck) {
+    centipede::Machine m;
+    int asserted = 0;
+    int dropped = 0;
+    bool prev = false;
+    for (int i = 0; i < 2 * centipede::kLines; i++) {
+        m.run_cycles(centipede::kCyclesPerLine);
+        m.mem_write(0x2000, 0);
+        if (m.cpu.irq_line && !prev) asserted++;
+        if (!m.cpu.irq_line && prev) dropped++;
+        prev = m.cpu.irq_line;
+    }
+    EXPECT_EQ(asserted, 8);
+    EXPECT_EQ(dropped, 7);
+}
+
+TEST(Machine, IrqAckHoldsOffUntilNextSetClock) {
+    centipede::Machine m;
+    for (int i = 0; i < 200 && !m.cpu.irq_line; i++) m.run_cycles(centipede::kCyclesPerLine);
+    ASSERT_TRUE(m.cpu.irq_line);
+    m.mem_write(0x1800, 0);
+    for (int i = 0; i < 40; i++) {
+        m.run_cycles(centipede::kCyclesPerLine);
+        m.mem_write(0x2000, 0);
+        EXPECT_FALSE(m.cpu.irq_line) << i;
+    }
+}
+
 TEST(Machine, WatchdogKickPreventsReset) {
     centipede::Machine m;
     // Without kicks, 8 frames → reset. Kick every few lines via $2000.
@@ -68,34 +96,120 @@ TEST(Machine, PokeyRandomLeavesInitMode) {
     EXPECT_FALSE(a == b && b == c);
 }
 
-TEST(Machine, EaromEraseThenAndWrite) {
+namespace {
+
+void earom_hold(centipede::Machine& m, int cycles) {
+    for (int done = 0; done < cycles;) {
+        done += m.run_cycles(100);
+        m.mem_write(0x2000, 0);
+    }
+}
+
+void earom_select(centipede::Machine& m, uint8_t deselected, uint8_t selected) {
+    m.mem_write(0x1680, deselected);
+    m.mem_write(0x1680, selected);
+}
+
+}  // namespace
+
+TEST(Machine, EaromEraseTakesFiftyMillisecondsHeld) {
     centipede::Machine m;
-    // WriteEaromInc: deselect, latch the byte, then select erase ($06/$0E).
+    m.earom[3] = 0x12;
     m.mem_write(0x1603, 0xAB);
-    m.mem_write(0x1680, 0x06);
-    m.mem_write(0x1680, 0x0E);
+    earom_select(m, 0x06, 0x0E);
+    earom_hold(m, centipede::kEaromOpCycles - 1000);
+    EXPECT_EQ(m.earom[3], 0x12);
+    earom_hold(m, 2000);
     EXPECT_EQ(m.earom[3], 0xFF);
-    // Next call selects write ($02/$0A). The cell ANDs in the latched byte.
-    m.mem_write(0x1680, 0x02);
-    m.mem_write(0x1680, 0x0A);
+}
+
+TEST(Machine, EaromWriteIsTimedAndAndsIntoTheCell) {
+    centipede::Machine m;
+    m.mem_write(0x1603, 0xAB);
+    earom_select(m, 0x02, 0x0A);
+    earom_hold(m, centipede::kEaromOpCycles - 1000);
+    EXPECT_EQ(m.earom[3], 0x00);
+    earom_hold(m, 2000);
+    EXPECT_EQ(m.earom[3], 0x00);
+    m.earom[3] = 0xFF;
+    earom_select(m, 0x02, 0x0A);
+    earom_hold(m, centipede::kEaromOpCycles + 1000);
     EXPECT_EQ(m.earom[3], 0xAB);
-    // A write without a fresh erase can only clear bits.
     m.mem_write(0x1603, 0x0F);
-    m.mem_write(0x1680, 0x02);
-    m.mem_write(0x1680, 0x0A);
+    earom_select(m, 0x02, 0x0A);
+    earom_hold(m, centipede::kEaromOpCycles + 1000);
     EXPECT_EQ(m.earom[3], 0x0B);
-    // A zero cell stays zero if the erase is skipped.
-    m.mem_write(0x1604, 0xAB);
-    m.mem_write(0x1680, 0x02);
-    m.mem_write(0x1680, 0x0A);
-    EXPECT_EQ(m.earom[4], 0x00);
-    // ReadEarom latches on CK falling ($08, $09, $08), then reads $1700.
-    m.mem_write(0x1603, 0x00);
+}
+
+TEST(Machine, EaromModeChangeBeforeTimeoutAborts) {
+    centipede::Machine m;
+    m.earom[5] = 0x34;
+    m.mem_write(0x1605, 0x00);
+    earom_select(m, 0x06, 0x0E);
+    earom_hold(m, centipede::kEaromOpCycles - 1000);
+    m.mem_write(0x1680, 0x06);
+    earom_hold(m, centipede::kEaromOpCycles * 2);
+    EXPECT_EQ(m.earom[5], 0x34);
+}
+
+TEST(Machine, EaromSameModeNeedsAnEdgeToRepeat) {
+    centipede::Machine m;
+    m.mem_write(0x1607, 0x00);
+    earom_select(m, 0x06, 0x0E);
+    earom_hold(m, centipede::kEaromOpCycles + 1000);
+    m.earom[7] = 0x55;
+    m.mem_write(0x1680, 0x0E);
+    earom_hold(m, centipede::kEaromOpCycles * 2);
+    EXPECT_EQ(m.earom[7], 0x55);
+    m.mem_write(0x1680, 0x0F);
+    m.mem_write(0x1680, 0x0E);
+    earom_hold(m, centipede::kEaromOpCycles + 1000);
+    EXPECT_EQ(m.earom[7], 0xFF);
+}
+
+TEST(Machine, EaromClockDoesNothingInEraseOrWrite) {
+    centipede::Machine m;
+    m.earom[2] = 0x66;
+    m.mem_write(0x1602, 0x00);
+    earom_select(m, 0x06, 0x0E);
+    m.mem_write(0x1680, 0x0F);
+    m.mem_write(0x1680, 0x0E);
+    earom_hold(m, 1000);
+    EXPECT_EQ(m.earom[2], 0x66);
+}
+
+TEST(Machine, EaromReadLatchesOnClockFallAndFloatsHigh) {
+    centipede::Machine m;
+    m.earom[9] = 0x5A;
+    m.mem_write(0x1609, 0x00);
     m.mem_write(0x1680, 0x08);
+    EXPECT_EQ(m.mem_read(0x1700), 0xFF);
     m.mem_write(0x1680, 0x09);
-    EXPECT_EQ(m.mem_read(0x1700), 0x00);
+    EXPECT_EQ(m.mem_read(0x1700), 0xFF);
     m.mem_write(0x1680, 0x08);
-    EXPECT_EQ(m.mem_read(0x1700), 0x0B);
+    EXPECT_EQ(m.mem_read(0x1700), 0x5A);
+    m.mem_write(0x1680, 0x00);
+    EXPECT_EQ(m.mem_read(0x1700), 0xFF);
+}
+
+TEST(Machine, EaromReadDataExpiresAfterTwentySeconds) {
+    centipede::Machine m;
+    m.earom[1] = 0x77;
+    m.mem_write(0x1601, 0x00);
+    m.mem_write(0x1680, 0x09);
+    m.mem_write(0x1680, 0x08);
+    earom_hold(m, centipede::kEaromHoldCycles - 1000);
+    EXPECT_EQ(m.mem_read(0x1700), 0x77);
+    earom_hold(m, 2000);
+    EXPECT_EQ(m.mem_read(0x1700), 0xFF);
+}
+
+TEST(Machine, EaromDataLatchDrivesTheBusWhileC1IsLow) {
+    centipede::Machine m;
+    m.mem_write(0x1600, 0xC3);
+    EXPECT_EQ(m.mem_read(0x1700), 0xFF);
+    m.mem_write(0x1680, 0x02);
+    EXPECT_EQ(m.mem_read(0x1700), 0xC3);
 }
 
 TEST(Machine, Ls259FlipUsesD7) {

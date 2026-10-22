@@ -23,6 +23,8 @@ constexpr int kCyclesPerLine = kCpuHz / (kFrameHz * kLines);  // 98.4375 → 98
 constexpr int kCyclesPerFrame = kCyclesPerLine * kLines;
 constexpr double kOpAmpHigh = 12.0 - 1.5;  // LM324 on +12 V
 constexpr double kAudioScale = 6.0;
+constexpr int kEaromOpCycles = kCpuHz / 20;          // 50 ms min erase/write time (ER2055 p.4-13)
+constexpr int kEaromHoldCycles = 20 * kCpuHz;        // read data valid 20 to 60 s (ER2055 p.4-12)
 constexpr int kWatchdogFrames = 8;       // L2 LS90 QD sets RESET at its 8th count
 
 struct Inputs {
@@ -83,7 +85,10 @@ private:
     void service_video(int cycles);
     void kick_watchdog();
     void earom_control(uint8_t v);
-    void earom_update();
+    void earom_tick(int cycles);
+    void earom_restart();
+    bool earom_mode(bool c1, bool c2) const;
+    uint8_t earom_read() const;
     void condition_audio(size_t from);
 
     int line_ = 0;
@@ -101,6 +106,11 @@ private:
     bool earom_c1_ = true;
     bool earom_c2_ = false;
     bool earom_clk_ = false;
+    bool earom_op_done_ = true;
+    bool earom_out_valid_ = false;
+    uint8_t earom_out_ = 0;
+    int earom_op_cycles_ = 0;
+    int earom_out_age_ = 0;
 };
 
 }  // namespace centipede

@@ -20,8 +20,8 @@ Fidelity rules follow `CLAUDE.md` and `.claude/arcade.md`.
   `CENTST.MAC` (colour RAM polarity), `CENTIP.DOC` (design notes),
   `CENTI.MAC` (object parking and the tile-to-object formula). Read for
   behaviour only; nothing from those files is in this repo.
-- General Instrument 1983 Electrically Alterable Non-Volatile Memory
-  Handbook, ER2055 data sheet (bitsavers).
+- General Instrument Microelectronics Data Catalog 1980, ER2055 data
+  sheet, pp. 4-12 to 4-14 (archive.org).
 - Atari POKEY data sheet C012294 (`shared/atari/pokey.*`).
 
 ## Board
@@ -32,8 +32,13 @@ Fidelity rules follow `CLAUDE.md` and `.claude/arcade.md`.
   `$0C00`-`$0C03`, POKEY `$1000`, colour RAM `$1404`/`$140C`, EAROM
   `$1600`/`$1680`/`$1700`, IRQ acknowledge `$1800`, output latch `$1C00`,
   watchdog `$2000`, trackball clear `$2400`, program `$2000`-`$3FFF`.
-- IRQ: D4 LS74 latches 32V on each 16V edge into /IRQ, four per frame
-  (`CENDEF.MAC`); `$1800` (IRQRES) clears it.
+- IRQ: D4 LS74 (DP-182 sheet 1B, Microprocessor): D = 32V, CK = 16V,
+  /PR (pin 4) pulled up, /CLR (pin 1) = /IRQRES, /Q (pin 6) to the 6502
+  /IRQ (pin 4). On each rising 16V edge Q takes 32V, so /IRQ is low from
+  16V rising with 32V high (lines 48, 112, 176, 240) until the next 16V
+  edge, four per frame (`CENDEF.MAC` agrees). A `$1800` write drives
+  /IRQRES low (F3 gate on the address decoder) and clears Q, and the line
+  stays released until the next 16V edge.
 - L4 LS107 stretches PHI0 while the playfield RAM is selected.
 - Watchdog: L2 LS90 resets the board at its 8th count unless `$2000` is
   written.
@@ -87,18 +92,50 @@ ER2055 (64×8) at E5 (sheet 2B): J4 latches the address and H4 the data on
 `$1600` writes; E4 LS175 at `$1680` drives CK = D0, C1 = /D1, C2 = D2,
 CS1 = D3, CS2 grounded. Traced on sheet 2B at 500 dpi: D0 goes to
 Q1 (pin 2) to E5 CK, D1 to /Q4 (pin 14) to C1, D2 to Q3 (pin 10) to C2, D3
-to Q2 (pin 7) to CS1. The C1 net also drives H4's /OC, so H4 releases
-the data lines on a read. Per the GI data sheet, C1 = 0 and C2 = 1 erases,
-C1 = C2 = 0 writes, C1 = 1 reads after a clock pulse, and the chip acts on
-a mode change, clock or chip-select edge. The game erases a cell, then
-writes it. IndexedDB mirrors the image so a refresh keeps scores the way
-the chip does across power. Reset HIGH SCORE clears the saved image and
-resets the board.
+to Q2 (pin 7) to CS1. The C1 net also drives H4's /OC, so H4 drives the
+data lines while C1 = 0 and releases them for a read. The D lines
+have 10K pull-ups to +5 V (R17-R22, R29, R30) ahead of the H5 buffer at
+`$1700`.
+
+Model, from the GI ER2055 data sheet (1980 GI Microelectronics Data
+Catalog, pp. 4-12 to 4-14; archive.org
+`generalinstrumentmicroelectronicsdatacatalog1980`):
+
+- Selected when CS1 = 1 and CS2 = 0 (p. 4-12 pin functions). Deselected
+  outputs are open circuit.
+- C1 C2 = 0 1 erases the addressed word, 0 0 writes it, 1 0 reads (p.
+  4-12). 1 1 is not listed and does nothing here.
+- Erase and write run over a held interval, tE and tW at least 50 ms (p.
+  4-13) with CS, mode and address held (p. 4-14 timing diagram), and need
+  no clock. The model applies the result once the mode has been held
+  for 50 ms (`kEaromOpCycles`). A mode, CS or CK change starts a new
+  operation, since the chip is dynamic edge triggered and successive
+  operations in one mode need a transition (p. 4-12). Leaving the mode
+  early cancels it. A `$1600` write while an operation is pending
+  restarts its timer.
+- A read latches on the falling edge of the clock pulse (tACC runs from
+  the pulse's trailing edge on the p. 4-14 diagram). The data then stays on
+  the pins until the next read or deselect and becomes open circuit after
+  20 to 60 s (p. 4-12); the pins then read `$FF` through the pull-ups.
+  The 2 µs access time is shorter than the next CPU access and is not
+  modelled.
+- Erase must precede a write (p. 4-12), and an erased word holds no valid
+  data until written.
+
+The game's own sequence (erase, then write, each held about four frames)
+completes under this timing. IndexedDB mirrors the image so a refresh
+keeps scores the way the chip does across power. Reset HIGH SCORE clears
+the saved image and resets the board.
 
 ## Unsourced
 
 - An erased cell reads `$FF` and a write can only clear bits; the data
-  sheet says only that erased cells hold no valid data until written.
+  sheet says only that erased cells hold no valid data until written and
+  doesn't say what a write over unerased data leaves.
+- The read data expires at 20 s, the low end of the data sheet's 20 to 60 s.
+- An erase or write completes exactly at 50 ms held, the data sheet's
+  minimum; the maximum (200 ms) has no modelled effect.
+- Changing the address latch mid-operation restarts the timer.
 - PF stretching doubles the CPU cycle; the exact stretch from the L4 J/K
   gating isn't worked out.
 - The L2 watchdog clock is taken as once per frame; its source line runs
