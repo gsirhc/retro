@@ -14,7 +14,7 @@ $(NAME).js: $(SRC) hwtest_roms.h
 	$(EMCC) $(EMFLAGS) $(INC) $(SRC) -o $@
 	$(call write_deps,$(INC) $(SRC))
 
-hwtest_roms.h: $(CORE)/roms/hwtest/gen_hwtest.py
+hwtest_roms.h: $(CORE)/roms/hwtest/gen_hwtest.py $(SHARED)/hwtest_font.py
 	python3 $(CORE)/roms/hwtest/gen_hwtest.py --dir roms --header hwtest_roms.h
 
 .PHONY: roms wasm serve test test-smoke clean

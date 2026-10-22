@@ -120,7 +120,7 @@ def classify(rel):
     # retroweb/shared/
     if rel.startswith("shared/"):
         rest = rel[len("shared/"):]
-        if ext in CPP_EXT:
+        if ext in CPP_EXT or rest == "hwtest_font.py":
             return ("shared_cpp",)
         if rest.startswith("__pycache__/"):
             return None
