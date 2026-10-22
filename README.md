@@ -25,3 +25,8 @@ build.
 ## Other directories
 
 `cpu6502`, `commodore64`, `cc65`, `kicad` — earlier / adjacent experiments.
+
+## Provenance
+
+Some earlier commits contained code taken from other emulators. See
+[PROVENANCE.md](PROVENANCE.md) for what, and what replaced it.

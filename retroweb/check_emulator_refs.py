@@ -5,7 +5,7 @@ import sys
 
 NAMES = re.compile(r"\b(?:mame|simh|altirra|nuked|dosbox|86box|pcem|qemu|mister|fbneo|finalburn|couriersud|ymfm|hiscore\.dat)\b", re.I)
 CASED = re.compile(r"\bVICE\b")
-SKIP_FILES = {"CLAUDE.md", "retroweb/about.html", "retroweb/news_info.html", "retroweb/check_emulator_refs.py"}
+SKIP_FILES = {"CLAUDE.md", "PROVENANCE.md", "retroweb/about.html", "retroweb/news_info.html", "retroweb/check_emulator_refs.py"}
 SKIP_DIRS = ("node_modules/", "vendor/")
 ALLOWED_LINES = (
     "thumbnails.libretro.com/",
