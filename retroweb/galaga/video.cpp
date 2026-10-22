@@ -31,6 +31,9 @@ constexpr int kTwoLegLevel[2] = {dac_level(kBlueOhms, 2, 0), dac_level(kBlueOhms
 constexpr int kSpriteVBias = 15;
 // Line-buffer address read out at visible x = 0 (Unsourced).
 constexpr int kLineBufferOrigin = 40;
+// H and V counts at the first visible dot and line, placed so 256H spans the 256 playfield dots (Unsourced).
+constexpr int kTileHOrigin = 0xF0;
+constexpr int kTileVOrigin = 16;
 
 uint8_t shifter_pen(uint8_t byte, int x) {
     return uint8_t((((byte >> (7 - x)) & 1) << 1) | ((byte >> (3 - x)) & 1));
@@ -185,16 +188,20 @@ void Video::paint(int line, int x0, int x1) {
     for (int x = x0; x < x1; x++) {
         uint32_t px = sprite_line_[unsigned(x)];
         if (!px) px = field_dots_[unsigned(x)];
-        // Flip inverts the counters, which pick the byte half; the second char set reverses each nibble.
-        int tx = flip ? kVisW - 1 - x : x;
-        int ty = flip ? kVisH - 1 - line : line;
-        int r = (ty >> 3) + 2;
-        int c = (tx >> 3) - 2;
-        // hcnt bit 8 selects the side strips.
-        int offs = ((c & 0x20) ? (r + ((c & 0x1f) << 5)) : (c + (r << 5))) & 0x3ff;
-        uint8_t code = uint8_t((videoram[unsigned(offs)] & 0x7f) | (flip ? 0x80 : 0));
-        uint8_t attr = videoram[unsigned(0x400 + offs)];
-        uint8_t pen = tile_pixel(code, (tx & 4) | (x & 3), ty & 7);
+        // 07XX count at this dot (origin Unsourced); FLIP inverts 8H-128H and 1V-128V.
+        int hc = (x + kTileHOrigin) & 0x1FF;
+        int vc = line + kTileVOrigin;
+        if (flip) {
+            hc ^= 0xFF;
+            vc ^= 0xFF;
+        }
+        // 1L 00XX builds the address from the H and V counts (sheet 7-7); 256H low swaps the two fields.
+        const unsigned tile_col = unsigned(hc >> 3) & 31, tile_row = unsigned(vc >> 3) & 31;
+        const unsigned offs = (hc & 0x100) ? (tile_row << 5 | tile_col) : (tile_col << 5 | tile_row);
+        uint8_t code = uint8_t((videoram[offs] & 0x7f) | (flip ? 0x80 : 0));
+        uint8_t attr = videoram[0x400 + offs];
+        // 4H picks the byte half; the second char set reverses each nibble under flip.
+        uint8_t pen = tile_pixel(code, (hc & 4) | (x & 3), vc & 7);
         // Character LUT is 4 bits; the board ORs 0x10 to use the upper PROM half. 0x1F is transparent.
         uint8_t li = uint8_t((char_lut[unsigned(((attr & 0x3F) << 2) | pen)] & 0x0F) | 0x10);
         if (li != 0x1F) px = prom_rgb(li);

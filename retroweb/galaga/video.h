@@ -1,8 +1,8 @@
 // Midway/Namco Galaga video board: 8×8 tiles, 64 sprites, 05XX starfield.
 //
 // 384×264 raster at 6.144 MHz, visible 288×224, rotated to 224×288.
-// Tile scan is the Pac-Man 36x28 split map. Sprite bytes sit at the top of the
-// three work-RAM banks ($8B80/$9380/$9B80).
+// 36x28 tile map: 32 playfield columns plus two-column score strips each side.
+// Sprite bytes sit at the top of the three work-RAM banks ($8B80/$9380/$9B80).
 
 #ifndef GALAGA_VIDEO_H
 #define GALAGA_VIDEO_H
