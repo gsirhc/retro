@@ -35,7 +35,7 @@ public:
     void reset() override;
     void load_roms(const RomSet& set);
     bool screen_red() const { return beam_tag != 0; }
-    // RBG_3BIT pen for upright pixel (ux, uy), 0 for black.
+    // Gun bits after the gate for upright pixel (ux, uy): 1 red, 2 blue, 4 green, 0 black.
     uint8_t pen(int ux, int uy) const;
     // Upright colour frame, 0x00RRGGBB.
     void render(uint32_t* upright) const;

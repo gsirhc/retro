@@ -84,7 +84,7 @@ STATUS_OK = "SELF TEST OK"
 STATUS_BAD = "SHIFTER BAD"
 STATUS_BANK = "ROM 5-6 BAD"
 
-# RBG_3BIT pens (bit 0 R, bit 1 B, bit 2 G), one per band of four upright cell rows.
+# PROM colour codes (bit 0 R, bit 1 B, bit 2 G), one per band of four upright cell rows.
 BANDS = [7, 4, 5, 6, 2, 3, 1, 7]
 
 BANK_SIG = b"BNK2"

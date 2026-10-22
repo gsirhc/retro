@@ -9,8 +9,8 @@ Citation trail for the Taito Lunar Rescue (1979) emulator. Primary sources:
   the operator settings.
 - The shared Midway 8080 board, in `invaders/INVADERS_REVIEW.md`.
 
-The red-screen latch is not on the service instructions. The colour
-PROM row is the vertical counter.
+The colour PROM row is the vertical counter. The red screen and the gun
+gate are on PVR00001 sheet 5, the PROM bit order is Unsourced (section 4).
 
 The high-score blocks are the `lrescue` ROM, below.
 
@@ -58,10 +58,21 @@ both fire and the retro rocket.
   black where the bitmap is off. The row is `vcounter(line) >> 3`
   (line 0 is V `$20`, so the first band is row 4) and the column is the
   same cell as the bitmap. The colour is the low 3 bits.
-- Pen bits are red, blue, green.
-- OUT 3 bit 2 forces every lit pixel to pen 1. It is latched per line at
-  the start of each line (`Board::beam_tag`), so a write mid-frame turns
-  only the lines below the beam red.
+- Gun gate, PVR00001 sheet 5 (bottom left, "used on color display only"):
+  IC16's three OR gates and the 7416 open-collector drivers combine VIDEO (from the
+  shift register) with the RED, GREEN and BLUE colour inputs and BOMB.
+  Red = VIDEO and (RED or BOMB). Green = VIDEO and GREEN and not BOMB. Blue =
+  VIDEO and BLUE and not BOMB (IC23 and IC29 NANDs on the inverted BOMB).
+  Where the bitmap is off every gun is off.
+- BOMB is the Q output of the third flip-flop of the OUT 3 latch (IC15,
+  pin 7, the same net as SX2 before its inverter). So OUT 3 bit 2 turns
+  every lit pixel red, whatever the PROM says. It is latched per line at the
+  start of each line (`Board::beam_tag`), so a write mid-frame turns only
+  the lines below the beam red.
+- The sheet takes RED, GREEN and BLUE in on off-sheet pads 4-Q, 4-W and 4-Y
+  and does not draw the colour PROM. Unsourced: which PROM data bit goes to
+  which pad. The code uses bit 0 red, bit 1 blue, bit 2 green, and PROM bit 3
+  goes nowhere.
 - The shared board keeps the shift-register timing and the four blank rows.
 - The second PROM half is unused, so only the first 1K is loaded.
 

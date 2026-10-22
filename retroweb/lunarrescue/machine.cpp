@@ -29,7 +29,7 @@ void Machine::load_roms(const RomSet& set) {
 void Machine::sound_out(uint8_t port, uint8_t v) {
     if (port == 3) {
         sound.port3_w(v);
-        // SX2 also forces every foreground pixel red.
+        // SX2 is BOMB on the gun gate (PVR00001 sheet 5).
         beam_tag = (v >> 2) & 1;
     } else {
         sound.port5_w(v);
@@ -49,17 +49,21 @@ void Machine::elapsed(int t) {
 
 uint8_t Machine::pen(int ux, int uy) const {
     if (!lit(ux, uy)) return 0;
-    if (tag(ux)) return 1;
     // Row is vcounter >> 3. Line 0 is V $20, so the first band is PROM row 4.
     const int row = vcounter(ux) >> 3;
-    return prom[size_t(row * 32 + column(uy))] & 7;
+    const uint8_t c = prom[size_t(row * 32 + column(uy))];
+    // Gun gate (PVR00001 sheet 5): red = VIDEO&(RED|BOMB), green/blue = VIDEO&G/B&!BOMB.
+    const bool bomb = tag(ux) != 0;
+    const bool r = (c & 1) || bomb;
+    const bool b = (c & 2) && !bomb;
+    const bool g = (c & 4) && !bomb;
+    return uint8_t(r | b << 1 | g << 2);
 }
 
 void Machine::render(uint32_t* upright) const {
     for (int uy = 0; uy < kUprightH; uy++) {
         for (int ux = 0; ux < kUprightW; ux++) {
             const uint8_t p = pen(ux, uy);
-            // RBG_3BIT: bit 0 red, bit 1 blue, bit 2 green
             const uint32_t rgb = (p & 1 ? 0xFF0000u : 0) | (p & 4 ? 0x00FF00u : 0) | (p & 2 ? 0x0000FFu : 0);
             upright[size_t(uy) * kUprightW + size_t(ux)] = rgb;
         }

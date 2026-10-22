@@ -80,7 +80,7 @@ TEST(Machine, ColourComesFromThePromByCell) {
     EXPECT_EQ(m.pen(1, 0), 0) << "background is black";
     static std::array<uint32_t, lunarrescue::kUprightW * lunarrescue::kUprightH> px;
     m.render(px.data());
-    EXPECT_EQ(px[0], 0x00FF00u) << "RBG_3BIT bit 2 is green";
+    EXPECT_EQ(px[0], 0x00FF00u) << "PROM bit 2 drives green";
     EXPECT_EQ(px[size_t(8) * lunarrescue::kUprightW], 0x0000FFu) << "bit 1 is blue";
     EXPECT_EQ(px[8], 0xFF00FFu);
 }
@@ -120,6 +120,28 @@ TEST(Machine, RedLatchFollowsTheBeamPerLine) {
     EXPECT_EQ(m.pen(100, 0), 7) << "line 100 started before the write";
     EXPECT_EQ(m.pen(101, 0), 1);
     EXPECT_EQ(m.pen(223, 0), 1);
+}
+
+TEST(Machine, BombLineOrsRedAndBlocksGreenAndBlue) {
+    lunarrescue::Machine m;
+    lunarrescue::RomSet s;
+    s.program[0] = 0xC3;  // JMP $0000
+    s.prom.fill(0x06);
+    m.load_roms(s);
+    m.reset();
+    std::fill(m.ram.begin() + 0x400, m.ram.end(), 0xFF);
+    m.port_out(3, 0x04);
+    int f = m.frames;
+    while (m.frames == f) m.run_cycles(1);
+    f = m.frames;
+    while (m.frames == f) m.run_cycles(1);
+    EXPECT_EQ(m.pen(100, 0), 1) << "PROM red is 0, BOMB still lights red";
+    m.port_out(3, 0x00);
+    f = m.frames;
+    while (m.frames == f) m.run_cycles(1);
+    f = m.frames;
+    while (m.frames == f) m.run_cycles(1);
+    EXPECT_EQ(m.pen(100, 0), 6);
 }
 
 TEST(Machine, AudioIsSampledAtAudioHz) {
