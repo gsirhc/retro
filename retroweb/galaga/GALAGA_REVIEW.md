@@ -474,12 +474,50 @@ What the CPU PCB sheet (galaga3.pdf sheet 7-9, right half; also
 51XX O0-O7 (4H pins 13-20) and the 54XX K0-K3/R0-R3 (6M pins 12-16,
 24-27), pin 13 is the 51XX /IRQ (4H pin 4), pin 10 the 54XX /IRQ (6M pin
 23), and pin 1 goes to the 51XX K3 (4H pin 41). Pin numbers on the MCUs
-read with the MB8840 datasheet Fig. 1. The 51XX K0-K2 (pins 38-40) also
-sit on the device bus; on the drawing they land on 06XX pins 8-6, one
-bit higher than the command decode the genuine 51XX needs (K0-K2 = bus
-bits 0-2, `Machine.UserRom51xxCreditsReachTheMainCpu` fails with bits
-1-3). The 06XX's device-side bit order isn't drawn, so the code keeps
-bits 0-2.
+read with the MB8840 datasheet Fig. 1.
+
+51XX K0-K2. Read again on the 600 dpi cleaned scan of the same drawing
+(jrok.com `galaga_CPU_600_cleaned.pdf`, A084-91404-C508), which is sharp
+enough to leave no doubt about what is drawn:
+
+- DB0-DB7 enter 2L on pins 20-27 in order.
+- Device pins 2-9 fan out in order: pin 2 to 51XX O7 (4H pin 20) and
+  54XX K3 (6M pin 27), down to pin 9 to 51XX O0 (4H pin 13) and 54XX R0
+  (6M pin 12). 54XX K0-K3 are pins 5-2, R0-R3 pins 9-6.
+- 51XX K2, K1, K0 (4H pins 40, 39, 38) are dotted onto the pin 6, 7 and
+  8 lines, the O3, O2 and O1 wires. K3 (pin 41) is pin 1. No wire from
+  pin 9 reaches a K pin.
+
+The ROMs fix the bit order on both sides:
+
+- Reads: the 51XX's O0-O7 reach DB0-DB7 unchanged. The $24F ring puts
+  BCD credits on O, low nibble first, and main $0299 stores the byte at
+  `$99B5` as the credit count.
+- 54XX writes: `54xx.bin` `$003` INK, `$004` JPA page 6 dispatches on K
+  alone (`$180` + 4K: K = 1-7 are commands, 0 and 8-15 return at
+  `$1BC`). Commands 3, 4 and 6 (`$255`, `$25D`, `$240`) then take each
+  argument as IN R0 (low nibble) and INK (high nibble). The main ROM's
+  `$35A9` list `30 40 00 02 DF 40 30 30 03 DF 10 20` parses as command 3
+  plus four arguments, command 4 plus four, then commands 1 and 2, only
+  with K = DB4-DB7 and R0 = DB0-DB3. That is the straight-through order
+  the drawing shows for pins 2-9.
+- 51XX writes: `51xx.bin` `$003` INK, `$006` JPA page 1 dispatches on
+  all four K bits (`$040` + 4K). K3 set (read) goes to `$24F`. K = 1 goes
+  to `$008`, the only handler that takes arguments (four times TSTI and
+  INK, `$00D`-`$01E`). K = 2 (`$048`) and 5 (`$054`) clear and set the
+  mode nibble 3, and 3 and 4 set and clear nibble 2. The main ROM sends `05` four
+  times in POST (`$35A5`, control `$A1`), `02` three times at `$0738`
+  (`$61`), and `01 01 01 01 01 02 03 00` from `$9280` (`$E1`): coinage
+  with four arguments, then credit mode. That only parses with K0-K2 =
+  DB0-DB2. With the drawn taps (DB1-DB3), `01` would be a no-op, `02`
+  would start the coinage routine and swallow `03 00`, and the POST's
+  `05` would select credit mode.
+
+Pins 6-9 carry DB3-DB0 on writes (the 54XX needs it), so no 06XX
+reordering can give the 51XX taps on pins 8-6 bits 0-2. The drawing's
+K0-K2 taps are one line off; the board must have them on pins 9-7. The
+code wires K0-K2 to device bus bits 0-2 from the ROMs. A continuity
+check on a real CPU board (4H pin 38 to 2L pin 9) would confirm it.
 
 From the main ROM (`3200a`-`3500d`, my own disassembly):
 

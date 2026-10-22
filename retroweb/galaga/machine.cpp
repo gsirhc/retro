@@ -7,7 +7,7 @@ namespace galaga {
 
 Machine::Machine() : main(make_bus(0)), sub(make_bus(1)), sound(make_bus(2)) {
     mcu51_.read_k = [this] {
-        // K3 is 06XX pin 1, the R/W line (CPU PCB sheet 7-9).
+        // K3 is 06XX pin 1, the R/W line (sheet 7-9); K0-K2 are bus bits 0-2 (51xx.bin $006 dispatch).
         return uint8_t((io06_rw() ? 8 : 0) | (mcu51_.o_output & 7));
     };
     mcu51_.read_r = [this](int n) { return r_nibble(n); };
