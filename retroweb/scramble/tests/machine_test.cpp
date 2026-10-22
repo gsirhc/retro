@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <array>
+#include <initializer_list>
 #include <iterator>
 #include <vector>
 
@@ -261,44 +262,36 @@ TEST(Machine, In2Bits5And7FollowXb7) {
     EXPECT_EQ(m.mem_read(0x8102), 0xA0);
 }
 
-TEST(Machine, Pal6JBootSequences) {
+static uint8_t pal_after(std::initializer_list<uint8_t> writes) {
     scramble::Machine m;
     m.reset();
     m.mem_write(0x8203, 0x88);  // the game's own mode: C upper in, C lower out
-    // s1.2d $007E writes 0F,00,0F,00,09 and requires the high nibble $F0.
-    for (uint8_t n : {0x0F, 0x00, 0x0F, 0x00, 0x09}) m.mem_write(0x8202, n);
-    EXPECT_EQ(m.protection_result, 0xF0);
-    EXPECT_EQ(m.mem_read(0x8202) & 0xF0, 0xF0);
-    EXPECT_EQ(m.mem_read(0x8102) & 0xA0, 0xA0);
-    // $00B5 writes 0A,04,09 and requires $B0.
+    for (uint8_t n : writes) m.mem_write(0x8202, n);
+    return uint8_t(m.mem_read(0x8202) & 0xF0);
+}
+
+TEST(Machine, Pal6JPassesEveryRomCheck) {
+    EXPECT_EQ(pal_after({0x0F, 0x00, 0x0F, 0x00, 0x09}), 0xF0);  // $007E, $0BF2
+    EXPECT_EQ(pal_after({0x0F, 0x00, 0x0F, 0x00, 0x09, 0x0A, 0x04, 0x09}), 0xB0);  // $00B5
+    EXPECT_EQ(pal_after({0x0A, 0x04, 0x09}), 0xB0);  // $0C55
+    EXPECT_EQ(pal_after({0x03, 0x01, 0x09}), 0x40);  // $0CE1
+    EXPECT_EQ(pal_after({0x05, 0x0C, 0x09}), 0x60);  // $0D28
+}
+
+TEST(Machine, Pal6JPassesTheInGameFrame) {
+    // $18AE, $16D4, $1A34, $1C98, then $1D75 loops on 09 until $B0.
+    EXPECT_EQ(pal_after({0x00, 0x09, 0x0A, 0x04, 0x09, 0x0F, 0x00, 0x0F, 0x00, 0x09, 0x0A, 0x04, 0x09}), 0xB0);
+}
+
+TEST(Machine, Pal6JDrivesIn2Bits5And7) {
+    scramble::Machine m;
+    m.reset();
+    m.mem_write(0x8103, 0x9B);
+    m.mem_write(0x8203, 0x88);
     for (uint8_t n : {0x0A, 0x04, 0x09}) m.mem_write(0x8202, n);
-    EXPECT_EQ(m.protection_result, 0xB0);
-    EXPECT_EQ(m.mem_read(0x8202) & 0xF0, 0xB0);
     EXPECT_EQ(m.mem_read(0x8102) & 0xA0, 0xA0);
-}
-
-TEST(Machine, Pal6JLater09StillReadsB0) {
-    scramble::Machine m;
-    m.reset();
-    m.mem_write(0x8203, 0x88);
-    for (uint8_t n : {0x0F, 0x00, 0x0F, 0x00, 0x09, 0x0A, 0x04, 0x09}) m.mem_write(0x8202, n);
-    // $1A30 writes 0F, then $1D75 writes 09 until the high nibble is $B0.
-    m.mem_write(0x8202, 0x0F);
-    m.mem_write(0x8202, 0x09);
-    EXPECT_EQ(m.protection_result, 0xB0);
-    m.mem_write(0x8202, 0x06);
-    m.mem_write(0x8202, 0x0B);
-    EXPECT_EQ(m.protection_result, 0xB0);
-}
-
-TEST(Machine, Pal6JUncheckedWindowLeavesTheResult) {
-    scramble::Machine m;
-    m.reset();
-    m.mem_write(0x8203, 0x88);
-    m.mem_write(0x8202, 0x03);
-    m.mem_write(0x8202, 0x00);
-    m.mem_write(0x8202, 0x09);
-    EXPECT_EQ(m.protection_result, 0);
+    for (uint8_t n : {0x03, 0x01, 0x09}) m.mem_write(0x8202, n);
+    EXPECT_EQ(m.mem_read(0x8102) & 0xA0, 0x00);
 }
 
 TEST(Machine, JoystickEchoesToRam) {

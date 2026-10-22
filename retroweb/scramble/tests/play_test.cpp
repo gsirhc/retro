@@ -252,3 +252,26 @@ TEST(Machine, UserRomInsertsCoinStartsAndFires) {
     EXPECT_TRUE(moved) << "work RAM did not change after coin/start/fire";
     EXPECT_FALSE(m.watchdog_reset);
 }
+
+TEST(Machine, UserRomAttractLoopsPastScoreTable) {
+    auto set = load_user_set();
+    if (!set) {
+        GTEST_SKIP() << "no local scramble dump in roms/user/, SCRAMBLE_ROM, ~/images/arcade/scramble.zip, or ~/Downloads/scramble.zip";
+    }
+    scramble::Machine m;
+    m.load_roms(*set);
+    m.reset();
+    if (!run_frames(m, 1) || is_hwtest(m)) GTEST_SKIP() << "not a Scramble program set";
+    // $4541 is the attract script stage; 4 is the score table and its 6J check at $0D28.
+    bool past_score_table = false;
+    bool looped = false;
+    for (int f = 0; f < 3000 && !looped; f++) {
+        ASSERT_TRUE(run_frames(m, 1)) << "watchdog reset at frame " << m.frames;
+        ASSERT_LT(m.main.pc, 0x4000) << "PC left ROM at frame " << m.frames;
+        uint8_t stage = m.ram[0x541];
+        if (stage >= 5) past_score_table = true;
+        else if (past_score_table && stage <= 2) looped = true;
+    }
+    EXPECT_TRUE(past_score_table);
+    EXPECT_TRUE(looped) << "attract did not return to the title";
+}

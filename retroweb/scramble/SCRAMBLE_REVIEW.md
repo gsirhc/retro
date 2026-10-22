@@ -86,13 +86,36 @@ not drift. See §10.
 
 ## 5. Protection PAL at 6J
 
-Nibble in, nibble out, on PPI1 port C. The game writes mode `$88`, so
-C's lower half drives the PAL and the upper half reads the result.
-Stern 33A-105 and 33A-106 do not print equations for 6J. The scramble
-program at `$007E` shifts three nibbles. Window `F09` must read back
-`$F0`, then window `A49` must read back `$B0`. Any other window leaves
-the last result, which is what the `$1D75` loop is waiting on when it
-writes `09`.
+Custom IC1 at 6J ("K10S", 33A-105) sits on PPI1 port C. XB0–XB3 go in
+on pins 2–5 and XB4–XB7 come out on pins 17–14. Pin 1 is fed from pin 19
+through 100 Ω with 2.2 nF to ground, and pin 9 is /RESETS. The sheet
+prints no part type or equations. The game writes mode `$88`, so C's
+lower half drives the PAL and the upper half reads it.
+
+Every 6J access in the `s1.2d`–`s8.2p` program, disassembled here and
+traced on the dump. Only the low nibble of each write reaches 6J.
+
+| Site | Writes | Accepted high nibble | On failure |
+|---|---|---|---|
+| `$007E` (boot) | `0F 00 0F 00 09` | `F` | `RET` into an empty stack |
+| `$00B5` (boot) | `0A 04 09` | `B` | `JP $05DC` (text, not code) |
+| `$0BF2` (attract) | `0F 00 0F 00 09` | `F` | `JP $0CF3`, skipping ahead |
+| `$0C55` (attract) | `0A 04 09` | `B` | `JP $22F4` |
+| `$0C78` | read of `$9212` | not tested | |
+| `$0CE1` (attract) | `03 01 09` | `4` | retries 255 frames later |
+| `$0D28` (score table) | `05 0C 09` | `6` | `JP $4114` into RAM |
+| `$18AE` | `0F` | | |
+| `$16D4` | `00` | | |
+| `$1A30` | `0F` | | |
+| `$1C98` | `00 09`, read, `0A 04` | not tested | |
+| `$1D75` | `09` until the read is `B` | `B` | loops on `09` |
+
+In play each frame runs `$18AE`, `$16D4`, `$1A30`, `$1C98` and `$1D75` in
+that order, so `$1D75` sees `… 0A 04 09`. Every checked read is three
+writes after a nibble x, and the answer is x + 1 (`A`→`B`, `3`→`4`,
+`5`→`6`), except x = `F`, which answers `F`. The model takes that as the
+rule: each write sets the output to the nibble written two writes
+earlier, plus one, held at `F`. Reset clears the window and the output.
 
 ## 6. Inputs
 
@@ -116,6 +139,12 @@ and 0, so bits 5 and 7 are never used.
 - Reading both AYs at once (A7 and A5 set) ANDs their bytes. Both drive
   DV together and nothing measures the result. The ROM never does it.
 - A sound-CPU read that selects no AY returns `$FF`.
+- The 6J rule in §5 is fit to the ROM's checks, not taken from the
+  part. The checks don't separate it from others: x + 1 only when the
+  middle nibble is nonzero also fits, and whether the final `09` or the
+  middle nibble matters at all is untested. Unchecked reads (`$1CA1`,
+  `$0C78`), the output before the first write, and whether a write of
+  the same nibble clocks the part are all unconstrained.
 
 ## ROM policy
 

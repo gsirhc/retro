@@ -75,11 +75,10 @@ void Machine::wire_ppi() {
 }
 
 void Machine::pal6j_write(uint8_t v) {
-    // s1.2d $007E wants F09 -> $F0 and A49 -> $B0. $1D75 then writes 09
-    // until that $B0 is still what the port reads.
+    // Unsourced fit to every 6J check in s1.2d: the nibble two writes back, plus one, held at F.
     protection_state_ = ((protection_state_ << 4) | (v & 0x0F)) & 0x0FFF;
-    if (protection_state_ == 0xF09) protection_result = 0xF0;
-    else if (protection_state_ == 0xA49) protection_result = 0xB0;
+    uint8_t n = uint8_t(protection_state_ >> 8);
+    protection_result = uint8_t((n == 0x0F ? 0x0F : n + 1) << 4);
 }
 
 uint8_t Machine::sound_in(uint8_t port) {
