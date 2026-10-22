@@ -11,6 +11,8 @@ cd "$(dirname "$0")"
 FORCE="${1:-}"
 
 URL="https://www.ibiblio.org/pub/micro/pc-stuff/freedos/files/distributions/1.3/official/FD13-FloppyEdition.zip"
+# Internet Archive copy of the same file, for when ibiblio is down; the SHA-256 check still applies.
+MIRROR="https://web.archive.org/web/2023id_/$URL"
 NAME="x86BOOT.img"
 WANT_SHA="e898dd2b09e81a1e477f0396c4de0395b9b71b4b90b1c2f79ea0e40b26f3bcf9"
 
@@ -22,7 +24,7 @@ if [ -z "$FORCE" ] && [ -f "$NAME" ] && [ "$(sha "$NAME")" = "$WANT_SHA" ]; then
 fi
 echo "fetch $NAME (via FD13-FloppyEdition.zip)"
 tmp="$(mktemp -d)"
-curl -sSfL --retry 3 -o "$tmp/fd.zip" "$URL"
+curl -sSfL --retry 3 -o "$tmp/fd.zip" "$URL" || curl -sSfL --retry 3 -o "$tmp/fd.zip" "$MIRROR"
 unzip -o -q "$tmp/fd.zip" "120m/x86BOOT.img" -d "$tmp/x"
 got="$(sha "$tmp/x/120m/x86BOOT.img")"
 if [ "$got" != "$WANT_SHA" ]; then

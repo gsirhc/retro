@@ -14,6 +14,8 @@ cd "$(dirname "$0")"
 FORCE="${1:-}"
 
 URL="https://www.ibiblio.org/pub/micro/pc-stuff/freedos/files/distributions/1.3/official/FD13-LiveCD.zip"
+# Internet Archive copy of the same file, for when ibiblio is down; the SHA-256 check still applies.
+MIRROR="https://web.archive.org/web/2023id_/$URL"
 ZIP_SHA="250d3980b38d988ddfe100df1a5d09009c6fee17cbabd17274d5284e02a491c4"
 ISO_NAME="freedos-cd.iso"
 BOOT_NAME="freedos-boot.img"
@@ -26,7 +28,7 @@ if [ -z "$FORCE" ] && [ -f "$ISO_NAME" ] && [ -f "$BOOT_NAME" ]; then
 fi
 echo "fetch $ISO_NAME + $BOOT_NAME (via FD13-LiveCD.zip)"
 tmp="$(mktemp -d)"
-curl -sSfL --retry 3 -o "$tmp/fd.zip" "$URL"
+curl -sSfL --retry 3 -o "$tmp/fd.zip" "$URL" || curl -sSfL --retry 3 -o "$tmp/fd.zip" "$MIRROR"
 got_zip="$(sha "$tmp/fd.zip")"
 if [ "$got_zip" != "$ZIP_SHA" ]; then
   echo "  SHA-256 mismatch for FD13-LiveCD.zip" >&2

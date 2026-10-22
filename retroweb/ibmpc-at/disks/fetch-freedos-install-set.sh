@@ -11,6 +11,8 @@ cd "$(dirname "$0")"
 FORCE="${1:-}"
 
 URL="https://www.ibiblio.org/pub/micro/pc-stuff/freedos/files/distributions/1.3/official/FD13-FloppyEdition.zip"
+# Internet Archive copy of the same file, for when ibiblio is down; the SHA-256 check still applies.
+MIRROR="https://web.archive.org/web/2023id_/$URL"
 
 # name -> expected SHA-256 (x86BOOT.img is fetch-freedos.sh's job)
 NAMES=(x86DSK01.img x86DSK02.img x86DSK03.img x86DSK04.img x86DSK05.img x86DSK06.img)
@@ -43,7 +45,7 @@ fi
 echo "fetch ${NAMES[*]} (via FD13-FloppyEdition.zip)"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
-curl -sSfL --retry 3 -o "$tmp/fd.zip" "$URL"
+curl -sSfL --retry 3 -o "$tmp/fd.zip" "$URL" || curl -sSfL --retry 3 -o "$tmp/fd.zip" "$MIRROR"
 for name in "${NAMES[@]}"; do
   unzip -o -q "$tmp/fd.zip" "120m/$name" -d "$tmp/x"
 done
