@@ -16,8 +16,8 @@ Galaxian-family video V1-V7 and Konami sound K1-K2
 (`GALAXIAN_REVIEW.md` §5), Galaga GA1-GA5 (`GALAGA_REVIEW.md` §8), and
 B1-B3 with X3-X5 on all five. Closing the coverage gaps then turned up
 four more, all fixed: Pac-Man's empty `$4800` range and address mirrors
-(`PACMAN_REVIEW.md` §11), Galaga's MB88 instruction timing and 06XX R/W
-latch (`GALAGA_REVIEW.md` §8), and the 8255's bit set/reset
+(`PACMAN_REVIEW.md` §11), Galaga's MB88 instruction timing and 06XX
+timing (`GALAGA_REVIEW.md` §8, §10), and the 8255's bit set/reset
 (`SCRAMBLE_REVIEW.md` §10). What's left needs a schematic, a chip dump,
 or Chris's call.
 

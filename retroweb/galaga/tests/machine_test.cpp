@@ -153,24 +153,19 @@ TEST(Io, ReadGivesTheDeviceOneMoreSelectThanNmis) {
     EXPECT_EQ(m.ram1[5], 0xF7);
 }
 
-TEST(Io, ReadWriteLineLatchesOnTheClockEdge) {
+TEST(Io, ReadWriteLineIsControlBit4) {
     Machine m;
-    m.rom_main[0] = 0x18;
-    m.rom_main[1] = 0xFE;
-    m.reset();
     m.mem_write(0x7100, 0xA1);
-    m.run_cycles(96);
     EXPECT_FALSE(m.io06_rw());
-    m.mem_write(0x7100, 0x10);
-    m.run_cycles(4096);
-    EXPECT_FALSE(m.io06_rw()) << "a stopped clock leaves R/W as it was";
     m.mem_write(0x7100, 0xB1);
+    EXPECT_TRUE(m.io06_rw());
+    m.mem_write(0x7100, 0x10);
+    EXPECT_TRUE(m.io06_rw());
+    m.mem_write(0x7100, 0x00);
     EXPECT_FALSE(m.io06_rw());
-    m.run_cycles(76);
-    EXPECT_TRUE(m.io06_rw()) << "latched on the next 06XX tick";
 }
 
-TEST(Io, Mcu51SeesTheLatchedReadWriteLineOnK3) {
+TEST(Io, Mcu51SeesTheReadWriteLineOnK3) {
     Machine m;
     RomSet set;
     set.has51 = true;
@@ -183,34 +178,85 @@ TEST(Io, Mcu51SeesTheLatchedReadWriteLineOnK3) {
     m.rom_main[1] = 0xFE;
     m.reset();
     m.mem_write(0x6823, 0x01);
-    m.mem_write(0x7100, 0xA1);
+    m.mem_write(0x7100, 0x01);
     m.run_cycles(200);
     m.mem_write(0x7100, 0x11);
-    m.run_cycles(200);
-    EXPECT_EQ(m.mem_read(0x7000) & 0x08, 0) << "still the write it latched";
-    m.mem_write(0x7100, 0xB1);
-    m.run_cycles(200);
-    m.mem_write(0x7100, 0x11);
+    EXPECT_EQ(m.mem_read(0x7000) & 0x08, 0);
     m.run_cycles(200);
     EXPECT_EQ(m.mem_read(0x7000) & 0x08, 0x08);
 }
 
-TEST(Io, ClockRestartsOnTheNext06xxTick) {
-    Machine m;
-    // LD SP,$8C00; JR $. NMI handler counts and returns.
+namespace {
+
+// LD SP,$8C00; JR $. NMI: INC ($8800); RETN.
+void load_nmi_counter(Machine& m) {
     const uint8_t boot[] = {0x31, 0x00, 0x8C, 0x18, 0xFE};
     std::copy(std::begin(boot), std::end(boot), m.rom_main.begin());
     const uint8_t nmi[] = {0x21, 0x00, 0x88, 0x34, 0xED, 0x45};
     std::copy(std::begin(nmi), std::end(nmi), m.rom_main.begin() + 0x66);
     m.reset();
     m.mem_write(0x6823, 0x01);
+}
+
+void run_until(Machine& m, uint64_t t) {
+    while (m.main.cycles < t) m.run_cycles(1);
+}
+
+// First T-state at or after `from` where the divider-5 tap (bit 4 of the 64H count) rises.
+uint64_t next_tap5_rise(uint64_t from) {
+    uint64_t n = (from + 63) / 64;
+    while (n % 32 != 16) n++;
+    return n * 64;
+}
+
+}  // namespace
+
+TEST(Io, SelectWaitsForTheDividerTapToRise) {
+    Machine m;
+    load_nmi_counter(m);
     m.mem_write(0x7100, 0xA1);
-    m.run_cycles(64 + 40);
+    const uint64_t rise = next_tap5_rise(m.main.cycles + 1);
+    run_until(m, rise - 32);
+    EXPECT_EQ(m.ram1[0], 0);
+    run_until(m, rise + 48);
     EXPECT_EQ(m.ram1[0], 1);
-    m.run_cycles((64 << 5) - 64);
+    run_until(m, rise + (64 << 5) - 32);
     EXPECT_EQ(m.ram1[0], 1);
-    m.run_cycles(64);
+    run_until(m, rise + (64 << 5) + 48);
     EXPECT_EQ(m.ram1[0], 2);
+}
+
+TEST(Io, NoSelectPartWayThroughAHighPhase) {
+    Machine m;
+    load_nmi_counter(m);
+    // Start the clock with the tap already high: the first select is the next rise, a full period on.
+    const uint64_t rise = next_tap5_rise(m.main.cycles + 1);
+    run_until(m, rise + 64);
+    m.mem_write(0x7100, 0xA1);
+    run_until(m, rise + (64 << 5) - 32);
+    EXPECT_EQ(m.ram1[0], 0);
+    run_until(m, rise + (64 << 5) + 48);
+    EXPECT_EQ(m.ram1[0], 1);
+}
+
+TEST(Io, WriteModeReadGivesTheOpenBus) {
+    Machine m;
+    RomSet set;
+    set.has51 = true;
+    m.load_roms(set);
+    m.mem_write(0x7100, 0x01);
+    m.mem_write(0x7000, 0x5A);
+    EXPECT_EQ(m.mem_read(0x7000), 0xFF);
+}
+
+TEST(Io, ReadModeHostWriteReachesNoDevice) {
+    Machine m;
+    RomSet set;
+    set.has51 = true;
+    m.load_roms(set);
+    m.mem_write(0x7100, 0x11);
+    m.mem_write(0x7000, 0x5A);
+    EXPECT_EQ(m.mem_read(0x7000), 0xFF);
 }
 
 TEST(Io, McuSpendsTwoSlotsOnTwoCycleInstructions) {
@@ -249,8 +295,8 @@ TEST(Io, WriteModeDividerNmisMain) {
     m.rom_main[0x70] = 0x45;
     m.mem_write(0x6823, 0x01);
     m.mem_write(0x7100, 0xA1);
-    // First edge is the next 06XX tick; a second NMI would follow 64<<5 T-states later.
-    m.run_cycles((64 << 5) + 64);
+    // The first NMI comes within one period; a second would follow a full 64<<5 T-states later.
+    m.run_cycles((64 << 5) + 256);
     EXPECT_EQ(m.ram1[0], 1);
     EXPECT_EQ(m.mem_read(0x7100), 0x10);
     EXPECT_FALSE(m.watchdog_reset);

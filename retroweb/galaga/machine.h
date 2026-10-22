@@ -91,7 +91,7 @@ public:
     void mem_write(int cpu, uint16_t addr, uint8_t v);
     uint8_t mem_read(uint16_t addr) { return mem_read(0, addr); }
     uint8_t dac54(int ch) const { return dac54_[ch]; }
-    bool io06_rw() const { return io_rw_; }
+    bool io06_rw() const { return (io_ctrl_ & 0x10) != 0; }
     int mcu51_pc() const { return mcu51_.pc_full(); }
     void mem_write(uint16_t addr, uint8_t v) { mem_write(0, addr, v); }
 
@@ -103,11 +103,12 @@ private:
     int step_cpu(int cpu);
     void on_vblank();
     void service_mcu();
-    void io06_edge();
+    void io06_tick();
     uint8_t io06_read();
     void io06_write(uint8_t v);
     void io06_ctrl(uint8_t v);
-    void mcu_select(bool level);
+    void mcu_select(uint8_t chips);
+    void mcu54_command(uint8_t v);
     void mcu51_command(uint8_t data);
     uint8_t mcu51_hle_read();
     uint8_t r_nibble(int n) const;
@@ -116,11 +117,9 @@ private:
     bool coin_line_[2]{};
 
     uint8_t io_ctrl_ = 0;
-    uint64_t io_next_edge_ = 0;
-    int io_selects_ = 0;
-    int io_nmi_lag_ = 0;
-    bool io_timer_state_ = false;
-    bool io_rw_ = false;
+    uint64_t io_tick_ = 0;
+    int io_nmi_skip_ = 0;
+    bool io_clk_ = false;
     int mcu51_mode_ = 0;
     int mcu51_args_ = 0;
     int mcu51_read_i_ = 0;

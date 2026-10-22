@@ -17,7 +17,8 @@ Citation trail for the Midway Galaga (1981) emulator. Primary sources:
   Linear Products Data Book (input resistance).
 - coinop.org GalagaMap, a 1996 memory map write-up
   (https://www.coinop.org/kdl/GameTech/GalagaMap.html).
-- Fujitsu MB8840/MB8840H series datasheet, January 1987.
+- Fujitsu MB8840/MB8840H series datasheet, January 1987 (Fig. 1 pin
+  assignment, p. 1-6, used to read the 51XX/54XX pins on sheet 7-9).
 - Chris Lomont, *Pac-Man Emulation Guide* v0.1, for the Pac-Man hardware
   Galaga shares (tile packing, WSG).
 
@@ -97,12 +98,9 @@ Private program ROM `$0000–$3FFF` per CPU. Shared otherwise.
   VBLANK, cleared by WDR, QD resets the board).
 - `$7000–$70FF` / `$7100` — 06XX data and control. Control bits 0–3 are
   chip selects (bit 0 = 51XX, bit 3 = 54XX), bit 4 is read/!write, bits
-  7:5 are the clock divider. A non-zero divider arms an NMI to the main
-  CPU. Period is `(64 << shift)` Z80 cycles. The device clock is
-  master/6/64. The control register layout, the clock divider period and
-  the startup traffic (`10` + `FF`, then `71`, `A1` or `A8`, each closed
-  with `10`) are Unsourced. Searched: the Midway schematic shows the 06XX
-  as a block only, coinop.org says its function is unknown.
+  7:5 are the clock divider; `$7100` reads back as written. The layout
+  comes from the main ROM's own traffic (§10). The divider period is
+  Unsourced. The schematic shows the 06XX as a custom with its pins only.
 - `$8000–$87FF` — tilemap RAM. Code, then color at `+$400`.
 - `$8800–$8BFF`, `$9000–$93FF`, `$9800–$9BFF` — shared work RAM, 1K banks
   mirrored through the 2K window (`& 0x3FF`). Sprite registers sit at
@@ -119,14 +117,20 @@ out of reset.
 
 ## 4. Video
 
-36×28 tile map over the 288×224 visible area. The center 32 columns are
-the playfield, address `(row+2)*32 + (col-2)`. The two columns on each
-side are the hcnt(8)=0 score strips: memory rows 0 and 1 on the native
-right (the bottom of the upright screen) and rows 30 and 31 on the
-native left (the top), walked by the vertical counter. A credit line
-stored across row 1 therefore reads horizontally along the bottom.
-The scan is the Pac-Man map (Lomont figure 7) with the same two-row
-strips; that Galaga uses the same decode is Unsourced. A tile pen is clear when its LUT entry ORed with 0x10
+36×28 tile map over the 288×224 visible area. On the video PCB sheet
+(galaga3.pdf sheet 7-7, left half) the tile RAM address AB0-AB10 comes
+out of the 1L 00XX custom. Its inputs are 128V-8V from the 1N 07XX (00XX
+pins 13-9), five more 07XX H outputs (07XX pins 9-5 into 00XX pins 7-3),
+4H and 2H (pins 2, 1), 07XX pin 10 through the 3N inverter (pin 8), and
+FLIP (pin 27). The custom's internal mapping isn't drawn. `paint()` takes
+those as 8H-128H, 8V-128V and 256H: in the playfield (256H high) A9-A5
+is the V tile row and A4-A0 the H column; with 256H low the two fields
+swap, so the two columns each side are memory rows 0-1 (native right,
+the bottom of the upright screen) and 30-31 (native left, the top),
+walked by V. That is the layout the game's own text needs: a credit line
+stored across row 1 reads along the bottom. The counts at the first
+visible dot (H `0xF0`, V 16) are Unsourced, placed so 256H spans the 256
+playfield dots. FLIP inverts 8H-128H and 1V-128V. A tile pen is clear when its LUT entry ORed with 0x10
 is 0x1F. 2bpp nibble packing matches
 the Namco character layout (high nibble plane 0, low nibble plane 1).
 Sprites: 64 × 2 bytes. Each 16×16 picture is four columns at bytes
@@ -285,11 +289,8 @@ credits until credit mode is re-entered; see §8.
 4 expect 4 parameter bytes, 6 expects 5, 7 sets volume. The noise drives
 the 54XX_0 DAC, so it goes through the real filter network. That fixed
 burst is still a labelled stand-in for the 54XX program. A real 54XX
-image drives all three DACs (§8). The 06XX falling edge asserts /IO on the selected MCU
-(MB8843 external IRQ) and NMIs the main CPU; the first read-mode edge
-skips the NMI so the mask program can drive the data bus. The rising
-edge clears /IO. A data write only latches the byte. The fallback is
-what CI tests.
+image drives all three DACs (§8). The 06XX model is in §10. The
+fallback is what CI tests.
 
 ## 6. High score
 
@@ -417,20 +418,9 @@ Items GA1-GA5, B1-B3 and X4 from `shared/cpu/Z80_ARCADE_PARITY.md`.
   taking an interrupt costs three more (the two-cycle list is the
   datasheet's, the three extra cycles are Unsourced). `step()` now returns every cycle it burns, and the
   board waits them out. `Io.McuSpendsTwoSlotsOnTwoCycleInstructions`.
-- **06XX R/W latch.** At real MCU speed the genuine 51XX stalled at
-  startup until the watchdog fired. Our K3 read the R/W bit straight from
-  the control register, so the stop write ($10) after a command flipped it
-  to "read" while the 51XX was still taking that byte. R/W is now latched
-  on the 06XX clock's falling edge and left alone when the divider is 0
-  (Unsourced). The clock also restarts on the next 06XX
-  tick (64 T-states), not half a period later.
-  `Io.ReadWriteLineLatchesOnTheClockEdge`,
-  `Io.Mcu51SeesTheLatchedReadWriteLineOnK3`,
-  `Io.ClockRestartsOnTheNext06xxTick`. With both fixes the genuine 51XX
-  reaches the same CREDIT 2 / PLAYER 1 screens as the HLE. Only the
-  starfield phase differs.
-- **The 54XX isn't readable.** The bus reads `$FF` for it (Unsourced).
-  We echoed its command latch. `Io.Reading54xxGivesTheOpenBus`.
+- **06XX timing.** Rebuilt in §10.
+- **The 54XX isn't readable.** The bus reads `$FF` for it.
+  `Io.Reading54xxGivesTheOpenBus`.
 - **MB88 ISA suite.** `mb88_test.cpp` checks every opcode, the timer, the
   serial shift, and interrupt entry and return against §5: datasheet
   values where Table 5 or 6 gives them, the ROM-derived and Unsourced
@@ -477,10 +467,86 @@ Re-derived from the CPU PCB sheet (page 7-9) and its designation list.
 
 ## 10. 06XX timer and the read delay
 
-The schematic gives 2L's clock as 64H (pin 17), SEL on AB8 (pin 15),
-NMI out on pin 19, and its device-side lines to the 51XX and 54XX
-(54XX /IRQ on pin 23). The control layout and divider period are still
-Unsourced; no non-code description of the 06XX turned up.
+What the CPU PCB sheet (galaga3.pdf sheet 7-9, right half; also
+`Galaga.pdf` PDF p. 76) shows of 2L 06XX: CPU data DB0-DB7 on pins
+20-27, AB8 on pin 15 (data vs control), /I/O on pin 18, 64H on pin 17,
+/NMI1 on pin 19. Device side: pins 2-9 are the 8-bit device bus to the
+51XX O0-O7 (4H pins 13-20) and the 54XX K0-K3/R0-R3 (6M pins 12-16,
+24-27), pin 13 is the 51XX /IRQ (4H pin 4), pin 10 the 54XX /IRQ (6M pin
+23), and pin 1 goes to the 51XX K3 (4H pin 41). Pin numbers on the MCUs
+read with the MB8840 datasheet Fig. 1. The 51XX K0-K2 (pins 38-40) also
+sit on the device bus; on the drawing they land on 06XX pins 8-6, one
+bit higher than the command decode the genuine 51XX needs (K0-K2 = bus
+bits 0-2, `Machine.UserRom51xxCreditsReachTheMainCpu` fails with bits
+1-3). The 06XX's device-side bit order isn't drawn, so the code keeps
+bits 0-2.
+
+From the main ROM (`3200a`-`3500d`, my own disassembly):
+
+- Control values written: `$10` (reset vector `$0000`, and the NMI
+  handler at `$0070` after its last byte), `$71` and `$B1` with HL=$7000
+  (reads), `$61`, `$A1`, `$E1` to the 51XX and `$A8` to the 54XX with
+  DE=$7000 (writes). So bit 0 is the 51XX, bit 3 the 54XX, bit 4 set is
+  read, bits 7:5 zero stop. No transfer selects two chips, reads in
+  write mode or writes in read mode.
+- `$06F3` and `$37EC` poll `$7100` until it reads `$10`, so the control
+  register reads back what was written.
+- NMI `$0066` is one `LDI` per NMI; after the last byte (`BC` = 0) it
+  writes `$10`. A further NMI would run `LDI` with BC wrapped to `$FFFF`,
+  so `$10` must stop the NMIs.
+
+From `51xx.bin` (my own disassembly): the external IRQ at `$002` does
+`INK` at `$003` (K3 picks read or write) and `DIS $04` at `$004`, and
+only re-enables the external interrupt (`EN $04`) at `$026` on the
+write path and `$261` on the read path, just before `RTI`. The datasheet
+latches the external request only while it is enabled, so a select that
+falls inside that handler is lost and the 4-byte read ring slips. With
+selects at the divider's rate that never happens: `$71` gives 512
+T-states between selects, longer than the read path.
+
+The model (`io06_tick`, `io06_read`, `io06_write`, `io06_ctrl`):
+
+- 64H gives the 06XX a tick every 64 T-states. Divider d (1-7) taps bit
+  d-1 of a free-running count of those ticks, a period of 64 << d.
+- A select starts as the tap rises: /IO goes low on each chip whose
+  control bit is set, and the main CPU gets an NMI (except the first
+  select after a read-mode control write, below). /IO goes high as the
+  tap falls, or at the next tick after a zero divider.
+- A select never starts part-way through a high phase. If a control
+  write lands while the tap is high, the first select waits for the next
+  rise. Starting at once gives a runt select a few ticks before the next
+  one, inside the 51XX handler, and the genuine 51XX's credits land a
+  byte off in `$99B5` (`Machine.UserRom51xxCreditsReachTheMainCpu`).
+  `Io.SelectWaitsForTheDividerTapToRise`,
+  `Io.NoSelectPartWayThroughAHighPhase`.
+- R/W (pin 1, the 51XX K3) is control bit 4 as written.
+  `Io.ReadWriteLineIsControlBit4`, `Io.Mcu51SeesTheReadWriteLineOnK3`.
+- A data read with bit 4 set and the 51XX selected returns the 51XX's O
+  port (or the fallback's reply). The 54XX's bus pins are inputs, so it
+  never drives the bus. Anything else reads `$FF`: nothing drives the
+  CPU data bus and it floats up on its 2.2K pull-ups (RM19 at J1, sheet
+  7-9). `Io.WriteModeReadGivesTheOpenBus`, `Io.Reading54xxGivesTheOpenBus`.
+- A data write with bit 4 clear goes onto the device bus for every
+  selected chip. With bit 4 set the device owns the bus and the write
+  reaches nothing. `Io.ReadModeHostWriteReachesNoDevice`.
+
+Unsourced, chosen as the simplest behaviour the genuine ROMs work with:
+
+- The power-of-two divider, free-running from power-on. The ROMs bound
+  it from below only: the select spacing must outlast the 51XX's read
+  handler. Checked at 18 offsets of the count: the genuine 51XX and
+  54XX boot without a watchdog reset and three coins reach `$99B5`.
+- Selects and NMI on the tap's rising edge, /IO released on the falling
+  edge. Polarity of the 06XX's own clock isn't visible.
+- R/W following the control register at once. The genuine 51XX reads K
+  at `$003`, before the main CPU's NMI handler writes `$10`, so it works
+  either way; nothing in either ROM needs a latched line.
+- `$FF` for reads in write mode or with no driving chip, and writes in
+  read mode dropped. Neither ROM does either.
+- The control register clears on reset. The schematic shows no reset pin
+  on 2L; the main ROM writes `$10` first thing anyway.
+- The NMI isn't gated by the MCU reset latch (`$6823`). Sheet 7-9 draws
+  no such path from /RESET to 2L.
 
 The read delay comes from the two ROMs (my own disassembly):
 

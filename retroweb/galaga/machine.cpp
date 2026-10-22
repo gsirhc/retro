@@ -7,7 +7,8 @@ namespace galaga {
 
 Machine::Machine() : main(make_bus(0)), sub(make_bus(1)), sound(make_bus(2)) {
     mcu51_.read_k = [this] {
-        return uint8_t((io_rw_ ? 8 : 0) | (mcu51_.o_output & 7));
+        // K3 is 06XX pin 1, the R/W line (CPU PCB sheet 7-9).
+        return uint8_t((io06_rw() ? 8 : 0) | (mcu51_.o_output & 7));
     };
     mcu51_.read_r = [this](int n) { return r_nibble(n); };
     mcu51_.write_o = [this](uint8_t v, uint8_t) { mcu51_.o_output = v; };
@@ -60,10 +61,8 @@ void Machine::reset() {
     sub_credit_ = 0;
     sound_credit_ = 0;
     io_ctrl_ = 0;
-    io_selects_ = 0;
-    io_nmi_lag_ = 0;
-    io_timer_state_ = false;
-    io_rw_ = false;
+    io_nmi_skip_ = 0;
+    io_clk_ = false;
     mcu51_mode_ = 0;
     mcu51_args_ = 0;
     mcu51_read_i_ = 0;
@@ -71,6 +70,7 @@ void Machine::reset() {
     mcu51_coins_[0] = mcu51_coins_[1] = 0;
     prev_in1_ = 0;
     mcu_next_ = main.cycles;
+    io_tick_ = (main.cycles / 64 + 1) * 64;
     mcu51_wait_ = mcu54_wait_ = 0;
     mcu54_args_ = 0;
     mcu54_cmd_ = 0;
@@ -207,82 +207,78 @@ void Machine::coin_counter_w(int n, bool on) {
 }
 
 uint8_t Machine::io06_read() {
-    if ((io_ctrl_ & 0x10) == 0) return 0;
-    uint8_t result = 0xFF;
-    if (io_ctrl_ & 0x01) {
-        if (mcu51_hle) result = uint8_t(result & mcu51_hle_read());
-        else result = uint8_t(result & mcu51_.o_output);
-    }
-    // The 54XX only listens; nothing drives the bus for it.
-    return result;
+    // Undriven, the data bus floats to $FF on its 2.2K pull-ups (RM19, CPU PCB sheet 7-9).
+    if (!(io_ctrl_ & 0x10) || !(io_ctrl_ & 0x01)) return 0xFF;
+    // Only the 51XX drives the device bus; the 54XX's pins on it are K and R0 inputs (sheet 7-9).
+    return mcu51_hle ? mcu51_hle_read() : mcu51_.o_output;
 }
 
 void Machine::io06_write(uint8_t v) {
+    // In read mode the device owns the device bus, so a host write reaches nothing (Unsourced).
     if (io_ctrl_ & 0x10) return;
     if (io_ctrl_ & 0x01) {
         if (mcu51_hle) mcu51_command(v);
         else mcu51_.o_output = v;
     }
     if (io_ctrl_ & 0x08) {
-        if (mcu54_hle) {
-            if (mcu54_args_ > 0) {
-                mcu54_args_--;
-            } else {
-                uint8_t hi = uint8_t(v >> 4);
-                // 54XX commands: 1/2/5 play, 3/4/6 set parameters, 7 sets type-C volume.
-                if (hi == 1 || hi == 2 || hi == 5) {
-                    noise_amp_ = v & 0x0f;
-                    if (noise_amp_ == 0) noise_amp_ = 8;
-                    noise_left_ = 3072000 / 32 / 8;
-                } else if (hi == 3 || hi == 4) {
-                    mcu54_args_ = 4;
-                } else if (hi == 6) {
-                    mcu54_args_ = 5;
-                } else if (hi == 7) {
-                    noise_vol_ = v & 0x0f;
-                }
-            }
-        } else {
-            mcu54_cmd_ = v;
-        }
+        if (mcu54_hle) mcu54_command(v);
+        else mcu54_cmd_ = v;
+    }
+}
+
+void Machine::mcu54_command(uint8_t v) {
+    if (mcu54_args_ > 0) {
+        mcu54_args_--;
+        return;
+    }
+    uint8_t hi = uint8_t(v >> 4);
+    // 54XX commands: 1/2/5 play, 3/4/6 set parameters, 7 sets type-C volume.
+    if (hi == 1 || hi == 2 || hi == 5) {
+        noise_amp_ = v & 0x0f;
+        if (noise_amp_ == 0) noise_amp_ = 8;
+        noise_left_ = 3072000 / 32 / 8;
+    } else if (hi == 3 || hi == 4) {
+        mcu54_args_ = 4;
+    } else if (hi == 6) {
+        mcu54_args_ = 5;
+    } else if (hi == 7) {
+        noise_vol_ = v & 0x0f;
     }
 }
 
 void Machine::io06_ctrl(uint8_t v) {
-    // A zero divider stops the clock and leaves R/W latched.
     io_ctrl_ = v;
-    if ((v & 0xE0) == 0) {
-        io_timer_state_ = false;
-        mcu_select(false);
+    // main $0299 takes 3 bytes of 51xx.bin's 4-byte $24F ring, so a read's first select has no NMI.
+    io_nmi_skip_ = (v & 0x10) ? 1 : 0;
+}
+
+void Machine::io06_tick() {
+    const int div = io_ctrl_ >> 5;
+    const uint64_t n = io_tick_ / 64;
+    // Divider d taps bit d-1 of a free-running count of 64H (Unsourced).
+    const bool tap = div != 0 && ((n >> (div - 1)) & 1);
+    const bool tap_was = div != 0 && (((n - 1) >> (div - 1)) & 1);
+    if (io_clk_ && !tap) {
+        io_clk_ = false;
+        mcu_select(0);
         return;
     }
-    // Reads lead NMI by one select: the 51xx.bin $24F ring is 4 bytes, main $0299 takes 3.
-    io_selects_ = 0;
-    io_nmi_lag_ = (v & 0x10) ? 1 : 0;
-    // The clock restarts on the next 06XX tick (MASTER/384, every 64 T-states).
-    io_next_edge_ = (main.cycles / 64 + 1) * 64;
+    // A select starts only as the tap rises, never part-way through a high phase.
+    if (io_clk_ || !tap || tap_was) return;
+    io_clk_ = true;
+    mcu_select(uint8_t(io_ctrl_ & 0x0F));
+    if (io_nmi_skip_ > 0) {
+        io_nmi_skip_--;
+        return;
+    }
+    main.set_nmi(true);
+    main.set_nmi(false);
 }
 
-void Machine::io06_edge() {
-    // R/W, chip selects and NMI follow the falling edge.
-    io_timer_state_ = !io_timer_state_;
-    bool nmi = false;
-    if (io_timer_state_) {
-        io_rw_ = (io_ctrl_ & 0x10) != 0;
-        nmi = io_selects_ >= io_nmi_lag_;
-        if (!nmi) io_selects_++;
-    }
-    mcu_select(io_timer_state_);
-    if (nmi && !sub_reset) {
-        main.set_nmi(true);
-        main.set_nmi(false);
-    }
-}
-
-void Machine::mcu_select(bool level) {
-    // 06XX /IO1 and /IO4 are the 51XX and 54XX external IRQ lines.
-    if (!mcu51_hle) mcu51_.set_irq(level && (io_ctrl_ & 0x01));
-    if (!mcu54_hle) mcu54_.set_irq(level && (io_ctrl_ & 0x08));
+void Machine::mcu_select(uint8_t chips) {
+    // 06XX pin 13 is the 51XX /IRQ, pin 10 the 54XX /IRQ (CPU PCB sheet 7-9).
+    if (!mcu51_hle) mcu51_.set_irq(chips & 0x01);
+    if (!mcu54_hle) mcu54_.set_irq(chips & 0x08);
 }
 
 uint8_t Machine::mem_read(int cpu, uint16_t addr) {
@@ -397,14 +393,11 @@ void Machine::on_vblank() {
 
 void Machine::service_mcu() {
     const uint64_t now = main.cycles;
-    for (;;) {
-        const bool clocked = (io_ctrl_ & 0xE0) != 0;
-        const bool edge_first = clocked && io_next_edge_ <= mcu_next_;
-        const uint64_t next = edge_first ? io_next_edge_ : mcu_next_;
-        if (next > now) break;
-        if (edge_first) {
-            io06_edge();
-            io_next_edge_ += (64u << ((io_ctrl_ >> 5) & 7)) / 2;
+    while (io_tick_ <= now || mcu_next_ <= now) {
+        // 06XX pin 17 is 64H (CPU PCB sheet 7-9): a rising edge every 64 T-states.
+        if (io_tick_ <= mcu_next_) {
+            io06_tick();
+            io_tick_ += 64;
             continue;
         }
         // MB8843/44 instruction cycle is 1.536 MHz / 6, one per 12 Z80 T-states.
