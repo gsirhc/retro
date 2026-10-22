@@ -183,8 +183,13 @@ VSYNC pin 4, 6 MHz pin 1, colour out on 6-11, PROM select on 20. The one
 non-code write-up found, pin4.at's 05XX CPLD page, states the chip is a
 maximum-length 16-bit LFSR over a 256x256 field, read from a real chip on
 a test bench, and that scrolling adds or drops clocks by up to 3 pixels;
-it gives no taps, seed or hit equations. Options: measure a real 05XX,
-get the values from that author, or drop the starfield. Draw order is stars, then sprites,
+it gives no taps, seed or hit equations, and its block diagram puts the
+hit and colour decode in two LUTs it does not list. Also searched:
+Google Patents (Namco 1980-83; JPS58112575A covers sprites, not stars),
+the 2014 CEDEC talk on Namco RNGs (per-pixel LFSR picks star and colour,
+no values), the KLOV "Reverse Engineering Namco Customs" thread (values
+not posted). Options: measure a real 05XX, get the values from that
+author, or drop the starfield. Draw order is stars, then sprites,
 then tiles, so the score strips stay on top. Character colours OR `0x10`
 into the PROM index. Palette levels come from the colour network below.
 
@@ -457,9 +462,32 @@ Re-derived from the CPU PCB sheet (page 7-9) and its designation list.
 
 The schematic gives 2L's clock as 64H (pin 17), SEL on AB8 (pin 15),
 NMI out on pin 19, and its device-side lines to the 51XX and 54XX
-(54XX /IRQ on pin 23). The control layout, divider period and the skipped
-first NMI in read mode are still Unsourced; no non-code description of
-the 06XX turned up. The galagamw main ROM with the genuine 51XX image
-needs that read delay: without it the credit count never reaches the
-main CPU and the attract screen never shows CREDIT.
-`Machine.UserRom51xxCreditsReachTheMainCpu` pins this with a local dump.
+(54XX /IRQ on pin 23). The control layout and divider period are still
+Unsourced; no non-code description of the 06XX turned up.
+
+The read delay comes from the two ROMs (my own disassembly):
+
+- `51xx.bin` `$002`: every external IRQ reads K and, with K3 (R/W) high,
+  lands at `$24F`. That routine puts nibbles `$24`-`$2B` on O (low, then
+  high) at Y, steps Y by two, wraps it from `$C` to `$4`, and saves it
+  in nibble 6. Only a write IRQ resets it (`$022`-`$024`, Y = 4). So in
+  credit mode the reply is a 4-byte ring (credits, two control bytes,
+  and a fourth the game never reads), advanced once per select.
+- Main ROM `$0299` (IRQ): `HL'=$7000`, `DE'=$99B5`, `BC'=3`, `$7100 = $71`.
+  NMI `$0066`: one `LDI` per NMI; after the third it writes `$10`.
+  Three NMIs read three bytes and stop the clock.
+- For credits to land in `$99B5` every frame, each read must give the
+  51XX four selects and the main three NMIs, and NMI k must read the
+  byte select k produced. The 51XX takes about 21 instruction cycles
+  (~250 T-states) from select to its second O write, so the NMI on the
+  same edge as select k is too early. NMI k must follow select k+1 and
+  land before the 51XX answers it. With edges only every half period,
+  that is the select edge one period later: the first select of a read
+  has no NMI. Moving the NMI to the opposite edge instead gives three
+  selects per read and the ring drifts a byte per frame.
+- Write mode keeps NMI on the first select. The 51XX path doesn't
+  distinguish the two (a write resets the ring), so this is Unsourced
+  beyond the 54XX traffic working.
+
+`Io.ReadGivesTheDeviceOneMoreSelectThanNmis`;
+`Machine.UserRom51xxCreditsReachTheMainCpu` pins it with a local dump.

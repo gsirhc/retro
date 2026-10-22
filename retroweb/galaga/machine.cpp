@@ -60,7 +60,8 @@ void Machine::reset() {
     sub_credit_ = 0;
     sound_credit_ = 0;
     io_ctrl_ = 0;
-    io_stretch_ = false;
+    io_selects_ = 0;
+    io_nmi_lag_ = 0;
     io_timer_state_ = false;
     io_rw_ = false;
     mcu51_mode_ = 0;
@@ -252,21 +253,25 @@ void Machine::io06_ctrl(uint8_t v) {
     io_ctrl_ = v;
     if ((v & 0xE0) == 0) {
         io_timer_state_ = false;
-        io_stretch_ = false;
         mcu_select(false);
         return;
     }
-    io_stretch_ = (v & 0x10) != 0;
+    // Reads lead NMI by one select: the 51xx.bin $24F ring is 4 bytes, main $0299 takes 3.
+    io_selects_ = 0;
+    io_nmi_lag_ = (v & 0x10) ? 1 : 0;
     // The clock restarts on the next 06XX tick (MASTER/384, every 64 T-states).
     io_next_edge_ = (main.cycles / 64 + 1) * 64;
 }
 
 void Machine::io06_edge() {
-    // R/W, chip selects and NMI follow the falling edge; a read skips its first NMI.
+    // R/W, chip selects and NMI follow the falling edge.
     io_timer_state_ = !io_timer_state_;
-    if (io_timer_state_) io_rw_ = (io_ctrl_ & 0x10) != 0;
-    bool nmi = io_timer_state_ && !io_stretch_;
-    io_stretch_ = false;
+    bool nmi = false;
+    if (io_timer_state_) {
+        io_rw_ = (io_ctrl_ & 0x10) != 0;
+        nmi = io_selects_ >= io_nmi_lag_;
+        if (!nmi) io_selects_++;
+    }
     mcu_select(io_timer_state_);
     if (nmi && !sub_reset) {
         main.set_nmi(true);

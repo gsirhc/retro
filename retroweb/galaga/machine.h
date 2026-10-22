@@ -117,7 +117,8 @@ private:
 
     uint8_t io_ctrl_ = 0;
     uint64_t io_next_edge_ = 0;
-    bool io_stretch_ = false;
+    int io_selects_ = 0;
+    int io_nmi_lag_ = 0;
     bool io_timer_state_ = false;
     bool io_rw_ = false;
     int mcu51_mode_ = 0;

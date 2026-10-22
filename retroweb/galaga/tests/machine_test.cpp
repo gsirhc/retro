@@ -116,10 +116,41 @@ TEST(Io, ReadModeClockIrqs51xx) {
     m.run_cycles(500);
     m.mem_write(0x7100, 0x71);
     EXPECT_EQ(m.mem_read(0x7000), 0xFF);
-    // First falling edge is a read stretch: /IO only, no host NMI.
+    // The first select of a read has no host NMI.
     m.run_cycles((64 << 3) + 80);
     EXPECT_EQ(m.mem_read(0x7000), 0xF5);
     EXPECT_FALSE(m.watchdog_reset);
+}
+
+TEST(Io, ReadGivesTheDeviceOneMoreSelectThanNmis) {
+    Machine m;
+    RomSet set;
+    set.has51 = true;
+    // IRQ counts a nibble onto O; the loop at $10 enables it and waits.
+    const uint8_t irq[] = {0x58, 0x80, 0x09, 0x0D, 0x23, 0x01, 0x3C};
+    std::copy(std::begin(irq), std::end(irq), set.mcu51.begin() + 0x02);
+    set.mcu51[0x00] = 0xD0;
+    set.mcu51[0x10] = 0x3E;
+    set.mcu51[0x11] = 0x04;
+    set.mcu51[0x12] = 0xD2;
+    m.load_roms(set);
+    // Back-to-back 3-byte reads into $8800; NMI is one LDI, then a stop.
+    const uint8_t boot[] = {0x31, 0x00, 0x8C, 0xD9, 0x11, 0x00, 0x88, 0xD9, 0xD9, 0x21, 0x00, 0x70,
+                            0x01, 0x03, 0x00, 0xD9, 0x3E, 0x71, 0x32, 0x00, 0x71, 0x3A, 0x00, 0x71,
+                            0xFE, 0x10, 0x20, 0xF9, 0x18, 0xEA};
+    std::copy(std::begin(boot), std::end(boot), m.rom_main.begin());
+    const uint8_t nmi[] = {0xD9, 0xED, 0xA0, 0xEA, 0x71, 0x00, 0x3E, 0x10, 0x32, 0x00, 0x71, 0xD9, 0xED, 0x45};
+    std::copy(std::begin(nmi), std::end(nmi), m.rom_main.begin() + 0x66);
+    m.reset();
+    m.mem_write(0x6823, 0x01);
+    m.run_cycles(6000);
+    EXPECT_EQ(m.ram1[0], 0xF1);
+    EXPECT_EQ(m.ram1[1], 0xF2);
+    EXPECT_EQ(m.ram1[2], 0xF3);
+    // The fourth select of each read is the device's, so the next read starts at 5.
+    EXPECT_EQ(m.ram1[3], 0xF5);
+    EXPECT_EQ(m.ram1[4], 0xF6);
+    EXPECT_EQ(m.ram1[5], 0xF7);
 }
 
 TEST(Io, ReadWriteLineLatchesOnTheClockEdge) {
