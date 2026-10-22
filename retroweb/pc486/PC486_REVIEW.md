@@ -1806,7 +1806,7 @@ the real part behaves, not as a convenience table:
 
 Scaling 6 bits to the renderer's 8 uses `(v << 2) | (v >> 4)`, which maps
 0→0 and 63→255 exactly. A real DAC drives a full-scale analog ramp, so 63
-*is* maximum brightness; the plain `v << 2` some emulators use tops out at
+*is* maximum brightness; the plain `v << 2` tops out at
 252 and quietly darkens every white on screen. This is the same full-scale
 convention `DecodeEgaColor` already used for its 2-bit channels.
 
@@ -3065,8 +3065,7 @@ stereo. That is exactly the card a period driver describes to itself as
 software reads.
 
 Everything about the register semantics comes from Creative's own *Sound
-Blaster Series Hardware Programming Guide* rather than from another
-emulator's source -- see §11.6. Where the guide is silent (a handful of
+Blaster Series Hardware Programming Guide*, see §11.6. Where the guide is silent (a handful of
 diagnostic commands Creative never documented but drivers use anyway), the
 sources list says so explicitly.
 

@@ -39,7 +39,7 @@ and Pertec's FD-400 operating and service manual: 360 rpm rotation, a byte
 every 32 µs, the head-load, step and settle timing, and a track-0 line that
 follows the head. `disk_bootrom.h` is the DBL PROM image; its RAM-resident code
 matches a dumped DBL 3.3 PROM (deramp.com `DBL33.PRN`). See `ALTAIR_REVIEW.md`
-§3.2 for the sources and what is still unsourced.
+§3.2 for the sources and what isn't modelled.
 
 ## Toolchain
 

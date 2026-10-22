@@ -486,7 +486,7 @@ Items GA1-GA5, B1-B3 and X4 from `shared/cpu/Z80_ARCADE_PARITY.md`.
   taking an interrupt costs three more (the two-cycle list is the
   datasheet's, the three extra cycles are Unsourced). `step()` now returns every cycle it burns, and the
   board waits them out. `Io.McuSpendsTwoSlotsOnTwoCycleInstructions`.
-- **06XX timing.** Rebuilt in §10.
+- **06XX timing.** See §10.
 - **The 54XX isn't readable.** The bus reads `$FF` for it.
   `Io.Reading54xxGivesTheOpenBus`.
 - **MB88 ISA suite.** `mb88_test.cpp` checks every opcode, the timer, the
@@ -499,7 +499,7 @@ Items GA1-GA5, B1-B3 and X4 from `shared/cpu/Z80_ARCADE_PARITY.md`.
 
 ## 9. Sound network from the parts
 
-Re-derived from the CPU PCB sheet (page 7-9) and its designation list.
+Derived from the CPU PCB sheet (page 7-9) and its designation list.
 
 - Fitted: O0-O3 ladder R46-R43 (47K/22K/10K/4.7K) into R42 150K, R41 22K
   to ground, R40 470K, C27/C26 0.01 µF, mixed through R37 10K. O4-O7

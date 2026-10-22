@@ -31,7 +31,7 @@ scope or sequencing, not a correction of the review's facts.
 | # | Item | Status |
 |---|---|---|
 | §5.4 | "~716 bytes free" | **Resolved empirically** — booted `stock` with Auto-load and read the ROM's own banner. It prints `716 BYTES FREE`, and `4K BASIC 4.0 / COPYRIGHT MITS 1976` — which also answers §5.3's version-number question: not invented, it's what the ROM itself prints. No doc changes needed. |
-| §7.1 | CLAUDE.md's track-0 example | **Fixed.** Replaced with the `ANA` auxiliary-carry quirk as the "keep a real hardware quirk" example, and stated the distinction between a real hardware quirk and another emulator's shortcut explicitly so it doesn't drift back. |
+| §7.1 | CLAUDE.md's track-0 example | **Fixed.** Replaced with the `ANA` auxiliary-carry quirk as the "keep a real hardware quirk" example, and stated the distinction between a real hardware quirk and a convenience explicitly so it doesn't drift back. |
 | §3.5 | Boot PROM writable at 64 KB | **Fixed.** `bus.read`/`bus.write` now check the ROM window before the RAM ceiling, and `bus.write` drops writes into it. New disk.spec.ts test drives an `STA` through the CPU (not `writeByte()`, which bypasses the bus) to prove it. |
 | §6.8 | Test-seam guard | **Fixed** — real `URLSearchParams` parse instead of `.includes("test")`. |
 | §6.7 | `make cpm` not in `make check` | **Fixed** — `check: demo test cpm`; no-ops harmlessly if `cpm/*.COM` aren't fetched locally. |
@@ -44,9 +44,9 @@ scope or sequencing, not a correction of the review's facts.
 | §3.2b | `Disk88::reset()` homes the head | **Fixed.** RESET now only deselects the controller and clears its latches (`selected_`, `flags_`, `sector_`, `bufpos_`, `write_dirty_`); the head-homing loop is gone. New GoogleTest `DiskTest.ResetDoesNotHomeTheHead`, plus a Playwright test that boots CP/M (which seeks off track 0), hits RESET, and confirms the track is unchanged while the controller does deselect. |
 | §3.4a/b | Cassette transport frozen while stopped; RESET rewinds the tape | **Fixed.** `Machine::reboot()` no longer calls `cassette_.reset()` at all (the deck isn't on the bus RESET reaches). The frozen-transport bug needed more than removing a call, though: `cassette_.tick()` was paced entirely by `cpu_.cycles`, which never advances while the CPU is stopped. New `Machine::tickCassette(dtMs, running)`, called every rendered frame regardless of run state: while running it still paces off `cpu_.cycles` exactly as before (so 25×/50× and turbo stay correct); while not, it advances a separate `idle_cycles_` counter by real elapsed time at 2 MHz-equivalent, added to `cpu_.cycles` before the same `cassette_.tick()` call — so the two paces splice with no jump when RUN resumes. Two new Playwright tests: PLAY keeps winding with the CPU on STOP, and RESET touches neither tape position nor transport state. **Follow-up regression, found 2026-09-11 via CI (not this review):** `Cpu::reset()` (called by `Machine::reboot()`, i.e. the RESET paddle) zeroes `cpu_.cycles` back to 0 — so `cpu_.cycles` isn't just "frozen" during a reset the way this fix assumed, it *goes backward* from `cassette_.tick()`'s point of view. `tick()`'s `uint64_t d = cpuCycles - prev_tick_cy_` underflowed on that backward jump, turning it into an astronomically large spurious "elapsed time" that yanked the head to `capacity()` in one tick — the exact bug this fix's own "RESET touches neither tape position" test exists to catch, just not reliably (whether the underflowing math actually moved `pos_` measurably depended on how many cycles had elapsed before the reset). Fixed in `CassetteACR::tick()`: a `cpuCycles < prev_tick_cy_` guard resyncs the baseline and treats that tick as zero elapsed time, instead of underflowing. New GoogleTest `TickToleratesCpuCycleCounterGoingBackwardOnReset`. |
 | §2.2, §2.3 | `EI` delay, interrupt wiring | **Fixed.** `Cpu::ei_delay_` blocks `interrupt()` for exactly one retiring instruction after `EI` (counted down at the top of `step()`, not decremented by HALT's own idle cycles). `sio_.on_irq` now fires `cpu_.interrupt(0xFF)` (RST 7, the conventional Altair 2SIO vector) in `Machine`'s constructor. New `tests/interrupt_test.cpp` (8 cases): DI-ignored, EI-taken, HALT-wakes, HALT-stays-halted-while-disabled, INTE-cleared-on-accept, the vector for all 8 RST n, the EI delay itself, and EI-immediately-followed-by-HLT. Full Playwright suite re-run afterward specifically to check no bundled software's dormant interrupt-enable now misbehaves — none does (nothing in `disks/`/`roms/` was found to exercise this path; it's correct but, as flagged below, still unproven against real software). |
-| §3.2a | 138th byte per sector | **Superseded by the 2026-10-18 rebuild (§3.2).** Reads past byte 137 return the zero tail the write circuit lays down to the end of the sector (MITS 88-DCDD manual p.135), `0x00`. GoogleTest `ReadsPastByte137ReturnTheZeroTail`. |
-| §3.2c | Empty drive reports healthy | **Fixed, then rebuilt (§3.2).** A drive with no diskette can't be enabled (MITS 88-DCDD manual p.133 note a), so selecting it leaves the controller disabled and every port floats to `0xFF`. GoogleTests `EmptyDriveCannotBeEnabled` and `DisabledControllerFloatsAllPorts`. |
-| §3.2d | 88-DCDD has no rotation timing | **Fixed** — `Disk88::tick()`/`setSpeed()` gate `IN 0x09`'s sector advance on a sectors/sec credit, same shape as `CassetteACR`'s byte credit; default (never called) is unlimited, so every pre-existing caller (native harnesses, GoogleTest) is unaffected. Browser build adds a LOAD SPEED selector to the disk cabinet (Realistic ≈193/sec ≈166 ms/rev / 5×/25×/50×/Max-under-`?test=1`), matching the paper-tape/cassette pattern exactly. New fidelity test proves Realistic measurably slows a CP/M boot. **Superseded by the 2026-10-18 rebuild (§3.2):** Realistic is now the real 360 rpm drive with its head and step timing, not a sector-advance credit. |
+| §3.2a | 138th byte per sector | **Fixed (§3.2).** Reads past byte 137 return the zero tail the write circuit lays down to the end of the sector (MITS 88-DCDD manual p.135), `0x00`. GoogleTest `ReadsPastByte137ReturnTheZeroTail`. |
+| §3.2c | Empty drive reports healthy | **Fixed (§3.2).** A drive with no diskette can't be enabled (MITS 88-DCDD manual p.133 note a), so selecting it leaves the controller disabled and every port floats to `0xFF`. GoogleTests `EmptyDriveCannotBeEnabled` and `DisabledControllerFloatsAllPorts`. |
+| §3.2d | 88-DCDD has no rotation timing | **Fixed** — `Disk88::tick()`/`setSpeed()` gate `IN 0x09`'s sector advance on a sectors/sec credit, same shape as `CassetteACR`'s byte credit; default (never called) is unlimited, so every pre-existing caller (native harnesses, GoogleTest) is unaffected. Browser build adds a LOAD SPEED selector to the disk cabinet (Realistic ≈193/sec ≈166 ms/rev / 5×/25×/50×/Max-under-`?test=1`), matching the paper-tape/cassette pattern exactly. New fidelity test proves Realistic measurably slows a CP/M boot. **Refined in §3.2:** Realistic is the real 360 rpm drive with its head and step timing, not a sector-advance credit. |
 | §3.6a | Status lamps (MEMR/M1/etc.) from real machine-cycle status | **Partially fixed — see the note below on what's still approximated.** `MEMR`/`WO`/`INP`/`OUT` now reflect which `Bus` callback fired last (tracked in `wasm_machine.cpp`, no CPU-core change needed since `read`/`write`/`in`/`out` were already four separate callbacks); `INT` lights when `cpu_.interrupt()` was actually served since the last poll. `HLDA`/`PROT` were already correct as permanently off (no DMA peripheral; PROTECT is a documented no-op) — not bugs, just mislabelled as such in the original finding. `M1`/`STACK` remain approximated; see below for why. |
 
 ### What's still approximated in §3.6a, and why
@@ -306,9 +306,7 @@ master reset. A real 6850 master reset clears the receiver.
 
 `retroweb/altair8800/disk88.{h,cpp}`
 
-**Rebuilt 2026-10-18 from primary sources.** The controller was rewritten from
-scratch against MITS's and Pertec's own documentation; nothing was carried
-over from the earlier implementation. Sources:
+The controller follows MITS's and Pertec's own documentation. Sources:
 
 - MITS, *Altair Floppy Disk Drive and Controller Hardware Documentation*
   (1977, deramp.com `Altair Floppy (88-DCDD) Manual.pdf`): "Altair Disk
@@ -855,11 +853,11 @@ interface line, which Pertec's manual (§2.6.3) defines as "a function of the
 position of the magnetic head assembly": a switch on the carriage, so it
 follows the head in both directions. The only hold-off is the drive's own,
 which keeps the line false until 40 ms after the last step (§2.6.3.1). A
-latching line isn't period behaviour; it came from another emulator's
-implementation, and it breaks a BIOS whose head-home routine trusts the line.
+latching line isn't period behaviour, and it breaks a BIOS whose head-home
+routine trusts the line.
 
 **Resolved.** `CLAUDE.md` now uses the 8080 `ANA` auxiliary-carry quirk as its
-example. The rebuilt controller (§3.2) models the FD-400 switch and its 40 ms
+example. The controller (§3.2) models the FD-400 switch and its 40 ms
 hold-off; `Track0LineFollowsHead` and `Track0ReportsOnlyAfterTheHeadSettles`
 pin it.
 
@@ -892,7 +890,7 @@ pin it.
 - Media (`*.bin`, `*.dsk`) is fetched at build time with pinned SHA-256s rather
   than committed. Correct call, and the CI cache keying on the workflow file
   hash is neat.
-- Provenance is cited in headers wherever behaviour was ported.
+- Provenance is cited in headers wherever behaviour comes from a source.
 
 **Two things worth improving:**
 
