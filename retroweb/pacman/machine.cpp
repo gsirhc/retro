@@ -5,7 +5,7 @@
 namespace pacman {
 namespace {
 
-// Aux-board EPROM wiring, recovered from the U5/U6/U7 dumps (PACMAN_REVIEW.md §1).
+// Aux-board EPROM wiring from tools/derive_aux.py; U6 and data match schematic M051-00617-B002.
 // Entry k is the EPROM pin that Z80 line k reaches.
 constexpr int kAuxDataPin[8] = {1, 2, 3, 6, 7, 5, 4, 0};
 constexpr int kU5AddrPin[11] = {0, 1, 2, 4, 3, 8, 5, 9, 10, 7, 6};

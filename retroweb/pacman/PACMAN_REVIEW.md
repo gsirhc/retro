@@ -59,49 +59,59 @@ the original Pac-Man map. The latch powers on clear; Pac-Man's IM 2
 vector table sits in `$3FF8–$3FFF`, so the first vblank IRQ both enables
 Ms. Pac-Man and reads U7's vector. Z80 RESET (watchdog) does not clear
 the PAL. The patent describes the scheme (PROM-mapped address and data
-swaps, trap detection on address values) but gives no line orders, so
-the wiring and the forty windows were recovered from the U5/U6/U7 dumps
-themselves, with the Pac-Man program chips as the reference for Z80 code:
+swaps, trap detection on address values) but gives no line orders.
 
-- **Data pins.** A byte histogram is unchanged by any address swap, so
-  each of the 8! data orders was scored by how closely the aux bytes'
-  histogram matched the Pac-Man program's. Z80 D0-D7 come from EPROM
-  D1, D2, D3, D6, D7, D5, D4, D0 (`kAuxDataPin`).
-- **Address pins, low bits.** With data fixed, the EPROM line carrying
-  Z80 A<k> was chosen, A0 first, by the likelihood of the byte pairs
-  that become adjacent (Pac-Man byte-bigram model). U6 and U7 agree:
-  A0-A2 straight, then A3 to pin 10, A4-A6 to pins 3-5, A7 to 9, A8 to
-  6, A9 to 8, A10 to 7, A11 straight (`kU6U7AddrPin`). Swapping any two
-  of A3-A11 lowers the share of JP/CALL targets that land on decoded
-  instruction starts (86 of 87 as wired).
-- **U5.** A0-A5 come out of the same bigram search (A3 to pin 4, A4 to
-  3, A5 to 8). U5 splits into 62 eight-byte chunks plus a pointer table:
-  40 chunks are near-copies of 8-byte-aligned Pac-Man code, 22 are blank
-  `$FF`. All 40 have physical pins 6 and 7 low, so A9/A10 are those
-  pins. The table at `$81F0` lists eight cutscene scripts; with A9 on
-  pin 7 and A10 on pin 6 every entry lands just after an `$FF`
-  terminator, the swap lands on none. Of the six A6-A8 orders over pins
-  5, 9, 10, only A6=5, A7=9, A8=10 puts every table entry after a
-  terminator and 13 of 14 code targets on instruction starts.
-- **Bank layout.** U7's own JP/CALLs point at `$3000-$37FF`, so U7 is
-  `$3000-$3FFF`. Patch-window and U7 targets into `$8800-$97FF` hit
-  instruction starts 17 of 19 times when U6 sees Z80 A11 unchanged
-  (`$8800` = its upper half) and 10 of 19 the other way. Decoded code
-  never addresses `$9800-$FFFF`, so those keep the stock A15 mirror.
-- **Patch windows.** Each non-blank U5 chunk was matched against every
-  8-byte-aligned window of `$0000-$2FFF`. 37 have a unique best match,
-  two of them byte-identical to Pac-Man. Three were settled by what the
-  replacement does: `$8028` (`CALL $955E`) and `$8090` (`CALL $9561`)
-  call routines that load `A` from `$4D2F` or load `DE` and keep `A`,
-  which reproduces only the instruction they overwrite at `$2800` and
-  `$2780` (`LD A,($4D2F)`, `LD DE,$391D`), not at the other candidates;
-  `$81A8` at `$19B8` is `CALL $1000; JR` and the jump lands on the
-  original `RST 30` at `$19C4`.
+Midway's aux board schematic (drawing M051-00617-B002, `ms_pacman_p4.pdf`
+on archive.org item `arcademanual_ms_pacman_p4`, PDF pp. 27-28, manual
+p. 7-15; assembly drawing A084-91415-B617 on pp. 25-26) wires U6 straight
+to the Z80 bus: A0-A11 to 2532 pins 8, 7, 6, 19, 5, 4, 3, 22, 2, 23, 1,
+18 and D0-D7 to pins 10, 11, 13, 16, 17, 15, 14, 9; U7 shares that bus.
+U5 gets the same data pins, Z80 A0-A2 on pins 8, 7, 6, A6 on pin 3 and
+A7 on pin 22. Its other lines (RA3-RA5, RA8-RA10) come from the CG822/
+CG823 custom chips (U2/U3), and the window and trap decode sits in those
+and CG820/CG821 (U0/U1), whose contents the manual does not give.
 
-The decoded U5/U6/U7 contents run as the Ms. Pac-Man program in
-`play_test`. The latch-set and latch-clear trap addresses have no source yet and
-are Unsourced. Covered by `Machine.Aux*` / `Machine.Im2VectorFetchEnablesAuxDecode`
-and `web/tests/mspacman.spec.ts`.
+`tools/derive_aux.py` recovers every table from the dumps alone, with
+the Pac-Man program chips as the model of Z80 code, and lands on the
+schematic wherever the schematic covers it:
+
+- **Data pins.** A byte histogram ignores address order, so all 8! data
+  orders are scored against Pac-Man's byte frequencies over U5+U6+U7.
+  Z80 D0-D7 come from EPROM D1, D2, D3, D6, D7, D5, D4, D0
+  (`kAuxDataPin`), 886 nats clear of the next order.
+- **U6/U7 A0-A7.** With data fixed, the chip line for Z80 A<k> is picked
+  A0 first by the likelihood of the byte pairs that become adjacent
+  (Pac-Man bigram model). Both chips give A0-A2, then 10, 3, 4, 5, 9.
+- **U6/U7 A8-A11 and banks.** The 24 orders of the last four lines and
+  every placement of the four 2K halves in `$3000-$3FFF`/`$8800-$97FF`
+  are scored by the bytes at, and just before, JP/CALL targets (Pac-Man's
+  own target statistics). Best: A8-A11 to 6, 8, 7, 11
+  (`kU6U7AddrPin`), U7 at `$3000-$3FFF`, U6's upper half at `$8800`
+  (Z80 A11 straight).
+- **U5.** Bigram gives A0-A2 straight. Only `$8000` holds chunks whose
+  four words all point inside the bank: the cutscene table at `$81F0`.
+  Of the 8! orders of A3-A10, one puts every table target just after an
+  `$FF` terminator on an `$F1`-`$F3` command (lead-in entropy 1.31 nats,
+  next 2.64): A3-A10 to 4, 3, 8, 5, 9, 10, 7, 6 (`kU5AddrPin`). A6 to 5
+  and A7 to 9 are the schematic's pins 3 and 22.
+- **Patch windows.** The 40 non-blank chunks below the table are matched
+  byte for byte against every 8-byte-aligned window of `$0000-$2FFF`. A
+  window keeps the chunk's A6/A7 (wired straight, above); every unique
+  best match already does. Ties then go to the window that differs in
+  one run of bytes: `$8028` to `$2800` (over `$2818`) and `$8090` to
+  `$2780` (over `$28F0`/`$2910`, which break A6/A7). Weakest:
+  `$81A8` to `$19B8`, 3 of 8 (`CALL $1000; JR` onto the original
+  `RST 30` at `$19C4`), next wired window 2 of 8.
+
+`make -C retroweb/pacman derive-aux-check` (part of `make check`) runs
+the tool on `roms/user/mspacman.zip`, `MSPACMAN_ROM` or
+`~/images/arcade/mspacman.zip` and fails unless every table and the bank
+layout in `machine.cpp` match. It skips without a dump, so CI skips it.
+
+The latch-set and latch-clear trap addresses are Unsourced: that decode
+is inside the custom chips, and nothing in the dumps pins it. The decoded U5/U6/U7 run
+as the Ms. Pac-Man program in `play_test`. Covered by `Machine.Aux*` /
+`Machine.Im2VectorFetchEnablesAuxDecode` and `web/tests/mspacman.spec.ts`.
 
 ## 2. Clocks (never sped up on the live page)
 

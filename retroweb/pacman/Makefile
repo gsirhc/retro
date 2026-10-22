@@ -3,7 +3,9 @@
 #   make test    GoogleTest suite (video + WSG + machine + board smoke).
 #                User-ROM playthroughs skip unless roms/user/ holds a dump.
 #   make test-smoke  Smoke.* GoogleTest only (what deploy CI runs)
-#   make check   test (what nightly runs)
+#   make derive-aux-check  re-derive the Ms. Pac-Man aux wiring from a local
+#                mspacman dump and compare with machine.cpp (skips without one)
+#   make check   test + derive-aux-check (what nightly runs)
 #   make coverage  board-code llvm-cov report (no user-ROM playthroughs)
 #   make wasm    WebAssembly module
 #   make serve   wasm + test ROM + shared chrome, serve on :8000
@@ -16,7 +18,7 @@ CXXFLAGS ?= -std=c++17 -O2 -Wall -Wextra
 LLVM_PROFDATA ?= xcrun llvm-profdata
 LLVM_COV      ?= xcrun llvm-cov
 
-.PHONY: help test check wasm serve clean roms test-smoke coverage
+.PHONY: help test check wasm serve clean roms test-smoke coverage derive-aux-check
 
 help:
 	@sed -n 's/^#   //p' $(MAKEFILE_LIST)
@@ -56,7 +58,11 @@ wasm:
 serve:
 	$(MAKE) -C web serve
 
-check: test
+MSPACMAN_ROM ?= $(firstword $(wildcard roms/user/mspacman.zip) $(HOME)/images/arcade/mspacman.zip)
+derive-aux-check:
+	python3 tools/derive_aux.py --check machine.cpp $(MSPACMAN_ROM)
+
+check: test derive-aux-check
 
 clean:
 	rm -rf tests/build tests/build-cov tests/coverage-cpp
