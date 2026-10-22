@@ -9,11 +9,11 @@ const HISCORE_ADDR = 0x20F4;
 const HISCORE_LEN = 2;
 const HISCORE_INIT = 0x1BF4;
 const CHIPS = ["h", "g", "f", "e"];
-// Midway upright cellophane strips on the B&W tube.
+// Cellophane strips over the ROM's object rows plus one font cell; real strip sizes unpublished.
 const GELS = [
-  [0, 32, 224, 30, "rgb(255,32,32)"],
-  [0, 184, 224, 56, "rgb(32,255,32)"],
-  [16, 240, 118, 20, "rgb(32,255,32)"],
+  [0, 32, 224, 24, "rgb(255,0,0)"],
+  [0, 184, 224, 56, "rgb(0,255,0)"],
+  [0, 240, 112, 20, "rgb(0,255,0)"],
 ];
 
 function clip(bytes, n) {

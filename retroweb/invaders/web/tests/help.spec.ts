@@ -40,8 +40,8 @@ test("the cellophane gels tint the full-white pattern red at the top and green a
     return white(px.mid) && white(px.top) && white(px.corner) ? px : null;
   });
   const px = (await handle.jsonValue())!;
-  expect(px.red).toEqual([255, 32, 32]);
-  expect(px.green).toEqual([32, 255, 32]);
-  expect(px.base).toEqual([32, 255, 32]);
+  expect(px.red).toEqual([255, 0, 0]);
+  expect(px.green).toEqual([0, 255, 0]);
+  expect(px.base).toEqual([0, 255, 0]);
   expect(px.blank).toEqual([0, 0, 0]);
 });

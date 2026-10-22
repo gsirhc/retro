@@ -121,9 +121,25 @@ caught up.
 - The frame is latched at line 224 and shown upright: 224×260. The bottom
   four rows are the shift register flushing zeros after HBLANK.
 - The tube is black and white. Color comes from the Midway upright's
-  cellophane strips, multiplied over the canvas in `app.js`: red y 32–62,
-  green y 184–240, and green y 240–260 for x 16–134. The moon backdrop
-  art is copyrighted and not drawn.
+  cellophane strips, multiplied over the canvas in `app.js`. The real strip
+  measurements are not published, so the edges are an approximation derived
+  from where the ROM draws things. Upright row = 255 minus the pixel number
+  along the byte (`$1474` shifts H:L right three; H = column + `$20`).
+  - Saucer: object L = `$D0` (init `$1B89`), 8 rows, upright y 40–47. Red band
+    = object rows with 8 rows of margin: y 32–55. It starts right under the
+    score digits (L = `$1C`, y 24–31).
+  - Shields: `$0224` draws four 22-column, 2-byte-tall images from `$2806`,
+    stride 45 columns, upright y 192–207. Player cannon: L = `$20` (init
+    `$1B1A`), y 216–223. Base line: `$01CF`, bit 0 of byte 2, y 239.
+    Green band = shield top minus 8 rows to the base line: y 184–239.
+  - Bottom strip, y 240–247: reserve count at column 8 (`$2501`), reserve
+    cannons from column 24, 16 columns each (`$19E6`), at most 5 on a 6-ship
+    DIP. CREDIT label and digits sit at columns 136–207 (`$193E`, `$194A`).
+    Green strip = columns 0–111 (count minus 8, five cannons plus 8), y 240 to
+    the bottom of the frame. The credit text stays white.
+  - Tint is a design choice: pure primaries, (255,0,0) and (0,255,0), so the
+    other channels are fully blocked.
+- The moon backdrop art is copyrighted and not drawn.
 
 ## 9. Watchdog
 
@@ -199,7 +215,6 @@ Not on the sheet:
 
 ## Unsourced
 
-- Gel rectangles in `app.js`.
 - D5 at INTA: 2B pin 10 shows only a stub on the scan. It reads 0 because
   the ISRs sit at `$08`/`$10`.
 - Watchdog modulus of 255 frames.
