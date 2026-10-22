@@ -97,7 +97,7 @@ private:
     uint64_t cycles(double seconds) const { return uint64_t(seconds * hz_); }
     double typematic_delay() const { return 0.25 * double(1 + ((typematic_ >> 5) & 3)); }
     double typematic_period() const {
-        // (8 + A) * 2^B * 4.17 ms, A = bits 0-2, B = bits 3-4.
+        // (8+A)*2^B*0.00417 s, A = bits 0-2, B = bits 3-4 (PC AT TR 6139362 p.4-7)
         return double(8 + (typematic_ & 7)) * double(1 << ((typematic_ >> 3) & 3)) * 0.00417;
     }
 

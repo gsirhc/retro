@@ -7,8 +7,7 @@ namespace pc486 {
 
 namespace {
 
-// E3h returns this null-terminated copyright string on real SB16 DSPs; drivers
-// use it to spot a genuine card.
+// E3h string unsourced
 constexpr char kCopyright[] = "COPYRIGHT (C) CREATIVE TECHNOLOGY LTD, 1992.";
 
 // Rate registers hold anything the DSP can clock; the per-format limit is applied
@@ -373,19 +372,19 @@ void SoundBlaster::run_command() {
                 // Exit at the end of the current block
                 case 0xD9: if (bits16_) exit_autoinit_ = true; break;
                 case 0xDA: if (!bits16_) exit_autoinit_ = true; break;
-                case 0xE0: read_fifo_.push_back(uint8_t(~params_[0])); break;  // DSP identification
+                case 0xE0: read_fifo_.push_back(uint8_t(~params_[0])); break;  // unsourced
                 case 0xE2: break;  // DMA identification, undocumented: takes its parameter, writes nothing
                 case 0xE1:  // major then minor (SBPG chapter 6)
                     read_fifo_.push_back(kDspMajor);
                     read_fifo_.push_back(kDspMinor);
                     break;
-                case 0xE3:
+                case 0xE3:  // unsourced
                     for (const char *p = kCopyright; *p; ++p) read_fifo_.push_back(uint8_t(*p));
                     read_fifo_.push_back(0);  // the string is null-terminated
                     break;
-                case 0xE4: test_reg_ = params_[0]; break;
-                case 0xE8: read_fifo_.push_back(test_reg_); break;
-                // Diagnostic interrupt triggers: how a driver works out which IRQ the card is on
+                case 0xE4: test_reg_ = params_[0]; break;  // unsourced
+                case 0xE8: read_fifo_.push_back(test_reg_); break;  // unsourced
+                // F2h/F3h unsourced
                 case 0xF2: irq8_ = true; break;
                 case 0xF3: irq16_ = true; break;
                 default: break;  // unknown command: ignored, like real hardware

@@ -3020,12 +3020,25 @@ doing §48.
 ### 49.1 Odd/even addressing (E15)
 
 `Ega` stored odd/even data by shifting the CPU address right one. The
-EGA keeps the address and swaps A0 through a multiplexer. With Graphics
-Miscellaneous bit 1 set, A0 becomes the inverted page select
+EGA keeps the address whole and substitutes a different bit for A0. With
+Graphics Miscellaneous bit 1 set, A0 becomes the inverted page select
 (Miscellaneous Output bit 5), or A16 in the 128KB map. With Memory Mode
-bit 1 clear, each plane is 16KB. Plane selection is now split the way
-the card splits it: Memory Mode bit 2 gates writes to the odd or even
+bit 1 clear, each plane is 16KB. Plane selection is split the way the
+card splits it: Memory Mode bit 2 gates writes to the odd or even
 planes, and Graphics Mode bit 4 puts A0 on the read map.
+
+Sources: IBM Personal System/2 Video Graphics Array (VGA/XGA) Technical
+Reference (May 1992, bitsavers `IBM_VGA_XGA_Technical_Reference_Manual_May92.pdf`):
+Graphics Miscellaneous register p.2-86, where the Odd/Even field "directs
+the system address bit, A0, to be replaced by a higher-order bit" and the
+Memory Map field 00 selects A0000 for 128KB; Memory Mode register p.2-54,
+where Extended Memory "enables the video memory from 64KB to 256KB", so
+clear means 64KB total, 16KB a plane.
+
+Unsourced: that the substituted bit is the inverted Miscellaneous Output
+bit 5, that it is A16 in the 128KB map, and the 0x3FFF mask itself. The VGA
+manual leaves Miscellaneous Output bit 5 undefined, and no copy of the IBM
+EGA Technical Reference was available to check these against.
 
 The display side is `Ega::display_address()`. In byte mode (CRTC 17h bit
 6) the CRTC address is the plane offset. In word mode it shifts up one,
@@ -3582,6 +3595,10 @@ clock. One AT-specific rule from 6523261: "If a key is pressed and held
 down while keyboard transmission is inhibited, only the first make code is
 stored in the buffer", so no repeats are generated while the clock is held
 low.
+
+The repeat period `(8+A) * 2^B * 4.17 ms` (+-20%) and the 250 ms delay steps
+come from the IBM PC AT Technical Reference (6139362, Sep 1985) p.4-7,
+"Set Typematic Rate/Delay (Hex F3)".
 
 The page drops the browser's `keydown` repeats and tracks held keys.
 Leaving the screen (blur, or the tab hiding) sends a break for each, or a

@@ -45,6 +45,11 @@ W65C02S in `assembler6502/` — NMOS quirks (JMP ($xxFF) wrap, RMW abs,X = 7, de
 N/Z/V from the binary path, D preserved on reset/IRQ) and the full
 undocumented opcode set are intentional.
 
+Unsourced: LXA ($AB) ORs A with $EE before the AND. "No More Secrets: NMOS
+6510 Unintended Opcodes" v0.91 p.48 says the constant depends on chip and
+temperature (common values $00, $FF) and names no $EE. No primary source
+for $EE was found. No ROM here depends on it.
+
 ```sh
 make test-smoke-mos6502   # Mos6502.* GoogleTest (deploy CI mos6502-test)
 make dormann              # Klaus Dormann 6502_functional_test.bin

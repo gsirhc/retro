@@ -3208,11 +3208,12 @@ wrong fails quietly:
 - **`SET BLASTER=A220 I5 D1 H5 T6`** -- the period-standard environment
   string, corroborating 0x220/IRQ5/DMA1/DMA5 as the defaults this device
   powers up with (mixer 80h = 02h, mixer 81h = 22h).
-- The E3h copyright string real cards return
-  (`COPYRIGHT (C) CREATIVE TECHNOLOGY LTD, 1992.`). E0h (bitwise
-  complement), E4h/E8h (a diagnostic register that survives DSP reset),
-  and F2h/F3h (8-bit and 16-bit interrupt triggers) are not in Creative's
-  guide. They stay in the code. They are not a hardware citation.
+- Unsourced: the E3h copyright string (`COPYRIGHT (C) CREATIVE TECHNOLOGY LTD, 1992.`
+  and that it ends in a null), E0h (bitwise complement), E4h/E8h (a
+  diagnostic register that survives DSP reset), and F2h/F3h (8-bit and
+  16-bit interrupt triggers). None is in Creative's guide, and no primary
+  source or real-card capture was found. They stay in the code and are not
+  a hardware citation.
 - **DMX (Paul Radek), as used by DOOM** -- background on why ~11 kHz 8-bit
   unsigned mono is the format the digitized-output path most needs to get
   right for this era, and why auto-init DMA (rather than a chain of
@@ -6312,7 +6313,9 @@ AH=03h work), restored by `F6` and `FF`. A grey key repeats with its `E0`
 prefix. Pause never repeats. Releasing the key, or pressing another, ends
 it, including when the controller has the keyboard disabled at that moment.
 Sources: IBM PS/2 Technical Reference, Set Typematic Rate/Delay; Chapweske,
-"The AT-PS/2 Keyboard Interface".
+"The AT-PS/2 Keyboard Interface"; IBM PC AT Technical Reference
+(6139362, Sep 1985) p.4-7 for the period `(8+A) * 2^B * 0.00417 s` and the
+`(1 + bits 6-5) * 250 ms` delay, both +-20%.
 
 The first version stuck keys in Doom. The page sent each multi-byte scan
 code with 20 ms gaps, and two keys' sequences could interleave: releasing

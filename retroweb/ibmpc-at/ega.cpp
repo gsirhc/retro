@@ -104,14 +104,14 @@ uint32_t Ega::window_offset(uint32_t addr) const {
     }
 }
 
-// A0 is replaced in odd/even chaining: by the inverted page bit, or A16 in the 128KB map.
+// Odd/even: A0 replaced by a higher bit (VGA TR p.2-86). Page-bit polarity and A16 unsourced.
 uint32_t Ega::cpu_plane_offset(uint32_t off) const {
     uint32_t a = off & 0xFFFF;
     if (gfx_[6] & 0x02) {
         uint32_t a0 = gc_memory_mapping() == 0 ? (off >> 16) & 1 : (~misc_output_ >> 5) & 1;
         a = (a & ~1u) | a0;
     }
-    if (!(sequencer_[4] & 0x02)) a &= 0x3FFF;  // Memory Mode bit 1 clear: 64KB card addressing
+    if (!(sequencer_[4] & 0x02)) a &= 0x3FFF;  // Memory Mode EM clear: 64KB card (VGA TR p.2-54)
     return a;
 }
 

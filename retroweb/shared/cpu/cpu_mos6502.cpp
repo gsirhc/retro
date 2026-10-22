@@ -457,7 +457,7 @@ int Cpu::step() {
         case 0xB7: lax(rb(am_zpy())); c = 4; break;
         case 0xBF: lax(rb(am_absy(crossed))); c = 4 + (crossed ? 1 : 0); break;
         case 0xAB: {
-            // LXA, MAGIC=$EE (Nesdev)
+            // LXA magic constant is chip dependent; $EE unsourced
             uint8_t imm = fetch8();
             lax(uint8_t((a | 0xEE) & imm));
             c = 2;
