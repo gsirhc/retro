@@ -5,10 +5,12 @@ const IDB_NAME = "retroweb-lunarrescue";
 const TEST = new URLSearchParams(location.search).has("test");
 const DIP_KEY = "retroweb.lunarrescue.dips";
 const ROM_KEY = "set";
-// Name $20CF, length $20DB, BCD score $20F4. ROM image copied from $1AA3.
+// Holder name $20CF, name length $20DB, BCD score $20F4. Reset copies ROM $1AA3 to $2000.
 const HISCORE_BLOCKS = [[0x20CF, 10], [0x20DB, 1], [0x20F4, 2]];
 const HISCORE_LEN = 13;
-const FACTORY = [0x1B, 0x1B, 0x1B, 0x1B, 0x1B, 0x1B, 0x1B, 0x1B, 0x1B, 0x1B, 0x0A, 0x00, 0x05];
+const HISCORE_IMAGE = 0x1AA3;
+const NAME_LEN_AT = 10;
+const NAME_LEN_DRAWN = 0x0A;
 const CHIPS = ["1", "2", "3", "4", "5", "6"];
 
 function clip(bytes, n) {
@@ -68,6 +70,7 @@ LunarRescueArcade().then(async (Module) => {
 
   let usingUserRom = false;
   let programCrc = 0;
+  let program = null;
   const keys = {};
   let coinUntil = 0;
   const coinDoor = document.getElementById("coinDoor");
@@ -168,11 +171,27 @@ LunarRescueArcade().then(async (Module) => {
     }
   }
 
-  function hiscoreIsFactory(b) { return FACTORY.every((v, i) => b[i] === v); }
+  // The image holds a zero name length; the first score-line draw ($0920) stores 10.
+  function factoryHiscore() {
+    if (!program) return null;
+    const f = [];
+    for (const [addr, n] of HISCORE_BLOCKS) {
+      for (let i = 0; i < n; i++) f.push(program[HISCORE_IMAGE + addr - 0x2000 + i]);
+    }
+    if (f[NAME_LEN_AT] === 0) f[NAME_LEN_AT] = NAME_LEN_DRAWN;
+    return f;
+  }
 
-  // Restore once init has written the factory table.
+  function hiscoreIsFactory(b) {
+    const f = factoryHiscore();
+    if (!f) return false;
+    return b.every((v, i) => v === f[i] || (i === NAME_LEN_AT && v === 0 && f[i] === NAME_LEN_DRAWN));
+  }
+
+  // Restore once the first score-line draw has run over the freshly copied image.
   function postDone() {
-    return machine.state().frames >= 30 && hiscoreIsFactory(readHiscore());
+    const b = readHiscore();
+    return b[NAME_LEN_AT] === NAME_LEN_DRAWN && hiscoreIsFactory(b);
   }
 
   const hiscore = arcadeHiscore({
@@ -216,6 +235,7 @@ LunarRescueArcade().then(async (Module) => {
     machine.loadRomSet(set.program, set.programHi, set.prom);
     usingUserRom = set.kind !== "hwtest";
     programCrc = arcadeCrc32(set.program);
+    program = set.program;
     hiscore.rearm();
     syncHiscoreResetBtn();
     setStatus(label);
@@ -227,6 +247,7 @@ LunarRescueArcade().then(async (Module) => {
   function loadBuiltInRom() {
     machine.loadHwtest();
     usingUserRom = false;
+    program = null;
     hiscore.rearm();
     syncHiscoreResetBtn();
     setStatus("Running test ROM");
@@ -260,6 +281,7 @@ LunarRescueArcade().then(async (Module) => {
       get muted() { return audio.isMuted(); },
       readHiscore,
       writeHiscore,
+      factoryHiscore,
       saveHiscoreNow: hiscore.saveNow,
       maybeSaveHiscore: hiscore.maybeSave,
       get hiscoreRestored() { return hiscore.restored; },

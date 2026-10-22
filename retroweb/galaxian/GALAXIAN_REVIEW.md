@@ -98,8 +98,9 @@ IN2: bonus bits 1:0 (default 00 = 7000), lives bit 2 (default 1 = 3).
   on and the bytes are still the factory zeros. Reset HIGH SCORE deletes
   the save and resets the board. Source: Tunstall's Galaxian ROM
   disassembly (github.com/ScottTunstall/Galaxian). The self-test path
-  clears work RAM at `$1B8A`, turns NMI on at `$1BC7`, and only
-  `UPDATE_HIGH_SCORE` (`$21E9`) writes `$40A8` after that.
+  clears work RAM at `$1B8A`, turns NMI on at `$1BC7`, and `JP $2000`
+  zeroes `$40A2-$40BF` once more. After that only `UPDATE_HIGH_SCORE`
+  (`$21E9`) writes `$40A8`.
 
 ## ROM policy
 

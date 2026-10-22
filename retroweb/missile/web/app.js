@@ -8,8 +8,8 @@ const DIP_KEY = "retroweb.missile.dips";
 const R8_FACTORY = 0x73; // 6 cities, 10000 bonus, mini trak-ball (TM-147, rev 3)
 const R10_FACTORY = 0x81; // 2 coins 1 play, English (TM-147 fig. 7)
 const HISCORE_ADDR = 0x2c;
-const HISCORE_LEN = 48; // 24 initials, 24 BCD
-const HISCORE_INITIALS = 0x24f3; // program offsets of the factory table
+const HISCORE_LEN = 48; // 8 x 3 initials at $2C, 8 x 3-byte BCD at $44
+const HISCORE_INITIALS = 0x24f3; // init at $74E1 copies $74F3 to $2C and $750B to $44
 const HISCORE_SCORES = 0x250b;
 const IN0_IDLE = 0xff;
 const IN1_IDLE = 0x67;
@@ -258,7 +258,6 @@ MissileArcade().then(async (Module) => {
     for (let i = 0; i < HISCORE_LEN; i++) machine.setRamByte(HISCORE_ADDR + i, bytes[i] & 0xff);
   }
 
-  // The ROM copies its own default table into RAM after clearing zero page.
   function factoryHiscore() {
     if (!program) return null;
     return [
@@ -272,7 +271,7 @@ MissileArcade().then(async (Module) => {
     return !!f && b.every((v, i) => v === f[i]);
   }
 
-  // The ROM copies its factory table in after clearing zero page; restore over that.
+  // Reset clears $0000-$01FF, then init copies the factory table in; restore over that.
   const hiscore = arcadeHiscore({
     store,
     len: HISCORE_LEN,

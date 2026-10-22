@@ -125,18 +125,43 @@ Not on the sheet:
 
 ## 6. HIGH SCORE
 
-Reset copies 256 bytes from ROM `$1AA3` to `$2000` (`$1653`, copier
-`$0B04`). In that image `$20F4` is `00 05`, printed as BCD by `$0AB7`.
-The next two bytes, `$20F6` `$20F7` = `1D 2F`, are the screen position,
-not the score. `$20CF` is the 10-letter name, printed by `$088D`. The
-image there is `1B 1B 13 00 08 13 0E 1B 1B 1B`. `$1B` is a blank glyph
-and `$00` is not drawn, so that reads as a blank, a blank, T, a blank,
-I, T, O, and three blanks. `$20DB` is the name length. The image stores
-`00`. The status routine `$0920` writes `$0A` when it finds zero, and
-the editor indexes `$20CF` by that byte (`$07D5`, `$0842`).
+Derived by disassembling the Taito `lrescue` program ROM (`lrescue.1` to
+`lrescue.4` at $0000-$1FFF, `lrescue.5` and `.6` at $4000; a local dump, not
+in the repo).
 
-`app.js` still waits for ten `$1B` bytes at `$20CF`. That is not the
-image the ROM copies.
+- Init: reset jumps to $164B. It copies 256 bytes from ROM $1AA3 to $2000
+  (`CALL $0B04`, B = 0), then $C0 bytes from $1BA3 to $2100 and $2200. The
+  first page is the game's variable block, so every variable starts as
+  ROM $1AA3 + n.
+- Table: one entry. The holder's name is ten glyph codes at $20CF, its length
+  is $20DB, and the score is two BCD bytes, low byte first, at $20F4-$20F5.
+  The image holds `1B 1B 13 00 08 13 0E 1B 1B 1B` for the name, `00` for the
+  length and `00 05` for the score (0500). Letters run from code 0 and digits
+  start at $1C (`ADI $1C` at $0587), so that reads blank, blank, T, A, I, T,
+  O and three blanks, and `$1B` is the blank. $20F6-$20F7 (`1D 2F`) is the
+  screen pointer for the score and is not saved. The name position $20CD is
+  recomputed on every draw.
+- Score-line draw: $0ABD (every attract and play screen) draws the score
+  through $0AB7, then calls $0920. With length 0 it sets the position to
+  $2D1E and stores $0A in $20DB, so the first draw turns the factory length
+  from 0 into 10. Otherwise it centres the name from the length. $088D draws
+  $20DB glyphs from $20CF.
+- Insert: $02B6 (from $04B0 and the high bank at $4AD0, $4AF1). $058C picks
+  the player's score ($20F8 for P1, $20FC for P2, by bit 0 of $20C6). The code
+  compares the high bytes against $20F5, then the low bytes against $20F4.
+  A larger score is copied into $20F4-$20F5 and $4700 redraws it and stores
+  the player in $20E3. $04D3 then runs name entry ($470A, $0657).
+- Name entry: $0657 copies 26 bytes from $08C2 to $20CB. That sets the name to
+  ten `1B`, the length to 0 and the entry flag $20DC to 1. $0842 stores a
+  letter at $20CF + length and increments the length, $0810 deletes one. When
+  entry ends $0878 clears $20DC, and $0920 turns a length of 0 into 10.
+- Saved: $20CF x 10, $20DB, $20F4 x 2. The on-screen score is drawn from
+  $20F4, with no second copy.
+- Ready and factory: the app builds the image from the loaded program (ROM
+  $1AA3 + offset, with a zero length read as 10). Restore waits until the
+  length is 10 and RAM equals it, so the image copy at reset and POST junk
+  never pass. A save is not written while RAM equals it, or equals it with
+  length 0.
 
 ## 7. Self-test ROM (`roms/hwtest/gen_hwtest.py`)
 

@@ -17,7 +17,7 @@ Fidelity rules follow `CLAUDE.md` and `.claude/arcade.md`.
   TDA2002AV amplifiers, gain of ten.
 - Andy McFadden's rev 3 disassembly,
   https://6502disassembly.com/va-missile-command/MissileCommand.html
-  (high-score RAM, R8/R10 decode, IRQ rate, trackball deltas, 256×231
+  (R8/R10 decode, IRQ rate, trackball deltas, 256×231
   picture). Read for behaviour only.
 
 ## Clock
@@ -119,6 +119,37 @@ of N10, R71 and R70 both 10K, inverts that for AUD2.
 - The data selector table printed on sheet 2A lists MD0-MD7 as D7-D0.
   The wiring and the read path agree with each other and not with the
   table's column order, so the wiring is used.
+
+## High score
+
+Derived by disassembling the Atari `missile` program ROM (`035820-02` to
+`035825-02`, $5000-$7FFF; a local dump, not in the repo).
+
+- Reset: the vector at $FFFC is $7B4B. It zeroes $0000-$01FF, then jumps to
+  $5001 when bit 6 of $4900 is set (self-test otherwise). $5001 does
+  `JSR $74E1`.
+- Init: $74E1 runs X from $17 down to 0 and copies `$74F3,X` to `$002C,X`
+  and `$750B,X` to `$0044,X`. That is 24 initials bytes and 24 score bytes,
+  so 8 entries.
+- Layout: entry n (0 worst, 7 best) is initials at `$2C + 3n` and a 3-byte
+  BCD score, low byte first, at `$44 + 3n`. The factory scores run
+  006950, 007005, 007150, 007200, 007250, 007330, 007495, 007500. The last
+  initials byte in ROM is $D4.
+- Insert: from $754D, for each player X = 1, 0 (score bytes `$01D6+X`,
+  `$01D8+X`, `$01DA+X`), Y runs $15 down to 0 in steps of 3 and calls $758B
+  when the entry is below the score. $758B moves each lower entry up one slot
+  (the copy at $75BA, so entry 0 is dropped), writes the score, sets its
+  initials to the player number (1 or 2) followed by two $5B blanks, and
+  sets $8D. $75E4 finds an entry whose first initial is 1 or 2 and runs the
+  three-letter entry. $76E4 rewrites any unfinished 1 or 2 entry to blanks, so
+  a save taken mid-entry restores as blank initials.
+- On-screen top score: $7523 draws $59-$5B (entry 7) through the shared score
+  printer $6AF6. There is no separate copy, so the table is the whole state.
+- Saved: $002C x 48. Nothing else the game keeps across attract cycles.
+- Ready and factory: the app reads the factory bytes from the loaded
+  program ($24F3 and $250B, the operands above less $5000). Restore waits
+  until RAM equals them, so the pre-init zeros never pass. A save is not
+  written while RAM equals them.
 
 ## Departures (labelled)
 

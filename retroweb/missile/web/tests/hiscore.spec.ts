@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 import { frames } from "./helpers";
 import { readFileSync } from "fs";
 
-// HIGH SCORE lives in work RAM at $2C-$5B (24 initials, 24 BCD). It persists for a user ROM and Reset clears it.
+// HIGH SCORE lives in work RAM at $2C-$5B (8 x 3 initials, 8 x 3-byte BCD, best entry last). It persists for a user ROM and Reset clears it.
 // The factory table is the ROM's own default, copied in after reset. Fixtures are the self-test ROM, which seeds
 // a stand-in table the same way, so tests poke RAM through the ?test=1 seam.
 
@@ -101,6 +101,22 @@ test.describe("HIGH SCORE persist", () => {
       const all = await t.loadSavedHiscores();
       return all[t.hiscoreKey]?.[4];
     })).toBe(0x42);
+  });
+
+  test("the best entry the board draws at $59-$5B is saved", async ({ page }) => {
+    await loadUser(page);
+
+    await page.evaluate(() => {
+      const m = (window as any).__test.machine;
+      m.setRamByte(0x59, 0x34);
+      m.setRamByte(0x5a, 0x12);
+      m.setRamByte(0x5b, 0x01);
+    });
+    await expect.poll(() => page.evaluate(async () => {
+      const t = (window as any).__test;
+      const all = await t.loadSavedHiscores();
+      return all[t.hiscoreKey]?.slice(45, 48);
+    })).toEqual([0x34, 0x12, 0x01]);
   });
 
   test("Remove ROMs disables Reset again", async ({ page }) => {
