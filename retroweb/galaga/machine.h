@@ -113,6 +113,10 @@ private:
     uint8_t mcu51_hle_read();
     uint8_t r_nibble(int n) const;
     void note_coins();
+    void mcu51_sample();
+    void mcu51_sync_credits();
+    void mcu51_credit_add(int n);
+    void mcu51_credit_sub(int n);
     void coin_counter_w(int n, bool on);
     bool coin_line_[2]{};
 
@@ -120,12 +124,16 @@ private:
     uint64_t io_tick_ = 0;
     int io_nmi_skip_ = 0;
     bool io_clk_ = false;
-    int mcu51_mode_ = 0;
+    int mcu51_mode_ = 1;
     int mcu51_args_ = 0;
     int mcu51_read_i_ = 0;
     uint8_t mcu51_coinage_[4]{};
     int mcu51_coins_[2]{};
-    bool mcu51_started_ = false;
+    uint8_t mcu51_units_ = 0;
+    uint8_t mcu51_tens_ = 0;
+    uint8_t mcu51_r2_[4]{0x0F, 0x0F, 0x0F, 0x0F};
+    bool mcu51_remap_ = true;
+    uint8_t mcu51_ring_[3]{0xFF, 0xFF, 0xFF};
     uint8_t prev_in1_ = 0;
     uint64_t mcu_next_ = 0;
     int mcu51_wait_ = 0;

@@ -276,14 +276,69 @@ fallback. `Machine.UserRomInsertsCoinWhenLocalDumpPresent` skips unless
 
 The fallback sits on the 06XX bus inside the core. The page maps keyboard
 and gamepad onto the same active-high input bits, and the 51XX model
-answers the command stream with those bits inverted on the R ports.
-Switch mode returns `R0|R1<<4`, `R2|R3<<4`, `0xFF`. Credit mode returns
-BCD credits, then stick nibbles, then buttons and coins; that nibble
-order follows a 51XX disassembly and has not been checked against a
-`galagamw` trace. Commands `03`/`04` (cocktail remap) are stored and
-ignored — cocktail player 2 stays unmapped and is labelled on the page.
-Coin edges count against the coinage from command `01` and START spends
-credits until credit mode is re-entered; see §8.
+answers the command stream with those bits inverted on the R ports. Every
+rule below comes from my disassembly of `51xx.bin` (addresses are ROM
+addresses; `[X][Y]` is the MB8843 RAM nibble at that row and column) and
+is checked against the genuine image running in this core by
+`Machine.UserRom51xxAndFallbackAnswerTheMainCpuAlike`, which sends the same
+commands, coins and START presses to both and compares every byte the main
+CPU reads.
+
+- Dispatch. `$003` INK, `$006` JPA page 1 jumps to `$040 + 4K`, so only
+  K0-K2 (data bits 0-2) count: `$044` command 01 (`$008`-`$021`), `$048`
+  02 (`[0][3]` = 0), `$04C` 03 (`[0][2]` = 1), `$050` 04 (`[0][2]` = 0),
+  `$054` 05 (`[0][3]` = 1); 0, 6 and 7 return at `$022`.
+- Boot. `$094` sets `[0][3]` = 1, so the chip starts in switch mode and
+  ignores coins until command 02.
+- Command 01. `$013`-`$01D` takes four arguments, one INK each, into
+  `[1][3]`, `[1][2]`, `[1][1]`, `[1][0]`: coins per credit and credits per
+  coin for chute A, then B. Any argument of 0 stores `$A` in the credit
+  tens digit `[1][A]` (`$016`-`$019`). That digit reads back as `$A0 |
+  units` and skips all coin counting (`$0C3`-`$0C9`), which is free play.
+  The real chip reports `$A0`, not 99. A zero in the first argument puts
+  the digit back after every START (`$1F3`-`$1F6`); a zero in any other
+  argument loses it on the first START (credits then read 99).
+- Switch mode (`[0][3]` = 1). `$0A4`-`$0BB` fills the ring with `R2|R3<<4`
+  (IN1), `R0|R1<<4` (IN0), then `$FF`.
+- Credit mode (`[0][3]` = 0 waiting, 2 playing). `$0E7`/`$265` write the
+  BCD credits (tens in the high nibble) to the first ring byte on every
+  pass. Only modes 1 and 2 refresh the other two bytes, so waiting
+  re-reads the last values (`$FF $FF` after boot, the last game's after
+  one).
+- Coins. `$0CA`-`$0DA` keeps four frames of R3 and fires on a press held
+  two frames after two released. Chute A `$187`-`$1A3` counts `[1][D]`
+  against `[1][3]`, then adds `[1][2]` with ADC, DAA and the tens carry;
+  chute B `$1A4`-`$1C5` uses `[1][1]` and `[1][0]`; R3 bit 2 (`$1C6`-`$1D6`)
+  adds one credit with no counter. A tens digit reaching `$A` clamps to 99
+  (`$19A`-`$19E`).
+- START. `$100`-`$11E`, `$1D7`-`$1F7`: only in waiting mode. START 1 needs
+  one credit or more, START 2 needs two (`$10F`-`$116`), START 1 wins a tie.
+  The chip subtracts 1 or 2 with SBC and DAS, enters mode 2, and ignores
+  START until command 02 puts it back to waiting.
+- Playing. `$1F9`-`$237`: the second byte is `R0`, the third `R1`, each
+  through the `$280`-`$2BD` table (via `$272`) unless command 03 is set,
+  and each topped by two button bits from `R2` bits 0 and 1: bit 0 is the
+  edge `~(s3 & s2) | s1 | s0` over the last four frames (`$0E9`-`$0F9`,
+  low only on the second pressed frame), bit 1 the current state. START
+  and coin bits are not reported.
+- Service. R3 bit 3 (`$0C0`-`$0C1`, `$239`-`$24D`) clears the credits and
+  sets switch mode.
+- Ring. `$24F`-`$264` outputs one byte per select, four bytes with the
+  fourth unused (`[2][A]`, `[2][B]` = `$F`, `$08C`-`$093`). The fallback
+  indexes by read count instead, so it matches only when the main CPU reads
+  three bytes per pass.
+- Frame loop. `$17E`-`$186` waits for TL to change, and TC is the
+  vblank, so the chip samples its inputs once a frame. The fallback does
+  the same for the stick, buttons and the R2 history.
+
+Simplifications, all on the fallback's side: coins and START act on the
+first sample, not after two stable frames (the genuine chip ignores a coin
+for a frame or two after a command, and a START in the frame it credits a
+coin, `$100`-`$103`); the coin counter clicks once per coin where the
+genuine chip paces and queues pulses by TL (`$120`-`$172`, `[1][B]`
+saturating at 15); the R2 history starts released where the chip's cleared
+RAM reads pressed. Cocktail player 2 stays unmapped and is labelled on
+the page.
 
 54XX HLE: high nibble 1, 2, or 5 plays noise for about 1/8 second. 3 and
 4 expect 4 parameter bytes, 6 expects 5, 7 sets volume.
@@ -373,9 +428,12 @@ Items GA1-GA5, B1-B3 and X4 from `shared/cpu/Z80_ARCADE_PARITY.md`.
   against the coinage the game sends with command `01`; zero coins means
   free play; START spends 1 or 2 credits and starts a game. *Why:* the HLE
   gave a credit per coin and never spent one, so the default path could
-  not start a game. *What:* checked against the genuine 51XX running in
-  this core: three coins then START gives CREDIT 2 and PLAYER 1 on both.
-  `Mcu51Hle.*`.
+  not start a game. *What:* rules and ROM addresses in §5. The genuine
+  51XX reports free play as `$A0`, not 99, and in play reports the stick
+  and button flags in the second and third bytes (the old pass-through of
+  raw IN1 put no fire button where the game looks). The HLE sampled
+  inputs live; it now samples once a frame like the chip.
+  `Mcu51Hle.*`, `Machine.UserRom51xxAndFallbackAnswerTheMainCpuAlike`.
 - **54XX DAC network (GA4).** *Fact:* the 54XX drives three 4-bit R
   ladders (O low/high nibble, R1). Each goes through its own MFB
   band-pass into an op-amp summer, then a 0.1 µF coupling cap. *Why:* the

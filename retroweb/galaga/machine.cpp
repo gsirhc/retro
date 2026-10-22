@@ -63,10 +63,13 @@ void Machine::reset() {
     io_ctrl_ = 0;
     io_nmi_skip_ = 0;
     io_clk_ = false;
-    mcu51_mode_ = 0;
+    mcu51_mode_ = 1;
     mcu51_args_ = 0;
     mcu51_read_i_ = 0;
-    mcu51_started_ = false;
+    mcu51_units_ = mcu51_tens_ = 0;
+    mcu51_remap_ = true;
+    for (uint8_t& r : mcu51_r2_) r = 0x0F;
+    mcu51_ring_[0] = mcu51_ring_[1] = mcu51_ring_[2] = 0xFF;
     mcu51_coins_[0] = mcu51_coins_[1] = 0;
     prev_in1_ = 0;
     mcu_next_ = main.cycles;
@@ -123,80 +126,148 @@ uint8_t Machine::r_nibble(int n) const {
 }
 
 uint8_t Machine::mcu51_hle_read() {
-    uint8_t r0 = r_nibble(0), r1 = r_nibble(1), r2 = r_nibble(2), r3 = r_nibble(3);
-    uint8_t bytes[3];
-    if (mcu51_mode_ == 2) {
-        int c = credits;
-        if (c > 99) c = 99;
-        // Credit-mode nibbles: BCD credits, stick, buttons/coins (whiterocker.com 51XX disassembly).
-        bytes[0] = uint8_t(((c / 10) << 4) | (c % 10));
-        bytes[1] = uint8_t(r0 | (r1 << 4));
-        bytes[2] = uint8_t(r2 | (r3 << 4));
-    } else {
-        bytes[0] = uint8_t(r0 | (r1 << 4));
-        bytes[1] = uint8_t(r2 | (r3 << 4));
-        bytes[2] = 0xFF;
-    }
-    uint8_t b = bytes[mcu51_read_i_ % 3];
+    uint8_t b = mcu51_ring_[mcu51_read_i_ % 3];
+    // $265 copies the BCD credit digits into the first ring byte on every pass of the main loop.
+    if (mcu51_mode_ != 1 && mcu51_read_i_ % 3 == 0) b = uint8_t((mcu51_tens_ << 4) | mcu51_units_);
     mcu51_read_i_++;
     return b;
 }
 
+void Machine::mcu51_sample() {
+    // The 51XX main loop runs once per TC pulse, the vblank ($17E-$186).
+    if (!mcu51_hle) return;
+    uint8_t r0 = r_nibble(0), r1 = r_nibble(1), r2 = r_nibble(2), r3 = r_nibble(3);
+    if (mcu51_mode_ == 1) {
+        // $0A4-$0BB: R2|R3<<4, R0|R1<<4, then $F fill. Only this path and mode 2 refresh the other two bytes.
+        mcu51_ring_[0] = uint8_t(r2 | (r3 << 4));
+        mcu51_ring_[1] = uint8_t(r0 | (r1 << 4));
+        mcu51_ring_[2] = 0xFF;
+        return;
+    }
+    for (int i = 3; i > 0; i--) mcu51_r2_[i] = mcu51_r2_[i - 1];
+    mcu51_r2_[0] = r2;
+    if (mcu51_mode_ != 2) return;
+    // $1F9-$237: stick nibbles, through the $280 table unless command 03 is set, plus two flag bits per button.
+    auto stick = [this](uint8_t r) {
+        static const uint8_t kRemap[16] = {0xF, 0xE, 0xD, 0x5, 0xC, 0x9, 0x7, 0x6, 0xB, 0x3, 0xA, 0x4, 0x1, 0x2, 0x0, 0x8};
+        return mcu51_remap_ ? kRemap[r] : r;
+    };
+    // $0E9-$0F9: ~(s3 & s2) | s1 | s0 over the last four frames of R2, low only on the second pressed frame.
+    const uint8_t edge = uint8_t(~(mcu51_r2_[3] & mcu51_r2_[2]) | mcu51_r2_[1] | mcu51_r2_[0]) & 0x0F;
+    const uint8_t now = mcu51_r2_[0];
+    mcu51_ring_[1] = uint8_t(stick(r0) | (((edge & 1) | ((now & 1) << 1)) << 4));
+    mcu51_ring_[2] = uint8_t(stick(r1) | ((((edge >> 1) & 1) | (now & 2)) << 4));
+}
+
+void Machine::mcu51_sync_credits() {
+    credits = mcu51_tens_ == 10 ? 100 + mcu51_units_ : mcu51_tens_ * 10 + mcu51_units_;
+}
+
+void Machine::mcu51_credit_add(int n) {
+    // $18D-$19E, $1C6-$1D5: ADC, DAA, tens + carry; a tens digit of A clamps to 99.
+    int sum = mcu51_units_ + n;
+    bool carry = sum > 15;
+    int a = sum & 15;
+    if (a > 9 || carry) {
+        a = (a + 6) & 15;
+        carry = true;
+    }
+    mcu51_units_ = uint8_t(a);
+    mcu51_tens_ = uint8_t(mcu51_tens_ + carry);
+    if (mcu51_tens_ == 10) mcu51_tens_ = mcu51_units_ = 9;
+    mcu51_sync_credits();
+}
+
+void Machine::mcu51_credit_sub(int n) {
+    // $1DA-$1E2: SBC, DAS, tens minus borrow. A zero first coinage argument puts the free play digit back ($1F3-$1F6).
+    int diff = mcu51_units_ - n;
+    bool borrow = diff < 0;
+    int a = diff & 15;
+    if (a > 9 || borrow) a = (a + 10) & 15;
+    mcu51_units_ = uint8_t(a);
+    mcu51_tens_ = uint8_t((mcu51_tens_ - borrow) & 15);
+    if (mcu51_coinage_[0] == 0) {
+        mcu51_units_ = 0;
+        mcu51_tens_ = 10;
+    }
+    mcu51_sync_credits();
+}
+
 void Machine::mcu51_command(uint8_t data) {
+    // The 51XX sees K0-K2 only ($003 INK, $006 JPA page 1 on A*4).
+    const uint8_t k = data & 7;
     if (mcu51_args_ > 0) {
-        mcu51_coinage_[4 - mcu51_args_] = data;
+        // $013-$01D: one INK per argument, any zero sets the free play digit ($016-$019).
+        mcu51_coinage_[4 - mcu51_args_] = k;
         mcu51_args_--;
+        if (k == 0) {
+            mcu51_tens_ = 10;
+            mcu51_sync_credits();
+        }
         return;
     }
-    // 51XX command bytes: nop, coinage, credit mode, joystick remap, switch mode.
-    if (data == 0x01) {
+    switch (k) {
+    case 1:
         mcu51_args_ = 4;
-        return;
-    }
-    if (data == 0x02) {
-        mcu51_mode_ = 2;
-        mcu51_read_i_ = 0;
-        mcu51_started_ = false;
-        return;
-    }
-    if (data == 0x05) {
-        mcu51_mode_ = 5;
-        mcu51_read_i_ = 0;
-        return;
+        break;
+    case 2:
+        mcu51_mode_ = 0;
+        break;
+    case 3:
+        mcu51_remap_ = false;
+        break;
+    case 4:
+        mcu51_remap_ = true;
+        break;
+    case 5:
+        mcu51_mode_ = 1;
+        break;
+    default:
+        break;
     }
 }
 
 void Machine::note_coins() {
-    if (mcu51_mode_ != 2 || !mcu51_hle) {
+    if (!mcu51_hle || mcu51_mode_ == 1) {
         prev_in1_ = inputs.in1;
         return;
     }
     uint8_t rose = uint8_t(inputs.in1 & ~prev_in1_);
     prev_in1_ = inputs.in1;
-    // Command 01 sets coins per credit and credits per coin for each chute; 0 coins is free play.
-    for (int chute = 0; chute < 2; chute++) {
-        if (!(rose & (0x10 << chute))) continue;
-        int need = mcu51_coinage_[chute * 2];
-        int give = mcu51_coinage_[chute * 2 + 1];
-        if (need == 0) continue;
-        coin_counter_w(chute, true);
-        coin_counter_w(chute, false);
-        if (++mcu51_coins_[chute] >= need) {
-            mcu51_coins_[chute] = 0;
-            credits += give;
-        }
+    // $0C0 R3 bit 3: the service input clears the credits and drops to switch mode ($239-$24D).
+    if (inputs.in1 & 0x80) {
+        mcu51_units_ = mcu51_tens_ = 0;
+        mcu51_coins_[0] = mcu51_coins_[1] = 0;
+        mcu51_mode_ = 1;
+        mcu51_sync_credits();
+        return;
     }
-    if (rose & 0x40) credits++;
-    if (mcu51_coinage_[0] == 0) credits = 100;
-    if (credits > 99 && mcu51_coinage_[0] != 0) credits = 99;
-    // Until a game starts, START spends one credit per player (genuine 51XX, observed).
-    if (!mcu51_started_) {
-        if ((rose & 0x04) && credits >= 1) {
-            credits -= 1;
-            mcu51_started_ = true;
-        } else if ((rose & 0x08) && credits >= 2) {
-            credits -= 2;
-            mcu51_started_ = true;
+    // A tens digit of A (free play) skips all coin counting ($0C3-$0C9).
+    if (mcu51_tens_ != 10) {
+        // $187 and $1A4: coins per credit in args 0 and 2, credits per coin in args 1 and 3.
+        for (int chute = 0; chute < 2; chute++) {
+            if (!(rose & (0x10 << chute))) continue;
+            int need = mcu51_coinage_[chute * 2];
+            int give = mcu51_coinage_[chute * 2 + 1];
+            coin_counter_w(chute, true);
+            coin_counter_w(chute, false);
+            if (++mcu51_coins_[chute] == need) {
+                mcu51_coins_[chute] = 0;
+                mcu51_credit_add(give);
+            }
+        }
+        if (rose & 0x40) mcu51_credit_add(1);
+    }
+    // $100-$11E, $1D7-$1D9: wait mode only; START 1 takes 1 credit, START 2 takes 2. Free play never runs short.
+    if (mcu51_mode_ == 0) {
+        const int have = mcu51_tens_ * 10 + mcu51_units_;
+        const bool more = have >= 2 || mcu51_tens_ != 0;
+        int cost = 0;
+        if ((rose & 0x04) && have >= 1) cost = 1;
+        else if ((rose & 0x08) && more) cost = 2;
+        if (cost) {
+            mcu51_credit_sub(cost);
+            mcu51_mode_ = 2;
         }
     }
 }
@@ -381,6 +452,7 @@ void Machine::on_vblank() {
     frames++;
     if (irq1_enable) main.set_int(true);
     if (irq2_enable) sub.set_int(true);
+    mcu51_sample();
     mcu51_.set_tc(false);
     mcu54_.set_tc(false);
     mcu51_.set_tc(true);

@@ -72,14 +72,17 @@ TEST(Map, WatchdogAndIrqLatch) {
 
 TEST(Io, SwitchModeReturnsActiveLowInputs) {
     Machine m;
+    m.rom_main[0] = 0x18;
+    m.rom_main[1] = 0xFE;
+    m.reset();
     m.inputs.in0 = 0x02;
     m.inputs.in1 = 0x04;
     m.mem_write(0x7100, 0xA1);
     m.mem_write(0x7000, 0x05);
+    m.run_cycles(120000);
     m.mem_write(0x7100, 0x71);
-    EXPECT_EQ(m.mem_read(0x7000), uint8_t((~0x02) & 0xFF));
-    uint8_t buttons = uint8_t(~0x04);
-    EXPECT_EQ(m.mem_read(0x7000), buttons);
+    EXPECT_EQ(m.mem_read(0x7000), uint8_t(~0x04));
+    EXPECT_EQ(m.mem_read(0x7000), uint8_t(~0x02));
     EXPECT_EQ(m.mem_read(0x7000), 0xFF);
     EXPECT_TRUE(m.mcu51_hle);
 }
@@ -784,6 +787,18 @@ void send51(Machine& m, std::initializer_list<uint8_t> bytes) {
     for (uint8_t b : bytes) m.mem_write(0x7000, b);
 }
 
+constexpr int kFrame = kCpuPerFrame;
+
+using Ring = std::array<uint8_t, 3>;
+
+Ring ring51(Machine& m) {
+    m.mem_write(0x7100, 0x11);
+    Ring r{};
+    for (uint8_t& b : r) b = m.mem_read(0x7000);
+    m.mem_write(0x7100, 0x10);
+    return r;
+}
+
 void tap(Machine& m, uint8_t bit) {
     m.inputs.in1 |= bit;
     m.run_cycles(64);
@@ -860,18 +875,98 @@ TEST(Mcu51Hle, CreditModeReportsBcdCreditsThenControls) {
     m.rom_main[0] = 0x18;
     m.rom_main[1] = 0xFE;
     m.reset();
-    send51(m, {0x01, 1, 1, 1, 1, 0x02});
+    send51(m, {0x01, 1, 1, 1, 1, 0x02, 0x03});
     for (int i = 0; i < 12; i++) tap(m, 0x10);
     m.inputs.in0 = 0x0F;
-    m.mem_write(0x7100, 0x11);
-    EXPECT_EQ(m.mem_read(0x7000), 0x12);
-    EXPECT_EQ(m.mem_read(0x7000), 0xF0) << "active-low IN0";
-    EXPECT_EQ(m.mem_read(0x7000), 0xFF);
-    EXPECT_EQ(m.mem_read(0x7000), 0x12);
-    send51(m, {0x01, 0, 0, 0, 0, 0x02});
+    m.run_cycles(kFrame);
+    EXPECT_EQ(ring51(m), (Ring{0x12, 0xFF, 0xFF})) << "waiting for START reports no controls";
+    tap(m, 0x04);
+    m.run_cycles(kFrame);
+    EXPECT_EQ(ring51(m), (Ring{0x11, 0x30, 0x3F})) << "START took one credit; R0 low, button flags released";
+}
+
+TEST(Mcu51Hle, ZeroCoinageArgumentReportsFreePlayDigit) {
+    Machine m;
+    m.rom_main[0] = 0x18;
+    m.rom_main[1] = 0xFE;
+    m.reset();
+    send51(m, {0x01, 1, 0, 1, 1, 0x02});
+    EXPECT_EQ(ring51(m)[0], 0xA0);
     tap(m, 0x10);
-    m.mem_write(0x7100, 0x11);
-    EXPECT_EQ(m.mem_read(0x7000), 0x99) << "free play shows 99";
+    EXPECT_EQ(m.credits, 100) << "coins are not counted";
+    tap(m, 0x04);
+    EXPECT_EQ(ring51(m)[0], 0x99) << "a zero in any argument but the first loses the digit on START";
+}
+
+TEST(Mcu51Hle, ServiceInputClearsCreditsAndEntersSwitchMode) {
+    Machine m;
+    m.rom_main[0] = 0x18;
+    m.rom_main[1] = 0xFE;
+    m.reset();
+    send51(m, {0x01, 1, 1, 1, 1, 0x02});
+    tap(m, 0x10);
+    EXPECT_EQ(m.credits, 1);
+    m.inputs.in1 = 0x80;
+    m.run_cycles(kFrame);
+    EXPECT_EQ(m.credits, 0);
+    EXPECT_EQ(ring51(m)[0], uint8_t(~0x80));
+}
+
+TEST(Mcu51Hle, StickRemapTableAppliesUntilCommand03) {
+    Machine m;
+    m.rom_main[0] = 0x18;
+    m.rom_main[1] = 0xFE;
+    m.reset();
+    send51(m, {0x01, 1, 1, 1, 1, 0x02, 0x04});
+    tap(m, 0x10);
+    tap(m, 0x04);
+    m.inputs.in0 = 0x01;
+    m.run_cycles(kFrame);
+    EXPECT_EQ(ring51(m)[1] & 0x0F, 0x0) << "raw E through the 51xx.bin $280 table";
+    send51(m, {0x03});
+    m.run_cycles(kFrame);
+    EXPECT_EQ(ring51(m)[1] & 0x0F, 0xE);
+}
+
+TEST(Mcu51Hle, ButtonEdgeFlagIsLowOnTheSecondPressedFrameOnly) {
+    Machine m;
+    m.rom_main[0] = 0x18;
+    m.rom_main[1] = 0xFE;
+    m.reset();
+    send51(m, {0x01, 1, 1, 1, 1, 0x02, 0x03});
+    tap(m, 0x10);
+    tap(m, 0x04);
+    m.run_cycles(kFrame * 4);
+    m.mem_write(0x6830, 0);
+    EXPECT_EQ(ring51(m)[1] >> 4, 0x3);
+    m.inputs.in1 = 0x01;
+    uint8_t seen[4];
+    for (uint8_t& f : seen) {
+        m.run_cycles(kFrame);
+        f = uint8_t(ring51(m)[1] >> 4);
+    }
+    EXPECT_EQ(seen[0], 0x1) << "held low, edge flag still high";
+    EXPECT_EQ(seen[1], 0x0) << "second pressed frame: edge low and held low";
+    EXPECT_EQ(seen[2], 0x1);
+    EXPECT_EQ(seen[3], 0x1);
+}
+
+TEST(Mcu51Hle, ButtonReleasedAfterOneFrameIsNotAnEdge) {
+    Machine m;
+    m.rom_main[0] = 0x18;
+    m.rom_main[1] = 0xFE;
+    m.reset();
+    send51(m, {0x01, 1, 1, 1, 1, 0x02, 0x03});
+    tap(m, 0x10);
+    tap(m, 0x04);
+    m.run_cycles(kFrame * 4);
+    m.mem_write(0x6830, 0);
+    m.inputs.in1 = 0x01;
+    m.run_cycles(kFrame);
+    EXPECT_EQ(ring51(m)[1] >> 4, 0x1);
+    m.inputs.in1 = 0;
+    m.run_cycles(kFrame);
+    EXPECT_EQ(ring51(m)[1] >> 4, 0x3);
 }
 
 TEST(Mcu51Hle, ZeroCoinsPerCreditIsFreePlay) {

@@ -2,12 +2,18 @@
 
 #include "machine.h"
 
+#include <algorithm>
+#include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <functional>
+#include <iterator>
 #include <optional>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace fs = std::filesystem;
 
@@ -220,4 +226,226 @@ TEST(Machine, UserRom51xxCreditsReachTheMainCpu) {
     m.run_cycles(galaga::kCpuHz);
     // The main CPU reads the genuine 51XX's credit count over the 06XX and prints it.
     EXPECT_EQ(credit_digit(m), 3);
+}
+
+namespace {
+
+// Drives the 06XX the way the main CPU's NMI handler does, against either the 51xx.bin core or the fallback.
+class Rig51 {
+public:
+    Rig51(const fs::path& dir, bool genuine) {
+        galaga::RomSet set;
+        read_file(dir / "51xx.bin", set.mcu51.data(), set.mcu51.size());
+        set.has51 = genuine;
+        m.load_roms(set);
+        const uint8_t spin[] = {0x31, 0x00, 0x8C, 0x18, 0xFE};
+        std::copy(std::begin(spin), std::end(spin), m.rom_main.begin());
+        m.rom_main[0x66] = 0xED;
+        m.rom_main[0x67] = 0x45;
+        m.reset();
+        m.mem_write(0x6823, 1);
+        run(200000);
+    }
+
+    void run(int n) {
+        while (n > 0) {
+            int k = std::min(n, 20000);
+            m.run_cycles(k);
+            n -= k;
+            m.mem_write(0x6830, 0);
+        }
+    }
+
+    void until(uint64_t t) {
+        while (m.main.cycles < t) run(int(std::min<uint64_t>(t - m.main.cycles, 20000)));
+    }
+
+    void settle() { run(300000); }
+
+    // Control $A1 selects the 51XX every 2048 T-states; each byte goes out between selects.
+    void send(const std::vector<int>& bytes) {
+        m.mem_write(0x7100, 0xA1);
+        run(1100);
+        for (int b : bytes) {
+            m.mem_write(0x7000, uint8_t(b));
+            run(2048);
+        }
+        m.mem_write(0x7100, 0x10);
+        run(300);
+        settle();
+    }
+
+    void tap(int bit) {
+        m.inputs.in1 = uint8_t(m.inputs.in1 | bit);
+        run(300000);
+        m.inputs.in1 = uint8_t(m.inputs.in1 & ~bit);
+        run(300000);
+    }
+
+    // Control $71 selects every 512 T-states from a fixed phase. The first select raises no NMI, so the handler
+    // reads after selects 2 to 4, which keeps the 51XX's four-byte ring aligned from one pass to the next.
+    std::string read3() {
+        run(250000);
+        m.mem_write(0x7100, 0x71);
+        const uint64_t first = ((m.main.cycles - 256) / 512 + 1) * 512 + 256;
+        uint8_t v[3];
+        for (int k = 0; k < 3; k++) {
+            until(first + 512 * uint64_t(k + 1) + 60);
+            v[k] = m.mem_read(0x7000);
+        }
+        until(first + 1536 + 120);
+        m.mem_write(0x7100, 0x10);
+        run(300);
+        char buf[16];
+        std::snprintf(buf, sizeof buf, "%02X %02X %02X", v[0], v[1], v[2]);
+        return buf;
+    }
+
+    galaga::Machine m;
+};
+
+using Script = std::function<void(Rig51&, std::vector<std::string>&)>;
+
+std::vector<std::string> run_script(const fs::path& dir, bool genuine, const std::vector<int>& setup, const Script& s) {
+    Rig51 r(dir, genuine);
+    r.send(setup);
+    std::vector<std::string> out;
+    s(r, out);
+    return out;
+}
+
+}  // namespace
+
+TEST(Machine, UserRom51xxAndFallbackAnswerTheMainCpuAlike) {
+    auto hold = find_dump();
+    if (!hold) GTEST_SKIP() << "no local galagamw dump";
+    const fs::path& dir = hold->dir;
+    uint8_t probe[galaga::kMcuRomBytes];
+    if (!read_file(dir / "51xx.bin", probe, sizeof probe)) GTEST_SKIP() << "set lacks 51xx.bin";
+
+    struct Case {
+        const char* name = "";
+        std::vector<int> setup;
+        Script script;
+    };
+    const std::vector<int> credit_mode = {1, 1, 1, 1, 1, 2, 3, 0};
+    std::vector<Case> cases;
+    cases.push_back({"switch mode", {5, 5, 5, 5}, [](Rig51& r, auto& o) {
+        o.push_back(r.read3());
+        r.m.inputs.in0 = 0x5A;
+        r.m.inputs.in1 = 0x35;
+        o.push_back(r.read3());
+        r.m.inputs.in0 = 0;
+        r.m.inputs.in1 = 0x10;
+        o.push_back(r.read3());
+        r.m.inputs.in1 = 0;
+        o.push_back(r.read3());
+        r.m.inputs.in1 = 0x80;
+        o.push_back(r.read3());
+        r.m.inputs.in1 = 0;
+    }});
+    for (int z = 0; z < 4; z++) {
+        std::vector<int> setup = {1, 1, 1, 1, 1, 2, 3, 0};
+        setup[1 + z] = 0;
+        cases.push_back({"zero coinage argument", setup, [](Rig51& r, auto& o) {
+            o.push_back(r.read3());
+            r.tap(0x10);
+            o.push_back(r.read3());
+            r.tap(0x20);
+            o.push_back(r.read3());
+            r.tap(0x04);
+            o.push_back(r.read3());
+        }});
+    }
+    cases.push_back({"2 coins per credit, both chutes and the service coin", {1, 2, 1, 1, 1, 2, 3, 0}, [](Rig51& r, auto& o) {
+        o.push_back(r.read3());
+        r.tap(0x10);
+        o.push_back(r.read3());
+        r.tap(0x10);
+        o.push_back(r.read3());
+        r.tap(0x20);
+        o.push_back(r.read3());
+        r.tap(0x20);
+        o.push_back(r.read3());
+        r.tap(0x40);
+        o.push_back(r.read3());
+    }});
+    cases.push_back({"2 credits per coin A", {1, 1, 2, 1, 1, 2, 3, 0}, [](Rig51& r, auto& o) {
+        r.tap(0x10);
+        o.push_back(r.read3());
+        r.tap(0x10);
+        o.push_back(r.read3());
+        r.tap(0x20);
+        o.push_back(r.read3());
+        r.tap(0x20);
+        o.push_back(r.read3());
+    }});
+    cases.push_back({"3 credits per coin B", {1, 1, 1, 1, 3, 2, 3, 0}, [](Rig51& r, auto& o) {
+        r.tap(0x20);
+        o.push_back(r.read3());
+        r.tap(0x10);
+        o.push_back(r.read3());
+    }});
+    cases.push_back({"START needs credits, START 2 needs two", credit_mode, [](Rig51& r, auto& o) {
+        r.tap(0x04);
+        o.push_back(r.read3());
+        r.tap(0x08);
+        o.push_back(r.read3());
+        r.tap(0x10);
+        r.tap(0x08);
+        o.push_back(r.read3());
+        r.tap(0x04);
+        o.push_back(r.read3());
+    }});
+    cases.push_back({"both STARTs, a game under way, credit mode again", credit_mode, [](Rig51& r, auto& o) {
+        r.tap(0x10);
+        r.tap(0x10);
+        r.tap(0x10);
+        r.m.inputs.in1 = 0x0C;
+        o.push_back(r.read3());
+        r.m.inputs.in1 = 0;
+        o.push_back(r.read3());
+        r.send({2, 3, 0});
+        o.push_back(r.read3());
+        r.tap(0x08);
+        o.push_back(r.read3());
+        r.tap(0x04);
+        o.push_back(r.read3());
+    }});
+    cases.push_back({"credits stop at 99", credit_mode, [](Rig51& r, auto& o) {
+        for (int i = 0; i < 12; i++) r.tap(0x40);
+        o.push_back(r.read3());
+    }});
+    for (int cmd : {3, 4}) {
+        cases.push_back({cmd == 3 ? "stick and buttons, command 03" : "stick and buttons, command 04", {1, 1, 1, 1, 1, 2, cmd, 0},
+                         [](Rig51& r, auto& o) {
+            r.tap(0x10);
+            r.tap(0x04);
+            o.push_back(r.read3());
+            for (int v = 0; v < 16; v++) {
+                r.m.inputs.in0 = uint8_t(v);
+                o.push_back(r.read3());
+                r.m.inputs.in0 = uint8_t(v << 4);
+                o.push_back(r.read3());
+            }
+            r.m.inputs.in0 = 0;
+            for (int bit : {0x01, 0x02, 0x03, 0x04, 0x08}) {
+                r.m.inputs.in1 = uint8_t(bit);
+                o.push_back(r.read3());
+            }
+            r.m.inputs.in1 = 0;
+        }});
+    }
+
+    int reads = 0;
+    for (const Case& c : cases) {
+        auto genuine = run_script(dir, true, c.setup, c.script);
+        auto fallback = run_script(dir, false, c.setup, c.script);
+        ASSERT_EQ(genuine.size(), fallback.size()) << c.name;
+        for (size_t i = 0; i < genuine.size(); i++) {
+            EXPECT_EQ(fallback[i], genuine[i]) << c.name << ", read " << i;
+            reads++;
+        }
+    }
+    EXPECT_GT(reads, 100);
 }
