@@ -172,24 +172,42 @@ pins 11/10 (red 470/220), 9/8 (green), 7/6 (blue) onto the same nets and
 its pin 20 deselects 5N, so a star sees only the 470/220 legs: 81/174 on
 every channel. Shared nets with no isolation mean 5N must be three-state.
 
-Stars are the Namco 05XX: a 16-bit Fibonacci LFSR (taps 16/13/11/6)
-that paints a hit into the centre 256 pixels when bits match
-`FA14`/`7800`. Speed is latches 0–2, blink sets are 3–4 (with set B
-forced into {2,3}), enable is latch 5. The LFSR taps, seed, hit pattern,
-speed offsets, pre/post clock counts, star-set selection and the LFSR to
-colour mapping are Unsourced and still need a source. The schematic
-gives only the pinout: 5K (LS259) latches into pins 12-23, HSYNC pin 2,
-VSYNC pin 4, 6 MHz pin 1, colour out on 6-11, PROM select on 20. The one
-non-code write-up found, pin4.at's 05XX CPLD page, states the chip is a
-maximum-length 16-bit LFSR over a 256x256 field, read from a real chip on
-a test bench, and that scrolling adds or drops clocks by up to 3 pixels;
-it gives no taps, seed or hit equations, and its block diagram puts the
-hit and colour decode in two LUTs it does not list. Also searched:
-Google Patents (Namco 1980-83; JPS58112575A covers sprites, not stars),
-the 2014 CEDEC talk on Namco RNGs (per-pixel LFSR picks star and colour,
-no values), the KLOV "Reverse Engineering Namco Customs" thread (values
-not posted). Options: measure a real 05XX, get the values from that
-author, or drop the starfield. Draw order is stars, then sprites,
+Stars are the Namco 05XX. Sources:
+
+- Bandai Namco, CEDEC 2014 talk, slide 22 "star generator"
+  (Galaxian/Galaga; reported at
+  https://www.4gamer.net/games/042/G004287/20140905040/): a 16-bit
+  M-sequence, period 65535, one value per dot while the screen scans,
+  256x256 = 65536 dots, so each frame lands one dot later and the field
+  scrolls by itself. The slide's screenshot puts the 256 columns between
+  the score strips, so the field is native x 16-271 and 256 lines, 224
+  shown and 32 clocked off screen.
+- Taps 16, 15, 13, 4 from Xilinx XAPP052, *Efficient Shift Registers,
+  LFSR Counters, and Long Pseudo-Random Sequence Generators*, Table 3.
+  XOR feedback from a non-zero seed (XAPP052 uses XNOR; same period).
+  `Video.StarLfsrIsMaximalLength`.
+- pin4.at's 05XX page (http://www.pin4.at/pro_custom_05xx.php, prose and
+  block diagram), measured on a real chip: scrolling gates the shift
+  register's clock around sync, adding or dropping up to 3 clocks a
+  frame; hit (output enable) and colour decode are separate stages fed
+  by a 2-bit map input.
+- Game ROM writes (galagamw, logged in this core): latch 5 is 0 through
+  POST and 1 from the attract mode on; latches 3-4 step 00, 10, 11, 01
+  every 8 frames; latches 0-2 hold 6 most of the time and alternate 6/7
+  around ship entry and stage changes.
+
+The trim lands on the last off-screen field line.
+`Video.StarFieldDriftsOneDotPerFrameUnlessGated`.
+
+Labelled departure, own design with no source: the seed (1), the hit
+test (bits 15-7 = `0 1111 1111`, 128 stars a field, never two within 9
+dots), the star set (bits 6-5), the colour (bits 5-0, two bits each to
+red, green, blue), latch 2 meaning drop rather than add with latches
+0-1 the count (6 drifts the field down one dot a frame, 7 two), latches
+3-4 naming the one set of four held dark, and enable low holding the
+LFSR as well as blanking it. Star positions, colours, blink and speed
+therefore do not match a real cabinet. `Video.StarFieldHoldsWhileDisabled`,
+`Video.StarsUseOnlyThe05xxLegs`. Draw order is stars, then sprites,
 then tiles, so the score strips stay on top. Character colours OR `0x10`
 into the PROM index. Palette levels come from the colour network below.
 
@@ -327,10 +345,9 @@ Items GA1-GA5, B1-B3 and X4 from `shared/cpu/Z80_ARCADE_PARITY.md`.
   inside `render()`, once per `requestAnimationFrame`, so a 120 Hz monitor
   scrolled the stars twice as fast and a hidden tab froze them. *What:*
   the main Z80's `Bus::tick` drives `Video::advance`. Each HBLANK loads
-  the next line's sprite and star buffers: 256 RNG clocks per visible
-  line, the pre-visible count (with the SCROLL_X offset) as the frame
-  starts, and the post count at vblank. Controls are sampled as vblank
-  ends. `render()` only copies the frame.
+  the next line's sprite and star buffers: 256 RNG clocks on each of
+  the 256 field lines, the scroll trim on the last. Controls are sampled
+  at line 0. `render()` only copies the frame.
   `Video.StarfieldAdvancesWithTheBeamNotRender`.
 - **Sprite transparency (GA2).** LUT entry 0x0F, not pen 0.
   `Video.SpritePenIsClearOnlyWhenItsLutEntryIs0F`.

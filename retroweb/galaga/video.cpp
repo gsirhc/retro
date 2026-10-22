@@ -4,15 +4,14 @@ namespace galaga {
 
 namespace {
 
-constexpr uint16_t kStarHitMask = 0xFA14;
-constexpr uint16_t kStarHitValue = 0x7800;
-constexpr uint16_t kStarSeed = 0x7FFF;
-constexpr int kStarFieldW = 256;
-constexpr int kStarOffsetX = 16;
-constexpr int kStarLimitX = kStarOffsetX + kStarFieldW;
-
-// SCROLL_X index → extra LFSR clocks in the pre-visible interval.
-constexpr int kSpeedXOffset[8] = {0, 1, 2, 3, -4, -3, -2, -1};
+// 16-bit M-sequence clocked once per dot over a 256x256 field (Namco, CEDEC 2014 slide 22).
+constexpr int kFieldDots = 256;
+// The field fills the 256 columns between the score strips (CEDEC 2014 slide 22 screenshot).
+constexpr int kFieldLeft = (kVisW - kFieldDots) / 2;
+// Own design, unsourced: seed, and a 0 then eight 1s in bits 15-7 lights a star (128 per field).
+constexpr uint16_t kFieldSeed = 0x0001;
+constexpr uint16_t kHitMask = 0xFF80;
+constexpr uint16_t kHitBits = 0x7F80;
 
 // Share of full scale for a high leg among legs that all drive (monitor input taken as high impedance).
 constexpr int dac_level(const double* ohms, int n, int leg) {
@@ -47,10 +46,12 @@ void Video::reset() {
     vblank = false;
     vblank_edge = false;
     sound_nmi_edge = false;
-    star_lfsr_ = kStarSeed;
-    stars_on_ = false;
+    field_rng_ = kFieldSeed;
+    field_enabled_ = false;
+    field_trim_ = 0;
+    field_blink_ = 0;
     sprite_line_.fill(0);
-    star_line_.fill(0);
+    field_dots_.fill(0);
 }
 
 void Video::advance(int cpu_cycles) {
@@ -75,8 +76,6 @@ void Video::advance(int cpu_cycles) {
         if (v == kVBlankLine) {
             vblank = true;
             vblank_edge = true;
-            if (stars_on_)
-                for (int i = 0; i < 10 * kStarFieldW; i++) star_lfsr_ = next_star_lfsr(star_lfsr_);
         } else if (v == 0) {
             vblank = false;
         }
@@ -102,55 +101,39 @@ uint32_t Video::prom_rgb(uint8_t idx) const {
 }
 
 uint32_t Video::star_rgb(uint8_t color6) const {
-    // 05XX pins 11..6 drive the 470/220 legs; its pin 20 floats the PROM, so the 1K legs carry nothing.
-    int level[3] = {};
-    for (int ch = 0; ch < 3; ch++) {
-        if (color6 & (1 << (ch * 2))) level[ch] += kTwoLegLevel[0];
-        if (color6 & (2 << (ch * 2))) level[ch] += kTwoLegLevel[1];
-    }
-    return uint32_t((level[0] << 16) | (level[1] << 8) | level[2]);
+    // 05XX pins 11/10, 9/8, 7/6 drive only the 470/220 legs of red, green, blue (J2, page 7-7).
+    auto level = [](int pair) { return ((pair & 1) ? kTwoLegLevel[0] : 0) + ((pair & 2) ? kTwoLegLevel[1] : 0); };
+    return uint32_t(level(color6) << 16 | level(color6 >> 2) << 8 | level(color6 >> 4));
 }
 
-uint16_t Video::next_star_lfsr(uint16_t lfsr) {
-    // 16-bit Fibonacci LFSR, taps 16/13/11/6.
-    uint16_t bit = uint16_t((lfsr ^ (lfsr >> 3) ^ (lfsr >> 5) ^ (lfsr >> 10)) & 1);
-    return uint16_t((lfsr >> 1) | (bit << 15));
+uint16_t Video::field_next(uint16_t s) {
+    // Taps 16,15,13,4 (Xilinx XAPP052 Table 3), XOR feedback into bit 0.
+    const unsigned in = ((s >> 15) ^ (s >> 14) ^ (s >> 12) ^ (s >> 3)) & 1;
+    return uint16_t((s << 1) | in);
 }
 
-void Video::frame_start() {
-    // The 05XX samples its controls as vblank ends. Low $A005 clears and reseeds.
-    stars_on_ = star_latch[5] != 0;
-    if (!stars_on_) {
-        star_lfsr_ = kStarSeed;
-        return;
-    }
-    int speed_x = (star_latch[0] ? 1 : 0) | (star_latch[1] ? 2 : 0) | (star_latch[2] ? 4 : 0);
-    star_set_a_ = star_latch[3] ? 1 : 0;
-    star_set_b_ = (star_latch[4] ? 1 : 0) | 2;
-    // SCROLL_Y is tied low; SCROLL_X adds or drops clocks ahead of the visible field.
-    for (int i = 0; i < 22 * kStarFieldW + kSpeedXOffset[speed_x & 7]; i++) star_lfsr_ = next_star_lfsr(star_lfsr_);
+void Video::sample_field_controls() {
+    field_enabled_ = star_latch[5] != 0;
+    // Own design, unsourced: latches 0-1 count 0-3 clocks, latch 2 drops instead of adds.
+    const int clocks = star_latch[0] | star_latch[1] << 1;
+    field_trim_ = star_latch[2] ? -clocks : clocks;
+    // Own design, unsourced: latches 3-4 pick the one star set of four held dark.
+    field_blink_ = star_latch[3] | star_latch[4] << 1;
 }
 
 void Video::hblank_setup(int line) {
     sprite_line_.fill(0);
-    star_line_.fill(0);
-    if (line == 0) frame_start();
-    if (line >= kVisH) return;
-
-    if (stars_on_) {
-        for (int x = kStarOffsetX; x < kStarLimitX; x++) {
-            if ((star_lfsr_ & kStarHitMask) == kStarHitValue) {
-                int star_set = int(((star_lfsr_ >> 10) & 1) << 1) | int((star_lfsr_ >> 8) & 1);
-                if (star_set == star_set_a_ || star_set == star_set_b_) {
-                    uint8_t color = uint8_t((star_lfsr_ >> 5) & 7);
-                    color = uint8_t(color | ((star_lfsr_ << 3) & 0x18));
-                    color = uint8_t(color | ((star_lfsr_ << 2) & 0x20));
-                    color = uint8_t((~color) & 0x3F);
-                    int dx = flip ? x + 64 : x;
-                    if (dx < kVisW) star_line_[unsigned(dx)] = star_rgb(color) | (1u << 24);
-                }
-            }
-            star_lfsr_ = next_star_lfsr(star_lfsr_);
+    field_dots_.fill(0);
+    if (line == 0) sample_field_controls();
+    if (field_enabled_ && line < kFieldDots) {
+        // The off-screen field lines carry the scroll trim, gated in before VSYNC (pin4.at 05XX).
+        int dots = kFieldDots + (line == kFieldDots - 1 ? field_trim_ : 0);
+        for (int i = 0; i < dots; i++) {
+            const bool hit = line < kVisH && (field_rng_ & kHitMask) == kHitBits;
+            // Own design, unsourced: bits 6-5 are the star set, bits 5-0 the colour.
+            if (hit && ((field_rng_ >> 5) & 3) != field_blink_)
+                field_dots_[unsigned(kFieldLeft + i)] = star_rgb(uint8_t(field_rng_ & 0x3F)) | (1u << 24);
+            field_rng_ = field_next(field_rng_);
         }
     }
 
@@ -201,7 +184,7 @@ void Video::paint(int line, int x0, int x1) {
     uint32_t* row = &frame_[unsigned(line * kVisW)];
     for (int x = x0; x < x1; x++) {
         uint32_t px = sprite_line_[unsigned(x)];
-        if (!px) px = star_line_[unsigned(x)];
+        if (!px) px = field_dots_[unsigned(x)];
         // Flip inverts the counters, which pick the byte half; the second char set reverses each nibble.
         int tx = flip ? kVisW - 1 - x : x;
         int ty = flip ? kVisH - 1 - line : line;

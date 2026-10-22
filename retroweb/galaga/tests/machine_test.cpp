@@ -621,6 +621,91 @@ TEST(Video, StarfieldAdvancesWithTheBeamNotRender) {
     EXPECT_NE(m.video.star_lfsr(), a);
 }
 
+TEST(Video, StarLfsrIsMaximalLength) {
+    uint16_t s = 1;
+    int period = 0;
+    do {
+        s = Video::field_next(s);
+        period++;
+    } while (s != 1 && period <= 70000);
+    EXPECT_EQ(period, 65535);
+}
+
+namespace {
+
+// LFSR steps from one frame to the next with the given SCROLL latches 0-2.
+int star_drift_per_frame(int code) {
+    Machine m;
+    m.video.star_latch[5] = 1;
+    for (int b = 0; b < 3; b++) m.video.star_latch[unsigned(b)] = uint8_t((code >> b) & 1);
+    m.video.advance(kCpuPerFrame);
+    const uint16_t a = m.video.star_lfsr();
+    m.video.advance(kCpuPerFrame);
+    const uint16_t b = m.video.star_lfsr();
+    uint16_t s = a;
+    for (int n = 0; n < 65535; n++, s = Video::field_next(s))
+        if (s == b) return n > 32768 ? n - 65535 : n;
+    return 99999;
+}
+
+}  // namespace
+
+TEST(Video, StarFieldDriftsOneDotPerFrameUnlessGated) {
+    // 65536 clocks over a 65535-state sequence: one dot of drift per frame.
+    EXPECT_EQ(star_drift_per_frame(0), 1);
+    EXPECT_EQ(star_drift_per_frame(1), 2);
+    EXPECT_EQ(star_drift_per_frame(3), 4);
+    EXPECT_EQ(star_drift_per_frame(5), 0);
+    EXPECT_EQ(star_drift_per_frame(6), -1);
+    EXPECT_EQ(star_drift_per_frame(7), -2);
+}
+
+TEST(Video, StarFieldHoldsWhileDisabled) {
+    Machine m;
+    m.video.char_lut.fill(0x0F);
+    m.video.sprite_lut.fill(0x0F);
+    m.video.star_latch[5] = 1;
+    m.video.advance(2 * kCpuPerFrame);
+    m.video.star_latch[5] = 0;
+    m.video.advance(kCpuPerFrame);
+    const uint16_t a = m.video.star_lfsr();
+    m.video.advance(3 * kCpuPerFrame);
+    EXPECT_EQ(m.video.star_lfsr(), a);
+    std::array<uint32_t, kUprightW * kUprightH> rgb{};
+    m.render(rgb.data());
+    for (uint32_t p : rgb) ASSERT_EQ(p, 0u);
+}
+
+TEST(Video, StarsUseOnlyThe05xxLegs) {
+    Video v;
+    for (int c = 0; c < 64; c++) {
+        const uint32_t rgb = v.star_rgb(uint8_t(c));
+        for (int sh : {0, 8, 16}) {
+            const uint32_t lv = (rgb >> sh) & 0xFF;
+            EXPECT_TRUE(lv == 0 || lv == 0x51 || lv == 0xAE || lv == 0xFF) << c;
+        }
+    }
+    Machine m;
+    m.video.char_lut.fill(0x0F);
+    m.video.sprite_lut.fill(0x0F);
+    m.video.star_latch[5] = 1;
+    m.video.advance(3 * kCpuPerFrame);
+    std::array<uint32_t, kUprightW * kUprightH> rgb{};
+    m.render(rgb.data());
+    int lit = 0;
+    for (uint32_t p : rgb) {
+        if (!p) continue;
+        lit++;
+        for (int sh : {0, 8, 16}) {
+            const uint32_t lv = (p >> sh) & 0xFF;
+            EXPECT_TRUE(lv == 0 || lv == 0x51 || lv == 0xAE || lv == 0xFF);
+        }
+    }
+    // A sparse field: 128 star states per 65536 dots, 224 of 256 lines shown, one set in four dark.
+    EXPECT_GT(lit, 50);
+    EXPECT_LT(lit, 130);
+}
+
 TEST(Machine, VblankIrqHoldsUntilMaskCleared) {
     Machine m;
     m.mem_write(0x6820, 1);

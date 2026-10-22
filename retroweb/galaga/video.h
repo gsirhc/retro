@@ -52,18 +52,19 @@ public:
     uint8_t tile_pixel(uint8_t code, int x, int y) const;
     uint32_t prom_rgb(uint8_t idx) const;
     uint32_t star_rgb(uint8_t color6) const;
-    uint16_t star_lfsr() const { return star_lfsr_; }
+    uint16_t star_lfsr() const { return field_rng_; }
+    static uint16_t field_next(uint16_t s);
 
 private:
-    uint16_t star_lfsr_ = 0x7FFF;
-    bool stars_on_ = false;
-    int star_set_a_ = 0, star_set_b_ = 2;
+    uint16_t field_rng_ = 1;
+    bool field_enabled_ = false;
+    int field_trim_ = 0;
+    int field_blink_ = 0;
     std::array<uint32_t, kVisW * kVisH> frame_{};
     std::array<uint32_t, kVisW> sprite_line_{};  // RGB | 1 << 24, 0 = empty
-    std::array<uint32_t, kVisW> star_line_{};
+    std::array<uint32_t, kVisW> field_dots_{};
 
-    static uint16_t next_star_lfsr(uint16_t lfsr);
-    void frame_start();
+    void sample_field_controls();
     void hblank_setup(int line);
     void paint(int line, int x0, int x1);
     void load_sprite_line(int line);
