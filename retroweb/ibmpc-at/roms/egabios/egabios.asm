@@ -1,4 +1,4 @@
-; EGA video BIOS stand-in, built from the IBM EGA Technical Reference (1984) interface and tables.
+; EGA video BIOS stand-in for IBM's. Parameter table register values are unsourced (IBM_PCAT_REVIEW.md 48.1).
 
         cpu     286
         bits    16

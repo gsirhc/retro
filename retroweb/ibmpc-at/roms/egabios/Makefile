@@ -5,10 +5,10 @@ egabios.bin: egabios.asm font8.inc font14.inc
 	python3 -c "import sys; d = bytearray(open('egabios.tmp', 'rb').read()); d[-1] = -sum(d[:-1]) & 0xFF; open('$@', 'wb').write(d)"
 	rm -f egabios.tmp
 
-font8.inc font14.inc: ../vgafonts.h mkfont.py
-	python3 mkfont.py ../vgafonts.h
+font8.inc font14.inc: ../fntcol16.zip mkfont.py
+	python3 mkfont.py ../fntcol16.zip
 
-../vgafonts.h:
+../fntcol16.zip:
 	bash ../fetch-bios.sh
 
 clean:

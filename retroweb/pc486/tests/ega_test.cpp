@@ -569,6 +569,67 @@ TEST(EgaTest, EnablingAnSvgaModeClearsVramUnlessAskedNotTo) {
     EXPECT_EQ(ega.vram[0], 0x99);
 }
 
+static void vbe_put(Ega& ega, int index, uint16_t v) {
+    ega.out16(Ega::kVbeIndexPort, uint16_t(index));
+    ega.out16(Ega::kVbeDataPort, v);
+}
+
+static uint16_t vbe_get(Ega& ega, int index) {
+    ega.out16(Ega::kVbeIndexPort, uint16_t(index));
+    return ega.in16(Ega::kVbeDataPort);
+}
+
+static void vbe_mode(Ega& ega, uint16_t bpp, uint16_t x, uint16_t y) {
+    vbe_put(ega, Ega::kVbeRegEnable, 0);
+    vbe_put(ega, Ega::kVbeRegBpp, bpp);
+    vbe_put(ega, Ega::kVbeRegXres, x);
+    vbe_put(ega, Ega::kVbeRegYres, y);
+    vbe_put(ega, Ega::kVbeRegEnable, Ega::kVbeEnabled);
+}
+
+TEST(EgaTest, EnablingAnSvgaModeSetsVirtualWidthAndHeightFromVideoMemory) {
+    Ega ega;
+    ega.reset();
+    vbe_mode(ega, 8, 640, 480);
+    EXPECT_EQ(vbe_get(ega, Ega::kVbeRegVirtWidth), 640);
+    EXPECT_EQ(vbe_get(ega, Ega::kVbeRegVirtHeight), 1638);
+    vbe_mode(ega, 16, 800, 600);
+    EXPECT_EQ(vbe_get(ega, Ega::kVbeRegVirtWidth), 800);
+    EXPECT_EQ(vbe_get(ega, Ega::kVbeRegVirtHeight), 655);
+    vbe_mode(ega, 4, 640, 480);
+    EXPECT_EQ(vbe_get(ega, Ega::kVbeRegVirtWidth), 640);
+    EXPECT_EQ(vbe_get(ega, Ega::kVbeRegVirtHeight), 3276);
+}
+
+TEST(EgaTest, VirtualWidthWriteWhileEnabledAdjustsHeightAndIsClamped) {
+    Ega ega;
+    ega.reset();
+    vbe_mode(ega, 8, 640, 480);
+    vbe_put(ega, Ega::kVbeRegVirtWidth, 1024);
+    EXPECT_EQ(vbe_get(ega, Ega::kVbeRegVirtWidth), 1024);
+    EXPECT_EQ(vbe_get(ega, Ega::kVbeRegVirtHeight), 1024);
+    vbe_put(ega, Ega::kVbeRegVirtHeight, 5);
+    EXPECT_EQ(vbe_get(ega, Ega::kVbeRegVirtHeight), 1024);
+    vbe_put(ega, Ega::kVbeRegVirtWidth, 0x7FFF);
+    EXPECT_EQ(vbe_get(ega, Ega::kVbeRegVirtWidth), 0x7FFF);
+    EXPECT_EQ(vbe_get(ega, Ega::kVbeRegVirtHeight), 32);
+
+    vbe_mode(ega, 4, 640, 480);
+    vbe_put(ega, Ega::kVbeRegVirtWidth, 1024);
+    EXPECT_EQ(vbe_get(ega, Ega::kVbeRegVirtHeight), 2048);
+}
+
+TEST(EgaTest, EnablingAnSvgaModeResetsThePanOffsets) {
+    Ega ega;
+    ega.reset();
+    vbe_mode(ega, 8, 640, 480);
+    vbe_put(ega, Ega::kVbeRegXOffset, 7);
+    vbe_put(ega, Ega::kVbeRegYOffset, 9);
+    vbe_mode(ega, 8, 320, 200);
+    EXPECT_EQ(vbe_get(ega, Ega::kVbeRegXOffset), 0);
+    EXPECT_EQ(vbe_get(ega, Ega::kVbeRegYOffset), 0);
+}
+
 TEST(EgaTest, SvgaWindowIsFlatLinearMemorySlidByTheBankRegister) {
     // In an SVGA mode the planar engine is out; the Bank register slides the 64KB aperture
     // over the frame buffer. Map Mask is narrowed to prove it gates nothing.

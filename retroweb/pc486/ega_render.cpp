@@ -56,13 +56,14 @@ int PelPan(const Ega &ega, int dots_per_char, bool vga256) {
     return v < 8 ? v : 0;
 }
 
-// Color Plane Enable plus graphics blink (AR10 bit 3). IBM leaves this
-// undefined. Checked against Lotus 1-2-3 WYSIWYG and QBASIC SCREEN 10.
+// Color Plane Enable, then APA blink logic, then the palette (IBM VGA/XGA
+// Tech Ref Fig 2-3, p.2-10). Blink keys on the masked pixel's bit 3.
 uint8_t GraphicsAttr(const Ega &ega, uint8_t pixel) {
     const uint8_t pm = ega.attr_plane_enable();
     if (!ega.attr_blink_enabled()) return uint8_t(pixel & pm);
-    const bool drops = !ega.char_blink_phase_on() && ((pixel & 8) || !(pm & 8));
-    return uint8_t((pixel & pm & 7) | (drops ? 0 : 8));
+    const uint8_t p = uint8_t(pixel & pm);
+    const bool drops = !ega.char_blink_phase_on() && (p & 8);
+    return uint8_t((p & 7) | (drops ? 0 : 8));
 }
 
 void PutPixel(std::vector<uint8_t> &rgba, int width, int x, int y, uint8_t r, uint8_t g, uint8_t b) {

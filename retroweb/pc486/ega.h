@@ -160,6 +160,7 @@ public:
     static constexpr uint16_t kVbeIdLowest  = 0xB0C0;
     static constexpr uint16_t kVbeIdHighest = 0xB0C5;
 
+    void vbe_set_virt_width_(uint16_t width);
     uint16_t vbe_reg(int index) const {
         return index >= 0 && index < kVbeRegCount ? vbe_[std::size_t(index)] : uint16_t(0);
     }

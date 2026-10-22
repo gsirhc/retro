@@ -2915,15 +2915,19 @@ leaned on two VGA-only bits the renderer had to honour.
 VGA-only bit. Programs that probe for a VGA found one. IBM's EGA BIOS is
 IBM's copyright, and no maintained open EGA-only BIOS exists, so
 `roms/egabios/egabios.asm` is a new one: about 2,200 lines of nasm,
-286-only, built from the interface the EGA Technical Reference (August
-1984) documents and the register values it publishes. None of IBM's code
-is copied.
+286-only, written to the INT 10h interface of the IBM EGA Technical
+Reference (August 1984). No copy of that Technical Reference was
+available while writing it or since (§49.1), so the interface details
+below are as the author knew them, not checked against it. None of IBM's
+code is copied.
 
-- **Parameter table.** The 23 64-byte VIDEO_PARMS entries are IBM's
-  published values, in IBM's order (modes 0-7, the reserved 8-0Ch,
-  D-10h for 64KB and again for more, then 0-3 for the Enhanced Display).
-  Mode set reaches them through the save pointer at 40:A8, as IBM's does,
-  so a program can hand the BIOS its own table.
+- **Parameter table.** The 23 64-byte VIDEO_PARMS entries are laid out
+  in the order of IBM's table (modes 0-7, the reserved 8-0Ch, D-10h for
+  64KB and again for more, then 0-3 for the Enhanced Display). Mode set
+  reaches them through the save pointer at 40:A8, so a program can hand
+  the BIOS its own table. Unsourced: the register values in those
+  entries. No primary source for them is on file, and they were not
+  checked against the EGA Technical Reference.
 - **Switches.** Power-on reads the four DIP switches through Input
   Status 0, one clock select at a time, and stores them in 40:88. Switch
   setting 9 (Enhanced Display, high resolution, EGA primary) picks the
@@ -2940,9 +2944,12 @@ is copied.
   BL=10h reports a colour EGA with 256KB and the switch setting, and
   BL=20h installs a print-screen routine that prints every row. Graphics
   characters, dots and scrolling cover modes 4-6 and D-10h.
-- **Fonts.** The 8x8 and 8x14 sets are Joseph Gil's public-domain fonts
-  from his `fntcol16.zip` collection (Simtel), fetched as vgabios's C
-  conversion `vgafonts.h`, pinned in `fetch-bios.sh`. There is
+- **Fonts.** The 8x8 and 8x14 sets are `VGA-ROM.F08` and `VGA-ROM.F14`
+  from Yossi Gil's `fntcol16.zip` font collection (Simtel, msdos/screen;
+  its file list describes them as the VGA built-in font). `fetch-bios.sh`
+  fetches the zip from a Simtel mirror and pins its SHA-256
+  (`ee875bb96a5be0cb70f87e1fc3ce85aa4c0c1ed78f958bb8160f9023a25d32a6`),
+  and `mkfont.py` reads the two files out of it. There is
   no 9x14 alternate set; AH=11h AL=30h BH=5 returns an empty list.
 - **Labelling.** The ROM prints `EGA BIOS: open stand-in for IBM's ROM`
   after its mode set.
@@ -2979,6 +2986,12 @@ place of the VGA's:
 - CRTC 17h bits 0 and 1 put row scan bits 0 and 1 on MA13 and MA14, which
   is how modes 4-6 reach the CGA's interleaved banks (E12). Bit 7 clear
   holds the CRTC in reset, drawn black.
+- Graphics blink (AR10 bit 3 set): the pixel passes Color Plane Enable,
+  then the blink logic, then the palette (IBM VGA/XGA Technical
+  Reference, May 1992, Figure 2-3 p.2-10; Enable Blink field p.2-93).
+  A pixel with bit 3 set drops it in the off phase. Unsourced: that bit 3
+  is the blinking bit, that the on phase forces bit 3 to 1, and that
+  with plane 3 disabled nothing blinks (the masked bit 3 is 0).
 - Cursor skew and the underline location, with underline only under
   monochrome attributes (E14).
 - GR05 bit 5 picks the CGA 2-bit shift. Bit 6 and R09 bit 7 (VGA's
@@ -3038,7 +3051,8 @@ clear means 64KB total, 16KB a plane.
 Unsourced: that the substituted bit is the inverted Miscellaneous Output
 bit 5, that it is A16 in the 128KB map, and the 0x3FFF mask itself. The VGA
 manual leaves Miscellaneous Output bit 5 undefined, and no copy of the IBM
-EGA Technical Reference was available to check these against.
+EGA Technical Reference was available to check these against. The same
+holds for §48.1: the EGA BIOS parameter-table values are unsourced.
 
 The display side is `Ega::display_address()`. In byte mode (CRTC 17h bit
 6) the CRTC address is the plane offset. In word mode it shifts up one,

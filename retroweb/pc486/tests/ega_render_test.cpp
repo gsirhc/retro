@@ -1150,7 +1150,7 @@ TEST(EgaRenderTest, GraphicsBlinkForcesBitThreeAndBlinksPixelsThatHaveIt) {
     ExpectRgb(rgba, w, 8, 0, 0x55, 0x55, 0xFF);
 }
 
-TEST(EgaRenderTest, GraphicsBlinkWithPlaneThreeDisabledBlinksEveryPixel) {
+TEST(EgaRenderTest, GraphicsBlinkWithPlaneThreeDisabledNeverBlinks) {
     Ega ega;
     ega.reset();
     Mode10h(ega);
@@ -1165,7 +1165,23 @@ TEST(EgaRenderTest, GraphicsBlinkWithPlaneThreeDisabledBlinksEveryPixel) {
     uint64_t now = 0;
     AdvanceFrames(ega, now, 16);
     RenderEgaNative16Screen(ega, rgba, w, h);
-    ExpectRgb(rgba, w, 0, 0, 0, 0, 0xAA);
+    ExpectRgb(rgba, w, 0, 0, 0x55, 0x55, 0xFF);
+}
+
+TEST(EgaRenderTest, GraphicsBlinkKeysOnTheMaskedBitThree) {
+    Ega ega;
+    ega.reset();
+    Mode10h(ega);
+    SetPalette(ega, 9, 0x39);
+    SetPalette(ega, 0x12, 0x07);
+    SetPalette(ega, 0x10, 0x09);
+    PutPlanes(ega, 0, 0x80, 0x09);
+    std::vector<uint8_t> rgba;
+    int w = 0, h = 0;
+    uint64_t now = 0;
+    AdvanceFrames(ega, now, 16);
+    RenderEgaNative16Screen(ega, rgba, w, h);
+    ExpectRgb(rgba, w, 0, 0, 0x55, 0x55, 0xFF);
 }
 
 // Mode 4 as a VGA BIOS leaves it, for the registers the renderer reads:

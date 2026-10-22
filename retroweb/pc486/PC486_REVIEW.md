@@ -1997,7 +1997,44 @@ bits, and the first two read BANK back and compare). ModeInfo reports
 WinGranularity and WinSize as 64K. A change of the Enable granularity bit
 does not touch BANK: `dispi_set_mode` writes BANK = RW (bank 0) before it
 sets the bit, and nothing in `vbe.c` reads BANK after a toggle expecting
-a reset. A mode set from disabled still zeroes BANK.
+a reset. A mode set does not zero BANK on the card; `dispi_set_mode`
+writes it itself.
+
+### 7.5.3 DISPI register sources
+
+Sources are the guest VGABIOS `vbe.c`, `vbe.h` and `vbe_display_api.txt`
+only.
+
+- **ID.** `vbe_init` writes `VBE_DISPI_ID0`, reads it back and gives up
+  VBE if it differs, then writes `VBE_DISPI_ID5`. `vbe.h` lines 275-280
+  define B0C0-B0C5 and `vbe_display_api.txt` lines 16-46 list the
+  revisions. Unsourced: that a value outside B0C0-B0C5 does not stick.
+  Nothing in `vbe.c` writes one.
+- **BANK under GETCAPS.** `dispi_support_bank_granularity_32k` sets
+  GETCAPS, reads BANK, takes the high byte and ANDs `0x10`. XRES, YRES
+  and BPP under GETCAPS: `vbe_display_api.txt` lines 210-213 and
+  `mode_info_check_mode`.
+- **ENABLE clears VRAM unless NOCLEARMEM.** `vbe_display_api.txt` lines
+  206-207 (the flag preserves video memory) and `dispi_set_mode`, which
+  ORs it in when 4F02 bit 7 asks for it.
+- **Virtual width and height.** ENABLE sets virtual width to XRES
+  (`vbe_display_api.txt` 182-184). Virtual height is read-only and is
+  recomputed whenever the width is set, to stay within video memory
+  (lines 186-190). A write to VIRT_WIDTH while enabled is adjusted the
+  same way, and a width whose one line exceeds video memory is clamped
+  (line 186, "adjusted if current setting is not possible"). 4F06 returns
+  width, `width * bytes per pixel` (width / 8 at 4bpp) and virtual height
+  as the maximum scan lines (`vbe.c` `get_logical_scan_line_length`).
+  Lines are whole lines in video memory: bytes per pixel is (bpp + 7) / 8,
+  and 4bpp counts one plane (a quarter of VRAM), like
+  `mode_info_number_of_image_pages`. On the 1MB card that gives 1638 lines
+  at 640x480x8, 655 at 800x600x16 and 3276 at 640x480x4. The exact
+  rounding and the clamp value are Unsourced.
+- **Pan offsets reset on enable.** Unsourced. Neither `vbe.c` nor the API
+  text says so, but a previous mode's pan left in place would show a fresh
+  mode set shifted.
+- **Removed.** Zeroing BANK on enable. `dispi_set_mode` writes BANK itself
+  before enabling.
 
 ### 7.5.3 Bug found live: the linear frame buffer the ROM advertises
 
@@ -6544,11 +6581,20 @@ open in §42.6.
 
 ### 43.1 Blink in graphics modes
 
-With AR10 bit 3 set in a graphics mode, pixel bit 3 reads 1, and a pixel
-that has bit 3 set drops it in the off phase. If Color Plane Enable has
-plane 3 off, every pixel blinks. The IBM VGA/XGA Technical Reference
-(May 1992) doesn't define graphics blink at all. The rule here was
-checked against Lotus 1-2-3's WYSIWYG add-on and QBASIC `SCREEN 10`.
+With AR10 bit 3 set in a graphics mode, the pixel leaves Color Plane
+Enable and reaches the blink logic, and a pixel with bit 3 set drops it
+in the off phase. The IBM VGA/XGA Technical Reference (May 1992) shows
+this order in its Attribute Controller block diagram (Figure 2-3, p.2-10):
+Color Plane Enable Logic, then APA Blink Logic, then the Internal
+Palette. AR10's Enable Blink field (p.2-93) says only that the bit
+"enables blinking". The manual never says which pixel bit blinks or how.
+
+Unsourced: that bit 3 is the blinking bit; that the on phase forces bit 3
+to 1 for pixels that lack it; the blink rate (the character rate is used).
+With plane 3 disabled the masked bit 3 is 0, so nothing blinks. An
+earlier rule made every pixel blink in that case; nothing sourced says so.
+Richard Wilton's, Abrash's and Ferraro's books were not available to
+check.
 
 ### 43.2 CGA-compatible mode scrolls
 

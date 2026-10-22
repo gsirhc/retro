@@ -458,4 +458,19 @@ TEST(EgaRenderTest, GraphicsBlinkDropsBitThreeInTheOffPhase) {
     EXPECT_EQ(Native(ega).r(0, 0), 0xAA);
 }
 
+TEST(EgaRenderTest, GraphicsBlinkWithPlaneThreeDisabledNeverBlinks) {
+    Ega ega;
+    ega.reset();
+    ProgramMode10(ega);
+    Attr(ega, 0x10, 0x09);
+    Attr(ega, 0x0F, 0x3F);
+    Attr(ega, 0x07, 0x07);
+    Attr(ega, 0x12, 0x07);
+    for (int p = 0; p < 4; ++p) ega.vram[uint32_t(p)] = 0x80;
+    uint64_t now = 0;
+    EXPECT_TRUE(Native(ega).white(0, 0));
+    AdvanceFrames(ega, now, 16);
+    EXPECT_TRUE(Native(ega).white(0, 0));
+}
+
 }  // namespace

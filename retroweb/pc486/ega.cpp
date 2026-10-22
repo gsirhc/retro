@@ -41,8 +41,7 @@ bool Ega::owns_port(uint16_t port) const {
 
 uint16_t Ega::vbe_read_(int index) const {
     if (index < 0 || index >= kVbeRegCount) return 0;
-    // Capability query (kVbeGetCaps): geometry reads return maxima, BANK returns
-    // the 32KB-granularity flag in its high byte.
+    // GETCAPS: mode_info_check_mode reads maxima, dispi_support_bank_granularity_32k reads BANK.
     if (vbe_[kVbeRegEnable] & kVbeGetCaps) {
         switch (index) {
             case kVbeRegXres: return kVbeMaxXres;
@@ -59,7 +58,7 @@ void Ega::vbe_write_(int index, uint16_t v) {
     if (index < 0 || index >= kVbeRegCount) return;
     switch (index) {
         case kVbeRegId:
-            // Only implemented revisions stick, so a probe for an unsupported one fails.
+            // vbe.h defines B0C0-B0C5; rejecting others is unsourced
             if (v >= kVbeIdLowest && v <= kVbeIdHighest) vbe_[kVbeRegId] = v;
             return;
         case kVbeRegVideoMemory64K:
@@ -81,21 +80,45 @@ void Ega::vbe_write_(int index, uint16_t v) {
             bool was_on = (vbe_[kVbeRegEnable] & kVbeEnabled) != 0;
             vbe_[kVbeRegEnable] = v;
             if ((v & kVbeEnabled) && !was_on) {
-                // Mode set clears window/pan state and, unless NoClearMem, VRAM.
-                vbe_[kVbeRegBank] = 0;
-                vbe_[kVbeRegXOffset] = 0;
+                vbe_[kVbeRegXOffset] = 0;  // unsourced
                 vbe_[kVbeRegYOffset] = 0;
-                // Logical line is at least as wide as the displayed one.
-                if (vbe_[kVbeRegVirtWidth] < vbe_[kVbeRegXres]) vbe_[kVbeRegVirtWidth] = vbe_[kVbeRegXres];
-                if (vbe_[kVbeRegVirtHeight] < vbe_[kVbeRegYres]) vbe_[kVbeRegVirtHeight] = vbe_[kVbeRegYres];
+                vbe_set_virt_width_(vbe_[kVbeRegXres]);  // vbe_display_api.txt 184
+                // NOCLEARMEM: vbe_display_api.txt 207, vbe.c dispi_set_mode
                 if (!(v & kVbeNoClearMem)) vram.fill(0);
             }
             return;
         }
+        case kVbeRegVirtWidth:
+            if (vbe_[kVbeRegEnable] & kVbeEnabled) vbe_set_virt_width_(v);
+            else vbe_[kVbeRegVirtWidth] = v;
+            return;
+        case kVbeRegVirtHeight:
+            return;  // read-only, vbe_display_api.txt 188
         default:
             vbe_[std::size_t(index)] = v;
             return;
     }
+}
+
+void Ega::vbe_set_virt_width_(uint16_t width) {
+    // vbe_display_api.txt 185-190; 4F06 returns the result (vbe.c).
+    uint32_t bpp = vbe_[kVbeRegBpp];
+    uint32_t bank_space = uint32_t(vram.size());
+    uint32_t max_width;
+    uint32_t line_bytes;
+    if (bpp == 4) {
+        bank_space /= 4;
+        max_width = bank_space * 8;
+    } else {
+        uint32_t bytes_pp = ((bpp ? bpp : 8) + 7) / 8;
+        max_width = bank_space / bytes_pp;
+    }
+    if (width > max_width) width = uint16_t(max_width);
+    if (bpp == 4) line_bytes = width / 8;
+    else line_bytes = width * (((bpp ? bpp : 8) + 7) / 8);
+    vbe_[kVbeRegVirtWidth] = width;
+    uint32_t lines = line_bytes ? bank_space / line_bytes : 0;
+    vbe_[kVbeRegVirtHeight] = uint16_t(lines > 0xFFFF ? 0xFFFF : lines);
 }
 
 uint8_t Ega::in(uint16_t port) {
