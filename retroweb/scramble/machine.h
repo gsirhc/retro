@@ -67,7 +67,7 @@ public:
 
     uint8_t sound_latch = 0;
     uint8_t sound_control = 0;
-    uint8_t protection_result = 0;
+    uint8_t pal_out = 0;
 
     Machine();
     void reset();
@@ -94,7 +94,7 @@ private:
     void on_sound_control(uint8_t v);
     uint8_t in2_with_protection() const;
     int sound_credit_ = 0;
-    uint32_t protection_state_ = 0;
+    uint32_t pal_history_ = 0;
 };
 
 }  // namespace scramble

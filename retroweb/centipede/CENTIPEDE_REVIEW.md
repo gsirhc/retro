@@ -85,7 +85,10 @@ Fidelity rules follow `CLAUDE.md` and `.claude/arcade.md`.
 
 ER2055 (64×8) at E5 (sheet 2B): J4 latches the address and H4 the data on
 `$1600` writes; E4 LS175 at `$1680` drives CK = D0, C1 = /D1, C2 = D2,
-CS1 = D3, CS2 grounded. Per the GI data sheet, C1 = 0 and C2 = 1 erases,
+CS1 = D3, CS2 grounded. Traced on sheet 2B at 500 dpi: D0 goes to
+Q1 (pin 2) to E5 CK, D1 to /Q4 (pin 14) to C1, D2 to Q3 (pin 10) to C2, D3
+to Q2 (pin 7) to CS1. The C1 net also drives H4's /OC, so H4 releases
+the data lines on a read. Per the GI data sheet, C1 = 0 and C2 = 1 erases,
 C1 = C2 = 0 writes, C1 = 1 reads after a clock pulse, and the chip acts on
 a mode change, clock or chip-select edge. The game erases a cell, then
 writes it. IndexedDB mirrors the image so a refresh keeps scores the way

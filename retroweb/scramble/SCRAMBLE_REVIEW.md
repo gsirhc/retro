@@ -117,6 +117,12 @@ writes after a nibble x, and the answer is x + 1 (`A`→`B`, `3`→`4`,
 rule: each write sets the output to the nibble written two writes
 earlier, plus one, held at `F`. Reset clears the window and the output.
 
+The check table forces a function of the last three nibbles written. The
+rule above is the simplest fit: a three-nibble shift register and an
+incrementer saturating at `F`. Another rule that fits every row is x + 1
+only when the middle nibble is nonzero. The table cannot tell them apart,
+so the choice between them is Unsourced (§7).
+
 ## 6. Inputs
 
 Active low, 8-way. Cocktail player 2 is unmapped.
@@ -132,6 +138,7 @@ and 0, so bits 5 and 7 are never used.
 
 ## 7. Unsourced
 
+- AY-3-8910 noise: 17-bit shift register, feedback bit 0 XOR bit 3, seed 1. The data manual gives no register length or taps, and no decap or measurement source was found.
 - Cocktail player 2's stick is unmapped.
 - M51516L input load taken as 100 kΩ. No Mitsubishi data sheet found.
 - Custom IC2 (2B, "10S") has no published function. IN2 PC5/PC7 are

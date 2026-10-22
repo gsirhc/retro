@@ -58,7 +58,7 @@ int ay_io(galaxian::Ay8910& ay, bool rd, bool data_line, bool addr_line, uint8_t
 
 uint8_t Machine::in2_with_protection() const {
     // 6J's XB7 through custom 10S at 2B to PC5 and PC7 (33A-105). The ROM never reads them.
-    uint8_t xb7 = uint8_t(protection_result & 0x80);
+    uint8_t xb7 = uint8_t(pal_out & 0x80);
     return uint8_t((inputs.in2 & ~0xA0) | (xb7 ? 0xA0 : 0));
 }
 
@@ -69,16 +69,16 @@ void Machine::wire_ppi() {
     ppi1.out_a = [this](uint8_t v) { sound_latch = v; };
     ppi1.out_b = [this](uint8_t v) { on_sound_control(v); };
     ppi1.out_c = [this](uint8_t v) { pal6j_write(v); };
-    ppi1.in_c = [this] { return protection_result; };
+    ppi1.in_c = [this] { return pal_out; };
     ay1.port_a_r = [this] { return sound_latch; };
     ay1.port_b_r = [this] { return galaxian::scramble_port_b(sound.cycles); };
 }
 
 void Machine::pal6j_write(uint8_t v) {
     // Unsourced fit to every 6J check in s1.2d: the nibble two writes back, plus one, held at F.
-    protection_state_ = ((protection_state_ << 4) | (v & 0x0F)) & 0x0FFF;
-    uint8_t n = uint8_t(protection_state_ >> 8);
-    protection_result = uint8_t((n == 0x0F ? 0x0F : n + 1) << 4);
+    pal_history_ = ((pal_history_ << 4) | (v & 0x0F)) & 0x0FFF;
+    uint8_t n = uint8_t(pal_history_ >> 8);
+    pal_out = uint8_t((n == 0x0F ? 0x0F : n + 1) << 4);
 }
 
 uint8_t Machine::sound_in(uint8_t port) {
@@ -114,8 +114,8 @@ void Machine::reset() {
     sound_latch = 0;
     sound_control = 0;
     sound_credit_ = 0;
-    protection_state_ = 0;
-    protection_result = 0;
+    pal_history_ = 0;
+    pal_out = 0;
     video.reset();
     video.board = galaxian::Board::Scramble;
     ay1.reset();

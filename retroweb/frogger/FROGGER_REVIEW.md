@@ -91,6 +91,7 @@ Idle factory: IN0 `$FF`, IN1 `$FC`, IN2 `$F1`.
 
 ## 7. Unsourced
 
+- AY-3-8910 noise: 17-bit shift register, feedback bit 0 XOR bit 3, seed 1. The data manual gives no register length or taps, and no decap or measurement source was found.
 - Cocktail player 2's stick is unmapped.
 - 4066 on-resistance and the LM741 swing are typical data-sheet values.
 - M51516L input load taken as 100 kΩ. No Mitsubishi data sheet found.

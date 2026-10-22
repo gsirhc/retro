@@ -79,7 +79,7 @@ void Machine::earom_update() {
 }
 
 void Machine::earom_control(uint8_t v) {
-    // E4 LS175: CK=DB0, C1=/DB1, C2=DB2, CS1=DB3; CS2 grounded (DP-182 sheet 2B).
+    // E4 to E5: Q1 to CK, /Q4 to C1, Q3 to C2, Q2 to CS1, CS2 grounded (DP-182 2B)
     bool cs1 = (v & 0x08) != 0;
     bool c1 = (v & 0x02) == 0;
     bool c2 = (v & 0x04) != 0;

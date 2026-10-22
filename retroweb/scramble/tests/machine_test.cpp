@@ -255,10 +255,10 @@ TEST(Machine, In2Bits5And7FollowXb7) {
     m.reset();
     m.mem_write(0x8103, 0x9B);
     m.inputs.in2 = 0xFF;
-    m.protection_result = 0x70;
+    m.pal_out = 0x70;
     EXPECT_EQ(m.mem_read(0x8102), 0x5F);
     m.inputs.in2 = 0x00;
-    m.protection_result = 0x80;
+    m.pal_out = 0x80;
     EXPECT_EQ(m.mem_read(0x8102), 0xA0);
 }
 
