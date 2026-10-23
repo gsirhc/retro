@@ -1,5 +1,8 @@
 # retro — working principles
 
+**This repo is read-only and archived.** Do not change it. All emulator
+work happens in https://github.com/gsirhc/oac-emu.
+
 This repo holds recreations of vintage machines. The browser emulators live in
 `retroweb/` (`retroweb/altair8800` — MITS Altair 8800 / Intel 8080, deployed to
 `/altair8800/`; `retroweb/index.html` is the landing page); plus `cpu6502`,

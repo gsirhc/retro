@@ -1,5 +1,9 @@
 # retroweb
 
+> **Read-only.** This repo is archived. The browser emulators moved to
+> [gsirhc/oac-emu](https://github.com/gsirhc/oac-emu), live at
+> <https://gsirhc.github.io/oac-emu/>. This copy is kept for its history.
+
 The browser emulators and the landing page that lists them.
 
 - [`index.html`](index.html) — the landing page (site root). Two cards:
